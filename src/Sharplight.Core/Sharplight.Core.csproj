@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Format-agnostic tensor graph IR, model definition and execution-provider abstractions.</Description>
+  </PropertyGroup>
+</Project>

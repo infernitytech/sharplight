@@ -1,0 +1,91 @@
+using System.Collections.Concurrent;
+
+namespace Sharplight.Tensors;
+
+/// <summary>
+/// Element storage type of a tensor. Plain scalar types have <see cref="BlockSize"/> == 1;
+/// quantized formats store <see cref="BlockSize"/> logical elements in <see cref="BlockBytes"/> bytes.
+/// </summary>
+/// <remarks>
+/// Data types are open-ended: new (quantized) formats can be registered at runtime via
+/// <see cref="Register"/>. A backend that does not know how to read a format simply reports the
+/// consuming op as unsupported and the planner will route it elsewhere.
+/// </remarks>
+public sealed class DataType : IEquatable<DataType>
+{
+    static readonly ConcurrentDictionary<string, DataType> s_byName = new(StringComparer.OrdinalIgnoreCase);
+
+    public string Name { get; }
+    public int BlockSize { get; }
+    public int BlockBytes { get; }
+    public bool IsQuantized => BlockSize > 1 || Kind == DataTypeKind.Quantized;
+    public DataTypeKind Kind { get; }
+
+    DataType(string name, DataTypeKind kind, int blockSize, int blockBytes)
+    {
+        Name = name;
+        Kind = kind;
+        BlockSize = blockSize;
+        BlockBytes = blockBytes;
+    }
+
+    /// <summary>Registers (or returns the existing) data type with the given layout.</summary>
+    public static DataType Register(string name, DataTypeKind kind, int blockSize, int blockBytes)
+    {
+        var dt = s_byName.GetOrAdd(name, n => new DataType(n, kind, blockSize, blockBytes));
+        if (dt.BlockSize != blockSize || dt.BlockBytes != blockBytes || dt.Kind != kind)
+            throw new InvalidOperationException($"Data type '{name}' already registered with a different layout.");
+        return dt;
+    }
+
+    public static DataType? TryGet(string name) => s_byName.TryGetValue(name, out var dt) ? dt : null;
+    public static DataType Get(string name) => TryGet(name) ?? throw new KeyNotFoundException($"Unknown data type '{name}'.");
+    public static IEnumerable<DataType> All => s_byName.Values;
+
+    /// <summary>Bytes needed to store <paramref name="elements"/> elements (must be a multiple of the block size).</summary>
+    public long ByteSize(long elements)
+    {
+        if (elements % BlockSize != 0)
+            throw new ArgumentException($"{elements} elements is not a multiple of the {Name} block size {BlockSize}.");
+        return elements / BlockSize * BlockBytes;
+    }
+
+    /// <summary>Size of one element in bytes, only valid for non-block types.</summary>
+    public int ElementSize => BlockSize == 1 ? BlockBytes : throw new InvalidOperationException($"{Name} is a block format.");
+
+    // ---- well-known types ------------------------------------------------------------------
+    public static readonly DataType F32 = Register("f32", DataTypeKind.Float, 1, 4);
+    public static readonly DataType F16 = Register("f16", DataTypeKind.Float, 1, 2);
+    public static readonly DataType BF16 = Register("bf16", DataTypeKind.Float, 1, 2);
+    public static readonly DataType F64 = Register("f64", DataTypeKind.Float, 1, 8);
+    public static readonly DataType I8 = Register("i8", DataTypeKind.Int, 1, 1);
+    public static readonly DataType U8 = Register("u8", DataTypeKind.Int, 1, 1);
+    public static readonly DataType I16 = Register("i16", DataTypeKind.Int, 1, 2);
+    public static readonly DataType I32 = Register("i32", DataTypeKind.Int, 1, 4);
+    public static readonly DataType U32 = Register("u32", DataTypeKind.Int, 1, 4);
+    public static readonly DataType I64 = Register("i64", DataTypeKind.Int, 1, 8);
+    public static readonly DataType Bool = Register("bool", DataTypeKind.Bool, 1, 1);
+
+    // ggml-style block quantization formats (layouts are identical across backends).
+    public static readonly DataType Q4_0 = Register("q4_0", DataTypeKind.Quantized, 32, 18);
+    public static readonly DataType Q4_1 = Register("q4_1", DataTypeKind.Quantized, 32, 20);
+    public static readonly DataType Q5_0 = Register("q5_0", DataTypeKind.Quantized, 32, 22);
+    public static readonly DataType Q5_1 = Register("q5_1", DataTypeKind.Quantized, 32, 24);
+    public static readonly DataType Q8_0 = Register("q8_0", DataTypeKind.Quantized, 32, 34);
+    public static readonly DataType Q2_K = Register("q2_k", DataTypeKind.Quantized, 256, 84);
+    public static readonly DataType Q3_K = Register("q3_k", DataTypeKind.Quantized, 256, 110);
+    public static readonly DataType Q4_K = Register("q4_k", DataTypeKind.Quantized, 256, 144);
+    public static readonly DataType Q5_K = Register("q5_k", DataTypeKind.Quantized, 256, 176);
+    public static readonly DataType Q6_K = Register("q6_k", DataTypeKind.Quantized, 256, 210);
+    public static readonly DataType Q8_K = Register("q8_k", DataTypeKind.Quantized, 256, 292);
+    public static readonly DataType IQ4_NL = Register("iq4_nl", DataTypeKind.Quantized, 32, 18);
+    public static readonly DataType IQ4_XS = Register("iq4_xs", DataTypeKind.Quantized, 256, 136);
+    public static readonly DataType MXFP4 = Register("mxfp4", DataTypeKind.Quantized, 32, 17);
+
+    public bool Equals(DataType? other) => ReferenceEquals(this, other);
+    public override bool Equals(object? obj) => ReferenceEquals(this, obj);
+    public override int GetHashCode() => Name.GetHashCode(StringComparison.OrdinalIgnoreCase);
+    public override string ToString() => Name;
+}
+
+public enum DataTypeKind { Float, Int, Bool, Quantized }

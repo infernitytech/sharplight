@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Vulkan execution provider for Sharplight.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Shaders/Sharplight.Shaders.csproj" />
+    <PackageReference Include="Vortice.Vulkan" />
+  </ItemGroup>
+</Project>

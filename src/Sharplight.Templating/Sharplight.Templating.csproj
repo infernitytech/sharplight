@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Jinja2-compatible template engine for chat templates.</Description>
+  </PropertyGroup>
+</Project>

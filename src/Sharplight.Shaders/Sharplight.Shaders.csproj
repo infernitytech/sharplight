@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Backend-neutral Slang kernel library and compiler (SPIR-V, CUDA/PTX, Metal targets).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <PackageReference Include="SlangShaderSharp" />
+    <EmbeddedResource Include="Kernels/**/*.slang" LogicalName="Sharplight.Kernels.%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

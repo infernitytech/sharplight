@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>15</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <WarningLevel>9999</WarningLevel>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IsAotCompatible Condition="'$(OutputType)' != 'Exe'">true</IsAotCompatible>
+    <Authors>Sharplight contributors</Authors>
+    <RepositoryType>git</RepositoryType>
+    <Version>0.1.0-alpha</Version>
+  </PropertyGroup>
+</Project>

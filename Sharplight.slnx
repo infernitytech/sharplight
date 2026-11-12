@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
+    <Project Path="src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <Project Path="src/Sharplight.Tokenizers/Sharplight.Tokenizers.csproj" />
+    <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
+    <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <Project Path="src/Sharplight.Llm/Sharplight.Llm.csproj" />
+    <Project Path="src/Sharplight.Templating/Sharplight.Templating.csproj" />
+  </Folder>
+  <Folder Name="/samples/" />
+  <Folder Name="/tests/" />
+</Solution>
