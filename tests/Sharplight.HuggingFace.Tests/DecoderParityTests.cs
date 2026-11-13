@@ -31,6 +31,9 @@ public class DecoderParityTests
         new("OLMoE-1B-7B-0924-Instruct", "hf/OLMoE-1B-7B-0924-Instruct", "gguf/OLMoE-1B-7B-0924-Instruct/OLMoE-1B-7B-0924-Instruct-Q4_K_M.gguf"),
         new("gemma-3-1b-it", "hf/gemma-3-1b-it", "gguf/gemma-3-1b-it/gemma-3-1b-it-Q8_0.gguf"),
         new("gemma-2-2b-it", "hf/gemma-2-2b-it", "gguf/gemma-2-2b-it/gemma-2-2b-it-Q8_0.gguf"),
+        new("Bonsai-1.7B-Q1_0", "hf/Bonsai-1.7B", "gguf/Bonsai-1.7B/Bonsai-1.7B-Q1_0.gguf"),
+        new("Ternary-Bonsai-1.7B-PQ2_0", "hf/Ternary-Bonsai-1.7B", "gguf/Ternary-Bonsai-1.7B/Ternary-Bonsai-1.7B-PQ2_0.gguf"),
+        new("Ternary-Bonsai-1.7B-Q2_0_g64", "hf/Ternary-Bonsai-1.7B", "gguf/Ternary-Bonsai-1.7B/Ternary-Bonsai-1.7B-Q2_0_g64.gguf"),
     ];
 
     static (ModelSource Hf, ModelSource Gguf)? Open(string hf, string gguf)
@@ -78,7 +81,7 @@ public class DecoderParityTests
             var lm = System.Text.RegularExpressions.Regex.Match(wn, @"^layers\.(\d+)\.");
             if (lm.Success && int.Parse(lm.Groups[1].Value) is var il && il > 2 && il != g.Arch<int>("layer_count") - 1) continue;
             if (!gw.Shape.Equals(hw.Shape)) { problems.Add($"{wn}: shape GGUF {gw.Shape} vs HF {hw.Shape}"); continue; }
-            if (gw.Type != DataType.F32 && gw.Type != DataType.F16 && gw.Type != DataType.BF16 && gw.Type != DataType.Q8_0) continue;   // shape-only for other quantizations
+            if (gw.Type != DataType.F32 && gw.Type != DataType.F16 && gw.Type != DataType.BF16 && gw.Type != DataType.Q8_0 && !IsGroupBitFormat(gw.Type)) continue;   // shape-only for other quantizations
             double err = RelRms(gw, hw);
             string cls = System.Text.RegularExpressions.Regex.Replace(wn, @"layers\.\d+\.", "layers.N.") + $" [{gw.Type}<-{hw.Type}]";
             report[cls] = Math.Max(report.GetValueOrDefault(cls), err);
@@ -150,9 +153,29 @@ public class DecoderParityTests
         return den == 0 ? (num == 0 ? 0 : double.PositiveInfinity) : Math.Sqrt(num / den);
     }
 
+    static bool IsGroupBitFormat(DataType t) => t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128;
+
     static float[] Decode(WeightInfo w)
     {
         long n = Math.Min(w.Shape.Elements(), 4L << 20);
+        if (IsGroupBitFormat(w.Type))
+        {
+            // Bonsai 1-bit / ternary: one f16 scale per group; 1 sign bit or a 2-bit code ((code-1) * scale).
+            int bs = w.Type.BlockSize, bb = w.Type.BlockBytes;
+            n = n / bs * bs;
+            var raw = new byte[n / bs * bb];
+            w.Source.Read(0, raw);
+            var f = new float[n];
+            for (long blk = 0; blk < n / bs; blk++)
+            {
+                float d = (float)BinaryPrimitives.ReadHalfLittleEndian(raw.AsSpan((int)(blk * bb)));
+                for (int i = 0; i < bs; i++)
+                    f[blk * bs + i] = w.Type == DataType.Q1_0
+                        ? (((raw[blk * bb + 2 + i / 8] >> (i % 8)) & 1) != 0 ? d : -d)
+                        : (((raw[blk * bb + 2 + i / 4] >> (2 * (i % 4))) & 3) - 1) * d;
+            }
+            return f;
+        }
         if (w.Type == DataType.Q8_0)
         {
             n = n / 32 * 32;

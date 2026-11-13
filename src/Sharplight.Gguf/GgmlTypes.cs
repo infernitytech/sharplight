@@ -6,8 +6,10 @@ namespace Sharplight.Gguf;
 public static class GgmlTypes
 {
     // Types without a static in DataType are registered here (lowercase ggml names).
-    public static readonly DataType Q1_0 = DataType.Register("q1_0", DataTypeKind.Quantized, 128, 18);
-    public static readonly DataType Q2_0 = DataType.Register("q2_0", DataTypeKind.Quantized, 64, 18);
+    public static readonly DataType Q1_0 = DataType.Q1_0;
+    public static readonly DataType Q2_0 = DataType.Q2_0;
+    /// <summary>PrismML fork ids (llama.cpp "prism" branch): PQ2_0 = group-128 Q2_0, PTQ1_0 = group-128 dense ternary.</summary>
+    public const int PrismPQ2_0 = 142, PrismPTQ1_0 = 143;
     public static readonly DataType Q8_1 = DataType.Register("q8_1", DataTypeKind.Quantized, 32, 36);
     public static readonly DataType IQ2_XXS = DataType.Register("iq2_xxs", DataTypeKind.Quantized, 256, 66);
     public static readonly DataType IQ2_XS = DataType.Register("iq2_xs", DataTypeKind.Quantized, 256, 74);
@@ -48,13 +50,20 @@ public static class GgmlTypes
     }
 
     /// <summary>Returns the data type for a ggml type id, or null if unknown/removed.</summary>
-    public static DataType? TryGetDataType(int ggmlType) => (uint)ggmlType < s_byId.Length ? s_byId[ggmlType] : null;
+    public static DataType? TryGetDataType(int ggmlType) =>
+        (uint)ggmlType < s_byId.Length ? s_byId[ggmlType]
+        : ggmlType == PrismPQ2_0 ? DataType.Q2_0_G128 : ggmlType == PrismPTQ1_0 ? DataType.Tern1_G128 : null;
 
     public static DataType GetDataType(int ggmlType) => TryGetDataType(ggmlType)
         ?? throw new NotSupportedException($"Unsupported ggml tensor type id {ggmlType}.");
 
-    public static int GetGgmlType(DataType type) => s_toId.TryGetValue(type, out var id)
+    public static int GetGgmlType(DataType type) => TryGetGgmlType(type, out var id)
         ? id : throw new NotSupportedException($"Data type '{type}' has no ggml type id.");
 
-    public static bool TryGetGgmlType(DataType type, out int id) => s_toId.TryGetValue(type, out id);
+    public static bool TryGetGgmlType(DataType type, out int id)
+    {
+        if (type == DataType.Q2_0_G128) { id = PrismPQ2_0; return true; }
+        if (type == DataType.Tern1_G128) { id = PrismPTQ1_0; return true; }
+        return s_toId.TryGetValue(type, out id);
+    }
 }

@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Cpu;
 
 /// <summary>Weight storage formats the CPU provider can read.</summary>
-public enum WeightFormat { F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q4_K, Q5_K, Q6_K }
+public enum WeightFormat { F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q4_K, Q5_K, Q6_K, Q1_0, Q2_0, Q2_0_G128, Tern1_G128 }
 
 /// <summary>Dequantization of ggml block formats (exact ggml layouts).</summary>
 public static unsafe class Quant
@@ -23,12 +23,18 @@ public static unsafe class Quant
         if (t == DataType.Q4_K) return WeightFormat.Q4_K;
         if (t == DataType.Q5_K) return WeightFormat.Q5_K;
         if (t == DataType.Q6_K) return WeightFormat.Q6_K;
+        if (t == DataType.Q1_0) return WeightFormat.Q1_0;
+        if (t == DataType.Q2_0) return WeightFormat.Q2_0;
+        if (t == DataType.Q2_0_G128) return WeightFormat.Q2_0_G128;
+        if (t == DataType.Tern1_G128) return WeightFormat.Tern1_G128;
         return null;
     }
 
     public static int BlockSize(WeightFormat f) => f switch
     {
         WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K => 256,
+        WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
+        WeightFormat.Q2_0 => 64,
         WeightFormat.Q4_0 or WeightFormat.Q4_1 or WeightFormat.Q5_0 or WeightFormat.Q5_1 or WeightFormat.Q8_0 => 32,
         _ => 1,
     };
@@ -45,6 +51,9 @@ public static unsafe class Quant
         WeightFormat.Q4_K => 144,
         WeightFormat.Q5_K => 176,
         WeightFormat.Q6_K => 210,
+        WeightFormat.Q1_0 or WeightFormat.Q2_0 => 18,
+        WeightFormat.Q2_0_G128 => 34,
+        WeightFormat.Tern1_G128 => 28,
         _ => throw new ArgumentOutOfRangeException(nameof(f)),
     };
 
@@ -69,6 +78,10 @@ public static unsafe class Quant
             case WeightFormat.Q4_K: Q4_K(src, nb, dst); break;
             case WeightFormat.Q5_K: Q5_K(src, nb, dst); break;
             case WeightFormat.Q6_K: Q6_K(src, nb, dst); break;
+            case WeightFormat.Q1_0: Q1_0(src, nb, dst); break;
+            case WeightFormat.Q2_0: Q2_0(src, nb, dst, 16); break;
+            case WeightFormat.Q2_0_G128: Q2_0(src, nb, dst, 32); break;
+            case WeightFormat.Tern1_G128: Tern1(src, nb, dst); break;
             default: throw new NotSupportedException(f.ToString());
         }
     }
@@ -239,6 +252,62 @@ public static unsafe class Quant
                 }
             }
             dst -= 256;
+        }
+    }
+
+    // ---- group-wise 1-bit / ternary formats ------------------------------------------------------------------
+
+    static readonly float[] s_signLut = BuildSignLut();     // [256][8]: bit i of the byte -> +1 / -1
+    static readonly float[] s_codeLut = BuildCodeLut();     // [256][4]: 2-bit code i of the byte -> code-1
+
+    static float[] BuildSignLut()
+    {
+        var t = new float[256 * 8];
+        for (int b = 0; b < 256; b++) for (int i = 0; i < 8; i++) t[b * 8 + i] = ((b >> i) & 1) != 0 ? 1f : -1f;
+        return t;
+    }
+
+    static float[] BuildCodeLut()
+    {
+        var t = new float[256 * 4];
+        for (int b = 0; b < 256; b++) for (int i = 0; i < 4; i++) t[b * 4 + i] = ((b >> (2 * i)) & 3) - 1;
+        return t;
+    }
+
+    static void Q1_0(byte* p, long nb, float* dst)
+    {
+        fixed (float* lut = s_signLut)
+            for (long b = 0; b < nb; b++, p += 18, dst += 128)
+            {
+                float d = H(p);
+                for (int j = 0; j < 16; j++)
+                    (Vector256.Load(lut + p[2 + j] * 8) * d).Store(dst + j * 8);
+            }
+    }
+
+    /// <summary>2-bit codes, <paramref name="qBytes"/> code bytes per block after the f16 scale.</summary>
+    static void Q2_0(byte* p, long nb, float* dst, int qBytes)
+    {
+        fixed (float* lut = s_codeLut)
+            for (long b = 0; b < nb; b++, p += 2 + qBytes, dst += qBytes * 4)
+            {
+                float d = H(p);
+                for (int j = 0; j < qBytes; j++)
+                    (Vector128.Load(lut + p[2 + j] * 4) * d).Store(dst + j * 4);
+            }
+    }
+
+    static void Tern1(byte* p, long nb, float* dst)
+    {
+        for (long b = 0; b < nb; b++, p += 28, dst += 128)
+        {
+            float d = H(p + 26);
+            for (int m = 0; m < 16; m++)
+                for (int n = 0, pw = 1; n < 5; n++, pw *= 3) dst[n * 16 + m] = (((((p[m] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+            for (int m = 0; m < 8; m++)
+                for (int n = 0, pw = 1; n < 5; n++, pw *= 3) dst[80 + n * 8 + m] = (((((p[16 + m] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+            for (int h = 0; h < 2; h++)
+                for (int n = 0, pw = 1; n < 4; n++, pw *= 3) dst[120 + n * 2 + h] = (((((p[24 + h] * pw) & 0xFF) * 3) >> 8) - 1) * d;
         }
     }
 
