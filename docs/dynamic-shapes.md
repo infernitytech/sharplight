@@ -191,9 +191,15 @@ keeps the compile-time constant.
 
 * Only the outermost dimension may be symbolic (static strides). Tensors whose dynamic dim moves inward, beyond the
   leading-unit-dim case above, are rejected with a clear error, as is reducing or transposing it away.
-* Runtime `Range`, `Reshape`, `Expand` whose *values* (not just shapes) come from tensor data are supported only when
-  the result can be expressed with symbols; truly value-dependent extents (GLiNER's `Range` up to the word count) are
-  not, since they would need a value-range analysis to bound them.
+* Runtime `Reshape` and `Expand` whose *values* (not just shapes) come from tensor data are supported only when the
+  result can be expressed with symbols. A runtime `Range` limit (with constant start and delta) is supported when a
+  value-range analysis proves an upper bound for it (GLiNER's `Range` up to the word count): the analysis walks the
+  ONNX graph back from the limit through constants, shapes, comparisons (0/1), casts and value-preserving ops,
+  `ReduceSum` over known extents, `ReduceMax` / `Max` / `Add` / `Mul`, and graph inputs with a declared bound
+  (`OnnxImportOptions.InputValueBounds`, values in `[0, bound]`). The range is then the prefix of the constant
+  sequence `start + i · delta` below that bound selected with `NonZero`, so its length is a dynamic symbol like
+  `NonZero`'s. A declared input bound is a contract: larger values at run time truncate the range. Runtime start or
+  delta, and limits bounded only by a symbolic extent, are not supported.
 * `Loop` whose trip count or condition depends on runtime tensors, or that needs more than `MaxUnrolledLoop` iterations
   of a runtime body, is rejected: there is no runtime loop construct.
 * A gather along a data-dependent axis that is not the outermost (Grounding DINO's `NonZero` results indexing an inner
