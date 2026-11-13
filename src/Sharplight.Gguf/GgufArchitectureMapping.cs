@@ -78,6 +78,7 @@ public static class GgufArchitectureMappings
         Register(new Qwen35GgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
+        Register(new EncoderGgufMapping());
     }
 
     public static void Register(IGgufArchitectureMapping mapping)

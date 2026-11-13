@@ -57,6 +57,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             };
             foreach (var (k, v) in mapping.MapHyperParameters(config, options)) md[k] = v;
             HfTokenizerTranslator.AddTo(md, dir, config);
+            HfSentenceTransformers.AddTo(md, dir, config);
 
             return new ModelSource
             {

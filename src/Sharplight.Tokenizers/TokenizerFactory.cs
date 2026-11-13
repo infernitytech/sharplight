@@ -13,7 +13,9 @@ public static class TokenizerFactory
         {
             "gpt2" => new ByteLevelBpeTokenizer(data),
             "spm" or "llama" => new SentencePieceTokenizer(data),
-            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, spm)."),
+            "wordpiece" => new WordPiece.WordPieceTokenizer(data),
+            "unigram" => new Unigram.UnigramTokenizer(data),
+            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, spm, wordpiece, unigram)."),
         };
     }
 }

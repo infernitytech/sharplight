@@ -93,6 +93,34 @@ public sealed class GgufImporter : IModelImporter
             md[k.StartsWith(GgmlTokenizerPrefix, StringComparison.Ordinal) ? "tokenizer." + k[GgmlTokenizerPrefix.Length..] : k] = v;
         // llama.cpp calls SentencePiece-style tokenizers "llama"; the canonical name is "spm".
         if (md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm) && tm is "llama") md[CanonicalKeys.TokenizerModel] = "spm";
+        // llama.cpp's spelling and names of the pair / classifier tokens.
+        if (md.Remove("tokenizer.seperator_token_id", out var sep)) md[CanonicalKeys.TokenizerSeparatorId] = sep;
+        if (md.Remove("tokenizer.cls_token_id", out var cls)) md[CanonicalKeys.TokenizerClassifierId] = cls;
+        switch (tm)
+        {
+            // SentencePiece unigram models (T5, XLM-RoBERTa) are "t5" in llama.cpp.
+            case "t5": md[CanonicalKeys.TokenizerModel] = "unigram"; break;
+            case "bert":
+                md[CanonicalKeys.TokenizerModel] = "wordpiece";
+                if (md.TryGetValue(CanonicalKeys.TokenizerTokens, out var t) && t is string[] tokens) md[CanonicalKeys.TokenizerTokens] = FromPhantomSpace(tokens);
+                md.TryAdd(CanonicalKeys.TokenizerLowercase, true);
+                break;
+        }
         return md;
+    }
+
+    /// <summary>
+    /// llama.cpp stores WordPiece vocabularies in "phantom space" form: word-initial pieces get a ▁ prefix, continuation pieces lose
+    /// their ## and bracketed specials stay as they are. This restores the canonical (Hugging Face) form.
+    /// </summary>
+    static string[] FromPhantomSpace(string[] tokens)
+    {
+        var r = new string[tokens.Length];
+        for (int i = 0; i < tokens.Length; i++)
+        {
+            string s = tokens[i];
+            r[i] = s.StartsWith('▁') ? s[1..] : s.Length > 1 && s[0] == '[' && s[^1] == ']' ? s : "##" + s;
+        }
+        return r;
     }
 }

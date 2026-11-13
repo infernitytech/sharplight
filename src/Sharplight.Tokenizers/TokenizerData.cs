@@ -22,7 +22,10 @@ public enum TokenType
 /// </summary>
 public sealed record TokenizerData
 {
-    /// <summary>Tokenizer algorithm: "gpt2" (byte-level BPE) or "spm" (SentencePiece-style: scored merges, ▁ for spaces, byte fallback).</summary>
+    /// <summary>
+    /// Tokenizer algorithm: "gpt2" (byte-level BPE), "spm" (SentencePiece-style: scored merges, ▁ for spaces, byte fallback),
+    /// "wordpiece" (BERT: greedy longest match, ## continuations) or "unigram" (SentencePiece unigram: Viterbi over piece scores).
+    /// </summary>
     public required string Model { get; init; }
 
     /// <summary>Pre-tokenizer preset name, e.g. "qwen35", "qwen2", "llama-bpe", "gpt-2", "default". Null/empty means "default".</summary>
@@ -41,6 +44,12 @@ public sealed record TokenizerData
 
     /// <summary>SentencePiece: prepend a space to the text (default true).</summary>
     public bool? AddSpacePrefix { get; init; }
+
+    /// <summary>WordPiece: lowercase the text (default true).</summary>
+    public bool? Lowercase { get; init; }
+
+    /// <summary>WordPiece: strip accents (default: same as <see cref="Lowercase"/>).</summary>
+    public bool? StripAccents { get; init; }
 
     public int? BosId { get; init; }
 
@@ -89,6 +98,8 @@ public sealed record TokenizerData
             Merges = GetStringArray(md, KeyMerges),
             Scores = GetFloatArray(md, CanonicalKeys.TokenizerScores),
             AddSpacePrefix = GetBool(md, CanonicalKeys.TokenizerAddSpacePrefix),
+            Lowercase = GetBool(md, CanonicalKeys.TokenizerLowercase),
+            StripAccents = GetBool(md, CanonicalKeys.TokenizerStripAccents),
             BosId = GetInt(md, CanonicalKeys.TokenizerBosId),
             EosId = eos,
             EosIds = eosIds.ToArray(),

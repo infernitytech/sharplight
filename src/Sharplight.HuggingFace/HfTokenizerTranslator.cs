@@ -41,7 +41,12 @@ public static class HfTokenizerTranslator
             AddSentencePiece(md, dir, config, tok);
             return;
         }
-        if (modelType != "BPE") throw new NotSupportedException($"tokenizer.json model type '{modelType}' is not supported (only BPE).");
+        if (modelType is "WordPiece" or "Unigram")
+        {
+            AddVocabularyModel(md, dir, config, tok, model, modelType);
+            return;
+        }
+        if (modelType != "BPE") throw new NotSupportedException($"tokenizer.json model type '{modelType}' is not supported (BPE, WordPiece, Unigram).");
 
         JsonElement? tcRoot = null;
         using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
@@ -138,6 +143,111 @@ public static class HfTokenizerTranslator
         using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
         if (tcDoc != null) tcRoot = tcDoc.RootElement.Clone();
         AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
+    }
+
+    /// <summary>
+    /// WordPiece (BERT family) and Unigram (SentencePiece unigram, XLM-RoBERTa family) vocabularies: tokens in id order (Hugging
+    /// Face form: WordPiece continuations keep their <c>##</c>, unigram pieces their ▁), unigram scores, normalizer flags and the
+    /// pair layout of cross-encoders.
+    /// </summary>
+    static void AddVocabularyModel(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok, JsonElement model, string modelType)
+    {
+        var addedTokens = tok.TryGetProperty("added_tokens", out var at) && at.ValueKind == JsonValueKind.Array ? at.EnumerateArray().ToArray() : [];
+        var pieces = new List<string>();
+        var scores = new List<float>();
+        if (modelType == "WordPiece")
+        {
+            var vocab = model.GetProperty("vocab").EnumerateObject().Select(p => (p.Name, Id: p.Value.GetInt32())).ToList();
+            int n = vocab.Count == 0 ? 0 : vocab.Max(v => v.Id) + 1;
+            pieces.AddRange(Enumerable.Repeat("", n));
+            foreach (var (name, id) in vocab) pieces[id] = name;
+        }
+        else
+        {
+            foreach (var e in model.GetProperty("vocab").EnumerateArray()) { pieces.Add(e[0].GetString()!); scores.Add(e[1].GetSingle()); }
+            if (model.TryGetProperty("unk_id", out var uid) && uid.ValueKind == JsonValueKind.Number) md[CanonicalKeys.TokenizerUnkId] = (uint)uid.GetInt32();
+        }
+        int vocabSize = Math.Max(config.GetInt("vocab_size") ?? pieces.Count, pieces.Count);
+        var tokens = new string[vocabSize];
+        var types = new int[vocabSize];
+        var sc = new float[vocabSize];
+        for (int i = 0; i < vocabSize; i++)
+        {
+            if (i < pieces.Count && pieces[i].Length > 0) { tokens[i] = pieces[i]; types[i] = TypeNormal; sc[i] = i < scores.Count ? scores[i] : 0; }
+            else { tokens[i] = $"[PAD{i}]"; types[i] = TypeUnused; sc[i] = -1000f; }
+        }
+        foreach (var a in addedTokens)
+        {
+            int id = a.GetProperty("id").GetInt32();
+            if (id >= vocabSize) continue;
+            tokens[id] = a.GetProperty("content").GetString()!;
+            bool special = a.TryGetProperty("special", out var sp) && sp.ValueKind == JsonValueKind.True;
+            types[id] = special ? TypeControl : TypeUserDefined;
+        }
+        md[CanonicalKeys.TokenizerModel] = modelType == "WordPiece" ? "wordpiece" : "unigram";
+        md[CanonicalKeys.TokenizerPre] = "default";
+        md[CanonicalKeys.TokenizerTokens] = tokens;
+        md[CanonicalKeys.TokenizerTokenTypes] = types;
+        if (modelType == "Unigram") md[CanonicalKeys.TokenizerScores] = sc;
+
+        // Normalizer flags (BertNormalizer: lowercase / strip_accents; a Lowercase step in a sequence).
+        bool lower = false; bool? strip = null;
+        if (tok.TryGetProperty("normalizer", out var norm) && norm.ValueKind == JsonValueKind.Object) Visit(norm);
+        void Visit(JsonElement n)
+        {
+            string type = n.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            if (type == "Sequence" && n.TryGetProperty("normalizers", out var arr)) foreach (var e in arr.EnumerateArray()) Visit(e);
+            else if (type == "BertNormalizer")
+            {
+                lower |= n.TryGetProperty("lowercase", out var lc) && lc.ValueKind == JsonValueKind.True;
+                if (n.TryGetProperty("strip_accents", out var sa) && sa.ValueKind is JsonValueKind.True or JsonValueKind.False) strip = sa.ValueKind == JsonValueKind.True;
+            }
+            else if (type == "Lowercase") lower = true;
+            else if (type == "StripAccents") strip = true;
+        }
+        if (modelType == "WordPiece")
+        {
+            md[CanonicalKeys.TokenizerLowercase] = lower;
+            if (strip is bool st) md[CanonicalKeys.TokenizerStripAccents] = st;
+        }
+        else
+        {
+            bool prefix = true;
+            if (tok.TryGetProperty("pre_tokenizer", out var pre) && pre.ValueKind == JsonValueKind.Object && FindMetaspace(pre) is { } ms)
+                prefix = ms.TryGetProperty("prepend_scheme", out var ps) ? ps.GetString() != "never"
+                       : !ms.TryGetProperty("add_prefix_space", out var aps) || aps.ValueKind != JsonValueKind.False;
+            md[CanonicalKeys.TokenizerAddSpacePrefix] = prefix;
+        }
+
+        // Pair layout: two separators between the texts (RoBERTa) or one with token type 1 for the second text (BERT).
+        if (tok.TryGetProperty("post_processor", out var pp) && pp.ValueKind == JsonValueKind.Object)
+        {
+            string ptype = pp.TryGetProperty("type", out var ptt) ? ptt.GetString() ?? "" : "";
+            if (ptype == "RobertaProcessing") md[CanonicalKeys.TokenizerPairStyle] = "roberta";
+            else if (ptype == "TemplateProcessing" && pp.TryGetProperty("pair", out var pair) && pair.ValueKind == JsonValueKind.Array)
+            {
+                var items = pair.EnumerateArray().ToList();
+                int a = items.FindIndex(e => e.TryGetProperty("Sequence", out var sq) && sq.GetProperty("id").GetString() == "A");
+                int b = items.FindIndex(e => e.TryGetProperty("Sequence", out var sq) && sq.GetProperty("id").GetString() == "B");
+                if (a >= 0 && b > a) md[CanonicalKeys.TokenizerPairStyle] = b - a - 1 >= 2 ? "roberta" : "bert";
+            }
+        }
+        JsonElement? tcRoot = null;
+        using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
+        if (tcDoc != null) tcRoot = tcDoc.RootElement.Clone();
+        if (tcRoot is { ValueKind: JsonValueKind.Object } r && r.TryGetProperty("model_max_length", out var mml) && mml.ValueKind == JsonValueKind.Number
+            && mml.TryGetInt64(out long ml) && ml is > 0 and < 1_000_000)
+            md[CanonicalKeys.TokenizerMaxLength] = (int)ml;
+        AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
+
+        static JsonElement? FindMetaspace(JsonElement p)
+        {
+            string type = p.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            if (type == "Metaspace") return p;
+            if (type == "Sequence" && p.TryGetProperty("pretokenizers", out var arr))
+                foreach (var e in arr.EnumerateArray()) if (FindMetaspace(e) is { } m) return m;
+            return null;
+        }
     }
 
     static bool LooksSpecial(string t)
@@ -306,7 +416,7 @@ public static class HfTokenizerTranslator
             if (id is { } i) SetId(typ, i);
         }
 
-        // Only the kinds that have a canonical key (cls ids / add_cls have none in GGUF either).
+        // Only the kinds that have a canonical key.
         foreach (var (typ, id) in ids)
         {
             string? key = typ switch
@@ -314,7 +424,7 @@ public static class HfTokenizerTranslator
                 "bos" => CanonicalKeys.TokenizerBosId, "eos" => CanonicalKeys.TokenizerEosId,
                 "eot" => CanonicalKeys.TokenizerEotId, "eom" => CanonicalKeys.TokenizerEomId,
                 "unk" => CanonicalKeys.TokenizerUnkId, "pad" => CanonicalKeys.TokenizerPadId,
-                "sep" => "tokenizer.seperator_token_id", "mask" => "tokenizer.mask_token_id",
+                "sep" => CanonicalKeys.TokenizerSeparatorId, "mask" => CanonicalKeys.TokenizerMaskId, "cls" => CanonicalKeys.TokenizerClassifierId,
                 _ => null,
             };
             if (key != null) md[key] = (uint)id;

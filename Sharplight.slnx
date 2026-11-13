@@ -25,6 +25,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
+    <Project Path="tests/Sharplight.Embeddings.Tests/Sharplight.Embeddings.Tests.csproj" />
     <Project Path="tests/Sharplight.Extensions.AI.Tests/Sharplight.Extensions.AI.Tests.csproj" />
     <Project Path="tests/Sharplight.Gguf.Tests/Sharplight.Gguf.Tests.csproj" />
     <Project Path="tests/Sharplight.HuggingFace.Tests/Sharplight.HuggingFace.Tests.csproj" />

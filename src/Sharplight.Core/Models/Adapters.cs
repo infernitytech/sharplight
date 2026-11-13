@@ -80,10 +80,15 @@ public sealed class AdapterOptions
     /// choices, e.g. longrope's short vs. long frequency factors.
     /// </summary>
     public int ContextLength { get; init; }
+    /// <summary>Pooling of the <see cref="WellKnown.EmbedGraph"/> ("mean", "cls", "last", "none"); null = what the model declares.</summary>
+    public string? EmbeddingPooling { get; init; }
+    /// <summary>Whether <see cref="WellKnown.EmbedGraph"/> L2-normalizes; null = what the model declares.</summary>
+    public bool? EmbeddingNormalize { get; init; }
 
     public AdapterOptions WithContext(int contextLength) => new()
     {
         KvCacheType = KvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = contextLength,
+        EmbeddingPooling = EmbeddingPooling, EmbeddingNormalize = EmbeddingNormalize,
     };
 }
 

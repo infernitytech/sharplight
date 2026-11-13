@@ -48,6 +48,7 @@ public static class HfArchitectureMappings
     {
         Register(new Qwen35HfMapping());
         Register(new DecoderHfMapping());
+        Register(new EncoderHfMapping());
     }
 
     public static void Register(IHfArchitectureMapping mapping)

@@ -195,8 +195,11 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         void Add(WeightInfo w) { if (!result.TryAdd(w.Name, w)) throw new InvalidDataException($"Two HF tensors map to '{w.Name}'."); }
         WeightInfo Norm(WeightInfo w, string name) => gemma ? HfTransforms.NormPlusOne(w, name) : HfTransforms.Plain(w, name);
 
-        foreach (var (name, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
+        // Base-model checkpoints (e.g. Qwen3-Embedding saved as Qwen3Model) store the trunk without the "model." prefix.
+        bool bare = !tensors.Keys.Any(k => k.StartsWith("model.", StringComparison.Ordinal)) && tensors.ContainsKey("embed_tokens.weight");
+        foreach (var (raw, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
+            string name = bare && !raw.StartsWith("lm_head.", StringComparison.Ordinal) ? "model." + raw : raw;
             if (name.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal)) continue;
             var w = t.ToWeightInfo();
             switch (name)

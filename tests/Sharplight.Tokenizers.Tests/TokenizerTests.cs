@@ -51,7 +51,7 @@ public class MetadataTests
 
     [Fact]
     public void Factory_RejectsUnknownModel()
-        => Assert.Throws<NotSupportedException>(() => TokenizerFactory.Create(new TokenizerData { Model = "wordpiece", Tokens = [] }));
+        => Assert.Throws<NotSupportedException>(() => TokenizerFactory.Create(new TokenizerData { Model = "no-such-model", Tokens = [] }));
 }
 
 public class ByteEncodingTests

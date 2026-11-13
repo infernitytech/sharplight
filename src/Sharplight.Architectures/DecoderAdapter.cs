@@ -112,6 +112,15 @@ public sealed class DecoderAdapter : IModelAdapter
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false) };
         if (options.IncludeAuxiliaryGraphs) graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
+        // Packed-sequence graphs (embedding models such as Qwen3-Embedding, yes/no rerankers such as Qwen3-Reranker): causal attention
+        // within each sequence, no KV cache. Last-token pooling unless the model declares otherwise.
+        string pooling = PackedSequences.NormalizePooling(options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(src.Get<string?>(CanonicalKeys.EmbeddingPooling, null)) ?? "last";
+        bool normalize = options.EmbeddingNormalize ?? src.Get(CanonicalKeys.EmbeddingNormalize, true);
+        if (options.IncludeAuxiliaryGraphs)
+        {
+            graphs[WellKnown.EmbedGraph] = BuildPacked(WellKnown.EmbedGraph, classify: false);
+            graphs[WellKnown.ClassifyGraph] = BuildPacked(WellKnown.ClassifyGraph, classify: true);
+        }
 
         var eos = new List<int>();
         if (src.Has(CanonicalKeys.TokenizerEosId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
@@ -134,8 +143,67 @@ public sealed class DecoderAdapter : IModelAdapter
                 [WellKnown.PositionAxes] = 1,
                 [WellKnown.EosTokenIds] = eos.ToArray(),
                 ["n_layer"] = hp.NLayer,
+                [WellKnown.EmbeddingPooling] = pooling,
+                [WellKnown.EmbeddingNormalize] = normalize,
+                [WellKnown.CausalAttention] = true,
+                [WellKnown.ClassifierLabels] = hp.Vocab,
             },
         };
+
+        ComputeGraph BuildPacked(string name, bool classify)
+        {
+            var b = new GraphBuilder(name, src.Weight);
+            var inp = PackedSequences.Declare(b, tokenTypes: false);
+            Value x;
+            using (b.Group("input"))
+            {
+                x = b.Gather(b.Weight("token_embedding.weight"), inp.Tokens, "inp_embd");
+                if (hp.EmbeddingScale != 1f) x = b.Scale(x, hp.EmbeddingScale);
+            }
+            var freqFactors = b.TryWeight("rope.freq_factors");
+            if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors) freqFactors = longFactors;
+            x = Layers(b, x, inp.Positions, freqFactors, inp.RowSpans);
+            using (b.Group("output"))
+            {
+                if (!classify)
+                {
+                    var hidden = b.RmsNorm(x, b.Weight("output_norm.weight"), hp.Eps, "result_norm");
+                    PackedSequences.EmbeddingsOutput(b, hidden, inp.SequenceSpans, pooling, normalize);
+                }
+                else
+                {
+                    // Score heads read the language model head at each sequence's last row (e.g. "yes" / "no" logits).
+                    var last = PackedSequences.Pool(b, x, inp.SequenceSpans, "last", "last_rows");
+                    var hidden = b.RmsNorm(last, b.Weight("output_norm.weight"), hp.Eps, "result_norm");
+                    var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
+                    var logits = b.MatMul(hidden, head, "logits");
+                    if (hp.FinalSoftCap > 0) logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / hp.FinalSoftCap)), hp.FinalSoftCap, 0, "logits_capped");
+                    b.Output(WellKnown.LogitsOutput, logits);
+                }
+            }
+            return b.Build();
+        }
+
+        Value Layers(GraphBuilder b, Value x, Value positions, Value? freqFactors, Value? rowSpans)
+        {
+            for (int il = 0; il < hp.NLayer; il++)
+            {
+                using var _ = b.Group($"layers.{il}");
+                string p = $"layers.{il}.";
+                var residual = x;
+                var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), hp.Eps, $"{p}attn_norm");
+                var attnOut = Attention(b, h, p, il, positions, freqFactors, rowSpans);
+                if (b.TryWeight(p + "attention.out_norm.weight") is { } on1) attnOut = b.RmsNorm(attnOut, on1, hp.Eps);
+                x = b.Add(attnOut, residual, $"{p}attn_residual");
+
+                var ffnResidual = x;
+                h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
+                var ffn = b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
+                if (b.TryWeight(p + "mlp.out_norm.weight") is { } on2) ffn = b.RmsNorm(ffn, on2, hp.Eps);
+                x = b.Add(ffn, ffnResidual, $"{p}l_out");
+            }
+            return x;
+        }
 
         ComputeGraph BuildTrunk(string name, bool embeddingsInput)
         {
@@ -158,22 +226,7 @@ public sealed class DecoderAdapter : IModelAdapter
             var freqFactors = b.TryWeight("rope.freq_factors");
             if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors) freqFactors = longFactors;
 
-            for (int il = 0; il < hp.NLayer; il++)
-            {
-                using var _ = b.Group($"layers.{il}");
-                string p = $"layers.{il}.";
-                var residual = x;
-                var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), hp.Eps, $"{p}attn_norm");
-                var attnOut = Attention(b, h, p, il, positions, freqFactors);
-                if (b.TryWeight(p + "attention.out_norm.weight") is { } on1) attnOut = b.RmsNorm(attnOut, on1, hp.Eps);
-                x = b.Add(attnOut, residual, $"{p}attn_residual");
-
-                var ffnResidual = x;
-                h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
-                var ffn = b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
-                if (b.TryWeight(p + "mlp.out_norm.weight") is { } on2) ffn = b.RmsNorm(ffn, on2, hp.Eps);
-                x = b.Add(ffn, ffnResidual, $"{p}l_out");
-            }
+            x = Layers(b, x, positions, freqFactors, rowSpans: null);
 
             using (b.Group("output"))
             {
@@ -189,7 +242,7 @@ public sealed class DecoderAdapter : IModelAdapter
             return b.Build();
         }
 
-        Value Attention(GraphBuilder b, Value h, string p, int il, Value positions, Value? freqFactors)
+        Value Attention(GraphBuilder b, Value h, string p, int il, Value positions, Value? freqFactors, Value? rowSpans)
         {
             int D = hp.HeadDim;
             var q = b.Linear(h, p + "attention.q.weight", p + "attention.q.bias");
@@ -209,6 +262,12 @@ public sealed class DecoderAdapter : IModelAdapter
             Value[] kIn = freqFactors is { } ff2 && !sliding ? [k, positions, ff2] : [k, positions];
             q = b.Emit1("Rope", qIn, rope);
             k = b.Emit1("Rope", kIn, rope);
+            if (rowSpans is not null)
+            {
+                // Packed sequences: causal within each sequence; sliding windows are not applied (inputs are short).
+                var packed = PackedSequences.Attention(b, q, k, v, rowSpans, hp.AttnScale, causal: true, hp.SoftCap, $"{p}attn");
+                return b.Linear(b.Reshape(packed, 0, hp.NHead * D), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+            }
 
             b.CacheWrite(b.State(kCache[il]), k);
             b.CacheWrite(b.State(vCache[il]), v);
