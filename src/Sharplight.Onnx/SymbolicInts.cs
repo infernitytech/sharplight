@@ -15,12 +15,24 @@ internal static class SymbolicInts
     private const long Base = long.MinValue + (1L << 40);
     private const long Capacity = 1L << 24;
 
+    // A symbolic element of a floating point constant (a shape cast to float) is a quiet NaN with this marker and the code index as payload.
+    private const long DoubleMarker = 0x7FFC_0000_0000_0000;
+
     private static readonly ConcurrentDictionary<string, long> s_codes = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<long, SymbolicExpression> s_expressions = new();
     private static long s_next;
 
     /// <summary>Whether <paramref name="value"/> is the code of a symbolic expression.</summary>
     public static bool IsSymbolic(long value) => value >= Base && value < Base + Capacity;
+
+    /// <summary>The value as a double; a symbolic code becomes a NaN that carries it (see <see cref="FromDouble"/>).</summary>
+    public static double ToDouble(long value) => IsSymbolic(value) ? BitConverter.Int64BitsToDouble(DoubleMarker | (value - Base)) : value;
+
+    /// <summary>Whether a floating point element carries a symbolic code.</summary>
+    public static bool IsSymbolicDouble(double value) => double.IsNaN(value) && (BitConverter.DoubleToInt64Bits(value) & ~(Capacity - 1)) == DoubleMarker;
+
+    /// <summary>The code carried by a floating point element, or the element truncated to an integer.</summary>
+    public static long FromDouble(double value) => IsSymbolicDouble(value) ? Base + (BitConverter.DoubleToInt64Bits(value) & (Capacity - 1)) : (long)value;
 
     /// <summary>Whether any element of <paramref name="values"/> is symbolic.</summary>
     public static bool AnySymbolic(IEnumerable<long> values) => values.Any(IsSymbolic);

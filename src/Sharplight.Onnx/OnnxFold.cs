@@ -45,7 +45,7 @@ internal static class OnnxFold
         {
             if (ins[i] is { HasSymbols: true } c && !(known && (allowed is null || allowed.Contains(i))))
             {
-                var symbols = c.Ints().Where(IsSym).Select(SymbolicInts.Format).Distinct();
+                var symbols = c.Ints().Where(IsSym).Select(SymbolicInts.Format).Distinct();   // Ints() also decodes symbolic floats
                 throw new NotSupportedException($"{n.OpType} '{n.Name}' on the symbolic shape value(s) {string.Join(", ", symbols)} is not supported.");
             }
         }
@@ -62,7 +62,7 @@ internal static class OnnxFold
         ["Neg"] = null, ["Abs"] = null, ["Relu"] = null, ["Equal"] = null, ["Less"] = null, ["Greater"] = null, ["LessOrEqual"] = null,
         ["GreaterOrEqual"] = null, ["Where"] = [1, 2], ["Gather"] = [0], ["Unsqueeze"] = [0], ["Squeeze"] = [0], ["Concat"] = null,
         ["Slice"] = [0], ["Reshape"] = [0], ["Flatten"] = [0], ["Transpose"] = [0], ["Expand"] = [0], ["Split"] = [0], ["Tile"] = [0],
-        ["ReduceProd"] = [0], ["ReduceSum"] = [0], ["ReduceMax"] = [0], ["ReduceMin"] = [0],
+        ["ReduceProd"] = [0], ["ReduceSum"] = [0], ["ReduceMax"] = [0], ["ReduceMin"] = [0], ["Floor"] = null, ["Ceil"] = null,
     };
 
     public static IReadOnlyList<OnnxConst> Eval(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
@@ -115,7 +115,7 @@ internal static class OnnxFold
             case "Mul":
                 return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a * b, (a, b) => a * b, (a, b) => a * b)];
             case "Div":
-                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a / b, (a, b) => b == 0 ? throw new DivideByZeroException($"Integer division by zero in constant '{n.Name}'.") : a / b, SymbolicDivide)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a / b, (a, b) => b == 0 ? throw new DivideByZeroException($"Integer division by zero in constant '{n.Name}'.") : a / b, s_symbolicDivide)];
             case "Pow":
                 return [Bin(Input(n, ins, 0), Input(n, ins, 1), Math.Pow, (a, b) => (long)Math.Pow(a, b))];
             case "Max":
@@ -139,9 +139,10 @@ internal static class OnnxFold
             case "Not":
                 return [OnnxConst.FromInts(OnnxType.Bool, Input(n, ins, 0).Dims, Input(n, ins, 0).Ints().Select(v => v == 0 ? 1L : 0L).ToArray())];
             case "Neg":
-                return [Un(Input(n, ins, 0), v => -v, v => IsSym(v) ? SymbolicInts.Encode(-SymbolicInts.Decode(v)) : -v)];
+                return [Un(Input(n, ins, 0), v => SymbolicInts.IsSymbolicDouble(v) ? SymbolicInts.ToDouble(SymbolicInts.Encode(-SymbolicInts.Decode(SymbolicInts.FromDouble(v)))) : -v,
+                    v => IsSym(v) ? SymbolicInts.Encode(-SymbolicInts.Decode(v)) : -v)];
             case "Abs":
-                return [Un(Input(n, ins, 0), Math.Abs, v => IsSym(v) ? v : Math.Abs(v))];   // symbolic sizes are non-negative
+                return [Un(Input(n, ins, 0), v => SymbolicInts.IsSymbolicDouble(v) ? v : Math.Abs(v), v => IsSym(v) ? v : Math.Abs(v))];   // symbolic sizes are non-negative
             case "Sqrt":
                 return [UnF(Input(n, ins, 0), Math.Sqrt)];
             case "Exp":
@@ -151,11 +152,11 @@ internal static class OnnxFold
             case "Reciprocal":
                 return [UnF(Input(n, ins, 0), v => 1.0 / v)];
             case "Floor":
-                return [UnF(Input(n, ins, 0), Math.Floor)];
+                return [UnF(Input(n, ins, 0), v => SymbolicInts.IsSymbolicDouble(v) ? v : Math.Floor(v))];   // symbolic floats are integers
             case "Ceil":
-                return [UnF(Input(n, ins, 0), Math.Ceiling)];
+                return [UnF(Input(n, ins, 0), v => SymbolicInts.IsSymbolicDouble(v) ? v : Math.Ceiling(v))];
             case "Relu":
-                return [Un(Input(n, ins, 0), v => Math.Max(v, 0), v => IsSym(v) ? v : Math.Max(v, 0))];
+                return [Un(Input(n, ins, 0), v => SymbolicInts.IsSymbolicDouble(v) ? v : Math.Max(v, 0), v => IsSym(v) ? v : Math.Max(v, 0))];
             case "Sigmoid":
                 return [UnF(Input(n, ins, 0), v => 1 / (1 + Math.Exp(-v)))];
             case "Tanh":
@@ -211,6 +212,34 @@ internal static class OnnxFold
         return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => fm ? a % b : a - Math.Floor(a / b) * b,
         (a, b) => b == 0 ? throw new DivideByZeroException() : fm ? a % b : ((a % b) + b) % b, (a, b) => a - (SymbolicDivide(a, b) * b))];
     }
+
+    /// <summary>
+    /// Arithmetic on a shape value that was cast to float: exact on integers (a division must divide exactly), otherwise unsupported.
+    /// </summary>
+    private static double SymbolicFloat(double a, double b, Func<double, double, double> ff, Func<SymbolicExpression, SymbolicExpression, SymbolicExpression>? fs)
+    {
+        if (!SymbolicInts.IsSymbolicDouble(a) && !SymbolicInts.IsSymbolicDouble(b))
+        {
+            return ff(a, b);
+        }
+
+        if (fs is null || (!SymbolicInts.IsSymbolicDouble(a) && a != Math.Floor(a)) || (!SymbolicInts.IsSymbolicDouble(b) && b != Math.Floor(b)))
+        {
+            throw new NotSupportedException("Floating point arithmetic on a symbolic shape value.");
+        }
+
+        var x = SymbolicInts.Decode(SymbolicInts.FromDouble(a));
+        var y = SymbolicInts.Decode(SymbolicInts.FromDouble(b));
+        var result = fs(x, y);
+        if (ReferenceEquals(fs, s_symbolicDivide) && !(result * y).Equals(x))
+        {
+            throw new NotSupportedException($"Floating point division {x} / {y} of a symbolic shape value is not exact.");
+        }
+
+        return SymbolicInts.ToDouble(SymbolicInts.Encode(result));
+    }
+
+    private static readonly Func<SymbolicExpression, SymbolicExpression, SymbolicExpression> s_symbolicDivide = SymbolicDivide;
 
     /// <summary>Integer division of symbolic sizes (non-negative, so truncation equals floor) by a constant.</summary>
     private static SymbolicExpression SymbolicDivide(SymbolicExpression a, SymbolicExpression b)
@@ -536,9 +565,9 @@ internal static class OnnxFold
             "ReduceMin" => SymbolicExpression.Min,
             _ => throw new NotSupportedException($"{n.OpType} of symbolic shape values."),
         };
-        var result = x.Ints().Select(SymbolicInts.Decode).Aggregate(combine);
-        bool keep = n.Int("keepdims", 1) != 0;
-        return OnnxConst.FromInts(x.ElemType, keep ? Enumerable.Repeat(1L, x.Rank).ToArray() : [], [SymbolicInts.Encode(result)]);
+        var result = SymbolicInts.Encode(x.Ints().Select(SymbolicInts.Decode).Aggregate(combine));
+        var dims = n.Int("keepdims", 1) != 0 ? Enumerable.Repeat(1L, x.Rank).ToArray() : [];
+        return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, dims, [SymbolicInts.ToDouble(result)]) : OnnxConst.FromInts(x.ElemType, dims, [result]);
     }
 
     private static IReadOnlyList<OnnxConst> FoldRange(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
@@ -767,13 +796,14 @@ internal static class OnnxFold
             var av = a.Floats();
             var bv = b.Floats();
             var r = new double[total];
-            ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) => r[o] = ff(av[i], bv[j]));
+            bool symbolic = a.HasSymbols || b.HasSymbols;
+            ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) => r[o] = symbolic ? SymbolicFloat(av[i], bv[j], ff, fs) : ff(av[i], bv[j]));
             int et = a.IsFloat ? a.ElemType : b.ElemType;
             if (et == OnnxType.Float)
             {
                 for (long i = 0; i < total; i++)
                 {
-                    r[i] = (float)r[i];
+                    r[i] = SymbolicInts.IsSymbolicDouble(r[i]) ? r[i] : (float)r[i];
                 }
             }
 
@@ -832,7 +862,7 @@ internal static class OnnxFold
     private static OnnxConst UnF(OnnxConst x, Func<double, double> f)
     {
         int et = x.IsFloat ? x.ElemType : OnnxType.Float;
-        return OnnxConst.FromFloats(et, x.Dims, x.Floats().Select(v => et == OnnxType.Float ? (double)(float)f(v) : f(v)).ToArray());
+        return OnnxConst.FromFloats(et, x.Dims, x.Floats().Select(v => et == OnnxType.Float && !SymbolicInts.IsSymbolicDouble(f(v)) ? (double)(float)f(v) : f(v)).ToArray());
     }
 
     public static double Erf(double x)

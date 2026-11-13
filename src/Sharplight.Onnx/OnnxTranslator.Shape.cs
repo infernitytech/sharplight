@@ -482,16 +482,22 @@ internal sealed partial class OnnxTranslator
             return;
         }
 
-        // Repeating a unit outer dim a symbolic number of times is a broadcast over that extent.
-        if (repeats.Skip(1).Any(SymbolicInts.IsSymbolic) || Sym(x) || x.Rank == 0 || x.Shape[0].Fixed != 1)
+        // Repeating the outer dim a symbolic number of times r: broadcast over a new outer axis [r, d0, ...] and merge it into [r*d0, ...].
+        if (repeats.Skip(1).Any(SymbolicInts.IsSymbolic) || Sym(x) || x.Rank == 0)
         {
             throw new NotSupportedException($"Tile of {x.Shape} by [{string.Join(", ", repeats.Select(SymbolicInts.Format))}]");
         }
 
         var inner = (long[])[1, .. repeats[1..]];
         var y = inner.All(r => r == 1) ? x : Emit("Tile", [x], Attributes.From(("repeats", inner)));
-        var zeros = FillOuter(SymbolicInts.Decode(repeats[0]), Enumerable.Repeat(1L, x.Rank - 1).ToArray(), y.Type, 0, 0);
-        SetDyn(n, 0, Emit("Add", [y, zeros], null, Nm(n)));
+        var count = SymbolicInts.Decode(repeats[0]);
+        var dims = y.Shape.Dims.Select(d => d.Fixed).ToArray();
+        var zeros = FillOuter(count, Enumerable.Repeat(1L, y.Rank).ToArray(), y.Type, 0, 0);
+        var stacked = Emit("Add", [Rs(y, [1, .. dims]), zeros]);
+        var merged = (long[])[0, .. dims[1..]];
+        var outer = count * dims[0];
+        SetDyn(n, 0, dims[0] == 1 ? Emit("Reshape", [stacked], Attributes.From(("shape", merged)), Nm(n))
+            : Emit("Reshape", [stacked], Attributes.From(("shape", merged), ("outer_symbol", outer.ToString())), Nm(n)));
     }
 
     private void Trilu(OnnxNode n, TranslatedTensor?[] ins)

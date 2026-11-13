@@ -85,7 +85,11 @@ internal sealed class OnnxConst
 
     // ---- views (no data movement) ---------------------------------------------------------------
     /// <summary>Whether an integer element is a symbolic shape value (see <see cref="SymbolicInts"/>).</summary>
-    public bool HasSymbols => !IsFloat && _source is null && _produce is null && SymbolicInts.AnySymbolic(Ints());
+    public bool HasSymbols => _source is null && _produce is null && Count <= MaxSymbolicCount
+        && (IsFloat ? Floats().Any(SymbolicInts.IsSymbolicDouble) : SymbolicInts.AnySymbolic(Ints()));
+
+    // Symbolic elements only come from shape computations, which are small.
+    private const long MaxSymbolicCount = 1 << 16;
 
     public OnnxConst Reshaped(long[] dims, string? name = null)
     {
@@ -197,7 +201,7 @@ internal sealed class OnnxConst
 
         if (_floats is not null && _bytes is null && _source is null)
         {
-            return _ints = _floats.Select(f => (long)f).ToArray();
+            return _ints = _floats.Select(SymbolicInts.FromDouble).ToArray();
         }
 
         var b = Bytes();
@@ -230,12 +234,7 @@ internal sealed class OnnxConst
 
         if (_ints is not null && _bytes is null && _source is null)
         {
-            if (SymbolicInts.AnySymbolic(_ints))
-            {
-                throw new NotSupportedException($"A symbolic shape value ({string.Join(", ", _ints.Where(SymbolicInts.IsSymbolic).Select(SymbolicInts.Format).Distinct())}) is used as a floating point number.");
-            }
-
-            return _floats = _ints.Select(i => (double)i).ToArray();
+            return _floats = _ints.Select(SymbolicInts.ToDouble).ToArray();
         }
 
         var b = Bytes();
@@ -310,7 +309,7 @@ internal sealed class OnnxConst
             var f = Floats();
             if (et == OnnxType.Float)
             {
-                f = f.Select(v => (double)(float)v).ToArray();
+                f = f.Select(v => SymbolicInts.IsSymbolicDouble(v) ? v : (float)v).ToArray();
             }
 
             return FromFloats(et, Dims, f, Name);
@@ -320,7 +319,7 @@ internal sealed class OnnxConst
             return FromInts(et, Dims, (IsFloat ? Floats().Select(v => v != 0 ? 1L : 0L) : Ints().Select(v => v != 0 ? 1L : 0L)).ToArray(), Name);
         }
 
-        return FromInts(et, Dims, IsFloat ? Floats().Select(v => (long)v).ToArray() : Ints(), Name);
+        return FromInts(et, Dims, IsFloat ? Floats().Select(SymbolicInts.FromDouble).ToArray() : Ints(), Name);
     }
 
     // ---- data movement --------------------------------------------------------------------------

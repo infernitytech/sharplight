@@ -139,6 +139,25 @@ save("sym_reshape_expr", [
 ], [("x", ["N", 3, 4])], ["ar", "c"],
     [i64("flat", -1, 4), i64("z", 0), i64("three", 3), i64("four", 4), i64("ax1", 1), i64("back", -1, 3)])
 
+# Tile of a constant by the batch size ([3, 4] -> [3*N, 4]) and shape arithmetic in float (TF exports cast shapes to float)
+save("sym_tile_float_shape", [
+    h.make_node("Shape", ["x"], ["s"]),
+    h.make_node("Slice", ["s", "z1", "o1"], ["n"]),
+    h.make_node("Concat", ["n", "one"], ["reps"], axis=0),
+    h.make_node("Tile", ["w", "reps"], ["t"]),
+    h.make_node("Reshape", ["t", "nk"], ["tr"]),
+    h.make_node("Add", ["tr", "x"], ["y"]),
+    h.make_node("Cast", ["s"], ["sf"], to=T.FLOAT),
+    h.make_node("Slice", ["sf", "z1", "o1"], ["nf"]),
+    h.make_node("Mul", ["nf", "twof"], ["n2f"]),
+    h.make_node("Div", ["n2f", "twof"], ["nf2"]),
+    h.make_node("Cast", ["nf2"], ["ni"], to=T.INT64),
+    h.make_node("Concat", ["ni", "m1"], ["t2"], axis=0),
+    h.make_node("Reshape", ["x", "t2"], ["y2"]),
+], [("x", ["N", 3, 4])], ["y", "y2"],
+    [i64("z1", 0), i64("o1", 1), i64("one", 1), const("w", rs.randn(3, 4).astype(np.float32)), i64("nk", -1, 3, 4),
+     const("twof", np.array([2], np.float32)), i64("m1", -1)])
+
 # DynamicQuantizeLinear with a symbolic batch
 W = rs.randint(-100, 100, size=(24, 16)).astype(np.int8)
 save("sym_dyn_quant", [

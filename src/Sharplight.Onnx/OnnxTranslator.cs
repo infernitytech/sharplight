@@ -184,7 +184,8 @@ internal sealed partial class OnnxTranslator
         var value = tensor.V!;
         if (value.Kind != ValueKind.Intermediate)
         {
-            value = _b.Scale(value, 1f, 0f, output.Name);   // outputs must be produced by a node
+            // Outputs must be produced by a node; Scale keeps f32 fast paths, Contiguous copies any type.
+            value = value.Type == DataType.F32 ? _b.Scale(value, 1f, 0f, output.Name) : _b.Emit1("Contiguous", [value], null, output.Name);
         }
 
         _b.Output(output.Name, value);

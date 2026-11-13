@@ -76,18 +76,18 @@ internal sealed partial class OnnxTranslator
     /// </summary>
     private Value SymbolicData(OnnxConst c, DataType type, string? hint)
     {
-        var ints = c.Ints();
-        var parts = new Value[ints.Length];
-        for (int i = 0; i < ints.Length; i++)
+        var values = c.Floats();   // symbolic elements are NaN-coded (SymbolicInts.ToDouble)
+        var parts = new Value[values.Length];
+        for (int i = 0; i < values.Length; i++)
         {
-            if (SymbolicInts.IsSymbolic(ints[i]))
+            if (SymbolicInts.IsSymbolicDouble(values[i]))
             {
-                var ones = FillOuter(SymbolicInts.Decode(ints[i]), [], DataType.F32, 1, 0);
+                var ones = FillOuter(SymbolicInts.Decode(SymbolicInts.FromDouble(values[i])), [], DataType.F32, 1, 0);
                 parts[i] = Emit("Reduce", [ones], Attributes.From(("mode", "sum"), ("axes", L(0)), ("keepdims", true)));
             }
             else
             {
-                parts[i] = _b.Constant($"{hint ?? "shape"}.{i}", DataType.F32, new Shape(1), BitConverter.GetBytes((float)ints[i]));
+                parts[i] = _b.Constant($"{hint ?? "shape"}.{i}", DataType.F32, new Shape(1), BitConverter.GetBytes((float)values[i]));
             }
         }
 
