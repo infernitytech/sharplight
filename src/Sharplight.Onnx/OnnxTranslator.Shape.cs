@@ -401,12 +401,29 @@ internal sealed partial class OnnxTranslator
             }
         }
 
+        // [1, ..., 1, S, ...] with a symbolic S: the unit axes stay leading units in front of the symbolic outer axis.
+        int lead = Array.FindIndex(res, d => d != 1);
+        if (lead > 0 && SymbolicInts.IsSymbolic(res[lead]) && xd.Take(lead).All(d => d == 1))
+        {
+            xd = xd[lead..];
+            res = res[lead..];
+            rank -= lead;
+            if (x.Rank > rank)
+            {
+                x = Emit("Reshape", [x], Attributes.From(("shape", xd.Select(d => SymbolicInts.IsSymbolic(d) ? 0L : d).ToArray())));
+            }
+        }
+        else
+        {
+            lead = 0;
+        }
+
         if (res.Skip(1).Any(SymbolicInts.IsSymbolic))
         {
             throw new NotSupportedException("Expand to a symbolic extent at a position other than the outermost");
         }
 
-        if (x.Rank == rank && res.SequenceEqual(xd))
+        if (lead == 0 && x.Rank == rank && res.SequenceEqual(xd))
         {
             _env[n.Outputs[0]] = xt;
             return;
@@ -433,6 +450,7 @@ internal sealed partial class OnnxTranslator
         }
 
         SetDyn(n, 0, y);
+        _env[n.Outputs[0]].LeadingUnits = lead;
     }
 
     /// <summary>Shape of a dynamic tensor as a compile-time constant (symbolic dims are encoded as <see cref="SymbolicInts"/> codes).</summary>
