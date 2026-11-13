@@ -2,4 +2,8 @@
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Gguf.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+  </ItemGroup>
 </Project>
