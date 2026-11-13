@@ -169,7 +169,11 @@ public sealed partial class GraphLowerer
         int rank = shape.Length;
         var P = new long[rank];
         long acc = 1;
-        for (int k = rank - 1; k >= 0; k--) { P[k] = acc; acc *= shape[k]; }
+        for (int k = rank - 1; k >= 0; k--)
+        {
+            P[k] = acc;
+            acc *= shape[k];
+        }
         long inner = rank == 0 ? 1 : P[0];
         var sb = new StringBuilder();
         sb.AppendLine("#include \"math_ext.slang\"");
@@ -200,7 +204,7 @@ public sealed partial class GraphLowerer
         KernelArg count = symbol is null ? new UIntArg((uint)total) : new SymbolArg(symbol, inner);
         Emit(name, nodes,
             [Always(kernel, b => new Grid(Grid.Div((symbol is null ? total : b[symbol] * inner), 256)))],
-            [.. ins.Select(r => (KernelArg)new PointerArg(r.Buffer, r.ByteOffset)), .. outs.Select(o => (KernelArg)new PointerArg(o.Buffer, o.ByteOffset)), count],
+            [.. ins.Select(r => (KernelArg)Pointer(r)), .. outs.Select(o => (KernelArg)Pointer(o)), count],
             outsAreReads ? [.. ins, .. outs] : ins, outs);
     }
 
@@ -247,7 +251,9 @@ public sealed partial class GraphLowerer
 
     private void LowerWhereTyped(Node n)
     {
-        var c = Ref(n.Inputs[0]); var a = Ref(n.Inputs[1]); var b = Ref(n.Inputs[2]);
+        var c = Ref(n.Inputs[0]);
+        var a = Ref(n.Inputs[1]);
+        var b = Ref(n.Inputs[2]);
         var dst = Produce(n.Output);
         string cl = ToFloat(c.Type, $"p.in0[{BroadcastLin(c, dst.Shape)}]");
         EmitGen("where", [n], dst.Shape, dst.Symbol, [c, a, b], [dst],
@@ -265,7 +271,8 @@ public sealed partial class GraphLowerer
 
     private void LowerGatherAxis(Node n)
     {
-        var x = Ref(n.Inputs[0]); var ix = Ref(n.Inputs[1]);
+        var x = Ref(n.Inputs[0]);
+        var ix = Ref(n.Inputs[1]);
         var y = Produce(n.Output);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), x.Rank);
         int q = ix.Rank;
@@ -283,7 +290,8 @@ public sealed partial class GraphLowerer
 
     private void LowerGatherElements(Node n)
     {
-        var x = Ref(n.Inputs[0]); var ix = Ref(n.Inputs[1]);
+        var x = Ref(n.Inputs[0]);
+        var ix = Ref(n.Inputs[1]);
         var y = Produce(n.Output);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), x.Rank);
         long A = x.Shape[axis];
@@ -295,7 +303,8 @@ public sealed partial class GraphLowerer
 
     private void LowerGatherND(Node n)
     {
-        var x = Ref(n.Inputs[0]); var ix = Ref(n.Inputs[1]);
+        var x = Ref(n.Inputs[0]);
+        var ix = Ref(n.Inputs[1]);
         var y = Produce(n.Output);
         int b = (int)n.Attributes.Get("batch_dims", 0L);
         int q = (int)ix.Shape[^1];
@@ -331,12 +340,16 @@ public sealed partial class GraphLowerer
 
     private void LowerScatterElements(Node n)
     {
-        var data = Ref(n.Inputs[0]); var ix = Ref(n.Inputs[1]); var upd = Ref(n.Inputs[2]);
+        var data = Ref(n.Inputs[0]);
+        var ix = Ref(n.Inputs[1]);
+        var upd = Ref(n.Inputs[2]);
         var y = Produce(n.Output);
         EmitCopy(data, y, "scatter-copy", [n]);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), data.Rank);
         long A = data.Shape[axis];
-        var iter = (long[])ix.Shape.Clone(); long len = iter[axis]; iter[axis] = 1;
+        var iter = (long[])ix.Shape.Clone();
+        long len = iter[axis];
+        iter[axis] = 1;
         var d = Enumerable.Range(0, ix.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
         var ycoords = d.Select((c, k) => k == axis ? "uint(ii)" : c).ToArray();
@@ -349,7 +362,9 @@ public sealed partial class GraphLowerer
 
     private void LowerScatterND(Node n)
     {
-        var data = Ref(n.Inputs[0]); var ix = Ref(n.Inputs[1]); var upd = Ref(n.Inputs[2]);
+        var data = Ref(n.Inputs[0]);
+        var ix = Ref(n.Inputs[1]);
+        var upd = Ref(n.Inputs[2]);
         var y = Produce(n.Output);
         EmitCopy(data, y, "scatter-copy", [n]);
         int b = (int)n.Attributes.Get("batch_dims", 0L);
@@ -402,7 +417,9 @@ public sealed partial class GraphLowerer
         var y = Produce(n.Output);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), x.Rank);
         bool excl = n.Attributes.Get("exclusive", false), rev = n.Attributes.Get("reverse", false);
-        var iter = (long[])x.Shape.Clone(); long len = iter[axis]; iter[axis] = 1;
+        var iter = (long[])x.Shape.Clone();
+        long len = iter[axis];
+        iter[axis] = 1;
         var d = Enumerable.Range(0, x.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
         string body = $"  float acc = 0.0;\n  for (uint i = 0; i < {len}u; i++) {{\n    uint j = {(rev ? $"{len - 1}u - i" : "i")};\n" +
@@ -417,7 +434,9 @@ public sealed partial class GraphLowerer
         var y = Produce(n.Output);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), x.Rank);
         bool max = n.Attributes.Get("mode", "max") == "max", last = n.Attributes.Get("select_last_index", false);
-        var iter = (long[])x.Shape.Clone(); long len = iter[axis]; iter[axis] = 1;
+        var iter = (long[])x.Shape.Clone();
+        long len = iter[axis];
+        iter[axis] = 1;
         var d = Enumerable.Range(0, x.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
         string cmp = max ? ">" : "<";
@@ -429,11 +448,14 @@ public sealed partial class GraphLowerer
     private void LowerTopK(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "topk");
-        var vals = Produce(n.Outputs[0]); var idxs = Produce(n.Outputs[1]);
+        var vals = Produce(n.Outputs[0]);
+        var idxs = Produce(n.Outputs[1]);
         int axis = NormAxis(n.Attributes.Get("axis", -1L), x.Rank);
         long K = n.Attributes.Get<long>("k");
         bool largest = n.Attributes.Get("largest", true);
-        var iter = (long[])x.Shape.Clone(); long len = iter[axis]; iter[axis] = 1;
+        var iter = (long[])x.Shape.Clone();
+        long len = iter[axis];
+        iter[axis] = 1;
         var d = Enumerable.Range(0, x.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
         var ck = d.Select((c, k) => k == axis ? "r" : c).ToArray();
@@ -489,9 +511,11 @@ public sealed partial class GraphLowerer
 
         long G = n.Attributes.Get("groups", 1L);
         var k2 = Lib("general.slang", "groupnorm", Macros(("C", C), ("S", S), ("G", G), ("EPS", n.Attributes.Get("eps", 1e-5f)), ("HAS_SCALE", sc is not null), ("HAS_BIAS", bi is not null)));
-        var tx = x; var sp = sc ?? x; var bp = bi ?? x;
+        var tx = x;
+        var sp = sc ?? x;
+        var bp = bi ?? x;
         Emit($"groupnorm {n.Output.Name}", [n], [Always(k2, b => new Grid((uint)(Rows(b, tx) * G)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(sp.Buffer, sp.ByteOffset), new PointerArg(bp.Buffer, bp.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)],
+            [Pointer(x), Pointer(sp), Pointer(bp), Pointer(y), TokenArg(x)],
             [.. new[] { x, sc, bi }.Where(t => t is not null).Select(t => t!)], [y]);
     }
 
@@ -506,18 +530,22 @@ public sealed partial class GraphLowerer
 
         var bias = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "convt-bias") : null;
         var a = n.Attributes;
-        var st = a.Get("strides", new long[] { 1, 1 }); var pd = a.Get("pads", new long[] { 0, 0, 0, 0 }); var dl = a.Get("dilations", new long[] { 1, 1 });
+        var st = a.Get("strides", new long[] { 1, 1 });
+        var pd = a.Get("pads", new long[] { 0, 0, 0, 0 });
+        var dl = a.Get("dilations", new long[] { 1, 1 });
         long G = a.Get("groups", 1L);
-        long C = x.Shape[1], OG = w.Shape[1];
+        long C = x.Shape[1];
+        long OG = w.Shape[1];
         var y = Produce(n.Output);
         long O = OG * G;
         int fmt = WeightFormat(w.Type) ?? throw new NotSupportedException($"ConvTranspose weight type {w.Type}");
         var k = Lib("general.slang", "conv_transpose", Macros(("C", C), ("H", x.Shape[2]), ("W", x.Shape[3]), ("O", O), ("HO", y.Shape[2]), ("WO", y.Shape[3]),
             ("CG", C / G), ("OG", OG), ("G", G), ("KH", w.Shape[2]), ("KW", w.Shape[3]), ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("DH", dl[0]), ("DW", dl[1]),
             ("XS_N", x.Strides[0]), ("XS_C", x.Strides[1]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]), ("WFMT", fmt), ("HAS_BIAS", bias is not null)));
-        var tx = x; var bp = bias ?? x;
+        var tx = x;
+        var bp = bias ?? x;
         Emit($"conv_transpose {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * O * y.Shape[2] * y.Shape[3], 256)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(bp.Buffer, bp.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), CountArg(x, O * y.Shape[2] * y.Shape[3])],
+            [Pointer(x), Pointer(w), Pointer(bp), Pointer(y), CountArg(x, O * y.Shape[2] * y.Shape[3])],
             bias is null ? [x, w] : [x, w, bias], [y]);
     }
 
@@ -527,13 +555,15 @@ public sealed partial class GraphLowerer
         var g = AsDenseF32(Ref(n.Inputs[1]), "gridsample-grid");
         var y = Produce(n.Output);
         var a = n.Attributes;
-        long C = x.Shape[1], HO = y.Shape[2], WO = y.Shape[3];
+        long C = x.Shape[1];
+        long HO = y.Shape[2];
+        long WO = y.Shape[3];
         int mode = a.Get("mode", "linear") switch { "linear" => 0, "nearest" => 1, _ => 2 };
         int pad = a.Get("padding", "zeros") switch { "zeros" => 0, "border" => 1, _ => 2 };
         var k = Lib("general.slang", "grid_sample", Macros(("C", C), ("H", x.Shape[2]), ("W", x.Shape[3]), ("HO", HO), ("WO", WO),
             ("XS_N", x.Strides[0]), ("XS_C", x.Strides[1]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]), ("MODE", mode), ("PAD", pad), ("ALIGN", a.Get("align_corners", false))));
         var tx = x;
         Emit($"grid_sample {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * C * HO * WO, 256)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(g.Buffer, g.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), CountArg(x, C * HO * WO)], [x, g], [y]);
+            [Pointer(x), Pointer(g), Pointer(y), CountArg(x, C * HO * WO)], [x, g], [y]);
     }
 }

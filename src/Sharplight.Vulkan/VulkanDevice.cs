@@ -58,7 +58,8 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         var bp = new VkPhysicalDeviceMemoryBudgetPropertiesEXT();
         var mp = new VkPhysicalDeviceMemoryProperties2 { pNext = &bp };
         Inst.Api.vkGetPhysicalDeviceMemoryProperties2(Phys.Handle, &mp);
-        long heapBudget = (long)bp.heapBudget[Phys.DeviceLocalHeap], heapUsage = (long)bp.heapUsage[Phys.DeviceLocalHeap];
+        long heapBudget = (long)bp.heapBudget[Phys.DeviceLocalHeap];
+        long heapUsage = (long)bp.heapUsage[Phys.DeviceLocalHeap];
         if (heapBudget <= 0)
         {
             return new DeviceMemoryInfo(total, _budget, ours, ours, false);
@@ -172,9 +173,16 @@ public sealed unsafe class VulkanDevice : IComputeDevice
 
         var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();
         var dci = new VkDeviceCreateInfo { pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci };
-        fixed (nint* en = extNames) { dci.enabledExtensionCount = (uint)extNames.Length; dci.ppEnabledExtensionNames = (byte**)en; }
+        fixed (nint* en = extNames)
+        {
+            dci.enabledExtensionCount = (uint)extNames.Length;
+            dci.ppEnabledExtensionNames = (byte**)en;
+        }
         VkDevice dev;
-        try { iapi.vkCreateDevice(phys.Handle, &dci, null, &dev).CheckResult(); }
+        try
+        {
+            iapi.vkCreateDevice(phys.Handle, &dci, null, &dev).CheckResult();
+        }
         finally { foreach (var e in extNames)
             {
                 System.Runtime.InteropServices.Marshal.FreeHGlobal(e);
@@ -388,7 +396,10 @@ public sealed unsafe class VulkanDevice : IComputeDevice
             record(cb);
             Api.vkEndCommandBuffer(cb).CheckResult();
         }
-        try { SubmitAndWait(cb); }
+        try
+        {
+            SubmitAndWait(cb);
+        }
         finally { lock (_poolLock)
             {
                 Api.vkFreeCommandBuffers(CommandPool, 1, &cb);

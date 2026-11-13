@@ -48,7 +48,11 @@ public sealed record TensorRef(BufferDecl Buffer, long ByteOffset, DataType Type
     {
         var s = new long[shape.Length];
         long acc = 1;
-        for (int i = shape.Length - 1; i >= 0; i--) { s[i] = acc; acc *= shape[i]; }
+        for (int i = shape.Length - 1; i >= 0; i--)
+        {
+            s[i] = acc;
+            acc *= shape[i];
+        }
         return s;
     }
 }

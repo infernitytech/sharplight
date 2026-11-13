@@ -22,8 +22,14 @@ public sealed partial class GraphLowerer
 
     private void LowerSelectiveScan(Node n)
     {
-        var x = Ref(n.Inputs[0]); var dt = Ref(n.Inputs[1]); var dtb = Ref(n.Inputs[2]); var a = Ref(n.Inputs[3]);
-        var b = Ref(n.Inputs[4]); var c = Ref(n.Inputs[5]); var d = Ref(n.Inputs[6]); var st = Ref(n.Inputs[7]);
+        var x = Ref(n.Inputs[0]);
+        var dt = Ref(n.Inputs[1]);
+        var dtb = Ref(n.Inputs[2]);
+        var a = Ref(n.Inputs[3]);
+        var b = Ref(n.Inputs[4]);
+        var c = Ref(n.Inputs[5]);
+        var d = Ref(n.Inputs[6]);
+        var st = Ref(n.Inputs[7]);
         if (x.Strides[2] != 1)
         {
             x = DenseTemp(x, "ssm-x");
@@ -60,9 +66,12 @@ public sealed partial class GraphLowerer
         }
 
         var y = Produce(n.Output);
-        long H = x.Shape[1], P = x.Shape[2], G = b.Shape[1], N = b.Shape[2];
+        long H = x.Shape[1];
+        long P = x.Shape[2];
+        long G = b.Shape[1];
+        long N = b.Shape[2];
         // Rows of a head are independent: PB rows per workgroup, each owned by LPR lanes (lanes of a row stay inside one subgroup).
-        int lpr = _opt.Has(DeviceFeatures.SubgroupOps) ? Math.Min(int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_SSM_LPR") ?? "8"), _opt.SubgroupSize) : 1;
+        int lpr = _opt.Has(DeviceFeatures.SubgroupOps) ? Math.Min(DiagnosticSwitches.SsmLanesPerRow, _opt.SubgroupSize) : 1;
         while (N % lpr != 0 && lpr > 1)
         {
             lpr /= 2;
@@ -80,9 +89,9 @@ public sealed partial class GraphLowerer
             ("LPR", lpr), ("PB", pb), ("TB", tb), ("DT_MIN", n.Attributes.Get("dt_min", 0f))));
         Emit($"ssm_scan {n.Output.Name}", [n],
             [Always(k, _ => new Grid((uint)H, (uint)(P / pb)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(dt.Buffer, dt.ByteOffset), new PointerArg(dtb.Buffer, dtb.ByteOffset), new PointerArg(a.Buffer, a.ByteOffset),
-             new PointerArg(b.Buffer, b.ByteOffset), new PointerArg(c.Buffer, c.ByteOffset), new PointerArg(d.Buffer, d.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset),
-             new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)],
+            [Pointer(x), Pointer(dt), Pointer(dtb), Pointer(a),
+             Pointer(b), Pointer(c), Pointer(d), Pointer(st),
+             Pointer(y), TokenArg(x)],
             [x, dt, dtb, a, b, c, d, st], [y, st]);
     }
 }

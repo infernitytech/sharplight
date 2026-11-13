@@ -203,7 +203,11 @@ internal sealed unsafe class PhysicalDeviceInfo
         int heap = 0;
         for (int i = 0; i < mp.memoryHeapCount; i++)
         {
-            if ((mp.memoryHeaps[i].flags & VkMemoryHeapFlags.DeviceLocal) != 0 && (long)mp.memoryHeaps[i].size > local) { local = (long)mp.memoryHeaps[i].size; heap = i; }
+            if ((mp.memoryHeaps[i].flags & VkMemoryHeapFlags.DeviceLocal) != 0 && (long)mp.memoryHeaps[i].size > local)
+            {
+                local = (long)mp.memoryHeaps[i].size;
+                heap = i;
+            }
         }
 
         DeviceLocalBytes = local;

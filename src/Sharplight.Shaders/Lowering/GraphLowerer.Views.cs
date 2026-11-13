@@ -1,0 +1,202 @@
+using Sharplight.Graph;
+
+namespace Sharplight.Shaders.Lowering;
+
+public sealed partial class GraphLowerer
+{
+    // ---- views -------------------------------------------------------------------------------
+    /// <summary>A reshape of strided data that cannot be expressed as a view (e.g. after a permute) is materialized with a copy.</summary>
+    private void LowerReshape(Node n)
+    {
+        var src = Ref(n.Inputs[0]);
+        try
+        {
+            _refs[n.Output] = ViewReshape(src, BoundShape(n.Output.Shape), n.Output.Shape.Symbol);
+        }
+        catch (NotSupportedException)
+        {
+            // The output becomes its own root (its memory is not tracked by the view-root liveness of the input; it is
+            // simply never reused, which only costs arena space).
+            var dst = Produce(n.Output);
+            EmitCopy(src, dst with { Shape = src.Shape, Strides = TensorRef.DenseStrides(src.Shape) }, "reshape-copy", [n]);
+        }
+    }
+
+    private static TensorRef ViewSlice(TensorRef r, Attributes a)
+    {
+        int axis = a.Get<int>("axis");
+        if (axis < 0)
+        {
+            axis += r.Rank;
+        }
+
+        long start = a.Get<long>("start");
+        long len = a.Get<long>("length");
+        var shape = (long[])r.Shape.Clone();
+        shape[axis] = len;
+        return r with { ByteOffset = r.ByteOffset + start * r.Strides[axis] * r.Type.ElementSize, Shape = shape };
+    }
+
+    private static TensorRef ViewPermute(TensorRef r, int[] perm)
+    {
+        if (r.Symbol is not null && perm[0] != 0)
+        {
+            throw new NotSupportedException("Permute must keep the symbolic axis outermost.");
+        }
+
+        return r with { Shape = [.. perm.Select(p => r.Shape[p])], Strides = [.. perm.Select(p => r.Strides[p])] };
+    }
+
+    /// <summary>Stride-compatible reshape (PyTorch view semantics).</summary>
+    private static TensorRef ViewReshape(TensorRef r, long[] newShape, string? symbol)
+    {
+        var oldShape = r.Shape;
+        var oldStride = r.Strides;
+        var newStride = new long[newShape.Length];
+        int viewD = newShape.Length - 1;
+        long chunkBase = oldStride.Length > 0 ? oldStride[^1] : 1;
+        long tensorNumel = 1;
+        long viewNumel = 1;
+        for (int td = oldShape.Length - 1; td >= 0; td--)
+        {
+            tensorNumel *= oldShape[td];
+            if (td == 0 || (oldShape[td - 1] != 1 && oldStride[td - 1] != tensorNumel * chunkBase))
+            {
+                while (viewD >= 0 && (viewNumel < tensorNumel || newShape[viewD] == 1))
+                {
+                    newStride[viewD] = viewNumel * chunkBase;
+                    viewNumel *= newShape[viewD];
+                    viewD--;
+                }
+                if (viewNumel != tensorNumel)
+                {
+                    throw new NotSupportedException($"Reshape [{string.Join(",", oldShape)}] → [{string.Join(",", newShape)}] is not expressible as a view of strides [{string.Join(",", oldStride)}].");
+                }
+
+                if (td > 0)
+                {
+                    chunkBase = oldStride[td - 1];
+                    tensorNumel = 1;
+                    viewNumel = 1;
+                }
+            }
+        }
+        if (viewD != -1)
+        {
+            throw new NotSupportedException("Reshape: incompatible shapes.");
+        }
+
+        return r with { Shape = newShape, Strides = newStride, Symbol = symbol };
+    }
+
+    /// <summary>Rows view of a tensor: [rows = outer*mid, inner] with uniform row stride, inner contiguous.</summary>
+    private static bool TryRows(TensorRef r, out long rowStride, out long rowsPerOuter)
+    {
+        rowStride = 0;
+        rowsPerOuter = 1;
+        if (r.Rank < 2 || r.Strides[^1] != 1)
+        {
+            return false;
+        }
+
+        for (int k = 1; k <= r.Rank - 2; k++)
+        {
+            if (r.Strides[k - 1] != r.Strides[k] * r.Shape[k])
+            {
+                return false;
+            }
+
+            rowsPerOuter *= r.Shape[k];
+        }
+        rowStride = r.Strides[r.Rank - 2];
+        return true;
+    }
+
+    /// <summary>[T, R1, D] view with strides (S0, S1) for row kernels; middle dims must be collapsible.</summary>
+    private static bool TryRows3(TensorRef r, out long r1, out long s0, out long s1)
+    {
+        r1 = 1;
+        s0 = 0;
+        s1 = 0;
+        if (r.Strides[^1] != 1)
+        {
+            return false;
+        }
+
+        if (r.Rank == 1)
+        {
+            s0 = r.Shape[0];
+            return true;
+        }
+        if (r.Rank == 2)
+        {
+            s0 = r.Strides[0];
+            s1 = r.Shape[1];
+            return true;
+        }
+        for (int k = 2; k <= r.Rank - 2; k++)
+        {
+            if (r.Shape[k] != 1 && r.Strides[k - 1] != r.Strides[k] * r.Shape[k])
+            {
+                return false;
+            }
+        }
+
+        for (int k = 1; k <= r.Rank - 2; k++)
+        {
+            r1 *= r.Shape[k];
+        }
+
+        s0 = r.Strides[0];
+        s1 = r.Strides[r.Rank - 2];
+        return true;
+    }
+
+    /// <summary>
+    /// Returns <paramref name="x"/> if <see cref="TryRows3"/> accepts it, otherwise a dense copy (named after
+    /// <paramref name="why"/>) that it accepts.
+    /// </summary>
+    private TensorRef PrepareRows3(TensorRef x, string why, out long r1, out long s0, out long s1)
+    {
+        if (!TryRows3(x, out r1, out s0, out s1))
+        {
+            x = DenseTemp(x, why);
+            TryRows3(x, out r1, out s0, out s1);
+        }
+
+        return x;
+    }
+
+    /// <summary>Copies a strided tensor into a fresh dense temporary in the arena.</summary>
+    private TensorRef DenseTemp(TensorRef src, string why)
+    {
+        var key = new object();
+        long off = _alloc.Allocate(key, Math.Max(16, src.Type.ByteSize(src.MaxElements)));
+        _temps.Add(key);
+        var dst = new TensorRef(_arena, off, src.Type, src.Shape, TensorRef.DenseStrides(src.Shape), src.Symbol);
+        EmitCopy(src, dst, "densify:" + why);
+        return dst;
+    }
+
+    // ---- concat ------------------------------------------------------------------------------
+    private void LowerConcat(Node n)
+    {
+        var y = Produce(n.Output);
+        int axis = n.Attributes.Get<int>("axis");
+        if (axis < 0)
+        {
+            axis += y.Rank;
+        }
+
+        long start = 0;
+        foreach (var i in n.Inputs)
+        {
+            var src = Ref(i);
+            var shape = (long[])y.Shape.Clone();
+            shape[axis] = src.Shape[axis];
+            var dst = y with { ByteOffset = y.ByteOffset + start * y.Strides[axis] * y.Type.ElementSize, Shape = shape };
+            EmitCopy(src, dst, $"concat {n.Output.Name}", [n]);
+            start += src.Shape[axis];
+        }
+    }
+}

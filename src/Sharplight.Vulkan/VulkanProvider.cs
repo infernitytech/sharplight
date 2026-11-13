@@ -33,8 +33,15 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
                     throw new InvalidOperationException(s_initError);
                 }
 
-                try { return s_instance = new VulkanInstance(EnableValidation); }
-                catch (Exception e) { s_initError = e.Message; throw; }
+                try
+                {
+                    return s_instance = new VulkanInstance(EnableValidation);
+                }
+                catch (Exception e)
+                {
+                    s_initError = e.Message;
+                    throw;
+                }
             }
         }
     }

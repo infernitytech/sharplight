@@ -215,7 +215,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
                             RepackParallel(b, tmp, staging[slot].Mapped + fill, (long)chunk, rowBytes);
                         }
-                        finally { System.Buffers.ArrayPool<byte>.Shared.Return(tmp); }
+                        finally
+                        {
+                            System.Buffers.ArrayPool<byte>.Shared.Return(tmp);
+                        }
                     }
                     else if (b.InitialData is not null)
                     {
@@ -241,7 +244,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 }
             }
             Flush();
-            for (int i = 0; i < 2; i++) { var f = fences[i]; _dev.Api.vkWaitForFences(1, &f, true, ulong.MaxValue); }
+            for (int i = 0; i < 2; i++)
+            {
+                var f = fences[i];
+                _dev.Api.vkWaitForFences(1, &f, true, ulong.MaxValue);
+            }
         }
         finally
         {
@@ -259,11 +266,16 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     private static void CopyParallel(byte* src, byte* dst, long bytes)
     {
         const long Piece = 2 << 20;
-        if (bytes <= Piece) { Buffer.MemoryCopy(src, dst, bytes, bytes); return; }
+        if (bytes <= Piece)
+        {
+            Buffer.MemoryCopy(src, dst, bytes, bytes);
+            return;
+        }
         nint s = (nint)src, d = (nint)dst;
         Parallel.For(0, (bytes + Piece - 1) / Piece, i =>
         {
-            long o = i * Piece, n = Math.Min(Piece, bytes - o);
+            long o = i * Piece;
+            long n = Math.Min(Piece, bytes - o);
             Buffer.MemoryCopy((byte*)s + o, (byte*)d + o, n, n);
         });
     }
@@ -275,7 +287,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         nint s = (nint)src, d = (nint)dst;
         Parallel.For(0, (rows + RowsPerTask - 1) / RowsPerTask, t =>
         {
-            long r0 = t * RowsPerTask, n = Math.Min(RowsPerTask, rows - r0);
+            long r0 = t * RowsPerTask;
+            long n = Math.Min(RowsPerTask, rows - r0);
             WeightRepacker.Apply(b.Repack, b.RepackRowElements,
                 new ReadOnlySpan<byte>((byte*)s + r0 * rowBytes, (int)(n * rowBytes)),
                 new Span<byte>((byte*)d + r0 * rowBytes, (int)(n * rowBytes)));
@@ -289,7 +302,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         nint d = (nint)dst;
         Parallel.For(0, (rows + RowsPerTask - 1) / RowsPerTask, t =>
         {
-            long r0 = t * RowsPerTask, n = Math.Min(RowsPerTask, rows - r0);
+            long r0 = t * RowsPerTask;
+            long n = Math.Min(RowsPerTask, rows - r0);
             WeightRepacker.Apply(b.Repack, b.RepackRowElements,
                 src.AsSpan((int)(r0 * rowBytes), (int)(n * rowBytes)),
                 new Span<byte>((byte*)d + r0 * rowBytes, (int)(n * rowBytes)));
@@ -339,9 +353,17 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
 
         var bindings = new Bindings(parameters.Symbols);
-        if (Profile) { ExecuteProfiled(bindings); return; }
+        if (Profile)
+        {
+            ExecuteProfiled(bindings);
+            return;
+        }
         var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
-        if (_dev.SubmissionBudgetMs > 0) { ExecuteBudgeted(key, bindings); return; }
+        if (_dev.SubmissionBudgetMs > 0)
+        {
+            ExecuteBudgeted(key, bindings);
+            return;
+        }
         if (!_recorded.TryGetValue(key, out var cb))
         {
             foreach (var s in _program.Symbols)
@@ -353,7 +375,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             }
 
             var swRec = Stopwatch.StartNew();
-            long pt0 = _dev.PipelineTicks; int pc0 = _dev.PipelinesCreated;
+            long pt0 = _dev.PipelineTicks;
+            int pc0 = _dev.PipelinesCreated;
             cb = AllocCb();
             var bi = new VkCommandBufferBeginInfo();
             _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
@@ -435,7 +458,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     api.vkCmdResetQueryPool(cb, pool, 0, n);
                     Record(cb, slice, bindings, (i, l, v) =>
                     {
-                        if (i < 0) { api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, 0); return; }
+                        if (i < 0)
+                        {
+                            api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, 0);
+                            return;
+                        }
                         api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, (uint)i + 1);
                         if (v is not null)
                         {
@@ -465,7 +492,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     }
                 }
             }
-            finally { api.vkDestroyQueryPool(pool, null); }
+            finally
+            {
+                api.vkDestroyQueryPool(pool, null);
+            }
         }
         _dev.Immediate(cb => RecordOutputCopies(cb, bindings));
         return result;
@@ -553,7 +583,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         var launches = _program.Launches;
         var plan = new Plan { Est = est };
         double budget = _dev.SubmissionBudgetMs;
-        int start = 0; double sum = 0;
+        int start = 0;
+        double sum = 0;
         for (int i = 0; i <= launches.Count; i++)
         {
             bool end = i == launches.Count;
@@ -564,7 +595,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     plan.Chunks.Add(new Chunk { Start = start, End = i, EstMs = sum });
                 }
 
-                start = i; sum = 0;
+                start = i;
+                sum = 0;
             }
             if (!end)
             {
@@ -663,7 +695,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             pendingReads.AddRange(launch.Reads);
 
             var pipe = _dev.Pipeline(variant.Kernel);
-            if (pipe != bound) { api.vkCmdBindPipeline(cb, VkPipelineBindPoint.Compute, pipe); bound = pipe; }
+            if (pipe != bound)
+            {
+                api.vkCmdBindPipeline(cb, VkPipelineBindPoint.Compute, pipe);
+                bound = pipe;
+            }
 
             int off = 0;
             foreach (var arg in launch.Args.Where(a => a is PointerArg))
@@ -765,7 +801,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     public List<(string Name, bool BarrierBefore)> Schedule(long tokens = 1)
     {
         var list = new List<(string, bool)>();
-        var pw = new List<BufferRange>(); var pr = new List<BufferRange>();
+        var pw = new List<BufferRange>();
+        var pr = new List<BufferRange>();
         var bindings = new Bindings(_program.Symbols.ToDictionary(s => s, _ => tokens));
         foreach (var l in _program.Launches)
         {
@@ -775,7 +812,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             }
 
             bool b = l.Reads.Any(r => pw.Any(w => w.Overlaps(r))) || l.Writes.Any(w => pw.Any(p => p.Overlaps(w)) || pr.Any(p => p.Overlaps(w)));
-            if (b) { pw.Clear(); pr.Clear(); }
+            if (b)
+            {
+                pw.Clear();
+                pr.Clear();
+            }
             pw.AddRange(l.Writes); pr.AddRange(l.Reads);
             list.Add((l.Name, b));
         }

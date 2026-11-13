@@ -27,7 +27,11 @@ public static class KernelLibrary
             files[res[Prefix.Length..]] = ms.ToArray();
         }
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var (k, v) in files) { sha.AppendData(Encoding.UTF8.GetBytes(k)); sha.AppendData(v); }
+        foreach (var (k, v) in files)
+        {
+            sha.AppendData(Encoding.UTF8.GetBytes(k));
+            sha.AppendData(v);
+        }
         var hash = Convert.ToHexString(sha.GetHashAndReset())[..16].ToLowerInvariant();
 
         var dir = Path.Combine(Path.GetTempPath(), "sharplight-kernels-" + hash);
@@ -40,8 +44,15 @@ public static class KernelLibrary
                 File.WriteAllBytes(Path.Combine(tmp, k), v);
             }
 
-            try { Directory.Move(tmp, dir); }
-            catch (IOException) { Directory.Delete(tmp, true); } // another process won the race
+            try
+            {
+                Directory.Move(tmp, dir);
+            }
+            catch (IOException)
+            {
+                // Another process won the race to create the same content-addressed directory.
+                Directory.Delete(tmp, true);
+            }
         }
         return (dir, hash);
     }

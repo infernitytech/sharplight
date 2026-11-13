@@ -13,7 +13,6 @@ namespace Sharplight.Shaders;
 public sealed class SlangCompiler : IDisposable
 {
     private static readonly Lock s_globalLock = new();
-    private static readonly string? s_dumpDir = Environment.GetEnvironmentVariable("SHARPLIGHT_DUMP_KERNELS");
     private static IGlobalSession? s_global;
 
     private readonly string _libraryDir;
@@ -81,11 +80,10 @@ public sealed class SlangCompiler : IDisposable
     {
         var key = CacheKey(source, entryPoint, target, macros);
         string ckey = "kernel/" + key;
-        if (s_dumpDir is not null)
+        if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpDirectory)
         {
-            // Diagnostics: SHARPLIGHT_DUMP_KERNELS=<dir> writes every kernel's source and macros.
-            Directory.CreateDirectory(s_dumpDir);
-            File.WriteAllText(Path.Combine(s_dumpDir, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{key[..12]}.slang"),
+            Directory.CreateDirectory(dumpDirectory);
+            File.WriteAllText(Path.Combine(dumpDirectory, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{key[..12]}.slang"),
                 $"// macros: {FormatMacros(macros)}\n{source}");
         }
         if (_memCache.TryGetValue(key, out var hit))
@@ -139,8 +137,14 @@ public sealed class SlangCompiler : IDisposable
 
     private static byte[]? TryRead(string path)
     {
-        try { return File.Exists(path) ? File.ReadAllBytes(path) : null; }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException) { return null; }
+        try
+        {
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException)
+        {
+            return null;
+        }
     }
 
     private byte[] CompileUncached(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
