@@ -11,7 +11,7 @@ public sealed partial class GraphLowerer
     /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/>: 16 for Q8_0,
     /// 8 for the K-quants, whose GEMM already wins at 16 rows (Mistral-7B Q4_K_M batch 16: 12 vs 18 ms per step).
     /// </summary>
-    private static long IntDotMaxRows(DataType type) => DiagnosticSwitches.IntDotMaxRows ?? (type == ShaderTypes.Q8_0R ? 16 : 8);
+    private static long IntDotMaxRows(DataType type) => DiagnosticSwitches.IntDotMaxRows ?? (type == ShaderTypes.Q8_0R || type == DataType.Q8_0 ? 16 : 8);
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
     private const long IntDotTargetThreads = 128 * 1024;
@@ -34,11 +34,15 @@ public sealed partial class GraphLowerer
     /// <paramref name="type"/> with reduction length <paramref name="k"/>: q8-quantized activations, int8 dot products.
     /// </summary>
     private bool UseIntDotMatvec(DataType type, long k)
-        => _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps) && k % 256 == 0
-           && (type == ShaderTypes.Q8_0R || type == DataType.Q4_K || type == DataType.Q5_K || type == DataType.Q6_K);
+        => _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps)
+           && (k % 256 == 0 && (type == ShaderTypes.Q8_0R || type == DataType.Q4_K || type == DataType.Q5_K || type == DataType.Q6_K)
+               || k % 32 == 0 && DiagnosticSwitches.IntDotBlockFormats && s_intDotBlockFormats.Contains(type));
+
+    /// <summary>32-value block formats of the integer-dot matvec (one block per chunk).</summary>
+    private static readonly HashSet<DataType> s_intDotBlockFormats = [DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4];
 
     /// <summary>Rows (inclusive) from which the int-dot path serves a matmul; single rows may stay on the f32 matvec.</summary>
-    private static long IntDotMinRows(DataType type) => type == ShaderTypes.Q8_0R && !DiagnosticSwitches.IntDotDecodeQ8 ? 2 : 1;
+    private static long IntDotMinRows(DataType type) => (type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !DiagnosticSwitches.IntDotDecodeQ8 ? 2 : 1;
 
     /// <summary>
     /// Emits the activation quantization and the integer-dot matvec launches of a matmul (or of a dual matmul when

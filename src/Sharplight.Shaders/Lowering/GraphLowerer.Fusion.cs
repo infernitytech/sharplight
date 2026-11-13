@@ -18,6 +18,11 @@ public sealed partial class GraphLowerer
     {
         var consumers = ConsumersByValue();
         var units = GroupElementwiseChains();
+        if (!DiagnosticSwitches.NoGroupMerge)
+        {
+            MergeElementwiseGroups(units);
+        }
+
         FoldNormTails(units);
         FoldNormHeads(units, consumers);
         if (!DiagnosticSwitches.NoDualMatMul)
@@ -108,6 +113,56 @@ public sealed partial class GraphLowerer
 
         Close();
         return units;
+    }
+
+    /// <summary>Units an elementwise group looks back for groups to merge (bounds the pass's cost on large graphs).</summary>
+    private const int GroupMergeWindow = 16;
+
+    /// <summary>
+    /// Joins elementwise groups along data flow, not only graph order: a group reading an output of an earlier group of the
+    /// same shape takes that group's nodes when no unit in between reads its outputs or writes anything (the earlier group
+    /// then simply runs later). E.g. gpt-oss's clamped SwiGLU, whose gate and up clamps are separated by other nodes,
+    /// becomes one kernel with the bias adds before it.
+    /// </summary>
+    private static void MergeElementwiseGroups(List<LoweringUnit> units)
+    {
+        for (int j = 0; j < units.Count; j++)
+        {
+            if (units[j].Fused is not { } later)
+            {
+                continue;
+            }
+
+            for (int i = j - 1; i >= Math.Max(0, j - GroupMergeWindow); i--)
+            {
+                if (units[i].Fused is not { } earlier || !earlier[0].Output.Shape.Equals(later[0].Output.Shape))
+                {
+                    continue;
+                }
+
+                var outputs = earlier.Select(n => n.Output).ToHashSet();
+                if (!later.Any(n => n.Inputs.Any(outputs.Contains)))
+                {
+                    continue;
+                }
+
+                bool blocked = false;
+                for (int u = i + 1; u < j && !blocked; u++)
+                {
+                    blocked = units[u].Nodes.Any(n => !n.Writes.IsEmpty || n.Inputs.Any(outputs.Contains));
+                }
+
+                if (blocked)
+                {
+                    continue;
+                }
+
+                units[j].Fused = [.. earlier, .. later];
+                later = units[j].Fused!;
+                units.RemoveAt(i);
+                j--;
+            }
+        }
     }
 
     /// <summary>True when a row norm's optional weight is a rank-1 f32 vector (the only form the fused kernel handles).</summary>

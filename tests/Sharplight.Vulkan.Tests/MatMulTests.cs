@@ -23,7 +23,7 @@ public sealed class MatMulTests
     // an absolute error proportional to the weight row's norm (large for these random weights: K-quant rows with
     // offsets up to ~10 and Q6_K values up to ~50), not to the output's own size. IntDotExactActivations checks the
     // arithmetic itself tightly.
-    private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_k", "q5_k", "q6_k"];
+    private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_0", "q4_k", "q5_k", "q6_k"];
 
     private static double Atol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? 3.0 : Atol(t);
     private static double Rtol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? Rtol(9) : Rtol(t);
@@ -55,6 +55,13 @@ public sealed class MatMulTests
     [InlineData("q5_k", 8)]
     [InlineData("q6_k", 1)]
     [InlineData("q6_k", 7)]
+    [InlineData("q4_0", 1)]
+    [InlineData("q4_0", 6)]
+    [InlineData("q5_0", 1)]
+    [InlineData("q5_0", 4)]
+    [InlineData("iq4_nl", 2)]
+    [InlineData("mxfp4", 1)]
+    [InlineData("mxfp4", 8)]
     public void IntDotExactActivations(string fmt, int t)
     {
         Gpu.Require();
@@ -85,7 +92,7 @@ public sealed class MatMulTests
             var x = tg.InF("x", TG.T, K);
             var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
             tg.B.Output("y", tg.B.MatMul(x, w));
-            Diff.Check("MatMul.odd." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(t), rtol: Rtol(t), what: $"T={t} K={K} N={N}");
+            Diff.Check("MatMul.odd." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt, t), rtol: Rtol(fmt, t), what: $"T={t} K={K} N={N}");
         }
     }
 

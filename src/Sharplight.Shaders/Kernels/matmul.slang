@@ -461,20 +461,6 @@ uint q8x4_h2(uint u, half2 d, bool hi)
     return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(1152.0h, 1152.0h)) * d);
 }
 
-// 16 bytes at any byte address: 4 or 5 aligned words, funnel-shifted (the fifth word is read only when the address is not
-// word aligned, as the bytes may end the buffer).
-uint4 load16_any(uint64_t at)
-{
-    uint* wp = (uint*)(at & ~uint64_t(3));
-    uint sh = uint(at & 3) * 8;
-    uint4 q = uint4(wp[0], wp[1], wp[2], wp[3]);
-    if (sh != 0)
-    {
-        q = (q >> sh) | (uint4(wp[1], wp[2], wp[3], wp[4]) << (32 - sh));
-    }
-    return q;
-}
-
 // 2 of the 4 E2M1 codes in u (bytes 0,1 or 2,3) -> half2 of value * s1 * s2.
 uint fp4_h2(uint u, bool hi, half2 s1, half2 s2)
 {

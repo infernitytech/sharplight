@@ -350,6 +350,20 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     }
 }
 
+// 16 bytes at any byte address: 4 or 5 aligned words, funnel-shifted (the fifth word is read only when the address is not
+// word aligned, as the bytes may end the buffer).
+uint4 load16_any(uint64_t at)
+{
+    uint* wp = (uint*)(at & ~uint64_t(3));
+    uint sh = uint(at & 3) * 8;
+    uint4 q = uint4(wp[0], wp[1], wp[2], wp[3]);
+    if (sh != 0)
+    {
+        q = (q >> sh) | (uint4(wp[1], wp[2], wp[3], wp[4]) << (32 - sh));
+    }
+    return q;
+}
+
 // Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
 // pointer to 32 bits, which breaks rows that start 4 GiB or more into a table.
 uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
