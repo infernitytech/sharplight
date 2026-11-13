@@ -53,7 +53,17 @@ IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4. ONNX operator coverage is in [docs/onnx-s
 
 ## Performance
 
-Single stream on an RTX PRO 6000 Blackwell Max-Q (Vulkan) against llama.cpp b11177 with its **CUDA** backend (`llama-bench -ngl 99
+Test system for all numbers below:
+
+| | |
+|---|---|
+| GPU | NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition (96 GB GDDR7, 300 W limit), driver 610.57.04 |
+| CPU | AMD Ryzen 9 9950X (Zen 5, 16 cores / 32 threads, AVX-512 with VNNI and BF16) |
+| RAM | 96 GB DDR5 (dual channel) |
+| OS / runtime | Fedora 44, Linux 7.1, .NET SDK 11.0.100; Sharplight on Vulkan or its CPU provider |
+| llama.cpp | b11177, official CUDA 13, Vulkan and CPU builds |
+
+Single stream on the GPU (Sharplight on Vulkan) against llama.cpp b11177 with its **CUDA** backend (`llama-bench -ngl 99
 -fa 1`), same GGUF files, tokens per second (2026-11-13). Prefill is 512 prompt tokens. Dense rows: median of 3 runs, decode at depth 0.
 Ministral and MoE rows: best of 3 runs, decode after the 512-token prompt, llama.cpp run right after on the same GPU. The GPU was
 shared with a desktop session, so differences under about 5 % are noise.
@@ -71,7 +81,7 @@ shared with a desktop session, so differences under about 5 % are noise.
 | gpt-oss-20b MXFP4 (MoE) | 11831 | 17432 | 0.68x | 310 | 345 | 0.90x |
 
 Qwen3.8-27B (hybrid gated-delta-net + attention), output tokens/s after a 16-token prompt, same GGUF files; GPU rows on the RTX
-PRO 6000, CPU rows on the Ryzen 9 9950X pinned to its 16 physical cores (2026-11-13, idle machine):
+PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physical cores (2026-11-13, idle machine):
 
 | Engine / backend | Q4_K_M (16.8 GB) | Q8_0 (29.0 GB) |
 |---|---:|---:|
