@@ -1,6 +1,5 @@
 using Sharplight.Graph;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -43,8 +42,8 @@ internal sealed class Mamba2Layer
     /// <summary>Declares the per-layer recurrent states (convolution window and scan state).</summary>
     public (StateDefinition Conv, StateDefinition Scan) DefineStates(string group)
     {
-        var conv = new StateDefinition { Name = $"{group}.conv_state", Type = DataType.F32, Shape = new Shape(_convKernel - 1, ConvDim), Kind = StateKind.Recurrent, Group = group };
-        var scan = new StateDefinition { Name = $"{group}.ssm_state", Type = DataType.F32, Shape = new Shape(_heads, _headDim, _stateSize), Kind = StateKind.Recurrent, Group = group };
+        var conv = RecurrentStates.ConvWindow(group, _convKernel - 1, ConvDim);
+        var scan = RecurrentStates.Scan(group, _heads, _headDim, _stateSize);
         return (conv, scan);
     }
 

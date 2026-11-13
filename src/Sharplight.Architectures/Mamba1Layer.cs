@@ -1,6 +1,5 @@
 using Sharplight.Graph;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -36,8 +35,8 @@ internal sealed class Mamba1Layer
         var a = src.Weight(p + "ssm.a")!.Shape;
         int inner = (int)a[0].Fixed;
         int stateSize = (int)a[1].Fixed;
-        var conv = new StateDefinition { Name = $"{group}.conv_state", Type = DataType.F32, Shape = new Shape(_convKernel - 1, inner), Kind = StateKind.Recurrent, Group = group };
-        var scan = new StateDefinition { Name = $"{group}.ssm_state", Type = DataType.F32, Shape = new Shape(inner, 1, stateSize), Kind = StateKind.Recurrent, Group = group };
+        var conv = RecurrentStates.ConvWindow(group, _convKernel - 1, inner);
+        var scan = RecurrentStates.Scan(group, inner, 1, stateSize);
         return (conv, scan);
     }
 

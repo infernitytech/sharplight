@@ -148,8 +148,8 @@ public sealed class Qwen35Adapter : IModelAdapter
             string g = $"layers.{il}";
             if (IsRecurrent(il))
             {
-                states.Add(convState[il] = new StateDefinition { Name = $"{g}.conv_state", Type = DataType.F32, Shape = new Shape(hp.ConvKernel - 1, convChannels), Kind = StateKind.Recurrent, Group = g });
-                states.Add(ssmState[il] = new StateDefinition { Name = $"{g}.ssm_state", Type = DataType.F32, Shape = new Shape(hp.SsmDtRank, headVDim, hp.SsmState), Kind = StateKind.Recurrent, Group = g });
+                states.Add(convState[il] = RecurrentStates.ConvWindow(g, hp.ConvKernel - 1, convChannels));
+                states.Add(ssmState[il] = RecurrentStates.Scan(g, hp.SsmDtRank, headVDim, hp.SsmState));
             }
             else
             {

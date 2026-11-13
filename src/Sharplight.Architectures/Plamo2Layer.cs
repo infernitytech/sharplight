@@ -1,6 +1,5 @@
 using Sharplight.Graph;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -36,8 +35,8 @@ internal sealed class Plamo2Layer
         int heads = (int)src.Weight(p + "ssm.a")!.Shape[0].Fixed;
         int inner = (int)src.Weight(p + "ssm.conv1d.weight")!.Shape[0].Fixed;
         int stateSize = (int)src.Weight(p + "ssm.b_norm.weight")!.Shape[0].Fixed;
-        var conv = new StateDefinition { Name = $"{group}.conv_state", Type = DataType.F32, Shape = new Shape(_convKernel - 1, inner), Kind = StateKind.Recurrent, Group = group };
-        var scan = new StateDefinition { Name = $"{group}.ssm_state", Type = DataType.F32, Shape = new Shape(heads, inner / heads, stateSize), Kind = StateKind.Recurrent, Group = group };
+        var conv = RecurrentStates.ConvWindow(group, _convKernel - 1, inner);
+        var scan = RecurrentStates.Scan(group, heads, inner / heads, stateSize);
         return (conv, scan);
     }
 
