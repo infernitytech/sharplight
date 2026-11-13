@@ -9,47 +9,6 @@ using Xunit;
 
 namespace Sharplight.HuggingFace.Tests;
 
-/// <summary>Opens the HF checkpoint and the llama.cpp-converted GGUF once for all parity tests.</summary>
-public sealed class ParityFixture : IDisposable
-{
-    public static readonly string HfDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/hf/Qwen3.5-0.8B");
-    public static readonly string GgufPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/gguf/Qwen3.5-0.8B/Qwen3.5-0.8B-BF16.gguf");
-
-    public bool Available { get; }
-    public ModelSource? Gguf { get; }
-    /// <summary>HF source without MTP weights: directly comparable to the GGUF (which was converted without them).</summary>
-    public ModelSource? Hf { get; }
-    /// <summary>HF source with default options (MTP mapped to mtp.*).</summary>
-    public ModelSource? HfMtp { get; }
-
-    public ParityFixture()
-    {
-        Available = Directory.Exists(HfDir) && File.Exists(GgufPath);
-        if (!Available)
-        {
-            return;
-        }
-
-        Gguf = GgufImporter.Open(GgufPath);
-        Hf = HuggingFaceImporter.Open(HfDir, new HfImportOptions { IncludeMtp = false });
-        HfMtp = HuggingFaceImporter.Open(HfDir);
-    }
-
-    public void Dispose()
-    {
-        foreach (var s in new[] { Gguf, Hf, HfMtp })
-        {
-            if (s != null)
-            {
-                foreach (var r in s.OwnedResources)
-                {
-                    r.Dispose();
-                }
-            }
-        }
-    }
-}
-
 public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
 {
     private static void RequireModels(ParityFixture fx) => Assert.SkipUnless(fx.Available, $"model files not found ({ParityFixture.HfDir}, {ParityFixture.GgufPath})");
@@ -106,7 +65,11 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
                 continue;
             }
 
-            if (!gw.Shape.Equals(hw.Shape)) { problems.Add($"{name}: shape GGUF {gw.Shape} vs HF {hw.Shape}"); continue; }
+            if (!gw.Shape.Equals(hw.Shape))
+            {
+                problems.Add($"{name}: shape GGUF {gw.Shape} vs HF {hw.Shape}");
+                continue;
+            }
             var (maxAbs, maxRel, exact) = Compare(gw, hw);
             // class = name with layer index stripped
             string cls = System.Text.RegularExpressions.Regex.Replace(name, @"layers\.\d+\.", "layers.N.") + $" [{gw.Type}<-{hw.Type}]";
@@ -163,13 +126,18 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         foreach (var k in AdapterKeys)
         {
             string key = "qwen3_5." + k;
-            bool inG = fx.Gguf!.Has(key), inH = fx.Hf!.Has(key);
+            bool inG = fx.Gguf!.Has(key);
+            bool inH = fx.Hf!.Has(key);
             if (!inG && !inH)
             {
                 continue;
             }
 
-            if (inG != inH) { problems.Add($"{key}: GGUF present={inG}, HF present={inH}"); continue; }
+            if (inG != inH)
+            {
+                problems.Add($"{key}: GGUF present={inG}, HF present={inH}");
+                continue;
+            }
             if (!ValueEquals(fx.Gguf.Metadata[key], fx.Hf.Metadata[key]))
             {
                 problems.Add($"{key}: GGUF {Fmt(fx.Gguf.Metadata[key])} vs HF {Fmt(fx.Hf.Metadata[key])}");
@@ -188,7 +156,8 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         var notes = new List<string>();
         foreach (var key in g.Keys.Union(h.Keys).Order(StringComparer.Ordinal))
         {
-            bool inG = g.TryGetValue(key, out var gv), inH = h.TryGetValue(key, out var hv);
+            bool inG = g.TryGetValue(key, out var gv);
+            bool inH = h.TryGetValue(key, out var hv);
             if (inG && inH)
             {
                 if (ValueEquals(gv!, hv!))
@@ -196,7 +165,11 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
                     continue;
                 }
 
-                if (key == CanonicalKeys.ChatTemplate) { notes.Add($"{key}: differs (GGUF {((string)gv!).Length} chars vs HF {((string)hv!).Length} chars) - the GGUF comes from a re-packaged template"); continue; }
+                if (key == CanonicalKeys.ChatTemplate)
+                {
+                    notes.Add($"{key}: differs (GGUF {((string)gv!).Length} chars vs HF {((string)hv!).Length} chars) - the GGUF comes from a re-packaged template");
+                    continue;
+                }
                 if (key == CanonicalKeys.TokenizerPadId)
                 {
                     var toks = (string[])g[CanonicalKeys.TokenizerTokens];
@@ -312,7 +285,9 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
     public void ReorderVHeads_Matches_Reference_Permutation()
     {
         // [numK=2, vPerK=3, d=2] -> [vPerK, numK, d]; elements are int16 ids
-        int numK = 2, vPerK = 3, d = 2;
+        int numK = 2;
+        int vPerK = 3;
+        int d = 2;
         var src = new byte[numK * vPerK * d * 2];
         for (int i = 0; i < src.Length / 2; i++)
         {
@@ -413,10 +388,14 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
 
         try
         {
-            double da = Convert.ToDouble(a, CultureInfo.InvariantCulture), db = Convert.ToDouble(b, CultureInfo.InvariantCulture);
+            double da = Convert.ToDouble(a, CultureInfo.InvariantCulture);
+            double db = Convert.ToDouble(b, CultureInfo.InvariantCulture);
             return da == db || Math.Abs(da - db) <= 1e-9 * Math.Max(Math.Abs(da), Math.Abs(db));
         }
-        catch { return false; }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>Compares two weights chunk-wise after decoding to f32. Returns (max abs error, max relative error, bit-exact bytes).</summary>
@@ -424,7 +403,8 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
     {
         long n = a.Shape.Elements();
         const int Chunk = 1 << 20;
-        double maxAbs = 0, maxRel = 0;
+        double maxAbs = 0;
+        double maxRel = 0;
         bool exact = a.Type == b.Type;
         for (long start = 0; start < n; start += Chunk)
         {

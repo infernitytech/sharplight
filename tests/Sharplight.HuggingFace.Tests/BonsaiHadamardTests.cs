@@ -21,7 +21,11 @@ public class BonsaiHadamardTests
     public void Packings_Import_To_Identical_Dense_Weights()
     {
         var paths = Files.Select(f => Path.Combine(Dir, f)).ToArray();
-        if (!paths.All(File.Exists)) { Assert.Skip("Ternary-Bonsai-2-2B GGUF files not present"); return; }
+        if (!paths.All(File.Exists))
+        {
+            Assert.Skip("Ternary-Bonsai-2-2B GGUF files not present");
+            return;
+        }
         var sources = paths.Select(p => GgufImporter.Open(p)).ToArray();
         try
         {

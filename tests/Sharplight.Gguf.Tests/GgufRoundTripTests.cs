@@ -6,10 +6,31 @@ namespace Sharplight.Gguf.Tests;
 public class GgufRoundTripTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "gguf-tests-" + Guid.NewGuid().ToString("N"));
-    public GgufRoundTripTests() => Directory.CreateDirectory(_dir);
-    public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
-    private static byte[] Pattern(int n, int seed = 1) { var b = new byte[n]; for (int i = 0; i < n; i++) { b[i] = (byte)(i * 7 + seed); } return b; }
+    public GgufRoundTripTests() => Directory.CreateDirectory(_dir);
+
+    public void Dispose()
+    {
+        try
+        {
+            Directory.Delete(_dir, true);
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup of the temp directory.
+        }
+    }
+
+    private static byte[] Pattern(int length, int seed = 1)
+    {
+        var bytes = new byte[length];
+        for (int i = 0; i < length; i++)
+        {
+            bytes[i] = (byte)(i * 7 + seed);
+        }
+
+        return bytes;
+    }
 
     [Fact]
     public void Scalars_Arrays_Nested_RoundTrip()
@@ -140,7 +161,8 @@ public class GgufRoundTripTests : IDisposable
     public void CustomAlignment_IsHonored()
     {
         var path = Path.Combine(_dir, "al.gguf");
-        var d1 = Pattern(16); var d2 = Pattern(16, 5);
+        var d1 = Pattern(16);
+        var d2 = Pattern(16, 5);
         new GgufWriter { Alignment = 128 }
             .AddMetadata("general.architecture", "toy")
             .AddTensor("a", DataType.F32, d1, 4)
@@ -259,56 +281,5 @@ public class GgufRoundTripTests : IDisposable
         var src = f.GetTensor("a").ToWeightInfo().Source;
         f.Dispose();
         Assert.Throws<ObjectDisposedException>(() => src.Read(0, new byte[4]));
-    }
-}
-
-public class RealModelTests
-{
-    private const string Q8 = "~/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q8_0.gguf";
-    private const string Q4KM = "~/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf";
-    private const string Nvfp4 = "~/.lmstudio/models/esatapedico/Qwen3.8-27B-NVFP4-MTP-GGUF/Qwen3.8-27B-NVFP4-MTP-ORIG.gguf";
-
-    [Fact]
-    public void Qwen_Q8_0()
-    {
-        if (!File.Exists(Q8))
-        {
-            return;
-        }
-
-        using var f = GgufFile.Open(Q8);
-        Assert.Equal(3u, f.Version);
-        Assert.Equal(866, f.Tensors.Count);
-        Assert.Equal(39, f.Metadata.Count);
-        Assert.Equal("qwen35", f.Architecture);
-        Assert.Equal(65, f.GetArch<int>("block_count"));
-        var t = f.GetTensor("token_embd.weight");
-        Assert.Equal(DataType.Q8_0, t.DataType);
-        Assert.Equal(new long[] { 5120, 248320 }, t.Ne);
-        Assert.Equal(new Shape(248320, 5120), t.Shape);
-        Assert.Equal(248320L * 5120 / 32 * 34, t.ByteSize);
-        Assert.Equal(248320, f.GetArray<string>("tokenizer.ggml.tokens").Length);
-        // read only a small slice of a big tensor
-        var w = t.ToWeightInfo();
-        var buf = new byte[34 * 4];
-        w.Source.Read(w.Source.ByteLength - buf.Length, buf);
-        Assert.NotEqual(0, w.Source.TryGetPointer());
-    }
-
-    [Theory]
-    [InlineData(Q4KM)]
-    [InlineData(Nvfp4)]
-    public void Other_Models_Parse(string path)
-    {
-        if (!File.Exists(path))
-        {
-            return;
-        }
-
-        using var f = GgufFile.Open(path);
-        Assert.NotEmpty(f.Tensors);
-        Assert.NotNull(f.Architecture);
-        var hist = string.Join(", ", f.Tensors.GroupBy(t => t.DataType).Select(g => $"{g.Key}={g.Count()}"));
-        Console.WriteLine($"{Path.GetFileName(path)}: {hist}");
     }
 }

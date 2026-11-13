@@ -47,16 +47,26 @@ public class DecoderGraphTests
 
         var w = new Dictionary<string, WeightInfo>();
         void Add(WeightInfo x) => w[x.Name] = x;
-        Add(W("token_embedding.weight", Vocab, Hidden)); Add(W("output_norm.weight", Hidden));
+        Add(W("token_embedding.weight", Vocab, Hidden));
+        Add(W("output_norm.weight", Hidden));
         for (int i = 0; i < Layers; i++)
         {
             string p = $"layers.{i}.";
-            Add(W(p + "input_norm.weight", Hidden)); Add(W(p + "post_attention_norm.weight", Hidden));
-            Add(W(p + "attention.q.weight", Heads * D, Hidden)); Add(W(p + "attention.k.weight", Kv * D, Hidden));
-            Add(W(p + "attention.v.weight", Kv * D, Hidden)); Add(W(p + "attention.o.weight", Hidden, Heads * D));
-            Add(W(p + "mlp.gate.weight", Ffn, Hidden)); Add(W(p + "mlp.up.weight", Ffn, Hidden)); Add(W(p + "mlp.down.weight", Hidden, Ffn));
+            Add(W(p + "input_norm.weight", Hidden));
+            Add(W(p + "post_attention_norm.weight", Hidden));
+            Add(W(p + "attention.q.weight", Heads * D, Hidden));
+            Add(W(p + "attention.k.weight", Kv * D, Hidden));
+            Add(W(p + "attention.v.weight", Kv * D, Hidden));
+            Add(W(p + "attention.o.weight", Hidden, Heads * D));
+            Add(W(p + "mlp.gate.weight", Ffn, Hidden));
+            Add(W(p + "mlp.up.weight", Ffn, Hidden));
+            Add(W(p + "mlp.down.weight", Hidden, Ffn));
         }
-        if (longrope) { Add(W("rope.freq_factors", D / 2)); Add(W("rope.freq_factors_long", D / 2)); }
+        if (longrope)
+        {
+            Add(W("rope.freq_factors", D / 2));
+            Add(W("rope.freq_factors_long", D / 2));
+        }
         return new ModelSource { Format = "test", Architecture = "decoder", Metadata = md, Weights = w };
     }
 
