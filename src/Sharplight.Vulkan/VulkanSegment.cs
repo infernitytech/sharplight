@@ -20,10 +20,17 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
-    private readonly Dictionary<string, VkCommandBuffer> _recorded = [];
+    private readonly Dictionary<string, VkCommandBuffer[]> _recorded = [];
     private readonly Queue<string> _recordOrder = new();
-    /// <summary>Most command buffers kept recorded per segment (one per distinct symbol binding).</summary>
+    /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
     private const int MaxRecordings = 64;
+    /// <summary>
+    /// Most launches recorded into one command buffer. NVIDIA (Blackwell, driver 610) loses the device (Xid 13,
+    /// SKEDCHECK36_DEPENDENCE_COUNTER_UNDERFLOW) once a command buffer holds more than about 65.8k dispatches, with or without
+    /// barriers between them; graphs with that many launches (swin2sr: ~150k tiny concats) are split into several command
+    /// buffers that are still submitted together.
+    /// </summary>
+    private const int MaxLaunchesPerCommandBuffer = 32768;
     private readonly CompileOptions _options;
     private readonly VkFence _fence;
     /// <summary>This segment's own command pool (pools are externally synchronized; segments of different models run on different threads).</summary>
@@ -124,6 +131,14 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
 
     private void FreeCb(VkCommandBuffer cb) => _dev.Api.vkFreeCommandBuffers(_pool, 1, &cb);
 
+    private void FreeCbs(VkCommandBuffer[] cbs)
+    {
+        foreach (var cb in cbs)
+        {
+            FreeCb(cb);
+        }
+    }
+
     // ---- weights ---------------------------------------------------------------------------
     private void UploadWeights()
     {
@@ -215,19 +230,19 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             ExecuteBudgeted(key, bindings, skipDownloads);
             return;
         }
-        if (!_recorded.TryGetValue(key, out var cb))
+        if (!_recorded.TryGetValue(key, out var cbs))
         {
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
 
-            cb = RecordStep(key, bindings, skipDownloads);
-            _recorded[key] = cb;
+            cbs = RecordStep(key, bindings, skipDownloads);
+            _recorded[key] = cbs;
             _recordOrder.Enqueue(key);
         }
 
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
-        _dev.Submit(cb, fence);
+        _dev.Submit(cbs, fence);
         _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
         ulong* ts = stackalloc ulong[2];
         if (_dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
@@ -236,30 +251,59 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
     }
 
-    /// <summary>Records one whole step (timestamps, input copies, every launch, output copies) into a new command buffer.</summary>
-    private VkCommandBuffer RecordStep(string key, Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    /// <summary>
+    /// Records one whole step (timestamps, input copies, every launch, output copies) into new command buffers, one per
+    /// <see cref="MaxLaunchesPerCommandBuffer"/> launches, to be submitted together in order.
+    /// </summary>
+    private VkCommandBuffer[] RecordStep(string key, Bindings bindings, IReadOnlySet<Value> skipDownloads)
     {
         var recordTimer = Stopwatch.StartNew();
         long pipelineTicksBefore = _dev.PipelineTicks;
         int pipelinesBefore = _dev.PipelinesCreated;
-        var cb = AllocCb();
-        var beginInfo = new VkCommandBufferBeginInfo();
-        _dev.Api.vkBeginCommandBuffer(cb, &beginInfo).CheckResult();
-        _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
-        _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
-        RecordInputCopies(cb, bindings);
-        Record(cb, _program.Launches, bindings);
-        RecordOutputCopies(cb, bindings, skipDownloads);
-        _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
-        _dev.Api.vkEndCommandBuffer(cb).CheckResult();
+        var launches = _program.Launches;
+        int count = Math.Max(1, (launches.Count + MaxLaunchesPerCommandBuffer - 1) / MaxLaunchesPerCommandBuffer);
+        var cbs = new VkCommandBuffer[count];
+        for (int i = 0; i < count; i++)
+        {
+            var cb = AllocCb();
+            cbs[i] = cb;
+            var beginInfo = new VkCommandBufferBeginInfo();
+            _dev.Api.vkBeginCommandBuffer(cb, &beginInfo).CheckResult();
+            if (i == 0)
+            {
+                _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
+                _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
+                RecordInputCopies(cb, bindings);
+            }
+            else
+            {
+                // The previous command buffer's launches must finish before this one's read their results.
+                Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite,
+                    VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderRead | VkAccessFlags.ShaderWrite);
+            }
+
+            int start = i * MaxLaunchesPerCommandBuffer;
+            Record(cb, Slice(launches, start, MaxLaunchesPerCommandBuffer), bindings, firstIndex: start);
+            if (i == count - 1)
+            {
+                RecordOutputCopies(cb, bindings, skipDownloads);
+                _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
+            }
+
+            _dev.Api.vkEndCommandBuffer(cb).CheckResult();
+        }
+
         if (DiagnosticSwitches.LoadTiming)
         {
             double pipelineMs = (double)(_dev.PipelineTicks - pipelineTicksBefore) / Stopwatch.Frequency * 1000;
-            Console.Error.WriteLine($"[load] record {key}: {recordTimer.ElapsedMilliseconds} ms, of which {_dev.PipelinesCreated - pipelinesBefore} pipelines {pipelineMs:F0} ms");
+            Console.Error.WriteLine($"[load] record {key}: {recordTimer.ElapsedMilliseconds} ms in {count} command buffer(s), of which {_dev.PipelinesCreated - pipelinesBefore} pipelines {pipelineMs:F0} ms");
         }
 
-        return cb;
+        return cbs;
     }
+
+    private static IReadOnlyList<KernelLaunch> Slice(IReadOnlyList<KernelLaunch> launches, int start, int count)
+        => start == 0 && launches.Count <= count ? launches : launches.Skip(start).Take(count).ToList();
 
     /// <summary>
     /// Keeps the recording cache bounded: data-dependent symbols (e.g. a detection count) can take a new value on every run, and
@@ -273,7 +317,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         var oldest = _recordOrder.Dequeue();
-        FreeCb(_recorded[oldest]);
+        FreeCbs(_recorded[oldest]);
         _recorded.Remove(oldest);
     }
 
@@ -291,7 +335,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private void ExecuteProfiled(Bindings bindings, IReadOnlySet<Value> skipDownloads)
     {
         var names = new string[_program.Launches.Count];
-        var ms = MeasureLaunches(bindings, skipDownloads, _dev.SubmissionBudgetMs > 0 ? CalibrationChunk : int.MaxValue, (i, l, v) =>
+        var ms = MeasureLaunches(bindings, skipDownloads, _dev.SubmissionBudgetMs > 0 ? CalibrationChunk : MaxLaunchesPerCommandBuffer, (i, l, v) =>
         {
             var parts = l.Name.Split(' ');
             names[i] = DiagnosticSwitches.ProfileDetail
@@ -354,7 +398,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                         {
                             onLaunch?.Invoke(s0 + i, l, v);
                         }
-                    });
+                    }, firstIndex: s0);
                 });
                 var ts = new ulong[n];
                 fixed (ulong* t = ts)
@@ -468,7 +512,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         for (int i = 0; i <= launches.Count; i++)
         {
             bool end = i == launches.Count;
-            if (end || (i > start && sum + est[i] > budget))
+            if (end || (i > start && (sum + est[i] > budget || i - start >= MaxLaunchesPerCommandBuffer)))
             {
                 if (i > start)
                 {
@@ -529,9 +573,19 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _dev.Immediate(cb => Record(cb, launches, new Bindings(new Dictionary<string, long>())));
     }
 
+    /// <param name="cb">Command buffer being recorded.</param>
+    /// <param name="launches">Launches to record, at most <see cref="MaxLaunchesPerCommandBuffer"/>.</param>
+    /// <param name="bindings">Symbol values.</param>
+    /// <param name="afterDispatch">Called with -1 before the first launch and with each launch's index in <paramref name="launches"/> after it.</param>
+    /// <param name="firstIndex">Program index of the first launch, for <see cref="DiagnosticSwitches.MaxLaunches"/> and launch listings.</param>
     private void Record(VkCommandBuffer cb, IReadOnlyList<KernelLaunch> launches, Bindings bindings,
-        Action<int, KernelLaunch, KernelVariant>? afterDispatch = null)
+        Action<int, KernelLaunch, KernelVariant>? afterDispatch = null, int firstIndex = 0)
     {
+        if (launches.Count > MaxLaunchesPerCommandBuffer)
+        {
+            throw new InvalidOperationException($"{launches.Count} launches exceed {MaxLaunchesPerCommandBuffer} per command buffer.");
+        }
+
         afterDispatch?.Invoke(-1, null!, null!);
         int index = 0;
         var api = _dev.Api;
@@ -541,7 +595,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
 
         foreach (var launch in launches)
         {
-            if (index >= DiagnosticSwitches.MaxLaunches)
+            if (firstIndex + index >= DiagnosticSwitches.MaxLaunches)
             {
                 break;
             }
@@ -598,7 +652,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             var g = variant.Grid(bindings);
             if (DiagnosticSwitches.ListLaunches)
             {
-                Console.Error.WriteLine($"[launch {index}] {launch.Name} {variant.Kernel.CacheKey} grid {g.X}x{g.Y}x{g.Z}");
+                Console.Error.WriteLine($"[launch {firstIndex + index}] {launch.Name} {variant.Kernel.CacheKey} grid {g.X}x{g.Y}x{g.Z}");
             }
 
             api.vkCmdDispatch(cb, g.X, g.Y, g.Z);
@@ -709,9 +763,9 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _disposed = true;
         // Every Execute waits for its fence, so no work of this segment is in flight; no device-wide wait (it would
         // stall, and need the queue lock against, the other models sharing the device).
-        foreach (var cb in _recorded.Values)
+        foreach (var cbs in _recorded.Values)
         {
-            FreeCb(cb);
+            FreeCbs(cbs);
         }
 
         _recorded.Clear();

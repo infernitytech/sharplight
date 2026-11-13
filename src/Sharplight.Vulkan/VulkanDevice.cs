@@ -662,12 +662,18 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     }
 
     /// <summary>Submits one command buffer; vkQueueSubmit needs external synchronization and the queue is shared by all users of the device.</summary>
-    internal void Submit(VkCommandBuffer cb, VkFence fence)
+    internal void Submit(VkCommandBuffer cb, VkFence fence) => Submit(new ReadOnlySpan<VkCommandBuffer>(in cb), fence);
+
+    /// <summary>Submits command buffers that run in order as one batch, signalling <paramref name="fence"/> after the last.</summary>
+    internal void Submit(ReadOnlySpan<VkCommandBuffer> cbs, VkFence fence)
     {
-        var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
-        lock (_queueLock)
+        fixed (VkCommandBuffer* p = cbs)
         {
-            Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+            var si = new VkSubmitInfo { commandBufferCount = (uint)cbs.Length, pCommandBuffers = p };
+            lock (_queueLock)
+            {
+                Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+            }
         }
     }
 
