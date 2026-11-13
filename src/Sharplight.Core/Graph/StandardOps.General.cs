@@ -106,13 +106,15 @@ public static partial class StandardOps
 
     /// <summary>
     /// Top-k along <c>axis</c> (default -1). Attrs: <c>k</c> (long), <c>largest</c> (default true), <c>sorted</c> (default true).
+    /// Instead of <c>k</c>, <c>k_symbol</c> (string) gives a symbolic k (e.g. <c>min(200,nms#3)</c>); the axis must then be the outermost.
     /// Outputs: values (f32) and indices (i32), both with dim k on the axis.
     /// </summary>
     public static readonly OpSchema TopK = new("TopK", OpCategory.Reduction, 1, 1, (i, a) =>
     {
         var x = i[0].Shape;
         int axis = Axis(a.Get("axis", -1L), x.Rank);
-        var s = x.WithDim(axis, a.Get<long>("k"));
+        var k = a.Get("k_symbol", "") is { Length: > 0 } symbol ? Dim.Sym(symbol) : a.Get<long>("k");
+        var s = x.WithDim(axis, k);
         return [new(DataType.F32, s), new(DataType.I32, s)];
     });
 

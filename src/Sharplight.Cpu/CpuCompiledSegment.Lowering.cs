@@ -156,6 +156,18 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "GatedDeltaRule":
                 LowerGatedDeltaRule(n);
                 return;
+            case "Fill":
+                LowerFill(n);
+                return;
+            case "NonZero":
+                LowerNonZero(n);
+                return;
+            case "NonMaxSuppression":
+                LowerNonMaxSuppression(n);
+                return;
+            case "Unique":
+                LowerUnique(n);
+                return;
         }
 
         if (s_unaryKinds.TryGetValue(op, out var unaryKind))

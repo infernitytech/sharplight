@@ -51,8 +51,9 @@ public static partial class StandardOps
     // ---- views ----------------------------------------------------------------------------
     /// <summary>
     /// Reshape (row-major). Attribute: shape (long[]; -1 = infer, 0 = keep symbolic outer dim). Optional attribute
-    /// <c>outer_symbol</c> (string): the first entry of <c>shape</c> is then a new symbolic outer dimension of that name
-    /// (e.g. N patches → M = N/4 merged tokens); the caller binds both symbols consistently at run time.
+    /// <c>outer_symbol</c> (string): the first entry of <c>shape</c> is ignored and the outer dimension is that symbol or expression.
+    /// An expression over the input's symbols must preserve the element count (<c>[N, 12, 16] → [12*N, 16]</c>); a symbol unrelated to
+    /// the input's (e.g. N patches → M = N/4 merged tokens) must be bound consistently by the caller.
     /// </summary>
     public static readonly OpSchema Reshape = new("Reshape", OpCategory.View, 1, 1, InferReshape);
 
@@ -295,6 +296,33 @@ public static partial class StandardOps
     private static IReadOnlyList<TensorType> Broadcast(IReadOnlyList<Value> i, Attributes a) =>
         [new(DataType.F32, BroadcastShapes(i[0].Shape, i[1].Shape))];
 
+    private static Shape ReshapeToOuterSymbol(Shape src, long[] req, Dim outer)
+    {
+        if (src.Rank == 0 || !src[0].IsSymbolic || req.Length < 1 || req.Skip(1).Any(d => d < 0))
+        {
+            throw new ArgumentException("Reshape outer_symbol needs a symbolic outer input dimension and fixed inner target dimensions.");
+        }
+
+        var dims = new Dim[req.Length];
+        dims[0] = outer;
+        long inner = 1;
+        for (int k = 1; k < req.Length; k++)
+        {
+            dims[k] = req[k];
+            inner *= req[k];
+        }
+
+        var source = src[0].Expression * src.InnerElements;
+        var target = outer.Expression * inner;
+        bool related = outer.Expression.Atoms().All(s => source.Atoms().Contains(s));
+        if (related && !source.Equals(target))
+        {
+            throw new ArgumentException($"Reshape {src} → [{outer}, {string.Join(",", req.Skip(1))}] changes the element count ({source} vs {target}).");
+        }
+
+        return new Shape(dims);
+    }
+
     private static IReadOnlyList<TensorType> InferReshape(IReadOnlyList<Value> i, Attributes a)
     {
         var src = i[0].Shape;
@@ -302,18 +330,7 @@ public static partial class StandardOps
         var dims = new Dim[req.Length];
         if (a.Get("outer_symbol", "") is { Length: > 0 } outer)
         {
-            if (!src[0].IsSymbolic || req.Length < 1 || req[0] != 0)
-            {
-                throw new ArgumentException("Reshape outer_symbol needs a symbolic outer dimension and shape[0] = 0.");
-            }
-
-            dims[0] = Dim.Sym(outer);
-            for (int k = 1; k < req.Length; k++)
-            {
-                dims[k] = req[k];
-            }
-
-            return [new(i[0].Type, new Shape(dims))];
+            return [new(i[0].Type, ReshapeToOuterSymbol(src, req, Dim.Sym(outer)))];
         }
 
         long known = 1;

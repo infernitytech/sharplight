@@ -2,14 +2,14 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Top-k values and indices along one axis.</summary>
+/// <summary>Top-k values and indices along one axis; k is the output extent on that axis (symbolic k is read at run time).</summary>
 internal sealed unsafe class TopKOp : CpuOp
 {
     private readonly TRef _x;
     private readonly TRef _v;
     private readonly TRef _i;
     private readonly int _axis;
-    private readonly int _k;
+    private int _k;
     private readonly bool _largest;
     private readonly Action<int> _body;
     private long _outer;
@@ -17,13 +17,12 @@ internal sealed unsafe class TopKOp : CpuOp
     private long _inner;
     private long _per;
     public override string Name => "TopK";
-    public TopKOp(TRef x, TRef vals, TRef idx, int axis, int k, bool largest)
+    public TopKOp(TRef x, TRef vals, TRef idx, int axis, bool largest)
     {
         _x = x;
         _v = vals;
         _i = idx;
         _axis = axis;
-        _k = k;
         _largest = largest;
         _body = Body;
     }
@@ -34,6 +33,7 @@ internal sealed unsafe class TopKOp : CpuOp
         _outer = OpHelpers.Prod(d, 0, _axis);
         _a = d[_axis];
         _inner = OpHelpers.Prod(d, _axis + 1, d.Length);
+        _k = (int)Math.Min(_v.Dim(_axis, p), _a);
         long items = _outer * _inner;
         if (items == 0 || _k == 0)
         {
