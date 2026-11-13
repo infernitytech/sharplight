@@ -18,7 +18,7 @@ internal sealed partial class OnnxTranslator
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
-        "GlobalLpPool", "MaxUnpool", "MaxRoiPool", "Col2Im", "AffineGrid", "CenterCropPad",
+        "GlobalLpPool", "MaxUnpool", "MaxRoiPool", "DeformConv", "Col2Im", "AffineGrid", "CenterCropPad",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -115,6 +115,9 @@ internal sealed partial class OnnxTranslator
                 break;
             case "MaxUnpool":
                 MaxUnpool(n, ins);
+                break;
+            case "DeformConv":
+                DeformConv(n, ins);
                 break;
             case "MaxRoiPool":
                 MaxRoiPool(n, ins);
