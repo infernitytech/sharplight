@@ -11,6 +11,11 @@ public interface ICompiledSegment : IDisposable
     public void SetInput(Value value, ReadOnlySpan<byte> data);
     /// <summary>Records/executes the segment. Implementations may run asynchronously until an output is read.</summary>
     public void Execute(RunParameters parameters);
+    /// <summary>
+    /// Like <see cref="Execute(RunParameters)"/>, but the outputs in <paramref name="skipDownloads"/> are not read back afterwards, so a
+    /// provider that stages outputs in host memory may skip copying them. The default ignores the hint.
+    /// </summary>
+    public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads) => Execute(parameters);
     /// <summary>Downloads a segment output (dense, logical layout) after <see cref="Execute"/>.</summary>
     public void GetOutput(Value value, Span<byte> destination);
     /// <summary>Clears persistent state (KV caches, recurrent states) owned by this segment.</summary>

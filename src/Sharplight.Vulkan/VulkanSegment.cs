@@ -370,7 +370,13 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
     // ---- execution ---------------------------------------------------------------------------
     /// <inheritdoc />
-    public void Execute(RunParameters parameters)
+    public void Execute(RunParameters parameters) => Execute(parameters, s_noSkips);
+
+    private static readonly HashSet<Value> s_noSkips = [];
+
+    /// <inheritdoc />
+    /// <remarks>Each distinct set of skipped outputs gets its own recorded command buffer (without their staging copies).</remarks>
+    public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads)
     {
         var rt = _staging[_program.RuntimeBuffer];
         var slots = new Span<uint>(rt.Mapped, 64);
@@ -383,13 +389,18 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         var bindings = new Bindings(parameters.Symbols);
         if (Profile)
         {
-            ExecuteProfiled(bindings);
+            ExecuteProfiled(bindings, skipDownloads);
             return;
         }
         var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
+        if (skipDownloads.Count > 0)
+        {
+            key += " skip:" + string.Join(",", skipDownloads.Select(v => v.Id).Order());
+        }
+
         if (_dev.SubmissionBudgetMs > 0)
         {
-            ExecuteBudgeted(key, bindings);
+            ExecuteBudgeted(key, bindings, skipDownloads);
             return;
         }
         if (!_recorded.TryGetValue(key, out var cb))
@@ -406,7 +417,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
             RecordInputCopies(cb, bindings);
             Record(cb, _program.Launches, bindings);
-            RecordOutputCopies(cb, bindings);
+            RecordOutputCopies(cb, bindings, skipDownloads);
             _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
             _dev.Api.vkEndCommandBuffer(cb).CheckResult();
             _recorded[key] = cb;
@@ -437,10 +448,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
     }
 
-    private void ExecuteProfiled(Bindings bindings)
+    private void ExecuteProfiled(Bindings bindings, IReadOnlySet<Value> skipDownloads)
     {
         var names = new string[_program.Launches.Count];
-        var ms = MeasureLaunches(bindings, _dev.SubmissionBudgetMs > 0 ? CalibrationChunk : int.MaxValue, (i, l, v) =>
+        var ms = MeasureLaunches(bindings, skipDownloads, _dev.SubmissionBudgetMs > 0 ? CalibrationChunk : int.MaxValue, (i, l, v) =>
         {
             var parts = l.Name.Split(' ');
             names[i] = DiagnosticSwitches.ProfileDetail
@@ -464,7 +475,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     /// Runs the whole program (input copies, every launch, output copies) with a GPU timestamp after each dispatch, in submissions
     /// of at most <paramref name="chunk"/> launches, and returns the GPU time of each launch in ms (0 for skipped ones).
     /// </summary>
-    private double[] MeasureLaunches(Bindings bindings, int chunk, Action<int, KernelLaunch, KernelVariant>? onLaunch = null)
+    private double[] MeasureLaunches(Bindings bindings, IReadOnlySet<Value> skipDownloads, int chunk, Action<int, KernelLaunch, KernelVariant>? onLaunch = null)
     {
         var api = _dev.Api;
         var launches = _program.Launches;
@@ -532,7 +543,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 api.vkDestroyQueryPool(pool, null);
             }
         }
-        _dev.Immediate(cb => RecordOutputCopies(cb, bindings));
+        _dev.Immediate(cb => RecordOutputCopies(cb, bindings, skipDownloads));
         return result;
     }
 
@@ -560,15 +571,15 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     /// plan, one submission (waited on) per chunk of roughly <see cref="VulkanDevice.SubmissionBudgetMs"/>. A chunk that turns
     /// out to run much longer than estimated (e.g. attention over a longer past) is re-estimated and split further.
     /// </summary>
-    private void ExecuteBudgeted(string key, Bindings bindings)
+    private void ExecuteBudgeted(string key, Bindings bindings, IReadOnlySet<Value> skipDownloads)
     {
         CheckWithinCompiledBounds(bindings);
 
         var sw = Stopwatch.StartNew();
         if (!_plans.TryGetValue(key, out var plan))
         {
-            var est = MeasureLaunches(bindings, CalibrationChunk);
-            _plans[key] = BuildPlan(est, bindings);
+            var est = MeasureLaunches(bindings, skipDownloads, CalibrationChunk);
+            _plans[key] = BuildPlan(est, bindings, skipDownloads);
             LastGpuMs = est.Sum();
             return;
         }
@@ -603,11 +614,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 FreeCb(c.Cb);
             }
 
-            _plans[key] = BuildPlan(plan.Est, bindings);
+            _plans[key] = BuildPlan(plan.Est, bindings, skipDownloads);
         }
     }
 
-    private Plan BuildPlan(double[] est, Bindings bindings)
+    private Plan BuildPlan(double[] est, Bindings bindings, IReadOnlySet<Value> skipDownloads)
     {
         var launches = _program.Launches;
         var plan = new Plan { Est = est };
@@ -656,7 +667,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             Record(cb, launches.Skip(c.Start).Take(c.End - c.Start).ToList(), bindings);
             if (ci == plan.Chunks.Count - 1)
             {
-                RecordOutputCopies(cb, bindings);
+                RecordOutputCopies(cb, bindings, skipDownloads);
             }
 
             _dev.Api.vkEndCommandBuffer(cb).CheckResult();
@@ -793,11 +804,16 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderRead | VkAccessFlags.ShaderWrite);
     }
 
-    private void RecordOutputCopies(VkCommandBuffer cb, Bindings b)
+    private void RecordOutputCopies(VkCommandBuffer cb, Bindings b, IReadOnlySet<Value> skipDownloads)
     {
         Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferRead);
-        foreach (var r in _program.OutputRefs.Values)
+        foreach (var (value, r) in _program.OutputRefs)
         {
+            if (skipDownloads.Contains(value))
+            {
+                continue;
+            }
+
             Copy(cb, _alloc[r.Buffer], _staging[r.Buffer], (ulong)r.ByteOffset, UsedBytes(r, b));
         }
 
