@@ -230,7 +230,22 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
 struct WChunk { uint4 lo; uint4 hi; float d; float off; };
 struct XChunk { uint4 lo; uint4 hi; float2 d; };
 
-#if WFMT == FMT_IQ4_NL || WFMT == FMT_MXFP4
+#if WFMT == FMT_MXFP4
+// Four E2M1 codes (one per byte of u, low 4 bits) as the doubled int8 values: magnitude code m (0..7) maps to
+// m + max(0, m - 4) + 2 max(0, m - 6) = {0, 1, 2, 3, 4, 6, 8, 12}, computed bytewise without carries; then the sign
+// (bit 3) negates as (v ^ 0xFF) + 1, skipping zero bytes so no carry crosses a byte.
+uint fp4_bytes(uint u)
+{
+    uint m = u & 0x07070707u;
+    uint ge4 = (m >> 2) & 0x01010101u;
+    uint ge6 = ge4 & (m >> 1);
+    uint v = m + (m & 0x03030303u & (ge4 * 0xFFu)) + ((m & ge6) << 1);
+    uint neg = (u >> 3) & 0x01010101u & ((v + 0x7F7F7F7Fu) >> 7);
+    return (v ^ (neg * 0xFFu)) + neg;
+}
+#endif
+
+#if WFMT == FMT_IQ4_NL
 // Four nibbles (one per byte of u, low 4 bits) through a 16-entry int8 codebook packed four per word.
 uint codebook_bytes(uint u, uint4 kv)
 {
@@ -267,10 +282,9 @@ WChunk load_chunk(uint8_t* w, uint row, uint ch)
     // E2M1 codes as the doubled int8 values {0, 1, 2, 3, 4, 6, 8, 12} (and negatives), with the halved E8M0 scale.
     c.d = e8m0_half(uint(*(uint8_t*)at));
     uint4 qs = load16_any(at + 1);
-    const uint4 kv = uint4(0x03020100u, 0x0C080604u, 0xFDFEFF00u, 0xF4F8FAFCu);
-    uint4 l = qs & 0x0F0F0F0Fu, h = (qs >> 4) & 0x0F0F0F0Fu;
-    c.lo = uint4(codebook_bytes(l.x, kv), codebook_bytes(l.y, kv), codebook_bytes(l.z, kv), codebook_bytes(l.w, kv));
-    c.hi = uint4(codebook_bytes(h.x, kv), codebook_bytes(h.y, kv), codebook_bytes(h.z, kv), codebook_bytes(h.w, kv));
+    uint4 h = qs >> 4;
+    c.lo = uint4(fp4_bytes(qs.x), fp4_bytes(qs.y), fp4_bytes(qs.z), fp4_bytes(qs.w));
+    c.hi = uint4(fp4_bytes(h.x), fp4_bytes(h.y), fp4_bytes(h.z), fp4_bytes(h.w));
 #else
     c.d = h2f(*(uint16_t*)at);
     uint4 qs = load16_any(at + (WFMT == FMT_Q5_0 ? 6 : 2));
