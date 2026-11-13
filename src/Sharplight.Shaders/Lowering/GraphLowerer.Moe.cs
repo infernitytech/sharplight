@@ -117,14 +117,20 @@ public sealed partial class GraphLowerer
         _moeScratch.Bytes = Math.Max(_moeScratch.Bytes, Math.Max(16, scratchWords * 4));
         var scratch = new TensorRef(_moeScratch, 0, DataType.U32, [scratchWords], [1], null);
 
-        // Tile rows per expert: small tiles when experts see few rows on average (less wasted MMA work).
-        Func<Bindings, int> tile = b => !coop ? 64 : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile : items(b) <= 24 * E ? 32 : 64;
+        // Tile rows per expert: small tiles when experts see few rows on average (less wasted MMA work). The grouped gemm_cm2
+        // also has 128-row tiles for experts that see many rows.
+        bool gemm2 = coop && DiagnosticSwitches.MoeGemm2;
+        int[] coopTiles = gemm2 ? [32, 64, 128] : [32, 64];
+        Func<Bindings, int> tile = b => !coop ? 64
+            : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile
+            : items(b) <= 24 * E ? 32
+            : !gemm2 || items(b) <= 160 * E ? 64 : 128;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 
         if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.Coop != coop)
         {
-            var tiling = coop ? new[] { 32, 64 } : new[] { 64 };
+            int[] tiling = coop ? coopTiles : [64];
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
                 [.. tiling.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("moe.slang", "moe_route", new Dictionary<string, string>(Macros(("E", E), ("S", S), ("TILE_M", t), ("MAXTILES", maxTiles)))),
@@ -136,7 +142,17 @@ public sealed partial class GraphLowerer
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
         var gargs = new KernelArg[] { Pointer(x), Pointer(w), scratchArg, Pointer(y), TokenArg(ids) };
-        if (coop)
+        if (gemm2)
+        {
+            // The dense tensor-core GEMM in its expert-grouped form: one routing tile per workgroup row.
+            var groupedMacros = new Dictionary<string, string>(gm) { ["MOE"] = "1", ["Y_STRIDE"] = N.ToString(CultureInfo.InvariantCulture) };
+            Emit(label + " gemm-cm2", [n],
+                [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
+                    Lib("matmul.slang", "gemm_cm2", Gemm2Macros(groupedMacros, t, large: false)),
+                    b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
+                gargs, [x, w, scratch], [y]);
+        }
+        else if (coop)
         {
             Emit(label + " gemm-cm", [n],
                 [.. new[] { 32, 64 }.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,

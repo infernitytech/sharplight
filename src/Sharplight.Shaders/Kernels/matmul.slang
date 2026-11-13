@@ -7,6 +7,13 @@
 #ifndef DUAL
 #define DUAL 0
 #endif
+// MOE (gemm_cm2 only): expert-grouped GEMM of a MatMulId. W holds E experts of N rows (EXPERT_BYTES apart); y gets one row per
+// (token, slot) item. Each workgroup row of the grid is one expert tile of the routing scratch built by moe_route (moe.slang):
+// [0] = tile count, [1 + 3i ..] = tile i {expert, row offset, rows}, [1 + 3 MAXTILES + o] = item at sorted position o. Item i
+// reads activation row PER_SLOT ? i : i / S.
+#ifndef MOE
+#define MOE 0
+#endif
 
 struct Params
 {
@@ -17,6 +24,9 @@ struct Params
     uint8_t* w;
 #if DUAL
     uint8_t* w2;
+#endif
+#if MOE
+    uint* scratch;
 #endif
     float* y;
     uint T;
@@ -532,6 +542,9 @@ uint4 load8h(uint8_t* w, uint row, uint g)
 #endif
 }
 groupshared float gC[WARPS_M * WARPS_N * 256];
+#if MOE
+groupshared uint gItem[GBM];
+#endif
 
 [shader("compute")]
 [numthreads(GTHREADS, 1, 1)]
@@ -541,7 +554,24 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
     uint n0 = gid.x * GBN;
+#if MOE
+    // The tile's expert and items; t indexes the tile's rows (0 .. rows - 1) instead of tokens.
+    uint tile = gid.y;
+    if (tile >= p.scratch[0]) return;
+    uint expert = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile];
+    uint tileRows = p.scratch[3 + 3 * tile];
+    uint8_t* wbase = rowStart(p.w, EXPERT_BYTES, expert);
+    for (uint r = tid; r < GBM; r += GTHREADS) gItem[r] = r < tileRows ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0xFFFFFFFFu;
+    GroupMemoryBarrierWithGroupSync();
+    uint t0 = 0;
+    #define ROW_OF(t) (PER_SLOT ? gItem[t] : gItem[t] / S)
+    #define ROWS_LIVE tileRows
+#else
     uint t0 = gid.y * GBM;
+    uint8_t* wbase = p.w;
+    #define ROW_OF(t) (t)
+    #define ROWS_LIVE p.T
+#endif
     uint wm = (sg / WARPS_N) * (FRAG_M * 16);
     uint wn = (sg % WARPS_N) * (FRAG_N * 16);
 #ifndef SPLITK
@@ -566,11 +596,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if X_F16
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
-        { dst = 0; if ((t) < p.T) dst = ((uint4*)((uint16_t*)p.x + uint64_t(t) * X_STRIDE + (k)))[0]; }
+        { dst = 0; if ((t) < ROWS_LIVE) dst = ((uint4*)((uint16_t*)p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)))[0]; }
 #else
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
         { float4 a = 0, b = 0;                                                                          \
-          if ((t) < p.T) { float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
+          if ((t) < ROWS_LIVE) { float4* xp = (float4*)(p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
           dst = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),       \
                       f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16)); }
 #endif
@@ -585,7 +615,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / (GBK / 16), q = idx % (GBK / 16);                     \
         ws[it][0] = 0; ws[it][1] = 0;                                                                   \
-        if (N % GBN == 0 || n0 + r < N) load16h(p.w, n0 + r, (k0) / 16 + q, ws[it][0], ws[it][1]);      \
+        if (N % GBN == 0 || n0 + r < N) load16h(wbase, n0 + r, (k0) / 16 + q, ws[it][0], ws[it][1]);      \
     }
     #define STAGE(buf)                                                                                  \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
@@ -640,8 +670,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef FETCH
     #undef STAGE
     #undef GEMM_LOAD_X
+    #undef ROW_OF
+    #undef ROWS_LIVE
 
-    if (t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
+    if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
     {
         [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++)
             acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(t0 + wm + i * 16) * Y_STRIDE + n0 + wn + j * 16, 0u, Y_STRIDE);
@@ -662,7 +694,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 uint w = lane + e * 32;
                 uint t = t0 + wm + i * 16 + w / 16;
                 uint n = n0 + wn + j * 16 + w % 16;
+#if MOE
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w];
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];
+#endif
             }
             GroupMemoryBarrierWithGroupSync();
         }
