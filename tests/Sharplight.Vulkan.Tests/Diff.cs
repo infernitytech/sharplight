@@ -24,11 +24,17 @@ internal static class Diff
         };
     }
 
-    private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx)
+    private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx, IReadOnlySet<string>? disabledFeatures = null)
         => CompiledModel.Compile(g, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = dev }],
-            Compile = new CompileOptions { MaxTokens = maxTokens, ContextLength = ctx, SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens } },
+            Compile = new CompileOptions
+            {
+                MaxTokens = maxTokens,
+                ContextLength = ctx,
+                SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens },
+                DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
+            },
             ReservePerDevice = 0,
         });
 
@@ -56,12 +62,14 @@ internal static class Diff
 
     /// <summary>
     /// Runs all steps on both devices (state persists across steps) and compares every graph output.
-    /// Returns the largest |a-b| seen.
+    /// Returns the largest |a-b| seen. <paramref name="disabledFeatures"/> are turned off for the Vulkan compilation
+    /// (to exercise the portable fallback kernels on a device that has the features).
     /// </summary>
-    public static double Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null)
+    public static double Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
+        IReadOnlySet<string>? disabledFeatures = null)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx);
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures);
         CompiledModel cpu;
         try
         {
@@ -137,6 +145,7 @@ internal static class Diff
         return maxAbs;
     }
 
-    public static double Check(string op, ComputeGraph g, Step step, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null)
-        => Check(op, g, [step], atol, rtol, maxTokens, ctx, what);
+    public static double Check(string op, ComputeGraph g, Step step, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
+        IReadOnlySet<string>? disabledFeatures = null)
+        => Check(op, g, [step], atol, rtol, maxTokens, ctx, what, disabledFeatures);
 }

@@ -457,7 +457,8 @@ public sealed partial class GraphLowerer
         EmitGen("argreduce", [n], iter, x.Symbol, [x], [y], body);
     }
 
-    private void LowerTopK(Node n)
+    /// <summary>Serial top-k (one thread per row, O(k * n)): fallback when k exceeds the shared-memory sort of <see cref="LowerTopK"/>.</summary>
+    private void LowerTopKSerial(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "topk");
         var vals = Produce(n.Outputs[0]);
