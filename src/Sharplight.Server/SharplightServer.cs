@@ -66,7 +66,7 @@ public sealed class SharplightServerContext
         {
             var name = Host.DefaultName() ?? throw new InvalidOperationException("No chat model is registered.");
             using var lease = Host.AcquireAsync(name).GetAwaiter().GetResult();
-            return lease.As<ChatModelInstance>().Service;   // valid until the model is unloaded; hold a lease for long work
+            return ChatOf(lease);   // valid until the model is unloaded; hold a lease for long work
         }
     }
 
@@ -86,7 +86,7 @@ public sealed class SharplightServerContext
     }
 
     /// <summary>Chat service of a lease from <see cref="AcquireAsync"/>.</summary>
-    public static ModelService ChatOf(ModelLease lease) => lease.As<ChatModelInstance>().Service;
+    public static ModelService ChatOf(ModelLease lease) => lease.As<LoadedModel>() is IChatModel c ? c.Service : throw new InvalidOperationException($"Model '{lease.Name}' is not a chat model.");
 }
 
 /// <summary>Drains the models when the host stops so running requests can finish while new ones get 503.</summary>
@@ -243,6 +243,6 @@ public static class SharplightServerExtensions
     }
 
     /// <summary>Loaded chat models and their instances.</summary>
-    internal static List<(string Name, ChatModelInstance Instance)> LoadedChatModels(this SharplightServerContext ctx)
-        => [.. ctx.Host.LoadedInstances().Where(x => x.Instance is ChatModelInstance).Select(x => (x.Name, (ChatModelInstance)x.Instance))];
+    internal static List<(string Name, IChatModel Instance)> LoadedChatModels(this SharplightServerContext ctx)
+        => [.. ctx.Host.LoadedInstances().Where(x => x.Instance is IChatModel).Select(x => (x.Name, (IChatModel)x.Instance))];
 }

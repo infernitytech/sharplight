@@ -13,8 +13,15 @@ public sealed record ChatModelOptions
     public ModelServiceOptions Service { get; init; } = new();
 }
 
+/// <summary>A loaded model that serves chat/completion requests.</summary>
+public interface IChatModel
+{
+    InferenceEngine Engine { get; }
+    ModelService Service { get; }
+}
+
 /// <summary>A loaded chat model: weights on the devices, a batch decoder, its own scheduler thread (<see cref="Engine"/>) and chat layer.</summary>
-public sealed class ChatModelInstance : LoadedModel
+public sealed class ChatModelInstance : LoadedModel, IChatModel
 {
     readonly LlmModel? _model;
     readonly bool _ownsEngine;

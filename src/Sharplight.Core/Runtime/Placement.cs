@@ -208,8 +208,9 @@ public static class PlacementPlanner
             maxNode = Math.Max(maxNode, nodeBytes);
         }
         // Activations live in a liveness-packed arena plus staging copies of the inputs/outputs; a few times the largest node
-        // output (matmul in/out, residual, norm) covers the arena, the 256 MiB sub-allocation granule of device memory the rest.
-        long act = 4 * maxOut + (256L << 20);
+        // output (matmul in/out, residual, norm) covers the arena. Device memory is sub-allocated from 256 MiB blocks (the last one
+        // is partly empty) and big models need a little extra scratch, hence the granule and a few percent of the resident size.
+        long act = 4 * maxOut + (256L << 20) + (weights + states) / 25;
         return new ModelFootprint(weights, states, act);
     }
 

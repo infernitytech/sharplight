@@ -83,7 +83,7 @@ public sealed class LlmModel : IDisposable
         {
             Devices = DevicesWithLimit(memoryLimit),
             Fallback = _options.Fallback,
-            ReservePerDevice = _options.ReservePerDevice ?? DefaultReserve,
+            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
             Compile = new CompileOptions
             {
                 MaxTokens = _options.MaxBatchTokens,
@@ -118,7 +118,7 @@ public sealed class LlmModel : IDisposable
         {
             Devices = DevicesWithLimit(memoryLimit),
             Fallback = _options.Fallback,
-            ReservePerDevice = _options.ReservePerDevice ?? DefaultReserve,
+            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
             Compile = new CompileOptions
             {
                 MaxTokens = _options.MaxBatchTokens,
