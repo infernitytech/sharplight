@@ -21,17 +21,24 @@ public sealed class QuantFormatTests
     [Theory, MemberData(nameof(Formats))]
     public void Gemm(string type) => MatMul(type, 40);
 
-    private static void MatMul(string type, int tokens)
+    /// <summary>MXFP4 weights with large and tiny block scales: the f16 GEMM decode splits scales beyond half's range.</summary>
+    [Theory]
+    [InlineData(64f)]
+    [InlineData(1f / 4096)]
+    public void GemmMxfp4Scales(float scale) => MatMul("mxfp4", 40, scale);
+
+    private static void MatMul(string type, int tokens, float scale = 1f)
     {
         Gpu.Require();
         int K = 768;
         int N = 37;
         var tg = new TG();
         var x = tg.InF("x", TG.T, K);
-        var w = tg.RandW("w", DataType.Get(type), 1f, N, K);
+        var w = tg.RandW("w", DataType.Get(type), scale, N, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
         bool tensorCores = tokens > 16;   // the prefill GEMM may round activations and weights to f16
-        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))), atol: tensorCores ? 5e-2 : 2e-3, rtol: tensorCores ? 1e-2 : 1e-3);
+        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))),
+            atol: (tensorCores ? 5e-2 : 2e-3) * scale, rtol: tensorCores ? 1e-2 : 1e-3);
     }
 
     [Theory, MemberData(nameof(Formats))]

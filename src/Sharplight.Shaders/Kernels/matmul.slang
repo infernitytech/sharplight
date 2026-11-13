@@ -461,6 +461,13 @@ uint q8x4_h2(uint u, half2 d, bool hi)
     return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(1152.0h, 1152.0h)) * d);
 }
 
+// 2 of the 4 E2M1 codes in u (bytes 0,1 or 2,3) -> half2 of value * s1 * s2.
+uint fp4_h2(uint u, bool hi, half2 s1, half2 s2)
+{
+    uint v = hi ? (((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u)) : ((u & 0xFFu) | ((u << 8) & 0xFF0000u));
+    return bit_cast<uint>(bit_cast<half2>(((v & 0x00070007u) << 9) | ((v & 0x00080008u) << 12)) * s1 * s2);
+}
+
 // 8 consecutive weights of row `row` from K offset 8g as packed halves.
 uint4 load8h(uint8_t* w, uint row, uint g);
 
@@ -510,6 +517,25 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 z = half2(0.0h, 0.0h);
     lo = uint4(codes_h2(q.x, false, 1056.0h, s, z), codes_h2(q.x, true, 1056.0h, s, z), codes_h2(q.y, false, 1056.0h, s, z), codes_h2(q.y, true, 1056.0h, s, z));
     hi = uint4(codes_h2(q.z, false, 1056.0h, s, z), codes_h2(q.z, true, 1056.0h, s, z), codes_h2(q.w, false, 1056.0h, s, z), codes_h2(q.w, true, 1056.0h, s, z));
+#elif WFMT == FMT_MXFP4
+    // 16 E2M1 codes (the low or high nibbles of one 17-byte block, read as 5 aligned words and funnel-shifted). A code's
+    // 3 magnitude bits at half bits 9..11 and its sign at bit 15 make the half code * 2^-14 (subnormals included), so
+    // one multiply by 2^14 * the block scale (a power of two, split in two factors when it exceeds half's range) rounds once.
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 17;
+    uint* wp = (uint*)((at + 1) & ~uint64_t(3));
+    uint sh = uint((at + 1) & 3) * 8;
+    uint4 q = uint4(wp[0], wp[1], wp[2], wp[3]);
+    if (sh != 0)
+    {
+        // The fifth word exists only when the codes are not word aligned (the last block may end the buffer).
+        q = (q >> sh) | (uint4(wp[1], wp[2], wp[3], wp[4]) << (32 - sh));
+    }
+    q = (q >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+    float s = e8m0_half(uint(*(uint8_t*)at)) * 32768.0;   // e8m0_half pairs with the doubled codes 0..12
+    half2 s1 = half2(half(min(s, 32768.0)));
+    half2 s2 = half2(half(max(s / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #else
     lo = load8h(w, row, g16 * 2);
     hi = load8h(w, row, g16 * 2 + 1);
