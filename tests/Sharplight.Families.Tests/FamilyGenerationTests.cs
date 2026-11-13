@@ -61,6 +61,17 @@ public class FamilyGenerationTests
         // Flint: attention sinks, sigmoid-routed experts + shared expert, NoPE full layers (tiny random model from tools/mk_tiny_flint.py; the MoE runs on the CPU when the GPU lacks MatMulId).
         new("tiny-random-flint HF (transformers)", "hf/tiny-random-flint", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
             [140756, 125813, 22985, 123010, 143067, 136720, 86988, 72881, 88183, 83127, 61195, 133527, 129060, 110388, 65465, 7319, 86512, 79741, 81427, 118452, 20753, 25666, 5229, 81385], "", NeedsCpuFallbackForMoe: true),
+        // Multi-head latent attention (latent cache, absorbed queries) with yarn, sigmoid routing + selection bias + groups (n_group 8,
+        // topk_group 4), shared expert, dense first layer: tiny random DeepSeek-V3.1 (references: tools/ref_latent_decoder.py).
+        new("tiny-random-deepseek-v3.1 HF (transformers)", "hf/tiny-random-deepseek-v3.1", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
+            [7397, 121552, 120965, 121552, 86995, 31212, 127346, 72580, 121552, 86995, 31212, 127346, 72580, 121552, 86995, 31212], ""),
+        // GLM-4.7-Flash (glm4_moe_lite): MLA with rope theta 1e6, sigmoid routing with bias, 64 experts. Hidden size 8 keeps the logits
+        // close together: the 10th token is a 3e-4 tie in transformers itself, so only the first 9 are compared.
+        new("tiny-random-glm-4.7-flash HF (transformers)", "hf/tiny-random-glm-4.7-flash", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
+            [15970, 15970, 15970, 15970, 15970, 15970, 15970, 15970, 15970], ""),
+        // MiniCPM3: MLA with neox rope + longrope factors, embedding / residual / logit scales (latent rank 4: attention falls back to the CPU on Vulkan).
+        new("tiny-random-minicpm3 HF (transformers)", "hf/tiny-random-minicpm3", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
+            [2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446, 2446], "", NeedsCpuFallbackForMoe: true),
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
