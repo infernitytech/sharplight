@@ -99,7 +99,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             [a + "layer_count"] = nLayer,
             [a + "hidden_size"] = hidden,
             [a + "ffn_hidden_size"] = c.Int("intermediate_size"),
-            [a + "norm_eps"] = (float)c.Double("rms_norm_eps"),
+            [a + "norm_eps"] = (float)(c.GetDouble("rms_norm_eps") ?? 1e-5),
             [a + "attention.head_count"] = nHead,
             [a + "attention.kv_head_count"] = c.GetInt("num_key_value_heads") ?? nHead,
             [a + "attention.head_dim"] = headDim,

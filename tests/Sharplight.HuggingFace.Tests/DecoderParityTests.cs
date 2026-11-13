@@ -28,6 +28,7 @@ public class DecoderParityTests
         new("Qwen3-0.6B", "hf/Qwen3-0.6B", "gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf"),
         new("SmolLM2-360M-Instruct", "hf/SmolLM2-360M-Instruct", "gguf/SmolLM2-360M-Instruct/smollm2-360m-instruct-q8_0.gguf"),
         new("Phi-3.5-mini-instruct", "hf/Phi-3.5-mini-instruct", "gguf/Phi-3.5-mini-instruct/Phi-3.5-mini-instruct-Q4_K_M.gguf"),
+        new("OLMoE-1B-7B-0924-Instruct", "hf/OLMoE-1B-7B-0924-Instruct", "gguf/OLMoE-1B-7B-0924-Instruct/OLMoE-1B-7B-0924-Instruct-Q4_K_M.gguf"),
         new("gemma-3-1b-it", "hf/gemma-3-1b-it", "gguf/gemma-3-1b-it/gemma-3-1b-it-Q8_0.gguf"),
         new("gemma-2-2b-it", "hf/gemma-2-2b-it", "gguf/gemma-2-2b-it/gemma-2-2b-it-Q8_0.gguf"),
     ];
