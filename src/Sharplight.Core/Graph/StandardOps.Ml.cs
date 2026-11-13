@@ -28,9 +28,9 @@ public static partial class StandardOps
     });
 
     /// <summary>
-    /// Elementwise dictionary lookup: y = values[k] where x = keys[k], else <c>default</c>. x f32 or i32 (any shape) → <c>type</c> (f32 or i32),
-    /// same shape. Attributes: <c>keys</c>, <c>values</c> (double[], same length; a NaN key matches NaN), <c>default</c> (double),
-    /// <c>type</c> (DataType name).
+    /// Elementwise dictionary lookup: y = values[k] where x = keys[k], else the default. x f32, i32 or str (any shape) → <c>type</c> (f32, i32
+    /// or str), same shape. Attributes: <c>keys</c>, <c>values</c> (same length; double[] for numbers, a NaN key matches NaN, or string[] for
+    /// strings), <c>default</c> (double or string), <c>type</c> (DataType name).
     /// </summary>
     public static readonly OpSchema LabelEncode = new("LabelEncode", OpCategory.Data, 1, 1, (i, a) =>
         [new(DataType.Get(a.Get("type", "f32")), i[0].Shape)]);

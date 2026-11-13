@@ -86,7 +86,7 @@ internal sealed partial class OnnxTranslator
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var tensor in _graph.Initializers)
         {
-            if (tensor.Source is null)
+            if (tensor.Source is null && tensor.Strings is null)
             {
                 continue;
             }
@@ -135,6 +135,13 @@ internal sealed partial class OnnxTranslator
         }
 
         var shape = InputShape(info);
+        if (info.ElemType == OnnxType.String)
+        {
+            // Strings travel as handles into the run's string heap (see StandardOps.Text).
+            _env[info.Name] = TranslatedTensor.Dyn(_b.Input(info.Name, InputRole.Other, DataType.Str, shape));
+            return;
+        }
+
         // Integer inputs of every width travel as i32 and float inputs of every precision as f32 (see docs/onnx-support.md, "Types").
         bool isInt = OnnxType.IsInteger(info.ElemType);
         if (!OnnxType.IsFloat(info.ElemType) && !isInt && info.ElemType != OnnxType.Bool)

@@ -20,9 +20,17 @@ internal sealed unsafe partial class CpuCompiledSegment
         var a = n.Attributes;
         var x = Dense(Ref(n.Inputs[0]));
         var y = NewDense(n.Output);
-        AddStep(new LabelEncodeOp(x, y, a.Get<double[]>("keys"), a.Get<double[]>("values"), a.Get("default", 0.0)), x, y);
+        var op = new LabelEncodeOp(x, y, Objects(a["keys"]), Objects(a["values"]), a.TryGetValue("default", out var fallback) ? fallback : 0.0);
+        AddStep(op, x, y);
         _refs[n.Output] = y;
     }
+
+    private static object[] Objects(object array) => array switch
+    {
+        double[] numbers => [.. numbers.Cast<object>()],
+        string[] strings => strings,
+        _ => throw new ArgumentException($"LabelEncode keys and values are double[] or string[], got {array.GetType().Name}."),
+    };
 
     private void LowerOneVsOne(Node n)
     {

@@ -195,6 +195,21 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "TfIdf":
                 LowerTfIdf(n);
                 return;
+            case "StringConst":
+                LowerStringConst(n);
+                return;
+            case "StringBinary":
+                LowerStringBinary(n);
+                return;
+            case "StringNormalize":
+                LowerStringNormalize(n);
+                return;
+            case "RegexMatch":
+                LowerRegexMatch(n);
+                return;
+            case "StringCast":
+                LowerStringCast(n);
+                return;
             case "TreeEnsemble":
                 LowerTreeEnsemble(n);
                 return;

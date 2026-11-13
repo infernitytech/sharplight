@@ -11,6 +11,7 @@ internal sealed partial class OnnxTranslator
     [
         "Binarizer", "Scaler", "Normalizer", "ArrayFeatureExtractor", "Imputer", "FeatureVectorizer", "OneHotEncoder", "LabelEncoder",
         "LinearRegressor", "LinearClassifier", "SVMRegressor", "SVMClassifier", "TreeEnsembleRegressor", "TreeEnsembleClassifier", "TreeEnsemble",
+        "CategoryMapper",
     ];
 
     private void TranslateMl(OnnxNode n, TranslatedTensor?[] ins)
@@ -40,6 +41,9 @@ internal sealed partial class OnnxTranslator
                 break;
             case "LabelEncoder":
                 LabelEncoder(n, ins);
+                break;
+            case "CategoryMapper":
+                CategoryMapper(n, ins);
                 break;
             case "LinearRegressor":
                 LinearRegressor(n, ins);
@@ -145,30 +149,44 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, Emit("Equal", [column, F32Const([.. cats.Select(v => (float)v)], Nm(n) + ".cats")], null, Nm(n)));
     }
 
-    /// <summary>Numeric LabelEncoder (int64/float keys and values, as attributes or tensors) on the IR LabelEncode op.</summary>
+    /// <summary>LabelEncoder (int64, float or string keys and values, as attributes or tensors) on the IR LabelEncode op.</summary>
     private void LabelEncoder(OnnxNode n, TranslatedTensor?[] ins)
     {
         var (keys, keyType) = MlValues(n, "keys");
         var (values, valueType) = MlValues(n, "values");
-        if (keyType == OnnxType.String || valueType == OnnxType.String)
-        {
-            throw new NotSupportedException("LabelEncoder with string keys or values on a numeric tensor");
-        }
-
-        double fallback = n.Tensor("default_tensor") is { } t ? OnnxConst.FromTensor(t).Floats()[0]
-            : OnnxType.IsFloat(valueType) ? n.Float("default_float", -0f) : n.Int("default_int64", -1);
-        var x = OnnxType.IsFloat(keyType) ? X(ins, 0) : Idx(ins[0]!);
-        var attributes = Attributes.From(("keys", keys), ("values", values), ("default", fallback), ("type", OnnxType.IsFloat(valueType) ? "f32" : "i32"));
-        SetDyn(n, 0, Emit("LabelEncode", [x], attributes, Nm(n)));
+        object fallback = n.Tensor("default_tensor") is { } t ? OnnxConst.FromTensor(t) is { Strings: { } s } ? s[0] : OnnxConst.FromTensor(t).Floats()[0]
+            : valueType == OnnxType.String ? n.Str("default_string", "_Unused")
+            : OnnxType.IsFloat(valueType) ? (double)n.Float("default_float", -0f) : n.Int("default_int64", -1);
+        SetDyn(n, 0, Lookup(ins[0]!, keyType, keys, values, valueType, fallback, Nm(n)));
     }
 
-    /// <summary>The numeric keys or values of a LabelEncoder (<c>keys_int64s</c>, <c>keys_floats</c>, <c>keys_tensor</c>, ...) and their ONNX type.</summary>
-    private static (double[] Values, int Type) MlValues(OnnxNode n, string what)
+    /// <summary>CategoryMapper: strings to integers by <c>cats_strings</c> / <c>cats_int64s</c>, or back, with a default for unknown entries.</summary>
+    private void CategoryMapper(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        string[] strings = n.Attributes.TryGetValue("cats_strings", out var s) ? [.. s.Strings] : [];
+        double[] ints = (n.Ints("cats_int64s") ?? []).Select(v => (double)v).ToArray();
+        var y = IsStringTensor(ins[0])
+            ? Lookup(ins[0]!, OnnxType.String, strings, ints, OnnxType.Int64, (double)n.Int("default_int64", -1), Nm(n))
+            : Lookup(ins[0]!, OnnxType.Int64, ints, strings, OnnxType.String, n.Str("default_string", "_Unused"), Nm(n));
+        SetDyn(n, 0, y);
+    }
+
+    /// <summary>Elementwise dictionary lookup (IR LabelEncode) of x, whose ONNX type is <paramref name="keyType"/>.</summary>
+    private Value Lookup(TranslatedTensor x, int keyType, object keys, object values, int valueType, object fallback, string name)
+    {
+        var input = keyType == OnnxType.String ? StrValue(x, name + ".x") : OnnxType.IsFloat(keyType) ? AsValue(x) : Idx(x);
+        string type = valueType == OnnxType.String ? "str" : OnnxType.IsFloat(valueType) ? "f32" : "i32";
+        return Emit("LabelEncode", [input], Attributes.From(("keys", keys), ("values", values), ("default", fallback), ("type", type)), name);
+    }
+
+    /// <summary>The keys or values of a LabelEncoder (<c>keys_int64s</c>, <c>keys_floats</c>, <c>keys_strings</c>, <c>keys_tensor</c>, ...):
+    /// double[] or string[], and their ONNX type.</summary>
+    private static (object Values, int Type) MlValues(OnnxNode n, string what)
     {
         if (n.Tensor(what + "_tensor") is { } tensor)
         {
             var c = OnnxConst.FromTensor(tensor);
-            return c.ElemType == OnnxType.String ? ([], OnnxType.String) : (c.Floats(), c.ElemType);
+            return c.Strings is { } strings ? (strings, OnnxType.String) : (c.Floats(), c.ElemType);
         }
 
         if (n.Ints(what + "_int64s") is { } ints)
@@ -181,7 +199,8 @@ internal sealed partial class OnnxTranslator
             return (floats.Select(v => (double)v).ToArray(), OnnxType.Float);
         }
 
-        return n.Has(what + "_strings") ? ([], OnnxType.String) : throw new InvalidDataException($"LabelEncoder has no {what}");
+        return n.Attributes.TryGetValue(what + "_strings", out var s) ? (s.Strings.ToArray(), OnnxType.String)
+            : throw new InvalidDataException($"LabelEncoder has no {what}");
     }
 
     // ---- shared helpers ------------------------------------------------------------------------------------------------
@@ -234,15 +253,18 @@ internal sealed partial class OnnxTranslator
         return _b.Scale(erfinv, 1.41421356f, 0f, name + ".probit");
     }
 
-    /// <summary>Integer class labels selected by an i32 index tensor.</summary>
+    /// <summary>Class labels (integers, or strings through a LabelEncode lookup) selected by an i32 index tensor.</summary>
     private Value ClassLabels(OnnxNode n, Value index, string name)
     {
-        if ((n.Ints("classlabels_int64s") ?? n.Ints("classlabels_ints")) is not { } labels)
+        if ((n.Ints("classlabels_int64s") ?? n.Ints("classlabels_ints")) is { } labels)
         {
-            throw new NotSupportedException($"{n.OpType} with string class labels");
+            return Emit("GatherAxis", [I32Const(labels, name + ".labels"), index], Attributes.From(("axis", 0L)), name);
         }
 
-        return Emit("GatherAxis", [I32Const(labels, name + ".labels"), index], Attributes.From(("axis", 0L)), name);
+        string[] strings = n.Attributes.TryGetValue("classlabels_strings", out var s) ? [.. s.Strings]
+            : throw new InvalidDataException($"{n.OpType} has no class labels");
+        double[] positions = [.. Enumerable.Range(0, strings.Length).Select(i => (double)i)];
+        return Emit("LabelEncode", [index], Attributes.From(("keys", positions), ("values", strings), ("default", ""), ("type", "str")), name);
     }
 
     private int ClassCount(OnnxNode n)

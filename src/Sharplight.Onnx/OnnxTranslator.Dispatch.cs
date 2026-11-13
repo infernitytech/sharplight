@@ -21,6 +21,7 @@ internal sealed partial class OnnxTranslator
         "DFT", "STFT",
         "RandomNormal", "RandomUniform", "RandomNormalLike", "RandomUniformLike", "Bernoulli", "Multinomial",
         "TfIdfVectorizer",
+        "StringNormalizer", "StringConcat", "RegexFullMatch",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -53,6 +54,12 @@ internal sealed partial class OnnxTranslator
         if (n.Domain == "ai.onnx.ml")
         {
             TranslateMl(n, ins);
+            return;
+        }
+
+        if (IsStringNode(n, ins))
+        {
+            TranslateStrings(n, ins);
             return;
         }
 

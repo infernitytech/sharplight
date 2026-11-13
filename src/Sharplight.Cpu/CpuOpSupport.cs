@@ -67,7 +67,9 @@ internal static partial class CpuOpSupport
             "Dft" => AllF32(node),
             "Random" => OpSupport.Yes,
             "TreeEnsemble" or "OneVsOne" => AllF32(node),
-            "LabelEncode" => node.Inputs[0].Type == DataType.F32 || node.Inputs[0].Type == DataType.I32 ? OpSupport.Yes : OpSupport.No("LabelEncode expects f32 or i32"),
+            "LabelEncode" => node.Inputs[0].Type == DataType.F32 || node.Inputs[0].Type == DataType.I32 || node.Inputs[0].Type == DataType.Str
+                ? OpSupport.Yes : OpSupport.No("LabelEncode expects f32, i32 or str"),
+            "StringConst" or "StringBinary" or "StringNormalize" or "RegexMatch" or "StringCast" => OpSupport.Yes,
             "TfIdf" => node.Inputs[0].Type == DataType.I32 ? OpSupport.Yes : OpSupport.No("TfIdf expects i32 token ids"),
             "Multinomial" => node.Inputs[0].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("Multinomial expects f32 logits"),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),

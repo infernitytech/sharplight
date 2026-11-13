@@ -28,7 +28,7 @@ internal static partial class OnnxFold
     /// <summary>Whether <paramref name="n"/> should be evaluated on the host given that all its inputs are constants.</summary>
     public static bool ShouldFold(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {
-        if (!Ops.Contains(n.OpType))
+        if (!Ops.Contains(n.OpType) || ins.Any(c => c?.Strings is not null))
         {
             return false;
         }
@@ -811,6 +811,17 @@ internal static partial class OnnxFold
         {
             var i = n.Ints("value_ints")!;
             return OnnxConst.FromInts(OnnxType.Int64, [i.Length], i);
+        }
+
+        if (n.Has("value_string"))
+        {
+            return OnnxConst.FromStrings([], [n.Str("value_string", "")]);
+        }
+
+        if (n.Has("value_strings"))
+        {
+            var s = n.Attributes["value_strings"].Strings;
+            return OnnxConst.FromStrings([s.Count], [.. s]);
         }
         throw new NotSupportedException($"Constant node '{n.Name}' has no supported value attribute.");
     }

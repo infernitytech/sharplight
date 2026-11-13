@@ -10,6 +10,8 @@ internal sealed class OnnxTensor
     public long[] Dims { get; init; } = [];
     /// <summary>Dense little-endian element data (row-major); null for string tensors.</summary>
     public IWeightSource? Source { get; init; }
+    /// <summary>Elements of a string tensor (UTF-8 decoded, row-major); null for other types.</summary>
+    public string[]? Strings { get; init; }
     public long Elements { get { long n = 1; foreach (var d in Dims) { n *= d; } return n; } }
     public override string ToString() => $"{Name} {OnnxType.Name(ElemType)}[{string.Join(", ", Dims)}]";
 }
