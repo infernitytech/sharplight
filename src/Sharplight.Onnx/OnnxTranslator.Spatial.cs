@@ -148,6 +148,12 @@ internal sealed partial class OnnxTranslator
         }
 
         string mode = n.Str("mode", "constant");
+        if (mode == "wrap")
+        {
+            SetDyn(n, 0, WrapPad(x, pads, Nm(n)));
+            return;
+        }
+
         if (mode is not ("constant" or "reflect" or "edge"))
         {
             throw new NotSupportedException($"Pad mode '{mode}'");
