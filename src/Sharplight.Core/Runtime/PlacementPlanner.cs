@@ -226,7 +226,7 @@ public static class PlacementPlanner
         long elems = 1;
         foreach (var d in v.Shape.Dims)
         {
-            elems *= d.IsSymbolic ? Math.Max(1, d.Symbol is WellKnown.TokenSymbol or WellKnown.ContextSymbol || o.SymbolBounds.ContainsKey(d.Symbol!) ? o.Bound(d.Symbol!) : o.MaxTokens) : d.Fixed;
+            elems *= d.IsSymbolic ? Math.Max(1, o.HasBound(d.Symbol!) ? o.Bound(d.Symbol!) : o.MaxTokens) : d.Fixed;
         }
 
         return v.Type.ByteSize(elems);

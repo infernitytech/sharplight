@@ -99,7 +99,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
         ObjectDisposedException.ThrowIf(_disposed, this);
         foreach (var (symbol, bound) in _symbolBounds)
         {
-            if (parameters.Symbols.TryGetValue(symbol, out var v) && v > bound)
+            if (SymbolicExpression.TryEvaluate(symbol, parameters.Symbols, out var v) && v > bound)
             {
                 throw new InvalidOperationException($"Symbol '{symbol}' = {v} exceeds the compiled bound {bound}.");
             }

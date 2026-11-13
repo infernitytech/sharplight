@@ -22,6 +22,9 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
     private readonly Dictionary<string, VkCommandBuffer> _recorded = [];
+    private readonly Queue<string> _recordOrder = new();
+    /// <summary>Most command buffers kept recorded per segment (one per distinct symbol binding).</summary>
+    private const int MaxRecordings = 64;
     private readonly CompileOptions _options;
     private readonly VkFence _fence;
     /// <summary>This segment's own command pool (pools are externally synchronized; segments of different models run on different threads).</summary>
@@ -372,6 +375,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         if (!_recorded.TryGetValue(key, out var cb))
         {
             CheckWithinCompiledBounds(bindings);
+            EvictOldestRecording();
 
             var swRec = Stopwatch.StartNew();
             long pt0 = _dev.PipelineTicks;
@@ -387,6 +391,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
             _dev.Api.vkEndCommandBuffer(cb).CheckResult();
             _recorded[key] = cb;
+            _recordOrder.Enqueue(key);
             if (DiagnosticSwitches.LoadTiming)
             {
                 Console.Error.WriteLine($"[load] record {key}: {swRec.ElapsedMilliseconds} ms, of which {_dev.PipelinesCreated - pc0} pipelines {(double)(_dev.PipelineTicks - pt0) / Stopwatch.Frequency * 1000:F0} ms");
@@ -401,6 +406,22 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         {
             LastGpuMs = (ts[1] - ts[0]) * _dev.Phys.TimestampPeriod * 1e-6;
         }
+    }
+
+    /// <summary>
+    /// Keeps the recording cache bounded: data-dependent symbols (e.g. a detection count) can take a new value on every run, and
+    /// each distinct binding is recorded once. The oldest recording is freed when the cache is full.
+    /// </summary>
+    private void EvictOldestRecording()
+    {
+        if (_recorded.Count < MaxRecordings)
+        {
+            return;
+        }
+
+        var oldest = _recordOrder.Dequeue();
+        FreeCb(_recorded[oldest]);
+        _recorded.Remove(oldest);
     }
 
     private void CheckWithinCompiledBounds(Bindings bindings)
