@@ -360,6 +360,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             }
 
             ReadOnlyMemory<byte> data = default;
+            bool fromFile = false;
             if (cache is not null && cache.TryGet(PipelineCacheKey, out var d))
             {
                 data = d;
@@ -367,15 +368,40 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             else if (TryReadPipelineCacheFile() is { } fromDisk)
             {
                 data = fromDisk;
+                fromFile = true;
             }
 
-            fixed (byte* p = data.Span)
+            if (TryCreatePipelineCache(data.Span, out var pc))
             {
-                var ci = new VkPipelineCacheCreateInfo { initialDataSize = (nuint)data.Length, pInitialData = data.Length > 0 ? p : null };
-                VkPipelineCache pc;
-                Api.vkCreatePipelineCache(&ci, null, &pc).CheckResult();
                 _pipelineCache = pc;
+                return;
             }
+
+            // The driver refused the seed blob (seen on NVIDIA with very large blobs as VK_ERROR_UNKNOWN): start empty, and drop
+            // a refused cache file so later processes do not retry it.
+            if (fromFile)
+            {
+                TryDeleteFile(PipelineCachePath);
+            }
+
+            if (!TryCreatePipelineCache(ReadOnlySpan<byte>.Empty, out pc))
+            {
+                throw new VkException(VkResult.ErrorInitializationFailed, "vkCreatePipelineCache failed without initial data");
+            }
+
+            _pipelineCache = pc;
+        }
+    }
+
+    private bool TryCreatePipelineCache(ReadOnlySpan<byte> data, out VkPipelineCache pipelineCache)
+    {
+        fixed (byte* p = data)
+        {
+            var ci = new VkPipelineCacheCreateInfo { initialDataSize = (nuint)data.Length, pInitialData = data.Length > 0 ? p : null };
+            VkPipelineCache pc;
+            var result = Api.vkCreatePipelineCache(&ci, null, &pc);
+            pipelineCache = result == VkResult.Success ? pc : VkPipelineCache.Null;
+            return result == VkResult.Success;
         }
     }
 
@@ -404,15 +430,59 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     private string PipelineCachePath
         => Path.Combine(_kernelCacheDirectory, $"pipelines-{Phys.VendorId:x}-{Phys.Uuid}-{Phys.DriverVersion:x}.bin");
 
+    /// <summary>
+    /// Largest pipeline cache file that is loaded or written. The driver blob accumulates every pipeline ever created on the
+    /// device (all models, all specializations); past this size it is reset so it is rebuilt from the pipelines in actual use.
+    /// </summary>
+    private const long MaxPipelineCacheFileBytes = 256L * 1024 * 1024;
+
     private byte[]? TryReadPipelineCacheFile()
     {
         try
         {
-            return File.Exists(PipelineCachePath) ? File.ReadAllBytes(PipelineCachePath) : null;
+            DeleteStaleTemporaryFiles();
+            var file = new FileInfo(PipelineCachePath);
+            if (!file.Exists)
+            {
+                return null;
+            }
+
+            if (file.Length > MaxPipelineCacheFileBytes)
+            {
+                TryDeleteFile(file.FullName);
+                return null;
+            }
+
+            return File.ReadAllBytes(file.FullName);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return null;
+        }
+    }
+
+    /// <summary>Removes temporary cache files left behind by processes that died while saving.</summary>
+    private void DeleteStaleTemporaryFiles()
+    {
+        var name = Path.GetFileName(PipelineCachePath);
+        foreach (var temporary in Directory.EnumerateFiles(_kernelCacheDirectory, name + ".*.tmp"))
+        {
+            if (File.GetLastWriteTimeUtc(temporary) < DateTime.UtcNow - TimeSpan.FromHours(1))
+            {
+                TryDeleteFile(temporary);
+            }
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Another process may hold or have removed it; the cache is only an accelerator.
         }
     }
 
@@ -431,15 +501,24 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             }
 
             _pipelinesAtLastSave = created;
+            var temporary = $"{PipelineCachePath}.{Environment.ProcessId}.tmp";
             try
             {
-                var temporary = $"{PipelineCachePath}.{Environment.ProcessId}.tmp";
-                File.WriteAllBytes(temporary, GetPipelineCacheData());
+                var data = GetPipelineCacheData();
+                if (data.Length > MaxPipelineCacheFileBytes)
+                {
+                    // Too large to keep: reset, so the next process rebuilds the cache from the pipelines it uses.
+                    TryDeleteFile(PipelineCachePath);
+                    return;
+                }
+
+                File.WriteAllBytes(temporary, data);
                 File.Move(temporary, PipelineCachePath, overwrite: true);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 // Read-only or full cache directory: the cache is only an accelerator.
+                TryDeleteFile(temporary);
             }
         }
     }
