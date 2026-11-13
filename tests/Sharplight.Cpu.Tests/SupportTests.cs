@@ -13,8 +13,7 @@ public class SupportTests
         var xin = tg.InF("x", SpatialKit.DSym(4, 8, 8));
         tg.B.Output("y", tg.B.Emit1("Pool", [xin], Attributes.From(("mode", "avg"), ("kernel", new long[] { 2, 2 }), ("dilations", new long[] { 2, 2 }))));
         var s = Kit.Device.Supports(NodeOf(tg));
-        Assert.False(s.IsSupported);
-        Assert.Contains("dilation", s.Reason);
+        Assert.True(s.IsSupported);   // dilated average pooling is supported since the include-pad count follows the taps
 
         tg = new TestGraph();
         xin = tg.InF("x", SpatialKit.DSym(4, 8, 8));
