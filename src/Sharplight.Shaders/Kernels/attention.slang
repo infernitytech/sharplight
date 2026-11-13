@@ -128,9 +128,9 @@ float reduce_sum(float v, uint tid)
 float load_kv(uint8_t* base, uint64_t elem)
 {
 #if KV_F16
-    return h2f(((uint16_t*)base)[elem]);
+    return h2f(*(uint16_t*)byteAt(base, elem * 2));
 #else
-    return ((float*)base)[elem];
+    return *(float*)byteAt(base, elem * 4);
 #endif
 }
 
@@ -138,7 +138,7 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
 {
     float s = 0;
 #if KV_F16
-    uint4* kp = (uint4*)(kc + rowElem * 2);
+    uint4* kp = (uint4*)byteAt(kc, rowElem * 2);
     [ForceUnroll]
     for (uint i = 0; i < D / 8; i++)
     {
@@ -149,7 +149,7 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
            + sQ[8 * i + 6] * f16tof32(u.w & 0xFFFF) + sQ[8 * i + 7] * f16tof32(u.w >> 16);
     }
 #else
-    float4* kp = (float4*)((float*)kc + rowElem);
+    float4* kp = (float4*)byteAt(kc, rowElem * 4);
     [ForceUnroll]
     for (uint i = 0; i < D / 4; i++)
     {
@@ -310,13 +310,13 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         if (j < L && c < dim)
         {
 #if KV_F16
-            uint4 u = *(uint4*)(cache + ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 2);
+            uint4 u = *(uint4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 2);
             faKV[o + 0] = half(f16tof32(u.x & 0xFFFF)); faKV[o + 1] = half(f16tof32(u.x >> 16));
             faKV[o + 2] = half(f16tof32(u.y & 0xFFFF)); faKV[o + 3] = half(f16tof32(u.y >> 16));
             faKV[o + 4] = half(f16tof32(u.z & 0xFFFF)); faKV[o + 5] = half(f16tof32(u.z >> 16));
             faKV[o + 6] = half(f16tof32(u.w & 0xFFFF)); faKV[o + 7] = half(f16tof32(u.w >> 16));
 #else
-            float4* f = (float4*)(cache + ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 4);
+            float4* f = (float4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 4);
             float4 a = f[0], b = f[1];
             faKV[o + 0] = half(a.x); faKV[o + 1] = half(a.y); faKV[o + 2] = half(a.z); faKV[o + 3] = half(a.w);
             faKV[o + 4] = half(b.x); faKV[o + 5] = half(b.y); faKV[o + 6] = half(b.z); faKV[o + 7] = half(b.w);

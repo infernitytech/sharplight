@@ -33,6 +33,10 @@ float erf_approx(float x)
 }
 float gelu_erf(float x) { return 0.5 * x * (1.0 + erf_approx(x * 0.7071067811865476)); }
 
+// Address `bytes` past `base`, computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index to 32 bits, so
+// element or byte offsets into a tensor of 4 GiB or more (large KV caches, embedding tables) must not go through pointer indexing.
+uint8_t* byteAt(uint8_t* base, uint64_t bytes) { return (uint8_t*)(uint64_t(base) + bytes); }
+
 // ---- 16-bit float helpers ----------------------------------------------------------------
 float h2f(uint16_t h) { return f16tof32(uint(h)); }
 float bf2f(uint16_t b) { return asfloat(uint(b) << 16); }
