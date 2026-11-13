@@ -85,8 +85,8 @@ internal static class NodeTestRunner
 
         // Sharplight compiles static shapes: inputs that define shapes, axes or other import-time parameters (Reshape targets, reduction
         // axes, pads, ...) are passed as tensors by the node tests but are initializers in real models. When the importer needs them as
-        // constants, the test is retried with them pinned (OnnxImportOptions.ConstantInputs), first the integer inputs, then also small
-        // float inputs (scales, Range bounds, ...).
+        // constants, the test is retried with them pinned (OnnxImportOptions.ConstantInputs), first the integer inputs, then every input
+        // but the first (float scales, bounds and weights).
         ComputeGraph? graph = null;
         string importError = "";
         int pinLevel = 0;
@@ -96,7 +96,7 @@ internal static class NodeTestRunner
             {
                 0 => false,
                 1 => !p.Value.IsFloat,
-                _ => !p.Value.IsFloat || p.Value.Elements <= 8,
+                _ => p.Key != inputInfos[0].Name,
             }).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
             if (pinLevel > 0 && (pinned.Count == 0 || pinned.Count == inputs.Count))
             {
