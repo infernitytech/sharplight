@@ -24,8 +24,14 @@ internal static class MetadataCodec
         foreach (var (k, v) in ordered)
         {
             WriteString(w, k);
-            try { WriteValue(w, v); }
-            catch (NotSupportedException e) { throw new NotSupportedException($"'{k}': {e.Message}", e); }
+            try
+            {
+                WriteValue(w, v);
+            }
+            catch (NotSupportedException e)
+            {
+                throw new NotSupportedException($"'{k}': {e.Message}", e);
+            }
         }
     }
 

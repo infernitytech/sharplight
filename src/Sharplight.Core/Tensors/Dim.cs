@@ -11,7 +11,11 @@ public readonly record struct Dim
     /// <summary>Upper bound for symbolic dims (used for memory planning). 0 = unknown.</summary>
     public bool IsSymbolic => Symbol is not null;
 
-    private Dim(long value, string? symbol) { Fixed = value; Symbol = symbol; }
+    private Dim(long value, string? symbol)
+    {
+        Fixed = value;
+        Symbol = symbol;
+    }
 
     public static Dim Of(long value)
     {

@@ -19,7 +19,9 @@ internal static class VisionTowerGraph
     {
         var b = new GraphBuilder(WellKnown.VisionEncodeGraph, weights);
         var N = Dim.Sym(VisionParameters.PatchSymbol);
-        int H = p.HiddenSize, heads = p.HeadCount, D = p.HeadDim;
+        int H = p.HiddenSize;
+        int heads = p.HeadCount;
+        int D = p.HeadDim;
         float eps = p.NormEps;
 
         Value x;
@@ -48,7 +50,8 @@ internal static class VisionTowerGraph
             x = b.Add(x, sum!, "inp_pos_embd");
         }
 
-        Value? cos = null, sinSigned = null;
+        Value? cos = null;
+        Value? sinSigned = null;
         if (p.RopeBase > 0)
         {
             (cos, sinSigned) = RotaryTables(b, p, positions);
@@ -112,7 +115,8 @@ internal static class VisionTowerGraph
     /// </summary>
     private static (Value Cos, Value SinSigned) RotaryTables(GraphBuilder b, VisionParameters p, Value positions)
     {
-        int D = p.HeadDim, F = D / 4;
+        int D = p.HeadDim;
+        int F = D / 4;
         var freqs = new float[F];
         for (int j = 0; j < F; j++)
         {

@@ -63,7 +63,13 @@ public sealed class ModelSource
 
             return (T)(object)dst;
         }
-        try { return (T)Convert.ChangeType(v, target, CultureInfo.InvariantCulture); }
-        catch (Exception e) { throw new InvalidCastException($"Metadata '{key}' ({v.GetType().Name}) cannot be read as {target.Name}.", e); }
+        try
+        {
+            return (T)Convert.ChangeType(v, target, CultureInfo.InvariantCulture);
+        }
+        catch (Exception e)
+        {
+            throw new InvalidCastException($"Metadata '{key}' ({v.GetType().Name}) cannot be read as {target.Name}.", e);
+        }
     }
 }

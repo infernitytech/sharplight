@@ -10,7 +10,7 @@ namespace Sharplight.Package.Tests;
 
 public class PackageTests
 {
-    private static readonly Lazy<IComputeDevice> s_cpu = new(() => { var p = new CpuExecutionProvider(); return p.OpenDevice(p.GetDevices()[0]); });
+    private static readonly Lazy<IComputeDevice> s_cpu = new(OpenCpuDevice);
     private static string OnnxDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "onnx");
 
     /// <summary>A model built from ONNX survives save/load: same graph structure, bit-identical outputs.</summary>
@@ -80,6 +80,12 @@ public class PackageTests
                 r.Dispose();
             }
         }
+    }
+
+    private static IComputeDevice OpenCpuDevice()
+    {
+        var provider = new CpuExecutionProvider();
+        return provider.OpenDevice(provider.GetDevices()[0]);
     }
 
     private static List<byte[]> Run(ComputeGraph g)

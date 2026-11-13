@@ -267,7 +267,10 @@ public sealed class Qwen35Adapter : IModelAdapter
 
         Value LinearAttention(GraphBuilder b, Value h, string p, Value convSt, Value ssmSt)
         {
-            int dk = hp.SsmState, hk = hp.SsmGroups, hv = hp.SsmDtRank, dv = headVDim;
+            int dk = hp.SsmState;
+            int hk = hp.SsmGroups;
+            int hv = hp.SsmDtRank;
+            int dv = headVDim;
             var qkv = b.Linear(h, p + "linear_attention.qkv.weight");                // [T, 2*hk*dk + hv*dv]
             var z = b.Linear(h, p + "linear_attention.z.weight");                 // [T, hv*dv]
             var beta = b.Sigmoid(b.Linear(h, p + "linear_attention.beta.weight"));    // [T, hv]

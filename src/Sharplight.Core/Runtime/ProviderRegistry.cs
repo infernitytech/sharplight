@@ -27,11 +27,24 @@ public static class ProviderRegistry
         foreach (var factory in f)
         {
             IExecutionProvider p;
-            try { p = factory(); }
-            catch (Exception e) { result.Add((new UnavailableProvider(factory.Method.DeclaringType?.Name ?? "?", e.Message), ProviderAvailability.Unavailable(e.Message))); continue; }
+            try
+            {
+                p = factory();
+            }
+            catch (Exception e)
+            {
+                result.Add((new UnavailableProvider(factory.Method.DeclaringType?.Name ?? "?", e.Message), ProviderAvailability.Unavailable(e.Message)));
+                continue;
+            }
             ProviderAvailability a;
-            try { a = p.CheckAvailability(); }
-            catch (Exception e) { a = ProviderAvailability.Unavailable(e.Message); }
+            try
+            {
+                a = p.CheckAvailability();
+            }
+            catch (Exception e)
+            {
+                a = ProviderAvailability.Unavailable(e.Message);
+            }
             result.Add((p, a));
         }
         return result;

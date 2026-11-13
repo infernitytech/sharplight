@@ -24,7 +24,8 @@ public static partial class StandardOps
     /// <summary>Repeats x along each axis: attribute <c>repeats</c> long[rank] (outermost must be 1 if symbolic).</summary>
     public static readonly OpSchema Tile = new("Tile", OpCategory.Data, 1, 1, (i, a) =>
     {
-        var x = i[0].Shape; var r = a.Get<long[]>("repeats");
+        var x = i[0].Shape;
+        var r = a.Get<long[]>("repeats");
         if (r.Length != x.Rank)
         {
             throw new ArgumentException("Tile: repeats must match rank.");
@@ -46,7 +47,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema GatherAxis = new("GatherAxis", OpCategory.Data, 2, 2, (i, a) =>
     {
-        var x = i[0].Shape; var idx = i[1].Shape;
+        var x = i[0].Shape;
+        var idx = i[1].Shape;
         int axis = Axis(a.Get("axis", 0L), x.Rank);
         var dims = new List<Dim>();
         for (int d = 0; d < axis; d++)
@@ -75,7 +77,8 @@ public static partial class StandardOps
     /// <summary>ONNX GatherND (data, indices [..., q]; attr batch_dims).</summary>
     public static readonly OpSchema GatherND = new("GatherND", OpCategory.Data, 2, 2, (i, a) =>
     {
-        var x = i[0].Shape; var idx = i[1].Shape;
+        var x = i[0].Shape;
+        var idx = i[1].Shape;
         int b = (int)a.Get("batch_dims", 0L);
         long q = idx[-1].Fixed;
         var dims = new List<Dim>(idx.Dims.Take(idx.Rank - 1));
@@ -96,7 +99,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema ArgReduce = new("ArgReduce", OpCategory.Reduction, 1, 1, (i, a) =>
     {
-        var x = i[0].Shape; int axis = Axis(a.Get("axis", 0L), x.Rank);
+        var x = i[0].Shape;
+        int axis = Axis(a.Get("axis", 0L), x.Rank);
         return [new(DataType.I32, ReduceShape(x, [axis], a.Get("keepdims", true)))];
     });
 
@@ -106,7 +110,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema TopK = new("TopK", OpCategory.Reduction, 1, 1, (i, a) =>
     {
-        var x = i[0].Shape; int axis = Axis(a.Get("axis", -1L), x.Rank);
+        var x = i[0].Shape;
+        int axis = Axis(a.Get("axis", -1L), x.Rank);
         var s = x.WithDim(axis, a.Get<long>("k"));
         return [new(DataType.F32, s), new(DataType.I32, s)];
     });
@@ -124,10 +129,13 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema ConvTranspose = new("ConvTranspose", OpCategory.MatMul, 2, 3, (i, a) =>
     {
-        var x = i[0].Shape; var w = i[1].Shape;
+        var x = i[0].Shape;
+        var w = i[1].Shape;
         long g = a.Get("groups", 1L);
-        var st = a.Get("strides", new long[] { 1, 1 }); var pd = a.Get("pads", new long[] { 0, 0, 0, 0 });
-        var dl = a.Get("dilations", new long[] { 1, 1 }); var op = a.Get("output_padding", new long[] { 0, 0 });
+        var st = a.Get("strides", new long[] { 1, 1 });
+        var pd = a.Get("pads", new long[] { 0, 0, 0, 0 });
+        var dl = a.Get("dilations", new long[] { 1, 1 });
+        var op = a.Get("output_padding", new long[] { 0, 0 });
         long ho = (x[2].Fixed - 1) * st[0] - pd[0] - pd[2] + dl[0] * (w[2].Fixed - 1) + op[0] + 1;
         long wo = (x[3].Fixed - 1) * st[1] - pd[1] - pd[3] + dl[1] * (w[3].Fixed - 1) + op[1] + 1;
         return [new(DataType.F32, new Shape(x[0], w[1].Fixed * g, ho, wo))];
@@ -139,12 +147,15 @@ public static partial class StandardOps
     /// <summary>One-hot: indices (i32/i64) → f32 with a new axis of attr <c>depth</c> at attr <c>axis</c> (default -1); attrs <c>on</c>, <c>off</c>.</summary>
     public static readonly OpSchema OneHot = new("OneHot", OpCategory.Data, 1, 1, (i, a) =>
     {
-        var x = i[0].Shape; int axis = (int)a.Get("axis", -1L); if (axis < 0)
+        var x = i[0].Shape;
+        int axis = (int)a.Get("axis", -1L);
+        if (axis < 0)
         {
             axis += x.Rank + 1;
         }
 
-        var dims = x.Dims.ToList(); dims.Insert(axis, a.Get<long>("depth"));
+        var dims = x.Dims.ToList();
+        dims.Insert(axis, a.Get<long>("depth"));
         return [new(DataType.F32, new Shape(dims))];
     });
 
@@ -154,7 +165,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema GridSample = new("GridSample", OpCategory.Data, 2, 2, (i, a) =>
     {
-        var x = i[0].Shape; var g = i[1].Shape;
+        var x = i[0].Shape;
+        var g = i[1].Shape;
         return [new(DataType.F32, new Shape(x[0], x[1], g[1], g[2]))];
     });
 

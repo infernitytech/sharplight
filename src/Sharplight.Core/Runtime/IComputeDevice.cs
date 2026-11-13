@@ -17,7 +17,8 @@ public interface IComputeDevice : IDisposable
     /// </summary>
     public DeviceMemoryInfo GetMemoryInfo()
     {
-        long total = Info.TotalMemory, avail = AvailableMemory;
+        long total = Info.TotalMemory;
+        long avail = AvailableMemory;
         return new DeviceMemoryInfo(total, total, Math.Max(0, total - avail), Math.Max(0, total - avail), false);
     }
     public OpSupport Supports(Node node);

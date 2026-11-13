@@ -36,7 +36,8 @@ internal static class DefinitionCodec
 
     public static ModelDefinition Read(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, IReadOnlyList<IDisposable> owned)
     {
-        string arch = MetadataCodec.ReadString(r), name = MetadataCodec.ReadString(r);
+        string arch = MetadataCodec.ReadString(r);
+        string name = MetadataCodec.ReadString(r);
         var props = MetadataCodec.Read(r);
         var meta = MetadataCodec.Read(r);
         int ns = r.ReadInt32();

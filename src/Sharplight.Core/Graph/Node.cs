@@ -5,10 +5,15 @@ namespace Sharplight.Graph;
 /// <summary>An operation in a <see cref="ComputeGraph"/>.</summary>
 public sealed class Node
 {
+    /// <summary>Unique id of the node within its graph, assigned in emission order.</summary>
     public int Id { get; }
+    /// <summary>The operator this node applies.</summary>
     public OpSchema Op { get; }
+    /// <summary>The operands, in the order the op schema defines.</summary>
     public ImmutableArray<Value> Inputs { get; }
+    /// <summary>The values this node produces; their types and shapes come from the op's shape inference.</summary>
     public ImmutableArray<Value> Outputs { get; internal set; }
+    /// <summary>Static parameters of the op (axes, epsilons, names of runtime scalars, ...).</summary>
     public Attributes Attributes { get; }
 
     /// <summary>
@@ -29,6 +34,10 @@ public sealed class Node
         Group = group;
     }
 
+    /// <summary>
+    /// The single output of a one-output node.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The node has zero or several outputs.</exception>
     public Value Output => Outputs.Length == 1 ? Outputs[0] : throw new InvalidOperationException($"{Op.Name} has {Outputs.Length} outputs.");
 
     public override string ToString()

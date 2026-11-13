@@ -31,7 +31,11 @@ public static class PlacementPlanner
         var seenStates = new HashSet<StateDefinition>();
         foreach (var n in graph.Nodes)
         {
-            if (!groupBytes.ContainsKey(n.Group)) { groupBytes[n.Group] = 0; groupOrder.Add(n.Group); }
+            if (!groupBytes.ContainsKey(n.Group))
+            {
+                groupBytes[n.Group] = 0;
+                groupOrder.Add(n.Group);
+            }
             foreach (var v in n.Inputs)
             {
                 if (v.Weight is { } w && seenWeights.Add(w))
@@ -161,7 +165,10 @@ public static class PlacementPlanner
     /// </summary>
     public static ModelFootprint Estimate(ComputeGraph graph, CompileOptions options, int slots = 1)
     {
-        long weights = 0, states = 0, maxOut = 0, maxNode = 0;
+        long weights = 0;
+        long states = 0;
+        long maxOut = 0;
+        long maxNode = 0;
         var seenW = new HashSet<WeightInfo>();
         var seenS = new HashSet<StateDefinition>();
         foreach (var n in graph.Nodes)

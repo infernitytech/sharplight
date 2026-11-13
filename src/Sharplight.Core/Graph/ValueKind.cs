@@ -2,6 +2,7 @@ using Sharplight.Models;
 
 namespace Sharplight.Graph;
 
+/// <summary>Where a <see cref="Value"/> comes from.</summary>
 public enum ValueKind
 {
     /// <summary>Produced by a node inside the graph.</summary>

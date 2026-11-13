@@ -80,7 +80,8 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
                 dims[j] = Dim.Of(r.ReadInt64());
             }
 
-            long off = r.ReadInt64(), len = r.ReadInt64();
+            long off = r.ReadInt64();
+            long len = r.ReadInt64();
             if (off < 0 || off + len > _length)
             {
                 throw new InvalidDataException($"Weight {name} lies outside the package.");
@@ -148,7 +149,8 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             for (int i = 0; i < n; i++)
             {
                 string key = MetadataCodec.ReadString(r);
-                long off = r.ReadInt64(), len = r.ReadInt64();
+                long off = r.ReadInt64();
+                long len = r.ReadInt64();
                 if (off < 0 || len < 0 || len > int.MaxValue || off + len > s.Length)
                 {
                     throw new InvalidDataException($"Package entry {key} lies outside its section.");
@@ -161,7 +163,11 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         public bool TryGet(string key, out ReadOnlyMemory<byte> data)
         {
             _file.ThrowIfDisposed();
-            if (!_entries.TryGetValue(key, out var e)) { data = default; return false; }
+            if (!_entries.TryGetValue(key, out var e))
+            {
+                data = default;
+                return false;
+            }
             data = new MappedMemory(_file._base + e.Offset, e.Length).Memory;
             return true;
         }

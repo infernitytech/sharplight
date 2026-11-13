@@ -99,7 +99,9 @@ public static class ModelPackage
                     sections.Add(new Section(SectionKind.WeightIndex, "", indexOffset, index.Length));
                 }
 
-                long total = weights.Sum(w => w.ByteSize), written = 0, nextLog = 0;
+                long total = weights.Sum(w => w.ByteSize);
+                long written = 0;
+                long nextLog = 0;
                 var buf = ArrayPool<byte>.Shared.Rent(16 << 20);
                 try
                 {
@@ -108,10 +110,17 @@ public static class ModelPackage
                         Pad(fs, offsets[i]);
                         CopyWeight(weights[i], fs, buf);
                         written += weights[i].ByteSize;
-                        if (log is not null && written >= nextLog) { log($"  weights {written / 1e9:F1}/{total / 1e9:F1} GB"); nextLog += 4L << 30; }
+                        if (log is not null && written >= nextLog)
+                        {
+                            log($"  weights {written / 1e9:F1}/{total / 1e9:F1} GB");
+                            nextLog += 4L << 30;
+                        }
                     }
                 }
-                finally { ArrayPool<byte>.Shared.Return(buf); }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buf);
+                }
                 long dataEnd = fs.Position;
                 sections.Add(new Section(SectionKind.WeightData, "", dataStart, dataEnd - dataStart));
 
@@ -129,7 +138,15 @@ public static class ModelPackage
         }
         catch
         {
-            try { File.Delete(tmp); } catch { }
+            try
+            {
+                File.Delete(tmp);
+            }
+            catch (Exception)
+            {
+                // Best effort: the original failure is the one worth reporting.
+            }
+
             throw;
         }
     }
@@ -217,14 +234,28 @@ public static class ModelPackage
             var dir = new MemoryStream();
             var dw = new BinaryWriter(dir, Encoding.UTF8, leaveOpen: true);
             dw.Write(entries.Count);
-            foreach (var e in entries) { MetadataCodec.WriteString(dw, e.Key); dw.Write(0L); dw.Write(0L); }
+            foreach (var e in entries)
+            {
+                MetadataCodec.WriteString(dw, e.Key);
+                dw.Write(0L);
+                dw.Write(0L);
+            }
             dw.Flush();
             long pos = Align(dir.Length, 16);
             var offs = new long[entries.Count];
-            for (int i = 0; i < entries.Count; i++) { offs[i] = pos; pos = Align(pos + entries[i].Value.Length, 16); }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                offs[i] = pos;
+                pos = Align(pos + entries[i].Value.Length, 16);
+            }
             dir.SetLength(0);
             dw.Write(entries.Count);
-            for (int i = 0; i < entries.Count; i++) { MetadataCodec.WriteString(dw, entries[i].Key); dw.Write(offs[i]); dw.Write((long)entries[i].Value.Length); }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                MetadataCodec.WriteString(dw, entries[i].Key);
+                dw.Write(offs[i]);
+                dw.Write((long)entries[i].Value.Length);
+            }
             dw.Flush();
             w.Write(dir.GetBuffer(), 0, (int)dir.Length);
             long written = dir.Length;
@@ -241,7 +272,11 @@ public static class ModelPackage
     {
         long start = Align(fs.Position, 16);
         Pad(fs, start);
-        using (var w = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true)) { body(w); w.Flush(); }
+        using (var w = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
+        {
+            body(w);
+            w.Flush();
+        }
         return new Section(kind, name, start, fs.Position - start);
     }
 
@@ -316,7 +351,8 @@ public static class ModelPackage
         {
             var kind = (SectionKind)r.ReadUInt32();
             int nameLen = r.ReadInt32();
-            long off = r.ReadInt64(), len = r.ReadInt64();
+            long off = r.ReadInt64();
+            long len = r.ReadInt64();
             sections.Add(new Section(kind, Encoding.UTF8.GetString(r.ReadBytes(nameLen)), off, len));
         }
         return (version, sections);
@@ -336,7 +372,13 @@ public static class ModelPackage
             Span<byte> m = stackalloc byte[8];
             return fs.Read(m) == 8 && m.SequenceEqual(Magic);
         }
-        catch (IOException) { return false; }
-        catch (UnauthorizedAccessException) { return false; }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 }

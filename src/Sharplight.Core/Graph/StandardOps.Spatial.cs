@@ -20,7 +20,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema Conv = new("Conv", OpCategory.MatMul, 2, 3, (i, a) =>
     {
-        var x = i[0].Shape; var w = i[1].Shape;
+        var x = i[0].Shape;
+        var w = i[1].Shape;
         if (x.Rank != 4 || w.Rank != 4)
         {
             throw new ArgumentException($"Conv expects x [N,C,H,W] and w [O,C/g,KH,KW], got x{x} w{w}.");
@@ -93,15 +94,19 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema BatchMatMul = new("BatchMatMul", OpCategory.MatMul, 2, 2, (i, a) =>
     {
-        var x = i[0].Shape; var y = i[1].Shape;
+        var x = i[0].Shape;
+        var y = i[1].Shape;
         if (x.Rank < 2 || y.Rank < 2)
         {
             throw new ArgumentException("BatchMatMul inputs must be rank >= 2.");
         }
 
-        bool ta = a.Get("trans_a", false), tb = a.Get("trans_b", false);
-        Dim m = ta ? x[-1] : x[-2], k = ta ? x[-2] : x[-1];
-        Dim k2 = tb ? y[-1] : y[-2], n = tb ? y[-2] : y[-1];
+        bool ta = a.Get("trans_a", false);
+        bool tb = a.Get("trans_b", false);
+        Dim m = ta ? x[-1] : x[-2];
+        Dim k = ta ? x[-2] : x[-1];
+        Dim k2 = tb ? y[-1] : y[-2];
+        Dim n = tb ? y[-2] : y[-1];
         if (k != k2)
         {
             throw new ArgumentException($"BatchMatMul K mismatch: a{x} b{y} (trans_a={ta}, trans_b={tb}).");
@@ -127,7 +132,15 @@ public static partial class StandardOps
         var dims = new Dim[x.Rank];
         for (int d = 0; d < x.Rank; d++)
         {
-            if (x[d].IsSymbolic) { if (p[d] != 0 || p[d + x.Rank] != 0) { throw new ArgumentException("Pad on a symbolic axis."); } dims[d] = x[d]; }
+            if (x[d].IsSymbolic)
+            {
+                if (p[d] != 0 || p[d + x.Rank] != 0)
+                {
+                    throw new ArgumentException("Pad on a symbolic axis.");
+                }
+
+                dims[d] = x[d];
+            }
             else
             {
                 dims[d] = x[d].Fixed + p[d] + p[d + x.Rank];

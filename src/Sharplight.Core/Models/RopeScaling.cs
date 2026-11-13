@@ -32,7 +32,8 @@ public static class RopeScaling
     public static Result Llama3(int dim, float @base, float factor, float lowFreqFactor, float highFreqFactor, int originalContext)
     {
         var f = new float[dim / 2];
-        double lowWave = originalContext / (double)lowFreqFactor, highWave = originalContext / (double)highFreqFactor;
+        double lowWave = originalContext / (double)lowFreqFactor;
+        double highWave = originalContext / (double)highFreqFactor;
         for (int i = 0; i < f.Length; i++)
         {
             double wavelen = 2 * Math.PI * Math.Pow(@base, 2.0 * i / dim);
@@ -59,9 +60,15 @@ public static class RopeScaling
                               float? attentionFactor = null, bool truncate = true)
     {
         double CorrDim(double rot) => dim * Math.Log(originalContext / (rot * 2 * Math.PI)) / (2 * Math.Log(@base));
-        double low = CorrDim(betaFast), high = CorrDim(betaSlow);
-        if (truncate) { low = Math.Floor(low); high = Math.Ceiling(high); }
-        low = Math.Max(low, 0); high = Math.Min(high, dim - 1);
+        double low = CorrDim(betaFast);
+        double high = CorrDim(betaSlow);
+        if (truncate)
+        {
+            low = Math.Floor(low);
+            high = Math.Ceiling(high);
+        }
+        low = Math.Max(low, 0);
+        high = Math.Min(high, dim - 1);
         if (low == high)
         {
             high += 0.001;

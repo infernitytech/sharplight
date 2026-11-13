@@ -383,7 +383,8 @@ public sealed class DecoderAdapter : IModelAdapter
         // Per-layer embeddings: [T, L*P] (see the class remarks).
         Value PerLayerInputs(GraphBuilder b, Value x, Value? tokens)
         {
-            int P = hp.PerLayerSize, L = hp.NLayer;
+            int P = hp.PerLayerSize;
+            int L = hp.NLayer;
             var proj = b.Scale(b.MatMul(x, b.Weight("per_layer.model_projection.weight")), 1f / MathF.Sqrt(hp.NEmbd));
             proj = b.Reshape(b.RmsNorm(b.Reshape(proj, 0, L, P), b.Weight("per_layer.projection_norm.weight"), hp.Eps), 0, L * P);
             if (tokens is null)
@@ -398,7 +399,8 @@ public sealed class DecoderAdapter : IModelAdapter
         Value Attention(GraphBuilder b, Value h, string p, int il, Value positions, Value? freqFactors, Value? rowSpans,
             Dictionary<int, (Value K, Value V)> packedKv)
         {
-            int D = HeadDimOf(il), nKv = KvHeadsOf(il);
+            int D = HeadDimOf(il);
+            int nKv = KvHeadsOf(il);
             bool shared = KvSourceOf(il) != il;
             var q = b.Linear(h, p + "attention.q.weight", p + "attention.q.bias");
             // q/k norms: over the whole projection (weight has heads*D entries) or per head (D entries), before the head split.
@@ -523,7 +525,8 @@ public sealed class DecoderAdapter : IModelAdapter
             var logits = b.Linear(h, p + "mlp.router.weight");
             var probs = hp.SigmoidRouter ? b.Sigmoid(logits, $"{p}router_probs") : b.Emit1("Softmax", [logits], null, $"{p}router_probs");
             var top = b.Emit("TopK", [probs], Attributes.From(("k", (long)hp.ExpertsUsed)), $"{p}router_topk");
-            Value weights = top[0], ids = top[1];
+            Value weights = top[0];
+            Value ids = top[1];
             if (hp.NormalizeExpertWeights)
             {
                 weights = b.Binary("Div", weights, b.Emit1("ReduceSum", [weights]));
