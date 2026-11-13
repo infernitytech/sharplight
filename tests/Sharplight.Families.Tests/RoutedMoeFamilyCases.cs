@@ -27,6 +27,19 @@ internal static class RoutedMoeFamilyCases
         new("tiny-random-llama-4 HF (llama4, transformers)", "hf/tiny-random-llama-4", HfPrompt, "ids", [108390,170890,17093,13840,194099,131844,130742,173695,89971,110708,165492,79380], ""),
         // Six prompts in a row (about 160 tokens) cross the 128-token attention chunk of the rotary layers.
         new("tiny-random-llama-4 HF long prompt (llama4 chunked attention, transformers)", "hf/tiny-random-llama-4", LongPrompt, "ids", [169106,46193,153014,127034,184942,177199,146815,95194,125259,18884,193513,118435], ""),
+        // GGUF files, continuations from llama.cpp b11177.
+        new("SmallThinker-4B-A0.6B Q8_0 GGUF (smallthinker, llama.cpp)", "gguf/SmallThinker-4BA0.6B-Instruct/SmallThinker-4B-A0.6B-Instruct.Q8_0.gguf", "The capital of France is", "text", [],
+            " Paris. actually, the capital of France is Paris. The capital of France is", Tokens: 16),
+        new("ERNIE-4.5-21B-A3B-PT Q4_K_M GGUF (ernie4_5-moe, llama.cpp)", "gguf/ERNIE-4.5-21B-A3B-PT/ERNIE-4.5-21B-A3B-PT-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris. The capital of Italy is Rome. The capital of Spain is Madrid.", Large: true, Tokens: 16),
+        new("gpt-oss-20b MXFP4 GGUF (gpt-oss, llama.cpp)", "gguf/gpt-oss-20b/gpt-oss-20b-MXFP4.gguf", "The capital of France is", "text", [],
+            " Paris.\"\n\nSure! Here's a simple example of a Python program that uses the", Large: true, Tokens: 16),
+        new("Ministral-3-3B-Instruct-2512 Q4_K_M GGUF (mistral3, llama.cpp)", "gguf/Ministral-3-3B-Instruct-2512/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris. It is the largest city in France and the second largest city in Europe", Tokens: 16),
+        // llama.cpp b11177 builds bitnet with a SiLU-gated MLP; the model (and transformers) uses squared ReLU, which Sharplight
+        // follows (with SiLU it reproduces llama.cpp's " the capital of France is the capital of France is ..." exactly).
+        new("bitnet-b1.58-2B-4T TQ2_0 GGUF (bitnet, squared ReLU)", "gguf/bitnet-b1.58-2B-4T/bitnet-2b4t-tq2_0.gguf", "The capital of France is", "text", [],
+            " Paris. Paris is a city in the north of France, and it is the", Tokens: 16),
         // Tiny checkpoints from tools/mk_tiny_moe.py.
         new("tiny-random-hunyuan-v1-moe HF (hunyuan_v1_moe, transformers)", "hf/tiny-random-hunyuan-v1-moe", HfPrompt, "ids", [906,479,659,442,304,481,929,839,151,414,296,434,19,105,185,647], ""),
         new("tiny-random-dots1 HF (dots1 group-limited routing, transformers)", "hf/tiny-random-dots1", HfPrompt, "ids", [557,683,396,750,619,279,523,503,995,662,487,926,166,964,821,637], ""),
