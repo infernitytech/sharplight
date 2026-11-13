@@ -145,7 +145,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             shaderBFloat16Type = true,
             shaderBFloat16CooperativeMatrix = Has(DeviceFeatures.MatrixBF16),
         };
-        var f2 = new VkPhysicalDeviceFeatures2 { pNext = bfloat16 ? &bf16 : &f11 };
+        // Diagnostics: driver statistics of each pipeline (SHARPLIGHT_VK_PIPELINE_STATS).
+        _pipelineStats = DiagnosticSwitches.PipelineStats && phys.Extensions.Contains("VK_KHR_pipeline_executable_properties");
+        var executableProperties = new VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR { pNext = bfloat16 ? &bf16 : &f11, pipelineExecutableInfo = true };
+        var f2 = new VkPhysicalDeviceFeatures2 { pNext = _pipelineStats ? &executableProperties : bfloat16 ? &bf16 : &f11 };
         f2.features.shaderInt64 = true;
         f2.features.shaderInt16 = true;
 
@@ -171,6 +174,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         if (bfloat16)
         {
             exts.Add("VK_KHR_shader_bfloat16");
+        }
+
+        if (_pipelineStats)
+        {
+            exts.Add("VK_KHR_pipeline_executable_properties");
         }
 
         var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();
@@ -476,9 +484,19 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
                     pName = entryPtr,
                     flags = Has(DeviceFeatures.SubgroupSizeControl) ? VkPipelineShaderStageCreateFlags.RequireFullSubgroups : 0,
                 };
-                var pipelineInfo = new VkComputePipelineCreateInfo { layout = PipelineLayout, stage = stage };
+                var pipelineInfo = new VkComputePipelineCreateInfo
+                {
+                    layout = PipelineLayout,
+                    stage = stage,
+                    flags = _pipelineStats ? VkPipelineCreateFlags.CaptureStatisticsKHR : 0,
+                };
                 VkPipeline pipeline;
                 Api.vkCreateComputePipelines(_pipelineCache, 1, &pipelineInfo, null, &pipeline).CheckResult();
+                if (_pipelineStats)
+                {
+                    PrintPipelineStatistics(kernel, pipeline);
+                }
+
                 return pipeline;
             }
         }
@@ -487,6 +505,45 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             Interlocked.Add(ref PipelineTicks, System.Diagnostics.Stopwatch.GetTimestamp() - startTicks);
             Interlocked.Increment(ref PipelinesCreated);
         }
+    }
+
+    private readonly bool _pipelineStats;
+
+    /// <summary>Writes the driver's statistics of the first executable of <paramref name="pipeline"/> to stderr.</summary>
+    private void PrintPipelineStatistics(CompiledKernel kernel, VkPipeline pipeline)
+    {
+        var info = new VkPipelineExecutableInfoKHR { pipeline = pipeline, executableIndex = 0 };
+        uint count = 0;
+        if (Api.vkGetPipelineExecutableStatisticsKHR(&info, &count, null) != VkResult.Success || count == 0)
+        {
+            return;
+        }
+
+        var stats = new VkPipelineExecutableStatisticKHR[count];
+        for (int i = 0; i < stats.Length; i++)
+        {
+            stats[i].sType = VkStructureType.PipelineExecutableStatisticKHR;
+        }
+
+        var parts = new List<string>();
+        fixed (VkPipelineExecutableStatisticKHR* p = stats)
+        {
+            Api.vkGetPipelineExecutableStatisticsKHR(&info, &count, p).CheckResult();
+            for (int i = 0; i < count; i++)
+            {
+                var name = System.Runtime.InteropServices.Marshal.PtrToStringUTF8((nint)p[i].name) ?? "?";
+                string value = p[i].format switch
+                {
+                    VkPipelineExecutableStatisticFormatKHR.Bool32 => ((bool)p[i].value.b32).ToString(),
+                    VkPipelineExecutableStatisticFormatKHR.Int64 => p[i].value.i64.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    VkPipelineExecutableStatisticFormatKHR.Uint64 => p[i].value.u64.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    _ => p[i].value.f64.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                };
+                parts.Add($"{name}={value}");
+            }
+        }
+
+        Console.Error.WriteLine($"[pipeline] {kernel.Name} {kernel.EntryPoint}: {string.Join(", ", parts)}");
     }
 
     /// <summary>Submits a command buffer and waits for completion.</summary>

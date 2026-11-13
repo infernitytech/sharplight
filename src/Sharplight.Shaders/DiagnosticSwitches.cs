@@ -18,6 +18,12 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 16 for
 /// Q8_0, 8 for the K-quants).</item>
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
+/// <item><c>SHARPLIGHT_MMQ=0|all|fmt,fmt</c>: weight formats whose prefill matmuls use the int8 tensor-core GEMM (q8_1
+/// activations, <c>mmq.slang</c>) instead of the f16 one: none, every supported format (q8_0, q4_k, q5_k, q6_k, iq4_nl, iq4_xs),
+/// or a list (default: iq4_nl, iq4_xs). Disabling <c>matrix_int8</c> turns it off as well.</item>
+/// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 65).</item>
+/// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
+/// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
@@ -64,6 +70,21 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced integer-dot matvec layout (weight rows per workgroup, subgroups per workgroup), or null.</summary>
     public static int[]? IntDotLayout { get; } = Read("SHARPLIGHT_MMVQ_LAYOUT")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Weight formats of the int8 tensor-core GEMM ("0", "all" or a comma-separated list), or null for the default.</summary>
+    public static string? MmqFormats { get; } = Read("SHARPLIGHT_MMQ");
+
+    /// <summary>Activation rows from which the int8 GEMM serves a matmul.</summary>
+    public static long MmqMinRows { get; } = long.Parse(Read("SHARPLIGHT_MMQ_MIN_ROWS") ?? "65", CultureInfo.InvariantCulture);
+
+    /// <summary>Forced layout of the 128-token int8 GEMM tile (warps M, warps N, fragments M, fragments N), or null.</summary>
+    public static int[]? MmqLayout { get; } = Read("SHARPLIGHT_MMQ_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Forced layout of the 64-token int8 GEMM tile, or null.</summary>
+    public static int[]? MmqLayout64 { get; } = Read("SHARPLIGHT_MMQ_CFG64")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>True when the int8 GEMM always scales its accumulators per element.</summary>
+    public static bool MmqGenericLayout { get; } = IsSet("SHARPLIGHT_MMQ_GENERIC");
 
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");

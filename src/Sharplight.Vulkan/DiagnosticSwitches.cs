@@ -10,6 +10,8 @@ namespace Sharplight.Vulkan;
 /// through the layer's own environment variables).</item>
 /// <item><c>SHARPLIGHT_VK_PROFILE=1|2</c>: record per-dispatch GPU timestamps and accumulate them in
 /// <see cref="VulkanSegment.ProfileData"/>; <c>2</c> additionally splits the entries by kernel entry point.</item>
+/// <item><c>SHARPLIGHT_VK_PIPELINE_STATS=1</c>: print the driver's statistics of every compute pipeline (registers, shared
+/// memory, spills where the driver reports them) to stderr, through VK_KHR_pipeline_executable_properties.</item>
 /// <item><c>SHARPLIGHT_VK_TRACE=1</c>: log every command buffer recording and submission to stderr.</item>
 /// <item><c>SHARPLIGHT_VK_NO_BARRIERS=1</c>: drop inter-dispatch barriers (wrong results) to measure their cost.</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
@@ -29,6 +31,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when profile entries are keyed by kernel entry point too (<c>SHARPLIGHT_VK_PROFILE=2</c>).</summary>
     public static bool ProfileDetail { get; } = Read("SHARPLIGHT_VK_PROFILE") == "2";
+
+    /// <summary>Prints pipeline statistics as pipelines are created.</summary>
+    public static bool PipelineStats { get; } = IsSet("SHARPLIGHT_VK_PIPELINE_STATS");
 
     /// <summary>Logs command buffer recording and submission.</summary>
     public static bool Trace { get; } = IsSet("SHARPLIGHT_VK_TRACE");
