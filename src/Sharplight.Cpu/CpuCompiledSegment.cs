@@ -526,6 +526,14 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var y = NewDense(n.Output);
                 AddStep(new MatMulOp(x, w, y, fmt), x, w, y); _refs[n.Output] = y; return;
             }
+            case "MatMulId":
+            {
+                var x = RowContig(RefF32(ins[0])); var w = Ref(ins[1]); var ix = Dense(Ref(ins[2]));
+                if (ins[1].Kind is not (ValueKind.Weight or ValueKind.Constant)) w = Dense(w);
+                var fmt = Quant.FormatOf(w.Type)!.Value;
+                var y = NewDense(n.Output);
+                AddStep(new MatMulIdOp(x, w, ix, y, fmt), x, w, ix, y); _refs[n.Output] = y; return;
+            }
             case "RmsNorm" or "L2Norm" or "LayerNorm" or "Softmax" or "ReduceSum" or "ReduceMax" or "ArgMax":
             {
                 var kind = Enum.Parse<RowKind>(op);
@@ -552,7 +560,7 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             case "CachedAttention":
             {
                 var q = RowContig(Ref(ins[0])); var k = Ref(ins[1]); var v = Ref(ins[2]); var y = NewDense(n.Output);
-                AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true), q, k, v, y);
+                AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f)), q, k, v, y);
                 _refs[n.Output] = y; return;
             }
             case "Attention":

@@ -313,6 +313,22 @@ public class RopeTests
         Kit.AssertClose(Ref.Rope(x, T, H, D, pos, axes, dims, @base, style, sections, interleaved, freqScale), Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
 
+    /// <summary>Per-frequency divisors as third input (llama3 / yarn scaling).</summary>
+    [Fact]
+    public void RopeWithFrequencyFactors()
+    {
+        int T = 5, H = 2, D = 16; float @base = 500000f;
+        var x = Kit.Rand(T * H * D, 1);
+        var pos = Enumerable.Range(100, T).ToArray();
+        var ff = Sharplight.Models.RopeScaling.Llama3(D, @base, 32f, 1f, 4f, 8192).Factors;
+        Assert.Contains(ff, f => f > 1.5f);
+        var tg = new TG(); var xin = tg.InF("x", TG.T, H, D); var pin = tg.In("pos", DataType.I32, TG.T, 1); var fin = tg.InF("ff", D / 2);
+        tg.B.Output("y", tg.B.Emit1("Rope", [xin, pin, fin], Attributes.From(("dims", D), ("base", @base), ("style", "neox"))));
+        using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, xin, x); Kit.Set(m, pin, pos); Kit.Set(m, fin, ff);
+        var p = Kit.P(T); m.Run(p);
+        Kit.AssertClose(Ref.Rope(x, T, H, D, pos, 1, D, @base, "neox", null, false, 1f, ff), Kit.Out(m, "y", p), 1e-4, 1e-4);
+    }
+
     /// <summary>Rope applied to a strided Slice view (as in Qwen3.5 q after the joint q/gate projection).</summary>
     [Fact]
     public void RopeOnStridedInput()

@@ -22,7 +22,7 @@ public enum TokenType
 /// </summary>
 public sealed record TokenizerData
 {
-    /// <summary>Tokenizer algorithm: "gpt2" (byte-level BPE). Others ("llama", ...) may be added later.</summary>
+    /// <summary>Tokenizer algorithm: "gpt2" (byte-level BPE) or "spm" (SentencePiece-style: scored merges, ▁ for spaces, byte fallback).</summary>
     public required string Model { get; init; }
 
     /// <summary>Pre-tokenizer preset name, e.g. "qwen35", "qwen2", "llama-bpe", "gpt-2", "default". Null/empty means "default".</summary>
@@ -35,6 +35,12 @@ public sealed record TokenizerData
 
     /// <summary>BPE merges, "left right" per entry, in rank order.</summary>
     public string[]? Merges { get; init; }
+
+    /// <summary>Per-token scores of a SentencePiece tokenizer ("spm").</summary>
+    public float[]? Scores { get; init; }
+
+    /// <summary>SentencePiece: prepend a space to the text (default true).</summary>
+    public bool? AddSpacePrefix { get; init; }
 
     public int? BosId { get; init; }
 
@@ -81,6 +87,8 @@ public sealed record TokenizerData
             Tokens = tokens,
             TokenTypes = GetIntArray(md, KeyTokenType),
             Merges = GetStringArray(md, KeyMerges),
+            Scores = GetFloatArray(md, CanonicalKeys.TokenizerScores),
+            AddSpacePrefix = GetBool(md, CanonicalKeys.TokenizerAddSpacePrefix),
             BosId = GetInt(md, CanonicalKeys.TokenizerBosId),
             EosId = eos,
             EosIds = eosIds.ToArray(),
@@ -116,6 +124,16 @@ public sealed record TokenizerData
         if (v is not IEnumerable e) return null;
         var list = new List<string>();
         foreach (object? o in e) list.Add(o as string ?? o?.ToString() ?? "");
+        return list.ToArray();
+    }
+
+    private static float[]? GetFloatArray(IReadOnlyDictionary<string, object> md, string key)
+    {
+        if (!md.TryGetValue(key, out var v) || v is null) return null;
+        if (v is float[] fa) return fa;
+        if (v is string || v is not IEnumerable e) return null;
+        var list = new List<float>();
+        foreach (object? o in e) list.Add(Convert.ToSingle(o, CultureInfo.InvariantCulture));
         return list.ToArray();
     }
 

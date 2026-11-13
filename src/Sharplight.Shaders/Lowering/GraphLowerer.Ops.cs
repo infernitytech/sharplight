@@ -396,7 +396,9 @@ public sealed partial class GraphLowerer
         var sec = new int[4];
         for (int i = 0; i < Math.Min(4, sections.Length); i++) sec[i] = sections[i];
         long axes = pos.Rank > 1 ? pos.Shape[1] : 1;
-        var k = Lib("rope.slang", "main", Macros(
+        var ff = n.Inputs.Length > 2 ? Ref(n.Inputs[2]) : null;   // optional per-frequency divisors (f32 [rot/2])
+        var ffArg = new PointerArg((ff ?? x).Buffer, (ff ?? x).ByteOffset);
+        var k = Lib("rope.slang", "main", Macros(("HAS_FF", ff is not null),
             ("H", H), ("D", D), ("S0", x.Strides[0]), ("S1", x.Strides[1]), ("A", axes), ("ROT", rot),
             ("THETA_SCALE", (float)Math.Pow(@base, -2.0 / rot)), ("FREQ_SCALE", a.Get("freq_scale", 1f)),
             ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
@@ -406,7 +408,7 @@ public sealed partial class GraphLowerer
         {
             if (norm is not null && nw is null) throw new NotSupportedException("Fused rope norm expects a weight.");
             if (cacheWrite is not null && y.Type != DataType.F16 && y.Type != DataType.F32) throw new NotSupportedException($"Cache type {y.Type}");
-            var rm = Macros(
+            var rm = Macros(("HAS_FF", ff is not null),
                 ("H", H), ("D", D), ("S0", x.Strides[0]), ("S1", x.Strides[1]), ("A", axes), ("ROT", rot),
                 ("THETA_SCALE", (float)Math.Pow(@base, -2.0 / rot)), ("FREQ_SCALE", a.Get("freq_scale", 1f)),
                 ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
@@ -418,14 +420,14 @@ public sealed partial class GraphLowerer
             Emit($"rope{(norm is null ? "" : "+norm")}{(cacheWrite is null ? "" : "+cache_write")} {n.Output.Name}", [.. new[] { norm, n, cacheWrite }.OfType<Node>()],
                 [Always(rk, b => new Grid((uint)(Rows(b, tx) * H)))],
                 [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(wRef.Buffer, wRef.ByteOffset),
-                 new PointerArg(y.Buffer, y.ByteOffset), new PointerArg(_runtime, 0), TokenArg(x)],
-                nw is null ? [x, pos] : [x, pos, nw], [y]);
+                 new PointerArg(y.Buffer, y.ByteOffset), new PointerArg(_runtime, 0), ffArg, TokenArg(x)],
+                [.. (nw is null ? [x, pos] : (TensorRef[])[x, pos, nw]), .. ff is null ? [] : (TensorRef[])[ff]], [y]);
             return;
         }
         Emit($"rope {n.Output.Name}", [n],
             [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * H * (D / 2), 64)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)],
-            [x, pos], [y]);
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), ffArg, TokenArg(x)],
+            ff is null ? [x, pos] : [x, pos, ff], [y]);
     }
 
     // ---- gather ------------------------------------------------------------------------------
@@ -489,8 +491,11 @@ public sealed partial class GraphLowerer
         var o = Produce(n.Output);
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
+        int window = n.Attributes.Get("window", 0);
+        float softcap = n.Attributes.Get("softcap", 0f);
         var m = Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
-            ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full ? 0 : Slot(n)));
+            ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full ? 0 : Slot(n)),
+            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f));
         var k = Lib("attention.slang", "main", m);
         var tq = q;
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -510,7 +515,8 @@ public sealed partial class GraphLowerer
         var sm = new Dictionary<string, string>(m) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
         // Many queries (prefill): tensor-core flash attention when the device and shapes allow it.
         bool fa = !full && s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
-                  && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0;
+                  && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0
+                  && window == 0 && softcap == 0;   // the flash kernel has no sliding window / soft cap
         var variants = new List<KernelVariant>();
         if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
         if (fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));

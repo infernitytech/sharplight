@@ -1,7 +1,10 @@
 // Causal attention of T queries against a KV cache (online softmax, one workgroup per (head, query)).
 // q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
-// Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys)
+// Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
+//         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers), HAS_SOFTCAP + SOFTCAP
+//         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)). The flash-attention variant does not support
+//         WINDOW / SOFTCAP (the lowering does not select it for them).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
 // one workgroup each (grid z); every split writes an unnormalized partial (acc[DV], m, l) to part[split][t][h][DV+2]
 // and the `combine` entry merges them. The split ranges follow n_past at run time, so a recorded command buffer
@@ -142,12 +145,18 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #else
     uint L = p.rt[RT_N_PAST] + t + 1;
 #endif
+#if WINDOW && !FULL_ATTN
+    uint jLo = L > WINDOW ? L - WINDOW : 0;
+#else
+    uint jLo = 0;
+#endif
 #if SPLITS > 1
     uint split = gid.z;
-    uint per = (L + SPLITS - 1) / SPLITS;
-    uint jBeg = min(L, split * per), jEnd = min(L, jBeg + per);
+    uint span = L - jLo;
+    uint per = (span + SPLITS - 1) / SPLITS;
+    uint jBeg = jLo + min(span, split * per), jEnd = jLo + min(span, split * per + per);
 #else
-    uint jBeg = 0, jEnd = L;
+    uint jBeg = jLo, jEnd = L;
 #endif
 
     float* qr = p.q + uint64_t(t) * QS0 + uint64_t(h) * QS1;
@@ -163,6 +172,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         uint j = c0 + tid;
         float s = -1e30;
         if (j < jEnd) s = dot_k(p.kc, (uint64_t(j) * HKV + hk) * D);
+#if HAS_SOFTCAP
+        if (j < jEnd) s = SOFTCAP * tanh(s / SOFTCAP);
+#endif
         float mc = reduce_max(s, tid);
         float mNew = max(m, mc);
         float pj = j < jEnd ? exp(s - mNew) : 0;

@@ -46,6 +46,35 @@ public sealed class WeightInfo
         return new() { Name = name, Type = Type, Shape = s, Source = Source };
     }
 
+    /// <summary>
+    /// Zero-copy view of rows [firstRow, firstRow + rows) of a tensor viewed as [Shape[0], rest...] (e.g. splitting a fused
+    /// q/k/v or gate/up projection). Rows are contiguous in every storage type, including block-quantized ones.
+    /// </summary>
+    public WeightInfo RowSlice(string name, long firstRow, long rows)
+    {
+        long total = Shape[0].Fixed;
+        if (firstRow < 0 || rows <= 0 || firstRow + rows > total) throw new ArgumentOutOfRangeException(nameof(rows), $"{Name}: rows [{firstRow}, {firstRow + rows}) outside [0, {total}).");
+        long rowElems = Shape.Elements() / total;
+        long rowBytes = Type.ByteSize(rowElems);
+        var dims = new List<Dim> { rows };
+        for (int d = 1; d < Shape.Rank; d++) dims.Add(Shape[d]);
+        return new() { Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes) };
+    }
+
+    /// <summary>
+    /// Stacks equally shaped tensors along a new outermost axis (per-expert matrices into one [E, N, K] tensor). The result reads
+    /// its parts lazily; nothing is copied into memory up front.
+    /// </summary>
+    public static WeightInfo Stack(string name, IReadOnlyList<WeightInfo> parts)
+    {
+        var first = parts[0];
+        foreach (var w in parts)
+            if (w.Type != first.Type || !w.Shape.Equals(first.Shape)) throw new ArgumentException($"{name}: cannot stack {w} with {first}.");
+        var dims = new List<Dim> { parts.Count };
+        for (int d = 0; d < first.Shape.Rank; d++) dims.Add(first.Shape[d]);
+        return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]) };
+    }
+
     /// <summary>Reads the whole tensor.</summary>
     public byte[] ReadAll()
     {
@@ -53,6 +82,31 @@ public sealed class WeightInfo
         Source.Read(0, b);
         return b;
     }
+}
+
+sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
+{
+    readonly long _each = parts[0].ByteLength;
+    public long ByteLength => _each * parts.Length;
+    public void Read(long offset, Span<byte> destination)
+    {
+        while (destination.Length > 0)
+        {
+            int i = (int)(offset / _each);
+            long inPart = offset - i * _each;
+            int n = (int)Math.Min(destination.Length, _each - inPart);
+            parts[i].Read(inPart, destination[..n]);
+            destination = destination[n..];
+            offset += n;
+        }
+    }
+}
+
+sealed class SliceWeightSource(IWeightSource parent, long offset, long length) : IWeightSource
+{
+    public long ByteLength => length;
+    public void Read(long off, Span<byte> destination) => parent.Read(offset + off, destination);
+    public nint TryGetPointer() => parent.TryGetPointer() is var p && p != 0 ? p + (nint)offset : 0;
 }
 
 sealed class DerivedWeightSource(long length, Func<byte[]> produce) : IWeightSource

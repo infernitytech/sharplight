@@ -155,6 +155,7 @@ public class PipelineTests
             }
             Assert.Equal(VisionParameters.Of(def), VisionParameters.Of(def2), new ParamComparer());
             // The architecture's prompt assembly is found by id, no adapter involved.
+            BuiltinAdapters.RegisterAll();
             Assert.NotNull(MultimodalRegistry.Find(def2.Architecture));
             var img = Image(48, 24);
             Assert.Equal(Encode(def, Env.Cpu(), img), Encode(def2, Env.Cpu(), img));

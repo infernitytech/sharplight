@@ -25,6 +25,15 @@ public interface IGgufArchitectureMapping
     string? MapWeightName(string ggufName, GgufMetadataView gguf);
 
     /// <summary>
+    /// Optional value/layout transform of a tensor that already carries its canonical name (e.g. a lazily derived row
+    /// permutation), so canonical weights are format independent. Default: unchanged (zero-copy).
+    /// </summary>
+    WeightInfo MapWeight(WeightInfo weight, GgufMetadataView gguf) => weight;
+
+    /// <summary>Canonical weights that GGUF does not store but the metadata determines (e.g. computed rope frequency factors).</summary>
+    IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights) => [];
+
+    /// <summary>
     /// The canonical architecture id for this particular file. Mappings whose GGUF architecture covers several
     /// layouts (e.g. <c>clip</c> projector types) override it; default: <see cref="Architecture"/>.
     /// </summary>
@@ -38,6 +47,13 @@ public interface IGgufArchitectureMapping
 public interface IGgufWeightTransformer
 {
     void Transform(Dictionary<string, Models.WeightInfo> weights, GgufMetadataView gguf);
+}
+
+/// <summary>Optional capability of a mapping: one GGUF tensor that becomes several canonical weights (fused projections).</summary>
+public interface IGgufSplitMapping
+{
+    /// <summary>The canonical weights a GGUF tensor splits into, or null when the tensor maps one-to-one.</summary>
+    IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf);
 }
 
 /// <summary>Read access to GGUF metadata of one architecture (<c>{gguf_arch}.key</c>).</summary>
@@ -61,6 +77,7 @@ public static class GgufArchitectureMappings
     {
         Register(new Qwen35GgufMapping());
         Register(new ClipGgufMapping());
+        Register(new DecoderGgufMapping());
     }
 
     public static void Register(IGgufArchitectureMapping mapping)

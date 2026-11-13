@@ -136,6 +136,19 @@ if (imagePaths.Count > 0)
 }
 var gen = new Generator(session, model.Tokenizer, vision);
 var prompt = Opt("-p", "The capital of France is")!.Replace("\\n", "\n");
+// --logits out.bin: process the prompt, print token ids and the top-5 logits, store the last-token logits as raw float32.
+if (Opt("--logits") is { } logitsPath)
+{
+    var ids = model.Tokenizer.Encode(prompt, addSpecial: true, parseSpecial: true);
+    var lg = session.Process(ids);
+    File.WriteAllBytes(logitsPath, System.Runtime.InteropServices.MemoryMarshal.AsBytes<float>(lg).ToArray());
+    Console.WriteLine("ids: " + string.Join(",", ids));
+    foreach (var i in Enumerable.Range(0, lg.Length).OrderByDescending(i => lg[i]).Take(5)) Console.WriteLine($"  {i} {lg[i]:F4} {model.Tokenizer.Decode([i])}");
+    session.Dispose();
+    foreach (var d in slots) d.Device.Dispose();
+    fallback?.Device.Dispose();
+    return;
+}
 if (images.Count > 0)
 {
     // Chat formatting: the template turns each image part into the model's placeholder tokens.
@@ -150,8 +163,20 @@ var options = new GenerationOptions
     MaxNewTokens = int.Parse(Opt("-n", "64")!),
     Sampling = temp <= 0 ? SamplingOptions.Greedy : new SamplingOptions { Temperature = temp, Seed = 42 },
 };
+// --chat: wrap the prompt as a user message and render it with the model's chat template (the template emits BOS itself).
+int[]? promptIds = null;
+if (Flag("--chat") && images.Count == 0)
+{
+    if (model.ChatTemplate is not { } tpl) throw new InvalidOperationException("The model has no chat template.");
+    string? Tok(int? id) => id is int i ? model.Tokenizer.TokenString(i) : null;
+    var rendered = new Sharplight.Templating.ChatTemplate(tpl, Tok(model.Tokenizer.BosId), Tok(model.Tokenizer.EosId))
+        .Render([new Sharplight.Templating.ChatMessage("user", prompt)], addGenerationPrompt: true);
+    Console.WriteLine("--- rendered prompt ---\n" + rendered + "\n-----------------------");
+    promptIds = model.Tokenizer.Encode(rendered, addSpecial: false, parseSpecial: true);
+    prompt = "";
+}
 if (images.Count == 0) Console.Write(prompt);
-foreach (var t in images.Count > 0 ? gen.Generate(prompt, images, options) : gen.Generate(prompt, options)) Console.Write(t.Text);
+foreach (var t in images.Count > 0 ? gen.Generate(prompt, images, options) : promptIds is null ? gen.Generate(prompt, options) : gen.Generate(promptIds, options)) Console.Write(t.Text);
 Console.WriteLine();
 var s = gen.LastStats!;
 Console.Error.WriteLine($"prompt: {s.PromptTokens} tok in {s.PrefillTime.TotalMilliseconds:F0} ms ({s.PrefillTokensPerSecond:F1} tok/s) | generated: {s.GeneratedTokens} tok, {s.DecodeTokensPerSecond:F2} tok/s");

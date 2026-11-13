@@ -2,7 +2,8 @@
 // y: dense [T, H, D]. One thread per (t, h, pair).
 // Macros: H, D, S0, S1, A, ROT (rotated dims), THETA_SCALE (= base^(-2/ROT)), FREQ_SCALE,
 //         NEOX (1 = pairs (i, i+ROT/2), 0 = pairs (2i, 2i+1)),
-//         MROPE (0/1), INTERLEAVED (0/1), SEC0..SEC3 (multi-axis sections)
+//         MROPE (0/1), INTERLEAVED (0/1), SEC0..SEC3 (multi-axis sections),
+//         HAS_FF (0/1): per-frequency divisors ff[ROT/2] (theta_i /= ff[i]; llama3 / yarn / longrope scaling)
 #include "common.slang"
 
 struct Params
@@ -10,6 +11,7 @@ struct Params
     float* x;
     int* pos;
     float* y;
+    float* ff;
     uint T;
 };
 
@@ -61,6 +63,9 @@ void main(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     {
         float position = float(p.pos[t * A + axis_for_pair(pairIndex)]);
         float theta = FREQ_SCALE * position * pow(THETA_SCALE, float(pairIndex));
+#if HAS_FF
+        theta /= p.ff[pairIndex];
+#endif
         float c = cos(theta), s = sin(theta);
         yr[i0] = x0 * c - x1 * s;
         yr[i1] = x0 * s + x1 * c;
@@ -84,6 +89,7 @@ struct RowParams
     float* w;
     uint8_t* y;
     uint* rt;
+    float* ff;
     uint T;
 };
 
@@ -141,6 +147,9 @@ void rope_row(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Row
         {
             float position = float(p.pos[t * A + axis_for_pair(i)]);
             float theta = FREQ_SCALE * position * pow(THETA_SCALE, float(i));
+#if HAS_FF
+            theta /= p.ff[i];
+#endif
             float c = cos(theta), s = sin(theta);
             store(p, t, h, i0, x0 * c - x1 * s);
             store(p, t, h, i1, x0 * s + x1 * c);
