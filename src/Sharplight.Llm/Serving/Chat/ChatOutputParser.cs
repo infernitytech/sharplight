@@ -17,6 +17,7 @@ internal sealed class ChatOutputParser
     private readonly List<string> _contentMarkers;
     private readonly IToolCallFormat? _bare;
     private readonly StringBuilder _buf = new();
+    private readonly HarmonyOutputTranslator? _harmony;
     private Mode _mode;
     private IToolCallFormat? _cur;
     private bool _curBare;
@@ -30,9 +31,12 @@ internal sealed class ChatOutputParser
     /// <param name="startInReasoning">The prompt already opened a think block (the output starts with reasoning).</param>
     /// <param name="thinkOpen">Marker that opens a reasoning block.</param>
     /// <param name="thinkClose">Marker that closes a reasoning block.</param>
+    /// <param name="harmony">The output is OpenAI harmony (gpt-oss): it is first translated by <see cref="HarmonyOutputTranslator"/>
+    /// (analysis → reasoning, <c>functions.*</c> messages → Hermes tool calls, final → content).</param>
     public ChatOutputParser(IReadOnlyList<IToolCallFormat>? formats, IEnumerable<string>? toolNames, bool startInReasoning = false,
-        string thinkOpen = "<think>", string thinkClose = "</think>")
+        string thinkOpen = "<think>", string thinkClose = "</think>", bool harmony = false)
     {
+        _harmony = harmony ? new HarmonyOutputTranslator() : null;
         _formats = formats ?? [];
         _toolNames = [.. toolNames ?? []];
         _thinkClose = thinkClose;
@@ -48,7 +52,7 @@ internal sealed class ChatOutputParser
     public List<ParsedPiece> Push(string text)
     {
         var o = new List<ParsedPiece>();
-        _buf.Append(text);
+        _buf.Append(_harmony is null ? text : _harmony.Push(text));
         Drain(false, o);
         return o;
     }
@@ -56,6 +60,11 @@ internal sealed class ChatOutputParser
     public List<ParsedPiece> Finish()
     {
         var o = new List<ParsedPiece>();
+        if (_harmony is not null)
+        {
+            _buf.Append(_harmony.Finish());
+        }
+
         Drain(true, o);
         return o;
     }

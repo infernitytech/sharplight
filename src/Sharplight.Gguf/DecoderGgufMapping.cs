@@ -73,8 +73,35 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         md[a + "moe.expert_count"] = g.Int("expert_count");
         md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
         md[a + "moe.ffn_hidden_size"] = g.Int("expert_feed_forward_length", g.Int("feed_forward_length"));
-        md[a + "moe.normalize_weights"] = normalizeWeights;   // llama.cpp: expert_weights_norm
+        md[a + "moe.normalize_weights"] = g.Bool("expert_weights_norm", normalizeWeights);
+        if (g.Float("expert_weights_scale", 0f) is var scale && scale != 0f)
+        {
+            md[a + "moe.weights_scale"] = scale;   // llama.cpp: 0 = unscaled
+        }
+
+        if (RouterActivation(g.Int("expert_gating_func", 0)) is { } activation)
+        {
+            md[a + "moe.router_activation"] = activation;
+        }
+
+        if (g.Int("expert_group_count", 0) is > 1 and var groups)
+        {
+            md[a + "moe.group_count"] = groups;
+            md[a + "moe.group_used_count"] = g.Int("expert_group_used_count", groups);
+        }
     }
+
+    /// <summary>Canonical <c>moe.router_activation</c> of llama.cpp's <c>expert_gating_func</c> (null for 0 = the architecture's default).</summary>
+    /// <exception cref="NotSupportedException">The gating function is unknown.</exception>
+    internal static string? RouterActivation(int gatingFunction) => gatingFunction switch
+    {
+        0 => null,
+        1 => "softmax",
+        2 => "sigmoid",
+        3 => "softmax_topk",
+        4 => "sqrt_softplus",
+        _ => throw new NotSupportedException($"GGUF expert_gating_func {gatingFunction} is not supported."),
+    };
 
     private static void AddGemma(Dictionary<string, object> md, string a, GgufMetadataView g, int embeddingLength, int headCount, int headDim)
     {
@@ -164,6 +191,16 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
         ["ffn_down_exps.weight"] = "mlp.experts.down.weight",
+        ["ffn_gate_up_exps.weight"] = "mlp.experts.gate_up.weight",
+        // Routing biases: llama.cpp's exp_probs_b is the selection bias, ffn_gate_inp.bias the logit bias (gpt-oss).
+        ["exp_probs_b.bias"] = "mlp.router_bias",
+        ["ffn_gate_inp.bias"] = "mlp.router.bias",
+        ["ffn_gate_exps.bias"] = "mlp.experts.gate.bias",
+        ["ffn_up_exps.bias"] = "mlp.experts.up.bias",
+        ["ffn_down_exps.bias"] = "mlp.experts.down.bias",
+        // BitNet sub-layer norms.
+        ["attn_sub_norm.weight"] = "attention.sub_norm.weight",
+        ["ffn_sub_norm.weight"] = "mlp.sub_norm.weight",
         // Flint: always-on shared expert and per-head attention sinks.
         ["ffn_gate_shexp.weight"] = "mlp.shared.gate.weight",
         ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
@@ -313,12 +350,23 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         return g.Int("rope.dimension_count", g.Int("attention.key_length", g.Int("embedding_length") / headCount));
     }
 
+    // llama.cpp's YaRN magnitude: 0.1·ln(factor) + 1, or with yarn_log_mul (HF mscale_all_dim, mscale 1) the ratio of the two mscales.
     private static RopeScaling.Result YarnOf(GgufMetadataView g)
-        => RopeScaling.Yarn(
+    {
+        float factor = g.Float("rope.scaling.factor");
+        float logMul = g.Float("rope.scaling.yarn_log_mul", 0f);
+        float? attentionFactor = logMul != 0f ? YarnMscale(factor, 1f) / YarnMscale(factor, logMul) : null;
+        return RopeScaling.Yarn(
             RopeDimension(g),
             g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase),
-            g.Float("rope.scaling.factor"),
-            g.Int("rope.scaling.original_context_length"));
+            factor,
+            g.Int("rope.scaling.original_context_length"),
+            g.Float("rope.scaling.yarn_beta_fast", 32f),
+            g.Float("rope.scaling.yarn_beta_slow", 1f),
+            attentionFactor);
+    }
+
+    private static float YarnMscale(float factor, float mscale) => factor <= 1f ? 1f : 0.1f * mscale * MathF.Log(factor) + 1f;
 
     /// <inheritdoc/>
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights) => RopeFrequencyFactors(g, weights);

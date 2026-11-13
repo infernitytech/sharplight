@@ -9,10 +9,10 @@ namespace Sharplight.Architectures;
 internal sealed record LatentDecoderHyperParameters(
     int LayerCount, int HiddenSize, int Vocab, int ContextLength, float Eps, LatentAttentionParameters Attention,
     float RopeBase, string RopeStyle, string Activation, bool Gated, float EmbeddingScale, float ResidualScale, float LogitScale,
-    MoeOptions Moe, int ExpertGroups, int ExpertGroupsUsed, string GroupScore)
+    MoeOptions Moe)
 {
     /// <summary>Reads and validates the hyper-parameters of a latent decoder source.</summary>
-    /// <exception cref="InvalidDataException">A required key is missing or the expert grouping is inconsistent.</exception>
+    /// <exception cref="InvalidDataException">A required key is missing or a routing key is unknown.</exception>
     public static LatentDecoderHyperParameters Read(ModelSource src)
     {
         int nope = src.Arch<int>("attention.nope_dim");
@@ -42,24 +42,7 @@ internal sealed record LatentDecoderHyperParameters(
             EmbeddingScale: src.Arch("embedding_scale", 1f),
             ResidualScale: src.Arch("residual_scale", 1f),
             LogitScale: src.Arch("logit_scale", 1f),
-            Moe: MoeOptions.Read(src),
-            ExpertGroups: src.Arch("moe.group_count", 1),
-            ExpertGroupsUsed: src.Arch("moe.group_used_count", src.Arch("moe.group_count", 1)),
-            GroupScore: src.Arch("moe.group_score", "top2_sum"));
-
-        if (hp.ExpertGroups > 1 && (hp.Moe.Experts % hp.ExpertGroups != 0 || hp.ExpertGroupsUsed < 1 || hp.ExpertGroupsUsed > hp.ExpertGroups))
-        {
-            throw new InvalidDataException("latent_decoder: moe.group_count must divide moe.expert_count and moe.group_used_count must be in [1, group_count].");
-        }
-
-        if (hp.GroupScore is not ("max" or "top2_sum"))
-        {
-            throw new InvalidDataException($"latent_decoder: unknown moe.group_score '{hp.GroupScore}'.");
-        }
-
+            Moe: MoeOptions.Read(src));
         return hp;
     }
-
-    /// <summary>Whether routing is limited to the best expert groups (DeepSeek-V2/V3 group-limited top-k).</summary>
-    public bool GroupLimited => ExpertGroups > 1 && ExpertGroupsUsed < ExpertGroups;
 }

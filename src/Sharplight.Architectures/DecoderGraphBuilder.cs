@@ -34,7 +34,6 @@ internal sealed partial class DecoderGraphBuilder
         int origCtx = _src.Arch("rope.original_context_length", 0);
         int runtimeCtx = _options.ContextLength > 0 ? _options.ContextLength : _hp.ContextLength;
         _longRope = UseLongRope(origCtx, runtimeCtx);
-
         States = [];
         _kCache = new StateDefinition[_hp.NLayer];
         _vCache = new StateDefinition[_hp.NLayer];
@@ -270,7 +269,7 @@ internal sealed partial class DecoderGraphBuilder
 
         var ffnResidual = x;
         h = PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm");
-        var ffn = SubLayerOutput(b, FeedForward(b, h, p), p + "mlp.out_norm.weight");
+        var ffn = SubLayerOutput(b, FeedForward(b, h, p, residual), p + "mlp.out_norm.weight");
         return b.Add(ffn, ffnResidual, $"{p}l_out");
     }
 
@@ -282,7 +281,7 @@ internal sealed partial class DecoderGraphBuilder
         var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
         var attnOut = SubLayerOutput(b, Attention(b, h, p, il, positions, freqFactors, rowSpans, packedKv), p + "attention.out_norm.weight");
         var ffnInput = b.HasWeight(p + "post_attention_norm.weight") ? PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm") : h;
-        var ffn = SubLayerOutput(b, FeedForward(b, ffnInput, p), p + "mlp.out_norm.weight");
+        var ffn = SubLayerOutput(b, FeedForward(b, ffnInput, p, x), p + "mlp.out_norm.weight");
         return b.Add(b.Add(attnOut, x, $"{p}attn_residual"), ffn, $"{p}l_out");
     }
 
@@ -301,7 +300,8 @@ internal sealed partial class DecoderGraphBuilder
         return _hp.ResidualScale != 1f ? b.Scale(output, _hp.ResidualScale) : output;
     }
 
-    private Value FeedForward(GraphBuilder b, Value h, string p) => b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
+    private Value FeedForward(GraphBuilder b, Value h, string p, Value layerInput)
+        => b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p, layerInput) : Mlp(b, h, p);
 
     // Gated per-layer-embedding contribution that ends a layer (see the DecoderAdapter remarks).
     private Value PerLayerResidual(GraphBuilder b, Value x, Value perLayer, string p, int il)

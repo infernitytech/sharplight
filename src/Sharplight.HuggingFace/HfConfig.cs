@@ -48,9 +48,19 @@ internal sealed partial class HfConfig : IDisposable
         return new HfConfig(document, directory);
     }
 
-    /// <summary>The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's.</summary>
+    /// <summary>
+    /// The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's, then to the model type of a
+    /// remote-code <c>architectures</c> class whose configs omit it (e.g. <c>BailingMoeV2ForCausalLM</c>).
+    /// </summary>
     public string? ModelType
-        => Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : GetString("model_type");
+        => Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
+            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null);
+
+    // Remote-code causal-LM classes whose config.json may lack model_type.
+    private static readonly Dictionary<string, string> s_remoteCodeModelTypes = new(StringComparer.Ordinal)
+    {
+        ["BailingMoeV2ForCausalLM"] = "bailing_moe_v2",
+    };
 
     /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>
     public IReadOnlyList<string> Architectures

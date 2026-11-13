@@ -5,7 +5,8 @@
 // Macros: HQ, HKV, D, DV, VRS (value cache row stride in elements, >= DV: the values are the first DV entries of each row,
 //         e.g. the latent prefix of a multi-head latent attention cache whose K and V are one buffer), QS0, QS1, SCALE, KV_FMT
 //         (KV_F16: KV_FMT == FMT_F16), WG (threads, = chunk of keys),
-//         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers), HAS_SOFTCAP + SOFTCAP
+//         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers),
+//         CHUNK (> 0: a query at position p sees only keys [p - p % CHUNK, p]; Llama 4 chunked attention), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
 // one workgroup each (grid z); every split writes an unnormalized partial (acc[DV], m, l) to part[split][t][h][DV+2]
@@ -209,6 +210,9 @@ void decode_range(uint t, uint* rt, int* seq, out uint jLo, out uint L, out uint
     jLo = L > WINDOW ? L - WINDOW : 0;
 #else
     jLo = 0;
+#endif
+#if CHUNK && !FULL_ATTN
+    jLo = max(jLo, (L - 1) / CHUNK * CHUNK);   // chunked attention: only the keys of the query's own chunk
 #endif
 }
 #endif
@@ -483,6 +487,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #else
     uint jLo = 0;
 #endif
+#if CHUNK && !FULL_ATTN
+    jLo = max(jLo, (L - 1) / CHUNK * CHUNK);   // chunked attention: only the keys of the query's own chunk
+#endif
 #if SPLITS > 1
     uint split = gid.z;
     uint span = L - jLo;
@@ -676,6 +683,10 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint jFirst = nPast + t0 + 1 > WINDOW ? (nPast + t0 + 1 - WINDOW) / FA_BC * FA_BC : 0;   // first query's window
 #else
     uint rowBeg = 0, jFirst = 0;
+#endif
+#if CHUNK && !FULL_ATTN
+    rowBeg = max(rowBeg, rowEnd > 0 ? (rowEnd - 1) / CHUNK * CHUNK : 0);       // chunked attention: this row's chunk
+    jFirst = max(jFirst, (nPast + t0) / CHUNK * CHUNK / FA_BC * FA_BC);           // the block's first query's chunk
 #endif
 #endif
     GroupMemoryBarrierWithGroupSync();
