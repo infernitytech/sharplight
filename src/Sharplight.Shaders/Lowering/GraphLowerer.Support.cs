@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -54,6 +54,11 @@ public sealed partial class GraphLowerer
         if (s_generalOps.Contains(op))
         {
             return SupportsGeneral(node);
+        }
+
+        if (op is "Wkv7" or "Wkv6")
+        {
+            return SupportsWkv(node, op == "Wkv7" ? 7 : 6);
         }
 
         if (op == "SelectiveScan")

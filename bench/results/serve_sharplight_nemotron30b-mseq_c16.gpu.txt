@@ -1,0 +1,8 @@
+gpu util,memused,power,smclk: 96 %, 31509 MiB, 301.28 W, 2160 MHz
+2778, /usr/bin/kwin_wayland, 601 MiB
+9281, /app/extra/vscode/code --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/rende
+639257, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/
+617988, ~/Documents/work/restora/.venv/bin/python3, 550 MiB
+1465681, ~/.local/share/JetBrains/Toolbox/apps/rider/bin/rider, 134 MiB
+1720178, /tmp/.mount_BionicLGCBcJ/bionic --type=gpu-process --ozone-platform=wayland --render-node-override=/d
+2369104, ~/Documents/work/sharplight/.claude/worktrees/agent-a557c30fe197d9ad4/bench/../samples/Sh
