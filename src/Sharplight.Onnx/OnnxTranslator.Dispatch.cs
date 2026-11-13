@@ -20,6 +20,7 @@ internal sealed partial class OnnxTranslator
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
         "Attention", "RotaryEmbedding", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss", "SwiGLU", "Shrink", "CumProd",
         "ReverseSequence",
+        "Det",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -324,6 +325,9 @@ internal sealed partial class OnnxTranslator
                 ReverseSequence(n, ins);
                 break;
 
+            case "Det":
+                Det(n, ins);
+                break;
             case "EyeLike":
                 throw new NotSupportedException($"{op} of a runtime-dependent tensor has a data-dependent shape");
             default:

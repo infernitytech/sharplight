@@ -27,6 +27,7 @@ internal static partial class CpuOpSupport
         return op switch
         {
             "Scale" or "Clip" or "BatchMatMul" or "CumSum" or "ArgReduce" or "TopK" or "GridSample" => AllF32(node),
+            "Det" => AllF32(node),
             "Conv" => CheckConv(node),
             "ConvTranspose" => CheckConvTranspose(node),
             "Pool" => CheckPool(node),

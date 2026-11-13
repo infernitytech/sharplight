@@ -129,6 +129,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "OneHot":
                 LowerOneHot(n);
                 return;
+            case "Det":
+                LowerDet(n);
+                return;
 
             case "Gather":
                 LowerGather(n);
