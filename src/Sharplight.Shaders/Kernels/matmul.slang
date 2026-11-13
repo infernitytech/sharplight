@@ -10,6 +10,9 @@
 
 struct Params
 {
+#if HAS_GRID
+    uint* grid;
+#endif
     float* x;
     uint8_t* w;
 #if DUAL
@@ -41,6 +44,7 @@ float dot8(float w[8], float4 a, float4 b)
 [numthreads(SG * MV_ROWS_PER_WG, 1, 1)]
 void matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+    GRID_BIND(p);
     uint lane = ltid.x % SG;
     uint row = gid.x * MV_ROWS_PER_WG + ltid.x / SG;
     if (row >= N) return;
@@ -133,6 +137,7 @@ groupshared float skPart2[MV_COLS][MV_SK_SG];
 [numthreads(SG * MV_SK_SG, 1, 1)]
 void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x, lane = tid % SG, sg = tid / SG;
     uint row = gid.x;
     float acc[MV_COLS];
@@ -205,6 +210,7 @@ groupshared float sW[BK][BN + 4];
 [numthreads(256, 1, 1)]
 void gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint n0 = gid.x * BN;
     uint t0 = gid.y * BM;
@@ -287,6 +293,7 @@ groupshared float cC[8 * 256];
 [numthreads(256, 1, 1)]
 void gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32;
     uint n0 = gid.x * CBN;
@@ -473,6 +480,7 @@ groupshared float gC[WARPS_M * WARPS_N * 256];
 [numthreads(GTHREADS, 1, 1)]
 void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
     uint n0 = gid.x * GBN;

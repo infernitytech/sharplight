@@ -1,25 +1,34 @@
 #pragma once
-// Weight-format decoders for ggml's grid based IQ formats. Included by common.slang (after the FMT_* ids and h2f). Each format's lattice
-// grid lives in its own grid_*.slang file and is only compiled into kernels specialized for that format. All block sizes are even,
-// so the 16-bit loads below are aligned; 32-bit words are assembled from two halves.
+// Weight-format decoders for ggml's grid based IQ formats. Included by common.slang (after the FMT_* ids and h2f). The lattice grids live in
+// a device constant buffer (GridTables.cs packs it from the same tables the CPU decoders use); the lowering passes its address as the first
+// member of the kernel parameter block (HAS_GRID) and each entry point stores it in g_grid with GRID_BIND(p). All block sizes are even, so the
+// 16-bit loads below are aligned; 32-bit words are assembled from two halves.
 // The results equal the CPU dequantizers (Quant.Iq.cs) and ggml's dequantize_row_*.
+// Grid buffer layout in 32-bit words: IQ2_XXS grid 512 + signs; IQ2_XS grid 1024 + signs; IQ2_S grid 2048; IQ3_XXS grid 256 + signs; IQ3_S grid 512;
+// IQ1 grid 2048 (see GridTables.cs).
 
 uint rd16(uint8_t* p, uint o) { return uint(*(uint16_t*)(p + o)); }
 uint rd32(uint8_t* p, uint o) { return rd16(p, o) | (rd16(p, o + 2) << 16); }
 
-#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS
-#include "grid_iq_signs.slang"
+#if WFMT == FMT_IQ2_XXS
+#define IQ_SIGNS_WORD 512
+#elif WFMT == FMT_IQ2_XS
+#define IQ_SIGNS_WORD 1024
+#elif WFMT == FMT_IQ3_XXS
+#define IQ_SIGNS_WORD 256
+#endif
+
+#ifdef IQ_SIGNS_WORD
 // 7-bit sign index -> sign byte (bit j set = value j negative; the eighth bit is the parity of the other seven).
-uint iq_sign_byte(uint i) { return (iq_signs[i >> 2] >> (8 * (i & 3))) & 255; }
+uint iq_sign_byte(uint i) { return (g_grid[IQ_SIGNS_WORD + (i >> 2)] >> (8 * (i & 3))) & 255; }
 #endif
 
 #if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S
-// Byte j (0..7) of the 8-byte grid entry `idx` of a table stored as two 32-bit words per entry.
-#define IQ2_GRID_BYTE(table, idx, j) float((table[2 * (idx) + ((j) >> 2)] >> (8 * ((j) & 3))) & 255)
+// Byte j (0..7) of the 8-byte grid entry `idx`, stored as two 32-bit words per entry.
+#define IQ2_GRID_BYTE(idx, j) float((g_grid[2 * (idx) + ((j) >> 2)] >> (8 * ((j) & 3))) & 255)
 #endif
 
 #if WFMT == FMT_IQ2_XXS
-#include "grid_iq2_xxs.slang"
 // IQ2_XXS: 256 values = { f16 d; u16 qs[32] } (66 bytes); per 32 values: 4 grid indices (8 bit), then 4 sign indices (7 bit) and a 4-bit scale.
 void load8_iq2_xxs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -36,14 +45,13 @@ void load8_iq2_xxs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float
     [ForceUnroll]
     for (int j = 0; j < 8; j++)
     {
-        float x = db * IQ2_GRID_BYTE(iq2xxs_grid, idx, j);
+        float x = db * IQ2_GRID_BYTE(idx, j);
         v[j] = ((signs >> j) & 1) != 0 ? -x : x;
     }
 }
 #endif
 
 #if WFMT == FMT_IQ2_XS
-#include "grid_iq2_xs.slang"
 // IQ2_XS: 256 values = { f16 d; u16 qs[32]; u8 scales[8] } (74 bytes); each u16 = 9-bit grid index | 7-bit sign index << 9; two 4-bit scales per 32 values.
 void load8_iq2_xs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -60,14 +68,13 @@ void load8_iq2_xs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float 
     [ForceUnroll]
     for (int j = 0; j < 8; j++)
     {
-        float x = db * IQ2_GRID_BYTE(iq2xs_grid, idx, j);
+        float x = db * IQ2_GRID_BYTE(idx, j);
         v[j] = ((signs >> j) & 1) != 0 ? -x : x;
     }
 }
 #endif
 
 #if WFMT == FMT_IQ2_S
-#include "grid_iq2_s.slang"
 // IQ2_S: 256 values = { f16 d; u8 qs[64]; u8 qh[8]; u8 scales[8] } (82 bytes); qs[0..32) low grid index bits, qs[32..64) sign bytes, qh the two high bits.
 void load8_iq2_s(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -83,14 +90,13 @@ void load8_iq2_s(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     [ForceUnroll]
     for (int j = 0; j < 8; j++)
     {
-        float x = db * IQ2_GRID_BYTE(iq2s_grid, idx, j);
+        float x = db * IQ2_GRID_BYTE(idx, j);
         v[j] = ((signs >> j) & 1) != 0 ? -x : x;
     }
 }
 #endif
 
 #if WFMT == FMT_IQ3_XXS
-#include "grid_iq3_xxs.slang"
 // IQ3_XXS: 256 values = { f16 d; u8 qs[96] } (98 bytes); qs[0..64) 8-bit indices of 4-value grid entries, then one word per 32 values: 4 sign indices (7 bit) and a 4-bit scale.
 void load8_iq3_xxs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -102,8 +108,8 @@ void load8_iq3_xxs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float
     uint word = rd32(blk, 66 + 4 * ib32);
     float db = d * (0.5 + float(word >> 28)) * 0.5;
     uint signs = iq_sign_byte((word >> (7 * l)) & 127);
-    uint g1 = iq3xxs_grid[blk[2 + 8 * ib32 + 2 * l]];
-    uint g2 = iq3xxs_grid[blk[2 + 8 * ib32 + 2 * l + 1]];
+    uint g1 = g_grid[blk[2 + 8 * ib32 + 2 * l]];
+    uint g2 = g_grid[blk[2 + 8 * ib32 + 2 * l + 1]];
     [ForceUnroll]
     for (int j = 0; j < 4; j++)
     {
@@ -116,7 +122,6 @@ void load8_iq3_xxs(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float
 #endif
 
 #if WFMT == FMT_IQ3_S
-#include "grid_iq3_s.slang"
 // IQ3_S: 256 values = { f16 d; u8 qs[64]; u8 qh[8]; u8 signs[32]; u8 scales[4] } (110 bytes); 9-bit indices of 4-value grid entries, explicit sign bytes, scale 1 + 2 * nibble.
 void load8_iq3_s(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -130,8 +135,8 @@ void load8_iq3_s(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     uint i1 = uint(blk[2 + 8 * ib32 + 2 * l]) | ((qh << (8 - 2 * l)) & 256);
     uint i2 = uint(blk[2 + 8 * ib32 + 2 * l + 1]) | ((qh << (7 - 2 * l)) & 256);
     uint signs = uint(blk[74 + 4 * ib32 + l]);
-    uint g1 = iq3s_grid[i1];
-    uint g2 = iq3s_grid[i2];
+    uint g1 = g_grid[i1];
+    uint g2 = g_grid[i2];
     [ForceUnroll]
     for (int j = 0; j < 4; j++)
     {
@@ -144,7 +149,6 @@ void load8_iq3_s(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
 #endif
 
 #if WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M
-#include "grid_iq1.slang"
 #define IQ1_DELTA 0.125
 // Value j (0..7) of grid entry idx: the table stores value + 1 per nibble (low nibbles = values 0..3, high nibbles = values 4..7).
 float iq1_grid_value(uint entry, uint j)
@@ -165,7 +169,7 @@ void load8_iq1_s(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     uint qh = rd16(blk, 34 + 2 * ib);
     float dl = d * float(2 * ((qh >> 12) & 7) + 1);
     float delta = (qh & 0x8000) != 0 ? -IQ1_DELTA : IQ1_DELTA;
-    uint entry = iq1s_grid_gpu[uint(blk[2 + gg]) | (((qh >> (3 * l)) & 7) << 8)];
+    uint entry = g_grid[uint(blk[2 + gg]) | (((qh >> (3 * l)) & 7) << 8)];
     [ForceUnroll]
     for (int j = 0; j < 8; j++)
         v[j] = dl * (iq1_grid_value(entry, uint(j)) + delta);
@@ -188,7 +192,7 @@ void load8_iq1_m(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     uint qhb = uint(blk[32 + 2 * ib + (l >> 1)]);
     uint high = (l & 1) == 0 ? ((qhb << 8) & 0x700) : ((qhb << 4) & 0x700);
     float delta = (qhb & ((l & 1) == 0 ? 0x08u : 0x80u)) != 0 ? -IQ1_DELTA : IQ1_DELTA;
-    uint entry = iq1s_grid_gpu[uint(blk[4 * ib + l]) | high];
+    uint entry = g_grid[uint(blk[4 * ib + l]) | high];
     [ForceUnroll]
     for (int j = 0; j < 8; j++)
         v[j] = dl * (iq1_grid_value(entry, uint(j)) + delta);

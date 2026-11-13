@@ -76,6 +76,18 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_MXFP4 39
 #define FMT_NVFP4 40
 
+// IQ formats decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
+// of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
+// point, which stores it in g_grid for the decoders (quant_iq.slang).
+#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M
+#define HAS_GRID 1
+static uint* g_grid;
+#define GRID_BIND(p) g_grid = (p).grid;
+#else
+#define HAS_GRID 0
+#define GRID_BIND(p)
+#endif
+
 void load8_f32(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
     float4* p = (float4*)(base + rowBytes * row + uint64_t(g) * 32);

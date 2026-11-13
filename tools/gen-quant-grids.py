@@ -3,9 +3,10 @@
 
 usage: gen-quant-grids.py <ggml-common.h> <repository root>
 
-Writes, per format, one C# table file (src/Sharplight.Cpu/Grids/) and one Slang table file (src/Sharplight.Shaders/Kernels/).
-The tables are copied verbatim from ggml-common.h (MIT licence, Copyright (c) 2023-2024 The ggml authors); the generated files
-carry the attribution. Re-running the script reproduces the committed files.
+Writes one C# table file per format into src/Sharplight.Core/Tensors/Grids/. The CPU dequantizers read them directly; the Vulkan
+lowering packs the same tables into a device buffer (Sharplight.Shaders GridTables). The tables are copied verbatim from
+ggml-common.h (MIT licence, Copyright (c) 2023-2024 The ggml authors); the generated files carry the attribution. Re-running the
+script reproduces the committed files.
 """
 import re
 import sys
@@ -33,7 +34,7 @@ def csharp_array(values: list[int], width: int, indent: str = "        ") -> str
 
 def write_csharp(path: Path, type_name: str, summary: str, element: str, width: int, values: list[int]) -> None:
     body = csharp_array(values, width)
-    text = f"""namespace Sharplight.Cpu;
+    text = f"""namespace Sharplight.Tensors.Grids;
 
 /// <summary>{summary}</summary>
 /// <remarks>{ATTRIBUTION}</remarks>
@@ -47,32 +48,6 @@ internal static class {type_name}
 }}
 """
     path.write_text(text)
-
-
-def slang_array(values: list[int], indent: str = "    ") -> str:
-    lines = []
-    for start in range(0, len(values), 8):
-        lines.append(indent + ", ".join(f"0x{value:08x}" for value in values[start:start + 8]) + ",")
-    return "\n".join(lines)
-
-
-def write_slang(path: Path, comment: str, array_name: str, words: list[int]) -> None:
-    text = f"""#pragma once
-// {comment}
-// {ATTRIBUTION}
-static const uint {array_name}[{len(words)}] = {{
-{slang_array(words)}
-}};
-"""
-    path.write_text(text)
-
-
-def split_u64(values: list[int]) -> list[int]:
-    words = []
-    for value in values:
-        words.append(value & 0xFFFFFFFF)
-        words.append(value >> 32)
-    return words
 
 
 def check_iq1_gpu_layout(cpu: list[int], gpu: list[int]) -> None:
@@ -91,8 +66,7 @@ def check_iq1_gpu_layout(cpu: list[int], gpu: list[int]) -> None:
 def main() -> None:
     text = Path(sys.argv[1]).read_text()
     root = Path(sys.argv[2])
-    grids = root / "src/Sharplight.Cpu/Grids"
-    kernels = root / "src/Sharplight.Shaders/Kernels"
+    grids = root / "src/Sharplight.Core/Tensors/Grids"
     grids.mkdir(parents=True, exist_ok=True)
 
     write_csharp(grids / "Iq2XxsGrid.cs", "Iq2XxsGrid", "IQ2_XXS grid: 256 entries of eight unsigned bytes (little endian), ggml iq2xxs_grid.", "ulong", 8, read_table(text, "iq2xxs_grid"))
@@ -104,17 +78,8 @@ def main() -> None:
     write_csharp(grids / "Iq1SGrid.cs", "Iq1SGrid", "IQ1_S / IQ1_M grid: 2048 entries of eight signed bytes in {-1, 0, 1} (little endian), ggml iq1s_grid.", "ulong", 8, iq1s)
     write_csharp(grids / "IqSigns.cs", "IqSigns", "Sign patterns of the IQ2 / IQ3 formats: a 7-bit index selects the signs of eight values (bit j set = value j negative; the eighth sign is the parity of the other seven), ggml ksigns_iq2xs.", "byte", 1, read_table(text, "ksigns_iq2xs"))
 
-    write_slang(kernels / "grid_iq2_xxs.slang", "IQ2_XXS grid (ggml iq2xxs_grid): entry i = words 2i (bytes 0..3) and 2i+1 (bytes 4..7).", "iq2xxs_grid", split_u64(read_table(text, "iq2xxs_grid")))
-    write_slang(kernels / "grid_iq2_xs.slang", "IQ2_XS grid (ggml iq2xs_grid): entry i = words 2i (bytes 0..3) and 2i+1 (bytes 4..7).", "iq2xs_grid", split_u64(read_table(text, "iq2xs_grid")))
-    write_slang(kernels / "grid_iq2_s.slang", "IQ2_S grid (ggml iq2s_grid): entry i = words 2i (bytes 0..3) and 2i+1 (bytes 4..7).", "iq2s_grid", split_u64(read_table(text, "iq2s_grid")))
-    write_slang(kernels / "grid_iq3_xxs.slang", "IQ3_XXS grid (ggml iq3xxs_grid): entry i = four bytes.", "iq3xxs_grid", read_table(text, "iq3xxs_grid"))
-    write_slang(kernels / "grid_iq3_s.slang", "IQ3_S grid (ggml iq3s_grid): entry i = four bytes.", "iq3s_grid", read_table(text, "iq3s_grid"))
-    gpu = read_table(text, "iq1s_grid_gpu")
-    check_iq1_gpu_layout(iq1s, gpu)
-    write_slang(kernels / "grid_iq1.slang", "IQ1_S / IQ1_M grid (ggml iq1s_grid_gpu): value + 1 per nibble, low nibbles = values 0..3, high nibbles = values 4..7.", "iq1s_grid_gpu", gpu)
-    signs = read_table(text, "ksigns_iq2xs")
-    packed = [sum(signs[4 * w + b] << (8 * b) for b in range(4)) for w in range(len(signs) // 4)]
-    write_slang(kernels / "grid_iq_signs.slang", "Sign patterns of the IQ2 / IQ3 formats (ggml ksigns_iq2xs), four bytes per word.", "iq_signs", packed)
+    # The Vulkan kernels read the IQ1 grid in ggml's compact GPU layout, which GridTables derives from the table above; verify the layout.
+    check_iq1_gpu_layout(iq1s, read_table(text, "iq1s_grid_gpu"))
 
 
 if __name__ == "__main__":

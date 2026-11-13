@@ -79,18 +79,24 @@ void load8_tq1_0(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     uint8_t* blk = base + rowBytes * row + uint64_t(g >> 5) * 54;
     float d = h2f(*(uint16_t*)(blk + 52));
     uint idx = (g & 31) * 8;
-    uint n, src;
-    if (idx < 160) { n = idx >> 5; src = idx & 31; }
-    else if (idx < 240) { n = (idx - 160) >> 4; src = 32 + ((idx - 160) & 15); }
-    else { n = (idx - 240) >> 2; src = 48 + ((idx - 240) & 3); }
-    [ForceUnroll]
-    for (int i = 0; i < 8; i++)
+    if (idx < 240)
     {
-        uint b;
-        if (idx < 240) b = uint(blk[src + i]);
-        else b = uint(blk[48 + ((uint(i) + (idx - 240)) & 3)]);
-        uint dn = idx < 240 ? n : ((uint(i) + (idx - 240)) >> 2);
-        v[i] = d * tq1_trit(b, dn);
+        // The eight values share one digit position n and read eight consecutive bytes.
+        uint n = idx < 160 ? (idx >> 5) : ((idx - 160) >> 4);
+        uint src = idx < 160 ? (idx & 31) : (32 + ((idx - 160) & 15));
+        [ForceUnroll]
+        for (int i = 0; i < 8; i++)
+            v[i] = d * tq1_trit(uint(blk[src + i]), n);
+    }
+    else
+    {
+        // The last 16 values: digit n = k / 4 of qh byte k % 4 (k = idx - 240 + i).
+        [ForceUnroll]
+        for (int i = 0; i < 8; i++)
+        {
+            uint k = idx - 240 + uint(i);
+            v[i] = d * tq1_trit(uint(blk[48 + (k & 3)]), k >> 2);
+        }
     }
 }
 

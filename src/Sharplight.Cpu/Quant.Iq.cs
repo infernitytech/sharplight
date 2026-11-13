@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
+using Sharplight.Tensors.Grids;
 
 namespace Sharplight.Cpu;
 
