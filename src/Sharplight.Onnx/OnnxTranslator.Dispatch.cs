@@ -18,7 +18,8 @@ internal sealed partial class OnnxTranslator
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
-        "Attention", "RotaryEmbedding", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss",
+        "Attention", "RotaryEmbedding", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss", "SwiGLU", "Shrink", "CumProd",
+        "ReverseSequence",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -306,6 +307,21 @@ internal sealed partial class OnnxTranslator
                 break;
             case "SoftmaxCrossEntropyLoss":
                 SoftmaxCrossEntropyLoss(n, ins);
+                break;
+            case "Swish":
+                Swish(n, ins);
+                break;
+            case "SwiGLU":
+                SwiGlu(n, ins);
+                break;
+            case "Shrink":
+                Shrink(n, ins);
+                break;
+            case "CumProd":
+                CumProd(n, ins);
+                break;
+            case "ReverseSequence":
+                ReverseSequence(n, ins);
                 break;
 
             case "EyeLike":

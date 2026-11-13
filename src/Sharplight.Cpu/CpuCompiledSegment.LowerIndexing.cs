@@ -73,7 +73,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var a = n.Attributes;
         var x = Dense(RefF32(n.Inputs[0]));
         var y = NewDense(n.Output);
-        AddStep(new CumSumOp(x, y, NormalizeAxis(a.Get("axis", 0L), x.Rank), a.Get("exclusive", false), a.Get("reverse", false)), x, y);
+        AddStep(new CumSumOp(x, y, NormalizeAxis(a.Get("axis", 0L), x.Rank), a.Get("exclusive", false), a.Get("reverse", false), a.Get("product", false)), x, y);
         _refs[n.Output] = y;
     }
 

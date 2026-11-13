@@ -75,6 +75,8 @@ public sealed partial class GraphLowerer
                 }
 
                 break;
+            case "CumSum" when node.Attributes.Get("product", false):
+                return OpSupport.No("CumSum: cumulative products run on the CPU");
             case "CumSum":
             case "GroupNorm":
             case "ConvTranspose":

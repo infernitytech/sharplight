@@ -2,7 +2,7 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Cumulative sum along one axis (optionally exclusive and/or reversed).</summary>
+/// <summary>Cumulative sum or product along one axis (optionally exclusive and/or reversed).</summary>
 internal sealed unsafe class CumSumOp : CpuOp
 {
     private readonly TRef _x;
@@ -10,14 +10,16 @@ internal sealed unsafe class CumSumOp : CpuOp
     private readonly int _axis;
     private readonly bool _excl;
     private readonly bool _rev;
+    private readonly bool _product;
     private readonly Action<int> _body;
     private long _outer;
     private long _a;
     private long _inner;
     private long _per;
-    public override string Name => "CumSum";
-    public CumSumOp(TRef x, TRef y, int axis, bool exclusive, bool reverse)
+    public override string Name => _product ? "CumProd" : "CumSum";
+    public CumSumOp(TRef x, TRef y, int axis, bool exclusive, bool reverse, bool product = false)
     {
+        _product = product;
         _x = x;
         _y = y;
         _axis = axis;
@@ -63,7 +65,7 @@ internal sealed unsafe class CumSumOp : CpuOp
                 {
                     if (_excl)
                     {
-                        new Span<float>(yr, (int)n).Clear();
+                        new Span<float>(yr, (int)n).Fill(_product ? 1f : 0f);
                     }
                     else
                     {
@@ -72,11 +74,21 @@ internal sealed unsafe class CumSumOp : CpuOp
                 }
                 else
                 {
-                    // inclusive: y[a] = y[prev] + x[a];  exclusive: y[a] = y[prev] + x[prev]
+                    // inclusive: y[a] = y[prev] ∘ x[a];  exclusive: y[a] = y[prev] ∘ x[prev]
                     float* xs = _excl ? xb + (_rev ? a + 1 : a - 1) * n : xr;
-                    for (long i = 0; i < n; i++)
+                    if (_product)
                     {
-                        yr[i] = prev[i] + xs[i];
+                        for (long i = 0; i < n; i++)
+                        {
+                            yr[i] = prev[i] * xs[i];
+                        }
+                    }
+                    else
+                    {
+                        for (long i = 0; i < n; i++)
+                        {
+                            yr[i] = prev[i] + xs[i];
+                        }
                     }
                 }
                 prev = yr;

@@ -41,7 +41,6 @@ internal sealed partial class OnnxTranslator
         ["IsNaN"] = "IsNaN",
         ["IsInf"] = "IsInf",
         ["Silu"] = "Silu",
-        ["Swish"] = "Silu",
     };
 
     /// <summary>ONNX unary ops with float attributes: (attribute, default) pairs, same names on the IR op.</summary>
