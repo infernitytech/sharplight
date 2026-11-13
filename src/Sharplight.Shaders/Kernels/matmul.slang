@@ -406,7 +406,7 @@ using namespace linalg;
 #define GQ (GBK / 8)
 #define GAS (GBK + 8)
 #define GA_PER_T (GBM * GBK / 8 / GTHREADS)
-#define GB_PER_T (GBN * GBK / 8 / GTHREADS)
+#define GB_PER_T (GBN * GBK / 16 / GTHREADS)   // weights are fetched 16 per item
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
@@ -415,7 +415,33 @@ typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 groupshared uint4 gA[GNBUF * GBM * GAS / 8];
 groupshared uint4 gB[GNBUF * GBN * GAS / 8];
 
+uint q8x4_h2(uint u, half2 d, bool hi)
+{
+    // 2 of the 4 int8 in u (bytes 0,1 or 2,3) -> half2 of q * d
+    u ^= 0x80808080u;
+    uint v = hi ? (((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u)) : ((u & 0xFFu) | ((u << 8) & 0xFF0000u));
+    return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(1152.0h, 1152.0h)) * d);
+}
+
 // 8 consecutive weights of row `row` from K offset 8g as packed halves.
+uint4 load8h(uint8_t* w, uint row, uint g);
+
+// 16 consecutive weights of row `row` from K offset 16g16 as packed halves (lo: first 8).
+void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
+{
+#if WFMT == FMT_Q8_0R
+    uint8_t* r = w + uint64_t(ROW_BYTES) * row;
+    uint d16 = uint(*(uint16_t*)(r + (g16 >> 1) * 2));
+    half2 d = bit_cast<half2>(d16 * 0x10001u);
+    uint4 q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(g16) * 16);
+    lo = uint4(q8x4_h2(q.x, d, false), q8x4_h2(q.x, d, true), q8x4_h2(q.y, d, false), q8x4_h2(q.y, d, true));
+    hi = uint4(q8x4_h2(q.z, d, false), q8x4_h2(q.z, d, true), q8x4_h2(q.w, d, false), q8x4_h2(q.w, d, true));
+#else
+    lo = load8h(w, row, g16 * 2);
+    hi = load8h(w, row, g16 * 2 + 1);
+#endif
+}
+
 uint4 load8h(uint8_t* w, uint row, uint g)
 {
 #if WFMT == FMT_Q8_0R
@@ -470,7 +496,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = Acc2(0.0);
 
     uint4 xs[GA_PER_T];
-    uint4 ws[GB_PER_T];
+    uint4 ws[GB_PER_T][2];
 
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if X_F16
@@ -492,9 +518,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
-        ws[it] = 0;                                                                                     \
-        if (N % GBN == 0 || n0 + r < N) ws[it] = load8h(p.w, n0 + r, (k0) / 8 + q);                     \
+        uint idx = tid + it * GTHREADS, r = idx / (GBK / 16), q = idx % (GBK / 16);                     \
+        ws[it][0] = 0; ws[it][1] = 0;                                                                   \
+        if (N % GBN == 0 || n0 + r < N) load16h(p.w, n0 + r, (k0) / 16 + q, ws[it][0], ws[it][1]);      \
     }
     #define STAGE(buf)                                                                                  \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
@@ -504,8 +530,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
-        gB[((buf) * GBN * GAS + r * GAS + q * 8) / 8] = ws[it];                                         \
+        uint idx = tid + it * GTHREADS, r = idx / (GBK / 16), q = idx % (GBK / 16);                     \
+        uint ob = ((buf) * GBN * GAS + r * GAS + q * 16) / 8;                                           \
+        gB[ob] = ws[it][0]; gB[ob + 1] = ws[it][1];                                                     \
     }
 
     FETCH(kBeg)
