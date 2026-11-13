@@ -21,6 +21,15 @@ public sealed class OnnxImportOptions
     /// <summary>Makes the outermost dimension of every input symbolic ("N") even if it is fixed in the file.</summary>
     public bool ForceSymbolicBatch { get; init; }
 
+    /// <summary>
+    /// Largest trip count of a <c>Loop</c> or <c>Scan</c> whose body depends on runtime tensors that is unrolled into the graph
+    /// (bodies that only compute constants are evaluated at import time regardless, up to <see cref="MaxLoopIterations"/>).
+    /// </summary>
+    public int MaxUnrolledLoop { get; init; } = 64;
+
+    /// <summary>Upper limit on the iterations of a <c>Loop</c> evaluated or unrolled at import time.</summary>
+    public int MaxLoopIterations { get; init; } = 100_000;
+
     /// <summary>Placement group size: number of compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group; values below 1 act as 1.</summary>
     public int GroupSize { get; init; } = 8;
 }

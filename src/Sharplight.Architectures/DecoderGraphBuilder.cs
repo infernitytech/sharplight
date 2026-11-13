@@ -15,6 +15,8 @@ internal sealed partial class DecoderGraphBuilder
     private readonly AdapterOptions _options;
     private readonly DecoderHyperParameters _hp;
     private readonly bool _longRope;
+    private readonly DecoderNorm _norm;
+    private readonly IMlpActivation _activation;
     private readonly StateDefinition[] _kCache;
     private readonly StateDefinition[] _vCache;
     private string _pooling = "last";
@@ -27,6 +29,8 @@ internal sealed partial class DecoderGraphBuilder
         _src = source;
         _options = adapterOptions;
         _hp = hyperParameters;
+        _norm = new DecoderNorm(_hp.NormType);
+        _activation = MlpActivations.Create(_hp);
         int origCtx = _src.Arch("rope.original_context_length", 0);
         int runtimeCtx = _options.ContextLength > 0 ? _options.ContextLength : _hp.ContextLength;
         _longRope = UseLongRope(origCtx, runtimeCtx);
@@ -96,6 +100,7 @@ internal sealed partial class DecoderGraphBuilder
         var b = new GraphBuilder(name, _src.Weight);
         var T = Dim.Sym(WellKnown.TokenSymbol);
         Value x;
+        Value positions;
         Value? perLayer = null;
         using (b.Group("input"))
         {
@@ -103,26 +108,28 @@ internal sealed partial class DecoderGraphBuilder
             if (embeddingsInput)
             {
                 x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, _hp.NEmbd));
+                positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
             }
             else
             {
                 tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
                 x = TokenEmbeddings(b, tokens);
             }
 
+            x = AddPositionEmbeddings(b, x, positions);
             if (_hp.PerLayerSize > 0)
             {
                 perLayer = PerLayerInputs(b, x, tokens);
             }
         }
 
-        var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
         var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
         x = Layers(b, x, positions, FrequencyFactors(b), perLayer, rowSpans: null);
 
         using (b.Group("output"))
         {
-            var hidden = b.RmsNorm(x, b.Weight("output_norm.weight"), _hp.Eps, "result_norm");
+            var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
             var rows = b.Gather(hidden, outRows, "selected_rows");
             b.Output("logits", Logits(b, rows));
             b.Output("hidden", hidden);
@@ -139,7 +146,7 @@ internal sealed partial class DecoderGraphBuilder
         Value? perLayer = null;
         using (b.Group("input"))
         {
-            x = TokenEmbeddings(b, inp.Tokens);
+            x = AddPositionEmbeddings(b, TokenEmbeddings(b, inp.Tokens), inp.Positions);
             if (_hp.PerLayerSize > 0)
             {
                 perLayer = PerLayerInputs(b, x, inp.Tokens);
@@ -151,14 +158,14 @@ internal sealed partial class DecoderGraphBuilder
         {
             if (!classify)
             {
-                var hidden = b.RmsNorm(x, b.Weight("output_norm.weight"), _hp.Eps, "result_norm");
+                var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
                 PackedSequences.EmbeddingsOutput(b, hidden, inp.SequenceSpans, _pooling, _normalize);
             }
             else
             {
                 // Score heads read the language model head at each sequence's last row (e.g. "yes" / "no" logits).
                 var last = PackedSequences.Pool(b, x, inp.SequenceSpans, "last", "last_rows");
-                var hidden = b.RmsNorm(last, b.Weight("output_norm.weight"), _hp.Eps, "result_norm");
+                var hidden = _norm.Apply(b, last, "output_norm.weight", _hp.Eps, "result_norm");
                 b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
             }
         }
@@ -183,6 +190,17 @@ internal sealed partial class DecoderGraphBuilder
         return x;
     }
 
+    // Learned absolute position embeddings (GPT-2, StarCoder): added to the token embeddings when the model has the table.
+    private static Value AddPositionEmbeddings(GraphBuilder b, Value x, Value positions)
+    {
+        if (b.TryWeight("position_embedding.weight") is not { } table)
+        {
+            return x;
+        }
+
+        return b.Add(x, b.Gather(table, b.Reshape(positions, 0), "inp_pos_embd"));
+    }
+
     private Value? FrequencyFactors(GraphBuilder b)
     {
         var freqFactors = b.TryWeight("rope.freq_factors");
@@ -198,6 +216,11 @@ internal sealed partial class DecoderGraphBuilder
     {
         var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
         var logits = b.MatMul(hidden, head, "logits");
+        if (b.TryWeight("lm_head.bias") is { } headBias)
+        {
+            logits = b.Add(logits, headBias);
+        }
+
         if (_hp.LogitScale != 1f)
         {
             logits = b.Scale(logits, _hp.LogitScale);
@@ -218,25 +241,9 @@ internal sealed partial class DecoderGraphBuilder
         {
             using var _ = b.Group($"layers.{il}");
             string p = $"layers.{il}.";
-            var residual = x;
-            var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-            var attnOut = Attention(b, h, p, il, positions, freqFactors, rowSpans, packedKv);
-            if (b.TryWeight(p + "attention.out_norm.weight") is { } on1)
-            {
-                attnOut = b.RmsNorm(attnOut, on1, _hp.PostNormEps);
-            }
-
-            x = b.Add(attnOut, residual, $"{p}attn_residual");
-
-            var ffnResidual = x;
-            h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-            var ffn = b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
-            if (b.TryWeight(p + "mlp.out_norm.weight") is { } on2)
-            {
-                ffn = b.RmsNorm(ffn, on2, _hp.PostNormEps);
-            }
-
-            x = b.Add(ffn, ffnResidual, $"{p}l_out");
+            x = _hp.ParallelResidual
+                ? ParallelLayer(b, x, p, il, positions, freqFactors, rowSpans, packedKv)
+                : SequentialLayer(b, x, p, il, positions, freqFactors, rowSpans, packedKv);
 
             if (perLayer is not null && b.TryWeight(p + "per_layer.gate.weight") is not null)
             {
@@ -252,10 +259,54 @@ internal sealed partial class DecoderGraphBuilder
         return x;
     }
 
+    // Residual topology "sequential": x += attention(norm(x)); x += mlp(norm(x)).
+    private Value SequentialLayer(GraphBuilder b, Value x, string p, int il, Value positions, Value? freqFactors, Value? rowSpans,
+        Dictionary<int, (Value K, Value V)> packedKv)
+    {
+        var residual = x;
+        var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
+        var attnOut = SubLayerOutput(b, Attention(b, h, p, il, positions, freqFactors, rowSpans, packedKv), p + "attention.out_norm.weight");
+        x = b.Add(attnOut, residual, $"{p}attn_residual");
+
+        var ffnResidual = x;
+        h = PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm");
+        var ffn = SubLayerOutput(b, FeedForward(b, h, p), p + "mlp.out_norm.weight");
+        return b.Add(ffn, ffnResidual, $"{p}l_out");
+    }
+
+    // Residual topology "parallel": x += attention(norm(x)) + mlp(norm'(x)), both branches reading the layer input. The MLP uses
+    // its own norm (post_attention_norm) when the layer has one, otherwise it shares the attention norm (Falcon-7B, Command-R, Phi-2).
+    private Value ParallelLayer(GraphBuilder b, Value x, string p, int il, Value positions, Value? freqFactors, Value? rowSpans,
+        Dictionary<int, (Value K, Value V)> packedKv)
+    {
+        var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
+        var attnOut = SubLayerOutput(b, Attention(b, h, p, il, positions, freqFactors, rowSpans, packedKv), p + "attention.out_norm.weight");
+        var ffnInput = b.HasWeight(p + "post_attention_norm.weight") ? PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm") : h;
+        var ffn = SubLayerOutput(b, FeedForward(b, ffnInput, p), p + "mlp.out_norm.weight");
+        return b.Add(b.Add(attnOut, x, $"{p}attn_residual"), ffn, $"{p}l_out");
+    }
+
+    // Norm in front of a sub-layer; models with post-norms only (OLMo 2) declare pre_norm = false.
+    private Value PreNorm(GraphBuilder b, Value x, string weightName, string name)
+        => _hp.PreNorm ? _norm.Apply(b, x, weightName, _hp.Eps, name) : x;
+
+    // Optional norm of a sub-layer's output (sandwich / post norms), then the residual-branch scale (muP).
+    private Value SubLayerOutput(GraphBuilder b, Value output, string outNormWeight)
+    {
+        if (b.HasWeight(outNormWeight))
+        {
+            output = _norm.Apply(b, output, outNormWeight, _hp.PostNormEps);
+        }
+
+        return _hp.ResidualScale != 1f ? b.Scale(output, _hp.ResidualScale) : output;
+    }
+
+    private Value FeedForward(GraphBuilder b, Value h, string p) => b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
+
     // Gated per-layer-embedding contribution that ends a layer (see the DecoderAdapter remarks).
     private Value PerLayerResidual(GraphBuilder b, Value x, Value perLayer, string p, int il)
     {
-        var gated = b.Mul(ActOf(b, b.Linear(x, p + "per_layer.gate.weight")),
+        var gated = b.Mul(ActOf(b, b.Linear(x, p + "per_layer.gate.weight"), p),
                           b.Slice(perLayer, 1, (long)il * _hp.PerLayerSize, _hp.PerLayerSize));
         var delta = b.RmsNorm(b.Linear(gated, p + "per_layer.projection.weight"), b.Weight(p + "per_layer.norm.weight"), _hp.Eps);
         return b.Add(x, delta, $"{p}per_layer_out");

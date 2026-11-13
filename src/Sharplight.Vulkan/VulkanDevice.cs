@@ -136,7 +136,15 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             f13.pNext = &coop;
         }
 
-        var f2 = new VkPhysicalDeviceFeatures2 { pNext = &f11 };
+        // bf16 arithmetic and bf16 cooperative matrices (VK_KHR_shader_bfloat16), e.g. the bf16x3 strict-precision conv.
+        bool bfloat16 = Has(DeviceFeatures.BFloat16);
+        var bf16 = new VkPhysicalDeviceShaderBfloat16FeaturesKHR
+        {
+            pNext = &f11,
+            shaderBFloat16Type = true,
+            shaderBFloat16CooperativeMatrix = Has(DeviceFeatures.MatrixBF16),
+        };
+        var f2 = new VkPhysicalDeviceFeatures2 { pNext = bfloat16 ? &bf16 : &f11 };
         f2.features.shaderInt64 = true;
         f2.features.shaderInt16 = true;
 
@@ -157,6 +165,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         if (coopMat2)
         {
             exts.Add("VK_NV_cooperative_matrix2");
+        }
+
+        if (bfloat16)
+        {
+            exts.Add("VK_KHR_shader_bfloat16");
         }
 
         var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();

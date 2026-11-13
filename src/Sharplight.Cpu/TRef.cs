@@ -16,7 +16,7 @@ internal sealed unsafe class TRef
     public int ElemSize => Type.BlockSize == 1 ? Type.BlockBytes : 0;
     public int Rank => Dims.Length;
 
-    public long Dim(int i, RunParameters p) => i == 0 && Sym is not null ? p.Symbols[Sym] : Dims[i];
+    public long Dim(int i, RunParameters p) => i == 0 && Sym is not null ? SymbolicExpression.Evaluate(Sym, p.Symbols) : Dims[i];
 
     public long Elements(RunParameters p)
     {

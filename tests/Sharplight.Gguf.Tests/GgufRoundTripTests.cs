@@ -193,8 +193,8 @@ public class GgufRoundTripTests : IDisposable
             Assert.Equal(id, GgmlTypes.GetGgmlType(dt));
         }
         Assert.Equal(44 - 8, known); // 4,5,31-33,36-38 removed
-        Assert.Equal((256, 66), (GgmlTypes.IQ2_XXS.BlockSize, GgmlTypes.IQ2_XXS.BlockBytes));
-        Assert.Equal((64, 36), (GgmlTypes.NVFP4.BlockSize, GgmlTypes.NVFP4.BlockBytes));
+        Assert.Equal((256, 66), (DataType.IQ2_XXS.BlockSize, DataType.IQ2_XXS.BlockBytes));
+        Assert.Equal((64, 36), (DataType.NVFP4.BlockSize, DataType.NVFP4.BlockBytes));
         Assert.Equal(DataType.Q6_K, GgmlTypes.GetDataType(14));
         Assert.Equal(DataType.BF16, GgmlTypes.GetDataType(30));
         Assert.Equal(DataType.MXFP4, GgmlTypes.GetDataType(39));
@@ -221,7 +221,7 @@ public class GgufRoundTripTests : IDisposable
     {
         var path = Path.Combine(_dir, "many.gguf");
         var w = new GgufWriter().AddMetadata("general.architecture", "toy");
-        var types = new[] { DataType.Q4_0, DataType.Q5_1, DataType.Q2_K, DataType.Q6_K, DataType.IQ4_XS, GgmlTypes.IQ3_S, GgmlTypes.TQ1_0, GgmlTypes.NVFP4, DataType.MXFP4, DataType.BF16, DataType.I32,
+        var types = new[] { DataType.Q4_0, DataType.Q5_1, DataType.Q2_K, DataType.Q6_K, DataType.IQ4_XS, DataType.IQ3_S, DataType.TQ1_0, DataType.NVFP4, DataType.MXFP4, DataType.BF16, DataType.I32,
             DataType.Q1_0, DataType.Q2_0, DataType.Q2_0_G128, DataType.Tern1_G128 };
         foreach (var t in types)
         {

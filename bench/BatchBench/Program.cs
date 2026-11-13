@@ -42,7 +42,7 @@ void Step(string mode, List<SequenceInput> inputs)
     switch (mode)
     {
         case "logits":
-            foreach (var l in dec.Step(inputs)) Sampler.ArgMax(l);
+            foreach (var l in dec.Step(inputs)) Sampler.ArgMax(l.Span);
             break;
         case "no-logits":
             dec.Step([.. inputs.Select(i => i with { WantLogits = false })]);

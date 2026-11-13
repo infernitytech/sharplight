@@ -61,15 +61,24 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     }
 
     /// <inheritdoc/>
+    public int MaxLogitsRows => 1;
+
+    /// <inheritdoc/>
     bool IDeviceSamplingDecoder.SamplesOnDevice => session.SamplesOnDevice;
 
     /// <inheritdoc/>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
+    /// <exception cref="NotSupportedException">An input asks for more than one logits row.</exception>
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
     {
-        var res = new float[]?[inputs.Count];
+        var res = new Memory<float>[inputs.Count];
         for (int i = 0; i < inputs.Count; i++)
         {
             Check(inputs[i].Slot);
+            if (inputs[i].OutputRows > 1)
+            {
+                throw new NotSupportedException("This decoder returns the logits of the last row only.");
+            }
+
             if (inputs[i].WantLogits && i < sampling.Count && sampling[i] is { } row)
             {
                 (tokens[i], logprobs[i]) = session.ProcessSampled(inputs[i].Tokens.Span, row);
@@ -87,7 +96,8 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs) => Step(inputs, [], [], []);
+    /// <exception cref="NotSupportedException">An input asks for more than one logits row.</exception>
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs) => Step(inputs, [], [], []);
 
     private static void Check(int slot)
     {

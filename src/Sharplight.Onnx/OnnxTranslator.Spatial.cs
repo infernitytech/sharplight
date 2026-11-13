@@ -334,6 +334,16 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, Emit("GridSample", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
     }
 
+    private void RoiAlign(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        // Opset 10 has no coordinate_transformation_mode; it behaves like "output_half_pixel".
+        string transform = n.Str("coordinate_transformation_mode", Opset >= 16 ? "half_pixel" : "output_half_pixel");
+        var attributes = Attributes.From(("output_height", n.Int("output_height", 1)), ("output_width", n.Int("output_width", 1)),
+            ("sampling_ratio", n.Int("sampling_ratio", 0)), ("spatial_scale", n.Float("spatial_scale", 1f)), ("mode", n.Str("mode", "avg")),
+            ("half_pixel", transform == "half_pixel"));
+        SetDyn(n, 0, Emit("RoiAlign", [X(ins, 0), X(ins, 1), Idx(ins[2]!)], attributes, Nm(n)));
+    }
+
     private void ConvTranspose(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x0 = X(ins, 0);

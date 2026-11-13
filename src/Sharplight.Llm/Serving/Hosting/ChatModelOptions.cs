@@ -1,4 +1,5 @@
 using Sharplight.Llm.Serving.Chat;
+using Sharplight.Llm.Serving.Speculative;
 
 namespace Sharplight.Llm.Serving.Hosting;
 
@@ -11,4 +12,11 @@ public sealed record ChatModelOptions
     public EngineOptions Engine { get; init; } = new();
     /// <summary>Name reported by the API is the registration name; the other settings (chat template override, tool formats, default max tokens) apply.</summary>
     public ModelServiceOptions Service { get; init; } = new();
+    /// <summary>
+    /// Creates the speculator of each loaded instance (speculative decoding), or null for none. A factory rather than an
+    /// instance because the engine owns and disposes its speculator, and a model may be loaded again after eviction.
+    /// The decoder is then sized for the verification rows (<see cref="ISpeculator.MaxDraftTokens"/> + 1 per speculating
+    /// sequence); models without rollback support (recurrent state) run without speculation.
+    /// </summary>
+    public Func<LlmModel, ISpeculator?>? Speculator { get; init; }
 }

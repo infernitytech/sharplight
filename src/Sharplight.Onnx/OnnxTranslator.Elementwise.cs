@@ -112,7 +112,38 @@ internal sealed partial class OnnxTranslator
     private void Binary(OnnxNode n, TranslatedTensor?[] ins, string irOp)
     {
         string name = Nm(n);
-        SetDyn(n, 0, Emit(irOp, [X(ins, 0, name + ".a"), X(ins, 1, name + ".b")], null, name));
+        SetDyn(n, 0, Emit(irOp, BroadcastOperands(ins, X(ins, 0, name + ".a"), X(ins, 1, name + ".b")), null, name));
+    }
+
+    /// <summary>
+    /// Operands of a broadcasting op where an input has leading unit dims (<see cref="TranslatedTensor.LeadingUnits"/>): the matching unit
+    /// dims of the other operands are dropped as well, so that the IR broadcast aligns like the ONNX one.
+    /// </summary>
+    private Value[] BroadcastOperands(TranslatedTensor?[] ins, params Value[] operands)
+    {
+        int lead = ins.Max(t => t?.LeadingUnits ?? 0);
+        if (lead == 0)
+        {
+            return operands;
+        }
+
+        int irRank = ins.Where(t => t is { LeadingUnits: > 0 }).Max(t => t!.V!.Rank);
+        for (int i = 0; i < operands.Length; i++)
+        {
+            var v = operands[i];
+            if (ins[i] is { LeadingUnits: 0 } && v.Rank > irRank)
+            {
+                int drop = v.Rank - irRank;
+                if (v.Shape.Dims.Take(drop).Any(d => d.IsSymbolic || d.Fixed != 1))
+                {
+                    throw new NotSupportedException("broadcasting a tensor with leading unit dims against one with more outer dims");
+                }
+
+                operands[i] = Rs(v, v.Shape.Dims.Skip(drop).Select(d => d.IsSymbolic ? 0 : d.Fixed).ToArray());
+            }
+        }
+
+        return operands;
     }
 
     private void Mod(OnnxNode n, TranslatedTensor?[] ins)

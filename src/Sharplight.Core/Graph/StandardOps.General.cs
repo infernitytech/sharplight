@@ -106,13 +106,15 @@ public static partial class StandardOps
 
     /// <summary>
     /// Top-k along <c>axis</c> (default -1). Attrs: <c>k</c> (long), <c>largest</c> (default true), <c>sorted</c> (default true).
+    /// Instead of <c>k</c>, <c>k_symbol</c> (string) gives a symbolic k (e.g. <c>min(200,nms#3)</c>); the axis must then be the outermost.
     /// Outputs: values (f32) and indices (i32), both with dim k on the axis.
     /// </summary>
     public static readonly OpSchema TopK = new("TopK", OpCategory.Reduction, 1, 1, (i, a) =>
     {
         var x = i[0].Shape;
         int axis = Axis(a.Get("axis", -1L), x.Rank);
-        var s = x.WithDim(axis, a.Get<long>("k"));
+        var k = a.Get("k_symbol", "") is { Length: > 0 } symbol ? Dim.Sym(symbol) : a.Get<long>("k");
+        var s = x.WithDim(axis, k);
         return [new(DataType.F32, s), new(DataType.I32, s)];
     });
 
@@ -169,6 +171,15 @@ public static partial class StandardOps
         var g = i[1].Shape;
         return [new(DataType.F32, new Shape(x[0], x[1], g[1], g[2]))];
     });
+
+    /// <summary>
+    /// ONNX RoiAlign: x f32 [N, C, H, W], rois f32 [R, 4] (x1, y1, x2, y2 in input coordinates), batch indices i32 [R] → f32
+    /// [R, C, output_height, output_width]. Attributes: <c>output_height</c>, <c>output_width</c> (long), <c>sampling_ratio</c> (long, 0:
+    /// adaptive), <c>spatial_scale</c> (float), <c>mode</c> ("avg"|"max"), <c>half_pixel</c> (bool: shift the scaled coordinates by
+    /// -0.5; otherwise RoIs are at least one pixel wide, the opset-10 behaviour).
+    /// </summary>
+    public static readonly OpSchema RoiAlign = new("RoiAlign", OpCategory.Data, 3, 3, (i, a) =>
+        [new(DataType.F32, new Shape(i[1].Shape[0], i[0].Shape[1], a.Get<long>("output_height"), a.Get<long>("output_width")))]);
 
     internal static int Axis(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
 

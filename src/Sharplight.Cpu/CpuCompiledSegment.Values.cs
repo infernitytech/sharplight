@@ -21,6 +21,11 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// <summary>Upper bound for a symbolic dimension; remembers the largest bound so Execute can reject larger runs.</summary>
     private long Bound(string symbol)
     {
+        if (!SymbolicExpression.IsSymbolName(symbol) && !_options.SymbolBounds.ContainsKey(symbol))
+        {
+            return SymbolicExpression.Parse(symbol).UpperBound(Bound);
+        }
+
         long bound = symbol == WellKnown.ContextSymbol ? _options.ContextLength
                    : symbol == WellKnown.TokenSymbol ? _options.MaxTokens
                    : _options.SymbolBounds.TryGetValue(symbol, out var configured) ? configured : _options.MaxTokens;

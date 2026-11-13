@@ -33,6 +33,19 @@ public sealed partial class GraphLowerer
         [DataType.Q2_0] = 42,
         [DataType.Q2_0_G128] = 142,
         [DataType.Tern1_G128] = 143,
+        [DataType.Q2_K] = 10,
+        [DataType.Q3_K] = 11,
+        [DataType.IQ2_XXS] = 16,
+        [DataType.IQ2_XS] = 17,
+        [DataType.IQ3_XXS] = 18,
+        [DataType.IQ1_S] = 19,
+        [DataType.IQ3_S] = 21,
+        [DataType.IQ2_S] = 22,
+        [DataType.IQ1_M] = 29,
+        [DataType.TQ1_0] = 34,
+        [DataType.TQ2_0] = 35,
+        [DataType.MXFP4] = 39,
+        [DataType.NVFP4] = 40,
     };
 
     /// <summary>Tells whether the lowering has a kernel for <paramref name="node"/> (and, if not, why), so callers can partition unsupported nodes to another provider.</summary>
@@ -78,6 +91,8 @@ public sealed partial class GraphLowerer
             "SequencePool" => SupportsSequencePool(node),
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
+            "Concat" when node.Output.Shape[0].IsSymbolic && node.Inputs.Any(i => i.Shape[0] != node.Output.Shape[0])
+                => OpSupport.No("Concat along the symbolic axis (offsets known only at run time)"),
             _ => OpSupport.Yes,
         };
         if (!opSpecific.IsSupported)

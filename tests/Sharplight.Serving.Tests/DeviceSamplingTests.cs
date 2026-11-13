@@ -1,5 +1,6 @@
 using Sharplight.Graph;
 using Sharplight.Llm.Serving;
+using Sharplight.Llm.Serving.Speculative;
 
 namespace Sharplight.Serving.Tests;
 
@@ -72,6 +73,33 @@ public class DeviceSamplingTests
         var cpu = await e.Submit(Req("x", SamplingParams.GreedyDefault, logprobs: true, topLogprobs: 2)).CompleteAsync();
         Assert.Empty(d.SampledRows);
         Assert.All(cpu.Logprobs, l => Assert.Equal(2, l.TopAlternatives.Count));
+    }
+
+    [Fact]
+    public async Task MinTokens_SamplesOnTheCpuUntilReached()
+    {
+        var d = new FakeDeviceSamplingDecoder(new FakeBatchDecoder(1));
+        d.Inner.Script("ab");
+        using var e = new InferenceEngine(d, new FakeTokenizer());
+        var r = await e.Submit(Req("x", SamplingParams.GreedyDefault) with { MinTokens = 4 }).CompleteAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(4, r.Usage.CompletionTokens);
+        Assert.StartsWith("ab", r.Text);
+        // The first four tokens need the end-of-generation mask (CPU); only the fifth, which ends the request, is chosen on the device.
+        Assert.Single(d.SampledRows);
+    }
+
+    [Fact]
+    public async Task SpeculativeRows_AreVerifiedOnTheCpu()
+    {
+        const string Reply = "abcdabcdabcdabcdabcdabcdabcdabcd";
+        var d = new FakeDeviceSamplingDecoder(new FakeBatchDecoder(2, maxLogitsRows: 10));
+        d.Inner.Script(Reply);
+        using var e = new InferenceEngine(d, new FakeTokenizer(), new EngineOptions { Speculator = new NgramSpeculator(maxDraftTokens: 4, minNgram: 2) });
+        Assert.True(e.Speculates);
+        var r = await e.Submit(Req("abcd", SamplingParams.GreedyDefault)).CompleteAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(Reply, r.Text);
+        Assert.Contains(d.Inner.LogitsRowsPerStep, rows => rows.Any(n => n > 1));
+        Assert.True(e.GetMetrics().AcceptedDraftTokens > 10);
     }
 
     [Fact]
