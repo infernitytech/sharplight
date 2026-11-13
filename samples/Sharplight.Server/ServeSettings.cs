@@ -3,9 +3,9 @@ using Sharplight.Samples;
 namespace Sharplight.Server;
 
 /// <summary>Everything the command line selects, before it is merged with the optional configuration file.</summary>
-/// <param name="PositionalModel">Model given as the positional argument, or null.</param>
-/// <param name="PositionalModelName">Id of the positional model (default: file or directory name).</param>
-/// <param name="ModelArguments">Values of repeated <c>--model NAME=PATH[,key=value...]</c> options.</param>
+/// <param name="PositionalModels">Models given as positional arguments (files, stored models or Hub repositories).</param>
+/// <param name="PositionalModelName">Id of the single positional model (default: file name or the name as given).</param>
+/// <param name="ModelArguments">Values of repeated <c>--model NAME=MODEL[,key=value...]</c> options.</param>
 /// <param name="ConfigPath">JSON configuration file, or null.</param>
 /// <param name="Runtime">Device and sizing defaults for models that do not override them.</param>
 /// <param name="ListenUrl">Address Kestrel listens on.</param>
@@ -26,8 +26,10 @@ namespace Sharplight.Server;
 /// <param name="MaxLoadedModels">Resident model limit; null defers to the config file.</param>
 /// <param name="Lazy">Load models on first request.</param>
 /// <param name="IdleTimeoutSeconds">Idle unload timeout; null defers to the config file.</param>
+/// <param name="StoreRoot">The model store that model names are looked up in.</param>
+/// <param name="Pull">How models missing from the store are pulled.</param>
 internal sealed record ServeSettings(
-    string? PositionalModel,
+    IReadOnlyList<string> PositionalModels,
     string? PositionalModelName,
     IReadOnlyList<string> ModelArguments,
     string? ConfigPath,
@@ -49,4 +51,6 @@ internal sealed record ServeSettings(
     long? VramBudgetBytes,
     int? MaxLoadedModels,
     bool Lazy,
-    double? IdleTimeoutSeconds);
+    double? IdleTimeoutSeconds,
+    string StoreRoot,
+    PullSettings Pull);

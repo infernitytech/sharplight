@@ -4,6 +4,29 @@ Serves one or several models over the OpenAI-compatible (`/v1/chat/completions`,
 Anthropic-compatible (`/v1/messages`) HTTP APIs, plus `/health`, `/metrics` and `/admin/models`. Models share the opened
 devices and run concurrently, each with its own scheduler. Run `--help` for every option; stop with Ctrl+C.
 
+It also pulls models from Hugging Face, ollama style: `search`, `pull`, `list`, `show`, `rm`, `run` (interactive chat) and
+`serve`. Pulled models are converted to `.slm` packages, precompiled for the local GPU and kept in a local store; `run` and
+`serve` pull missing models automatically. See [docs/model-hub.md](../../docs/model-hub.md) for the details.
+
+```bash
+sharplight-server search qwen3 --format gguf
+sharplight-server pull Qwen/Qwen3-0.6B-GGUF:Q8_0      # tag = GGUF quantization; default Q4_K_M, else Q8_0
+sharplight-server run qwen3-0.6b:q8_0                  # chat in the terminal (/clear, /bye); -p "..." answers once
+sharplight-server serve qwen3-0.6b:q8_0 Qwen/Qwen3-0.6B --listen http://127.0.0.1:8080
+sharplight-server list
+sharplight-server rm qwen3-0.6b:q8_0
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--models-dir DIR` | Model store (default: `SHARPLIGHT_MODELS`, else `models` next to the executable). All commands. |
+| `--revision REV`, `--force` | Branch, tag or commit to pull (`main`); rebuild a model that is up to date. |
+| `--keep-source`, `--no-precompile` | Keep the downloaded files; skip kernel precompilation. |
+| `--no-pull` | `run`/`serve`: fail instead of pulling a model that is not stored. |
+| `HF_TOKEN`, `HF_ENDPOINT` | Token for gated/private repositories (never printed); Hub mirror. |
+
+## Serving files
+
 ```bash
 # One model (positional); any "model" name sent by clients is accepted
 dotnet run -c Release --project samples/Sharplight.Server -- ~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf --listen http://127.0.0.1:8080
@@ -35,7 +58,7 @@ Python: `openai.OpenAI(base_url="http://localhost:8080/v1", api_key="x")` or `an
 
 | Option | Meaning |
 | --- | --- |
-| `<model>`, `--model-name` | A single model and the id the API reports for it (default: file name). |
+| `<model>...`, `--model-name` | Models to serve: file paths, stored names or Hugging Face names (pulled if missing); `--model-name` sets the id the API reports for a single model (default: file name, or the name as given). |
 | `--model NAME=PATH[,key=value...]` | Another model; keys: `ctx`, `slots`, `batch`, `device` (index or `cpu`), `mmproj`, `template`, `lazy`, `pin`, `idle` (seconds), `offload`. Repeatable. |
 | `--config FILE` | JSON, see below. Command-line options win over file values. |
 | `--listen URL` (`--urls`), `--api openai\|anthropic\|both`, `--api-key K`, `--cors ORIGIN` | HTTP surface; keys also protect `/admin`. |

@@ -82,10 +82,17 @@ Tests are Microsoft.Testing.Platform executables: run `dotnet tests/<Project>/bi
 
 ## Samples
 
+Pull a model from Hugging Face (downloaded, converted to `.slm` and precompiled) and chat with it or serve it:
+
+```sh
+dotnet run -c Release --project samples/Sharplight.Server -- run Qwen/Qwen3-0.6B-GGUF:Q8_0
+dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8_0 --listen http://127.0.0.1:8080
+```
+
 | Sample | Executable | What it does |
 |---|---|---|
 | `samples/Sharplight.Cli` | `sharplight` | Chat / generate / benchmark from the command line |
-| `samples/Sharplight.Server` | `sharplight-server` | Serve one or several models over HTTP |
+| `samples/Sharplight.Server` | `sharplight-server` | Serve one or several models over HTTP; search, pull and run Hugging Face models ([docs/model-hub.md](docs/model-hub.md)) |
 | `samples/Sharplight.Convert` | `sharplight-convert` | Convert models to `.slm` packages, precompile, inspect |
 | `samples/Sharplight.PackageViewer` | `sharplight-viewer` | Avalonia viewer for `.slm` packages (graphs, IR, weights, artifacts) |
 | `samples/Sharplight.OnnxRun` | `sharplight-onnxrun` | Run an ONNX model on the CPU or Vulkan provider |

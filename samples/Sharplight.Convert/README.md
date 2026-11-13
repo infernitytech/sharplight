@@ -3,6 +3,8 @@
 Creates, inspects and maintains Sharplight model packages (`.slm`, see [docs/model-format.md](../../docs/model-format.md)): a
 portable model (IR graphs and weights) plus optional precompiled artifact sets per device, in a code tier (driver-independent
 kernels, e.g. SPIR-V) and a binary tier (driver pipeline cache).
+Conversion and precompilation live in the `Sharplight.Packaging` library (`ModelConverter`, `PackagePrecompiler`),
+which `sharplight-server pull` uses as well.
 
 ```sh
 C="dotnet run -c Release --project samples/Sharplight.Convert --"

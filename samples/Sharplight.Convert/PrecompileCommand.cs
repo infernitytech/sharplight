@@ -108,7 +108,7 @@ internal sealed class PrecompileCommand
         });
         command.SetAction(CommandRunner.Guard((parseResult, _) =>
         {
-            new PackagePrecompiler(Console.Out).Run(Read(parseResult));
+            new PrecompileRunner(Console.Out).Run(Read(parseResult));
             return Task.FromResult(ExitCodes.Success);
         }));
         return command;

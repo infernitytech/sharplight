@@ -7,8 +7,10 @@ namespace Sharplight.Server;
 /// <summary>Declares the command line of <c>sharplight-server</c> and binds parsed values to <see cref="ServeSettings"/>.</summary>
 internal sealed class ServeOptionSet
 {
+    /// <summary>Default <c>--slots</c>; pulled models are precompiled for it.</summary>
+    public const int DefaultSlots = 4;
+
     private const string DefaultListenUrl = "http://127.0.0.1:8080";
-    private const int DefaultSlots = 4;
     private const int DefaultMaxQueue = 64;
     private const int DefaultPrefillChunk = 512;
     private const float DefaultTemperature = 0.7f;
@@ -18,16 +20,20 @@ internal sealed class ServeOptionSet
 
     private readonly RuntimeOptionSet _runtime = new();
 
-    private readonly Argument<string?> _model = new("model")
+    private readonly StoreOptionSet _store;
+    private readonly PullOptionSet _pull = new(explicitPull: false);
+
+    private readonly Argument<string[]> _positional = new("model")
     {
-        Description = "A single model to serve: a .gguf file, a .slm package or a Hugging Face checkpoint directory.",
-        Arity = ArgumentArity.ZeroOrOne,
+        Description = "Models to serve: stored models (owner/name[:tag] or short name), Hugging Face repositories (pulled when missing), "
+            + ".slm/.gguf files or checkpoint directories.",
+        Arity = ArgumentArity.ZeroOrMore,
     };
 
     private readonly Option<string[]> _models = new("--model")
     {
-        HelpName = "NAME=PATH[,key=value...]",
-        Description = "Serve another model; repeatable. Per-model keys: ctx, slots, batch, device (index or cpu), mmproj, template, lazy, pin, idle (seconds), offload.",
+        HelpName = "NAME=MODEL[,key=value...]",
+        Description = "Serve another model (file, stored or Hub model) under NAME; repeatable. Per-model keys: ctx, slots, batch, device (index or cpu), mmproj, template, lazy, pin, idle (seconds), offload.",
         DefaultValueFactory = _ => [],
     };
 
@@ -40,7 +46,7 @@ internal sealed class ServeOptionSet
     private readonly Option<string?> _modelName = new("--model-name")
     {
         HelpName = "name",
-        Description = "Model id reported for the positional model (default: its file or directory name).",
+        Description = "Model id reported for a single positional model (default: its file name, or the model name as given).",
     };
 
     private readonly Option<string> _listen = new("--listen", "--urls")
@@ -114,16 +120,16 @@ internal sealed class ServeOptionSet
         Description = "Unload models that served nothing for this long; they reload on demand.",
     };
 
-    public ServeOptionSet()
+    public ServeOptionSet(StoreOptionSet store)
     {
+        _store = store;
         _api.AcceptOnlyFromAmong(ApiOpenAi, ApiAnthropic, ApiBoth);
     }
 
-    /// <summary>Creates the root command; <paramref name="action"/> receives the validated settings.</summary>
-    public RootCommand BuildCommand(Func<ServeSettings, CancellationToken, Task<int>> action)
+    /// <summary>Adds the serve arguments and options to <paramref name="command"/>; <paramref name="action"/> receives the validated settings.</summary>
+    public void Configure(Command command, Func<ServeSettings, CancellationToken, Task<int>> action)
     {
-        var command = new RootCommand("Serves one or several models over the OpenAI and/or Anthropic HTTP API.");
-        command.Arguments.Add(_model);
+        command.Arguments.Add(_positional);
         command.Options.Add(_models);
         command.Options.Add(_config);
         command.Options.Add(_modelName);
@@ -146,30 +152,39 @@ internal sealed class ServeOptionSet
         command.Options.Add(_maxLoaded);
         command.Options.Add(_lazy);
         command.Options.Add(_idleTimeout);
+        _pull.AddTo(command);
         command.Validators.Add(ValidateModelSource);
-        command.SetAction(CommandRunner.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
-        return command;
+        command.SetAction(HubGuard.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
     }
 
     private void ValidateModelSource(CommandResult result)
     {
-        bool hasModel = result.GetValue(_model) is not null
+        bool hasModel = result.GetValue(_positional) is { Length: > 0 }
             || result.GetValue(_models) is { Length: > 0 }
             || result.GetValue(_config) is not null;
         if (!hasModel)
         {
-            result.AddError("Give a model to serve: a positional <model>, one or more --model NAME=PATH, or --config FILE.");
+            result.AddError("Give a model to serve: one or more positional <model>, --model NAME=MODEL, or --config FILE.");
+            return;
+        }
+
+        if (result.GetValue(_modelName) is not null && result.GetValue(_positional) is not { Length: 1 })
+        {
+            result.AddError("--model-name names a single positional model.");
         }
     }
 
     private ServeSettings Read(ParseResult parseResult)
     {
+        var runtime = _runtime.Read(parseResult);
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+            runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new ServeSettings(
-            parseResult.GetValue(_model),
+            parseResult.GetValue(_positional) ?? [],
             parseResult.GetValue(_modelName),
             parseResult.GetValue(_models) ?? [],
             parseResult.GetValue(_config),
-            _runtime.Read(parseResult),
+            runtime,
             parseResult.GetValue(_listen)!,
             ParseApi(parseResult.GetValue(_api)!),
             parseResult.GetValue(_apiKeys) ?? [],
@@ -187,7 +202,9 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_vramBudget),
             parseResult.GetValue(_maxLoaded),
             parseResult.GetValue(_lazy),
-            parseResult.GetValue(_idleTimeout));
+            parseResult.GetValue(_idleTimeout),
+            _store.ReadRoot(parseResult),
+            pull);
     }
 
     private static ApiSurface ParseApi(string value)

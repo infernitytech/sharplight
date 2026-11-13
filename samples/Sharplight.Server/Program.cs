@@ -1,8 +1,10 @@
+using Sharplight.Llm;
+using Sharplight.Onnx;
 using Sharplight.Samples;
 using Sharplight.Server;
 
 SampleRuntime.RegisterProvidersAndImporters();
+OnnxImporter.Register();
+BuiltinAdapters.RegisterAll();
 
-var options = new ServeOptionSet();
-var command = options.BuildCommand(ServeApplication.RunAsync);
-return await CommandRunner.RunAsync(command, args);
+return await CommandRunner.RunAsync(ServerCommandLine.Build(), args);

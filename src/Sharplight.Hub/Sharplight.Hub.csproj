@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Hugging Face Hub client and local model store: search, resumable verified downloads, conversion to .slm packages.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Packaging/Sharplight.Packaging.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Hub.Tests" />
+  </ItemGroup>
+</Project>

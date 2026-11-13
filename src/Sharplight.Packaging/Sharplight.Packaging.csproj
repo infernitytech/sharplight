@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Builds Sharplight model packages (.slm) from any registered source format and precompiles their kernels for a device.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Package/Sharplight.Package.csproj" />
+    <ProjectReference Include="../Sharplight.Llm/Sharplight.Llm.csproj" />
+  </ItemGroup>
+</Project>

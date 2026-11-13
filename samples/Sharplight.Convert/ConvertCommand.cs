@@ -66,7 +66,7 @@ internal sealed class ConvertCommand
         command.Options.Add(_dropArtifacts);
         command.SetAction(CommandRunner.Guard((parseResult, _) =>
         {
-            new ModelConverter(Console.Out).Convert(Read(parseResult));
+            new ConvertRunner(Console.Out).Run(Read(parseResult));
             return Task.FromResult(ExitCodes.Success);
         }));
         return command;

@@ -30,10 +30,9 @@ internal static class ServerPlanBuilder
     private static List<ModelSpec> CollectModels(ServeSettings settings, ServerConfig? config)
     {
         var models = new List<ModelSpec>();
-        if (settings.PositionalModel is { } positional)
+        foreach (var positional in settings.PositionalModels)
         {
-            var name = settings.PositionalModelName ?? Path.GetFileNameWithoutExtension(positional.TrimEnd('/', '\\'));
-            models.Add(new ModelSpec { Name = name, Path = positional });
+            models.Add(new ModelSpec { Name = settings.PositionalModelName ?? DefaultName(positional), Path = positional });
         }
 
         models.AddRange(settings.ModelArguments.Select(ModelSpecParser.Parse));
@@ -44,6 +43,12 @@ internal static class ServerPlanBuilder
 
         EnsureValid(models);
         return models;
+    }
+
+    /// <summary>A file's name without extension; a stored or Hub model keeps the name it was given by.</summary>
+    private static string DefaultName(string model)
+    {
+        return ModelResolver.IsLocalPath(model) ? Path.GetFileNameWithoutExtension(model.TrimEnd('/', '\\')) : model;
     }
 
     private static void EnsureValid(List<ModelSpec> models)
