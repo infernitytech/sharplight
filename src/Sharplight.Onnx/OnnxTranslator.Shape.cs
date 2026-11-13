@@ -199,11 +199,6 @@ internal sealed partial class OnnxTranslator
         var vals = ins.Select((t, i) => X(ins, i, Nm(n) + $".in{i}")).ToList();
         int axis = NormalizeAxis(n.Int("axis", 0), vals[0].Rank);
 
-        if (axis == 0 && Sym(vals[0]))
-        {
-            throw new NotSupportedException("Concat along the symbolic batch axis");
-        }
-
         if (vals.Count == 1)
         {
             SetDyn(n, 0, vals[0]);
@@ -273,6 +268,12 @@ internal sealed partial class OnnxTranslator
             {
                 if (starts[i] == 0 && (ends[i] >= int.MaxValue || ends[i] == SymbolicInts.Encode(x.Shape[0])))
                 {
+                    continue;
+                }
+
+                if (starts[i] == 0 && ends[i] > 0 && !SymbolicInts.IsSymbolic(ends[i]))
+                {
+                    y = _b.Slice(y, 0, 0, ends[i]);   // the first min(n, end) rows
                     continue;
                 }
 

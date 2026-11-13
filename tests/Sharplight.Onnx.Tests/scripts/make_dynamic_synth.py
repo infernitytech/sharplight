@@ -109,6 +109,77 @@ save("dyn_topk_k", [
     cast_f("ti", "tif"),
 ], [("x", [12])], ["top", "tif"], [const("zero", np.float32(0)), i64("three", 3)], batches=(1,), fixbatch=True)
 
+# Single-class NonMaxSuppression over a data-dependent number of boxes (boxes [1, K, 4], scores [1, 1, K]), two data-dependent row sets
+# concatenated along the outer axis and a prefix slice of it (the Faster R-CNN pattern)
+save("dyn_nms_single_concat", [
+    h.make_node("ReduceSum", ["x", "ax1"], ["rowsum"], keepdims=0),
+    h.make_node("Greater", ["rowsum", "zero"], ["keep"]),
+    h.make_node("Abs", ["x"], ["xa"]),
+    h.make_node("Compress", ["xa", "keep"], ["boxes"], axis=0),
+    h.make_node("Compress", ["rowsum", "keep"], ["scores"], axis=0),
+    h.make_node("Unsqueeze", ["boxes", "ax0"], ["b3"]),
+    h.make_node("Unsqueeze", ["scores", "ax01"], ["s3"]),
+    h.make_node("NonMaxSuppression", ["b3", "s3", "max", "iou"], ["sel"]),
+    h.make_node("Gather", ["sel", "col2"], ["boxidx"], axis=1),
+    h.make_node("Gather", ["boxes", "boxidx"], ["picked"], axis=0),
+    h.make_node("Not", ["keep"], ["drop"]),
+    h.make_node("Compress", ["x", "drop"], ["rest"], axis=0),
+    h.make_node("Concat", ["boxes", "rest"], ["both"], axis=0),
+    h.make_node("Slice", ["both", "z", "five", "ax0"], ["head"]),
+], [("x", [14, 4])], ["picked", "both", "head"],
+    [i64("ax1", 1), const("zero", np.float32(0)), i64("ax0", 0), i64("ax01", 0, 1), i64("max", 4), const("iou", np.array([0.4], np.float32)),
+     i64("col2", 2), i64("z", 0), i64("five", 5)], batches=(1,), fixbatch=True)
+
+# arange(n) exported as NonZero(ConstantOfShape([n], 1)) over the symbolic batch
+save("dyn_nonzero_arange", [
+    h.make_node("Shape", ["x"], ["s"]),
+    h.make_node("Gather", ["s", "z"], ["n"], axis=0),
+    h.make_node("ConstantOfShape", ["n"], ["ones"], value=h.make_tensor("v", T.INT64, [1], [1])),
+    h.make_node("Cast", ["ones"], ["onesf"], to=T.FLOAT),
+    h.make_node("NonZero", ["onesf"], ["nz"]),
+    h.make_node("Transpose", ["nz"], ["nzt"], perm=[1, 0]),
+    h.make_node("Squeeze", ["nzt", "ax1"], ["idx"]),
+    cast_f("idx", "idxf"),
+    h.make_node("Unsqueeze", ["idxf", "ax1"], ["col"]),
+    h.make_node("Add", ["x", "col"], ["y"]),
+], [("x", ["N", 3])], ["y"], [i64("z", 0), i64("ax1", 1)])
+
+# RoiAlign: half_pixel average (opset 16) and opset-10 maximum over boxes built from the input
+for case, opset, mode in (("roialign_avg", 16, "avg"), ("roialign_max_opset10", 10, "max")):
+    save(case, [
+        h.make_node("Abs", ["r"], ["ra"]),
+        h.make_node("Mul", ["ra", "three"], ["rs"]),
+        h.make_node("Slice", ["rs", "c0", "c2", "ax1"], ["p"]),
+        h.make_node("Slice", ["rs", "c2", "c4", "ax1"], ["q"]),
+        h.make_node("Min", ["p", "q"], ["lo"]),
+        h.make_node("Max", ["p", "q"], ["hi"]),
+        h.make_node("Concat", ["lo", "hi"], ["rois"], axis=1),
+        h.make_node("RoiAlign", ["x", "rois", "bi"], ["y"], mode=mode, output_height=3, output_width=4, sampling_ratio=2 if mode == "avg" else 0,
+                    spatial_scale=0.5),
+    ], [("x", [2, 3, 10, 12]), ("r", [5, 4])], ["y"],
+        [const("three", np.float32(3)), i64("c0", 0), i64("c2", 2), i64("c4", 4), i64("ax1", 1), i64("bi", 0, 1, 0, 1, 1)],
+        batches=(1,), fixbatch=True, opset=opset)
+
+# MatMulInteger with both operands dynamically quantized (runtime B and zero point)
+save("matmulinteger_runtime_b", [
+    h.make_node("DynamicQuantizeLinear", ["a"], ["aq", "as", "az"]),
+    h.make_node("DynamicQuantizeLinear", ["b"], ["bq", "bs", "bz"]),
+    h.make_node("MatMulInteger", ["aq", "bq", "az", "bz"], ["acc"]),
+    h.make_node("Cast", ["acc"], ["accf"], to=T.FLOAT),
+    h.make_node("Mul", ["as", "bs"], ["s"]),
+    h.make_node("Mul", ["accf", "s"], ["y"]),
+], [("a", [6, 8]), ("b", [8, 5])], ["y"], batches=(1,), fixbatch=True, atol=2e-3)
+
+# Conv whose weight is standardized in the graph (BiT): BatchNormalization over the reshaped constant weight
+CW = rs.randn(1, 6, 27).astype(np.float32)
+save("conv_standardized_weight", [
+    h.make_node("BatchNormalization", ["cw", "bn_scale", "bn_bias", "bn_mean", "bn_var"], ["cwn"], epsilon=1e-8),
+    h.make_node("Reshape", ["cwn", "wshape"], ["w"]),
+    h.make_node("Conv", ["x", "w"], ["y"], pads=[1, 1, 1, 1]),
+], [("x", ["N", 3, 8, 8])], ["y"],
+    [const("cw", CW), const("bn_scale", np.ones(6, np.float32)), const("bn_bias", np.zeros(6, np.float32)),
+     const("bn_mean", CW.mean(axis=(0, 2))), const("bn_var", CW.var(axis=(0, 2))), i64("wshape", 6, 3, 3, 3)])
+
 # ---- symbolic dims and expressions --------------------------------------------------------------------------------------
 # Range / ConstantOfShape / Expand over the batch size
 save("sym_range_fill", [

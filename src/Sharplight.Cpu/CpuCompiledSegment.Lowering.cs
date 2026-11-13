@@ -89,6 +89,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "GroupNorm":
                 LowerGroupNorm(n);
                 return;
+            case "RoiAlign":
+                LowerRoiAlign(n);
+                return;
 
             case "GatherAxis":
                 LowerGatherAxis(n);

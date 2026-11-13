@@ -61,7 +61,7 @@ Status: **yes** = runtime op mapped to IR; **fold** = only when all inputs are c
 | MatMulInteger ConvInteger QLinearMatMul QLinearConv | yes | weights dequantized at import (per-tensor / per-column / per-channel zero points); activations carried as f32 ints; activation zero point may be a runtime value |
 | If | limit | constant condition only (taken branch inlined) |
 | LSTM GRU RNN | limit | unrolled over a static sequence length; forward/reverse/bidirectional, `layout` 0/1, default activations, no peepholes/clip/sequence_lens; initial states may be runtime inputs |
-| DynamicQuantizeLinear, Loop, Scan, NonMaxSuppression, Unique, Compress, RoiAlign, Det, ... | no | |
+| DynamicQuantizeLinear, Loop, Scan, NonMaxSuppression, Unique, Compress, Det, ... | no | |
 
 ### com.microsoft contrib ops
 

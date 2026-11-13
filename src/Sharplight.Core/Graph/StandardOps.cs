@@ -69,12 +69,15 @@ public static partial class StandardOps
             axis += i[0].Rank;
         }
 
+        long len = a.Get<long>("length");
         if (axis == 0 && i[0].Shape[0].IsSymbolic)
         {
-            throw new NotSupportedException("Slicing the symbolic axis is not supported.");
+            // A prefix of the symbolic axis: the first min(n, length) rows.
+            return a.Get<long>("start") == 0
+                ? [new TensorType(i[0].Type, i[0].Shape.WithDim(0, Dim.Min(i[0].Shape[0], len)))]
+                : throw new NotSupportedException("Slicing the symbolic axis at an offset is not supported.");
         }
 
-        long len = a.Get<long>("length");
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, len))];
     });
 
@@ -100,7 +103,8 @@ public static partial class StandardOps
             axis += i[0].Rank;
         }
 
-        long sum = i.Sum(v => v.Shape[axis].Fixed);
+        // Along the outer axis the inputs may be symbolic: the extent is the sum expression.
+        var sum = axis == 0 ? i.Aggregate(Dim.Of(0), (s, v) => s + v.Shape[0]) : Dim.Of(i.Sum(v => v.Shape[axis].Fixed));
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, sum))];
     });
 

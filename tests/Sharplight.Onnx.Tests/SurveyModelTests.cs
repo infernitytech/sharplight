@@ -34,6 +34,13 @@ public class SurveyModelTests(ITestOutputHelper output)
         new("bertsquad-12", ["cpu", "vulkan"], FixBatch: true),
         // Tile by the batch size, reshapes to expression dims.
         new("deberta-v3-small", ["cpu", "vulkan"]),
+        // MatMulInteger with a runtime B (dynamically quantized attention).
+        new("bertsquad-12-int8", ["cpu", "vulkan"], FixBatch: true),
+        // BiT weight standardization: BatchNormalization over the constant conv weights, folded at import.
+        new("dpt-hybrid-midas", ["cpu", "vulkan"]),
+        // RoiAlign, per-level NonMaxSuppression over data-dependent box counts concatenated along the outer axis, top-1000 prefix slices.
+        new("fasterrcnn-12", ["cpu", "vulkan"]),
+        new("maskrcnn-12", ["cpu", "vulkan"]),
         // Runtime If on the sample rate; the branch for the other rate does not translate for these frame sizes and is left out.
         new("zoo/silero-vad", ["cpu", "vulkan"], Unpins: ["sr"]),
         // optimum merged decoder: runtime If between the with-past and without-past graphs.

@@ -11,7 +11,9 @@ internal sealed partial class OnnxTranslator
     {
         var boxes = X(ins, 0);
         var scores = X(ins, 1);
-        if (boxes.Rank != 3 || scores.Rank != 3)
+        // One batch and class over a symbolic number of boxes: [1, S, 4] and [1, 1, S] are boxes [S, 4] and scores [S] behind unit dims.
+        bool single = ins[0]!.LeadingUnits == 1 && ins[1]!.LeadingUnits == 2 && boxes.Rank == 2 && scores.Rank == 1;
+        if (!single && (boxes.Rank != 3 || scores.Rank != 3 || ins[0]!.LeadingUnits + ins[1]!.LeadingUnits > 0))
         {
             throw new NotSupportedException("NonMaxSuppression needs boxes [B, S, 4] and scores [B, C, S]");
         }
@@ -19,9 +21,9 @@ internal sealed partial class OnnxTranslator
         long maxPerClass = OptConst(ins, 2, "NonMaxSuppression max_output_boxes_per_class")?.ScalarInt() ?? 0;
         double iou = OptConst(ins, 3, "NonMaxSuppression iou_threshold")?.Floats()[0] ?? 0;
         double score = OptConst(ins, 4, "NonMaxSuppression score_threshold")?.Floats()[0] ?? double.NegativeInfinity;
-        long boxCount = scores.Shape[2].Fixed;
-        long perClass = Math.Max(0, Math.Min(boxCount, maxPerClass));
-        var bound = scores.Shape[0] * scores.Shape[1].Fixed * perClass;
+        var boxCount = scores.Shape[single ? 0 : 2];
+        long perClass = Math.Max(0, boxCount.IsSymbolic ? maxPerClass : Math.Min(boxCount.Fixed, maxPerClass));
+        var bound = single ? Dim.Min(boxCount, perClass) : scores.Shape[0] * scores.Shape[1].Fixed * perClass;
         string count = NewDynamicSymbol("nms", bound);
         var attributes = Attributes.From(("count_symbol", count), ("max_per_class", perClass), ("iou_threshold", (float)iou),
             ("score_threshold", (float)score), ("center_point_box", n.Int("center_point_box", 0) != 0));
@@ -37,10 +39,33 @@ internal sealed partial class OnnxTranslator
             throw new NotSupportedException("NonZero of a scalar or of a tensor with leading unit dims");
         }
 
-        var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)x.Shape.Elements();
-        string count = NewDynamicSymbol("nonzero", bound);
-        SetDyn(n, 0, Emit("NonZero", [x], Attributes.From(("count_symbol", count)), Nm(n)));
+        if (x.Rank == 1 && IsNonZeroFill(x))
+        {
+            // NonZero(ConstantOfShape([n], c != 0)) is the exporters' arange(n): every index, without a data-dependent count.
+            var attributes = Attributes.From(("shape", new[] { 0L, 1L }), ("outer_symbol", x.Shape[0].Symbol!), ("start", 0.0), ("delta", 1.0),
+                ("type", DataType.I32.Name));
+            SetDyn(n, 0, Emit("Fill", [], attributes, Nm(n)));
+        }
+        else
+        {
+            var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)x.Shape.Elements();
+            string count = NewDynamicSymbol("nonzero", bound);
+            SetDyn(n, 0, Emit("NonZero", [x], Attributes.From(("count_symbol", count)), Nm(n)));
+        }
+
         _env[n.Outputs[0]].TransposedNonZero = true;
+    }
+
+    /// <summary>A symbolic Fill of a non-zero constant (through casts).</summary>
+    private static bool IsNonZeroFill(Value x)
+    {
+        var producer = x.Producer;
+        while (producer is { Op.Name: "Cast" })
+        {
+            producer = producer.Inputs[0].Producer;
+        }
+
+        return x.Shape[0].IsSymbolic && producer is { Op.Name: "Fill" } fill && fill.Attributes.Get("delta", 0.0) == 0 && fill.Attributes.Get("start", 0.0) != 0;
     }
 
     /// <summary>Compress(x, condition, axis) = Gather(x, NonZero(condition), axis); without axis over the flattened x.</summary>

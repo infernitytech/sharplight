@@ -34,9 +34,10 @@ internal sealed unsafe class NonMaxSuppressionOp : CpuOp
 
     public override void Run(RunParameters p)
     {
-        long batches = _scores.Dim(0, p);
-        long classes = _scores.Dims[1];
-        long boxCount = _scores.Dims[2];
+        bool single = _scores.Rank == 1;   // boxes [S, 4], scores [S]
+        long batches = single ? 1 : _scores.Dim(0, p);
+        long classes = single ? 1 : _scores.Dims[1];
+        long boxCount = single ? _scores.Dim(0, p) : _scores.Dims[2];
         float* boxes = (float*)_boxes.P;
         float* scores = (float*)_scores.P;
         int* output = (int*)_y.P;

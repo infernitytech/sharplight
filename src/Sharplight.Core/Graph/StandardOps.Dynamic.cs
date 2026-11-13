@@ -36,7 +36,7 @@ public static partial class StandardOps
 
     /// <summary>
     /// ONNX NonMaxSuppression: boxes f32 [B, S, 4], scores f32 [B, C, S] → selected i32 <c>[count, 3]</c> rows (batch, class, box), ordered by
-    /// batch, class and descending score. Attributes: <c>count_symbol</c>, <c>max_per_class</c> (long), <c>iou_threshold</c> (float),
+    /// batch, class and descending score; boxes [S, 4] with scores [S] are one batch and class (S may be symbolic). Attributes: <c>count_symbol</c>, <c>max_per_class</c> (long), <c>iou_threshold</c> (float),
     /// <c>score_threshold</c> (float, default -inf: no threshold), <c>center_point_box</c> (bool: boxes are [cx, cy, w, h] instead of corners).
     /// </summary>
     public static readonly OpSchema NonMaxSuppression = new("NonMaxSuppression", OpCategory.Data, 2, 2, (i, a) =>

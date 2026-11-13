@@ -519,8 +519,8 @@ internal sealed partial class OnnxTranslator
 
     // Ops that accept tensors with leading unit dims (see TranslatedTensor.LeadingUnits) besides unary and binary elementwise ops;
     // the setters compute the leading units of their outputs themselves.
-    private static readonly HashSet<string> s_leadingUnitAware = ["Identity", "Cast", "Unsqueeze", "Squeeze", "Shape", "Clip"];
-    private static readonly HashSet<string> s_leadingUnitSetters = ["Unsqueeze", "Squeeze", "Shape"];
+    private static readonly HashSet<string> s_leadingUnitAware = ["Identity", "Cast", "Unsqueeze", "Squeeze", "Shape", "Clip", "NonMaxSuppression"];
+    private static readonly HashSet<string> s_leadingUnitSetters = ["Unsqueeze", "Squeeze", "Shape", "NonMaxSuppression"];
 
     private static readonly HashSet<string> s_scalarPreserving =
         ["Cast", "Add", "Sub", "Mul", "Div", "Neg", "Abs", "Sqrt", "Exp", "Log", "Sin", "Cos", "Tanh", "Sigmoid", "Relu", "Identity", "Pow", "Floor", "Ceil", "Round"];
