@@ -214,8 +214,8 @@ float comb_cls(float a, float b, int cls)
 float init_cls(int cls)
 {
     if (cls == 0) return 0.0;
-    if (cls == 1) return -3.4028235e38;
-    if (cls == 2) return 3.4028235e38;
+    if (cls == 1) return -1.0 / 0.0;   // max/min of all -inf (+inf) rows stay infinite (masked attention rows)
+    if (cls == 2) return 1.0 / 0.0;
     return 1.0;
 }
 
@@ -305,7 +305,7 @@ void reduce(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Reduc
         }
         acc = reduce_threads(acc, tid, pass == 0 ? CLS : 0);
 #if MODE == 8
-        if (pass == 0) { M = acc; continue; }
+        if (pass == 0) { M = max(acc, -3.4028235e38); continue; }   // finite shift: an all -inf row gives log(0) = -inf
         acc = M + log(acc);
 #endif
 #if MODE == 1

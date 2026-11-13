@@ -298,6 +298,11 @@ public sealed partial class GraphLowerer
             return "(1.0/0.0)";
         }
 
+        if (float.IsNegativeInfinity(v))
+        {
+            return "(-1.0/0.0)";
+        }
+
         var s = v.ToString("R", CultureInfo.InvariantCulture);
         if (!s.Contains('.') && !s.Contains('E') && !s.Contains('e'))
         {

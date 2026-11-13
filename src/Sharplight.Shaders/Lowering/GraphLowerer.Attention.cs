@@ -297,7 +297,7 @@ public sealed partial class GraphLowerer
 
         long maxKeys = plan.Full ? maxRows : _opt.Compile.ContextLength;
         long workPerRow = Math.Max(1, plan.HQ * maxKeys * (plan.D + plan.DV));
-        return Math.Clamp((long)(_opt.SubmissionBudgetMs * 3e6) / workPerRow, 8, maxRows);
+        return Math.Clamp((long)(_opt.SubmissionBudgetMs * 3e6) / workPerRow, Math.Min(8, maxRows), maxRows);
     }
 
     /// <summary>
