@@ -67,6 +67,42 @@ public sealed partial class DecoderGgufMapping
         return md;
     }
 
+    /// <summary>Flint: sliding-window layers with rope alternate with full-attention NoPE layers (rope_pattern), sigmoid-gated routed experts plus a shared expert, per-head attention sinks.</summary>
+    IReadOnlyDictionary<string, object> FlintHyper(GgufMetadataView g)
+    {
+        string a = Architecture + ".";
+        int nLayer = g.Int("block_count"), nHead = g.Int("attention.head_count"), nEmbd = g.Int("embedding_length");
+        int headDim = g.Int("attention.key_length", nEmbd / nHead);
+        int[] Flags(string key, int fallback) => g.Raw(key) is Array arr && arr.Length == nLayer
+            ? Enumerable.Range(0, nLayer).Select(i => Convert.ToBoolean(arr.GetValue(i)) ? 1 : 0).ToArray() : Enumerable.Repeat(fallback, nLayer).ToArray();
+        var sliding = Flags("attention.sliding_window_pattern", 0);
+        var md = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [a + "layer_count"] = nLayer,
+            [a + "hidden_size"] = nEmbd,
+            [a + "ffn_hidden_size"] = g.Int("feed_forward_length"),
+            [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
+            [a + "attention.head_count"] = nHead,
+            [a + "attention.kv_head_count"] = g.Int("attention.head_count_kv", nHead),
+            [a + "attention.head_dim"] = headDim,
+            [a + "attention.sliding_window"] = g.Int("attention.sliding_window", 0),
+            [a + "attention.sliding_layers"] = sliding,
+            [a + "rope.dim"] = headDim,
+            [a + "rope.base"] = g.Has("rope.freq_base") ? g.Float("rope.freq_base") : 10000f,
+            [a + "rope.layers"] = Flags("attention.rope_pattern", 1),
+            [a + "rope.style"] = "neox",
+            [a + "mlp.activation"] = "silu",
+            [a + "moe.expert_count"] = g.Int("expert_count"),
+            [a + "moe.expert_used_count"] = g.Int("expert_used_count"),
+            [a + "moe.ffn_hidden_size"] = g.Int("expert_feed_forward_length"),
+            [a + "moe.normalize_weights"] = g.Raw("expert_weights_norm") is { } n && Convert.ToBoolean(n),
+            [a + "moe.router_activation"] = g.Int("expert_gating_func", 1) == 2 ? "sigmoid" : "softmax",
+        };
+        if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var sc && sc != 1f) md[a + "moe.weights_scale"] = sc;
+        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        return md;
+    }
+
     IReadOnlyDictionary<string, object> Gemma4Hyper(GgufMetadataView g)
     {
         string a = Architecture + ".";

@@ -24,9 +24,11 @@ namespace Sharplight.Architectures;
 /// <c>rope.original_context_length</c>: the short factors are used (valid up to the original context), the long ones are not applied yet.</item>
 /// <item><c>mlp.activation</c> ("silu" (default), "gelu", "gelu_tanh", "relu"), <c>mlp.gated</c> (default true: act(gate)·up).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>): <c>moe.expert_count</c>, <c>moe.expert_used_count</c>
-/// (top-k per token), <c>moe.normalize_weights</c> (renormalize the k selected router probabilities to sum 1; default false).
-/// Router probabilities are softmax(router · h). Expert weights are rank-3 <c>mlp.experts.{gate,up,down}.weight</c> [E, N, K] and
-/// <c>moe.ffn_hidden_size</c> is the experts' inner size (<c>ffn_hidden_size</c> then only describes dense layers).</item>
+/// (top-k per token), <c>moe.normalize_weights</c> (renormalize the k selected router probabilities to sum 1; default false),
+/// <c>moe.router_activation</c> ("softmax" (default) or "sigmoid" scores), <c>moe.weights_scale</c> (factor on the selected weights, default 1).
+/// Router probabilities are softmax(router · h) (or sigmoid). Expert weights are rank-3 <c>mlp.experts.{gate,up,down}.weight</c> [E, N, K] and
+/// <c>moe.ffn_hidden_size</c> is the experts' inner size (<c>ffn_hidden_size</c> then only describes dense layers). A MoE layer may also carry a
+/// shared expert that sees every token (<c>mlp.shared.{gate,up,down}.weight</c>, added in full to the routed sum).</item>
 /// <item><c>embedding_scale</c> (token embeddings are multiplied by it, default 1; Gemma sqrt(hidden_size)),
 /// <c>embedding_norm</c> (bool: a weight-less RMS norm is applied to the (scaled) token embeddings),
 /// <c>logit_scale</c> (logits are multiplied by it, default 1, before the soft cap),
@@ -47,6 +49,7 @@ namespace Sharplight.Architectures;
 /// <c>.bias</c>, optional <c>attention.{q,k}_norm.weight</c> (per-head RMS norm before rope), optional <c>attention.out_norm.weight</c>
 /// (norm of the attention output before the residual add), <c>post_attention_norm.weight</c> (in front of the MLP),
 /// <c>mlp.{gate,up,down}.weight</c> (+ optional <c>.bias</c>; no gate when not gated), optional <c>mlp.out_norm.weight</c>,
+/// optional <c>attention.sinks</c> (f32 [head_count]: a learned per-head logit that joins the softmax denominator without a value),
 /// optional <c>attention.gate.weight</c> (sigmoid output gate of the attention: a separate projection of the layer input),
 /// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it). A layer without <c>attention.v.weight</c> uses the
 /// key projection (before its norm) as value (Gemma 4 attention_k_eq_v).
@@ -63,7 +66,7 @@ public sealed class DecoderAdapter : IModelAdapter
         int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps, float AttnScale, float SoftCap,
         int RopeDims, float RopeBase, float RopeLocalBase, string RopeStyle, int Window, int[] SlidingLayers,
         string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength,
-        int Experts, int ExpertsUsed, bool NormalizeExpertWeights,
+        int Experts, int ExpertsUsed, bool NormalizeExpertWeights, bool SigmoidRouter, float ExpertWeightsScale,
         int[] LayerHeadDims, int[] LayerKvHeads, int[] KvSource, int[] RopeLayers, int RopeLocalDims, bool QkNormUnweighted, bool VNorm,
         float PostNormEps, bool EmbeddingNorm, float LogitScale, int PerLayerSize);
 
@@ -98,6 +101,8 @@ public sealed class DecoderAdapter : IModelAdapter
             Experts: src.Arch("moe.expert_count", 0),
             ExpertsUsed: src.Arch("moe.expert_used_count", 0),
             NormalizeExpertWeights: src.Arch("moe.normalize_weights", false),
+            SigmoidRouter: src.Arch("moe.router_activation", "softmax") == "sigmoid",
+            ExpertWeightsScale: src.Arch("moe.weights_scale", 1f),
             LayerHeadDims: src.Arch("attention.layer_head_dims", Array.Empty<int>()),
             LayerKvHeads: src.Arch("attention.layer_kv_head_counts", Array.Empty<int>()),
             KvSource: src.Arch("attention.kv_source_layers", Array.Empty<int>()),
@@ -280,7 +285,8 @@ public sealed class DecoderAdapter : IModelAdapter
             if (sliding) attrs.Add(("window", hp.Window));
             if (hp.SoftCap > 0) attrs.Add(("softcap", hp.SoftCap));
             b.RuntimeScalar(WellKnown.PastScalar);
-            var attn = b.Emit1("CachedAttention", [q, b.State(kCache[il]), b.State(vCache[il])], Attributes.From([.. attrs]), $"{p}attn");
+            Value[] attnIn = b.TryWeight(p + "attention.sinks") is { } sinks ? [q, b.State(kCache[il]), b.State(vCache[il]), sinks] : [q, b.State(kCache[il]), b.State(vCache[il])];
+            var attn = b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");
             var flat = b.Reshape(attn, 0, hp.NHead * D);
             if (b.HasWeight(p + "attention.gate.weight")) flat = b.Mul(flat, b.Sigmoid(b.Linear(h, p + "attention.gate.weight")));
             return b.Linear(flat, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
@@ -299,7 +305,8 @@ public sealed class DecoderAdapter : IModelAdapter
         Value MoeMlp(GraphBuilder b, Value h, string p)
         {
             if (hp.Experts <= 0 || hp.ExpertsUsed <= 0) throw new InvalidDataException("decoder: MoE weights present but moe.expert_count / moe.expert_used_count are missing.");
-            var probs = b.Emit1("Softmax", [b.Linear(h, p + "mlp.router.weight")], null, $"{p}router_probs");
+            var logits = b.Linear(h, p + "mlp.router.weight");
+            var probs = hp.SigmoidRouter ? b.Sigmoid(logits, $"{p}router_probs") : b.Emit1("Softmax", [logits], null, $"{p}router_probs");
             var top = b.Emit("TopK", [probs], Attributes.From(("k", (long)hp.ExpertsUsed)), $"{p}router_topk");
             Value weights = top[0], ids = top[1];
             if (hp.NormalizeExpertWeights) weights = b.Binary("Div", weights, b.Emit1("ReduceSum", [weights]));
@@ -307,9 +314,17 @@ public sealed class DecoderAdapter : IModelAdapter
             var gate = b.Emit1("MatMulId", [h, b.Weight(p + "mlp.experts.gate.weight"), ids], null, $"{p}experts_gate");
             var act = b.Mul(ActOf(b, gate), up);
             var down = b.Emit1("MatMulId", [act, b.Weight(p + "mlp.experts.down.weight"), ids], null, $"{p}experts_down");   // [T, k, H]
+            if (hp.ExpertWeightsScale != 1f) weights = b.Scale(weights, hp.ExpertWeightsScale);
             var weighted = b.Mul(down, b.Reshape(weights, 0, hp.ExpertsUsed, 1));
             var summed = b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]);                                              // [T, H, 1]
-            return b.Reshape(summed, 0, hp.NEmbd);
+            var routed = b.Reshape(summed, 0, hp.NEmbd);
+            if (b.HasWeight(p + "mlp.shared.up.weight"))
+            {
+                var sUp = b.Linear(h, p + "mlp.shared.up.weight");
+                var sAct = b.Mul(ActOf(b, b.Linear(h, p + "mlp.shared.gate.weight")), sUp);
+                routed = b.Add(routed, b.Linear(sAct, p + "mlp.shared.down.weight", name: $"{p}shared_out"));
+            }
+            return routed;
         }
 
         Value Mlp(GraphBuilder b, Value h, string p)

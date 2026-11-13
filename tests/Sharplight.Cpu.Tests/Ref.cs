@@ -83,7 +83,7 @@ static class Ref
     }
 
     /// <summary>q [T,Hq,D]; k [S,Hkv,D]; v [S,Hkv,Dv]. Query t sees keys [0, past+t] (causal) or all S keys.</summary>
-    public static float[] Attention(float[] q, int T, int Hq, int D, float[] k, float[] v, int S, int Hkv, int Dv, float scale, int past, bool causal, float[]? mask = null, int window = 0, float softcap = 0f)
+    public static float[] Attention(float[] q, int T, int Hq, int D, float[] k, float[] v, int S, int Hkv, int Dv, float scale, int past, bool causal, float[]? mask = null, int window = 0, float softcap = 0f, float[]? sinks = null)
     {
         var o = new float[T * Hq * Dv];
         for (int t = 0; t < T; t++)
@@ -99,8 +99,8 @@ static class Ref
                     sc[j] = d * scale + (mask is null ? 0 : mask[t * S + j]);
                     if (softcap > 0) sc[j] = softcap * Math.Tanh(sc[j] / softcap);
                 }
-                double mx = double.NegativeInfinity; for (int j = j0; j < n; j++) mx = Math.Max(mx, sc[j]);
-                double sum = 0; for (int j = j0; j < n; j++) { sc[j] = Math.Exp(sc[j] - mx); sum += sc[j]; }
+                double mx = sinks is null ? double.NegativeInfinity : sinks[h]; for (int j = j0; j < n; j++) mx = Math.Max(mx, sc[j]);
+                double sum = sinks is null ? 0 : Math.Exp(sinks[h] - mx); for (int j = j0; j < n; j++) { sc[j] = Math.Exp(sc[j] - mx); sum += sc[j]; }
                 for (int i = 0; i < Dv; i++)
                 {
                     double a = 0; for (int j = j0; j < n; j++) a += sc[j] / sum * v[(j * Hkv + hk) * Dv + i];

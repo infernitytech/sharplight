@@ -14,7 +14,7 @@ namespace Sharplight.HuggingFace;
 public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 {
     public string Architecture => "decoder";
-    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "gemma4", "gemma4_text", "muse_glimmer"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "gemma4", "gemma4_text", "muse_glimmer", "flint"];
 
     static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
 
@@ -92,6 +92,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         string? type = c.ModelType;
         if (type is "gemma4" or "gemma4_text") return Gemma4Hyper(c);
         if (type == "muse_glimmer") return MuseHyper(c);
+        if (type == "flint") return FlintHyper(c);
         int nLayer = c.Int("num_hidden_layers");
         int nHead = c.Int("num_attention_heads");
         int hidden = c.Int("hidden_size");
@@ -173,6 +174,12 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         ["mlp.gate_proj.bias"] = "mlp.gate.bias",
         ["mlp.up_proj.bias"] = "mlp.up.bias",
         ["mlp.down_proj.bias"] = "mlp.down.bias",
+        // Flint: attention sinks and the always-on shared expert.
+        ["self_attn.sinks"] = "attention.sinks",
+        ["self_attn.softmax_offset"] = "attention.sinks",   // the name transformers 5 writes
+        ["mlp.shared_expert.gate_proj.weight"] = "mlp.shared.gate.weight",
+        ["mlp.shared_expert.up_proj.weight"] = "mlp.shared.up.weight",
+        ["mlp.shared_expert.down_proj.weight"] = "mlp.shared.down.weight",
     };
 
     // Norm tensors by HF name; Gemma's four-norm layout is renamed to the canonical roles.

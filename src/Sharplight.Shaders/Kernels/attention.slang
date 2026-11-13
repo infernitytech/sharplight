@@ -3,7 +3,7 @@
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
 // Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
 //         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers), HAS_SOFTCAP + SOFTCAP
-//         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)).
+//         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
 // one workgroup each (grid z); every split writes an unnormalized partial (acc[DV], m, l) to part[split][t][h][DV+2]
 // and the `combine` entry merges them. The split ranges follow n_past at run time, so a recorded command buffer
@@ -20,6 +20,7 @@ struct CombineParams
 {
     float* part;
     float* o;
+    float* sinks;
     uint T;
 };
 
@@ -36,6 +37,11 @@ void combine(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Comb
     float M = -1e30;
     [ForceUnroll] for (uint s = 0; s < SPLITS; s++) M = max(M, p.part[((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2) + DV]);
     float den = 0;
+#if HAS_SINKS
+    float sk = p.sinks[h];
+    M = max(M, sk);
+    den = exp(sk - M);
+#endif
     [ForceUnroll] for (uint s = 0; s < SPLITS; s++)
     {
         float* ps = p.part + ((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2);
@@ -61,6 +67,7 @@ struct Params
     uint8_t* vc;
     float* o;
     float* part;
+    float* sinks;
     uint* rt;
     uint T;
 };
@@ -206,6 +213,13 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     if (tid == 0) { ps[DV] = m; ps[DV + 1] = l; }
 #else
     float* orow = p.o + (uint64_t(t) * HQ + h) * DV;
+#if HAS_SINKS
+    {
+        float sk = p.sinks[h], mf = max(m, sk), cf = exp(m - mf);
+        l = l * cf + exp(sk - mf);
+        [ForceUnroll] for (int di = 0; di < DPT; di++) acc[di] *= cf;
+    }
+#endif
     float inv = 1.0 / l;
     [ForceUnroll]
     for (int di = 0; di < DPT; di++)
@@ -398,6 +412,13 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         }
     }
 
+#if HAS_SINKS
+    {
+        float sk = p.sinks[h], mf = max(m, sk), cf = exp(m - mf);
+        l = l * cf + exp(sk - mf);
+        [ForceUnroll] for (uint i = 0; i < FA_NC * 16; i++) o[i] *= cf;
+    }
+#endif
     if (rowValid)
     {
         float inv = l > 0 ? 1.0 / l : 0.0;

@@ -231,6 +231,35 @@ public class StatefulTests
         Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap}");
     }
 
+    // Attention sinks: decode (split-K + combine), short chunks, and long prefill chunks (flash kernel), full and windowed.
+    [Theory]
+    [InlineData("f16", 0)] [InlineData("f16", 17)] [InlineData("f32", 0)] [InlineData("f32", 40)]
+    public void CachedAttentionSinks(string cacheType, int window)
+    {
+        Gpu.Require();
+        int Hq = 8, Hkv = 2, D = 64, ctx = 256; float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [6, 3, 1, 1, 150, 1, 1];
+        int total = chunks.Sum();
+        var tg = new TG(); var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D); var ki = tg.InF("k", T, Hkv, D); var vi = tg.InF("v", T, Hkv, D);
+        var ct = DataType.Get(cacheType);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        var sinks = tg.RandW("sinks", DataType.F32, 4f, Hq);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
+        if (window > 0) attrs.Add(("window", window));
+        tg.B.RuntimeScalar("n_past");
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sinks], Attributes.From([.. attrs])));
+        var q = Rnd.F(total * Hq * D, 1).Select(x => x * 3).ToArray(); var k = Rnd.F(total * Hkv * D, 2); var v = Rnd.F(total * Hkv * D, 3);
+        var steps = new List<Step>(); int past = 0;
+        foreach (int c in chunks)
+        {
+            steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
+            past += c;
+        }
+        Diff.Check("CachedAttention.sinks", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 160, ctx: ctx, what: $"{cacheType} window={window}");
+    }
+
     [Fact]
     public void CachedAttentionWithStridedQueryAndKv()
     {

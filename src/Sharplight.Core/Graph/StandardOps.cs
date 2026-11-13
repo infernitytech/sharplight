@@ -130,9 +130,10 @@ public static partial class StandardOps
     /// [0, offset + t] (causal) where offset is the runtime scalar named by attribute <c>offset</c>
     /// (default "n_past"). Attributes: scale; optional <c>window</c> (int &gt; 0: a query only sees its last <c>window</c> keys,
     /// sliding-window attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
+    /// Optional 4th input <c>sinks</c> (f32 [Hq]): a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 3, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 4, (i, a) =>
     {
         var q = i[0].Shape; var v = i[2].Shape;
         return [new(DataType.F32, new Shape(q[0], q[1], v[2]))];

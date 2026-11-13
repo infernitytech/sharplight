@@ -511,13 +511,14 @@ public sealed partial class GraphLowerer
             vc = AsDenseF32(vc, "attn-v");
         }
         var o = Produce(n.Output);
+        TensorRef? sinks = !full && n.Inputs.Length > 3 ? Ref(n.Inputs[3]) : null;   // optional attention sinks [HQ] f32
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
         int window = n.Attributes.Get("window", 0);
         float softcap = n.Attributes.Get("softcap", 0f);
         var m = Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
             ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full ? 0 : Slot(n)),
-            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f));
+            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null));
         var k = Lib("attention.slang", "main", m);
         var tq = q;
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -550,13 +551,13 @@ public sealed partial class GraphLowerer
         Emit($"attention {n.Output.Name}", [n],
             variants,
             [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
-             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
-            [q, kc, vc], split ? [o, part] : [o]);
+             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg((sinks ?? o).Buffer, (sinks ?? o).ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
+            sinks is null ? [q, kc, vc] : [q, kc, vc, sinks], split ? [o, part] : [o]);
         if (split)
             Emit($"attention {n.Output.Name} combine", [n],
                 [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
-                [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), TokenArg(q)],
-                [part], [o]);
+                [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), new PointerArg((sinks ?? o).Buffer, (sinks ?? o).ByteOffset), TokenArg(q)],
+                sinks is null ? [part] : [part, sinks], [o]);
     }
 
     // ---- recurrent ---------------------------------------------------------------------------

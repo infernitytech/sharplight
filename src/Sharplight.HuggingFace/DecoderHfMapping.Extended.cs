@@ -57,6 +57,43 @@ public sealed partial class DecoderHfMapping
         }
     }
 
+    /// <summary>
+    /// Flint: Qwen3-MoE-style routed experts with sigmoid router scores, an always-on shared expert, per-head attention sinks, sliding-window layers
+    /// that carry rope alternating with full-attention NoPE layers, two leading dense layers.
+    /// </summary>
+    IReadOnlyDictionary<string, object> FlintHyper(HfConfig c)
+    {
+        string a = Architecture + ".";
+        int nLayer = c.Int("num_hidden_layers"), nHead = c.Int("num_attention_heads"), hidden = c.Int("hidden_size");
+        int headDim = c.GetInt("head_dim") ?? hidden / nHead;
+        var types = LayerTypes(c, nLayer);
+        var sliding = types.Select(t => t == "sliding_attention" ? 1 : 0).ToArray();
+        var md = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [a + "layer_count"] = nLayer,
+            [a + "hidden_size"] = hidden,
+            [a + "ffn_hidden_size"] = c.Int("intermediate_size"),
+            [a + "norm_eps"] = (float)(c.GetDouble("rms_norm_eps") ?? 1e-6),
+            [a + "attention.head_count"] = nHead,
+            [a + "attention.kv_head_count"] = c.GetInt("num_key_value_heads") ?? nHead,
+            [a + "attention.head_dim"] = headDim,
+            [a + "attention.sliding_window"] = c.GetInt("sliding_window") ?? 0,
+            [a + "attention.sliding_layers"] = sliding,
+            [a + "rope.dim"] = headDim,
+            [a + "rope.base"] = (float)(c.RopeDouble("rope_theta", "rope_theta") ?? 10000.0),
+            [a + "rope.layers"] = sliding,   // only the sliding-window layers are rotary; full-attention layers use no positional encoding
+            [a + "rope.style"] = "neox",
+            [a + "mlp.activation"] = Activation(c),
+            [a + "moe.expert_count"] = c.Int("num_experts"),
+            [a + "moe.expert_used_count"] = c.Int("num_experts_per_tok"),
+            [a + "moe.ffn_hidden_size"] = c.Int("moe_intermediate_size"),
+            [a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? false,
+            [a + "moe.router_activation"] = c.GetString("router_score_function") ?? "sigmoid",
+        };
+        if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
+        return md;
+    }
+
     IReadOnlyDictionary<string, object> Gemma4Hyper(HfConfig c)
     {
         if (c.GetBool("enable_moe_block") == true) throw new NotSupportedException("Gemma 4 mixture-of-experts blocks are not supported yet.");

@@ -322,6 +322,7 @@ public sealed class CpuDevice : IComputeDevice
                 return ins[1].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("CacheWrite source must be f32");
             case "CachedAttention":
                 if (ins[0].Type != DataType.F32) return OpSupport.No("CachedAttention q must be f32");
+                if (ins.Length > 3 && ins[3].Type != DataType.F32) return OpSupport.No("CachedAttention sinks must be f32");
                 if (!IsKv(ins[1].Type) || !IsKv(ins[2].Type)) return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32/f16 only)");
                 return OpSupport.Yes;
             case "Attention":

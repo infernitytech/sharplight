@@ -7,7 +7,7 @@ namespace Sharplight.Cpu;
 /// <summary>Scaled dot-product attention. Covers CachedAttention (K/V are state tensors) and plain Attention.</summary>
 internal sealed unsafe class AttentionOp : CpuOp
 {
-    readonly TRef _q, _k, _v, _y; readonly TRef? _mask;
+    readonly TRef _q, _k, _v, _y; readonly TRef? _mask, _sinks;
     readonly float _scale;
     readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
     readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
@@ -21,9 +21,9 @@ internal sealed unsafe class AttentionOp : CpuOp
 
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
-    public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f)
+    public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f, TRef? sinks = null)
     {
-        _window = window; _softcap = softcap;
+        _window = window; _softcap = softcap; _sinks = sinks;
         _q = q; _k = k; _v = v; _y = y; _mask = mask; _scale = scale; _offsetScalar = offsetScalar; _causal = causal;
         _hq = (int)q.Dims[1]; _d = (int)q.Dims[2];
         _hkv = (int)k.Dims[1]; _dv = (int)v.Dims[2];
@@ -72,7 +72,8 @@ internal sealed unsafe class AttentionOp : CpuOp
                 float* mrow = _mask is null ? null : (float*)_mask.P + t * _mask.Strides[0];
                 long mstride = _mask is null ? 0 : _mask.Strides[1];
                 long j0 = _window > 0 ? Math.Max(0, n - _window) : 0;
-                float max = float.NegativeInfinity;
+                float sink = _sinks is null ? float.NegativeInfinity : ((float*)_sinks.P)[h * _sinks.Strides[0]];   // learned per-head logit that attends to nothing
+                float max = sink;
                 for (long j = j0; j < n; j++)
                 {
                     long off = j * ks0 + hk * ks1;
@@ -83,13 +84,13 @@ internal sealed unsafe class AttentionOp : CpuOp
                     sc[j] = dot;
                     if (dot > max) max = dot;
                 }
-                float sum = 0;
+                float sum = _sinks is null ? 0f : MathF.Exp(sink - max);
                 long i = j0;
                 if (Vector256.IsHardwareAccelerated)
                 {
                     var mv = Vector256.Create(max); var acc = Vector256<float>.Zero;
                     for (; i + 8 <= n; i += 8) { var ev = Vector256.Exp(Vector256.Load(sc + i) - mv); ev.Store(sc + i); acc += ev; }
-                    sum = Vector256.Sum(acc);
+                    sum += Vector256.Sum(acc);
                 }
                 for (; i < n; i++) { float ev = MathF.Exp(sc[i] - max); sc[i] = ev; sum += ev; }
                 for (long j = j0; j < n; j++)

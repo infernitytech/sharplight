@@ -175,6 +175,8 @@ public static class HfTokenizerTranslator
         }
 
         if (byteLevelRegex && regexes.Count == 0) return "gpt-2";
+        // Flint: three successive splits (digit groups, CJK runs, case-aware words).
+        if (regexes.Count == 3 && regexes[0] == @"\p{N}{1,3}" && regexes[1].StartsWith("[\u4e00", StringComparison.Ordinal)) return "flint";
         foreach (var r in regexes)
             foreach (var (preset, known) in KnownRegexes)
                 if (r == known) return preset;
