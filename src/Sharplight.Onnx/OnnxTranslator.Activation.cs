@@ -22,7 +22,58 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, _b.Mul(SwishOf(X(ins, 0), n.Float("alpha", 1f)), X(ins, 1), Nm(n)));
     }
 
-    /// <summary>Shrink: x + bias where x &lt; -lambd, x - bias where x &gt; lambd, 0 in between.</summary>
+    /// <summary>
+    /// CausalConvWithState (opset 27): depthwise causal conv of input [B, C, L] with weight [C, 1, K] over [past_state (or zeros), input],
+    /// optional bias [C] and SiLU; output #1 is the last K-1 padded positions. Composed as K shifted multiply-adds (K is small).
+    /// </summary>
+    private void CausalConvWithState(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var x = X(ins, 0);
+        var weight = X(ins, 1);
+        long channels = x.Shape[1].Fixed;
+        long length = x.Shape[2].Fixed;
+        long k = weight.Shape[2].Fixed;
+        var taps = Rs(weight, channels, k);
+        var padded = x;
+        if (k > 1)
+        {
+            padded = Opt(ins, 3) is { } state
+                ? Emit("Concat", [AsValue(state), x], Attributes.From(("axis", 2L)))
+                : Emit("Pad", [x], Attributes.From(("pads", L(0, 0, k - 1, 0, 0, 0)), ("mode", "constant"), ("value", 0f)));
+        }
+
+        Value? y = null;
+        for (long j = 0; j < k; j++)
+        {
+            var term = _b.Mul(_b.Slice(padded, 2, j, length), _b.Slice(taps, 1, j, 1));
+            y = y is null ? term : _b.Add(y, term);
+        }
+
+        if (Opt(ins, 2) is { } bias)
+        {
+            y = _b.Add(y!, Rs(AsValue(bias), channels, 1));
+        }
+
+        string activation = n.Str("activation", "none");
+        y = activation switch
+        {
+            "none" => y!,
+            "silu" or "swish" => _b.Silu(y!),
+            _ => throw new NotSupportedException($"CausalConvWithState activation '{activation}'"),
+        };
+        SetDyn(n, 0, y);
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            if (k == 1)
+            {
+                throw new NotSupportedException("CausalConvWithState with kernel size 1 has an empty present_state");
+            }
+
+            SetDyn(n, 1, _b.Slice(padded, 2, length, k - 1));
+        }
+    }
+
+    /// <summary>Shrink:x + bias where x &lt; -lambd, x - bias where x &gt; lambd, 0 in between.</summary>
     private void Shrink(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);

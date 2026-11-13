@@ -21,6 +21,7 @@ internal sealed partial class OnnxTranslator
         "Attention", "RotaryEmbedding", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss", "SwiGLU", "Shrink", "CumProd",
         "ReverseSequence",
         "Det",
+        "CausalConvWithState",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -327,6 +328,9 @@ internal sealed partial class OnnxTranslator
 
             case "Det":
                 Det(n, ins);
+                break;
+            case "CausalConvWithState":
+                CausalConvWithState(n, ins);
                 break;
             case "EyeLike":
                 throw new NotSupportedException($"{op} of a runtime-dependent tensor has a data-dependent shape");
