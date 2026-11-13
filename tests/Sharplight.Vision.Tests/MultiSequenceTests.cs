@@ -41,8 +41,6 @@ public class MultiSequenceTests
         Assert.SkipUnless(File.Exists(path), $"model not found: {path}");
         var slot = device == "cpu" ? Env.Cpu() : Env.Vulkan();
         Assert.SkipWhen(slot is null, "no Vulkan device");
-        // Dispose the device per case: with an earlier case's Vulkan device still alive, gemma3's decoder hit
-        // VK_ERROR_DEVICE_LOST in a plain GEMM (open issue, not reproducible with one device per process).
         using var dev = slot!.Device;
         using var llm = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot!], ContextLength = 256, MaxBatchTokens = 128 });
         using var dec = llm.CreateBatchDecoder(4, 256);
