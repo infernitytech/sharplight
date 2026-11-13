@@ -1,0 +1,4731 @@
+{
+"ref/deit-tiny": {
+"model": "deit-tiny.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1261,
+"ops": {
+"ai.onnx:Constant": 294,
+"ai.onnx:Conv": 1,
+"ai.onnx:Shape": 100,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 52,
+"ai.onnx:Reshape": 51,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Gather": 99,
+"ai.onnx:Unsqueeze": 98,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Mul": 51,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 2,
+"ai.onnx:Expand": 2,
+"ai.onnx:Add": 160,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 50,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:Gemm": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 24
+},
+"ref/depth-anything-small": {
+"model": "depth-anything-small.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1572,
+"ops": {
+"ai.onnx:Identity": 1,
+"ai.onnx:Shape": 123,
+"ai.onnx:Constant": 366,
+"ai.onnx:Gather": 116,
+"ai.onnx:Cast": 19,
+"ai.onnx:Conv": 31,
+"ai.onnx:Slice": 10,
+"ai.onnx:Concat": 68,
+"ai.onnx:Reshape": 56,
+"ai.onnx:Transpose": 55,
+"ai.onnx:Unsqueeze": 127,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Mul": 79,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Div": 56,
+"ai.onnx:Pow": 29,
+"ai.onnx:Resize": 6,
+"ai.onnx:Add": 175,
+"ai.onnx:ReduceMean": 56,
+"ai.onnx:Sub": 28,
+"ai.onnx:Sqrt": 28,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:ConvTranspose": 2,
+"ai.onnx:Relu": 16,
+"ai.onnx:Squeeze": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 99
+},
+"ref/distilbert-base-uncased": {
+"model": "distilbert-base-uncased.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 607,
+"ops": {
+"ai.onnx:Gather": 15,
+"ai.onnx:Shape": 19,
+"ai.onnx:Constant": 157,
+"ai.onnx:Unsqueeze": 37,
+"ai.onnx:Slice": 1,
+"ai.onnx:Add": 86,
+"ai.onnx:ReduceMean": 28,
+"ai.onnx:Sub": 14,
+"ai.onnx:Pow": 14,
+"ai.onnx:Sqrt": 14,
+"ai.onnx:Div": 27,
+"ai.onnx:Mul": 28,
+"ai.onnx:MatMul": 50,
+"ai.onnx:Concat": 30,
+"ai.onnx:Reshape": 30,
+"ai.onnx:Transpose": 25,
+"ai.onnx:Equal": 1,
+"ai.onnx:Expand": 6,
+"ai.onnx:Cast": 6,
+"ai.onnx:Where": 6,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Erf": 7
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 268
+},
+"ref/efficientnet-lite4-11": {
+"model": "efficientnet-lite4-11.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "tf2onnx",
+"nodes": 188,
+"ops": {
+"ai.onnx:Transpose": 1,
+"ai.onnx:Conv": 91,
+"ai.onnx:Clip": 61,
+"ai.onnx:BatchNormalization": 7,
+"ai.onnx:Add": 24,
+"ai.onnx:AveragePool": 1,
+"ai.onnx:Squeeze": 1,
+"ai.onnx:MatMul": 1,
+"ai.onnx:Softmax": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 52
+},
+"ref/fcn-resnet50-12": {
+"model": "fcn-resnet50-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 157,
+"ops": {
+"ai.onnx:Shape": 4,
+"ai.onnx:Constant": 12,
+"ai.onnx:Gather": 2,
+"ai.onnx:Conv": 57,
+"ai.onnx:Relu": 51,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Add": 16,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Concat": 4,
+"ai.onnx:Slice": 2,
+"ai.onnx:Cast": 2,
+"ai.onnx:Resize": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 141
+},
+"ref/minilm-l6": {
+"model": "minilm-l6.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 637,
+"ops": {
+"ai.onnx:Unsqueeze": 51,
+"ai.onnx:Cast": 1,
+"ai.onnx:Constant": 146,
+"ai.onnx:Sub": 14,
+"ai.onnx:Mul": 26,
+"ai.onnx:Shape": 49,
+"ai.onnx:Gather": 52,
+"ai.onnx:Slice": 1,
+"ai.onnx:Add": 88,
+"ai.onnx:ReduceMean": 26,
+"ai.onnx:Pow": 13,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:Div": 25,
+"ai.onnx:MatMul": 48,
+"ai.onnx:Concat": 24,
+"ai.onnx:Reshape": 24,
+"ai.onnx:Transpose": 24,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Erf": 6
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 90
+},
+"ref/mnist-12": {
+"model": "mnist-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "CNTK",
+"nodes": 12,
+"ops": {
+"ai.onnx:Conv": 2,
+"ai.onnx:Add": 3,
+"ai.onnx:Relu": 2,
+"ai.onnx:MaxPool": 2,
+"ai.onnx:Reshape": 2,
+"ai.onnx:MatMul": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 0
+},
+"ref/mobilenetv2-12": {
+"model": "mobilenetv2-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 105,
+"ops": {
+"ai.onnx:Conv": 52,
+"ai.onnx:Clip": 35,
+"ai.onnx:Add": 10,
+"ai.onnx:GlobalAveragePool": 1,
+"ai.onnx:Shape": 1,
+"ai.onnx:Constant": 1,
+"ai.onnx:Gather": 1,
+"ai.onnx:Unsqueeze": 1,
+"ai.onnx:Concat": 1,
+"ai.onnx:Reshape": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 14
+},
+"ref/resnet50-v1-12": {
+"model": "resnet50-v1-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "",
+"nodes": 175,
+"ops": {
+"ai.onnx:Conv": 53,
+"ai.onnx:BatchNormalization": 53,
+"ai.onnx:Relu": 49,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Add": 16,
+"ai.onnx:GlobalAveragePool": 1,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 103
+},
+"ref/segformer-b0": {
+"model": "segformer-b0.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 1508,
+"ops": {
+"ai.onnx:Shape": 130,
+"ai.onnx:Constant": 356,
+"ai.onnx:Gather": 110,
+"ai.onnx:Conv": 20,
+"ai.onnx:Slice": 20,
+"ai.onnx:Concat": 85,
+"ai.onnx:Reshape": 76,
+"ai.onnx:Transpose": 76,
+"ai.onnx:ReduceMean": 60,
+"ai.onnx:Sub": 30,
+"ai.onnx:Pow": 30,
+"ai.onnx:Add": 136,
+"ai.onnx:Sqrt": 30,
+"ai.onnx:Div": 46,
+"ai.onnx:Mul": 46,
+"ai.onnx:MatMul": 68,
+"ai.onnx:Unsqueeze": 164,
+"ai.onnx:Softmax": 8,
+"ai.onnx:Erf": 8,
+"ai.onnx:Cast": 4,
+"ai.onnx:Resize": 4,
+"ai.onnx:Relu": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 15
+},
+"ref/squeezenet1.1-7": {
+"model": "squeezenet1.1-7.onnx",
+"opset": {
+"ai.onnx": 7
+},
+"producer": "",
+"nodes": 66,
+"ops": {
+"ai.onnx:Conv": 26,
+"ai.onnx:Relu": 26,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Concat": 8,
+"ai.onnx:Dropout": 1,
+"ai.onnx:AveragePool": 1,
+"ai.onnx:Reshape": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 5
+},
+"survey/arcface-w600k-r50": {
+"model": "arcface-w600k-r50/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 130,
+"ops": {
+"ai.onnx:Conv": 53,
+"ai.onnx:PRelu": 25,
+"ai.onnx:BatchNormalization": 26,
+"ai.onnx:Add": 24,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 174
+},
+"survey/arcfaceresnet100-8": {
+"model": "arcfaceresnet100-8/arcfaceresnet100-8.onnx",
+"opset": {
+"ai.onnx": 8
+},
+"producer": "",
+"nodes": 412,
+"ops": {
+"ai.onnx:Identity": 1,
+"ai.onnx:Sub": 1,
+"ai.onnx:Mul": 1,
+"ai.onnx:Conv": 103,
+"ai.onnx:BatchNormalization": 154,
+"ai.onnx:Reshape": 50,
+"ai.onnx:PRelu": 50,
+"ai.onnx:Add": 49,
+"ai.onnx:Dropout": 1,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 261
+},
+"survey/bert-base-uncased.model": {
+"model": "bert-base-uncased/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1268,
+"ops": {
+"ai.onnx:Unsqueeze": 99,
+"ai.onnx:Cast": 1,
+"ai.onnx:Constant": 290,
+"ai.onnx:Sub": 27,
+"ai.onnx:Mul": 53,
+"ai.onnx:Shape": 97,
+"ai.onnx:Gather": 100,
+"ai.onnx:Slice": 1,
+"ai.onnx:Add": 177,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 51,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Concat": 48,
+"ai.onnx:Reshape": 48,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 13
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 438
+},
+"survey/bert-base-uncased.model_fp16": {
+"model": "bert-base-uncased/model_fp16.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1269,
+"ops": {
+"ai.onnx:Unsqueeze": 99,
+"ai.onnx:Cast": 2,
+"ai.onnx:Constant": 290,
+"ai.onnx:Sub": 27,
+"ai.onnx:Mul": 53,
+"ai.onnx:Shape": 97,
+"ai.onnx:Gather": 100,
+"ai.onnx:Slice": 1,
+"ai.onnx:Add": 177,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 51,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Concat": 48,
+"ai.onnx:Reshape": 48,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 13
+},
+"weightTypes": [
+"FLOAT16"
+],
+"sizeMB": 219
+},
+"survey/bert-base-uncased.model_q4": {
+"model": "bert-base-uncased/model_q4.onnx",
+"opset": {
+"ai.onnx": 11,
+"com.microsoft": 1
+},
+"producer": "pytorch",
+"nodes": 929,
+"ops": {
+"ai.onnx:Shape": 49,
+"ai.onnx:Gather": 100,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Unsqueeze": 98,
+"ai.onnx:Add": 177,
+"ai.onnx:Cast": 1,
+"ai.onnx:Sub": 27,
+"ai.onnx:Slice": 1,
+"ai.onnx:Mul": 53,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 51,
+"com.microsoft:MatMulNBits": 73,
+"ai.onnx:Concat": 48,
+"ai.onnx:Reshape": 48,
+"ai.onnx:MatMul": 25,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 13
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"UINT8"
+],
+"sizeMB": 150
+},
+"survey/bert-base-uncased.model_quantized": {
+"model": "bert-base-uncased/model_quantized.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "onnx.quantize",
+"nodes": 1540,
+"ops": {
+"ai.onnx:Constant": 290,
+"ai.onnx:Unsqueeze": 99,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Shape": 97,
+"ai.onnx:Gather": 100,
+"ai.onnx:DequantizeLinear": 4,
+"ai.onnx:Cast": 74,
+"ai.onnx:Add": 177,
+"ai.onnx:Sub": 27,
+"ai.onnx:Slice": 1,
+"ai.onnx:Mul": 199,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 51,
+"ai.onnx:DynamicQuantizeLinear": 49,
+"ai.onnx:MatMulInteger": 73,
+"ai.onnx:Concat": 48,
+"ai.onnx:Reshape": 48,
+"ai.onnx:MatMul": 25,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 13
+},
+"weightTypes": [
+"FLOAT",
+"INT8",
+"UINT8"
+],
+"sizeMB": 111
+},
+"survey/bertsquad-12-int8": {
+"model": "bertsquad-12-int8/bertsquad-12-int8.onnx",
+"opset": {
+"ai.onnx": 12,
+"com.microsoft": 1,
+"com.microsoft.mlfeaturizers": 1,
+"com.microsoft.nchwc": 1,
+"ai.onnx.training": 1,
+"ai.onnx.preview.training": 1,
+"com.microsoft.experimental": 1,
+"ai.onnx.ml": 2
+},
+"producer": "onnx.quantize",
+"nodes": 1260,
+"ops": {
+"ai.onnx:Reshape": 70,
+"ai.onnx:OneHot": 1,
+"ai.onnx:DynamicQuantizeLinear": 72,
+"ai.onnx:MatMulInteger": 84,
+"ai.onnx:Cast": 150,
+"ai.onnx:Mul": 342,
+"ai.onnx:Gather": 1,
+"ai.onnx:Shape": 5,
+"ai.onnx:Slice": 5,
+"ai.onnx:Squeeze": 7,
+"ai.onnx:Unsqueeze": 18,
+"ai.onnx:Concat": 55,
+"ai.onnx:DequantizeLinear": 1,
+"ai.onnx:Add": 185,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 62,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Reciprocal": 25,
+"ai.onnx:Transpose": 49,
+"com.microsoft:FusedMatMul": 12,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Pow": 12,
+"ai.onnx:Tanh": 12,
+"ai.onnx:MatMul": 2,
+"ai.onnx:Split": 1,
+"ai.onnx:Identity": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT64",
+"INT8"
+],
+"sizeMB": 125
+},
+"survey/bertsquad-12": {
+"model": "bertsquad-12/bertsquad-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "tf2onnx",
+"nodes": 1167,
+"ops": {
+"ai.onnx:Identity": 28,
+"ai.onnx:Unsqueeze": 191,
+"ai.onnx:Shape": 5,
+"ai.onnx:Cast": 70,
+"ai.onnx:Slice": 6,
+"ai.onnx:Squeeze": 7,
+"ai.onnx:Concat": 56,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Reshape": 71,
+"ai.onnx:Mul": 186,
+"ai.onnx:Sub": 62,
+"ai.onnx:Gather": 1,
+"ai.onnx:Transpose": 62,
+"ai.onnx:OneHot": 1,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Add": 185,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Reciprocal": 25,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Pow": 12,
+"ai.onnx:Tanh": 12,
+"ai.onnx:Split": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT64"
+],
+"sizeMB": 436
+},
+"survey/candy-9": {
+"model": "candy-9/candy-9.onnx",
+"opset": {
+"ai.onnx": 9
+},
+"producer": "pytorch",
+"nodes": 112,
+"ops": {
+"ai.onnx:Pad": 16,
+"ai.onnx:Conv": 16,
+"ai.onnx:InstanceNormalization": 15,
+"ai.onnx:Relu": 10,
+"ai.onnx:Add": 5,
+"ai.onnx:Constant": 10,
+"ai.onnx:Shape": 6,
+"ai.onnx:Gather": 4,
+"ai.onnx:Mul": 4,
+"ai.onnx:Cast": 8,
+"ai.onnx:Floor": 4,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Concat": 4,
+"ai.onnx:Slice": 2,
+"ai.onnx:Div": 2,
+"ai.onnx:Upsample": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 7
+},
+"survey/deberta-v3-small": {
+"model": "deberta-v3-small/model.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 973,
+"ops": {
+"ai.onnx:Gather": 79,
+"ai.onnx:Unsqueeze": 130,
+"ai.onnx:Transpose": 49,
+"ai.onnx:ReduceMean": 28,
+"ai.onnx:Cast": 6,
+"ai.onnx:Sub": 16,
+"ai.onnx:Squeeze": 41,
+"ai.onnx:Pow": 14,
+"ai.onnx:Mul": 31,
+"ai.onnx:Add": 106,
+"ai.onnx:Sqrt": 14,
+"ai.onnx:Div": 47,
+"ai.onnx:Shape": 74,
+"ai.onnx:MatMul": 62,
+"ai.onnx:Slice": 39,
+"ai.onnx:Range": 1,
+"ai.onnx:Concat": 78,
+"ai.onnx:Reshape": 60,
+"ai.onnx:Sign": 1,
+"ai.onnx:Less": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Abs": 1,
+"ai.onnx:And": 1,
+"ai.onnx:Where": 26,
+"ai.onnx:LessOrEqual": 1,
+"ai.onnx:Log": 1,
+"ai.onnx:Ceil": 1,
+"ai.onnx:Equal": 12,
+"ai.onnx:Tile": 12,
+"ai.onnx:Neg": 1,
+"ai.onnx:Clip": 2,
+"ai.onnx:Expand": 12,
+"ai.onnx:GatherElements": 12,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Erf": 7
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 586
+},
+"survey/densenet-9": {
+"model": "densenet-9/densenet-9.onnx",
+"opset": {
+"ai.onnx": 9
+},
+"producer": "onnx-caffe2",
+"nodes": 910,
+"ops": {
+"ai.onnx:Conv": 121,
+"ai.onnx:BatchNormalization": 121,
+"ai.onnx:Unsqueeze": 242,
+"ai.onnx:Mul": 121,
+"ai.onnx:Add": 121,
+"ai.onnx:Relu": 121,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Concat": 58,
+"ai.onnx:AveragePool": 3,
+"ai.onnx:GlobalAveragePool": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 33
+},
+"survey/depth-anything-v2-base": {
+"model": "depth-anything-v2-base/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 823,
+"ops": {
+"ai.onnx:Shape": 26,
+"ai.onnx:Conv": 31,
+"ai.onnx:Gather": 73,
+"ai.onnx:Div": 39,
+"ai.onnx:Slice": 9,
+"ai.onnx:Concat": 42,
+"ai.onnx:Unsqueeze": 41,
+"ai.onnx:Mul": 90,
+"ai.onnx:Add": 150,
+"ai.onnx:Reshape": 30,
+"ai.onnx:Transpose": 42,
+"ai.onnx:Resize": 6,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:MatMul": 72,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:ConvTranspose": 2,
+"ai.onnx:Relu": 17,
+"ai.onnx:Squeeze": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 389
+},
+"survey/detr-panoptic": {
+"model": "detr-panoptic/model.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 2666,
+"ops": {
+"ai.onnx:Conv": 64,
+"ai.onnx:Mul": 126,
+"ai.onnx:Add": 299,
+"ai.onnx:Relu": 68,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Constant": 639,
+"ai.onnx:Unsqueeze": 338,
+"ai.onnx:Cast": 16,
+"ai.onnx:Shape": 114,
+"ai.onnx:Gather": 92,
+"ai.onnx:Concat": 200,
+"ai.onnx:Slice": 25,
+"ai.onnx:Resize": 4,
+"ai.onnx:CumSum": 2,
+"ai.onnx:Div": 35,
+"ai.onnx:Sin": 2,
+"ai.onnx:Cos": 2,
+"ai.onnx:Reshape": 196,
+"ai.onnx:Transpose": 94,
+"ai.onnx:Flatten": 1,
+"ai.onnx:ConstantOfShape": 8,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 5,
+"ai.onnx:Expand": 7,
+"ai.onnx:Sub": 33,
+"ai.onnx:MatMul": 137,
+"ai.onnx:Softmax": 19,
+"ai.onnx:ReduceMean": 62,
+"ai.onnx:Pow": 31,
+"ai.onnx:Sqrt": 31,
+"ai.onnx:Tile": 5,
+"ai.onnx:Sigmoid": 1,
+"ai.onnx:Not": 1,
+"ai.onnx:Einsum": 1,
+"ai.onnx:InstanceNormalization": 5
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 172
+},
+"survey/distilbart-cnn.decoder_model_merged": {
+"model": "distilbart-cnn/decoder_model_merged.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "optimum-onnx",
+"nodes": 1,
+"ops": {
+"ai.onnx:If": 1,
+"ai.onnx:Shape": 82,
+"ai.onnx:Constant": 674,
+"ai.onnx:Gather": 79,
+"ai.onnx:Mul": 117,
+"ai.onnx:Unsqueeze": 380,
+"ai.onnx:Concat": 235,
+"ai.onnx:ConstantOfShape": 6,
+"ai.onnx:Slice": 2,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Cast": 14,
+"ai.onnx:Range": 3,
+"ai.onnx:Add": 258,
+"ai.onnx:Reshape": 222,
+"ai.onnx:Less": 1,
+"ai.onnx:Where": 8,
+"ai.onnx:Equal": 5,
+"ai.onnx:Expand": 5,
+"ai.onnx:Sub": 40,
+"ai.onnx:ReduceMean": 76,
+"ai.onnx:Pow": 38,
+"ai.onnx:Sqrt": 38,
+"ai.onnx:Div": 50,
+"ai.onnx:MatMul": 158,
+"ai.onnx:Transpose": 110,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Erf": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 614
+},
+"survey/distilbart-cnn.encoder_model": {
+"model": "distilbart-cnn/encoder_model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 800,
+"ops": {
+"ai.onnx:Shape": 24,
+"ai.onnx:Constant": 199,
+"ai.onnx:Gather": 24,
+"ai.onnx:Unsqueeze": 109,
+"ai.onnx:Concat": 63,
+"ai.onnx:Reshape": 63,
+"ai.onnx:Mul": 40,
+"ai.onnx:Cast": 5,
+"ai.onnx:Range": 1,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 3,
+"ai.onnx:Expand": 2,
+"ai.onnx:Add": 88,
+"ai.onnx:ReduceMean": 26,
+"ai.onnx:Sub": 14,
+"ai.onnx:Pow": 13,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:Div": 19,
+"ai.onnx:MatMul": 48,
+"ai.onnx:Transpose": 30,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Erf": 6
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 513
+},
+"survey/dpt-hybrid-midas": {
+"model": "dpt-hybrid-midas/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 2741,
+"ops": {
+"ai.onnx:Identity": 38,
+"ai.onnx:Constant": 660,
+"ai.onnx:Shape": 179,
+"ai.onnx:Gather": 123,
+"ai.onnx:Div": 60,
+"ai.onnx:Cast": 29,
+"ai.onnx:Unsqueeze": 146,
+"ai.onnx:Concat": 75,
+"ai.onnx:Resize": 6,
+"ai.onnx:Transpose": 60,
+"ai.onnx:Mul": 158,
+"ai.onnx:Reshape": 221,
+"ai.onnx:Sub": 96,
+"ai.onnx:ConstantOfShape": 5,
+"ai.onnx:Slice": 9,
+"ai.onnx:Pad": 4,
+"ai.onnx:ReduceMean": 204,
+"ai.onnx:BatchNormalization": 52,
+"ai.onnx:Conv": 81,
+"ai.onnx:InstanceNormalization": 52,
+"ai.onnx:Add": 239,
+"ai.onnx:Relu": 65,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 3,
+"ai.onnx:Pow": 24,
+"ai.onnx:Sqrt": 24,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 14,
+"ai.onnx:Squeeze": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 533
+},
+"survey/efficientnet-lite4-int8": {
+"model": "efficientnet-lite4-int8/efficientnet-lite4-11-int8.onnx",
+"opset": {
+"ai.onnx": 11,
+"com.microsoft": 1,
+"com.microsoft.mlfeaturizers": 1,
+"com.microsoft.nchwc": 1,
+"ai.onnx.training": 1,
+"ai.onnx.preview.training": 1,
+"com.microsoft.experimental": 1,
+"ai.onnx.ml": 2
+},
+"producer": "onnx.quantize",
+"nodes": 122,
+"ops": {
+"ai.onnx:Transpose": 1,
+"ai.onnx:QuantizeLinear": 1,
+"ai.onnx:QLinearConv": 91,
+"com.microsoft:QLinearAdd": 24,
+"com.microsoft:QLinearAveragePool": 1,
+"ai.onnx:Squeeze": 1,
+"ai.onnx:QLinearMatMul": 1,
+"ai.onnx:DequantizeLinear": 1,
+"ai.onnx:Softmax": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT8",
+"UINT8"
+],
+"sizeMB": 14
+},
+"survey/emotion-ferplus-8": {
+"model": "emotion-ferplus-8/emotion-ferplus-8.onnx",
+"opset": {
+"ai.onnx": 8
+},
+"producer": "CNTK",
+"nodes": 52,
+"ops": {
+"ai.onnx:Reshape": 2,
+"ai.onnx:Sub": 1,
+"ai.onnx:Div": 1,
+"ai.onnx:Conv": 10,
+"ai.onnx:Add": 13,
+"ai.onnx:Relu": 12,
+"ai.onnx:MaxPool": 4,
+"ai.onnx:Dropout": 6,
+"ai.onnx:MatMul": 3
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 35
+},
+"survey/fasterrcnn-12": {
+"model": "fasterrcnn-12/FasterRCNN-12.onnx",
+"opset": {
+"ai.onnx": 12,
+"com.microsoft": 1,
+"com.microsoft.mlfeaturizers": 1,
+"com.microsoft.nchwc": 1,
+"ai.onnx.training": 1,
+"ai.onnx.preview.training": 1,
+"com.microsoft.experimental": 1,
+"ai.onnx.ml": 2
+},
+"producer": "pytorch",
+"nodes": 2770,
+"ops": {
+"ai.onnx:Unsqueeze": 401,
+"ai.onnx:Conv": 76,
+"ai.onnx:Relu": 56,
+"ai.onnx:MaxPool": 2,
+"ai.onnx:Add": 80,
+"ai.onnx:Shape": 117,
+"ai.onnx:Gather": 798,
+"ai.onnx:Concat": 99,
+"ai.onnx:Reshape": 106,
+"ai.onnx:Transpose": 108,
+"ai.onnx:Sigmoid": 5,
+"ai.onnx:Cast": 124,
+"ai.onnx:ReduceMin": 7,
+"ai.onnx:TopK": 7,
+"ai.onnx:Squeeze": 178,
+"ai.onnx:Mul": 78,
+"ai.onnx:ConstantOfShape": 92,
+"ai.onnx:NonZero": 98,
+"ai.onnx:Expand": 14,
+"ai.onnx:Sub": 39,
+"ai.onnx:Slice": 125,
+"ai.onnx:Clip": 25,
+"ai.onnx:Exp": 12,
+"ai.onnx:NonMaxSuppression": 85,
+"ai.onnx:Div": 9,
+"ai.onnx:Resize": 3,
+"ai.onnx:Sqrt": 1,
+"ai.onnx:Log": 1,
+"ai.onnx:Floor": 1,
+"ai.onnx:Equal": 8,
+"ai.onnx:RoiAlign": 4,
+"ai.onnx:ScatterElements": 4,
+"ai.onnx:MatMul": 4,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Flatten": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 177
+},
+"survey/florence2-base.decoder_model_merged": {
+"model": "florence2-base/decoder_model_merged.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "optimum-onnx",
+"nodes": 1,
+"ops": {
+"ai.onnx:If": 1,
+"ai.onnx:Shape": 87,
+"ai.onnx:MatMul": 158,
+"ai.onnx:Gather": 65,
+"ai.onnx:Unsqueeze": 160,
+"ai.onnx:ConstantOfShape": 9,
+"ai.onnx:Add": 268,
+"ai.onnx:Mul": 116,
+"ai.onnx:Sub": 42,
+"ai.onnx:Concat": 106,
+"ai.onnx:Range": 4,
+"ai.onnx:Equal": 6,
+"ai.onnx:Where": 10,
+"ai.onnx:Slice": 26,
+"ai.onnx:Expand": 6,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Cast": 28,
+"ai.onnx:Reshape": 86,
+"ai.onnx:Less": 2,
+"ai.onnx:ReduceMean": 76,
+"ai.onnx:Pow": 38,
+"ai.onnx:Sqrt": 110,
+"ai.onnx:Div": 74,
+"ai.onnx:Transpose": 108,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Erf": 12,
+"ai.onnx:Constant": 12
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 388
+},
+"survey/florence2-base.embed_tokens": {
+"model": "florence2-base/embed_tokens.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 1,
+"ops": {
+"ai.onnx:Gather": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 158
+},
+"survey/florence2-base.encoder_model": {
+"model": "florence2-base/encoder_model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 431,
+"ops": {
+"ai.onnx:Shape": 14,
+"ai.onnx:Gather": 18,
+"ai.onnx:Unsqueeze": 17,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Mul": 39,
+"ai.onnx:Concat": 20,
+"ai.onnx:Range": 1,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 3,
+"ai.onnx:Expand": 2,
+"ai.onnx:Cast": 8,
+"ai.onnx:Sub": 14,
+"ai.onnx:Add": 88,
+"ai.onnx:ReduceMean": 26,
+"ai.onnx:Pow": 13,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 25,
+"ai.onnx:MatMul": 48,
+"ai.onnx:Reshape": 24,
+"ai.onnx:Transpose": 24,
+"ai.onnx:Slice": 6,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Erf": 6
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 173
+},
+"survey/florence2-base.vision_encoder": {
+"model": "florence2-base/vision_encoder.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 2989,
+"ops": {
+"ai.onnx:Shape": 143,
+"ai.onnx:Conv": 52,
+"ai.onnx:Unsqueeze": 422,
+"ai.onnx:Gather": 239,
+"ai.onnx:Div": 113,
+"ai.onnx:ConstantOfShape": 15,
+"ai.onnx:Transpose": 225,
+"ai.onnx:Sub": 89,
+"ai.onnx:Concat": 221,
+"ai.onnx:Mul": 141,
+"ai.onnx:Reshape": 252,
+"ai.onnx:ReduceMean": 108,
+"ai.onnx:Pow": 54,
+"ai.onnx:Add": 324,
+"ai.onnx:Sqrt": 53,
+"ai.onnx:Slice": 180,
+"ai.onnx:Squeeze": 95,
+"ai.onnx:Mod": 48,
+"ai.onnx:Pad": 12,
+"ai.onnx:MatMul": 145,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Erf": 24,
+"ai.onnx:Identity": 2,
+"ai.onnx:Range": 2,
+"ai.onnx:Expand": 3,
+"ai.onnx:Tile": 3
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 367
+},
+"survey/gemma3-270m": {
+"model": "gemma3-270m/model.onnx",
+"opset": {
+"ai.onnx": 21,
+"com.microsoft": 1
+},
+"producer": "huggingface",
+"nodes": 421,
+"ops": {
+"ai.onnx:Shape": 2,
+"ai.onnx:Gather": 4,
+"ai.onnx:Sub": 2,
+"ai.onnx:Unsqueeze": 5,
+"ai.onnx:Concat": 2,
+"ai.onnx:Expand": 2,
+"ai.onnx:Cast": 3,
+"ai.onnx:Mul": 20,
+"ai.onnx:SimplifiedLayerNormalization": 109,
+"ai.onnx:MatMul": 127,
+"ai.onnx:Reshape": 72,
+"com.microsoft:GroupQueryAttention": 18,
+"ai.onnx:Add": 36,
+"ai.onnx:Gelu": 18,
+"ai.onnx:Transpose": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 1140
+},
+"survey/gliner-small": {
+"model": "gliner-small/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 2702,
+"ops": {
+"ai.onnx:Identity": 12,
+"ai.onnx:Constant": 984,
+"ai.onnx:Gather": 100,
+"ai.onnx:ReduceMean": 28,
+"ai.onnx:Sub": 22,
+"ai.onnx:Pow": 14,
+"ai.onnx:Add": 129,
+"ai.onnx:Sqrt": 32,
+"ai.onnx:Div": 46,
+"ai.onnx:Mul": 72,
+"ai.onnx:Unsqueeze": 212,
+"ai.onnx:Cast": 91,
+"ai.onnx:Squeeze": 88,
+"ai.onnx:Shape": 211,
+"ai.onnx:Slice": 84,
+"ai.onnx:Range": 4,
+"ai.onnx:Sign": 1,
+"ai.onnx:Less": 3,
+"ai.onnx:Greater": 2,
+"ai.onnx:And": 1,
+"ai.onnx:Abs": 1,
+"ai.onnx:Where": 34,
+"ai.onnx:Log": 1,
+"ai.onnx:Ceil": 1,
+"ai.onnx:LessOrEqual": 1,
+"ai.onnx:MatMul": 81,
+"ai.onnx:Concat": 115,
+"ai.onnx:Reshape": 110,
+"ai.onnx:Transpose": 66,
+"ai.onnx:ConstantOfShape": 37,
+"ai.onnx:Expand": 32,
+"ai.onnx:Tile": 12,
+"ai.onnx:Clip": 2,
+"ai.onnx:Equal": 21,
+"ai.onnx:GatherElements": 14,
+"ai.onnx:Neg": 1,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Erf": 6,
+"ai.onnx:ReduceSum": 2,
+"ai.onnx:ReduceMax": 2,
+"ai.onnx:NonZero": 3,
+"ai.onnx:Split": 3,
+"ai.onnx:Flatten": 3,
+"ai.onnx:ScatterND": 2,
+"ai.onnx:TopK": 1,
+"ai.onnx:ReduceProd": 1,
+"ai.onnx:ScatterElements": 1,
+"ai.onnx:LSTM": 1,
+"ai.onnx:Relu": 5,
+"ai.onnx:Einsum": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 611
+},
+"survey/gpt2-lm-head-10": {
+"model": "gpt2-lm-head-10/gpt2-lm-head-10.onnx",
+"opset": {
+"ai.onnx": 10
+},
+"producer": "pytorch",
+"nodes": 2534,
+"ops": {
+"ai.onnx:Shape": 328,
+"ai.onnx:Constant": 510,
+"ai.onnx:Gather": 330,
+"ai.onnx:Unsqueeze": 356,
+"ai.onnx:Concat": 159,
+"ai.onnx:Reshape": 147,
+"ai.onnx:Sub": 38,
+"ai.onnx:Div": 74,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:NonZero": 1,
+"ai.onnx:Transpose": 61,
+"ai.onnx:Squeeze": 1,
+"ai.onnx:Mul": 86,
+"ai.onnx:Add": 100,
+"ai.onnx:Cast": 85,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Pow": 37,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Gemm": 48,
+"ai.onnx:Split": 12,
+"ai.onnx:MatMul": 25,
+"ai.onnx:Slice": 24,
+"ai.onnx:Where": 12,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Tanh": 12
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"UINT8"
+],
+"sizeMB": 665
+},
+"survey/grounding-dino-tiny": {
+"model": "grounding-dino-tiny/model.onnx",
+"opset": {
+"ai.onnx": 16
+},
+"producer": "pytorch",
+"nodes": 5008,
+"ops": {
+"ai.onnx:Shape": 28,
+"ai.onnx:Cast": 47,
+"ai.onnx:Gather": 126,
+"ai.onnx:Conv": 5,
+"ai.onnx:Equal": 13,
+"ai.onnx:Unsqueeze": 253,
+"ai.onnx:Add": 893,
+"ai.onnx:Not": 19,
+"ai.onnx:Reshape": 637,
+"ai.onnx:Transpose": 377,
+"ai.onnx:Resize": 4,
+"ai.onnx:Concat": 124,
+"ai.onnx:ReduceMean": 246,
+"ai.onnx:Tile": 6,
+"ai.onnx:ConstantOfShape": 3,
+"ai.onnx:Sub": 162,
+"ai.onnx:EyeLike": 1,
+"ai.onnx:Pow": 123,
+"ai.onnx:Flatten": 4,
+"ai.onnx:Mul": 280,
+"ai.onnx:Or": 4,
+"ai.onnx:CumSum": 8,
+"ai.onnx:Slice": 230,
+"ai.onnx:ReduceSum": 29,
+"ai.onnx:Sqrt": 123,
+"ai.onnx:Div": 274,
+"ai.onnx:NonZero": 1,
+"ai.onnx:Split": 10,
+"ai.onnx:Squeeze": 6,
+"ai.onnx:Sin": 33,
+"ai.onnx:Cos": 33,
+"ai.onnx:Expand": 41,
+"ai.onnx:Range": 4,
+"ai.onnx:ScatterND": 13,
+"ai.onnx:Pad": 12,
+"ai.onnx:Greater": 13,
+"ai.onnx:Less": 12,
+"ai.onnx:And": 1,
+"ai.onnx:Log": 12,
+"ai.onnx:Where": 66,
+"ai.onnx:MatMul": 500,
+"ai.onnx:Softmax": 66,
+"ai.onnx:Erf": 24,
+"ai.onnx:InstanceNormalization": 4,
+"ai.onnx:ReduceMax": 13,
+"ai.onnx:Clip": 12,
+"ai.onnx:GridSample": 48,
+"ai.onnx:Relu": 50,
+"ai.onnx:TopK": 1,
+"ai.onnx:GatherElements": 1,
+"ai.onnx:Sigmoid": 13
+},
+"weightTypes": [
+"BOOL",
+"FLOAT",
+"INT32",
+"INT64"
+],
+"sizeMB": 719
+},
+"survey/kokoro-82m": {
+"model": "kokoro-82m/model.onnx",
+"opset": {
+"ai.onnx": 20
+},
+"producer": "pytorch",
+"nodes": 2469,
+"ops": {
+"ai.onnx:Shape": 73,
+"ai.onnx:Gather": 122,
+"ai.onnx:Slice": 170,
+"ai.onnx:Transpose": 96,
+"ai.onnx:Gemm": 73,
+"ai.onnx:Unsqueeze": 193,
+"ai.onnx:Conv": 88,
+"ai.onnx:Concat": 72,
+"ai.onnx:ConstantOfShape": 6,
+"ai.onnx:LayerNormalization": 31,
+"ai.onnx:Add": 441,
+"ai.onnx:Equal": 4,
+"ai.onnx:Where": 7,
+"ai.onnx:LeakyRelu": 28,
+"ai.onnx:Expand": 5,
+"ai.onnx:MatMul": 102,
+"ai.onnx:Sub": 68,
+"ai.onnx:Cast": 18,
+"ai.onnx:LSTM": 6,
+"ai.onnx:Reshape": 58,
+"ai.onnx:Sqrt": 90,
+"ai.onnx:Div": 94,
+"ai.onnx:Mul": 315,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Pow": 62,
+"ai.onnx:Tanh": 13,
+"ai.onnx:Sigmoid": 1,
+"ai.onnx:ReduceSum": 1,
+"ai.onnx:Round": 1,
+"ai.onnx:Clip": 1,
+"ai.onnx:CumSum": 2,
+"ai.onnx:Range": 2,
+"ai.onnx:Less": 2,
+"ai.onnx:GreaterOrEqual": 1,
+"ai.onnx:And": 1,
+"ai.onnx:ReduceMean": 130,
+"ai.onnx:Resize": 6,
+"ai.onnx:ConvTranspose": 6,
+"ai.onnx:Squeeze": 5,
+"ai.onnx:Greater": 3,
+"ai.onnx:Floor": 1,
+"ai.onnx:Sin": 51,
+"ai.onnx:Pad": 2,
+"ai.onnx:STFT": 1,
+"ai.onnx:Atan": 1,
+"ai.onnx:Exp": 1,
+"ai.onnx:Cos": 1,
+"ai.onnx:NonZero": 1,
+"ai.onnx:ScatterND": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT64"
+],
+"sizeMB": 326
+},
+"survey/lfm2-350m": {
+"model": "lfm2-350m/model.onnx",
+"opset": {
+"ai.onnx": 21,
+"com.microsoft": 1
+},
+"producer": "huggingface",
+"nodes": 378,
+"ops": {
+"ai.onnx:Shape": 2,
+"ai.onnx:Gather": 4,
+"ai.onnx:Sub": 2,
+"ai.onnx:Unsqueeze": 8,
+"ai.onnx:Concat": 12,
+"ai.onnx:Expand": 2,
+"ai.onnx:Cast": 4,
+"ai.onnx:SimplifiedLayerNormalization": 44,
+"ai.onnx:Mul": 64,
+"ai.onnx:Slice": 22,
+"ai.onnx:MatMul": 93,
+"ai.onnx:Transpose": 21,
+"ai.onnx:Split": 10,
+"ai.onnx:Conv": 10,
+"ai.onnx:Add": 32,
+"ai.onnx:Sigmoid": 16,
+"ai.onnx:Reshape": 24,
+"com.microsoft:GroupQueryAttention": 6,
+"com.microsoft:SkipSimplifiedLayerNormalization": 1,
+"ai.onnx:Neg": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 1451
+},
+"survey/maskrcnn-12": {
+"model": "maskrcnn-12/MaskRCNN-12.onnx",
+"opset": {
+"ai.onnx": 12,
+"com.microsoft": 1,
+"com.microsoft.nchwc": 1,
+"ai.onnx.training": 1,
+"ai.onnx.preview.training": 1,
+"com.microsoft.experimental": 1,
+"ai.onnx.ml": 2
+},
+"producer": "pytorch",
+"nodes": 3886,
+"ops": {
+"ai.onnx:Unsqueeze": 587,
+"ai.onnx:Conv": 81,
+"ai.onnx:Mul": 133,
+"ai.onnx:Add": 148,
+"ai.onnx:Relu": 61,
+"ai.onnx:MaxPool": 2,
+"ai.onnx:Shape": 175,
+"ai.onnx:Gather": 850,
+"ai.onnx:Concat": 129,
+"ai.onnx:Reshape": 111,
+"ai.onnx:Transpose": 122,
+"ai.onnx:Sigmoid": 6,
+"ai.onnx:Cast": 366,
+"ai.onnx:ReduceMin": 7,
+"ai.onnx:TopK": 7,
+"ai.onnx:Squeeze": 202,
+"ai.onnx:ConstantOfShape": 95,
+"ai.onnx:NonZero": 112,
+"ai.onnx:Expand": 18,
+"ai.onnx:Slice": 404,
+"ai.onnx:Sub": 52,
+"ai.onnx:Clip": 26,
+"ai.onnx:Exp": 12,
+"ai.onnx:Split": 10,
+"ai.onnx:Less": 10,
+"ai.onnx:Not": 10,
+"ai.onnx:And": 5,
+"ai.onnx:NonMaxSuppression": 85,
+"ai.onnx:Div": 11,
+"ai.onnx:Resize": 3,
+"ai.onnx:Sqrt": 2,
+"ai.onnx:Log": 2,
+"ai.onnx:Floor": 2,
+"ai.onnx:Equal": 16,
+"ai.onnx:RoiAlign": 8,
+"ai.onnx:ScatterElements": 8,
+"ai.onnx:MatMul": 4,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Flatten": 1,
+"ai.onnx:ConvTranspose": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 178
+},
+"survey/mobilevitv2": {
+"model": "mobilevitv2/model.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 37198,
+"ops": {
+"ai.onnx:Constant": 13840,
+"ai.onnx:Conv": 64,
+"ai.onnx:Sigmoid": 25,
+"ai.onnx:Mul": 1414,
+"ai.onnx:Add": 1060,
+"ai.onnx:Shape": 3762,
+"ai.onnx:Gather": 1722,
+"ai.onnx:Sub": 6,
+"ai.onnx:Range": 1350,
+"ai.onnx:Unsqueeze": 2055,
+"ai.onnx:Concat": 1020,
+"ai.onnx:Pad": 3,
+"ai.onnx:Transpose": 3,
+"ai.onnx:Reshape": 1731,
+"ai.onnx:InstanceNormalization": 21,
+"ai.onnx:Split": 9,
+"ai.onnx:Softmax": 9,
+"ai.onnx:ReduceSum": 9,
+"ai.onnx:Relu": 9,
+"ai.onnx:Expand": 1689,
+"ai.onnx:ConstantOfShape": 1347,
+"ai.onnx:Slice": 1680,
+"ai.onnx:Cast": 1344,
+"ai.onnx:Equal": 1344,
+"ai.onnx:Where": 1344,
+"ai.onnx:ScatterND": 336,
+"ai.onnx:ReduceMean": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 26
+},
+"survey/modernbert-base": {
+"model": "modernbert-base/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 1478,
+"ops": {
+"ai.onnx:Shape": 25,
+"ai.onnx:Gather": 27,
+"ai.onnx:Transpose": 70,
+"ai.onnx:Unsqueeze": 32,
+"ai.onnx:ReduceMean": 92,
+"ai.onnx:Sub": 48,
+"ai.onnx:Range": 2,
+"ai.onnx:Concat": 91,
+"ai.onnx:Pow": 46,
+"ai.onnx:Equal": 1,
+"ai.onnx:Cast": 3,
+"ai.onnx:Add": 180,
+"ai.onnx:Where": 3,
+"ai.onnx:MatMul": 136,
+"ai.onnx:Sqrt": 46,
+"ai.onnx:Expand": 1,
+"ai.onnx:Div": 69,
+"ai.onnx:Mul": 246,
+"ai.onnx:Cos": 2,
+"ai.onnx:Sin": 2,
+"ai.onnx:Reshape": 44,
+"ai.onnx:Split": 22,
+"ai.onnx:Squeeze": 66,
+"ai.onnx:Slice": 132,
+"ai.onnx:Abs": 1,
+"ai.onnx:Neg": 44,
+"ai.onnx:LessOrEqual": 1,
+"ai.onnx:Not": 1,
+"ai.onnx:Softmax": 22,
+"ai.onnx:Erf": 23
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 599
+},
+"survey/modnet": {
+"model": "modnet/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 487,
+"ops": {
+"ai.onnx:Conv": 69,
+"ai.onnx:Constant": 241,
+"ai.onnx:Clip": 35,
+"ai.onnx:Add": 10,
+"ai.onnx:Shape": 3,
+"ai.onnx:Gather": 2,
+"ai.onnx:GlobalAveragePool": 1,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Concat": 24,
+"ai.onnx:Reshape": 2,
+"ai.onnx:MatMul": 2,
+"ai.onnx:Relu": 17,
+"ai.onnx:Sigmoid": 2,
+"ai.onnx:Expand": 1,
+"ai.onnx:Mul": 1,
+"ai.onnx:Resize": 9,
+"ai.onnx:Slice": 32,
+"ai.onnx:BatchNormalization": 16,
+"ai.onnx:InstanceNormalization": 16
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 26
+},
+"survey/openunmix-vocals": {
+"model": "openunmix-vocals/umxl_vocals.onnx",
+"opset": {
+"ai.onnx": 17
+},
+"producer": "pytorch",
+"nodes": 102,
+"ops": {
+"ai.onnx:Transpose": 5,
+"ai.onnx:Constant": 41,
+"ai.onnx:Slice": 1,
+"ai.onnx:Add": 2,
+"ai.onnx:Mul": 3,
+"ai.onnx:Reshape": 7,
+"ai.onnx:MatMul": 3,
+"ai.onnx:BatchNormalization": 3,
+"ai.onnx:Tanh": 1,
+"ai.onnx:Shape": 6,
+"ai.onnx:Gather": 6,
+"ai.onnx:Unsqueeze": 6,
+"ai.onnx:Concat": 7,
+"ai.onnx:Expand": 6,
+"ai.onnx:LSTM": 3,
+"ai.onnx:Relu": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 113
+},
+"survey/phi35-mini-q4f16": {
+"model": "phi35-mini-q4f16/model_q4f16.onnx",
+"opset": {
+"ai.onnx": 14,
+"com.microsoft": 1
+},
+"producer": "onnxruntime-genai",
+"nodes": 563,
+"ops": {
+"ai.onnx:Shape": 10,
+"ai.onnx:Constant": 18,
+"ai.onnx:Gather": 7,
+"ai.onnx:Unsqueeze": 14,
+"ai.onnx:Concat": 5,
+"ai.onnx:Reshape": 2,
+"ai.onnx:Greater": 1,
+"ai.onnx:If": 1,
+"ai.onnx:Add": 3,
+"ai.onnx:ConstantOfShape": 3,
+"ai.onnx:Slice": 2,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Range": 1,
+"ai.onnx:Less": 1,
+"ai.onnx:Where": 4,
+"ai.onnx:Mul": 66,
+"ai.onnx:Equal": 2,
+"ai.onnx:Expand": 2,
+"ai.onnx:Cast": 3,
+"ai.onnx:Sub": 1,
+"ai.onnx:Tile": 1,
+"ai.onnx:SimplifiedLayerNormalization": 1,
+"com.microsoft:MatMulNBits": 225,
+"com.microsoft:RotaryEmbedding": 64,
+"com.microsoft:MultiHeadAttention": 32,
+"com.microsoft:SkipSimplifiedLayerNormalization": 64,
+"ai.onnx:Sigmoid": 32
+},
+"weightTypes": [
+"FLOAT16",
+"UINT8"
+],
+"sizeMB": 2317
+},
+"survey/ppocrv5-det": {
+"model": "ppocrv5-det/PP-OCRv5_server_det_infer.onnx",
+"opset": {
+"ai.onnx": 15
+},
+"producer": "",
+"nodes": 596,
+"ops": {
+"ai.onnx:Conv": 142,
+"ai.onnx:BatchNormalization": 87,
+"ai.onnx:Relu": 60,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Identity": 199,
+"ai.onnx:Concat": 9,
+"ai.onnx:Add": 84,
+"ai.onnx:Resize": 7,
+"ai.onnx:ConvTranspose": 2,
+"ai.onnx:Sigmoid": 2,
+"ai.onnx:Mul": 1,
+"ai.onnx:Shape": 1,
+"ai.onnx:Reshape": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 88
+},
+"survey/qwen2.5-0.5b.model_fp16": {
+"model": "qwen2.5-0.5b/model_fp16.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 2759,
+"ops": {
+"ai.onnx:Gather": 271,
+"ai.onnx:Shape": 149,
+"ai.onnx:Transpose": 121,
+"ai.onnx:Unsqueeze": 299,
+"ai.onnx:Cast": 99,
+"ai.onnx:Pow": 49,
+"ai.onnx:Range": 5,
+"ai.onnx:ReduceMean": 49,
+"ai.onnx:Add": 270,
+"ai.onnx:Concat": 267,
+"ai.onnx:Sqrt": 49,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Div": 49,
+"ai.onnx:Equal": 51,
+"ai.onnx:Reshape": 148,
+"ai.onnx:Trilu": 1,
+"ai.onnx:Mul": 291,
+"ai.onnx:Where": 51,
+"ai.onnx:Greater": 1,
+"ai.onnx:MatMul": 217,
+"ai.onnx:Expand": 54,
+"ai.onnx:Slice": 170,
+"ai.onnx:Neg": 48,
+"ai.onnx:ScatterND": 1,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Sigmoid": 24
+},
+"weightTypes": [
+"FLOAT16",
+"INT64"
+],
+"sizeMB": 997
+},
+"survey/qwen2.5-0.5b.model_q4": {
+"model": "qwen2.5-0.5b/model_q4.onnx",
+"opset": {
+"ai.onnx": 14,
+"com.microsoft": 1
+},
+"producer": "pytorch",
+"nodes": 2662,
+"ops": {
+"ai.onnx:Gather": 271,
+"ai.onnx:Shape": 149,
+"ai.onnx:Transpose": 121,
+"ai.onnx:Unsqueeze": 299,
+"ai.onnx:Pow": 49,
+"ai.onnx:Cast": 2,
+"ai.onnx:Range": 5,
+"ai.onnx:ReduceMean": 49,
+"ai.onnx:Add": 270,
+"ai.onnx:Concat": 267,
+"ai.onnx:Sqrt": 49,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Reshape": 148,
+"ai.onnx:Div": 49,
+"ai.onnx:Equal": 51,
+"ai.onnx:Trilu": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Mul": 291,
+"ai.onnx:Where": 51,
+"com.microsoft:MatMulNBits": 168,
+"ai.onnx:Expand": 54,
+"ai.onnx:Slice": 170,
+"ai.onnx:Neg": 48,
+"ai.onnx:ScatterND": 1,
+"ai.onnx:MatMul": 49,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Sigmoid": 24
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"UINT8"
+],
+"sizeMB": 786
+},
+"survey/qwen2.5-0.5b.model_quantized": {
+"model": "qwen2.5-0.5b/model_quantized.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "onnx.quantize",
+"nodes": 3264,
+"ops": {
+"ai.onnx:Gather": 271,
+"ai.onnx:Shape": 149,
+"ai.onnx:Transpose": 121,
+"ai.onnx:Unsqueeze": 299,
+"ai.onnx:DequantizeLinear": 2,
+"ai.onnx:Pow": 49,
+"ai.onnx:Cast": 170,
+"ai.onnx:Range": 5,
+"ai.onnx:ReduceMean": 49,
+"ai.onnx:Add": 270,
+"ai.onnx:Concat": 267,
+"ai.onnx:Sqrt": 49,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Reshape": 148,
+"ai.onnx:Div": 49,
+"ai.onnx:Equal": 51,
+"ai.onnx:Trilu": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Mul": 627,
+"ai.onnx:Where": 51,
+"ai.onnx:DynamicQuantizeLinear": 96,
+"ai.onnx:MatMulInteger": 168,
+"ai.onnx:Expand": 54,
+"ai.onnx:Slice": 170,
+"ai.onnx:Neg": 48,
+"ai.onnx:ScatterND": 1,
+"ai.onnx:MatMul": 49,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Sigmoid": 24
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"INT8",
+"UINT8"
+],
+"sizeMB": 512
+},
+"survey/resnet101-duc-12": {
+"model": "resnet101-duc-12/ResNet101-DUC-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "",
+"nodes": 355,
+"ops": {
+"ai.onnx:Conv": 110,
+"ai.onnx:BatchNormalization": 106,
+"ai.onnx:Relu": 102,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Sum": 34,
+"ai.onnx:Reshape": 1,
+"ai.onnx:Softmax": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 261
+},
+"survey/resnet18-v1-7": {
+"model": "resnet18-v1-7/resnet18-v1-7.onnx",
+"opset": {
+"ai.onnx": 8
+},
+"producer": "",
+"nodes": 69,
+"ops": {
+"ai.onnx:Conv": 20,
+"ai.onnx:BatchNormalization": 20,
+"ai.onnx:Relu": 17,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Add": 8,
+"ai.onnx:GlobalAveragePool": 1,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 47
+},
+"survey/retinanet-9": {
+"model": "retinanet-9/retinanet-9.onnx",
+"opset": {
+"ai.onnx": 9
+},
+"producer": "pytorch",
+"nodes": 450,
+"ops": {
+"ai.onnx:Conv": 162,
+"ai.onnx:BatchNormalization": 104,
+"ai.onnx:Relu": 141,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Add": 35,
+"ai.onnx:Upsample": 2,
+"ai.onnx:Sigmoid": 5
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 228
+},
+"survey/roberta-base": {
+"model": "roberta-base/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1293,
+"ops": {
+"ai.onnx:Shape": 99,
+"ai.onnx:Constant": 296,
+"ai.onnx:Gather": 101,
+"ai.onnx:Unsqueeze": 101,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 49,
+"ai.onnx:Reshape": 49,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Mul": 55,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Cast": 3,
+"ai.onnx:Sub": 27,
+"ai.onnx:Not": 1,
+"ai.onnx:CumSum": 1,
+"ai.onnx:Add": 178,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 51,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 13
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 499
+},
+"survey/roberta-seqcls-9": {
+"model": "roberta-seqcls-9/roberta-sequence-classification-9.onnx",
+"opset": {
+"ai.onnx": 9
+},
+"producer": "pytorch",
+"nodes": 1180,
+"ops": {
+"ai.onnx:Shape": 100,
+"ai.onnx:ConstantOfShape": 3,
+"ai.onnx:Unsqueeze": 100,
+"ai.onnx:Cast": 2,
+"ai.onnx:Constant": 200,
+"ai.onnx:Sub": 27,
+"ai.onnx:Mul": 51,
+"ai.onnx:Gather": 101,
+"ai.onnx:Add": 175,
+"ai.onnx:Div": 50,
+"ai.onnx:NonZero": 1,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Squeeze": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Concat": 48,
+"ai.onnx:Reshape": 48,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:Gemm": 2,
+"ai.onnx:Tanh": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 499
+},
+"survey/rtmpose-m": {
+"model": "rtmpose-m/rtmpose_m_256x192.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 254,
+"ops": {
+"ai.onnx:Conv": 62,
+"ai.onnx:Sigmoid": 58,
+"ai.onnx:Mul": 72,
+"ai.onnx:Add": 12,
+"ai.onnx:Concat": 6,
+"ai.onnx:GlobalAveragePool": 4,
+"ai.onnx:HardSigmoid": 4,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Shape": 1,
+"ai.onnx:Slice": 1,
+"ai.onnx:Reshape": 1,
+"ai.onnx:Constant": 7,
+"ai.onnx:ReduceSum": 2,
+"ai.onnx:Sqrt": 2,
+"ai.onnx:Clip": 2,
+"ai.onnx:Div": 3,
+"ai.onnx:MatMul": 7,
+"ai.onnx:Split": 2,
+"ai.onnx:Unsqueeze": 1,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Transpose": 1,
+"ai.onnx:Relu": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 54
+},
+"survey/scrfd-10g": {
+"model": "scrfd-10g/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 158,
+"ops": {
+"ai.onnx:Conv": 58,
+"ai.onnx:Relu": 36,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Add": 16,
+"ai.onnx:AveragePool": 3,
+"ai.onnx:Shape": 6,
+"ai.onnx:Gather": 4,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Slice": 2,
+"ai.onnx:Concat": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Mul": 3,
+"ai.onnx:Transpose": 9,
+"ai.onnx:Reshape": 9,
+"ai.onnx:Sigmoid": 3
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 17
+},
+"survey/shufflenet-v2-12": {
+"model": "shufflenet-v2-12/shufflenet-v2-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 261,
+"ops": {
+"ai.onnx:Conv": 56,
+"ai.onnx:BatchNormalization": 56,
+"ai.onnx:Relu": 37,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Concat": 16,
+"ai.onnx:Constant": 32,
+"ai.onnx:Reshape": 32,
+"ai.onnx:Transpose": 16,
+"ai.onnx:Split": 13,
+"ai.onnx:ReduceMean": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 9
+},
+"survey/ssd-10": {
+"model": "ssd-10/ssd-10.onnx",
+"opset": {
+"ai.onnx": 10
+},
+"producer": "pytorch",
+"nodes": 515,
+"ops": {
+"ai.onnx:Conv": 51,
+"ai.onnx:BatchNormalization": 29,
+"ai.onnx:Relu": 37,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Add": 18,
+"ai.onnx:Constant": 199,
+"ai.onnx:Shape": 14,
+"ai.onnx:Gather": 21,
+"ai.onnx:Unsqueeze": 45,
+"ai.onnx:Concat": 16,
+"ai.onnx:Reshape": 13,
+"ai.onnx:Transpose": 3,
+"ai.onnx:Slice": 36,
+"ai.onnx:Mul": 9,
+"ai.onnx:Exp": 1,
+"ai.onnx:Squeeze": 9,
+"ai.onnx:Sub": 2,
+"ai.onnx:Softmax": 1,
+"ai.onnx:ConstantOfShape": 3,
+"ai.onnx:NonMaxSuppression": 1,
+"ai.onnx:Cast": 4,
+"ai.onnx:ReduceMin": 1,
+"ai.onnx:TopK": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 80
+},
+"survey/ssd-12-int8": {
+"model": "ssd-12-int8/ssd-12-int8.onnx",
+"opset": {
+"ai.onnx": 12,
+"com.microsoft": 1
+},
+"producer": "onnx.quantize",
+"nodes": 159,
+"ops": {
+"ai.onnx:QuantizeLinear": 1,
+"ai.onnx:QLinearConv": 51,
+"ai.onnx:MaxPool": 1,
+"com.microsoft:QLinearAdd": 13,
+"ai.onnx:DequantizeLinear": 12,
+"ai.onnx:Reshape": 13,
+"ai.onnx:Concat": 4,
+"ai.onnx:Transpose": 3,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Slice": 11,
+"ai.onnx:Mul": 9,
+"ai.onnx:Exp": 1,
+"ai.onnx:Add": 5,
+"ai.onnx:Squeeze": 9,
+"ai.onnx:Sub": 2,
+"ai.onnx:Unsqueeze": 9,
+"ai.onnx:NonMaxSuppression": 1,
+"ai.onnx:Gather": 8,
+"ai.onnx:Shape": 1,
+"ai.onnx:Cast": 2,
+"ai.onnx:ReduceMin": 1,
+"ai.onnx:TopK": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT64",
+"INT8",
+"UINT8"
+],
+"sizeMB": 20
+},
+"survey/super-resolution-10": {
+"model": "super-resolution-10/super-resolution-10.onnx",
+"opset": {
+"ai.onnx": 10
+},
+"producer": "pytorch",
+"nodes": 12,
+"ops": {
+"ai.onnx:Conv": 4,
+"ai.onnx:Relu": 3,
+"ai.onnx:Constant": 2,
+"ai.onnx:Reshape": 2,
+"ai.onnx:Transpose": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 0
+},
+"survey/t5-small.decoder_model_merged": {
+"model": "t5-small/decoder_model_merged.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "optimum-onnx",
+"nodes": 1,
+"ops": {
+"ai.onnx:If": 1,
+"ai.onnx:Shape": 44,
+"ai.onnx:Constant": 567,
+"ai.onnx:Gather": 42,
+"ai.onnx:Unsqueeze": 129,
+"ai.onnx:Concat": 108,
+"ai.onnx:Reshape": 86,
+"ai.onnx:ConstantOfShape": 11,
+"ai.onnx:Cast": 77,
+"ai.onnx:Range": 5,
+"ai.onnx:Expand": 2,
+"ai.onnx:Tile": 2,
+"ai.onnx:LessOrEqual": 2,
+"ai.onnx:Mul": 86,
+"ai.onnx:Sub": 7,
+"ai.onnx:Pow": 38,
+"ai.onnx:ReduceMean": 38,
+"ai.onnx:Add": 107,
+"ai.onnx:Sqrt": 38,
+"ai.onnx:Div": 42,
+"ai.onnx:MatMul": 158,
+"ai.onnx:Transpose": 112,
+"ai.onnx:Min": 4,
+"ai.onnx:Neg": 4,
+"ai.onnx:Less": 2,
+"ai.onnx:Log": 2,
+"ai.onnx:Where": 2,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Relu": 12,
+"ai.onnx:Slice": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 167
+},
+"survey/t5-small.encoder_model": {
+"model": "t5-small/encoder_model.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 492,
+"ops": {
+"ai.onnx:Shape": 9,
+"ai.onnx:Constant": 156,
+"ai.onnx:Gather": 10,
+"ai.onnx:Unsqueeze": 30,
+"ai.onnx:Concat": 25,
+"ai.onnx:Reshape": 25,
+"ai.onnx:Cast": 24,
+"ai.onnx:Sub": 2,
+"ai.onnx:Mul": 29,
+"ai.onnx:Pow": 13,
+"ai.onnx:ReduceMean": 13,
+"ai.onnx:Add": 35,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:Div": 15,
+"ai.onnx:MatMul": 48,
+"ai.onnx:Transpose": 25,
+"ai.onnx:Range": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Abs": 1,
+"ai.onnx:Less": 1,
+"ai.onnx:Log": 1,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Min": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Relu": 6
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 141
+},
+"survey/tinyyolov2-8": {
+"model": "tinyyolov2-8/tinyyolov2-8.onnx",
+"opset": {
+"ai.onnx": 8
+},
+"producer": "OnnxMLTools",
+"nodes": 33,
+"ops": {
+"ai.onnx:Mul": 1,
+"ai.onnx:Add": 1,
+"ai.onnx:Conv": 9,
+"ai.onnx:BatchNormalization": 8,
+"ai.onnx:LeakyRelu": 8,
+"ai.onnx:MaxPool": 6
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 63
+},
+"survey/trocr-small-printed.decoder_model_merged": {
+"model": "trocr-small-printed/decoder_model_merged.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "optimum-onnx",
+"nodes": 1,
+"ops": {
+"ai.onnx:If": 1,
+"ai.onnx:Identity": 10,
+"ai.onnx:Shape": 88,
+"ai.onnx:Constant": 602,
+"ai.onnx:Gather": 87,
+"ai.onnx:Unsqueeze": 324,
+"ai.onnx:Concat": 211,
+"ai.onnx:Reshape": 198,
+"ai.onnx:Mul": 91,
+"ai.onnx:Cast": 6,
+"ai.onnx:Range": 3,
+"ai.onnx:ConstantOfShape": 4,
+"ai.onnx:Equal": 3,
+"ai.onnx:Where": 4,
+"ai.onnx:Expand": 3,
+"ai.onnx:Add": 232,
+"ai.onnx:ReduceMean": 76,
+"ai.onnx:Sub": 38,
+"ai.onnx:Pow": 38,
+"ai.onnx:Sqrt": 38,
+"ai.onnx:Div": 38,
+"ai.onnx:Slice": 2,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Less": 1,
+"ai.onnx:MatMul": 158,
+"ai.onnx:Transpose": 108,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Relu": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 159
+},
+"survey/trocr-small-printed.encoder_model": {
+"model": "trocr-small-printed/encoder_model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1252,
+"ops": {
+"ai.onnx:Conv": 1,
+"ai.onnx:Shape": 100,
+"ai.onnx:Constant": 291,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 52,
+"ai.onnx:Reshape": 51,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Gather": 97,
+"ai.onnx:Unsqueeze": 98,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Mul": 51,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 2,
+"ai.onnx:Expand": 2,
+"ai.onnx:Add": 159,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 49,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 87
+},
+"survey/u2netp": {
+"model": "u2netp/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1055,
+"ops": {
+"ai.onnx:Conv": 119,
+"ai.onnx:Relu": 112,
+"ai.onnx:MaxPool": 33,
+"ai.onnx:Concat": 127,
+"ai.onnx:Shape": 114,
+"ai.onnx:Constant": 266,
+"ai.onnx:Gather": 76,
+"ai.onnx:Unsqueeze": 76,
+"ai.onnx:Slice": 38,
+"ai.onnx:Cast": 38,
+"ai.onnx:Resize": 38,
+"ai.onnx:Add": 11,
+"ai.onnx:Sigmoid": 7
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 5
+},
+"survey/uvdoc": {
+"model": "uvdoc/UVDoc_infer.onnx",
+"opset": {
+"ai.onnx": 16
+},
+"producer": "",
+"nodes": 259,
+"ops": {
+"ai.onnx:Shape": 3,
+"ai.onnx:Identity": 61,
+"ai.onnx:Slice": 4,
+"ai.onnx:Squeeze": 4,
+"ai.onnx:Concat": 4,
+"ai.onnx:Resize": 2,
+"ai.onnx:Conv": 45,
+"ai.onnx:BatchNormalization": 44,
+"ai.onnx:Relu": 41,
+"ai.onnx:Add": 42,
+"ai.onnx:Unsqueeze": 2,
+"ai.onnx:Pad": 2,
+"ai.onnx:PRelu": 1,
+"ai.onnx:Reshape": 2,
+"ai.onnx:Transpose": 1,
+"ai.onnx:GridSample": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 32
+},
+"survey/version-rfb-320": {
+"model": "version-rfb-320/version-RFB-320.onnx",
+"opset": {
+"ai.onnx": 9
+},
+"producer": "pytorch",
+"nodes": 242,
+"ops": {
+"ai.onnx:Conv": 52,
+"ai.onnx:BatchNormalization": 35,
+"ai.onnx:Relu": 37,
+"ai.onnx:Concat": 13,
+"ai.onnx:Add": 3,
+"ai.onnx:Transpose": 8,
+"ai.onnx:Constant": 31,
+"ai.onnx:Shape": 8,
+"ai.onnx:Gather": 8,
+"ai.onnx:Unsqueeze": 24,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Slice": 6,
+"ai.onnx:Mul": 4,
+"ai.onnx:Exp": 1,
+"ai.onnx:Div": 2,
+"ai.onnx:Sub": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 1
+},
+"survey/vit-gpt2-caption.decoder_model_merged": {
+"model": "vit-gpt2-caption/decoder_model_merged.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "optimum-onnx",
+"nodes": 1,
+"ops": {
+"ai.onnx:If": 1,
+"ai.onnx:Shape": 923,
+"ai.onnx:Constant": 2575,
+"ai.onnx:Gather": 682,
+"ai.onnx:Unsqueeze": 967,
+"ai.onnx:Concat": 549,
+"ai.onnx:Reshape": 523,
+"ai.onnx:Cast": 125,
+"ai.onnx:Range": 2,
+"ai.onnx:ConstantOfShape": 50,
+"ai.onnx:Sub": 100,
+"ai.onnx:Mul": 172,
+"ai.onnx:Add": 343,
+"ai.onnx:Slice": 293,
+"ai.onnx:Squeeze": 245,
+"ai.onnx:ReduceMean": 148,
+"ai.onnx:Pow": 146,
+"ai.onnx:Sqrt": 74,
+"ai.onnx:Div": 122,
+"ai.onnx:Gemm": 168,
+"ai.onnx:Split": 48,
+"ai.onnx:Transpose": 218,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Where": 24,
+"ai.onnx:Softmax": 48,
+"ai.onnx:Tanh": 24
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 615
+},
+"survey/vit-gpt2-caption.encoder_model": {
+"model": "vit-gpt2-caption/encoder_model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1239,
+"ops": {
+"ai.onnx:Shape": 99,
+"ai.onnx:Constant": 287,
+"ai.onnx:Gather": 97,
+"ai.onnx:Conv": 1,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 51,
+"ai.onnx:Reshape": 50,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Unsqueeze": 97,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Mul": 50,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Add": 159,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 49,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 343
+},
+"survey/vitpose-base": {
+"model": "vitpose-base/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 607,
+"ops": {
+"ai.onnx:Conv": 2,
+"ai.onnx:Reshape": 50,
+"ai.onnx:Transpose": 50,
+"ai.onnx:Add": 160,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 49,
+"ai.onnx:Mul": 49,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:Relu": 1,
+"ai.onnx:Resize": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 344
+},
+"survey/yolo11n-face": {
+"model": "yolo11n-face/model.onnx",
+"opset": {
+"ai.onnx": 19
+},
+"producer": "pytorch",
+"nodes": 320,
+"ops": {
+"ai.onnx:Conv": 88,
+"ai.onnx:Sigmoid": 78,
+"ai.onnx:Mul": 79,
+"ai.onnx:Split": 11,
+"ai.onnx:Add": 16,
+"ai.onnx:Concat": 23,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Transpose": 3,
+"ai.onnx:MatMul": 2,
+"ai.onnx:Softmax": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Slice": 2,
+"ai.onnx:Sub": 2,
+"ai.onnx:Div": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 11
+},
+"survey/yolo26n": {
+"model": "yolo26n/model.onnx",
+"opset": {
+"ai.onnx": 18
+},
+"producer": "pytorch",
+"nodes": 397,
+"ops": {
+"ai.onnx:Conv": 102,
+"ai.onnx:Sigmoid": 87,
+"ai.onnx:Mul": 90,
+"ai.onnx:Slice": 18,
+"ai.onnx:Add": 23,
+"ai.onnx:Concat": 23,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Split": 4,
+"ai.onnx:Reshape": 12,
+"ai.onnx:Transpose": 6,
+"ai.onnx:MatMul": 4,
+"ai.onnx:Softmax": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Sub": 3,
+"ai.onnx:Squeeze": 4,
+"ai.onnx:ReduceMax": 1,
+"ai.onnx:TopK": 1,
+"ai.onnx:Div": 3,
+"ai.onnx:Unsqueeze": 5,
+"ai.onnx:Tile": 2,
+"ai.onnx:GatherElements": 2
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 10
+},
+"survey/yolov3-12": {
+"model": "yolov3-12/yolov3-12.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "keras2onnx",
+"nodes": 471,
+"ops": {
+"ai.onnx:Squeeze": 7,
+"ai.onnx:Concat": 20,
+"ai.onnx:Conv": 75,
+"ai.onnx:BatchNormalization": 72,
+"ai.onnx:LeakyRelu": 72,
+"ai.onnx:Add": 36,
+"ai.onnx:Constant": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Transpose": 4,
+"ai.onnx:Shape": 3,
+"ai.onnx:Gather": 3,
+"ai.onnx:Cast": 33,
+"ai.onnx:Slice": 43,
+"ai.onnx:Sub": 13,
+"ai.onnx:Div": 19,
+"ai.onnx:Ceil": 7,
+"ai.onnx:Loop": 6,
+"ai.onnx:Reshape": 15,
+"ai.onnx:Unsqueeze": 8,
+"ai.onnx:Tile": 6,
+"ai.onnx:Sigmoid": 9,
+"ai.onnx:Mul": 17,
+"ai.onnx:Exp": 3,
+"ai.onnx:ReduceMin": 1,
+"ai.onnx:NonMaxSuppression": 1,
+"ai.onnx:Identity": 12
+},
+"weightTypes": [
+"BOOL",
+"FLOAT",
+"INT32",
+"INT64"
+],
+"sizeMB": 248
+},
+"survey/yolov8n-seg": {
+"model": "yolov8n-seg/yolov8n-seg.onnx",
+"opset": {
+"ai.onnx": 19
+},
+"producer": "pytorch",
+"nodes": 346,
+"ops": {
+"ai.onnx:Constant": 46,
+"ai.onnx:Conv": 76,
+"ai.onnx:Sigmoid": 67,
+"ai.onnx:Mul": 69,
+"ai.onnx:Split": 9,
+"ai.onnx:Add": 9,
+"ai.onnx:Concat": 28,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Resize": 2,
+"ai.onnx:ConvTranspose": 1,
+"ai.onnx:Shape": 5,
+"ai.onnx:Gather": 5,
+"ai.onnx:Unsqueeze": 10,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Transpose": 1,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Div": 2,
+"ai.onnx:Slice": 2,
+"ai.onnx:Sub": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 14
+},
+"survey/zipformer-encoder": {
+"model": "zipformer-encoder/encoder-epoch-99-avg-1-chunk-16-left-64.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 9418,
+"ops": {
+"ai.onnx:Shape": 544,
+"ai.onnx:Constant": 3326,
+"ai.onnx:Gather": 484,
+"ai.onnx:Unsqueeze": 803,
+"ai.onnx:Conv": 70,
+"ai.onnx:Sub": 366,
+"ai.onnx:Exp": 101,
+"ai.onnx:Add": 774,
+"ai.onnx:Log": 84,
+"ai.onnx:Mul": 457,
+"ai.onnx:Slice": 430,
+"ai.onnx:Concat": 376,
+"ai.onnx:Transpose": 227,
+"ai.onnx:Reshape": 232,
+"ai.onnx:MatMul": 370,
+"ai.onnx:Pow": 34,
+"ai.onnx:ReduceMean": 17,
+"ai.onnx:ConstantOfShape": 32,
+"ai.onnx:Equal": 92,
+"ai.onnx:Where": 140,
+"ai.onnx:Expand": 60,
+"ai.onnx:LessOrEqual": 1,
+"ai.onnx:Cast": 172,
+"ai.onnx:Range": 32,
+"ai.onnx:Tile": 16,
+"ai.onnx:GatherElements": 16,
+"ai.onnx:Softmax": 22,
+"ai.onnx:Div": 54,
+"ai.onnx:Tanh": 16,
+"ai.onnx:Sigmoid": 32,
+"ai.onnx:Neg": 32,
+"ai.onnx:ReduceSum": 6
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 262
+},
+"ref/t5-small-encoder": {
+"model": "t5-small-encoder.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 492,
+"ops": {
+"ai.onnx:Shape": 9,
+"ai.onnx:Constant": 156,
+"ai.onnx:Gather": 10,
+"ai.onnx:Unsqueeze": 30,
+"ai.onnx:Concat": 25,
+"ai.onnx:Reshape": 25,
+"ai.onnx:Cast": 24,
+"ai.onnx:Sub": 2,
+"ai.onnx:Mul": 29,
+"ai.onnx:Pow": 13,
+"ai.onnx:ReduceMean": 13,
+"ai.onnx:Add": 35,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:Div": 15,
+"ai.onnx:MatMul": 48,
+"ai.onnx:Transpose": 25,
+"ai.onnx:Range": 1,
+"ai.onnx:Greater": 1,
+"ai.onnx:Abs": 1,
+"ai.onnx:Less": 1,
+"ai.onnx:Log": 1,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Min": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Softmax": 6,
+"ai.onnx:Relu": 6
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 141
+},
+"ref/vit-base-patch16-224": {
+"model": "vit-base-patch16-224.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1242,
+"ops": {
+"ai.onnx:Constant": 288,
+"ai.onnx:Shape": 99,
+"ai.onnx:Gather": 98,
+"ai.onnx:Conv": 1,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 51,
+"ai.onnx:Reshape": 50,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Unsqueeze": 97,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Mul": 50,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Add": 159,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 49,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 347
+},
+"ref/whisper-tiny-encoder": {
+"model": "whisper-tiny-encoder.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 495,
+"ops": {
+"ai.onnx:Conv": 2,
+"ai.onnx:Constant": 164,
+"ai.onnx:Div": 15,
+"ai.onnx:Erf": 6,
+"ai.onnx:Add": 53,
+"ai.onnx:Mul": 29,
+"ai.onnx:Transpose": 21,
+"ai.onnx:ReduceMean": 18,
+"ai.onnx:Sub": 9,
+"ai.onnx:Pow": 9,
+"ai.onnx:Sqrt": 9,
+"ai.onnx:Shape": 8,
+"ai.onnx:Gather": 8,
+"ai.onnx:MatMul": 32,
+"ai.onnx:Unsqueeze": 44,
+"ai.onnx:Concat": 32,
+"ai.onnx:Reshape": 32,
+"ai.onnx:Softmax": 4
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 33
+},
+"ref/yolov10n": {
+"model": "yolov10n.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 308,
+"ops": {
+"ai.onnx:Conv": 83,
+"ai.onnx:Sigmoid": 70,
+"ai.onnx:Mul": 71,
+"ai.onnx:Split": 13,
+"ai.onnx:Add": 11,
+"ai.onnx:Concat": 21,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Transpose": 4,
+"ai.onnx:MatMul": 2,
+"ai.onnx:Softmax": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Sub": 1,
+"ai.onnx:ReduceMax": 1,
+"ai.onnx:TopK": 2,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Tile": 3,
+"ai.onnx:GatherElements": 3,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Mod": 1,
+"ai.onnx:Div": 1,
+"ai.onnx:Cast": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 9
+},
+"zoo/animegan-hayao": {
+"model": "animegan-hayao/generator_hayao.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 256,
+"ops": {
+"ai.onnx:Conv": 49,
+"ai.onnx:Constant": 104,
+"ai.onnx:InstanceNormalization": 48,
+"ai.onnx:LeakyRelu": 40,
+"ai.onnx:Resize": 4,
+"ai.onnx:Add": 10,
+"ai.onnx:Tanh": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 16
+},
+"zoo/animegan-v2": {
+"model": "animegan-v2/face_paint_512_v2_0.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 195,
+"ops": {
+"ai.onnx:Pad": 16,
+"ai.onnx:Conv": 25,
+"ai.onnx:Reshape": 48,
+"ai.onnx:InstanceNormalization": 24,
+"ai.onnx:Mul": 24,
+"ai.onnx:Add": 27,
+"ai.onnx:LeakyRelu": 20,
+"ai.onnx:Resize": 2,
+"ai.onnx:Shape": 6,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 1,
+"ai.onnx:Tanh": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 9
+},
+"zoo/clip-text": {
+"model": "clip-b32/text_model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 1772,
+"ops": {
+"ai.onnx:Shape": 57,
+"ai.onnx:Constant": 593,
+"ai.onnx:Gather": 57,
+"ai.onnx:Unsqueeze": 226,
+"ai.onnx:Concat": 126,
+"ai.onnx:Reshape": 125,
+"ai.onnx:Slice": 3,
+"ai.onnx:Add": 161,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Cast": 5,
+"ai.onnx:Range": 2,
+"ai.onnx:Less": 1,
+"ai.onnx:Where": 2,
+"ai.onnx:Mul": 75,
+"ai.onnx:Equal": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 25,
+"ai.onnx:MatMul": 97,
+"ai.onnx:Transpose": 60,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Sigmoid": 12,
+"ai.onnx:ArgMax": 1,
+"ai.onnx:Flatten": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 254
+},
+"zoo/clip-vision-int8": {
+"model": "clip-b32/vision_model_int8.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "onnx.quantize",
+"nodes": 931,
+"ops": {
+"ai.onnx:Shape": 2,
+"ai.onnx:DynamicQuantizeLinear": 50,
+"ai.onnx:ConvInteger": 1,
+"ai.onnx:Cast": 74,
+"ai.onnx:Mul": 210,
+"ai.onnx:Gather": 2,
+"ai.onnx:Slice": 1,
+"ai.onnx:Unsqueeze": 1,
+"ai.onnx:Concat": 3,
+"ai.onnx:Reshape": 97,
+"ai.onnx:Equal": 1,
+"ai.onnx:Transpose": 61,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Add": 149,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Sub": 26,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 26,
+"ai.onnx:MatMulInteger": 73,
+"ai.onnx:MatMul": 24,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Sigmoid": 12
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"INT8"
+],
+"sizeMB": 89
+},
+"zoo/clip-vision": {
+"model": "clip-b32/vision_model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1314,
+"ops": {
+"ai.onnx:Constant": 326,
+"ai.onnx:Shape": 39,
+"ai.onnx:Gather": 39,
+"ai.onnx:Conv": 1,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 99,
+"ai.onnx:Reshape": 98,
+"ai.onnx:Transpose": 61,
+"ai.onnx:Unsqueeze": 145,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Mul": 75,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Add": 149,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Sub": 26,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 26,
+"ai.onnx:MatMul": 97,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Sigmoid": 12
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 352
+},
+"zoo/convnext-tiny-q": {
+"model": "convnext-tiny/model_quantized.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "onnx.quantize",
+"nodes": 854,
+"ops": {
+"ai.onnx:Constant": 100,
+"ai.onnx:Reshape": 22,
+"ai.onnx:DynamicQuantizeLinear": 59,
+"ai.onnx:Mul": 195,
+"ai.onnx:ConvInteger": 22,
+"ai.onnx:Cast": 67,
+"ai.onnx:Add": 141,
+"ai.onnx:ReduceMean": 47,
+"ai.onnx:Sub": 23,
+"ai.onnx:Pow": 23,
+"ai.onnx:Sqrt": 23,
+"ai.onnx:Div": 41,
+"ai.onnx:Transpose": 36,
+"ai.onnx:MatMulInteger": 37,
+"ai.onnx:Erf": 18
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"UINT8"
+],
+"sizeMB": 29
+},
+"zoo/convnext-tiny": {
+"model": "convnext-tiny/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 573,
+"ops": {
+"ai.onnx:Conv": 22,
+"ai.onnx:Cast": 8,
+"ai.onnx:ReduceMean": 47,
+"ai.onnx:Sub": 23,
+"ai.onnx:Constant": 100,
+"ai.onnx:Pow": 23,
+"ai.onnx:Add": 118,
+"ai.onnx:Sqrt": 23,
+"ai.onnx:Div": 41,
+"ai.onnx:Mul": 77,
+"ai.onnx:Transpose": 36,
+"ai.onnx:MatMul": 36,
+"ai.onnx:Erf": 18,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 115
+},
+"zoo/depth-anything-v2-small": {
+"model": "depth-anything-v2-small/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 823,
+"ops": {
+"ai.onnx:Shape": 26,
+"ai.onnx:Conv": 31,
+"ai.onnx:Gather": 73,
+"ai.onnx:Div": 39,
+"ai.onnx:Slice": 9,
+"ai.onnx:Concat": 42,
+"ai.onnx:Unsqueeze": 41,
+"ai.onnx:Mul": 90,
+"ai.onnx:Add": 150,
+"ai.onnx:Reshape": 30,
+"ai.onnx:Transpose": 42,
+"ai.onnx:Resize": 6,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:MatMul": 72,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:ConvTranspose": 2,
+"ai.onnx:Relu": 17,
+"ai.onnx:Squeeze": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 99
+},
+"zoo/detr-resnet50": {
+"model": "detr-resnet50/model.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 2364,
+"ops": {
+"ai.onnx:Constant": 537,
+"ai.onnx:Shape": 80,
+"ai.onnx:Gather": 72,
+"ai.onnx:Conv": 54,
+"ai.onnx:Mul": 120,
+"ai.onnx:Add": 290,
+"ai.onnx:Relu": 63,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Unsqueeze": 307,
+"ai.onnx:Cast": 12,
+"ai.onnx:Concat": 181,
+"ai.onnx:Slice": 11,
+"ai.onnx:Resize": 1,
+"ai.onnx:CumSum": 2,
+"ai.onnx:Div": 35,
+"ai.onnx:Sin": 2,
+"ai.onnx:Cos": 2,
+"ai.onnx:Reshape": 174,
+"ai.onnx:Transpose": 93,
+"ai.onnx:Flatten": 1,
+"ai.onnx:ConstantOfShape": 4,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 4,
+"ai.onnx:Expand": 3,
+"ai.onnx:Sub": 33,
+"ai.onnx:MatMul": 136,
+"ai.onnx:Softmax": 18,
+"ai.onnx:ReduceMean": 62,
+"ai.onnx:Pow": 31,
+"ai.onnx:Sqrt": 31,
+"ai.onnx:Tile": 1,
+"ai.onnx:Sigmoid": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 167
+},
+"zoo/dinov2-small": {
+"model": "dinov2-small/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 936,
+"ops": {
+"ai.onnx:Shape": 50,
+"ai.onnx:Conv": 1,
+"ai.onnx:Gather": 99,
+"ai.onnx:Unsqueeze": 99,
+"ai.onnx:Div": 51,
+"ai.onnx:Slice": 1,
+"ai.onnx:Concat": 54,
+"ai.onnx:Reshape": 50,
+"ai.onnx:Equal": 1,
+"ai.onnx:Transpose": 50,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Resize": 1,
+"ai.onnx:Add": 159,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Mul": 73,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 89
+},
+"zoo/gpt2-merged": {
+"model": "gpt2/decoder_model_merged.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "optimum-onnx",
+"nodes": 1,
+"ops": {
+"ai.onnx:If": 1,
+"ai.onnx:Shape": 559,
+"ai.onnx:Constant": 2431,
+"ai.onnx:Gather": 392,
+"ai.onnx:Unsqueeze": 568,
+"ai.onnx:Concat": 320,
+"ai.onnx:Reshape": 296,
+"ai.onnx:Cast": 77,
+"ai.onnx:Range": 2,
+"ai.onnx:Sub": 76,
+"ai.onnx:Mul": 148,
+"ai.onnx:Add": 247,
+"ai.onnx:Slice": 219,
+"ai.onnx:Squeeze": 171,
+"ai.onnx:ReduceMean": 100,
+"ai.onnx:Pow": 98,
+"ai.onnx:Sqrt": 50,
+"ai.onnx:Div": 74,
+"ai.onnx:Gemm": 96,
+"ai.onnx:Split": 24,
+"ai.onnx:Transpose": 122,
+"ai.onnx:MatMul": 50,
+"ai.onnx:ConstantOfShape": 24,
+"ai.onnx:Where": 24,
+"ai.onnx:Softmax": 24,
+"ai.onnx:Tanh": 24
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 501
+},
+"zoo/gpt2-past": {
+"model": "gpt2/decoder_with_past_model.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 3124,
+"ops": {
+"ai.onnx:Shape": 280,
+"ai.onnx:Constant": 1217,
+"ai.onnx:Gather": 196,
+"ai.onnx:Unsqueeze": 284,
+"ai.onnx:Concat": 172,
+"ai.onnx:Reshape": 148,
+"ai.onnx:Slice": 110,
+"ai.onnx:Squeeze": 86,
+"ai.onnx:Add": 124,
+"ai.onnx:Cast": 39,
+"ai.onnx:Range": 1,
+"ai.onnx:Sub": 38,
+"ai.onnx:Mul": 74,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Pow": 49,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 37,
+"ai.onnx:Gemm": 48,
+"ai.onnx:Split": 12,
+"ai.onnx:Transpose": 61,
+"ai.onnx:MatMul": 25,
+"ai.onnx:ConstantOfShape": 12,
+"ai.onnx:Where": 12,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Tanh": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 499
+},
+"zoo/gpt2": {
+"model": "gpt2/decoder_model.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 3092,
+"ops": {
+"ai.onnx:Shape": 279,
+"ai.onnx:Constant": 1214,
+"ai.onnx:Gather": 196,
+"ai.onnx:Unsqueeze": 284,
+"ai.onnx:Concat": 148,
+"ai.onnx:Reshape": 148,
+"ai.onnx:Cast": 38,
+"ai.onnx:Range": 1,
+"ai.onnx:Sub": 38,
+"ai.onnx:Mul": 74,
+"ai.onnx:Add": 123,
+"ai.onnx:Slice": 109,
+"ai.onnx:Squeeze": 85,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Pow": 49,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 37,
+"ai.onnx:Gemm": 48,
+"ai.onnx:Split": 12,
+"ai.onnx:Transpose": 61,
+"ai.onnx:MatMul": 25,
+"ai.onnx:ConstantOfShape": 12,
+"ai.onnx:Where": 12,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Tanh": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 499
+},
+"zoo/mobilenetv2-int8": {
+"model": "mobilenetv2-int8/mobilenetv2-12-int8.onnx",
+"opset": {
+"ai.onnx": 12,
+"com.microsoft": 1,
+"com.microsoft.nchwc": 1,
+"ai.onnx.training": 1,
+"ai.onnx.preview.training": 1,
+"com.microsoft.experimental": 1,
+"ai.onnx.ml": 2
+},
+"producer": "onnx.quantize",
+"nodes": 73,
+"ops": {
+"ai.onnx:QuantizeLinear": 1,
+"ai.onnx:QLinearConv": 52,
+"com.microsoft:QLinearAdd": 11,
+"com.microsoft:QLinearGlobalAveragePool": 1,
+"ai.onnx:DequantizeLinear": 2,
+"ai.onnx:Shape": 1,
+"ai.onnx:Gather": 1,
+"ai.onnx:Unsqueeze": 1,
+"ai.onnx:Concat": 1,
+"ai.onnx:Reshape": 1,
+"ai.onnx:QLinearMatMul": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT64",
+"INT8",
+"UINT8"
+],
+"sizeMB": 4
+},
+"zoo/mobilesam-decoder": {
+"model": "mobilesam/mobilesam.decoder.onnx",
+"opset": {
+"ai.onnx": 16
+},
+"producer": "pytorch",
+"nodes": 1289,
+"ops": {
+"ai.onnx:Constant": 380,
+"ai.onnx:Add": 87,
+"ai.onnx:Div": 45,
+"ai.onnx:Mul": 49,
+"ai.onnx:Sub": 15,
+"ai.onnx:MatMul": 49,
+"ai.onnx:Sin": 2,
+"ai.onnx:Cos": 2,
+"ai.onnx:Concat": 48,
+"ai.onnx:Unsqueeze": 109,
+"ai.onnx:Shape": 116,
+"ai.onnx:Expand": 6,
+"ai.onnx:Equal": 11,
+"ai.onnx:Not": 1,
+"ai.onnx:Cast": 56,
+"ai.onnx:Conv": 3,
+"ai.onnx:ReduceMean": 24,
+"ai.onnx:Pow": 12,
+"ai.onnx:Sqrt": 12,
+"ai.onnx:Erf": 4,
+"ai.onnx:Transpose": 32,
+"ai.onnx:Gather": 119,
+"ai.onnx:Reshape": 40,
+"ai.onnx:ConstantOfShape": 5,
+"ai.onnx:Where": 5,
+"ai.onnx:Split": 4,
+"ai.onnx:Slice": 7,
+"ai.onnx:Softmax": 7,
+"ai.onnx:Relu": 12,
+"ai.onnx:ConvTranspose": 2,
+"ai.onnx:Gemm": 15,
+"ai.onnx:ArgMax": 1,
+"ai.onnx:Range": 2,
+"ai.onnx:Flatten": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:ReduceMax": 1,
+"ai.onnx:Reciprocal": 1,
+"ai.onnx:Floor": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 17
+},
+"zoo/mobilesam-encoder": {
+"model": "mobilesam/mobilesam.encoder.onnx",
+"opset": {
+"ai.onnx": 16
+},
+"producer": "pytorch",
+"nodes": 2087,
+"ops": {
+"ai.onnx:Constant": 807,
+"ai.onnx:Sub": 26,
+"ai.onnx:Div": 46,
+"ai.onnx:Transpose": 98,
+"ai.onnx:Shape": 58,
+"ai.onnx:Gather": 55,
+"ai.onnx:Unsqueeze": 227,
+"ai.onnx:Concat": 117,
+"ai.onnx:Cast": 12,
+"ai.onnx:ConstantOfShape": 11,
+"ai.onnx:Reshape": 128,
+"ai.onnx:Slice": 34,
+"ai.onnx:Pad": 11,
+"ai.onnx:Conv": 29,
+"ai.onnx:Erf": 23,
+"ai.onnx:Add": 139,
+"ai.onnx:Mul": 98,
+"ai.onnx:ReduceMean": 44,
+"ai.onnx:Pow": 22,
+"ai.onnx:Sqrt": 22,
+"ai.onnx:MatMul": 60,
+"ai.onnx:Split": 10,
+"ai.onnx:Softmax": 10
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 28
+},
+"zoo/mobilevit-small": {
+"model": "mobilevit-small/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1121,
+"ops": {
+"ai.onnx:Conv": 35,
+"ai.onnx:Sigmoid": 34,
+"ai.onnx:Mul": 64,
+"ai.onnx:Add": 116,
+"ai.onnx:Shape": 78,
+"ai.onnx:Constant": 243,
+"ai.onnx:Gather": 78,
+"ai.onnx:Unsqueeze": 96,
+"ai.onnx:Concat": 57,
+"ai.onnx:Reshape": 54,
+"ai.onnx:Transpose": 48,
+"ai.onnx:ReduceMean": 43,
+"ai.onnx:Sub": 21,
+"ai.onnx:Pow": 21,
+"ai.onnx:Sqrt": 21,
+"ai.onnx:Div": 30,
+"ai.onnx:MatMul": 72,
+"ai.onnx:Softmax": 9,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 23
+},
+"zoo/moonshine-encoder": {
+"model": "moonshine-tiny/encoder_model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 554,
+"ops": {
+"ai.onnx:Unsqueeze": 41,
+"ai.onnx:Conv": 3,
+"ai.onnx:Tanh": 1,
+"ai.onnx:Reshape": 39,
+"ai.onnx:Shape": 20,
+"ai.onnx:InstanceNormalization": 1,
+"ai.onnx:Mul": 66,
+"ai.onnx:Add": 58,
+"ai.onnx:Div": 21,
+"ai.onnx:Erf": 8,
+"ai.onnx:Transpose": 32,
+"ai.onnx:ReduceMean": 26,
+"ai.onnx:Gather": 13,
+"ai.onnx:Sub": 13,
+"ai.onnx:Pow": 13,
+"ai.onnx:Range": 1,
+"ai.onnx:Cast": 1,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:MatMul": 49,
+"ai.onnx:Concat": 55,
+"ai.onnx:Cos": 1,
+"ai.onnx:Sin": 1,
+"ai.onnx:Slice": 60,
+"ai.onnx:Neg": 12,
+"ai.onnx:Softmax": 6
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 31
+},
+"zoo/mosaic-9": {
+"model": "mosaic-9/mosaic-9.onnx",
+"opset": {
+"ai.onnx": 9
+},
+"producer": "pytorch",
+"nodes": 112,
+"ops": {
+"ai.onnx:Pad": 16,
+"ai.onnx:Conv": 16,
+"ai.onnx:InstanceNormalization": 15,
+"ai.onnx:Relu": 10,
+"ai.onnx:Add": 5,
+"ai.onnx:Constant": 10,
+"ai.onnx:Shape": 6,
+"ai.onnx:Gather": 4,
+"ai.onnx:Mul": 4,
+"ai.onnx:Cast": 8,
+"ai.onnx:Floor": 4,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Concat": 4,
+"ai.onnx:Slice": 2,
+"ai.onnx:Div": 2,
+"ai.onnx:Upsample": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 7
+},
+"zoo/nomic-moe": {
+"model": "nomic-moe/model_int8.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "onnx.quantize",
+"nodes": 3285,
+"ops": {
+"ai.onnx:Constant": 1097,
+"ai.onnx:Gather": 231,
+"ai.onnx:Unsqueeze": 250,
+"ai.onnx:ConstantOfShape": 13,
+"ai.onnx:DequantizeLinear": 2,
+"ai.onnx:Mul": 315,
+"ai.onnx:Cast": 140,
+"ai.onnx:Shape": 169,
+"ai.onnx:Equal": 6,
+"ai.onnx:ReduceSum": 2,
+"ai.onnx:Sub": 26,
+"ai.onnx:Where": 6,
+"ai.onnx:Clip": 2,
+"ai.onnx:Concat": 157,
+"ai.onnx:Add": 189,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 61,
+"ai.onnx:Div": 87,
+"ai.onnx:DynamicQuantizeLinear": 54,
+"ai.onnx:MatMulInteger": 54,
+"ai.onnx:Reshape": 48,
+"ai.onnx:Slice": 156,
+"ai.onnx:Neg": 24,
+"ai.onnx:Transpose": 48,
+"ai.onnx:MatMul": 24,
+"ai.onnx:Softmax": 18,
+"ai.onnx:Erf": 12,
+"ai.onnx:TopK": 6,
+"ai.onnx:ScatterElements": 6,
+"ai.onnx:Expand": 6,
+"ai.onnx:ReduceL2": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT8",
+"UINT8"
+],
+"sizeMB": 478
+},
+"zoo/ppocr-det": {
+"model": "ppocr-v4/ch_PP-OCRv4_det_infer.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "",
+"nodes": 672,
+"ops": {
+"ai.onnx:Constant": 342,
+"ai.onnx:Conv": 62,
+"ai.onnx:BatchNormalization": 3,
+"ai.onnx:Mul": 86,
+"ai.onnx:Add": 89,
+"ai.onnx:Clip": 24,
+"ai.onnx:Div": 24,
+"ai.onnx:GlobalAveragePool": 10,
+"ai.onnx:Relu": 12,
+"ai.onnx:HardSigmoid": 10,
+"ai.onnx:Resize": 6,
+"ai.onnx:Concat": 1,
+"ai.onnx:ConvTranspose": 2,
+"ai.onnx:Sigmoid": 1
+},
+"weightTypes": [],
+"sizeMB": 5
+},
+"zoo/ppocr-rec-en-v3": {
+"model": "ppocr-v4/en_PP-OCRv3_rec_infer.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "PaddlePaddle",
+"nodes": 732,
+"ops": {
+"ai.onnx:Constant": 377,
+"ai.onnx:Conv": 36,
+"ai.onnx:BatchNormalization": 32,
+"ai.onnx:Add": 56,
+"ai.onnx:Clip": 27,
+"ai.onnx:Mul": 50,
+"ai.onnx:Div": 32,
+"ai.onnx:GlobalAveragePool": 2,
+"ai.onnx:Reshape": 20,
+"ai.onnx:Relu": 2,
+"ai.onnx:HardSigmoid": 2,
+"ai.onnx:AveragePool": 1,
+"ai.onnx:Identity": 9,
+"ai.onnx:Sigmoid": 7,
+"ai.onnx:Shape": 6,
+"ai.onnx:Slice": 12,
+"ai.onnx:Concat": 2,
+"ai.onnx:Transpose": 9,
+"ai.onnx:ReduceMean": 10,
+"ai.onnx:Sub": 5,
+"ai.onnx:Pow": 5,
+"ai.onnx:Sqrt": 5,
+"ai.onnx:MatMul": 13,
+"ai.onnx:Squeeze": 7,
+"ai.onnx:Cast": 2,
+"ai.onnx:Softmax": 3
+},
+"weightTypes": [],
+"sizeMB": 9
+},
+"zoo/ppocr-rec-v2": {
+"model": "ppocr-v4/ch_ppocr_mobile_v2.0_rec_infer.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "PaddlePaddle",
+"nodes": 769,
+"ops": {
+"ai.onnx:Constant": 431,
+"ai.onnx:Conv": 53,
+"ai.onnx:BatchNormalization": 35,
+"ai.onnx:Add": 44,
+"ai.onnx:Clip": 18,
+"ai.onnx:Mul": 27,
+"ai.onnx:Div": 18,
+"ai.onnx:Relu": 15,
+"ai.onnx:GlobalAveragePool": 9,
+"ai.onnx:Reshape": 20,
+"ai.onnx:HardSigmoid": 9,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:Squeeze": 1,
+"ai.onnx:Transpose": 5,
+"ai.onnx:Shape": 2,
+"ai.onnx:Cast": 4,
+"ai.onnx:Slice": 34,
+"ai.onnx:Concat": 20,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Unsqueeze": 16,
+"ai.onnx:LSTM": 2,
+"ai.onnx:MatMul": 1,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Identity": 1
+},
+"weightTypes": [],
+"sizeMB": 4
+},
+"zoo/ppocr-rec": {
+"model": "ppocr-v4/ch_PP-OCRv4_rec_infer.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "",
+"nodes": 860,
+"ops": {
+"ai.onnx:Constant": 420,
+"ai.onnx:Conv": 38,
+"ai.onnx:BatchNormalization": 6,
+"ai.onnx:Mul": 107,
+"ai.onnx:Add": 107,
+"ai.onnx:Clip": 28,
+"ai.onnx:Div": 33,
+"ai.onnx:GlobalAveragePool": 2,
+"ai.onnx:Relu": 2,
+"ai.onnx:HardSigmoid": 2,
+"ai.onnx:AveragePool": 1,
+"ai.onnx:Sigmoid": 7,
+"ai.onnx:Shape": 4,
+"ai.onnx:Cast": 23,
+"ai.onnx:Slice": 10,
+"ai.onnx:Concat": 7,
+"ai.onnx:Reshape": 6,
+"ai.onnx:Transpose": 9,
+"ai.onnx:ReduceMean": 10,
+"ai.onnx:Sub": 5,
+"ai.onnx:Pow": 5,
+"ai.onnx:Sqrt": 5,
+"ai.onnx:MatMul": 13,
+"ai.onnx:Squeeze": 7,
+"ai.onnx:Softmax": 3
+},
+"weightTypes": [],
+"sizeMB": 11
+},
+"zoo/raft-large": {
+"model": "raft-large/raft_large.onnx",
+"opset": {
+"ai.onnx": 17
+},
+"producer": "pytorch",
+"nodes": 2562,
+"ops": {
+"ai.onnx:Concat": 146,
+"ai.onnx:Constant": 823,
+"ai.onnx:Conv": 212,
+"ai.onnx:InstanceNormalization": 15,
+"ai.onnx:Relu": 123,
+"ai.onnx:Add": 145,
+"ai.onnx:Shape": 49,
+"ai.onnx:Gather": 73,
+"ai.onnx:Div": 134,
+"ai.onnx:Mul": 218,
+"ai.onnx:Slice": 4,
+"ai.onnx:Reshape": 112,
+"ai.onnx:Transpose": 49,
+"ai.onnx:MatMul": 1,
+"ai.onnx:AveragePool": 3,
+"ai.onnx:Tanh": 25,
+"ai.onnx:Expand": 3,
+"ai.onnx:Unsqueeze": 51,
+"ai.onnx:Cast": 2,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Tile": 1,
+"ai.onnx:Split": 48,
+"ai.onnx:Sub": 168,
+"ai.onnx:GridSample": 48,
+"ai.onnx:Sigmoid": 48,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Range": 24,
+"ai.onnx:Pad": 12,
+"ai.onnx:ReduceSum": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 21
+},
+"zoo/realesrgan-x4v3": {
+"model": "realesrgan-x4v3/model.onnx",
+"opset": {
+"ai.onnx": 20
+},
+"producer": "Qualcomm AI Hub Workbench",
+"nodes": 70,
+"ops": {
+"ai.onnx:Conv": 34,
+"ai.onnx:PRelu": 33,
+"ai.onnx:Resize": 1,
+"ai.onnx:DepthToSpace": 1,
+"ai.onnx:Add": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 0
+},
+"zoo/resnet50-int8": {
+"model": "resnet50-int8/resnet50-v1-12-int8.onnx",
+"opset": {
+"ai.onnx": 12,
+"com.microsoft": 1,
+"com.microsoft.mlfeaturizers": 1,
+"com.microsoft.nchwc": 1,
+"ai.onnx.training": 1,
+"ai.onnx.preview.training": 1,
+"com.microsoft.experimental": 1,
+"ai.onnx.ml": 2
+},
+"producer": "onnx.quantize",
+"nodes": 78,
+"ops": {
+"ai.onnx:QuantizeLinear": 2,
+"ai.onnx:QLinearConv": 53,
+"ai.onnx:MaxPool": 1,
+"com.microsoft:QLinearAdd": 17,
+"com.microsoft:QLinearGlobalAveragePool": 1,
+"ai.onnx:DequantizeLinear": 2,
+"ai.onnx:Flatten": 1,
+"ai.onnx:QLinearMatMul": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT32",
+"INT8",
+"UINT8"
+],
+"sizeMB": 26
+},
+"zoo/rtdetr-r18": {
+"model": "rtdetr-r18/model.onnx",
+"opset": {
+"ai.onnx": 16
+},
+"producer": "pytorch",
+"nodes": 769,
+"ops": {
+"ai.onnx:Conv": 69,
+"ai.onnx:Mul": 82,
+"ai.onnx:Add": 156,
+"ai.onnx:Relu": 33,
+"ai.onnx:MaxPool": 1,
+"ai.onnx:AveragePool": 3,
+"ai.onnx:Shape": 3,
+"ai.onnx:Reshape": 85,
+"ai.onnx:Gather": 13,
+"ai.onnx:Transpose": 49,
+"ai.onnx:Unsqueeze": 27,
+"ai.onnx:MatMul": 67,
+"ai.onnx:Concat": 13,
+"ai.onnx:Softmax": 7,
+"ai.onnx:ReduceMean": 24,
+"ai.onnx:Sub": 18,
+"ai.onnx:Pow": 12,
+"ai.onnx:Sqrt": 12,
+"ai.onnx:Div": 19,
+"ai.onnx:Erf": 1,
+"ai.onnx:Sigmoid": 32,
+"ai.onnx:Resize": 2,
+"ai.onnx:Slice": 8,
+"ai.onnx:Split": 3,
+"ai.onnx:ReduceMax": 1,
+"ai.onnx:TopK": 1,
+"ai.onnx:Tile": 2,
+"ai.onnx:GatherElements": 2,
+"ai.onnx:Clip": 9,
+"ai.onnx:Log": 3,
+"ai.onnx:GridSample": 9,
+"ai.onnx:ReduceSum": 3
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 83
+},
+"zoo/sam2-encoder": {
+"model": "sam2-tiny/vision_encoder.onnx",
+"opset": {
+"ai.onnx": 18
+},
+"producer": "pytorch",
+"nodes": 742,
+"ops": {
+"ai.onnx:Conv": 7,
+"ai.onnx:Shape": 35,
+"ai.onnx:Transpose": 85,
+"ai.onnx:Gather": 55,
+"ai.onnx:Unsqueeze": 67,
+"ai.onnx:Add": 90,
+"ai.onnx:Concat": 59,
+"ai.onnx:LayerNormalization": 24,
+"ai.onnx:Reshape": 70,
+"ai.onnx:MatMul": 75,
+"ai.onnx:Mul": 60,
+"ai.onnx:Split": 12,
+"ai.onnx:Squeeze": 36,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Div": 21,
+"ai.onnx:Slice": 10,
+"ai.onnx:Erf": 12,
+"ai.onnx:MaxPool": 6,
+"ai.onnx:Pad": 5,
+"ai.onnx:Resize": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 134
+},
+"zoo/sdxl-vae": {
+"model": "sdxl-vae/model.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 520,
+"ops": {
+"ai.onnx:Conv": 36,
+"ai.onnx:Constant": 140,
+"ai.onnx:Reshape": 66,
+"ai.onnx:InstanceNormalization": 30,
+"ai.onnx:Shape": 37,
+"ai.onnx:Mul": 62,
+"ai.onnx:Add": 49,
+"ai.onnx:Sigmoid": 29,
+"ai.onnx:Div": 17,
+"ai.onnx:Gather": 6,
+"ai.onnx:Unsqueeze": 15,
+"ai.onnx:Concat": 6,
+"ai.onnx:Transpose": 7,
+"ai.onnx:MatMul": 6,
+"ai.onnx:Cast": 6,
+"ai.onnx:Slice": 1,
+"ai.onnx:Sqrt": 3,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Resize": 3
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 198
+},
+"zoo/siglip-text": {
+"model": "siglip-b16/text_model.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 1199,
+"ops": {
+"ai.onnx:Shape": 26,
+"ai.onnx:Constant": 324,
+"ai.onnx:Gather": 29,
+"ai.onnx:Unsqueeze": 98,
+"ai.onnx:Concat": 49,
+"ai.onnx:Reshape": 49,
+"ai.onnx:Slice": 1,
+"ai.onnx:Add": 171,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:Div": 25,
+"ai.onnx:Mul": 109,
+"ai.onnx:MatMul": 96,
+"ai.onnx:Transpose": 48,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Cast": 24,
+"ai.onnx:Tanh": 12,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 441
+},
+"zoo/siglip-vision": {
+"model": "siglip-b16/vision_model.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 1369,
+"ops": {
+"ai.onnx:Constant": 381,
+"ai.onnx:Conv": 1,
+"ai.onnx:Shape": 33,
+"ai.onnx:Slice": 8,
+"ai.onnx:Concat": 58,
+"ai.onnx:Reshape": 57,
+"ai.onnx:Transpose": 59,
+"ai.onnx:Gather": 33,
+"ai.onnx:Add": 185,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Sub": 26,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:Div": 28,
+"ai.onnx:Mul": 119,
+"ai.onnx:MatMul": 102,
+"ai.onnx:Unsqueeze": 116,
+"ai.onnx:Softmax": 13,
+"ai.onnx:Cast": 26,
+"ai.onnx:Tanh": 13,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Tile": 1,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Mod": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 372
+},
+"zoo/silero-vad": {
+"model": "silero-vad/model.onnx",
+"opset": {
+"ai.onnx": 16
+},
+"producer": "spox",
+"nodes": 4,
+"ops": {
+"ai.onnx:Equal": 11,
+"ai.onnx:If": 15,
+"ai.onnx:Identity": 24,
+"ai.onnx:Pad": 2,
+"ai.onnx:Gather": 12,
+"ai.onnx:Unsqueeze": 22,
+"ai.onnx:Conv": 12,
+"ai.onnx:Slice": 10,
+"ai.onnx:Pow": 4,
+"ai.onnx:Add": 2,
+"ai.onnx:Sqrt": 2,
+"ai.onnx:Relu": 10,
+"ai.onnx:Shape": 10,
+"ai.onnx:Size": 2,
+"ai.onnx:Not": 2,
+"ai.onnx:LSTM": 2,
+"ai.onnx:Squeeze": 12,
+"ai.onnx:Concat": 2,
+"ai.onnx:Sigmoid": 2,
+"ai.onnx:ReduceMean": 2
+},
+"weightTypes": [
+"INT64"
+],
+"sizeMB": 2
+},
+"zoo/swin-tiny": {
+"model": "swin-tiny/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 8214,
+"ops": {
+"ai.onnx:Conv": 1,
+"ai.onnx:Shape": 786,
+"ai.onnx:Constant": 2822,
+"ai.onnx:Gather": 425,
+"ai.onnx:Slice": 296,
+"ai.onnx:Concat": 325,
+"ai.onnx:Reshape": 380,
+"ai.onnx:Transpose": 91,
+"ai.onnx:ReduceMean": 58,
+"ai.onnx:Sub": 54,
+"ai.onnx:Pow": 29,
+"ai.onnx:Add": 324,
+"ai.onnx:Sqrt": 29,
+"ai.onnx:Div": 108,
+"ai.onnx:Mul": 241,
+"ai.onnx:Unsqueeze": 685,
+"ai.onnx:Mod": 16,
+"ai.onnx:Cast": 329,
+"ai.onnx:ConstantOfShape": 242,
+"ai.onnx:Pad": 12,
+"ai.onnx:MatMul": 99,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:Expand": 225,
+"ai.onnx:Range": 180,
+"ai.onnx:Equal": 190,
+"ai.onnx:Where": 190,
+"ai.onnx:ScatterND": 45,
+"ai.onnx:Not": 5,
+"ai.onnx:GlobalAveragePool": 1,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Gemm": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 116
+},
+"zoo/swin2sr": {
+"model": "swin2sr/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 28604,
+"ops": {
+"ai.onnx:Shape": 2773,
+"ai.onnx:Constant": 9771,
+"ai.onnx:Gather": 1434,
+"ai.onnx:Mod": 8,
+"ai.onnx:Sub": 134,
+"ai.onnx:Unsqueeze": 2169,
+"ai.onnx:Concat": 1043,
+"ai.onnx:Cast": 1100,
+"ai.onnx:ConstantOfShape": 865,
+"ai.onnx:Reshape": 1330,
+"ai.onnx:Slice": 1000,
+"ai.onnx:Transpose": 357,
+"ai.onnx:Pad": 37,
+"ai.onnx:Mul": 870,
+"ai.onnx:Conv": 18,
+"ai.onnx:ReduceMean": 148,
+"ai.onnx:Pow": 218,
+"ai.onnx:Add": 1038,
+"ai.onnx:Sqrt": 74,
+"ai.onnx:Div": 345,
+"ai.onnx:MatMul": 360,
+"ai.onnx:Abs": 72,
+"ai.onnx:ReduceSum": 72,
+"ai.onnx:Clip": 108,
+"ai.onnx:Expand": 882,
+"ai.onnx:Exp": 36,
+"ai.onnx:Relu": 36,
+"ai.onnx:Sigmoid": 36,
+"ai.onnx:Softmax": 36,
+"ai.onnx:Erf": 36,
+"ai.onnx:Range": 648,
+"ai.onnx:Equal": 684,
+"ai.onnx:Where": 684,
+"ai.onnx:ScatterND": 162,
+"ai.onnx:Not": 18,
+"ai.onnx:LeakyRelu": 1,
+"ai.onnx:DepthToSpace": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 54
+},
+"zoo/tiny-mamba": {
+"model": "tiny-mamba/model.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "pytorch",
+"nodes": 543,
+"ops": {
+"ai.onnx:Identity": 4,
+"ai.onnx:Gather": 95,
+"ai.onnx:Constant": 140,
+"ai.onnx:Cast": 40,
+"ai.onnx:Pow": 3,
+"ai.onnx:ReduceMean": 3,
+"ai.onnx:Add": 31,
+"ai.onnx:Sqrt": 3,
+"ai.onnx:Div": 5,
+"ai.onnx:Mul": 44,
+"ai.onnx:Shape": 16,
+"ai.onnx:MatMul": 29,
+"ai.onnx:Transpose": 10,
+"ai.onnx:Slice": 12,
+"ai.onnx:Sub": 4,
+"ai.onnx:Unsqueeze": 56,
+"ai.onnx:Concat": 12,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Pad": 2,
+"ai.onnx:Expand": 4,
+"ai.onnx:ScatterND": 4,
+"ai.onnx:Conv": 2,
+"ai.onnx:Sigmoid": 4,
+"ai.onnx:Split": 2,
+"ai.onnx:Softplus": 2,
+"ai.onnx:Exp": 4,
+"ai.onnx:Neg": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 0
+},
+"zoo/tiny-sd-text": {
+"model": "tiny-sd/text_encoder.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 857,
+"ops": {
+"ai.onnx:Identity": 49,
+"ai.onnx:Shape": 29,
+"ai.onnx:Constant": 272,
+"ai.onnx:Gather": 29,
+"ai.onnx:Unsqueeze": 100,
+"ai.onnx:Concat": 56,
+"ai.onnx:Reshape": 55,
+"ai.onnx:Slice": 3,
+"ai.onnx:Add": 71,
+"ai.onnx:Sub": 12,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Cast": 5,
+"ai.onnx:Range": 2,
+"ai.onnx:Less": 1,
+"ai.onnx:Where": 2,
+"ai.onnx:Mul": 33,
+"ai.onnx:Equal": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:ReduceMean": 22,
+"ai.onnx:Pow": 11,
+"ai.onnx:Sqrt": 11,
+"ai.onnx:Div": 11,
+"ai.onnx:MatMul": 40,
+"ai.onnx:Transpose": 25,
+"ai.onnx:Softmax": 5,
+"ai.onnx:Sigmoid": 5,
+"ai.onnx:ArgMax": 1,
+"ai.onnx:Flatten": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 0
+},
+"zoo/tiny-sd-unet": {
+"model": "tiny-sd/unet.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 2043,
+"ops": {
+"ai.onnx:Identity": 88,
+"ai.onnx:Constant": 572,
+"ai.onnx:Unsqueeze": 165,
+"ai.onnx:Cast": 63,
+"ai.onnx:Shape": 94,
+"ai.onnx:Gather": 50,
+"ai.onnx:Concat": 69,
+"ai.onnx:Reshape": 123,
+"ai.onnx:ConstantOfShape": 1,
+"ai.onnx:Mul": 150,
+"ai.onnx:Equal": 1,
+"ai.onnx:Where": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:Sin": 1,
+"ai.onnx:Cos": 1,
+"ai.onnx:Slice": 26,
+"ai.onnx:Gemm": 14,
+"ai.onnx:Sigmoid": 27,
+"ai.onnx:Conv": 47,
+"ai.onnx:InstanceNormalization": 31,
+"ai.onnx:Add": 151,
+"ai.onnx:Div": 78,
+"ai.onnx:Transpose": 60,
+"ai.onnx:ReduceMean": 36,
+"ai.onnx:Sub": 18,
+"ai.onnx:Pow": 18,
+"ai.onnx:Sqrt": 54,
+"ai.onnx:MatMul": 84,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 6,
+"ai.onnx:Resize": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 6
+},
+"zoo/tiny-sd-vae": {
+"model": "tiny-sd/vae_decoder.onnx",
+"opset": {
+"ai.onnx": 14
+},
+"producer": "pytorch",
+"nodes": 319,
+"ops": {
+"ai.onnx:Identity": 22,
+"ai.onnx:Conv": 17,
+"ai.onnx:Constant": 82,
+"ai.onnx:Reshape": 34,
+"ai.onnx:InstanceNormalization": 14,
+"ai.onnx:Shape": 21,
+"ai.onnx:Mul": 30,
+"ai.onnx:Add": 25,
+"ai.onnx:Sigmoid": 13,
+"ai.onnx:Div": 9,
+"ai.onnx:Gather": 6,
+"ai.onnx:Unsqueeze": 15,
+"ai.onnx:Concat": 6,
+"ai.onnx:Transpose": 7,
+"ai.onnx:MatMul": 6,
+"ai.onnx:Cast": 6,
+"ai.onnx:Slice": 1,
+"ai.onnx:Sqrt": 3,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Resize": 1
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 2
+},
+"zoo/trunc-animegan-v2": {
+"model": "_trunc/animegan-v2.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "onnx.utils.extract_model",
+"nodes": 153,
+"ops": {
+"ai.onnx:Pad": 12,
+"ai.onnx:Conv": 20,
+"ai.onnx:Reshape": 40,
+"ai.onnx:InstanceNormalization": 20,
+"ai.onnx:Mul": 20,
+"ai.onnx:Add": 23,
+"ai.onnx:LeakyRelu": 16,
+"ai.onnx:Resize": 1,
+"ai.onnx:Shape": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 7
+},
+"zoo/trunc-convnext-tiny-q": {
+"model": "_trunc/convnext-tiny-q.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "onnx.utils.extract_model",
+"nodes": 41,
+"ops": {
+"ai.onnx:Constant": 4,
+"ai.onnx:Reshape": 2,
+"ai.onnx:DynamicQuantizeLinear": 3,
+"ai.onnx:Mul": 7,
+"ai.onnx:ConvInteger": 2,
+"ai.onnx:Cast": 4,
+"ai.onnx:Add": 6,
+"ai.onnx:ReduceMean": 4,
+"ai.onnx:Sub": 2,
+"ai.onnx:Pow": 2,
+"ai.onnx:Sqrt": 2,
+"ai.onnx:Div": 2,
+"ai.onnx:Transpose": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"UINT8"
+],
+"sizeMB": 0
+},
+"zoo/wav2vec2-base": {
+"model": "wav2vec2-base/model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 1389,
+"ops": {
+"ai.onnx:Unsqueeze": 133,
+"ai.onnx:Conv": 8,
+"ai.onnx:Constant": 371,
+"ai.onnx:Reshape": 98,
+"ai.onnx:InstanceNormalization": 1,
+"ai.onnx:Shape": 25,
+"ai.onnx:Mul": 91,
+"ai.onnx:Add": 172,
+"ai.onnx:Div": 46,
+"ai.onnx:Erf": 20,
+"ai.onnx:Transpose": 63,
+"ai.onnx:ReduceMean": 52,
+"ai.onnx:Sub": 26,
+"ai.onnx:Pow": 26,
+"ai.onnx:Sqrt": 26,
+"ai.onnx:MatMul": 98,
+"ai.onnx:Slice": 1,
+"ai.onnx:Gather": 24,
+"ai.onnx:Concat": 96,
+"ai.onnx:Softmax": 12
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 378
+},
+"zoo/whisper-decoder-past": {
+"model": "whisper-tiny/decoder_with_past_model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 830,
+"ops": {
+"ai.onnx:Shape": 27,
+"ai.onnx:Constant": 204,
+"ai.onnx:Gather": 28,
+"ai.onnx:Unsqueeze": 131,
+"ai.onnx:Concat": 81,
+"ai.onnx:Reshape": 73,
+"ai.onnx:Add": 72,
+"ai.onnx:Slice": 1,
+"ai.onnx:ReduceMean": 26,
+"ai.onnx:Sub": 13,
+"ai.onnx:Pow": 13,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:Div": 17,
+"ai.onnx:Mul": 37,
+"ai.onnx:MatMul": 49,
+"ai.onnx:Transpose": 33,
+"ai.onnx:Softmax": 8,
+"ai.onnx:Erf": 4
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 114
+},
+"zoo/whisper-decoder": {
+"model": "whisper-tiny/decoder_model.onnx",
+"opset": {
+"ai.onnx": 11
+},
+"producer": "pytorch",
+"nodes": 984,
+"ops": {
+"ai.onnx:Shape": 30,
+"ai.onnx:Constant": 247,
+"ai.onnx:Gather": 28,
+"ai.onnx:Unsqueeze": 170,
+"ai.onnx:Concat": 92,
+"ai.onnx:Reshape": 91,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Slice": 3,
+"ai.onnx:Squeeze": 2,
+"ai.onnx:Cast": 3,
+"ai.onnx:Range": 1,
+"ai.onnx:Add": 80,
+"ai.onnx:Less": 1,
+"ai.onnx:Where": 2,
+"ai.onnx:Mul": 38,
+"ai.onnx:Equal": 1,
+"ai.onnx:Expand": 1,
+"ai.onnx:ReduceMean": 26,
+"ai.onnx:Sub": 13,
+"ai.onnx:Pow": 13,
+"ai.onnx:Sqrt": 13,
+"ai.onnx:Div": 17,
+"ai.onnx:MatMul": 57,
+"ai.onnx:Transpose": 41,
+"ai.onnx:Softmax": 8,
+"ai.onnx:Erf": 4
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 118
+},
+"zoo/yolo11n": {
+"model": "yolo11n/yolo11n.onnx",
+"opset": {
+"ai.onnx": 19
+},
+"producer": "pytorch",
+"nodes": 320,
+"ops": {
+"ai.onnx:Conv": 88,
+"ai.onnx:Sigmoid": 78,
+"ai.onnx:Mul": 79,
+"ai.onnx:Split": 11,
+"ai.onnx:Add": 16,
+"ai.onnx:Concat": 23,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Transpose": 3,
+"ai.onnx:MatMul": 2,
+"ai.onnx:Softmax": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Slice": 2,
+"ai.onnx:Sub": 2,
+"ai.onnx:Div": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 11
+},
+"zoo/yolos-tiny": {
+"model": "yolos-tiny/model.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 1306,
+"ops": {
+"ai.onnx:Shape": 103,
+"ai.onnx:Constant": 305,
+"ai.onnx:Gather": 99,
+"ai.onnx:Conv": 1,
+"ai.onnx:Slice": 3,
+"ai.onnx:Concat": 56,
+"ai.onnx:Reshape": 52,
+"ai.onnx:Transpose": 50,
+"ai.onnx:Unsqueeze": 100,
+"ai.onnx:ConstantOfShape": 2,
+"ai.onnx:Mul": 51,
+"ai.onnx:Equal": 2,
+"ai.onnx:Where": 2,
+"ai.onnx:Expand": 2,
+"ai.onnx:Div": 51,
+"ai.onnx:Cast": 5,
+"ai.onnx:Resize": 1,
+"ai.onnx:Add": 165,
+"ai.onnx:ReduceMean": 50,
+"ai.onnx:Sub": 25,
+"ai.onnx:Pow": 25,
+"ai.onnx:Sqrt": 25,
+"ai.onnx:MatMul": 102,
+"ai.onnx:Softmax": 12,
+"ai.onnx:Erf": 12,
+"ai.onnx:Relu": 4,
+"ai.onnx:Sigmoid": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 26
+},
+"zoo/yolov10n-int8": {
+"model": "yolov10n-int8/model_int8.onnx",
+"opset": {
+"ai.onnx": 13
+},
+"producer": "onnx.quantize",
+"nodes": 799,
+"ops": {
+"ai.onnx:DynamicQuantizeLinear": 78,
+"ai.onnx:Reshape": 90,
+"ai.onnx:Mul": 237,
+"ai.onnx:ConvInteger": 83,
+"ai.onnx:Cast": 84,
+"ai.onnx:Add": 93,
+"ai.onnx:Sigmoid": 70,
+"ai.onnx:Split": 13,
+"ai.onnx:Concat": 21,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Transpose": 4,
+"ai.onnx:MatMul": 2,
+"ai.onnx:Softmax": 2,
+"ai.onnx:Resize": 2,
+"ai.onnx:Sub": 1,
+"ai.onnx:ReduceMax": 1,
+"ai.onnx:TopK": 2,
+"ai.onnx:Unsqueeze": 4,
+"ai.onnx:Tile": 3,
+"ai.onnx:GatherElements": 3,
+"ai.onnx:Flatten": 1,
+"ai.onnx:Mod": 1,
+"ai.onnx:Div": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64",
+"INT8"
+],
+"sizeMB": 3
+},
+"zoo/yolov8n-pose": {
+"model": "yolov8n-pose/yolov8n-pose.onnx",
+"opset": {
+"ai.onnx": 17
+},
+"producer": "pytorch",
+"nodes": 311,
+"ops": {
+"ai.onnx:Conv": 73,
+"ai.onnx:Sigmoid": 65,
+"ai.onnx:Mul": 68,
+"ai.onnx:Constant": 38,
+"ai.onnx:Split": 9,
+"ai.onnx:Add": 10,
+"ai.onnx:Concat": 21,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Resize": 2,
+"ai.onnx:Reshape": 10,
+"ai.onnx:Transpose": 1,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Shape": 1,
+"ai.onnx:Gather": 1,
+"ai.onnx:Div": 2,
+"ai.onnx:Slice": 4,
+"ai.onnx:Sub": 2
+},
+"weightTypes": [
+"FLOAT"
+],
+"sizeMB": 13
+},
+"zoo/yolov8n": {
+"model": "yolov8n/yolov8n.onnx",
+"opset": {
+"ai.onnx": 12
+},
+"producer": "pytorch",
+"nodes": 234,
+"ops": {
+"ai.onnx:Conv": 64,
+"ai.onnx:Sigmoid": 58,
+"ai.onnx:Mul": 58,
+"ai.onnx:Split": 8,
+"ai.onnx:Add": 8,
+"ai.onnx:Concat": 17,
+"ai.onnx:MaxPool": 3,
+"ai.onnx:Resize": 2,
+"ai.onnx:Reshape": 8,
+"ai.onnx:Transpose": 2,
+"ai.onnx:Softmax": 1,
+"ai.onnx:Slice": 2,
+"ai.onnx:Sub": 2,
+"ai.onnx:Div": 1
+},
+"weightTypes": [
+"FLOAT",
+"INT64"
+],
+"sizeMB": 13
+}
+}
