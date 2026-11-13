@@ -13,7 +13,7 @@ internal static class OnnxFold
         "Where", "Gather", "Unsqueeze", "Squeeze", "Concat", "Slice", "Reshape", "Flatten", "Transpose", "Expand", "Range", "ConstantOfShape", "Split",
         "ReduceProd", "ReduceSum", "ReduceMean", "ReduceMax", "ReduceMin", "Clip",
         "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh", "Round", "Sign", "Softplus", "Softsign", "Mod", "IsNaN", "IsInf",
-        "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin",
+        "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin", "BatchNormalization",
     ];
 
     private static readonly Dictionary<string, Func<double, double>> s_math = new()
@@ -165,6 +165,8 @@ internal static class OnnxFold
                 return [UnF(Input(n, ins, 0), Erf)];
             case "Clip":
                 return FoldClip(n, ins);
+            case "BatchNormalization":
+                return FoldBatchNorm(n, ins);
             case "Where":
                 return FoldWhere(n, ins);
             case "Gather":
@@ -442,6 +444,25 @@ internal static class OnnxFold
         double lo = n.Has("min") ? n.Float("min", 0) : Optional(ins, 1) is { } l ? l.Floats()[0] : double.NegativeInfinity;
         double hi = n.Has("max") ? n.Float("max", 0) : Optional(ins, 2) is { } h ? h.Floats()[0] : double.PositiveInfinity;
         return [Un(Input(n, ins, 0), v => Math.Min(Math.Max(v, lo), hi), v => (long)Math.Min(Math.Max(v, lo), hi))];
+    }
+
+    /// <summary>Inference-mode BatchNormalization over axis 1 (e.g. weight standardization of BiT convolutions).</summary>
+    private static IReadOnlyList<OnnxConst> FoldBatchNorm(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        var (scale, bias, mean, variance) = (Input(n, ins, 1).Floats(), Input(n, ins, 2).Floats(), Input(n, ins, 3).Floats(), Input(n, ins, 4).Floats());
+        double epsilon = n.Float("epsilon", 1e-5f);
+        long channels = x.Rank > 1 ? x.Dims[1] : 1;
+        long inner = x.Rank > 2 ? x.Dims.Skip(2).Aggregate(1L, (a, b) => a * b) : 1;
+        var values = x.Floats();
+        var result = new double[values.Length];
+        for (long i = 0; i < result.Length; i++)
+        {
+            long c = i / inner % channels;
+            result[i] = (values[i] - mean[c]) / Math.Sqrt(variance[c] + epsilon) * scale[c] + bias[c];
+        }
+
+        return [OnnxConst.FromFloats(x.ElemType, x.Dims, result)];
     }
 
     private static IReadOnlyList<OnnxConst> FoldWhere(OnnxNode n, IReadOnlyList<OnnxConst?> ins)

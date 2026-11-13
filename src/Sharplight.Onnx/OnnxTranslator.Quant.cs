@@ -153,6 +153,14 @@ internal sealed partial class OnnxTranslator
     {
         string name = Nm(n);
         var a = ShiftZp(ins[0]!, Opt(ins, 2), name);
+        if (!ins[1]!.IsConst)
+        {
+            // Runtime B (e.g. attention scores of dynamically quantized activations): subtract its zero point and multiply as f32.
+            var shifted = Opt(ins, 3) is { } zeroPoint ? Synthetic("Sub", [ins[1]!, zeroPoint]) : ins[1]!;
+            _env[n.Outputs[0]] = Synthetic("MatMul", [TranslatedTensor.Dyn(a), shifted]);
+            return;
+        }
+
         var bConst = ConstIn(ins, 1, "MatMulInteger B");
         var bZeroPoint = OptConst(ins, 3, "b zero point");
         var b = DequantConst(bConst, OnnxConst.Scalar(1f), bZeroPoint, bConst.Rank - 1);   // per-column zero points when bZeroPoint is a vector
