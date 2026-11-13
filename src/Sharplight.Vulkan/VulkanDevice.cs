@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Shaders;
@@ -90,11 +92,32 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             SubmissionBudgetMs = Math.Max(0, budgetMs);
         }
 
-        var iapi = inst.Api;
+        QueueFamily = SelectComputeQueueFamily(inst.Api, phys);
+        var device = CreateLogicalDevice(inst.Api, out _budgetExt);
+        Handle = device;
+        Api = new VkDeviceApi(inst.Api, device);
+        VkQueue queue;
+        Api.vkGetDeviceQueue(QueueFamily, 0, &queue);
+        Queue = queue;
 
-        QueueFamily = SelectComputeQueueFamily(iapi, phys);
+        CommandPool = CreateCommandPool();
 
-        // ---- features -----------------------------------------------------------------------------
+        PushConstantSize = Math.Min(MaxKernelPushConstantBytes, phys.MaxPushConstants);
+        PipelineLayout = CreatePipelineLayout();
+
+        Memory = new MemoryAllocator(this);
+        _budget = options.MemoryBudget ?? (long)(phys.DeviceLocalBytes * 0.92);
+        _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
+        Compiler = new SlangCompiler(_kernelCacheDirectory);
+    }
+
+    /// <summary>Prefers a dedicated compute queue (async compute), else any queue with compute.</summary>
+    /// <summary>
+    /// Creates the logical device with the enabled features and extensions chained into one feature structure.
+    /// <paramref name="memoryBudgetExt"/> reports whether VK_EXT_memory_budget was enabled.
+    /// </summary>
+    private VkDevice CreateLogicalDevice(VkInstanceApi instanceApi, out bool memoryBudgetExt)
+    {
         var f13 = new VkPhysicalDeviceVulkan13Features
         {
             subgroupSizeControl = Has(DeviceFeatures.SubgroupSizeControl),
@@ -104,14 +127,14 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         };
         var f12 = new VkPhysicalDeviceVulkan12Features
         {
-            pNext = phys.ApiVersion >= VkVersion.Version_1_3 ? &f13 : null,
+            pNext = Phys.ApiVersion >= VkVersion.Version_1_3 ? &f13 : null,
             bufferDeviceAddress = true,
             storageBuffer8BitAccess = true,
             uniformAndStorageBuffer8BitAccess = true,
             shaderInt8 = true,
             shaderFloat16 = Has(DeviceFeatures.Float16),
-            vulkanMemoryModel = phys.VulkanMemoryModel,
-            vulkanMemoryModelDeviceScope = phys.VulkanMemoryModel,
+            vulkanMemoryModel = Phys.VulkanMemoryModel,
+            vulkanMemoryModelDeviceScope = Phys.VulkanMemoryModel,
             scalarBlockLayout = true,
             timelineSemaphore = true,
         };
@@ -152,8 +175,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         float prio = 1f;
         var qci = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &prio };
         var exts = new List<string>();
-        _budgetExt = phys.MemoryBudgetExt && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.MemoryBudget) && !options.DisabledFeatures.Contains(DeviceFeatures.MemoryBudget);
-        if (_budgetExt)
+        memoryBudgetExt = Phys.MemoryBudgetExt && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.MemoryBudget) && !Options.DisabledFeatures.Contains(DeviceFeatures.MemoryBudget);
+        if (memoryBudgetExt)
         {
             exts.Add("VK_EXT_memory_budget");
         }
@@ -173,44 +196,29 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             exts.Add("VK_KHR_shader_bfloat16");
         }
 
-        var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();
+        var extNames = exts.Select(e => (nint)Marshal.StringToHGlobalAnsi(e)).ToArray();
         var dci = new VkDeviceCreateInfo { pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci };
         fixed (nint* en = extNames)
         {
             dci.enabledExtensionCount = (uint)extNames.Length;
             dci.ppEnabledExtensionNames = (byte**)en;
         }
-        VkDevice dev;
+        VkDevice device;
         try
         {
-            iapi.vkCreateDevice(phys.Handle, &dci, null, &dev).CheckResult();
+            instanceApi.vkCreateDevice(Phys.Handle, &dci, null, &device).CheckResult();
         }
         finally
         {
             foreach (var name in extNames)
             {
-                System.Runtime.InteropServices.Marshal.FreeHGlobal(name);
+                Marshal.FreeHGlobal(name);
             }
         }
 
-        Handle = dev;
-        Api = new VkDeviceApi(iapi, dev);
-        VkQueue queue;
-        Api.vkGetDeviceQueue(QueueFamily, 0, &queue);
-        Queue = queue;
-
-        CommandPool = CreateCommandPool();
-
-        PushConstantSize = Math.Min(MaxKernelPushConstantBytes, phys.MaxPushConstants);
-        PipelineLayout = CreatePipelineLayout();
-
-        Memory = new MemoryAllocator(this);
-        _budget = options.MemoryBudget ?? (long)(phys.DeviceLocalBytes * 0.92);
-        _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
-        Compiler = new SlangCompiler(_kernelCacheDirectory);
+        return device;
     }
 
-    /// <summary>Prefers a dedicated compute queue (async compute), else any queue with compute.</summary>
     private static uint SelectComputeQueueFamily(VkInstanceApi api, PhysicalDeviceInfo phys)
     {
         uint count = 0;
@@ -254,7 +262,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
-        var swLower = System.Diagnostics.Stopwatch.StartNew();
+        var swLower = Stopwatch.StartNew();
         var cache = options.CacheFor?.Invoke(this);
         EnsurePipelineCache(cache);
         var program = GraphLowerer.Lower(segment, Compiler, new LoweringOptions
@@ -267,12 +275,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             SubmissionBudgetMs = SubmissionBudgetMs,
             Cache = cache,
         });
-        foreach (var l in program.Launches.Concat(program.ResetLaunches))
+        // Distinct kernels of the program, in launch order (variants of different launches often share one).
+        var kernels = program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey).ToList();
+        foreach (var kernel in kernels)
         {
-            foreach (var v in l.Variants)
-            {
-                _kernels.TryAdd(v.Kernel.CacheKey, v.Kernel);
-            }
+            _kernels.TryAdd(kernel.CacheKey, kernel);
         }
 
         if (DiagnosticSwitches.LoadTiming)
@@ -281,7 +288,6 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         // Slang keeps compiling in the background while the weights upload; pipelines are created as the kernels complete.
-        var kernels = program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey).ToList();
         var pipelines = Task.Run(() => CreatePipelines(kernels));
         VulkanSegment compiled;
         try
@@ -294,12 +300,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             throw;
         }
 
-        var swWait = System.Diagnostics.Stopwatch.StartNew();
+        var swWait = Stopwatch.StartNew();
         pipelines.GetAwaiter().GetResult();
         SavePipelineCache();
         if (DiagnosticSwitches.LoadTiming)
         {
-            Console.Error.WriteLine($"[load] kernels and pipelines segment {segment.Index}: waited {swWait.ElapsedMilliseconds} ms for {kernels.Count} kernels; slang {SlangCompiler.Statistics}; {PipelinesCreated} pipelines, {(double)PipelineTicks / System.Diagnostics.Stopwatch.Frequency * 1000:F0} ms summed");
+            Console.Error.WriteLine($"[load] kernels and pipelines segment {segment.Index}: waited {swWait.ElapsedMilliseconds} ms for {kernels.Count} kernels; slang {SlangCompiler.Statistics}; {PipelinesCreated} pipelines, {(double)PipelineTicks / Stopwatch.Frequency * 1000:F0} ms summed");
         }
 
         return compiled;
@@ -447,7 +453,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     {
         // Waits for a kernel that is still compiling; that time is not pipeline creation.
         var spirv = kernel.Code;
-        long startTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        long startTicks = Stopwatch.GetTimestamp();
         try
         {
             VkShaderModule module;
@@ -484,7 +490,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
         finally
         {
-            Interlocked.Add(ref PipelineTicks, System.Diagnostics.Stopwatch.GetTimestamp() - startTicks);
+            Interlocked.Add(ref PipelineTicks, Stopwatch.GetTimestamp() - startTicks);
             Interlocked.Increment(ref PipelinesCreated);
         }
     }
