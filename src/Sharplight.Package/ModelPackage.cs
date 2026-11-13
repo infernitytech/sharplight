@@ -26,7 +26,9 @@ namespace Sharplight.Package;
 /// </remarks>
 public static class ModelPackage
 {
+    /// <summary>File extension of model packages, including the dot.</summary>
     public const string Extension = ".slm";
+    /// <summary>Format version written by <see cref="Save"/>; packages with another version are rejected when opened.</summary>
     public const int Version = 1;
     internal static ReadOnlySpan<byte> Magic => "SHARPLM\0"u8;
     internal const int HeaderSize = 64;
@@ -42,6 +44,12 @@ public static class ModelPackage
     /// <c>LlmModel.ExportCompilation()</c>) to a new package file. Works for any source format (GGUF, Hugging Face,
     /// ONNX, ...): loading a package needs neither the original importer nor an architecture adapter.
     /// </summary>
+    /// <param name="path">Destination file; written through a temporary file, so an existing file is replaced atomically.</param>
+    /// <param name="definition">The built model; its weights are read and copied into the package.</param>
+    /// <param name="targets">Compilation caches to store, one per device target; may be empty.</param>
+    /// <param name="log">Receives progress messages, or <see langword="null"/>.</param>
+    /// <exception cref="IOException">The destination is the package the definition's weights are read from.</exception>
+    /// <exception cref="InvalidDataException">Two weights share a name, or a weight has a symbolic shape or a source of the wrong size.</exception>
     public static void Save(string path, ModelDefinition definition, IEnumerable<CompilationCache> targets, Action<string>? log = null)
     {
         if (definition.OwnedResources.OfType<PackageFile>().Any(f => Path.GetFullPath(f.Path) == Path.GetFullPath(path)))
@@ -156,6 +164,9 @@ public static class ModelPackage
     /// the package is open for reading in this or another process: existing bytes are never modified except the
     /// header's table pointer, which is switched last.
     /// </summary>
+    /// <param name="path">The existing package.</param>
+    /// <param name="targets">Caches to store; a stored cache of the same target is replaced.</param>
+    /// <exception cref="InvalidDataException">The file is not a supported package.</exception>
     public static void AddTargets(string path, IEnumerable<CompilationCache> targets)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);

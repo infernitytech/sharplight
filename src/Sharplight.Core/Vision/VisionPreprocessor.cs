@@ -154,7 +154,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             double f = count > 1 ? pos * (side - 1.0) / (count - 1) : 0;
             i0 = Math.Min((int)Math.Floor(f), side - 1);
             i1 = Math.Min(i0 + 1, side - 1);
-            w1 = (float)(f - i0); w0 = 1f - w1;
+            w1 = (float)(f - i0);
+            w0 = 1f - w1;
         }
         for (int i = 0; i < n; i++)
         {

@@ -13,10 +13,12 @@ namespace Sharplight.Architectures;
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
     private const string ImageToken = "<|image_pad|>";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
     private const int Axes = 4;
 
+    /// <inheritdoc/>
     public MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition)
     {
         int imagePad = context.RequireToken(ImageToken);

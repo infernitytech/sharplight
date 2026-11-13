@@ -30,9 +30,12 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class NemotronHAdapter : IModelAdapter
 {
+    /// <inheritdoc/>
     public string Name => "Nemotron-H (Mamba-2 / attention / MLP hybrid)";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["nemotron_h"];
 
+    /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;

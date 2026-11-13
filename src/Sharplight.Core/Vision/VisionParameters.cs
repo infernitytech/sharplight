@@ -146,12 +146,24 @@ public sealed record VisionParameters
     public void WriteProperties(IDictionary<string, object> props)
     {
         void Set(string k, object v) => props[PropertyPrefix + k] = v;
-        Set("layer_count", LayerCount); Set("hidden_size", HiddenSize); Set("ffn_hidden_size", FfnHiddenSize);
-        Set("head_count", HeadCount); Set("norm_eps", NormEps); Set("activation", Activation);
-        Set("patch_size", PatchSize); Set("temporal_patch_size", TemporalPatchSize); Set("in_channels", InChannels);
-        Set("spatial_merge_size", SpatialMergeSize); Set("position_embedding_count", PositionEmbeddingCount);
-        Set("rope.base", RopeBase); Set("out_hidden_size", OutHiddenSize); Set("merger.activation", MergerActivation);
-        Set("image_mean", ImageMean); Set("image_std", ImageStd); Set("min_pixels", MinPixels); Set("max_pixels", MaxPixels);
+        Set("layer_count", LayerCount);
+        Set("hidden_size", HiddenSize);
+        Set("ffn_hidden_size", FfnHiddenSize);
+        Set("head_count", HeadCount);
+        Set("norm_eps", NormEps);
+        Set("activation", Activation);
+        Set("patch_size", PatchSize);
+        Set("temporal_patch_size", TemporalPatchSize);
+        Set("in_channels", InChannels);
+        Set("spatial_merge_size", SpatialMergeSize);
+        Set("position_embedding_count", PositionEmbeddingCount);
+        Set("rope.base", RopeBase);
+        Set("out_hidden_size", OutHiddenSize);
+        Set("merger.activation", MergerActivation);
+        Set("image_mean", ImageMean);
+        Set("image_std", ImageStd);
+        Set("min_pixels", MinPixels);
+        Set("max_pixels", MaxPixels);
     }
 
     private void Validate()

@@ -130,7 +130,8 @@ public static class MultiSequence
                     attrs = attrs.With("slots", (long)slots);
                     break;
                 case "CachedAttention":
-                    ins.Add(rows); ins.Add(runs);
+                    ins.Add(rows);
+                    ins.Add(runs);
                     attrs = attrs.With("slots", (long)slots);
                     break;
                 case "CausalConv1d" or "GatedDeltaRule":

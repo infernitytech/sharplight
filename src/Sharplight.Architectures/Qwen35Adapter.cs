@@ -38,7 +38,9 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class Qwen35Adapter : IModelAdapter
 {
+    /// <inheritdoc/>
     public string Name => "Qwen3.5 hybrid (Gated DeltaNet + gated attention)";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
     private sealed record HParams(
@@ -47,6 +49,7 @@ public sealed class Qwen35Adapter : IModelAdapter
         int ConvKernel, int SsmState, int SsmGroups, int SsmDtRank, int SsmInner, int FullAttnInterval,
         int Vocab, int ContextLength);
 
+    /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
