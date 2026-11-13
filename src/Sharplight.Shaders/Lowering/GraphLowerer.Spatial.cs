@@ -263,6 +263,11 @@ public sealed partial class GraphLowerer
             return;
         }
 
+        if (TryLowerConvMatrix(n, x, w, bias, y, common, name))
+        {
+            return;
+        }
+
         bool aVec = w.Type.IsQuantized || K % 8 == 0;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
         Func<long, ConvCfg> choose = N => ChooseConv(N, OG, G, HW, K);

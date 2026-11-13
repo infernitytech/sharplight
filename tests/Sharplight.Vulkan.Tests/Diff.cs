@@ -24,7 +24,8 @@ internal static class Diff
         };
     }
 
-    private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx, IReadOnlySet<string>? disabledFeatures = null)
+    private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx, IReadOnlySet<string>? disabledFeatures = null,
+        bool allowReducedPrecision = false)
         => CompiledModel.Compile(g, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = dev }],
@@ -34,6 +35,7 @@ internal static class Diff
                 ContextLength = ctx,
                 SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens },
                 DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
+                AllowReducedPrecision = allowReducedPrecision,
             },
             ReservePerDevice = 0,
         });
@@ -63,13 +65,14 @@ internal static class Diff
     /// <summary>
     /// Runs all steps on both devices (state persists across steps) and compares every graph output.
     /// Returns the largest |a-b| seen. <paramref name="disabledFeatures"/> are turned off for the Vulkan compilation
-    /// (to exercise the portable fallback kernels on a device that has the features).
+    /// (to exercise the portable fallback kernels on a device that has the features); <paramref name="allowReducedPrecision"/>
+    /// lets the Vulkan compilation use reduced-precision products.
     /// </summary>
     public static double Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
-        IReadOnlySet<string>? disabledFeatures = null)
+        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures);
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision);
         CompiledModel cpu;
         try
         {
@@ -146,6 +149,6 @@ internal static class Diff
     }
 
     public static double Check(string op, ComputeGraph g, Step step, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
-        IReadOnlySet<string>? disabledFeatures = null)
-        => Check(op, g, [step], atol, rtol, maxTokens, ctx, what, disabledFeatures);
+        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false)
+        => Check(op, g, [step], atol, rtol, maxTokens, ctx, what, disabledFeatures, allowReducedPrecision);
 }
