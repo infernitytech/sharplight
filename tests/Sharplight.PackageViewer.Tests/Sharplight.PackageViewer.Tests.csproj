@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Avalonia.Headless" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../samples/Sharplight.PackageViewer/Sharplight.PackageViewer.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
+  </ItemGroup>
+</Project>

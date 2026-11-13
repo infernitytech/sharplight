@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Sharplight.PackageViewer.ViewModels"
+        xmlns:views="using:Sharplight.PackageViewer.Views"
+        x:Class="Sharplight.PackageViewer.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding Title}"
+        Width="1400" Height="900" MinWidth="800" MinHeight="500"
+        DragDrop.AllowDrop="True">
+  <DockPanel>
+    <Border DockPanel.Dock="Top" Padding="8,6" BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Button Content="Open..." Click="OnOpenClick" HotKey="Ctrl+O" ToolTip.Tip="Open a .slm package (Ctrl+O)" />
+        <TextBlock Grid.Column="1" Margin="12,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                   Text="{Binding Status}" />
+        <ProgressBar Grid.Column="2" Width="120" IsIndeterminate="True" IsVisible="{Binding IsLoading}" />
+      </Grid>
+    </Border>
+    <Panel>
+      <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Classes="caption"
+                 Text="Drop a .slm package here"
+                 IsVisible="{Binding Package, Converter={x:Static ObjectConverters.IsNull}}" />
+      <TabControl Padding="8,0,8,8" IsVisible="{Binding Package, Converter={x:Static ObjectConverters.IsNotNull}}">
+        <TabItem Header="Overview">
+          <views:OverviewView DataContext="{Binding Package.Overview}" />
+        </TabItem>
+        <TabItem Header="Graphs">
+          <views:GraphsView DataContext="{Binding Package.Graphs}" />
+        </TabItem>
+        <TabItem Header="Weights">
+          <views:WeightsView DataContext="{Binding Package.Weights}" />
+        </TabItem>
+        <TabItem Header="Artifacts">
+          <views:ArtifactsView DataContext="{Binding Package.Artifacts}" />
+        </TabItem>
+      </TabControl>
+    </Panel>
+  </DockPanel>
+</Window>

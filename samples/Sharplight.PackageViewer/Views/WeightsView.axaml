@@ -1,0 +1,32 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.PackageViewer.ViewModels"
+             x:Class="Sharplight.PackageViewer.Views.WeightsView"
+             x:DataType="vm:WeightsViewModel">
+  <Grid ColumnDefinitions="*,8,360" RowDefinitions="Auto,*" Margin="0,8,0,0">
+    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+      <TextBox Watermark="Filter (name, type, shape)" Text="{Binding Filter}" />
+      <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Text="{Binding Summary}" />
+    </Grid>
+    <DataGrid Grid.Row="1" ItemsSource="{Binding Weights}" IsReadOnly="True" GridLinesVisibility="Horizontal">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
+        <DataGridTextColumn Header="Type" Binding="{Binding Type}" />
+        <DataGridTextColumn Header="Shape" Binding="{Binding Shape}" />
+        <DataGridTextColumn Header="Size" Binding="{Binding Size}" SortMemberPath="Bytes" />
+        <DataGridTextColumn Header="Offset" Binding="{Binding Offset, StringFormat={}{0:N0}}" SortMemberPath="Offset" />
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <TextBlock Grid.Column="2" Classes="heading" Margin="0" VerticalAlignment="Center" Text="Totals per type" />
+    <DataGrid Grid.Column="2" Grid.Row="1" ItemsSource="{Binding TypeTotals}" IsReadOnly="True" GridLinesVisibility="Horizontal"
+              VerticalAlignment="Top">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Type" Binding="{Binding Type}" />
+        <DataGridTextColumn Header="Weights" Binding="{Binding Count}" />
+        <DataGridTextColumn Header="Size" Binding="{Binding Size}" SortMemberPath="Bytes" />
+        <DataGridTextColumn Header="Share" Binding="{Binding Percent, StringFormat={}{0:0.0} %}" SortMemberPath="Percent" Width="*" />
+      </DataGrid.Columns>
+    </DataGrid>
+  </Grid>
+</UserControl>

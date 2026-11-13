@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.PackageViewer.ViewModels"
+             x:Class="Sharplight.PackageViewer.Views.IrView"
+             x:DataType="vm:IrViewModel">
+  <UserControl.Styles>
+    <Style Selector="ListBox.code ListBoxItem">
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="ListBox.code">
+      <Setter Property="FontFamily" Value="monospace" />
+    </Style>
+  </UserControl.Styles>
+  <Grid ColumnDefinitions="*,8,380">
+    <Grid RowDefinitions="Auto,*">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="0,4">
+        <TextBlock Classes="heading" Margin="0,0,12,0" VerticalAlignment="Center" Text="IR" />
+        <TextBox Grid.Column="1" Watermark="Find in IR (Enter: next, Shift+Enter: previous)" Text="{Binding SearchText}">
+          <TextBox.KeyBindings>
+            <KeyBinding Gesture="Enter" Command="{Binding FindNextCommand}" />
+            <KeyBinding Gesture="Shift+Enter" Command="{Binding FindPreviousCommand}" />
+          </TextBox.KeyBindings>
+        </TextBox>
+        <Button Grid.Column="2" Margin="4,0,0,0" Content="Previous" Command="{Binding FindPreviousCommand}" />
+        <Button Grid.Column="3" Margin="4,0,0,0" Content="Next" Command="{Binding FindNextCommand}" />
+        <Button Grid.Column="4" Margin="4,0,0,0" Content="Back" Command="{Binding BackCommand}"
+                ToolTip.Tip="Return to the previously selected line" />
+        <TextBlock Grid.Column="5" Margin="8,0,0,0" MinWidth="80" VerticalAlignment="Center" Text="{Binding SearchStatus}" />
+      </Grid>
+      <ListBox Grid.Row="1" Classes="code" ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:IrLineRow">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Width="64" Margin="0,0,8,0" Classes="caption" TextAlignment="Right" Text="{Binding Number}" />
+              <TextBlock Text="{Binding Text}" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+
+    <Grid Grid.Column="2" RowDefinitions="Auto,Auto,Auto,*,Auto,*,Auto,2*">
+      <TextBlock Classes="heading" Text="Selected line" />
+      <SelectableTextBlock Grid.Row="1" FontFamily="monospace" TextWrapping="Wrap" MaxHeight="96"
+                           Text="{Binding SelectedLine.Text, FallbackValue=''}" />
+      <TextBlock Grid.Row="2" Classes="heading" Text="Reads (select to go to the producer)" />
+      <ListBox Grid.Row="3" Classes="code" ItemsSource="{Binding Producers}" SelectionChanged="OnReferenceSelected">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:IrReferenceRow">
+            <TextBlock TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Target.Text}">
+              <Run Text="{Binding Label}" FontWeight="SemiBold" />
+              <Run Text="{Binding Target.Preview}" />
+            </TextBlock>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="4" Classes="heading" Text="Used by" />
+      <ListBox Grid.Row="5" Classes="code" ItemsSource="{Binding Consumers}" SelectionChanged="OnReferenceSelected">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:IrReferenceRow">
+            <TextBlock TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Target.Text}">
+              <Run Text="{Binding Label}" FontWeight="SemiBold" />
+              <Run Text="{Binding Target.Preview}" />
+            </TextBlock>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <TextBlock Grid.Row="6" Classes="heading" Text="Dataflow neighborhood (&lt;&lt; producers, &gt;&gt; consumers)" />
+      <ListBox Grid.Row="7" Classes="code" ItemsSource="{Binding Neighborhood}" SelectionChanged="OnReferenceSelected">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:IrReferenceRow">
+            <TextBlock TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Target.Text}">
+              <Run Text="{Binding Label}" FontWeight="SemiBold" />
+              <Run Text="{Binding Target.Preview}" />
+            </TextBlock>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+  </Grid>
+</UserControl>

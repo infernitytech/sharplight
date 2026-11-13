@@ -24,6 +24,7 @@
     <Project Path="samples/Sharplight.Server/Sharplight.Server.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
+    <Project Path="samples/Sharplight.PackageViewer/Sharplight.PackageViewer.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
@@ -34,6 +35,7 @@
     <Project Path="tests/Sharplight.HuggingFace.Tests/Sharplight.HuggingFace.Tests.csproj" />
     <Project Path="tests/Sharplight.Onnx.Tests/Sharplight.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
+    <Project Path="tests/Sharplight.PackageViewer.Tests/Sharplight.PackageViewer.Tests.csproj" />
     <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Tokenizers.Tests/Sharplight.Tokenizers.Tests.csproj" />

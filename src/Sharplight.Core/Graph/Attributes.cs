@@ -84,6 +84,7 @@ public sealed class Attributes : IReadOnlyDictionary<string, object>
         float f => f.ToString("R", CultureInfo.InvariantCulture),
         double d => d.ToString("R", CultureInfo.InvariantCulture),
         Array a => "[" + string.Join(",", a.Cast<object>().Select(Format)) + "]",
+        ComputeGraph g => $"<graph {g.Name}>",
         _ => System.Convert.ToString(v, CultureInfo.InvariantCulture) ?? "",
     };
 }
