@@ -120,6 +120,19 @@ if (Opt("--bench") is { } benchArg)
 }
 var gen = new Generator(session, model.Tokenizer);
 var prompt = Opt("-p", "The capital of France is")!.Replace("\\n", "\n");
+// --logits out.bin: process the prompt, print token ids and the top-5 logits, store the last-token logits as raw float32.
+if (Opt("--logits") is { } logitsPath)
+{
+    var ids = model.Tokenizer.Encode(prompt, addSpecial: true, parseSpecial: true);
+    var lg = session.Process(ids);
+    File.WriteAllBytes(logitsPath, System.Runtime.InteropServices.MemoryMarshal.AsBytes<float>(lg).ToArray());
+    Console.WriteLine("ids: " + string.Join(",", ids));
+    foreach (var i in Enumerable.Range(0, lg.Length).OrderByDescending(i => lg[i]).Take(5)) Console.WriteLine($"  {i} {lg[i]:F4} {model.Tokenizer.Decode([i])}");
+    session.Dispose();
+    foreach (var d in slots) d.Device.Dispose();
+    fallback?.Device.Dispose();
+    return;
+}
 float temp = float.Parse(Opt("--temp", "0")!, System.Globalization.CultureInfo.InvariantCulture);
 var options = new GenerationOptions
 {

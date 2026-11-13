@@ -38,6 +38,10 @@ internal sealed record PreTokenizerPreset(PreTokenizer Splitter, bool IgnoreMerg
             case "lfm2":
                 return new(new RegexFamilySplitter(RegexFamilySplitter.Kind.Llama, true, 3, false), true, false);
 
+            // llama.cpp: digits are split individually first, then the GPT-2 expression (without its trailing "\\s+" alternative).
+            case "smollm" or "codeshell" or "exaone" or "minerva":
+                return new(new DefaultRegexStages([@"\p{N}", $@"'s|'t|'re|'ve|'m|'ll|'d| ?\p{{L}}+| ?\p{{N}}+| ?[^{DefaultRegexStages.Ws}\p{{L}}\p{{N}}]+|[{DefaultRegexStages.Ws}]+(?![^{DefaultRegexStages.Ws}])"]), false, false);
+
             case "gpt-2" or "gpt2" or "phi-2" or "jina-es" or "jina-de" or "gigachat" or "jina-v2-es" or "jina-v2-de"
                 or "a.x-4.0" or "mellum" or "modern-bert" or "mpt" or "olmo" or "jais" or "trillion" or "granite-docling":
                 return new(new RegexFamilySplitter(RegexFamilySplitter.Kind.Gpt2, false, 0, false), false, false);
@@ -197,17 +201,24 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
 /// </summary>
 internal sealed class DefaultRegexStages : PreTokenizer
 {
-    public static readonly DefaultRegexStages Instance = new();
+    public DefaultRegexStages() { _stages = DefaultStages; }
 
-    private const string Ws = @"\t\n\v\f\r \u0085   -     　";
+    /// <summary>A splitter with its own successive regex stages (same semantics as the default one).</summary>
+    public DefaultRegexStages(string[] stagePatterns) { _stages = stagePatterns.Select(New).ToArray(); }
 
-    private readonly Regex[] _stages =
+    internal const string Ws = @"\t\n\v\f\r \u0085   -     　";
+
+    private readonly Regex[] _stages;
+
+    private static readonly Regex[] DefaultStages =
     [
         New(@"[\p{P}\$\+<=>\^~\|]+"),
         New($@"'s|'t|'re|'ve|'m|'ll|'d| ?\p{{L}}+| ?\p{{N}}+| ?[^{Ws}\p{{L}}\p{{N}}]+|[{Ws}]+(?![^{Ws}])"),
         New(@"\p{N}+"),
         New(@"[0-9][0-9][0-9]"),
     ];
+
+    public static readonly DefaultRegexStages Instance = new();
 
     private static Regex New(string p) => new(p, RegexOptions.CultureInvariant | RegexOptions.Compiled);
 

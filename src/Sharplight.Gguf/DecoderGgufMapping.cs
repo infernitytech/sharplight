@@ -37,12 +37,12 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping
             [a + "rope.dim"] = g.Int("rope.dimension_count", headDim),
             [a + "rope.base"] = g.Has("rope.freq_base") ? g.Float("rope.freq_base") : 10000f,
             [a + "rope.style"] = "neox",
+            [a + "mlp.activation"] = IsGemma(arch) ? "gelu_tanh" : "silu",
         };
         if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
 
         if (IsGemma(arch))
         {
-            md[a + "mlp.activation"] = "gelu_tanh";
             md[a + "embedding_scale"] = MathF.Sqrt(nEmbd);
             // llama.cpp: 1/sqrt(head_dim), except the 27B-class models (n_embd/n_head).
             bool big = arch == "gemma2" ? g.Int("block_count") == 46 : g.Int("block_count") == 62;

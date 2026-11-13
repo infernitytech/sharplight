@@ -65,7 +65,9 @@ public static class HfTokenizerTranslator
             }
         int maxId = vocab.Count == 0 ? -1 : vocab.Values.Max();
         int vocabSize = config.GetInt("vocab_size") ?? vocab.Count;
-        if (maxId >= vocabSize) throw new InvalidDataException($"Tokenizer has token id {maxId} but vocab_size is {vocabSize}.");
+        // Tokens beyond the model's embedding table cannot be produced or fed (e.g. Gemma 3's extra added token): drop them.
+        if (maxId >= vocabSize)
+            foreach (var id in vocab.Where(kv => kv.Value >= vocabSize).Select(kv => kv.Key).ToList()) vocab.Remove(id);
 
         var reverse = new Dictionary<int, string>(vocab.Count);
         foreach (var (t, id) in vocab) reverse[id] = t;
