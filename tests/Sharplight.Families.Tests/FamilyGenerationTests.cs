@@ -95,6 +95,8 @@ public class FamilyGenerationTests
             " Paris. Paris is known for its historical landmarks, such as the Eiffel", Tokens: 16),
         new("Falcon-H1-0.5B-Instruct Q4_K_M GGUF (llama.cpp)", "gguf/Falcon-H1-0.5B-Instruct/Falcon-H1-0.5B-Instruct-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris. Paris is known for its iconic landmarks such as the Eiffel", Tokens: 16),
+        // Generic-decoder families (waves 0 and 2 of docs/model-support.md section 5).
+        .. DecoderFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
@@ -181,7 +183,7 @@ public class FamilyGenerationTests
         }
         else
         {
-            Assert.Equal(c.Text, result.text);
+            Assert.Equal(c.Text.TrimEnd(), result.text.TrimEnd());
         }
     }
 

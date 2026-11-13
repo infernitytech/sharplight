@@ -13,11 +13,11 @@ internal sealed partial class DecoderGraphBuilder
         Dictionary<int, (Value K, Value V)> packedKv)
     {
         int headDim = _hp.HeadDimOf(il);
+        int heads = _hp.HeadsOf(il);
         var rotate = RotationOf(b, il, positions, freqFactors);
 
-        var q = b.Linear(h, p + "attention.q.weight", p + "attention.q.bias");
-        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), _hp.NHead, headDim);
-        q = rotate(q);
+        var q = ClipQkv(b, b.Linear(h, p + "attention.q.weight", p + "attention.q.bias"));
+        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), heads, headDim, rotate);
 
         if (_hp.KvSourceOf(il) == il)
         {
@@ -38,11 +38,15 @@ internal sealed partial class DecoderGraphBuilder
             // Packed sequences: causal within each sequence; sliding windows are not applied (inputs are short).
             var (packedK, packedV) = packedKv[_hp.KvSourceOf(il)];
             var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, causal: true, _hp.SoftCap, $"{p}attn");
-            return AttentionOutput(b, packed, h, p, headDim);
+            return AttentionOutput(b, packed, h, p, heads, headDim);
         }
 
-        return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, headDim);
+        return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, heads, headDim);
     }
+
+    /// <summary>Clamps a q/k/v projection to ±<c>attention.clip_qkv</c> (OLMo 1) when the model asks for it.</summary>
+    private Value ClipQkv(GraphBuilder b, Value projection)
+        => _hp.ClipQkv > 0 ? b.Emit1("Clip", [projection], Attributes.From(("min", -_hp.ClipQkv), ("max", _hp.ClipQkv))) : projection;
 
     /// <summary>Returns the rotary embedding to apply to q and k of a layer (identity for NoPE layers).</summary>
     private Func<Value, Value> RotationOf(GraphBuilder b, int il, Value positions, Value? freqFactors)
@@ -59,11 +63,11 @@ internal sealed partial class DecoderGraphBuilder
     }
 
     /// <summary>
-    /// Splits a projection into heads and applies the q/k norm. The norm weight covers either the whole projection (heads · head
-    /// dimension entries, applied before the split) or one head (head dimension entries, applied after it); without a weight an
-    /// unweighted norm is applied when the model asks for one.
+    /// Splits a projection into heads, applies the q/k norm and the rotary embedding (norm first, or rotation first when the model
+    /// norms after rope). The norm weight covers either the whole projection (heads · head dimension entries, applied before the split)
+    /// or one head (head dimension entries, applied after it); without a weight an unweighted norm is applied when the model asks for one.
     /// </summary>
-    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, int heads, int headDim)
+    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, int heads, int headDim, Func<Value, Value> rotate)
     {
         var x = projection;
         if (normWeight is { } wholeNorm && wholeNorm.Shape[0].Fixed != headDim)
@@ -72,16 +76,23 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         x = b.Reshape(x, 0, heads, headDim);
-        if (normWeight is { } headNorm && headNorm.Shape[0].Fixed == headDim)
+        if (_hp.QkNormAfterRope)
         {
-            x = b.RmsNorm(x, headNorm, _hp.Eps);
-        }
-        else if (normWeight is null && _hp.QkNormUnweighted)
-        {
-            x = b.RmsNorm(x, null, _hp.Eps);
+            return NormHead(b, rotate(x), normWeight, headDim);
         }
 
-        return x;
+        return rotate(NormHead(b, x, normWeight, headDim));
+    }
+
+    // The per-head part of the q/k norm: a head-sized weight, or an unweighted norm when the model asks for one and has no weight.
+    private Value NormHead(GraphBuilder b, Value x, Value? normWeight, int headDim)
+    {
+        if (normWeight is { } headNorm && headNorm.Shape[0].Fixed == headDim)
+        {
+            return b.RmsNorm(x, headNorm, _hp.Eps);
+        }
+
+        return normWeight is null && _hp.QkNormUnweighted ? b.RmsNorm(x, null, _hp.Eps) : x;
     }
 
     /// <summary>Projects the layer input to rotated keys and values (k = v layers reuse the key projection for values).</summary>
@@ -89,16 +100,16 @@ internal sealed partial class DecoderGraphBuilder
     {
         int headDim = _hp.HeadDimOf(il);
         int kvHeads = _hp.KvHeadsOf(il);
-        var keyProjection = b.Linear(h, p + "attention.k.weight", p + "attention.k.bias");
-        var valueProjection = b.HasWeight(p + "attention.v.weight") ? b.Linear(h, p + "attention.v.weight", p + "attention.v.bias") : keyProjection;
+        var keyProjection = ClipQkv(b, b.Linear(h, p + "attention.k.weight", p + "attention.k.bias"));
+        var valueProjection = b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, b.Linear(h, p + "attention.v.weight", p + "attention.v.bias")) : keyProjection;
         var v = b.Reshape(valueProjection, 0, kvHeads, headDim);
         if (_hp.VNorm)
         {
             v = b.RmsNorm(v, null, _hp.Eps);
         }
 
-        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), kvHeads, headDim);
-        return (rotate(k), v);
+        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), kvHeads, headDim, rotate);
+        return (k, v);
     }
 
     /// <summary>Attention of the queries against the layer's KV cache, honouring window, soft cap and sinks.</summary>
@@ -128,9 +139,9 @@ internal sealed partial class DecoderGraphBuilder
     }
 
     /// <summary>Flattens the heads, applies the optional sigmoid output gate and the output projection.</summary>
-    private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int headDim)
+    private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int heads, int headDim)
     {
-        var flat = b.Reshape(attention, 0, _hp.NHead * headDim);
+        var flat = b.Reshape(attention, 0, heads * headDim);
         if (b.HasWeight(p + "attention.gate.weight"))
         {
             flat = b.Mul(flat, b.Sigmoid(b.Linear(layerInput, p + "attention.gate.weight")));

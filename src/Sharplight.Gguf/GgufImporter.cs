@@ -79,6 +79,7 @@ public sealed class GgufImporter : IModelImporter
             string architecture = mapping.ResolveArchitecture(view);
             var metadata = MapMetadata(files.Metadata, mapping, view);
             metadata[CanonicalKeys.Architecture] = architecture;
+            mapping.RefineHyperParameters(metadata, view, weights);
             return new ModelSource
             {
                 Format = "gguf",
