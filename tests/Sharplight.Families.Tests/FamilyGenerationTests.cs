@@ -73,6 +73,11 @@ public class FamilyGenerationTests
         // Qwen3-Next: fused in_proj_qkvz / in_proj_ba, value heads grouped by key head, plain partial RoPE.
         new("tiny-random-qwen3-next-moe HF (transformers)", "hf/tiny-random-qwen3-next-moe", "The capital of France is", "ids",
             [32652, 49041, 83843, 51624, 109256, 116828, 29463, 49041, 22433, 245, 143247, 28709, 49988, 109256, 51255, 117540], ""),
+        // Qwen3.6-35B-A3B (qwen35moe, 256 experts top-8) and Qwen3-Coder-Next (qwen3next, 512 experts top-10, MXFP4 shared expert).
+        new("Qwen3.6-35B-A3B UD-Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
+        new("Qwen3-Coder-Next Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", Large: true, Tokens: 16),
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)

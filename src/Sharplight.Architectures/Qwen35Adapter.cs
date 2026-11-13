@@ -6,10 +6,11 @@ using Sharplight.Vision;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// Qwen3.5 / Qwen3.6 / Qwen3.8 dense hybrid architecture (canonical arch <c>qwen3_5</c>):
-/// every <c>full_attention_interval</c>-th layer is gated softmax attention with partial interleaved
-/// M-RoPE; all others are Gated DeltaNet linear-attention layers with a short causal conv.
-/// Optional MTP layers are exposed as an auxiliary draft graph later.
+/// Qwen3.5 / Qwen3.6 / Qwen3.8 hybrid architecture, dense and MoE, and Qwen3-Next (canonical arch <c>qwen3_5</c>):
+/// every <c>full_attention_interval</c>-th layer is gated softmax attention with partial (interleaved M-)RoPE; all others are
+/// Gated DeltaNet linear-attention layers with a short causal conv. The feed-forward block is a dense SwiGLU MLP or routed
+/// experts plus a sigmoid-gated shared expert (<see cref="MoeBlock"/>). Optional MTP layers are exposed as an auxiliary draft
+/// graph later.
 /// </summary>
 /// <remarks>
 /// Canonical description consumed (importers translate their formats into exactly this):
@@ -17,17 +18,22 @@ namespace Sharplight.Architectures;
 /// <item>Hyper-parameters (<c>qwen3_5.*</c>): <c>layer_count</c> (trunk, without MTP), <c>hidden_size</c>,
 /// <c>ffn_hidden_size</c>, <c>context_length</c>, <c>norm_eps</c>, <c>attention.head_count</c>,
 /// <c>attention.kv_head_count</c>, <c>attention.head_dim</c>, <c>rope.dim</c>, <c>rope.base</c>,
-/// <c>rope.sections</c> (4 M-RoPE axes), <c>full_attention_interval</c>, <c>linear_attention.conv_kernel</c>,
-/// <c>linear_attention.key_head_count</c>, <c>linear_attention.key_head_dim</c>,
-/// <c>linear_attention.value_head_count</c>, <c>linear_attention.value_head_dim</c>, <c>mtp.layer_count</c>.</item>
+/// <c>rope.sections</c> (4 M-RoPE axes; absent: plain RoPE over one position axis), <c>full_attention_interval</c>,
+/// <c>linear_attention.conv_kernel</c>, <c>linear_attention.key_head_count</c>, <c>linear_attention.key_head_dim</c>,
+/// <c>linear_attention.value_head_count</c>, <c>linear_attention.value_head_dim</c>,
+/// <c>linear_attention.grouped_value_heads</c> (bool, default false), <c>mtp.layer_count</c>; MoE models
+/// <c>moe.expert_count</c>, <c>moe.expert_used_count</c>, <c>moe.normalize_weights</c> (default true) and the other
+/// <see cref="MoeOptions"/> keys.</item>
 /// <item>Weights: <c>token_embedding.weight</c>, <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied
 /// to the embedding otherwise); per layer <c>layers.{i}.</c>: <c>input_norm</c>, <c>post_attention_norm</c>,
-/// <c>mlp.{gate,up,down}</c>; attention layers <c>attention.{q,k,v,o,q_norm,k_norm}</c> (q rows interleave
+/// <c>mlp.{gate,up,down}</c> or the MoE weights documented on <see cref="MoeBlock"/> below <c>mlp.</c>; attention layers <c>attention.{q,k,v,o,q_norm,k_norm}</c> (q rows interleave
 /// [query | output gate] per head); linear-attention layers <c>linear_attention.{qkv,z,beta,alpha,out,norm,conv1d}</c>
 /// (all <c>.weight</c>), <c>linear_attention.a</c> (A = -exp(A_log)) and <c>linear_attention.dt_bias</c>.
 /// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>.</item>
 /// <item>Semantics: RMS norm weights multiply directly (any "1 + w" convention already folded in); value heads in
-/// tiled order; conv1d weights [channels, kernel] f32.</item>
+/// tiled order (value head h reads key head h mod key_head_count), or grouped by key head (h / (value/key heads)) when
+/// <c>linear_attention.grouped_value_heads</c> is set (Qwen3-Next files whose out projection cannot be reordered); conv1d
+/// weights [channels, kernel] f32.</item>
 /// <item>Optional vision tower (image input): hyper-parameters <c>qwen3_5.vision.*</c> and weights <c>vision.*</c> exactly as
 /// documented on <see cref="VisionParameters"/>, found either in the primary source (e.g. Hugging Face checkpoints) or in an
 /// auxiliary source with role <see cref="AuxiliaryRoles.Mmproj"/> (e.g. a separate projector file); the adapter does not care
