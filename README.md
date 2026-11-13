@@ -70,6 +70,17 @@ shared with a desktop session, so differences under about 5 % are noise.
 | Nemotron-3-Nano-30B-A3B Q4_K_M (hybrid MoE) | 9327 | 8464 | 1.10x | 309 | 338 | 0.91x |
 | gpt-oss-20b MXFP4 (MoE) | 11831 | 17432 | 0.68x | 310 | 345 | 0.90x |
 
+Qwen3.8-27B (hybrid gated-delta-net + attention), output tokens/s after a 16-token prompt, same GGUF files; GPU rows on the RTX
+PRO 6000, CPU rows on the Ryzen 9 9950X pinned to its 16 physical cores (2026-11-13, idle machine):
+
+| Engine / backend | Q4_K_M (16.8 GB) | Q8_0 (29.0 GB) |
+|---|---:|---:|
+| **Sharplight Vulkan** | **65.6** | 40.7 |
+| llama.cpp CUDA | 60.4 ± 2.8 | 41.9 ± 1.2 |
+| llama.cpp Vulkan | 59.4 ± 2.0 | 41.5 ± 1.0 |
+| **Sharplight CPU** | **3.03** | **1.80** |
+| llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
+
 Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Building

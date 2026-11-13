@@ -829,3 +829,25 @@ Remaining: the f16 expert GEMM is weight-decode bound for small per-expert row c
 47-55 TFLOPS). The int8 path (q8_1 activations against the stored codes, no decode to f16) is the next step: the sorted gather is
 the natural place to quantize the routed rows to q8_1 once, and an MMQ kernel with the `MOE` tile scheme of gemm_cm2 would read
 dense sorted q8_1 rows and scatter outputs through the routing scratch.
+
+## 15. Qwen3.8-27B decode across engines and backends (2026-11-13)
+
+Output tokens/s after a 16-token prompt on an otherwise idle machine (load average 2 before the run; the CPU rows load it
+themselves). Sharplight: `sharplight MODEL [--cpu] --bench 16 --ctx 512`, median of 64 decode steps, median over 3 process runs.
+llama.cpp b11177: `llama-bench -m MODEL -p 0 -n 128 -r 3 -ngl 99 -fa 1` (CUDA and Vulkan builds), CPU build with `-n 64 -t 16`
+(mean ± sd). CPU runs of both engines are pinned to the 16 physical cores (`taskset -c 0-15`). Script: the loop in
+`bench/run_27b_engines.sh`.
+
+| Engine / backend | Q4_K_M (16.8 GB) | Q8_0 (29.0 GB) |
+|---|---:|---:|
+| **Sharplight Vulkan** | **65.6** | 40.7 |
+| llama.cpp CUDA | 60.4 ± 2.8 | 41.9 ± 1.2 |
+| llama.cpp Vulkan | 59.4 ± 2.0 | 41.5 ± 1.0 |
+| **Sharplight CPU** | **3.03** | **1.80** |
+| llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
+
+Per-run Sharplight medians: Vulkan Q4_K_M 66.3 / 58.6 / 65.6 (best step 69.6), Q8_0 40.7 / 40.6 / 41.7 (best 46.4); CPU Q4_K_M
+3.03 / 3.03 / 2.97, Q8_0 1.84 / 1.80 / 1.72. GPU decode is bandwidth bound: Q4_K_M 14.2 ms per step for 15.6 GiB of weights and
+state (about 1.2 TB/s), Q8_0 21.4 ms for 26.8 GiB. CPU decode is bound by DDR5 bandwidth (Q4_K_M about 319 ms per step,
+about 52 GB/s) for both engines.
+
