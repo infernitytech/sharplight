@@ -15,6 +15,10 @@ public sealed class CompletionRequest
     public IReadOnlyList<string> StopStrings { get; init; } = [];
     /// <summary>Extra token ids that end generation.</summary>
     public IReadOnlyList<int> StopTokenIds { get; init; } = [];
+    /// <summary>Keep generating through end-of-generation tokens (OpenAI <c>ignore_eos</c>, for benchmarks).</summary>
+    public bool IgnoreEos { get; init; }
+    /// <summary>Generated tokens before end-of-generation or stop tokens may end the output (see <see cref="GenerationRequest.MinTokens"/>).</summary>
+    public int MinTokens { get; init; }
     /// <summary>Number of independent completions.</summary>
     public int N { get; init; } = 1;
     /// <summary>Higher runs first when requests queue for a slot.</summary>

@@ -45,7 +45,7 @@ public class MultiModelRealTests
         var input = toks;
         for (int i = 0; i < n; i++)
         {
-            var lg = dec.Step([new SequenceInput(slot, input)])[0]!;
+            var lg = dec.Step([new SequenceInput(slot, input)])[0].Span;
             int best = 0;
             for (int k = 1; k < lg.Length; k++)
             {

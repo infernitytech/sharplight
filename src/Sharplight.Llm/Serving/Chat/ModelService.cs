@@ -168,8 +168,13 @@ public sealed class ModelService
         var prompt = BuildPrompt(r);
         bool useTools = r.Tools.Count > 0 && r.ToolChoice != ToolChoiceMode.None;
         var names = r.Tools.Select(t => t.Name).ToList();
-        return Start(prompt.Tokens, r.N, r.Sampling, r.MaxTokens, r.StopStrings, r.StopTokenIds, r.Priority, r.Timeout, r.Logprobs, r.TopLogprobs,
-            () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning), ct);
+        var template = new GenerationRequest
+        {
+            PromptTokens = prompt.Tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
+            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Timeout = r.Timeout,
+            Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs,
+        };
+        return Start(template, r.N, () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning), ct);
     }
 
     /// <summary>Submits a raw text completion request.</summary>
@@ -177,26 +182,27 @@ public sealed class ModelService
     public ChatRun StartCompletion(CompletionRequest r, CancellationToken ct = default)
     {
         var tokens = r.PromptTokens ?? Tokenizer.Encode(r.Prompt ?? "", addSpecial: true, parseSpecial: true);
-        return Start(tokens, r.N, r.Sampling, r.MaxTokens, r.StopStrings, r.StopTokenIds, r.Priority, r.Timeout, r.Logprobs, r.TopLogprobs, null, ct);
+        var template = new GenerationRequest
+        {
+            PromptTokens = tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
+            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Timeout = r.Timeout,
+            Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs,
+        };
+        return Start(template, r.N, null, ct);
     }
 
-    private ChatRun Start(int[] tokens, int n, SamplingParams sampling, int maxTokens, IReadOnlyList<string> stops, IReadOnlyList<int> stopIds, int priority,
-        TimeSpan? timeout, bool logprobs, int topLogprobs, Func<ChatOutputParser>? parser, CancellationToken ct)
+    /// <summary>Submits <paramref name="n"/> copies of <paramref name="template"/> (distinct seeds when seeded).</summary>
+    private ChatRun Start(GenerationRequest template, int n, Func<ChatOutputParser>? parser, CancellationToken ct)
     {
         n = Math.Max(1, n);
+        int maxTokens = template.MaxTokens > 0 ? template.MaxTokens : Options.DefaultMaxTokens;
         var handles = new List<GenerationHandle>(n);
         try
         {
             for (int i = 0; i < n; i++)
             {
-                handles.Add(Engine.Submit(new GenerationRequest
-                {
-                    PromptTokens = tokens,
-                    Sampling = sampling.Seed is int s && i > 0 ? sampling with { Seed = s + i } : sampling,
-                    MaxTokens = maxTokens > 0 ? maxTokens : Options.DefaultMaxTokens,
-                    StopStrings = stops, StopTokenIds = stopIds, Priority = priority, Timeout = timeout,
-                    Logprobs = logprobs, TopLogprobs = topLogprobs,
-                }, ct));
+                var sampling = template.Sampling.Seed is int s && i > 0 ? template.Sampling with { Seed = s + i } : template.Sampling;
+                handles.Add(Engine.Submit(template with { Sampling = sampling, MaxTokens = maxTokens }, ct));
             }
         }
         catch
@@ -208,6 +214,6 @@ public sealed class ModelService
 
             throw;
         }
-        return new ChatRun(handles, parser, tokens.Length);
+        return new ChatRun(handles, parser, template.PromptTokens.Length);
     }
 }

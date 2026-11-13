@@ -44,6 +44,12 @@ internal static class Prometheus
         Counter("sharplight_prefix_cache_lookups_total", "Prefix cache lookups (one per admitted request).", m => m.PrefixCacheLookups);
         Counter("sharplight_prefix_cache_hits_total", "Lookups that reused cached context.", m => m.PrefixCacheHits);
         Counter("sharplight_steps_total", "Forward passes executed.", m => m.Steps);
+        Gauge("sharplight_kv_capacity_tokens", "KV-cache capacity in tokens (slots x context per slot).", m => m.KvCapacityTokens);
+        Gauge("sharplight_kv_tokens", "Tokens held in slot contexts, including idle slots kept for prefix reuse.", m => m.KvTokens);
+        Gauge("sharplight_kv_active_tokens", "Tokens held by running sequences.", m => m.KvActiveTokens);
+        Gauge("sharplight_kv_utilization", "Fraction of the KV capacity held by running sequences.", m => m.KvUtilization);
+        Counter("sharplight_spec_draft_tokens_total", "Draft tokens proposed by speculative decoding.", m => m.DraftTokens);
+        Counter("sharplight_spec_accepted_tokens_total", "Draft tokens accepted by the model.", m => m.AcceptedDraftTokens);
 
         if (models.Count > 0)
         {
@@ -63,6 +69,7 @@ internal static class Prometheus
         Histogram(sb, "sharplight_request_duration_seconds", "Total request time.", models, m => m.RequestDuration);
         Histogram(sb, "sharplight_step_duration_seconds", "Duration of one forward pass.", models, m => m.StepDuration);
         Histogram(sb, "sharplight_step_rows", "Rows (tokens) per forward pass.", models, m => m.StepRows);
+        Histogram(sb, "sharplight_batch_size", "Sequences per forward pass.", models, m => m.StepSequences);
         return sb.ToString();
     }
 

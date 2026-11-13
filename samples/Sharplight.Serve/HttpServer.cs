@@ -11,7 +11,13 @@ internal static class HttpServer
     /// <summary>Serves until <paramref name="cancellationToken"/> is cancelled (Ctrl+C).</summary>
     public static async Task RunAsync(ModelHost host, ServeSettings settings, ServerPlan plan, CancellationToken cancellationToken)
     {
-        var builder = WebApplication.CreateBuilder();
+        // No configuration file watching: the server is configured by its command line, and watching the working directory
+        // costs CPU on every change there.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        {
+            Args = ["--hostBuilder:reloadConfigOnChange=false"],
+            ContentRootPath = AppContext.BaseDirectory,
+        });
         builder.WebHost.UseUrls(settings.ListenUrl);
 
         // Prompts can be large; the models' own context limits bound the request size.

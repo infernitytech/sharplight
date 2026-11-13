@@ -300,8 +300,9 @@ internal static class AnthropicApi
         });
         await sse.EventAsync("ping", new JsonObject { ["type"] = "ping" });
 
-        int index = -1; string? open = null;   // open block type: text | thinking
-        async Task Close()
+        int index = -1;
+        string? open = null;   // open block type: text | thinking
+        void Close()
         {
             if (open is null)
             {
@@ -310,86 +311,99 @@ internal static class AnthropicApi
 
             if (open == "thinking")
             {
-                await sse.EventAsync("content_block_delta", new JsonObject { ["type"] = "content_block_delta", ["index"] = index, ["delta"] = new JsonObject { ["type"] = "signature_delta", ["signature"] = "" } });
+                sse.Event("content_block_delta", new JsonObject { ["type"] = "content_block_delta", ["index"] = index, ["delta"] = new JsonObject { ["type"] = "signature_delta", ["signature"] = "" } });
             }
 
-            await sse.EventAsync("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
+            sse.Event("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
             open = null;
         }
-        async Task Open(string type)
+        void Open(string type)
         {
-            await Close();
+            Close();
             index++;
             open = type;
-            await sse.EventAsync("content_block_start", new JsonObject
+            sse.Event("content_block_start", new JsonObject
             {
                 ["type"] = "content_block_start", ["index"] = index,
                 ["content_block"] = type == "text" ? new JsonObject { ["type"] = "text", ["text"] = "" } : new JsonObject { ["type"] = "thinking", ["thinking"] = "" },
             });
         }
-        Task Delta(string kind, string field, string value) => sse.EventAsync("content_block_delta", new JsonObject
+        void Delta(string kind, string field, string value)
         {
-            ["type"] = "content_block_delta", ["index"] = index, ["delta"] = new JsonObject { ["type"] = kind, [field] = value },
-        });
+            var w = sse.BeginEvent("content_block_delta");
+            w.WriteStartObject();
+            w.WriteString("type", "content_block_delta");
+            w.WriteNumber("index", index);
+            w.WriteStartObject("delta");
+            w.WriteString("type", kind);
+            w.WriteString(field, value);
+            w.WriteEndObject();
+            w.WriteEndObject();
+            sse.EndEvent();
+        }
 
-        await foreach (var e in run.ReadAllAsync(http.RequestAborted))
+        await SsePump.PumpAsync(run.ReadAllAsync(http.RequestAborted), sse, e =>
         {
             if (e.Content is not null)
             {
                 if (open != "text")
                 {
-                    await Open("text");
+                    Open("text");
                 }
 
-                await Delta("text_delta", "text", e.Content);
+                Delta("text_delta", "text", e.Content);
             }
             else if (e.Reasoning is not null)
             {
                 if (open != "thinking")
                 {
-                    await Open("thinking");
+                    Open("thinking");
                 }
 
-                await Delta("thinking_delta", "thinking", e.Reasoning);
+                Delta("thinking_delta", "thinking", e.Reasoning);
             }
             else if (e.ToolCall is { } t)
             {
-                await Close();
+                Close();
                 index++;
-                await sse.EventAsync("content_block_start", new JsonObject
+                sse.Event("content_block_start", new JsonObject
                 {
                     ["type"] = "content_block_start", ["index"] = index,
                     ["content_block"] = new JsonObject { ["type"] = "tool_use", ["id"] = ToolUseId(t.Id), ["name"] = t.Name, ["input"] = new JsonObject() },
                 });
-                await Delta("input_json_delta", "partial_json", t.ArgumentsJson);
-                await sse.EventAsync("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
+                Delta("input_json_delta", "partial_json", t.ArgumentsJson);
+                sse.Event("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
             }
             else if (e.Finish is { } f)
             {
                 if (f is ChatFinishReason.Error or ChatFinishReason.Timeout or ChatFinishReason.Cancelled)
                 {
-                    await sse.EventAsync("error", new JsonObject
+                    sse.Event("error", new JsonObject
                     {
                         ["type"] = "error",
                         ["error"] = new JsonObject { ["type"] = f == ChatFinishReason.Cancelled ? "overloaded_error" : "api_error", ["message"] = e.Error ?? "generation " + f.ToString().ToLowerInvariant() },
                     });
-                    return;
-                }
-                if (index < 0 && open is null)
-                {
-                    await Open("text");
+                    return false;
                 }
 
-                await Close();
+                if (index < 0 && open is null)
+                {
+                    Open("text");
+                }
+
+                Close();
                 var u = e.Usage ?? default;
-                await sse.EventAsync("message_delta", new JsonObject
+                sse.Event("message_delta", new JsonObject
                 {
                     ["type"] = "message_delta",
                     ["delta"] = new JsonObject { ["stop_reason"] = StopReason(f, e.StopSequence), ["stop_sequence"] = e.StopSequence },
                     ["usage"] = new JsonObject { ["input_tokens"] = u.PromptTokens, ["cache_read_input_tokens"] = u.CachedTokens, ["output_tokens"] = u.CompletionTokens },
                 });
-                await sse.EventAsync("message_stop", new JsonObject { ["type"] = "message_stop" });
+                sse.Event("message_stop", new JsonObject { ["type"] = "message_stop" });
             }
-        }
+
+            return true;
+        }, http.RequestAborted);
+        await sse.FlushAsync();
     }
 }

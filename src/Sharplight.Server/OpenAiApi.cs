@@ -101,6 +101,24 @@ internal static class OpenAiApi
         return res;
     }
 
+    /// <summary>vLLM's <c>min_tokens</c> extension: end-of-generation and stop tokens are suppressed until this many tokens exist.</summary>
+    internal static int ParseMinTokens(JsonElement b)
+    {
+        int min = b.Int("min_tokens") ?? 0;
+        if (min < 0)
+        {
+            throw ApiException.BadRequest("'min_tokens' must not be negative.", "min_tokens");
+        }
+
+        int? max = b.Int("max_completion_tokens") ?? b.Int("max_tokens");
+        if (max is int m && m > 0 && min > m)
+        {
+            throw ApiException.BadRequest("'min_tokens' must not exceed 'max_tokens'.", "min_tokens");
+        }
+
+        return min;
+    }
+
     private static int ParseN(JsonElement b, SharplightServerOptions o)
     {
         int n = b.Int("n") ?? 1;
@@ -243,6 +261,7 @@ internal static class OpenAiApi
             Messages = msgs, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname,
             Sampling = ParseSampling(b, ctx.Options.DefaultSampling),
             MaxTokens = b.Int("max_completion_tokens") ?? b.Int("max_tokens") ?? 0,
+            IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
             EnableThinking = thinking, JsonMode = rf is "json_object" or "json_schema",
@@ -343,74 +362,65 @@ internal static class OpenAiApi
         }
 
         var sse = new SseWriter(http);
-        JsonObject Chunk(int index, JsonObject delta, string? finish = null, JsonNode? logprobs = null)
-        {
-            var o = new JsonObject
-            {
-                ["id"] = id, ["object"] = "chat.completion.chunk", ["created"] = created, ["model"] = model,
-                ["choices"] = new JsonArray(new JsonObject { ["index"] = index, ["delta"] = delta, ["logprobs"] = logprobs, ["finish_reason"] = finish }),
-            };
-            if (includeUsage)
-            {
-                o["usage"] = null;
-            }
-
-            return o;
-        }
+        var chunks = new OpenAiChunkWriter(sse, id, "chat.completion.chunk", created, model, includeUsage);
         for (int i = 0; i < req.N; i++)
         {
-            await sse.DataAsync(Chunk(i, new JsonObject { ["role"] = "assistant", ["content"] = "" }));
+            chunks.Delta(i, null, null, new JsonObject { ["role"] = "assistant", ["content"] = "" });
         }
 
         var toolIndex = new Dictionary<int, int>();
         int finished = 0;
         int completion = 0;
         GenerationUsage first = default;
-        await foreach (var e in run.ReadAllAsync(http.RequestAborted))
+        bool complete = await SsePump.PumpAsync(run.ReadAllAsync(http.RequestAborted), sse, e =>
         {
             if (e.Content is not null)
             {
-                await sse.DataAsync(Chunk(e.Index, new JsonObject { ["content"] = e.Content }));
+                chunks.Delta(e.Index, "content", e.Content);
             }
             else if (e.Reasoning is not null)
             {
-                await sse.DataAsync(Chunk(e.Index, new JsonObject { ["reasoning_content"] = e.Reasoning }));
+                chunks.Delta(e.Index, "reasoning_content", e.Reasoning);
             }
             else if (e.ToolCall is not null)
             {
                 int k = toolIndex.GetValueOrDefault(e.Index);
                 toolIndex[e.Index] = k + 1;
-                await sse.DataAsync(Chunk(e.Index, new JsonObject { ["tool_calls"] = new JsonArray(ToolCallJson(e.ToolCall, k)) }));
+                chunks.Delta(e.Index, null, null, new JsonObject { ["tool_calls"] = new JsonArray(ToolCallJson(e.ToolCall, k)) });
             }
             else if (e.Logprobs is not null && req.Logprobs)
             {
-                await sse.DataAsync(Chunk(e.Index, new JsonObject(), logprobs: ChatLogprobs(e.Logprobs)));
+                chunks.Delta(e.Index, null, null, logprobs: ChatLogprobs(e.Logprobs));
             }
             else if (e.Finish is { } f)
             {
                 if (f is ChatFinishReason.Error or ChatFinishReason.Timeout)
                 {
-                    await sse.DataAsync(ApiErrors.Body(false, f == ChatFinishReason.Timeout ? "timeout" : "server_error", e.Error ?? "generation failed"));
-                    return;
+                    sse.Data(ApiErrors.Body(false, f == ChatFinishReason.Timeout ? "timeout" : "server_error", e.Error ?? "generation failed"));
+                    return false;
                 }
-                await sse.DataAsync(Chunk(e.Index, new JsonObject(), FinishName(f)));
+
+                chunks.Delta(e.Index, null, null, finish: FinishName(f));
                 completion += e.Usage?.CompletionTokens ?? 0;
                 if (finished++ == 0)
                 {
                     first = e.Usage ?? default;
                 }
             }
-        }
-        if (includeUsage)
+
+            return true;
+        }, http.RequestAborted);
+        if (complete)
         {
-            await sse.DataAsync(new JsonObject
+            if (includeUsage)
             {
-                ["id"] = id, ["object"] = "chat.completion.chunk", ["created"] = created, ["model"] = model, ["choices"] = new JsonArray(),
-                ["usage"] = UsageJson(new GenerationUsage(first.PromptTokens, completion, first.CachedTokens)),
-            });
+                chunks.Usage(UsageJson(new GenerationUsage(first.PromptTokens, completion, first.CachedTokens)));
+            }
+
+            sse.Raw("data: [DONE]\n\n");
         }
 
-        await sse.RawAsync("data: [DONE]\n\n");
+        await sse.FlushAsync();
     }
 
     private static (int Status, string Type, string Message)? FailureOf(IReadOnlyList<ChatChoice> choices)
@@ -498,6 +508,7 @@ internal static class OpenAiApi
         {
             Prompt = prompt, PromptTokens = tokens, Sampling = ParseSampling(b, ctx.Options.DefaultSampling),
             MaxTokens = b.Int("max_tokens") ?? 16, StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
+            IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
             Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20),
         };
@@ -531,49 +542,37 @@ internal static class OpenAiApi
         }
 
         var sse = new SseWriter(http);
-        JsonObject Chunk(int index, string text, string? finish = null, JsonNode? logprobs = null)
-        {
-            var o = new JsonObject
-            {
-                ["id"] = id, ["object"] = "text_completion", ["created"] = created, ["model"] = model,
-                ["choices"] = new JsonArray(new JsonObject { ["text"] = text, ["index"] = index, ["logprobs"] = logprobs, ["finish_reason"] = finish }),
-            };
-            if (includeUsage)
-            {
-                o["usage"] = null;
-            }
-
-            return o;
-        }
+        var chunks = new OpenAiChunkWriter(sse, id, "text_completion", created, model, includeUsage);
         if (echo)
         {
             for (int i = 0; i < req.N; i++)
             {
-                await sse.DataAsync(Chunk(i, prompt!));
+                chunks.Text(i, prompt!);
             }
         }
 
         int completion = 0;
         GenerationUsage first = default;
         bool any = false;
-        await foreach (var e in run.ReadAllAsync(http.RequestAborted))
+        bool complete = await SsePump.PumpAsync(run.ReadAllAsync(http.RequestAborted), sse, e =>
         {
             if (e.Content is not null)
             {
-                await sse.DataAsync(Chunk(e.Index, e.Content));
+                chunks.Text(e.Index, e.Content);
             }
             else if (e.Logprobs is not null && req.Logprobs)
             {
-                await sse.DataAsync(Chunk(e.Index, "", logprobs: TextLogprobs(e.Logprobs)));
+                chunks.Text(e.Index, "", logprobs: TextLogprobs(e.Logprobs));
             }
             else if (e.Finish is { } f)
             {
                 if (f is ChatFinishReason.Error or ChatFinishReason.Timeout)
                 {
-                    await sse.DataAsync(ApiErrors.Body(false, f == ChatFinishReason.Timeout ? "timeout" : "server_error", e.Error ?? "generation failed"));
-                    return;
+                    sse.Data(ApiErrors.Body(false, f == ChatFinishReason.Timeout ? "timeout" : "server_error", e.Error ?? "generation failed"));
+                    return false;
                 }
-                await sse.DataAsync(Chunk(e.Index, "", FinishName(f)));
+
+                chunks.Text(e.Index, "", FinishName(f));
                 completion += e.Usage?.CompletionTokens ?? 0;
                 if (!any)
                 {
@@ -581,16 +580,19 @@ internal static class OpenAiApi
                     any = true;
                 }
             }
-        }
-        if (includeUsage)
+
+            return true;
+        }, http.RequestAborted);
+        if (complete)
         {
-            await sse.DataAsync(new JsonObject
+            if (includeUsage)
             {
-                ["id"] = id, ["object"] = "text_completion", ["created"] = created, ["model"] = model, ["choices"] = new JsonArray(),
-                ["usage"] = UsageJson(new GenerationUsage(first.PromptTokens, completion, first.CachedTokens)),
-            });
+                chunks.Usage(UsageJson(new GenerationUsage(first.PromptTokens, completion, first.CachedTokens)));
+            }
+
+            sse.Raw("data: [DONE]\n\n");
         }
 
-        await sse.RawAsync("data: [DONE]\n\n");
+        await sse.FlushAsync();
     }
 }
