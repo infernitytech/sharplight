@@ -1,4 +1,5 @@
 using Sharplight.Tokenizers.Bpe;
+using Sharplight.Tokenizers.Rwkv;
 using Sharplight.Tokenizers.Spm;
 using Sharplight.Tokenizers.Unigram;
 using Sharplight.Tokenizers.WordPiece;
@@ -24,7 +25,8 @@ public static class TokenizerFactory
             "wordpiece" => new WordPieceTokenizer(data),
             "unigram" => new UnigramTokenizer(data),
             "bpe" => new RankedBpeTokenizer(data),
-            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, spm, bpe, wordpiece, unigram)."),
+            "rwkv" => new RwkvWorldTokenizer(data),
+            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, spm, bpe, wordpiece, unigram, rwkv)."),
         };
     }
 }

@@ -159,6 +159,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "GatedDeltaRule":
                 LowerGatedDeltaRule(n);
                 return;
+            case "Wkv7":
+                LowerWkv7(n);
+                return;
+            case "Wkv6":
+                LowerWkv6(n);
+                return;
         }
 
         if (s_unaryKinds.TryGetValue(op, out var unaryKind))
