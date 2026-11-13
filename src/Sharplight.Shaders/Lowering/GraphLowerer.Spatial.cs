@@ -507,18 +507,33 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(y), TokenArg(x)], [x], [y]);
     }
 
+    // LayerNorm rows served by one workgroup each (up to this many rows, of 512 to 16384 values).
+    private const long LayerNormWorkgroupMaxRows = 64;
+    private const long LayerNormWorkgroupMinWidth = 512;
+    private const long LayerNormWorkgroupMaxWidth = 16384;
+
     private void LowerLayerNorm(Node n)
     {
         var x = RowsInput(n.Inputs[0], "layernorm", out long r1, out long s0, out long s1);
         var w = n.Inputs.Length > 1 ? AsDenseF32(Ref(n.Inputs[1]), "ln-w") : null;
         var bi = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "ln-b") : null;
         var y = Produce(n.Output);
-        var k = Lib("rows.slang", "layernorm", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("EPS", n.Attributes.Get<float>("eps")),
-            ("HAS_W", w is not null), ("HAS_B", bi is not null)));
+        var macros = Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("EPS", n.Attributes.Get<float>("eps")),
+            ("HAS_W", w is not null), ("HAS_B", bi is not null));
+        var k = Lib("rows.slang", "layernorm", macros);
         var tx = x;
         var wp = w ?? x;
         var bp = bi ?? x;
-        Emit($"layernorm {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],
+        List<KernelVariant> variants = [];
+        // Few wide rows (decode): a workgroup per row instead of a subgroup, which is latency bound on long rows.
+        if (x.Shape[^1] >= LayerNormWorkgroupMinWidth && x.Shape[^1] <= LayerNormWorkgroupMaxWidth)
+        {
+            variants.Add(new KernelVariant(b => Rows(b, tx) * r1 <= LayerNormWorkgroupMaxRows, Lib("rows.slang", "layernorm_wg", macros),
+                b => new Grid((uint)Math.Max(1, Rows(b, tx) * r1))));
+        }
+
+        variants.Add(Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4))));
+        Emit($"layernorm {n.Output.Name}", [n], variants,
             [Pointer(x), Pointer(wp), Pointer(bp), Pointer(y), TokenArg(x)],
             [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
     }

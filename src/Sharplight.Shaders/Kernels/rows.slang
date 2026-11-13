@@ -1,4 +1,5 @@
-// Row kernels over the innermost axis (one subgroup per row): Softmax, LayerNorm, ReduceSum/Max, ArgMax.
+// Row kernels over the innermost axis (one subgroup per row): Softmax, LayerNorm, ReduceSum/Max, ArgMax; LayerNorm of
+// few rows also with one workgroup per row.
 // Rows are addressed as [T, R1, D] with strides (S0, S1) elements; outputs are dense.
 // Macros: D, R1, S0, S1, SG, ROWS_PER_WG (default 4)
 #include "common.slang"
@@ -67,6 +68,72 @@ void layernorm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Ln
         r += p.b[i];
 #endif
         yr[i] = r;
+    }
+}
+#endif
+
+#ifdef KERNEL_LAYERNORM_WG
+// LayerNorm of few rows (decode): one 256-thread workgroup per row, the row held in registers between the passes
+// (a single subgroup walking a few-thousand-wide row is latency bound). Same math and macros as layernorm.
+#define LN_THREADS 256
+#define LN_PER ((D + LN_THREADS - 1) / LN_THREADS)
+struct LnParams { float* x; float* w; float* b; float* y; uint T; };
+groupshared float lnPart[LN_THREADS];
+
+float ln_block_sum(float v, uint tid)
+{
+    v = WaveActiveSum(v);
+    uint lanes = WaveGetLaneCount();
+    if (WaveIsFirstLane()) lnPart[tid / lanes] = v;
+    GroupMemoryBarrierWithGroupSync();
+    float total = 0;
+    for (uint i = 0; i < LN_THREADS / lanes; i++) total += lnPart[i];
+    GroupMemoryBarrierWithGroupSync();
+    return total;
+}
+
+[shader("compute")]
+[numthreads(LN_THREADS, 1, 1)]
+void layernorm_wg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform LnParams p)
+{
+    uint tid = ltid.x;
+    uint row = gid.x;
+    uint t = row / R1, r1 = row % R1;
+    float* xr = p.x + uint64_t(t) * S0 + uint64_t(r1) * S1;
+    float* yr = p.y + uint64_t(row) * D;
+    float v[LN_PER];
+    float s = 0;
+    [ForceUnroll]
+    for (uint k = 0; k < LN_PER; k++)
+    {
+        uint i = tid + k * LN_THREADS;
+        v[k] = i < D ? xr[i] : 0.0;
+        s += v[k];
+    }
+    float mean = ln_block_sum(s, tid) / float(D);
+    float q = 0;
+    [ForceUnroll]
+    for (uint k = 0; k < LN_PER; k++)
+    {
+        float d = v[k] - mean;
+        q += tid + k * LN_THREADS < D ? d * d : 0.0;
+    }
+    float rstd = rsqrt(ln_block_sum(q, tid) / float(D) + EPS);
+    [ForceUnroll]
+    for (uint k = 0; k < LN_PER; k++)
+    {
+        uint i = tid + k * LN_THREADS;
+        if (i < D)
+        {
+            float r = (v[k] - mean) * rstd;
+#if HAS_W
+            r *= p.w[i];
+#endif
+#if HAS_B
+            r += p.b[i];
+#endif
+            yr[i] = r;
+        }
     }
 }
 #endif
