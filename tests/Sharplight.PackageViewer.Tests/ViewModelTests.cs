@@ -21,7 +21,7 @@ public sealed class ViewModelTests
         Assert.Equal($"small.slm - {MainWindowViewModel.AppTitle}", main.Title);
 
         var overview = package.Overview;
-        Assert.Equal(2, overview.FormatVersion);
+        Assert.Equal(ModelPackage.Version, overview.FormatVersion);
         Assert.Null(overview.DefinitionError);
         Assert.Equal(["ARTS", "ARTS", "DEFN", "WDAT", "WIDX"], overview.Sections.Select(s => s.Kind).Order(StringComparer.Ordinal));
         Assert.Equal(3, overview.ValueCount);

@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 using Xunit;
@@ -106,32 +107,70 @@ public class ControlFlowTests
     [InlineData("vulkan")]
     public void Loop_BodyWithRuntimeIf_ReadsValuesOfBothEnclosingGraphs(string provider)
     {
-        // acc = acc + a on even iterations, acc * a on odd ones: the If branches capture 'a' (main graph) and 'acc' (loop body).
+        using var run = new Runner(IfInLoopModel().Build().Graph(OnnxGraphAdapter.MainGraph), provider);
+        var outputs = run.Run([5], [1f, 2f], [2f, 3f]);
+        Assert.Equal(IfInLoopExpected(5, [1f, 2f], [2f, 3f]), outputs["acc"]);
+    }
+
+    [Theory]
+    [InlineData("cpu")]
+    [InlineData("vulkan")]
+    public void Package_StoresRuntimeControlFlowAndDynamicSymbols(string provider)
+    {
+        // The model has a runtime Loop whose body holds a runtime If, and a scan output with a data-dependent length.
+        var definition = IfInLoopModel().Build();
+        var main = definition.Graph(OnnxGraphAdapter.MainGraph);
+        Assert.NotEmpty(main.DynamicSymbols);
+        var directory = Directory.CreateTempSubdirectory("sharplight-control-flow-package-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "control-flow" + ModelPackage.Extension);
+            ModelPackage.Save(path, definition, []);
+            var loaded = new ModelPackageImporter().Open(path).Definition!;
+            using var resources = new CompositeDisposable(loaded.OwnedResources);
+            var graph = loaded.Graph(OnnxGraphAdapter.MainGraph);
+            Assert.Equal(main.DynamicSymbols, graph.DynamicSymbols);
+            Assert.Equal(main.Nodes.Select(n => n.Op.Name), graph.Nodes.Select(n => n.Op.Name));
+            using var run = new Runner(graph, provider);
+            var outputs = run.Run([4], [1f, 2f], [2f, 3f]);
+            Assert.Equal(IfInLoopExpected(4, [1f, 2f], [2f, 3f]), outputs["acc"]);
+            Assert.Equal(4 * 2, outputs["history"].Length);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>acc = acc + a on even iterations, acc * a on odd ones: the If branches capture 'a' (main graph) and 'acc' (loop body).</summary>
+    private static TestModel IfInLoopModel()
+    {
         var then = Graph("then", [], [TestModel.ValueInfo("t", Float, 2)], ("Add", ["acc", "a"], ["t"], []));
         var other = Graph("else", [], [TestModel.ValueInfo("e", Float, 2)], ("Mul", ["acc", "a"], ["e"], []));
         var body = Graph(
             "body",
             [TestModel.ValueInfo("i", Int64), TestModel.ValueInfo("c", Bool), TestModel.ValueInfo("acc", Float, 2)],
-            [TestModel.ValueInfo("c_out", Bool), TestModel.ValueInfo("acc_out", Float, 2)],
+            [TestModel.ValueInfo("c_out", Bool), TestModel.ValueInfo("acc_out", Float, 2), TestModel.ValueInfo("seen", Float, 2)],
             ("Identity", ["c"], ["c_out"], []),
             ("Mod", ["i", "two"], ["parity"], []),
             ("Equal", ["parity", "zero"], ["even"], []),
-            ("If", ["even"], ["acc_out"], [GraphAttr("then_branch", then), GraphAttr("else_branch", other)]));
-        var model = new TestModel()
+            ("If", ["even"], ["acc_out"], [GraphAttr("then_branch", then), GraphAttr("else_branch", other)]),
+            ("Identity", ["acc_out"], ["seen"], []));
+        return new TestModel()
             .Input(TestModel.ValueInfo("trip", Int64)).Input("acc0", 2).Input("a", 2)
-            .Output("acc", 2)
+            .Output("acc", 2).Output("history", "K", 2)
             .InitI64("two", [], 2).InitI64("zero", [], 0)
-            .Node("Loop", ["trip", "", "acc0"], ["acc"], GraphAttr("body", body));
-        using var run = new Runner(model, provider);
-        var outputs = run.Run([5], [1f, 2f], [2f, 3f]);
-        float[] acc = [1f, 2f];
-        float[] a = [2f, 3f];
-        for (int i = 0; i < 5; i++)
+            .Node("Loop", ["trip", "", "acc0"], ["acc", "history"], GraphAttr("body", body));
+    }
+
+    private static float[] IfInLoopExpected(int trip, float[] acc, float[] a)
+    {
+        for (int i = 0; i < trip; i++)
         {
             acc = [.. acc.Select((v, k) => i % 2 == 0 ? v + a[k] : v * a[k])];
         }
 
-        Assert.Equal(acc, outputs["acc"]);
+        return acc;
     }
 
     [Theory]
@@ -209,14 +248,30 @@ public class ControlFlowTests
         return g;
     }
 
+    private sealed class CompositeDisposable(IReadOnlyList<IDisposable> items) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var item in items)
+            {
+                item.Dispose();
+            }
+        }
+    }
+
     /// <summary>Imports a test model, compiles it once and runs it with float inputs (integer inputs are converted).</summary>
     private sealed class Runner : IDisposable
     {
         private readonly CompiledModel _compiled;
 
         public Runner(TestModel model, string provider, int batch = 1)
+            : this(model.Build().Graph(OnnxGraphAdapter.MainGraph), provider, batch)
         {
-            Graph = model.Build().Graph(OnnxGraphAdapter.MainGraph);
+        }
+
+        public Runner(ComputeGraph graph, string provider, int batch = 1)
+        {
+            Graph = graph;
             var device = Providers.Get(provider);
             _compiled = CompiledModel.Compile(Graph, new PlacementOptions
             {

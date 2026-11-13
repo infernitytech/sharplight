@@ -25,7 +25,9 @@ namespace Sharplight.Package;
 /// binaries for several device/driver pairs, or none at all.</para>
 /// <para>The section table is written last, so sets compiled later (another GPU, a newer driver) are appended with
 /// <see cref="AddArtifacts"/> without rewriting the weights; superseded sets become dead space that <see cref="Compact"/> removes.
-/// Version 1 files (kernel sets in KSET sections) stay readable; their sets are read with tier <see cref="ArtifactTiers.Mixed"/>.</para>
+/// Version 1 files (kernel sets in KSET sections) stay readable; their sets are read with tier <see cref="ArtifactTiers.Mixed"/>.
+/// Version 3 stores the IR in DEFN layout 2 (section name <c>ir.2</c>: control-flow subgraphs and data-dependent symbols); a DEFN
+/// section with an empty name has the layout of versions 1 and 2.</para>
 /// <para>Weights are stored in their canonical source types (layout transforms a device needs are cheap and applied during
 /// upload), so one file serves every device; only artifact sets are device specific. <see cref="ModelPackageReader"/> inspects a
 /// package without loading it.</para>
@@ -35,7 +37,7 @@ public static class ModelPackage
     /// <summary>File extension of model packages, including the dot.</summary>
     public const string Extension = ".slm";
     /// <summary>Format version written by <see cref="Save"/> and every other write; versions 1 to this one can be opened.</summary>
-    public const int Version = 2;
+    public const int Version = 3;
     internal static ReadOnlySpan<byte> Magic => "SHARPLM\0"u8;
     internal const int HeaderSize = 64;
     internal const long WeightAlignment = 64 * 1024;
@@ -64,11 +66,11 @@ public static class ModelPackage
             fs.Write(new byte[HeaderSize]);
             var sections = new List<PackageSection>();
 
-            sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.Definition, "", w => DefinitionCodec.Write(w, definition)));
+            sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.Definition, DefinitionCodec.SectionName, w => DefinitionCodec.Write(w, definition)));
 
             // Every weight of the definition plus any the graphs reference beyond it (e.g. auxiliary files).
             var byName = new Dictionary<string, WeightInfo>(definition.Weights, StringComparer.Ordinal);
-            foreach (var g in definition.Graphs.Values)
+            foreach (var g in definition.Graphs.Values.SelectMany(DefinitionCodec.WithSubgraphs))
             {
                 foreach (var v in g.Weights)
                 {
