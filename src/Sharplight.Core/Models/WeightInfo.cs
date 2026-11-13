@@ -15,6 +15,7 @@ public sealed class WeightInfo
     public required IWeightSource Source { get; init; }
     /// <summary>Size of the tensor in bytes, from <see cref="Type"/> and <see cref="Shape"/>.</summary>
     public long ByteSize => Type.ByteSize(Shape.Elements());
+    /// <inheritdoc/>
     public override string ToString() => $"{Name} {Type}{Shape}";
 
     /// <summary>

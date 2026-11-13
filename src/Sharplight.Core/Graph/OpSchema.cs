@@ -48,5 +48,6 @@ public sealed class OpSchema
         return _infer(inputs, attrs);
     }
 
+    /// <inheritdoc/>
     public override string ToString() => Name;
 }

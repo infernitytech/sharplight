@@ -5,5 +5,6 @@ public readonly record struct ModelFootprint(long WeightBytes, long StateBytes, 
 {
     /// <summary>Sum of all three parts, in bytes.</summary>
     public long Total => WeightBytes + StateBytes + ActivationBytes;
+    /// <inheritdoc/>
     public override string ToString() => $"{Total / 1048576.0:F0} MiB (weights {WeightBytes / 1048576.0:F0}, state {StateBytes / 1048576.0:F0}, activations ~{ActivationBytes / 1048576.0:F0})";
 }

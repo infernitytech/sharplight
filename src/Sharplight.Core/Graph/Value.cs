@@ -43,5 +43,6 @@ public sealed class Value
     /// <summary>Number of dimensions.</summary>
     public int Rank => Shape.Rank;
 
+    /// <inheritdoc/>
     public override string ToString() => $"%{Id}:{Name} {Type}{Shape}";
 }

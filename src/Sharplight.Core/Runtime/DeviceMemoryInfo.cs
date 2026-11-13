@@ -11,5 +11,6 @@ public readonly record struct DeviceMemoryInfo(long Total, long Budget, long Usa
 {
     /// <summary>Bytes this process can still allocate.</summary>
     public long Available => Math.Max(0, Budget - Usage);
+    /// <inheritdoc/>
     public override string ToString() => $"total {Total / 1048576} MiB, budget {Budget / 1048576} MiB, used {Usage / 1048576} MiB (ours {UsedByUs / 1048576} MiB), available {Available / 1048576} MiB{(IsExact ? "" : " (estimate)")}";
 }

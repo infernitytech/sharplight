@@ -7,12 +7,17 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <WarningLevel>9999</WarningLevel>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Style rules from docs/code-style.md are build errors (see .editorconfig). -->
+    <WarningsAsErrors>$(WarningsAsErrors);IDE0005;IDE0011;IDE0040;IDE0051;IDE0052;IDE0060;IDE0161;CS0169;CS1573;CS1591;CS9113</WarningsAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible Condition="'$(OutputType)' != 'Exe'">true</IsAotCompatible>
     <Authors>Sharplight contributors</Authors>
     <RepositoryType>git</RepositoryType>
     <Version>0.1.0-alpha</Version>
+  </PropertyGroup>
+  <!-- Tests and samples are not public API: no XML documentation requirement. -->
+  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('/samples/'))">
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 </Project>

@@ -40,6 +40,7 @@ public sealed class Node
     /// <exception cref="InvalidOperationException">The node has zero or several outputs.</exception>
     public Value Output => Outputs.Length == 1 ? Outputs[0] : throw new InvalidOperationException($"{Op.Name} has {Outputs.Length} outputs.");
 
+    /// <inheritdoc/>
     public override string ToString()
     {
         var outs = string.Join(", ", Outputs);

@@ -7,5 +7,6 @@ public sealed class InputDefinition
     public required string Name { get; init; }
     /// <summary>What the input carries, so generic runtimes know how to feed it.</summary>
     public required InputRole Role { get; init; }
+    /// <inheritdoc/>
     public override string ToString() => $"{Name} ({Role})";
 }

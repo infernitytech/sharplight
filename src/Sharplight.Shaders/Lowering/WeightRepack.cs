@@ -3,6 +3,7 @@ namespace Sharplight.Shaders.Lowering;
 /// <summary>Device-friendly weight layouts the lowering may choose (same byte size as the source format).</summary>
 public enum WeightRepack
 {
+    /// <summary>No repacking: the weight is used in its stored layout.</summary>
     None,
     /// <summary>
     /// Q8_0 rows → [K/32 f16 scales][K int8 quants]: quants become 8-byte aligned so kernels use wide loads.

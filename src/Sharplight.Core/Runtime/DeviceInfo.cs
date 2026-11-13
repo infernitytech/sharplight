@@ -39,5 +39,6 @@ public sealed record DeviceInfo
     /// <summary>Provider-specific informational details (API version, raw extension info, limits, ...).</summary>
     public IReadOnlyDictionary<string, string> Capabilities { get; init; } = new Dictionary<string, string>();
 
+    /// <inheritdoc/>
     public override string ToString() => $"{Provider}:{Index} {Name} ({Kind}, {TotalMemory / (1024 * 1024)} MiB)";
 }

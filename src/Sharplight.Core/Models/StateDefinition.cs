@@ -18,5 +18,6 @@ public sealed class StateDefinition
     public StateKind Kind { get; init; } = StateKind.Other;
     /// <summary>Placement group the state belongs to (same group as the layer using it).</summary>
     public string Group { get; init; } = "";
+    /// <inheritdoc/>
     public override string ToString() => $"{Name} {Type}{Shape} ({Kind})";
 }

@@ -1,7 +1,13 @@
 # Sharplight code style
 
-These rules apply to all C# code in the repository (libraries, samples, tests). `.editorconfig` enforces the mechanical
-ones as build warnings; the rest is checked in review.
+These rules apply to all C# code in the repository (libraries, samples, tests). Enforcement:
+
+- `.editorconfig` + `Directory.Build.props` make the mechanical rules **build errors**: braces (IDE0011), explicit
+  accessibility (IDE0040), file-scoped namespaces (IDE0161), unused usings/members/parameters (IDE0005/0051/0052/0060,
+  CS0169, CS9113), and XML docs on every public member of the libraries (CS1591, CS1573).
+- `python3 tools/check-one-type-per-file.py` checks the one-type-per-file rule (run it before committing).
+- `dotnet format style Sharplight.slnx` fixes most mechanical violations automatically.
+- Everything else is checked in review.
 
 ## Files and types
 

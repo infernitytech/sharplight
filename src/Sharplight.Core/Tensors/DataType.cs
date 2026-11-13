@@ -139,8 +139,12 @@ public sealed class DataType : IEquatable<DataType>
     /// </summary>
     public static readonly DataType Tern1_G128 = Register("tern1_g128", DataTypeKind.Quantized, 128, 28);
 
+    /// <inheritdoc/>
     public bool Equals(DataType? other) => ReferenceEquals(this, other);
+    /// <inheritdoc/>
     public override bool Equals(object? obj) => ReferenceEquals(this, obj);
+    /// <inheritdoc/>
     public override int GetHashCode() => Name.GetHashCode(StringComparison.OrdinalIgnoreCase);
+    /// <inheritdoc/>
     public override string ToString() => Name;
 }

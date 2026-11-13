@@ -124,7 +124,9 @@ public sealed class Shape : IEquatable<Shape>
 
     /// <summary>Whether both shapes have the same dimensions.</summary>
     public bool Equals(Shape? other) => other is not null && Dims.SequenceEqual(other.Dims);
+    /// <inheritdoc/>
     public override bool Equals(object? obj) => Equals(obj as Shape);
+    /// <inheritdoc/>
     public override int GetHashCode()
     {
         var h = new HashCode();
@@ -136,6 +138,7 @@ public sealed class Shape : IEquatable<Shape>
         return h.ToHashCode();
     }
 
+    /// <inheritdoc/>
     public override string ToString()
     {
         var sb = new StringBuilder("[");

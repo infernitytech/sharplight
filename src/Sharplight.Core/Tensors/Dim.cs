@@ -61,5 +61,6 @@ public readonly record struct Dim
         throw new InvalidOperationException($"Symbolic dimension '{Symbol}' is not bound.");
     }
 
+    /// <inheritdoc/>
     public override string ToString() => Symbol ?? Fixed.ToString();
 }
