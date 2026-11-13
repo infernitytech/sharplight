@@ -776,3 +776,56 @@ Of the remaining 144 ms, 112 ms are matmuls (≈ 250 TFLOPS), 31 ms the delta ru
   GEMM in prefill, the f32 matvec (NVFP4) or the int-dot matvec (MXFP4) in decode. An int8 or fp8 GEMM for NVFP4 would need
   its 16-value scales applied per half of every 32-deep MMA, the same per-block scaling overhead that keeps the K-quant MMQ
   at parity, so it was not added.
+
+## 14. MoE prefill: sorted f16 expert activations, aligned MXFP4 experts, in-place bias rows (2026-11-13)
+
+What changed (each behind a switch that restores the section-11 path, which is also the fallback without `matrix_f16`):
+
+* **Expert-sorted f16 activations** (`moe_gather_x16`, `SHARPLIGHT_MOE_X16=0`): after `moe_route`, one small launch gathers the
+  routed rows of x into expert-sorted f16 rows (shared by gate and up, which read the same x with the same routing; down gathers
+  its per-slot input once). The expert-grouped `gemm_cm2` (`X_SORTED`) reads dense f16 rows instead of gathering and converting
+  f32 rows in each of its N/128 column tiles. Bit-identical logits (same f16 rounding).
+* **Aligned MXFP4 experts** (`WeightRepack.Mxfp4Split`, type `mxfp4r`, `SHARPLIGHT_REPACK_MXFP4=0`): rank-3 MXFP4 tensors with
+  N % 16 == 0 are uploaded in 16-row groups [codes of 16 rows][E8M0 scales of 16 rows], so every block's codes are one aligned
+  16-byte load (gemm_cm2, mmvq, generic load8). Small gain (gpt-oss expert GEMM ~3 %).
+* **Row gathers read in place** (`SHARPLIGHT_NO_GATHER_FOLD=1`): a GatherAxis on axis 0 of a [rows, N] table consumed by one
+  plain fused elementwise group (gpt-oss's per-expert biases `Add(MatMulId, GatherAxis(bias, ids))`) is read as
+  `table[ids[..], n]` inside that group's kernel: 72 `gather_axis` launches per gpt-oss step fewer (prefill and decode).
+
+GPU timestamps (`SHARPLIGHT_VK_PROFILE=1`, min per launch over 3 process runs, pp512, old → new, same build with the switches):
+
+| model | expert GEMMs (sum of per-launch minima) | per expert GEMM |
+|---|---|---|
+| gpt-oss-20b-mxfp4 | 29.2 → 21.9 ms | 406 → 305 µs (85 → 113 TFLOPS) |
+| olmoe-q4km | 20.2 → 15.7 ms | |
+| ernie4.5-21b-a3b-q4km | 26.4 → 18.8 ms | |
+| nemotron3-nano-30b-q4km | 35.1 → 28.0 ms | |
+| qwen3.6-35b-a3b-q4km | 7.1 → 6.0 ms | |
+| gpt-oss-20b-mxfp4 pp2048 (4 × 512) | 28.1 → 19.4 ms per 512 chunk | |
+
+Wall clock (`sharplight MODEL --bench 512 --ctx 768`, best of 3 alternating process runs). These runs shared the GPU with a game
+and another agent's model (90 % utilization at the 300 W cap before starting), so absolute numbers are low and noisy; the
+section-11 column was measured on a quieter GPU. The first gpt-oss row is from a quieter period.
+
+| model | metric | old path | new | section 11 | llama.cpp CUDA |
+|---|---|---|---|---|---|
+| gpt-oss-20b-mxfp4 | pp512 (quieter) | 9154 | 11079 | 11831 | 17432 |
+| gpt-oss-20b-mxfp4 | pp512 | 5562 | 8961 | 11831 | 17432 |
+| gpt-oss-20b-mxfp4 | pp2048 | 5275 | 6435 | | |
+| gpt-oss-20b-mxfp4 | tg | 283 | 288 | 310 | 345 |
+| olmoe-q4km | pp512 | 12815 | 23190 | 26791 | 26541 |
+| ernie4.5-21b-a3b-q4km | pp512 | 7813 | 8645 | 10405 | 10383 |
+| nemotron3-nano-30b-q4km | pp512 | 6789 | 5454 (noise; GEMMs −20 %) | 9327 | 8464 |
+| qwen3.6-35b-a3b-q4km | pp512 | 5783 | 7323 | | |
+
+Routing statistics (debug-printed counts, gpt-oss, random tokens): experts are very unevenly loaded (per layer ~8.5 of 32 experts
+empty, a few with 250-510 of the 2048 items), so 64-row tiles are 67 % full (32-row: 82 %, 128-row: 48 %). Skipping the MMA of
+empty warps did not change the time: the expert GEMM is bound by the per-tile weight decode and loads, not by MMA, so tighter
+packing alone would gain little (estimated ~9 % of the GEMM for 64-row tiles with 32-row remainder tiles, minus a barrier between
+two launches). Ablations that change weight or activation values also change the routing and hence the tile count; they are not
+valid timing experiments for MoE.
+
+Remaining: the f16 expert GEMM is weight-decode bound for small per-expert row counts (Nemotron: 128 experts, ~24 rows each,
+47-55 TFLOPS). The int8 path (q8_1 activations against the stored codes, no decode to f16) is the next step: the sorted gather is
+the natural place to quantize the routed rows to q8_1 once, and an MMQ kernel with the `MOE` tile scheme of gemm_cm2 would read
+dense sorted q8_1 rows and scatter outputs through the routing scratch.
