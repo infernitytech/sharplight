@@ -65,6 +65,13 @@ public class FamilyGenerationTests
         // topk_group 4), shared expert, dense first layer: tiny random DeepSeek-V3.1 (references: tools/ref_latent_decoder.py).
         new("tiny-random-deepseek-v3.1 HF (transformers)", "hf/tiny-random-deepseek-v3.1", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
             [7397, 121552, 120965, 121552, 86995, 31212, 127346, 72580, 121552, 86995, 31212, 127346, 72580, 121552, 86995, 31212], ""),
+        // DeepSeek-V2-Lite (deepseek2): MLA without query compression, yarn, softmax routing over 64 experts + 2 shared, dense first
+        // layer, combined attn_kv_b split at load. The CPU reference: llama.cpp's CUDA and Vulkan builds pick other words at a 0.05 near-tie.
+        new("DeepSeek-V2-Lite-Chat Q4_K_M GGUF (llama.cpp CPU)", "gguf/DeepSeek-V2-Lite-Chat/DeepSeek-V2-Lite-Chat-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris.\n\nThe official language is French.\n\nThe currency is the Euro (€).\n\nFrance is a member of the European Union and the Schengen Agreement.\n\nFrance"),
+        // MiniCPM3-4B (minicpm3): MLA with longrope, scaled embeddings / residuals / logits.
+        new("MiniCPM3-4B Q4_K_M GGUF (llama.cpp CPU)", "gguf/MiniCPM3-4B/minicpm3-4b-q4_k_m.gguf", "The capital of France is", "text", [],
+            " Paris.\n\n- Paris, the capital of France, is a city of immense cultural, historical, and architectural significance. It is known for its iconic landmarks, world-renowned museums, and"),
         // GLM-4.7-Flash (glm4_moe_lite): MLA with rope theta 1e6, sigmoid routing with bias, 64 experts. Hidden size 8 keeps the logits
         // close together: the 10th token is a 3e-4 tie in transformers itself, so only the first 9 are compared.
         new("tiny-random-glm-4.7-flash HF (transformers)", "hf/tiny-random-glm-4.7-flash", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
