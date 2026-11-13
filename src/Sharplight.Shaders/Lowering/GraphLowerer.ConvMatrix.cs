@@ -54,6 +54,12 @@ public sealed partial class GraphLowerer
     private static (int Split, long Kps) ChooseConvMatrixSplit(long N, long OG, long G, long HW, long K, long tileRows)
     {
         long tiles = (N * HW + ConvMatrixTileColumns - 1) / ConvMatrixTileColumns * ((OG + tileRows - 1) / tileRows) * G;
+        if (tiles == 0)
+        {
+            // Empty batch (a data-dependent count of 0, e.g. no detections): nothing to split.
+            return (1, K);
+        }
+
         long kTiles = (K + ConvMatrixTileK - 1) / ConvMatrixTileK;
         long split = Math.Min(Math.Min((TargetWorkgroups + tiles - 1) / tiles, kTiles / 4), 16);
         if (split < 2)
