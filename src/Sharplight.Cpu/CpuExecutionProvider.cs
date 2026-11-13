@@ -332,7 +332,7 @@ public sealed class CpuDevice : IComputeDevice
                 return OpSupport.Yes;
             case "CausalConv1d":
                 if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32) return OpSupport.No("CausalConv1d needs f32 activations and state");
-                return F32Like(ins[1]) && (ins.Length < 4 || F32Like(ins[3])) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight/bias must be f32-convertible");
+                return F32Like(ins[1]) && (!node.Attributes.Get("bias", false) || F32Like(ins[3])) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight/bias must be f32-convertible");
             case "SelectiveScan":
                 if (ins[0].Type != DataType.F32 || ins[1].Type != DataType.F32 || ins[4].Type != DataType.F32 || ins[5].Type != DataType.F32 || ins[7].Type != DataType.F32)
                     return OpSupport.No("SelectiveScan needs f32 x/dt/B/C and state");

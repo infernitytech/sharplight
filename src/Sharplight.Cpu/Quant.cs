@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Cpu;
 
 /// <summary>Weight storage formats the CPU provider can read.</summary>
-public enum WeightFormat { F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q4_K, Q5_K, Q6_K, Q1_0, Q2_0, Q2_0_G128, Tern1_G128 }
+public enum WeightFormat { F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q4_K, Q5_K, Q6_K, Q1_0, Q2_0, Q2_0_G128, Tern1_G128, IQ4_NL, IQ4_XS }
 
 /// <summary>Dequantization of ggml block formats (exact ggml layouts).</summary>
 public static unsafe class Quant
@@ -23,6 +23,8 @@ public static unsafe class Quant
         if (t == DataType.Q4_K) return WeightFormat.Q4_K;
         if (t == DataType.Q5_K) return WeightFormat.Q5_K;
         if (t == DataType.Q6_K) return WeightFormat.Q6_K;
+        if (t == DataType.IQ4_NL) return WeightFormat.IQ4_NL;
+        if (t == DataType.IQ4_XS) return WeightFormat.IQ4_XS;
         if (t == DataType.Q1_0) return WeightFormat.Q1_0;
         if (t == DataType.Q2_0) return WeightFormat.Q2_0;
         if (t == DataType.Q2_0_G128) return WeightFormat.Q2_0_G128;
@@ -32,10 +34,10 @@ public static unsafe class Quant
 
     public static int BlockSize(WeightFormat f) => f switch
     {
-        WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K => 256,
+        WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_XS => 256,
         WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
         WeightFormat.Q2_0 => 64,
-        WeightFormat.Q4_0 or WeightFormat.Q4_1 or WeightFormat.Q5_0 or WeightFormat.Q5_1 or WeightFormat.Q8_0 => 32,
+        WeightFormat.Q4_0 or WeightFormat.Q4_1 or WeightFormat.Q5_0 or WeightFormat.Q5_1 or WeightFormat.Q8_0 or WeightFormat.IQ4_NL => 32,
         _ => 1,
     };
 
@@ -51,7 +53,8 @@ public static unsafe class Quant
         WeightFormat.Q4_K => 144,
         WeightFormat.Q5_K => 176,
         WeightFormat.Q6_K => 210,
-        WeightFormat.Q1_0 or WeightFormat.Q2_0 => 18,
+        WeightFormat.Q1_0 or WeightFormat.Q2_0 or WeightFormat.IQ4_NL => 18,
+        WeightFormat.IQ4_XS => 136,
         WeightFormat.Q2_0_G128 => 34,
         WeightFormat.Tern1_G128 => 28,
         _ => throw new ArgumentOutOfRangeException(nameof(f)),
@@ -78,6 +81,8 @@ public static unsafe class Quant
             case WeightFormat.Q4_K: Q4_K(src, nb, dst); break;
             case WeightFormat.Q5_K: Q5_K(src, nb, dst); break;
             case WeightFormat.Q6_K: Q6_K(src, nb, dst); break;
+            case WeightFormat.IQ4_NL: IQ4_NL(src, nb, dst); break;
+            case WeightFormat.IQ4_XS: IQ4_XS(src, nb, dst); break;
             case WeightFormat.Q1_0: Q1_0(src, nb, dst); break;
             case WeightFormat.Q2_0: Q2_0(src, nb, dst, 16); break;
             case WeightFormat.Q2_0_G128: Q2_0(src, nb, dst, 32); break;
@@ -114,6 +119,37 @@ public static unsafe class Quant
             var q = Vector128.Load(p + 2);
             Simd.StoreU8x16(q & mask, d, -8f * d, dst);
             Simd.StoreU8x16(Vector128.ShiftRightLogical(q, 4), d, -8f * d, dst + 16);
+        }
+    }
+
+    // ---- non-linear 4-bit formats (ggml IQ4_NL / IQ4_XS): the nibble indexes a fixed 16-entry codebook ----------------------------
+
+    static readonly sbyte[] s_kvalues = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113];
+
+    /// <summary>IQ4_NL: 32 values = { f16 d; u8 qs[16] }; value j&lt;16: d·kvalues[lo nibble of qs[j]], j&gt;=16: d·kvalues[hi nibble of qs[j-16]].</summary>
+    static void IQ4_NL(byte* p, long nb, float* dst)
+    {
+        for (long b = 0; b < nb; b++, p += 18, dst += 32)
+        {
+            float d = H(p);
+            for (int j = 0; j < 16; j++) { dst[j] = d * s_kvalues[p[2 + j] & 0xF]; dst[j + 16] = d * s_kvalues[p[2 + j] >> 4]; }
+        }
+    }
+
+    /// <summary>IQ4_XS: 256 values = { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] }: eight 32-value sub-blocks with 6-bit scales (ls - 32), each laid out like IQ4_NL.</summary>
+    static void IQ4_XS(byte* p, long nb, float* dst)
+    {
+        for (long b = 0; b < nb; b++, p += 136, dst += 256)
+        {
+            float d = H(p);
+            uint sh = p[2] | (uint)p[3] << 8;
+            for (int ib = 0; ib < 8; ib++)
+            {
+                int ls = ((p[4 + ib / 2] >> (4 * (ib % 2))) & 0xF) | (int)(((sh >> (2 * ib)) & 3) << 4);
+                float dl = d * (ls - 32);
+                byte* qs = p + 8 + 16 * ib;
+                for (int j = 0; j < 16; j++) { dst[ib * 32 + j] = dl * s_kvalues[qs[j] & 0xF]; dst[ib * 32 + j + 16] = dl * s_kvalues[qs[j] >> 4]; }
+            }
         }
     }
 
