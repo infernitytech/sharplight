@@ -44,6 +44,9 @@ public class FamilyGenerationTests
             [6993, 2613, 5646, 1681, 2925, 1338, 3890, 1395, 2156, 2258, 31544, 1063, 1531, 4098, 8223, 1429, 11018, 1307, 1278, 3629, 21166, 1395, 2925, 10555, 1321, 2342, 1925, 1395, 2925, 1338, 3890, 2878], ""),
         new("NVIDIA-Nemotron-3-Nano-4B Q8_0 GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-Q8_0.gguf", "The capital of France is", "text", [],
             " Paris.\"] output: ```python\ndef extract_capital(sentence):\n    # Split the sentence into words\n    words = sentence.split()\n    #", Tokens: 32),
+        // Gemma 4 E4B finetune (NVIDIA Nemotron 3.5 Bolt E4B, arch gemma4): IQ4_NL per-layer embedding table, 42 layers with 18 shared-KV layers.
+        new("NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf", "def fibonacci(n):", "text", [],
+            "\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint"),
         // Muse Glimmer: sandwich norms, sigmoid-gated attention, NoPE global layers, weight-less embedding norm, scaled+capped logits (tiny random HF model).
         new("tiny-random-muse-glimmer HF (transformers)", "hf/tiny-random-muse-glimmer", "The capital of France is", "ids",
             [88179, 31190, 88859, 146248, 146248, 98533, 196087, 39796, 187054, 134096, 16817, 4968, 3047, 169161, 51166, 87988], ""),

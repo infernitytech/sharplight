@@ -33,6 +33,7 @@ public class DecoderParityTests
         new("gemma-2-2b-it", "hf/gemma-2-2b-it", "gguf/gemma-2-2b-it/gemma-2-2b-it-Q8_0.gguf"),
         new("gemma-4-E2B-it-Q8_0", "hf/gemma-4-E2B-it", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-Q8_0.gguf"),
         new("gemma-4-E2B-it-BF16", "hf/gemma-4-E2B-it", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-BF16.gguf"),
+        new("gemma-4-12B-it-BF16 (k = v global layers)", "hf/gemma-4-12B-it", "gguf/gemma-4-12b-it/gemma-4-12b-it-BF16.gguf"),   // 23 GB; skipped when the BF16 GGUF is not downloaded
         new("NVIDIA-Nemotron-3-Nano-4B-Q8_0", "hf/NVIDIA-Nemotron-3-Nano-4B", "gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-Q8_0.gguf"),
         new("NVIDIA-Nemotron-3-Nano-4B-BF16", "hf/NVIDIA-Nemotron-3-Nano-4B", "gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-BF16.gguf"),
         new("Muse-Glimmer-30B-Q4_K_XL", "hf/Muse-Glimmer-30B", "gguf/Muse-Glimmer-30B/Muse-Glimmer-30B-UD-Q4_K_XL.gguf"),
@@ -111,7 +112,8 @@ public class DecoderParityTests
         // The unsloth Nemotron GGUF enables add_bos_token while the official tokenizer_config.json disables it: a repackaging choice, compare plain encodings then.
         bool sameBos = tg.AddBos == th.AddBos;
         if (!name.StartsWith("NVIDIA-Nemotron", StringComparison.Ordinal)) Assert.True(sameBos, "add_bos differs");
-        Assert.Equal(tg.EndOfGenerationIds.Order(), th.EndOfGenerationIds.Order());
+        if (name.Contains("12B", StringComparison.Ordinal)) Assert.Subset(th.EndOfGenerationIds.ToHashSet(), tg.EndOfGenerationIds.ToHashSet());   // the unsloth 12B GGUF lists only <turn|> (eos id 106), the HF generation_config also <eos>
+        else Assert.Equal(tg.EndOfGenerationIds.Order(), th.EndOfGenerationIds.Order());
         foreach (var s in new[]
         {
             "Hello, world!", "The quick brown fox jumps over the lazy dog.", "  leading and trailing  ", "numbers 1234567890 3.14159",

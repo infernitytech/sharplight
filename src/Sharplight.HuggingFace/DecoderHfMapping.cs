@@ -14,7 +14,7 @@ namespace Sharplight.HuggingFace;
 public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 {
     public string Architecture => "decoder";
-    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "gemma4", "gemma4_text", "muse_glimmer", "flint"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "muse_glimmer", "flint"];
 
     static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
 
@@ -90,7 +90,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     {
         string a = Architecture + ".";
         string? type = c.ModelType;
-        if (type is "gemma4" or "gemma4_text") return Gemma4Hyper(c);
+        if (type is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text") return Gemma4Hyper(c);
         if (type == "muse_glimmer") return MuseHyper(c);
         if (type == "flint") return FlintHyper(c);
         int nLayer = c.Int("num_hidden_layers");

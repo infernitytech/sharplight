@@ -6,7 +6,7 @@ namespace Sharplight.HuggingFace;
 /// <summary>Gemma 4 and Muse Glimmer text models: the generic decoder plus per-layer head sizes, KV sharing, per-layer embeddings, NoPE layers, ...</summary>
 public sealed partial class DecoderHfMapping
 {
-    static bool IsGemma4OrMuse(string? t) => t is "gemma4" or "gemma4_text" or "muse_glimmer";
+    static bool IsGemma4OrMuse(string? t) => t is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text" or "muse_glimmer";
 
     /// <summary>Vision / audio towers and their projectors live in other canonical sources.</summary>
     static bool IsNonTextTensor(string name)
@@ -35,7 +35,7 @@ public sealed partial class DecoderHfMapping
     /// <summary>Per-frequency divisors of the global layers' rope (Gemma 4 proportional rotary), or null.</summary>
     static float[]? ExtendedRopeFactors(HfConfig c)
     {
-        if (c.ModelType is not ("gemma4" or "gemma4_text")) return null;
+        if (c.ModelType is not ("gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text")) return null;
         var full = LayerTypeRope(c, "full_attention");
         if (full is not { } f || !f.TryGetProperty("rope_type", out var rt) || rt.GetString() != "proportional") return null;
         int dim = c.GetInt("global_head_dim") ?? c.Int("head_dim");
