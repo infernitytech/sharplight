@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -11,7 +10,7 @@ namespace Sharplight.Gguf;
 /// (<c>cls</c> dense + <c>cls.output</c>) maps to <c>classifier.pre</c> / <c>classifier.out</c>. The converter already removed
 /// RoBERTa's position offset, so position row p is position p.
 /// </summary>
-public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
+internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     /// <inheritdoc/>
     public IReadOnlyList<string> GgufArchitectures { get; } = ["bert", "nomic-bert"];
@@ -24,29 +23,28 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";
-        int nEmbd = g.Int("embedding_length"), nHead = g.Int("attention.head_count");
+        int embeddingLength = g.Int("embedding_length");
+        int headCount = g.Int("attention.head_count");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "layer_count"] = g.Int("block_count"),
-            [a + "hidden_size"] = nEmbd,
+            [a + "hidden_size"] = embeddingLength,
             [a + "ffn_hidden_size"] = g.Int("feed_forward_length"),
-            [a + "attention.head_count"] = nHead,
+            [a + "attention.head_count"] = headCount,
             [a + "norm_eps"] = g.Float("attention.layer_norm_epsilon"),
             [a + "mlp.activation"] = IsNomic(g) ? "silu" : "gelu",
         };
         if (IsNomic(g))
         {
             md[a + "mlp.gated"] = true;
-            md[a + "rope.base"] = g.Has("rope.freq_base") ? g.Float("rope.freq_base") : 10000f;
-            md[a + "rope.dim"] = g.Int("rope.dimension_count", nEmbd / nHead);
+            md[a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase);
+            md[a + "rope.dim"] = g.Int("rope.dimension_count", embeddingLength / headCount);
             md[a + "rope.style"] = "neox";
         }
-        if (g.Has("context_length"))
-        {
-            md[a + "context_length"] = g.Int("context_length");
-        }
 
-        if (g.Has("attention.causal") && Convert.ToBoolean(g.Raw("attention.causal")))
+        GgufMappingHelpers.AddContextLength(md, a, g);
+
+        if (g.Bool("attention.causal", false))
         {
             throw new NotSupportedException($"GGUF {g.GgufArchitecture}: causal encoders are not supported.");
         }
@@ -60,9 +58,7 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
         return md;
     }
 
-    [GeneratedRegex(@"^blk\.(\d+)\.(.+)$")]
-    private static partial Regex BlockName();
-
+    /// <summary>Per-layer tensors (without the <c>.weight</c> / <c>.bias</c> suffix), GGUF name to canonical name.</summary>
     private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["attn_q"] = "attention.q",
@@ -79,19 +75,12 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
-        switch (name)
+        if (s_global.TryGetValue(name, out var globalName))
         {
-            case "token_embd.weight": return "token_embedding.weight";
-            case "position_embd.weight": return "position_embedding.weight";
-            case "token_types.weight": return "token_type_embedding.weight";
-            case "token_embd_norm.weight": return "embedding_norm.weight";
-            case "token_embd_norm.bias": return "embedding_norm.bias";
-            case "cls.weight": return "classifier.pre.weight";
-            case "cls.bias": return "classifier.pre.bias";
-            case "cls.output.weight": return "classifier.out.weight";
-            case "cls.output.bias": return "classifier.out.bias";
+            return globalName;
         }
-        var m = BlockName().Match(name);
+
+        var m = GgufTensorNames.Block().Match(name);
         if (!m.Success)
         {
             return null;
@@ -107,6 +96,20 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
         return $"layers.{m.Groups[1].Value}.{c}{rest[dot..]}";
     }
 
+    /// <summary>Embedding, position, classifier and embedding-norm tensors outside the layers.</summary>
+    private static readonly Dictionary<string, string> s_global = new(StringComparer.Ordinal)
+    {
+        ["token_embd.weight"] = "token_embedding.weight",
+        ["position_embd.weight"] = "position_embedding.weight",
+        ["token_types.weight"] = "token_type_embedding.weight",
+        ["token_embd_norm.weight"] = "embedding_norm.weight",
+        ["token_embd_norm.bias"] = "embedding_norm.bias",
+        ["cls.weight"] = "classifier.pre.weight",
+        ["cls.bias"] = "classifier.pre.bias",
+        ["cls.output.weight"] = "classifier.out.weight",
+        ["cls.output.bias"] = "classifier.out.bias",
+    };
+
     /// <summary>GGUF drops leading size-1 axes: a single token type or a one-label classifier comes as a vector; canonical form is [1, H].</summary>
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
         => w.Shape.Rank == 1 && w.Name is "token_type_embedding.weight" or "classifier.out.weight" ? w.As(w.Name, new Shape(1, w.Shape[0].Fixed)) : w;
@@ -114,14 +117,20 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
     /// <summary>nomic-bert stores q/k/v as one tensor (q rows first).</summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
-        var m = BlockName().Match(name);
+        var m = GgufTensorNames.Block().Match(name);
         if (!m.Success || !m.Groups[2].Value.StartsWith("attn_qkv.", StringComparison.Ordinal))
         {
             return null;
         }
 
-        string p = $"layers.{m.Groups[1].Value}.attention.", param = m.Groups[2].Value["attn_qkv".Length..];
-        int n = g.Int("embedding_length");
-        return [t.RowSlice(p + "q" + param, 0, n), t.RowSlice(p + "k" + param, n, n), t.RowSlice(p + "v" + param, 2 * n, n)];
+        string prefix = $"layers.{m.Groups[1].Value}.attention.";
+        string parameter = m.Groups[2].Value["attn_qkv".Length..];
+        int hidden = g.Int("embedding_length");
+        return
+        [
+            t.RowSlice(prefix + "q" + parameter, 0, hidden),
+            t.RowSlice(prefix + "k" + parameter, hidden, hidden),
+            t.RowSlice(prefix + "v" + parameter, 2 * hidden, hidden),
+        ];
     }
 }

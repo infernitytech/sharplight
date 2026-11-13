@@ -5,4 +5,8 @@
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.HuggingFace.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+  </ItemGroup>
 </Project>

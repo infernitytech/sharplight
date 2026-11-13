@@ -42,27 +42,40 @@ public class DecoderParityTests
 
     private static (ModelSource Hf, ModelSource Gguf)? Open(string hf, string gguf)
     {
-        string h = Path.Combine(Home, "models", hf), g = Path.Combine(Home, "models", gguf);
+        string h = Path.Combine(Home, "models", hf);
+        string g = Path.Combine(Home, "models", gguf);
         if (!Directory.Exists(h) || !File.Exists(g))
         {
             return null;
         }
 
-        try { return (HuggingFaceImporter.Open(h), GgufImporter.Open(g)); }
-        catch (NotSupportedException) { return null; }   // family not supported by this build
+        try
+        {
+            return (HuggingFaceImporter.Open(h), GgufImporter.Open(g));
+        }
+        catch (NotSupportedException)   // family not supported by this build
+        {
+            return null;
+        }
     }
 
     [Theory, MemberData(nameof(Models))]
     public void Hyperparameters_And_WeightNames_Match(string name, string hf, string gguf)
     {
-        if (Open(hf, gguf) is not var (h, g)) { Assert.Skip($"{name}: files missing or unsupported"); return; }
-        using var _1 = new Disposer(h); using var _2 = new Disposer(g);
+        if (Open(hf, gguf) is not var (h, g))
+        {
+            Assert.Skip($"{name}: files missing or unsupported");
+            return;
+        }
+        using var _1 = new Disposer(h);
+        using var _2 = new Disposer(g);
         Assert.Equal(g.Architecture, h.Architecture);
         Assert.Contains(g.Architecture, new[] { "decoder", "nemotron_h" });
         var problems = new List<string>();
         foreach (var key in h.Metadata.Keys.Concat(g.Metadata.Keys).Where(k => k.StartsWith(g.Architecture + ".", StringComparison.Ordinal)).Distinct().Order(StringComparer.Ordinal))
         {
-            bool inH = h.Metadata.TryGetValue(key, out var hv), inG = g.Metadata.TryGetValue(key, out var gv);
+            bool inH = h.Metadata.TryGetValue(key, out var hv);
+            bool inG = g.Metadata.TryGetValue(key, out var gv);
             if (key.EndsWith(".context_length"))
             {
                 continue;   // repackagers sometimes truncate; informational
@@ -91,9 +104,18 @@ public class DecoderParityTests
     [Theory, MemberData(nameof(Models))]
     public void Weight_Shapes_And_Values_Match(string name, string hf, string gguf)
     {
-        if (name.StartsWith("Qwen2.5", StringComparison.Ordinal)) { Assert.Skip("the official Qwen2.5 GGUF repo and HF repo carry different weight revisions of layer 0 (checked against fp16); covered by the generation test"); return; }
-        if (Open(hf, gguf) is not var (h, g)) { Assert.Skip($"{name}: files missing or unsupported"); return; }
-        using var _1 = new Disposer(h); using var _2 = new Disposer(g);
+        if (name.StartsWith("Qwen2.5", StringComparison.Ordinal))
+        {
+            Assert.Skip("the official Qwen2.5 GGUF repo and HF repo carry different weight revisions of layer 0 (checked against fp16); covered by the generation test");
+            return;
+        }
+        if (Open(hf, gguf) is not var (h, g))
+        {
+            Assert.Skip($"{name}: files missing or unsupported");
+            return;
+        }
+        using var _1 = new Disposer(h);
+        using var _2 = new Disposer(g);
         var problems = new List<string>();
         var report = new SortedDictionary<string, double>();
         foreach (var (wn, gw) in g.Weights.OrderBy(p => p.Key, StringComparer.Ordinal))
@@ -109,7 +131,11 @@ public class DecoderParityTests
                 continue;
             }
 
-            if (!gw.Shape.Equals(hw.Shape)) { problems.Add($"{wn}: shape GGUF {gw.Shape} vs HF {hw.Shape}"); continue; }
+            if (!gw.Shape.Equals(hw.Shape))
+            {
+                problems.Add($"{wn}: shape GGUF {gw.Shape} vs HF {hw.Shape}");
+                continue;
+            }
             if (gw.Type != DataType.F32 && gw.Type != DataType.F16 && gw.Type != DataType.BF16 && gw.Type != DataType.Q8_0 && !IsGroupBitFormat(gw.Type))
             {
                 continue;   // shape-only for other quantizations
@@ -137,8 +163,13 @@ public class DecoderParityTests
     [Theory, MemberData(nameof(Models))]
     public void Tokenizers_Agree(string name, string hf, string gguf)
     {
-        if (Open(hf, gguf) is not var (h, g)) { Assert.Skip($"{name}: files missing or unsupported"); return; }
-        using var _1 = new Disposer(h); using var _2 = new Disposer(g);
+        if (Open(hf, gguf) is not var (h, g))
+        {
+            Assert.Skip($"{name}: files missing or unsupported");
+            return;
+        }
+        using var _1 = new Disposer(h);
+        using var _2 = new Disposer(g);
         var th = TokenizerFactory.Create(TokenizerData.FromMetadata(h.Metadata));
         var tg = TokenizerFactory.Create(TokenizerData.FromMetadata(g.Metadata));
         Assert.Equal(tg.VocabSize, th.VocabSize);
@@ -216,18 +247,29 @@ public class DecoderParityTests
 
         try
         {
-            double da = Convert.ToDouble(a, CultureInfo.InvariantCulture), db = Convert.ToDouble(b, CultureInfo.InvariantCulture);
+            double da = Convert.ToDouble(a, CultureInfo.InvariantCulture);
+            double db = Convert.ToDouble(b, CultureInfo.InvariantCulture);
             return da == db || Math.Abs(da - db) <= 1e-5 * Math.Max(Math.Abs(da), Math.Abs(db));
         }
-        catch { return false; }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>sqrt(Σ(a-b)²/Σa²) over the first up-to-4M elements.</summary>
     private static double RelRms(WeightInfo a, WeightInfo b)
     {
-        var fa = Decode(a); var fb = Decode(b);
-        double num = 0, den = 0;
-        for (int i = 0; i < fa.Length; i++) { double d = fa[i] - fb[i]; num += d * d; den += (double)fa[i] * fa[i]; }
+        var fa = Decode(a);
+        var fb = Decode(b);
+        double num = 0;
+        double den = 0;
+        for (int i = 0; i < fa.Length; i++)
+        {
+            double d = fa[i] - fb[i];
+            num += d * d;
+            den += (double)fa[i] * fa[i];
+        }
         return den == 0 ? (num == 0 ? 0 : double.PositiveInfinity) : Math.Sqrt(num / den);
     }
 
@@ -239,7 +281,8 @@ public class DecoderParityTests
         if (IsGroupBitFormat(w.Type))
         {
             // Bonsai 1-bit / ternary: one f16 scale per group; 1 sign bit or a 2-bit code ((code-1) * scale).
-            int bs = w.Type.BlockSize, bb = w.Type.BlockBytes;
+            int bs = w.Type.BlockSize;
+            int bb = w.Type.BlockBytes;
             n = n / bs * bs;
             var raw = new byte[n / bs * bb];
             w.Source.Read(0, raw);

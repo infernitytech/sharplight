@@ -9,7 +9,7 @@ namespace Sharplight.HuggingFace;
 /// zero-copy view (<see cref="WeightInfo.As"/>); everything else is lazily computed through
 /// <see cref="WeightInfo.Derived"/> and only runs when the weight is first read.
 /// </summary>
-public static class HfTransforms
+internal static class HfTransforms
 {
     /// <summary>Zero-copy rename. 1-D tensors that are not F32 are widened to F32 (llama.cpp keeps all 1-D tensors in F32).</summary>
     public static WeightInfo Plain(WeightInfo src, string name)
@@ -38,7 +38,10 @@ public static class HfTransforms
     /// the axis is viewed as <c>[numK, vPerK, headDim]</c> and permuted to <c>[vPerK, numK, headDim]</c>.
     /// </summary>
     /// <param name="data">The tensor bytes, row-major.</param>
+    /// <param name="elemBytes">Bytes per element.</param>
     /// <param name="outerElems">Product of dimensions before the reordered axis.</param>
+    /// <param name="numK">Number of key heads.</param>
+    /// <param name="vPerK">Value heads per key head.</param>
     /// <param name="innerElems">Product of dimensions after the reordered axis, times headDim.</param>
     public static byte[] ReorderVHeads(byte[] data, int elemBytes, long outerElems, int numK, int vPerK, long innerElems)
     {
@@ -155,6 +158,7 @@ public static class HfTransforms
         return f;
     }
 
+    /// <summary>The little-endian bytes of <paramref name="values"/>.</summary>
     public static byte[] EncodeF32(float[] values)
     {
         var b = new byte[values.Length * 4];

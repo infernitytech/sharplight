@@ -7,12 +7,14 @@ namespace Sharplight.HuggingFace;
 /// A checkpoint's <c>config.json</c>. Like llama.cpp's converter, the nested <c>text_config</c> (if any)
 /// is merged over the root object (text_config wins), so hyper-parameters are looked up flat.
 /// </summary>
-public sealed class HfConfig : IDisposable
+internal sealed class HfConfig : IDisposable
 {
     private readonly JsonDocument _doc;
     private readonly Dictionary<string, JsonElement> _flat = new(StringComparer.Ordinal);
 
+    /// <summary>The parsed root object of <c>config.json</c> (before merging <c>text_config</c>).</summary>
     public JsonElement Root => _doc.RootElement;
+    /// <summary>The checkpoint directory the config was loaded from.</summary>
     public string Directory { get; }
 
     private HfConfig(JsonDocument doc, string directory)
@@ -33,22 +35,27 @@ public sealed class HfConfig : IDisposable
         }
     }
 
+    /// <summary>Loads <c>config.json</c> from <paramref name="directory"/>; trailing commas are tolerated.</summary>
     public static HfConfig Load(string directory)
     {
         var path = Path.Combine(directory, "config.json");
-        return new HfConfig(JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions { AllowTrailingCommas = true }), directory);
+        var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions { AllowTrailingCommas = true });
+        return new HfConfig(document, directory);
     }
 
     /// <summary>The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's.</summary>
     public string? ModelType
         => Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : GetString("model_type");
 
+    /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>
     public IReadOnlyList<string> Architectures
         => Root.TryGetProperty("architectures", out var a) && a.ValueKind == JsonValueKind.Array
             ? a.EnumerateArray().Select(x => x.GetString() ?? "").ToArray() : [];
 
+    /// <summary>Whether the flat config has a non-null value for <paramref name="key"/>.</summary>
     public bool Has(string key) => _flat.TryGetValue(key, out var v) && v.ValueKind != JsonValueKind.Null;
 
+    /// <summary>The first non-null value among <paramref name="keys"/> (aliases used by different checkpoint generations), or null.</summary>
     public JsonElement? Get(params string[] keys)
     {
         foreach (var k in keys)
@@ -62,12 +69,18 @@ public sealed class HfConfig : IDisposable
         return null;
     }
 
+    /// <summary>The first present key as an integer (numeric strings and booleans convert), or null.</summary>
     public int? GetInt(params string[] keys) => Get(keys) is { } v ? (int)ToDouble(v) : null;
+    /// <summary>The first present key as a double, or null.</summary>
     public double? GetDouble(params string[] keys) => Get(keys) is { } v ? ToDouble(v) : null;
+    /// <summary>The first present key as a boolean, or null.</summary>
     public bool? GetBool(params string[] keys) => Get(keys) is { } v ? v.ValueKind == JsonValueKind.True : null;
+    /// <summary>The first present key as a string; null when absent or not a string.</summary>
     public string? GetString(params string[] keys) => Get(keys) is { ValueKind: JsonValueKind.String } v ? v.GetString() : null;
 
+    /// <summary>Like <see cref="GetInt"/> but throws <see cref="KeyNotFoundException"/> when no key is present.</summary>
     public int Int(params string[] keys) => GetInt(keys) ?? throw Missing(keys);
+    /// <summary>Like <see cref="GetDouble"/> but throws <see cref="KeyNotFoundException"/> when no key is present.</summary>
     public double Double(params string[] keys) => GetDouble(keys) ?? throw Missing(keys);
 
     /// <summary>The (merged) <c>rope_parameters</c> / legacy <c>rope_scaling</c> object, or null.</summary>
@@ -88,10 +101,12 @@ public sealed class HfConfig : IDisposable
         return GetDouble(topLevel);
     }
 
+    /// <summary>An integer array from <c>rope_parameters</c> (e.g. <c>mrope_section</c>), or null.</summary>
     public int[]? RopeIntArray(string rope)
         => RopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Select(x => x.GetInt32()).ToArray() : null;
 
+    /// <summary>A string-array value, or null when absent or not an array.</summary>
     public string[]? GetStringArray(string key)
         => Get(key) is { ValueKind: JsonValueKind.Array } v ? v.EnumerateArray().Select(x => x.GetString() ?? "").ToArray() : null;
 
@@ -106,5 +121,6 @@ public sealed class HfConfig : IDisposable
 
     private static KeyNotFoundException Missing(string[] keys) => new($"config.json: none of [{string.Join(", ", keys)}] is present.");
 
+    /// <summary>Releases the parsed document; elements obtained from it must not be used afterwards.</summary>
     public void Dispose() => _doc.Dispose();
 }

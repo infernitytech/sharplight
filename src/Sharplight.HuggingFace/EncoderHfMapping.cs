@@ -10,14 +10,21 @@ namespace Sharplight.HuggingFace;
 /// <c>roberta.</c>) are dropped, RoBERTa's position table is cut to start at position 0 (its first padding_idx + 1 rows are never
 /// used), nomic-bert's fused qkv is split zero-copy.
 /// </summary>
-public sealed partial class EncoderHfMapping : IHfArchitectureMapping
+internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
 {
+    private const int DefaultPaddingIndex = 1;
+
+    /// <summary>Prefixes the base model is saved under in task-specific checkpoints; dropped so names are uniform.</summary>
+    private static readonly string[] s_modelPrefixes = ["bert.", "roberta.", "model."];
+
     /// <inheritdoc/>
     public string Architecture => "encoder";
+
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["bert", "roberta", "xlm-roberta", "nomic_bert"];
 
     private static bool IsRoberta(HfConfig c) => c.ModelType is "roberta" or "xlm-roberta";
+
     private static bool IsNomic(HfConfig c) => c.ModelType == "nomic_bert";
 
     /// <inheritdoc/>
@@ -27,38 +34,17 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
         var md = new Dictionary<string, object>(StringComparer.Ordinal);
         if (IsNomic(c))
         {
-            md[a + "layer_count"] = c.Int("n_layer", "num_hidden_layers");
-            md[a + "hidden_size"] = c.Int("n_embd", "hidden_size");
-            md[a + "ffn_hidden_size"] = c.Int("n_inner", "intermediate_size");
-            md[a + "attention.head_count"] = c.Int("n_head", "num_attention_heads");
-            md[a + "norm_eps"] = (float)(c.GetDouble("layer_norm_epsilon", "layer_norm_eps") ?? 1e-12);
-            md[a + "context_length"] = c.GetInt("max_trained_positions", "n_positions") ?? 2048;
-            if (c.GetBool("prenorm") == true)
-            {
-                throw new NotSupportedException("nomic_bert: pre-norm checkpoints are not supported.");
-            }
-
-            string act = c.GetString("activation_function") ?? "swiglu";
-            if (act is not ("swiglu" or "gelu"))
-            {
-                throw new NotSupportedException($"nomic_bert: activation '{act}' is not supported.");
-            }
-
-            md[a + "mlp.activation"] = act == "swiglu" ? "silu" : "gelu";
-            md[a + "mlp.gated"] = act == "swiglu";
-            int headDim = c.Int("n_embd", "hidden_size") / c.Int("n_head", "num_attention_heads");
-            md[a + "rope.dim"] = (int)(headDim * (c.GetDouble("rotary_emb_fraction") ?? 1.0));
-            md[a + "rope.base"] = (float)(c.GetDouble("rotary_emb_base") ?? 10000.0);
-            md[a + "rope.style"] = c.GetBool("rotary_emb_interleaved") == true ? "gptj" : "neox";
+            AddNomicHyperParameters(md, a, c);
             return md;
         }
+
         md[a + "layer_count"] = c.Int("num_hidden_layers");
         md[a + "hidden_size"] = c.Int("hidden_size");
         md[a + "ffn_hidden_size"] = c.Int("intermediate_size");
         md[a + "attention.head_count"] = c.Int("num_attention_heads");
         md[a + "norm_eps"] = (float)(c.GetDouble("layer_norm_eps") ?? 1e-12);
-        int maxPos = c.GetInt("max_position_embeddings") ?? 512;
-        md[a + "context_length"] = IsRoberta(c) ? maxPos - (c.GetInt("pad_token_id") ?? 1) - 1 : maxPos;
+        int maxPositions = c.GetInt("max_position_embeddings") ?? 512;
+        md[a + "context_length"] = IsRoberta(c) ? maxPositions - (c.GetInt("pad_token_id") ?? DefaultPaddingIndex) - 1 : maxPositions;
         md[a + "mlp.activation"] = (c.GetString("hidden_act") ?? "gelu") switch
         {
             "gelu" => "gelu",
@@ -75,9 +61,37 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
         return md;
     }
 
+    private static void AddNomicHyperParameters(Dictionary<string, object> md, string a, HfConfig c)
+    {
+        md[a + "layer_count"] = c.Int("n_layer", "num_hidden_layers");
+        md[a + "hidden_size"] = c.Int("n_embd", "hidden_size");
+        md[a + "ffn_hidden_size"] = c.Int("n_inner", "intermediate_size");
+        md[a + "attention.head_count"] = c.Int("n_head", "num_attention_heads");
+        md[a + "norm_eps"] = (float)(c.GetDouble("layer_norm_epsilon", "layer_norm_eps") ?? 1e-12);
+        md[a + "context_length"] = c.GetInt("max_trained_positions", "n_positions") ?? 2048;
+        if (c.GetBool("prenorm") == true)
+        {
+            throw new NotSupportedException("nomic_bert: pre-norm checkpoints are not supported.");
+        }
+
+        string activation = c.GetString("activation_function") ?? "swiglu";
+        if (activation is not ("swiglu" or "gelu"))
+        {
+            throw new NotSupportedException($"nomic_bert: activation '{activation}' is not supported.");
+        }
+
+        md[a + "mlp.activation"] = activation == "swiglu" ? "silu" : "gelu";
+        md[a + "mlp.gated"] = activation == "swiglu";
+        int headDim = c.Int("n_embd", "hidden_size") / c.Int("n_head", "num_attention_heads");
+        md[a + "rope.dim"] = (int)(headDim * (c.GetDouble("rotary_emb_fraction") ?? 1.0));
+        md[a + "rope.base"] = (float)(c.GetDouble("rotary_emb_base") ?? 10000.0);
+        md[a + "rope.style"] = c.GetBool("rotary_emb_interleaved") == true ? "gptj" : "neox";
+    }
+
     [GeneratedRegex(@"^(?:encoder\.layers?)\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
+    /// <summary>BERT / RoBERTa per-layer modules, HF module path to canonical module.</summary>
     private static readonly Dictionary<string, string> s_bertLayer = new(StringComparer.Ordinal)
     {
         ["attention.self.query"] = "attention.q",
@@ -90,6 +104,7 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
         ["output.LayerNorm"] = "mlp_norm",
     };
 
+    /// <summary>nomic-bert per-layer modules, HF module path to canonical module.</summary>
     private static readonly Dictionary<string, string> s_nomicLayer = new(StringComparer.Ordinal)
     {
         ["attn.out_proj"] = "attention.o",
@@ -101,86 +116,129 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
         ["norm2"] = "mlp_norm",
     };
 
+    /// <summary>
+    /// Embedding, pooler and classifier tensors outside the layers, HF name to canonical name. BertForSequenceClassification has a pooler
+    /// (dense + tanh) then a classifier; RoBERTa has classifier.dense (+ tanh) then out_proj.
+    /// </summary>
+    private static readonly Dictionary<string, string> s_global = new(StringComparer.Ordinal)
+    {
+        ["embeddings.word_embeddings.weight"] = "token_embedding.weight",
+        ["embeddings.token_type_embeddings.weight"] = "token_type_embedding.weight",
+        ["embeddings.LayerNorm.weight"] = "embedding_norm.weight",
+        ["emb_ln.weight"] = "embedding_norm.weight",
+        ["embeddings.LayerNorm.bias"] = "embedding_norm.bias",
+        ["emb_ln.bias"] = "embedding_norm.bias",
+        ["pooler.dense.weight"] = "classifier.pre.weight",
+        ["classifier.dense.weight"] = "classifier.pre.weight",
+        ["pooler.dense.bias"] = "classifier.pre.bias",
+        ["classifier.dense.bias"] = "classifier.pre.bias",
+        ["classifier.weight"] = "classifier.out.weight",
+        ["classifier.out_proj.weight"] = "classifier.out.weight",
+        ["classifier.bias"] = "classifier.out.bias",
+        ["classifier.out_proj.bias"] = "classifier.out.bias",
+    };
+
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
-        var w = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
-        int posOffset = IsRoberta(c) ? (c.GetInt("pad_token_id") ?? 1) + 1 : 0;
-        int nEmbd = c.Int("n_embd", "hidden_size");
-        void Add(string name, WeightInfo info) { if (!w.TryAdd(name, info)) { throw new InvalidDataException($"Two tensors map to '{name}'."); } }
+        var collector = new HfWeightCollector();
+        int positionOffset = IsRoberta(c) ? (c.GetInt("pad_token_id") ?? DefaultPaddingIndex) + 1 : 0;
+        int hidden = c.Int("n_embd", "hidden_size");
+        bool isSequenceClassifier = c.Architectures.Any(x => x.Contains("SequenceClassification"));
 
-        foreach (var (raw, t) in tensors)
+        foreach (var (rawName, tensor) in tensors)
         {
-            string name = raw;
-            foreach (var prefix in new[] { "bert.", "roberta.", "model." })
-            {
-                if (name.StartsWith(prefix, StringComparison.Ordinal)) { name = name[prefix.Length..]; break; }
-            }
-            // Old checkpoints call LayerNorm parameters gamma / beta.
-            if (name.EndsWith(".gamma", StringComparison.Ordinal))
-            {
-                name = name[..^6] + ".weight";
-            }
-            else if (name.EndsWith(".beta", StringComparison.Ordinal))
-            {
-                name = name[..^5] + ".bias";
-            }
+            string name = NormalizeName(rawName);
+            var info = tensor.ToWeightInfo();
 
-            var info = t.ToWeightInfo();
-
-            if (name.EndsWith("position_ids", StringComparison.Ordinal) || name.StartsWith("lm_head.", StringComparison.Ordinal)
-                || name.StartsWith("cls.", StringComparison.Ordinal) || name.StartsWith("pooler.", StringComparison.Ordinal) && !c.Architectures.Any(x => x.Contains("SequenceClassification")))
+            if (IsIgnored(name, isSequenceClassifier))
             {
                 continue;   // buffers, masked-LM heads and the unused pooler of base models
             }
 
-            switch (name)
+            if (s_global.TryGetValue(name, out var globalName))
             {
-                case "embeddings.word_embeddings.weight": Add("token_embedding.weight", info.As("token_embedding.weight")); continue;
-                case "embeddings.token_type_embeddings.weight": Add("token_type_embedding.weight", info.As("token_type_embedding.weight")); continue;
-                case "embeddings.position_embeddings.weight":
-                    Add("position_embedding.weight", posOffset == 0 ? info.As("position_embedding.weight")
-                        : info.RowSlice("position_embedding.weight", posOffset, info.Shape[0].Fixed - posOffset));
-                    continue;
-                case "embeddings.LayerNorm.weight" or "emb_ln.weight": Add("embedding_norm.weight", info.As("embedding_norm.weight")); continue;
-                case "embeddings.LayerNorm.bias" or "emb_ln.bias": Add("embedding_norm.bias", info.As("embedding_norm.bias")); continue;
-                // BertForSequenceClassification: pooler (dense + tanh) then classifier; RoBERTa: classifier.dense (+ tanh) then out_proj.
-                case "pooler.dense.weight" or "classifier.dense.weight": Add("classifier.pre.weight", info.As("classifier.pre.weight")); continue;
-                case "pooler.dense.bias" or "classifier.dense.bias": Add("classifier.pre.bias", info.As("classifier.pre.bias")); continue;
-                case "classifier.weight" or "classifier.out_proj.weight": Add("classifier.out.weight", info.As("classifier.out.weight")); continue;
-                case "classifier.bias" or "classifier.out_proj.bias": Add("classifier.out.bias", info.As("classifier.out.bias")); continue;
-            }
-            var m = LayerName().Match(name);
-            if (!m.Success)
-            {
-                throw new NotSupportedException($"{c.ModelType}: tensor '{raw}' has no canonical mapping.");
-            }
-
-            string p = $"layers.{m.Groups[1].Value}.", rest = m.Groups[2].Value;
-            if (rest == "attn.Wqkv.weight")
-            {
-                Add(p + "attention.q.weight", info.RowSlice(p + "attention.q.weight", 0, nEmbd));
-                Add(p + "attention.k.weight", info.RowSlice(p + "attention.k.weight", nEmbd, nEmbd));
-                Add(p + "attention.v.weight", info.RowSlice(p + "attention.v.weight", 2 * nEmbd, nEmbd));
+                collector.Add(info.As(globalName));
                 continue;
             }
-            if (rest == "attn.Wqkv.bias")
+
+            if (name == "embeddings.position_embeddings.weight")
             {
-                Add(p + "attention.q.bias", info.RowSlice(p + "attention.q.bias", 0, nEmbd));
-                Add(p + "attention.k.bias", info.RowSlice(p + "attention.k.bias", nEmbd, nEmbd));
-                Add(p + "attention.v.bias", info.RowSlice(p + "attention.v.bias", 2 * nEmbd, nEmbd));
+                // RoBERTa counts positions from padding_idx + 1; canonical position 0 is the first real one.
+                collector.Add(positionOffset == 0
+                    ? info.As("position_embedding.weight")
+                    : info.RowSlice("position_embedding.weight", positionOffset, info.Shape[0].Fixed - positionOffset));
                 continue;
             }
-            int dot = rest.LastIndexOf('.');
-            string module = rest[..dot], param = rest[(dot + 1)..];
-            var table = IsNomic(c) ? s_nomicLayer : s_bertLayer;
-            if (!table.TryGetValue(module, out var canon))
-            {
-                throw new NotSupportedException($"{c.ModelType}: tensor '{raw}' has no canonical mapping.");
-            }
 
-            Add(p + canon + "." + param, info.As(p + canon + "." + param));
+            MapLayerTensor(c, rawName, name, info, hidden, collector);
         }
-        return w;
+
+        return collector.Weights;
+    }
+
+    /// <summary>Drops the base-model prefix and renames old-style LayerNorm parameters (gamma / beta).</summary>
+    private static string NormalizeName(string rawName)
+    {
+        string name = rawName;
+        foreach (var prefix in s_modelPrefixes)
+        {
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                name = name[prefix.Length..];
+                break;
+            }
+        }
+
+        if (name.EndsWith(".gamma", StringComparison.Ordinal))
+        {
+            return name[..^".gamma".Length] + ".weight";
+        }
+
+        if (name.EndsWith(".beta", StringComparison.Ordinal))
+        {
+            return name[..^".beta".Length] + ".bias";
+        }
+
+        return name;
+    }
+
+    private static bool IsIgnored(string name, bool isSequenceClassifier)
+        => name.EndsWith("position_ids", StringComparison.Ordinal)
+        || name.StartsWith("lm_head.", StringComparison.Ordinal)
+        || name.StartsWith("cls.", StringComparison.Ordinal)
+        || name.StartsWith("pooler.", StringComparison.Ordinal) && !isSequenceClassifier;
+
+    private static void MapLayerTensor(HfConfig c, string rawName, string name, WeightInfo info, int hidden, HfWeightCollector collector)
+    {
+        var m = LayerName().Match(name);
+        if (!m.Success)
+        {
+            throw new NotSupportedException($"{c.ModelType}: tensor '{rawName}' has no canonical mapping.");
+        }
+
+        string prefix = $"layers.{m.Groups[1].Value}.";
+        string rest = m.Groups[2].Value;
+        if (rest is "attn.Wqkv.weight" or "attn.Wqkv.bias")
+        {
+            // nomic-bert's fused qkv: q rows first, then k, then v.
+            string parameter = rest["attn.Wqkv.".Length..];
+            collector.Add(info.RowSlice(prefix + "attention.q." + parameter, 0, hidden));
+            collector.Add(info.RowSlice(prefix + "attention.k." + parameter, hidden, hidden));
+            collector.Add(info.RowSlice(prefix + "attention.v." + parameter, 2 * hidden, hidden));
+            return;
+        }
+
+        int dot = rest.LastIndexOf('.');
+        string module = rest[..dot];
+        string parameterName = rest[(dot + 1)..];
+        var table = IsNomic(c) ? s_nomicLayer : s_bertLayer;
+        if (!table.TryGetValue(module, out var canonicalModule))
+        {
+            throw new NotSupportedException($"{c.ModelType}: tensor '{rawName}' has no canonical mapping.");
+        }
+
+        string canonicalName = prefix + canonicalModule + "." + parameterName;
+        collector.Add(info.As(canonicalName));
     }
 }

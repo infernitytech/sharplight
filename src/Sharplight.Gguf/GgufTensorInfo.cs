@@ -3,62 +3,54 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
 
-/// <summary>Describes one tensor stored in a GGUF file.</summary>
+/// <summary>Describes one tensor stored in a GGUF file. Valid while the owning <see cref="GgufFile"/> is open.</summary>
 public sealed class GgufTensorInfo
 {
     private readonly GgufFile _file;
 
     internal GgufTensorInfo(GgufFile file, string name, int ggmlType, DataType dataType, long[] ne, long relativeOffset, long absoluteOffset, long byteSize)
     {
-        _file = file; Name = name; GgmlType = ggmlType; DataType = dataType; Ne = ne;
-        RelativeOffset = relativeOffset; Offset = absoluteOffset; ByteSize = byteSize;
+        _file = file;
+        Name = name;
+        GgmlType = ggmlType;
+        DataType = dataType;
+        Ne = ne;
+        RelativeOffset = relativeOffset;
+        Offset = absoluteOffset;
+        ByteSize = byteSize;
         Shape = new Shape(ne.Reverse().Select(n => (Dim)n));
     }
 
+    /// <summary>The tensor's name as stored in the file (llama.cpp naming).</summary>
     public string Name { get; }
+
     /// <summary>Raw ggml_type id.</summary>
-    public int GgmlType { get; }
+    internal int GgmlType { get; }
+
+    /// <summary>The element type (possibly block-quantized).</summary>
     public DataType DataType { get; }
+
     /// <summary>Shape, outermost dimension first (reverse of <see cref="Ne"/>).</summary>
     public Shape Shape { get; }
+
     /// <summary>ggml dimensions, innermost first.</summary>
-    public long[] Ne { get; }
+    internal long[] Ne { get; }
+
     /// <summary>Offset relative to the start of the data section.</summary>
-    public long RelativeOffset { get; }
-    /// <summary>Absolute offset in the file.</summary>
+    internal long RelativeOffset { get; }
+
+    /// <summary>Absolute offset of the tensor data in the file, in bytes.</summary>
     public long Offset { get; }
+
+    /// <summary>Size of the tensor data in bytes.</summary>
     public long ByteSize { get; }
-    public long ElementCount => Shape.Elements();
-    public GgufFile File => _file;
 
-    /// <summary>Pointer to the tensor bytes inside the file mapping (valid while the file is open).</summary>
-    public unsafe nint Pointer => (nint)(_file.BasePointer + Offset);
+    /// <summary>A zero-copy source over the tensor bytes inside the file mapping.</summary>
+    internal IWeightSource CreateSource() => new GgufWeightSource(_file, Offset, ByteSize);
 
-    public IWeightSource CreateSource() => new GgufWeightSource(_file, Offset, ByteSize);
+    /// <summary>A zero-copy weight (file name, file shape) over the tensor bytes.</summary>
+    internal WeightInfo ToWeightInfo() => new() { Name = Name, Type = DataType, Shape = Shape, Source = CreateSource() };
 
-    public WeightInfo ToWeightInfo() => new() { Name = Name, Type = DataType, Shape = Shape, Source = CreateSource() };
-
+    /// <inheritdoc/>
     public override string ToString() => $"{Name} {DataType}{Shape} @{Offset} ({ByteSize} B)";
-}
-
-internal sealed unsafe class GgufWeightSource(GgufFile file, long offset, long length) : IWeightSource
-{
-    public long ByteLength => length;
-
-    public void Read(long off, Span<byte> destination)
-    {
-        if (off < 0 || off + destination.Length > length)
-        {
-            throw new ArgumentOutOfRangeException(nameof(off));
-        }
-
-        file.ThrowIfDisposed();
-        new ReadOnlySpan<byte>(file.BasePointer + offset + off, destination.Length).CopyTo(destination);
-    }
-
-    public nint TryGetPointer()
-    {
-        file.ThrowIfDisposed();
-        return (nint)(file.BasePointer + offset);
-    }
 }

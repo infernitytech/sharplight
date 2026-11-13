@@ -9,7 +9,7 @@ namespace Sharplight.HuggingFace;
 /// Vision tower of Hugging Face Qwen3.5 checkpoints (<c>vision_config</c> + <c>preprocessor_config.json</c> +
 /// <c>model.visual.*</c> tensors) → the canonical vision vocabulary documented on <c>Sharplight.Vision.VisionParameters</c>.
 /// </summary>
-public sealed partial class Qwen35HfMapping
+internal sealed partial class Qwen35HfMapping
 {
     [GeneratedRegex(@"^(?:model\.)?visual\.blocks\.(\d+)\.(.+)$")]
     private static partial Regex VisualBlock();
@@ -83,7 +83,8 @@ public sealed partial class Qwen35HfMapping
             md[a + "image_std"] = std;
         }
 
-        long? min = null, max = null;
+        long? min = null;
+        long? max = null;
         if (r.TryGetProperty("size", out var size) && size.ValueKind == JsonValueKind.Object)
         {
             if (size.TryGetProperty("shortest_edge", out var se))
@@ -117,43 +118,63 @@ public sealed partial class Qwen35HfMapping
         }
     }
 
+    /// <summary>Vision tensors outside the blocks, HF name (without the optional <c>model.</c> prefix) to canonical name.</summary>
+    private static readonly Dictionary<string, string> s_visionGlobal = new(StringComparer.Ordinal)
+    {
+        ["visual.patch_embed.proj.bias"] = "vision.patch_embed.bias",
+        ["visual.pos_embed.weight"] = "vision.position_embedding.weight",
+        ["visual.merger.norm.weight"] = "vision.merger.norm.weight",
+        ["visual.merger.norm.bias"] = "vision.merger.norm.bias",
+        ["visual.merger.linear_fc1.weight"] = "vision.merger.up.weight",
+        ["visual.merger.linear_fc1.bias"] = "vision.merger.up.bias",
+        ["visual.merger.linear_fc2.weight"] = "vision.merger.down.weight",
+        ["visual.merger.linear_fc2.bias"] = "vision.merger.down.bias",
+    };
+
+    /// <summary>Per-block vision tensors, HF suffix to canonical suffix.</summary>
+    private static readonly Dictionary<string, string> s_visionLayer = new(StringComparer.Ordinal)
+    {
+        ["norm1.weight"] = "input_norm.weight",
+        ["norm1.bias"] = "input_norm.bias",
+        ["norm2.weight"] = "post_attention_norm.weight",
+        ["norm2.bias"] = "post_attention_norm.bias",
+        ["attn.qkv.weight"] = "attention.qkv.weight",
+        ["attn.qkv.bias"] = "attention.qkv.bias",
+        ["attn.proj.weight"] = "attention.o.weight",
+        ["attn.proj.bias"] = "attention.o.bias",
+        ["mlp.linear_fc1.weight"] = "mlp.up.weight",
+        ["mlp.linear_fc1.bias"] = "mlp.up.bias",
+        ["mlp.linear_fc2.weight"] = "mlp.down.weight",
+        ["mlp.linear_fc2.bias"] = "mlp.down.bias",
+    };
+
+    /// <summary>Norm weights and biases (vectors) are held as f32; matrices stay in their stored type.</summary>
+    private static WeightInfo PlainVision(WeightInfo w, string name)
+        => w.Shape.Rank == 1 ? HfTransforms.ToF32(w, name) : HfTransforms.Plain(w, name);
+
     /// <summary>Maps one <c>model.visual.*</c> tensor; null when it has no canonical counterpart.</summary>
-    private static WeightInfo? MapVisionTensor(string rawName, SafetensorsTensor t, HfConfig c)
+    private static WeightInfo? MapVisionTensor(string rawName, SafetensorsTensor t)
     {
         string name = rawName.StartsWith("model.", StringComparison.Ordinal) ? rawName["model.".Length..] : rawName;
         var w = t.ToWeightInfo();
-        // Norm weights and biases (vectors) are held as f32; matrices stay in their stored type.
-        WeightInfo Plain(WeightInfo x, string n) => x.Shape.Rank == 1 ? HfTransforms.ToF32(x, n) : HfTransforms.Plain(x, n);
-        switch (name)
+        if (name == "visual.patch_embed.proj.weight")
         {
-            case "visual.patch_embed.proj.weight":
-                return HfTransforms.Plain(w, "vision.patch_embed.weight").As("vision.patch_embed.weight", new Shape(w.Shape[0].Fixed, w.Shape.Elements() / w.Shape[0].Fixed));
-            case "visual.patch_embed.proj.bias": return Plain(w, "vision.patch_embed.bias");
-            case "visual.pos_embed.weight": return Plain(w, "vision.position_embedding.weight");
-            case "visual.merger.norm.weight": return Plain(w, "vision.merger.norm.weight");
-            case "visual.merger.norm.bias": return Plain(w, "vision.merger.norm.bias");
-            case "visual.merger.linear_fc1.weight": return Plain(w, "vision.merger.up.weight");
-            case "visual.merger.linear_fc1.bias": return Plain(w, "vision.merger.up.bias");
-            case "visual.merger.linear_fc2.weight": return Plain(w, "vision.merger.down.weight");
-            case "visual.merger.linear_fc2.bias": return Plain(w, "vision.merger.down.bias");
+            // The patch-embedding convolution kernel is flattened to [hidden, rest], the canonical 2-D form.
+            var flat = new Shape(w.Shape[0].Fixed, w.Shape.Elements() / w.Shape[0].Fixed);
+            return HfTransforms.Plain(w, "vision.patch_embed.weight").As("vision.patch_embed.weight", flat);
         }
+
+        if (s_visionGlobal.TryGetValue(name, out var globalName))
+        {
+            return PlainVision(w, globalName);
+        }
+
         var m = VisualBlock().Match(rawName);
-        if (!m.Success)
+        if (!m.Success || !s_visionLayer.TryGetValue(m.Groups[2].Value, out var layerName))
         {
             return null;
         }
 
-        string p = $"vision.layers.{m.Groups[1].Value}.";
-        string? canon = m.Groups[2].Value switch
-        {
-            "norm1.weight" => "input_norm.weight", "norm1.bias" => "input_norm.bias",
-            "norm2.weight" => "post_attention_norm.weight", "norm2.bias" => "post_attention_norm.bias",
-            "attn.qkv.weight" => "attention.qkv.weight", "attn.qkv.bias" => "attention.qkv.bias",
-            "attn.proj.weight" => "attention.o.weight", "attn.proj.bias" => "attention.o.bias",
-            "mlp.linear_fc1.weight" => "mlp.up.weight", "mlp.linear_fc1.bias" => "mlp.up.bias",
-            "mlp.linear_fc2.weight" => "mlp.down.weight", "mlp.linear_fc2.bias" => "mlp.down.bias",
-            _ => null,
-        };
-        return canon is null ? null : Plain(w, p + canon);
+        return PlainVision(w, $"vision.layers.{m.Groups[1].Value}.{layerName}");
     }
 }

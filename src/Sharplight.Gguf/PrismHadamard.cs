@@ -14,8 +14,16 @@ namespace Sharplight.Gguf;
 /// </summary>
 internal static class PrismHadamard
 {
+    /// <summary>Whether the file carries the Hadamard contract (<c>prism.hadamard.version</c>).</summary>
     public static bool Applies(IReadOnlyDictionary<string, object> md) => md.ContainsKey("prism.hadamard.version");
 
+    /// <summary>
+    /// Replaces every weight named by <c>prism.hadamard.weight_names</c> / <c>inverse_weight_names</c> with a lazily derived F16 weight
+    /// in the plain basis.
+    /// </summary>
+    /// <param name="weights">The canonical weights, updated in place.</param>
+    /// <param name="md">The GGUF metadata carrying the contract.</param>
+    /// <param name="canonicalName">Maps a GGUF tensor name to its canonical weight name (or null).</param>
     public static void Apply(Dictionary<string, WeightInfo> weights, IReadOnlyDictionary<string, object> md, Func<string, string?> canonicalName)
     {
         int version = Convert.ToInt32(md["prism.hadamard.version"]);
@@ -47,7 +55,11 @@ internal static class PrismHadamard
 
         var signs = new Dictionary<int, float[]>();
         int off = 0;
-        foreach (int w in widths) { signs[w] = values.AsSpan(off, w).ToArray().Select(v => v < 0 ? -1f : 1f).ToArray(); off += w; }
+        foreach (int width in widths)
+        {
+            signs[width] = values.AsSpan(off, width).ToArray().Select(v => v < 0 ? -1f : 1f).ToArray();
+            off += width;
+        }
 
         var names = new List<string>();
         foreach (var key in new[] { "prism.hadamard.weight_names", "prism.hadamard.inverse_weight_names" })
@@ -116,21 +128,64 @@ internal static class PrismHadamard
         {
             for (int i = 0; i < a.Length; i += h << 1)
             {
-                for (int j = i; j < i + h; j++) { float x = a[j], y = a[j + h]; a[j] = x + y; a[j + h] = x - y; }
+                for (int j = i; j < i + h; j++)
+                {
+                    float x = a[j];
+                    float y = a[j + h];
+                    a[j] = x + y;
+                    a[j + h] = x - y;
+                }
             }
         }
     }
 
     private static float H16(byte[] b, long o) => (float)BitConverter.ToHalf(b, (int)o);
 
-    private static int Trit(byte b, int n) { int pw = 1; for (int i = 0; i < n; i++) { pw *= 3; } return ((((b * pw) & 0xFF) * 3) >> 8) - 1; }
+    /// <summary>The n-th base-3 digit (as -1, 0, 1) of a byte holding five packed ternary values.</summary>
+    private static int Trit(byte b, int n)
+    {
+        int power = 1;
+        for (int i = 0; i < n; i++)
+        {
+            power *= 3;
+        }
+
+        return ((((b * power) & 0xFF) * 3) >> 8) - 1;
+    }
 
     /// <summary>Managed reference decoder of the group-wise formats (plus plain float types) for one row of <paramref name="count"/> elements starting at element <paramref name="first"/>.</summary>
     private static void Dequantize(DataType t, byte[] src, long first, int count, float[] dst)
     {
-        if (t == DataType.F32) { for (int i = 0; i < count; i++) { dst[i] = BitConverter.ToSingle(src, (int)((first + i) * 4)); } return; }
-        if (t == DataType.F16) { for (int i = 0; i < count; i++) { dst[i] = H16(src, (first + i) * 2); } return; }
-        if (t == DataType.BF16) { for (int i = 0; i < count; i++) { dst[i] = BitConverter.UInt32BitsToSingle((uint)BitConverter.ToUInt16(src, (int)((first + i) * 2)) << 16); } return; }
+        if (t == DataType.F32)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                dst[i] = BitConverter.ToSingle(src, (int)((first + i) * 4));
+            }
+
+            return;
+        }
+
+        if (t == DataType.F16)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                dst[i] = H16(src, (first + i) * 2);
+            }
+
+            return;
+        }
+
+        if (t == DataType.BF16)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                dst[i] = BitConverter.UInt32BitsToSingle((uint)BitConverter.ToUInt16(src, (int)((first + i) * 2)) << 16);
+            }
+
+            return;
+        }
+
         long bs = t.BlockSize;
         if (first % bs != 0 || count % bs != 0)
         {

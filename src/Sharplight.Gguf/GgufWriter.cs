@@ -3,16 +3,21 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
 
-/// <summary>Minimal GGUF v3 writer, mainly used to create test fixtures.</summary>
-public sealed class GgufWriter
+/// <summary>Minimal GGUF v3 writer, used to create test fixtures.</summary>
+internal sealed class GgufWriter
 {
     private readonly List<(string key, object value)> _kv = [];
     private readonly List<(string name, int type, long[] ne, ReadOnlyMemory<byte> data)> _tensors = [];
 
+    /// <summary>Tensor data alignment in bytes; written as <c>general.alignment</c> when it differs from the default.</summary>
     public int Alignment { get; set; } = GgufFile.DefaultAlignment;
 
     /// <summary>Adds a KV. CLR type selects the GGUF type; T[] writes an array, object[] a nested array.</summary>
-    public GgufWriter AddMetadata(string key, object value) { _kv.Add((key, value)); return this; }
+    public GgufWriter AddMetadata(string key, object value)
+    {
+        _kv.Add((key, value));
+        return this;
+    }
 
     /// <summary>Adds a tensor with ggml-order dimensions (<paramref name="ne"/> innermost first).</summary>
     public GgufWriter AddTensorNe(string name, DataType type, ReadOnlyMemory<byte> data, params long[] ne)
@@ -31,12 +36,14 @@ public sealed class GgufWriter
     public GgufWriter AddTensor(string name, DataType type, ReadOnlyMemory<byte> data, params long[] dims)
         => AddTensorNe(name, type, data, dims.Reverse().ToArray());
 
+    /// <summary>Writes the file to <paramref name="path"/>, replacing an existing file.</summary>
     public void Write(string path)
     {
         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
         Write(fs);
     }
 
+    /// <summary>Writes the file to <paramref name="stream"/>, which stays open.</summary>
     public void Write(Stream stream)
     {
         using var w = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
@@ -50,14 +57,16 @@ public sealed class GgufWriter
         w.Write(3u);
         w.Write((ulong)_tensors.Count);
         w.Write((ulong)kv.Count);
-        foreach (var (k, v) in kv) { WriteString(w, k); WriteTyped(w, v); }
+        foreach (var (key, value) in kv)
+        {
+            WriteString(w, key);
+            WriteTyped(w, value);
+        }
 
         long off = 0;
-        var offsets = new long[_tensors.Count];
         for (int i = 0; i < _tensors.Count; i++)
         {
             var t = _tensors[i];
-            offsets[i] = off;
             WriteString(w, t.name);
             w.Write((uint)t.ne.Length);
             foreach (var n in t.ne)
@@ -96,71 +105,28 @@ public sealed class GgufWriter
         w.Write(b);
     }
 
+    private static readonly Dictionary<Type, GgufValueType> s_valueTypes = new()
+    {
+        [typeof(byte)] = GgufValueType.UInt8,
+        [typeof(sbyte)] = GgufValueType.Int8,
+        [typeof(ushort)] = GgufValueType.UInt16,
+        [typeof(short)] = GgufValueType.Int16,
+        [typeof(uint)] = GgufValueType.UInt32,
+        [typeof(int)] = GgufValueType.Int32,
+        [typeof(float)] = GgufValueType.Float32,
+        [typeof(bool)] = GgufValueType.Bool,
+        [typeof(string)] = GgufValueType.String,
+        [typeof(ulong)] = GgufValueType.UInt64,
+        [typeof(long)] = GgufValueType.Int64,
+        [typeof(double)] = GgufValueType.Float64,
+        [typeof(object)] = GgufValueType.Array,   // object[] elements are nested arrays
+    };
+
     private static GgufValueType TypeOf(Type t)
     {
-        if (t == typeof(byte))
+        if (s_valueTypes.TryGetValue(t, out var valueType))
         {
-            return GgufValueType.UInt8;
-        }
-
-        if (t == typeof(sbyte))
-        {
-            return GgufValueType.Int8;
-        }
-
-        if (t == typeof(ushort))
-        {
-            return GgufValueType.UInt16;
-        }
-
-        if (t == typeof(short))
-        {
-            return GgufValueType.Int16;
-        }
-
-        if (t == typeof(uint))
-        {
-            return GgufValueType.UInt32;
-        }
-
-        if (t == typeof(int))
-        {
-            return GgufValueType.Int32;
-        }
-
-        if (t == typeof(float))
-        {
-            return GgufValueType.Float32;
-        }
-
-        if (t == typeof(bool))
-        {
-            return GgufValueType.Bool;
-        }
-
-        if (t == typeof(string))
-        {
-            return GgufValueType.String;
-        }
-
-        if (t == typeof(ulong))
-        {
-            return GgufValueType.UInt64;
-        }
-
-        if (t == typeof(long))
-        {
-            return GgufValueType.Int64;
-        }
-
-        if (t == typeof(double))
-        {
-            return GgufValueType.Float64;
-        }
-
-        if (t == typeof(object))
-        {
-            return GgufValueType.Array; // object[] elements are nested arrays
+            return valueType;
         }
 
         if (t.IsArray)

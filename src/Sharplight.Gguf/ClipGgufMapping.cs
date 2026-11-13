@@ -11,12 +11,15 @@ namespace Sharplight.Gguf;
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
-public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWeightTransformer
+internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWeightTransformer
 {
+    /// <inheritdoc/>
     public IReadOnlyList<string> GgufArchitectures { get; } = ["clip"];
+
     /// <summary>Placeholder; the real id depends on the projector type (see <see cref="ResolveArchitecture"/>).</summary>
     public string Architecture => "clip";
 
+    /// <summary>Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to and the processor defaults the file omits.</summary>
     private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
@@ -32,8 +35,10 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
             : throw new NotSupportedException($"clip GGUF projector type '{type}' is not supported (supported: {string.Join(", ", s_projectors.Keys)}).");
     }
 
+    /// <inheritdoc/>
     public string ResolveArchitecture(GgufMetadataView g) => Find(g).Architecture;
 
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         var p = Find(g);
@@ -50,7 +55,7 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
             [a + "hidden_size"] = g.Int("vision.embedding_length"),
             [a + "ffn_hidden_size"] = g.Int("vision.feed_forward_length"),
             [a + "head_count"] = g.Int("vision.attention.head_count"),
-            [a + "norm_eps"] = g.Has("vision.attention.layer_norm_epsilon") ? g.Float("vision.attention.layer_norm_epsilon") : 1e-6f,
+            [a + "norm_eps"] = g.Float("vision.attention.layer_norm_epsilon", 1e-6f),
             [a + "activation"] = g.Raw("use_silu") is true ? "silu" : "gelu_tanh", // ggml's GELU is the tanh approximation
             [a + "patch_size"] = patch,
             [a + "temporal_patch_size"] = p.TemporalPatchSize,
@@ -82,33 +87,47 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
     [GeneratedRegex(@"^v\.blk\.(\d+)\.(.+)$")]
     private static partial Regex Block();
 
+    /// <summary>Per-block tensors, GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
-        ["ln1.weight"] = "input_norm.weight", ["ln1.bias"] = "input_norm.bias",
-        ["ln2.weight"] = "post_attention_norm.weight", ["ln2.bias"] = "post_attention_norm.bias",
-        ["attn_qkv.weight"] = "attention.qkv.weight", ["attn_qkv.bias"] = "attention.qkv.bias",
-        ["attn_out.weight"] = "attention.o.weight", ["attn_out.bias"] = "attention.o.bias",
-        ["ffn_up.weight"] = "mlp.up.weight", ["ffn_up.bias"] = "mlp.up.bias",
-        ["ffn_down.weight"] = "mlp.down.weight", ["ffn_down.bias"] = "mlp.down.bias",
+        ["ln1.weight"] = "input_norm.weight",
+        ["ln1.bias"] = "input_norm.bias",
+        ["ln2.weight"] = "post_attention_norm.weight",
+        ["ln2.bias"] = "post_attention_norm.bias",
+        ["attn_qkv.weight"] = "attention.qkv.weight",
+        ["attn_qkv.bias"] = "attention.qkv.bias",
+        ["attn_out.weight"] = "attention.o.weight",
+        ["attn_out.bias"] = "attention.o.bias",
+        ["ffn_up.weight"] = "mlp.up.weight",
+        ["ffn_up.bias"] = "mlp.up.bias",
+        ["ffn_down.weight"] = "mlp.down.weight",
+        ["ffn_down.bias"] = "mlp.down.bias",
     };
 
-    private const string FrameSuffix = ".1";
+    /// <summary>Tower tensors outside the blocks, GGUF name to canonical name.</summary>
+    private static readonly Dictionary<string, string> s_global = new(StringComparer.Ordinal)
+    {
+        // One patch-embedding tensor per temporal frame, merged by Transform.
+        ["v.patch_embd.weight"] = "vision.patch_embed.weight.0",
+        ["v.patch_embd.weight.1"] = "vision.patch_embed.weight.1",
+        ["v.patch_embd.bias"] = "vision.patch_embed.bias",
+        ["v.position_embd.weight"] = "vision.position_embedding.weight",
+        ["v.post_ln.weight"] = "vision.merger.norm.weight",
+        ["v.post_ln.bias"] = "vision.merger.norm.bias",
+        ["mm.0.weight"] = "vision.merger.up.weight",
+        ["mm.0.bias"] = "vision.merger.up.bias",
+        ["mm.2.weight"] = "vision.merger.down.weight",
+        ["mm.2.bias"] = "vision.merger.down.bias",
+    };
 
+    /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
-        switch (name)
+        if (s_global.TryGetValue(name, out var globalName))
         {
-            case "v.patch_embd.weight": return "vision.patch_embed.weight.0";   // one tensor per temporal frame, merged by Transform
-            case "v.patch_embd.weight" + FrameSuffix: return "vision.patch_embed.weight.1";
-            case "v.patch_embd.bias": return "vision.patch_embed.bias";
-            case "v.position_embd.weight": return "vision.position_embedding.weight";
-            case "v.post_ln.weight": return "vision.merger.norm.weight";
-            case "v.post_ln.bias": return "vision.merger.norm.bias";
-            case "mm.0.weight": return "vision.merger.up.weight";
-            case "mm.0.bias": return "vision.merger.up.bias";
-            case "mm.2.weight": return "vision.merger.down.weight";
-            case "mm.2.bias": return "vision.merger.down.bias";
+            return globalName;
         }
+
         var m = Block().Match(name);
         return m.Success && s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"vision.layers.{m.Groups[1].Value}.{c}" : null;
     }
@@ -117,16 +136,18 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
     /// The patch-embedding convolution is stored as one 2-D kernel per temporal frame ([hidden, C, p, p] each);
     /// the canonical weight is the 3-D kernel flattened as [hidden, C·frames·p·p] in (channel, frame, row, col) order.
     /// </summary>
+    /// <inheritdoc/>
     public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
     {
         int frames = Find(g).TemporalPatchSize;
         var parts = new WeightInfo[frames];
         for (int t = 0; t < frames; t++)
         {
-            string n = $"vision.patch_embed.weight.{t}";
-            parts[t] = weights.Remove(n, out var w) ? w : throw new InvalidDataException($"clip GGUF: tensor for temporal frame {t} of the patch embedding is missing.");
+            string frameName = $"vision.patch_embed.weight.{t}";
+            parts[t] = weights.Remove(frameName, out var w) ? w : throw new InvalidDataException($"clip GGUF: tensor for temporal frame {t} of the patch embedding is missing.");
         }
-        long hidden = parts[0].Shape[0].Fixed, perFrame = parts[0].Shape.Elements() / hidden;
+        long hidden = parts[0].Shape[0].Fixed;
+        long perFrame = parts[0].Shape.Elements() / hidden;
         foreach (var w in parts)
         {
             if (w.Type != parts[0].Type || w.Shape.Elements() != parts[0].Shape.Elements())

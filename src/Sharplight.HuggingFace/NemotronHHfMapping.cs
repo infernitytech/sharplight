@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -5,47 +6,69 @@ using Sharplight.Tensors;
 namespace Sharplight.HuggingFace;
 
 /// <summary>Hugging Face <c>nemotron_h</c> checkpoints → canonical <c>nemotron_h</c> (vocabulary documented on <c>NemotronHAdapter</c>). A = -exp(A_log) and the conv are converted to f32 lazily.</summary>
-public sealed partial class NemotronHHfMapping : IHfArchitectureMapping
+internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
 {
+    /// <inheritdoc/>
     public string Architecture => "nemotron_h";
+
+    /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["nemotron_h"];
 
-    private static string[] Kinds(HfConfig c, int nLayer)
+    /// <summary>The canonical block kind of every layer, from <c>hybrid_override_pattern</c> or an explicit layer-type list.</summary>
+    private static string[] Kinds(HfConfig c)
     {
-        if (c.GetString("hybrid_override_pattern") is { Length: > 0 } pat)
+        if (c.GetString("hybrid_override_pattern") is { Length: > 0 } pattern)
         {
-            return pat.Select(ch => ch switch
+            return pattern.Select(character => character switch
             {
-                'M' => "ssm", '*' => "attention", '-' => "mlp", 'E' => "moe",
-                _ => throw new NotSupportedException($"nemotron_h: unknown hybrid_override_pattern character '{ch}'."),
+                'M' => "ssm",
+                '*' => "attention",
+                '-' => "mlp",
+                'E' => "moe",
+                _ => throw new NotSupportedException($"nemotron_h: unknown hybrid_override_pattern character '{character}'."),
             }).ToArray();
         }
 
-        var list = c.GetStringArray("layers_block_type") ?? c.GetStringArray("layer_types") ?? throw new InvalidDataException("nemotron_h: no hybrid_override_pattern / layers_block_type in config.json.");
-        return list.Select(t => t switch
+        var layerTypes = c.GetStringArray("layers_block_type") ?? c.GetStringArray("layer_types")
+            ?? throw new InvalidDataException("nemotron_h: no hybrid_override_pattern / layers_block_type in config.json.");
+        return layerTypes.Select(type => type switch
         {
-            "mamba" or "linear_attention" => "ssm", "attention" or "full_attention" => "attention", "mlp" => "mlp", "moe" => "moe",
-            _ => throw new NotSupportedException($"nemotron_h: unknown layer type '{t}'."),
+            "mamba" or "linear_attention" => "ssm",
+            "attention" or "full_attention" => "attention",
+            "mlp" => "mlp",
+            "moe" => "moe",
+            _ => throw new NotSupportedException($"nemotron_h: unknown layer type '{type}'."),
         }).ToArray();
     }
 
+    private static string Activation(HfConfig c)
+        => (c.GetString("mlp_hidden_act") ?? "relu2") switch
+        {
+            "relu2" or "relu_squared" => "relu2",
+            "silu" => "silu",
+            "gelu" => "gelu",
+            "relu" => "relu",
+            var other => throw new NotSupportedException($"nemotron_h: activation '{other}'."),
+        };
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
     {
         string a = Architecture + ".";
-        var kinds = Kinds(c, c.GetInt("num_hidden_layers") ?? 0);
-        int nLayer = c.GetInt("num_hidden_layers") ?? kinds.Length;   // newer configs derive the depth from the layer pattern
-        if (kinds.Length != nLayer)
+        var kinds = Kinds(c);
+        int layerCount = c.GetInt("num_hidden_layers") ?? kinds.Length;   // newer configs derive the depth from the layer pattern
+        if (kinds.Length != layerCount)
         {
             throw new InvalidDataException("nemotron_h: layer pattern length differs from num_hidden_layers.");
         }
 
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
-            [a + "layer_count"] = nLayer,
+            [a + "layer_count"] = layerCount,
             [a + "hidden_size"] = c.Int("hidden_size"),
             [a + "norm_eps"] = (float)(c.GetDouble("layer_norm_epsilon", "rms_norm_eps") ?? 1e-5),
             [a + "block_kinds"] = kinds,
-            [a + "mlp.activation"] = (c.GetString("mlp_hidden_act") ?? "relu2") switch { "relu2" or "relu_squared" => "relu2", "silu" => "silu", "gelu" => "gelu", "relu" => "relu", var o => throw new NotSupportedException($"nemotron_h: activation '{o}'.") },
+            [a + "mlp.activation"] = Activation(c),
             [a + "ssm.conv_kernel"] = c.Int("conv_kernel"),
             [a + "ssm.state_size"] = c.Int("ssm_state_size"),
             [a + "ssm.group_count"] = c.Int("n_groups"),
@@ -54,42 +77,51 @@ public sealed partial class NemotronHHfMapping : IHfArchitectureMapping
         };
         if (kinds.Contains("attention"))
         {
-            int nHead = c.Int("num_attention_heads");
-            md[a + "attention.head_count"] = nHead;
-            md[a + "attention.kv_head_count"] = c.GetInt("num_key_value_heads") ?? nHead;
-            md[a + "attention.head_dim"] = c.GetInt("head_dim") ?? c.Int("hidden_size") / nHead;
+            int headCount = c.Int("num_attention_heads");
+            md[a + "attention.head_count"] = headCount;
+            md[a + "attention.kv_head_count"] = c.GetInt("num_key_value_heads") ?? headCount;
+            md[a + "attention.head_dim"] = c.GetInt("head_dim") ?? c.Int("hidden_size") / headCount;
         }
-        if (c.GetInt("max_position_embeddings") is { } ctx)
-        {
-            md[a + "context_length"] = ctx;
-        }
+
+        HfMappingHelpers.AddContextLength(md, a, c);
 
         if (kinds.Contains("moe"))
         {
-            if (c.Get("moe_latent_size") is { ValueKind: not System.Text.Json.JsonValueKind.Null })
-            {
-                throw new NotSupportedException("nemotron_h: latent-space experts (moe_latent_size) are not supported yet.");
-            }
-
-            if ((c.GetInt("n_group") ?? 1) > 1 && (c.GetInt("topk_group") ?? 1) != (c.GetInt("n_group") ?? 1))
-            {
-                throw new NotSupportedException("nemotron_h: group-limited expert routing is not supported yet.");
-            }
-
-            md[a + "moe.expert_count"] = c.Int("n_routed_experts");
-            md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
-            md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? true;
-            if (c.GetDouble("routed_scaling_factor") is { } rs && rs != 1.0)
-            {
-                md[a + "moe.weights_scale"] = (float)rs;
-            }
+            AddMixtureOfExperts(md, a, c);
         }
+
         return md;
+    }
+
+    private static void AddMixtureOfExperts(Dictionary<string, object> md, string a, HfConfig c)
+    {
+        if (c.Get("moe_latent_size") is { ValueKind: not JsonValueKind.Null })
+        {
+            throw new NotSupportedException("nemotron_h: latent-space experts (moe_latent_size) are not supported yet.");
+        }
+
+        int groupCount = c.GetInt("n_group") ?? 1;
+        if (groupCount > 1 && (c.GetInt("topk_group") ?? 1) != groupCount)
+        {
+            throw new NotSupportedException("nemotron_h: group-limited expert routing is not supported yet.");
+        }
+
+        md[a + "moe.expert_count"] = c.Int("n_routed_experts");
+        md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+        md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? true;
+        if (c.GetDouble("routed_scaling_factor") is { } scalingFactor && scalingFactor != 1.0)
+        {
+            md[a + "moe.weights_scale"] = (float)scalingFactor;
+        }
     }
 
     [GeneratedRegex(@"^backbone\.layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
+    [GeneratedRegex(@"^mixer\.experts\.(\d+)\.(up|down)_proj\.weight$")]
+    private static partial Regex ExpertName();
+
+    /// <summary>Per-layer tensors that are only renamed, HF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["norm.weight"] = "input_norm.weight",
@@ -106,71 +138,117 @@ public sealed partial class NemotronHHfMapping : IHfArchitectureMapping
         ["mixer.shared_experts.down_proj.weight"] = "moe.shared.down.weight",
     };
 
-    [GeneratedRegex(@"^mixer\.experts\.(\d+)\.(up|down)_proj\.weight$")]
-    private static partial Regex ExpertName();
+    /// <summary>Per-layer tensors converted to F32 (state-space parameters and the router bias), HF suffix to canonical suffix.</summary>
+    private static readonly Dictionary<string, string> s_layerF32 = new(StringComparer.Ordinal)
+    {
+        ["mixer.D"] = "ssm.d",
+        ["mixer.dt_bias"] = "ssm.dt_bias",
+        ["mixer.conv1d.bias"] = "ssm.conv1d.bias",
+        ["mixer.norm.weight"] = "ssm.norm.weight",
+        ["mixer.gate.e_score_correction_bias"] = "moe.router_bias",
+    };
 
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
-        var result = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
-        var unmapped = new List<string>();
+        var collector = new HfWeightCollector();
         var experts = new SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>>();
-        void Add(WeightInfo w) { if (!result.TryAdd(w.Name, w)) { throw new InvalidDataException($"Two HF tensors map to '{w.Name}'."); } }
-        foreach (var (name, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
+        foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            var w = t.ToWeightInfo();
-            switch (name)
+            var w = tensor.ToWeightInfo();
+            if (TryMapGlobalTensor(c, name, w, collector))
             {
-                case "backbone.embeddings.weight" or "backbone.embedding.weight": Add(HfTransforms.Plain(w, "token_embedding.weight")); continue;
-                case "backbone.norm_f.weight": Add(HfTransforms.Plain(w, "output_norm.weight")); continue;
-                case "lm_head.weight":
-                    if (!(c.GetBool("tie_word_embeddings") ?? false))
-                    {
-                        Add(HfTransforms.Plain(w, "lm_head.weight"));
-                    }
-
-                    continue;
-            }
-            var m = LayerName().Match(name);
-            if (!m.Success) { unmapped.Add(name); continue; }
-            string p = $"layers.{m.Groups[1].Value}.", suffix = m.Groups[2].Value;
-            if (ExpertName().Match(suffix) is { Success: true } em)
-            {
-                var key = (int.Parse(m.Groups[1].Value), em.Groups[2].Value);
-                if (!experts.TryGetValue(key, out var list))
-                {
-                    experts[key] = list = [];
-                }
-
-                list[int.Parse(em.Groups[1].Value)] = w;
                 continue;
             }
-            if (s_layer.TryGetValue(suffix, out var cn)) { Add(HfTransforms.Plain(w, p + cn)); continue; }
-            switch (suffix)
+
+            var m = LayerName().Match(name);
+            if (!m.Success || !TryMapLayerTensor(m.Groups[1].Value, m.Groups[2].Value, w, collector, experts))
             {
-                case "mixer.A_log": Add(HfTransforms.ToF32(w, p + "ssm.a", map: static v => -MathF.Exp(v))); break;
-                case "mixer.D": Add(HfTransforms.ToF32(w, p + "ssm.d")); break;
-                case "mixer.dt_bias": Add(HfTransforms.ToF32(w, p + "ssm.dt_bias")); break;
-                case "mixer.conv1d.weight": Add(HfTransforms.ToF32(w, p + "ssm.conv1d.weight", new Shape(w.Shape[0].Fixed, w.Shape[w.Shape.Rank - 1].Fixed))); break;
-                case "mixer.conv1d.bias": Add(HfTransforms.ToF32(w, p + "ssm.conv1d.bias")); break;
-                case "mixer.norm.weight": Add(HfTransforms.ToF32(w, p + "ssm.norm.weight")); break;
-                case "mixer.gate.e_score_correction_bias": Add(HfTransforms.ToF32(w, p + "moe.router_bias")); break;
-                default: unmapped.Add(name); break;
+                collector.AddUnmapped(name);
             }
         }
-        foreach (var ((layer, kind), list) in experts)
+
+        foreach (var ((layer, kind), byIndex) in experts)
         {
-            if (list.Keys.Max() != list.Count - 1)
+            if (byIndex.Keys.Max() != byIndex.Count - 1)
             {
                 throw new InvalidDataException($"layer {layer}: expert indices of {kind} are not contiguous.");
             }
 
-            Add(WeightInfo.Stack($"layers.{layer}.moe.experts.{kind}.weight", [.. list.Values]));
-        }
-        if (unmapped.Count > 0)
-        {
-            throw new NotSupportedException($"nemotron_h: {unmapped.Count} tensor(s) have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
+            collector.Add(WeightInfo.Stack($"layers.{layer}.moe.experts.{kind}.weight", [.. byIndex.Values]));
         }
 
-        return result;
+        collector.ThrowIfUnmapped("nemotron_h");
+        return collector.Weights;
+    }
+
+    /// <summary>Embedding, final norm and output head; false when <paramref name="name"/> is none of them.</summary>
+    private static bool TryMapGlobalTensor(HfConfig c, string name, WeightInfo w, HfWeightCollector collector)
+    {
+        switch (name)
+        {
+            case "backbone.embeddings.weight" or "backbone.embedding.weight":
+                collector.Add(HfTransforms.Plain(w, "token_embedding.weight"));
+                return true;
+            case "backbone.norm_f.weight":
+                collector.Add(HfTransforms.Plain(w, "output_norm.weight"));
+                return true;
+            case "lm_head.weight":
+                if (!(c.GetBool("tie_word_embeddings") ?? false))
+                {
+                    collector.Add(HfTransforms.Plain(w, "lm_head.weight"));
+                }
+
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>One <c>backbone.layers.N.*</c> tensor; false when it has no canonical counterpart.</summary>
+    private static bool TryMapLayerTensor(
+        string layer,
+        string suffix,
+        WeightInfo w,
+        HfWeightCollector collector,
+        SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>> experts)
+    {
+        string prefix = $"layers.{layer}.";
+        if (ExpertName().Match(suffix) is { Success: true } expertMatch)
+        {
+            // Per-expert tensors are stacked into one weight per layer and kind once all are seen.
+            var key = (int.Parse(layer), expertMatch.Groups[2].Value);
+            if (!experts.TryGetValue(key, out var byIndex))
+            {
+                experts[key] = byIndex = [];
+            }
+
+            byIndex[int.Parse(expertMatch.Groups[1].Value)] = w;
+            return true;
+        }
+
+        if (s_layer.TryGetValue(suffix, out var renamed))
+        {
+            collector.Add(HfTransforms.Plain(w, prefix + renamed));
+            return true;
+        }
+
+        if (s_layerF32.TryGetValue(suffix, out var f32Name))
+        {
+            collector.Add(HfTransforms.ToF32(w, prefix + f32Name));
+            return true;
+        }
+
+        switch (suffix)
+        {
+            case "mixer.A_log":
+                collector.Add(HfTransforms.ToF32(w, prefix + "ssm.a", map: static v => -MathF.Exp(v)));   // A = -exp(A_log)
+                return true;
+            case "mixer.conv1d.weight":
+                collector.Add(HfTransforms.ToF32(w, prefix + "ssm.conv1d.weight", new Shape(w.Shape[0].Fixed, w.Shape[w.Shape.Rank - 1].Fixed)));
+                return true;
+            default:
+                return false;
+        }
     }
 }
