@@ -55,3 +55,43 @@ for name, config in configs.items():
         if os.path.exists(src):
             shutil.copy(src, os.path.join(out, f))
     print("wrote", out)
+
+# Ling 2.0 (bailing_moe_v2) is remote code without a transformers class: write its tensors directly, with q/k/v sizes llama.cpp
+# accepts (hidden = heads * head_dim), so that llama.cpp's converter and CPU build provide the reference. Tokenizer and the
+# remaining config come from tiny-random-bailing-moe-v2.
+import json
+from safetensors.torch import save_file
+source = os.path.join(root, "tiny-random-bailing-moe-v2")
+cfg = json.load(open(os.path.join(source, "config.json")))
+cfg.update(hidden_size=64, num_attention_heads=4, num_key_value_heads=2, head_dim=16, intermediate_size=96, moe_intermediate_size=32,
+           num_hidden_layers=3, num_experts=16, num_experts_per_tok=4, n_group=4, topk_group=2, first_k_dense_replace=1,
+           tie_word_embeddings=False, max_position_embeddings=256)
+H, I, E, V = cfg["hidden_size"], cfg["intermediate_size"], cfg["num_experts"], cfg["vocab_size"]
+qkv = (cfg["num_attention_heads"] + 2 * cfg["num_key_value_heads"]) * cfg["head_dim"]
+torch.manual_seed(0)
+rand = lambda *shape: torch.randn(*shape) * 0.15
+norm = lambda n: 1.0 + 0.3 * torch.randn(n)
+t = {"model.word_embeddings.weight": rand(V, H), "model.norm.weight": norm(H), "lm_head.weight": rand(V, H)}
+for il in range(cfg["num_hidden_layers"]):
+    p = f"model.layers.{il}."
+    t.update({p + "input_layernorm.weight": norm(H), p + "post_attention_layernorm.weight": norm(H),
+              p + "attention.query_key_value.weight": rand(qkv, H), p + "attention.dense.weight": rand(H, H),
+              p + "attention.query_layernorm.weight": norm(cfg["head_dim"]), p + "attention.key_layernorm.weight": norm(cfg["head_dim"])})
+    if il < cfg["first_k_dense_replace"]:
+        t.update({p + "mlp.gate_proj.weight": rand(I, H), p + "mlp.up_proj.weight": rand(I, H), p + "mlp.down_proj.weight": rand(H, I)})
+        continue
+    m = cfg["moe_intermediate_size"]
+    t.update({p + "mlp.gate.weight": rand(E, H), p + "mlp.gate.expert_bias": 0.05 * torch.randn(E),
+              p + "mlp.shared_experts.gate_proj.weight": rand(m, H), p + "mlp.shared_experts.up_proj.weight": rand(m, H),
+              p + "mlp.shared_experts.down_proj.weight": rand(H, m)})
+    for e in range(E):
+        t.update({f"{p}mlp.experts.{e}.gate_proj.weight": rand(m, H), f"{p}mlp.experts.{e}.up_proj.weight": rand(m, H),
+                  f"{p}mlp.experts.{e}.down_proj.weight": rand(H, m)})
+out = os.path.join(root, "tiny-random-bailing-moe-v2-llamacpp")
+os.makedirs(out, exist_ok=True)
+save_file({k: v.contiguous() for k, v in t.items()}, os.path.join(out, "model.safetensors"), metadata={"format": "pt"})
+json.dump(cfg, open(os.path.join(out, "config.json"), "w"), indent=2)
+for f in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "generation_config.json"]:
+    if os.path.exists(os.path.join(source, f)):
+        shutil.copy(os.path.join(source, f), os.path.join(out, f))
+print("wrote", out)

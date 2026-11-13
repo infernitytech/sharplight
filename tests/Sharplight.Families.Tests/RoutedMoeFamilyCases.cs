@@ -14,6 +14,8 @@ internal static class RoutedMoeFamilyCases
 
     private const string LongPrompt = HfPrompt + ". " + HfPrompt + ". " + HfPrompt + ". " + HfPrompt + ". " + HfPrompt + ". " + HfPrompt + ".";
 
+    private const string BailingText = "兼职 components 越ěl开火抽烟ke Jaguarбит sprinkle stall转过头·米로는 dehydrogenasecow";
+
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
     public static readonly Case[] All =
     [
@@ -27,6 +29,12 @@ internal static class RoutedMoeFamilyCases
         new("tiny-random-llama-4 HF (llama4, transformers)", "hf/tiny-random-llama-4", HfPrompt, "ids", [108390,170890,17093,13840,194099,131844,130742,173695,89971,110708,165492,79380], ""),
         // Six prompts in a row (about 160 tokens) cross the 128-token attention chunk of the rotary layers.
         new("tiny-random-llama-4 HF long prompt (llama4 chunked attention, transformers)", "hf/tiny-random-llama-4", LongPrompt, "ids", [169106,46193,153014,127034,184942,177199,146815,95194,125259,18884,193513,118435], ""),
+        // Ling 2.0 has no transformers class: a tiny checkpoint with llama.cpp-compatible shapes (tools/mk_tiny_moe.py), compared
+        // with llama.cpp b11177 (CPU) on its converted f32 GGUF, both as the Hugging Face directory and as that GGUF.
+        new("tiny-random-bailing-moe-v2-llamacpp HF (bailing_moe_v2 group-limited routing, llama.cpp)", "hf/tiny-random-bailing-moe-v2-llamacpp", HfPrompt, "text", [],
+            BailingText, Tokens: 16),
+        new("tiny-random-bailing-moe-v2-llamacpp f32 GGUF (bailingmoe2, llama.cpp)", "gguf/tiny-random-bailing-moe-v2-llamacpp-f32.gguf", HfPrompt, "text", [],
+            BailingText, Tokens: 16),
         // GGUF files, continuations from llama.cpp b11177.
         new("SmallThinker-4B-A0.6B Q8_0 GGUF (smallthinker, llama.cpp)", "gguf/SmallThinker-4BA0.6B-Instruct/SmallThinker-4B-A0.6B-Instruct.Q8_0.gguf", "The capital of France is", "text", [],
             " Paris. actually, the capital of France is Paris. The capital of France is", Tokens: 16),

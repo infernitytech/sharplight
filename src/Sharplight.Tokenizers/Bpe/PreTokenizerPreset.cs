@@ -34,6 +34,10 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
             case "gpt-4o" or "minimax-m2" or "kanana2" or "talkie":
                 return new(new DefaultRegexStages([Gpt4oPattern]), false, false);
 
+            // Ling / Ring 2.0 (llama.cpp BAILINGMOE): single digits; tokenizer.json's possessive quantifiers become atomic groups.
+            case "bailingmoe" or "bailingmoe2" or "llada-moe":
+                return new(new DefaultRegexStages([@"'(?i:[sdmt]|ll|ve|re)|(?>[^\r\n\p{L}\p{N}]?)\p{L}+|\p{N}| ?(?>[^\s\p{L}\p{N}]+)[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"]), false, false);
+
             // Flint: digit groups, CJK runs, then Llama-4-style case-aware words (no contraction after digits, punctuation/symbols grouped).
             case "flint":
                 return new(new DefaultRegexStages([@"\p{N}{1,3}", @"[一-龥぀-ゟ゠-ヿ]+", @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"]), false, false);
