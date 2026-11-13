@@ -177,12 +177,8 @@ internal sealed partial class OnnxTranslator
             throw new InvalidDataException($"Graph output '{output.Name}' is never produced.");
         }
 
-        if (tensor.C is not null)
-        {
-            throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
-        }
-
-        var value = OutputCopy(tensor.V!, output.Name);
+        // A compile-time constant output (a shape, an EyeLike of a fixed shape) is copied out of its constant.
+        var value = OutputCopy(tensor.V ?? (tensor.C!.IsFloat ? AsValue(tensor) : Idx(tensor)), output.Name);
 
         _b.Output(output.Name, value);
     }
