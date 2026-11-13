@@ -374,6 +374,11 @@ public sealed partial class GraphLowerer
 
     private void LowerScatterND(Node n)
     {
+        if (TryLowerScatterNDFast(n))
+        {
+            return;
+        }
+
         var data = Ref(n.Inputs[0]);
         var ix = Ref(n.Inputs[1]);
         var upd = Ref(n.Inputs[2]);
