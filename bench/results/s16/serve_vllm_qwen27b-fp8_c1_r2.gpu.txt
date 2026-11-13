@@ -1,0 +1,6 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 53291 MiB, 297.12 W, 2092 MHz, 13365 MHz, 84, P1
+2752, kwin_wayland, 590 MiB
+4944, chrome
+82584, rider, 360 MiB
+283330, dotnet, 118 MiB
+283038, VLLM::EngineCore, 48462 MiB

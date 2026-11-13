@@ -12,9 +12,17 @@ prompt; the ITL p99 / max of the other streams then show how much a long prefill
 Shared prefix: with --shared-prefix-words W every prompt starts with the same W-word text (a system prompt), so a prefix cache
 that shares KV between concurrent requests can skip it.
 
+Natural text: with --natural every prompt is a short instruction ("Write a detailed essay about ...") with random topic words,
+so the output is ordinary prose (needed for speculative decoding, whose acceptance on random-word continuations is not
+representative). --prompt-words then has no effect.
+
+Server metrics: with --metrics the Prometheus text of <url>/metrics is read right before and after the timed part (after the
+warm-up) and the difference of every counter / histogram sum / histogram count is stored as "metrics_delta" in the JSON
+(sharplight_step_duration_seconds_sum, vllm:spec_decode_num_accepted_tokens_total, ...).
+
 usage: loadgen.py --url http://127.0.0.1:8080 --model NAME -c 16 [--per-worker 3] [--max-tokens 128] [--json out.json]
 """
-import argparse, asyncio, json, random, statistics, sys, time
+import argparse, asyncio, json, random, re, statistics, sys, time
 import httpx
 
 WORDS = ("time year people way day man thing woman life child world school state family student group country problem hand part "
@@ -24,9 +32,36 @@ WORDS = ("time year people way day man thing woman life child world school state
          "door health person art war history party result change morning reason research girl guy moment air teacher force education").split()
 
 PREFIX = ""
+NATURAL = False
+TASKS = ("Write a detailed essay about the role of {a} and {b} in modern {c}. Explain the history, give concrete examples and discuss open questions.",
+         "Explain step by step how a {a} could help a {b} solve a problem with their {c}. Be specific and practical.",
+         "Write a long story about a {a} who finds a {b} in the {c}. Describe the characters and the setting in detail.",
+         "Compare {a} and {b} from the point of view of a {c}. List advantages, disadvantages and a final recommendation.")
 
 def make_prompt(rng, words):
+    if NATURAL:
+        return PREFIX + rng.choice(TASKS).format(a=rng.choice(WORDS), b=rng.choice(WORDS), c=rng.choice(WORDS)) + "\n\n"
     return PREFIX + " ".join(rng.choice(WORDS) for _ in range(words))
+
+_SAMPLE = re.compile(r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+([-+0-9.eEinfNa]+)$')
+
+async def scrape(client, url):
+    """Prometheus text -> {series: value} for counters (_total), histogram/summary sums and counts."""
+    try:
+        r = await client.get(url + "/metrics")
+        out = {}
+        for line in r.text.splitlines():
+            m = _SAMPLE.match(line.strip())
+            if not m: continue
+            name, labels, val = m.group(1), m.group(2) or "", m.group(3)
+            if not (name.endswith("_total") or name.endswith("_sum") or name.endswith("_count")): continue
+            # drop per-model / per-engine labels so the keys stay stable; keep position labels (spec decode per position)
+            keep = ",".join(x for x in labels.strip("{}").split(",") if x.startswith("position=") or x.startswith("reason=") or x.startswith("finished_reason="))
+            key = name + ("{" + keep + "}" if keep else "")
+            out[key] = out.get(key, 0.0) + float(val)
+        return out
+    except Exception as e:  # metrics are optional
+        return {"error": str(e)}
 
 def pct(xs, p):
     if not xs: return float("nan")
@@ -74,9 +109,12 @@ async def main():
     ap.add_argument("--long-every", type=int, default=0, help="every K-th request per worker is long (0 = never)")
     ap.add_argument("--shared-prefix-words", type=int, default=0, help="words of a prefix common to all prompts")
     ap.add_argument("--warmup", type=int, default=1); ap.add_argument("--seed", type=int, default=1); ap.add_argument("--json")
+    ap.add_argument("--natural", action="store_true", help="short natural-language instructions instead of random words")
+    ap.add_argument("--metrics", action="store_true", help="store the change of the server's /metrics over the timed part")
     args = ap.parse_args()
     rng = random.Random(args.seed)
-    global PREFIX
+    global PREFIX, NATURAL
+    NATURAL = args.natural
     if args.shared_prefix_words > 0:
         PREFIX = " ".join(random.Random(args.seed + 7).choice(WORDS) for _ in range(args.shared_prefix_words)) + "\n"
     limits = httpx.Limits(max_connections=args.concurrency + 4)
@@ -84,9 +122,11 @@ async def main():
         for _ in range(args.warmup):  # concurrent warm-up so kernels/graphs for batch shapes exist
             await asyncio.gather(*[one(client, args, make_prompt(rng, args.prompt_words)) for _ in range(min(args.concurrency, 4))])
         res = []
+        m0 = await scrape(client, args.url) if args.metrics else None
         t0 = time.perf_counter()
         await asyncio.gather(*[worker(client, args, random.Random(args.seed * 1000 + i), res, i) for i in range(args.concurrency)])
         wall = time.perf_counter() - t0
+        m1 = await scrape(client, args.url) if args.metrics else None
     ok = [r for r in res if "error" not in r]; errs = [r["error"] for r in res if "error" in r]
     toks = sum(r["completion_tokens"] for r in ok)
     gaps = [g for r in ok for g in r["gaps"]]
@@ -105,7 +145,9 @@ async def main():
            "itl_max_ms": max(gaps) * 1e3 if gaps else float("nan"),
            "short_ttft_p95_ms": pct([r["ttft"] for r in short], 95) * 1e3,
            "short_itl_p99_ms": pct(short_gaps, 99) * 1e3, "long_requests": len(ok) - len(short),
-           "latency_p50_s": pct([r["latency"] for r in ok], 50), "error_samples": errs[:3]}
+           "latency_p50_s": pct([r["latency"] for r in ok], 50), "error_samples": errs[:3], "natural": args.natural}
+    if m0 is not None and m1 is not None and "error" not in m0 and "error" not in m1:
+        out["metrics_delta"] = {k: m1[k] - m0.get(k, 0.0) for k in m1 if m1[k] - m0.get(k, 0.0) != 0}
     print(json.dumps(out))
     if args.json: json.dump(out, open(args.json, "w"))
 

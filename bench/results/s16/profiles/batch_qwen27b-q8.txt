@@ -1,0 +1,74 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 248320, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy | no-logits |
+|---|---|---|---|---|
+| 1 | 45.3 | 901 / 596 | 23.95 / 25.22, 23.59 | 25.03 / 25.56, 24.49 |
+| 2 | 38.9 | 1158 / 853 | 20.48 / 22.98, 20.17 | 25.49 / 26.88, 25.03 |
+| 4 | 33.5 | 1158 / 853 | 24.07 / 29.34, 23.85 | 24.00 / 25.55, 23.54 |
+| 8 | 45.0 | 1158 / 853 | 29.17 / 30.66, 28.84 | 29.48 / 30.65, 28.66 |
+| 16 | 67.8 | 1158 / 853 | 42.39 / 43.07, 41.55 | 42.34 / 43.85, 41.87 |
+--- profile batch 16 (greedy)
+GPU time 850.70 ms
+   244.683 ms  28.8%   1280x  min    167.9 us  matmul2 [5120→17408]x2 q8_0r fused[Silu,Mul] int-dot mmvq T=16,16,16
+   168.582 ms  19.8%   1280x  min    114.7 us  matmul [17408→5120] q8_0r int-dot mmvq T=16,16,16
+    91.329 ms  10.7%   1280x  min     63.5 us  matmul [6144→5120] q8_0r int-dot mmvq T=16,16,16
+    87.076 ms  10.2%    960x  min     79.9 us  matmul [5120→10240] q8_0r int-dot mmvq T=16,16,16
+    66.729 ms   7.8%    960x  min     63.0 us  matmul [5120→6144] q8_0r int-dot mmvq T=16,16,16
+    39.876 ms   4.7%    960x  min     34.8 us  delta_rule delta_rule T=16,16,16
+    29.754 ms   3.5%    320x  min     84.0 us  matmul [5120→12288] q8_0r int-dot mmvq T=16,16,16
+    22.819 ms   2.7%     20x  min   1059.9 us  matmul [5120→248320] q8_0r int-dot mmvq T=16,16,16
+    22.222 ms   2.6%   1920x  min      9.1 us  matmul [5120→48] q8_0r int-dot mmvq T=16,16,16
+    14.228 ms   1.7%    320x  min     40.9 us  attention decode T=16,16,16
+    13.487 ms   1.6%   2560x  min      3.8 us  fused[Add]+RmsNorm main T=16,16,16
+    12.900 ms   1.5%    640x  min     15.7 us  matmul [5120→1024] q8_0r int-dot mmvq T=16,16,16
+     5.752 ms   0.7%    960x  min      4.1 us  conv1d conv1d T=16,16,16
+     4.532 ms   0.5%   1280x  min      2.3 us  matmul [17408→5120] q8_0r x→q8 quantize_q8_1 T=16,16,16
+     4.172 ms   0.5%    960x  min      3.1 us  RmsNorm+fused[Silu,Mul] main T=16,16,16
+     3.405 ms   0.4%   1280x  min      2.0 us  matmul [6144→5120] q8_0r x→q8 quantize_q8_1 T=16,16,16
+     3.242 ms   0.4%    960x  min      1.7 us  fused[Sigmoid] main T=16,16,16
+     2.714 ms   0.3%   1280x  min      2.0 us  matmul2 [5120→17408]x2 q8_0r fused[Silu,Mul] x→q8 quantize_q8_1 T=16,16,16
+     2.262 ms   0.3%    960x  min      2.0 us  matmul [5120→10240] q8_0r x→q8 quantize_q8_1 T=16,16,16
+     1.992 ms   0.2%    960x  min      2.0 us  fused[Add,Softplus,Mul] main T=16,16,16
+     1.967 ms   0.2%    320x  min      6.1 us  attention combine decode_combine T=16,16,16
+     1.741 ms   0.2%    320x  min      4.1 us  rope+norm rope_row T=16,16,16
+     1.352 ms   0.2%    320x  min      4.1 us  rope+norm+cache_write rope_row T=16,16,16
+     1.309 ms   0.2%    320x  min      2.0 us  cache_write cache_write T=16,16,16
+     0.785 ms   0.1%    320x  min      2.0 us  matmul [5120→12288] q8_0r x→q8 quantize_q8_1 T=16,16,16
+     0.765 ms   0.1%     20x  min     30.3 us  sample sample T=16,16,16
+     0.703 ms   0.1%    320x  min      2.0 us  fused[Sigmoid,Mul] main T=16,16,16
+     0.167 ms   0.0%     40x  min      3.6 us  gather gather T=16,16,16
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=16,16,16
+     0.075 ms   0.0%     20x  min      2.0 us  matmul [5120→248320] q8_0r x→q8 quantize_q8_1 T=16,16,16
+
+| 32 | 83.3 | 2022 / 1653 | 52.15 / 57.17, 51.20 | 48.69 / 50.27, 48.42 |
+| 64 | 79.1 | 2022 / 1653 | 65.83 / 67.67, 65.61 | 66.13 / 69.35, 65.87 |
+--- profile batch 64 (greedy)
+GPU time 1403.84 ms
+   420.320 ms  29.9%   2560x  min    128.9 us  matmul [5120→17408] q8_0r split-k gemm_cm2 T=64,64,64
+   257.673 ms  18.4%    960x  min    223.2 us  delta_rule delta_rule T=64,64,64
+   174.918 ms  12.5%   1280x  min    112.5 us  matmul [17408→5120] q8_0r split-k gemm_cm2 T=64,64,64
+    88.493 ms   6.3%    960x  min     67.4 us  matmul [5120→10240] q8_0r split-k gemm_cm2 T=64,64,64
+    78.983 ms   5.6%   1280x  min     42.8 us  matmul [6144→5120] q8_0r split-k gemm_cm2 T=64,64,64
+    58.927 ms   4.2%    960x  min     49.0 us  matmul [5120→6144] q8_0r split-k gemm_cm2 T=64,64,64
+    49.829 ms   3.5%   9920x  min      2.0 us  matmul split-k reduce splitk_reduce T=64,64,64
+    49.189 ms   3.5%    320x  min    110.6 us  attention decode T=64,64,64
+    46.086 ms   3.3%   9940x  min      2.7 us  matmul x→f16 to_f16 T=64,64,64
+    39.690 ms   2.8%    320x  min     98.2 us  matmul [5120→12288] q8_0r split-k gemm_cm2 T=64,64,64
+    38.389 ms   2.7%     20x  min   1576.0 us  matmul [5120→248320] q8_0r gemm_cm2 T=64,64,64
+    29.580 ms   2.1%   1920x  min      9.0 us  matmul [5120→48] q8_0r split-k gemm_cm2 T=64,64,64
+    20.233 ms   1.4%   2560x  min      4.5 us  fused[Add]+RmsNorm main T=64,64,64
+    10.063 ms   0.7%    960x  min      9.2 us  conv1d conv1d T=64,64,64
+     8.731 ms   0.6%    640x  min     12.1 us  matmul [5120→1024] q8_0r split-k gemm_cm2 T=64,64,64
+     8.162 ms   0.6%   1280x  min      4.1 us  fused[Silu,Mul] main T=64,64,64
+     7.963 ms   0.6%    960x  min      5.9 us  RmsNorm+fused[Silu,Mul] main T=64,64,64
+     3.187 ms   0.2%    320x  min      4.1 us  rope+norm rope_row T=64,64,64
+     2.657 ms   0.2%    320x  min      7.8 us  attention combine decode_combine T=64,64,64
+     2.473 ms   0.2%    960x  min      2.0 us  fused[Add,Softplus,Mul] main T=64,64,64
+     2.184 ms   0.2%    320x  min      4.1 us  cache_write cache_write T=64,64,64
+     1.969 ms   0.1%    960x  min      2.0 us  fused[Sigmoid] main T=64,64,64
+     1.582 ms   0.1%    320x  min      4.1 us  rope+norm+cache_write rope_row T=64,64,64
+     1.312 ms   0.1%    320x  min      4.0 us  fused[Sigmoid,Mul] main T=64,64,64
+     0.946 ms   0.1%     20x  min     43.0 us  sample sample T=64,64,64
+     0.217 ms   0.0%     40x  min      4.1 us  gather gather T=64,64,64
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=64,64,64
+

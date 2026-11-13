@@ -1,0 +1,4 @@
+gpu util,memused,power,smclk: 3 %, 4656 MiB, 243.60 W, 2340 MHz
+2752, kwin_wayland, 599 MiB
+4944, chrome
+82584, rider, 359 MiB

@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 96 %, 47020 MiB, 291.42 W, 2280 MHz, 14001 MHz, 84, P0
+2752, kwin_wayland, 591 MiB
+4944, chrome
+82584, rider, 354 MiB
+339821, Sha

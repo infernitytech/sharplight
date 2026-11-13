@@ -1,0 +1,6 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 45339 MiB, 274.97 W, 2295 MHz, 13365 MHz, 81, P1
+2752, kwin_wayland, 590 MiB
+4944, chrome
+82584, rider, 359 MiB
+247984, S:\steamapps\common\Warhammer, 1222 MiB
+268249, VLLM::EngineCore, 39344 MiB
