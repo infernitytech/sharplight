@@ -107,5 +107,3 @@ public sealed class DataType : IEquatable<DataType>
     public override int GetHashCode() => Name.GetHashCode(StringComparison.OrdinalIgnoreCase);
     public override string ToString() => Name;
 }
-
-public enum DataTypeKind { Float, Int, Bool, Quantized }

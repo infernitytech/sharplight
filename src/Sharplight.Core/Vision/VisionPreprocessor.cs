@@ -1,50 +1,5 @@
 namespace Sharplight.Vision;
 
-/// <summary>A decoded image: 8-bit interleaved RGB (row-major, 3 bytes per pixel). File decoding is the host's job.</summary>
-public sealed record ImageInput(int Width, int Height, byte[] Rgb)
-{
-    public void Validate()
-    {
-        if (Width <= 0 || Height <= 0)
-        {
-            throw new ArgumentException("Image has no pixels.");
-        }
-
-        if (Rgb.LongLength != 3L * Width * Height)
-        {
-            throw new ArgumentException($"Expected {3L * Width * Height} RGB bytes for {Width}x{Height}, got {Rgb.Length}.");
-        }
-    }
-}
-
-/// <summary>Optional limits on the visual token budget per image (output tokens after merging), overriding the model's pixel bounds.</summary>
-public sealed record ImageTokenLimits(int? MinTokens = null, int? MaxTokens = null);
-
-/// <summary>An image converted to the inputs of the vision-encode graph (see <see cref="VisionParameters"/>).</summary>
-public sealed class PreprocessedImage
-{
-    /// <summary>Size of the resized image in pixels.</summary>
-    public required int Width { get; init; }
-    public required int Height { get; init; }
-    /// <summary>Patch grid (rows × columns of patches).</summary>
-    public required int GridHeight { get; init; }
-    public required int GridWidth { get; init; }
-    /// <summary>Output token grid after spatial merging.</summary>
-    public required int MergedHeight { get; init; }
-    public required int MergedWidth { get; init; }
-    /// <summary>Normalized patch values [N, PatchDim], merge-window order, each patch flattened in (channel, frame, row, col) order.</summary>
-    public required float[] Patches { get; init; }
-    /// <summary>(row, col) of each patch in the patch grid [N, 2].</summary>
-    public required int[] Positions { get; init; }
-    /// <summary>Bilinear taps into the learned position grid [N, 4] (row-major grid index) and their weights [N, 4].</summary>
-    public required int[] EmbeddingIndex { get; init; }
-    public required float[] EmbeddingWeight { get; init; }
-
-    public int PatchCount => GridHeight * GridWidth;
-    /// <summary>Number of embeddings the encoder produces (and language-model positions the image occupies as rows).</summary>
-    public int TokenCount => MergedHeight * MergedWidth;
-}
-
 /// <summary>
 /// Turns raw RGB pixels into the inputs of a model's vision encoder, driven only by the canonical
 /// <see cref="VisionParameters"/>: aspect-preserving "smart" resize to a multiple of patch_size·merge_size within the
