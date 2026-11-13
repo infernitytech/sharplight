@@ -249,14 +249,20 @@ public sealed partial class GraphLowerer
         };
     }
 
+    /// <summary>The shared f32 scratch buffer of split attention, grown to at least <paramref name="bytes"/>.</summary>
+    private TensorRef AttentionScratch(long bytes)
+    {
+        _attnScratch ??= NewBuffer(BufferKind.Activations, "attn-split", 0);
+        _attnScratch.Bytes = Math.Max(_attnScratch.Bytes, bytes);
+        return new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
+    }
+
     /// <summary>Scratch for the partial results of split-key decode attention: (max, sum, accumulator) per split.</summary>
     private TensorRef SplitScratch(AttentionPlan plan, int splits)
     {
         long rowsMax = plan.Q.Shape[0];
         long bytes = splits * Math.Min(rowsMax, SplitMaxRows) * plan.HQ * (plan.DV + 2) * 4;
-        _attnScratch ??= NewBuffer(BufferKind.Activations, "attn-split", 0);
-        _attnScratch.Bytes = Math.Max(_attnScratch.Bytes, bytes);
-        return new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
+        return AttentionScratch(bytes);
     }
 
     /// <summary>
@@ -406,9 +412,7 @@ public sealed partial class GraphLowerer
         }
 
         long bytes = partials * plan.HQ * (plan.DV + 4) * 4;   // DEC_PS floats per partial
-        _attnScratch ??= NewBuffer(BufferKind.Activations, "attn-split", 0);
-        _attnScratch.Bytes = Math.Max(_attnScratch.Bytes, bytes);
-        return new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
+        return AttentionScratch(bytes);
     }
 
     private void EmitAttentionLaunch(AttentionPlan plan, List<KernelVariant> variants, TensorRef part, long firstRow, bool split)
@@ -425,7 +429,7 @@ public sealed partial class GraphLowerer
             split ? [o, part] : [o]);
     }
 
-    /// <summary>Merges the per-split partial results of decode attention into the output.</summary>
+    /// <summary>Merges the per-split partial results of the fixed-split attention kernel into the output.</summary>
     private void EmitAttentionCombine(AttentionPlan plan, TensorRef part, Dictionary<string, string> splitMacros)
     {
         var q = plan.Q;

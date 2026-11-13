@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Sharplight.Graph;
-using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Shaders.Lowering;
 using Vortice.Vulkan;
@@ -134,214 +133,21 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             return;
         }
 
-        const ulong StagingSize = 128UL << 20;
-        var staging = new[] { _dev.Memory.Allocate(StagingSize, MemoryUsage.Upload), _dev.Memory.Allocate(StagingSize, MemoryUsage.Upload) };
-        var cbs = new[] { AllocCb(), AllocCb() };
-        var fences = new VkFence[2];
-        var materialized = MaterializeInBackground(weights);
-        for (int i = 0; i < 2; i++)
-        {
-            var fci = new VkFenceCreateInfo { flags = VkFenceCreateFlags.Signaled };
-            VkFence f;
-            _dev.Api.vkCreateFence(&fci, null, &f).CheckResult();
-            fences[i] = f;
-        }
+        using var uploader = new WeightUploader(_dev, _pool);
+        var materialized = WeightCopier.MaterializeInBackground(weights);
         try
         {
-            int slot = 0;
-            ulong fill = 0;
-            var pending = new List<(VkBuffer Dst, ulong DstOff, ulong SrcOff, ulong Size)>();
-
-            void Flush()
+            foreach (var buffer in weights)
             {
-                if (pending.Count == 0)
-                {
-                    return;
-                }
-
-                var cb = cbs[slot];
-                var bi = new VkCommandBufferBeginInfo { flags = VkCommandBufferUsageFlags.OneTimeSubmit };
-                _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
-                foreach (var (dst, dstOff, srcOff, size) in pending)
-                {
-                    var region = new VkBufferCopy { srcOffset = staging[slot].Offset + srcOff, dstOffset = dstOff, size = size };
-                    _dev.Api.vkCmdCopyBuffer(cb, staging[slot].Buffer, dst, 1, &region);
-                }
-                _dev.Api.vkEndCommandBuffer(cb).CheckResult();
-                var f = fences[slot];
-                _dev.Api.vkResetFences(1, &f).CheckResult();
-                _dev.Submit(cb, f);
-                pending.Clear();
-                slot ^= 1;
-                fill = 0;
-                var nf = fences[slot];
-                _dev.Api.vkWaitForFences(1, &nf, true, ulong.MaxValue).CheckResult();
+                uploader.Upload(buffer, _alloc[buffer]);
             }
 
-            foreach (var b in weights)
-            {
-                var dst = _alloc[b];
-                long total = b.Weight?.ByteSize ?? b.InitialData!.Length;
-                var src = b.Weight?.Source;
-                nint ptr = src?.TryGetPointer() ?? 0;
-                long done = 0;
-                // Repacked weights are transformed in whole rows.
-                long rowBytes = b.Repack != WeightRepack.None ? WeightRepacker.RowBytes(b.Repack, b.RepackRowElements) : 1;
-                while (done < total)
-                {
-                    if (StagingSize - fill < (ulong)Math.Min(rowBytes, total - done))
-                    {
-                        Flush();
-                    }
-
-                    ulong chunk = Math.Min(StagingSize - fill, (ulong)(total - done));
-                    chunk -= chunk % (ulong)rowBytes;
-                    CopyWeightChunk(b, src, ptr, done, (long)chunk, staging[slot].Mapped + fill, rowBytes);
-
-                    pending.Add((dst.Buffer, dst.Offset + (ulong)done, fill, chunk));
-                    fill += (chunk + 255) & ~255UL;
-                    if (fill > StagingSize)
-                    {
-                        fill = StagingSize;
-                    }
-
-                    done += (long)chunk;
-                }
-            }
-            Flush();
-            for (int i = 0; i < 2; i++)
-            {
-                var f = fences[i];
-                _dev.Api.vkWaitForFences(1, &f, true, ulong.MaxValue);
-            }
+            uploader.Complete();
         }
         finally
         {
             materialized.Wait();
-            for (int i = 0; i < 2; i++)
-            {
-                _dev.Api.vkDestroyFence(fences[i], null);
-                FreeCb(cbs[i]);
-                _dev.Memory.Free(staging[i]);
-            }
         }
-    }
-
-    /// <summary>
-    /// Produces the weights that are computed on first read (layout conversions, folded constants) on several threads while the
-    /// copy loop uploads the ones before them; mapped weights need no preparation.
-    /// </summary>
-    private static Task MaterializeInBackground(List<BufferDecl> weights)
-    {
-        const int Parallelism = 4;
-        var lazy = weights.Select(b => b.Weight?.Source).OfType<IWeightSource>().Where(source => source.TryGetPointer() == 0).ToList();
-        return Task.Run(() => Parallel.ForEach(lazy, new ParallelOptions { MaxDegreeOfParallelism = Parallelism }, source =>
-        {
-            try
-            {
-                source.Materialize();
-            }
-            catch (Exception)
-            {
-                // The producer's exception is cached and rethrown by the copy loop's read of this weight.
-            }
-        }));
-    }
-
-    /// <summary>
-    /// Copies <paramref name="chunk"/> bytes of a weight (or constant) starting at <paramref name="done"/> into staging
-    /// memory, repacking rows when the buffer asks for it. The source is a mapped pointer when it has one, otherwise
-    /// the weight source or initial data is read through a span.
-    /// </summary>
-    private static void CopyWeightChunk(BufferDecl b, IWeightSource? src, nint ptr, long done, long chunk, byte* destination, long rowBytes)
-    {
-        var span = new Span<byte>(destination, (int)chunk);
-        if (b.Repack != WeightRepack.None && ptr != 0)
-        {
-            RepackParallel(b, (byte*)ptr + done, destination, chunk, rowBytes);
-        }
-        else if (b.Repack != WeightRepack.None)
-        {
-            var tmp = System.Buffers.ArrayPool<byte>.Shared.Rent((int)chunk);
-            try
-            {
-                if (b.InitialData is not null)
-                {
-                    b.InitialData.AsSpan((int)done, (int)chunk).CopyTo(tmp);
-                }
-                else
-                {
-                    src!.Read(done, tmp.AsSpan(0, (int)chunk));
-                }
-
-                RepackParallel(b, tmp, destination, chunk, rowBytes);
-            }
-            finally
-            {
-                System.Buffers.ArrayPool<byte>.Shared.Return(tmp);
-            }
-        }
-        else if (b.InitialData is not null)
-        {
-            b.InitialData.AsSpan((int)done, (int)chunk).CopyTo(span);
-        }
-        else if (ptr != 0)
-        {
-            CopyParallel((byte*)ptr + done, destination, chunk);
-        }
-        else
-        {
-            src!.Read(done, span);
-        }
-    }
-
-    /// <summary>Multi-threaded copy: weight sources are usually mmapped files, where a single thread is
-    /// bound by page-fault handling rather than memory bandwidth.</summary>
-    private static void CopyParallel(byte* src, byte* dst, long bytes)
-    {
-        const long Piece = 2 << 20;
-        if (bytes <= Piece)
-        {
-            Buffer.MemoryCopy(src, dst, bytes, bytes);
-            return;
-        }
-        nint s = (nint)src, d = (nint)dst;
-        Parallel.For(0, (bytes + Piece - 1) / Piece, i =>
-        {
-            long o = i * Piece;
-            long n = Math.Min(Piece, bytes - o);
-            Buffer.MemoryCopy((byte*)s + o, (byte*)d + o, n, n);
-        });
-    }
-
-    private static void RepackParallel(BufferDecl b, byte* src, byte* dst, long bytes, long rowBytes)
-    {
-        long rows = bytes / rowBytes;
-        const long RowsPerTask = 256;
-        nint s = (nint)src, d = (nint)dst;
-        Parallel.For(0, (rows + RowsPerTask - 1) / RowsPerTask, t =>
-        {
-            long r0 = t * RowsPerTask;
-            long n = Math.Min(RowsPerTask, rows - r0);
-            WeightRepacker.Apply(b.Repack, b.RepackRowElements,
-                new ReadOnlySpan<byte>((byte*)s + r0 * rowBytes, (int)(n * rowBytes)),
-                new Span<byte>((byte*)d + r0 * rowBytes, (int)(n * rowBytes)));
-        });
-    }
-
-    private static void RepackParallel(BufferDecl b, byte[] src, byte* dst, long bytes, long rowBytes)
-    {
-        long rows = bytes / rowBytes;
-        const long RowsPerTask = 256;
-        nint d = (nint)dst;
-        Parallel.For(0, (rows + RowsPerTask - 1) / RowsPerTask, t =>
-        {
-            long r0 = t * RowsPerTask;
-            long n = Math.Min(RowsPerTask, rows - r0);
-            WeightRepacker.Apply(b.Repack, b.RepackRowElements,
-                src.AsSpan((int)(r0 * rowBytes), (int)(n * rowBytes)),
-                new Span<byte>((byte*)d + r0 * rowBytes, (int)(n * rowBytes)));
-        });
     }
 
     // ---- I/O ---------------------------------------------------------------------------------
@@ -414,26 +220,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
 
-            var swRec = Stopwatch.StartNew();
-            long pt0 = _dev.PipelineTicks;
-            int pc0 = _dev.PipelinesCreated;
-            cb = AllocCb();
-            var bi = new VkCommandBufferBeginInfo();
-            _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
-            _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
-            _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
-            RecordInputCopies(cb, bindings);
-            Record(cb, _program.Launches, bindings);
-            RecordOutputCopies(cb, bindings, skipDownloads);
-            _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
-            _dev.Api.vkEndCommandBuffer(cb).CheckResult();
+            cb = RecordStep(key, bindings, skipDownloads);
             _recorded[key] = cb;
             _recordOrder.Enqueue(key);
-            if (DiagnosticSwitches.LoadTiming)
-            {
-                Console.Error.WriteLine($"[load] record {key}: {swRec.ElapsedMilliseconds} ms, of which {_dev.PipelinesCreated - pc0} pipelines {(double)(_dev.PipelineTicks - pt0) / Stopwatch.Frequency * 1000:F0} ms");
-            }
         }
+
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
         _dev.Submit(cb, fence);
@@ -443,6 +234,31 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         {
             LastGpuMs = (ts[1] - ts[0]) * _dev.Phys.TimestampPeriod * 1e-6;
         }
+    }
+
+    /// <summary>Records one whole step (timestamps, input copies, every launch, output copies) into a new command buffer.</summary>
+    private VkCommandBuffer RecordStep(string key, Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    {
+        var recordTimer = Stopwatch.StartNew();
+        long pipelineTicksBefore = _dev.PipelineTicks;
+        int pipelinesBefore = _dev.PipelinesCreated;
+        var cb = AllocCb();
+        var beginInfo = new VkCommandBufferBeginInfo();
+        _dev.Api.vkBeginCommandBuffer(cb, &beginInfo).CheckResult();
+        _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
+        _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.TopOfPipe, _stepPool, 0);
+        RecordInputCopies(cb, bindings);
+        Record(cb, _program.Launches, bindings);
+        RecordOutputCopies(cb, bindings, skipDownloads);
+        _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
+        _dev.Api.vkEndCommandBuffer(cb).CheckResult();
+        if (DiagnosticSwitches.LoadTiming)
+        {
+            double pipelineMs = (double)(_dev.PipelineTicks - pipelineTicksBefore) / Stopwatch.Frequency * 1000;
+            Console.Error.WriteLine($"[load] record {key}: {recordTimer.ElapsedMilliseconds} ms, of which {_dev.PipelinesCreated - pipelinesBefore} pipelines {pipelineMs:F0} ms");
+        }
+
+        return cb;
     }
 
     /// <summary>

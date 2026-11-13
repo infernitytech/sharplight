@@ -52,7 +52,7 @@ public sealed class SlangCompiler : IDisposable
     /// <param name="entryPoint">Entry point; also defines <c>KERNEL_&lt;ENTRY&gt;</c> for files with several entry points.</param>
     /// <param name="target">Code generation target.</param>
     /// <param name="macros">Preprocessor macros specializing the kernel.</param>
-    /// <param name="cache">Optional model-level cache, see <see cref="Compile"/>.</param>
+    /// <param name="cache">Optional model-level cache, see <c>Compile</c>.</param>
     /// <returns>The kernel; identical requests return the same instance. It may still be compiling in the background (see <see cref="CompiledKernel.Code"/>).</returns>
     public CompiledKernel CompileLibrary(string file, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
