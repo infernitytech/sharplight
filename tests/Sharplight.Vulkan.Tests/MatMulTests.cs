@@ -19,6 +19,15 @@ public sealed class MatMulTests
     private static double Atol(int t) => t > 8 ? 1.5e-1 : 2e-3;
     private static double Rtol(int t) => t > 8 ? 1e-2 : 1e-3;
 
+    // Formats whose matvec may run on the integer-dot path. Its activations are quantized to 8 bits per 32-value block,
+    // an absolute error proportional to the weight row's norm (large for these random weights: K-quant rows with
+    // offsets up to ~10 and Q6_K values up to ~50), not to the output's own size. IntDotExactActivations checks the
+    // arithmetic itself tightly.
+    private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_k", "q5_k", "q6_k"];
+
+    private static double Atol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? 3.0 : Atol(t);
+    private static double Rtol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? Rtol(9) : Rtol(t);
+
     [Theory]
     [MemberData(nameof(Cases))]
     public void WeightFormat(string fmt, int t)
@@ -30,7 +39,50 @@ public sealed class MatMulTests
         var x = tg.InF("x", TG.T, K);
         var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
-        Diff.Check("MatMul." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(t), rtol: Rtol(t), what: $"T={t}");
+        Diff.Check("MatMul." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt, t), rtol: Rtol(fmt, t), what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Activations that 8-bit block quantization represents exactly (integers times a power of two, block maximum 127):
+    /// the integer-dot matvec must then match the f32 reference as tightly as the f32 matvec.
+    /// </summary>
+    [Theory]
+    [InlineData("q8_0", 1)]
+    [InlineData("q8_0", 3)]
+    [InlineData("q4_k", 1)]
+    [InlineData("q4_k", 5)]
+    [InlineData("q5_k", 2)]
+    [InlineData("q5_k", 8)]
+    [InlineData("q6_k", 1)]
+    [InlineData("q6_k", 7)]
+    public void IntDotExactActivations(string fmt, int t)
+    {
+        Gpu.Require();
+        int K = 1024;
+        int N = 72;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
+        tg.B.Output("y", tg.B.MatMul(x, w));
+        Diff.Check("MatMul.exact8." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactInt8Activations((long)t * K, 5))), atol: 2e-3, rtol: 1e-3, what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Values k·s with integer k in [-127, 127] and a power-of-two scale s that differs between 32-value blocks; one value
+    /// per block is ±127·s, so every block quantizes exactly with scale s.
+    /// </summary>
+    private static float[] ExactInt8Activations(long n, int seed)
+    {
+        var rng = new Random(seed);
+        var a = new float[n];
+        for (long i = 0; i < n; i++)
+        {
+            float scale = MathF.ScaleB(1f, -4 - (int)(i / 32 % 5));
+            int k = i % 32 == (i / 32) % 32 ? (rng.Next(2) == 0 ? 127 : -127) : rng.Next(-127, 128);
+            a[i] = k * scale;
+        }
+
+        return a;
     }
 
     [Theory]

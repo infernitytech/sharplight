@@ -100,6 +100,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             subgroupSizeControl = Has(DeviceFeatures.SubgroupSizeControl),
             computeFullSubgroups = Has(DeviceFeatures.SubgroupSizeControl),
             maintenance4 = true,
+            shaderIntegerDotProduct = Has(DeviceFeatures.IntDot),
         };
         var f12 = new VkPhysicalDeviceVulkan12Features
         {

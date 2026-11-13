@@ -13,6 +13,9 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
 /// <item><c>SHARPLIGHT_NO_SCHEDULE=1</c>: keep graph order instead of grouping launches by dependency level.</item>
 /// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 weights in the file layout (no aligned-quants repack).</item>
+/// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
+/// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
+/// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
@@ -43,6 +46,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the Q8_0 aligned-quants repack.</summary>
     public static bool NoWeightRepack { get; } = IsSet("SHARPLIGHT_NO_REPACK");
+
+    /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
+    public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
+
+    /// <summary>Forced integer-dot matvec layout (weight rows per workgroup, subgroups per workgroup), or null.</summary>
+    public static int[]? IntDotLayout { get; } = Read("SHARPLIGHT_MMVQ_LAYOUT")?.Split(',').Select(int.Parse).ToArray();
 
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");

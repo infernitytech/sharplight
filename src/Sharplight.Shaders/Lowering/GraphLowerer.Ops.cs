@@ -15,7 +15,12 @@ public sealed partial class GraphLowerer
     private void LowerNode(Node n)
     {
         LowerNodeOp(n);
+        FreeTemps();
+    }
 
+    /// <summary>Releases the scratch allocations of the unit just lowered.</summary>
+    private void FreeTemps()
+    {
         foreach (var temp in _temps)
         {
             _alloc.Free(temp);

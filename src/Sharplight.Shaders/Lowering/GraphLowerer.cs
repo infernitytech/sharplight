@@ -130,6 +130,7 @@ public sealed partial class GraphLowerer
         if (unit.Dual is { } dual)
         {
             LowerDualMatMul(dual.A, dual.B, unit.Fused!, unit.FusedOutputs![0]);
+            FreeTemps();
         }
         else if (unit.Fused is not null)
         {

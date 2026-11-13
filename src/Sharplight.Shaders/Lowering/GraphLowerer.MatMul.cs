@@ -81,19 +81,31 @@ public sealed partial class GraphLowerer
         var y = Produce(output);
         int format = WeightFormat(weightA.Type) ?? throw new NotSupportedException($"MatMul weight type {weightA.Type}");
         var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", weightA.Type.ByteSize(K) + "ull"), ("DUAL", 1));
-        string source = DualEpilogueSource(a, bNode, group, output);
 
         var tx = x;
         Func<Bindings, long> rows = b => Rows(b, tx) * rowsPerLead;
         var groupNames = string.Join(",", group.Select(g => g.Op.Name));
+        var outer = _launchCondition;
+        if (UseIntDotMatvec(weightA.Type, K))
+        {
+            string intDotSource = DualEpilogueSource(a, bNode, group, output, "mmvq.slang");
+            EmitIntDotMatvec($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], x, xStride, rowsPerLead,
+                [weightA, weightB], y, N, K,
+                intDotMacros => _compiler.Compile("mmvq_dual.slang", intDotSource, "mmvq", _opt.Target, intDotMacros, _opt.Cache));
+            var outsideIntDot = OutsideIntDotRange(x, rowsPerLead, weightA.Type);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);
+        }
+
+        string source = DualEpilogueSource(a, bNode, group, output, "matmul.slang");
         Emit($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             MatvecVariants((entry, entryMacros) => _compiler.Compile("matmul_dual.slang", source, entry, _opt.Target,
                 new Dictionary<string, string>(entryMacros) { ["KERNEL_" + entry.ToUpperInvariant()] = "1" }, _opt.Cache), macros, N, K, rows),
             [Pointer(x), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [x, weightA, weightB], [y]);
 
+        _launchCondition = outer;
+
         // Larger batches: the regular matmuls and the elementwise group, skipped while rows <= 8.
-        var outer = _launchCondition;
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > MatvecMaxRows;
         LowerMatMul(a);
         LowerMatMul(bNode);
@@ -102,7 +114,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Source of the <c>epi2</c> epilogue that applies the fused elementwise group to both matmul results.</summary>
-    private static string DualEpilogueSource(Node a, Node bNode, List<Node> group, Value output)
+    private static string DualEpilogueSource(Node a, Node bNode, List<Node> group, Value output, string kernelFile)
     {
         var name = new Dictionary<Value, string> { [a.Output] = "m0", [bNode.Output] = "m1" };
         var src = new StringBuilder();
@@ -117,7 +129,7 @@ public sealed partial class GraphLowerer
 
         src.AppendLine($"  return {name[output]};");
         src.AppendLine("}");
-        src.AppendLine("#include \"matmul.slang\"");
+        src.AppendLine($"#include \"{kernelFile}\"");
         return src.ToString();
     }
 
@@ -154,6 +166,22 @@ public sealed partial class GraphLowerer
         }
 
         var plan = PlanMatMul(n, x, w);
+        var outer = _launchCondition;
+        if (UseIntDotMatvec(plan.W.Type, plan.K))
+        {
+            EmitIntDotMatvec(MatMulLabel(plan), [n], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
+                macros => Lib("mmvq.slang", "mmvq", macros));
+            var outsideIntDot = OutsideIntDotRange(plan.X, plan.RowsPerLead, plan.W.Type);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);
+        }
+
+        EmitMatMulLaunches(plan);
+        _launchCondition = outer;
+    }
+
+    /// <summary>The f32-activation launches of a planned matmul: matvec variants, GEMM (optionally on f16 activations), split-K.</summary>
+    private void EmitMatMulLaunches(MatMulPlan plan)
+    {
         var activations = plan.X;
         if (plan.Coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
         {
