@@ -12,5 +12,6 @@
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
     <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
+    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
   </ItemGroup>
 </Project>

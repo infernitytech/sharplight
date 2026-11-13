@@ -1,13 +1,18 @@
-// BatchBench <model> [--slots 64] [--ctx 512] [--depth 256] [--sizes 1,2,4,8,16,32,64] [--reps 30] [--profile B] [--profile-mode logits|greedy|sampled]
+// BatchBench <model> [--slots 64] [--ctx 512] [--depth 256] [--sizes 1,2,4,8,16,32,64] [--reps 30] [--profile B[,B...]] [--profile-mode logits|greedy|sampled]
+//            [--modes logits,greedy,sampled,no-logits] [--profile-top 40]
+// <model> is a GGUF, a .slm package or a Hugging Face safetensors directory.
 // Prefills every slot with --depth random tokens, then times decode steps of the multi-sequence decoder for each batch size
 // (rows = batch size). Modes per step: "logits" = logits downloaded for every row and arg-max taken on the CPU (the path without a
 // device sampling head), "greedy" / "sampled" = tokens chosen on the device (temperature 0.8, top-k 40, top-p 0.95 for "sampled";
 // only token ids are downloaded), "no-logits" = no output row wanted. Each mode reports wall-clock min / median ms and the
 // minimum GPU time of the step (command-buffer timestamps, robust against other load on a shared GPU).
 // --profile B prints the per-kernel profile (SHARPLIGHT_VK_PROFILE) of steps with B sequences in --profile-mode (default logits).
+// Per batch size it also prints the dispatch / barrier count of the step and the wall time of the first step at that size in the
+// first mode (includes recording the command buffers for the new shape) next to the warm minimum.
 using System.Diagnostics;
 using Sharplight.Gguf;
 using Sharplight.Graph;
+using Sharplight.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Package;
@@ -18,6 +23,7 @@ var argv = args.ToList();
 string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
 ProviderRegistry.Register(() => new VulkanProvider());
 GgufImporter.Register();
+HuggingFaceImporter.Register();
 ModelPackageImporter.Register();
 int slots = int.Parse(Opt("--slots", "64")!), ctx = int.Parse(Opt("--ctx", "512")!), depth = int.Parse(Opt("--depth", "256")!);
 int reps = int.Parse(Opt("--reps", "30")!);
@@ -69,20 +75,26 @@ void Step(string mode, List<SequenceInput> inputs)
     return (wall.Min(), Median(wall), gpu);
 }
 
-string[] modes = ["logits", "greedy", "sampled", "no-logits"];
-Console.WriteLine("Per mode: wall ms min / median, GPU ms min");
-Console.WriteLine($"| batch | {string.Join(" | ", modes)} |");
-Console.WriteLine($"|---|{string.Concat(modes.Select(_ => "---|"))}");
+string[] modes = Opt("--modes", "logits,greedy,sampled,no-logits")!.Split(',');
+var profileSizes = (Opt("--profile") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToHashSet();
+int profileTop = int.Parse(Opt("--profile-top", "40")!);
+Console.WriteLine("Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step");
+Console.WriteLine($"| batch | first ms | dispatches / barriers | {string.Join(" | ", modes)} |");
+Console.WriteLine($"|---|---|---|{string.Concat(modes.Select(_ => "---|"))}");
 foreach (int b in sizes)
 {
     var inputs = Enumerable.Range(0, b).Select(s => new SequenceInput(s, new[] { rng.Next(1000, 30000) }, true)).ToList();
-    var cells = modes.Select(m => Time(m, inputs)).Select(t => $"{t.Min:F2} / {t.Median:F2}, {t.GpuMin:F2}");
-    Console.WriteLine($"| {b} | {string.Join(" | ", cells)} |");
-    if (Opt("--profile") == b.ToString())
+    var first = Stopwatch.StartNew();
+    Step(modes[0], inputs);
+    double firstMs = first.Elapsed.TotalMilliseconds;
+    var stats = segments.Select(s => s.Stats(b)).Aggregate((0, 0), (a, x) => (a.Item1 + x.Dispatches, a.Item2 + x.Barriers));
+    var cells = modes.Select(m => Time(m, inputs)).Select(t => $"{t.Min:F2} / {t.Median:F2}, {t.GpuMin:F2}").ToList();
+    Console.WriteLine($"| {b} | {firstMs:F1} | {stats.Item1} / {stats.Item2} | {string.Join(" | ", cells)} |");
+    if (profileSizes.Contains(b))
     {
         string mode = Opt("--profile-mode", "logits")!;
         foreach (var seg in segments) { seg.Profile = true; seg.ResetProfile(); }
         for (int i = 0; i < 20; i++) Step(mode, inputs);
-        foreach (var seg in segments) { Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport()}"); seg.Profile = false; }
+        foreach (var seg in segments) { Console.WriteLine($"--- profile batch {b} ({mode})\n{seg.ProfileReport(profileTop)}"); seg.Profile = false; }
     }
 }

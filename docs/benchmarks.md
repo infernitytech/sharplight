@@ -851,3 +851,258 @@ Per-run Sharplight medians: Vulkan Q4_K_M 66.3 / 58.6 / 65.6 (best step 69.6), Q
 state (about 1.2 TB/s), Q8_0 21.4 ms for 26.8 GiB. CPU decode is bound by DDR5 bandwidth (Q4_K_M about 319 ms per step,
 about 52 GB/s) for both engines.
 
+## 16. Re-baseline against vLLM on identical weights, and where the gap is (2026-11-13/14)
+
+Measurement only (nothing under `src/` or `tests/` changed). Goal: a like-for-like comparison with vLLM after the work of
+sections 8-15, a kernel-level attribution of Sharplight's batched step, and a ranked list of levers. Raw results:
+[`bench/results/s16/`](../bench/results/s16) (`profiles/` for BatchBench and per-kernel profiles, `disturbed/` for runs that
+were repeated because a game was running on the GPU).
+
+### 16.1 Setup
+
+* Same machine and engine builds as section 1 (RTX PRO 6000 Blackwell Max-Q, 300 W cap; vLLM 0.33.0 with FLASH_ATTN, CUDA
+  graphs, async scheduling, `VLLM_USE_FLASHINFER_SAMPLER=0`, prefix caching off; llama.cpp b11177). Sharplight: `main` at
+  ed1dd8f, Release build.
+* **Identical weights** for Sharplight and vLLM: `Qwen/Qwen3.8-27B-FP8` (block-scaled E4M3; Sharplight loads the vLLM
+  checkpoint natively), `Llama-3.2-1B-Instruct` bf16 and `OLMoE-1B-7B-0924-Instruct` bf16 (HF safetensors). llama.cpp cannot
+  load the FP8 checkpoint and ran the 27B as Q8_0 GGUF; Sharplight on that GGUF is listed for reference.
+* **Conditions.** The GPU sat at its 300 W limit and 85-89 °C during the long serving runs (SM clock 1.75-2.3 GHz), so absolute
+  numbers are 10-20 % below the cooler runs of section 2 for *both* engines (vLLM 27B decode 48.5 → 39.5 tok/s). Each comparison
+  below was measured in the same period. A game (~1.2 GB, Proton) ran on the GPU from the vLLM small-model single-stream runs to
+  the end of the first Sharplight 27B serving pass; everything it overlapped was repeated afterwards (old files in
+  `disturbed/`) except the OLMoE serving rows and the vLLM MTP single-stream rows, which are marked. Another agent's processes
+  (up to 16 GB, mostly idle) appear in a few snapshots (`*.gpu.txt`).
+* **Robust numbers:** single stream = median over 3 process runs (Sharplight, plus GPU ms per step from timestamps) or 5
+  repetitions (vLLM, llama-bench); serving = median over 2-3 rounds with the server's `/metrics`; kernel attribution =
+  per-kernel GPU timestamps (`SHARPLIGHT_VK_PROFILE`) and the minimum step GPU time over 30 steps (BatchBench).
+
+### 16.2 Commands
+
+```bash
+export VLLM_VENV=~/.venvs/vllm LLAMA_DIR=<folder with runtime.llama-b11177-*>
+dotnet build Sharplight.slnx -c Release && dotnet build bench/BatchBench -c Release
+# single stream: Sharplight (--bench N, N = 16 512 2048 4096), vLLM (offline API), llama-bench
+bench/s16_single.sh sharplight qwen27b-fp8 <dir of Qwen3.8-27B-FP8>
+bench/s16_single.sh vllm qwen27b-fp8 <dir of Qwen3.8-27B-FP8> --gpu-util 0.5
+bench/s16_single.sh vllm qwen27b-fp8-mtp3 <dir> --gpu-util 0.5 --spec-method mtp --spec-tokens 3 --points tg
+bench/s16_single.sh llama-cuda13 qwen27b-q8 <Qwen3.8-27B-Q8_0.gguf>
+NS="16 512 2048 3800" bench/s16_single.sh sharplight olmoe-bf16 <OLMoE dir>      # 4096 positions only
+# serving (one server per engine, c = 1 4 16 64, ~250-token prompts, 128 tokens with ignore_eos, /metrics deltas)
+ROUNDS=2 bench/s16_serve.sh sharplight qwen27b-fp8 <dir> "1 4 16 64"
+ROUNDS=2 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "1 4 16 64" --gpu-memory-utilization 0.5
+NATURAL=1 ROUNDS=1 bench/s16_serve.sh vllm qwen27b-fp8-mtp3 <dir> "1 4 16 64" --gpu-memory-utilization 0.5 \
+    --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
+bench/s16_serve.sh vllm llama1b-bf16-noasync <dir> "1 16 64" --gpu-memory-utilization 0.3 --no-async-scheduling   # or --enforce-eager
+# kernel attribution
+bench/BatchBench/bin/Release/net11.0/BatchBench <dir> --ctx 2048 --modes greedy,no-logits,logits --profile 16,64 --profile-mode greedy
+SHARPLIGHT_VK_NO_BARRIERS=1 bench/BatchBench/bin/Release/net11.0/BatchBench <dir> --ctx 2048 --modes greedy --sizes 1,16,64
+SHARPLIGHT_VK_PROFILE=1 samples/Sharplight.Cli/bin/Release/net11.0/sharplight <dir> --bench 2048 --ctx 2304 --batch 2048
+python3 bench/profile_categories.py bench/results/s16/profiles/batch_qwen27b-fp8.txt
+# tables, then strip home paths / process command lines from the raw files before committing them
+python3 bench/s16_summarize.py; python3 -I bench/sanitize_results.py bench/results/s16
+```
+
+Script changes: `loadgen.py --metrics` stores the change of the server's `/metrics` over the timed part (Sharplight steps, step
+time and rows; vLLM iterations and spec-decode counters), `--natural` sends short natural-language instructions (needed for
+speculative decoding); `vllm_single.py` gained `--spec-method/--spec-tokens` (reports acceptance), `--text-prompt` and
+`--points`; BatchBench loads HF directories, takes `--modes` and several `--profile` sizes, and prints the dispatch / barrier
+count and the first-step (recording) time per batch size; `gpu_check.sh` also records memory clock, temperature and P-state.
+
+### 16.3 Single stream
+
+Tokens/s; Sharplight decode = median step at depth N (16 for "d0"); vLLM tg = (t(129) − t(1)) / 128 through the offline API.
+
+| model | metric | Sharplight | vLLM | SL / vLLM | Sharplight Q8_0 | llama.cpp CUDA Q8_0 |
+|---|---|---|---|---|---|---|
+| Qwen3.8-27B FP8 | pp512 | 2822 | 5171 | 0.55x | 2517 | 2847 |
+| | pp2048 | 3004 | 5944 | 0.51x | 2578 | 2569 |
+| | tg @d0 | 39.2 (GPU 25.3 ms/step) | 39.5 | 0.99x | 39.9 | 46.0 |
+| | tg @d4096 | 39.0 | 37.7 | 1.03x | 40.9 | 43.8 |
+| Llama-3.2-1B bf16 | pp512 | 54104 | 59255 | 0.91x | | |
+| | pp2048 | 46352 | 74524 | 0.62x | | |
+| | pp4096 | 40499 | 72883 | 0.56x | | |
+| | tg @d0 | 525 | 389 | 1.35x | | |
+| | tg @d4096 | 481 | 379 | 1.27x | | |
+| OLMoE-1B-7B bf16 | pp512 | 29583 | 33738 | 0.88x | | |
+| | pp2048 | 26443 | 59119 | 0.45x | | |
+| | pp3800 | 22348 | 60020 | 0.37x | | |
+| | tg @d0 | 495 | 402 | 1.23x | | |
+| | tg @d3800 | 429 | 225 | 1.91x | | |
+
+Sharplight prefill above 512 tokens runs in 512-row chunks (`--batch 512`); one 2048-row chunk of the 27B gives 3127 tok/s, the
+same. Single-stream decode is at the bandwidth roof on both engines (the 27B's fused FP8 gate/up matvec moves 178 MB in 110 µs =
+1.61 TB/s, the bf16 lm-head 1.70 TB/s); vLLM's small-model decode numbers include its Python per-step overhead (the serving
+c = 1 rows below are the fairer comparison). llama.cpp's Q8_0 decode (46.0) was 15 % faster than both in this period (section 15
+measured 41.9 vs 40.7 on a cooler GPU).
+
+### 16.4 Serving
+
+`loadgen.py`, closed loop, ~250-token random-word prompts, 128 output tokens (ignore_eos), temperature 0. Sharplight
+`--slots 64 --ctx 512` (contiguous KV), vLLM `--max-num-seqs 64 --max-model-len 512`. "step ms" = mean of Sharplight's
+`sharplight_step_duration_seconds` (wall time of one decoder step: host preparation, GPU, read-back); its sum covered 99-100 % of
+the wall time at every point, so the engine thread is never idle between steps. Rows/step include prefill rows (vLLM:
+`iteration_tokens_total`, 170-185 at c = 64). Median of 2-3 rounds (min..max).
+
+| model | conc | Sharplight agg tok/s | vLLM agg tok/s | SL / vLLM | SL TTFT p50 / p95 ms | vLLM TTFT p50 / p95 | SL ITL mean / p99 ms | vLLM ITL mean / p99 | SL step ms (rows) |
+|---|---|---|---|---|---|---|---|---|---|
+| Qwen3.8-27B FP8 | 1 | 36 (35..36) | 41 (38..43) | 0.88x | 97 / 109 | 82 / 140 | 27.3 / 31.1 | 24.2 / 31.9 | 27.8 (2.9) |
+| | 4 | 55 (55..55) | 144 (142..146) | **0.38x** | 265 / 290 | 202 / 237 | 71.2 / 81.9 | 26.5 / 41.2 | 71.9 (11.7) |
+| | 16 | 295 (292..298) | 486 (474..499) | 0.61x | 344 / 1135 | 656 / 819 | 50.5 / 174 | 27.8 / 47.4 | 52.9 (46.0) |
+| | 64 | 572 (571..573) | 1056 (1045..1067) | 0.54x | 614 / 5293 | 1993 / 2619 | 98.5 / 215 | 44.7 / 74.9 | 101.7 (171.5) |
+| Llama-3.2-1B bf16 | 1 | 445 (417..447) | 400 (354..404) | 1.11x | 8 / 10 | 9 / 10 | 2.20 / 2.9 | 2.45 / 2.9 | 2.23 (2.9) |
+| | 4 | 903 (860..903) | 1359 (1309..1377) | 0.66x | 19 / 22 | 15 / 18 | 4.33 / 6.0 | 2.85 / 4.3 | 4.37 (11.7) |
+| | 16 | 4170 (3807..4179) | 4743 (4234..4743) | 0.88x | 22 / 76 | 46 / 49 | 3.59 / 11.6 | 3.08 / 4.5 | 3.73 (46.0) |
+| | 64 | 8964 (8674..9019) | 13595 (12559..13722) | 0.66x | 40 / 360 | 130 / 179 | 6.19 / 15.3 | 3.78 / 16.9 | 6.44 (171.5) |
+| OLMoE bf16 (game running) | 1 | 386 (356..386) | 346 (345..356) | 1.12x | 16 / 18 | 15 / 18 | 2.49 / 3.6 | 2.79 / 4.1 | 2.57 (2.9) |
+| | 4 | 548 (449..575) | 663 (648..696) | 0.83x | 29 / 41 | 30 / 40 | 7.15 / 15.3 | 5.80 / 8.7 | 6.87 (10.6) |
+| | 16 | 1336 (1324..1399) | 1629 (1535..1636) | 0.82x | 46 / 147 | 72 / 85 | 11.5 / 24.3 | 9.33 / 12.9 | 11.5 (46.0) |
+| | 64 | 3311 (3203..3381) | 4011 (3986..4154) | 0.83x | 82 / 727 | 203 / 263 | 17.3 / 31.6 | 14.5 / 29.3 | 17.3 (171.5) |
+
+Compared with section 3 the 27B gap at c = 4 is unchanged (0.37x then, 0.38x now: the step at 4 rows costs 2.6x the 1-row
+step), while c = 16 / 64 improved from 0.37x / 0.41x to 0.61x / 0.54x and the small models from 0.22-0.51x to 0.66-0.88x.
+Sharplight has the lower TTFT p50 at 16-64 streams (new prompts join the running batch at once) but a much longer TTFT p95 and
+ITL p99 tail (a 512-row prefill chunk shares the step with the decodes).
+
+**What vLLM's host machinery is worth** (same harness, features switched off; Llama-1B baseline from the table above):
+
+| vLLM variant | Llama-1B c=1 | c=16 | c=64 | 27B FP8 c=1 | c=16 | c=64 |
+|---|---|---|---|---|---|---|
+| default (CUDA graphs + async scheduling) | 400 | 4743 | 13595 | 41 | 486 | 1056 |
+| `--no-async-scheduling` | 311 (−22 %) | 3056 (−36 %) | 8041 (−41 %) | | | |
+| `--enforce-eager` (no CUDA graphs) | 105 (−74 %) | 1517 (−68 %) | 5365 (−61 %) | 26 (−37 %) | 401 (−17 %) | 874 (−17 %) |
+
+Sharplight already has the equivalent of CUDA graphs (Vulkan command buffers recorded once per step shape and replayed), and
+its host work per step is small (16.6), so neither of these is where its gap comes from.
+
+### 16.5 Speculative decoding: vLLM MTP on Qwen3.8-27B-FP8
+
+The checkpoint ships one MTP layer (`mtp.*`, FP8); vLLM 0.33 runs it with `speculative_config={"method": "mtp",
+"num_speculative_tokens": k}` (the layer is reused for k > 1). Natural-language prompt (an essay instruction), temperature 0.
+The single-stream rows ran while the game was on the GPU (baseline 38.4 instead of 39.5), so read the ratios.
+
+| k | single stream tok/s @d47 (speedup) | acceptance | mean accepted length | @d4096 (speedup) | acceptance |
+|---|---|---|---|---|---|
+| off | 38.4 | | | 38.2 | |
+| 1 | 60.5 (1.58x) | 0.84 | 1.84 | 57.2 (1.50x) | 0.89 |
+| 2 | 70.6 (1.84x) | 0.70 | 2.39 | 71.6 (1.87x) | 0.79 |
+| 3 | 74.7 (1.95x) | 0.59 | 2.76 | 81.3 (2.13x) | 0.70 |
+
+Serving (natural prompts of ~25 tokens, 128 output tokens, one round; ITL is per SSE chunk, which carries several tokens with
+speculation, so only the aggregate is comparable):
+
+| conc | off agg tok/s | MTP k=1 (acceptance) | speedup | MTP k=3 (acceptance) | speedup |
+|---|---|---|---|---|---|
+| 1 | 42 | 61 (0.78) | 1.45x | 76 (0.56) | 1.81x |
+| 4 | 147 | 234 (0.80) | 1.59x | 278 (0.57) | 1.89x |
+| 16 | 554 | 758 (0.80) | 1.37x | 843 (0.58) | 1.52x |
+| 64 | 1370 | 1261 (0.81) | 0.92x | 965 (0.58) | 0.70x |
+
+MTP is worth 1.5-1.9x up to 16 streams and loses at 64, where the step is no longer weight-bandwidth bound and the extra
+verification and draft rows cost more than the accepted tokens save. In Sharplight the serving engine disables speculation for this model today: `MultiSequenceDecoder.CanTruncate` is false
+for any model with recurrent state (the gated-delta-net and conv states of the 48 linear-attention layers cannot be rolled back
+to the accepted prefix), so MTP needs per-draft-position state snapshots (or recomputation of the rejected tail) first.
+
+### 16.6 Kernel attribution of the batched step
+
+`BatchBench MODEL --ctx 2048` (64 slots, 256 tokens of context each, device greedy sampling = the serving path). Step: wall
+min / GPU min (ms) over 30 steps; "first" = wall time of the first step at that batch size (includes recording the command
+buffers for the new shape).
+
+| batch | 27B FP8 | 27B Q8_0 (int-dot matvec ≤ 16 rows) | Llama-1B bf16 | OLMoE bf16 | 27B FP8 first step |
+|---|---|---|---|---|---|
+| 1 | 23.9 / 23.7 | 24.0 / 23.6 | 2.07 / 1.88 | 2.10 / 2.04 | 62.6 |
+| 2 | 39.3 / 38.9 | 20.5 / 20.2 | 2.96 / 2.72 | 3.32 / 3.21 | 81.1 |
+| 4 | 62.5 / 61.7 | 24.1 / 23.9 | 3.74 / 3.61 | 5.00 / 4.89 | 81.9 |
+| 8 | 118.1 / 117.8 | 29.2 / 28.8 | 6.38 / 6.16 | 6.36 / 6.04 | 135.6 |
+| 16 | 45.7 / 45.3 | 42.4 / 41.6 | 3.04 / 2.82 | 6.35 / 6.19 | 58.4 |
+| 32 | 47.0 / 46.6 | 52.2 / 51.2 | 3.20 / 3.10 | 8.07 / 7.80 | 60.7 |
+| 64 | 66.2 / 65.8 | 65.8 / 65.6 | 3.89 / 3.69 | 10.41 / 10.15 | 82.8 |
+| dispatches / barriers per step | 901 / 596 (1-8 rows), 2022 / 1653 (16-64) | 901 / 596 (1), 1158 / 853 (2-16), 2022 / 1653 (32-64) | 213 / 148, 470 / 389 | 357 / 260, 566 / 453 | |
+
+Profile shares (sum of per-launch GPU time over 20 steps, `bench/profile_categories.py`; per-launch timestamps serialize the
+launches, so small kernels weigh more here than in the real step):
+
+| category | 27B FP8 b16 | 27B FP8 b64 | Llama-1B b16 | Llama-1B b64 | OLMoE b16 | OLMoE b64 |
+|---|---|---|---|---|---|---|
+| dense GEMM / matvec (incl. lm-head) | 80.4 % | 66.4 % | 62.7 % | 54.4 % | 13.2 % | 8.8 % |
+| GEMM glue (f16 activation copies, split-K reduce) | 8.6 % | 7.3 % | 18.9 % | 19.4 % | 8.0 % | 6.7 % |
+| MoE (expert GEMMs, routing, gathers) | | | | | 61.7 % | 50.3 % |
+| delta rule + conv1d | 5.0 % | 19.0 % | | | | |
+| attention (split-K decode + combine) | 2.0 % | 4.0 % | 10.1 % | 17.9 % | 10.6 % | 28.2 % |
+| norms / elementwise / rope / cache writes | 3.9 % | 3.3 % | 7.7 % | 7.7 % | 6.4 % | 5.9 % |
+| sampling | 0.1 % | 0.1 % | 0.5 % | 0.5 % | 0.1 % | 0.1 % |
+
+Findings:
+
+* **Small-batch cliff for 16-bit and FP8 weights.** 2-8 rows of FP8 (and bf16) weights take the row-batched f32 matvec, whose
+  cost grows linearly with rows: the 27B step at 4 rows is 2.6x and at 8 rows 4.9x the 1-row step, and 8 rows are 2.6x slower
+  than 16 rows. The Q8_0 GGUF of the same model on the integer-dot matvec (weights read once for up to 16 rows) does 4 rows in
+  24.1 ms and 8 in 29.2 ms. This is the whole c = 4 gap (serving step 71.9 ms vs vLLM ITL 26.5 ms).
+* **Skinny tensor-core GEMM below the bandwidth roof.** 17-64 rows (and 9-16 for 16-bit / FP8) use `gemm_cm2` split-K with
+  32/64-row tiles: the FP8 `[5120→17408]` reads its 89 MB at 0.93 TB/s at 16 rows (96 µs) and 0.70 TB/s at 64 rows (127 µs),
+  against 1.61 TB/s for the 1-row matvec. Matmuls take 35.2 ms (b16) and 46.3 ms (b64) of GPU time per step, against ~18 ms for
+  reading the 29 GB of weights once at 1.6 TB/s.
+* **Barriers and small launches.** `SHARPLIGHT_VK_NO_BARRIERS=1` (wrong results, timing only; launches may then overlap) cuts
+  the 27B step 45.3 → 33.9 ms at b16 (−25 %) and 65.8 → 52.7 ms at b64 (−20 %), nothing at b1; Llama-1B 1.88 → 1.51 (b1,
+  −20 %), 2.82 → 1.67 (b16, −41 %), 3.69 → 2.23 (b64, −40 %). The batched graphs have 2022 / 1653 (27B) and 470 / 389
+  (Llama-1B) dispatches / barriers per step; every matmul on the 9-64-row path adds an f16 activation copy (`to_f16`) and a
+  split-K reduction, ~500 tiny launches of each per 27B step (7-9 % of the 27B profile, 19 % of Llama-1B's).
+* **Delta rule** at 64 rows costs 223 µs per layer (10.7 ms per step, 19 %), but it moves the 64 × 3.1 MB f32 state in and out
+  (403 MB per layer) at 1.81 TB/s, i.e. at the bandwidth roof. vLLM keeps the same f32 state (`mamba_ssm_dtype`), so this is not
+  a gap; only a narrower state type would shrink it.
+* **Host overhead is small.** Wall − GPU per step is 0.2-0.4 ms (27B: ≤ 1 %; Llama-1B / OLMoE: 5-9 % at b16-64). Logits read-back
+  (no device sampling) adds 6-8 ms at b64 on Llama-1B (12.3 vs 3.9 ms wall), which device sampling already removes.
+* **Command-buffer recording is negligible.** The first step at a new shape costs 10-40 ms once (27B; 5-13 ms Llama-1B), and the
+  serving runs recorded 105 / 128 / 152 distinct shapes (27B / Llama / OLMoE; prefill chunks vary the row count, the 64-entry
+  cache evicts) in 0.97 / 0.11 / 0.52 s in total: 0.3-0.8 % of the timed wall time.
+* **Serving vs kernel step.** The serving step at c = 64 (27B 101.7 ms, Llama-1B 6.44 ms) is 1.5-1.7x the pure-decode BatchBench
+  step because ~107 prefill rows ride along per step on average; vLLM carries the same mix (180-185 rows per iteration) in
+  44.7 / 3.78 ms. The 27B c = 1 serving step (27.8 ms) is ~3 ms above the CLI / BatchBench 1-row step (24-25 ms); not
+  investigated further.
+
+### 16.7 Prefill attribution
+
+`SHARPLIGHT_VK_PROFILE=1 sharplight MODEL --bench N --batch N` (one chunk of N rows), sum of per-launch GPU time:
+
+| | 27B FP8 T=512 | 27B FP8 T=2048 | Llama-1B T=2048 | OLMoE T=2048 |
+|---|---|---|---|---|
+| GPU time (≙ tok/s) | 175.2 ms (2923) | 636.3 ms (3219) | 39.1 ms (52.4k) | 63.4 ms (32.3k) |
+| vLLM wall for the same prompt length | 99 ms | 345 ms | 27.5 ms | 34.6 ms |
+| dense GEMM | 74.7 % | 70.5 % | 72.9 % | 13.8 % |
+| GEMM glue | 2.8 % | 1.9 % | 4.3 % | 4.2 % |
+| MoE expert GEMMs + routing | | | | 49.8 % |
+| delta rule | 12.7 % | 12.7 % | | |
+| conv1d | 4.6 % | 6.6 % | | |
+| attention (flash) | 1.7 % | 3.3 % | 14.8 % | 11.2 % |
+| norms / elementwise | 3.5 % | 5.1 % | 8.1 % | 21.0 % (MoE combine `fused[Mul]` + `ReduceSum`: 13 %) |
+
+* The FP8 GEMM (`gemm_fp8`, 16x16x32 subgroup MMA) runs at 264-266 TFLOPS (`[5120→17408]`: 346 µs at T=512, 1375 µs at
+  T=2048); the bf16 `gemm_cm2` at ~157 TFLOPS (Llama `[2048→8192]` at T=2048). vLLM's whole 27B pp2048 takes 345 ms, less than
+  Sharplight's GEMMs alone (448 ms).
+* Workgroup-scope cooperative matrices as implemented today do not help: `SHARPLIGHT_GEMM_NV2=1` (f16 `gemm_nv2`) on the Q8_0
+  27B is 1.6-1.8x slower than the int8 MMQ (`[5120→17408]` 805 vs 451 µs, prefill 294 vs 189 ms); for FP8 weights it is not
+  selected at all (the f16 fallback stays on `gemm_cm2`, 545 µs against 346 µs for `gemm_fp8`).
+* The delta rule takes 370 µs per layer at T=512 and 1533 µs at T=2048 (sequential over tokens, 12.7 % of prefill); conv1d grows
+  superlinearly (139 → 788 µs per layer for 4x the tokens, 6.6 % at T=2048), a plain kernel problem.
+
+### 16.8 Ranked levers to close the vLLM gap
+
+Payoffs are estimates from the measurements above (27B = Qwen3.8-27B FP8, the model with the largest gap).
+
+| # | Lever | Evidence | Estimated payoff |
+|---|---|---|---|
+| 1 | **Weight-read-once small-batch matvec for 16-bit and FP8 weights (2-16 rows)**, the analogue of the int-dot `mmvq` path that Q8_0 and the K-quants already have (bf16/f16: f16 dots or cooperative vectors; FP8: per-block decode to f16 / int8) | FP8 27B step 23.9 / 39.3 / 62.5 / 118 ms at 1 / 2 / 4 / 8 rows vs 24.0 / 20.5 / 24.1 / 29.2 ms for Q8_0 on `mmvq`; Llama-1B bf16 2.07 → 6.38 ms at 8 rows; serving c = 4 is 0.38x (27B) and 0.66x (Llama-1B) | 27B c = 4: step 72 → ~28 ms, ~2.5x throughput (≈ vLLM's 144 tok/s); Llama-1B c = 4 ~1.5x; every step with 2-8 decode rows (ramp-up, tails) |
+| 2 | **Skinny-M tensor-core GEMM at the bandwidth roof (9-64 rows)**: weights streamed once per step (K-parallel workgroups instead of split-K + reduce, FP8 / int8 operands without the f16 activation copy, pipelined loads) | FP8 GEMM at 0.70-0.95 TB/s vs 1.61 TB/s for the matvec; matmuls 35 / 46 ms per b16 / b64 step vs ~18 ms roofline | 27B b16 step 45 → ~30 ms, b64 66 → ~45 ms (c = 16 / 64 from 0.61x / 0.54x to ~0.85x / ~0.75x of vLLM); similar share on Llama-1B |
+| 3 | **Fewer barriers and launches in batched steps**: activation conversion / quantization fused into the producer, split-K reduction into the consumer or a single-pass GEMM, independent small launches merged between barriers | No-barrier ablation −20..−25 % (27B b16 / b64), −40 % (Llama-1B b16 / b64), −20 % at b1 on Llama-1B; glue kernels 7-9 % (27B) / 19 % (Llama-1B) of the profile | 10-25 % of the batched step (the ablation is an upper bound); largest for small models; overlaps partly with #2 |
+| 4 | **MTP speculative decoding** (needs delta-rule / conv1d state rollback; `CanTruncate` is false for recurrent models today) | vLLM: 1.58-1.95x single stream (k = 1-3, acceptance 0.59-0.84), 1.45-1.89x serving up to c = 16, 0.70-0.92x at c = 64 | ~1.8x at c = 1-4, ~1.5x at c = 16 on the 27B; off above ~32 streams |
+| 5 | **Faster FP8 / int8 / bf16 tensor-core GEMM for prefill** (multi-stage pipelined loads, larger tiles; a workgroup-scope 32x32x32 fp8 kernel only if it beats the subgroup kernel, which the f16 `gemm_nv2` does not) | `gemm_fp8` 264 TFLOPS, GEMMs 70-75 % of 27B prefill, vLLM pp2048 1.96x; bf16 GEMM ~157 TFLOPS (Llama / OLMoE prefill 0.45-0.62x) | GEMM 1.6x → 27B prefill ~1.35x; with #6 / #7 the 27B prefill reaches ~0.8x of vLLM |
+| 6 | **Chunked tensor-core delta rule** for prefill | 12.7 % of 27B prefill (370 µs per layer at T=512); the decode delta rule is already at the bandwidth roof | ~10 % of 27B prefill; nothing for decode |
+| 7 | **conv1d prefill kernel and MoE combine fusion** | conv1d 6.6 % of 27B pp2048 (superlinear, 139 → 788 µs); OLMoE prefill `fused[Mul]` + `ReduceSum` 13 % | 5-7 % (27B prefill), ~10 % (MoE prefill) |
+| 8 | **Batched paged attention efficiency** (decode attention bandwidth) | 2-4 % of the 27B step, 10-18 % of Llama-1B, 28 % of OLMoE (MHA) at b64 with only 256-token contexts; Llama b64 reads 33.5 MB in 45 µs per layer (0.74 TB/s) | ~5-15 % for small MHA / GQA models now; grows with context length |
+| 9 | **fp8 KV cache** | KV traffic is small at the measured contexts (27B: 64 KB per token over its 16 attention layers); at 4k contexts × 64 streams it would be ~17 GB per step, more than the weights. q8_0 / q4_0 KV exist already | nothing at short contexts; up to ~1.5-2x for attention-bound long-context serving (mostly covered by q8_0 KV) |
+| 10 | **Async scheduling / overlapping host and GPU** | Wall − GPU 0.2-0.4 ms per step (≤ 1 % 27B, 5-9 % small models); step metric covers 99-100 % of wall. vLLM loses 22-41 % without it because its Python host work is much larger | ≤ 1 % (27B), 5-9 % (1B models) |
+| 11 | **Pre-recorded command buffers per batch-size bucket** | Recording is 0.3-0.8 % of serving wall time (105-152 distinct shapes, 0.1-1.0 s per run); command buffers are already cached per shape (the CUDA-graph analogue, worth 17-74 % to vLLM) | < 1 %: refuted (a larger recording cache or bucketed prefill-chunk row counts would remove even that) |
+
+Not levers: single-stream decode (Sharplight 39.2 vs vLLM 39.5 tok/s on the 27B, 1.23-1.35x on the 1B models; both at the
+bandwidth roof), the decode-side delta rule (bandwidth roof, same state size as vLLM), sampling (0.1-0.5 %).
+
