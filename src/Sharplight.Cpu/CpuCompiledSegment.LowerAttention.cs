@@ -53,7 +53,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         TRef? rows = ins.Length > 3 + sinksOffset ? Dense(Ref(ins[3 + sinksOffset])) : null;
         var attention = new AttentionOp(
             q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
-            rows, (int)a.Get("slots", 1L), sinks);
+            rows, (int)a.Get("slots", 1L), sinks, chunk: a.Get("chunk", 0));
         AddStep(attention, Touched(q, k, v, sinks, rows, y));
         _refs[n.Output] = y;
     }

@@ -138,6 +138,11 @@ internal sealed partial class DecoderGraphBuilder
             attrs.Add(("window", _hp.Window));
         }
 
+        if (_hp.Chunked(il))
+        {
+            attrs.Add(("chunk", _hp.ChunkSize));
+        }
+
         if (_hp.SoftCap > 0)
         {
             attrs.Add(("softcap", _hp.SoftCap));

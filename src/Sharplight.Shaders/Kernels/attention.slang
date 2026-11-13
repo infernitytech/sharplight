@@ -2,7 +2,8 @@
 // q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
 // Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
-//         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers), HAS_SOFTCAP + SOFTCAP
+//         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers),
+//         CHUNK (> 0: a query at position p sees only keys [p - p % CHUNK, p]; Llama 4 chunked attention), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
 // one workgroup each (grid z); every split writes an unnormalized partial (acc[DV], m, l) to part[split][t][h][DV+2]
@@ -186,6 +187,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint jLo = spBeg;
 #else
     uint jLo = 0;
+#endif
+#if CHUNK && !FULL_ATTN
+    jLo = max(jLo, (L - 1) / CHUNK * CHUNK);   // chunked attention: only the keys of the query's own chunk
 #endif
 #if SPLITS > 1
     uint split = gid.z;
@@ -389,6 +393,10 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint jFirst = nPast + t0 + 1 > WINDOW ? (nPast + t0 + 1 - WINDOW) / FA_BC * FA_BC : 0;   // first query's window
 #else
     uint rowBeg = 0, jFirst = 0;
+#endif
+#if CHUNK && !FULL_ATTN
+    rowBeg = max(rowBeg, rowEnd > 0 ? (rowEnd - 1) / CHUNK * CHUNK : 0);       // chunked attention: this row's chunk
+    jFirst = max(jFirst, (nPast + t0) / CHUNK * CHUNK / FA_BC * FA_BC);           // the block's first query's chunk
 #endif
 #endif
     GroupMemoryBarrierWithGroupSync();

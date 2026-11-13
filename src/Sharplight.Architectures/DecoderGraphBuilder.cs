@@ -24,7 +24,6 @@ internal sealed partial class DecoderGraphBuilder
 
     /// <summary>Creates the builder and the KV-cache state definitions.</summary>
     /// <exception cref="InvalidDataException">A KV-sharing layer does not point to an earlier layer.</exception>
-    /// <exception cref="NotSupportedException">The context exceeds the chunk of a chunked-attention model.</exception>
     public DecoderGraphBuilder(ModelSource source, AdapterOptions adapterOptions, DecoderHyperParameters hyperParameters)
     {
         _src = source;
@@ -35,12 +34,6 @@ internal sealed partial class DecoderGraphBuilder
         int origCtx = _src.Arch("rope.original_context_length", 0);
         int runtimeCtx = _options.ContextLength > 0 ? _options.ContextLength : _hp.ContextLength;
         _longRope = UseLongRope(origCtx, runtimeCtx);
-        if (Enumerable.Range(0, _hp.NLayer).Any(_hp.Chunked) && runtimeCtx > _hp.ChunkSize)
-        {
-            // Within one chunk chunked attention is ordinary causal attention; the cross-chunk mask is not implemented yet.
-            throw new NotSupportedException($"decoder: chunked attention (attention.chunk_size {_hp.ChunkSize}) is supported up to a context of {_hp.ChunkSize} tokens; configure a smaller context length.");
-        }
-
         States = [];
         _kCache = new StateDefinition[_hp.NLayer];
         _vCache = new StateDefinition[_hp.NLayer];

@@ -54,7 +54,12 @@ internal static partial class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerTokens] = tokens;
         md[CanonicalKeys.TokenizerScores] = scores;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
-        md[CanonicalKeys.TokenizerAddSpacePrefix] = model.AddDummyPrefix;
+        // transformers tokenizes with tokenizer.json: a space → ▁ normalizer without a pre-tokenizer decides the dummy prefix there
+        // (ERNIE 4.5 MoE prepends ▁ although its tokenizer.model does not).
+        bool? prependsSpace = tok.TryGetProperty("normalizer", out var normalizer)
+            && !(tok.TryGetProperty("pre_tokenizer", out var preTokenizer) && preTokenizer.ValueKind != JsonValueKind.Null)
+            ? SpaceNormalizer(normalizer) : null;
+        md[CanonicalKeys.TokenizerAddSpacePrefix] = prependsSpace ?? model.AddDummyPrefix;
         HfSpecialVocab.AddTo(md, dir, config, tok, ReadTokenizerConfig(dir), addedTokens);
     }
 }

@@ -15,6 +15,7 @@ internal sealed unsafe class AttentionOp : CpuOp
     private readonly TRef? _sinks;
     private readonly float _scale;
     private readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
+    private readonly int _chunk;        // > 0: chunked attention (a query at p sees only keys [p - p % _chunk, p])
     private readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
     private readonly string? _offsetScalar;   // non-null => cached attention
     private readonly bool _causal;
@@ -38,8 +39,9 @@ internal sealed unsafe class AttentionOp : CpuOp
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
-        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null)
+        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int chunk = 0)
     {
+        _chunk = chunk;
         _spans = spans;
         _rows = rows;
         _slotCtx = k.Dims[0] / Math.Max(1, slots);
@@ -184,6 +186,11 @@ internal sealed unsafe class AttentionOp : CpuOp
                 if (_window > 0)
                 {
                     j0 = Math.Max(j0, n - _window);
+                }
+
+                if (_chunk > 0)
+                {
+                    j0 = Math.Max(j0, (n - 1) / _chunk * _chunk);
                 }
 
                 float sink = _sinks is null ? float.NegativeInfinity : ((float*)_sinks.P)[h * _sinks.Strides[0]];   // learned per-head logit that attends to nothing

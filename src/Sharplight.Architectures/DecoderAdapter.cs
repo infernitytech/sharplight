@@ -45,7 +45,7 @@ namespace Sharplight.Architectures;
 /// <c>attention.temperature_offset</c> (o, default 0) and optional <c>attention.temperature_layers</c> (int[layer_count], default all): queries of
 /// those layers are multiplied by log(floor((pos + o) / L) + 1)·β + 1. <c>attention.qk_norm_layers</c> (int[layer_count]) limits the
 /// unweighted q/k norm to the flagged layers. Chunked attention <c>attention.chunk_size</c> with <c>attention.chunk_layers</c> (Llama 4)
-/// is accepted for contexts up to one chunk. <c>rope.local_freq_factors</c> (bool): sliding layers use <c>rope.freq_factors</c> too (gpt-oss).</item>
+/// limits each query to the keys of its own chunk. <c>rope.local_freq_factors</c> (bool): sliding layers use <c>rope.freq_factors</c> too (gpt-oss).</item>
 /// <item><c>embedding_scale</c> (token embeddings are multiplied by it, default 1; Gemma sqrt(hidden_size)),
 /// <c>embedding_norm</c> (bool: a weight-less RMS norm is applied to the (scaled) token embeddings),
 /// <c>logit_scale</c> (logits are multiplied by it, default 1, before the soft cap),

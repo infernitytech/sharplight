@@ -25,11 +25,14 @@ internal static partial class HfTokenizerTranslator
         var tokenizerConfig = ReadTokenizerConfig(dir);
         var addedTokens = tok.ArrayOrEmpty("added_tokens");
 
-        // Gemma 4: character-level BPE with merge ranks and byte fallback over a space → ▁ normalizer (no tokenizer.model, no pre-tokenizer regex).
-        bool spaceBpe = model.IsTrue("byte_fallback")
-            && tok.TryGetProperty("normalizer", out var normalizer) && normalizer.ValueKind == JsonValueKind.Object
-            && normalizer.TryGetProperty("type", out var normalizerType) && normalizerType.GetString() == "Replace"
-            && normalizer.TryGetProperty("content", out var normalizerContent) && normalizerContent.GetString() == "▁";
+        // Gemma 4, ERNIE 4.5: character-level BPE with merge ranks and byte fallback over a space → ▁ normalizer (no pre-tokenizer
+        // regex), optionally preceded by a Prepend("▁") normalizer (the SentencePiece dummy prefix).
+        bool? prependsSpace = model.IsTrue("byte_fallback") && tok.TryGetProperty("normalizer", out var normalizer) ? SpaceNormalizer(normalizer) : null;
+        bool spaceBpe = prependsSpace is not null;
+        if (spaceBpe)
+        {
+            md[CanonicalKeys.TokenizerAddSpacePrefix] = prependsSpace == true;
+        }
 
         // ---- tokens + types (llama.cpp get_vocab_base) ---------------------------------------
         var addedById = new Dictionary<int, JsonElement>();
@@ -148,6 +151,32 @@ internal static partial class HfTokenizerTranslator
         }
 
         return (tokens, types);
+    }
+
+    /// <summary>
+    /// For a space → ▁ normalizer (<c>Replace</c>, alone or after <c>Prepend("▁")</c> in a <c>Sequence</c>): whether it prepends
+    /// the ▁; null for any other normalizer.
+    /// </summary>
+    private static bool? SpaceNormalizer(JsonElement normalizer)
+    {
+        static bool IsSpaceReplace(JsonElement n)
+            => n.ValueKind == JsonValueKind.Object && n.TypeName() == "Replace"
+               && n.TryGetProperty("content", out var content) && content.GetString() == "▁";
+
+        if (IsSpaceReplace(normalizer))
+        {
+            return false;
+        }
+
+        if (normalizer.ValueKind != JsonValueKind.Object || normalizer.TypeName() != "Sequence"
+            || !normalizer.TryGetProperty("normalizers", out var children) || children.GetArrayLength() != 2)
+        {
+            return null;
+        }
+
+        var prepend = children[0];
+        bool prepends = prepend.TypeName() == "Prepend" && prepend.TryGetProperty("prepend", out var text) && text.GetString() == "▁";
+        return prepends && IsSpaceReplace(children[1]) ? true : null;
     }
 
     private static bool IsByteToken(string token) => token.Length == 6 && token.StartsWith("<0x", StringComparison.Ordinal) && token[5] == '>';

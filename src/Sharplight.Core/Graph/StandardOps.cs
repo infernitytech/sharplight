@@ -177,7 +177,8 @@ public static partial class StandardOps
     /// q [T, Hq, D]; kcache/vcache: State [Ctx, Hkv, D]/[Ctx, Hkv, Dv]. Query t attends cache rows
     /// [0, offset + t] (causal) where offset is the runtime scalar named by attribute <c>offset</c>
     /// (default "n_past"). Attributes: scale; optional <c>window</c> (int &gt; 0: a query only sees its last <c>window</c> keys,
-    /// sliding-window attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
+    /// sliding-window attention), <c>chunk</c> (int &gt; 0: a query at position p only sees keys [p − p mod chunk, p], chunked
+    /// attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
     /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>

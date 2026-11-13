@@ -137,6 +137,8 @@ public class FamilyGenerationTests
             " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", NeedsCpuFallback: true, Large: true, Tokens: 16),
         // Generic-decoder families (waves 0 and 2 of docs/model-support.md section 5).
         .. DecoderFamilyCases.All,
+        // Routed-MoE families, gpt-oss and BitNet (waves 3 and 6).
+        .. RoutedMoeFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
