@@ -55,15 +55,18 @@ internal static class UnicodeInfo
             case UnicodeCategory.TitlecaseLetter:
             case UnicodeCategory.ModifierLetter:
             case UnicodeCategory.OtherLetter:
-                f |= Letter; break;
+                f |= Letter;
+                break;
             case UnicodeCategory.DecimalDigitNumber:
             case UnicodeCategory.LetterNumber:
             case UnicodeCategory.OtherNumber:
-                f |= Number; break;
+                f |= Number;
+                break;
             case UnicodeCategory.NonSpacingMark:
             case UnicodeCategory.SpacingCombiningMark:
             case UnicodeCategory.EnclosingMark:
-                f |= Mark; break;
+                f |= Mark;
+                break;
         }
         return f;
     }

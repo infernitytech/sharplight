@@ -11,7 +11,7 @@ namespace Sharplight.Tokenizers.WordPiece;
 /// <c>##</c> prefix; a word that cannot be matched becomes the unknown token. Vocabulary strings are in the Hugging Face form
 /// (<c>##</c> marks continuations).
 /// </summary>
-public sealed class WordPieceTokenizer : ITokenizer
+internal sealed class WordPieceTokenizer : ITokenizer
 {
     private const string Prefix = "##";
     private const int MaxWordChars = 100;
@@ -20,7 +20,8 @@ public sealed class WordPieceTokenizer : ITokenizer
     private readonly TokenType[] _types;
     private readonly Dictionary<string, int> _toId = new(StringComparer.Ordinal);
     private readonly SpecialTokens _specials;
-    private readonly bool _lowercase, _stripAccents;
+    private readonly bool _lowercase;
+    private readonly bool _stripAccents;
     private readonly int _unk;
 
     /// <inheritdoc/>
@@ -43,13 +44,13 @@ public sealed class WordPieceTokenizer : ITokenizer
     {
         ArgumentNullException.ThrowIfNull(data);
         _tokens = data.Tokens;
-        _types = new TokenType[_tokens.Length];
+        _types = TokenizerSetup.ResolveTypes(data);
         for (int i = 0; i < _tokens.Length; i++)
         {
-            _types[i] = data.TokenTypes is { } tt && i < tt.Length && Enum.IsDefined((TokenType)tt[i]) ? (TokenType)tt[i] : TokenType.Normal;
             _toId.TryAdd(_tokens[i], i);
         }
-        int? Valid(int? id) => id is int v && v >= 0 && v < _tokens.Length ? v : null;
+
+        int? Valid(int? id) => TokenizerSetup.ValidId(id, _tokens.Length);
         int? Named(string s) => _toId.TryGetValue(s, out int id) ? id : null;
         _unk = Valid(data.UnkId) ?? Named("[UNK]") ?? 0;
         if (_types[_unk] == TokenType.Normal)
@@ -118,7 +119,15 @@ public sealed class WordPieceTokenizer : ITokenizer
             {
                 sb.Append(t, Prefix.Length, t.Length - Prefix.Length);
             }
-            else { if (sb.Length > 0) { sb.Append(' '); } sb.Append(t); }
+            else
+            {
+                if (sb.Length > 0)
+                {
+                    sb.Append(' ');
+                }
+
+                sb.Append(t);
+            }
         }
         return sb.ToString();
     }
@@ -135,7 +144,11 @@ public sealed class WordPieceTokenizer : ITokenizer
 
         foreach (var (frag, id) in _specials.Split(text, parseSpecial))
         {
-            if (id >= 0) { output.Add(id); continue; }
+            if (id >= 0)
+            {
+                output.Add(id);
+                continue;
+            }
             foreach (var word in PreTokenize(Normalize(frag)))
             {
                 EncodeWord(word, output);
@@ -161,8 +174,16 @@ public sealed class WordPieceTokenizer : ITokenizer
                 continue;
             }
 
-            if (IsWhitespace(rune)) { sb.Append(' '); continue; }
-            if (IsChinese(c)) { sb.Append(' ').Append(rune.ToString()).Append(' '); continue; }
+            if (IsWhitespace(rune))
+            {
+                sb.Append(' ');
+                continue;
+            }
+            if (IsChinese(c))
+            {
+                sb.Append(' ').Append(rune.ToString()).Append(' ');
+                continue;
+            }
             sb.Append(rune.ToString());
         }
         string s = sb.ToString();
@@ -222,11 +243,28 @@ public sealed class WordPieceTokenizer : ITokenizer
     {
         var words = new List<string>();
         var cur = new StringBuilder();
-        void Flush() { if (cur.Length > 0) { words.Add(cur.ToString()); cur.Clear(); } }
+        void Flush()
+        {
+            if (cur.Length > 0)
+            {
+                words.Add(cur.ToString());
+                cur.Clear();
+            }
+        }
+
         foreach (var r in s.EnumerateRunes())
         {
-            if (Rune.IsWhiteSpace(r)) { Flush(); continue; }
-            if (IsPunctuation(r)) { Flush(); words.Add(r.ToString()); continue; }
+            if (Rune.IsWhiteSpace(r))
+            {
+                Flush();
+                continue;
+            }
+            if (IsPunctuation(r))
+            {
+                Flush();
+                words.Add(r.ToString());
+                continue;
+            }
             cur.Append(r.ToString());
         }
         Flush();
@@ -237,13 +275,18 @@ public sealed class WordPieceTokenizer : ITokenizer
     private void EncodeWord(string word, List<int> output)
     {
         var runes = word.EnumerateRunes().Select(r => r.ToString()).ToArray();
-        if (runes.Length > MaxWordChars) { output.Add(_unk); return; }
+        if (runes.Length > MaxWordChars)
+        {
+            output.Add(_unk);
+            return;
+        }
         int mark = output.Count;
         int start = 0;
         var sb = new StringBuilder();
         while (start < runes.Length)
         {
-            int end = runes.Length, found = -1;
+            int end = runes.Length;
+            int found = -1;
             while (start < end)
             {
                 sb.Clear();
@@ -257,7 +300,11 @@ public sealed class WordPieceTokenizer : ITokenizer
                     sb.Append(runes[i]);
                 }
 
-                if (_toId.TryGetValue(sb.ToString(), out int id)) { found = id; break; }
+                if (_toId.TryGetValue(sb.ToString(), out int id))
+                {
+                    found = id;
+                    break;
+                }
                 end--;
             }
             if (found < 0)

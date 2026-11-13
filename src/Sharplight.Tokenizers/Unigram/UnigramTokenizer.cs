@@ -12,7 +12,7 @@ namespace Sharplight.Tokenizers.Unigram;
 /// </summary>
 /// <remarks>The model's precompiled normalization map (SentencePiece "nmt_nfkc") is approximated by Unicode NFKC plus removal of
 /// control characters, which agrees for ordinary text.</remarks>
-public sealed partial class UnigramTokenizer : ITokenizer
+internal sealed partial class UnigramTokenizer : ITokenizer
 {
     private const char Space = '▁';
     private const float UnkPenalty = 10f;
@@ -50,11 +50,10 @@ public sealed partial class UnigramTokenizer : ITokenizer
         _tokens = data.Tokens;
         int n = _tokens.Length;
         _scores = data.Scores is { } sc && sc.Length >= n ? sc : throw new InvalidDataException("Unigram tokenizer needs a score per token (tokenizer.scores).");
-        _types = new TokenType[n];
+        _types = TokenizerSetup.ResolveTypes(data);
         float min = float.MaxValue;
         for (int i = 0; i < n; i++)
         {
-            _types[i] = data.TokenTypes is { } tt && i < tt.Length && Enum.IsDefined((TokenType)tt[i]) ? (TokenType)tt[i] : TokenType.Normal;
             _toId.TryAdd(_tokens[i], i);
             if (_types[i] is TokenType.Normal or TokenType.UserDefined)
             {
@@ -62,12 +61,11 @@ public sealed partial class UnigramTokenizer : ITokenizer
                 min = Math.Min(min, _scores[i]);
             }
         }
-        int? Valid(int? id) => id is int v && v >= 0 && v < n ? v : null;
-        _unk = Valid(data.UnkId) ?? (_toId.TryGetValue("<unk>", out int u) ? u : 0);
+        _unk = TokenizerSetup.ValidId(data.UnkId, n) ?? (_toId.TryGetValue("<unk>", out int u) ? u : 0);
         _unkScore = (min == float.MaxValue ? 0 : min) - UnkPenalty;
-        BosId = Valid(data.BosId);
-        EosId = Valid(data.EosId);
-        PadId = Valid(data.PadId);
+        BosId = TokenizerSetup.ValidId(data.BosId, n);
+        EosId = TokenizerSetup.ValidId(data.EosId, n);
+        PadId = TokenizerSetup.ValidId(data.PadId, n);
         AddBos = data.AddBos ?? BosId is not null;
         AddEos = data.AddEos ?? EosId is not null;
         _addSpacePrefix = data.AddSpacePrefix ?? true;
@@ -141,7 +139,11 @@ public sealed partial class UnigramTokenizer : ITokenizer
 
         foreach (var (frag, id) in _specials.Split(text, parseSpecial))
         {
-            if (id >= 0) { output.Add(id); continue; }
+            if (id >= 0)
+            {
+                output.Add(id);
+                continue;
+            }
             string s = Normalize(frag);
             if (s.Length == 0)
             {
@@ -180,7 +182,11 @@ public sealed partial class UnigramTokenizer : ITokenizer
         var sb = new StringBuilder(text.Length);
         foreach (var r in text.Normalize(NormalizationForm.FormKC).EnumerateRunes())
         {
-            if (r.Value is '\t' or '\n' or '\r' || Rune.IsWhiteSpace(r)) { sb.Append(' '); continue; }
+            if (r.Value is '\t' or '\n' or '\r' || Rune.IsWhiteSpace(r))
+            {
+                sb.Append(' ');
+                continue;
+            }
             if (Rune.IsControl(r))
             {
                 continue;
@@ -228,12 +234,22 @@ public sealed partial class UnigramTokenizer : ITokenizer
                 }
 
                 float s = best[i] + _scores[node.Id];
-                if (s > best[j + 1]) { best[j + 1] = s; from[j + 1] = i; piece[j + 1] = node.Id; }
+                if (s > best[j + 1])
+                {
+                    best[j + 1] = s;
+                    from[j + 1] = i;
+                    piece[j + 1] = node.Id;
+                }
             }
             if (!single)
             {
                 float s = best[i] + _unkScore;
-                if (s > best[i + charLen]) { best[i + charLen] = s; from[i + charLen] = i; piece[i + charLen] = -1; }
+                if (s > best[i + charLen])
+                {
+                    best[i + charLen] = s;
+                    from[i + charLen] = i;
+                    piece[i + charLen] = -1;
+                }
             }
         }
         var ids = new List<int>();
@@ -246,7 +262,15 @@ public sealed partial class UnigramTokenizer : ITokenizer
         bool prevUnk = false;
         foreach (int id in ids)
         {
-            if (id < 0) { if (!prevUnk) { output.Add(_unk); } prevUnk = true; continue; }
+            if (id < 0)
+            {
+                if (!prevUnk)
+                {
+                    output.Add(_unk);
+                }
+                prevUnk = true;
+                continue;
+            }
             output.Add(id);
             prevUnk = false;
         }

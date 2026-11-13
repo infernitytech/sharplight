@@ -27,8 +27,6 @@ internal sealed class MergeTable
         _shift = 64 - System.Numerics.BitOperations.Log2((uint)cap);
     }
 
-    public int Count { get; private set; }
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private int Slot(long key) => (int)(((ulong)key * 0x9E3779B97F4A7C15UL) >> _shift);
 
@@ -47,7 +45,9 @@ internal sealed class MergeTable
 
             if (k == -1)
             {
-                _keys[i] = key; _ranks[i] = rank; _results[i] = result; Count++;
+                _keys[i] = key;
+                _ranks[i] = rank;
+                _results[i] = result;
                 return true;
             }
             i = (i + 1) & _mask;
@@ -62,8 +62,18 @@ internal sealed class MergeTable
         while (true)
         {
             long k = _keys[i];
-            if (k == key) { rank = _ranks[i]; result = _results[i]; return true; }
-            if (k == -1) { rank = 0; result = 0; return false; }
+            if (k == key)
+            {
+                rank = _ranks[i];
+                result = _results[i];
+                return true;
+            }
+            if (k == -1)
+            {
+                rank = 0;
+                result = 0;
+                return false;
+            }
             i = (i + 1) & _mask;
         }
     }

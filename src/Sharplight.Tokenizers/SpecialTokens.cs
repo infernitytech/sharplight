@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Sharplight.Tokenizers;
 
 /// <summary>Splits text around special (control / user-defined) token strings, longest first.</summary>
@@ -5,12 +7,17 @@ internal sealed class SpecialTokens
 {
     private readonly (string Text, int Id, bool Control)[] _specials;
 
-    public SpecialTokens(string[] tokens, Func<int, TokenType> type)
+    /// <param name="tokens">The vocabulary.</param>
+    /// <param name="type">Type of a token id.</param>
+    /// <param name="orderByUtf8Bytes">Rank "longest" by UTF-8 byte count (llama.cpp's SentencePiece and BPE behaviour) instead of by chars.</param>
+    public SpecialTokens(string[] tokens, Func<int, TokenType> type, bool orderByUtf8Bytes = false)
     {
+        int Length(string text) => orderByUtf8Bytes ? Encoding.UTF8.GetByteCount(text) : text.Length;
         _specials = Enumerable.Range(0, tokens.Length)
             .Where(i => type(i) is TokenType.Control or TokenType.UserDefined or TokenType.Unknown && tokens[i].Length > 0)
             .Select(i => (tokens[i], i, type(i) is TokenType.Control or TokenType.Unknown))
-            .OrderByDescending(s => s.Item1.Length).ToArray();
+            .OrderByDescending(s => Length(s.Item1))
+            .ToArray();
     }
 
     /// <summary>Text fragments (Id = -1) and special tokens in order. Control tokens are only matched with <paramref name="parseSpecial"/>.</summary>
@@ -22,7 +29,7 @@ internal sealed class SpecialTokens
             buffer.Add((text, -1));
         }
 
-        foreach (var (stext, sid, control) in _specials)
+        foreach (var (specialText, specialId, control) in _specials)
         {
             if (!parseSpecial && control)
             {
@@ -30,25 +37,46 @@ internal sealed class SpecialTokens
             }
 
             var next = new List<(string, int)>(buffer.Count + 2);
-            foreach (var frag in buffer)
+            foreach (var fragment in buffer)
             {
-                if (frag.Item2 >= 0 || !frag.Item1.Contains(stext, StringComparison.Ordinal)) { next.Add(frag); continue; }
-                string rest = frag.Item1;
-                while (true)
+                if (fragment.Item2 >= 0 || !fragment.Item1.Contains(specialText, StringComparison.Ordinal))
                 {
-                    int at = rest.IndexOf(stext, StringComparison.Ordinal);
-                    if (at < 0) { if (rest.Length > 0) { next.Add((rest, -1)); } break; }
-                    if (at > 0)
-                    {
-                        next.Add((rest[..at], -1));
-                    }
-
-                    next.Add(("", sid));
-                    rest = rest[(at + stext.Length)..];
+                    next.Add(fragment);
+                    continue;
                 }
+
+                SplitFragment(fragment.Item1, specialText, specialId, next);
             }
+
             buffer = next;
         }
+
         return buffer;
+    }
+
+    private static void SplitFragment(string fragment, string specialText, int specialId, List<(string, int)> output)
+    {
+        string rest = fragment;
+        while (true)
+        {
+            int at = rest.IndexOf(specialText, StringComparison.Ordinal);
+            if (at < 0)
+            {
+                if (rest.Length > 0)
+                {
+                    output.Add((rest, -1));
+                }
+
+                return;
+            }
+
+            if (at > 0)
+            {
+                output.Add((rest[..at], -1));
+            }
+
+            output.Add(("", specialId));
+            rest = rest[(at + specialText.Length)..];
+        }
     }
 }
