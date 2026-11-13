@@ -105,6 +105,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "SequencePool":
                 LowerSequencePool(n);
                 return;
+            case "NGramHash":
+                LowerNGramHash(n);
+                return;
             case "CumSum":
                 LowerCumSum(n);
                 return;

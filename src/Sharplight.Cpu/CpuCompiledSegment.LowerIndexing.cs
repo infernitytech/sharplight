@@ -58,6 +58,16 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
+    private void LowerNGramHash(Node n)
+    {
+        var a = n.Attributes;
+        var window = RefF32(n.Inputs[0]);
+        var y = NewDense(n.Output);
+        AddStep(new NGramHashOp(window, y, a.Get<long[]>("multipliers"), a.Get<long[]>("head_sizes"), a.Get<long[]>("head_offsets"),
+            (int)a.Get<long>("heads_per_order"), a.Get<long>("stop_token")), window, y);
+        _refs[n.Output] = y;
+    }
+
     private void LowerCumSum(Node n)
     {
         var a = n.Attributes;

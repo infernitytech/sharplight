@@ -28,7 +28,7 @@ public class FamilyGenerationTests
     /// One model to generate with. <c>Kind</c> "ids": <c>Ids</c> are the expected generated token ids (transformers); "text": <c>Text</c> is the
     /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp).
     /// </summary>
-    public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallbackForMoe = false, bool Large = false, int Tokens = 40);
+    public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallback = false, bool Large = false, int Tokens = 40);
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
     private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
@@ -49,7 +49,7 @@ public class FamilyGenerationTests
             " Paris.\"] output: ```python\ndef extract_capital(sentence):\n    # Split the sentence into words\n    words = sentence.split()\n    #", Tokens: 32),
         // Nemotron-H with every layer kind (Mamba-2 with 2 groups, MoE with biased sigmoid routing + shared expert, attention, MLP): tiny random HF model (embedding tensor renamed to backbone.embeddings.weight).
         new("tiny-random-nemotron-h HF (transformers)", "hf/tiny-random-nemotron-h", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
-            [24000,92554,26777,83490,2319,37593,69072,35539,21983,120599,93,62682,121133,65255,47383,128871], "", NeedsCpuFallbackForMoe: true),
+            [24000,92554,26777,83490,2319,37593,69072,35539,21983,120599,93,62682,121133,65255,47383,128871], "", NeedsCpuFallback: true),
         // Gemma 4 E4B finetune (NVIDIA Nemotron 3.5 Bolt E4B, arch gemma4): IQ4_NL per-layer embedding table, 42 layers with 18 shared-KV layers.
         new("NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf", "def fibonacci(n):", "text", [],
             "\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint"),
@@ -60,7 +60,7 @@ public class FamilyGenerationTests
             " Jupiter, Saturn, Uranus, and Neptune. The dwarf planets are Ceres, Pluto, Haumea, Makemake, and Eris.\n\nThe planets of the solar system are Mercury,", Large: true),
         // Flint: attention sinks, sigmoid-routed experts + shared expert, NoPE full layers (tiny random model from tools/mk_tiny_flint.py; the MoE runs on the CPU when the GPU lacks MatMulId).
         new("tiny-random-flint HF (transformers)", "hf/tiny-random-flint", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
-            [140756, 125813, 22985, 123010, 143067, 136720, 86988, 72881, 88183, 83127, 61195, 133527, 129060, 110388, 65465, 7319, 86512, 79741, 81427, 118452, 20753, 25666, 5229, 81385], "", NeedsCpuFallbackForMoe: true),
+            [140756, 125813, 22985, 123010, 143067, 136720, 86988, 72881, 88183, 83127, 61195, 133527, 129060, 110388, 65465, 7319, 86512, 79741, 81427, 118452, 20753, 25666, 5229, 81385], "", NeedsCpuFallback: true),
         // Qwen3.5/3.6/3.8 MoE hybrids: gated delta + gated attention layers, softmax top-k experts plus a sigmoid-gated shared expert
         // (per-expert tensors stacked, or fused 3-D gate_up tensors for 3.8). References: tools/hf_greedy_reference.py; the 3.6
         // checkpoint nests its text model three times, which the tool collapses (transformers alone would initialize it randomly).
@@ -73,6 +73,12 @@ public class FamilyGenerationTests
         // Qwen3-Next: fused in_proj_qkvz / in_proj_ba, value heads grouped by key head, plain partial RoPE.
         new("tiny-random-qwen3-next-moe HF (transformers)", "hf/tiny-random-qwen3-next-moe", "The capital of France is", "ids",
             [32652, 49041, 83843, 51624, 109256, 116828, 29463, 49041, 22433, 245, 143247, 28709, 49988, 109256, 51255, 117540], ""),
+        // Qwen3.8-Flash-Next (qwen4_exp): hyper-connections, hashed n-gram embedding (the second prompt resets the n-gram context at
+        // <|endoftext|>), QSA indexer. The tiny n-gram table has 1-wide rows, which the Vulkan gather leaves to the CPU.
+        new("tiny-random-qwen3.8-flash-next HF (transformers)", "hf/tiny-random-qwen3.8-flash-next", "The capital of France is", "ids",
+            [144327, 144327, 225506, 211030, 97146, 233136, 9370, 73769, 109242, 214491, 226975, 16650, 238421, 24763, 218821, 87098], "", NeedsCpuFallback: true),
+        new("tiny-random-qwen3.8-flash-next HF, end-of-text in the prompt (transformers)", "hf/tiny-random-qwen3.8-flash-next", "Hi there<|endoftext|>The capital of France is", "ids",
+            [144327, 144327, 144327, 225506, 128955, 40177, 244551, 164360, 41110, 144327, 41110, 144327, 144327, 144327, 225506, 128955], "", NeedsCpuFallback: true),
         // Qwen3.6-35B-A3B (qwen35moe, 256 experts top-8) and Qwen3-Coder-Next (qwen3next, 512 experts top-10, MXFP4 shared expert).
         new("Qwen3.6-35B-A3B UD-Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
@@ -152,7 +158,7 @@ public class FamilyGenerationTests
             return;
         }
         (int[] ids, string text) result;
-        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallbackForMoe); }
+        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback); }
         catch (SkipException s)
         {
             Assert.Skip(s.Message);

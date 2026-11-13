@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", "SequencePool", "NGramHash", .. SpatialOpNames, .. GeneralOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -71,6 +71,7 @@ public sealed partial class GraphLowerer
             "CachedAttention" => SupportsCachedAttention(node),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
+            "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
             _ => OpSupport.Yes,

@@ -5,17 +5,19 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp <c>qwen35</c> (Qwen3.5 / 3.6 / 3.8 dense hybrid), <c>qwen35moe</c> (the MoE variants) and <c>qwen3next</c>
-/// (Qwen3-Next / Qwen3-Coder-Next: plain partial RoPE, fused <c>ssm_ba</c>, value heads grouped by key head) → canonical
-/// <c>qwen3_5</c>.
+/// (Qwen3-Next / Qwen3-Coder-Next: plain partial RoPE, fused <c>ssm_ba</c>, value heads grouped by key head) and
+/// <c>qwen4exp</c> (Qwen3.8-Flash-Next: hyper-connections, hashed n-gram embedding, QSA indexer, sigmoid linear-attention
+/// output gate) → canonical <c>qwen3_5</c>.
 /// </summary>
 internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     private const int RopeSectionCount = 4;
     private const string Qwen3NextArchitecture = "qwen3next";
+    private const string Qwen4ExpArchitecture = "qwen4exp";
     private const string SharedExpertGate = "mlp.shared.input_gate.weight";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen35", "qwen35moe", Qwen3NextArchitecture];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen35", "qwen35moe", Qwen3NextArchitecture, Qwen4ExpArchitecture];
 
     /// <inheritdoc/>
     public string Architecture => "qwen3_5";
@@ -57,6 +59,11 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             md[a + "linear_attention.grouped_value_heads"] = true;
         }
 
+        if (g.GgufArchitecture == Qwen4ExpArchitecture)
+        {
+            AddQwen4ExpHyperParameters(g, md, a);
+        }
+
         if (g.Has("rope.freq_base"))
         {
             md[a + "rope.base"] = g.Float("rope.freq_base");
@@ -75,6 +82,51 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
 
         return md;
     }
+
+    /// <summary>Hyper-connections, the n-gram embedding (PLE), the QSA indexer and the sigmoid output gate of <c>qwen4exp</c>.</summary>
+    private static void AddQwen4ExpHyperParameters(GgufMetadataView g, Dictionary<string, object> md, string a)
+    {
+        md[a + "hyper_connections.count"] = g.Int("hyper_connection.count");
+        md[a + "linear_attention.gate_activation"] = "sigmoid";
+        md[a + "attention.indexer.head_count"] = g.Int("attention.indexer.head_count");
+        md[a + "attention.indexer.head_dim"] = g.Int("attention.indexer.key_length");
+        md[a + "attention.indexer.token_budget"] = g.Int("attention.indexer.top_k");
+        if (g.Raw("attention.compress_ratios") is Array ratios)
+        {
+            md[a + "attention.indexer.block_size"] = ratios.Cast<object>().Max(Convert.ToInt32);
+        }
+
+        if (g.Raw("ple.layers") is not Array { Length: > 0 } pleLayers)
+        {
+            return;
+        }
+
+        if (pleLayers.Length > 1)
+        {
+            throw new NotSupportedException("qwen4exp: only one n-gram embedding (PLE) layer is supported.");
+        }
+
+        md[a + "ngram_embedding.layer"] = Convert.ToInt32(pleLayers.GetValue(0));
+        md[a + "ngram_embedding.multipliers"] = LongArray(g, "ple.layer_multipliers");
+        md[a + "ngram_embedding.head_sizes"] = LongArray(g, "ple.head_vocab_sizes");
+        md[a + "ngram_embedding.head_offsets"] = LongArray(g, "ple.head_offsets");
+        md[a + "ngram_embedding.heads_per_order"] = g.Int("ple.heads_per_ngram");
+        md[a + "ngram_embedding.stop_token"] = (long)g.Int("ple.eos_token_id");
+        md[a + "ngram_embedding.conv_dilation"] = g.Int("ple.ngram_size");
+    }
+
+    private static long[] LongArray(GgufMetadataView g, string key) =>
+        g.Raw(key) is Array values
+            ? [.. values.Cast<object>().Select(v => Convert.ToInt64(v))]
+            : throw new InvalidDataException($"GGUF metadata '{key}' is missing or not an array.");
+
+    /// <summary><c>qwen4exp</c> tensors outside the blocks, GGUF name to canonical name (the n-gram table is mapped separately).</summary>
+    private static readonly Dictionary<string, string> s_qwen4ExpGlobal = new(StringComparer.Ordinal)
+    {
+        ["output_hc_norm.weight"] = "output_hc.norm.weight",
+        ["output_hc_down.weight"] = "output_hc.down.weight",
+        ["output_hc_up.weight"] = "output_hc.up.weight",
+    };
 
     /// <summary>Per-layer tensors (shared by the trunk and the MTP layers), GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
@@ -108,6 +160,25 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
         ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
         ["ffn_down_shexp.weight"] = "mlp.shared.down.weight",
         ["ffn_gate_inp_shexp.weight"] = SharedExpertGate,
+        // qwen4exp
+        ["hc_attn_norm.weight"] = "attention_hc.norm.weight",
+        ["hc_attn_down.weight"] = "attention_hc.down.weight",
+        ["hc_attn_up.weight"] = "attention_hc.up.weight",
+        ["hc_attn_inject.weight"] = "attention_hc.inject.weight",
+        ["hc_ffn_norm.weight"] = "ffn_hc.norm.weight",
+        ["hc_ffn_down.weight"] = "ffn_hc.down.weight",
+        ["hc_ffn_up.weight"] = "ffn_hc.up.weight",
+        ["hc_ffn_inject.weight"] = "ffn_hc.inject.weight",
+        ["ple_key.weight"] = "ngram.key.weight",
+        ["ple_value.weight"] = "ngram.value.weight",
+        ["ple_norm_key.weight"] = "ngram.key_norm.weight",
+        ["ple_norm_query.weight"] = "ngram.query_norm.weight",
+        ["ple_norm_conv.weight"] = "ngram.conv_norm.weight",
+        ["ple_conv1d.weight"] = "ngram.conv1d.weight",
+        ["indexer.q_proj.weight"] = "attention.indexer.q.weight",
+        ["indexer.k_proj.weight"] = "attention.indexer.k.weight",
+        ["indexer.q_norm.weight"] = "attention.indexer.q_norm.weight",
+        ["indexer.k_norm.weight"] = "attention.indexer.k_norm.weight",
     };
 
     /// <summary>Tensors shared by all MTP (NextN) layers, GGUF suffix to the canonical name below <c>mtp.</c>.</summary>
@@ -161,6 +232,17 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (s_qwen4ExpGlobal.TryGetValue(name, out var mixerName))
+        {
+            return mixerName;
+        }
+
+        // The n-gram (PLE) table is global in GGUF; canonically it belongs to the layer that uses it.
+        if (name == "per_layer_token_embd.weight" && g.Raw("ple.layers") is Array { Length: 1 } pleLayers)
+        {
+            return $"layers.{Convert.ToInt32(pleLayers.GetValue(0))}.ngram.table.weight";
+        }
+
         if (GgufTensorNames.MapGlobal(name) is { } globalName)
         {
             return globalName;

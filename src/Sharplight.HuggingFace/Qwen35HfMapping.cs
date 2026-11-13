@@ -19,7 +19,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     public string Architecture => "qwen3_5";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text", Qwen3NextModelType];
+    public IReadOnlyList<string> ModelTypes { get; } = ["qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text", Qwen3NextModelType, Qwen4ExpModelType, Qwen4ExpTextModelType];
 
     // ---- hyper-parameters ---------------------------------------------------------------------
 
@@ -27,7 +27,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
     {
         int layerCount = c.Int("num_hidden_layers", "n_layers", "n_layer", "num_layers");
-        int mtpLayerCount = options.IncludeMtp ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
+        int mtpLayerCount = IncludesMtp(c, options) ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
         int headCount = c.Int("num_attention_heads", "n_head", "n_heads");
         int hidden = c.Int("hidden_size", "n_embd", "dim");
         int headDim = c.GetInt("head_dim") ?? hidden / headCount;
@@ -73,6 +73,10 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         }
 
         AddMoeHyperParameters(c, md, a);
+        if (IsQwen4Exp(c))
+        {
+            AddQwen4ExpHyperParameters(c, md, a);
+        }
 
         // TODO: rope scaling (yarn / linear) parameters are not mapped yet; the adapter does not consume them.
         AddVisionHyperParameters(c, md);
@@ -181,10 +185,10 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         }
 
         var collector = new HfWeightCollector();
-        var experts = new HfExpertStacker();
+        var targets = new LayerTargets(c, shape, collector, HfPartJoiner.Experts(), HfPartJoiner.RowShards());
         foreach (var (rawName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            var mapped = MapTensor(c, options, rawName, tensor, new LayerTargets(shape, collector, experts), tied);
+            var mapped = MapTensor(c, options, rawName, tensor, targets, tied);
             if (mapped == TensorOutcome.Unmapped)
             {
                 collector.AddUnmapped(rawName);
@@ -192,7 +196,8 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         }
 
         collector.ThrowIfUnmapped(c.ModelType);
-        experts.StackInto(collector, c.GetInt("num_experts") ?? 0);
+        targets.Experts.JoinInto(collector, c.GetInt("num_experts") ?? 0);
+        targets.TableShards.JoinInto(collector, c.GetInt("split_ngram_parts") ?? 0);
         return collector.Weights;
     }
 
@@ -208,8 +213,11 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         Unmapped,
     }
 
-    /// <summary>Where layer tensors go: the linear-attention geometry, the weight collector and the per-expert stacker.</summary>
-    private sealed record LayerTargets(LinearAttentionShape Shape, HfWeightCollector Collector, HfExpertStacker Experts);
+    /// <summary>
+    /// Where layer tensors go: the config, the linear-attention geometry, the weight collector, the per-expert stacker and the
+    /// n-gram table shard concatenation.
+    /// </summary>
+    private sealed record LayerTargets(HfConfig Config, LinearAttentionShape Shape, HfWeightCollector Collector, HfPartJoiner Experts, HfPartJoiner TableShards);
 
     private static TensorOutcome MapTensor(
         HfConfig c,
@@ -249,7 +257,13 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 
         if (name.StartsWith("mtp.", StringComparison.Ordinal))
         {
-            return options.IncludeMtp ? MapMtp(name, tensor, targets) : TensorOutcome.Skipped;
+            return IncludesMtp(c, options) ? MapMtp(name, tensor, targets) : TensorOutcome.Skipped;
+        }
+
+        if (MapOutputMixer(name, tensor.ToWeightInfo()) is { } mixer)
+        {
+            collector.Add(mixer);
+            return TensorOutcome.Mapped;
         }
 
         switch (name)
@@ -277,6 +291,9 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 
         return MapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, tensor, targets);
     }
+
+    /// <summary>Whether the MTP draft layers are imported (not yet for qwen4_exp, whose MTP head has its own stream mixer).</summary>
+    private static bool IncludesMtp(HfConfig c, HfImportOptions options) => options.IncludeMtp && !IsQwen4Exp(c);
 
     private static TensorOutcome Add(HfWeightCollector collector, WeightInfo? weight)
     {
@@ -323,6 +340,11 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         if (TryMapMoeTensor(prefix, suffix, w, targets))
         {
             return TensorOutcome.Mapped;
+        }
+
+        if (IsQwen4Exp(targets.Config) && MapQwen4ExpLayerTensor(prefix, suffix, w, targets) is not TensorOutcome.Unmapped and var outcome)
+        {
+            return outcome;
         }
 
         return Add(targets.Collector, MapSingleLayerTensor(prefix, suffix, w, targets.Shape));

@@ -233,6 +233,18 @@ public static partial class StandardOps
     public static readonly OpSchema SequencePool = new("SequencePool", OpCategory.Reduction, 2, 2, (i, a) =>
         [new(DataType.F32, new Shape(i[1].Shape[0], i[0].Shape[-1]))]);
 
+    /// <summary>
+    /// Hashed n-gram row ids (n-gram hash embeddings). Input: window f32 [T, N]: per token, column j holds the token j positions
+    /// back plus one (column 0 is the token itself; 0 = no token, e.g. before the sequence start). A missing predecessor, an
+    /// end-of-sequence predecessor and everything before it read as the stop token. For every order n = 2..N and each of its
+    /// <c>heads_per_order</c> heads h: mixed = XOR over j &lt; n of (token_j · multipliers[j]) in uint64 arithmetic, and
+    /// id = mixed mod head_sizes[h] + head_offsets[h]. Attributes: <c>multipliers</c> (long[N]), <c>head_sizes</c> and
+    /// <c>head_offsets</c> (long[(N-1)·heads_per_order]), <c>heads_per_order</c> (long), <c>stop_token</c> (long).
+    /// Output i32 [T, (N-1)·heads_per_order], heads of order 2 first.
+    /// </summary>
+    public static readonly OpSchema NGramHash = new("NGramHash", OpCategory.Data, 1, 1, (i, a) =>
+        [new(DataType.I32, new Shape(i[0].Shape[0], a.Get<long[]>("head_sizes").Length))]);
+
     /// <summary>Copies a value between devices (inserted by the partitioner).</summary>
     public static readonly OpSchema Transfer = new("Transfer", OpCategory.Data, 1, 1, Same);
 
