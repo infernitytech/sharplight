@@ -21,6 +21,7 @@ public sealed partial class GraphLowerer
             case "Contiguous": EmitCopy(Ref(n.Inputs[0]), Produce(n.Output), "contiguous", [n]); break;
             case "Concat": LowerConcat(n); break;
             case "MatMul": LowerMatMul(n); break;
+            case "MatMulId": LowerMatMulId(n); break;
             case "RmsNorm": LowerNorm(n, mode: 0); break;
             case "L2Norm": LowerNorm(n, mode: 1); break;
             case "Rope": LowerRope(n); break;
