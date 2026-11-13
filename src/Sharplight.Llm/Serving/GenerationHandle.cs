@@ -7,7 +7,9 @@ public sealed class GenerationHandle
 {
     internal GenerationHandle(long id, Channel<GenerationChunk> channel, Action cancel)
     {
-        Id = id; _channel = channel; _cancel = cancel;
+        Id = id;
+        _channel = channel;
+        _cancel = cancel;
     }
 
     private readonly Channel<GenerationChunk> _channel;

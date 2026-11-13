@@ -39,24 +39,34 @@ internal static class Tiny
     /// <summary>Canonical vision.* weights for <see cref="Vision"/>.</summary>
     public static Dictionary<string, WeightInfo> VisionWeights(int seed = 3)
     {
-        var p = Vision; var rng = new Random(seed); var w = new Dictionary<string, WeightInfo>();
+        var p = Vision;
+        var rng = new Random(seed);
+        var w = new Dictionary<string, WeightInfo>();
         long H = p.HiddenSize, F = p.FfnHiddenSize, M = p.MergeUnit * H;
         void Add(WeightInfo x) => w[x.Name] = x;
         void Norm(string n) { Add(Ones(n + ".weight", H)); Add(Weight(n + ".bias", rng, 0.1f, H)); }
-        Add(Weight("vision.patch_embed.weight", rng, 0.2f, H, p.PatchDim)); Add(Weight("vision.patch_embed.bias", rng, 0.1f, H));
+        Add(Weight("vision.patch_embed.weight", rng, 0.2f, H, p.PatchDim));
+        Add(Weight("vision.patch_embed.bias", rng, 0.1f, H));
         Add(Weight("vision.position_embedding.weight", rng, 0.5f, p.PositionEmbeddingCount, H));
         for (int i = 0; i < p.LayerCount; i++)
         {
             string l = $"vision.layers.{i}.";
-            Norm(l + "input_norm"); Norm(l + "post_attention_norm");
-            Add(Weight(l + "attention.qkv.weight", rng, 0.3f, 3 * H, H)); Add(Weight(l + "attention.qkv.bias", rng, 0.1f, 3 * H));
-            Add(Weight(l + "attention.o.weight", rng, 0.3f, H, H)); Add(Weight(l + "attention.o.bias", rng, 0.1f, H));
-            Add(Weight(l + "mlp.up.weight", rng, 0.3f, F, H)); Add(Weight(l + "mlp.up.bias", rng, 0.1f, F));
-            Add(Weight(l + "mlp.down.weight", rng, 0.3f, H, F)); Add(Weight(l + "mlp.down.bias", rng, 0.1f, H));
+            Norm(l + "input_norm");
+            Norm(l + "post_attention_norm");
+            Add(Weight(l + "attention.qkv.weight", rng, 0.3f, 3 * H, H));
+            Add(Weight(l + "attention.qkv.bias", rng, 0.1f, 3 * H));
+            Add(Weight(l + "attention.o.weight", rng, 0.3f, H, H));
+            Add(Weight(l + "attention.o.bias", rng, 0.1f, H));
+            Add(Weight(l + "mlp.up.weight", rng, 0.3f, F, H));
+            Add(Weight(l + "mlp.up.bias", rng, 0.1f, F));
+            Add(Weight(l + "mlp.down.weight", rng, 0.3f, H, F));
+            Add(Weight(l + "mlp.down.bias", rng, 0.1f, H));
         }
         Norm("vision.merger.norm");
-        Add(Weight("vision.merger.up.weight", rng, 0.2f, M, M)); Add(Weight("vision.merger.up.bias", rng, 0.1f, M));
-        Add(Weight("vision.merger.down.weight", rng, 0.2f, p.OutHiddenSize, M)); Add(Weight("vision.merger.down.bias", rng, 0.1f, p.OutHiddenSize));
+        Add(Weight("vision.merger.up.weight", rng, 0.2f, M, M));
+        Add(Weight("vision.merger.up.bias", rng, 0.1f, M));
+        Add(Weight("vision.merger.down.weight", rng, 0.2f, p.OutHiddenSize, M));
+        Add(Weight("vision.merger.down.bias", rng, 0.1f, p.OutHiddenSize));
         return w;
     }
 
@@ -79,8 +89,11 @@ internal static class Tiny
         for (int il = 0; il < 2; il++)
         {
             string l = $"layers.{il}.";
-            Add(Ones(l + "input_norm.weight", H)); Add(Ones(l + "post_attention_norm.weight", H));
-            Add(Weight(l + "mlp.gate.weight", rng, 0.2f, FF, H)); Add(Weight(l + "mlp.up.weight", rng, 0.2f, FF, H)); Add(Weight(l + "mlp.down.weight", rng, 0.2f, H, FF));
+            Add(Ones(l + "input_norm.weight", H));
+            Add(Ones(l + "post_attention_norm.weight", H));
+            Add(Weight(l + "mlp.gate.weight", rng, 0.2f, FF, H));
+            Add(Weight(l + "mlp.up.weight", rng, 0.2f, FF, H));
+            Add(Weight(l + "mlp.down.weight", rng, 0.2f, H, FF));
             if (il == 0)
             {
                 Add(Weight(l + "linear_attention.qkv.weight", rng, 0.2f, 2 * hk * dk + hv * dv, H));
@@ -90,7 +103,8 @@ internal static class Tiny
                 Add(Weight(l + "linear_attention.out.weight", rng, 0.2f, H, hv * dv));
                 Add(Ones(l + "linear_attention.norm.weight", dv));
                 Add(Weight(l + "linear_attention.conv1d.weight", rng, 0.3f, 2 * hk * dk + hv * dv, 4));
-                Add(Weight(l + "linear_attention.a", rng, 0.5f, hv)); Add(Weight(l + "linear_attention.dt_bias", rng, 0.5f, hv));
+                Add(Weight(l + "linear_attention.a", rng, 0.5f, hv));
+                Add(Weight(l + "linear_attention.dt_bias", rng, 0.5f, hv));
             }
             else
             {
@@ -98,7 +112,8 @@ internal static class Tiny
                 Add(Weight(l + "attention.k.weight", rng, 0.2f, kv * D, H));
                 Add(Weight(l + "attention.v.weight", rng, 0.2f, kv * D, H));
                 Add(Weight(l + "attention.o.weight", rng, 0.2f, H, heads * D));
-                Add(Ones(l + "attention.q_norm.weight", D)); Add(Ones(l + "attention.k_norm.weight", D));
+                Add(Ones(l + "attention.q_norm.weight", D));
+                Add(Ones(l + "attention.k_norm.weight", D));
             }
         }
         var md = new Dictionary<string, object>

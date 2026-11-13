@@ -21,7 +21,8 @@ public sealed record HistogramSnapshot(double[] UpperBounds, long[] Counts, doub
                 return lower + (upper - lower) * (target - acc) / Counts[i];
             }
 
-            acc += Counts[i]; lower = upper;
+            acc += Counts[i];
+            lower = upper;
         }
         return lower;
     }

@@ -32,7 +32,9 @@ public sealed class StopStringFilter(IReadOnlyList<string> stops)
         var (idx, m) = MarkerScanner.FindFirst(s, _stops);
         if (idx >= 0)
         {
-            Stopped = true; Matched = _stops[m]; _pending.Clear();
+            Stopped = true;
+            Matched = _stops[m];
+            _pending.Clear();
             return s[..idx];
         }
         int hold = MarkerScanner.PartialSuffix(s, _stops);

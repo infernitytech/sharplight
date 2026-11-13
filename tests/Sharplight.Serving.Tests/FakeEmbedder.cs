@@ -14,7 +14,8 @@ internal sealed class FakeEmbedder : ITextEmbedder
     public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
     {
         options ??= new EmbedOptions();
-        string prefix = options.Prompt is { } p ? Prompts[p] : "";
+        string prefix = options.Prompt is { }
+        p ? Prompts[p] : "";
         return EmbedTokens([.. texts.Select(t => (IReadOnlyList<int>)[.. (prefix + t).Select(c => (int)c)])], options);
     }
 

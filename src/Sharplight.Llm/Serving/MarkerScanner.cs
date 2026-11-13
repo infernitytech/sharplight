@@ -15,7 +15,11 @@ public static class MarkerScanner
             }
 
             int i = text.IndexOf(markers[m], from, StringComparison.Ordinal);
-            if (i >= 0 && (best < 0 || i < best)) { best = i; bm = m; }
+            if (i >= 0 && (best < 0 || i < best))
+            {
+                best = i;
+                bm = m;
+            }
         }
         return (best, bm);
     }
@@ -29,7 +33,11 @@ public static class MarkerScanner
             int max = Math.Min(m.Length - 1, text.Length);
             for (int len = max; len > best; len--)
             {
-                if (string.CompareOrdinal(text, text.Length - len, m, 0, len) == 0) { best = len; break; }
+                if (string.CompareOrdinal(text, text.Length - len, m, 0, len) == 0)
+                {
+                    best = len;
+                    break;
+                }
             }
         }
         return best;

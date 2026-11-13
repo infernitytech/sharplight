@@ -206,7 +206,11 @@ public sealed class InferenceSession : IDisposable
                 int row = start + t, img = prompt.ImageIndex[row];
                 toks[t] = prompt.Tokens[row];
                 var dst = _embBuf.AsSpan(t * _hidden, _hidden);
-                if (img < 0) { dst.Clear(); _maskBuf[t] = 0; }
+                if (img < 0)
+                {
+                    dst.Clear();
+                    _maskBuf[t] = 0;
+                }
                 else
                 {
                     imageEmbeddings[img].AsSpan(prompt.ImageRow[row] * _hidden, _hidden).CopyTo(dst);

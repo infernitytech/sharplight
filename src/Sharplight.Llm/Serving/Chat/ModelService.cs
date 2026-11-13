@@ -171,7 +171,11 @@ public sealed class ModelService
                 }, ct));
             }
         }
-        catch { foreach (var h in handles) { h.Cancel(); } throw; }
+        catch
+        {
+            foreach (var h in handles) { h.Cancel(); }
+            throw;
+        }
         return new ChatRun(handles, parser, tokens.Length);
     }
 }

@@ -151,8 +151,12 @@ public class MultiModelRealTests
             using var go = new Barrier(2);
             var ta = new Thread(() => { try { go.SignalAndWait(); a = Greedy(decA, modelA, PromptA, N); } catch (Exception e) { ea = e; } });
             var tb = new Thread(() => { try { go.SignalAndWait(); b = Greedy(decB, modelB, PromptB, N); } catch (Exception e) { eb = e; } });
-            ta.Start(); tb.Start(); ta.Join(); tb.Join();
-            Assert.Null(ea); Assert.Null(eb);
+            ta.Start();
+            tb.Start();
+            ta.Join();
+            tb.Join();
+            Assert.Null(ea);
+            Assert.Null(eb);
             Assert.Equal(soloA, a);
             Assert.Equal(soloB, b);
         }
@@ -236,7 +240,8 @@ public class MultiModelRealTests
             Assert.Equal(0, device.GetMemoryInfo().UsedByUs);
             var soloS = await Ask("smol", "Name an animal.");
             Assert.Equal(ModelState.Loaded, host.Get("smol")!.State);
-            Assert.NotEmpty(soloQ); Assert.NotEmpty(soloS);
+            Assert.NotEmpty(soloQ);
+            Assert.NotEmpty(soloS);
 
             // Both resident, several concurrent requests to each from different threads.
             _ = await Ask("qwen", "Name a color.");

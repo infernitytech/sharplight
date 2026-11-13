@@ -146,8 +146,11 @@ public class EndToEndTests
         float[] Run(DeviceSlot slot)
         {
             using var cm = CompiledModel.Compile(g, new PlacementOptions { Devices = [slot], Compile = new CompileOptions { MaxTokens = 128 } });
-            cm.SetInput<float>(g.Inputs[0], qd); cm.SetInput<float>(g.Inputs[1], kd); cm.SetInput<float>(g.Inputs[2], vd);
-            var run = new RunParameters(); run.Symbols["T"] = T;
+            cm.SetInput<float>(g.Inputs[0], qd);
+            cm.SetInput<float>(g.Inputs[1], kd);
+            cm.SetInput<float>(g.Inputs[2], vd);
+            var run = new RunParameters();
+            run.Symbols["T"] = T;
             cm.Run(run);
             var o = new float[T * heads * D];
             cm.GetOutput<float>("o", o);

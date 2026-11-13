@@ -44,7 +44,8 @@ public class PreprocessorTests
         Assert.Equal((6, 4, 3, 2), (im.GridHeight, im.GridWidth, im.MergedHeight, im.MergedWidth));
         Assert.Equal(24, im.PatchCount);
         Assert.Equal(6, im.TokenCount);
-        int K = p.PatchDim; Assert.Equal(1536, K);
+        int K = p.PatchDim;
+        Assert.Equal(1536, K);
         Assert.Equal(24 * K, im.Patches.Length);
 
         // Window order: patches 0..3 are the first 2×2 block (rows 0-1, cols 0-1), 4..7 the next block to the right.
@@ -106,7 +107,8 @@ public class PreprocessorTests
                 Assert.Equal((200, 100, 7), (r[i], r[i + 1], r[i + 2]));
             }
         }
-        var rnd = new byte[50 * 30 * 3]; new Random(1).NextBytes(rnd);
+        var rnd = new byte[50 * 30 * 3];
+        new Random(1).NextBytes(rnd);
         Assert.Equal(rnd, VisionPreprocessor.ResizeBicubic(rnd, 50, 30, 50, 30));
         // 2× downscale of a 2-pixel checkerboard averages to mid-grey (antialiased filter).
         var chk = new byte[16 * 16 * 3];

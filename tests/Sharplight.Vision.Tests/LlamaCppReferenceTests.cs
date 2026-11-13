@@ -43,10 +43,14 @@ public class LlamaCppReferenceTests
                 }
 
                 float sat = Math.Min(MathF.Sqrt(dx * dx + dy * dy) / maxDist, 1f);
-                float h6 = hue * 6f; int i6 = (int)h6; float f = h6 - i6;
+                float h6 = hue * 6f;
+                int i6 = (int)h6;
+                float f = h6 - i6;
                 float p = 1f - sat, q = 1f - sat * f, t = 1f - sat * (1f - f);
                 (float r, float g, float b) = (i6 % 6) switch { 0 => (1f, t, p), 1 => (q, 1f, p), 2 => (p, 1f, t), 3 => (p, q, 1f), 4 => (t, p, 1f), _ => (1f, p, q) };
-                img[(y * n + x) * 3] = r; img[(y * n + x) * 3 + 1] = g; img[(y * n + x) * 3 + 2] = b;
+                img[(y * n + x) * 3] = r;
+                img[(y * n + x) * 3 + 1] = g;
+                img[(y * n + x) * 3 + 2] = b;
             }
         }
 
@@ -65,7 +69,8 @@ public class LlamaCppReferenceTests
     private void Check(string what, float[] emb, int rows, int dim, Expected e, double tolerance = 2e-3)
     {
         Assert.Equal(rows * dim, emb.Length);
-        double sum = 0, abs = 0; foreach (var v in emb) { sum += v; abs += Math.Abs(v); }
+        double sum = 0, abs = 0;
+        foreach (var v in emb) { sum += v; abs += Math.Abs(v); }
         float[] Head(int r) => emb[(r * dim)..(r * dim + 3)];
         float[] Tail(int r) => emb[(r * dim + dim - 3)..((r + 1) * dim)];
         double worst = 0;

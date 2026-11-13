@@ -4,7 +4,8 @@ namespace Sharplight.Llm.Serving;
 public sealed class Histogram(double[] upperBounds)
 {
     private readonly long[] _counts = new long[upperBounds.Length + 1];
-    private double _sum; private long _count;
+    private double _sum;
+    private long _count;
     private readonly Lock _lock = new();
 
     public static double[] LatencyBuckets { get; } = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120];
@@ -18,7 +19,12 @@ public sealed class Histogram(double[] upperBounds)
             i = upperBounds.Length;
         }
 
-        lock (_lock) { _counts[i]++; _sum += v; _count++; }
+        lock (_lock)
+        {
+            _counts[i]++;
+            _sum += v;
+            _count++;
+        }
     }
 
     public HistogramSnapshot Snapshot()

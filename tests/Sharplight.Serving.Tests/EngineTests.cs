@@ -16,7 +16,8 @@ public class EngineTests
     [Fact]
     public async Task SingleRequest_ProducesScriptedReply_AndUsage()
     {
-        var d = new FakeBatchDecoder(1); d.Script("hello");
+        var d = new FakeBatchDecoder(1);
+        d.Script("hello");
         using var e = Engine(d);
         var r = await e.Submit(Req("hi")).CompleteAsync();
         Assert.Equal("hello", r.Text);
@@ -27,7 +28,8 @@ public class EngineTests
     [Fact]
     public async Task MaxTokens_FinishesWithLength()
     {
-        var d = new FakeBatchDecoder(1); d.Script("abcdefghij");
+        var d = new FakeBatchDecoder(1);
+        d.Script("abcdefghij");
         using var e = Engine(d);
         var r = await e.Submit(Req("x", max: 4)).CompleteAsync();
         Assert.Equal("abcd", r.Text);
@@ -53,7 +55,8 @@ public class EngineTests
     [Fact]
     public async Task SingleSlot_SerializesRequests()
     {
-        var d = new FakeBatchDecoder(1, batches: false); d.Script("abc");
+        var d = new FakeBatchDecoder(1, batches: false);
+        d.Script("abc");
         using var e = Engine(d);
         var rs = await Task.WhenAll(Enumerable.Range(0, 3).Select(i => e.Submit(Req("q" + i)).CompleteAsync()));
         Assert.All(rs, r => Assert.Equal("abc", r.Text));
@@ -171,7 +174,8 @@ public class EngineTests
     [Fact]
     public async Task Context_Limit_EndsWithLength()
     {
-        var d = new FakeBatchDecoder(1, contextLength: 20); d.Script("a", loop: true);
+        var d = new FakeBatchDecoder(1, contextLength: 20);
+        d.Script("a", loop: true);
         using var e = Engine(d);
         var r = await e.Submit(Req("0123456789", max: 1000)).CompleteAsync();   // prompt 11 tokens -> at most 9 generated
         Assert.Equal(FinishReason.Length, r.Finish);
@@ -214,7 +218,8 @@ public class EngineTests
     [Fact]
     public async Task StopString_AcrossTokens_IsCutAndNotEmitted()
     {
-        var d = new FakeBatchDecoder(1); d.Script("hello STOP world");
+        var d = new FakeBatchDecoder(1);
+        d.Script("hello STOP world");
         using var e = Engine(d);
         var r = await e.Submit(Req("x", stops: ["STOP"])).CompleteAsync();
         Assert.Equal("hello ", r.Text);
@@ -225,7 +230,8 @@ public class EngineTests
     [Fact]
     public async Task StopString_PartialMatch_IsHeldBackThenReleased()
     {
-        var d = new FakeBatchDecoder(1); d.Script("ab STO cd");
+        var d = new FakeBatchDecoder(1);
+        d.Script("ab STO cd");
         using var e = Engine(d);
         var chunks = new List<string>();
         await foreach (var c in e.Submit(Req("x", stops: ["STOP"])).ReadAllAsync())
@@ -239,13 +245,18 @@ public class EngineTests
         Assert.Equal("ab STO cd", string.Concat(chunks));
         // The partial match "STO" is never emitted on its own: no intermediate text ends in a stop-string prefix.
         var acc = "";
-        foreach (var c in chunks[..^1]) { acc += c; Assert.False(acc.EndsWith('S') || acc.EndsWith("ST") || acc.EndsWith("STO"), acc); }
+        foreach (var c in chunks[..^1])
+        {
+            acc += c;
+            Assert.False(acc.EndsWith('S') || acc.EndsWith("ST") || acc.EndsWith("STO"), acc);
+        }
     }
 
     [Fact]
     public async Task StopString_HeldTextIsFlushedAtEndOfOutput()
     {
-        var d = new FakeBatchDecoder(1); d.Script("done ST");
+        var d = new FakeBatchDecoder(1);
+        d.Script("done ST");
         using var e = Engine(d);
         var r = await e.Submit(Req("x", stops: ["STOP"])).CompleteAsync();
         Assert.Equal("done ST", r.Text);
@@ -255,7 +266,8 @@ public class EngineTests
     [Fact]
     public async Task StopTokenId_EndsGenerationWithoutEmittingIt()
     {
-        var d = new FakeBatchDecoder(1); d.Script("abc!def");
+        var d = new FakeBatchDecoder(1);
+        d.Script("abc!def");
         using var e = Engine(d);
         var r = await e.Submit(new GenerationRequest { PromptTokens = T.Prompt("x"), StopTokenIds = [(int)'!'], Sampling = SamplingParams.GreedyDefault }).CompleteAsync();
         Assert.Equal("abc", r.Text);
@@ -266,7 +278,8 @@ public class EngineTests
     public async Task Utf8_SplitAcrossTokens_IsNeverEmittedBroken()
     {
         const string s = "é€😀 ok";
-        var d = new FakeBatchDecoder(1); d.Script(s);
+        var d = new FakeBatchDecoder(1);
+        d.Script(s);
         using var e = Engine(d);
         var chunks = new List<string>();
         await foreach (var c in e.Submit(Req("x")).ReadAllAsync())
@@ -282,7 +295,8 @@ public class EngineTests
     [Fact]
     public async Task Logprobs_AreReportedPerToken()
     {
-        var d = new FakeBatchDecoder(1); d.Script("ab");
+        var d = new FakeBatchDecoder(1);
+        d.Script("ab");
         using var e = Engine(d);
         var r = await e.Submit(new GenerationRequest { PromptTokens = T.Prompt("x"), Logprobs = true, TopLogprobs = 2, Sampling = SamplingParams.GreedyDefault }).CompleteAsync();
         Assert.Equal(2, r.Logprobs.Count);
@@ -297,7 +311,8 @@ public class EngineTests
     [Fact]
     public async Task PrefixCache_TruncatableDecoder_ReusesLongestCommonPrefix()
     {
-        var d = new FakeBatchDecoder(2); d.Script("r");
+        var d = new FakeBatchDecoder(2);
+        d.Script("r");
         using var e = Engine(d);
         await e.Submit(Req("hello world abc")).CompleteAsync();
         var r = await e.Submit(Req("hello world xyz")).CompleteAsync();
@@ -314,7 +329,8 @@ public class EngineTests
     [Fact]
     public async Task PrefixCache_IdenticalPrompt_StillRecomputesLastToken()
     {
-        var d = new FakeBatchDecoder(1); d.Script("r");
+        var d = new FakeBatchDecoder(1);
+        d.Script("r");
         using var e = Engine(d);
         var p = T.Prompt("same prompt");
         await e.Submit(new GenerationRequest { PromptTokens = p }).CompleteAsync();
@@ -326,7 +342,8 @@ public class EngineTests
     [Fact]
     public async Task PrefixCache_NonTruncatable_OnlyExtendsWholeContext()
     {
-        var d = new FakeBatchDecoder(1, canTruncate: false); d.Script("xyz");
+        var d = new FakeBatchDecoder(1, canTruncate: false);
+        d.Script("xyz");
         using var e = Engine(d);
         var p1 = T.Prompt("turn one");
         var r1 = await e.Submit(new GenerationRequest { PromptTokens = p1 }).CompleteAsync();
@@ -346,7 +363,8 @@ public class EngineTests
     [Fact]
     public async Task PrefixCache_Disabled_NeverReuses()
     {
-        var d = new FakeBatchDecoder(1); d.Script("r");
+        var d = new FakeBatchDecoder(1);
+        d.Script("r");
         using var e = Engine(d, new EngineOptions { PrefixCache = false });
         await e.Submit(Req("hello world abc")).CompleteAsync();
         var r = await e.Submit(Req("hello world xyz")).CompleteAsync();
@@ -356,7 +374,8 @@ public class EngineTests
     [Fact]
     public async Task PrefixCache_PrefersSlotWithPrefix_AndEvictsLeastRecentlyUsed()
     {
-        var d = new FakeBatchDecoder(2); d.Script("r");
+        var d = new FakeBatchDecoder(2);
+        d.Script("r");
         using var e = Engine(d);
         await e.Submit(Req("AAAA first")).CompleteAsync();     // -> slot 0
         await e.Submit(Req("BBBB second")).CompleteAsync();    // -> slot 1 (empty slots are used first)

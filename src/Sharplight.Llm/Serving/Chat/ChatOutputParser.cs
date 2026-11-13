@@ -33,10 +33,15 @@ public sealed class ChatOutputParser
     {
         _formats = formats ?? [];
         _toolNames = [.. toolNames ?? []];
-        _thinkOpen = thinkOpen; _thinkClose = thinkClose;
+        _thinkOpen = thinkOpen;
+        _thinkClose = thinkClose;
         _contentMarkers = [thinkOpen, .. _formats.Where(f => f.StartMarker is not null).Select(f => f.StartMarker!)];
         _bare = _formats.FirstOrDefault(f => f.AllowLeadingJson);
-        if (startInReasoning) { _mode = Mode.Reasoning; _trimLeading = true; }
+        if (startInReasoning)
+        {
+            _mode = Mode.Reasoning;
+            _trimLeading = true;
+        }
     }
 
     public List<ParsedPiece> Push(string text)
@@ -73,7 +78,14 @@ public sealed class ChatOutputParser
                                 return;
                             }
 
-                            if (t.StartsWith('{')) { _mode = Mode.Tool; _cur = _bare; _curBare = true; _buf.Clear().Append(t); continue; }
+                            if (t.StartsWith('{'))
+                            {
+                                _mode = Mode.Tool;
+                                _cur = _bare;
+                                _curBare = true;
+                                _buf.Clear().Append(t);
+                                continue;
+                            }
                     }
                     var markers = HasTools ? _contentMarkers : _contentMarkers.GetRange(0, 1);
                     var (idx, m) = MarkerScanner.FindFirst(s, markers);
@@ -82,8 +94,17 @@ public sealed class ChatOutputParser
                         bool isThink = m == 0;
                         EmitContent(isThink ? s[..idx] : s[..idx].TrimEnd(), o);
                         _buf.Clear().Append(s, idx + markers[m].Length, s.Length - idx - markers[m].Length);
-                        if (isThink) { _mode = Mode.Reasoning; _trimLeading = true; }
-                        else { _mode = Mode.Tool; _cur = _formats.First(f => f.StartMarker == markers[m]); _curBare = false; }
+                        if (isThink)
+                        {
+                            _mode = Mode.Reasoning;
+                            _trimLeading = true;
+                        }
+                        else
+                        {
+                            _mode = Mode.Tool;
+                            _cur = _formats.First(f => f.StartMarker == markers[m]);
+                            _curBare = false;
+                        }
                         continue;
                     }
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, markers);
@@ -104,12 +125,18 @@ public sealed class ChatOutputParser
                     {
                         EmitReasoning(s[..idx].TrimEnd(), o);
                         _buf.Clear().Append(s, idx + _thinkClose.Length, s.Length - idx - _thinkClose.Length);
-                        _mode = Mode.Content; _trimLeading = true;
+                        _mode = Mode.Content;
+                        _trimLeading = true;
                         continue;
                     }
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, [_thinkClose]);
                     string emit = s[..(s.Length - hold)];
-                    if (!final) { int ws = emit.Length - emit.TrimEnd().Length; hold += ws; emit = emit[..(emit.Length - ws)]; }
+                    if (!final)
+                    {
+                        int ws = emit.Length - emit.TrimEnd().Length;
+                        hold += ws;
+                        emit = emit[..(emit.Length - ws)];
+                    }
                     else
                         {
                             emit = emit.TrimEnd();
@@ -125,7 +152,15 @@ public sealed class ChatOutputParser
                     if (end is not null)
                     {
                         int idx = s.IndexOf(end, StringComparison.Ordinal);
-                        if (idx < 0) { if (final) { Finish(s, "", o); _buf.Clear(); } return; }
+                        if (idx < 0)
+                        {
+                            if (final)
+                            {
+                                Finish(s, "", o);
+                                _buf.Clear();
+                            }
+                            return;
+                        }
                         Finish(s[..idx], end, o);
                         _buf.Clear().Append(s, idx + end.Length, s.Length - idx - end.Length);
                         continue;

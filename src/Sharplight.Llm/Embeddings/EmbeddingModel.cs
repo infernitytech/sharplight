@@ -38,7 +38,11 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 
     private EmbeddingModel(ModelDefinition def, ModelSource source, ITokenizer tok, PackedBatchRunner runner, int maxLength)
     {
-        Definition = def; _source = source; Tokenizer = tok; _runner = runner; MaxSequenceLength = maxLength;
+        Definition = def;
+        _source = source;
+        Tokenizer = tok;
+        _runner = runner;
+        MaxSequenceLength = maxLength;
         Name = def.Name;
         Dimensions = runner.OutputWidth;
         Pooling = def.Property(WellKnown.EmbeddingPooling, "cls");
@@ -129,7 +133,8 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             r[i++] = Tokenizer.BosId!.Value;
         }
 
-        body.CopyTo(r, i); i += body.Length;
+        body.CopyTo(r, i);
+        i += body.Length;
         if (eos)
         {
             r[i] = Tokenizer.EosId!.Value;

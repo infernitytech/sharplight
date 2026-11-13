@@ -19,7 +19,9 @@ public class PipelineTests
             for (int x = 0; x < w; x++)
             {
                 int o = (y * w + x) * 3;
-                rgb[o] = (byte)(x * 255 / w); rgb[o + 1] = (byte)(y * 255 / h); rgb[o + 2] = (byte)(rng.Next(256));
+                rgb[o] = (byte)(x * 255 / w);
+                rgb[o + 1] = (byte)(y * 255 / h);
+                rgb[o + 2] = (byte)(rng.Next(256));
             }
         }
 
@@ -115,7 +117,9 @@ public class PipelineTests
             cm.SetInput<int>(g.Input(InputRole.OutputRows), [T - 1]);
             setup(cm, g);
             var run = new RunParameters();
-            run.Symbols["T"] = T; run.Symbols["R"] = 1; run.Scalars["n_past"] = 0;
+            run.Symbols["T"] = T;
+            run.Symbols["R"] = 1;
+            run.Scalars["n_past"] = 0;
             cm.Run(run);
             var logits = new float[Tiny.Vocab];
             cm.GetOutput<float>("logits", logits);
@@ -153,7 +157,8 @@ public class PipelineTests
             var def2 = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
             foreach (var name in new[] { WellKnown.VisionEncodeGraph, WellKnown.DecodeMultimodalGraph })
             {
-                var g = def.Graph(name); var g2 = def2.Graph(name);
+                var g = def.Graph(name);
+                var g2 = def2.Graph(name);
                 string Sig(ComputeGraph x) => string.Join("\n", x.Nodes.Select(n => $"{n.Op.Name} {n.Attributes} @{n.Group} -> {string.Join(";", n.Outputs.Select(o => $"{o.Type}{o.Shape}"))}"));
                 Assert.Equal(Sig(g), Sig(g2));
                 Assert.Equal(g.Inputs.Select(i => $"{i.Input}{i.Shape}"), g2.Inputs.Select(i => $"{i.Input}{i.Shape}"));
@@ -187,7 +192,8 @@ public class PipelineTests
             using var cm = CompiledModel.Compile(g, new PlacementOptions { Devices = [slot], Compile = new CompileOptions { MaxTokens = 16, SymbolBounds = new Dictionary<string, long> { ["N"] = 16, ["M"] = 8 } } });
             cm.SetInput<float>(g.Inputs[0], Enumerable.Range(0, 24).Select(i => (float)i).ToArray());
             var run = new RunParameters();
-            run.Symbols["N"] = 8; run.Symbols["M"] = 4;
+            run.Symbols["N"] = 8;
+            run.Symbols["M"] = 4;
             cm.Run(run);
             var o = new float[24];
             cm.GetOutput<float>("y", o);

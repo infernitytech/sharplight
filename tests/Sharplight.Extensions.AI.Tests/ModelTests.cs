@@ -33,7 +33,8 @@ public class ModelTests(QwenFixture fx) : IClassFixture<QwenFixture>
         ChatFinishReason? finish = null;
         await foreach (var u in Client.GetStreamingResponseAsync("Count from one to twenty.", opts))
         {
-            text.Append(u.Text); n++;
+            text.Append(u.Text);
+            n++;
             finish = u.FinishReason ?? finish;
         }
         var full = await Client.GetResponseAsync("Count from one to twenty.", opts);

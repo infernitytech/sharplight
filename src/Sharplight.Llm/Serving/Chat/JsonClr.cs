@@ -45,12 +45,18 @@ public static class JsonClr
 
                     return JinjaValue.From(d);
             }
-            case JsonValueKind.Array: return e.EnumerateArray().Select(Convert).ToList();
-            case JsonValueKind.String: return e.GetString();
-            case JsonValueKind.Number: return e.TryGetInt64(out var l) ? l : e.GetDouble();
-            case JsonValueKind.True: return true;
-            case JsonValueKind.False: return false;
-            default: return null;
+            case JsonValueKind.Array:
+                return e.EnumerateArray().Select(Convert).ToList();
+            case JsonValueKind.String:
+                return e.GetString();
+            case JsonValueKind.Number:
+                return e.TryGetInt64(out var l) ? l : e.GetDouble();
+            case JsonValueKind.True:
+                return true;
+            case JsonValueKind.False:
+                return false;
+            default:
+                return null;
         }
     }
 }

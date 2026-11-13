@@ -22,7 +22,11 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
             var reqs = devs.Select(d => new MemoryRequirement(new DeviceMemoryDomain(d.Device), (long)(fp.Total * ((d.Weight ?? 1) / sum)))).ToList();
             return new Prepared(this, model, fp, reqs);
         }
-        catch { model.Dispose(); throw; }
+        catch
+        {
+            model.Dispose();
+            throw;
+        }
     }
 
     private sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
@@ -35,7 +39,8 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         public LoadedModel Load(long? primaryLimit)
         {
             // The limit covers the whole model on the primary device; placement only sees weights + state, so leave room for activations.
-            long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes) : null;
+            long? limit = primaryLimit is { }
+            l ? Math.Max(0, l - fp.ActivationBytes) : null;
             var decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit);
             InferenceEngine? engine = null;
             try

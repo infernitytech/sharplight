@@ -140,7 +140,8 @@ public sealed class RequestSampler
         // Candidate selection: top-K (or the 1024 best when only top-p / min-p is active), sorted descending.
         int k = _p.TopK > 0 ? Math.Min(_p.TopK, n) : Math.Min(1024, n);
         SelectTop(w, k, out int cnt);
-        var ti = _ti; var tv = _tv;
+        var ti = _ti;
+        var tv = _tv;
         var probs = new double[cnt];
         double tot = 0;
         for (int i = 0; i < cnt; i++) { probs[i] = Math.Exp((tv[i] - tv[0]) * invT); tot += probs[i]; }
@@ -149,7 +150,11 @@ public sealed class RequestSampler
         {
             for (int i = 1; i < cnt; i++)
             {
-                if (probs[i] < _p.MinP * probs[0]) { cut = i; break; }
+                if (probs[i] < _p.MinP * probs[0])
+                {
+                    cut = i;
+                    break;
+                }
             }
         }
 
@@ -176,8 +181,13 @@ public sealed class RequestSampler
     /// <summary>Fills _tv/_ti with the k largest values (descending) using a bounded min-heap.</summary>
     private void SelectTop(ReadOnlySpan<float> w, int k, out int count)
     {
-        if (_tv.Length < k) { _tv = new float[k]; _ti = new int[k]; }
-        var hv = _tv; var hi = _ti;
+        if (_tv.Length < k)
+        {
+            _tv = new float[k];
+            _ti = new int[k];
+        }
+        var hv = _tv;
+        var hi = _ti;
         int c = 0;
         for (int i = 0; i < w.Length; i++)
         {
@@ -185,8 +195,16 @@ public sealed class RequestSampler
             if (c < k)
             {
                 int j = c++;
-                while (j > 0) { int pa = (j - 1) >> 1; if (hv[pa] <= v) { break; } hv[j] = hv[pa]; hi[j] = hi[pa]; j = pa; }
-                hv[j] = v; hi[j] = i;
+                while (j > 0)
+                {
+                    int pa = (j - 1) >> 1;
+                    if (hv[pa] <= v) { break; }
+                    hv[j] = hv[pa];
+                    hi[j] = hi[pa];
+                    j = pa;
+                }
+                hv[j] = v;
+                hi[j] = i;
             }
             else if (v > hv[0])
             {
@@ -204,22 +222,31 @@ public sealed class RequestSampler
                         break;
                     }
 
-                    hv[j] = hv[m]; hi[j] = hi[m]; j = m;
+                    hv[j] = hv[m];
+                    hi[j] = hi[m];
+                    j = m;
                 }
-                hv[j] = v; hi[j] = i;
+                hv[j] = v;
+                hi[j] = i;
             }
         }
         Array.Sort(hv, hi, 0, c);
-        Array.Reverse(hv, 0, c); Array.Reverse(hi, 0, c);
+        Array.Reverse(hv, 0, c);
+        Array.Reverse(hi, 0, c);
         count = c;
     }
 
     public static int ArgMax(ReadOnlySpan<float> logits)
     {
-        int best = 0; float bv = logits[0];
+        int best = 0;
+        float bv = logits[0];
         for (int i = 1; i < logits.Length; i++)
         {
-            if (logits[i] > bv) { bv = logits[i]; best = i; }
+            if (logits[i] > bv)
+            {
+                bv = logits[i];
+                best = i;
+            }
         }
 
         return best;

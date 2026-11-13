@@ -45,7 +45,8 @@ public class ModelHostTests
     public async Task Eager_ModelsLoadAtStartup()
     {
         var pool = new FakePool("gpu", 10 * GiB);
-        var a = new FakeLoader(pool, GiB); var b = new FakeLoader(pool, GiB);
+        var a = new FakeLoader(pool, GiB);
+        var b = new FakeLoader(pool, GiB);
         using var host = Host();
         host.Register(Reg("a", a, eager: true));
         host.Register(Reg("b", b));
@@ -174,7 +175,11 @@ public class ModelHostTests
             host.Register(Reg(n, new FakeLoader(pool, GiB)));
         }
 
-        foreach (var n in new[] { "a", "b", "c" }) { (await host.AcquireAsync(n)).Dispose(); t.Advance(TimeSpan.FromSeconds(1)); }
+        foreach (var n in new[] { "a", "b", "c" })
+        {
+            (await host.AcquireAsync(n)).Dispose();
+            t.Advance(TimeSpan.FromSeconds(1));
+        }
         Assert.Equal(ModelState.Unloaded, host.Get("a")!.State);
         Assert.Equal(2, host.List().Count(m => m.State == ModelState.Loaded));
 
@@ -268,7 +273,8 @@ public class ModelHostTests
         var a = new FakeLoader(pool, GiB) { Reply = "alpha alpha alpha alpha", MakeDecoder = () => new FakeBatchDecoder(2) { StepDelay = step } };
         var b = new FakeLoader(pool, GiB) { Reply = "bravo bravo bravo bravo", MakeDecoder = () => new FakeBatchDecoder(2) { StepDelay = step } };
         using var host = Host();
-        host.Register(Reg("a", a)); host.Register(Reg("b", b));
+        host.Register(Reg("a", a));
+        host.Register(Reg("b", b));
 
         async Task<string> Ask(string model)
         {

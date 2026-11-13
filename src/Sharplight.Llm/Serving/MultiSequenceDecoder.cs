@@ -164,14 +164,20 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
             for (int i = 0; i < n; i++)
             {
                 int row = T + i, pos = pos0 + i;
-                _rowBuf[row * 4] = inp.Slot; _rowBuf[row * 4 + 1] = pos; _rowBuf[row * 4 + 2] = n; _rowBuf[row * 4 + 3] = u;
+                _rowBuf[row * 4] = inp.Slot;
+                _rowBuf[row * 4 + 1] = pos;
+                _rowBuf[row * 4 + 2] = n;
+                _rowBuf[row * 4 + 3] = u;
                 // Text rows use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
                 for (int a = 0; a < _posAxes; a++)
                 {
                     _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
                 }
             }
-            _runBuf[u * 4] = inp.Slot; _runBuf[u * 4 + 1] = T; _runBuf[u * 4 + 2] = n; _runBuf[u * 4 + 3] = pos0;
+            _runBuf[u * 4] = inp.Slot;
+            _runBuf[u * 4 + 1] = T;
+            _runBuf[u * 4 + 2] = n;
+            _runBuf[u * 4 + 3] = pos0;
             if (inp.WantLogits)
             {
                 _outBuf[R++] = T + n - 1;

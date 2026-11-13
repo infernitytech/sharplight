@@ -14,7 +14,10 @@ public sealed class FakeLoaded : LoadedModel, IChatModel
     public bool Disposed { get; private set; }
     public FakeLoaded(FakePool pool, long bytes, ModelKind kind, FakeBatchDecoder dec)
     {
-        _pool = pool; _bytes = bytes; Kind = kind; Decoder = dec;
+        _pool = pool;
+        _bytes = bytes;
+        Kind = kind;
+        Decoder = dec;
         pool.Charge(bytes);
         Engine = new InferenceEngine(dec, new FakeTokenizer());
         Service = new ModelService(Engine, ApiHost.Template, new ModelServiceOptions { ModelName = "x", DefaultMaxTokens = 64 });

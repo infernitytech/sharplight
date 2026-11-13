@@ -37,7 +37,11 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
         {
             Check(inputs[i].Slot);
             var lg = session.Process(inputs[i].Tokens.Span);
-            if (inputs[i].WantLogits) { lg.CopyTo(_logits, 0); res[i] = _logits; }
+            if (inputs[i].WantLogits)
+            {
+                lg.CopyTo(_logits, 0);
+                res[i] = _logits;
+            }
         }
         return res;
     }

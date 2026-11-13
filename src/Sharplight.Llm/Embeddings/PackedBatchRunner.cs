@@ -68,8 +68,11 @@ public sealed class PackedBatchRunner : IDisposable
         OutputWidth = (int)o.Shape[-1].Fixed;
         MaxBatchTokens = maxTokens;
         MaxBatchSequences = maxSequences;
-        _tokBuf = new int[maxTokens]; _posBuf = new int[maxTokens]; _typeBuf = new int[maxTokens];
-        _rowBuf = new int[maxTokens * 2]; _seqBuf = new int[maxSequences * 2];
+        _tokBuf = new int[maxTokens];
+        _posBuf = new int[maxTokens];
+        _typeBuf = new int[maxTokens];
+        _rowBuf = new int[maxTokens * 2];
+        _seqBuf = new int[maxSequences * 2];
     }
 
     /// <summary>
@@ -116,13 +119,16 @@ public sealed class PackedBatchRunner : IDisposable
         {
             var seq = seqs[first + s];
             int len = seq.Tokens.Length;
-            _seqBuf[s * 2] = r; _seqBuf[s * 2 + 1] = len;
+            _seqBuf[s * 2] = r;
+            _seqBuf[s * 2 + 1] = len;
             for (int t = 0; t < len; t++)
             {
                 _tokBuf[r + t] = seq.Tokens[t];
                 _posBuf[r + t] = t;
-                _typeBuf[r + t] = seq.TokenTypes is { } tt ? tt[t] : 0;
-                _rowBuf[(r + t) * 2] = r; _rowBuf[(r + t) * 2 + 1] = len;
+                _typeBuf[r + t] = seq.TokenTypes is { }
+                tt ? tt[t] : 0;
+                _rowBuf[(r + t) * 2] = r;
+                _rowBuf[(r + t) * 2 + 1] = len;
             }
             r += len;
         }

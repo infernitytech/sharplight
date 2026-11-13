@@ -16,7 +16,8 @@ public class MappingTests(ITestOutputHelper output)
         using var _ = new Disposer(out var res);
         var hf = HuggingFaceImporter.Open(Env.Hf08);
         var gg = GgufImporter.Open(Env.Mmproj08);
-        res.AddRange(hf.OwnedResources); res.AddRange(gg.OwnedResources);
+        res.AddRange(hf.OwnedResources);
+        res.AddRange(gg.OwnedResources);
 
         Assert.Equal("qwen3_5", gg.Architecture);
         var ph = VisionParameters.FromMetadata(hf.Metadata, "qwen3_5.vision.")!;
@@ -33,7 +34,8 @@ public class MappingTests(ITestOutputHelper output)
         {
             var g = gw[name];
             Assert.Equal(h.Shape.ToString(), g.Shape.ToString());
-            var a = HfTransforms.DecodeF32(h); var b = HfTransforms.DecodeF32(g);
+            var a = HfTransforms.DecodeF32(h);
+            var b = HfTransforms.DecodeF32(g);
             double maxDiff = 0;
             for (int i = 0; i < a.Length; i++)
             {

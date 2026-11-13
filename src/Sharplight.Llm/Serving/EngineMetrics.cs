@@ -45,7 +45,11 @@ public sealed class EngineMetrics
                 _ringSecond = sec;
             }
 
-            while (_ringSecond < sec) { _ringSecond++; _ring[_ringSecond % _ring.Length] = 0; }
+            while (_ringSecond < sec)
+            {
+                _ringSecond++;
+                _ring[_ringSecond % _ring.Length] = 0;
+            }
             _ring[sec % _ring.Length]++;
         }
     }

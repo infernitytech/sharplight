@@ -109,7 +109,8 @@ internal sealed class OutputParser
                 _ => (_toolEnd!, Marker.ToolEnd, null, Marker.None),
             };
             int i1 = markers.Item1.Length > 0 ? s.IndexOf(markers.Item1, StringComparison.Ordinal) : -1;
-            int i2 = markers.Item3 is { } m2 ? s.IndexOf(m2, StringComparison.Ordinal) : -1;
+            int i2 = markers.Item3 is { }
+            m2 ? s.IndexOf(m2, StringComparison.Ordinal) : -1;
             int idx;
             string marker;
             Marker kind;

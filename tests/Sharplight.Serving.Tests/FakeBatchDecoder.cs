@@ -15,7 +15,11 @@ public sealed class FakeBatchDecoder : IBatchDecoder
 
     public FakeBatchDecoder(int slots, int contextLength = 4096, int maxBatchTokens = 64, bool batches = true, bool canTruncate = true)
     {
-        SlotCount = slots; ContextLength = contextLength; MaxBatchTokens = maxBatchTokens; BatchesSequences = batches; CanTruncate = canTruncate;
+        SlotCount = slots;
+        ContextLength = contextLength;
+        MaxBatchTokens = maxBatchTokens;
+        BatchesSequences = batches;
+        CanTruncate = canTruncate;
         _ctx = [.. Enumerable.Range(0, slots).Select(_ => new List<int>())];
         _logits = [.. Enumerable.Range(0, 64).Select(_ => new float[VocabSize])];
         Next = ctx => (ctx[^1] + 1) % 256;
@@ -43,7 +47,11 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             int m = -1;
             for (int i = ctx.Count - 1; i >= 0; i--)
             {
-                if (ctx[i] == Marker) { m = i; break; }
+                if (ctx[i] == Marker)
+                {
+                    m = i;
+                    break;
+                }
             }
 
             int k = m < 0 ? 0 : ctx.Count - m - 1;
@@ -89,7 +97,11 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             throw new InvalidOperationException("batch too large");
         }
 
-        if (!BatchesSequences && inputs.Count > 1) { /* executed one after another; still recorded as one step */ }
+        if (!BatchesSequences && inputs.Count > 1)
+        {
+            /* executed one after another;
+            still recorded as one step */
+        }
         lock (Steps)
         {
             if (FailAfterSteps >= 0 && Steps.Count >= FailAfterSteps)

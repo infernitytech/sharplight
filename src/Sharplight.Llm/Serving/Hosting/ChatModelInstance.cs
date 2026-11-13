@@ -13,7 +13,11 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
 
     internal ChatModelInstance(LlmModel? model, InferenceEngine engine, ModelService service, long resident, bool ownsEngine = true)
     {
-        _model = model; Engine = engine; Service = service; _resident = resident; _ownsEngine = ownsEngine;
+        _model = model;
+        Engine = engine;
+        Service = service;
+        _resident = resident;
+        _ownsEngine = ownsEngine;
     }
 
     /// <summary>Wraps a service built elsewhere (the caller keeps ownership of its engine and model).</summary>

@@ -261,7 +261,11 @@ public sealed class ModelHost : IDisposable
             lock (_gate)
             {
                 e.Error = ex.Message;
-                if (prepared is not null) { e.Requirements = prepared.Requirements; e.Estimated = prepared.Requirements.Sum(r => r.Bytes); }
+                if (prepared is not null)
+                {
+                    e.Requirements = prepared.Requirements;
+                    e.Estimated = prepared.Requirements.Sum(r => r.Bytes);
+                }
                 SetState(e, ModelState.Failed);
             }
             _opt.Log?.Invoke($"Model '{e.Reg.Name}' failed to load: {ex.Message}");
@@ -437,7 +441,15 @@ public sealed class ModelHost : IDisposable
             while (true)
             {
                 Task wait;
-                lock (_gate) { if (e.Leases == 0) { SetState(e, ModelState.Unloading); break; } wait = e.Changed.Task; }
+                lock (_gate)
+                {
+                    if (e.Leases == 0)
+                    {
+                        SetState(e, ModelState.Unloading);
+                        break;
+                    }
+                    wait = e.Changed.Task;
+                }
                 var left = deadline - _opt.Time.GetUtcNow();
                 if (left <= TimeSpan.Zero || await Task.WhenAny(wait, Task.Delay(left)).ConfigureAwait(false) != wait)
                 {
@@ -489,7 +501,11 @@ public sealed class ModelHost : IDisposable
                 victims.Add(x);
             }
         }
-        foreach (var v in victims) { _opt.Log?.Invoke($"Unloading idle model '{v.Reg.Name}'."); FinishUnload(v); }
+        foreach (var v in victims)
+        {
+            _opt.Log?.Invoke($"Unloading idle model '{v.Reg.Name}'.");
+            FinishUnload(v);
+        }
         return victims.Count;
     }
 
@@ -527,7 +543,12 @@ public sealed class ModelHost : IDisposable
     public void Dispose()
     {
         List<Entry> all;
-        lock (_gate) { if (_disposed) { return; } _disposed = true; all = [.. _entries.Values]; }
+        lock (_gate)
+        {
+            if (_disposed) { return; }
+            _disposed = true;
+            all = [.. _entries.Values];
+        }
         _timer?.Dispose();
         _loadGate.Wait();   // let a load in progress finish
         try
@@ -535,7 +556,13 @@ public sealed class ModelHost : IDisposable
             foreach (var e in all)
             {
                 LoadedModel? inst;
-                lock (_gate) { inst = e.Instance; e.Instance = null; e.State = ModelState.Unloaded; Signal(e); }
+                lock (_gate)
+                {
+                    inst = e.Instance;
+                    e.Instance = null;
+                    e.State = ModelState.Unloaded;
+                    Signal(e);
+                }
                 inst?.Dispose();
             }
         }

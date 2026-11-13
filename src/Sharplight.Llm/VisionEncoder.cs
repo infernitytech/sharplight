@@ -53,7 +53,11 @@ public sealed class VisionEncoder : IDisposable
 
     private VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, VisionPreprocessor pre, int maxPatches)
     {
-        Definition = def; Parameters = p; _compiled = compiled; Preprocessor = pre; MaxPatches = maxPatches;
+        Definition = def;
+        Parameters = p;
+        _compiled = compiled;
+        Preprocessor = pre;
+        MaxPatches = maxPatches;
         var g = compiled.Graph;
         _patches = g.Inputs.First(v => v.Input!.Name == VisionParameters.PatchesInput);
         _positions = g.Inputs.First(v => v.Input!.Name == VisionParameters.PositionsInput);

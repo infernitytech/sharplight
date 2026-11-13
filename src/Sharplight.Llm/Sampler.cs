@@ -91,7 +91,11 @@ public sealed class Sampler
         {
             for (int i = 0; i < probs.Length; i++)
             {
-                if (probs[i] < _o.MinP * probs[0]) { cut = Math.Max(1, i); break; }
+                if (probs[i] < _o.MinP * probs[0])
+                {
+                    cut = Math.Max(1, i);
+                    break;
+                }
             }
         }
 
@@ -121,7 +125,11 @@ public sealed class Sampler
         float bv = logits[0];
         for (int i = 1; i < logits.Length; i++)
         {
-            if (logits[i] > bv) { bv = logits[i]; best = i; }
+            if (logits[i] > bv)
+            {
+                bv = logits[i];
+                best = i;
+            }
         }
 
         return best;

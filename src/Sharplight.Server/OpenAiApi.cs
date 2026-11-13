@@ -153,13 +153,16 @@ public static class OpenAiApi
                 {
                     switch (p.Str("type"))
                     {
-                        case "text" or "input_text": parts.Add(ChatPart.FromText(p.Str("text") ?? "")); break;
+                        case "text" or "input_text":
+                            parts.Add(ChatPart.FromText(p.Str("text") ?? ""));
+                            break;
                         case "image_url":
                             var iu = p.Get("image_url");
                             string? url = iu is { ValueKind: JsonValueKind.String } ? iu.Value.GetString() : iu?.Str("url");
                             parts.Add(ChatPart.FromImage(ParseImageUrl(url ?? throw ApiException.BadRequest("image_url.url is required.")) !));
                             break;
-                        case var t: throw ApiException.BadRequest($"Unsupported content part type '{t}'.", $"messages[{i}].content");
+                        case var t:
+                            throw ApiException.BadRequest($"Unsupported content part type '{t}'.", $"messages[{i}].content");
                     }
                 }
             }
@@ -201,14 +204,19 @@ public static class OpenAiApi
         }
 
         var tools = b.Arr("tools").Select(ParseTool).ToList();
-        var mode = ToolChoiceMode.Auto; string? fname = null;
+        var mode = ToolChoiceMode.Auto;
+        string? fname = null;
         if (b.Get("tool_choice") is { } tc)
         {
             if (tc.ValueKind == JsonValueKind.String)
             {
                 mode = tc.GetString() switch { "none" => ToolChoiceMode.None, "required" => ToolChoiceMode.Required, "auto" => ToolChoiceMode.Auto, var s => throw ApiException.BadRequest($"Invalid tool_choice '{s}'.", "tool_choice") };
             }
-            else { mode = ToolChoiceMode.Function; fname = tc.Obj("function")?.Str("name") ?? tc.Str("name"); }
+            else
+            {
+                mode = ToolChoiceMode.Function;
+                fname = tc.Obj("function")?.Str("name") ?? tc.Str("name");
+            }
         }
         Dictionary<string, object?>? kwargs = null;
         if (b.Obj("chat_template_kwargs") is { } kw)
@@ -261,7 +269,8 @@ public static class OpenAiApi
             o["index"] = i;
         }
 
-        o["id"] = c.Id; o["type"] = "function";
+        o["id"] = c.Id;
+        o["type"] = "function";
         o["function"] = new JsonObject { ["name"] = c.Name, ["arguments"] = c.ArgumentsJson };
         return o;
     }
@@ -299,7 +308,11 @@ public static class OpenAiApi
         if (!stream)
         {
             var res = await run.CompleteAsync(http.RequestAborted);
-            if (FailureOf(res.Choices) is { } fail) { await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message); return; }
+            if (FailureOf(res.Choices) is { } fail)
+            {
+                await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message);
+                return;
+            }
             var choices = new JsonArray();
             foreach (var c in res.Choices)
             {
@@ -347,7 +360,8 @@ public static class OpenAiApi
         }
 
         var toolIndex = new Dictionary<int, int>();
-        int finished = 0, completion = 0; GenerationUsage first = default;
+        int finished = 0, completion = 0;
+        GenerationUsage first = default;
         await foreach (var e in run.ReadAllAsync(http.RequestAborted))
         {
             if (e.Content is not null)
@@ -421,11 +435,17 @@ public static class OpenAiApi
 
     private static JsonObject TextLogprobs(IEnumerable<TokenLogprob> lps)
     {
-        var tokens = new JsonArray(); var lp = new JsonArray(); var top = new JsonArray(); var offs = new JsonArray();
+        var tokens = new JsonArray();
+        var lp = new JsonArray();
+        var top = new JsonArray();
+        var offs = new JsonArray();
         int off = 0;
         foreach (var t in lps)
         {
-            tokens.Add(t.Token); lp.Add(t.Logprob); offs.Add(off); off += t.Token.Length;
+            tokens.Add(t.Token);
+            lp.Add(t.Logprob);
+            offs.Add(off);
+            off += t.Token.Length;
             var d = new JsonObject();
             foreach (var a in t.TopAlternatives)
             {
@@ -441,7 +461,8 @@ public static class OpenAiApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
-        string? prompt = null; int[]? tokens = null;
+        string? prompt = null;
+        int[]? tokens = null;
         var p = b.Get("prompt") ?? throw ApiException.BadRequest("'prompt' is required.", "prompt");
         if (p.ValueKind == JsonValueKind.String)
         {
@@ -487,7 +508,11 @@ public static class OpenAiApi
         if (!stream)
         {
             var res = await run.CompleteAsync(http.RequestAborted);
-            if (FailureOf(res.Choices) is { } fail) { await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message); return; }
+            if (FailureOf(res.Choices) is { } fail)
+            {
+                await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message);
+                return;
+            }
             var choices = new JsonArray(res.Choices.Select(c => (JsonNode)new JsonObject
             {
                 ["text"] = (echo ? prompt : "") + c.Content, ["index"] = c.Index,
@@ -523,7 +548,9 @@ public static class OpenAiApi
             }
         }
 
-        int completion = 0; GenerationUsage first = default; bool any = false;
+        int completion = 0;
+        GenerationUsage first = default;
+        bool any = false;
         await foreach (var e in run.ReadAllAsync(http.RequestAborted))
         {
             if (e.Content is not null)
@@ -543,7 +570,11 @@ public static class OpenAiApi
                 }
                 await sse.DataAsync(Chunk(e.Index, "", FinishName(f)));
                 completion += e.Usage?.CompletionTokens ?? 0;
-                if (!any) { first = e.Usage ?? default; any = true; }
+                if (!any)
+                {
+                    first = e.Usage ?? default;
+                    any = true;
+                }
             }
         }
         if (includeUsage)

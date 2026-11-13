@@ -72,7 +72,11 @@ public sealed class InferenceEngine : IDisposable
     public EngineMetricsSnapshot GetMetrics()
     {
         int q, a;
-        lock (_gate) { q = _queue.Count; a = _active.Count; }
+        lock (_gate)
+        {
+            q = _queue.Count;
+            a = _active.Count;
+        }
         return Metrics.Snapshot(q, a, _slots.Length);
     }
 
@@ -82,13 +86,25 @@ public sealed class InferenceEngine : IDisposable
     public GenerationHandle Submit(GenerationRequest request, CancellationToken ct = default)
     {
         int n = request.PromptTokens.Length;
-        if (n == 0) { Metrics.Rejected(); throw new EngineException("The prompt is empty.", "invalid_request"); }
+        if (n == 0)
+        {
+            Metrics.Rejected();
+            throw new EngineException("The prompt is empty.", "invalid_request");
+        }
         foreach (var t in request.PromptTokens)
         {
-            if ((uint)t >= (uint)_decoder.VocabSize) { Metrics.Rejected(); throw new EngineException($"Token id {t} is outside the vocabulary.", "invalid_request"); }
+            if ((uint)t >= (uint)_decoder.VocabSize)
+            {
+                Metrics.Rejected();
+                throw new EngineException($"Token id {t} is outside the vocabulary.", "invalid_request");
+            }
         }
 
-        if (n >= _decoder.ContextLength) { Metrics.Rejected(); throw new PromptTooLongException(n, _decoder.ContextLength - 1); }
+        if (n >= _decoder.ContextLength)
+        {
+            Metrics.Rejected();
+            throw new PromptTooLongException(n, _decoder.ContextLength - 1);
+        }
         int room = _decoder.ContextLength - n;
         var ch = Channel.CreateUnbounded<GenerationChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
         long now = Stopwatch.GetTimestamp();
@@ -111,8 +127,16 @@ public sealed class InferenceEngine : IDisposable
 
         lock (_gate)
         {
-            if (_stop || _draining) { Metrics.Rejected(); throw new EngineStoppedException(); }
-            if (_queue.Count >= _opt.MaxQueue) { Metrics.Rejected(); throw new QueueFullException(_opt.MaxQueue); }
+            if (_stop || _draining)
+            {
+                Metrics.Rejected();
+                throw new EngineStoppedException();
+            }
+            if (_queue.Count >= _opt.MaxQueue)
+            {
+                Metrics.Rejected();
+                throw new QueueFullException(_opt.MaxQueue);
+            }
             _queue.Add(seq);
             Metrics.Submitted();
             Monitor.PulseAll(_gate);
@@ -187,7 +211,13 @@ public sealed class InferenceEngine : IDisposable
     private void CancelAll()
     {
         List<Seq> qs;
-        lock (_gate) { qs = [.. _queue]; _queue.Clear(); foreach (var s in _active) { s.CancelRequested = true; } Monitor.PulseAll(_gate); }
+        lock (_gate)
+        {
+            qs = [.. _queue];
+            _queue.Clear();
+            foreach (var s in _active) { s.CancelRequested = true; }
+            Monitor.PulseAll(_gate);
+        }
         foreach (var s in qs)
         {
             Finalize(s, FinishReason.Cancelled, null, null);
@@ -198,7 +228,11 @@ public sealed class InferenceEngine : IDisposable
     {
         lock (_gate) { _draining = true; }
         CancelAll();
-        lock (_gate) { _stop = true; Monitor.PulseAll(_gate); }
+        lock (_gate)
+        {
+            _stop = true;
+            Monitor.PulseAll(_gate);
+        }
         if (Thread.CurrentThread != _thread)
         {
             _thread.Join();
@@ -306,7 +340,11 @@ public sealed class InferenceEngine : IDisposable
             Slot? free = null;
             foreach (var s in _slots)
             {
-                if (s.Active is null) { free = s; break; }
+                if (s.Active is null)
+                {
+                    free = s;
+                    break;
+                }
             }
 
             if (free is null)
@@ -367,7 +405,8 @@ public sealed class InferenceEngine : IDisposable
 
     private void AssignSlot(Seq seq)
     {
-        Slot? best = null; int bestReuse = -1;
+        Slot? best = null;
+        int bestReuse = -1;
         foreach (var s in _slots)
         {
             if (s.Active is not null)
@@ -379,7 +418,11 @@ public sealed class InferenceEngine : IDisposable
             // Equal reuse (typically none): take an empty slot first, then evict the least recently used one.
             static long Rank(Slot x) => x.Tokens.Count == 0 ? long.MinValue : x.LastUsed;
             bool better = best is null || reuse > bestReuse || (reuse == bestReuse && Rank(s) < Rank(best));
-            if (better) { best = s; bestReuse = reuse; }
+            if (better)
+            {
+                best = s;
+                bestReuse = reuse;
+            }
         }
         var slot = best!;
         int keep = Math.Max(0, bestReuse);
@@ -396,8 +439,10 @@ public sealed class InferenceEngine : IDisposable
 
             slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
         }
-        seq.Slot = slot; slot.Active = seq;
-        seq.PromptPos = keep; seq.Cached = keep;
+        seq.Slot = slot;
+        slot.Active = seq;
+        seq.PromptPos = keep;
+        seq.Cached = keep;
         seq.Sampler = new RequestSampler(seq.Req.Sampling, seq.Prompt);
         seq.Decoder = new StreamingDecoder(_tokenizer, seq.Req.SkipSpecialTokens);
         seq.Filter = new StopStringFilter(seq.Req.StopStrings);
@@ -424,7 +469,9 @@ public sealed class InferenceEngine : IDisposable
             }
 
             inputs.Add(new SequenceInput(s.Slot!.Index, new[] { s.Pending }, true));
-            seqs.Add(s); budget--; nDecode++;
+            seqs.Add(s);
+            budget--;
+            nDecode++;
         }
         foreach (var s in _active)
         {
@@ -436,7 +483,8 @@ public sealed class InferenceEngine : IDisposable
             int chunk = Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget);
             bool last = s.PromptPos + chunk == s.Prompt.Length;
             inputs.Add(new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
-            seqs.Add(s); budget -= chunk;
+            seqs.Add(s);
+            budget -= chunk;
         }
         if (inputs.Count == 0)
         {
@@ -508,7 +556,11 @@ public sealed class InferenceEngine : IDisposable
             s.Writer.TryWrite(new GenerationChunk(text, lps));
         }
 
-        if (s.Filter.Stopped) { Complete(s, FinishReason.Stop, null, s.Filter.Matched); return; }
+        if (s.Filter.Stopped)
+        {
+            Complete(s, FinishReason.Stop, null, s.Filter.Matched);
+            return;
+        }
         if (s.Generated >= s.MaxTokens || s.Slot!.Tokens.Count + 1 > _decoder.ContextLength)
         {
             Complete(s, FinishReason.Length, null, null, flush: true);

@@ -35,7 +35,12 @@ public sealed class Reranker : ITextReranker, IDisposable
 
     private Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, RerankerKind kind, int maxLength, string? instruction)
     {
-        Definition = def; Tokenizer = tok; _runner = runner; Kind = kind; MaxSequenceLength = maxLength; Name = def.Name;
+        Definition = def;
+        Tokenizer = tok;
+        _runner = runner;
+        Kind = kind;
+        MaxSequenceLength = maxLength;
+        Name = def.Name;
         var md = def.SourceMetadata;
         _activation = md.TryGetValue(CanonicalKeys.ClassifierActivation, out var a) && a is string s ? s : "sigmoid";
         _pairStyle = md.TryGetValue(CanonicalKeys.TokenizerPairStyle, out var ps) && ps is string p ? p
@@ -131,17 +136,20 @@ public sealed class Reranker : ITextReranker, IDisposable
                     lb--;
                 }
             }
-            a = a[..Math.Max(0, la)]; b = b[..Math.Max(0, lb)];
+            a = a[..Math.Max(0, la)];
+            b = b[..Math.Max(0, lb)];
         }
         var tokens = new List<int>(a.Length + b.Length + specials) { cls };
-        tokens.AddRange(a); tokens.Add(sep);
+        tokens.AddRange(a);
+        tokens.Add(sep);
         if (!bert)
         {
             tokens.Add(sep);
         }
 
         int second = tokens.Count;
-        tokens.AddRange(b); tokens.Add(sep);
+        tokens.AddRange(b);
+        tokens.Add(sep);
         var types = new int[tokens.Count];
         if (bert)
         {

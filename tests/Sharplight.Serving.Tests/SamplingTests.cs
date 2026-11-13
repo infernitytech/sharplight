@@ -52,7 +52,8 @@ public class SamplingTests
     {
         var draws = Draw(new SamplingParams { TopK = 2, Seed = 5 }, [5f, 4.9f, 4.8f, 4.7f], 2000);
         Assert.DoesNotContain(draws, t => t >= 2);
-        Assert.Contains(draws, t => t == 0); Assert.Contains(draws, t => t == 1);
+        Assert.Contains(draws, t => t == 0);
+        Assert.Contains(draws, t => t == 1);
     }
 
     [Fact]

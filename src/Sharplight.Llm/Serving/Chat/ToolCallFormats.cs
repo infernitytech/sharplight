@@ -133,12 +133,21 @@ public static partial class ToolCallFormats
                 yield break;
             }
 
-            if (s[i] != '{' && s[i] != '[') { yield return s[i..]; yield break; }
-            int depth = 0, start = i; bool inStr = false;
+            if (s[i] != '{' && s[i] != '[')
+            {
+                yield return s[i..];
+                yield break;
+            }
+            int depth = 0, start = i;
+            bool inStr = false;
             for (; i < s.Length; i++)
             {
                 char c = s[i];
-                if (inStr) { if (c == '\\') { i++; } else if (c == '"') { inStr = false; } continue; }
+                if (inStr)
+                {
+                    if (c == '\\') { i++; } else if (c == '"') { inStr = false; }
+                    continue;
+                }
                 if (c == '"')
                 {
                     inStr = true;

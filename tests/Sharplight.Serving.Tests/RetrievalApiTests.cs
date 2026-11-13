@@ -34,7 +34,11 @@ public sealed class RetrievalApiTests : IAsyncLifetime
         }
         b.Services.AddSharplightEmbeddings(_embedder).AddSharplightReranker(new FakeReranker());
         var app = b.Build();
-        if (full) { app.UseSharplight(); app.MapSharplight(); }
+        if (full)
+        {
+            app.UseSharplight();
+            app.MapSharplight();
+        }
         else
         {
             app.MapSharplightRetrieval();
@@ -46,7 +50,11 @@ public sealed class RetrievalApiTests : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var a in new[] { _app, _standalone }) { await a.StopAsync(); await a.DisposeAsync(); }
+        foreach (var a in new[] { _app, _standalone })
+        {
+            await a.StopAsync();
+            await a.DisposeAsync();
+        }
         _engine?.Dispose();
     }
 

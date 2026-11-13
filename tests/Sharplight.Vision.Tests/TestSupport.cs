@@ -60,7 +60,8 @@ internal static class Env
     public static (float MaxAbs, float MaxRel, double Rms) Compare(float[] a, float[] b)
     {
         Assert.Equal(a.Length, b.Length);
-        float maxAbs = 0, maxRel = 0; double sq = 0, refSq = 0;
+        float maxAbs = 0, maxRel = 0;
+        double sq = 0, refSq = 0;
         float scale = 0;
         foreach (var v in b)
         {
@@ -72,7 +73,8 @@ internal static class Env
             float d = Math.Abs(a[i] - b[i]);
             maxAbs = Math.Max(maxAbs, d);
             maxRel = Math.Max(maxRel, d / Math.Max(Math.Abs(b[i]), 1e-2f * scale));
-            sq += (double)d * d; refSq += (double)b[i] * b[i];
+            sq += (double)d * d;
+            refSq += (double)b[i] * b[i];
         }
         return (maxAbs, maxRel, Math.Sqrt(sq / Math.Max(refSq, 1e-30)));
     }
