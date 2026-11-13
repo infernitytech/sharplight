@@ -10,7 +10,7 @@ SLOTS=${SLOTS:-$(echo $CONCS | tr ' ' '\n' | sort -n | tail -1)}
 LOG=$HERE/results/serve_${ENG}_${NAME}.server.log
 export VLLM_USE_FLASHINFER_SAMPLER=0
 case $ENG in
-  sharplight) "$HERE/../samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve" "$MP" --slots $SLOTS --ctx $CTX --listen http://127.0.0.1:$PORT --temp 0 "${EXTRA[@]}" > $LOG 2>&1 & ;;
+  sharplight) "$HERE/../samples/Sharplight.Server/bin/Release/net11.0/sharplight-server" "$MP" --slots $SLOTS --ctx $CTX --listen http://127.0.0.1:$PORT --temp 0 "${EXTRA[@]}" > $LOG 2>&1 & ;;
   llama-*) B=${ENG#llama-}; LD_LIBRARY_PATH=$LLAMA_ROOT/runtime.llama-b11177-$B $LLAMA_ROOT/runtime.llama-b11177-$B/llama-server -m "$MP" -ngl 99 -fa on -np $SLOTS -c $((SLOTS*CTX)) --port $PORT --no-webui "${EXTRA[@]}" > $LOG 2>&1 & ;;
   vllm) $HOME/.venvs/vllm/bin/vllm serve "$MP" --served-model-name m --max-model-len $CTX --max-num-seqs $SLOTS --port $PORT --no-enable-prefix-caching "${EXTRA[@]}" > $LOG 2>&1 & ;;
 esac

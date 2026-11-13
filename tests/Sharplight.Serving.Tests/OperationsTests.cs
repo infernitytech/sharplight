@@ -2,7 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Sharplight.Llm.Serving;
-using Sharplight.Server;
+using Sharplight.AspNetCore;
 
 namespace Sharplight.Serving.Tests;
 

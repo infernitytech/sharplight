@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sharplight-server</AssemblyName>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
+    <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
+  </ItemGroup>
+</Project>

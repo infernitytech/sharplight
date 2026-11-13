@@ -10,12 +10,12 @@ Baseline measured on 2026-11-13. Measurement only: nothing under `src/` or `test
 | GPU | NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB, sm_120, 300 W power limit, driver 610.57.04). Boost clock up to 3090 MHz, about 2340 MHz observed during runs |
 | CPU / RAM | Ryzen 9 9950X, 91 GB (typically 55-70 GB used by the desktop session, so little free RAM) |
 | OS | Fedora 44, Linux 7.1.8 |
-| Sharplight | working tree of 2026-11-13 (no git metadata available), `dotnet build -c Release`, .NET SDK 11.0.100, Vulkan provider with Slang kernels; benchmarked binaries: `samples/Sharplight.Cli` (`--bench`), `samples/Sharplight.Serve` |
+| Sharplight | working tree of 2026-11-13 (no git metadata available), `dotnet build -c Release`, .NET SDK 11.0.100, Vulkan provider with Slang kernels; benchmarked binaries: `samples/Sharplight.Cli` (`--bench`), `samples/Sharplight.Server` |
 | llama.cpp | b11177 (commit 1ab7e5ad2), builds `runtime.llama-b11177-cuda13` and `runtime.llama-b11177-vulkan` (Vulkan device 0 = the NVIDIA GPU; the RADV iGPU is ignored by default), `-ngl 99 -fa 1/on` |
 | vLLM | 0.33.0 in `~/.venvs/vllm` (uv, Python 3.12.13, torch 2.14.0+cu130, flash-attn backend, CUDA graphs on). `VLLM_USE_FLASHINFER_SAMPLER=0` because no CUDA toolkit matching the wheels is installed (FlashInfer JIT needs nvcc). Prefix caching off |
 
 **Shared GPU.** The GPU is shared with the user's desktop (kwin, VS Code, Chrome, Rider, a Python process) and three idle
-`sharplight-serve` processes that were already running (about 10-13 GB of VRAM in use before every run, 0-2 % utilisation when idle).
+`sharplight-server` processes that were already running (about 10-13 GB of VRAM in use before every run, 0-2 % utilisation when idle).
 `nvidia-smi` was sampled before every measurement (`bench/results/*.gpu.txt`, and a line per run in `single_sharplight_*.txt`); no other
 heavy GPU user was seen, but samples taken right after the previous process exited show residual utilisation, and another agent
 was running tests in the same period, so a few outliers (marked by wide min..max ranges, mainly the small-model prefill rows) may come
@@ -314,7 +314,7 @@ With chunking the worst stall a running stream sees is one step (36 ms) instead 
 is the first compilation of the 4096-row graph during the run (the warm-up only used short prompts), which is itself an argument
 for a bounded step shape.
 
-**Prompt-lookup speculation** (`sharplight-serve --speculate-ngram N`; an edit task whose answer copies the prompt, Llama-1B,
+**Prompt-lookup speculation** (`sharplight-server --speculate-ngram N`; an edit task whose answer copies the prompt, Llama-1B,
 c=1, temperature 0, 6 requests of 140 tokens; output identical to non-speculative decoding):
 
 | drafts | engine steps | GPU step time total | drafted | accepted | wall tok/s (noisy) |
@@ -367,7 +367,7 @@ bench/run_vllm_single_all.sh                           # (+ --max-len 4000 --dep
 
 # serving (one server per engine/model, concurrency 1 4 16 64):   bench/results/serve_<engine>_<model>_c<N>.json
 bench/run_serve_all.sh llama3.2-1b-q8                  # sharplight, llama-cuda13, llama-vulkan, vllm (VLLM_MODEL / VLLM_UTIL env)
-#   Sharplight:  sharplight-serve MODEL --slots 64 --ctx 512 --listen http://127.0.0.1:18080 --temp 0
+#   Sharplight:  sharplight-server MODEL --slots 64 --ctx 512 --listen http://127.0.0.1:18080 --temp 0
 #   llama.cpp:   llama-server -m MODEL -ngl 99 -fa on -np 64 -c 32768 --port 18080 --no-webui [--cache-ram 0]
 #   vLLM:        vllm serve HF_DIR --served-model-name m --max-model-len 512 --max-num-seqs 64 --no-enable-prefix-caching --gpu-memory-utilization 0.3
 #   load:        python bench/loadgen.py --url http://127.0.0.1:18080 -c N --per-worker 3 [--ignore-eos]   # -c 1,4,16,64
@@ -380,7 +380,7 @@ SHARPLIGHT_VK_PROFILE=1 samples/Sharplight.Cli/bin/Release/net11.0/sharplight MO
 python3 bench/summarize_single.py; python3 bench/summarize_serve.py
 ```
 
-Sharplight serve/CLI binaries used: `samples/Sharplight.Cli/bin/Release/net11.0/sharplight`, `samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve`.
+Sharplight serve/CLI binaries used: `samples/Sharplight.Cli/bin/Release/net11.0/sharplight`, `samples/Sharplight.Server/bin/Release/net11.0/sharplight-server`.
 `vllm_single.py` options used beyond the defaults: `--gpu-util 0.5` (27B), `--gpu-util 0.35 --depth 3800 --max-len 4000` (OLMoE).
 
 ### Caveats and things that went wrong
@@ -510,7 +510,7 @@ Quantised KV caches (`--kv-type q8_0|q4_0`): memory, speed and accuracy are in [
 
 ## 10. Paged KV cache: concurrency per GiB and c = 64 throughput (2026-11-13)
 
-`sharplight-serve MODEL --ctx 4096 --slots S [--kv-tokens N]`; `bench/loadgen.py -c 64 --per-worker 6 --ignore-eos` (251-token
+`sharplight-server MODEL --ctx 4096 --slots S [--kv-tokens N]`; `bench/loadgen.py -c 64 --per-worker 6 --ignore-eos` (251-token
 prompts, 128 output tokens, 384 requests). Fixed: every slot reserves 4096 tokens. Paged: one pool of N tokens in 16-token
 blocks, shared by 64 slots. VRAM = server process allocation; raw results in `bench/results/paged/`.
 

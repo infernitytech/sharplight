@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Sharplight.Llm.Serving.Hosting;
-using Sharplight.Server;
+using Sharplight.AspNetCore;
 
 namespace Sharplight.Serving.Tests;
 

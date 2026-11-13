@@ -4,7 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Logging;
-using Sharplight.Server;
+using Sharplight.AspNetCore;
 
 namespace Sharplight.Serving.Tests;
 

@@ -6,7 +6,7 @@ This is a short tour of the types an application uses. Every public type and mem
 | Assembly | Role | Main entry points |
 |---|---|---|
 | `Sharplight.Llm` | Load models, generate, batch, host several models, embed and rerank | `LlmModel`, `InferenceSession`, `Generator`, `InferenceEngine`, `ModelService`, `ModelHost`, `EmbeddingModel`, `Reranker`, `VisionEncoder` |
-| `Sharplight.Server` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
+| `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `AddSharplightChatClient`, `AddSharplightEmbeddingGenerator` |
 
 Format support is not part of these assemblies. The host registers the importers it wants once at startup
@@ -170,7 +170,7 @@ var chat = lease.As<ChatModelInstance>().Service;
 
 ## 4. Serve over HTTP
 
-`Sharplight.Server` maps OpenAI-compatible (`/v1/chat/completions`, `/v1/completions`, `/v1/models`) and Anthropic-compatible
+`Sharplight.AspNetCore` maps OpenAI-compatible (`/v1/chat/completions`, `/v1/completions`, `/v1/models`) and Anthropic-compatible
 (`/v1/messages`, `/v1/messages/count_tokens`) endpoints, `/v1/embeddings` and `/v1/rerank` for registered retrieval models,
 `/health` (summary), `/health/live` and `/health/ready` (probes; ready answers 503 while draining or loading), `/metrics`
 (Prometheus: queue depth, batch size, step time, TTFT / inter-token histograms, KV-cache use, speculation acceptance) and

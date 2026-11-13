@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Logging;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
-using Sharplight.Server;
+using Sharplight.AspNetCore;
 
 namespace Sharplight.Serving.Tests;
 
