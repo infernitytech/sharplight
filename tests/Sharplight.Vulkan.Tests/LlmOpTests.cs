@@ -249,6 +249,7 @@ public class StatefulTests
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
         if (window > 0) attrs.Add(("window", window));
         tg.B.RuntimeScalar("n_past");
+        attrs.Add(("sinks", true));
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sinks], Attributes.From([.. attrs])));
         var q = Rnd.F(total * Hq * D, 1).Select(x => x * 3).ToArray(); var k = Rnd.F(total * Hkv * D, 2); var v = Rnd.F(total * Hkv * D, 3);
         var steps = new List<Step>(); int past = 0;

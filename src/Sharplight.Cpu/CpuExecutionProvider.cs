@@ -322,7 +322,7 @@ public sealed class CpuDevice : IComputeDevice
                 return ins[1].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("CacheWrite source must be f32");
             case "CachedAttention":
                 if (ins[0].Type != DataType.F32) return OpSupport.No("CachedAttention q must be f32");
-                if (ins.Length > 3 && ins[3].Type != DataType.F32) return OpSupport.No("CachedAttention sinks must be f32");
+                if (node.Attributes.Get("sinks", false) && ins[3].Type != DataType.F32) return OpSupport.No("CachedAttention sinks must be f32");
                 if (!IsKv(ins[1].Type) || !IsKv(ins[2].Type)) return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32/f16 only)");
                 return OpSupport.Yes;
             case "Attention":
@@ -338,7 +338,8 @@ public sealed class CpuDevice : IComputeDevice
                     return OpSupport.No("SelectiveScan needs f32 x/dt/B/C and state");
                 return F32Like(ins[2]) && F32Like(ins[3]) && F32Like(ins[6]) ? OpSupport.Yes : OpSupport.No("SelectiveScan dt_bias/A/D must be f32-convertible");
             case "GatedDeltaRule":
-                foreach (var v in ins) if (v.Type != DataType.F32) return OpSupport.No($"GatedDeltaRule needs f32 inputs and state, got {v.Type}");
+                foreach (var v in ins.Take(6)) if (v.Type != DataType.F32) return OpSupport.No($"GatedDeltaRule needs f32 inputs and state, got {v.Type}");
+                if (ins.Length > 6 && ins[6].Type != DataType.I32) return OpSupport.No("GatedDeltaRule sequence runs must be i32");
                 return OpSupport.Yes;
         }
         return OpSupport.No($"op '{op}' is not implemented by the CPU provider");

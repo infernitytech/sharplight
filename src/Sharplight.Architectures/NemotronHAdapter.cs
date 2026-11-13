@@ -138,7 +138,7 @@ public sealed class NemotronHAdapter : IModelAdapter
             var dt = b.Slice(proj, 1, inner + convDim, H);
             var cs = b.State(convState[il]); var ss = b.State(ssmState[il]);
             var conv = b.Emit("CausalConv1d", [xbc, b.Weight(p + "ssm.conv1d.weight"), cs, b.Weight(p + "ssm.conv1d.bias")],
-                Attributes.From(("activation", "silu")), writes: [cs])[0];
+                Attributes.From(("activation", "silu"), ("bias", true)), writes: [cs])[0];
             var xs = b.Reshape(b.Slice(conv, 1, 0, inner), 0, H, P);
             var bs = b.Reshape(b.Slice(conv, 1, inner, G * N), 0, G, N);
             var cc = b.Reshape(b.Slice(conv, 1, inner + G * N, G * N), 0, G, N);

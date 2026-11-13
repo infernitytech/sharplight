@@ -91,6 +91,40 @@ public sealed class LlmModel : IDisposable
         return new InferenceSession(Definition, compiled);
     }
 
+    /// <summary>
+    /// Creates the decoder the serving layer batches requests over: with <paramref name="slots"/> &gt; 1 and a graph whose
+    /// stateful ops all have multi-sequence forms, a <see cref="Serving.MultiSequenceDecoder"/> (rows of up to
+    /// <paramref name="slots"/> sequences per forward pass, each with <paramref name="contextLength"/> tokens of context,
+    /// default the load option); otherwise a single-slot <see cref="Serving.SessionBatchDecoder"/>.
+    /// </summary>
+    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null)
+    {
+        var graph = Definition.Graph(WellKnown.DecodeGraph);
+        string? why = null;
+        if (slots <= 1 || !Graph.MultiSequence.IsSupported(graph, out why))
+        {
+            if (slots > 1) _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
+            return new Serving.SessionBatchDecoder(CreateSession());
+        }
+        int ctx = contextLength ?? _options.ContextLength;
+        var sw = Stopwatch.StartNew();
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, new PlacementOptions
+        {
+            Devices = _options.Devices,
+            Fallback = _options.Fallback,
+            Compile = new CompileOptions
+            {
+                MaxTokens = _options.MaxBatchTokens,
+                ContextLength = ctx,
+                SymbolBounds = new Dictionary<string, long> { ["R"] = Math.Max(slots, 1) },
+                DisabledFeatures = _options.DisabledFeatures,
+                CacheFor = CacheFor,
+            },
+        });
+        _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        return dec;
+    }
+
     /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>
     public bool SupportsImages => Definition.Graphs.ContainsKey(WellKnown.VisionEncodeGraph);
 

@@ -118,10 +118,9 @@ static class Gpu
             var p = new VulkanProvider();
             var av = p.CheckAvailability();
             if (!av.IsAvailable) return (null, av.Reason);
-            // SHARPLIGHT_TEST_DEVICE=<index> selects another device (e.g. the iGPU); default: first discrete GPU.
+            // SHARPLIGHT_TEST_DEVICE=<index> selects another device (e.g. the iGPU or llvmpipe) to exercise feature fallbacks.
             var devs = p.GetDevices();
-            var dev = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_DEVICE"), out int di) && di >= 0 && di < devs.Count
-                ? devs[di]
+            var dev = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_DEVICE"), out int di) && di >= 0 && di < devs.Count ? devs[di]
                 : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
             if (dev is null) return (null, "no Vulkan device");
             return (p.OpenDevice(dev), "");

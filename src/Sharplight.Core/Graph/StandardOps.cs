@@ -130,10 +130,12 @@ public static partial class StandardOps
     /// [0, offset + t] (causal) where offset is the runtime scalar named by attribute <c>offset</c>
     /// (default "n_past"). Attributes: scale; optional <c>window</c> (int &gt; 0: a query only sees its last <c>window</c> keys,
     /// sliding-window attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
-    /// Optional 4th input <c>sinks</c> (f32 [Hq]): a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
+    /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
+    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
+    /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 4, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 6, (i, a) =>
     {
         var q = i[0].Shape; var v = i[2].Shape;
         return [new(DataType.F32, new Shape(q[0], q[1], v[2]))];
@@ -152,23 +154,26 @@ public static partial class StandardOps
     /// <summary>
     /// Writes x [T, ...] into rows [offset, offset+T) of a state tensor [Ctx, ...] (converting type).
     /// Inputs: state, x. Attribute: offset (runtime scalar name, default "n_past"). No outputs; side effect.
+    /// Multi-sequence form: third input = sequence rows [T, 4], attribute <c>slots</c>; row t goes to row (slot · Ctx/S + position).
     /// </summary>
-    public static readonly OpSchema CacheWrite = new("CacheWrite", OpCategory.Data, 2, 2, (i, a) => []);
+    public static readonly OpSchema CacheWrite = new("CacheWrite", OpCategory.Data, 2, 3, (i, a) => []);
 
     /// <summary>
     /// Causal depthwise 1-D convolution with carried state (Mamba / DeltaNet short conv).
     /// x [T, C], weight [C, K], state State [K-1, C] → y [T, C]. The state is updated with the last
-    /// K-1 inputs. Optional 4th input: bias f32 [C] (added before the activation). Attribute: activation ("none" | "silu").
+    /// K-1 inputs. Attribute: activation ("none" | "silu"); attribute <c>bias</c> (bool): the input after the state is a bias f32 [C], added before the activation.
+    /// Multi-sequence form: the last input = sequence runs [U, 4], state [S, K-1, C]; each run continues its slot's state.
     /// </summary>
-    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 4, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 5, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
     /// Gated delta rule recurrence (Gated DeltaNet linear attention).
     /// q,k [T, Hk, Dk]; v [T, Hv, Dv]; g [T, Hv] (log decay); beta [T, Hv]; state State [Hv, Dv, Dk].
     /// Head h uses q/k head (h mod Hk). Per token: S = exp(g)·S; S += k ⊗ (v − Sᵀk)·beta; o = Sᵀq·scale.
     /// Attribute: scale. Output [T, Hv, Dv].
+    /// Multi-sequence form: seventh input = sequence runs [U, 4], state [S, Hv, Dv, Dk]; each run continues its slot's state.
     /// </summary>
-    public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 6, (i, a) => [new(DataType.F32, i[2].Shape)]);
+    public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 7, (i, a) => [new(DataType.F32, i[2].Shape)]);
 
     /// <summary>Copies a value between devices (inserted by the partitioner).</summary>
     public static readonly OpSchema Transfer = new("Transfer", OpCategory.Data, 1, 1, Same);

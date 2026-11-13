@@ -535,8 +535,12 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         gB[ob] = ws[it][0]; gB[ob + 1] = ws[it][1];                                                     \
     }
 
-    FETCH(kBeg)
-    STAGE(0u)
+    // A split-K slice may be empty (K steps not divisible by SPLITK): never prefetch at or past K.
+    if (kBeg < kEnd)
+    {
+        FETCH(kBeg)
+        STAGE(0u)
+    }
     GroupMemoryBarrierWithGroupSync();
 
     uint cur = 0;

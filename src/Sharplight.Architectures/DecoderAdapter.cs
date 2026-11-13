@@ -286,6 +286,7 @@ public sealed class DecoderAdapter : IModelAdapter
             if (hp.SoftCap > 0) attrs.Add(("softcap", hp.SoftCap));
             b.RuntimeScalar(WellKnown.PastScalar);
             Value[] attnIn = b.TryWeight(p + "attention.sinks") is { } sinks ? [q, b.State(kCache[il]), b.State(vCache[il]), sinks] : [q, b.State(kCache[il]), b.State(vCache[il])];
+            if (attnIn.Length > 3) attrs.Add(("sinks", true));
             var attn = b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");
             var flat = b.Reshape(attn, 0, hp.NHead * D);
             if (b.HasWeight(p + "attention.gate.weight")) flat = b.Mul(flat, b.Sigmoid(b.Linear(h, p + "attention.gate.weight")));

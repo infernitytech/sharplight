@@ -264,6 +264,7 @@ public class StatefulOpTests
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
         if (window > 0) attrs.Add(("window", window));
         tg.B.RuntimeScalar("n_past");
+        attrs.Add(("sinks", true));
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sk], Attributes.From([.. attrs])));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 8, ctx: ctx);
         Func<float, float> rnd = cacheType == "f16" ? (x => (float)(Half)x) : (x => x);

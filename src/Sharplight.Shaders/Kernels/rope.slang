@@ -90,6 +90,9 @@ struct RowParams
     uint8_t* y;
     uint* rt;
     float* ff;
+#if MULTI_SEQ
+    int* seq;   // [T, 4] (slot, position, ...): CACHE_OUT row of t is slot * SLOT_CTX + position
+#endif
     uint T;
 };
 
@@ -98,7 +101,11 @@ groupshared float red[64];
 void store(RowParams p, uint t, uint h, uint i, float v)
 {
 #if CACHE_OUT
+#if MULTI_SEQ
+    uint64_t di = ((uint64_t(p.seq[t * 4]) * SLOT_CTX + uint(p.seq[t * 4 + 1])) * H + h) * D + i;
+#else
     uint64_t di = (uint64_t(p.rt[RT_N_PAST] + t) * H + h) * D + i;
+#endif
 #if CACHE_F16
     ((uint16_t*)p.y)[di] = f2h(v);
 #else

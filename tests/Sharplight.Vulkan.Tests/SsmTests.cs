@@ -48,7 +48,7 @@ public class SsmTests
         var w = tg.RandW("w", DataType.F32, 1f, C, K);
         var bias = tg.RandW("bias", DataType.F32, 1f, C);
         var state = tg.State("cs", DataType.F32, StateKind.Recurrent, K - 1, C);
-        tg.B.Output("y", tg.B.Emit("CausalConv1d", [x, w, state, bias], Attributes.From(("activation", silu ? "silu" : "none")), writes: [state])[0]);
+        tg.B.Output("y", tg.B.Emit("CausalConv1d", [x, w, state, bias], Attributes.From(("activation", silu ? "silu" : "none"), ("bias", true)), writes: [state])[0]);
         int[] chunks = [3, 1, 5, 2];
         var steps = chunks.Select((c, i) => new Step(c, 0, (x, Rnd.F((long)c * C, 100 + i)))).ToList();
         Diff.Check("CausalConv1d.bias", tg.B.Build(), steps, atol: 2e-5, rtol: 1e-4, maxTokens: 8, what: $"C={C} K={K} silu={silu}");

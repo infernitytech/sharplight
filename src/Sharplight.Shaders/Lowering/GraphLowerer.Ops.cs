@@ -21,6 +21,7 @@ public sealed partial class GraphLowerer
             case "Contiguous": EmitCopy(Ref(n.Inputs[0]), Produce(n.Output), "contiguous", [n]); break;
             case "Concat": LowerConcat(n); break;
             case "MatMul": LowerMatMul(n); break;
+            case "MatMulId": LowerMatMulId(n); break;
             case "RmsNorm": LowerNorm(n, mode: 0); break;
             case "L2Norm": LowerNorm(n, mode: 1); break;
             case "Rope": LowerRope(n); break;
@@ -257,7 +258,7 @@ public sealed partial class GraphLowerer
         bool nv2 = coop && s_gemm2 && s_gemmX16 && PreferWorkgroupMatrixGemm && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvBK == 0
                    && fmt is 1 or 8 or 108;
         var nvm = new Dictionary<string, string> { ["NV_BT"] = $"{NvBT}", ["NV_BN"] = $"{NvBN}", ["NV_BK"] = $"{NvBK}" };
-        Func<long, int> splitRows = nv2 ? r => ChooseSplit(N, K, r, NvBT, NvBN, NvBK) : r => ChooseSplit(N, K, r);
+        Func<long, int> splitRows = nv2 ? r => ChooseSplit(N, K, r, NvBT, NvBN, NvBK) : r => ChooseSplit(N, K, r, bk: s_g2Bk == 64 && K % 64 == 0 ? 64 : 32);
         Func<Bindings, int> split = b => splitRows(Rows(b, tx) * rowsMul);
         var big = coop
             ? (s_gemm2 ? new KernelVariant(b => split(b) == 1 && Grid.Div(N, G2BN) * Grid.Div(Rows(b, tx) * rowsMul, G2BM) >= 384,
@@ -357,6 +358,7 @@ public sealed partial class GraphLowerer
     static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
     static readonly bool s_attnFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_FA") != "0";
     static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
+    static readonly bool s_seqFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SEQ_FA") != "0";
 
     /// <summary>
     /// K split for the 128x128 tensor-core GEMM: aim for ~256 workgroups, keep at least 4 K blocks per split
@@ -426,6 +428,7 @@ public sealed partial class GraphLowerer
             ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
             ("SEC0", sec[0]), ("SEC1", sec[1]), ("SEC2", sec[2]), ("SEC3", sec[3])));
         var tx = x;
+        var seq = cacheWrite is not null && cacheWrite.Inputs.Length > 2 ? DenseInput(cacheWrite.Inputs[2], "seq-rows") : null;
         if (norm is not null || cacheWrite is not null)
         {
             if (norm is not null && nw is null) throw new NotSupportedException("Fused rope norm expects a weight.");
@@ -436,14 +439,15 @@ public sealed partial class GraphLowerer
                 ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
                 ("SEC0", sec[0]), ("SEC1", sec[1]), ("SEC2", sec[2]), ("SEC3", sec[3]),
                 ("NORM", norm is not null), ("EPS", norm?.Attributes.Get<float>("eps") ?? 0f),
-                ("CACHE_OUT", cacheWrite is not null), ("CACHE_F16", y.Type == DataType.F16), ("RT_N_PAST", cacheWrite is null ? 0 : Slot(cacheWrite)));
+                ("CACHE_OUT", cacheWrite is not null), ("CACHE_F16", y.Type == DataType.F16), ("RT_N_PAST", cacheWrite is null || seq is not null ? 0 : Slot(cacheWrite)),
+                ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(cacheWrite!, y)));
             var rk = Lib("rope.slang", "rope_row", rm);
             var wRef = nw ?? x;
             Emit($"rope{(norm is null ? "" : "+norm")}{(cacheWrite is null ? "" : "+cache_write")} {n.Output.Name}", [.. new[] { norm, n, cacheWrite }.OfType<Node>()],
                 [Always(rk, b => new Grid((uint)(Rows(b, tx) * H)))],
                 [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(wRef.Buffer, wRef.ByteOffset),
-                 new PointerArg(y.Buffer, y.ByteOffset), new PointerArg(_runtime, 0), ffArg, TokenArg(x)],
-                [.. (nw is null ? [x, pos] : (TensorRef[])[x, pos, nw]), .. ff is null ? [] : (TensorRef[])[ff]], [y]);
+                 new PointerArg(y.Buffer, y.ByteOffset), new PointerArg(_runtime, 0), ffArg, .. SeqArgs(seq), TokenArg(x)],
+                [.. (nw is null ? [x, pos] : (TensorRef[])[x, pos, nw]), .. ff is null ? [] : (TensorRef[])[ff], .. seq is null ? [] : (TensorRef[])[seq]], [y]);
             return;
         }
         Emit($"rope {n.Output.Name}", [n],
@@ -480,6 +484,18 @@ public sealed partial class GraphLowerer
     // ---- caches & attention -------------------------------------------------------------------
     int Slot(Node n) => _scalarSlots[n.Attributes.Get("offset", WellKnown.PastScalar)];
 
+    /// <summary>Multi-sequence ops: cache rows per sequence slot (cache rows / attribute <c>slots</c>).</summary>
+    static long SlotContext(Node n, TensorRef cache)
+    {
+        long slots = n.Attributes.Get("slots", 1L);
+        if (slots < 1 || cache.Shape[0] % slots != 0) throw new NotSupportedException($"{n.Op.Name}: cache rows {cache.Shape[0]} not divisible by {slots} slots.");
+        return cache.Shape[0] / slots;
+    }
+
+    TensorRef DenseInput(Value v, string name) { var r = Ref(v); return r.IsDense ? r : DenseTemp(r, name); }
+
+    static KernelArg[] SeqArgs(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>().Select(t => (KernelArg)new PointerArg(t.Buffer, t.ByteOffset))];
+
     void LowerCacheWrite(Node n)
     {
         if (_absorbedRope.TryGetValue(n.Inputs[1], out var rope)) { LowerRope(rope, cacheWrite: n); return; }
@@ -489,12 +505,14 @@ public sealed partial class GraphLowerer
         long inner = x.Shape[^1];
         bool f16 = state.Type == DataType.F16;
         if (!f16 && state.Type != DataType.F32) throw new NotSupportedException($"Cache type {state.Type}");
-        var k = Lib("data.slang", "cache_write", Macros(("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", Slot(n))));
+        var seq = n.Inputs.Length > 2 ? DenseInput(n.Inputs[2], "seq-rows") : null;
+        var k = Lib("data.slang", "cache_write", Macros(("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
+            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state))));
         var tx = x;
         Emit($"cache_write {state.Buffer.Name}", [n],
             [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1 * inner, 128)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(state.Buffer, state.ByteOffset), new PointerArg(_runtime, 0), TokenArg(x)],
-            [x], [state]);
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(state.Buffer, state.ByteOffset), new PointerArg(_runtime, 0), .. SeqArgs(seq), TokenArg(x)],
+            seq is null ? [x] : [x, seq], [state]);
     }
 
     void LowerAttention(Node n)
@@ -511,13 +529,21 @@ public sealed partial class GraphLowerer
             vc = AsDenseF32(vc, "attn-v");
         }
         var o = Produce(n.Output);
-        TensorRef? sinks = !full && n.Inputs.Length > 3 ? Ref(n.Inputs[3]) : null;   // optional attention sinks [HQ] f32
+        bool hasSinks = !full && n.Attributes.Get("sinks", false);
+        int so = hasSinks ? 1 : 0;   // inputs: q, k, v, [sinks], [rows, runs]
+        TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
         int window = n.Attributes.Get("window", 0);
         float softcap = n.Attributes.Get("softcap", 0f);
-        var m = Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
-            ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full ? 0 : Slot(n)),
+        TensorRef? seq = null, runs = null;
+        if (!full && n.Inputs.Length > 3 + so)
+        {
+            seq = DenseInput(n.Inputs[3 + so], "seq-rows");
+            runs = n.Inputs.Length > 4 + so ? DenseInput(n.Inputs[4 + so], "seq-runs") : throw new NotSupportedException("Multi-sequence attention needs the runs table.");
+        }
+        var m = Macros(("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, kc)),("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
+            ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)),
             ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null));
         var k = Lib("attention.slang", "main", m);
         var tq = q;
@@ -546,13 +572,18 @@ public sealed partial class GraphLowerer
                   && dP <= 256 && dvP <= 256 && HQ % HKV == 0 && faShared <= _opt.MaxSharedMemory;
         var variants = new List<KernelVariant>();
         if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
-        if (fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));
+        // Multi-sequence: fa blocks never straddle sequences (grid z = runs); for short runs (batched decode) the per-query kernel wins.
+        var tr = runs;
+        if (fa) variants.Add(tr is null
+            ? new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32)))
+            : new KernelVariant(b => s_seqFa && Rows(b, tq) > SplitMaxRows && Rows(b, tq) >= 8 * Rows(b, tr), Lib("attention.slang", "fa", m),
+                b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32), (uint)Rows(b, tr))));
         variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
         Emit($"attention {n.Output.Name}", [n],
             variants,
             [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
-             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg((sinks ?? o).Buffer, (sinks ?? o).ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
-            sinks is null ? [q, kc, vc] : [q, kc, vc, sinks], split ? [o, part] : [o]);
+             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg((sinks ?? o).Buffer, (sinks ?? o).ByteOffset), new PointerArg(_runtime, 0), .. SeqArgs(seq, runs), TokenArg(q)],
+            [q, kc, vc, .. sinks is null ? [] : (TensorRef[])[sinks], .. seq is null ? [] : (TensorRef[])[seq, runs!]], split ? [o, part] : [o]);
         if (split)
             Emit($"attention {n.Output.Name} combine", [n],
                 [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
@@ -570,12 +601,15 @@ public sealed partial class GraphLowerer
         if (w.Type != DataType.F32) throw new NotSupportedException("conv weight must be f32");
         var y = Produce(n.Output);
         long C = x.Shape[1], KS = w.Shape[1];
-        TensorRef? cb = n.Inputs.Length > 3 ? Ref(n.Inputs[3]) : null;
-        var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"), ("HAS_BIAS", cb is not null)));
+        bool hasBias = n.Attributes.Get("bias", false);
+        TensorRef? cb = hasBias ? Ref(n.Inputs[3]) : null;
+        var runs = n.Inputs.Length > 3 + (hasBias ? 1 : 0) ? DenseInput(n.Inputs[3 + (hasBias ? 1 : 0)], "seq-runs") : null;
+        var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
+            ("MULTI_SEQ", runs is not null), ("HAS_BIAS", cb is not null)));
         Emit($"conv1d {n.Output.Name}", [n],
-            [Always(k, _ => new Grid(Grid.Div(C, 128)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), new PointerArg((cb ?? y).Buffer, (cb ?? y).ByteOffset), TokenArg(x)],
-            cb is null ? [x, w, st] : [x, w, st, cb], [y, st]);
+            [Always(k, b => new Grid(Grid.Div(C, 128), 1, runs is null ? 1u : (uint)Rows(b, runs)))],
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), new PointerArg((cb ?? y).Buffer, (cb ?? y).ByteOffset), .. SeqArgs(runs), TokenArg(x)],
+            [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. runs is null ? [] : (TensorRef[])[runs]], [y, st]);
     }
 
     void LowerDeltaRule(Node n)
@@ -584,6 +618,7 @@ public sealed partial class GraphLowerer
         Node? nq = _absorbedNorms.GetValueOrDefault(n.Inputs[0]), nk = _absorbedNorms.GetValueOrDefault(n.Inputs[1]);
         var q = Ref(nq?.Inputs[0] ?? n.Inputs[0]); var k = Ref(nk?.Inputs[0] ?? n.Inputs[1]); var v = Ref(n.Inputs[2]);
         var g = Ref(n.Inputs[3]); var beta = Ref(n.Inputs[4]); var st = Ref(n.Inputs[5]);
+        var runs = n.Inputs.Length > 6 ? DenseInput(n.Inputs[6], "seq-runs") : null;
         if (q.Strides[2] != 1) q = DenseTemp(q, "delta-q");
         if (k.Strides[2] != 1) k = DenseTemp(k, "delta-k");
         if (v.Strides[2] != 1) v = DenseTemp(v, "delta-v");
@@ -600,13 +635,14 @@ public sealed partial class GraphLowerer
         var kern = Lib("recurrent.slang", "delta_rule", Macros(("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("KS0", k.Strides[0]), ("KS1", k.Strides[1]), ("VS0", v.Strides[0]), ("VS1", v.Strides[1]),
             ("SCALE", n.Attributes.Get<float>("scale")), ("LPR", lpr), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
-            ("NORM_Q", nq is not null), ("EPS_Q", nq?.Attributes.Get<float>("eps") ?? 0f), ("NORM_K", nk is not null), ("EPS_K", nk?.Attributes.Get<float>("eps") ?? 0f)));
+            ("NORM_Q", nq is not null), ("EPS_Q", nq?.Attributes.Get<float>("eps") ?? 0f), ("NORM_K", nk is not null), ("EPS_K", nk?.Attributes.Get<float>("eps") ?? 0f),
+            ("MULTI_SEQ", runs is not null)));
         Emit($"delta_rule {n.Output.Name}", [.. new[] { nq, nk }.OfType<Node>(), n],
-            [Always(kern, _ => new Grid((uint)HV, (uint)(DV / dvb)))],
+            [Always(kern, b => new Grid((uint)HV, (uint)(DV / dvb), runs is null ? 1u : (uint)Rows(b, runs)))],
             [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(k.Buffer, k.ByteOffset), new PointerArg(v.Buffer, v.ByteOffset),
              new PointerArg(g.Buffer, g.ByteOffset), new PointerArg(beta.Buffer, beta.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset),
-             new PointerArg(o.Buffer, o.ByteOffset), TokenArg(q)],
-            [q, k, v, g, beta, st], [o, st]);
+             new PointerArg(o.Buffer, o.ByteOffset), .. SeqArgs(runs), TokenArg(q)],
+            [q, k, v, g, beta, st, .. runs is null ? [] : (TensorRef[])[runs]], [o, st]);
     }
 
     // ---- concat ------------------------------------------------------------------------------

@@ -12,21 +12,27 @@
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
     <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
+    <Project Path="src/Sharplight.Server/Sharplight.Server.csproj" />
+    <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Sharplight.Cli/Sharplight.Cli.csproj" />
     <Project Path="samples/Sharplight.Inspect/Sharplight.Inspect.csproj" />
     <Project Path="samples/Sharplight.GgufDump/Sharplight.GgufDump.csproj" />
     <Project Path="samples/Sharplight.OnnxRun/Sharplight.OnnxRun.csproj" />
+    <Project Path="samples/Sharplight.Serve/Sharplight.Serve.csproj" />
+    <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
     <Project Path="tests/Sharplight.Families.Tests/Sharplight.Families.Tests.csproj" />
+    <Project Path="tests/Sharplight.Extensions.AI.Tests/Sharplight.Extensions.AI.Tests.csproj" />
     <Project Path="tests/Sharplight.Gguf.Tests/Sharplight.Gguf.Tests.csproj" />
     <Project Path="tests/Sharplight.HuggingFace.Tests/Sharplight.HuggingFace.Tests.csproj" />
     <Project Path="tests/Sharplight.Onnx.Tests/Sharplight.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
     <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
+    <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Tokenizers.Tests/Sharplight.Tokenizers.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />

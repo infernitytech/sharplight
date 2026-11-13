@@ -69,8 +69,14 @@ struct Params
     float* part;
     float* sinks;
     uint* rt;
+#if MULTI_SEQ
+    int* seq;    // [T, 4] (slot, position, run length, run index) per query row
+    int* runs;   // [U, 4] (slot, first row, row count, first position)
+#endif
     uint T;
 };
+
+
 
 #ifndef WG
 #define WG 128
@@ -146,8 +152,12 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint t = gid.y;
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
+    uint64_t kvRow = 0;   // multi-sequence: first cache row (x HKV) of the query's slot
 #if FULL_ATTN
     uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
+#elif MULTI_SEQ
+    uint L = uint(p.seq[t * 4 + 1]) + 1;
+    kvRow = uint64_t(p.seq[t * 4]) * SLOT_CTX * HKV;
 #else
     uint L = p.rt[RT_N_PAST] + t + 1;
 #endif
@@ -177,7 +187,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     {
         uint j = c0 + tid;
         float s = -1e30;
-        if (j < jEnd) s = dot_k(p.kc, (uint64_t(j) * HKV + hk) * D);
+        if (j < jEnd) s = dot_k(p.kc, (kvRow + uint64_t(j) * HKV + hk) * D);
 #if HAS_SOFTCAP
         if (j < jEnd) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
@@ -196,7 +206,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             float a = acc[di] * corr;
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
-                    a += sP[jj] * load_kv(p.vc, (uint64_t(c0 + jj) * HKV + hk) * DV + d);
+                    a += sP[jj] * load_kv(p.vc, (kvRow + uint64_t(c0 + jj) * HKV + hk) * DV + d);
             acc[di] = a;
         }
         GroupMemoryBarrierWithGroupSync();
@@ -264,7 +274,7 @@ groupshared half faP[FA_BR * FA_PS];
 groupshared float faO[FA_BR * FA_DC];
 
 // Rows j0.. of K or V (dim columns, zero-padded to dimP) into faKV as f16; rows >= L are zero.
-void fa_load_kv(uint8_t* cache, uint j0, uint L, uint hk, uint dim, uint dimP, uint tid)
+void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint dim, uint dimP, uint tid)
 {
     uint per = dimP / 8;
     for (uint i = tid; i < FA_BC * per; i += FA_T)
@@ -275,13 +285,13 @@ void fa_load_kv(uint8_t* cache, uint j0, uint L, uint hk, uint dim, uint dimP, u
         if (j < L && c < dim)
         {
 #if KV_F16
-            uint4 u = *(uint4*)(cache + ((uint64_t(j) * HKV + hk) * dim + c) * 2);
+            uint4 u = *(uint4*)(cache + ((kvRow + uint64_t(j) * HKV + hk) * dim + c) * 2);
             faKV[o + 0] = half(f16tof32(u.x & 0xFFFF)); faKV[o + 1] = half(f16tof32(u.x >> 16));
             faKV[o + 2] = half(f16tof32(u.y & 0xFFFF)); faKV[o + 3] = half(f16tof32(u.y >> 16));
             faKV[o + 4] = half(f16tof32(u.z & 0xFFFF)); faKV[o + 5] = half(f16tof32(u.z >> 16));
             faKV[o + 6] = half(f16tof32(u.w & 0xFFFF)); faKV[o + 7] = half(f16tof32(u.w >> 16));
 #else
-            float4* f = (float4*)(cache + ((uint64_t(j) * HKV + hk) * dim + c) * 4);
+            float4* f = (float4*)(cache + ((kvRow + uint64_t(j) * HKV + hk) * dim + c) * 4);
             float4 a = f[0], b = f[1];
             faKV[o + 0] = half(a.x); faKV[o + 1] = half(a.y); faKV[o + 2] = half(a.z); faKV[o + 3] = half(a.w);
             faKV[o + 4] = half(b.x); faKV[o + 5] = half(b.y); faKV[o + 6] = half(b.z); faKV[o + 7] = half(b.w);
@@ -301,8 +311,19 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint h = gid.x, t0 = gid.y * FA_BR;
     uint tid = ltid.x, sg = tid / 32;
     uint hk = h / (HQ / HKV);
+    uint64_t kvRow = 0;
+    uint qT = p.T, qRow0 = 0;   // query rows of this sequence; first global row
 #if FULL_ATTN
     uint nPast = 0;
+#elif MULTI_SEQ
+    // Blocks never straddle sequences: workgroup (h, blk, u) handles query tile blk of run u (grid z = runs,
+    // y = tiles of the longest possible run); tiles past a run's end exit.
+    uint u = gid.z, blk = gid.y;
+    int4 run = int4(p.runs[u * 4], p.runs[u * 4 + 1], p.runs[u * 4 + 2], p.runs[u * 4 + 3]);
+    if (blk * FA_BR >= uint(run.z)) return;
+    t0 = blk * FA_BR; qT = uint(run.z); qRow0 = uint(run.y);
+    uint nPast = uint(run.w);
+    kvRow = uint64_t(run.x) * SLOT_CTX * HKV;
 #else
     uint nPast = p.rt[RT_N_PAST];
 #endif
@@ -310,19 +331,19 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     for (uint i = tid; i < FA_BR * FA_DP; i += FA_T)
     {
         uint r = i / FA_DP, d = i % FA_DP, t = t0 + r;
-        faQ[r * FA_QS + d] = half(t < p.T && d < D ? p.q[uint64_t(t) * QS0 + uint64_t(h) * QS1 + d] * SCALE : 0.0);
+        faQ[r * FA_QS + d] = half(t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] * SCALE : 0.0);
     }
 
     uint row = tid / 4, sub = tid % 4;
     uint tq = t0 + row;
-    bool rowValid = tq < p.T;
+    bool rowValid = tq < qT;
     float m = -1e30, l = 0;
     float o[FA_NC * 16];   // output dims c * FA_DC + sub * 16 + e
     [ForceUnroll] for (uint i = 0; i < FA_NC * 16; i++) o[i] = 0;
 #if FULL_ATTN
     uint L = p.T, rowEnd = p.T;
 #else
-    uint L = nPast + min(p.T, t0 + FA_BR);   // keys needed by the block's last query
+    uint L = nPast + min(qT, t0 + FA_BR);   // keys needed by the block's last query
     uint rowEnd = nPast + tq + 1;            // this row's causal end
 #endif
 #if WINDOW && !FULL_ATTN
@@ -335,7 +356,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 
     for (uint j0 = jFirst; j0 < L; j0 += FA_BC)
     {
-        fa_load_kv(p.kc, j0, L, hk, D, FA_DP, tid);
+        fa_load_kv(p.kc, kvRow, j0, L, hk, D, FA_DP, tid);
         GroupMemoryBarrierWithGroupSync();
 
         // S: subgroup sg computes rows (sg / 2) * 16, keys (sg % 2) * 16.
@@ -353,7 +374,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         }
         GroupMemoryBarrierWithGroupSync();   // S visible; K no longer needed
 
-        fa_load_kv(p.vc, j0, L, hk, DV, FA_DVP, tid);
+        fa_load_kv(p.vc, kvRow, j0, L, hk, DV, FA_DVP, tid);
 
         // Online softmax of row `row`, columns sub * 8 .. + 8 (the row's 4 threads are adjacent lanes).
         float sv[8];
@@ -422,7 +443,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     if (rowValid)
     {
         float inv = l > 0 ? 1.0 / l : 0.0;
-        float* orow = p.o + (uint64_t(tq) * HQ + h) * DV;
+        float* orow = p.o + (uint64_t(qRow0 + tq) * HQ + h) * DV;
         [ForceUnroll]
         for (uint c = 0; c < FA_NC; c++)
             [ForceUnroll] for (uint e = 0; e < 16; e++) if (c * FA_DC + sub * 16 + e < DV) orow[c * FA_DC + sub * 16 + e] = o[c * 16 + e] * inv;

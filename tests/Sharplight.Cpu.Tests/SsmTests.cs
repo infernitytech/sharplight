@@ -95,7 +95,7 @@ public class SsmTests
         var x = Kit.Rand(T * C, 1); var w = Kit.Rand(C * K, 2); var bias = Kit.Rand(C, 3);
         var tg = new TG(); var xin = tg.InF("x", TG.T, C);
         var state = tg.State("cs", DataType.F32, StateKind.Recurrent, K - 1, C);
-        tg.B.Output("y", tg.B.Emit("CausalConv1d", [xin, tg.WF("w", w, C, K), state, tg.WF("b", bias, C)], Attributes.From(("activation", silu ? "silu" : "none")), writes: [state])[0]);
+        tg.B.Output("y", tg.B.Emit("CausalConv1d", [xin, tg.WF("w", w, C, K), state, tg.WF("b", bias, C)], Attributes.From(("activation", silu ? "silu" : "none"), ("bias", true)), writes: [state])[0]);
         var refNoAct = Ref.Conv(x, T, C, w, K, new float[(K - 1) * C], false);
         var exp = new float[T * C];
         for (int i = 0; i < exp.Length; i++) { float v = refNoAct[i] + bias[i % C]; exp[i] = silu ? v / (1f + MathF.Exp(-v)) : v; }
