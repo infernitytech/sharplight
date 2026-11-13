@@ -10,6 +10,7 @@ internal static class GgufArchitectureMappings
     static GgufArchitectureMappings()
     {
         Register(new Qwen35GgufMapping());
+        Register(new Qwen3VlGgufMapping());
         Register(new NemotronHGgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());

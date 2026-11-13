@@ -79,6 +79,11 @@ public class FamilyGenerationTests
             [144327, 144327, 225506, 211030, 97146, 233136, 9370, 73769, 109242, 214491, 226975, 16650, 238421, 24763, 218821, 87098], "", NeedsCpuFallback: true),
         new("tiny-random-qwen3.8-flash-next HF, end-of-text in the prompt (transformers)", "hf/tiny-random-qwen3.8-flash-next", "Hi there<|endoftext|>The capital of France is", "ids",
             [144327, 144327, 144327, 225506, 128955, 40177, 244551, 164360, 41110, 144327, 41110, 144327, 144327, 144327, 225506, 128955], "", NeedsCpuFallback: true),
+        // Qwen3-VL text model (interleaved M-RoPE and DeepStack reduce to the dense decoder for text-only prompts).
+        new("Qwen3-VL-2B-Instruct HF (transformers)", "hf/Qwen3-VL-2B-Instruct", "The capital of France is", "ids",
+            [12095, 11, 323, 279, 6722, 315, 17689, 374, 24081, 13, 1416, 279, 6722, 315, 9625, 374], ""),
+        new("Qwen3-VL-2B-Instruct Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-VL-2B-Instruct/Qwen3VL-2B-Instruct-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris, and the capital of Germany is Berlin. If the capital of France is", Tokens: 16),
         // Qwen3.6-35B-A3B (qwen35moe, 256 experts top-8) and Qwen3-Coder-Next (qwen3next, 512 experts top-10, MXFP4 shared expert).
         new("Qwen3.6-35B-A3B UD-Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
