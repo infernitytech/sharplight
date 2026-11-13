@@ -13,6 +13,7 @@ internal sealed class HfSpecialVocab
     private readonly List<string> _kinds = ["bos", "eos", "unk", "sep", "pad", "cls", "mask"];
     private readonly Dictionary<string, int> _ids = new();
     private readonly Dictionary<string, bool> _addFlags = new();
+    private bool _passThroughTemplate;
 
     /// <summary>tokenizer_config entries rewritten by the post-processor logic (they shadow the file's values).</summary>
     private readonly Dictionary<string, string?> _overrides = new();
@@ -44,6 +45,13 @@ internal sealed class HfSpecialVocab
         vocab.ReadTokenNames();
         vocab.ApplyPostProcessor(tok);
         vocab.ReadTokenizerConfig(md, dir, addedTokens);
+        if (vocab._passThroughTemplate && !Has(vocab.ConfiguredToken("bos_token")))
+        {
+            // A pass-through template of a tokenizer without a BOS token adds no special tokens, unless tokenizer_config says otherwise.
+            vocab._addFlags.TryAdd("bos", false);
+            vocab._addFlags.TryAdd("eos", false);
+        }
+
         vocab.ReadConfigJsonIds(config);
         vocab.WriteTo(md);
         // TODO: normalizer flags (NFC/lowercase/strip_accents), clean_up_tokenization_spaces and metaspace prepend scheme
@@ -142,8 +150,19 @@ internal sealed class HfSpecialVocab
     /// </summary>
     private void ApplyTemplateProcessing(JsonElement processor)
     {
-        if (!processor.TryGetProperty("single", out var single) || single.ValueKind != JsonValueKind.Array || single.GetArrayLength() <= 1)
+        if (!processor.TryGetProperty("single", out var single) || single.ValueKind != JsonValueKind.Array)
         {
+            return;
+        }
+
+        if (single.GetArrayLength() <= 1)
+        {
+            // A template that only passes the sequence through adds no special tokens.
+            if (SpecialTokenId(single[0]) is null)
+            {
+                _passThroughTemplate = true;
+            }
+
             return;
         }
 

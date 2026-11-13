@@ -11,9 +11,47 @@ internal static class GgufArchitectureMappings
     {
         Register(new Qwen35GgufMapping());
         Register(new NemotronHGgufMapping());
+        Register(new HybridGgufMapping());
+        Register(new Rwkv7GgufMapping());
+        Register(new Rwkv6GgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());
+        foreach (var family in DecoderFamilies())
+        {
+            Register(family);
+        }
+    }
+
+    /// <summary>The llama.cpp decoder-only families that map onto the canonical decoder through <see cref="GgufDecoderFamilyMapping"/>.</summary>
+    private static IEnumerable<IGgufArchitectureMapping> DecoderFamilies()
+    {
+        yield return new SmolLm3GgufMapping();
+        yield return new Olmo2GgufMapping();
+        yield return new Glm4GgufMapping();
+        yield return new Ernie45GgufMapping();
+        yield return new HunyuanDenseGgufMapping();
+        yield return new ExaoneGgufMapping();
+        yield return new Exaone4GgufMapping();
+        yield return new SeedOssGgufMapping();
+        yield return new InternLm2GgufMapping();
+        yield return new Qwen1GgufMapping();
+        yield return new XverseGgufMapping();
+        yield return new Gemma1GgufMapping();
+        yield return new OpenElmGgufMapping();
+        yield return new GraniteGgufMapping();
+        yield return new MiniCpmGgufMapping();
+        yield return new Phi2GgufMapping();
+        yield return new Starcoder2GgufMapping();
+        yield return new CommandRGgufMapping();
+        yield return new FalconGgufMapping();
+        yield return new GptNeoXGgufMapping();
+        yield return new Gpt2GgufMapping();
+        yield return new OlmoGgufMapping();
+        yield return new NemotronGgufMapping();
+        yield return new StableLmGgufMapping();
+        yield return new ApertusGgufMapping();
+        yield return new ArceeGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>
