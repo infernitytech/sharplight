@@ -477,3 +477,59 @@ context, because four modes are measured). Step ms, minimum over 30 steps, logit
 Aggregate throughput with device greedy sampling at batch 16: 27B 382 tok/s (44 at batch 1), Mistral 1486 (238), Llama-1B 3712
 (741), OLMoE 1639 (709). The Llama-1B logits column at 16-64 rows is dominated by the 128k-entry logits readback and varies by 2x
 between runs; the OLMoE batch-32 row was disturbed by another GPU user (its no-logits step measured 13.4 ms in the same run).
+
+## 9. MoE, block formats, int8 tensor-core prefill and fusion (2026-11-13)
+
+`sharplight MODEL --bench 512 --ctx 768` (best of 3 process runs; decode = best of 64 steps after the 512-token prefill) against
+`llama-bench -p 512 -n 128 -fa 1 -r 3` (b11177 CUDA) run right after it on the same, shared GPU. "before" is the branch state
+when this work started (these models on master: gpt-oss-20b 6.4k / 213, ERNIE 6.6k / 202, Ministral-3 3B 14.6k / 245).
+
+| model | metric | before | after | llama.cpp CUDA | after/CUDA |
+|---|---|---|---|---|---|
+| olmoe-q4km | pp512 | 22859 | 26791 | 26541 | 1.01x |
+| olmoe-q4km | tg | 759 | 761 | 816 | 0.93x |
+| ernie4.5-21b-a3b-q4km | pp512 | 8965 | 10405 | 10383 | 1.00x |
+| ernie4.5-21b-a3b-q4km | tg | 318 | 320 | 365 | 0.88x |
+| nemotron3-nano-30b-q4km | pp512 | 6353 | 9327 | 8464 | 1.10x |
+| nemotron3-nano-30b-q4km | tg | 247 | 309 | 338 | 0.91x |
+| gpt-oss-20b-mxfp4 | pp512 | 6687 | 11831 | 17432 | 0.68x |
+| gpt-oss-20b-mxfp4 | tg | 220 | 310 | 345 | 0.90x |
+| ministral3-3b-q4km | pp512 | 19889 | 19817 | 20666 | 0.96x |
+| ministral3-3b-q4km | tg | 378 | 376 | 396 | 0.95x |
+
+What changed:
+
+* **Expert GEMMs on the dense tensor-core GEMM** (`gemm_cm2` with `MOE=1`): the expert-grouped tiles of `moe_route` drive
+  the dense kernel (gathered activation rows, scattered output rows, 32/64/128-row tiles). It replaces `moe_gemm_cm`
+  (`SHARPLIGHT_MOE_GEMM2=0` restores it): OLMoE +17 %, ERNIE +15 %, Nemotron +13 %, gpt-oss +42 % prefill.
+* **Packed-half decoding of MXFP4, Q4_0, Q5_0 and plain Q8_0** in the f16 tensor-core GEMM (previously a per-value f32
+  decode): E2M1 bits placed into half bits (exact, subnormals included) and one multiply by the block scale; the 4-bit
+  formats through the exact 1024 + q trick. Word loads funnel-shifted to the 17/18/22/34-byte blocks (`load16_any`).
+  gpt-oss expert GEMM 514 → 392 µs, Nemotron's Q5_0 / Q8_0 expert GEMMs 1.0 → 0.6 ms.
+* **Integer-dot matvec for the 32-value block formats** (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4; K % 32 == 0, so also
+  gpt-oss's K = 2880): one block per chunk, Q4_0/Q5_0 offsets through the activation block sums, MXFP4 as the doubled int8
+  values decoded with bytewise SIMD arithmetic (a dynamically indexed codebook cost 35 %). `SHARPLIGHT_MMVQ_BLOCK=0`
+  disables it. gpt-oss decode 225 → 310, Nemotron (Q5_0 experts) 245 → 310 tok/s. Plain Q8_0 single rows stay on the f32
+  matvec (int-dot is faster for gpt-oss's 2880-wide Q8_0 matrices but slower for Llama-1B and Qwen3-0.6B).
+* **Elementwise groups merged along data flow** (`SHARPLIGHT_NO_GROUP_MERGE=1` disables): a group takes an earlier group of
+  the same shape it reads when no unit in between reads that group or writes state. gpt-oss's clamped SwiGLU with the
+  expert bias adds (5 kernels) becomes one: 749 → 653 dispatches per step.
+* **int8 tensor-core GEMM (MMQ)** for prefill (`mmq.slang`, `DeviceFeatures.MatrixInt8`, q8_1 activations, 16x16x32 int8
+  cooperative matrices, i2f via the 1.5 · 2^23 bias, Q6_K's 16-value scales through a second MMA on the upper half):
+  Q8_0, Q4_K, Q5_K, Q6_K, IQ4_NL, IQ4_XS. Measured at T=512 on the Mistral shapes (min of 50, TFLOPS, f16 path → MMQ):
+  Q8_0 ≈ parity, Q4_K 140-170 → 90-160, Q5_K 122-154 → 77-140, Q6_K 106-152 → 60-112, IQ4_XS 56-83 → 82-152. The kernel
+  needs 247-255 registers per thread (B-fragment loads and the per-block scaling dominate; ablations: pure MMA ≈ 876
+  TOPS-equivalent, with scaling 519, without global loads 303). It is therefore on by default only for IQ4_NL / IQ4_XS
+  (`SHARPLIGHT_MMQ=0|all|q4_k,...`; Mistral pp512: f16 9530, MMQ all 7630). The 27B Q8_0 prefill stays on the f16 GEMM
+  (~177 TFLOPS); its remaining gap to llama.cpp (188 vs ~167 ms per 512 tokens) is mostly the delta rule (18 ms).
+* `SHARPLIGHT_VK_PIPELINE_STATS=1` prints register count, shared memory and other driver statistics of every pipeline
+  (`VK_KHR_pipeline_executable_properties`).
+
+Precision: `IntDotAccuracyTests` (Families) teacher-forces ~90 positions of a fixed text through Llama-1B Q4_K_M,
+Qwen3-0.6B Q8_0, OLMoE Q4_K_M, Mistral-7B Q4_K_M and gpt-oss-20b with and without `int_dot` (chunks of 1-3 tokens): the
+same top-1 token at 94-100 % of positions, every flip at a reference margin of at most 1.2 % of the logit spread, maximum
+logit difference 0.8-5.4 % of the spread (asserted: ≥ 95 % top-1 with near-ties within 2 % counted, ≤ 10 %).
+
+Remaining gaps: gpt-oss prefill (0.68x: expert GEMM 392 µs × 72 at ~87 TFLOPS vs ~170 for the dense GEMM, the f16
+activation conversion and partial expert tiles), MoE decode (0.88-0.93x: expert biases still gathered by a separate
+`gather_axis` launch, and ~2 µs per small launch), and the int8 MMQ kernel's register pressure.
