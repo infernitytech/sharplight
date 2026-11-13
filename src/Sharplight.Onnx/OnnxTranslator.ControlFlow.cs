@@ -10,6 +10,12 @@ internal sealed partial class OnnxTranslator
     // ---- If --------------------------------------------------------------------------------------------------------
     private void IfOp(OnnxNode n, TranslatedTensor?[] ins)
     {
+        if (!ins[0]!.IsConst)
+        {
+            RuntimeIf(n, ins);
+            return;
+        }
+
         var cond = ConstIn(ins, 0, "If condition");
         var g = (cond.Floats()[0] != 0 ? n.Attributes["then_branch"] : n.Attributes["else_branch"]).G!;
         RunSubgraph(g, "If branch");

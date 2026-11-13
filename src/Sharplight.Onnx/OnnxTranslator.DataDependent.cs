@@ -22,7 +22,7 @@ internal sealed partial class OnnxTranslator
         long boxCount = scores.Shape[2].Fixed;
         long perClass = Math.Max(0, Math.Min(boxCount, maxPerClass));
         var bound = scores.Shape[0] * scores.Shape[1].Fixed * perClass;
-        string count = _b.DynamicSymbol("nms", bound);
+        string count = NewDynamicSymbol("nms", bound);
         var attributes = Attributes.From(("count_symbol", count), ("max_per_class", perClass), ("iou_threshold", (float)iou),
             ("score_threshold", (float)score), ("center_point_box", n.Int("center_point_box", 0) != 0));
         SetDyn(n, 0, Emit("NonMaxSuppression", [boxes, scores], attributes, Nm(n)));
@@ -38,7 +38,7 @@ internal sealed partial class OnnxTranslator
         }
 
         var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)x.Shape.Elements();
-        string count = _b.DynamicSymbol("nonzero", bound);
+        string count = NewDynamicSymbol("nonzero", bound);
         SetDyn(n, 0, Emit("NonZero", [x], Attributes.From(("count_symbol", count)), Nm(n)));
         _env[n.Outputs[0]].TransposedNonZero = true;
     }
@@ -62,7 +62,7 @@ internal sealed partial class OnnxTranslator
 
         var condition = conditionTensor.V ?? AsValue(conditionTensor);
         var bound = Sym(condition) ? condition.Shape[0] * condition.Shape.InnerElements : (Dim)condition.Shape.Elements();
-        string count = _b.DynamicSymbol("compress", bound);
+        string count = NewDynamicSymbol("compress", bound);
         var rows = Emit("NonZero", [condition], Attributes.From(("count_symbol", count)));
         var indices = Rs(rows, 0);
         _env[n.Outputs[0]] = Synthetic("Gather", [x, TranslatedTensor.Dyn(indices)], IntAttribute("axis", axis));
@@ -78,7 +78,7 @@ internal sealed partial class OnnxTranslator
 
         var x = ins[0]!.V ?? AsValue(ins[0]!);
         var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)Math.Max(1, x.Shape.Elements());
-        string count = _b.DynamicSymbol("unique", bound);
+        string count = NewDynamicSymbol("unique", bound);
         var outputs = _b.Emit("Unique", [x], Attributes.From(("count_symbol", count), ("sorted", n.Int("sorted", 1) != 0)), Nm(n));
         for (int i = 0; i < n.Outputs.Count && i < outputs.Count; i++)
         {

@@ -204,3 +204,30 @@ sbody = h.make_graph([
 save("scan_cumsum", [
     h.make_node("Scan", ["init", "x"], ["total", "partial"], body=sbody, num_scan_inputs=1, scan_input_directions=[1]),
 ], [("init", [4]), ("x", [5, 4])], ["total", "partial"], batches=(1,), fixbatch=True)
+
+
+# Runtime If (condition computed from the input): branches with captured values and constants; one output whose outer dim differs
+# between the branches. Two thresholds take each branch deterministically.
+def if_branches():
+    then_g = h.make_graph([
+        h.make_node("Relu", ["x"], ["r"]),
+        h.make_node("Mul", ["r", "two"], ["o1"]),
+        h.make_node("Slice", ["x", "s0", "e2", "a0"], ["o2"]),
+    ], "then", [], [h.make_tensor_value_info("o1", T.FLOAT, None), h.make_tensor_value_info("o2", T.FLOAT, None)],
+        [const("two", np.float32(2)), i64("s0", 0), i64("e2", 2), i64("a0", 0)])
+    else_g = h.make_graph([
+        h.make_node("Neg", ["x"], ["n"]),
+        h.make_node("Add", ["n", "w"], ["o1"]),
+        h.make_node("Slice", ["x", "s0b", "e5", "a0b"], ["o2"]),
+    ], "else", [], [h.make_tensor_value_info("o1", T.FLOAT, None), h.make_tensor_value_info("o2", T.FLOAT, None)],
+        [i64("s0b", 0), i64("e5", 5), i64("a0b", 0)])
+    return then_g, else_g
+
+
+for case, threshold in (("if_runtime_then", -1e9), ("if_runtime_else", 1e9)):
+    t_g, e_g = if_branches()
+    save(case, [
+        h.make_node("ReduceSum", ["x"], ["sum"], keepdims=0),
+        h.make_node("Greater", ["sum", "thr"], ["cond"]),
+        h.make_node("If", ["cond"], ["y1", "y2"], then_branch=t_g, else_branch=e_g),
+    ], [("x", [6, 4]), ("w", [6, 4])], ["y1", "y2"], [const("thr", np.float32(threshold))], batches=(1,), fixbatch=True)

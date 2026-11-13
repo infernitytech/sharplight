@@ -15,7 +15,7 @@ internal sealed partial class OnnxTranslator
     private readonly OnnxImportOptions _opts;
     private readonly Dictionary<string, WeightInfo> _weights = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslatedTensor> _env = new(StringComparer.Ordinal);
-    private readonly Dictionary<(OnnxConst, string), Value> _constValues = new();
+    private Dictionary<(OnnxConst, string), Value> _constValues = new();
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
     private readonly HashSet<OnnxNode> _skip = [];
@@ -181,12 +181,7 @@ internal sealed partial class OnnxTranslator
             throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
         }
 
-        var value = tensor.V!;
-        if (value.Kind != ValueKind.Intermediate)
-        {
-            // Outputs must be produced by a node; Scale keeps f32 fast paths, Contiguous copies any type.
-            value = value.Type == DataType.F32 ? _b.Scale(value, 1f, 0f, output.Name) : _b.Emit1("Contiguous", [value], null, output.Name);
-        }
+        var value = OutputCopy(tensor.V!, output.Name);
 
         _b.Output(output.Name, value);
     }

@@ -113,7 +113,7 @@ public static class PlacementPlanner
         {
             var n = graph.Nodes[i];
             int s = groupDevice[n.Group];
-            if (n.Op.Category != OpCategory.View && !slots[s].Device.Supports(n).IsSupported)
+            if (n.Op.Category is not (OpCategory.View or OpCategory.ControlFlow) && !slots[s].Device.Supports(n).IsSupported)
             {
                 if (fallbackSlot >= 0 && slots[fallbackSlot].Device.Supports(n).IsSupported)
                 {
@@ -249,7 +249,9 @@ public static class PlacementPlanner
         var runs = new List<(int Slot, List<Node> Nodes)>();
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i])
+            // A control-flow node runs alone in a host segment.
+            bool controlFlow = graph.Nodes[i].Op.Category == OpCategory.ControlFlow;
+            if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i] || controlFlow || runs[^1].Nodes[^1].Op.Category == OpCategory.ControlFlow)
             {
                 runs.Add((nodeSlot[i], []));
             }
