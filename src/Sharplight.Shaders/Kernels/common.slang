@@ -350,8 +350,18 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
 #include "quant_k.slang"
 #include "quant_iq.slang"
 
-void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
+// Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
+// pointer to 32 bits, which breaks rows that start 4 GiB or more into a table.
+uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
 {
+    return (uint8_t*)(uint64_t(base) + rowBytes * row);
+}
+
+void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v[8])
+{
+    // Every decoder then addresses within one row only.
+    uint8_t* base = rowStart(table, rowBytes, tableRow);
+    const uint row = 0;
 #if WFMT == FMT_F32
     load8_f32(base, rowBytes, row, g, v);
 #elif WFMT == FMT_F16
