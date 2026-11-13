@@ -40,6 +40,8 @@ public interface IBatchDecoder : IDisposable
     /// in input order; null entries for the others. The arrays may be reused by the next call.
     /// </summary>
     IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs);
+    /// <summary>Device memory held by this decoder's compiled model (weights, state, activations; 0 when unknown).</summary>
+    long DeviceMemoryBytes => 0;
 }
 
 /// <summary>Single-slot <see cref="IBatchDecoder"/> over an <see cref="InferenceSession"/>.</summary>
@@ -53,6 +55,7 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     public int VocabSize => session.VocabSize;
     public bool BatchesSequences => false;
     public bool CanTruncate => false;
+    public long DeviceMemoryBytes => session.Compiled.Segments.Sum(s => s.DeviceMemoryBytes);
     public int Length(int slot) { Check(slot); return session.Position; }
     public void Reset(int slot) { Check(slot); session.Reset(); }
     public void Truncate(int slot, int length)

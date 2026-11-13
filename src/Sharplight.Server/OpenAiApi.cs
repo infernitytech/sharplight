@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
+using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.Server;
 
@@ -24,11 +25,15 @@ public static class OpenAiApi
         return routes;
     }
 
-    internal static JsonNode ModelObject(SharplightServerContext ctx)
-        => new JsonObject { ["id"] = ctx.Model.ModelName, ["object"] = "model", ["created"] = Created, ["owned_by"] = "sharplight" };
+    internal static JsonNode ModelObject(ModelInfo m) => new JsonObject
+    {
+        ["id"] = m.Name, ["object"] = "model", ["created"] = Created, ["owned_by"] = "sharplight",
+        // Extension: loaded or not, and what kind (models are loaded on first use).
+        ["sharplight"] = new JsonObject { ["kind"] = m.Kind.ToString().ToLowerInvariant(), ["state"] = m.State.ToString().ToLowerInvariant(), ["resident_bytes"] = m.ResidentBytes },
+    };
 
     internal static JsonNode ModelList(SharplightServerContext ctx)
-        => new JsonObject { ["object"] = "list", ["data"] = new JsonArray(ModelObject(ctx)) };
+        => new JsonObject { ["object"] = "list", ["data"] = new JsonArray(ctx.Host.List().Select(m => ModelObject(m)).ToArray()) };
 
     // ---- request parsing --------------------------------------------------------------------------------------------
 
@@ -219,10 +224,11 @@ public static class OpenAiApi
         var req = ParseChat(b, ctx);
         bool stream = b.Bool("stream") ?? false;
         bool includeUsage = b.Obj("stream_options")?.Bool("include_usage") ?? false;
-        var run = ctx.Model.StartChat(req, http.RequestAborted);
+        using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete
+        var run = SharplightServerContext.ChatOf(lease).StartChat(req, http.RequestAborted);
         string id = "chatcmpl-" + Guid.NewGuid().ToString("N")[..24];
         long created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        string model = ctx.Model.ModelName;
+        string model = lease.Name;
 
         if (!stream)
         {
@@ -344,10 +350,11 @@ public static class OpenAiApi
         };
         bool stream = b.Bool("stream") ?? false, echo = (b.Bool("echo") ?? false) && prompt is not null;
         bool includeUsage = b.Obj("stream_options")?.Bool("include_usage") ?? false;
-        var run = ctx.Model.StartCompletion(req, http.RequestAborted);
+        using var lease = await ctx.AcquireAsync(http, b.Str("model"));
+        var run = SharplightServerContext.ChatOf(lease).StartCompletion(req, http.RequestAborted);
         string id = "cmpl-" + Guid.NewGuid().ToString("N")[..24];
         long created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        string model = ctx.Model.ModelName;
+        string model = lease.Name;
 
         if (!stream)
         {

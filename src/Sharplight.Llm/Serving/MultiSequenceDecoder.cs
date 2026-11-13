@@ -32,6 +32,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
     public bool BatchesSequences => true;
     public bool CanTruncate { get; }
     public CompiledModel Compiled => _compiled;
+    public long DeviceMemoryBytes => _compiled.Segments.Sum(s => s.DeviceMemoryBytes);
 
     /// <param name="compiled">A model compiled from <see cref="MultiSequence.Transform"/>'s graph with context length
     /// <paramref name="slots"/> · <paramref name="contextLength"/> and symbol bounds U = slots, R ≥ slots.</param>

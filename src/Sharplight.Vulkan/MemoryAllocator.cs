@@ -104,6 +104,13 @@ internal sealed unsafe class MemoryAllocator : IDisposable
                 }
                 else i++;
             }
+            // Give a fully free block back to the driver, so unloading a model really returns its memory to the device
+            // (other models on the same device, and other applications, can use it).
+            if (b.Free.Count == 1 && b.Free.Keys[0] == 0 && b.Free.Values[0] == b.Size)
+            {
+                Destroy(b);
+                _blocks.Remove(b);
+            }
         }
     }
 

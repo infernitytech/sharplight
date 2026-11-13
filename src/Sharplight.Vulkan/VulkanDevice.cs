@@ -28,7 +28,12 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     VkPipelineCache _pipelineCache;
     const string PipelineCacheKey = "vulkan/pipeline_cache";
     readonly List<VkShaderModule> _modules = [];
+    // Thread safety: one VkDevice/queue is shared by every model (and thread) using this device. vkQueueSubmit needs
+    // external synchronization (_queueLock via Submit); command pools are externally synchronized too, so every segment
+    // records into its own pool and the device-level pool is only used under _poolLock.
     readonly Lock _queueLock = new();
+    readonly Lock _poolLock = new();
+    readonly bool _budgetExt;
     readonly long _budget;
     long _used;
     bool _disposed;
@@ -38,7 +43,21 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     /// <summary>Detected features minus the ones disabled for this device; only these are enabled in the driver.</summary>
     public IReadOnlySet<string> EnabledFeatures { get; }
     bool Has(string feature) => EnabledFeatures.Contains(feature);
-    public long AvailableMemory => _budget - Interlocked.Read(ref _used);
+    public long AvailableMemory => GetMemoryInfo().Available;
+
+    /// <summary>Live memory figures: VK_EXT_memory_budget when the driver has it (accounts for other processes), else our own tally against the configured budget.</summary>
+    public DeviceMemoryInfo GetMemoryInfo()
+    {
+        long ours = Interlocked.Read(ref _used);
+        long total = Phys.DeviceLocalBytes;
+        if (!_budgetExt) return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+        var bp = new VkPhysicalDeviceMemoryBudgetPropertiesEXT();
+        var mp = new VkPhysicalDeviceMemoryProperties2 { pNext = &bp };
+        Inst.Api.vkGetPhysicalDeviceMemoryProperties2(Phys.Handle, &mp);
+        long heapBudget = (long)bp.heapBudget[Phys.DeviceLocalHeap], heapUsage = (long)bp.heapUsage[Phys.DeviceLocalHeap];
+        if (heapBudget <= 0) return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+        return new DeviceMemoryInfo(total, Math.Min(_budget, heapBudget), Math.Max(ours, heapUsage), ours, true);
+    }
     public int SubgroupSize => (int)Phys.SubgroupSize;
     /// <summary>Effective submission budget in ms (0 = unlimited): <see cref="DeviceInfo.SubmissionBudgetMs"/> unless overridden.</summary>
     public double SubmissionBudgetMs { get; }
@@ -105,6 +124,8 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         float prio = 1f;
         var qci = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &prio };
         var exts = new List<string>();
+        _budgetExt = phys.MemoryBudgetExt && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.MemoryBudget) && !options.DisabledFeatures.Contains(DeviceFeatures.MemoryBudget);
+        if (_budgetExt) exts.Add("VK_EXT_memory_budget");
         if (coopMat) exts.Add("VK_KHR_cooperative_matrix");
         if (coopMat2) exts.Add("VK_NV_cooperative_matrix2");
         var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();
@@ -119,10 +140,7 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         Api.vkGetDeviceQueue(QueueFamily, 0, &queue);
         Queue = queue;
 
-        var cpci = new VkCommandPoolCreateInfo { queueFamilyIndex = QueueFamily, flags = VkCommandPoolCreateFlags.ResetCommandBuffer };
-        VkCommandPool pool;
-        Api.vkCreateCommandPool(&cpci, null, &pool).CheckResult();
-        CommandPool = pool;
+        CommandPool = CreateCommandPool();
 
         PushConstantSize = Math.Min(256u, phys.MaxPushConstants);
         var pcr = new VkPushConstantRange { stageFlags = VkShaderStageFlags.Compute, offset = 0, size = PushConstantSize };
@@ -197,9 +215,13 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         cache.Put(PipelineCacheKey, data.AsMemory(0, (int)size));
     }
 
+    readonly Lock _pipelineCreateLock = new();
+
     internal VkPipeline Pipeline(CompiledKernel kernel)
     {
-        return _pipelines.GetOrAdd(kernel.CacheKey, _ =>
+        if (_pipelines.TryGetValue(kernel.CacheKey, out var existing)) return existing;
+        // GetOrAdd may run its factory twice under a race (leaking a VkPipeline); models sharing the device record concurrently.
+        lock (_pipelineCreateLock) return _pipelines.GetOrAdd(kernel.CacheKey, _ =>
         {
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             try {
@@ -250,32 +272,36 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         }
     }
 
-    internal VkCommandBuffer AllocateCommandBuffer()
+    internal VkCommandPool CreateCommandPool()
     {
-        var ai = new VkCommandBufferAllocateInfo { commandPool = CommandPool, level = VkCommandBufferLevel.Primary, commandBufferCount = 1 };
-        VkCommandBuffer cb;
-        Api.vkAllocateCommandBuffers(&ai, &cb).CheckResult();
-        return cb;
+        var cpci = new VkCommandPoolCreateInfo { queueFamilyIndex = QueueFamily, flags = VkCommandPoolCreateFlags.ResetCommandBuffer };
+        VkCommandPool pool;
+        Api.vkCreateCommandPool(&cpci, null, &pool).CheckResult();
+        return pool;
     }
 
-    internal void FreeCommandBuffer(VkCommandBuffer cb) => Api.vkFreeCommandBuffers(CommandPool, 1, &cb);
+    /// <summary>Submits one command buffer; vkQueueSubmit needs external synchronization and the queue is shared by all users of the device.</summary>
+    internal void Submit(VkCommandBuffer cb, VkFence fence)
+    {
+        var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
+        lock (_queueLock) Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+    }
 
-    /// <summary>Records and runs a one-off command buffer.</summary>
+    /// <summary>Records and runs a one-off command buffer (device-level pool, serialized by a lock while recording).</summary>
     internal void Immediate(Action<VkCommandBuffer> record)
     {
-        var cb = AllocateCommandBuffer();
-        try
+        VkCommandBuffer cb;
+        lock (_poolLock)
         {
+            var ai = new VkCommandBufferAllocateInfo { commandPool = CommandPool, level = VkCommandBufferLevel.Primary, commandBufferCount = 1 };
+            Api.vkAllocateCommandBuffers(&ai, &cb).CheckResult();
             var bi = new VkCommandBufferBeginInfo { flags = VkCommandBufferUsageFlags.OneTimeSubmit };
             Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
             record(cb);
             Api.vkEndCommandBuffer(cb).CheckResult();
-            SubmitAndWait(cb);
         }
-        finally
-        {
-            FreeCommandBuffer(cb);
-        }
+        try { SubmitAndWait(cb); }
+        finally { lock (_poolLock) Api.vkFreeCommandBuffers(CommandPool, 1, &cb); }
     }
 
     public void Dispose()
