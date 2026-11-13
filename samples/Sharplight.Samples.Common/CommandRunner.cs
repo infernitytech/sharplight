@@ -16,7 +16,7 @@ public static class CommandRunner
 
     /// <summary>
     /// Wraps a command action so that a <see cref="SampleException"/> is reported as <c>error: message</c> with
-    /// <see cref="ExitCodes.RuntimeError"/> and cancellation (Ctrl+C) yields <see cref="ExitCodes.Cancelled"/>. Other exceptions
+    /// <see cref="SampleException.ExitCode"/> and cancellation (Ctrl+C) yields <see cref="ExitCodes.Cancelled"/>. Other exceptions
     /// are unexpected and propagate with a stack trace.
     /// </summary>
     public static Func<ParseResult, CancellationToken, Task<int>> Guard(Func<ParseResult, CancellationToken, Task<int>> action)
@@ -30,7 +30,7 @@ public static class CommandRunner
             catch (SampleException error)
             {
                 await Console.Error.WriteLineAsync($"error: {error.Message}");
-                return ExitCodes.RuntimeError;
+                return error.ExitCode;
             }
             catch (OperationCanceledException)
             {

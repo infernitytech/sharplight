@@ -1,8 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <AssemblyName>sharplight-onnxrun</AssemblyName>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <ProjectReference Include="../../src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
