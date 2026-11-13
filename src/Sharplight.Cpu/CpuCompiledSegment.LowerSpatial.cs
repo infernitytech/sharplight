@@ -105,6 +105,18 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
+    private void LowerRoiAlign(Node n)
+    {
+        var a = n.Attributes;
+        var x = Dense(RefF32(n.Inputs[0]));
+        var rois = Dense(RefF32(n.Inputs[1]));
+        var batch = Dense(Ref(n.Inputs[2]));
+        var y = NewDense(n.Output);
+        var op = new RoiAlignOp(x, rois, batch, y, (int)a.Get("sampling_ratio", 0L), a.Get("spatial_scale", 1f), a.Get("mode", "avg") == "max", a.Get("half_pixel", true));
+        AddStep(op, x, rois, batch, y);
+        _refs[n.Output] = y;
+    }
+
     private void LowerGroupNorm(Node n)
     {
         var a = n.Attributes;

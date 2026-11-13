@@ -27,7 +27,7 @@ public sealed partial class GraphLowerer
             "Add" => $"({args[0]} + {args[1]})",
             "Sub" => $"({args[0]} - {args[1]})",
             "Mul" => $"({args[0]} * {args[1]})",
-            "Div" => $"({args[0]} / {args[1]})",
+            "Div" => $"div_ieee({args[0]}, {args[1]})",
             "Max" => $"max({args[0]}, {args[1]})",
             "Min" => $"min({args[0]}, {args[1]})",
             "Scale" => $"({args[0]} * {F(node.Attributes.Get("scale", 1f))} + {F(node.Attributes.Get("bias", 0f))})",

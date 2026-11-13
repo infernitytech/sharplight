@@ -63,6 +63,15 @@ uint16_t f2bf(float f)
     return uint16_t(b >> 16);
 }
 
+// Correctly rounded a / b (GPU division is only accurate to a few ulp): one exact-residual correction step. Quantization relies on it,
+// since round(x / scale) must see the same ties as the CPU.
+float div_ieee(float a, float b)
+{
+    float q = a / b;
+    float r = fma(-q, b, a);
+    return fma(r, 1.0 / b, q);
+}
+
 // round half to even
 float round_even(float x)
 {

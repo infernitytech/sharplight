@@ -218,6 +218,19 @@ public class PackageTests
     }
 
     [Fact]
+    public void GraphsWithDataDependentShapesAreRejected()
+    {
+        using var tmp = new TempDir();
+        var b = new GraphBuilder("nz", _ => null);
+        var x = b.Input("x", InputRole.Other, DataType.F32, new Shape(6));
+        b.Output("y", b.Emit1("NonZero", [x], Attributes.From(("count_symbol", b.DynamicSymbol("nonzero", Dim.Of(6))))));
+        var def = new ModelDefinition { Architecture = "test_arch", Name = "nz", Weights = new Dictionary<string, WeightInfo>(), Graphs = new Dictionary<string, ComputeGraph> { ["nz"] = b.Build() } };
+        var e = Assert.Throws<NotSupportedException>(() => ModelPackage.Save(tmp.File("nz.slm"), def, []));
+        Assert.Contains("data-dependent", e.Message);
+        Assert.False(File.Exists(tmp.File("nz.slm")));
+    }
+
+    [Fact]
     public void TargetsAreStoredReplacedAndAppended()
     {
         using var tmp = new TempDir();

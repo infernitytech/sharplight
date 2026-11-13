@@ -70,7 +70,7 @@ internal sealed partial class OnnxTranslator
         else
         {
             scales = OptConst(ins, 2, "Resize scales");
-            sizes = OptConst(ins, 3, "Resize sizes");
+            sizes = OptConst(ins, 3, "Resize sizes", symbolic: true);
         }
 
         if (scales is { Count: 0 })
@@ -87,7 +87,8 @@ internal sealed partial class OnnxTranslator
         if (sizes is not null)
         {
             var s = sizes.Ints();
-            if (s.Length != 4 || s[1] != x.Shape[1].Fixed || (!Sym(x) && s[0] != x.Shape[0].Fixed))
+            if (s.Length != 4 || s[1] != x.Shape[1].Fixed || (!Sym(x) && s[0] != x.Shape[0].Fixed) || (SymbolicInts.IsSymbolic(s[0]) && s[0] != SymbolicInts.Encode(x.Shape[0]))
+                || SymbolicInts.AnySymbolic(s[2..]))
             {
                 throw new NotSupportedException("Resize may only change the spatial dimensions");
             }

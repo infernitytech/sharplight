@@ -92,6 +92,8 @@ public sealed partial class GraphLowerer
             "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
+            "Concat" when node.Output.Shape[0].IsSymbolic && node.Inputs.Any(i => i.Shape[0] != node.Output.Shape[0])
+                => OpSupport.No("Concat along the symbolic axis (offsets known only at run time)"),
             _ => OpSupport.Yes,
         };
         if (!opSpecific.IsSupported)

@@ -17,6 +17,7 @@ public sealed class GraphBuilder
     private readonly Dictionary<string, Value> _weightValues = [];
     private readonly Dictionary<string, Value> _stateValues = [];
     private readonly HashSet<string> _scalars = [];
+    private readonly List<KeyValuePair<string, Dim>> _dynamicSymbols = [];
     private readonly Func<string, WeightInfo?> _weightLookup;
     private readonly Stack<string> _groups = new();
     private int _nextValueId;
@@ -114,6 +115,27 @@ public sealed class GraphBuilder
     /// <param name="data">Raw little-endian bytes; must be exactly the byte size of <paramref name="type"/> times the element count.</param>
     public Value Constant(string name, DataType type, Shape shape, byte[] data)
         => new(_nextValueId++, name, type, shape, ValueKind.Constant) { ConstantData = data };
+
+    /// <summary>
+    /// Creates a data-dependent symbol: the extent of an op output that is only known after the op runs (e.g. the number of
+    /// non-zero elements). The op that owns it receives the name as an attribute and writes the actual value into
+    /// <see cref="Runtime.RunParameters.Symbols"/>; buffers are sized for <paramref name="bound"/>.
+    /// </summary>
+    /// <param name="hint">Readable prefix of the name (non-name characters are replaced).</param>
+    /// <param name="bound">Upper bound of the value; may be an expression over other symbols.</param>
+    /// <returns>The unique symbol name.</returns>
+    public string DynamicSymbol(string hint, Dim bound)
+    {
+        var clean = new string(hint.Select(c => SymbolicExpression.IsNameChar(c) ? c : '_').ToArray());
+        if (clean.Length == 0 || !SymbolicExpression.IsSymbolName(clean))
+        {
+            clean = "d_" + clean;
+        }
+
+        string name = $"{clean}#{_dynamicSymbols.Count}";
+        _dynamicSymbols.Add(new(name, bound));
+        return name;
+    }
 
     /// <summary>Declares a runtime scalar (e.g. <c>n_past</c>) used by ops of this graph.</summary>
     public void RuntimeScalar(string name) => _scalars.Add(name);
@@ -287,7 +309,7 @@ public sealed class GraphBuilder
             throw new InvalidOperationException("Graph has no outputs.");
         }
 
-        return new ComputeGraph(_name, [.. _nodes], [.. _inputs], new Dictionary<string, Value>(_outputs), [.. _scalars]);
+        return new ComputeGraph(_name, [.. _nodes], [.. _inputs], new Dictionary<string, Value>(_outputs), [.. _scalars], [.. _dynamicSymbols]);
     }
 
     private sealed class Scope(Action onDispose) : IDisposable

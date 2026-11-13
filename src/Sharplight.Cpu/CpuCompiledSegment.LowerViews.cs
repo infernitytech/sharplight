@@ -20,6 +20,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             axis += source.Rank;
         }
 
+        if (axis == 0 && source.Sym is not null)
+        {
+            _refs[n.Output] = View(source, DimsOf(n.Output.Shape), source.Strides, 0, n.Output.Shape.Symbol);
+            return;
+        }
+
         long start = a.Get<long>("start");
         var dims = (long[])source.Dims.Clone();
         dims[axis] = a.Get<long>("length");

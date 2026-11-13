@@ -186,9 +186,9 @@ void resize(uint3 dtid : SV_DispatchThreadID, uniform ResizeParams p)
 // General reduction. Input dims are split into kept dims (KN, shapes KSH / strides KST, outermost
 // may be symbolic and is then the quotient) and reduced dims (RN, shapes RSH / strides RST).
 // Output dense over the kept dims. TPO threads cooperate on one output (SG = subgroup, 256 = workgroup).
-// Macros: KN KSH KST RN RSH RST R_TOTAL TPO
+// Macros: KN KSH KST RN RSH RST R_TOTAL TPO (R_TOTAL is p.nRed when a reduced axis is symbolic)
 //   MODE: 0 sum 1 mean 2 max 3 min 4 prod 5 l1 6 l2 7 sumsquare 8 logsumexp
-struct ReduceParams { float* x; float* y; uint nOut; };
+struct ReduceParams { float* x; float* y; uint nOut; uint nRed; };
 static const int R_KSH[KN] = { KSH };
 static const int R_KST[KN] = { KST };
 static const int R_RSH[RN] = { RSH };
