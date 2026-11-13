@@ -146,6 +146,7 @@ internal sealed partial class OnnxTranslator
         var role = image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other;
         var value = _b.Input(info.Name, role, isInt ? DataType.I32 : DataType.F32, shape);
         var tensor = TranslatedTensor.Dyn(value);
+        tensor.ElemType = info.ElemType;
         _env[info.Name] = tensor;
         if ((_opts.InputShapes.GetValueOrDefault(info.Name)?.Length ?? info.Shape?.Count) == 0)
         {
@@ -496,6 +497,7 @@ internal sealed partial class OnnxTranslator
         }
 
         Dynamic(n, ins);
+        AssignElemTypes(n, ins);
         if (leadingUnits > 0 && !s_leadingUnitSetters.Contains(n.OpType))
         {
             foreach (var o in n.Outputs)
