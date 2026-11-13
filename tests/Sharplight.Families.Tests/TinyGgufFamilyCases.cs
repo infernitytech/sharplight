@@ -4,7 +4,7 @@ namespace Sharplight.Families.Tests;
 
 /// <summary>
 /// GGUF mappings checked on tiny random f32 files, with the greedy token ids of llama.cpp b11177 (CPU, llama-server with <c>return_tokens</c>) as the reference:
-/// Qwen v1, XVERSE, ChatGLM and ARWKV7 (written by <c>tools/mk_tiny_gguf.py</c>, no Hugging Face class exists for them) and the
+/// Qwen v1, XVERSE, ChatGLM, ARWKV7 and QRWKV6 (written by <c>tools/mk_tiny_gguf.py</c>, no Hugging Face class exists for them) and the
 /// dots.llm1, MiniMax-M2, Hunyuan (dense and MoE), EXAONE-MoE, Falcon, Arcee Trinity, MiMo-V2-Flash and Laguna files converted with llama.cpp's convert_hf_to_gguf.py
 /// from the tiny-random checkpoints (<c>tools/mk_tiny_moe.py</c> writes the llama.cpp-compatible variants; the converter needs the unknown tiny-tokenizer hash mapped
 /// (<c>get_vocab_base_pre</c> returning "gpt-2"), the dots1 and EXAONE-MoE gating function set to sigmoid, Hunyuan's rope-dimension assertion relaxed, and
@@ -49,6 +49,8 @@ internal static class TinyGgufFamilyCases
             [64, 240, 835, 1017, 565, 495, 823, 300, 105, 776, 886, 392, 644, 649, 657, 591, 589, 432, 858, 984, 375, 1019, 776, 983], ""),
         new("tiny-random-arwkv7-nogate f32 GGUF (arwkv7 without output gate and group norm, llama.cpp)", "gguf/tiny-random-arwkv7-nogate-f32.gguf", Prompt, "ids",
             [136, 655, 658, 528, 612, 386, 818, 611, 922, 875, 11, 521, 727, 956, 698, 439, 175, 167, 106, 459, 947, 129, 923, 894], ""),
+        new("tiny-random-rwkv6qwen2 f32 GGUF (rwkv6qwen2, llama.cpp)", "gguf/tiny-random-rwkv6qwen2-f32.gguf", Prompt, "ids",
+            [956, 986, 40, 1012, 577, 103, 551, 740, 822, 188, 41, 445, 748, 317, 232, 159, 810, 383, 559, 250, 372, 372, 840, 343], ""),
         new("tiny-random-falcon f32 GGUF (falcon, falcon pre-tokenizer, llama.cpp)", "gguf/tiny-random-falcon-f32.gguf", Prompt, "ids",
             [314, 975, 500, 741, 285, 500, 741, 500, 741, 285, 500, 856, 809, 975, 500, 741, 500, 741, 500, 500, 741, 56, 856, 56], ""),
     ];

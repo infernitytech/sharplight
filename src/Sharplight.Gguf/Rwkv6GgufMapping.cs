@@ -9,7 +9,7 @@ internal sealed class Rwkv6GgufMapping : IGgufArchitectureMapping, IGgufSplitMap
     private const int Mixes = 5;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["rwkv6"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["rwkv6", "rwkv6qwen2"];
     /// <inheritdoc/>
     public string Architecture => "rwkv6";
 
@@ -22,10 +22,15 @@ internal sealed class Rwkv6GgufMapping : IGgufArchitectureMapping, IGgufSplitMap
             [a + "layer_count"] = g.Int("block_count"),
             [a + "hidden_size"] = g.Int("embedding_length"),
             [a + "head_size"] = g.Int("wkv.head_size"),
-            [a + "norm_eps"] = g.Float("attention.layer_norm_epsilon"),
+            [a + "norm_eps"] = g.Has("attention.layer_norm_rms_epsilon") ? g.Float("attention.layer_norm_rms_epsilon") : g.Float("attention.layer_norm_epsilon"),
             [a + "rescale_every_layers"] = g.Int("rescale_every_n_layers", 0),
             [a + "time_mix_rank"] = g.Int("time_mix_extra_dim"),
         };
+        if (g.GgufArchitecture == "rwkv6qwen2")
+        {
+            md[a + "norm_type"] = "rms";
+        }
+
         GgufMappingHelpers.AddContextLength(md, a, g);
         return md;
     }
@@ -37,6 +42,13 @@ internal sealed class Rwkv6GgufMapping : IGgufArchitectureMapping, IGgufSplitMap
         ["attn_norm.bias"] = "input_norm.bias",
         ["attn_norm_2.weight"] = "post_attention_norm.weight",
         ["attn_norm_2.bias"] = "post_attention_norm.bias",
+        ["ffn_norm.weight"] = "post_attention_norm.weight",
+        ["ffn_gate.weight"] = "mlp.gate.weight",
+        ["ffn_up.weight"] = "mlp.up.weight",
+        ["ffn_down.weight"] = "mlp.down.weight",
+        ["time_mix_receptance.bias"] = "time_mix.receptance.bias",
+        ["time_mix_key.bias"] = "time_mix.key.bias",
+        ["time_mix_value.bias"] = "time_mix.value.bias",
         ["time_mix_lerp_x.weight"] = "time_mix.lerp_x.weight",
         ["time_mix_lerp_w.weight"] = "time_mix.lerp_w.weight",
         ["time_mix_lerp_k.weight"] = "time_mix.lerp_k.weight",
@@ -61,6 +73,8 @@ internal sealed class Rwkv6GgufMapping : IGgufArchitectureMapping, IGgufSplitMap
         ["channel_mix_receptance.weight"] = "channel_mix.receptance.weight",
         ["channel_mix_value.weight"] = "channel_mix.value.weight",
     };
+
+    private static readonly string[] s_lerpNames = ["w", "k", "v", "r", "g"];
 
     /// <summary>Embedding / output tensors.</summary>
     private static readonly Dictionary<string, string> s_global = new(StringComparer.Ordinal)
@@ -89,19 +103,32 @@ internal sealed class Rwkv6GgufMapping : IGgufArchitectureMapping, IGgufSplitMap
     public IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf)
     {
         var m = GgufTensorNames.Block().Match(ggufName);
-        if (!m.Success || m.Groups[2].Value != "time_mix_w2.weight")
+        if (!m.Success)
         {
             return null;
         }
 
-        // [5, C, D]: one [C, D] up-projection per interpolation.
-        var shape = new Shape(tensor.Shape[1].Fixed, tensor.Shape[2].Fixed);
-        return Enumerable.Range(0, Mixes)
-            .Select(i =>
-            {
-                string name = $"layers.{m.Groups[1].Value}.time_mix.mix_up.{i}.weight";
-                return tensor.RowSlice(name, i, 1).As(name, shape);
-            })
-            .ToList();
+        string layer = $"layers.{m.Groups[1].Value}.time_mix.";
+        switch (m.Groups[2].Value)
+        {
+            case "time_mix_w2.weight":
+                // [5, C, D]: one [C, D] up-projection per interpolation.
+                var shape = new Shape(tensor.Shape[1].Fixed, tensor.Shape[2].Fixed);
+                return Enumerable.Range(0, Mixes)
+                    .Select(i =>
+                    {
+                        string name = $"{layer}mix_up.{i}.weight";
+                        return tensor.RowSlice(name, i, 1).As(name, shape);
+                    })
+                    .ToList();
+            case "time_mix_lerp_fused.weight":
+                // [5, 1, 1, C]: the interpolation factors for w, k, v, r, g.
+                var vector = new Shape(tensor.Shape.Elements() / Mixes);
+                return s_lerpNames
+                    .Select((lerp, i) => tensor.RowSlice($"{layer}lerp_{lerp}.weight", i, 1).As($"{layer}lerp_{lerp}.weight", vector))
+                    .ToList();
+            default:
+                return null;
+        }
     }
 }

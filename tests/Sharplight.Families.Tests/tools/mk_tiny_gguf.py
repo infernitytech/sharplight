@@ -1,13 +1,13 @@
 """
 Writes tiny random GGUF files for llama.cpp architectures that have no Hugging Face class in transformers (so no tiny-random checkpoint
-and no converter path): Qwen v1 (qwen), XVERSE (xverse) and ChatGLM (chatglm), and the RMS-normed RWKV distillation ARWKV7 (arwkv7, with and without output gate). The weights are random, written with llama.cpp's tensor names
+and no converter path): Qwen v1 (qwen), XVERSE (xverse) and ChatGLM (chatglm), and the RMS-normed RWKV distillations ARWKV7 (arwkv7, with and without output gate) and QRWKV6 (rwkv6qwen2). The weights are random, written with llama.cpp's tensor names
 and hyper-parameter keys; llama.cpp (llama-completion) provides the reference continuation. The tokenizer fields are copied from a GGUF
 that already carries the 1024-token GPT-2-style vocabulary of tiny-random-GPTNeoXForCausalLM, e.g. tiny-random-falcon-f32.gguf converted
 from ~/models/hf/tiny-random-falcon with convert_hf_to_gguf.py.
 
     PYTHONPATH=<llama.cpp>/gguf-py python mk_tiny_gguf.py <tokenizer gguf> <output directory> [name ...]
 
-Files: <output directory>/tiny-random-{qwen1,xverse,chatglm,arwkv7,arwkv7-nogate}-f32.gguf (only the named ones when names are given). Norm weights
+Files: <output directory>/tiny-random-{qwen1,xverse,chatglm,arwkv7,arwkv7-nogate,rwkv6qwen2}-f32.gguf (only the named ones when names are given). Norm weights
 and biases are randomized so that every tensor matters.
 """
 import os, sys
@@ -163,6 +163,29 @@ def arwkv7_parameters(gated):
     return write
 
 
+def rwkv6qwen2_parameters(writer):
+    writer.add_time_mix_extra_dim(MIX_RANK)
+    writer.add_time_decay_extra_dim(DECAY_RANK)
+    writer.add_head_count_kv(KV_HEADS)
+
+
+def rwkv6qwen2_layer(layer, hidden):
+    # QRWKV6: grouped key/value heads (KV_HEADS of HEADS), biased r/k/v, sigmoid gate, no bonus, group norm or channel-mix; the five interpolation
+    # offsets are stored [5·rank, C] (down) and [5, C, rank] (up), the fused factors [5, 1, 1, C] in the order w, k, v, r, g.
+    kv = KV_HEADS * HEAD_DIM
+    return {"attn_norm.weight": norm(hidden), "ffn_norm.weight": norm(hidden),
+            "time_mix_w1.weight": weight(5 * MIX_RANK, hidden), "time_mix_w2.weight": weight(5, hidden, MIX_RANK),
+            "time_mix_lerp_x.weight": rng.uniform(0.1, 0.9, hidden).astype(np.float32),
+            "time_mix_lerp_fused.weight": rng.uniform(0.1, 0.9, (5, 1, 1, hidden)).astype(np.float32),
+            "time_mix_decay.weight": decay_bias(hidden), "time_mix_decay_w1.weight": weight(DECAY_RANK, hidden),
+            "time_mix_decay_w2.weight": weight(hidden, DECAY_RANK),
+            "time_mix_key.weight": weight(kv, hidden), "time_mix_key.bias": bias(kv),
+            "time_mix_value.weight": weight(kv, hidden), "time_mix_value.bias": bias(kv),
+            "time_mix_receptance.weight": weight(hidden, hidden), "time_mix_receptance.bias": bias(hidden),
+            "time_mix_gate.weight": weight(hidden, hidden), "time_mix_output.weight": weight(hidden, hidden),
+            "ffn_gate.weight": weight(FFN, hidden), "ffn_up.weight": weight(FFN, hidden), "ffn_down.weight": weight(hidden, FFN)}
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -174,6 +197,7 @@ models = {
     "chatglm": lambda path: write_model(path, "chatglm", tokenizer, KV_HEADS, HEAD_DIM // 2, chatglm_layer, FFN),
     "arwkv7": lambda path: write_rwkv(path, "arwkv7", tokenizer, 1, ARWKV_HIDDEN, ARWKV_HEAD_SIZE, arwkv7_parameters(True), lambda layer, hidden: arwkv7_layer(layer, hidden, True)),
     "arwkv7-nogate": lambda path: write_rwkv(path, "arwkv7", tokenizer, 2, ARWKV_HIDDEN, ARWKV_HEAD_SIZE, arwkv7_parameters(False), lambda layer, hidden: arwkv7_layer(layer, hidden, False)),
+    "rwkv6qwen2": lambda path: write_rwkv(path, "rwkv6qwen2", tokenizer, 3, HIDDEN, HEAD_DIM, rwkv6qwen2_parameters, rwkv6qwen2_layer),
 }
 for name, write in models.items():
     if not only or name in only:
