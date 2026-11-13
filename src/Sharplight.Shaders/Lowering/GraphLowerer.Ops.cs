@@ -222,8 +222,10 @@ public sealed partial class GraphLowerer
         {
             ["WARPS_M"] = c[0].ToString(CultureInfo.InvariantCulture), ["WARPS_N"] = c[1].ToString(CultureInfo.InvariantCulture),
             ["FRAG_M"] = c[2].ToString(CultureInfo.InvariantCulture), ["FRAG_N"] = c[3].ToString(CultureInfo.InvariantCulture),
+            ["GBK"] = s_g2Bk == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0 ? "64" : "32",
         };
     }
+    static readonly int s_g2Bk = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
 
     void LowerMatMul(Node n)
     {

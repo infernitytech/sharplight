@@ -393,7 +393,17 @@ using namespace linalg;
 #define GTHREADS (WARPS_M * WARPS_N * 32)
 #define GBM (WARPS_M * FRAG_M * 16)
 #define GBN (WARPS_N * FRAG_N * 16)
+// GBK = 32: double-buffered shared tiles, one barrier per step. GBK = 64: single buffer (fits 48 KB) with twice the
+// work between register prefetches, which hides more global-load latency; two barriers per step.
+#ifndef GBK
 #define GBK 32
+#endif
+#if GBK == 32
+#define GNBUF 2
+#else
+#define GNBUF 1
+#endif
+#define GQ (GBK / 8)
 #define GAS (GBK + 8)
 #define GA_PER_T (GBM * GBK / 8 / GTHREADS)
 #define GB_PER_T (GBN * GBK / 8 / GTHREADS)
@@ -401,8 +411,36 @@ typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
 
-groupshared half gA[2 * GBM * GAS];
-groupshared half gB[2 * GBN * GAS];
+// Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
+groupshared uint4 gA[GNBUF * GBM * GAS / 8];
+groupshared uint4 gB[GNBUF * GBN * GAS / 8];
+
+// 8 consecutive weights of row `row` from K offset 8g as packed halves.
+uint4 load8h(uint8_t* w, uint row, uint g)
+{
+#if WFMT == FMT_Q8_0R
+    // int8 -> f16 via the 0x6400 exponent trick (1024 + (q + 128)), then (h - 1152) * d: both steps exact but the
+    // last, which rounds once, exactly like converting the f32 product d * q to half.
+    uint8_t* r = w + uint64_t(ROW_BYTES) * row;
+    uint d16 = uint(*(uint16_t*)(r + (g >> 2) * 2));
+    half2 d = bit_cast<half2>(d16 * 0x10001u);
+    uint2 q = *(uint2*)(r + ROW_BYTES / 17 + uint64_t(g) * 8);
+    half2 off = half2(1152.0h, 1152.0h);
+    uint4 o;
+    uint u = q.x ^ 0x80808080u;
+    o.x = bit_cast<uint>((bit_cast<half2>((u & 0xFFu) | ((u << 8) & 0xFF0000u) | 0x64006400u) - off) * d);
+    o.y = bit_cast<uint>((bit_cast<half2>(((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u) | 0x64006400u) - off) * d);
+    u = q.y ^ 0x80808080u;
+    o.z = bit_cast<uint>((bit_cast<half2>((u & 0xFFu) | ((u << 8) & 0xFF0000u) | 0x64006400u) - off) * d);
+    o.w = bit_cast<uint>((bit_cast<half2>(((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u) | 0x64006400u) - off) * d);
+    return o;
+#else
+    float v[8];
+    load8(w, ROW_BYTES, row, g, v);
+    return uint4(f32tof16(v[0]) | (f32tof16(v[1]) << 16), f32tof16(v[2]) | (f32tof16(v[3]) << 16),
+                 f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
+#endif
+}
 groupshared float gC[WARPS_M * WARPS_N * 256];
 
 [shader("compute")]
@@ -431,52 +469,43 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     Acc2 acc[FRAG_M][FRAG_N];
     [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = Acc2(0.0);
 
-    half xs[GA_PER_T][8];
-    half ws[GB_PER_T][8];
+    uint4 xs[GA_PER_T];
+    uint4 ws[GB_PER_T];
 
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if X_F16
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
-        { uint4 u = 0;                                                                                  \
-          if ((t) < p.T) u = ((uint4*)((uint16_t*)p.x + uint64_t(t) * X_STRIDE + (k)))[0];              \
-          dst[0] = half(f16tof32(u.x & 0xFFFF)); dst[1] = half(f16tof32(u.x >> 16));                    \
-          dst[2] = half(f16tof32(u.y & 0xFFFF)); dst[3] = half(f16tof32(u.y >> 16));                    \
-          dst[4] = half(f16tof32(u.z & 0xFFFF)); dst[5] = half(f16tof32(u.z >> 16));                    \
-          dst[6] = half(f16tof32(u.w & 0xFFFF)); dst[7] = half(f16tof32(u.w >> 16)); }
+        { dst = 0; if ((t) < p.T) dst = ((uint4*)((uint16_t*)p.x + uint64_t(t) * X_STRIDE + (k)))[0]; }
 #else
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
         { float4 a = 0, b = 0;                                                                          \
           if ((t) < p.T) { float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
-          dst[0] = half(a.x); dst[1] = half(a.y); dst[2] = half(a.z); dst[3] = half(a.w);               \
-          dst[4] = half(b.x); dst[5] = half(b.y); dst[6] = half(b.z); dst[7] = half(b.w); }
+          dst = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),       \
+                      f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16)); }
 #endif
     #define FETCH(k0)                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / 4, q = idx % 4;                                       \
+        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
         uint t = t0 + r;                                                                                \
         GEMM_LOAD_X(t, (k0) + q * 8, xs[it])                                                            \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / 4, q = idx % 4;                                       \
-        float w[8];                                                                                     \
-        if (N % GBN == 0 || n0 + r < N) load8(p.w, ROW_BYTES, n0 + r, (k0) / 8 + q, w);                 \
-        else { [ForceUnroll] for (int i = 0; i < 8; i++) w[i] = 0; }                                    \
-        [ForceUnroll] for (int i = 0; i < 8; i++) ws[it][i] = half(w[i]);                               \
+        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
+        ws[it] = 0;                                                                                     \
+        if (N % GBN == 0 || n0 + r < N) ws[it] = load8h(p.w, n0 + r, (k0) / 8 + q);                     \
     }
     #define STAGE(buf)                                                                                  \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / 4, q = idx % 4;                                       \
-        uint oa = (buf) * GBM * GAS + r * GAS + q * 8;                                                  \
-        [ForceUnroll] for (int i = 0; i < 8; i++) gA[oa + i] = xs[it][i];                               \
+        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
+        gA[((buf) * GBM * GAS + r * GAS + q * 8) / 8] = xs[it];                                         \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / 4, q = idx % 4;                                       \
-        uint ob = (buf) * GBN * GAS + r * GAS + q * 8;                                                  \
-        [ForceUnroll] for (int i = 0; i < 8; i++) gB[ob + i] = ws[it][i];                               \
+        uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
+        gB[((buf) * GBN * GAS + r * GAS + q * 8) / 8] = ws[it];                                         \
     }
 
     FETCH(kBeg)
@@ -494,17 +523,23 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         for (uint kk = 0; kk < GBK; kk += 16)
         {
             MatB2 b[FRAG_N];
-            [ForceUnroll] for (int j = 0; j < FRAG_N; j++) b[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, bb + (wn + j * 16) * GAS + kk, GAS);
+            [ForceUnroll] for (int j = 0; j < FRAG_N; j++) b[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, (bb + (wn + j * 16) * GAS + kk) / 8, GAS / 8);
             [ForceUnroll]
             for (int i = 0; i < FRAG_M; i++)
             {
-                MatA2 a = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, ba + (wm + i * 16) * GAS + kk, GAS);
+                MatA2 a = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, (ba + (wm + i * 16) * GAS + kk) / 8, GAS / 8);
                 [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]);
             }
         }
+#if GNBUF == 2
         if (more) { STAGE(cur ^ 1) }
         GroupMemoryBarrierWithGroupSync();
         cur ^= 1;
+#else
+        GroupMemoryBarrierWithGroupSync();
+        if (more) { STAGE(0u) }
+        GroupMemoryBarrierWithGroupSync();
+#endif
     }
     #undef FETCH
     #undef STAGE
