@@ -1,0 +1,36 @@
+decoder: MultiSequenceDecoder, slots 64, batches sequences: True, vocab 248320
+| batch | step ms min | step ms median | tok/s (median) | no-logits ms median |
+|---|---|---|---|---|
+| 1 | 22.07 | 24.75 | 40 | 23.03 |
+| 2 | 34.95 | 37.06 | 54 | 36.01 |
+| 4 | 59.10 | 60.73 | 66 | 57.86 |
+--- profile batch 4
+GPU time 1213.49 ms
+   328.055 ms  27.0%   1280x  min    251.9 us  matmul2 [5120→17408]x2 q8_0r fused[Silu,Mul] matvec T=4,4,4
+   326.273 ms  26.9%   1280x  min    250.4 us  matmul [17408→5120] q8_0r matvec T=4,4,4
+   152.551 ms  12.6%    960x  min    156.6 us  matmul [5120→10240] q8_0r matvec T=4,4,4
+   115.332 ms   9.5%   1280x  min     87.7 us  matmul [6144→5120] q8_0r matvec T=4,4,4
+    90.170 ms   7.4%    960x  min     92.6 us  matmul [5120→6144] q8_0r matvec T=4,4,4
+    60.009 ms   4.9%     20x  min   2995.2 us  matmul [5120→248320] q8_0r matvec T=4,4,4
+    55.502 ms   4.6%    320x  min    165.9 us  matmul [5120→12288] q8_0r matvec T=4,4,4
+    16.106 ms   1.3%   1920x  min      7.4 us  matmul [5120→48] q8_0r matvec_sk T=4,4,4
+    14.291 ms   1.2%   2560x  min      3.6 us  fused[Add]+RmsNorm main T=4,4,4
+    14.222 ms   1.2%    640x  min     20.9 us  matmul [5120→1024] q8_0r matvec_sk T=4,4,4
+    14.136 ms   1.2%    960x  min     13.3 us  delta_rule delta_rule T=4,4,4
+     8.297 ms   0.7%    320x  min     24.5 us  attention main T=4,4,4
+     3.955 ms   0.3%    960x  min      3.4 us  RmsNorm+fused[Silu,Mul] main T=4,4,4
+     3.949 ms   0.3%    960x  min      3.1 us  conv1d conv1d T=4,4,4
+     3.053 ms   0.3%    960x  min      1.5 us  fused[Sigmoid] main T=4,4,4
+     1.973 ms   0.2%    960x  min      2.0 us  fused[Add,Softplus,Mul] main T=4,4,4
+     1.348 ms   0.1%    320x  min      3.5 us  rope+norm rope_row T=4,4,4
+     1.310 ms   0.1%    320x  min      4.1 us  rope+norm+cache_write rope_row T=4,4,4
+     1.309 ms   0.1%    320x  min      3.1 us  attention combine combine T=4,4,4
+     0.746 ms   0.1%    320x  min      2.0 us  cache_write cache_write T=4,4,4
+     0.662 ms   0.1%    320x  min      2.0 us  fused[Sigmoid,Mul] main T=4,4,4
+     0.162 ms   0.0%     40x  min      3.1 us  gather gather T=4,4,4
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=4,4,4
+
+| 8 | 111.60 | 113.64 | 70 | 106.70 |
+| 16 | 57.39 | 58.81 | 272 | 55.07 |
+| 32 | 65.91 | 68.29 | 469 | 61.08 |
+| 64 | 84.47 | 92.23 | 694 | 74.72 |

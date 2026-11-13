@@ -1,0 +1,8 @@
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [270 ms]
+Compiled 'decode' for 16 sequences x 512 tokens in 6808 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 29.46 GiB weights+state
+1 segment(s): [0@0: 2036 nodes]
+Model 'Qwen3.8-27B-Q8_0' loaded in 7099 ms (estimated 31765 MiB, resident 30367 MiB).
+Serving 'Qwen3.8-27B-Q8_0' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18080
+  Qwen3.8-27B-Q8_0 [Chat] Loaded 30366 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 87096 MiB, used 31668 MiB (ours 31664 MiB), available 55428 MiB
