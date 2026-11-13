@@ -9,8 +9,7 @@ namespace Sharplight.Architectures;
 internal sealed record LatentDecoderHyperParameters(
     int LayerCount, int HiddenSize, int Vocab, int ContextLength, float Eps, LatentAttentionParameters Attention,
     float RopeBase, string RopeStyle, string Activation, bool Gated, float EmbeddingScale, float ResidualScale, float LogitScale,
-    int Experts, int ExpertsUsed, bool NormalizeExpertWeights, bool SigmoidRouter, float ExpertWeightsScale,
-    int ExpertGroups, int ExpertGroupsUsed, string GroupScore)
+    MoeOptions Moe, int ExpertGroups, int ExpertGroupsUsed, string GroupScore)
 {
     /// <summary>Reads and validates the hyper-parameters of a latent decoder source.</summary>
     /// <exception cref="InvalidDataException">A required key is missing or the expert grouping is inconsistent.</exception>
@@ -43,16 +42,12 @@ internal sealed record LatentDecoderHyperParameters(
             EmbeddingScale: src.Arch("embedding_scale", 1f),
             ResidualScale: src.Arch("residual_scale", 1f),
             LogitScale: src.Arch("logit_scale", 1f),
-            Experts: src.Arch("moe.expert_count", 0),
-            ExpertsUsed: src.Arch("moe.expert_used_count", 0),
-            NormalizeExpertWeights: src.Arch("moe.normalize_weights", false),
-            SigmoidRouter: src.Arch("moe.router_activation", "softmax") == "sigmoid",
-            ExpertWeightsScale: src.Arch("moe.weights_scale", 1f),
+            Moe: MoeOptions.Read(src),
             ExpertGroups: src.Arch("moe.group_count", 1),
             ExpertGroupsUsed: src.Arch("moe.group_used_count", src.Arch("moe.group_count", 1)),
             GroupScore: src.Arch("moe.group_score", "top2_sum"));
 
-        if (hp.ExpertGroups > 1 && (hp.Experts % hp.ExpertGroups != 0 || hp.ExpertGroupsUsed < 1 || hp.ExpertGroupsUsed > hp.ExpertGroups))
+        if (hp.ExpertGroups > 1 && (hp.Moe.Experts % hp.ExpertGroups != 0 || hp.ExpertGroupsUsed < 1 || hp.ExpertGroupsUsed > hp.ExpertGroups))
         {
             throw new InvalidDataException("latent_decoder: moe.group_count must divide moe.expert_count and moe.group_used_count must be in [1, group_count].");
         }

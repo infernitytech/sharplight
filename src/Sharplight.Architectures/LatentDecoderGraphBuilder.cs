@@ -13,6 +13,7 @@ internal sealed partial class LatentDecoderGraphBuilder
     private readonly ModelSource _src;
     private readonly LatentDecoderHyperParameters _hp;
     private readonly LatentAttention _attention;
+    private readonly IMlpActivation _activation;
     private readonly StateDefinition[] _caches;
     private readonly bool _longRope;
 
@@ -22,6 +23,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         _src = source;
         _hp = hyperParameters;
         _attention = new LatentAttention(_hp.Attention);
+        _activation = MlpActivations.Create(_hp.Activation);
         int originalContext = _src.Arch("rope.original_context_length", 0);
         int runtimeContext = options.ContextLength > 0 ? options.ContextLength : _hp.ContextLength;
         _longRope = originalContext > 0 && runtimeContext > originalContext;
@@ -103,7 +105,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
 
         h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
-        var ffn = b.HasWeight(p + "mlp.router.weight") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 

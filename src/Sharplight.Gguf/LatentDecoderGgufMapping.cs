@@ -119,7 +119,7 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         ["ffn_up.weight"] = "mlp.up.weight",
         ["ffn_down.weight"] = "mlp.down.weight",
         ["ffn_gate_inp.weight"] = "mlp.router.weight",
-        ["exp_probs_b.bias"] = "mlp.router.bias",
+        ["exp_probs_b.bias"] = "mlp.router_bias",
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
         ["ffn_down_exps.weight"] = "mlp.experts.down.weight",

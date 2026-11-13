@@ -32,7 +32,7 @@ namespace Sharplight.Architectures;
 /// Weights: <c>token_embedding.weight</c> [V, H], <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied otherwise); per layer
 /// <c>layers.{i}.</c>: <c>input_norm.weight</c>, the attention weights of <see cref="LatentAttention"/>, <c>post_attention_norm.weight</c>,
 /// then either the dense <c>mlp.{gate,up,down}.weight</c> (no gate when not gated) or <c>mlp.router.weight</c> [E, H], optional
-/// <c>mlp.router.bias</c> (f32 [E], added to the router scores for the expert choice only; the weights stay the unbiased scores),
+/// <c>mlp.router_bias</c> (f32 [E], added to the router scores for the expert choice only; the weights stay the unbiased scores),
 /// rank-3 <c>mlp.experts.{gate,up,down}.weight</c> [E, N, K] and optional shared experts <c>mlp.shared.{gate,up,down}.weight</c>
 /// (one MLP every token passes through, added to the routed sum).
 /// </remarks>

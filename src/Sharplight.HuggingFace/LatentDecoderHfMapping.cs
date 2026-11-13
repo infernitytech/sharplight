@@ -288,7 +288,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         switch (suffix)
         {
             case "mlp.gate.e_score_correction_bias":
-                collector.Add(HfTransforms.ToF32(w, prefix + "mlp.router.bias"));
+                collector.Add(HfTransforms.ToF32(w, prefix + "mlp.router_bias"));
                 return true;
             case "self_attn.kv_b_proj.weight":
                 var (keyUp, valueUp) = LatentAttentionWeights.SplitKeyValueUp(
