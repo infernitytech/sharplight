@@ -165,7 +165,14 @@ public class FamilyGenerationTests
             var c = new CpuExecutionProvider();
             fallback = new DeviceSlot { Device = c.OpenDevice(c.GetDevices()[0]) };
         }
-        var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256 });
+        // Exact greedy strings have no tolerance: the integer-dot matvec (DeviceFeatures.IntDot, on by default for short batches)
+        // quantizes activations to 8 bits per 32 values like llama.cpp's MMVQ and flips near-tied tokens of some quantized models.
+        // It is off here so these cases check the model wiring; its precision is covered by the Vulkan kernel tests.
+        var model = LlmModel.Load(path, new LlmLoadOptions
+        {
+            Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
+            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
+        });
         return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
     }
 
