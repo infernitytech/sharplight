@@ -232,7 +232,10 @@ internal sealed partial class OnnxTranslator
         long axis = NormalizeAxis(n.Int("axis", -1), x.Rank);
         long p = n.Int("p", 2);
         var norm = Emit("Reduce", [x], Attributes.From(("mode", p == 1 ? "l1" : "l2"), ("axes", L(axis)), ("keepdims", true)));
-        SetDyn(n, 0, Emit("Div", [x, norm], null, Nm(n)));
+        // A zero norm means a zero slice: divide by 1 there so the result is 0 instead of NaN.
+        var one = ConstValue(OnnxConst.Scalar(1f), Nm(n) + ".one");
+        var safeNorm = Emit("Where", [_b.Binary("Equal", norm, ConstValue(OnnxConst.Scalar(0f), Nm(n) + ".zero")), one, norm]);
+        SetDyn(n, 0, Emit("Div", [x, safeNorm], null, Nm(n)));
     }
 
     private void MeanVarianceNorm(OnnxNode n, TranslatedTensor?[] ins)

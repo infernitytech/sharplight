@@ -354,7 +354,10 @@ internal sealed partial class OnnxTranslator
 
         var sizes = n.Has("split") ? n.Ints("split") : OptConst(ins, 1, "Split sizes")?.Ints();
         int outs = n.Outputs.Count;
-        sizes ??= Enumerable.Repeat(x.Shape[axis].Fixed / outs, outs).ToArray();
+        // Without sizes the axis splits into chunks of ceil(extent / outputs); the last one may be smaller (opset 18 num_outputs).
+        long extent = x.Shape[axis].Fixed;
+        long chunk = (extent + outs - 1) / outs;
+        sizes ??= Enumerable.Range(0, outs).Select(i => Math.Min(chunk, extent - i * chunk)).ToArray();
         long start = 0;
         for (int i = 0; i < outs; i++)
         {

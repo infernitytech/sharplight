@@ -347,7 +347,8 @@ internal sealed partial class OnnxTranslator
                 OnnxLinearAttention(n, ins);
                 break;
             case "EyeLike":
-                throw new NotSupportedException($"{op} of a runtime-dependent tensor has a data-dependent shape");
+                EyeLike(n, ins);
+                break;
             default:
                 throw new NotSupportedException($"{op} on a runtime-dependent tensor is not supported (only constant-foldable uses are).");
         }

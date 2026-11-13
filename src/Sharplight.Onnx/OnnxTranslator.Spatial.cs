@@ -139,8 +139,10 @@ internal sealed partial class OnnxTranslator
         }
         else
         {
+            // DCR (default): channel (bh·b + bw)·C + c; CRD (opset 28 mode): c·b² + bh·b + bw.
+            bool crd = n.Str("mode", "DCR") == "CRD";
             y = Rs(x, 0, c, h / b, b, w / b, b);
-            y = _b.Permute(y, [0, 3, 5, 1, 2, 4]);
+            y = _b.Permute(y, crd ? [0, 1, 3, 5, 2, 4] : [0, 3, 5, 1, 2, 4]);
             y = Emit("Reshape", [y], Attributes.From(("shape", L(0, c * b * b, h / b, w / b))), Nm(n));
         }
         SetDyn(n, 0, y);
