@@ -256,12 +256,44 @@ public sealed partial class GraphLowerer
                              Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: true)), b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM)))
                        : new KernelVariant(_ => true, Lib("matmul.slang", "gemm_cm", m), b => new Grid(Grid.Div(N, 128), Grid.Div(Rows(b, tx) * rowsMul, 64))))
             : new KernelVariant(_ => true, Lib("matmul.slang", "gemm", m), b => new Grid(Grid.Div(N, 64), Grid.Div(Rows(b, tx) * rowsMul, 64)));
-        Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
-            [.. MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul), big,
-             .. coop && s_gemm2 ? new[] { new KernelVariant(b => split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: false)),
-                 b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))) } : []],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
-            [x, w], [y]);
+        // Tensor-core GEMMs (more than 8 rows) read an f16 copy of x made by a small conversion kernel: half the
+        // bytes per tile load (x is re-read by every column tile). Matvecs keep reading f32 x. Separate launches,
+        // since a launch's variants share one argument list; the ones not applicable to a binding are skipped.
+        bool x16 = coop && s_gemm2 && s_gemmX16;
+        if (!x16)
+            Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                [.. MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul), big,
+                 .. coop && s_gemm2 ? new[] { new KernelVariant(b => split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: false)),
+                     b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))) } : []],
+                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
+                [x, w], [y]);
+        else
+        {
+            Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul),
+                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
+                [x, w], [y]);
+            long rowsMax = tx.Shape[0] * rowsMul;
+            var key = new object();
+            long off = _alloc.Allocate(key, Math.Max(16, rowsMax * K * 2));
+            _temps.Add(key);
+            var xh = new TensorRef(_arena, off, DataType.F16, [rowsMax, K], [K, 1], tx.Symbol);
+            Emit($"matmul {n.Output.Name} x→f16", [n],
+                [new KernelVariant(b => Rows(b, tx) * rowsMul > 8, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", xs))),
+                    b => new Grid(Grid.Div(Rows(b, tx) * rowsMul * (K / 8), 256)))],
+                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(xh.Buffer, xh.ByteOffset), TokenArg(x, mid)],
+                [x], [xh]);
+            var mh = new Dictionary<string, string>(m) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
+            Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                [new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1 && Grid.Div(N, G2BN) * Grid.Div(Rows(b, tx) * rowsMul, G2BM) >= 384,
+                    Lib("matmul.slang", "gemm_cm2", G2Macros(mh, large: true)), b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))),
+                 new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(mh, large: false)),
+                    b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM)))],
+                [new PointerArg(xh.Buffer, xh.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
+                [xh, w], [y]);
+            x = xh;
+            m = mh;
+        }
 
         // Split-K for grids too small to fill the GPU (small N or few token tiles): partial sums into a shared
         // scratch buffer, then a reduction. Both launches only run when the chosen split is > 1.
@@ -298,6 +330,7 @@ public sealed partial class GraphLowerer
 
     BufferDecl? _splitScratch;
     BufferDecl? _attnScratch;
+    static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
     static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
 
     /// <summary>

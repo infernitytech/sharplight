@@ -83,3 +83,31 @@ void fill(uint3 dtid : SV_DispatchThreadID, uniform FillParams p)
     for (uint i = dtid.x; i < p.count; i += p.stride) p.dst[i] = p.value;
 }
 #endif
+
+#ifdef KERNEL_TO_F16
+// Rows of f32 (row stride X_STRIDE elements) -> dense f16 rows of K elements, 8 per thread.
+// Tensor-core GEMMs read their activations this way: half the bytes per tile load.
+struct ToF16Params
+{
+    float* x;
+    uint16_t* y;
+    uint T;
+};
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void to_f16(uint3 dtid : SV_DispatchThreadID, uniform ToF16Params p)
+{
+    uint64_t g = dtid.x;
+    uint64_t row = g / (K / 8), c = (g % (K / 8)) * 8;
+    if (row >= p.T) return;
+    float4* xp = (float4*)(p.x + row * X_STRIDE + c);
+    float4 a = xp[0], b = xp[1];
+    uint4 u;
+    u.x = f32tof16(a.x) | (f32tof16(a.y) << 16);
+    u.y = f32tof16(a.z) | (f32tof16(a.w) << 16);
+    u.z = f32tof16(b.x) | (f32tof16(b.y) << 16);
+    u.w = f32tof16(b.z) | (f32tof16(b.w) << 16);
+    ((uint4*)(p.y + row * K + c))[0] = u;
+}
+#endif
