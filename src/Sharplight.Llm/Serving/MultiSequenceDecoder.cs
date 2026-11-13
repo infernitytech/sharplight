@@ -98,9 +98,17 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent);
     }
 
-    public int Length(int slot) { Check(slot); return _length[slot]; }
+    public int Length(int slot)
+    {
+        Check(slot);
+        return _length[slot];
+    }
 
-    public void Reset(int slot) { Check(slot); _length[slot] = 0; }
+    public void Reset(int slot)
+    {
+        Check(slot);
+        _length[slot] = 0;
+    }
 
     public void Truncate(int slot, int length)
     {
@@ -233,7 +241,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         return res;
     }
 
-    private void Check(int slot) { if ((uint)slot >= (uint)SlotCount)
+    private void Check(int slot)
+    {
+        if ((uint)slot >= (uint)SlotCount)
         {
             throw new ArgumentOutOfRangeException(nameof(slot));
         }

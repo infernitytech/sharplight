@@ -4,12 +4,24 @@ using System.Threading.Channels;
 namespace Sharplight.Llm.Serving.Chat;
 
 /// <summary>A submitted chat/completion request: stream <see cref="ChatEvent"/>s or wait for the <see cref="ChatResult"/>.</summary>
-public sealed class ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOutputParser>? parserFactory, int promptTokens)
+public sealed class ChatRun
 {
-    public int PromptTokens { get; } = promptTokens;
-    public int ChoiceCount => handles.Count;
+    private readonly IReadOnlyList<GenerationHandle> _handles;
+    private readonly Func<ChatOutputParser>? _parserFactory;
 
-    public void Cancel() { foreach (var h in handles)
+    internal ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOutputParser>? parserFactory, int promptTokens)
+    {
+        _handles = handles;
+        _parserFactory = parserFactory;
+        PromptTokens = promptTokens;
+    }
+
+    public int PromptTokens { get; }
+    public int ChoiceCount => _handles.Count;
+
+    public void Cancel()
+    {
+        foreach (var h in _handles)
         {
             h.Cancel();
         }
@@ -18,7 +30,7 @@ public sealed class ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOu
     /// <summary>Streams events of all choices (interleaved when N &gt; 1). Abandoning the enumeration cancels the requests.</summary>
     public async IAsyncEnumerable<ChatEvent> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
-        if (handles.Count == 1)
+        if (_handles.Count == 1)
         {
             await foreach (var e in Choice(0, ct).ConfigureAwait(false))
             {
@@ -28,7 +40,7 @@ public sealed class ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOu
             yield break;
         }
         var ch = Channel.CreateUnbounded<ChatEvent>(new UnboundedChannelOptions { SingleReader = true });
-        var tasks = Enumerable.Range(0, handles.Count).Select(i => Task.Run(async () =>
+        var tasks = Enumerable.Range(0, _handles.Count).Select(i => Task.Run(async () =>
         {
             await foreach (var e in Choice(i, ct).ConfigureAwait(false))
             {
@@ -48,8 +60,8 @@ public sealed class ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOu
 
     private async IAsyncEnumerable<ChatEvent> Choice(int index, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
-        var parser = parserFactory?.Invoke();
-        await foreach (var c in handles[index].ReadAllAsync(ct).ConfigureAwait(false))
+        var parser = _parserFactory?.Invoke();
+        await foreach (var c in _handles[index].ReadAllAsync(ct).ConfigureAwait(false))
         {
             if (c.Text.Length > 0)
             {
@@ -108,7 +120,7 @@ public sealed class ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOu
 
     public async Task<ChatResult> CompleteAsync(CancellationToken ct = default)
     {
-        int n = handles.Count;
+        int n = _handles.Count;
         var content = Enumerable.Range(0, n).Select(_ => new StringBuilder()).ToArray();
         var reasoning = Enumerable.Range(0, n).Select(_ => new StringBuilder()).ToArray();
         var calls = Enumerable.Range(0, n).Select(_ => new List<ToolCall>()).ToArray();

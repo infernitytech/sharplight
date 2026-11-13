@@ -65,7 +65,9 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
             }
         }
 
-        public void Dispose() { if (!_consumed)
+        public void Dispose()
+        {
+            if (!_consumed)
             {
                 model.Dispose();
             }

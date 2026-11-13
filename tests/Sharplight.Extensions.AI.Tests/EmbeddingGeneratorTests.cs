@@ -57,7 +57,12 @@ public class EmbeddingGeneratorTests
         var gen = sp.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
         var r = await gen.GenerateAsync(["The cat sits on the mat.", "A cat is sitting on a mat.", "Stock markets fell sharply today."]);
         Assert.Equal(384, r[0].Vector.Length);
-        float Dot(int a, int b) { float s = 0; for (int i = 0; i < 384; i++) { s += r[a].Vector.Span[i] * r[b].Vector.Span[i]; } return s; }
+        float Dot(int a, int b)
+        {
+            float s = 0;
+            for (int i = 0; i < 384; i++) { s += r[a].Vector.Span[i] * r[b].Vector.Span[i]; }
+            return s;
+        }
         Assert.Equal(1f, Dot(0, 0), 3);
         Assert.True(Dot(0, 1) > Dot(0, 2) + 0.3f, $"similar {Dot(0, 1)} vs unrelated {Dot(0, 2)}");
     }

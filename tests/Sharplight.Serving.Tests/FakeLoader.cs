@@ -13,7 +13,12 @@ public sealed class FakeLoader : IModelLoader
     public TimeSpan LoadDelay;
     public string Reply = "ok";
     public List<FakeLoaded> Instances { get; } = [];
-    public FakeLoader(FakePool pool, long bytes, bool offload = false) { _pool = pool; _bytes = bytes; _offload = offload; }
+    public FakeLoader(FakePool pool, long bytes, bool offload = false)
+    {
+        _pool = pool;
+        _bytes = bytes;
+        _offload = offload;
+    }
     public ModelKind Kind { get; init; } = ModelKind.Chat;
 
     public IPreparedModel Prepare(CancellationToken ct)

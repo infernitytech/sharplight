@@ -7,7 +7,7 @@ namespace Sharplight.Llm.Serving.Chat;
 /// in any of the given <see cref="IToolCallFormat"/>s. Text that may be the start of a marker is held back until it is clear.
 /// Blocks that fail to parse as tool calls are returned as plain content.
 /// </summary>
-public sealed class ChatOutputParser
+internal sealed class ChatOutputParser
 {
     private enum Mode { Content, Reasoning, Tool }
 

@@ -1,7 +1,7 @@
 namespace Sharplight.Llm.Serving;
 
 /// <summary>Stateful sampler of one request: applies penalties/bias over the request's history, then samples. Not thread-safe.</summary>
-public sealed class RequestSampler
+internal sealed class RequestSampler
 {
     private readonly SamplingParams _p;
     private readonly Random _rng;

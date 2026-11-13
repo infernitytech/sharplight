@@ -37,7 +37,7 @@ public sealed class ModelService
 
     // ---- prompt -----------------------------------------------------------------------------------------------------
 
-    public ChatPrompt BuildPrompt(ChatRequest r)
+    internal ChatPrompt BuildPrompt(ChatRequest r)
     {
         foreach (var m in r.Messages)
         {

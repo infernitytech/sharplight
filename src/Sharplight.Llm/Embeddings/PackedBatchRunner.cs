@@ -10,7 +10,7 @@ namespace Sharplight.Llm.Embeddings;
 /// concatenated into batches of at most <see cref="MaxBatchTokens"/> rows and <see cref="MaxBatchSequences"/> sequences, each
 /// batch is one forward pass, and the per-sequence output rows are returned in input order. Not thread-safe; callers serialize.
 /// </summary>
-public sealed class PackedBatchRunner : IDisposable
+internal sealed class PackedBatchRunner : IDisposable
 {
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _positions, _rowSpans, _seqSpans;

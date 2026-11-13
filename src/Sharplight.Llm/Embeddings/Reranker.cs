@@ -31,7 +31,7 @@ public sealed class Reranker : ITextReranker, IDisposable
     /// <summary>Longest (query, document) input in tokens.</summary>
     public int MaxSequenceLength { get; }
     /// <summary>The compiled packed-sequence graph.</summary>
-    public PackedBatchRunner Runner => _runner;
+    internal PackedBatchRunner Runner => _runner;
 
     private Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, RerankerKind kind, int maxLength, string? instruction)
     {
@@ -91,7 +91,7 @@ public sealed class Reranker : ITextReranker, IDisposable
     }
 
     /// <summary>The model input of one (query, document) pair.</summary>
-    public PackedSequence Encode(string query, string document, RerankOptions? options = null)
+    internal PackedSequence Encode(string query, string document, RerankOptions? options = null)
     {
         options ??= new RerankOptions();
         if (Kind == RerankerKind.YesNo)
@@ -127,7 +127,9 @@ public sealed class Reranker : ITextReranker, IDisposable
             }
 
             int la = a.Length, lb = b.Length;
-            while (over-- > 0) { if (la > lb)
+            while (over-- > 0)
+            {
+                if (la > lb)
                 {
                     la--;
                 }

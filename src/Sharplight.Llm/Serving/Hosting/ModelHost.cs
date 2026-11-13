@@ -97,7 +97,9 @@ public sealed class ModelHost : IDisposable
         public IPreparedModel Prepare(CancellationToken ct) => throw new InvalidOperationException("An adopted model cannot be reloaded after it was unloaded.");
     }
 
-    public bool Contains(string name) { lock (_gate)
+    public bool Contains(string name)
+    {
+        lock (_gate)
         {
             return _entries.ContainsKey(name);
         }
@@ -112,7 +114,9 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    public IReadOnlyList<ModelInfo> List() { lock (_gate)
+    public IReadOnlyList<ModelInfo> List()
+    {
+        lock (_gate)
         {
             return [.. _order.Select(n => Snapshot(_entries[n]))];
         }
@@ -127,7 +131,9 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    public ModelInfo? Get(string name) { lock (_gate)
+    public ModelInfo? Get(string name)
+    {
+        lock (_gate)
         {
             return _entries.TryGetValue(name, out var e) ? Snapshot(e) : null;
         }
@@ -210,8 +216,17 @@ public sealed class ModelHost : IDisposable
     }
 
     // caller holds _gate
-    private void SetState(Entry e, ModelState s) { e.State = s; Signal(e); }
-    private void Signal(Entry e) { var old = e.Changed; e.Changed = new(TaskCreationOptions.RunContinuationsAsynchronously); old.TrySetResult(); }
+    private void SetState(Entry e, ModelState s)
+    {
+        e.State = s;
+        Signal(e);
+    }
+    private void Signal(Entry e)
+    {
+        var old = e.Changed;
+        e.Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        old.TrySetResult();
+    }
 
     // ---- loading ----------------------------------------------------------------------------------------------------
 
@@ -323,12 +338,16 @@ public sealed class ModelHost : IDisposable
         return limit;
     }
 
-    private int LoadedCount() { lock (_gate)
+    private int LoadedCount()
+    {
+        lock (_gate)
         {
             return _entries.Values.Count(x => x.State is ModelState.Loaded or ModelState.Unloading);
         }
     }
-    private string Busy() { lock (_gate)
+    private string Busy()
+    {
+        lock (_gate)
         {
             return string.Join(", ", _entries.Values.Where(x => x.State == ModelState.Loaded).Select(x => $"{x.Reg.Name} ({x.Leases} active)"));
         }
@@ -407,7 +426,9 @@ public sealed class ModelHost : IDisposable
     public async Task<bool> UnloadAsync(string name, TimeSpan? drainTimeout = null, bool force = false)
     {
         Entry e;
-        lock (_gate) { if (!_entries.TryGetValue(name, out e!))
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(name, out e!))
             {
                 throw new ModelNotFoundException(name);
             }

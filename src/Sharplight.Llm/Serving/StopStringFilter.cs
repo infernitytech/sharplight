@@ -6,7 +6,7 @@ namespace Sharplight.Llm.Serving;
 /// Cuts a text stream at the first stop string. Text that could still turn out to be the start of a stop string is held back
 /// until it is disambiguated, so a stop sequence split over several tokens is never partially emitted.
 /// </summary>
-public sealed class StopStringFilter(IReadOnlyList<string> stops)
+internal sealed class StopStringFilter(IReadOnlyList<string> stops)
 {
     private readonly StringBuilder _pending = new();
     private readonly string[] _stops = [.. stops.Where(s => s.Length > 0)];

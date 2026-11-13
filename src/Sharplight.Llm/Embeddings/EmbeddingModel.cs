@@ -34,7 +34,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
     /// <summary>Name of the prompt applied when <see cref="EmbedOptions.Prompt"/> is not set, if the model declares one.</summary>
     public string? DefaultPrompt { get; }
     /// <summary>The compiled packed-sequence graph.</summary>
-    public PackedBatchRunner Runner => _runner;
+    internal PackedBatchRunner Runner => _runner;
 
     private EmbeddingModel(ModelDefinition def, ModelSource source, ITokenizer tok, PackedBatchRunner runner, int maxLength)
     {

@@ -7,7 +7,11 @@ namespace Sharplight.Server;
 /// <summary>Shared state behind the endpoints (one per host): the models (a <see cref="ModelHost"/>) and the server options.</summary>
 public sealed class SharplightServerContext
 {
-    public SharplightServerContext(ModelHost host, SharplightServerOptions options) { Host = host; Options = options; }
+    public SharplightServerContext(ModelHost host, SharplightServerOptions options)
+    {
+        Host = host;
+        Options = options;
+    }
 
     /// <summary>Single-model form: the service is registered as the (pinned, never reloaded) default model. The caller keeps ownership of its engine.</summary>
     public SharplightServerContext(ModelService model, SharplightServerOptions options)

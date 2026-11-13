@@ -12,8 +12,16 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     public bool BatchesSequences => false;
     public bool CanTruncate => false;
     public long DeviceMemoryBytes => session.Compiled.AcceleratorMemoryBytes;
-    public int Length(int slot) { Check(slot); return session.Position; }
-    public void Reset(int slot) { Check(slot); session.Reset(); }
+    public int Length(int slot)
+    {
+        Check(slot);
+        return session.Position;
+    }
+    public void Reset(int slot)
+    {
+        Check(slot);
+        session.Reset();
+    }
     public void Truncate(int slot, int length)
     {
         Check(slot);
@@ -46,13 +54,17 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
         return res;
     }
 
-    private static void Check(int slot) { if (slot != 0)
+    private static void Check(int slot)
+    {
+        if (slot != 0)
         {
             throw new ArgumentOutOfRangeException(nameof(slot));
         }
     }
 
-    public void Dispose() { if (ownsSession)
+    public void Dispose()
+    {
+        if (ownsSession)
         {
             session.Dispose();
         }

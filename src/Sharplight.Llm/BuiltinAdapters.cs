@@ -4,7 +4,7 @@ using Sharplight.Models;
 namespace Sharplight.Llm;
 
 /// <summary>Registers the architecture adapters shipped with Sharplight.</summary>
-public static class BuiltinAdapters
+internal static class BuiltinAdapters
 {
     private static int s_done;
     public static void RegisterAll()

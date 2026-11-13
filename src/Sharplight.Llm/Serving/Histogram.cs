@@ -1,7 +1,7 @@
 namespace Sharplight.Llm.Serving;
 
 /// <summary>Thread-safe fixed-bucket histogram.</summary>
-public sealed class Histogram(double[] upperBounds)
+internal sealed class Histogram(double[] upperBounds)
 {
     private readonly long[] _counts = new long[upperBounds.Length + 1];
     private double _sum;

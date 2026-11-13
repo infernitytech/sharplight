@@ -27,7 +27,12 @@ public class SyntheticImporterTests : IDisposable
     {
         var rng = new Random(11);
         var t = new Dictionary<string, (long[], float[])>();
-        void Add(string n, params long[] shape) { var d = new float[shape.Aggregate(1L, (a, b) => a * b)]; for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); } t["model.visual." + n] = (shape, d); }
+        void Add(string n, params long[] shape)
+        {
+            var d = new float[shape.Aggregate(1L, (a, b) => a * b)];
+            for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); }
+            t["model.visual." + n] = (shape, d);
+        }
         long H = P.HiddenSize, F = P.FfnHiddenSize, M = P.MergeUnit * H;
         Add("patch_embed.proj.weight", H, P.InChannels, P.TemporalPatchSize, P.PatchSize, P.PatchSize);
         Add("patch_embed.proj.bias", H);
@@ -57,7 +62,12 @@ public class SyntheticImporterTests : IDisposable
         return t;
     }
 
-    private static byte[] Bytes(float[] d) { var b = new byte[d.Length * 4]; Buffer.BlockCopy(d, 0, b, 0, b.Length); return b; }
+    private static byte[] Bytes(float[] d)
+    {
+        var b = new byte[d.Length * 4];
+        Buffer.BlockCopy(d, 0, b, 0, b.Length);
+        return b;
+    }
 
     private string WriteHf(Dictionary<string, (long[] Shape, float[] Data)> tensors)
     {
@@ -168,7 +178,11 @@ public class SyntheticImporterTests : IDisposable
         return path;
     }
 
-    private ModelSource Track(ModelSource s) { _open.AddRange(s.OwnedResources); return s; }
+    private ModelSource Track(ModelSource s)
+    {
+        _open.AddRange(s.OwnedResources);
+        return s;
+    }
 
     [Fact]
     public void Hf_and_mmproj_importers_agree_and_preserve_the_weights()

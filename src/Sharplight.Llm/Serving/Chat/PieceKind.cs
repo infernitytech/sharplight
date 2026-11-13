@@ -1,3 +1,3 @@
 namespace Sharplight.Llm.Serving.Chat;
 
-public enum PieceKind { Content, Reasoning, ToolCall }
+internal enum PieceKind { Content, Reasoning, ToolCall }

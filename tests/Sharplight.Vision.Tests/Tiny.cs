@@ -44,7 +44,11 @@ internal static class Tiny
         var w = new Dictionary<string, WeightInfo>();
         long H = p.HiddenSize, F = p.FfnHiddenSize, M = p.MergeUnit * H;
         void Add(WeightInfo x) => w[x.Name] = x;
-        void Norm(string n) { Add(Ones(n + ".weight", H)); Add(Weight(n + ".bias", rng, 0.1f, H)); }
+        void Norm(string n)
+        {
+            Add(Ones(n + ".weight", H));
+            Add(Weight(n + ".bias", rng, 0.1f, H));
+        }
         Add(Weight("vision.patch_embed.weight", rng, 0.2f, H, p.PatchDim));
         Add(Weight("vision.patch_embed.bias", rng, 0.1f, H));
         Add(Weight("vision.position_embedding.weight", rng, 0.5f, p.PositionEmbeddingCount, H));

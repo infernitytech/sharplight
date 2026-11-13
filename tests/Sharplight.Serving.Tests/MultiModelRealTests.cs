@@ -205,7 +205,9 @@ public class MultiModelRealTests
                 }
             }
         }
-        finally { foreach (var d in decs)
+        finally
+        {
+            foreach (var d in decs)
             {
                 d.Dec.Dispose();
             }

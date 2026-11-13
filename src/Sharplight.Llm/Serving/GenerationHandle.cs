@@ -41,7 +41,9 @@ public sealed class GenerationHandle
                 }
             }
         }
-        finally { if (!done)
+        finally
+        {
+            if (!done)
             {
                 _cancel();
             }

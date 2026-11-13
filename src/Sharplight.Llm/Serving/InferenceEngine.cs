@@ -374,7 +374,9 @@ public sealed class InferenceEngine : IDisposable
                 _transit++;
             }
             try { AssignSlot(seq); }
-            finally { lock (_gate)
+            finally
+            {
+                lock (_gate)
                 {
                     _transit--;
                 }

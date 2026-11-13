@@ -1,7 +1,7 @@
 namespace Sharplight.Llm.Serving;
 
 /// <summary>Helpers to find marker strings in a text stream that arrives in arbitrary pieces.</summary>
-public static class MarkerScanner
+internal static class MarkerScanner
 {
     /// <summary>Finds the earliest occurrence of any marker. Returns its index and marker index, or (-1, -1).</summary>
     public static (int Index, int Marker) FindFirst(string text, IReadOnlyList<string> markers, int from = 0)

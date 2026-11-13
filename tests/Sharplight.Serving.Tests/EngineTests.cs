@@ -466,7 +466,9 @@ public class EngineTests
         d.Script("a", loop: true);
         using var e = Engine(d);
         int n = 0;
-        await foreach (var c in e.GenerateAsync(Req("x", max: 100000))) { if (++n == 3)
+        await foreach (var c in e.GenerateAsync(Req("x", max: 100000)))
+        {
+            if (++n == 3)
             {
                 break;
             }
