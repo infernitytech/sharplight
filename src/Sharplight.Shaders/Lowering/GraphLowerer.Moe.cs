@@ -8,20 +8,14 @@ namespace Sharplight.Shaders.Lowering;
 /// <summary>Lowering of the expert-indexed matrix product (MatMulId, see kernels/moe.slang).</summary>
 public sealed partial class GraphLowerer
 {
-    private const int MoeMatvecMaxItems = 16;   // (token, slot) items up to which a per-item matvec beats grouping by expert
     private const int MoeMaxExperts = 1024;
     private const int MoeMinTile = 32;
 
-    private static readonly int s_moeMvMax = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_MV_MAX") ?? MoeMatvecMaxItems.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
-    private static readonly int s_moeTile = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);
-    // Without tensor cores the 64-row scalar tile only pays off when experts see many rows: below this average the
-    // per-item matvec (which re-reads shared experts' weights from cache) is faster.
-    private static readonly int s_moeScalarRows = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_SCALAR_ROWS") ?? "12", CultureInfo.InvariantCulture);
-    private static readonly bool s_moeNoCoop = Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_NO_COOP") == "1";
-
     private static OpSupport SupportsMoe(Node node)
     {
-        var x = node.Inputs[0]; var w = node.Inputs[1]; var ids = node.Inputs[2];
+        var x = node.Inputs[0];
+        var w = node.Inputs[1];
+        var ids = node.Inputs[2];
         if (x.Type != DataType.F32)
         {
             return OpSupport.No($"MatMulId activations must be f32, got {x.Type}");
@@ -74,37 +68,37 @@ public sealed partial class GraphLowerer
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
         var ids = Ref(n.Inputs[2]);
-        long E = w.Shape[0], N = w.Shape[1], K = w.Shape[2], S = ids.Shape[1];
+        long E = w.Shape[0];
+        long N = w.Shape[1];
+        long K = w.Shape[2];
+        long S = ids.Shape[1];
         bool perSlot = x.Rank == 3;
         if (!ids.IsDense || ids.Type != DataType.I32)
         {
             ids = DenseTemp(ids, "matmul-id ids");
         }
 
-        if (!TryRows(x, out long xs, out long mid) || xs % 4 != 0 || x.ByteOffset % 16 != 0 || x.Type != DataType.F32)
-        {
-            x = DenseTemp(x, "matmul-id");
-            TryRows(x, out xs, out mid);
-        }
+        x = PrepareMatMulInput(x, "matmul-id", out long xs, out _);
         var y = Produce(n.Output);
         int fmt = WeightFormat(w.Type)!.Value;
         long rowBytes = w.Type.ByteSize(K);
         var m = Macros(("WFMT", fmt), ("K", K), ("N", N), ("E", E), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xs),
             ("ROW_BYTES", rowBytes + "ull"), ("EXPERT_BYTES", rowBytes * N + "ull"));
-        var tids = ids; var tx = x;
+        var tids = ids;
+        var tx = x;
         long maxItems = ids.Shape[0] * S;
         Func<Bindings, long> items = b => Rows(b, tids) * S;
-        bool coop = !s_moeNoCoop && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
+        bool coop = !DiagnosticSwitches.MoeNoCoop && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
                     && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much later).
-        long mv = coop ? s_moeMvMax : Math.Max(s_moeMvMax, s_moeScalarRows * E);
+        long mv = coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
         // Decode / few rows: one matvec per (token, slot).
         Emit(label + " matvec", [n],
             [new KernelVariant(b => items(b) <= mv, Lib("moe.slang", "moe_matvec", m), b => new Grid(Grid.Div(N, 4), (uint)Math.Max(1, items(b))))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(ids.Buffer, ids.ByteOffset),
-             new PointerArg(y.Buffer, y.ByteOffset), TokenArg(ids)],
+            [Pointer(x), Pointer(w), Pointer(ids),
+             Pointer(y), TokenArg(ids)],
             [x, w, ids], [y]);
 
         // Many rows: group by expert, then a GEMM per expert tile.
@@ -115,7 +109,7 @@ public sealed partial class GraphLowerer
         var scratch = new TensorRef(_moeScratch, 0, DataType.U32, [scratchWords], [1], null);
 
         // Tile rows per expert: small tiles when experts see few rows on average (less wasted MMA work).
-        Func<Bindings, int> tile = b => !coop ? 64 : s_moeTile != 0 ? s_moeTile : items(b) <= 24 * E ? 32 : 64;
+        Func<Bindings, int> tile = b => !coop ? 64 : DiagnosticSwitches.MoeTile != 0 ? DiagnosticSwitches.MoeTile : items(b) <= 24 * E ? 32 : 64;
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 
@@ -126,13 +120,13 @@ public sealed partial class GraphLowerer
                 [.. tiling.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("moe.slang", "moe_route", new Dictionary<string, string>(Macros(("E", E), ("S", S), ("TILE_M", t), ("MAXTILES", maxTiles)))),
                     _ => new Grid(1)))],
-                [new PointerArg(ids.Buffer, ids.ByteOffset), scratchArg, TokenArg(ids)],
+                [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
             _moeRouted = (n.Inputs[2], E, maxTiles);
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
-        var gargs = new KernelArg[] { new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), scratchArg, new PointerArg(y.Buffer, y.ByteOffset), TokenArg(ids) };
+        var gargs = new KernelArg[] { Pointer(x), Pointer(w), scratchArg, Pointer(y), TokenArg(ids) };
         if (coop)
         {
             Emit(label + " gemm-cm", [n],

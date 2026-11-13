@@ -114,42 +114,6 @@ public sealed partial class GraphLowerer
     }
 
     // ---- helpers -----------------------------------------------------------------------------
-    /// <summary>Scratch tensor in the arena, released after the current node is lowered.</summary>
-    private TensorRef Temp(DataType type, long[] shape, string? symbol)
-    {
-        var key = new object();
-        long bytes = type.ByteSize(shape.Aggregate(1L, (a, b) => a * b));
-        long off = _alloc.Allocate(key, Math.Max(16, bytes));
-        _temps.Add(key);
-        return new TensorRef(_arena, off, type, shape, TensorRef.DenseStrides(shape), symbol);
-    }
-
-    /// <summary>Returns <paramref name="r"/> if it is f32 (strides preserved), else a dense f32 copy.</summary>
-    private TensorRef AsF32(TensorRef r, string why)
-    {
-        if (r.Type == DataType.F32)
-        {
-            return r;
-        }
-
-        var dst = Temp(DataType.F32, r.Shape, r.Symbol);
-        EmitCopy(r, dst, "to_f32:" + why);
-        return dst;
-    }
-
-    /// <summary>Dense f32 tensor (copying/converting when needed).</summary>
-    private TensorRef AsDenseF32(TensorRef r, string why)
-    {
-        if (r.Type == DataType.F32 && r.IsDense)
-        {
-            return r;
-        }
-
-        var dst = Temp(DataType.F32, r.Shape, r.Symbol);
-        EmitCopy(r, dst, "dense_f32:" + why);
-        return dst;
-    }
-
     private static string IntList(IEnumerable<long> v)
     {
         var s = string.Join(",", v);
@@ -202,7 +166,8 @@ public sealed partial class GraphLowerer
     private static ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
     {
         long NC = N * HW;
-        ConvTile? best = null; long bestWgs = 0;
+        ConvTile? best = null;
+        long bestWgs = 0;
         foreach (var t in s_convTiles)
         {
             // Avoid grossly oversized tiles for small problems.
@@ -222,7 +187,11 @@ public sealed partial class GraphLowerer
                 return new ConvCfg(t, 1, K);
             }
 
-            if (wgs > bestWgs) { best = t; bestWgs = wgs; }
+            if (wgs > bestWgs)
+            {
+                best = t;
+                bestWgs = wgs;
+            }
         }
         best ??= s_convTiles[^1];
         bestWgs = Math.Max(1, bestWgs);
@@ -257,11 +226,18 @@ public sealed partial class GraphLowerer
         var pd = a.Get("pads", new long[] { 0, 0, 0, 0 });
         var dl = a.Get("dilations", new long[] { 1, 1 });
         long G = a.Get("groups", 1L);
-        long C = x.Shape[1], H = x.Shape[2], W = x.Shape[3];
-        long O = w.Shape[0], CG = w.Shape[1], KH = w.Shape[2], KW = w.Shape[3];
+        long C = x.Shape[1];
+        long H = x.Shape[2];
+        long W = x.Shape[3];
+        long O = w.Shape[0];
+        long CG = w.Shape[1];
+        long KH = w.Shape[2];
+        long KW = w.Shape[3];
         long OG = O / G;
         var y = Produce(n.Output);
-        long HO = y.Shape[2], WO = y.Shape[3], HW = HO * WO;
+        long HO = y.Shape[2];
+        long WO = y.Shape[3];
+        long HW = HO * WO;
         long K = CG * KH * KW;
         int fmt = WeightFormat(w.Type) ?? throw new NotSupportedException($"Conv weight type {w.Type}");
         bool nopad = pd.All(p => p == 0);
@@ -281,7 +257,7 @@ public sealed partial class GraphLowerer
         {
             var k = Lib("conv.slang", "conv_dw", Macros(common));
             Emit(name, [n], [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW, 256)))],
-                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(biasPtr.Buffer, biasPtr.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset),
+                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y),
                  CountArg(x, O * HW)],
                 bias is null ? [x, w] : [x, w, bias], [y]);
             return;
@@ -313,7 +289,7 @@ public sealed partial class GraphLowerer
         });
         var dst = ws ?? y;
         Emit(useWs ? name + " gemm" : name, [n], gemmVariants,
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(biasPtr.Buffer, biasPtr.ByteOffset), new PointerArg(dst.Buffer, dst.ByteOffset), TokenArg(x)],
+            [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(dst), TokenArg(x)],
             bias is null || useWs ? [x, w] : [x, w, bias], [dst]);
         if (!useWs)
         {
@@ -326,7 +302,7 @@ public sealed partial class GraphLowerer
             return (k, Nv => new Grid(Grid.Div(Nv * O * HW, 256)));
         });
         Emit(name + " reduce", [n], redVariants,
-            [new PointerArg(dst.Buffer, dst.ByteOffset), new PointerArg(biasPtr.Buffer, biasPtr.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), CountArg(x, O * HW)],
+            [Pointer(dst), Pointer(biasPtr), Pointer(y), CountArg(x, O * HW)],
             bias is null ? [dst] : [dst, bias], [y]);
     }
 
@@ -341,14 +317,16 @@ public sealed partial class GraphLowerer
         var dl = a.Get("dilations", new long[] { 1, 1 });
         bool avg = a.Get("mode", "max") == "avg";
         var y = Produce(n.Output);
-        long C = x.Shape[1], HO = y.Shape[2], WO = y.Shape[3];
+        long C = x.Shape[1];
+        long HO = y.Shape[2];
+        long WO = y.Shape[3];
         var k = Lib("spatial.slang", "pool", Macros(("C", C), ("H", x.Shape[2]), ("W", x.Shape[3]), ("HO", HO), ("WO", WO), ("KH", kernel[0]), ("KW", kernel[1]),
             ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("PB", pd[2]), ("PR", pd[3]), ("DH", avg ? 1 : dl[0]), ("DW", avg ? 1 : dl[1]),
             ("XS_N", x.Strides[0]), ("XS_C", x.Strides[1]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]),
             ("MODE", avg ? 1 : 0), ("COUNT_PAD", a.Get("count_include_pad", false))));
         var tx = x;
         Emit($"pool {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * C * HO * WO, 256)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), CountArg(x, C * HO * WO)], [x], [y]);
+            [Pointer(x), Pointer(y), CountArg(x, C * HO * WO)], [x], [y]);
     }
 
     // ---- Reduce ------------------------------------------------------------------------------
@@ -395,7 +373,7 @@ public sealed partial class GraphLowerer
         KernelArg count = sym ? new SymbolArg(x.Symbol!, inner) : new UIntArg((uint)(y.MaxElements));
         Emit($"reduce-{mode} {n.Output.Name}", [n],
             [Always(k, b => new Grid(Grid.Div((sym ? b[tx.Symbol!] * inner : y.MaxElements), perWg)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), count], [x], [y]);
+            [Pointer(x), Pointer(y), count], [x], [y]);
     }
 
     // ---- BatchMatMul -------------------------------------------------------------------------
@@ -417,16 +395,22 @@ public sealed partial class GraphLowerer
         var b = AsF32(bRef, "bmm-b");
         var y = Produce(n.Output);
         int nb = y.Rank - 2;
-        long M = y.Shape[^2], N = y.Shape[^1];
+        long M = y.Shape[^2];
+        long N = y.Shape[^1];
         long K = ta ? a.Shape[^2] : a.Shape[^1];
-        long sam = ta ? a.Strides[^1] : a.Strides[^2], sak = ta ? a.Strides[^2] : a.Strides[^1];
-        long sbk = tb ? b.Strides[^1] : b.Strides[^2], sbn = tb ? b.Strides[^2] : b.Strides[^1];
+        long sam = ta ? a.Strides[^1] : a.Strides[^2];
+        long sak = ta ? a.Strides[^2] : a.Strides[^1];
+        long sbk = tb ? b.Strides[^1] : b.Strides[^2];
+        long sbn = tb ? b.Strides[^2] : b.Strides[^1];
         // Batch dims, right-aligned broadcast against the output.
-        var bsh = new long[nb]; var bsa = new long[nb]; var bsb = new long[nb];
+        var bsh = new long[nb];
+        var bsa = new long[nb];
+        var bsb = new long[nb];
         for (int d = 0; d < nb; d++)
         {
             bsh[d] = y.Shape[d];
-            int ia = a.Rank - 2 - (nb - d), ib = b.Rank - 2 - (nb - d);
+            int ia = a.Rank - 2 - (nb - d);
+            int ib = b.Rank - 2 - (nb - d);
             bsa[d] = ia >= 0 && a.Shape[ia] != 1 ? a.Strides[ia] : 0;
             bsb[d] = ib >= 0 && b.Shape[ib] != 1 ? b.Strides[ib] : 0;
         }
@@ -456,11 +440,12 @@ public sealed partial class GraphLowerer
                 long mm = mdyn ? dyn : Mb;
                 long batches = nb == 0 ? 1 : (y.Symbol is not null ? dyn * batchesInner : y.Shape.Take(nb).Aggregate(1L, (p, q) => p * q));
                 return new Grid(Grid.Div(N, t.BN), Grid.Div(mm, t.BM), (uint)batches);
-            });
+            }
+            );
         });
         KernelArg dynArg = mdyn ? new SymbolArg(y.Symbol!) : new UIntArg(0);
         Emit($"bmm {n.Output.Name} [{M}x{K}x{N}]", [n], variants,
-            [new PointerArg(a.Buffer, a.ByteOffset), new PointerArg(b.Buffer, b.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), dynArg], [a, b], [y]);
+            [Pointer(a), Pointer(b), Pointer(y), dynArg], [a, b], [y]);
     }
 
     // ---- Pad ---------------------------------------------------------------------------------
@@ -478,7 +463,7 @@ public sealed partial class GraphLowerer
         long inner = y.Shape.Skip(1).Aggregate(1L, (p, q) => p * q);
         var tx = x;
         Emit($"pad {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * inner, 256)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), CountArg(y, inner)], [x], [y]);
+            [Pointer(x), Pointer(y), CountArg(y, inner)], [x], [y]);
     }
 
     // ---- Resize ------------------------------------------------------------------------------
@@ -487,7 +472,9 @@ public sealed partial class GraphLowerer
         var x = AsF32(Ref(n.Inputs[0]), "resize");
         var a = n.Attributes;
         var y = Produce(n.Output);
-        long C = x.Shape[1], OH = y.Shape[2], OW = y.Shape[3];
+        long C = x.Shape[1];
+        long OH = y.Shape[2];
+        long OW = y.Shape[3];
         int coord = a.Get("coord", "half_pixel") switch { "half_pixel" => 0, "align_corners" => 1, "asymmetric" => 2, _ => 3 };
         int near = a.Get("nearest_mode", "round_prefer_floor") switch { "round_prefer_floor" => 0, "round_prefer_ceil" => 1, "floor" => 2, _ => 3 };
         var k = Lib("spatial.slang", "resize", Macros(("C", C), ("H", x.Shape[2]), ("W", x.Shape[3]), ("OH", OH), ("OW", OW),
@@ -495,14 +482,18 @@ public sealed partial class GraphLowerer
             ("LINEAR", a.Get("mode", "nearest") == "linear"), ("COORD", coord), ("NEAREST", near)));
         var tx = x;
         Emit($"resize {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * C * OH * OW, 256)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), CountArg(x, C * OH * OW)], [x], [y]);
+            [Pointer(x), Pointer(y), CountArg(x, C * OH * OW)], [x], [y]);
     }
 
     // ---- row ops -----------------------------------------------------------------------------
     private TensorRef RowsInput(Value v, string why, out long r1, out long s0, out long s1)
     {
         var x = AsF32(Ref(v), why);
-        if (!TryRows3(x, out r1, out s0, out s1)) { x = DenseTemp(x, why); TryRows3(x, out r1, out s0, out s1); }
+        if (!TryRows3(x, out r1, out s0, out s1))
+        {
+            x = DenseTemp(x, why);
+            TryRows3(x, out r1, out s0, out s1);
+        }
         return x;
     }
 
@@ -513,7 +504,7 @@ public sealed partial class GraphLowerer
         var k = Lib("rows.slang", "softmax", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("SCALE", n.Attributes.Get("scale", 1f)), ("LOG_SOFTMAX", n.Attributes.Get("log", false))));
         var tx = x;
         Emit($"softmax {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)], [x], [y]);
+            [Pointer(x), Pointer(y), TokenArg(x)], [x], [y]);
     }
 
     private void LowerLayerNorm(Node n)
@@ -525,9 +516,10 @@ public sealed partial class GraphLowerer
         var k = Lib("rows.slang", "layernorm", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("EPS", n.Attributes.Get<float>("eps")),
             ("HAS_W", w is not null), ("HAS_B", bi is not null)));
         var tx = x;
-        var wp = w ?? x; var bp = bi ?? x;
+        var wp = w ?? x;
+        var bp = bi ?? x;
         Emit($"layernorm {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(wp.Buffer, wp.ByteOffset), new PointerArg(bp.Buffer, bp.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)],
+            [Pointer(x), Pointer(wp), Pointer(bp), Pointer(y), TokenArg(x)],
             [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
     }
 
@@ -538,6 +530,6 @@ public sealed partial class GraphLowerer
         var k = Lib("rows.slang", "rowreduce", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("MODE", mode)));
         var tx = x;
         Emit($"{n.Op.Name} {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)], [x], [y]);
+            [Pointer(x), Pointer(y), TokenArg(x)], [x], [y]);
     }
 }

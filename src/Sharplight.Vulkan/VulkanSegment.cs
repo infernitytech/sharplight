@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Shaders.Lowering;
 using Vortice.Vulkan;
@@ -31,19 +32,20 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     /// <summary>GPU time (first to last command) of the most recent non-profiled <see cref="Execute"/>, in ms.</summary>
     public double LastGpuMs { get; private set; }
 
+    /// <inheritdoc />
     public GraphSegment Segment { get; }
-    public KernelProgram Program => _program;
+    /// <inheritdoc />
     public long DeviceMemoryBytes { get; }
 
     /// <summary>
     /// Per-dispatch GPU timing. When on, every Execute records a fresh command buffer with
-    /// timestamps and accumulates <see cref="ProfileData"/>. Defaults to SHARPLIGHT_VK_PROFILE=1.
+    /// timestamps and accumulates <see cref="ProfileData"/>. Defaults to on when <c>SHARPLIGHT_VK_PROFILE</c> is 1 or 2.
     /// </summary>
-    public bool Profile { get; set; } = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_PROFILE") is "1" or "2";
+    public bool Profile { get; set; } = DiagnosticSwitches.Profile;
 
     /// <summary>Accumulated GPU time per launch kind (key: "&lt;op&gt; [shape] &lt;entry&gt; T=&lt;tokens&gt;").</summary>
     public Dictionary<string, (double Ms, int Count, double MinMs)> ProfileData { get; } = [];
-    private static readonly bool s_profileDetail = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_PROFILE") == "2";
+    /// <summary>Clears <see cref="ProfileData"/>.</summary>
     public void ResetProfile() => ProfileData.Clear();
 
     /// <summary>Formats <see cref="ProfileData"/> as a table, heaviest first.</summary>
@@ -96,7 +98,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             DeviceMemoryBytes = bytes;
             var swUp = Stopwatch.StartNew();
             UploadWeights();
-            if (VulkanDevice.s_loadTiming)
+            if (DiagnosticSwitches.LoadTiming)
             {
                 Console.Error.WriteLine($"[load] upload segment {segment.Index}: {swUp.ElapsedMilliseconds} ms, {program.Buffers.Where(b => b.Kind == BufferKind.Weight).Sum(b => b.Bytes) / 1e9:F2} GB");
             }
@@ -190,45 +192,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
                     ulong chunk = Math.Min(StagingSize - fill, (ulong)(total - done));
                     chunk -= chunk % (ulong)rowBytes;
-                    var span = new Span<byte>(staging[slot].Mapped + fill, (int)chunk);
-                    if (b.Repack != WeightRepack.None && ptr != 0)
-                    {
-                        RepackParallel(b, (byte*)ptr + done, staging[slot].Mapped + fill, (long)chunk, rowBytes);
-                    }
-                    else if (b.Repack != WeightRepack.None)
-                    {
-                        var tmp = System.Buffers.ArrayPool<byte>.Shared.Rent((int)chunk);
-                        try
-                        {
-                            if (ptr != 0)
-                            {
-                                new ReadOnlySpan<byte>((byte*)ptr + done, (int)chunk).CopyTo(tmp);
-                            }
-                            else if (b.InitialData is not null)
-                            {
-                                b.InitialData.AsSpan((int)done, (int)chunk).CopyTo(tmp);
-                            }
-                            else
-                            {
-                                src!.Read(done, tmp.AsSpan(0, (int)chunk));
-                            }
-
-                            RepackParallel(b, tmp, staging[slot].Mapped + fill, (long)chunk, rowBytes);
-                        }
-                        finally { System.Buffers.ArrayPool<byte>.Shared.Return(tmp); }
-                    }
-                    else if (b.InitialData is not null)
-                    {
-                        b.InitialData.AsSpan((int)done, (int)chunk).CopyTo(span);
-                    }
-                    else if (ptr != 0)
-                    {
-                        CopyParallel((byte*)ptr + done, staging[slot].Mapped + fill, (long)chunk);
-                    }
-                    else
-                    {
-                        src!.Read(done, span);
-                    }
+                    CopyWeightChunk(b, src, ptr, done, (long)chunk, staging[slot].Mapped + fill, rowBytes);
 
                     pending.Add((dst.Buffer, dst.Offset + (ulong)done, fill, chunk));
                     fill += (chunk + 255) & ~255UL;
@@ -241,7 +205,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 }
             }
             Flush();
-            for (int i = 0; i < 2; i++) { var f = fences[i]; _dev.Api.vkWaitForFences(1, &f, true, ulong.MaxValue); }
+            for (int i = 0; i < 2; i++)
+            {
+                var f = fences[i];
+                _dev.Api.vkWaitForFences(1, &f, true, ulong.MaxValue);
+            }
         }
         finally
         {
@@ -254,16 +222,68 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
     }
 
+    /// <summary>
+    /// Copies <paramref name="chunk"/> bytes of a weight (or constant) starting at <paramref name="done"/> into staging
+    /// memory, repacking rows when the buffer asks for it. The source is a mapped pointer when it has one, otherwise
+    /// the weight source or initial data is read through a span.
+    /// </summary>
+    private static void CopyWeightChunk(BufferDecl b, IWeightSource? src, nint ptr, long done, long chunk, byte* destination, long rowBytes)
+    {
+        var span = new Span<byte>(destination, (int)chunk);
+        if (b.Repack != WeightRepack.None && ptr != 0)
+        {
+            RepackParallel(b, (byte*)ptr + done, destination, chunk, rowBytes);
+        }
+        else if (b.Repack != WeightRepack.None)
+        {
+            var tmp = System.Buffers.ArrayPool<byte>.Shared.Rent((int)chunk);
+            try
+            {
+                if (b.InitialData is not null)
+                {
+                    b.InitialData.AsSpan((int)done, (int)chunk).CopyTo(tmp);
+                }
+                else
+                {
+                    src!.Read(done, tmp.AsSpan(0, (int)chunk));
+                }
+
+                RepackParallel(b, tmp, destination, chunk, rowBytes);
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(tmp);
+            }
+        }
+        else if (b.InitialData is not null)
+        {
+            b.InitialData.AsSpan((int)done, (int)chunk).CopyTo(span);
+        }
+        else if (ptr != 0)
+        {
+            CopyParallel((byte*)ptr + done, destination, chunk);
+        }
+        else
+        {
+            src!.Read(done, span);
+        }
+    }
+
     /// <summary>Multi-threaded copy: weight sources are usually mmapped files, where a single thread is
     /// bound by page-fault handling rather than memory bandwidth.</summary>
     private static void CopyParallel(byte* src, byte* dst, long bytes)
     {
         const long Piece = 2 << 20;
-        if (bytes <= Piece) { Buffer.MemoryCopy(src, dst, bytes, bytes); return; }
+        if (bytes <= Piece)
+        {
+            Buffer.MemoryCopy(src, dst, bytes, bytes);
+            return;
+        }
         nint s = (nint)src, d = (nint)dst;
         Parallel.For(0, (bytes + Piece - 1) / Piece, i =>
         {
-            long o = i * Piece, n = Math.Min(Piece, bytes - o);
+            long o = i * Piece;
+            long n = Math.Min(Piece, bytes - o);
             Buffer.MemoryCopy((byte*)s + o, (byte*)d + o, n, n);
         });
     }
@@ -275,7 +295,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         nint s = (nint)src, d = (nint)dst;
         Parallel.For(0, (rows + RowsPerTask - 1) / RowsPerTask, t =>
         {
-            long r0 = t * RowsPerTask, n = Math.Min(RowsPerTask, rows - r0);
+            long r0 = t * RowsPerTask;
+            long n = Math.Min(RowsPerTask, rows - r0);
             WeightRepacker.Apply(b.Repack, b.RepackRowElements,
                 new ReadOnlySpan<byte>((byte*)s + r0 * rowBytes, (int)(n * rowBytes)),
                 new Span<byte>((byte*)d + r0 * rowBytes, (int)(n * rowBytes)));
@@ -289,7 +310,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         nint d = (nint)dst;
         Parallel.For(0, (rows + RowsPerTask - 1) / RowsPerTask, t =>
         {
-            long r0 = t * RowsPerTask, n = Math.Min(RowsPerTask, rows - r0);
+            long r0 = t * RowsPerTask;
+            long n = Math.Min(RowsPerTask, rows - r0);
             WeightRepacker.Apply(b.Repack, b.RepackRowElements,
                 src.AsSpan((int)(r0 * rowBytes), (int)(n * rowBytes)),
                 new Span<byte>((byte*)d + r0 * rowBytes, (int)(n * rowBytes)));
@@ -297,6 +319,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     }
 
     // ---- I/O ---------------------------------------------------------------------------------
+    /// <inheritdoc />
+    /// <exception cref="ArgumentException">The data exceeds the size compiled for (see <see cref="CompileOptions.MaxTokens"/>).</exception>
     public void SetInput(Value value, ReadOnlySpan<byte> data)
     {
         if (!_program.InputRefs.TryGetValue(value, out var r))
@@ -313,6 +337,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         data.CopyTo(new Span<byte>(a.Mapped + r.ByteOffset, data.Length));
     }
 
+    /// <inheritdoc />
     public void GetOutput(Value value, Span<byte> destination)
     {
         var r = _program.OutputRefs[value];
@@ -320,14 +345,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         new ReadOnlySpan<byte>(a.Mapped + r.ByteOffset, destination.Length).CopyTo(destination);
     }
 
-    /// <summary>Direct read-only view of an output (valid until the next Execute).</summary>
-    public ReadOnlySpan<byte> OutputSpan(Value value, int bytes)
-    {
-        var r = _program.OutputRefs[value];
-        return new ReadOnlySpan<byte>(_staging[r.Buffer].Mapped + r.ByteOffset, bytes);
-    }
-
     // ---- execution ---------------------------------------------------------------------------
+    /// <inheritdoc />
     public void Execute(RunParameters parameters)
     {
         var rt = _staging[_program.RuntimeBuffer];
@@ -339,21 +358,24 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
 
         var bindings = new Bindings(parameters.Symbols);
-        if (Profile) { ExecuteProfiled(bindings); return; }
+        if (Profile)
+        {
+            ExecuteProfiled(bindings);
+            return;
+        }
         var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
-        if (_dev.SubmissionBudgetMs > 0) { ExecuteBudgeted(key, bindings); return; }
+        if (_dev.SubmissionBudgetMs > 0)
+        {
+            ExecuteBudgeted(key, bindings);
+            return;
+        }
         if (!_recorded.TryGetValue(key, out var cb))
         {
-            foreach (var s in _program.Symbols)
-            {
-                if (bindings[s] > _options.Bound(s))
-                {
-                    throw new ArgumentException($"Symbol {s}={bindings[s]} exceeds the compiled bound.");
-                }
-            }
+            CheckWithinCompiledBounds(bindings);
 
             var swRec = Stopwatch.StartNew();
-            long pt0 = _dev.PipelineTicks; int pc0 = _dev.PipelinesCreated;
+            long pt0 = _dev.PipelineTicks;
+            int pc0 = _dev.PipelinesCreated;
             cb = AllocCb();
             var bi = new VkCommandBufferBeginInfo();
             _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
@@ -365,7 +387,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             _dev.Api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.BottomOfPipe, _stepPool, 1);
             _dev.Api.vkEndCommandBuffer(cb).CheckResult();
             _recorded[key] = cb;
-            if (VulkanDevice.s_loadTiming)
+            if (DiagnosticSwitches.LoadTiming)
             {
                 Console.Error.WriteLine($"[load] record {key}: {swRec.ElapsedMilliseconds} ms, of which {_dev.PipelinesCreated - pc0} pipelines {(double)(_dev.PipelineTicks - pt0) / Stopwatch.Frequency * 1000:F0} ms");
             }
@@ -381,13 +403,24 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
     }
 
+    private void CheckWithinCompiledBounds(Bindings bindings)
+    {
+        foreach (var symbol in _program.Symbols)
+        {
+            if (bindings[symbol] > _options.Bound(symbol))
+            {
+                throw new ArgumentException($"Symbol {symbol}={bindings[symbol]} exceeds the compiled bound.");
+            }
+        }
+    }
+
     private void ExecuteProfiled(Bindings bindings)
     {
         var names = new string[_program.Launches.Count];
         var ms = MeasureLaunches(bindings, _dev.SubmissionBudgetMs > 0 ? CalibrationChunk : int.MaxValue, (i, l, v) =>
         {
             var parts = l.Name.Split(' ');
-            names[i] = s_profileDetail
+            names[i] = DiagnosticSwitches.ProfileDetail
                 ? $"{l.Name} {v.Kernel.EntryPoint}"
                 : $"{parts[0]}{(parts.Length > 2 ? " " + string.Join(" ", parts[2..]) : "")} {v.Kernel.EntryPoint} T={string.Join(",", _program.Symbols.Select(s => bindings[s]))}";
         });
@@ -398,7 +431,9 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 continue;
             }
 
-            ProfileData[names[i]] = ProfileData.TryGetValue(names[i], out var e) ? (e.Ms + ms[i], e.Count + 1, Math.Min(e.MinMs, ms[i])) : (ms[i], 1, ms[i]);
+            ProfileData[names[i]] = ProfileData.TryGetValue(names[i], out var entry)
+                ? (entry.Ms + ms[i], entry.Count + 1, Math.Min(entry.MinMs, ms[i]))
+                : (ms[i], 1, ms[i]);
         }
     }
 
@@ -417,7 +452,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         {
             int count = Math.Min(chunk, launches.Count - start);
             var slice = launches.Skip(start).Take(count).ToList();
-            if (s_trace)
+            if (DiagnosticSwitches.Trace)
             {
                 Console.Error.WriteLine($"[vk] launches {start}..{start + count - 1}: {string.Join(" | ", slice.Select(l => l.Name))}");
             }
@@ -435,7 +470,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     api.vkCmdResetQueryPool(cb, pool, 0, n);
                     Record(cb, slice, bindings, (i, l, v) =>
                     {
-                        if (i < 0) { api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, 0); return; }
+                        if (i < 0)
+                        {
+                            api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, 0);
+                            return;
+                        }
                         api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, (uint)i + 1);
                         if (v is not null)
                         {
@@ -454,7 +493,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     result[start + i] = (ts[i + 1] - ts[i]) * tick;
                 }
 
-                if (s_trace)
+                if (DiagnosticSwitches.Trace)
                 {
                     for (int i = 0; i < count; i++)
                     {
@@ -465,7 +504,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     }
                 }
             }
-            finally { api.vkDestroyQueryPool(pool, null); }
+            finally
+            {
+                api.vkDestroyQueryPool(pool, null);
+            }
         }
         _dev.Immediate(cb => RecordOutputCopies(cb, bindings));
         return result;
@@ -473,11 +515,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
     // ---- budgeted execution (devices where one long submission is unsafe, see DeviceInfo.SubmissionBudgetMs) ----------------
     private const int CalibrationChunk = 1;   // one launch per measured submission: a single launch is the only unit whose cost is not yet known
-    private static readonly bool s_trace = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_TRACE") == "1";
 
     private sealed class Chunk
     {
-        public int Start, End;
+        public int Start;
+        public int End;
         public double EstMs;
         public VkCommandBuffer Cb;
     }
@@ -497,13 +539,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     /// </summary>
     private void ExecuteBudgeted(string key, Bindings bindings)
     {
-        foreach (var s in _program.Symbols)
-        {
-            if (bindings[s] > _options.Bound(s))
-            {
-                throw new ArgumentException($"Symbol {s}={bindings[s]} exceeds the compiled bound.");
-            }
-        }
+        CheckWithinCompiledBounds(bindings);
 
         var sw = Stopwatch.StartNew();
         if (!_plans.TryGetValue(key, out var plan))
@@ -553,7 +589,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         var launches = _program.Launches;
         var plan = new Plan { Est = est };
         double budget = _dev.SubmissionBudgetMs;
-        int start = 0; double sum = 0;
+        int start = 0;
+        double sum = 0;
         for (int i = 0; i <= launches.Count; i++)
         {
             bool end = i == launches.Count;
@@ -564,7 +601,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     plan.Chunks.Add(new Chunk { Start = start, End = i, EstMs = sum });
                 }
 
-                start = i; sum = 0;
+                start = i;
+                sum = 0;
             }
             if (!end)
             {
@@ -604,6 +642,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         return plan;
     }
 
+    /// <inheritdoc />
     public void ResetState() => RunLaunches(_program.ResetLaunches);
 
     private void RunLaunches(IReadOnlyList<KernelLaunch> launches)
@@ -616,27 +655,19 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         _dev.Immediate(cb => Record(cb, launches, new Bindings(new Dictionary<string, long>())));
     }
 
-    // Diagnostics only: SHARPLIGHT_VK_NO_BARRIERS=1 drops inter-dispatch barriers (wrong results) to measure their cost.
-    private static readonly bool s_noBarriers = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_NO_BARRIERS") == "1";
-    // Diagnostics only: SHARPLIGHT_VK_MAX_LAUNCHES=n records only the first n launches (bisecting a faulting kernel);
-    // SHARPLIGHT_VK_LIST_LAUNCHES=1 prints each recorded launch.
-    private static readonly int s_maxLaunches = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_VK_MAX_LAUNCHES"), out var n) ? n : int.MaxValue;
-    private static readonly bool s_listLaunches = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_LIST_LAUNCHES") == "1";
-
     private void Record(VkCommandBuffer cb, IReadOnlyList<KernelLaunch> launches, Bindings bindings,
         Action<int, KernelLaunch, KernelVariant>? afterDispatch = null)
     {
         afterDispatch?.Invoke(-1, null!, null!);
         int index = 0;
         var api = _dev.Api;
-        var pendingWrites = new List<BufferRange>();
-        var pendingReads = new List<BufferRange>();
+        var hazards = new HazardTracker();
         byte* pc = stackalloc byte[(int)_dev.PushConstantSize];
         VkPipeline bound = VkPipeline.Null;
 
         foreach (var launch in launches)
         {
-            if (index >= s_maxLaunches)
+            if (index >= DiagnosticSwitches.MaxLaunches)
             {
                 break;
             }
@@ -650,20 +681,22 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 continue;
             }
             bool hazard = afterDispatch is not null // profiling: serialize so each timestamp delta is one kernel
-                       || launch.Reads.Any(r => pendingWrites.Any(w => w.Overlaps(r)))
-                       || launch.Writes.Any(w => pendingWrites.Any(p => p.Overlaps(w)) || pendingReads.Any(p => p.Overlaps(w)));
-            if (hazard && !s_noBarriers)
+                       || hazards.Conflicts(launch);
+            if (hazard && !DiagnosticSwitches.NoBarriers)
             {
                 Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite,
                     VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderRead | VkAccessFlags.ShaderWrite);
-                pendingWrites.Clear();
-                pendingReads.Clear();
+                hazards.Clear();
             }
-            pendingWrites.AddRange(launch.Writes);
-            pendingReads.AddRange(launch.Reads);
+
+            hazards.Add(launch);
 
             var pipe = _dev.Pipeline(variant.Kernel);
-            if (pipe != bound) { api.vkCmdBindPipeline(cb, VkPipelineBindPoint.Compute, pipe); bound = pipe; }
+            if (pipe != bound)
+            {
+                api.vkCmdBindPipeline(cb, VkPipelineBindPoint.Compute, pipe);
+                bound = pipe;
+            }
 
             int off = 0;
             foreach (var arg in launch.Args.Where(a => a is PointerArg))
@@ -689,7 +722,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
             api.vkCmdPushConstants(cb, _dev.PipelineLayout, VkShaderStageFlags.Compute, 0, (uint)((off + 3) & ~3), pc);
             var g = variant.Grid(bindings);
-            if (s_listLaunches)
+            if (DiagnosticSwitches.ListLaunches)
             {
                 Console.Error.WriteLine($"[launch {index}] {launch.Name} {variant.Kernel.CacheKey} grid {g.X}x{g.Y}x{g.Z}");
             }
@@ -765,7 +798,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     public List<(string Name, bool BarrierBefore)> Schedule(long tokens = 1)
     {
         var list = new List<(string, bool)>();
-        var pw = new List<BufferRange>(); var pr = new List<BufferRange>();
+        var hazards = new HazardTracker();
         var bindings = new Bindings(_program.Symbols.ToDictionary(s => s, _ => tokens));
         foreach (var l in _program.Launches)
         {
@@ -774,14 +807,19 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 continue;
             }
 
-            bool b = l.Reads.Any(r => pw.Any(w => w.Overlaps(r))) || l.Writes.Any(w => pw.Any(p => p.Overlaps(w)) || pr.Any(p => p.Overlaps(w)));
-            if (b) { pw.Clear(); pr.Clear(); }
-            pw.AddRange(l.Writes); pr.AddRange(l.Reads);
-            list.Add((l.Name, b));
+            bool barrier = hazards.Conflicts(l);
+            if (barrier)
+            {
+                hazards.Clear();
+            }
+
+            hazards.Add(l);
+            list.Add((l.Name, barrier));
         }
         return list;
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed)

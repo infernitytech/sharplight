@@ -5,22 +5,6 @@ using SlangShaderSharp;
 
 namespace Sharplight.Shaders;
 
-/// <summary>Code generation target for kernels.</summary>
-public enum ShaderTarget
-{
-    /// <summary>SPIR-V for Vulkan compute (pointers = physical storage buffers / BDA).</summary>
-    SpirV,
-    /// <summary>CUDA C++ source (compile with NVRTC).</summary>
-    CudaSource,
-    /// <summary>PTX assembly.</summary>
-    Ptx,
-    /// <summary>Metal Shading Language source.</summary>
-    Metal,
-}
-
-/// <summary>A compiled kernel binary for one target.</summary>
-public sealed record CompiledKernel(string Name, string EntryPoint, ShaderTarget Target, byte[] Code, string CacheKey);
-
 /// <summary>
 /// Thin, thread-safe wrapper over the Slang compiler that compiles kernels of the embedded kernel
 /// library (or generated source) for any backend target, with an on-disk cache keyed by the source
@@ -29,7 +13,6 @@ public sealed record CompiledKernel(string Name, string EntryPoint, ShaderTarget
 public sealed class SlangCompiler : IDisposable
 {
     private static readonly Lock s_globalLock = new();
-    private static readonly string? s_dumpDir = Environment.GetEnvironmentVariable("SHARPLIGHT_DUMP_KERNELS");
     private static IGlobalSession? s_global;
 
     private readonly string _libraryDir;
@@ -39,9 +22,8 @@ public sealed class SlangCompiler : IDisposable
     // across all instances (a per-instance lock let two devices compile concurrently).
     private static readonly Lock _compileLock = new();
 
-    public string LibraryDirectory => _libraryDir;
-
-    /// <param name="cacheDirectory">Directory for compiled binaries (null disables the disk cache).</param>
+    /// <summary>Creates a compiler, extracting the embedded kernel library on first use.</summary>
+    /// <param name="cacheDirectory">Directory for compiled binaries, shared by processes (null disables the disk cache).</param>
     public SlangCompiler(string? cacheDirectory = null)
     {
         _cacheDir = cacheDirectory;
@@ -74,12 +56,20 @@ public sealed class SlangCompiler : IDisposable
         }
     }
 
-    public static string Version => Global.GetBuildTagString();
+    private static string Version => Global.GetBuildTagString();
 
+    /// <summary>The per-user kernel cache directory.</summary>
     public static string DefaultCacheDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "kernels");
 
     /// <summary>Compiles an entry point of a library kernel file (e.g. "matmul.slang", "matvec").</summary>
+    /// <param name="file">Kernel file name in the embedded library.</param>
+    /// <param name="entryPoint">Entry point; also defines <c>KERNEL_&lt;ENTRY&gt;</c> for files with several entry points.</param>
+    /// <param name="target">Code generation target.</param>
+    /// <param name="macros">Preprocessor macros specializing the kernel.</param>
+    /// <param name="cache">Optional model-level cache, see <see cref="Compile"/>.</param>
+    /// <returns>The compiled kernel; identical requests return the same instance.</returns>
+    /// <exception cref="KernelCompilationException">Slang rejected the kernel.</exception>
     public CompiledKernel CompileLibrary(string file, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
     {
@@ -90,18 +80,24 @@ public sealed class SlangCompiler : IDisposable
     }
 
     /// <summary>Compiles generated source (may #include library files).</summary>
+    /// <param name="name">File name used in diagnostics and dumps.</param>
+    /// <param name="source">Slang source text.</param>
+    /// <param name="entryPoint">Entry point to compile.</param>
+    /// <param name="target">Code generation target.</param>
+    /// <param name="macros">Preprocessor macros.</param>
     /// <param name="cache">Optional model-level cache (saved compiled models): consulted first, and given every
     /// kernel resolved so it can be exported.</param>
+    /// <returns>The compiled kernel; identical requests return the same instance.</returns>
+    /// <exception cref="KernelCompilationException">Slang rejected the kernel.</exception>
     public CompiledKernel Compile(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
     {
         var key = CacheKey(source, entryPoint, target, macros);
         string ckey = "kernel/" + key;
-        if (s_dumpDir is not null)
+        if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpDirectory)
         {
-            // Diagnostics: SHARPLIGHT_DUMP_KERNELS=<dir> writes every kernel's source and macros.
-            Directory.CreateDirectory(s_dumpDir);
-            File.WriteAllText(Path.Combine(s_dumpDir, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{key[..12]}.slang"),
+            Directory.CreateDirectory(dumpDirectory);
+            File.WriteAllText(Path.Combine(dumpDirectory, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{key[..12]}.slang"),
                 $"// macros: {FormatMacros(macros)}\n{source}");
         }
         if (_memCache.TryGetValue(key, out var hit))
@@ -155,8 +151,14 @@ public sealed class SlangCompiler : IDisposable
 
     private static byte[]? TryRead(string path)
     {
-        try { return File.Exists(path) ? File.ReadAllBytes(path) : null; }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException) { return null; }
+        try
+        {
+            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException)
+        {
+            return null;
+        }
     }
 
     private byte[] CompileUncached(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
@@ -231,51 +233,8 @@ public sealed class SlangCompiler : IDisposable
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..32].ToLowerInvariant();
     }
 
-    public void Dispose() { }
-}
-
-public sealed class KernelCompilationException(string message) : Exception(message);
-
-/// <summary>The embedded Slang kernel sources, extracted to a content-addressed directory on first use.</summary>
-public static class KernelLibrary
-{
-    private const string Prefix = "Sharplight.Kernels.";
-    private static readonly Lazy<(string Dir, string Hash)> s_extracted = new(DoExtract);
-
-    public static string Hash => s_extracted.Value.Hash;
-    public static string Extract() => s_extracted.Value.Dir;
-
-    public static IEnumerable<string> Files =>
-        typeof(KernelLibrary).Assembly.GetManifestResourceNames().Where(n => n.StartsWith(Prefix, StringComparison.Ordinal)).Select(n => n[Prefix.Length..]);
-
-    private static (string, string) DoExtract()
+    /// <summary>Does nothing: compiled kernels are plain data and the Slang session is process-wide.</summary>
+    public void Dispose()
     {
-        var asm = typeof(KernelLibrary).Assembly;
-        var files = new SortedDictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach (var res in asm.GetManifestResourceNames().Where(n => n.StartsWith(Prefix, StringComparison.Ordinal)))
-        {
-            using var s = asm.GetManifestResourceStream(res)!;
-            using var ms = new MemoryStream();
-            s.CopyTo(ms);
-            files[res[Prefix.Length..]] = ms.ToArray();
-        }
-        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        foreach (var (k, v) in files) { sha.AppendData(Encoding.UTF8.GetBytes(k)); sha.AppendData(v); }
-        var hash = Convert.ToHexString(sha.GetHashAndReset())[..16].ToLowerInvariant();
-
-        var dir = Path.Combine(Path.GetTempPath(), "sharplight-kernels-" + hash);
-        if (!Directory.Exists(dir))
-        {
-            var tmp = dir + "." + Environment.ProcessId;
-            Directory.CreateDirectory(tmp);
-            foreach (var (k, v) in files)
-            {
-                File.WriteAllBytes(Path.Combine(tmp, k), v);
-            }
-
-            try { Directory.Move(tmp, dir); }
-            catch (IOException) { Directory.Delete(tmp, true); } // another process won the race
-        }
-        return (dir, hash);
     }
 }

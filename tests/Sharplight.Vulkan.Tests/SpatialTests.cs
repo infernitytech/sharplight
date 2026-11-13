@@ -3,7 +3,7 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
 
-public class ConvTests
+public sealed class ConvTests
 {
     private static void Run(string label, int[] batches, int C, int H, int W, int O, int KH, int KW, int[] stride, int[] pads, int[] dil, int groups,
         bool bias, string wtype = "f32", bool sliceInput = false, double atol = 2e-4, double rtol = 1e-4)
@@ -50,11 +50,17 @@ public class ConvTests
     [Fact] public void StridedInputView() => Run("sliced input", [2], 16, 9, 9, 24, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, bias: true, sliceInput: true);
 
     [Theory]
-    [InlineData(32, 4)] [InlineData(64, 2)] [InlineData(16, 16)] [InlineData(12, 3)]
+    [InlineData(32, 4)]
+    [InlineData(64, 2)]
+    [InlineData(16, 16)]
+    [InlineData(12, 3)]
     public void Grouped(int c, int g) => Run($"groups {g}", [2], c, 12, 12, c * 2, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], g, bias: true);
 
     [Theory]
-    [InlineData(32, 1, 1, 1)] [InlineData(32, 1, 2, 1)] [InlineData(16, 2, 1, 1)] [InlineData(24, 1, 1, 2)]
+    [InlineData(32, 1, 1, 1)]
+    [InlineData(32, 1, 2, 1)]
+    [InlineData(16, 2, 1, 1)]
+    [InlineData(24, 1, 1, 2)]
     public void Depthwise(int c, int mult, int stride, int dil)
         => Run($"dw c{c} m{mult} s{stride} d{dil}", [1, 2], c, 15, 15, c * mult, 3, 3, [stride, stride], [dil, dil, dil, dil], [dil, dil], c, bias: true);
 
@@ -62,11 +68,16 @@ public class ConvTests
     [Fact] public void DepthwiseF16() => Run("dw f16", [1], 24, 14, 14, 24, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 24, bias: true, wtype: "f16");
 
     [Theory]
-    [InlineData("f16")] [InlineData("bf16")] [InlineData("q8_0")] [InlineData("q4_0")]
+    [InlineData("f16")]
+    [InlineData("bf16")]
+    [InlineData("q8_0")]
+    [InlineData("q4_0")]
     public void WeightFormats(string t) => Run("wfmt " + t, [2], 32, 10, 10, 48, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, bias: true, wtype: t, atol: 1e-3, rtol: 1e-3);
 
     [Theory]
-    [InlineData("q4_k")] [InlineData("q5_k")] [InlineData("q6_k")]
+    [InlineData("q4_k")]
+    [InlineData("q5_k")]
+    [InlineData("q6_k")]
     public void KQuantWeightFormats(string t) => Run("wfmt " + t, [1], 64, 8, 8, 40, 2, 2, [1, 1], [0, 0, 0, 0], [1, 1], 1, bias: false, wtype: t, atol: 1e-3, rtol: 1e-3);
 
     /// <summary>One compiled model run with different batch sizes exercises the per-binding kernel variants (incl. split-K).</summary>

@@ -1,0 +1,98 @@
+using System.Globalization;
+
+namespace Sharplight.Shaders;
+
+/// <summary>
+/// Every <c>SHARPLIGHT_*</c> environment switch read by the Shaders project, read once per process.
+/// The switches are diagnostics and tuning knobs: the defaults are the shipped behavior, and each "disable" switch
+/// selects a kernel that is also the portable fallback on devices lacking the feature.
+/// <list type="bullet">
+/// <item><c>SHARPLIGHT_DUMP_KERNELS=&lt;dir&gt;</c>: write the source and macros of every compiled kernel to the directory.</item>
+/// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
+/// <item><c>SHARPLIGHT_NO_SCHEDULE=1</c>: keep graph order instead of grouping launches by dependency level.</item>
+/// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 weights in the file layout (no aligned-quants repack).</item>
+/// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
+/// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
+/// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
+/// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
+/// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
+/// <item><c>SHARPLIGHT_GEMM_NV2_TILE=bt,bn,bk</c>: tile of the workgroup-matrix GEMM (default 128,128,32).</item>
+/// <item><c>SHARPLIGHT_ATTN_FA=0</c>, <c>SHARPLIGHT_ATTN_SPLIT=0</c>, <c>SHARPLIGHT_ATTN_SEQ_FA=0</c>: disable tensor-core
+/// flash attention, split-key decode attention, and flash attention for multi-sequence batches.</item>
+/// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
+/// block of the delta-rule and selective-scan kernels.</item>
+/// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
+/// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>).</item>
+/// </list>
+/// </summary>
+internal static class DiagnosticSwitches
+{
+    /// <summary>Directory receiving every compiled kernel's source, or null.</summary>
+    public static string? DumpKernelsDirectory { get; } = Read("SHARPLIGHT_DUMP_KERNELS");
+
+    /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
+    public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
+
+    /// <summary>Disables level scheduling of units.</summary>
+    public static bool NoSchedule { get; } = IsSet("SHARPLIGHT_NO_SCHEDULE");
+
+    /// <summary>Disables the Q8_0 aligned-quants repack.</summary>
+    public static bool NoWeightRepack { get; } = IsSet("SHARPLIGHT_NO_REPACK");
+
+    /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
+    public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");
+
+    /// <summary>Forced gemm_cm2 layout (warps M, warps N, fragments M, fragments N), or null.</summary>
+    public static int[]? Gemm2Layout { get; } = Read("SHARPLIGHT_GEMM2_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Preferred K block of gemm_cm2.</summary>
+    public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
+
+    /// <summary>True when tensor-core GEMMs read an f16 copy of the activations.</summary>
+    public static bool GemmHalfActivations { get; } = IsNotZero("SHARPLIGHT_GEMM_X16");
+
+    /// <summary>Default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</summary>
+    public static bool WorkgroupMatrixGemm { get; } = IsSet("SHARPLIGHT_GEMM_NV2");
+
+    /// <summary>Workgroup-matrix GEMM tile: token tile, column tile, K tile.</summary>
+    public static int[] WorkgroupMatrixTile { get; } = (Read("SHARPLIGHT_GEMM_NV2_TILE") ?? "128,128,32").Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>True when tensor-core flash attention may be used.</summary>
+    public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
+
+    /// <summary>True when decode attention may split the keys over several workgroups.</summary>
+    public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");
+
+    /// <summary>True when multi-sequence batches may use flash attention.</summary>
+    public static bool AttentionSequenceFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_SEQ_FA");
+
+    /// <summary>Preferred lanes per state row of the gated delta rule.</summary>
+    public static int DeltaLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_DELTA_LPR") ?? "8", CultureInfo.CurrentCulture);
+
+    /// <summary>Preferred state rows per workgroup of the gated delta rule.</summary>
+    public static long DeltaRowsPerBlock { get; } = long.Parse(Read("SHARPLIGHT_DELTA_DVB") ?? "16", CultureInfo.CurrentCulture);
+
+    /// <summary>Preferred lanes per row of the selective scan.</summary>
+    public static int SsmLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_SSM_LPR") ?? "8", CultureInfo.CurrentCulture);
+
+    /// <summary>(token, slot) items up to which a per-item expert matvec beats grouping by expert.</summary>
+    public static int MoeMatvecMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MV_MAX") ?? "16", CultureInfo.InvariantCulture);
+
+    /// <summary>Forced expert-matmul token tile, or 0 for the heuristic.</summary>
+    public static int MoeTile { get; } = int.Parse(Read("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Without tensor cores the 64-row scalar tile only pays off when experts see many rows: below this average the
+    /// per-item matvec (which re-reads shared experts' weights from cache) is faster.
+    /// </summary>
+    public static int MoeScalarRows { get; } = int.Parse(Read("SHARPLIGHT_MOE_SCALAR_ROWS") ?? "12", CultureInfo.InvariantCulture);
+
+    /// <summary>Disables the tensor-core expert matmul.</summary>
+    public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");
+
+    private static string? Read(string name) => Environment.GetEnvironmentVariable(name);
+
+    private static bool IsSet(string name) => Read(name) == "1";
+
+    private static bool IsNotZero(string name) => Read(name) != "0";
+}
