@@ -7,14 +7,16 @@ namespace Sharplight.Extensions.AI;
 /// Incremental post-processing of generated text: trims stop sequences, splits <c>&lt;think&gt;</c> reasoning from the answer
 /// and extracts tool calls. Feed text pieces with <see cref="Push"/>, then call <see cref="Complete"/>.
 /// </summary>
-public sealed class OutputParser
+internal sealed class OutputParser
 {
     private enum Mode { Text, Reasoning, ToolCall }
 
-    private const string ThinkStart = "<think>", ThinkEnd = "</think>";
+    private const string ThinkStart = "<think>";
+    private const string ThinkEnd = "</think>";
 
     private readonly string[] _stops;
-    private readonly string? _toolStart, _toolEnd;
+    private readonly string? _toolStart;
+    private readonly string? _toolEnd;
     private readonly IList<IToolCallParser> _parsers;
     private readonly ToolSchemas _tools;
     private readonly StringBuilder _stopBuf = new();
@@ -50,7 +52,12 @@ public sealed class OutputParser
             return output;
         }
 
-        if (_stops.Length == 0) { Process(text, output, flush: false); return output; }
+        if (_stops.Length == 0)
+        {
+            Process(text, output, flush: false);
+            return output;
+        }
+
         _stopBuf.Append(text);
         var s = _stopBuf.ToString();
         int cut = -1;
@@ -103,9 +110,21 @@ public sealed class OutputParser
             };
             int i1 = markers.Item1.Length > 0 ? s.IndexOf(markers.Item1, StringComparison.Ordinal) : -1;
             int i2 = markers.Item3 is { } m2 ? s.IndexOf(m2, StringComparison.Ordinal) : -1;
-            int idx; string marker; Marker kind;
-            if (i1 >= 0 && (i2 < 0 || i1 <= i2)) { idx = i1; marker = markers.Item1; kind = markers.Item2; }
-            else if (i2 >= 0) { idx = i2; marker = markers.Item3!; kind = markers.Item4; }
+            int idx;
+            string marker;
+            Marker kind;
+            if (i1 >= 0 && (i2 < 0 || i1 <= i2))
+            {
+                idx = i1;
+                marker = markers.Item1;
+                kind = markers.Item2;
+            }
+            else if (i2 >= 0)
+            {
+                idx = i2;
+                marker = markers.Item3!;
+                kind = markers.Item4;
+            }
             else
             {
                 // No complete marker: emit everything except a possible marker prefix at the end.
@@ -119,13 +138,20 @@ public sealed class OutputParser
 
                 return;
             }
+
             Emit(s[..idx], output);
             _buf.Remove(0, idx + marker.Length);
             switch (kind)
             {
-                case Marker.Think: SwitchTo(Mode.Reasoning); break;
-                case Marker.ThinkEnd: SwitchTo(Mode.Text); break;
-                case Marker.Tool: SwitchTo(Mode.ToolCall); break;
+                case Marker.Think:
+                    SwitchTo(Mode.Reasoning);
+                    break;
+                case Marker.ThinkEnd:
+                    SwitchTo(Mode.Text);
+                    break;
+                case Marker.Tool:
+                    SwitchTo(Mode.ToolCall);
+                    break;
                 case Marker.ToolEnd:
                     FinishToolCall(_toolBody.ToString(), output);
                     _toolBody.Clear();
@@ -151,7 +177,12 @@ public sealed class OutputParser
             return;
         }
 
-        if (_mode == Mode.ToolCall) { _toolBody.Append(text); return; }
+        if (_mode == Mode.ToolCall)
+        {
+            _toolBody.Append(text);
+            return;
+        }
+
         // Leading whitespace of a block is dropped; trailing whitespace is held until more text follows.
         if (_leading)
         {
@@ -210,7 +241,11 @@ public sealed class OutputParser
             int max = Math.Min(c.Length - 1, s.Length);
             for (int len = max; len > best; len--)
             {
-                if (s.AsSpan(s.Length - len).SequenceEqual(c.AsSpan(0, len))) { best = len; break; }
+                if (s.AsSpan(s.Length - len).SequenceEqual(c.AsSpan(0, len)))
+                {
+                    best = len;
+                    break;
+                }
             }
         }
         return best;

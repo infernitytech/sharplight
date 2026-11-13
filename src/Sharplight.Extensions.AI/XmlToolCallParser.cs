@@ -16,6 +16,7 @@ public sealed partial class XmlToolCallParser : IToolCallParser
     [GeneratedRegex(@"<parameter=([^>\s]+)>(.*?)</parameter>", RegexOptions.CultureInvariant | RegexOptions.Singleline)]
     private static partial Regex ParameterRegex();
 
+    /// <inheritdoc/>
     public FunctionCallContent? TryParse(string body, ToolSchemas tools)
     {
         var fm = FunctionRegex().Match(body);
@@ -42,6 +43,7 @@ public sealed partial class XmlToolCallParser : IToolCallParser
 
             args[key] = Coerce(raw, tools.ParameterType(name, key));
         }
+
         return new FunctionCallContent(ToolCallIds.New(), name, args);
     }
 
@@ -60,7 +62,10 @@ public sealed partial class XmlToolCallParser : IToolCallParser
                 using var doc = JsonDocument.Parse(t);
                 return doc.RootElement.Clone();
             }
-            catch (JsonException) { }
+            catch (JsonException)
+            {
+                // Not valid JSON: fall back to the raw text.
+            }
         }
         return raw;
     }

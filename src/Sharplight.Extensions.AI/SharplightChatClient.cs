@@ -11,7 +11,19 @@ namespace Sharplight.Extensions.AI;
 /// definitions are passed to the template (when it supports <c>tools</c>) and tool calls in the output are parsed into
 /// <see cref="FunctionCallContent"/> (wrap with <c>UseFunctionInvocation()</c> to execute them). Images (as
 /// <see cref="DataContent"/>) are supported when the model has a vision tower.
+/// <para>
+/// Thread safety: instances may be shared; whether calls run concurrently is up to the <see cref="ITextGenerationBackend"/>
+/// (the default <see cref="SessionGenerationBackend"/> serializes them). Dispose the client to release the model when it owns it.
+/// </para>
 /// </summary>
+/// <example>
+/// <code>
+/// GgufImporter.Register();
+/// using var client = SharplightChatClient.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [device] });
+/// var response = await client.GetResponseAsync("Why is the sky blue?");
+/// Console.WriteLine(response.Text);
+/// </code>
+/// </example>
 public sealed class SharplightChatClient : IChatClient
 {
     private readonly ITextGenerationBackend _backend;
@@ -20,6 +32,10 @@ public sealed class SharplightChatClient : IChatClient
     private readonly ChatClientMetadata _metadata;
     private ChatTemplate? _template;
 
+    /// <summary>Creates a client over an arbitrary backend (for example a shared continuous-batching engine).</summary>
+    /// <param name="backend">Supplies the chat template and the text stream.</param>
+    /// <param name="options">Client configuration; defaults when null.</param>
+    /// <param name="ownsBackend">Dispose <paramref name="backend"/> together with the client.</param>
     public SharplightChatClient(ITextGenerationBackend backend, SharplightChatClientOptions? options = null, bool ownsBackend = false)
     {
         _backend = backend;
@@ -36,8 +52,12 @@ public sealed class SharplightChatClient : IChatClient
     public static SharplightChatClient Load(string path, LlmLoadOptions load, SharplightChatClientOptions? options = null)
         => new(LlmModel.Load(path, load), options, ownsModel: true);
 
+    /// <summary>The backend that runs the generations.</summary>
     public ITextGenerationBackend Backend => _backend;
 
+    /// <summary>Runs one chat turn to completion; equivalent to folding <see cref="GetStreamingResponseAsync"/>.</summary>
+    /// <exception cref="NotSupportedException">The messages contain images or content the model cannot handle.</exception>
+    /// <exception cref="InvalidOperationException">The model has no chat template, or the prompt exceeds the context.</exception>
     public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
         var updates = new List<ChatResponseUpdate>();
@@ -49,12 +69,17 @@ public sealed class SharplightChatClient : IChatClient
         return updates.ToChatResponse();
     }
 
+    /// <summary>
+    /// Streams one chat turn. Text and reasoning arrive incrementally, tool calls as complete <see cref="FunctionCallContent"/>,
+    /// and the last update carries <see cref="UsageContent"/> and the finish reason.
+    /// </summary>
+    /// <inheritdoc cref="GetResponseAsync"/>
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(messages);
         var template = _template ??= CreateTemplate();
-        var req = PromptBuilder.Prepare(template, messages, options, _options, _backend.SupportsImages, _backend.ContextLength);
+        var req = PromptBuilder.Prepare(template, messages, options, _options, _backend.SupportsImages);
         var parser = new OutputParser(req.StartsInReasoning, req.Options.StopStrings,
             req.HasTools ? _options.ToolCallStart : null, _options.ToolCallEnd, _options.ToolCallParsers, req.Tools);
 
@@ -63,7 +88,10 @@ public sealed class SharplightChatClient : IChatClient
         string model = options?.ModelId ?? _metadata.DefaultModelId ?? _backend.ModelName;
         ChatResponseUpdate Update(IList<AIContent>? contents = null) => new(ChatRole.Assistant, contents ?? [])
         {
-            ResponseId = id, MessageId = id, CreatedAt = created, ModelId = model,
+            ResponseId = id,
+            MessageId = id,
+            CreatedAt = created,
+            ModelId = model,
         };
 
         var result = new TextGenerationResult();
@@ -77,8 +105,13 @@ public sealed class SharplightChatClient : IChatClient
                 yield return Update([.. contents]);
             }
 
-            if (parser.Stopped) { cts.Cancel(); break; }
+            if (parser.Stopped)
+            {
+                cts.Cancel();
+                break;
+            }
         }
+
         var tail = parser.Complete();
         if (tail.Count > 0)
         {
@@ -102,6 +135,7 @@ public sealed class SharplightChatClient : IChatClient
         return new ChatTemplate(src, _backend.BosToken, _backend.EosToken);
     }
 
+    /// <summary>Returns the <see cref="ChatClientMetadata"/>, the client itself or the backend when assignable to <paramref name="serviceType"/>; null for keyed requests.</summary>
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
@@ -128,6 +162,7 @@ public sealed class SharplightChatClient : IChatClient
         return null;
     }
 
+    /// <summary>Disposes the backend when the client owns it.</summary>
     public void Dispose()
     {
         if (_ownsBackend)

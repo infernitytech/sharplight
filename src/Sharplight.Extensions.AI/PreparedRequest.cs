@@ -4,7 +4,7 @@ using Sharplight.Vision;
 namespace Sharplight.Extensions.AI;
 
 /// <summary>The pieces of a request after mapping Microsoft.Extensions.AI types to Sharplight types.</summary>
-public sealed class PreparedRequest
+internal sealed class PreparedRequest
 {
     public required string Prompt { get; init; }
     public required IReadOnlyList<ImageInput> Images { get; init; }

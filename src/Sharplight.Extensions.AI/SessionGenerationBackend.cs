@@ -19,6 +19,7 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
     private VisionEncoder? _vision;
     private int _disposed;
 
+    /// <summary>Wraps <paramref name="model"/>; <paramref name="ownsModel"/> disposes it with the backend.</summary>
     public SessionGenerationBackend(LlmModel model, bool ownsModel = false)
     {
         _model = model;
@@ -26,16 +27,24 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
         ContextLength = int.MaxValue; // refined once the session exists
     }
 
+    /// <summary>The wrapped model.</summary>
     public LlmModel Model => _model;
+    /// <inheritdoc/>
     public string ModelName => _model.Definition.Name;
+    /// <inheritdoc/>
     public string? ChatTemplate => _model.ChatTemplate;
+    /// <inheritdoc/>
     public string? BosToken => _model.Tokenizer.BosId is int i ? _model.Tokenizer.TokenString(i) : null;
+    /// <inheritdoc/>
     public string? EosToken => _model.Tokenizer.EosId is int i ? _model.Tokenizer.TokenString(i) : null;
+    /// <inheritdoc/>
     public bool SupportsImages => _model.SupportsImages;
+    /// <inheritdoc/>
     public int ContextLength { get; private set; }
     /// <summary>Statistics of the last finished generation.</summary>
     public GenerationStats? LastStats { get; private set; }
 
+    /// <inheritdoc/>
     public async IAsyncEnumerable<string> GenerateAsync(TextGenerationRequest request, TextGenerationResult result,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -57,10 +66,20 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
             finally
             {
                 cts.Cancel();
-                try { await producer.ConfigureAwait(false); } catch { /* already surfaced through the channel */ }
+                try
+                {
+                    await producer.ConfigureAwait(false);
+                }
+                catch
+                {
+                    // Already surfaced through the channel.
+                }
             }
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     private void Produce(TextGenerationRequest request, TextGenerationResult result, ChannelWriter<string> writer, CancellationToken ct)
@@ -100,6 +119,7 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
                 result.PromptTokens = ids.Length;
                 tokens = gen.Generate(ids, options);
             }
+
             int visible = 0;
             try
             {
@@ -148,6 +168,7 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
         return _session = s;
     }
 
+    /// <summary>Disposes the session and vision encoder (and the model when owned); waits for a running generation to finish.</summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -165,6 +186,9 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
                 _model.Dispose();
             }
         }
-        finally { _gate.Release(); }
+        finally
+        {
+            _gate.Release();
+        }
     }
 }

@@ -9,10 +9,10 @@ using TChatMessage = Sharplight.Templating.ChatMessage;
 namespace Sharplight.Extensions.AI;
 
 /// <summary>Maps <see cref="AIChatMessage"/>s and <see cref="ChatOptions"/> onto the chat template and <see cref="GenerationOptions"/>.</summary>
-public static class PromptBuilder
+internal static class PromptBuilder
 {
     public static PreparedRequest Prepare(ChatTemplate template, IEnumerable<AIChatMessage> messages, ChatOptions? options,
-        SharplightChatClientOptions clientOptions, bool supportsImages, int contextLength = int.MaxValue)
+        SharplightChatClientOptions clientOptions, bool supportsImages)
     {
         var images = new List<ImageInput>();
         var msgs = MapMessages(messages, options, clientOptions, supportsImages, images);
@@ -44,14 +44,14 @@ public static class PromptBuilder
         {
             Prompt = prompt,
             Images = images,
-            Options = MapOptions(options, clientOptions, contextLength),
+            Options = MapOptions(options, clientOptions),
             Tools = new ToolSchemas(useTools ? options!.Tools : null),
             HasTools = tools is { Count: > 0 },
             StartsInReasoning = prompt.TrimEnd().EndsWith("<think>", StringComparison.Ordinal),
         };
     }
 
-    public static GenerationOptions MapOptions(ChatOptions? o, SharplightChatClientOptions client, int contextLength = int.MaxValue)
+    public static GenerationOptions MapOptions(ChatOptions? o, SharplightChatClientOptions client)
     {
         var s = client.Sampling;
         if (o is not null)

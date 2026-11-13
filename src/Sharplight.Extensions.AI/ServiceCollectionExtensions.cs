@@ -16,6 +16,18 @@ public static class SharplightServiceCollectionExtensions
         /// <c>services.AddSharplightChatClient(path, load).UseFunctionInvocation()</c>. The host must have registered
         /// importers (e.g. <c>GgufImporter.Register()</c>) and execution providers.
         /// </summary>
+        /// <param name="path">Model file or directory.</param>
+        /// <param name="load">Creates the load options (devices, context length, ...) from the service provider.</param>
+        /// <param name="configure">Adjusts the <see cref="SharplightChatClientOptions"/>.</param>
+        /// <example>
+        /// <code>
+        /// GgufImporter.Register();
+        /// var services = new ServiceCollection();
+        /// services.AddSharplightChatClient("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [device] })
+        ///     .UseFunctionInvocation();
+        /// var chat = services.BuildServiceProvider().GetRequiredService&lt;IChatClient&gt;();
+        /// </code>
+        /// </example>
         public ChatClientBuilder AddSharplightChatClient(string path, Func<IServiceProvider, LlmLoadOptions> load,
             Action<SharplightChatClientOptions>? configure = null)
             => services.AddChatClient(sp =>

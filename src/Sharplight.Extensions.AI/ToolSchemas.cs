@@ -6,10 +6,12 @@ namespace Sharplight.Extensions.AI;
 /// <summary>The tools offered in a request, used to coerce text parameter values to their declared JSON types.</summary>
 public sealed class ToolSchemas
 {
+    /// <summary>A set without any tools.</summary>
     public static readonly ToolSchemas Empty = new([]);
     private readonly Dictionary<string, JsonElement> _parameters = new();
     private readonly HashSet<string> _names = new();
 
+    /// <summary>Indexes the function declarations among <paramref name="tools"/> (other tool kinds are ignored).</summary>
     public ToolSchemas(IEnumerable<AITool>? tools)
     {
         if (tools == null)
@@ -32,6 +34,7 @@ public sealed class ToolSchemas
         }
     }
 
+    /// <summary>True when a function called <paramref name="name"/> was offered.</summary>
     public bool Has(string name) => _names.Contains(name);
 
     /// <summary>The declared JSON schema "type" of a parameter, if known.</summary>

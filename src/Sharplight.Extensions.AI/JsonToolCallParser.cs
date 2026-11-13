@@ -6,6 +6,7 @@ namespace Sharplight.Extensions.AI;
 /// <summary>Hermes / Qwen2.5 / Qwen3 style: <c>{"name": "f", "arguments": {...}}</c> inside the tool-call tags.</summary>
 public sealed class JsonToolCallParser : IToolCallParser
 {
+    /// <inheritdoc/>
     public FunctionCallContent? TryParse(string body, ToolSchemas tools)
     {
         body = body.Trim();
@@ -46,9 +47,13 @@ public sealed class JsonToolCallParser : IToolCallParser
                     args = ToArguments(a);
                 }
             }
+
             return new FunctionCallContent(ToolCallIds.New(), n.GetString()!, args ?? []);
         }
-        catch (JsonException) { return null; }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static Dictionary<string, object?> ToArguments(JsonElement e)
