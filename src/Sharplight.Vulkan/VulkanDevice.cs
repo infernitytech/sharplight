@@ -21,11 +21,13 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     internal readonly uint PushConstantSize;
     internal readonly MemoryAllocator Memory;
     internal readonly SlangCompiler Compiler;
-    private readonly ConcurrentDictionary<string, VkPipeline> _pipelines = new();
+    private readonly ConcurrentDictionary<string, Lazy<VkPipeline>> _pipelines = new();
     /// <summary>Every kernel of every compiled program (so an export can cover pipelines not created yet).</summary>
     private readonly ConcurrentDictionary<string, CompiledKernel> _kernels = new();
     private readonly Lock _pipelineCacheLock = new();
+    private readonly string _kernelCacheDirectory;
     private VkPipelineCache _pipelineCache;
+    private int _pipelinesAtLastSave;
     private const string PipelineCacheKey = "vulkan/pipeline_cache";
 
     /// <summary>Largest push-constant block used for kernel arguments (the Vulkan minimum guaranteed is 128 bytes).</summary>
@@ -190,7 +192,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         Memory = new MemoryAllocator(this);
         _budget = options.MemoryBudget ?? (long)(phys.DeviceLocalBytes * 0.92);
-        Compiler = new SlangCompiler(options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory);
+        _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
+        Compiler = new SlangCompiler(_kernelCacheDirectory);
     }
 
     /// <summary>Prefers a dedicated compute queue (async compute), else any queue with compute.</summary>
@@ -260,14 +263,51 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         if (DiagnosticSwitches.LoadTiming)
         {
-            Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers); slang {SlangCompiler.Statistics}");
+            Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers)");
         }
 
-        return new VulkanSegment(this, segment, program, options);
+        // Slang keeps compiling in the background while the weights upload; pipelines are created as the kernels complete.
+        var kernels = program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey).ToList();
+        var pipelines = Task.Run(() => Parallel.ForEach(kernels, kernel => Pipeline(kernel)));
+        VulkanSegment compiled;
+        try
+        {
+            compiled = new VulkanSegment(this, segment, program, options);
+        }
+        catch
+        {
+            WaitQuietly(pipelines);
+            throw;
+        }
+
+        var swWait = System.Diagnostics.Stopwatch.StartNew();
+        pipelines.GetAwaiter().GetResult();
+        SavePipelineCache();
+        if (DiagnosticSwitches.LoadTiming)
+        {
+            Console.Error.WriteLine($"[load] kernels and pipelines segment {segment.Index}: waited {swWait.ElapsedMilliseconds} ms for {kernels.Count} kernels; slang {SlangCompiler.Statistics}; {PipelinesCreated} pipelines, {(double)PipelineTicks / System.Diagnostics.Stopwatch.Frequency * 1000:F0} ms summed");
+        }
+
+        return compiled;
     }
 
-    /// <summary>Creates the driver pipeline cache on first compile, seeded from a saved model's cache when present
-    /// (the driver validates the blob's header and ignores data from another device/driver).</summary>
+    private static void WaitQuietly(Task task)
+    {
+        try
+        {
+            task.GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // The caller is already failing with another exception.
+        }
+    }
+
+    /// <summary>
+    /// Creates the driver pipeline cache on first compile, seeded from a saved model's cache when present, else from the cache
+    /// file of this device in the kernel cache directory (the driver validates the blob's header and ignores data from another
+    /// device/driver).
+    /// </summary>
     private void EnsurePipelineCache(ICompilationCache? cache)
     {
         lock (_pipelineCacheLock)
@@ -281,6 +321,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             if (cache is not null && cache.TryGet(PipelineCacheKey, out var d))
             {
                 data = d;
+            }
+            else if (TryReadPipelineCacheFile() is { } fromDisk)
+            {
+                data = fromDisk;
             }
 
             fixed (byte* p = data.Span)
@@ -297,11 +341,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     public void ExportCompilationState(ICompilationCache cache)
     {
         EnsurePipelineCache(null);
-        foreach (var k in _kernels.Values)
-        {
-            Pipeline(k);
-        }
+        Parallel.ForEach(_kernels.Values, kernel => Pipeline(kernel));
+        cache.Put(PipelineCacheKey, GetPipelineCacheData());
+    }
 
+    private byte[] GetPipelineCacheData()
+    {
         nuint size = 0;
         Api.vkGetPipelineCacheData(_pipelineCache, &size, null).CheckResult();
         var data = new byte[size];
@@ -310,35 +355,77 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             Api.vkGetPipelineCacheData(_pipelineCache, &size, p).CheckResult();
         }
 
-        cache.Put(PipelineCacheKey, data.AsMemory(0, (int)size));
+        return data.AsSpan(0, (int)size).ToArray();
     }
 
-    private readonly Lock _pipelineCreateLock = new();
+    /// <summary>The driver pipeline cache file of this device and driver in the kernel cache directory.</summary>
+    private string PipelineCachePath
+        => Path.Combine(_kernelCacheDirectory, $"pipelines-{Phys.VendorId:x}-{Phys.Uuid}-{Phys.DriverVersion:x}.bin");
+
+    private byte[]? TryReadPipelineCacheFile()
+    {
+        try
+        {
+            return File.Exists(PipelineCachePath) ? File.ReadAllBytes(PipelineCachePath) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Persists the driver pipeline cache next to the kernel cache when pipelines were created since it was last saved, so
+    /// that the next process skips the driver's SPIR-V compilation. Failing to write it is not an error.
+    /// </summary>
+    private void SavePipelineCache()
+    {
+        lock (_pipelineCacheLock)
+        {
+            int created = Volatile.Read(ref PipelinesCreated);
+            if (_pipelineCache == VkPipelineCache.Null || created == _pipelinesAtLastSave)
+            {
+                return;
+            }
+
+            _pipelinesAtLastSave = created;
+            try
+            {
+                var temporary = $"{PipelineCachePath}.{Environment.ProcessId}.tmp";
+                File.WriteAllBytes(temporary, GetPipelineCacheData());
+                File.Move(temporary, PipelineCachePath, overwrite: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Read-only or full cache directory: the cache is only an accelerator.
+            }
+        }
+    }
 
     /// <summary>The compute pipeline of <paramref name="kernel"/>, created on first use; safe to call from several threads.</summary>
     internal VkPipeline Pipeline(CompiledKernel kernel)
     {
         if (_pipelines.TryGetValue(kernel.CacheKey, out var existing))
         {
-            return existing;
+            return existing.Value;
         }
 
-        // GetOrAdd may run its factory twice under a race (leaking a VkPipeline); models sharing the device record concurrently.
-        lock (_pipelineCreateLock)
-        {
-            return _pipelines.GetOrAdd(kernel.CacheKey, _ => CreatePipeline(kernel));
-        }
+        // Lazy: GetOrAdd may run its factory twice under a race (leaking a VkPipeline); pipelines of different kernels are
+        // created in parallel (the driver's pipeline cache is internally synchronized).
+        return _pipelines.GetOrAdd(kernel.CacheKey, _ => new Lazy<VkPipeline>(() => CreatePipeline(kernel))).Value;
     }
 
     private VkPipeline CreatePipeline(CompiledKernel kernel)
     {
+        // Waits for a kernel that is still compiling; that time is not pipeline creation.
+        var spirv = kernel.Code;
         long startTicks = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             VkShaderModule module;
-            fixed (byte* code = kernel.Code)
+            fixed (byte* code = spirv)
             {
-                var moduleInfo = new VkShaderModuleCreateInfo { codeSize = (nuint)kernel.Code.Length, pCode = (uint*)code };
+                var moduleInfo = new VkShaderModuleCreateInfo { codeSize = (nuint)spirv.Length, pCode = (uint*)code };
                 Api.vkCreateShaderModule(&moduleInfo, null, &module).CheckResult();
             }
 
@@ -449,7 +536,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         _disposed = true;
         Api.vkDeviceWaitIdle();
-        foreach (var p in _pipelines.Values)
+        foreach (var p in _pipelines.Values.Where(l => l.IsValueCreated).Select(l => l.Value))
         {
             Api.vkDestroyPipeline(p, null);
         }
