@@ -27,14 +27,15 @@ public sealed partial class GraphLowerer
         // Optional bias (attribute "bias", or a non-i32 input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
         bool hasBias = n.Attributes.Get("bias", false) || (n.Inputs.Length > 3 && n.Inputs[3].Type != DataType.I32);
         TensorRef? cb = hasBias ? Ref(n.Inputs[3]) : null;
-        var runs = n.Inputs.Length > (hasBias ? 4 : 3) ? DenseInput(n.Inputs[^1], "seq-runs") : null;
-        var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
-            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null)));
+        var runs = RecurrentRuns(n, hasBias ? 4 : 3);
+        var (commits, records, rollback) = RollbackBindings(n);
+        var k = Lib("recurrent.slang", "conv1d", Macros([("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
+            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null), .. rollback]));
         Emit($"conv1d {n.Output.Name}", [n],
             [Always(k, b => new Grid(Grid.Div(C, 128), 1, runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(x), Pointer(w), Pointer(st), Pointer(y),
-             Pointer(cb ?? y), .. SeqArgs(runs), TokenArg(x)],
-            [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. runs is null ? [] : (TensorRef[])[runs]], [y, st]);
+             Pointer(cb ?? y), .. SeqArgs(runs, commits, records), TokenArg(x)],
+            [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. SequenceTables(runs, commits, records)], [y, st, .. records is null ? [] : (TensorRef[])[records]]);
     }
 
     private void LowerDeltaRule(Node n)
@@ -48,7 +49,8 @@ public sealed partial class GraphLowerer
         var g = Ref(n.Inputs[3]);
         var beta = Ref(n.Inputs[4]);
         var st = Ref(n.Inputs[5]);
-        var runs = n.Inputs.Length > 6 ? DenseInput(n.Inputs[6], "seq-runs") : null;
+        var runs = RecurrentRuns(n, 6);
+        var (commits, records, rollback) = RollbackBindings(n);
         q = EnsureUnitInnerStride(q, 2, "delta-q");
         k = EnsureUnitInnerStride(k, 2, "delta-k");
         v = EnsureUnitInnerStride(v, 2, "delta-v");
@@ -69,17 +71,17 @@ public sealed partial class GraphLowerer
         // Split each head's DV state rows over several workgroups (rows are independent) for occupancy.
         long wantedRowsPerBlock = DiagnosticSwitches.DeltaRowsPerBlock;
         long dvb = DV % wantedRowsPerBlock == 0 ? wantedRowsPerBlock : DV;
-        var kern = Lib("recurrent.slang", "delta_rule", Macros(("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
+        var kern = Lib("recurrent.slang", "delta_rule", Macros([("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("KS0", k.Strides[0]), ("KS1", k.Strides[1]), ("VS0", v.Strides[0]), ("VS1", v.Strides[1]),
             ("SCALE", n.Attributes.Get<float>("scale")), ("LPR", lanesPerRow), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
             ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
             ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
-            ("MULTI_SEQ", runs is not null)));
+            ("MULTI_SEQ", runs is not null), .. rollback]));
         Emit($"delta_rule {n.Output.Name}", [.. new[] { normQ, normK }.OfType<Node>(), n],
             [Always(kern, b => new Grid((uint)HV, (uint)(DV / dvb), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(q), Pointer(k), Pointer(v),
              Pointer(g), Pointer(beta), Pointer(st),
-             Pointer(o), .. SeqArgs(runs), TokenArg(q)],
-            [q, k, v, g, beta, st, .. runs is null ? [] : (TensorRef[])[runs]], [o, st]);
+             Pointer(o), .. SeqArgs(runs, commits, records), TokenArg(q)],
+            [q, k, v, g, beta, st, .. SequenceTables(runs, commits, records)], [o, st, .. records is null ? [] : (TensorRef[])[records]]);
     }
 }

@@ -6,7 +6,25 @@
 // All token inputs are dense [T, H, N] f32; u [H, N]; state [H, N, N] (MULTI_SEQ: [S, H, N, N], grid z = run of the [U, 4] runs table,
 // a run at position 0 starts from zero state); y dense [T, H, N].
 // Macros: H, N, LPR, RB (N % RB == 0), TB, MULTI_SEQ
+// ROLLBACK, KR, RW: rollback form (see recurrent.slang); record row per head h: Wkv7 w|k|v|a|b at h * 5N, Wkv6 k|v|w at h * 3N.
 #include "common.slang"
+
+#ifndef ROLLBACK
+#define ROLLBACK 0
+#endif
+#ifdef KERNEL_WKV7
+#define REC_W 0
+#define REC_K 1
+#define REC_V 2
+#define REC_A 3
+#define REC_B 4
+#define REC_STRIDE 5
+#else
+#define REC_K 0
+#define REC_V 1
+#define REC_W 2
+#define REC_STRIDE 3
+#endif
 
 #if defined(KERNEL_WKV7) || defined(KERNEL_WKV6)
 struct WkvParams
@@ -21,6 +39,10 @@ struct WkvParams
     float* y;
 #if MULTI_SEQ
     int* runs;
+#endif
+#if ROLLBACK
+    int* commits;
+    float* records;
 #endif
     uint T;
 };
@@ -65,6 +87,60 @@ void stage(WkvParams p, uint h, uint rowBlock, uint t0, uint nt, uint tid)
     }
 }
 
+#if ROLLBACK
+// Rollback form: virtual rows [r0, r0 + nt), rows r < replay from the read bank (r is zeroed: no output), row r >= replay is token
+// tBeg + r - replay (recorded into the write bank when tentative; the shared channels by row block 0 only).
+void stageRollback(WkvParams p, uint h, uint rowBlock, uint r0, uint nt, uint tid, uint tBeg, uint replay, bool tentative, float* recIn, float* recOut)
+{
+    for (uint i = tid; i < nt * N; i += NT)
+    {
+        uint tt = i / N, c = i % N, r = r0 + tt;
+        if (r < replay)
+        {
+            float* rec = recIn + uint64_t(r) * RW + uint64_t(h) * REC_STRIDE * N + c;
+            sR[i] = 0.0;
+            sW[i] = rec[REC_W * N];
+            sK[i] = rec[REC_K * N];
+#ifdef KERNEL_WKV7
+            sA[i] = rec[REC_A * N];
+            sB[i] = rec[REC_B * N];
+#endif
+            continue;
+        }
+        uint64_t at = (uint64_t(tBeg + r - replay) * H + h) * N + c;
+        sR[i] = p.r[at];
+        sW[i] = p.w[at];
+        sK[i] = p.k[at];
+#ifdef KERNEL_WKV7
+        sA[i] = p.a[at];
+        sB[i] = p.b[at];
+#endif
+        if (tentative && rowBlock == 0)
+        {
+            float* rec = recOut + uint64_t(r - replay) * RW + uint64_t(h) * REC_STRIDE * N + c;
+            rec[REC_W * N] = sW[i];
+            rec[REC_K * N] = sK[i];
+#ifdef KERNEL_WKV7
+            rec[REC_A * N] = sA[i];
+            rec[REC_B * N] = sB[i];
+#endif
+        }
+    }
+    for (uint i = tid; i < nt * RB; i += NT)
+    {
+        uint tt = i / RB, c = i % RB, r = r0 + tt;
+        uint64_t off = uint64_t(h) * REC_STRIDE * N + REC_V * N + rowBlock * RB + c;
+        if (r < replay)
+        {
+            sV[i] = recIn[uint64_t(r) * RW + off];
+            continue;
+        }
+        sV[i] = p.v[(uint64_t(tBeg + r - replay) * H + h) * N + rowBlock * RB + c];
+        if (tentative) recOut[uint64_t(r - replay) * RW + off] = sV[i];
+    }
+}
+#endif
+
 #ifdef KERNEL_WKV7
 [shader("compute")]
 [numthreads(NT, 1, 1)]
@@ -96,14 +172,37 @@ void wkv6(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform WkvPara
     [ForceUnroll] for (int e = 0; e < EPL; e++) U[e] = p.a[uint64_t(h) * N + part + e * LPR];
 #endif
 
-    for (uint t0 = tBeg; t0 < tEnd; t0 += TB)
+#if ROLLBACK
+    int4 cm = int4(p.commits[gid.z * 4], p.commits[gid.z * 4 + 1], p.commits[gid.z * 4 + 2], p.commits[gid.z * 4 + 3]);
+    uint replay = fresh ? 0u : uint(cm.x);
+    bool tentative = cm.z != 0;
+    float* recIn = p.records + (uint64_t(run.x) * 2 + uint(cm.y)) * KR * RW;
+    float* recOut = p.records + (uint64_t(run.x) * 2 + uint(1 - cm.y)) * KR * RW;
+#else
+    const uint replay = 0;
+    const bool tentative = false;
+#endif
+    uint rEnd = replay + (tEnd - tBeg);
+
+    for (uint r0 = 0; r0 < rEnd; r0 += TB)
     {
-        uint nt = min(uint(TB), tEnd - t0);
+        uint nt = min(uint(TB), rEnd - r0);
         GroupMemoryBarrierWithGroupSync();
-        stage(p, h, gid.y, t0, nt, ltid.x);
+#if ROLLBACK
+        stageRollback(p, h, gid.y, r0, nt, ltid.x, tBeg, replay, tentative, recIn, recOut);
+#else
+        stage(p, h, gid.y, tBeg + r0, nt, ltid.x);
+#endif
         GroupMemoryBarrierWithGroupSync();
         for (uint tt = 0; tt < nt; tt++)
         {
+#if ROLLBACK
+            // A tentative run leaves the slot's state as it is after the replay.
+            if (tentative && r0 + tt == replay)
+            {
+                [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+            }
+#endif
             float vi = sV[tt * RB + rl];
             uint base = tt * N + part;
             float ya[2] = { 0, 0 };
@@ -125,9 +224,12 @@ void wkv6(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform WkvPara
             }
 #endif
             float y = row_sum(ya[0] + ya[1]);
-            if (part == 0) p.y[(uint64_t(t0 + tt) * H + h) * N + row] = y;
+            if (part == 0 && r0 + tt >= replay) p.y[(uint64_t(tBeg + r0 + tt - replay) * H + h) * N + row] = y;
         }
     }
-    [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+    if (!tentative)
+    {
+        [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+    }
 }
 #endif
