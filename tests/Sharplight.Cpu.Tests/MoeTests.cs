@@ -8,15 +8,16 @@ public class MoeTests
 {
     /// <summary>MatMulId against a naive per-slot reference, shared-x [T,K] and per-slot-x [T,S,K], f32 and f16 expert weights.</summary>
     [Theory]
-    [InlineData(false, false), InlineData(true, false), InlineData(false, true), InlineData(true, true)]
-    public void MatMulIdMatchesReference(bool perSlot, bool f16)
+    [InlineData(false, false, 5, false), InlineData(true, false, 5, false), InlineData(false, true, 5, false), InlineData(true, true, 5, false)]
+    [InlineData(false, false, 1, false), InlineData(false, true, 37, false), InlineData(true, false, 37, false), InlineData(false, false, 37, true), InlineData(true, true, 60, true)]
+    public void MatMulIdMatchesReference(bool perSlot, bool f16, int T, bool sparse)
     {
-        int E = 6, N = 20, K = 64, S = 3, T = 5;
+        int E = 6, N = 22, K = 64, S = 3;   // experts 0, 1, 3, 5 get no rows when sparse; N is no multiple of 4
         var rng = new Random(3);
         var wf = Enumerable.Range(0, E * N * K).Select(_ => (float)(rng.NextDouble() * 2 - 1)).ToArray();
         if (f16) for (int i = 0; i < wf.Length; i++) wf[i] = (float)(Half)wf[i];
         var x = Kit.Rand(perSlot ? T * S * K : T * K, 7);
-        var ids = Enumerable.Range(0, T * S).Select(i => (i * 5 + i / 3) % E).ToArray();
+        var ids = Enumerable.Range(0, T * S).Select(i => sparse ? (i % 3 == 0 ? 2 : 4) : (i * 5 + i / 3) % E).ToArray();
 
         var tg = new TG();
         var xin = perSlot ? tg.InF("x", TG.T, S, K) : tg.InF("x", TG.T, K);
