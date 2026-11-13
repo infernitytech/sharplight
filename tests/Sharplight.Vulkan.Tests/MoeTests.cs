@@ -58,7 +58,7 @@ public sealed class MoeTests
 
     public static IEnumerable<object[]> FormatCases()
     {
-        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k" })
+        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q5_0", "q4_k", "q5_k", "q6_k", "mxfp4" })
         {
             foreach (var t in new[] { 1, 3, 70 })
             {

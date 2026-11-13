@@ -357,8 +357,8 @@ uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
     return (uint8_t*)(uint64_t(base) + rowBytes * row);
 }
 
-#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K)
-// Packed-half decoding of K-quant codes for the tensor-core GEMMs (needs Float16).
+#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0)
+// Packed-half decoding of quantized codes for the tensor-core GEMMs (needs Float16).
 
 // Bytes 0,1 (hi false) or 2,3 of u (codes 0..255) as half2 (code - offset) * scale + add.
 uint codes_h2(uint u, bool hi, half offset, half2 scale, half2 add)
@@ -373,6 +373,9 @@ uint4 load16_u16(uint8_t* p)
     uint16_t* h = (uint16_t*)p;
     return uint4(uint(h[0]) | (uint(h[1]) << 16), uint(h[2]) | (uint(h[3]) << 16), uint(h[4]) | (uint(h[5]) << 16), uint(h[6]) | (uint(h[7]) << 16));
 }
+#endif
+
+#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K)
 
 // 8 consecutive weights of row `row` from K offset 8g as packed halves: one 8-byte code load (Q6_K: u16 loads, its
 // 210-byte blocks are only 2-byte aligned) and half2 math, as load16h in matmul.slang. Offsets are summed before
