@@ -162,6 +162,37 @@ public static class ModelPackage
     }
 
     /// <summary>
+    /// Reads every artifact set of a package (including version 1 kernel sets, with their synthesized <see cref="ArtifactTiers.Mixed"/>
+    /// descriptor) into memory, oldest first, e.g. to store them again with a converted model (<see cref="Save"/>).
+    /// </summary>
+    /// <param name="path">The existing package.</param>
+    /// <exception cref="InvalidDataException">The file is not a supported package.</exception>
+    public static IReadOnlyList<CompilationCache> ReadArtifactSets(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var (_, sections) = ReadHeader(fs);
+        var reader = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
+        var sets = new List<CompilationCache>();
+        foreach (var section in sections.Where(s => s.IsArtifactSet))
+        {
+            fs.Seek(section.Offset, SeekOrigin.Begin);
+            var directory = ArtifactSetCodec.ReadDirectory(reader, section);
+            var set = new CompilationCache(directory.Descriptor);
+            foreach (var (key, offset, length) in directory.Entries)
+            {
+                var bytes = new byte[length];
+                fs.Seek(offset, SeekOrigin.Begin);
+                fs.ReadExactly(bytes);
+                set.Put(key, bytes);
+            }
+
+            sets.Add(set);
+        }
+
+        return sets;
+    }
+
+    /// <summary>
     /// Removes artifact sets (including version 1 kernel sets) from a package by rewriting only its section table; the removed
     /// bytes become dead space (see <see cref="Compact"/>). Safe while the package is open for reading.
     /// </summary>

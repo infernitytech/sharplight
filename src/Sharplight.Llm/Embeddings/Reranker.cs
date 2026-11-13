@@ -1,4 +1,5 @@
 using Sharplight.Models;
+using Sharplight.Runtime;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Embeddings;
@@ -22,6 +23,7 @@ public sealed class Reranker : ITextReranker, IDisposable
     private const string YesNoSuffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
 
     private readonly PackedBatchRunner _runner;
+    private readonly CompilationArtifacts _artifacts;
     private readonly Lock _lock = new();
     private readonly string _activation, _pairStyle, _instruction;
     private readonly int _yes, _no;
@@ -41,11 +43,12 @@ public sealed class Reranker : ITextReranker, IDisposable
     /// <summary>The compiled packed-sequence graph.</summary>
     internal PackedBatchRunner Runner => _runner;
 
-    private Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, RerankerKind kind, int maxLength, string? instruction)
+    private Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, CompilationArtifacts artifacts, RerankerKind kind, int maxLength, string? instruction)
     {
         Definition = def;
         Tokenizer = tok;
         _runner = runner;
+        _artifacts = artifacts;
         Kind = kind;
         MaxSequenceLength = maxLength;
         Name = def.Name;
@@ -66,7 +69,7 @@ public sealed class Reranker : ITextReranker, IDisposable
     /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the registered importers and compiles its classify graph.</summary>
     public static Reranker Load(string path, RerankerLoadOptions options)
     {
-        var (def, _, tok) = PackedModelLoader.Open(path, options, new AdapterOptions
+        var (def, source, tok) = PackedModelLoader.Open(path, options, new AdapterOptions
         {
             KvCacheType = options.Adapter.KvCacheType, IncludeAuxiliaryGraphs = true, ContextLength = options.Adapter.ContextLength,
         });
@@ -83,9 +86,10 @@ public sealed class Reranker : ITextReranker, IDisposable
                 kind = def.Property(WellKnown.CausalAttention, false) ? RerankerKind.YesNo : RerankerKind.CrossEncoder;
             }
 
+            var artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
             var runner = PackedBatchRunner.Compile(def, WellKnown.ClassifyGraph, WellKnown.LogitsOutput, options.Devices, options.Fallback,
-                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, null, options.Log);
-            return new Reranker(def, tok, runner, kind, options.ResolveMaxLength(def), options.Instruction);
+                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, artifacts.For, options.Log);
+            return new Reranker(def, tok, runner, artifacts, kind, options.ResolveMaxLength(def), options.Instruction);
         }
         catch
         {
@@ -217,6 +221,14 @@ public sealed class Reranker : ITextReranker, IDisposable
         float s = e.Sum();
         return [.. e.Select(v => v / s)];
     }
+
+    /// <summary>
+    /// Compilation artifacts of the compiled graph, one set per device artifact target (<see cref="IComputeDevice.ArtifactTargets"/>),
+    /// seeded from the sets stored with the model. Store them with the model (e.g. Sharplight.Package's
+    /// <c>ModelPackage.AddArtifacts</c>) so later loads skip kernel compilation.
+    /// </summary>
+    /// <param name="tiers">Only sets of these tiers (<see cref="ArtifactTiers"/>), or <see langword="null"/> for all.</param>
+    public IReadOnlyList<CompilationCache> ExportCompilation(IReadOnlySet<string>? tiers = null) => _artifacts.Export(tiers);
 
     /// <summary>Releases the compiled graph and the model files.</summary>
     public void Dispose()

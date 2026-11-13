@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Sharplight.Models;
 using Sharplight.Onnx;
 using Sharplight.Package;
+using Sharplight.Runtime;
 using Sharplight.Samples;
 
 namespace Sharplight.Convert;
@@ -26,14 +27,11 @@ internal sealed class ModelConverter(TextWriter output)
         {
             output.WriteLine($"Built {definition.Name} ({definition.Architecture}) from {sources.Primary.Format}: {definition.Graphs.Count} graph(s), "
                 + $"{definition.Weights.Count} weights [{stopwatch.ElapsedMilliseconds} ms]");
-            if (sources.Primary.CompilationCaches is { ArtifactSets.Count: > 0 } stored)
-            {
-                output.WriteLine($"Note: the {stored.ArtifactSets.Count} artifact set(s) of the source package are not copied; run precompile on the result.");
-            }
-
+            var artifacts = SourceArtifacts(sources.Primary, settings);
             stopwatch.Restart();
-            ModelPackage.Save(settings.DestinationPath, definition, [], output.WriteLine);
-            output.WriteLine($"Saved {settings.DestinationPath}: {ByteSize.Format(new FileInfo(settings.DestinationPath).Length)} [{stopwatch.ElapsedMilliseconds} ms]");
+            ModelPackage.Save(settings.DestinationPath, definition, artifacts, output.WriteLine);
+            output.WriteLine($"Saved {settings.DestinationPath}: {ByteSize.Format(new FileInfo(settings.DestinationPath).Length)}, {artifacts.Count} artifact set(s) "
+                + $"[{stopwatch.ElapsedMilliseconds} ms]");
         }
         finally
         {
@@ -42,6 +40,32 @@ internal sealed class ModelConverter(TextWriter output)
                 resource.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// The artifact sets of a package source, to store with the result unless dropped. Code entries are content addressed (a
+    /// kernel the converted graphs no longer use is never asked for) and the driver validates pipeline caches, so they stay valid.
+    /// </summary>
+    private IReadOnlyList<CompilationCache> SourceArtifacts(ModelSource source, ConvertSettings settings)
+    {
+        if (source.CompilationCaches is not { ArtifactSets.Count: > 0 } stored || source.Path is not { } path)
+        {
+            return [];
+        }
+
+        if (!settings.KeepArtifacts)
+        {
+            output.WriteLine($"Dropping the {stored.ArtifactSets.Count} artifact set(s) of the source package.");
+            return [];
+        }
+
+        var sets = ModelPackage.ReadArtifactSets(path);
+        foreach (var set in sets)
+        {
+            output.WriteLine($"Keeping {ArtifactDescriptor.Format(set.Descriptor)} ({set.Entries.Count} entries)");
+        }
+
+        return sets;
     }
 
     private static ModelSourceSet Open(ConvertSettings settings)

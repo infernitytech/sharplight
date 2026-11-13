@@ -1,10 +1,11 @@
 using Sharplight.Graph;
 using Sharplight.Models;
+using Sharplight.Package;
 using Sharplight.Runtime;
 
 namespace Sharplight.Onnx.Tests;
 
-/// <summary>Imports, compiles and runs an ONNX file on a provider.</summary>
+/// <summary>Imports (or opens a package converted from), compiles and runs an ONNX model on a provider.</summary>
 internal static class OnnxExec
 {
     public static ComputeGraph Import(string path, OnnxImportOptions? options, out ModelDefinition def)
@@ -14,10 +15,32 @@ internal static class OnnxExec
         return def.Graph(OnnxGraphAdapter.MainGraph);
     }
 
-    public static OnnxExecResult Run(string path, OnnxImportOptions? options, IComputeDevice device, int batch, IReadOnlyList<float[]> inputs, int timedRuns = 1)
+    /// <summary>Runs an ONNX file or a package (.slm) converted from one.</summary>
+    /// <param name="path">The ONNX file or package.</param>
+    /// <param name="options">Import options of an ONNX file (a package stores its shapes).</param>
+    /// <param name="device">The device to run on.</param>
+    /// <param name="batch">Value of the batch symbol.</param>
+    /// <param name="inputs">One array per runtime input.</param>
+    /// <param name="timedRuns">Runs to time after the first.</param>
+    /// <param name="artifacts">Compilation artifacts to compile with and record into; null = those stored in a package (none for an ONNX file).</param>
+    public static OnnxExecResult Run(string path, OnnxImportOptions? options, IComputeDevice device, int batch, IReadOnlyList<float[]> inputs, int timedRuns = 1,
+        CompilationArtifacts? artifacts = null)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var graph = Import(path, options, out var def);
+        ComputeGraph graph;
+        ModelDefinition def;
+        if (ModelPackage.IsPackage(path))
+        {
+            var source = new ModelPackageImporter().Open(path);
+            def = source.Definition!;
+            graph = def.Graph(OnnxGraphAdapter.MainGraph);
+            artifacts ??= new CompilationArtifacts(source.CompilationCaches);
+        }
+        else
+        {
+            graph = Import(path, options, out def);
+        }
+
         using var _ = new Disposer(def.OwnedResources);
         double importMs = sw.Elapsed.TotalMilliseconds;
         sw.Restart();
@@ -25,7 +48,11 @@ internal static class OnnxExec
         {
             Devices = [new DeviceSlot { Device = device }],
             Fallback = device.Info.Kind == DeviceKind.Cpu ? null : new DeviceSlot { Device = Providers.Cpu },   // data-dependent ops run on CPU
-            Compile = new CompileOptions { SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch } },
+            Compile = new CompileOptions
+            {
+                SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch },
+                CacheFor = artifacts is null ? null : artifacts.For,
+            },
             ReservePerDevice = 128L << 20,
         });
         double compileMs = sw.Elapsed.TotalMilliseconds;
@@ -59,7 +86,7 @@ internal static class OnnxExec
             }
         }
 
-        return new OnnxExecResult(outs, importMs, compileMs, best == double.MaxValue ? 0 : best, graph);
+        return new OnnxExecResult(outs, importMs, compileMs, best == double.MaxValue ? 0 : best, graph, artifacts);
     }
 
     private static float[][] ReadOutputs(CompiledModel compiled, ComputeGraph graph, RunParameters run)

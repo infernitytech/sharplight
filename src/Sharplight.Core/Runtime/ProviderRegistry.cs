@@ -53,6 +53,45 @@ public static class ProviderRegistry
         return result;
     }
 
+    /// <summary>
+    /// Opens a compile-only device for <paramref name="profile"/> (see <see cref="IOfflineCompilationProvider.OpenProfile"/>) through
+    /// the first registered provider that compiles for it. Providers are instantiated without probing their drivers.
+    /// </summary>
+    /// <param name="profile">The device profile.</param>
+    /// <param name="options">Device options, or <see langword="null"/> for the defaults.</param>
+    /// <exception cref="NotSupportedException">No registered provider compiles for the profile.</exception>
+    public static IComputeDevice OpenProfile(DeviceProfile profile, DeviceOptions? options = null)
+    {
+        List<Func<IExecutionProvider>> f;
+        lock (s_lock)
+        {
+            f = [.. s_factories];
+        }
+
+        foreach (var factory in f)
+        {
+            IExecutionProvider provider;
+            try
+            {
+                provider = factory();
+            }
+            catch (Exception)
+            {
+                // A provider that cannot even be constructed compiles nothing; Discover reports why.
+                continue;
+            }
+
+            if (provider is IOfflineCompilationProvider offline && offline.CanCompileFor(profile))
+            {
+                return offline.OpenProfile(profile, options);
+            }
+
+            provider.Dispose();
+        }
+
+        throw new NotSupportedException($"No registered provider compiles for {profile}.");
+    }
+
     private sealed class UnavailableProvider(string name, string reason) : IExecutionProvider
     {
         public string Name => name;

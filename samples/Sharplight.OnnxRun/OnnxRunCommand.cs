@@ -12,7 +12,7 @@ internal sealed class OnnxRunCommand
 
     private readonly Argument<string> _model = new("model")
     {
-        Description = "The ONNX model file.",
+        Description = "The ONNX model file, or a package (.slm) converted from one with sharplight-convert (its precompiled kernels are used).",
     };
 
     private readonly Option<string> _provider = new("--provider")

@@ -53,7 +53,7 @@ public sealed class LlmModel : IDisposable
         Source = source;
         Tokenizer = tok;
         _options = options;
-        _artifacts = new CompilationArtifacts(source.CompilationCaches);
+        _artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
         ChatTemplate = def.SourceMetadata.TryGetValue(CanonicalKeys.ChatTemplate, out var t) ? t as string : null;
     }
 

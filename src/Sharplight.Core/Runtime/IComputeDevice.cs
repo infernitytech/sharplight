@@ -51,4 +51,11 @@ public interface IComputeDevice : IDisposable
     /// <paramref name="cache"/> before it is saved.
     /// </summary>
     public void ExportCompilationState(ICompilationCache cache) { }
+
+    /// <summary>
+    /// What code generation on this opened device depends on (<see cref="DeviceProfile"/>), so code for it can be generated
+    /// elsewhere through an <see cref="IOfflineCompilationProvider"/>; <see langword="null"/> when the provider cannot compile
+    /// offline. Its features are <see cref="EnabledFeatures"/>.
+    /// </summary>
+    public DeviceProfile? CreateProfile() => null;
 }

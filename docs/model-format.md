@@ -1,9 +1,8 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
-Status: container v2, artifact tiers, inspection API and `sharplight-convert` (convert, info, precompile --device, strip,
-compact), the graph optimization phase (run by `convert` unless `--no-optimize`) and the package viewer
-(`Sharplight.PackageViewer`) are implemented; device profiles (`profile`, `precompile --profile`) and a separate `optimize`
-command are not yet (2026-11-13).
+Status: container v2, artifact tiers, inspection API, device profiles, `sharplight-convert` (convert, info, profile,
+precompile --device/--profile, strip, compact), the graph optimization phase (run by `convert` unless `--no-optimize`) and the
+package viewer (`Sharplight.PackageViewer`) are implemented; a separate `optimize` command is not yet (2026-11-13).
 
 ## Goals
 
@@ -75,7 +74,9 @@ a hit is always correct, a miss compiles); the binary tier matches on `vendor`, 
 consulted for every tier when their `target` equals the device's v1 `CompilationTarget`. Unknown providers, tiers and kinds are
 skipped. The CPU device declares no targets and gets no cache.
 
-Loading (`CompilationArtifacts`, used by `LlmModel`): per device one cache that routes each key to the tier claiming it (the Vulkan
+Loading (`CompilationArtifacts`, used by `LlmModel`, `EmbeddingModel`, `Reranker`, and by ONNX hosts such as
+`sharplight-onnxrun` that compile a package's graph with `CompileOptions.CacheFor = new CompilationArtifacts(source.CompilationCaches).For`;
+the load options' `Artifacts` lets several loads share one recording): per device one cache that routes each key to the tier claiming it (the Vulkan
 code tier claims `kernel/`, the binary tier is the catch-all for the driver pipeline cache), consults all matching stored sets of
 that tier newest first, and records everything compilation used, per tier, for `ExportCompilation(tiers)`.
 
@@ -86,10 +87,35 @@ provider/tier by rewriting only the table.
 
 ## Device profiles (offline precompilation)
 
-Lowering depends only on `LoweringOptions` (target, subgroup size, shared memory, features, compile options). A `DeviceProfile`
-captures those, can be exported from a live device (`sharplight-convert profile --device vulkan:0 > rtx-pro-6000.json`), and a
-few well-known ones ship with the tool. `precompile --profile x.json` lowers every graph for the profile and compiles the code
-tier **without the device**. The binary tier needs the real device and driver (`precompile --device vulkan:0`).
+Lowering depends only on `LoweringOptions` (target, subgroup size, shared memory, features, submission budget, compile options).
+`DeviceProfile` (Sharplight.Core, JSON through a source-generated `JsonSerializerContext`) captures what code generation needs,
+provider-neutrally: `provider`, `codeTarget` (`spirv_1_6`), `subgroupSize`, `maxSharedMemory`, `features` (provider-neutral
+`DeviceFeatures` names: the device's *enabled* features, i.e. detected minus device-level disables), `submissionBudgetMs`, plus
+`kind` (it shapes graphs: e.g. no device sampling head on a CPU-class device such as llvmpipe), `totalMemory` (placement; 0 =
+unknown, an offline device then assumes 1 TiB), display `name`/`vendor` and informational `properties` (vendor/device ids,
+coopmat shapes, ...; never used for compilation).
+
+- Export: `IComputeDevice.CreateProfile()` (null for providers that cannot compile offline); `sharplight-convert profile --device
+  vulkan:0 [-o file] [--disable-features ...]`.
+- Offline device: providers implementing `IOfflineCompilationProvider` (`CanCompileFor`, `OpenProfile(profile, options)`;
+  `ProviderRegistry.OpenProfile` picks one without probing drivers). Vulkan's `VulkanProfileDevice` shares `SpirvCodeGenerator`
+  with the live `VulkanDevice` (the one place that turns subgroup size, shared memory, enabled features and budget into
+  `LoweringOptions`, lowers, and builds the code-tier `ArtifactTarget`), so the descriptor and every `kernel/<hash>` key are
+  identical to a live device of that profile. `Compile` lowers, waits for Slang and returns a segment that cannot run; no
+  VkInstance, VkDevice, memory or pipelines. `ArtifactTargets` is only the code tier. `DeviceOptions.DisabledFeatures` and the
+  `submission_budget_ms` setting apply as on a live device.
+- `sharplight-convert precompile <slm> --profile <file|name>` stores the code tier for the profile (`--tier binary` is rejected:
+  binaries need the driver, `precompile --device`).
+- Well-known profiles ship embedded in `sharplight-convert` (`profile --list`, `profile --show <name>`), each exported with
+  `profile --device` from a real device on the development machine: `rtx-pro-6000-blackwell` (NVIDIA RTX PRO 6000 Blackwell Max-Q,
+  driver 610.57.04), `nvidia-no-matrix` (the same export with `--disable-features matrix_f16,matrix_bf16,matrix_int8,matrix_workgroup,bf16`,
+  memory left unknown: portable kernels for NVIDIA GPUs with subgroup 32 and 48 KiB shared memory), `radv-raphael` (AMD Raphael
+  iGPU, RADV Mesa 26.1.6, subgroup 64) and `llvmpipe` (Mesa 26.1.6 / LLVM 22, subgroup 8). Their kernels were verified to load on
+  the respective live device with zero Slang compilations.
+
+Because the code tier matches on `target` only and entries are content addressed, a package may carry code for several profiles;
+a device uses whichever entries its own lowering asks for (e.g. `nvidia-no-matrix` code serves the RTX PRO 6000 when it runs with
+`--disable-features matrix_f16,matrix_bf16,matrix_int8,matrix_workgroup,bf16`).
 
 ## Public inspection API (Sharplight.Package)
 
@@ -106,16 +132,25 @@ control-flow subgraphs get their own scope)). Used by `sharplight-convert info` 
 ## Tools
 
 - `sharplight-convert` (samples/Sharplight.Convert):
-  - `convert <src> <dst.slm> [--no-optimize] [--kv-type] [--ctx] [--mmproj] [--shape NAME=DIMS]`: GGUF, Hugging Face directory,
-    ONNX or `.slm` source; writes a package without artifacts. The optimization step is a placeholder hook
-    (`GraphOptimization.Run`) until the Core optimizer exists. Artifact sets of an `.slm` source are not copied.
+  - `convert <src> <dst.slm> [--no-optimize] [--kv-type] [--ctx] [--mmproj] [--shape NAME=DIMS] [--drop-artifacts]`: GGUF,
+    Hugging Face directory, ONNX or `.slm` source. Graphs are optimized by `GraphOptimizer` while building (see above). Artifact sets of an `.slm` source are copied (`ModelPackage.ReadArtifactSets`) unless `--drop-artifacts`.
   - `info <slm> [--weights] [--entries] [--nodes <graph>]`.
-  - `precompile <slm> --device <provider:index> [--tier code|binary|all] [--ctx] [--batch] [--bound SYMBOL=VALUE]
-    [--use-kernel-cache]`: language models are compiled the way `LlmModel` compiles them (decode, decode_multimodal,
-    vision_encode), other graphs with the given bounds; by default with a fresh temporary kernel cache so the stored pipeline cache
-    holds only this model's pipelines. Sets that were served entirely from the package are not stored again.
+  - `profile --device <provider:index> [-o file] [--disable-features]`, `profile --list`, `profile --show <name>`.
+  - `precompile <slm> (--device <provider:index> | --profile <file|name>) [--tier code|binary|all] [--disable-features] [--ctx]
+    [--batch] [--slots] [--kv-tokens] [--bound SYMBOL=VALUE] [--use-kernel-cache]`: graphs are compiled the way their loaders
+    compile them, into one shared recording: `LlmModel` (decode, decode_multimodal, vision_encode, and the serving batch decoder
+    for `--slots` sequences, default 4 like `sharplight-server`; `--slots 1` skips it), `EmbeddingModel` (embed) and `Reranker`
+    (classify) with their default batch limits; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
+    bounds (the ONNX batch symbol defaults to 1). Not compiled: `decode_embeddings` (no loader compiles it; multimodal prompts use
+    `decode_multimodal`) and the speculative-decoding variant of the batch decoder (its logits-row bound depends on the
+    speculator). By default with a fresh temporary kernel cache; either way the stored pipeline cache holds only this model's
+    pipelines (see below). Sets that were served entirely from the package are not stored again.
   - `strip <slm> [--provider] [--tier] [--compact]`, `compact <slm>`.
-  - Planned: `optimize <slm>`, `profile --device`, `precompile --profile <json>`.
+  - Planned: `optimize <slm>`.
+- The driver pipeline cache stored by `precompile --device` and by `sharplight --save` holds only the model's pipelines: the Vulkan
+  device remembers which kernels were compiled with each model-level cache; when its own driver cache also holds other
+  pipelines (seeded from the per-user cache file, or other models compiled on the device), the export recreates the model's
+  pipelines into a fresh driver cache (Qwen3-0.6B: 4.9 MiB instead of the 140+ MiB per-user cache).
 - `Sharplight.PackageViewer` (samples/Sharplight.PackageViewer, Avalonia 11; `sharplight-viewer [file.slm]`, open dialog or drag
   and drop): overview (version, size, reclaimable bytes, section table, filterable properties/metadata), graphs (inputs/outputs,
   op histogram, virtualized filterable node table, IR view in the `--dump-graph` format with search, go-to-producer / consumers,
@@ -124,6 +159,16 @@ control-flow subgraphs get their own scope)). Used by `sharplight-convert info` 
   about 0.1-0.15 s; a 100k-node graph builds its node table and IR in about 1.2 s on a background thread.
 
 ## Measured load times
+
+Offline code tier (2026-11-13): `precompile --profile rtx.json` (the profile exported from the local RTX PRO 6000) with the
+Vulkan loader pointed at a nonexistent ICD (`VK_ICD_FILENAMES=/nonexistent.json`): 133 kernels (decode, 4-slot batch decoder,
+embed, classify) in 4.6 s, 4.0 MiB. Loading on the real GPU, cold (fresh `XDG_DATA_HOME`, `__GL_SHADER_DISK_CACHE=0`,
+`SHARPLIGHT_LOAD_TIMING=1`): `slang Compiled = 0, DiskHits = 0` for the 107 decode kernels, `Compiled 'decode'` 708-748 ms and
+1.2-1.3 s wall, versus 107 Slang compilations, 2.9-3.0 s and 3.5-3.6 s wall without artifacts. With `nvidia-no-matrix` code only:
+`--disable-features matrix_f16,matrix_bf16,matrix_int8,matrix_workgroup,bf16` loads its 100 kernels with 0 compilations; without
+the disables 48 of 107 kernels are compiled (the matrix-unit ones). ONNX convnext-tiny (`sharplight-onnxrun --provider vulkan`,
+cold): `.onnx` 5.6 s compile / 6.2 s wall, precompiled `.slm` (code + binary) 135-194 ms compile / 0.5-0.7 s wall, 115 of 115
+kernels from the package.
 
 Qwen3-0.6B Q8_0, RTX PRO 6000 (shared GPU, noisy), `sharplight <model> -p hi -n 1`, cold = empty kernel cache (fresh
 `XDG_DATA_HOME`) and NVIDIA shader disk cache off (`__GL_SHADER_DISK_CACHE=0`), 3 runs each; "compile" is `Compiled 'decode'`.

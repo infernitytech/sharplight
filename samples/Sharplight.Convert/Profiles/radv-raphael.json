@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "provider": "vulkan",
+  "name": "AMD Ryzen 9 9950X 16-Core Processor (RADV RAPHAEL_MENDOCINO)",
+  "vendor": "AMD",
+  "kind": "IntegratedGpu",
+  "totalMemory": 34343727104,
+  "codeTarget": "spirv_1_6",
+  "subgroupSize": 64,
+  "maxSharedMemory": 65536,
+  "features": [
+    "fp16",
+    "int_dot",
+    "subgroup_ops",
+    "subgroup_size_control"
+  ],
+  "submissionBudgetMs": 250,
+  "properties": {
+    "api_version": "0.1.4.354",
+    "subgroup_size": "64",
+    "subgroup_size_range": "32-64",
+    "fp16": "True",
+    "bf16": "False",
+    "cooperative_matrix": "False",
+    "cooperative_matrix2_nv": "False",
+    "coopmat_shapes": "",
+    "integer_dot_product": "True",
+    "max_shared_memory": "65536",
+    "max_push_constants": "256",
+    "memory_budget": "True",
+    "vendor_id": "1002",
+    "device_id": "13c0",
+    "driver_version": "6801006"
+  }
+}

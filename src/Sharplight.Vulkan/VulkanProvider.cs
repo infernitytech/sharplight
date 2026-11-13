@@ -6,7 +6,7 @@ namespace Sharplight.Vulkan;
 /// Vulkan compute execution provider. Requires Vulkan 1.2+ with buffer device addresses,
 /// 8/16-bit storage and 64-bit integers (kernels address memory through raw pointers).
 /// </summary>
-public sealed unsafe class VulkanProvider : IExecutionProvider
+public sealed unsafe class VulkanProvider : IExecutionProvider, IOfflineCompilationProvider
 {
     private static readonly Lock s_lock = new();
     private static VulkanInstance? s_instance;
@@ -100,6 +100,23 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         }
 
         return new VulkanDevice(Instance, Instance.PhysicalDevices[device.Index], device, options ?? new DeviceOptions());
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Vulkan profiles target SPIR-V (<see cref="DeviceProfile.CodeTarget"/> <c>spirv_1_6</c>).</remarks>
+    public bool CanCompileFor(DeviceProfile profile)
+        => profile.Provider == Name && profile.CodeTarget == SpirvCodeGenerator.CodeTarget;
+
+    /// <inheritdoc />
+    /// <remarks>Does not load the Vulkan driver.</remarks>
+    public IComputeDevice OpenProfile(DeviceProfile profile, DeviceOptions? options = null)
+    {
+        if (!CanCompileFor(profile))
+        {
+            throw new NotSupportedException($"The Vulkan provider generates {SpirvCodeGenerator.CodeTarget} code; cannot compile for {profile}.");
+        }
+
+        return new VulkanProfileDevice(profile, options ?? new DeviceOptions());
     }
 
     /// <inheritdoc />

@@ -10,6 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
   </ItemGroup>

@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "provider": "vulkan",
+  "name": "llvmpipe (LLVM 22.1.8, 256 bits)",
+  "vendor": "0x10005",
+  "kind": "Cpu",
+  "totalMemory": 98736209920,
+  "codeTarget": "spirv_1_6",
+  "subgroupSize": 8,
+  "maxSharedMemory": 32768,
+  "features": [
+    "fp16",
+    "int_dot",
+    "subgroup_ops",
+    "subgroup_size_control"
+  ],
+  "submissionBudgetMs": 0,
+  "properties": {
+    "api_version": "0.1.4.354",
+    "subgroup_size": "8",
+    "subgroup_size_range": "8-8",
+    "fp16": "True",
+    "bf16": "False",
+    "cooperative_matrix": "True",
+    "cooperative_matrix2_nv": "False",
+    "coopmat_shapes": "8x8x8:f16*f16+f16->f16 8x8x8:f16*f16+f32->f32 8x8x8:u8*u8+u32->u32 8x8x8:i8*i8+i32->i32",
+    "integer_dot_product": "True",
+    "max_shared_memory": "32768",
+    "max_push_constants": "256",
+    "memory_budget": "True",
+    "vendor_id": "10005",
+    "device_id": "0000",
+    "driver_version": "6801006"
+  }
+}

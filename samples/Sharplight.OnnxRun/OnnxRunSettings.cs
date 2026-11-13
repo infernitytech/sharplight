@@ -1,7 +1,7 @@
 namespace Sharplight.OnnxRun;
 
 /// <summary>Command-line choices of the ONNX runner.</summary>
-/// <param name="ModelPath">The <c>.onnx</c> file.</param>
+/// <param name="ModelPath">The <c>.onnx</c> file, or a package (<c>.slm</c>) converted from one.</param>
 /// <param name="Provider">Execution provider that runs the model.</param>
 /// <param name="DeviceIndex">Device index within the provider.</param>
 /// <param name="BatchSize">Value of the symbolic batch dimension.</param>

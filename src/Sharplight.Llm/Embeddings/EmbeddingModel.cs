@@ -1,4 +1,5 @@
 using Sharplight.Models;
+using Sharplight.Runtime;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Embeddings;
@@ -24,6 +25,7 @@ namespace Sharplight.Llm.Embeddings;
 public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 {
     private readonly PackedBatchRunner _runner;
+    private readonly CompilationArtifacts _artifacts;
     private readonly Lock _lock = new();
 
     /// <summary>The model's definition (graphs, weights, metadata).</summary>
@@ -47,11 +49,12 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
     /// <summary>The compiled packed-sequence graph.</summary>
     internal PackedBatchRunner Runner => _runner;
 
-    private EmbeddingModel(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, int maxLength)
+    private EmbeddingModel(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, CompilationArtifacts artifacts, int maxLength)
     {
         Definition = def;
         Tokenizer = tok;
         _runner = runner;
+        _artifacts = artifacts;
         MaxSequenceLength = maxLength;
         Name = def.Name;
         Dimensions = runner.OutputWidth;
@@ -89,7 +92,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             EmbeddingPooling = options.Pooling ?? options.Adapter.EmbeddingPooling,
             EmbeddingNormalize = options.Normalize ?? options.Adapter.EmbeddingNormalize,
         };
-        var (def, _, tok) = PackedModelLoader.Open(path, options, adapter);
+        var (def, source, tok) = PackedModelLoader.Open(path, options, adapter);
         try
         {
             if (!def.Graphs.ContainsKey(WellKnown.EmbedGraph))
@@ -97,9 +100,10 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
                 throw new NotSupportedException($"Model '{def.Name}' ({def.Architecture}) has no '{WellKnown.EmbedGraph}' graph and cannot produce embeddings.");
             }
 
+            var artifacts = options.Artifacts ?? new CompilationArtifacts(source.CompilationCaches);
             var runner = PackedBatchRunner.Compile(def, WellKnown.EmbedGraph, WellKnown.EmbeddingsOutput, options.Devices, options.Fallback,
-                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, null, options.Log);
-            return new EmbeddingModel(def, tok, runner, options.ResolveMaxLength(def));
+                options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, artifacts.For, options.Log);
+            return new EmbeddingModel(def, tok, runner, artifacts, options.ResolveMaxLength(def));
         }
         catch
         {
@@ -252,6 +256,14 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             v[i] *= inv;
         }
     }
+
+    /// <summary>
+    /// Compilation artifacts of the compiled graph, one set per device artifact target (<see cref="IComputeDevice.ArtifactTargets"/>),
+    /// seeded from the sets stored with the model. Store them with the model (e.g. Sharplight.Package's
+    /// <c>ModelPackage.AddArtifacts</c>) so later loads skip kernel compilation.
+    /// </summary>
+    /// <param name="tiers">Only sets of these tiers (<see cref="ArtifactTiers"/>), or <see langword="null"/> for all.</param>
+    public IReadOnlyList<CompilationCache> ExportCompilation(IReadOnlySet<string>? tiers = null) => _artifacts.Export(tiers);
 
     /// <summary>Releases the compiled graph and the model files.</summary>
     public void Dispose()

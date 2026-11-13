@@ -16,4 +16,7 @@
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Profiles/*.json" LogicalName="Profiles.%(Filename).json" />
+  </ItemGroup>
 </Project>

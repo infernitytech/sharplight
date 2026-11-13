@@ -46,4 +46,11 @@ public sealed class LlmLoadOptions
     public bool DeviceSampling { get; init; } = true;
     /// <summary>Receives progress and compile-plan messages; null for silence.</summary>
     public Action<string>? Log { get; init; }
+    /// <summary>
+    /// Compilation artifacts to compile with: consulted before compiling, and recording everything compilation uses
+    /// (<see cref="LlmModel.ExportCompilation"/>). Null (default) = one instance per model, seeded from the artifact sets stored in
+    /// the model file. Share one instance (seeded from the file's <see cref="ModelSource.CompilationCaches"/>) to collect what
+    /// several loads of the same model compile (e.g. its chat, embedding and reranking graphs) into one export.
+    /// </summary>
+    public CompilationArtifacts? Artifacts { get; init; }
 }

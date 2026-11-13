@@ -10,6 +10,9 @@ dotnet run -c Release --project samples/Sharplight.OnnxRun -- ~/models/onnx/mnis
 # Dynamic spatial dimensions need a full shape; a dimension <= 0 is the batch axis
 dotnet run -c Release --project samples/Sharplight.OnnxRun -- model.onnx --shape pixel_values=-1x3x384x384
 
+# A package converted (and precompiled) with sharplight-convert: its stored kernels are used
+dotnet run -c Release --project samples/Sharplight.OnnxRun -- model.slm --provider vulkan
+
 # Real input (raw float32) and output capture
 dotnet run -c Release --project samples/Sharplight.OnnxRun -- model.onnx --input x.bin --out y.bin --dump-graph
 ```

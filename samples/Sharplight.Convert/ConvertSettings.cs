@@ -10,6 +10,7 @@ namespace Sharplight.Convert;
 /// <param name="ContextLength">Context length LLM graphs are built for (0 = the model's own).</param>
 /// <param name="MmprojPath">Vision projector (GGUF mmproj) to build into the package, or null.</param>
 /// <param name="InputShapes">Shapes of ONNX inputs with dynamic dimensions.</param>
+/// <param name="KeepArtifacts">Store the artifact sets of an <c>.slm</c> source with the result.</param>
 internal sealed record ConvertSettings(
     string SourcePath,
     string DestinationPath,
@@ -17,4 +18,5 @@ internal sealed record ConvertSettings(
     DataType KvCacheType,
     int ContextLength,
     string? MmprojPath,
-    IReadOnlyDictionary<string, long[]> InputShapes);
+    IReadOnlyDictionary<string, long[]> InputShapes,
+    bool KeepArtifacts);

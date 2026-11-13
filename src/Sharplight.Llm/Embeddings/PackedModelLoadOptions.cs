@@ -28,6 +28,13 @@ public class PackedModelLoadOptions
     /// a GPU; norms, biases and quantized / 16-bit weights are never changed.
     /// </summary>
     public bool? HalfPrecisionMatrices { get; init; }
+    /// <summary>
+    /// Compilation artifacts to compile with: consulted before compiling, and recording everything compilation uses
+    /// (<c>ExportCompilation</c>). Null (default) = one instance per model, seeded from the artifact sets stored in the model file.
+    /// Share one instance (seeded from the file's <see cref="ModelSource.CompilationCaches"/>) to collect what several loads of the
+    /// same model compile into one export.
+    /// </summary>
+    public CompilationArtifacts? Artifacts { get; init; }
 
     internal int ResolveMaxLength(ModelDefinition def)
     {

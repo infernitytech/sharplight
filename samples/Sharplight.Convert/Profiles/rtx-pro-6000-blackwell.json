@@ -1,0 +1,40 @@
+{
+  "formatVersion": 1,
+  "provider": "vulkan",
+  "name": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+  "vendor": "NVIDIA",
+  "kind": "DiscreteGpu",
+  "totalMemory": 102641958912,
+  "codeTarget": "spirv_1_6",
+  "subgroupSize": 32,
+  "maxSharedMemory": 49152,
+  "features": [
+    "bf16",
+    "fp16",
+    "int_dot",
+    "matrix_bf16",
+    "matrix_f16",
+    "matrix_int8",
+    "matrix_workgroup",
+    "subgroup_ops",
+    "subgroup_size_control"
+  ],
+  "submissionBudgetMs": 0,
+  "properties": {
+    "api_version": "0.1.4.341",
+    "subgroup_size": "32",
+    "subgroup_size_range": "32-32",
+    "fp16": "True",
+    "bf16": "True",
+    "cooperative_matrix": "True",
+    "cooperative_matrix2_nv": "True",
+    "coopmat_shapes": "16x16x16:f16*f16+f16->f16 16x8x16:f16*f16+f16->f16 16x8x8:f16*f16+f16->f16 16x16x16:f16*f16+f32->f32 16x8x16:f16*f16+f32->f32 16x8x8:f16*f16+f32->f32 16x16x32:u8*u8+u32->u32 16x16x32:i8*i8+i32->i32 16x8x32:u8*u8+u32->u32 16x8x32:i8*i8+i32->i32 16x16x16:bf16*bf16+f32->f32 16x16x32:f8E5m2EXT*f8E5m2EXT+f16->f16 16x16x32:f8E5m2EXT*f8E5m2EXT+f32->f32 16x16x32:f8E4m3EXT*f8E4m3EXT+f16->f16 16x16x32:f8E4m3EXT*f8E4m3EXT+f32->f32",
+    "integer_dot_product": "True",
+    "max_shared_memory": "49152",
+    "max_push_constants": "256",
+    "memory_budget": "True",
+    "vendor_id": "10de",
+    "device_id": "2bb4",
+    "driver_version": "988e4100"
+  }
+}

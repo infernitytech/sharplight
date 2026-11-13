@@ -42,6 +42,21 @@ public sealed class CompilationArtifacts(ICompilationCacheStore? stored = null)
     }
 
     /// <summary>
+    /// The sets recorded so far, as they are (without device-level state, see <see cref="Export"/>): e.g. to report how many entries
+    /// came from the stored sets (<see cref="CompilationCache.FallbackHits"/>).
+    /// </summary>
+    public IReadOnlyList<CompilationCache> Recorded
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _order];
+            }
+        }
+    }
+
+    /// <summary>
     /// The non-empty artifact sets recorded so far, after adding device-level state (driver pipeline caches,
     /// <see cref="IComputeDevice.ExportCompilationState"/>) of every device that compiled with them.
     /// </summary>

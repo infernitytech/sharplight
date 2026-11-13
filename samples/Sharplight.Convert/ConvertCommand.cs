@@ -42,6 +42,11 @@ internal sealed class ConvertCommand
         DefaultValueFactory = _ => [],
     };
 
+    private readonly Option<bool> _dropArtifacts = new("--drop-artifacts")
+    {
+        Description = ".slm sources: do not copy the source's precompiled artifact sets (by default they are kept; code entries are content addressed and stay valid).",
+    };
+
     public ConvertCommand()
     {
         _kvType.AcceptOnlyFromAmong("f16", "f32", "q8_0", "q4_0");
@@ -50,7 +55,7 @@ internal sealed class ConvertCommand
 
     public Command Build()
     {
-        var command = new Command("convert", "Builds a model (GGUF, Hugging Face, ONNX or package) and writes it as a package without precompiled artifacts.");
+        var command = new Command("convert", "Builds a model (GGUF, Hugging Face, ONNX or package) and writes it as a package; the artifact sets of a package source are kept.");
         command.Arguments.Add(_source);
         command.Arguments.Add(_destination);
         command.Options.Add(_noOptimize);
@@ -58,6 +63,7 @@ internal sealed class ConvertCommand
         command.Options.Add(_context);
         command.Options.Add(_mmproj);
         command.Options.Add(_shapes);
+        command.Options.Add(_dropArtifacts);
         command.SetAction(CommandRunner.Guard((parseResult, _) =>
         {
             new ModelConverter(Console.Out).Convert(Read(parseResult));
@@ -93,6 +99,7 @@ internal sealed class ConvertCommand
             DataType.Get(parseResult.GetValue(_kvType)!),
             parseResult.GetValue(_context),
             parseResult.GetValue(_mmproj),
-            shapes);
+            shapes,
+            !parseResult.GetValue(_dropArtifacts));
     }
 }

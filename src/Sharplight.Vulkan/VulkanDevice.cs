@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
@@ -23,10 +24,16 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     internal readonly VkPipelineLayout PipelineLayout;
     internal readonly uint PushConstantSize;
     internal readonly MemoryAllocator Memory;
-    internal readonly SlangCompiler Compiler;
+    /// <summary>Lowering and SPIR-V generation for this device's profile.</summary>
+    internal readonly SpirvCodeGenerator Code;
     private readonly ConcurrentDictionary<string, Lazy<VkPipeline>> _pipelines = new();
-    /// <summary>Every kernel of every compiled program (so an export can cover pipelines not created yet).</summary>
-    private readonly ConcurrentDictionary<string, CompiledKernel> _kernels = new();
+    /// <summary>
+    /// The kernels of the programs compiled with each model-level cache (<see cref="CompileOptions.CacheFor"/>), so an export
+    /// stores exactly that model's pipelines, including ones not created yet.
+    /// </summary>
+    private readonly ConditionalWeakTable<ICompilationCache, ConcurrentDictionary<string, CompiledKernel>> _kernelsByCache = new();
+    /// <summary>Whether the driver pipeline cache holds more than the pipelines of one model cache (seeded from the per-user cache file, or several caches compiled here).</summary>
+    private bool _pipelineCacheShared;
     private readonly Lock _pipelineCacheLock = new();
     private readonly string _kernelCacheDirectory;
     private VkPipelineCache _pipelineCache;
@@ -80,9 +87,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         return new DeviceMemoryInfo(total, Math.Min(_budget, heapBudget), Math.Max(ours, heapUsage), ours, true);
     }
-    public int SubgroupSize => (int)Phys.SubgroupSize;
     /// <summary>Effective submission budget in ms (0 = unlimited): <see cref="DeviceInfo.SubmissionBudgetMs"/> unless overridden.</summary>
-    public double SubmissionBudgetMs { get; }
+    public double SubmissionBudgetMs => Code.SubmissionBudgetMs;
 
     internal VulkanDevice(VulkanInstance inst, PhysicalDeviceInfo phys, DeviceInfo info, DeviceOptions options)
     {
@@ -91,13 +97,10 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         Info = info;
         Options = options;
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
+        _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
+        Code = new SpirvCodeGenerator((int)phys.SubgroupSize, phys.MaxSharedMemory, EnabledFeatures,
+            SpirvCodeGenerator.EffectiveSubmissionBudget(info.SubmissionBudgetMs, options), _kernelCacheDirectory);
         ArtifactTargets = CreateArtifactTargets();
-        SubmissionBudgetMs = info.SubmissionBudgetMs;
-        options.Settings.TryGetValue("submission_budget_ms", out var budgetSetting);
-        if (DiagnosticSwitches.SubmissionBudgetMs(budgetSetting) is { } budgetMs)
-        {
-            SubmissionBudgetMs = Math.Max(0, budgetMs);
-        }
 
         QueueFamily = SelectComputeQueueFamily(inst.Api, phys);
         var device = CreateLogicalDevice(inst.Api, out _budgetExt, out _pipelineStats);
@@ -114,8 +117,6 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         Memory = new MemoryAllocator(this);
         _budget = options.MemoryBudget ?? (long)(phys.DeviceLocalBytes * 0.92);
-        _kernelCacheDirectory = options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory;
-        Compiler = new SlangCompiler(_kernelCacheDirectory);
     }
 
     /// <summary>Prefers a dedicated compute queue (async compute), else any queue with compute.</summary>
@@ -270,20 +271,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     private IReadOnlyList<ArtifactTarget> CreateArtifactTargets()
     {
-        var code = new ArtifactTarget(
-            new Dictionary<string, string>
-            {
-                [ArtifactDescriptorKeys.Provider] = Info.Provider,
-                [ArtifactDescriptorKeys.Tier] = ArtifactTiers.Code,
-                [ArtifactDescriptorKeys.Kind] = "spirv",
-                [ArtifactDescriptorKeys.Target] = SlangCompiler.TargetProfile(ShaderTarget.SpirV),
-                [ArtifactDescriptorKeys.Subgroup] = Phys.SubgroupSize.ToString(CultureInfo.InvariantCulture),
-                [ArtifactDescriptorKeys.SharedMemory] = Phys.MaxSharedMemory.ToString(CultureInfo.InvariantCulture),
-                [ArtifactDescriptorKeys.Features] = string.Join(",", EnabledFeatures.Order(StringComparer.Ordinal)),
-                [ArtifactDescriptorKeys.Compiler] = SlangCompiler.CompilerId,
-            },
-            [ArtifactDescriptorKeys.Target],
-            [SlangCompiler.KernelKeyPrefix]);
+        var code = Code.CreateCodeTarget(Info.Provider);
         var binary = new ArtifactTarget(
             new Dictionary<string, string>
             {
@@ -308,32 +296,23 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     internal long PipelineTicks;
     internal int PipelinesCreated;
 
+    public DeviceProfile CreateProfile()
+    {
+        var properties = new Dictionary<string, string>(Info.Capabilities)
+        {
+            ["vendor_id"] = Phys.VendorId.ToString("x4", CultureInfo.InvariantCulture),
+            ["device_id"] = Phys.DeviceId.ToString("x4", CultureInfo.InvariantCulture),
+            ["driver_version"] = Phys.DriverVersion.ToString("x", CultureInfo.InvariantCulture),
+        };
+        return Code.CreateProfile(Info, properties);
+    }
+
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
-        var swLower = Stopwatch.StartNew();
         var cache = options.CacheFor?.Invoke(this);
         EnsurePipelineCache(cache);
-        var program = GraphLowerer.Lower(segment, Compiler, new LoweringOptions
-        {
-            Target = ShaderTarget.SpirV,
-            SubgroupSize = (int)Phys.SubgroupSize,
-            MaxSharedMemory = Phys.MaxSharedMemory,
-            Features = options.FeaturesFor(this),
-            Compile = options,
-            SubmissionBudgetMs = SubmissionBudgetMs,
-            Cache = cache,
-        });
-        // Distinct kernels of the program, in launch order (variants of different launches often share one).
-        var kernels = program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey).ToList();
-        foreach (var kernel in kernels)
-        {
-            _kernels.TryAdd(kernel.CacheKey, kernel);
-        }
-
-        if (DiagnosticSwitches.LoadTiming)
-        {
-            Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers)");
-        }
+        var program = Code.Lower(segment, this, options, cache, out var kernels);
+        RecordKernels(cache, kernels);
 
         // Slang keeps compiling in the background while the weights upload; pipelines are created as the kernels complete.
         var pipelines = Task.Run(() => CreatePipelines(kernels));
@@ -409,6 +388,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             {
                 data = fromDisk;
                 fromFile = true;
+                _pipelineCacheShared = true;
             }
 
             if (TryCreatePipelineCache(data.Span, out var pc))
@@ -445,22 +425,102 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
     }
 
-    /// <summary>Stores the driver pipeline cache, covering every kernel compiled on this device.</summary>
+    /// <summary>Remembers which kernels were compiled with <paramref name="cache"/> (see <see cref="ExportCompilationState"/>).</summary>
+    private void RecordKernels(ICompilationCache? cache, IReadOnlyList<CompiledKernel> kernels)
+    {
+        lock (_pipelineCacheLock)
+        {
+            if (cache is null)
+            {
+                // Pipelines of a compilation without a model cache end up in the device's driver cache too.
+                _pipelineCacheShared = true;
+                return;
+            }
+
+            if (!_kernelsByCache.TryGetValue(cache, out var recorded))
+            {
+                _pipelineCacheShared |= _kernelsByCache.Any();
+                recorded = new ConcurrentDictionary<string, CompiledKernel>();
+                _kernelsByCache.Add(cache, recorded);
+            }
+
+            foreach (var kernel in kernels)
+            {
+                recorded.TryAdd(kernel.CacheKey, kernel);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stores the driver pipeline cache of the kernels compiled with <paramref name="cache"/>. When the device's own driver cache
+    /// also holds other pipelines (seeded from the per-user cache file, or other models compiled on this device), the pipelines
+    /// are recreated into a fresh driver cache so the stored blob holds only this model's.
+    /// </summary>
     public void ExportCompilationState(ICompilationCache cache)
     {
         EnsurePipelineCache(null);
-        CreatePipelines(_kernels.Values);
-        cache.Put(PipelineCacheKey, GetPipelineCacheData());
+        CompiledKernel[] kernels;
+        bool shared;
+        lock (_pipelineCacheLock)
+        {
+            kernels = _kernelsByCache.TryGetValue(cache, out var recorded) ? [.. recorded.Values] : [];
+            shared = _pipelineCacheShared;
+        }
+
+        if (kernels.Length == 0)
+        {
+            return;
+        }
+
+        if (!shared)
+        {
+            CreatePipelines(kernels);
+            cache.Put(PipelineCacheKey, GetPipelineCacheData(_pipelineCache));
+            return;
+        }
+
+        if (!TryCreatePipelineCache(ReadOnlySpan<byte>.Empty, out var dedicated))
+        {
+            throw new VkException(VkResult.ErrorInitializationFailed, "vkCreatePipelineCache failed without initial data");
+        }
+
+        try
+        {
+            CreatePipelinesInto(dedicated, kernels);
+            cache.Put(PipelineCacheKey, GetPipelineCacheData(dedicated));
+        }
+        finally
+        {
+            Api.vkDestroyPipelineCache(dedicated, null);
+        }
     }
 
-    private byte[] GetPipelineCacheData()
+    /// <summary>Creates and immediately destroys the pipelines of <paramref name="kernels"/> in <paramref name="pipelineCache"/>, which records them.</summary>
+    private void CreatePipelinesInto(VkPipelineCache pipelineCache, IEnumerable<CompiledKernel> kernels)
+    {
+        try
+        {
+            Parallel.ForEach(kernels, kernel =>
+            {
+                var (pipeline, module) = CreatePipeline(kernel, pipelineCache);
+                Api.vkDestroyPipeline(pipeline, null);
+                Api.vkDestroyShaderModule(module, null);
+            });
+        }
+        catch (AggregateException e)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+        }
+    }
+
+    private byte[] GetPipelineCacheData(VkPipelineCache pipelineCache)
     {
         nuint size = 0;
-        Api.vkGetPipelineCacheData(_pipelineCache, &size, null).CheckResult();
+        Api.vkGetPipelineCacheData(pipelineCache, &size, null).CheckResult();
         var data = new byte[size];
         fixed (byte* p = data)
         {
-            Api.vkGetPipelineCacheData(_pipelineCache, &size, p).CheckResult();
+            Api.vkGetPipelineCacheData(pipelineCache, &size, p).CheckResult();
         }
 
         return data.AsSpan(0, (int)size).ToArray();
@@ -544,7 +604,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             var temporary = $"{PipelineCachePath}.{Environment.ProcessId}.tmp";
             try
             {
-                var data = GetPipelineCacheData();
+                var data = GetPipelineCacheData(_pipelineCache);
                 if (data.Length > MaxPipelineCacheFileBytes)
                 {
                     // Too large to keep: reset, so the next process rebuilds the cache from the pipelines it uses.
@@ -573,10 +633,23 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         // Lazy: GetOrAdd may run its factory twice under a race (leaking a VkPipeline); pipelines of different kernels are
         // created in parallel (the driver's pipeline cache is internally synchronized).
-        return _pipelines.GetOrAdd(kernel.CacheKey, _ => new Lazy<VkPipeline>(() => CreatePipeline(kernel))).Value;
+        return _pipelines.GetOrAdd(kernel.CacheKey, _ => new Lazy<VkPipeline>(() => CreateDevicePipeline(kernel))).Value;
     }
 
-    private VkPipeline CreatePipeline(CompiledKernel kernel)
+    /// <summary>Creates a pipeline in the device's driver cache; its shader module lives as long as the device.</summary>
+    private VkPipeline CreateDevicePipeline(CompiledKernel kernel)
+    {
+        var (pipeline, module) = CreatePipeline(kernel, _pipelineCache);
+        lock (_modules)
+        {
+            _modules.Add(module);
+        }
+
+        return pipeline;
+    }
+
+    /// <summary>Creates the shader module and compute pipeline of <paramref name="kernel"/>, recorded in <paramref name="pipelineCache"/>.</summary>
+    private (VkPipeline Pipeline, VkShaderModule Module) CreatePipeline(CompiledKernel kernel, VkPipelineCache pipelineCache)
     {
         // Waits for a kernel that is still compiling; that time is not pipeline creation.
         var spirv = kernel.Code;
@@ -588,11 +661,6 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             {
                 var moduleInfo = new VkShaderModuleCreateInfo { codeSize = (nuint)spirv.Length, pCode = (uint*)code };
                 Api.vkCreateShaderModule(&moduleInfo, null, &module).CheckResult();
-            }
-
-            lock (_modules)
-            {
-                _modules.Add(module);
             }
 
             // Slang names the single SPIR-V entry point "main" regardless of the source function name.
@@ -616,13 +684,19 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
                     flags = _pipelineStats ? VkPipelineCreateFlags.CaptureStatisticsKHR : 0,
                 };
                 VkPipeline pipeline;
-                Api.vkCreateComputePipelines(_pipelineCache, 1, &pipelineInfo, null, &pipeline).CheckResult();
+                var result = Api.vkCreateComputePipelines(pipelineCache, 1, &pipelineInfo, null, &pipeline);
+                if (result != VkResult.Success)
+                {
+                    Api.vkDestroyShaderModule(module, null);
+                    result.CheckResult();
+                }
+
                 if (_pipelineStats)
                 {
                     PrintPipelineStatistics(kernel, pipeline);
                 }
 
-                return pipeline;
+                return (pipeline, module);
             }
         }
         finally

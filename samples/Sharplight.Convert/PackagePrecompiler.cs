@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using Sharplight.Llm;
+using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
+using Sharplight.Onnx;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Samples;
@@ -8,34 +10,57 @@ using Sharplight.Samples;
 namespace Sharplight.Convert;
 
 /// <summary>
-/// Compiles every graph of a package on one device and appends the artifact sets the compilation recorded. Language models are
-/// compiled the way <see cref="LlmModel"/> compiles them at load (so the stored kernels are the ones a later load asks for);
-/// other graphs are compiled with the given symbol bounds.
+/// Compiles every graph of a package on one device (or for a device profile, without the device) and appends the artifact sets
+/// the compilation recorded. Graphs are compiled the way the loaders compile them, so the stored kernels are the ones a later load
+/// asks for: language models through <see cref="LlmModel"/> (decode, decode_multimodal, vision_encode and the serving batch
+/// decoder), packed-sequence graphs through <see cref="EmbeddingModel"/> (embed) and <see cref="Reranker"/> (classify), other
+/// graphs (ONNX models) as a <see cref="CompiledModel"/> with the given symbol bounds and the CPU as fallback.
 /// </summary>
+/// <remarks>
+/// <c>decode_embeddings</c> (the decoder trunk fed with embeddings instead of token ids) is not compiled: no loader compiles it
+/// (multimodal prompts use <c>decode_multimodal</c>), so its kernels would never be asked for.
+/// </remarks>
 internal sealed class PackagePrecompiler(TextWriter output)
 {
     private const string TemporaryCachePrefix = "sharplight-precompile-";
+    private const long DefaultOnnxBatch = 1;
 
     public void Run(PrecompileSettings settings)
     {
-        // A fresh kernel cache directory keeps the driver pipeline cache free of other models' pipelines.
+        // A fresh kernel cache directory: every kernel is compiled (and recorded) from scratch.
         var temporaryCache = settings.UseUserKernelCache ? null : Directory.CreateTempSubdirectory(TemporaryCachePrefix).FullName;
         try
         {
-            using var device = OpenDevice(settings.Device, temporaryCache);
-            if (device.ArtifactTargets.Count == 0)
+            using var device = OpenDevice(settings, temporaryCache);
+            CheckTiers(settings, device);
+            output.WriteLine(settings.Profile is { } profile ? $"Compiling {settings.PackagePath} for {profile} (offline)" : $"Compiling {settings.PackagePath} on {device.Info}");
+            var source = new ModelPackageImporter().Open(settings.PackagePath);
+            try
             {
-                throw new SampleException($"{device.Info} produces no precompiled artifacts.", ExitCodes.InvalidInput);
-            }
+                // One recording for every load, seeded from the package's own sets; entries served from them point into the
+                // package mapping, so they are stored before it is closed.
+                var artifacts = new CompilationArtifacts(source.CompilationCaches);
+                var definition = source.Definition!;
+                var stopwatch = Stopwatch.StartNew();
+                if (definition.Graphs.ContainsKey(WellKnown.DecodeGraph) || definition.Graphs.ContainsKey(WellKnown.EmbedGraph)
+                    || definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
+                {
+                    CompileLanguageModel(settings, device, artifacts, definition);
+                }
+                else
+                {
+                    CompileGraphs(settings, device, artifacts, definition);
+                }
 
-            output.WriteLine($"Compiling {settings.PackagePath} on {device.Info}");
-            if (IsLanguageModel(settings.PackagePath))
-            {
-                CompileLanguageModel(settings, device);
+                output.WriteLine($"Compiled in {stopwatch.ElapsedMilliseconds} ms; slang {Shaders.SlangCompiler.Statistics}");
+                Store(settings.PackagePath, artifacts.Export(settings.Tiers));
             }
-            else
+            finally
             {
-                CompileGraphs(settings, device);
+                foreach (var resource in source.OwnedResources)
+                {
+                    resource.Dispose();
+                }
             }
         }
         finally
@@ -47,100 +72,121 @@ internal sealed class PackagePrecompiler(TextWriter output)
         }
     }
 
-    private static IComputeDevice OpenDevice(DeviceSpec spec, string? kernelCacheDirectory)
+    private static IComputeDevice OpenDevice(PrecompileSettings settings, string? kernelCacheDirectory)
     {
-        var providers = ProviderRegistry.Discover();
-        var provider = providers.FirstOrDefault(p => p.Provider.Name == spec.Provider);
-        if (provider.Provider is null)
+        var options = new DeviceOptions { KernelCacheDirectory = kernelCacheDirectory };
+        foreach (var feature in settings.DisabledFeatures)
         {
-            var known = string.Join(", ", providers.Select(p => p.Provider.Name));
-            throw new SampleException($"Unknown provider '{spec.Provider}'; available: {known}.", ExitCodes.InvalidInput);
+            options.DisabledFeatures.Add(feature);
         }
 
-        if (!provider.Availability.IsAvailable)
-        {
-            throw new SampleException($"Provider '{spec.Provider}' is not available: {provider.Availability.Reason}");
-        }
-
-        var info = SampleRuntime.GetDevice(provider.Provider, spec.Index);
-        return provider.Provider.OpenDevice(info, new DeviceOptions { KernelCacheDirectory = kernelCacheDirectory });
+        return settings.Profile is { } profile ? DeviceOpener.OpenProfile(profile, options) : DeviceOpener.Open(settings.Device!.Value, options);
     }
 
-    private static bool IsLanguageModel(string path)
+    private static void CheckTiers(PrecompileSettings settings, IComputeDevice device)
     {
-        var source = new ModelPackageImporter().Open(path);
-        try
+        var produced = device.ArtifactTargets.Select(t => t.Tier).ToHashSet(StringComparer.Ordinal);
+        if (produced.Count == 0)
         {
-            return source.Definition!.Graphs.ContainsKey(WellKnown.DecodeGraph);
+            throw new SampleException($"{device.Info} produces no precompiled artifacts.", ExitCodes.InvalidInput);
         }
-        finally
+
+        var missing = (settings.Tiers ?? new HashSet<string>()).Where(t => !produced.Contains(t)).ToList();
+        if (missing.Count > 0)
         {
-            foreach (var resource in source.OwnedResources)
+            throw new SampleException($"{device.Info} does not produce the {string.Join(", ", missing)} tier (it produces {string.Join(", ", produced)}).", ExitCodes.InvalidInput);
+        }
+    }
+
+    private void CompileLanguageModel(PrecompileSettings settings, IComputeDevice device, CompilationArtifacts artifacts, ModelDefinition definition)
+    {
+        IReadOnlyList<DeviceSlot> devices = [new DeviceSlot { Device = device }];
+        if (definition.Graphs.ContainsKey(WellKnown.DecodeGraph))
+        {
+            using var model = LlmModel.Load(settings.PackagePath, new LlmLoadOptions
             {
-                resource.Dispose();
-            }
-        }
-    }
-
-    private void CompileLanguageModel(PrecompileSettings settings, IComputeDevice device)
-    {
-        using var model = LlmModel.Load(settings.PackagePath, new LlmLoadOptions
-        {
-            Devices = [new DeviceSlot { Device = device }],
-            ContextLength = settings.ContextLength,
-            MaxBatchTokens = settings.BatchTokens,
-            Log = output.WriteLine,
-        });
-        foreach (var graph in new[] { WellKnown.DecodeGraph, WellKnown.DecodeMultimodalGraph }.Where(model.Definition.Graphs.ContainsKey))
-        {
-            using var session = model.CreateSession(graph);
-        }
-
-        if (model.Definition.Graphs.ContainsKey(WellKnown.VisionEncodeGraph))
-        {
-            using var encoder = model.CreateVisionEncoder();
-        }
-
-        // Entries served from the package's own sets point into its mapping: store them before the model is disposed.
-        Store(settings.PackagePath, model.ExportCompilation(settings.Tiers));
-    }
-
-    private void CompileGraphs(PrecompileSettings settings, IComputeDevice device)
-    {
-        var source = new ModelPackageImporter().Open(settings.PackagePath);
-        try
-        {
-            var artifacts = new CompilationArtifacts(source.CompilationCaches);
-            var compileOptions = new CompileOptions
-            {
-                MaxTokens = settings.BatchTokens,
+                Devices = devices,
                 ContextLength = settings.ContextLength,
-                SymbolBounds = settings.SymbolBounds,
-                CacheFor = artifacts.For,
-            };
-            foreach (var (name, graph) in source.Definition!.Graphs)
+                MaxBatchTokens = settings.BatchTokens,
+                Log = output.WriteLine,
+                Artifacts = artifacts,
+            });
+            foreach (var graph in new[] { WellKnown.DecodeGraph, WellKnown.DecodeMultimodalGraph }.Where(definition.Graphs.ContainsKey))
             {
-                var stopwatch = Stopwatch.StartNew();
-                using var compiled = Compile(name, graph, device, compileOptions);
-                output.WriteLine($"Compiled '{name}' in {stopwatch.ElapsedMilliseconds} ms");
+                using var session = model.CreateSession(graph);
             }
 
-            Store(settings.PackagePath, artifacts.Export(settings.Tiers));
-        }
-        finally
-        {
-            foreach (var resource in source.OwnedResources)
+            if (model.SupportsImages)
             {
-                resource.Dispose();
+                using var encoder = model.CreateVisionEncoder();
             }
+
+            if (settings.Slots > 1)
+            {
+                using var decoder = model.CreateBatchDecoder(settings.Slots, settings.ContextLength, kvCacheTokens: settings.KvCacheTokens);
+            }
+        }
+
+        if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph))
+        {
+            Optional(WellKnown.EmbedGraph, () => EmbeddingModel.Load(settings.PackagePath, new EmbeddingLoadOptions { Devices = devices, Log = output.WriteLine, Artifacts = artifacts }));
+        }
+
+        if (definition.Graphs.ContainsKey(WellKnown.ClassifyGraph))
+        {
+            Optional(WellKnown.ClassifyGraph, () => Reranker.Load(settings.PackagePath, new RerankerLoadOptions { Devices = devices, Log = output.WriteLine, Artifacts = artifacts }));
         }
     }
 
-    private static CompiledModel Compile(string name, Graph.ComputeGraph graph, IComputeDevice device, CompileOptions options)
+    /// <summary>Compiles a graph whose loader may reject this model (e.g. a reranker without "yes"/"no" tokens): reported, not fatal.</summary>
+    private void Optional(string graph, Func<IDisposable> load)
     {
         try
         {
-            return CompiledModel.Compile(graph, new PlacementOptions { Devices = [new DeviceSlot { Device = device }], Compile = options });
+            load().Dispose();
+        }
+        catch (NotSupportedException error)
+        {
+            output.WriteLine($"Skipped '{graph}': {error.Message}");
+        }
+    }
+
+    private void CompileGraphs(PrecompileSettings settings, IComputeDevice device, CompilationArtifacts artifacts, ModelDefinition definition)
+    {
+        var bounds = new Dictionary<string, long>(settings.SymbolBounds, StringComparer.Ordinal);
+        if (definition.Properties.TryGetValue(OnnxGraphAdapter.BatchSymbolProperty, out var batch) && batch is string batchSymbol && !bounds.ContainsKey(batchSymbol))
+        {
+            bounds[batchSymbol] = DefaultOnnxBatch;
+            output.WriteLine($"Batch dimension '{batchSymbol}' bounded to {DefaultOnnxBatch} (use --bound {batchSymbol}=VALUE for the batch the model will run with).");
+        }
+
+        var compileOptions = new CompileOptions
+        {
+            MaxTokens = settings.BatchTokens,
+            ContextLength = settings.ContextLength,
+            SymbolBounds = bounds,
+            CacheFor = artifacts.For,
+        };
+        using var cpu = device.Info.Kind == DeviceKind.Cpu ? null : DeviceOpener.OpenCpu();
+        foreach (var (name, graph) in definition.Graphs)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            using var compiled = Compile(name, graph, device, cpu, compileOptions);
+            output.WriteLine($"Compiled '{name}' in {stopwatch.ElapsedMilliseconds} ms ({compiled.Plan.Segments.Count} segment(s))");
+        }
+    }
+
+    private static CompiledModel Compile(string name, Graph.ComputeGraph graph, IComputeDevice device, IComputeDevice? fallback, CompileOptions options)
+    {
+        try
+        {
+            return CompiledModel.Compile(graph, new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = device }],
+                // Data-dependent ops the device cannot run go to the CPU, as when ONNX models run.
+                Fallback = fallback is null ? null : new DeviceSlot { Device = fallback },
+                Compile = options,
+            });
         }
         catch (InvalidOperationException error) when (error.Message.StartsWith("No bound", StringComparison.Ordinal))
         {

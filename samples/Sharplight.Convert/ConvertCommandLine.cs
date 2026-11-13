@@ -12,6 +12,7 @@ internal static class ConvertCommandLine
         root.Subcommands.Add(new ConvertCommand().Build());
         root.Subcommands.Add(new InfoCommand().Build());
         root.Subcommands.Add(new PrecompileCommand().Build());
+        root.Subcommands.Add(new ProfileCommand().Build());
         root.Subcommands.Add(new StripCommand().Build());
         root.Subcommands.Add(new CompactCommand().Build());
         return root;

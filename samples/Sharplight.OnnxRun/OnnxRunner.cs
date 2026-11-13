@@ -3,19 +3,25 @@ using Sharplight.Cpu;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Onnx;
+using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Samples;
 using Sharplight.Vulkan;
 
 namespace Sharplight.OnnxRun;
 
-/// <summary>Imports an ONNX model, compiles it for one device, runs it repeatedly and reports timings and the first output.</summary>
+/// <summary>
+/// Imports an ONNX model (or opens a package converted from one), compiles it for one device, runs it repeatedly and reports
+/// timings and the first output. A package's precompiled artifact sets are used, so its stored kernels are not compiled again.
+/// </summary>
 internal sealed class OnnxRunner
 {
     private const long ReservePerDeviceBytes = 256L << 20;
 
     private readonly OnnxRunSettings _settings;
     private readonly TextWriter _output;
+    /// <summary>Precompiled artifacts of a package source, or null for an ONNX file.</summary>
+    private CompilationArtifacts? _artifacts;
 
     public OnnxRunner(OnnxRunSettings settings, TextWriter output)
     {
@@ -57,7 +63,7 @@ internal sealed class OnnxRunner
             throw new SampleException($"Model '{_settings.ModelPath}' does not exist.");
         }
 
-        var source = OnnxImporter.Open(_settings.ModelPath, options);
+        var source = Open(options);
         var definition = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = source });
         var graph = definition.Graph(OnnxGraphAdapter.MainGraph);
         _output.WriteLine(
@@ -69,6 +75,23 @@ internal sealed class OnnxRunner
         }
 
         return graph;
+    }
+
+    private ModelSource Open(OnnxImportOptions options)
+    {
+        if (!ModelPackage.IsPackage(_settings.ModelPath))
+        {
+            return OnnxImporter.Open(_settings.ModelPath, options);
+        }
+
+        if (_settings.InputShapes.Count > 0)
+        {
+            _output.WriteLine("--shape is ignored: a package stores the shapes it was converted with.");
+        }
+
+        var source = new ModelPackageImporter().Open(_settings.ModelPath);
+        _artifacts = new CompilationArtifacts(source.CompilationCaches);
+        return source;
     }
 
     private IComputeDevice OpenDevice()
@@ -91,6 +114,7 @@ internal sealed class OnnxRunner
         var compileOptions = new CompileOptions
         {
             SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = _settings.BatchSize },
+            CacheFor = _artifacts is null ? null : _artifacts.For,
         };
         var compiled = CompiledModel.Compile(graph, new PlacementOptions
         {
@@ -99,6 +123,11 @@ internal sealed class OnnxRunner
             ReservePerDevice = ReservePerDeviceBytes,
         });
         _output.WriteLine($"compiled in {stopwatch.ElapsedMilliseconds} ms ({compiled.Plan.Segments.Count} segment(s))");
+        foreach (var set in (_artifacts?.Recorded ?? []).Where(s => s.Entries.Count > 0))
+        {
+            _output.WriteLine($"  {set.FallbackHits} of {set.Entries.Count} {ArtifactDescriptor.Get(set.Descriptor, ArtifactDescriptorKeys.Tier)} entries from the package");
+        }
+
         return compiled;
     }
 
