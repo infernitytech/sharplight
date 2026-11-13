@@ -10,6 +10,7 @@
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
+    <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
@@ -53,6 +54,102 @@ public unsafe class GgmlDequantTests
         {
             yield return [i, records[i].Type.Name + (i % 2 == 0 ? " (ggml quantized)" : " (random bytes)")];
         }
+    }
+
+    /// <summary>The quantized (non-random) records: their dequantized values are well scaled, so a float matmul is a meaningful reference.</summary>
+    public static IEnumerable<object[]> QuantizedRecords() => Records().Where(r => (int)r[0] % 2 == 0);
+
+    [Theory, MemberData(nameof(QuantizedRecords))]
+    public void MatMulMatchesDequantizedProduct(int index, string label)
+    {
+        var record = Load()[index];
+        foreach (int tokens in new[] { 1, 5 })
+        {
+            var x = Kit.Rand(tokens * record.Cols, 12);
+            var tg = new TestGraph();
+            var w = tg.W("w", record.Type, new Shape(record.Rows, record.Cols), record.Blocks);
+            var xin = tg.InF("x", TestGraph.T, record.Cols);
+            tg.B.Output("y", tg.B.MatMul(xin, w));
+            using var m = Kit.Compile(tg.B.Build());
+            Kit.Set(m, xin, x);
+            var p = Kit.P(tokens);
+            m.Run(p);
+            var expected = new float[tokens * record.Rows];
+            for (int t = 0; t < tokens; t++)
+            {
+                for (int r = 0; r < record.Rows; r++)
+                {
+                    double sum = 0;
+                    for (int c = 0; c < record.Cols; c++)
+                    {
+                        sum += (double)x[t * record.Cols + c] * record.Expected[r * record.Cols + c];
+                    }
+
+                    expected[t * record.Rows + r] = (float)sum;
+                }
+            }
+
+            Kit.AssertClose(expected, Kit.Out(m, "y", p), 2e-3, 1e-4, label + " matmul");
+        }
+    }
+
+    /// <summary>MatMulId with the four quantized rows read as two experts of two output rows each.</summary>
+    [Theory, MemberData(nameof(QuantizedRecords))]
+    public void MatMulIdMatchesDequantizedProduct(int index, string label)
+    {
+        var record = Load()[index];
+        const int experts = 2;
+        const int outputs = 2;
+        const int tokens = 3;
+        int[] ids = [1, 0, 0, 1, 1, 0];   // [T, S] with S = 2 slots
+        var x = Kit.Rand(tokens * record.Cols, 12);
+        var tg = new TestGraph();
+        var w = tg.W("w", record.Type, new Shape(experts, outputs, record.Cols), record.Blocks);
+        var xin = tg.InF("x", TestGraph.T, record.Cols);
+        var idin = tg.In("ids", DataType.I32, TestGraph.T, 2);
+        tg.B.Output("y", tg.B.Emit1("MatMulId", [xin, w, idin]));
+        using var m = Kit.Compile(tg.B.Build());
+        Kit.Set(m, xin, x);
+        Kit.Set(m, idin, ids);
+        var p = Kit.P(tokens);
+        m.Run(p);
+        var expected = new float[tokens * 2 * outputs];
+        for (int t = 0; t < tokens; t++)
+        {
+            for (int s = 0; s < 2; s++)
+            {
+                for (int n = 0; n < outputs; n++)
+                {
+                    double sum = 0;
+                    int row = ids[t * 2 + s] * outputs + n;
+                    for (int c = 0; c < record.Cols; c++)
+                    {
+                        sum += (double)x[t * record.Cols + c] * record.Expected[row * record.Cols + c];
+                    }
+
+                    expected[(t * 2 + s) * outputs + n] = (float)sum;
+                }
+            }
+        }
+
+        Kit.AssertClose(expected, Kit.Out(m, "y", p), 2e-3, 1e-4, label + " matmulid");
+    }
+
+    [Theory, MemberData(nameof(QuantizedRecords))]
+    public void GatherMatchesDequantizedRows(int index, string label)
+    {
+        var record = Load()[index];
+        var tg = new TestGraph();
+        var table = tg.W("tbl", record.Type, new Shape(record.Rows, record.Cols), record.Blocks);
+        var idx = tg.In("idx", DataType.I32, TestGraph.T);
+        tg.B.Output("y", tg.B.Gather(table, idx));
+        using var m = Kit.Compile(tg.B.Build());
+        int[] rows = [3, 0, 2];
+        m.SetInput(idx, MemoryMarshal.AsBytes(rows.AsSpan()));
+        var p = Kit.P(rows.Length);
+        m.Run(p);
+        var expected = rows.SelectMany(r => record.Expected.AsSpan(r * record.Cols, record.Cols).ToArray()).ToArray();
+        Kit.AssertClose(expected, Kit.Out(m, "y", p), 0, 0, label + " gather");
     }
 
     [Theory, MemberData(nameof(Records))]
