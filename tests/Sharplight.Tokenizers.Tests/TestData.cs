@@ -2,6 +2,7 @@ using System.Text.Json;
 
 namespace Sharplight.Tokenizers.Tests;
 
+/// <summary>Locates the tokenizer fixtures; SHARPLIGHT_TOKENIZER_DIR overrides the search for work files from the test binary upwards.</summary>
 internal static class TestData
 {
     public static string? FindWorkFile(string relative)
@@ -62,19 +63,17 @@ internal static class TestData
     private static ITokenizer? _qwenTok;
     public static ITokenizer? QwenTokenizer() => _qwenTok ??= Qwen35() is { } d ? TokenizerFactory.Create(d) : null;
 
-    public sealed record Case(string Text, bool ParseSpecial, int[] Ids);
-
-    public static List<Case> LoadCases(string path)
+    public static List<TokenizerCase> LoadCases(string path)
     {
         using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
-        return doc.RootElement.EnumerateArray().Select(e => new Case(
+        return doc.RootElement.EnumerateArray().Select(e => new TokenizerCase(
             e.GetProperty("text").GetString()!,
             e.GetProperty("parseSpecial").GetBoolean(),
             e.GetProperty("ids").EnumerateArray().Select(i => i.GetInt32()).ToArray())).ToList();
     }
 
-    private static List<Case>? _fixture;
-    public static List<Case> Fixture() => _fixture ??= LoadCases(Path.Combine(AppContext.BaseDirectory, "Fixtures", "qwen35_cases.json"));
+    private static List<TokenizerCase>? _fixture;
+    public static List<TokenizerCase> Fixture() => _fixture ??= LoadCases(Path.Combine(AppContext.BaseDirectory, "Fixtures", "qwen35_cases.json"));
 
     public static IEnumerable<object[]> FixtureIndexes() => Enumerable.Range(0, Fixture().Count).Select(i => new object[] { i });
 
