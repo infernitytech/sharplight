@@ -60,8 +60,10 @@ internal static class Env
     public static (float MaxAbs, float MaxRel, double Rms) Compare(float[] a, float[] b)
     {
         Assert.Equal(a.Length, b.Length);
-        float maxAbs = 0, maxRel = 0;
-        double sq = 0, refSq = 0;
+        float maxAbs = 0;
+        float maxRel = 0;
+        double sq = 0;
+        double refSq = 0;
         float scale = 0;
         foreach (var v in b)
         {

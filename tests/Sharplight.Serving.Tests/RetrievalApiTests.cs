@@ -10,8 +10,10 @@ namespace Sharplight.Serving.Tests;
 
 public sealed class RetrievalApiTests : IAsyncLifetime
 {
-    private WebApplication _app = null!, _standalone = null!;
-    private HttpClient _client = null!, _standaloneClient = null!;
+    private WebApplication _app = null!;
+    private WebApplication _standalone = null!;
+    private HttpClient _client = null!;
+    private HttpClient _standaloneClient = null!;
     private readonly FakeEmbedder _embedder = new();
     private Sharplight.Llm.Serving.InferenceEngine? _engine;
 

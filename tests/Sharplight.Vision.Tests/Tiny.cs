@@ -8,7 +8,8 @@ namespace Sharplight.Vision.Tests;
 internal static class Tiny
 {
     public const string Arch = "qwen3_5";
-    public const int Vocab = 40, Hidden = 32;
+    public const int Vocab = 40;
+    public const int Hidden = 32;
     public static readonly VisionParameters Vision = new()
     {
         LayerCount = 2, HiddenSize = 16, FfnHiddenSize = 32, HeadCount = 2, NormEps = 1e-6f, Activation = "gelu_tanh",
@@ -42,7 +43,9 @@ internal static class Tiny
         var p = Vision;
         var rng = new Random(seed);
         var w = new Dictionary<string, WeightInfo>();
-        long H = p.HiddenSize, F = p.FfnHiddenSize, M = p.MergeUnit * H;
+        long H = p.HiddenSize;
+        long F = p.FfnHiddenSize;
+        long M = p.MergeUnit * H;
         void Add(WeightInfo x) => w[x.Name] = x;
         void Norm(string n)
         {
@@ -87,7 +90,15 @@ internal static class Tiny
         var rng = new Random(seed);
         var w = new Dictionary<string, WeightInfo>();
         void Add(WeightInfo x) => w[x.Name] = x;
-        const long H = Hidden, FF = 64, heads = 2, kv = 1, D = 16, hk = 1, dk = 8, hv = 2, dv = 8;
+        const long H = Hidden;
+        const long FF = 64;
+        const long heads = 2;
+        const long kv = 1;
+        const long D = 16;
+        const long hk = 1;
+        const long dk = 8;
+        const long hv = 2;
+        const long dv = 8;
         Add(Weight("token_embedding.weight", rng, 0.5f, Vocab, H));
         Add(Ones("output_norm.weight", H));
         for (int il = 0; il < 2; il++)

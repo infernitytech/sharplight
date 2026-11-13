@@ -52,12 +52,27 @@ internal sealed class SharplightServerContext
 
         if (name is null)
         {
-            throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", $"No {kind.ToString().ToLowerInvariant()} model is available.", "model_not_found", "model");
+            throw ModelNotFound(http, $"No {kind.ToString().ToLowerInvariant()} model is available.");
         }
 
-        try { return await Host.AcquireAsync(name, kind, http.RequestAborted); }
-        catch (ModelNotFoundException ex) { throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", ex.Message, "model_not_found", "model"); }
-        catch (ModelKindMismatchException ex) { throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", ex.Message, "model_not_found", "model"); }
+        try
+        {
+            return await Host.AcquireAsync(name, kind, http.RequestAborted);
+        }
+        catch (ModelNotFoundException ex)
+        {
+            throw ModelNotFound(http, ex.Message);
+        }
+        catch (ModelKindMismatchException ex)
+        {
+            throw ModelNotFound(http, ex.Message);
+        }
+    }
+
+    private static ApiException ModelNotFound(HttpContext http, string message)
+    {
+        string type = ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error";
+        return new ApiException(404, type, message, "model_not_found", "model");
     }
 
     /// <summary>Chat service of a lease from <see cref="AcquireAsync"/>.</summary>

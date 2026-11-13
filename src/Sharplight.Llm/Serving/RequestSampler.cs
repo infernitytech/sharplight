@@ -129,11 +129,15 @@ internal sealed class RequestSampler
             }
 
             double r = _rng.NextDouble() * sum;
-            for (int i = 0; i < n; i++) { r -= Math.Exp((w[i] - max) * invT); if (r <= 0)
+            for (int i = 0; i < n; i++)
+            {
+                r -= Math.Exp((w[i] - max) * invT);
+                if (r <= 0)
                 {
                     return i;
                 }
             }
+
             return n - 1;
         }
 
@@ -144,7 +148,12 @@ internal sealed class RequestSampler
         var tv = _tv;
         var probs = new double[cnt];
         double tot = 0;
-        for (int i = 0; i < cnt; i++) { probs[i] = Math.Exp((tv[i] - tv[0]) * invT); tot += probs[i]; }
+        for (int i = 0; i < cnt; i++)
+        {
+            probs[i] = Math.Exp((tv[i] - tv[0]) * invT);
+            tot += probs[i];
+        }
+
         int cut = cnt;
         if (_p.MinP > 0)
         {
@@ -161,7 +170,15 @@ internal sealed class RequestSampler
         if (_p.TopP < 1f)
         {
             double acc = 0;
-            for (int i = 0; i < cut; i++) { acc += probs[i] / tot; if (acc >= _p.TopP) { cut = i + 1; break; } }
+            for (int i = 0; i < cut; i++)
+            {
+                acc += probs[i] / tot;
+                if (acc >= _p.TopP)
+                {
+                    cut = i + 1;
+                    break;
+                }
+            }
         }
         double total = 0;
         for (int i = 0; i < cut; i++)
@@ -170,11 +187,15 @@ internal sealed class RequestSampler
         }
 
         double rr = _rng.NextDouble() * total;
-        for (int i = 0; i < cut; i++) { rr -= probs[i]; if (rr <= 0)
+        for (int i = 0; i < cut; i++)
+        {
+            rr -= probs[i];
+            if (rr <= 0)
             {
                 return ti[i];
             }
         }
+
         return ti[cut - 1];
     }
 

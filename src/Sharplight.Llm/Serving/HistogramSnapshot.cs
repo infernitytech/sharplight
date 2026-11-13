@@ -17,7 +17,9 @@ public sealed record HistogramSnapshot(double[] UpperBounds, long[] Counts, doub
             return 0;
         }
 
-        double target = q * Count, acc = 0, lower = 0;
+        double target = q * Count;
+        double acc = 0;
+        double lower = 0;
         for (int i = 0; i < Counts.Length; i++)
         {
             double upper = i < UpperBounds.Length ? UpperBounds[i] : UpperBounds[^1] * 2;

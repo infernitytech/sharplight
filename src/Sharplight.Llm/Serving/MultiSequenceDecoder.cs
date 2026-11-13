@@ -156,7 +156,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
             throw new ArgumentException("More inputs than slots.");
         }
 
-        int T = 0, R = 0;
+        int T = 0;
+        int R = 0;
         Span<bool> seen = stackalloc bool[SlotCount];
         for (int u = 0; u < inputs.Count; u++)
         {
@@ -188,7 +189,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
             inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
             for (int i = 0; i < n; i++)
             {
-                int row = T + i, pos = pos0 + i;
+                int row = T + i;
+                int pos = pos0 + i;
                 _rowBuf[row * 4] = inp.Slot;
                 _rowBuf[row * 4 + 1] = pos;
                 _rowBuf[row * 4 + 2] = n;

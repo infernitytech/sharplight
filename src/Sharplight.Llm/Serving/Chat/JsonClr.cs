@@ -29,7 +29,11 @@ public static class JsonClr
                 return d.ToDictionary(kv => (string)kv.Key, kv => kv.Value);
             }
         }
-        catch (JsonException) { }
+        catch (JsonException)
+        {
+            // Invalid JSON gives an empty dictionary, as documented.
+        }
+
         return new Dictionary<string, object?>();
     }
 

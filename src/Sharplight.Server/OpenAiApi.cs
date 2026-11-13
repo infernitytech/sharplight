@@ -123,8 +123,7 @@ internal static class OpenAiApi
             }
 
             string meta = url[5..comma];
-            try { return new ImageData(Convert.FromBase64String(url[(comma + 1)..]), meta.Split(';')[0], null); }
-            catch (FormatException) { throw ApiException.BadRequest("Invalid base64 image data."); }
+            return new ImageData(Base64Payload.Decode(url[(comma + 1)..]), meta.Split(';')[0], null);
         }
         return new ImageData(null, null, url);
     }
@@ -364,7 +363,8 @@ internal static class OpenAiApi
         }
 
         var toolIndex = new Dictionary<int, int>();
-        int finished = 0, completion = 0;
+        int finished = 0;
+        int completion = 0;
         GenerationUsage first = default;
         await foreach (var e in run.ReadAllAsync(http.RequestAborted))
         {
@@ -501,7 +501,8 @@ internal static class OpenAiApi
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
             Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20),
         };
-        bool stream = b.Bool("stream") ?? false, echo = (b.Bool("echo") ?? false) && prompt is not null;
+        bool stream = b.Bool("stream") ?? false;
+        bool echo = (b.Bool("echo") ?? false) && prompt is not null;
         bool includeUsage = b.Obj("stream_options")?.Bool("include_usage") ?? false;
         using var lease = await ctx.AcquireAsync(http, b.Str("model"));
         var run = SharplightServerContext.ChatOf(lease).StartCompletion(req, http.RequestAborted);

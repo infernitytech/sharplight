@@ -20,7 +20,8 @@ public class SyntheticImporterTests : IDisposable
     public void Dispose() { foreach (var d in _open) { d.Dispose(); } try { Directory.Delete(_dir, true); } catch { } }
 
     private static readonly VisionParameters P = Tiny.Vision;
-    private static readonly float[] Mean = [0.48f, 0.46f, 0.41f], Std = [0.27f, 0.26f, 0.28f];
+    private static readonly float[] Mean = [0.48f, 0.46f, 0.41f];
+    private static readonly float[] Std = [0.27f, 0.26f, 0.28f];
 
     /// <summary>HF tensor name → (shape, values) for the tower.</summary>
     private static Dictionary<string, (long[] Shape, float[] Data)> HfTensors()
@@ -33,7 +34,9 @@ public class SyntheticImporterTests : IDisposable
             for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); }
             t["model.visual." + n] = (shape, d);
         }
-        long H = P.HiddenSize, F = P.FfnHiddenSize, M = P.MergeUnit * H;
+        long H = P.HiddenSize;
+        long F = P.FfnHiddenSize;
+        long M = P.MergeUnit * H;
         Add("patch_embed.proj.weight", H, P.InChannels, P.TemporalPatchSize, P.PatchSize, P.PatchSize);
         Add("patch_embed.proj.bias", H);
         Add("pos_embed.weight", P.PositionEmbeddingCount, H);
@@ -144,7 +147,10 @@ public class SyntheticImporterTests : IDisposable
             if (n == "patch_embed.proj.weight")
             {
                 // Conv3d [H, C, T, p, p] → one conv2d kernel [H, C, p, p] per temporal frame.
-                long H = shape[0], C = shape[1], T = shape[2], pp = shape[3] * shape[4];
+                long H = shape[0];
+                long C = shape[1];
+                long T = shape[2];
+                long pp = shape[3] * shape[4];
                 for (int t = 0; t < T; t++)
                 {
                     var part = new float[H * C * pp];

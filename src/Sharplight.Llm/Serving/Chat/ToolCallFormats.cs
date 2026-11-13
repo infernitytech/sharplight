@@ -58,7 +58,15 @@ public static partial class ToolCallFormats
         foreach (var piece in SplitTopLevel(text))
         {
             JsonDocument doc;
-            try { doc = JsonDocument.Parse(piece); } catch (JsonException) { return false; }
+            try
+            {
+                doc = JsonDocument.Parse(piece);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
             using (doc)
             {
                 var root = doc.RootElement;
@@ -106,7 +114,15 @@ public static partial class ToolCallFormats
                 if (a.ValueKind == JsonValueKind.String)
                 {
                     var s = a.GetString()!;
-                    try { using var d = JsonDocument.Parse(s); args = s; } catch (JsonException) { args = JsonString(s); }
+                    try
+                    {
+                        using var d = JsonDocument.Parse(s);
+                        args = s;
+                    }
+                    catch (JsonException)
+                    {
+                        args = JsonString(s);
+                    }
                 }
                 else
                 {
@@ -142,14 +158,22 @@ public static partial class ToolCallFormats
                 yield return s[i..];
                 yield break;
             }
-            int depth = 0, start = i;
+            int depth = 0;
+            int start = i;
             bool inStr = false;
             for (; i < s.Length; i++)
             {
                 char c = s[i];
                 if (inStr)
                 {
-                    if (c == '\\') { i++; } else if (c == '"') { inStr = false; }
+                    if (c == '\\')
+                    {
+                        i++;
+                    }
+                    else if (c == '"')
+                    {
+                        inStr = false;
+                    }
                     continue;
                 }
                 if (c == '"')
@@ -160,7 +184,14 @@ public static partial class ToolCallFormats
                 {
                     depth++;
                 }
-                else if (c == '}' || c == ']') { if (--depth == 0) { i++; break; } }
+                else if (c == '}' || c == ']')
+                {
+                    if (--depth == 0)
+                    {
+                        i++;
+                        break;
+                    }
+                }
             }
             yield return s[start..i];
         }
@@ -214,7 +245,18 @@ public static partial class ToolCallFormats
             var t = v.Trim();
             if (t.Length > 0)
             {
-                try { using var d = JsonDocument.Parse(t); if (d.RootElement.ValueKind != JsonValueKind.String) { return t; } } catch (JsonException) { }
+                try
+                {
+                    using var d = JsonDocument.Parse(t);
+                    if (d.RootElement.ValueKind != JsonValueKind.String)
+                    {
+                        return t;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Not JSON: the value is a plain string.
+                }
             }
 
             return ToolCallFormats.JsonString(v);

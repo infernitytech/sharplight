@@ -14,7 +14,8 @@ namespace Sharplight.Serving.Tests;
 public sealed class MultiModelApiTests : IAsyncLifetime
 {
     private FakePool _pool = null!;
-    private FakeLoader _a = null!, _b = null!;
+    private FakeLoader _a = null!;
+    private FakeLoader _b = null!;
     private ModelHost _host = null!;
     private WebApplication _app = null!;
     private HttpClient _client = null!;

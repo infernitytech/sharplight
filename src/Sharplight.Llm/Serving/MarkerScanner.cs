@@ -6,7 +6,8 @@ internal static class MarkerScanner
     /// <summary>Finds the earliest occurrence of any marker. Returns its index and marker index, or (-1, -1).</summary>
     public static (int Index, int Marker) FindFirst(string text, IReadOnlyList<string> markers, int from = 0)
     {
-        int best = -1, bm = -1;
+        int best = -1;
+        int bm = -1;
         for (int m = 0; m < markers.Count; m++)
         {
             if (markers[m].Length == 0)

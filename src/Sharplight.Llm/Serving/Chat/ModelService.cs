@@ -201,7 +201,11 @@ public sealed class ModelService
         }
         catch
         {
-            foreach (var h in handles) { h.Cancel(); }
+            foreach (var h in handles)
+            {
+                h.Cancel();
+            }
+
             throw;
         }
         return new ChatRun(handles, parser, tokens.Length);

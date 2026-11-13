@@ -211,7 +211,8 @@ public sealed class InferenceSession : IDisposable
             int T = Math.Min(_maxTokens, prompt.Length - start);
             for (int t = 0; t < T; t++)
             {
-                int row = start + t, img = prompt.ImageIndex[row];
+                int row = start + t;
+                int img = prompt.ImageIndex[row];
                 toks[t] = prompt.Tokens[row];
                 var dst = _embBuf.AsSpan(t * _hidden, _hidden);
                 if (img < 0)

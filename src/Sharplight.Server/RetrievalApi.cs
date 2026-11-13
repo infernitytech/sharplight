@@ -87,10 +87,23 @@ public static class RetrievalApi
     /// <summary>Errors become API error bodies even when the host did not add <c>UseSharplight</c>.</summary>
     private static async Task Handle(HttpContext http, Func<Task> body)
     {
-        try { await body(); }
-        catch (ApiException ex) { await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param); }
-        catch (ArgumentException ex) { await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message, ex.Message.Contains("at most") ? "context_length_exceeded" : null); }
-        catch (NotSupportedException ex) { await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message); }
+        try
+        {
+            await body();
+        }
+        catch (ApiException ex)
+        {
+            await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param);
+        }
+        catch (ArgumentException ex)
+        {
+            string? code = ex.Message.Contains("at most") ? "context_length_exceeded" : null;
+            await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message, code);
+        }
+        catch (NotSupportedException ex)
+        {
+            await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message);
+        }
     }
 
     private static T Pick<T>(Dictionary<string, T> all, string? requested, string? fallback, string kind)

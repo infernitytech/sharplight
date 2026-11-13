@@ -7,7 +7,8 @@ public class ReferencePreprocessingTests(ITestOutputHelper output)
     public void Resized_photo_patches_match_transformers()
     {
         string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.work/ref"));
-        string rgbPath = Path.Combine(root, "test-1.rgb"), npy = Path.Combine(root, "test-1_pixels.npy");
+        string rgbPath = Path.Combine(root, "test-1.rgb");
+        string npy = Path.Combine(root, "test-1_pixels.npy");
         Assert.SkipUnless(File.Exists(rgbPath) && File.Exists(npy), "reference pixel_values not generated (.work/ref)");
         var raw = File.ReadAllBytes(npy);
         int header = 10 + BitConverter.ToUInt16(raw, 8);

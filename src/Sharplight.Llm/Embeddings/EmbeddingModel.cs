@@ -9,6 +9,18 @@ namespace Sharplight.Llm.Embeddings;
 /// through the model's <see cref="WellKnown.EmbedGraph"/>; outputs are pooled and normalized as the model declares (overridable).
 /// Thread-safe (calls are serialized).
 /// </summary>
+/// <example>
+/// <code>
+/// HuggingFaceImporter.Register();
+/// using var embedder = EmbeddingModel.Load("bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+///
+/// // A batch: one vector per text, in input order, plus token counts.
+/// EmbeddingResult result = embedder.Embed(["first text", "second text"]);
+///
+/// // Models that distinguish queries from documents define named prompts.
+/// float[] query = embedder.Embed("what is a vector?", new EmbedOptions { Prompt = "query" });
+/// </code>
+/// </example>
 public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 {
     private readonly PackedBatchRunner _runner;
@@ -113,7 +125,8 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 
     private int[] WithSpecials(int[] body, bool truncate)
     {
-        bool bos = Tokenizer.AddBos && Tokenizer.BosId is not null, eos = Tokenizer.AddEos && Tokenizer.EosId is not null;
+        bool bos = Tokenizer.AddBos && Tokenizer.BosId is not null;
+        bool eos = Tokenizer.AddEos && Tokenizer.EosId is not null;
         int room = MaxSequenceLength - (bos ? 1 : 0) - (eos ? 1 : 0);
         if (body.Length > room)
         {

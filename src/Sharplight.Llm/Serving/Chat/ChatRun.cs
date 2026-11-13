@@ -58,7 +58,10 @@ public sealed class ChatRun
                 yield return e;
             }
         }
-        finally { Cancel(); }
+        finally
+        {
+            Cancel();
+        }
     }
 
     private async IAsyncEnumerable<ChatEvent> Choice(int index, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)

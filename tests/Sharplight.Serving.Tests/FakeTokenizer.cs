@@ -6,7 +6,8 @@ namespace Sharplight.Serving.Tests;
 /// <summary>Byte-level tokenizer: ids 0..255 are bytes, 256 = BOS, 257 = EOS (end of generation).</summary>
 public sealed class FakeTokenizer : ITokenizer
 {
-    public const int Bos = 256, Eos = 257;
+    public const int Bos = 256;
+    public const int Eos = 257;
     public int VocabSize => 260;
     public int? BosId => Bos;
     public int? EosId => Eos;

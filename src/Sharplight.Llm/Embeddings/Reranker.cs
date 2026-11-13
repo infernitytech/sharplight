@@ -8,6 +8,13 @@ namespace Sharplight.Llm.Embeddings;
 /// pair through the model's <see cref="WellKnown.ClassifyGraph"/>; decoder rerankers (Qwen3-Reranker) get a judging prompt and
 /// score P(yes) from the last token's "yes" / "no" logits. Documents are batched. Thread-safe (calls are serialized).
 /// </summary>
+/// <example>
+/// <code>
+/// using var reranker = Reranker.Load("bge-reranker-v2-m3", new RerankerLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// RerankResult result = reranker.Score("what is a vector?", ["a quantity with direction", "a kind of animal"]);
+/// // result.Scores[i] in [0, 1] belongs to documents[i]; sort descending to rank.
+/// </code>
+/// </example>
 public sealed class Reranker : ITextReranker, IDisposable
 {
     private const string DefaultInstruction = "Given a web search query, retrieve relevant passages that answer the query";
@@ -18,7 +25,8 @@ public sealed class Reranker : ITextReranker, IDisposable
     private readonly Lock _lock = new();
     private readonly string _activation, _pairStyle, _instruction;
     private readonly int _yes, _no;
-    private readonly int[] _prefixTokens = [], _suffixTokens = [];
+    private readonly int[] _prefixTokens = [];
+    private readonly int[] _suffixTokens = [];
 
     /// <summary>The model's definition (graphs, weights, metadata).</summary>
     public ModelDefinition Definition { get; }
@@ -126,7 +134,8 @@ public sealed class Reranker : ITextReranker, IDisposable
                 throw new ArgumentException($"The pair has {a.Length + b.Length + specials} tokens; the model accepts at most {MaxSequenceLength}.");
             }
 
-            int la = a.Length, lb = b.Length;
+            int la = a.Length;
+            int lb = b.Length;
             while (over-- > 0)
             {
                 if (la > lb)

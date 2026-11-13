@@ -32,7 +32,13 @@ namespace Sharplight.Llm.Serving;
 /// </example>
 public sealed class InferenceEngine : IDisposable
 {
-    private sealed class Slot { public int Index; public List<int> Tokens = []; public long LastUsed; public Seq? Active; }
+    private sealed class Slot
+    {
+        public int Index;
+        public List<int> Tokens = [];
+        public long LastUsed;
+        public Seq? Active;
+    }
 
     private sealed class Seq
     {
@@ -42,7 +48,8 @@ public sealed class InferenceEngine : IDisposable
         public required int[] Prompt;
         public required int MaxTokens;
         public required long SubmitTicks;
-        public long DeadlineTicks = long.MaxValue, QueueDeadlineTicks = long.MaxValue;
+        public long DeadlineTicks = long.MaxValue;
+        public long QueueDeadlineTicks = long.MaxValue;
         public CancellationTokenRegistration Reg;
         public volatile bool CancelRequested;
         public int Finished;
@@ -251,7 +258,11 @@ public sealed class InferenceEngine : IDisposable
         {
             qs = [.. _queue];
             _queue.Clear();
-            foreach (var s in _active) { s.CancelRequested = true; }
+            foreach (var s in _active)
+            {
+                s.CancelRequested = true;
+            }
+
             Monitor.PulseAll(_gate);
         }
         foreach (var s in qs)
@@ -410,7 +421,10 @@ public sealed class InferenceEngine : IDisposable
                 _queue.RemoveAt(best);
                 _transit++;
             }
-            try { AssignSlot(seq); }
+            try
+            {
+                AssignSlot(seq);
+            }
             finally
             {
                 lock (_gate)
@@ -428,7 +442,8 @@ public sealed class InferenceEngine : IDisposable
             return 0;
         }
 
-        int common = 0, max = Math.Min(slot.Tokens.Count, prompt.Length);
+        int common = 0;
+        int max = Math.Min(slot.Tokens.Count, prompt.Length);
         while (common < max && slot.Tokens[common] == prompt[common])
         {
             common++;
@@ -559,8 +574,14 @@ public sealed class InferenceEngine : IDisposable
                 continue;
             }
 
-            try { OnLogits(s, results[i]!); }
-            catch (Exception ex) { Complete(s, FinishReason.Error, ex.Message, null, reset: true); }
+            try
+            {
+                OnLogits(s, results[i]!);
+            }
+            catch (Exception ex)
+            {
+                Complete(s, FinishReason.Error, ex.Message, null, reset: true);
+            }
         }
     }
 
@@ -641,7 +662,15 @@ public sealed class InferenceEngine : IDisposable
         slot.LastUsed = ++_tick;
         if (reset || reason == FinishReason.Error)
         {
-            try { _decoder.Reset(slot.Index); } catch { /* the decoder is broken; later requests will fail visibly */ }
+            try
+            {
+                _decoder.Reset(slot.Index);
+            }
+            catch
+            {
+                // The decoder is broken; later requests will fail visibly.
+            }
+
             slot.Tokens.Clear();
         }
         Finalize(s, reason, error, stopSeq);

@@ -210,11 +210,15 @@ internal sealed class ChatOutputParser
 
     private void EmitContent(string text, List<ParsedPiece> o)
     {
-        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0)
+        if (_trimLeading)
+        {
+            text = text.TrimStart();
+            if (text.Length > 0)
             {
                 _trimLeading = false;
             }
         }
+
         if (text.Length == 0)
         {
             return;
@@ -230,11 +234,15 @@ internal sealed class ChatOutputParser
 
     private void EmitReasoning(string text, List<ParsedPiece> o)
     {
-        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0)
+        if (_trimLeading)
+        {
+            text = text.TrimStart();
+            if (text.Length > 0)
             {
                 _trimLeading = false;
             }
         }
+
         if (text.Length > 0)
         {
             o.Add(new ParsedPiece(PieceKind.Reasoning, text));

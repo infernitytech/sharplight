@@ -82,7 +82,8 @@ public sealed class VisionEncoder : IDisposable
     /// <exception cref="InvalidOperationException">The image has more patches than the encoder was compiled for.</exception>
     public float[] Encode(PreprocessedImage image)
     {
-        int n = image.PatchCount, merged = n / Parameters.MergeUnit;
+        int n = image.PatchCount;
+        int merged = n / Parameters.MergeUnit;
         if (n > MaxPatches)
         {
             throw new InvalidOperationException($"The image has {n} patches but the encoder was compiled for at most {MaxPatches}; lower the image resolution or raise the image token limit.");

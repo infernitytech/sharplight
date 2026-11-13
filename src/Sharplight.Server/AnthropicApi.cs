@@ -62,16 +62,10 @@ internal static class AnthropicApi
         var src = block.Obj("source") ?? throw ApiException.BadRequest("image block needs 'source'.");
         return src.Str("type") switch
         {
-            "base64" => new ImageData(DecodeBase64(src.Str("data")), src.Str("media_type"), null),
+            "base64" => new ImageData(Base64Payload.Decode(src.Str("data")), src.Str("media_type"), null),
             "url" => new ImageData(null, null, src.Str("url")),
             var t => throw ApiException.BadRequest($"Unsupported image source type '{t}'."),
         };
-    }
-
-    private static byte[] DecodeBase64(string? s)
-    {
-        try { return Convert.FromBase64String(s ?? ""); }
-        catch (FormatException) { throw ApiException.BadRequest("Invalid base64 image data."); }
     }
 
     private static void AddMessage(List<ChatTurn> turns, JsonElement m, int i)
@@ -157,7 +151,8 @@ internal static class AnthropicApi
             turns.Add(new ChatTurn("system", sysText));
         }
 
-        int i = 0, count = 0;
+        int i = 0;
+        int count = 0;
         foreach (var m in b.Arr("messages"))
         {
             AddMessage(turns, m, i++);
@@ -220,7 +215,14 @@ internal static class AnthropicApi
 
     private static JsonNode ParseInput(string json)
     {
-        try { return JsonNode.Parse(json) ?? new JsonObject(); } catch (JsonException) { return new JsonObject(); }
+        try
+        {
+            return JsonNode.Parse(json) ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            return new JsonObject();
+        }
     }
 
     private static async Task CountTokens(HttpContext http, SharplightServerContext ctx)

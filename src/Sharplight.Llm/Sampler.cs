@@ -86,7 +86,12 @@ public sealed class Sampler
         float max = span[0].Logit;
         var probs = new float[span.Length];
         double sum = 0;
-        for (int i = 0; i < span.Length; i++) { probs[i] = MathF.Exp((span[i].Logit - max) / _o.Temperature); sum += probs[i]; }
+        for (int i = 0; i < span.Length; i++)
+        {
+            probs[i] = MathF.Exp((span[i].Logit - max) / _o.Temperature);
+            sum += probs[i];
+        }
+
         for (int i = 0; i < probs.Length; i++)
         {
             probs[i] = (float)(probs[i] / sum);
@@ -108,7 +113,15 @@ public sealed class Sampler
         if (_o.TopP < 1)
         {
             double acc = 0;
-            for (int i = 0; i < cut; i++) { acc += probs[i]; if (acc >= _o.TopP) { cut = i + 1; break; } }
+            for (int i = 0; i < cut; i++)
+            {
+                acc += probs[i];
+                if (acc >= _o.TopP)
+                {
+                    cut = i + 1;
+                    break;
+                }
+            }
         }
         double total = 0;
         for (int i = 0; i < cut; i++)
@@ -117,11 +130,15 @@ public sealed class Sampler
         }
 
         double r = _rng.NextDouble() * total;
-        for (int i = 0; i < cut; i++) { r -= probs[i]; if (r <= 0)
+        for (int i = 0; i < cut; i++)
+        {
+            r -= probs[i];
+            if (r <= 0)
             {
                 return span[i].Id;
             }
         }
+
         return span[cut - 1].Id;
     }
 

@@ -63,7 +63,6 @@ public sealed class LlmModel : IDisposable
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
     /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>
     /// <exception cref="NotSupportedException">No registered importer or architecture adapter handles the model.</exception>
-    /// <exception cref="FileNotFoundException"><paramref name="path"/> does not exist.</exception>
     public static LlmModel Load(string path, LlmLoadOptions options)
     {
         var sw = Stopwatch.StartNew();
@@ -83,20 +82,8 @@ public sealed class LlmModel : IDisposable
     public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
         var sw = Stopwatch.StartNew();
-        var compiled = CompiledModel.Compile(Definition.Graph(graph), new PlacementOptions
-        {
-            Devices = DevicesWithLimit(memoryLimit),
-            Fallback = _options.Fallback,
-            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
-            Compile = new CompileOptions
-            {
-                MaxTokens = _options.MaxBatchTokens,
-                ContextLength = _options.ContextLength,
-                SymbolBounds = new Dictionary<string, long> { ["R"] = _options.MaxBatchTokens },
-                DisabledFeatures = _options.DisabledFeatures,
-                CacheFor = CacheFor,
-            },
-        });
+        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
+        var compiled = CompiledModel.Compile(Definition.Graph(graph), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
         return new InferenceSession(compiled);
     }
@@ -122,25 +109,32 @@ public sealed class LlmModel : IDisposable
         }
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, new PlacementOptions
-        {
-            Devices = DevicesWithLimit(memoryLimit),
-            Fallback = _options.Fallback,
-            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
-            Compile = new CompileOptions
-            {
-                MaxTokens = _options.MaxBatchTokens,
-                ContextLength = ctx,
-                SymbolBounds = new Dictionary<string, long> { ["R"] = Math.Max(slots, 1) },
-                DisabledFeatures = _options.DisabledFeatures,
-                CacheFor = CacheFor,
-            },
-        });
+        var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, 1));
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement);
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;
     }
 
     private const long DefaultReserve = 1L << 30;
+
+    /// <summary>Device placement and compile settings shared by sessions and batch decoders.</summary>
+    /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>
+    /// <param name="contextLength">KV-cache rows per sequence.</param>
+    /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
+    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound) => new()
+    {
+        Devices = DevicesWithLimit(memoryLimit),
+        Fallback = _options.Fallback,
+        ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
+        Compile = new CompileOptions
+        {
+            MaxTokens = _options.MaxBatchTokens,
+            ContextLength = contextLength,
+            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound },
+            DisabledFeatures = _options.DisabledFeatures,
+            CacheFor = CacheFor,
+        },
+    };
 
     /// <summary>
     /// Caps the first (primary) device's share of the model at <paramref name="memoryLimit"/> bytes (layers beyond it go to

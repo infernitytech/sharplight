@@ -57,6 +57,9 @@ internal static class HttpJson
 
             return doc;
         }
-        catch (JsonException ex) { throw ApiException.BadRequest("Invalid JSON: " + ex.Message); }
+        catch (JsonException ex)
+        {
+            throw ApiException.BadRequest("Invalid JSON: " + ex.Message);
+        }
     }
 }

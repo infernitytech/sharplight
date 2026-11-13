@@ -85,7 +85,8 @@ internal sealed class PackedBatchRunner : IDisposable
         int i = 0;
         while (i < sequences.Count)
         {
-            int start = i, rows = 0;
+            int start = i;
+            int rows = 0;
             while (i < sequences.Count && i - start < MaxBatchSequences)
             {
                 int len = sequences[i].Tokens.Length;
@@ -147,7 +148,8 @@ internal sealed class PackedBatchRunner : IDisposable
         _compiled.GetOutput<float>(_output, outRows);
         for (int s = 0; s < count; s++)
         {
-            int row0 = _perToken ? _seqBuf[s * 2] : s, n = _perToken ? _seqBuf[s * 2 + 1] : 1;
+            int row0 = _perToken ? _seqBuf[s * 2] : s;
+            int n = _perToken ? _seqBuf[s * 2 + 1] : 1;
             results[first + s] = outRows.AsSpan(row0 * OutputWidth, n * OutputWidth).ToArray();
         }
     }

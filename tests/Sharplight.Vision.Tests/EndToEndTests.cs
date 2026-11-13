@@ -142,7 +142,9 @@ public class EndToEndTests
         var g = b.Build();
         var rng = new Random(4);
         float[] Rand(int n) => Enumerable.Range(0, n).Select(_ => (float)(rng.NextDouble() * 2 - 1)).ToArray();
-        float[] qd = Rand(T * heads * D), kd = Rand(T * heads * D), vd = Rand(T * heads * D);
+        float[] qd = Rand(T * heads * D);
+        float[] kd = Rand(T * heads * D);
+        float[] vd = Rand(T * heads * D);
         float[] Run(DeviceSlot slot)
         {
             using var cm = CompiledModel.Compile(g, new PlacementOptions { Devices = [slot], Compile = new CompileOptions { MaxTokens = 128 } });

@@ -58,11 +58,23 @@ public sealed class ModelHost : IDisposable
         }
     }
 
+    private void SweepIdleLogged()
+    {
+        try
+        {
+            SweepIdle();
+        }
+        catch (Exception e)
+        {
+            _opt.Log?.Invoke("idle sweep failed: " + e.Message);
+        }
+    }
+
     private void EnsureTimer()
     {
         lock (_gate)
         {
-            _timer ??= _opt.Time.CreateTimer(_ => { try { SweepIdle(); } catch (Exception e) { _opt.Log?.Invoke("idle sweep failed: " + e.Message); } }, null, _opt.IdleCheckInterval, _opt.IdleCheckInterval);
+            _timer ??= _opt.Time.CreateTimer(_ => SweepIdleLogged(), null, _opt.IdleCheckInterval, _opt.IdleCheckInterval);
         }
     }
 
@@ -425,7 +437,10 @@ public sealed class ModelHost : IDisposable
             inst = e.Instance;
         }
 
-        try { inst?.Dispose(); }
+        try
+        {
+            inst?.Dispose();
+        }
         finally
         {
             lock (_gate)
@@ -461,7 +476,18 @@ public sealed class ModelHost : IDisposable
             loading = e.State == ModelState.Loading ? e.LoadTask : null;
         }
 
-        if (loading is not null) { try { await loading.ConfigureAwait(false); } catch { } }
+        if (loading is not null)
+        {
+            try
+            {
+                await loading.ConfigureAwait(false);
+            }
+            catch
+            {
+                // A failed load is reported to its own caller; the unload proceeds regardless.
+            }
+        }
+
         var deadline = _opt.Time.GetUtcNow() + (drainTimeout ?? _opt.UnloadDrainTimeout);
         lock (_gate)
         {
@@ -495,7 +521,15 @@ public sealed class ModelHost : IDisposable
                 var left = deadline - _opt.Time.GetUtcNow();
                 if (left <= TimeSpan.Zero || await Task.WhenAny(wait, Task.Delay(left)).ConfigureAwait(false) != wait)
                 {
-                    lock (_gate) { if (e.Leases == 0) { SetState(e, ModelState.Unloading); break; } }
+                    lock (_gate)
+                    {
+                        if (e.Leases == 0)
+                        {
+                            SetState(e, ModelState.Unloading);
+                            break;
+                        }
+                    }
+
                     if (!force)
                     {
                         throw new ModelBusyException(name, $"{e.Leases} request(s) still running.");
@@ -512,7 +546,15 @@ public sealed class ModelHost : IDisposable
         }
         catch
         {
-            lock (_gate) { if (e.State == ModelState.Loaded) { e.Draining = false; Signal(e); } }
+            lock (_gate)
+            {
+                if (e.State == ModelState.Loaded)
+                {
+                    e.Draining = false;
+                    Signal(e);
+                }
+            }
+
             throw;
         }
         await Task.Run(() => FinishUnload(e)).ConfigureAwait(false);
@@ -588,7 +630,11 @@ public sealed class ModelHost : IDisposable
         List<Entry> all;
         lock (_gate)
         {
-            if (_disposed) { return; }
+            if (_disposed)
+            {
+                return;
+            }
+
             _disposed = true;
             all = [.. _entries.Values];
         }
@@ -609,6 +655,9 @@ public sealed class ModelHost : IDisposable
                 inst?.Dispose();
             }
         }
-        finally { _loadGate.Release(); }
+        finally
+        {
+            _loadGate.Release();
+        }
     }
 }
