@@ -448,6 +448,8 @@ internal sealed partial class OnnxTranslator
         bool sym = Sym(x);
         var axesArr = n.Has("axes") ? n.Ints("axes") : OptConst(ins, 1, "axes")?.Ints();
         var dims = x.Shape.Dims.Select(d => d.IsSymbolic ? 0L : d.Fixed).ToArray();   // 0 marks the symbolic outer dim
+        if (ins[0]!.Scalar && n.OpType == "Squeeze") { SetDyn(n, 0, x); _env[n.Outputs[0]].Scalar = true; return; }
+        if (ins[0]!.Scalar) dims = [];   // a logical scalar (stored as [1]): unsqueeze yields rank = number of axes, squeeze is a no-op
         long[] outDims;
         if (n.OpType == "Unsqueeze")
         {

@@ -133,6 +133,11 @@ public sealed class OnnxImportOptions
     /// Use a value ≤ 0 for the (symbolic) batch axis. Needed when the model has dynamic spatial dims.
     /// </summary>
     public Dictionary<string, long[]> InputShapes { get; init; } = new(StringComparer.Ordinal);
+    /// <summary>
+    /// Graph inputs pinned to compile-time constants (flat values, shape from <see cref="InputShapes"/> or the declared dims), e.g.
+    /// <c>["sr"] = [16000]</c> or an <c>orig_im_size</c> that determines output shapes. They are not runtime inputs of the compiled graph.
+    /// </summary>
+    public Dictionary<string, double[]> ConstantInputs { get; init; } = new(StringComparer.Ordinal);
     /// <summary>Make the outermost dim of every input symbolic ("N") even if it is fixed in the file.</summary>
     public bool ForceSymbolicBatch { get; init; }
     /// <summary>Placement group size, in compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group.</summary>

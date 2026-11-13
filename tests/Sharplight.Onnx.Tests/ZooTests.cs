@@ -29,7 +29,7 @@ public class ZooTests(ITestOutputHelper output)
         var dev = Providers.Get(provider);
         foreach (int batch in c.Batches)
         {
-            var inputs = Enumerable.Range(0, c.Inputs.Length).Select(k => c.ReadInput(batch, k)).ToList();
+            var inputs = c.RuntimeInputs.Select(k => c.ReadInput(batch, k)).ToList();
             var res = OnnxExec.Run(c.ModelPath, OnnxExec.OptionsFor(c, batch), dev, batch, inputs, timedRuns: 2);
             Assert.Equal(c.Outputs.Length, res.Outputs.Length);
             for (int k = 0; k < c.Outputs.Length; k++)
@@ -51,7 +51,7 @@ public class ZooTests(ITestOutputHelper output)
                 var report = Environment.GetEnvironmentVariable("SHARPLIGHT_ZOO_REPORT");
                 if (!string.IsNullOrEmpty(report))
                     File.AppendAllText(report, string.Join('\t', provider, name, batch.ToString(CultureInfo.InvariantCulture), k.ToString(CultureInfo.InvariantCulture), c.Outputs[k],
-                        cmp.MaxAbs.ToString("E3", CultureInfo.InvariantCulture), cmp.Scale.ToString("F2", CultureInfo.InvariantCulture), cmp.Ok ? "ok" : "FAIL",
+                        cmp.MaxAbs.ToString("E3", CultureInfo.InvariantCulture), cmp.Scale.ToString("F2", CultureInfo.InvariantCulture), cmp.RmsRel.ToString("E2", CultureInfo.InvariantCulture), cmp.Ok ? "ok" : "FAIL",
                         res.CompileMs.ToString("F0", CultureInfo.InvariantCulture), res.RunMs.ToString("F1", CultureInfo.InvariantCulture)) + "\n");
                 Assert.True(cmp.Ok, $"{provider} {name} batch {batch} output '{c.Outputs[k]}': maxAbs={cmp.MaxAbs:E3} maxRel={cmp.MaxRel:E3} rms={cmp.RmsRel:E3} scale={cmp.Scale:F2} at {cmp.Worst}");
             }

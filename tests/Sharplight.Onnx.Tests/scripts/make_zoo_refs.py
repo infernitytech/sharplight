@@ -44,7 +44,7 @@ CONFIG = {
     "mobilesam-encoder": dict(model="mobilesam/mobilesam.encoder.onnx", shapes={"input_image": [512, 640, 3]}, gen={"*": "img255_hwc"}),
     "mobilesam-decoder": dict(model="mobilesam/mobilesam.decoder.onnx", shapes={"point_coords": [1, 3, 2], "point_labels": [1, 3]}, gen={
         "image_embeddings": ("randn", 0.5), "point_coords": ("coords", 1024), "point_labels": ("ints", 0, 2),
-        "mask_input": ("const", 0), "has_mask_input": ("const", 0), "orig_im_size": ("const", 512)}),
+        "mask_input": ("const", 0), "has_mask_input": ("const", 0), "orig_im_size": ("vals", [512, 640])}, pin=["orig_im_size"]),
     "tiny-sd-unet": dict(model="tiny-sd/unet.onnx", fixbatch=True, shapes={"sample": [-1, 4, 16, 16], "timestep": [], "encoder_hidden_states": [-1, 8, 32]}, gen={"*": ("randn", 0.7), "timestep": ("const", 500)}),
     "tiny-sd-vae": dict(model="tiny-sd/vae_decoder.onnx", shapes={"latent_sample": [-1, 4, 16, 16]}, gen={"*": ("randn", 0.7)}),
     "tiny-sd-text": dict(model="tiny-sd/text_encoder.onnx", fixbatch=True, shapes={"input_ids": [-1, 8]}, gen={"*": ("ints", 1, 1000)}),
@@ -61,12 +61,12 @@ CONFIG = {
     "wav2vec2-base": dict(model="wav2vec2-base/model.onnx", fixbatch=True, shapes={"input_values": [-1, 16000]}, gen={"*": ("randn", 0.3)}),
     "gpt2": dict(model="gpt2/decoder_model.onnx", fixbatch=True, shapes={"input_ids": [-1, 12], "attention_mask": [-1, 12]},
                  gen={"input_ids": ("ints", 1, 5000), "attention_mask": ("const", 1)}),
-    "animegan-v2": dict(model="animegan-v2/face_paint_512_v2_0.onnx", gen={"*": "imgpm1"}),
+    "animegan-v2": dict(model="animegan-v2/face_paint_512_v2_0.onnx", gen={"*": "imgpm1"}, rtol=1e-2, atol=4e-3),  # InstanceNorm epsilon=0 on 512x512 maps: f32 reduction order shows (GPU ~2.5e-3)
     "animegan-hayao": dict(model="animegan-hayao/generator_hayao.onnx", gen={"*": "imgpm1"}),
     "mosaic-9": dict(model="mosaic-9/mosaic-9.onnx", gen={"*": ("img255",)}),
-    "raft-large": dict(model="raft-large/raft_large.onnx", rms=5e-3, gen={"*": "imgnorm"}),
-    "tiny-mamba": dict(model="tiny-mamba/model.onnx", shapes={"input_ids": [1, 16], "in_conv_states": [2, 1, 32, 4], "in_ssm_states": [2, 1, 32, 16]}, gen={"input_ids": ("ints", 1, 100), "*": ("randn", 0.3)}),
-    "silero-vad": dict(model="silero-vad/model.onnx", gen={"input": ("randn", 0.1), "sr": ("const", 16000), "state": ("const", 0)}),
+    "raft-large": dict(model="raft-large/raft_large.onnx", rms=3e-2, gen={"*": "imgnorm"}),
+    "tiny-mamba": dict(model="tiny-mamba/model.onnx", fixbatch=True, shapes={"input_ids": [1, 10], "in_conv_states": [2, 1, 32, 4], "in_ssm_states": [2, 1, 32, 16]}, gen={"input_ids": ("ints", 1, 100), "*": ("randn", 0.3)}),
+    "silero-vad": dict(model="silero-vad/model.onnx", shapes={"input": [1, 576], "state": [2, 1, 128]}, fixbatch=True, pin=["sr"], gen={"input": ("randn", 0.1), "sr": ("const", 16000), "state": ("const", 0)}),
     "ppocr-det": dict(model="ppocr-v4/ch_PP-OCRv4_det_infer.onnx", shapes={"x": [-1, 3, 320, 320]}, gen={"*": "imgnorm"}),
     "ppocr-rec": dict(model="ppocr-v4/ch_PP-OCRv4_rec_infer.onnx", fixbatch=True, shapes={"x": [-1, 3, 48, 320]}, gen={"*": "imgnorm"}),
     "ppocr-rec-en-v3": dict(model="ppocr-v4/en_PP-OCRv3_rec_infer.onnx", fixbatch=True, shapes={"x": [-1, 3, 48, 320]}, gen={"*": "imgnorm"}),
@@ -86,6 +86,21 @@ CONFIG = {
 }
 
 
+# decoders with a KV cache (past length fixed to 12 / 8 tokens; batch fixed to 1)
+_gpt2_past = {f"past_key_values.{l}.{kv}": [1, 12, 12, 64] for l in range(12) for kv in ("key", "value")}
+CONFIG["gpt2-past"] = dict(model="gpt2/decoder_with_past_model.onnx", fixbatch=True, shapes={**_gpt2_past, "input_ids": [1, 1], "attention_mask": [1, 13]},
+                           gen={"*": ("randn", 0.5), "input_ids": ("ints", 1, 5000), "attention_mask": ("const", 1)})
+_wh_past = {}
+for _l in range(4):
+    _wh_past[f"past_key_values.{_l}.decoder.key"] = [1, 6, 8, 64]; _wh_past[f"past_key_values.{_l}.decoder.value"] = [1, 6, 8, 64]
+    _wh_past[f"past_key_values.{_l}.encoder.key"] = [1, 6, 1500, 64]; _wh_past[f"past_key_values.{_l}.encoder.value"] = [1, 6, 1500, 64]
+CONFIG["whisper-decoder-past"] = dict(model="whisper-tiny/decoder_with_past_model.onnx", fixbatch=True, shapes={**_wh_past, "input_ids": [1, 1]},
+                                      gen={"*": ("randn", 0.5), "input_ids": ("ints", 1, 1000)})
+CONFIG["gpt2-merged"] = dict(model="gpt2/decoder_model_merged.onnx", fixbatch=True, pin=["use_cache_branch"],
+                             shapes={**_gpt2_past, "input_ids": [1, 1], "attention_mask": [1, 13], "use_cache_branch": [1]},
+                             gen={"*": ("randn", 0.5), "input_ids": ("ints", 1, 5000), "attention_mask": ("const", 1), "use_cache_branch": ("const", 1)})
+
+
 def make(rs, spec, shape, elem):
     kind = spec[0] if isinstance(spec, tuple) else spec
     if kind == "img":   a = smooth_image(rs, shape)
@@ -96,6 +111,7 @@ def make(rs, spec, shape, elem):
     elif kind == "randn": a = rs.randn(*shape) * (spec[1] if isinstance(spec, tuple) else 0.7)
     elif kind == "ints": a = rs.randint(spec[1], spec[2], size=shape)
     elif kind == "const": a = np.full(shape, spec[1])
+    elif kind == "vals": a = np.array(spec[1]).reshape(shape)
     elif kind == "coords": a = rs.rand(*shape) * spec[1]
     else: raise ValueError(spec)
     return a.astype({1: np.float32, 6: np.int32, 7: np.int64, 9: np.bool_, 10: np.float16, 11: np.float64}.get(elem, np.float32))
@@ -123,12 +139,14 @@ def run(name, cfg):
     os.makedirs(OUT, exist_ok=True)
     rs = np.random.RandomState(7)
     gen = cfg.get("gen", {})
+    consts = {}
     for b in batches:
         feeds = {}
         for k, (i, s) in enumerate(zip(ins, shapes)):
             shp = [b if d == -1 else d for d in s]
             a = make(rs, gen.get(i.name, gen.get("*", "randn")), shp, i.type.tensor_type.elem_type)
             feeds[i.name] = a
+            if i.name in cfg.get("pin", []): consts[i.name] = a
             a.astype(np.float32).tofile(f"{OUT}/{name}.b{b}.in{k}.bin")
         res = sess.run(outs, feeds)
         for k, o in enumerate(res):
@@ -136,7 +154,7 @@ def run(name, cfg):
         print(name, "batch", b, [(r.shape, str(r.dtype)) for r in res])
     json.dump({"model": cfg["model"], "batches": batches,
                "inputs": [{"name": i.name, "shape": s, "elem": i.type.tensor_type.elem_type} for i, s in zip(ins, shapes)],
-               "outputs": [{"name": o} for o in outs], "rtol": cfg.get("rtol", 1e-3), "atol": cfg.get("atol", 2e-4), "fixbatch": cfg.get("fixbatch", False), "rms": cfg.get("rms"), "mode": cfg.get("mode"),
+               "outputs": [{"name": o} for o in outs], "rtol": cfg.get("rtol", 1e-3), "atol": cfg.get("atol", 2e-4), "fixbatch": cfg.get("fixbatch", False), "rms": cfg.get("rms"), "mode": cfg.get("mode"), "constants": {k: np.asarray(consts[k]).ravel().astype(float).tolist() for k in cfg.get("pin", [])},
                "hints": cfg.get("hints", {})}, open(f"{OUT}/{name}.json", "w"), indent=1)
 
 

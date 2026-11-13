@@ -58,6 +58,9 @@ public sealed class RefCase
     public double? RmsTol { get; init; }
     /// <summary>Comparison mode hint: "scores6" = detections as rows of [x1,y1,x2,y2,score,class]; only the score column is compared (tied/near-tied rows swap).</summary>
     public string? Mode { get; init; }
+    /// <summary>Inputs pinned to constants at import (manifest "constants": {name: [values]}); they are not fed at run time.</summary>
+    public Dictionary<string, double[]> Constants { get; init; } = new();
+    public IEnumerable<int> RuntimeInputs => Enumerable.Range(0, Inputs.Length).Where(k => !Constants.ContainsKey(Inputs[k].Name));
 
     public static string RefRoot => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "onnx", "ref");
     public static string SynthRoot => Path.Combine(RefRoot, "synth");
@@ -78,6 +81,8 @@ public sealed class RefCase
             Rtol = r.TryGetProperty("rtol", out var rt) ? rt.GetDouble() : 1e-3,
             Atol = r.TryGetProperty("atol", out var at) ? at.GetDouble() : 2e-4,
             FixBatch = r.TryGetProperty("fixbatch", out var fb) && fb.GetBoolean(),
+            Constants = r.TryGetProperty("constants", out var cs) && cs.ValueKind == JsonValueKind.Object
+                ? cs.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.EnumerateArray().Select(x => x.GetDouble()).ToArray()) : new(),
             Mode = r.TryGetProperty("mode", out var md) && md.ValueKind == JsonValueKind.String ? md.GetString() : null,
             RmsTol = r.TryGetProperty("rms", out var rm) && rm.ValueKind == JsonValueKind.Number ? rm.GetDouble() : null,
         };
@@ -215,6 +220,7 @@ public static class OnnxExec
     {
         var o = new OnnxImportOptions();
         // whisper-style attention reshapes [N,T,D] -> [N*heads,T,dh]: the batch cannot stay symbolic, so fix it.
+        foreach (var (k, v) in c.Constants) o.ConstantInputs[k] = v;
         foreach (var i in c.Inputs) o.InputShapes[i.Name] = c.FixBatch || c.Name.StartsWith("whisper") ? i.Shape.Select(d => d < 0 ? batch : d).ToArray() : i.Shape;
         return o;
     }

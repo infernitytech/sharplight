@@ -488,6 +488,14 @@ internal sealed partial class OnnxTranslator
             if (n.Outputs[i] != "") _env[n.Outputs[i]] = Get(g.Outputs[i].Name);
     }
 
+    /// <summary>Concat of any number of values (the IR op takes at most 64).</summary>
+    Value ConcatMany(int axis, Value[] vals)
+    {
+        var cur = vals;
+        while (cur.Length > 64) cur = [.. cur.Chunk(64).Select(c => c.Length == 1 ? c[0] : _b.Concat(axis, c))];
+        return cur.Length == 1 ? cur[0] : _b.Concat(axis, cur);
+    }
+
     // ---- RNN family ---------------------------------------------------------------------------------------------------
     static OnnxConst Slice0(OnnxConst c, long i)
     {
@@ -533,13 +541,11 @@ internal sealed partial class OnnxTranslator
             Value? h = null, c = null;
             if (ins.Length > 5 && ins[5] is { } h0)
             {
-                if (!h0.IsConst) throw new NotSupportedException("dynamic initial_h");
-                h = ConstValue(Slice0(h0.C!, d), null);
+                h = h0.IsConst ? ConstValue(Slice0(h0.C!, d), null) : layout == 0 ? Rs(_b.Slice(h0.V!, 0, d, 1), bsz, hs) : Rs(_b.Slice(h0.V!, 1, d, 1), 0, hs);
             }
             if (kind == "LSTM" && ins.Length > 6 && ins[6] is { } c0)
             {
-                if (!c0.IsConst) throw new NotSupportedException("dynamic initial_c");
-                c = ConstValue(Slice0(c0.C!, d), null);
+                c = c0.IsConst ? ConstValue(Slice0(c0.C!, d), null) : layout == 0 ? Rs(_b.Slice(c0.V!, 0, d, 1), bsz, hs) : Rs(_b.Slice(c0.V!, 1, d, 1), 0, hs);
             }
             for (int s = 0; s < seq; s++)
             {
@@ -600,10 +606,10 @@ internal sealed partial class OnnxTranslator
                 var hs_ = Ys[t].Select(v => layout == 0 ? Rs(v!, 1, 1, bsz, hs) : Rs(v!, 0, 1, 1, hs)).ToArray();
                 perTime.Add(D == 1 ? hs_[0] : _b.Concat(layout == 0 ? 1 : 2, hs_));
             }
-            SetDyn(n, 0, perTime.Count == 1 ? perTime[0] : _b.Concat(layout == 0 ? 0 : 1, perTime.ToArray()));
+            SetDyn(n, 0, perTime.Count == 1 ? perTime[0] : ConcatMany(layout == 0 ? 0 : 1, perTime.ToArray()));
         }
         Value Stack(Value[] v) => D == 1 ? (layout == 0 ? Rs(v[0], 1, bsz, hs) : Rs(v[0], 0, 1, hs))
-            : _b.Concat(layout == 0 ? 0 : 1, v.Select(x => layout == 0 ? Rs(x, 1, bsz, hs) : Rs(x, 0, 1, hs)).ToArray());
+            : ConcatMany(layout == 0 ? 0 : 1, v.Select(x => layout == 0 ? Rs(x, 1, bsz, hs) : Rs(x, 0, 1, hs)).ToArray());
         if (n.Outputs.Count > 1 && n.Outputs[1] != "") SetDyn(n, 1, Stack(lastH));
         if (n.Outputs.Count > 2 && n.Outputs[2] != "") SetDyn(n, 2, Stack(lastC.Select(c => c ?? throw new NotSupportedException("Y_c requested for a non-LSTM")).ToArray()));
     }

@@ -951,6 +951,7 @@ public sealed partial class GraphLowerer
     void EmitElementwiseKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol,
         List<TensorRef> inputs, List<(TensorRef Ref, string Expr)> outputs, List<string> stmts)
     {
+        if (shape.Any(d => d == 0)) return;   // empty tensor: nothing to compute (and the stride maths would divide by zero)
         int rank = shape.Length;
         var P = new long[rank];
         long acc = 1;
