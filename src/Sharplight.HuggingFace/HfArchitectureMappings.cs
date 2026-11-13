@@ -11,6 +11,7 @@ internal static class HfArchitectureMappings
     {
         Register(new Qwen35HfMapping());
         Register(new NemotronHHfMapping());
+        Register(new LatentDecoderHfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
     }
