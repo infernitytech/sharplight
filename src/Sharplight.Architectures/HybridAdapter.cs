@@ -8,13 +8,15 @@ namespace Sharplight.Architectures;
 /// Layer-pattern hybrid decoder (canonical arch <c>hybrid</c>): a stack of residual layers whose token mixer is a Mamba-2 state-space layer, grouped-query
 /// attention, or both in parallel (their outputs are summed), optionally followed by a gated feed-forward block (dense and/or routed experts).
 /// Covers Jamba (Mamba-1 / attention / MLP), Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer), LFM2 (gated short convolutions interleaved with attention),
+/// PLaMo-2 (Mamba-2 style layers with their own projection layout, see <see cref="Plamo2Layer"/>, interleaved with attention, sandwich norms around both blocks),
 /// and pure Mamba-2 stacks (no feed-forward).
 /// </summary>
 /// <remarks>
 /// The layer pattern is read from the weights: a layer with <c>ssm.in.weight</c> has a state-space mixer (Mamba-1, <see cref="Mamba1Layer"/>, when it also has <c>ssm.x.weight</c>, else Mamba-2), one with <c>shortconv.in.weight</c> the short-convolution mixer (<see cref="ShortConvLayer"/>), one with <c>attention.q.weight</c> has attention;
 /// a layer with <c>mlp.*</c> weights has the feed-forward block (see <see cref="Mamba2Layer"/>, <see cref="HybridAttention"/>,
 /// <see cref="HybridFeedForward"/> for their weight vocabulary).
-/// Layer: <c>x += residual_scale · mixers(norm(x))</c>, then (with a feed-forward) <c>x += residual_scale · ffn(post_attention_norm(x))</c>.
+/// Layer: <c>x += residual_scale · mixers(norm(x))</c>, then (with a feed-forward) <c>x += residual_scale · ffn(post_attention_norm(x))</c>; an optional
+/// <c>post_mixer_norm.weight</c> / <c>mlp.out_norm.weight</c> normalizes the mixer / feed-forward output before it is added (PLaMo-2).
 /// Hyper-parameters (<c>hybrid.*</c>): <c>layer_count</c>, <c>hidden_size</c>, <c>norm_eps</c>, <c>context_length</c>, optional <c>embedding_scale</c> (default 1),
 /// <c>logit_scale</c> (multiplier of the logits, default 1), <c>residual_scale</c> (default 1), <c>mlp.activation</c>, <c>attention.*</c>/<c>rope.*</c>, <c>ssm.*</c>, <c>moe.*</c>.
 /// Weights: <c>token_embedding.weight</c>, <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied otherwise); per layer <c>input_norm.weight</c> and,
@@ -41,6 +43,7 @@ public sealed class HybridAdapter : IModelAdapter
         float residualScale = src.Arch("residual_scale", 1f);
         var mamba = new Mamba2Layer(src, eps);
         var mamba1 = new Mamba1Layer(src, eps);
+        var plamo = new Plamo2Layer(src, eps);
         var attention = new HybridAttention(src);
         var shortConv = new ShortConvLayer(src);
         var feedForward = new HybridFeedForward(src, hidden);
@@ -51,6 +54,7 @@ public sealed class HybridAdapter : IModelAdapter
         {
             string p = $"layers.{il}.";
             var ssm = src.Weight(p + "ssm.in.weight") is null ? default
+                : Plamo2Layer.Is(src, p) ? plamo.DefineStates(src, $"layers.{il}", p)
                 : Mamba1Layer.Is(src, p) ? mamba1.DefineStates(src, $"layers.{il}", p) : mamba.DefineStates($"layers.{il}");
             var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType) : default;
             var conv = src.Weight(p + "shortconv.in.weight") is { } convIn ? shortConv.DefineState($"layers.{il}", (int)(convIn.Shape[0].Fixed / 3)) : null;
@@ -116,7 +120,8 @@ public sealed class HybridAdapter : IModelAdapter
             Value? mixed = null;
             if (layer.Scan is not null)
             {
-                mixed = Mamba1Layer.Is(src, p) ? mamba1.Build(b, h, p, layer.Conv!, layer.Scan) : mamba.Build(b, h, p, layer.Conv!, layer.Scan);
+                mixed = Plamo2Layer.Is(src, p) ? plamo.Build(b, h, p, layer.Conv!, layer.Scan)
+                    : Mamba1Layer.Is(src, p) ? mamba1.Build(b, h, p, layer.Conv!, layer.Scan) : mamba.Build(b, h, p, layer.Conv!, layer.Scan);
             }
 
             if (layer.ShortConv is not null)
@@ -130,15 +135,18 @@ public sealed class HybridAdapter : IModelAdapter
                 mixed = mixed is null ? attended : b.Add(mixed, attended);
             }
 
-            x = b.Add(Scaled(b, mixed ?? throw new InvalidDataException($"hybrid: layer {il} has neither a state-space nor an attention mixer."), residualScale), x, $"{p}mix_out");
+            var mixer = mixed ?? throw new InvalidDataException($"hybrid: layer {il} has neither a state-space nor an attention mixer.");
+            x = b.Add(Scaled(b, OutputNorm(b, mixer, p + "post_mixer_norm.weight"), residualScale), x, $"{p}mix_out");
             if (!HybridFeedForward.Exists(src, p))
             {
                 return x;
             }
 
             var normed = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), eps, $"{p}post_attn_norm");
-            return b.Add(Scaled(b, feedForward.Build(b, normed, p), residualScale), x, $"{p}l_out");
+            return b.Add(Scaled(b, OutputNorm(b, feedForward.Build(b, normed, p), p + "mlp.out_norm.weight"), residualScale), x, $"{p}l_out");
         }
+
+        Value OutputNorm(GraphBuilder b, Value v, string weightName) => b.TryWeight(weightName) is { } weight ? b.RmsNorm(v, weight, eps) : v;
 
         static Value Scaled(GraphBuilder b, Value v, float scale) => scale == 1f ? v : b.Scale(v, scale);
     }

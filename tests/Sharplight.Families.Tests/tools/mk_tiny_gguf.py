@@ -1,13 +1,13 @@
 """
 Writes tiny random GGUF files for llama.cpp architectures that have no Hugging Face class in transformers (so no tiny-random checkpoint
-and no converter path): Qwen v1 (qwen), XVERSE (xverse) and ChatGLM (chatglm), and the RMS-normed RWKV distillations ARWKV7 (arwkv7, with and without output gate) and QRWKV6 (rwkv6qwen2). The weights are random, written with llama.cpp's tensor names
+and no converter path): Qwen v1 (qwen), XVERSE (xverse) and ChatGLM (chatglm), the RMS-normed RWKV distillations ARWKV7 (arwkv7, with and without output gate) and QRWKV6 (rwkv6qwen2), and PLaMo-2 (plamo2). The weights are random, written with llama.cpp's tensor names
 and hyper-parameter keys; llama.cpp (llama-completion) provides the reference continuation. The tokenizer fields are copied from a GGUF
 that already carries the 1024-token GPT-2-style vocabulary of tiny-random-GPTNeoXForCausalLM, e.g. tiny-random-falcon-f32.gguf converted
 from ~/models/hf/tiny-random-falcon with convert_hf_to_gguf.py.
 
     PYTHONPATH=<llama.cpp>/gguf-py python mk_tiny_gguf.py <tokenizer gguf> <output directory> [name ...]
 
-Files: <output directory>/tiny-random-{qwen1,xverse,chatglm,arwkv7,arwkv7-nogate,rwkv6qwen2}-f32.gguf (only the named ones when names are given). Norm weights
+Files: <output directory>/tiny-random-{qwen1,xverse,chatglm,arwkv7,arwkv7-nogate,rwkv6qwen2,plamo2}-f32.gguf (only the named ones when names are given). Norm weights
 and biases are randomized so that every tensor matters.
 """
 import os, sys
@@ -186,6 +186,61 @@ def rwkv6qwen2_layer(layer, hidden):
             "ffn_gate.weight": weight(FFN, hidden), "ffn_up.weight": weight(FFN, hidden), "ffn_down.weight": weight(hidden, FFN)}
 
 
+def write_plamo2(path, tokenizer_path, seed):
+    # PLaMo-2: a Mamba layer (1) between two attention layers, every layer with sandwich norms and a fused gate+up feed-forward block. (The real models start
+    # with a Mamba layer, which makes llama.cpp b11177 take them for attention-free: it leaves the rotary width at 0 and hangs in its rope kernel.)
+    # llama.cpp loads a few of its norm / decay tensors without the ".weight" suffix.
+    global rng
+    rng = np.random.default_rng(seed)
+    reader = GGUFReader(tokenizer_path)
+    vocab = len(reader.fields["tokenizer.ggml.tokens"].contents())
+    heads = [HEADS, 0, HEADS]
+    kv_heads = [KV_HEADS, 0, KV_HEADS]
+    state, conv_kernel, dt_rank_dim = 16, 4, max(64, HIDDEN // 16)
+    writer = GGUFWriter(path, "plamo2")
+    writer.add_name("tiny random plamo2")
+    writer.add_vocab_size(vocab)
+    writer.add_context_length(CONTEXT)
+    writer.add_embedding_length(HIDDEN)
+    writer.add_block_count(LAYERS)
+    writer.add_feed_forward_length(FFN)
+    writer.add_head_count(heads)
+    writer.add_head_count_kv(kv_heads)
+    writer.add_key_length(HEAD_DIM)
+    writer.add_value_length(HEAD_DIM)
+    writer.add_layer_norm_rms_eps(1e-6)
+    writer.add_rope_freq_base(10000.0)
+    writer.add_ssm_state_size(state)
+    writer.add_ssm_conv_kernel(conv_kernel)
+    writer.add_ssm_time_step_rank(HEADS)
+    writer.add_ssm_inner_size(HIDDEN)
+    writer.add_ssm_group_count(0)
+    copy_tokenizer(reader, writer)
+    tensors = {"token_embd.weight": weight(vocab, HIDDEN), "output_norm.weight": norm(HIDDEN), "output.weight": weight(vocab, HIDDEN)}
+    for layer in range(LAYERS):
+        t = {"attn_norm.weight": norm(HIDDEN), "post_attention_norm": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN), "post_ffw_norm": norm(HIDDEN),
+             "ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+        if heads[layer] == 0:
+            t.update({"ssm_in.weight": weight(2 * HIDDEN, HIDDEN), "ssm_conv1d.weight": weight(HIDDEN, conv_kernel),
+                      "ssm_x.weight": weight(dt_rank_dim + 2 * state, HIDDEN), "ssm_dt.weight": weight(HEADS, dt_rank_dim), "ssm_dt.bias": bias(HEADS),
+                      "ssm_a": (-np.exp(0.5 * rng.standard_normal(HEADS))).astype(np.float32), "ssm_d": norm(HEADS),
+                      "ssm_out.weight": weight(HIDDEN, HIDDEN), "ssm_dt_norm": norm(dt_rank_dim), "ssm_b_norm": norm(state), "ssm_c_norm": norm(state)})
+        else:
+            qkv = (heads[layer] + 2 * kv_heads[layer]) * HEAD_DIM
+            t.update({"attn_qkv.weight": weight(qkv, HIDDEN), "attn_q_norm.weight": norm(heads[layer] * HEAD_DIM).reshape(heads[layer], HEAD_DIM),
+                      "attn_k_norm.weight": norm(kv_heads[layer] * HEAD_DIM).reshape(kv_heads[layer], HEAD_DIM),
+                      "attn_output.weight": weight(HIDDEN, heads[layer] * HEAD_DIM)})
+        for name, value in t.items():
+            tensors[f"blk.{layer}.{name}"] = value
+    for name, value in tensors.items():
+        writer.add_tensor(name, value)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    print("wrote", path)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -197,6 +252,7 @@ models = {
     "chatglm": lambda path: write_model(path, "chatglm", tokenizer, KV_HEADS, HEAD_DIM // 2, chatglm_layer, FFN),
     "arwkv7": lambda path: write_rwkv(path, "arwkv7", tokenizer, 1, ARWKV_HIDDEN, ARWKV_HEAD_SIZE, arwkv7_parameters(True), lambda layer, hidden: arwkv7_layer(layer, hidden, True)),
     "arwkv7-nogate": lambda path: write_rwkv(path, "arwkv7", tokenizer, 2, ARWKV_HIDDEN, ARWKV_HEAD_SIZE, arwkv7_parameters(False), lambda layer, hidden: arwkv7_layer(layer, hidden, False)),
+    "plamo2": lambda path: write_plamo2(path, tokenizer, 4),
     "rwkv6qwen2": lambda path: write_rwkv(path, "rwkv6qwen2", tokenizer, 3, HIDDEN, HEAD_DIM, rwkv6qwen2_parameters, rwkv6qwen2_layer),
 }
 for name, write in models.items():

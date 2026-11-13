@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// Grouped-query attention mixer of the <see cref="HybridAdapter"/> over a KV cache: weights <c>attention.{q,k,v,o}.weight</c>, optional per-head q/k RMS norms (<c>attention.{q,k}_norm.weight</c> [head_dim]), optional rotary
+/// Grouped-query attention mixer of the <see cref="HybridAdapter"/> over a KV cache: weights <c>attention.{q,k,v,o}.weight</c>, optional per-head q/k RMS norms (<c>attention.{q,k}_norm.weight</c> [head_dim], or [heads, head_dim] / [kv_heads, head_dim] with a weight of its own for every head), optional rotary
 /// embeddings (<c>attention.rope</c>), scale <c>attention.scale</c> (default 1/sqrt(head_dim)).
 /// </summary>
 internal sealed class HybridAttention
@@ -51,12 +51,12 @@ internal sealed class HybridAttention
         var v = b.Reshape(b.Linear(h, p + "attention.v.weight"), 0, _kvHeads, _headDim);
         if (b.TryWeight(p + "attention.q_norm.weight") is { } qNorm)
         {
-            q = b.RmsNorm(q, qNorm, _eps);
+            q = HeadNorm(b, q, qNorm);
         }
 
         if (b.TryWeight(p + "attention.k_norm.weight") is { } kNorm)
         {
-            k = b.RmsNorm(k, kNorm, _eps);
+            k = HeadNorm(b, k, kNorm);
         }
 
         if (_rope)
@@ -71,4 +71,8 @@ internal sealed class HybridAttention
         var attn = b.CachedAttention(q, b.State(keyCache), b.State(valueCache), _scale, name: $"{p}attn");
         return b.Linear(b.Reshape(attn, 0, _heads * _headDim), p + "attention.o.weight", name: $"{p}attn_out");
     }
+
+    // A [head_dim] weight is shared by the heads; a [heads, head_dim] weight (PLaMo-2) scales every head by its own.
+    private Value HeadNorm(GraphBuilder b, Value x, Value weight)
+        => weight.Shape.Rank == 1 ? b.RmsNorm(x, weight, _eps) : b.Mul(b.RmsNorm(x, null, _eps), weight);
 }

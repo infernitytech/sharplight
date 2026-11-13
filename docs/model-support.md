@@ -360,7 +360,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `jamba` | Jamba, Jamba-Reasoning-3B | Mamba1 + attention interleave + MoE | **supported** | - (MoE layers untested: the local Jamba-Reasoning-3B is dense) | jamba | gguf/AI21-Jamba-Reasoning-3B |
 | `falcon-h1` | Falcon-H1 0.5B-34B | parallel attention + Mamba2 in each layer, mup multipliers | **supported** | - | falcon_h1 | gguf/Falcon-H1-0.5B-Instruct, hf/Falcon-H1-0.5B-Instruct, hf/tiny-random-falcon-h1 |
 | `granitehybrid` | Granite 4.0 H micro/tiny/small | Mamba2 + attention layers + MoE shared, mup scalings | **supported** | - | granitemoehybrid | gguf/granite-4.0-h-350m, gguf/granite-4.0-h-tiny, hf/granite-4.0-h-350m, hf/tiny-random-granite-4.0-h, hf/tiny-random-granite-moe-hybrid |
-| `plamo2` | PLaMo 2 | Mamba-like + attention + sandwich norms | **missing** | `M1`, `M2H` (no checkpoint available locally) | - | - |
+| `plamo2` | PLaMo 2 | Mamba-2 style layers (own layout) + attention + sandwich norms | **supported** (GGUF, tiny random vs llama.cpp; not run on a real model) | - | - | gguf/tiny-random-plamo2-f32 |
 
 ### RNN
 

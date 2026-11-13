@@ -4,15 +4,16 @@ using Sharplight.Tensors;
 namespace Sharplight.Gguf;
 
 /// <summary>
-/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), <c>lfm2</c> (gated short convolutions + attention) and <c>lfm2moe</c> (the same with sigmoid-routed experts after the leading dense layers) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
+/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), <c>plamo2</c> (PLaMo-2: its own Mamba layout, fused q/k/v and gate+up, sandwich norms), <c>lfm2</c> (gated short convolutions + attention) and <c>lfm2moe</c> (the same with sigmoid-routed experts after the leading dense layers) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
 /// A layer has attention when its GGUF key/value head count is positive; every layer of these models has the Mamba-2 mixer except the attention-only
 /// layers of Granite-4.0-H (Falcon-H1 has both mixers in every layer, recognised by the SSM weights being present).
 /// </summary>
-internal sealed class HybridGgufMapping : IGgufArchitectureMapping
+internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "lfm2moe", "mamba", "jamba"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "lfm2moe", "mamba", "jamba", "plamo2"];
     private static bool IsLfm2(GgufMetadataView g) => g.GgufArchitecture is "lfm2" or "lfm2moe";
+    private static bool IsPlamo2(GgufMetadataView g) => g.GgufArchitecture == "plamo2";
 
     // llama.cpp expert_gating_func: 1 = softmax, 2 = sigmoid.
     private const int SigmoidGating = 2;
@@ -67,7 +68,7 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         int kvHeads = KvHeadCounts(g, layerCount).Max();
         if (kvHeads > 0)
         {
-            int headCount = g.Int("attention.head_count");
+            int headCount = GgufDecoderHyperParameters.LargestOf(g, "attention.head_count");
             md[a + "attention.head_count"] = headCount;
             md[a + "attention.kv_head_count"] = kvHeads;
             md[a + "attention.head_dim"] = g.Int("attention.key_length", hidden / headCount);
@@ -75,7 +76,7 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
             md[a + "rope.dim"] = g.Int("rope.dimension_count", g.Int("attention.key_length", hidden / headCount));
             md[a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase);
             // Granite-4.0-H attention is position-less (NoPE) unless the checkpoint is flagged as rope-finetuned; Falcon-H1 and LFM2 always rotate.
-            md[a + "attention.rope"] = g.GgufArchitecture is "falcon-h1" || IsLfm2(g) || g.Bool("rope.scaling.finetuned", false);
+            md[a + "attention.rope"] = g.GgufArchitecture is "falcon-h1" or "plamo2" || IsLfm2(g) || g.Bool("rope.scaling.finetuned", false);
         }
 
         if (g.Has("embedding_scale"))
@@ -126,7 +127,7 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         ["ssm_a"] = "ssm.a",
         ["ssm_d"] = "ssm.d",
         ["ssm_norm.weight"] = "ssm.norm.weight",
-        ["ssm_x.weight"] = "ssm.x.weight",
+        ["ssm_x.weight"] = "ssm.x.weight",   // PLaMo-2 files: ssm.bcdt.weight (see MapWeightName)
         ["ssm_dt.weight"] = "ssm.dt.weight",
         ["ssm_dt_norm.weight"] = "ssm.dt_norm.weight",
         ["ssm_b_norm.weight"] = "ssm.b_norm.weight",
@@ -167,8 +168,69 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         }
 
         var m = GgufTensorNames.Block().Match(name);
-        return m.Success && s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
+        if (!m.Success)
+        {
+            return null;
+        }
+
+        string suffix = m.Groups[2].Value;
+        if (IsPlamo2(g) && s_plamo2Layer.TryGetValue(suffix, out var plamoName))
+        {
+            return $"layers.{m.Groups[1].Value}.{plamoName}";
+        }
+
+        return s_layer.TryGetValue(suffix, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
     }
+
+    /// <summary>PLaMo-2 tensors that differ from the shared table: the joint (B, C, dt) projection and the sandwich norms around the mixer and the feed-forward block.</summary>
+    private static readonly Dictionary<string, string> s_plamo2Layer = new(StringComparer.Ordinal)
+    {
+        ["ssm_x.weight"] = "ssm.bcdt.weight",
+        ["post_attention_norm.weight"] = "post_mixer_norm.weight",
+        ["post_attention_norm"] = "post_mixer_norm.weight",
+        ["post_ffw_norm.weight"] = "mlp.out_norm.weight",
+        ["post_ffw_norm"] = "mlp.out_norm.weight",
+        ["ssm_a.weight"] = "ssm.a",
+        ["ssm_d.weight"] = "ssm.d",
+        ["ssm_dt_norm"] = "ssm.dt_norm.weight",
+        ["ssm_b_norm"] = "ssm.b_norm.weight",
+        ["ssm_c_norm"] = "ssm.c_norm.weight",
+    };
+
+    /// <summary>PLaMo-2 stores the fused q/k/v of an attention layer in one tensor and gate+up (gate rows first) of the feed-forward block in one tensor.</summary>
+    public IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf)
+    {
+        var m = GgufTensorNames.Block().Match(ggufName);
+        if (!IsPlamo2(gguf) || !m.Success)
+        {
+            return null;
+        }
+
+        int layer = int.Parse(m.Groups[1].Value);
+        string prefix = $"layers.{layer}.";
+        switch (m.Groups[2].Value)
+        {
+            case "attn_qkv.weight":
+                int heads = PerLayer(gguf, "attention.head_count", layer);
+                int kvHeads = PerLayer(gguf, "attention.head_count_kv", layer);
+                int headDim = gguf.Int("attention.key_length");
+                int valueDim = gguf.Int("attention.value_length", headDim);
+                return
+                [
+                    tensor.RowSlice(prefix + "attention.q.weight", 0, heads * headDim),
+                    tensor.RowSlice(prefix + "attention.k.weight", heads * headDim, kvHeads * headDim),
+                    tensor.RowSlice(prefix + "attention.v.weight", (heads + kvHeads) * headDim, kvHeads * valueDim),
+                ];
+            case "ffn_up.weight":
+                int ffn = gguf.Int("feed_forward_length");
+                return [tensor.RowSlice(prefix + "mlp.gate.weight", 0, ffn), tensor.RowSlice(prefix + "mlp.up.weight", ffn, ffn)];
+            default:
+                return null;
+        }
+    }
+
+    private static int PerLayer(GgufMetadataView g, string key, int layer)
+        => g.Raw(key) is Array values ? Convert.ToInt32(values.GetValue(layer)) : g.Int(key);
 
     /// <summary>Mamba-2 A, D are stored [H, 1] and the gated norm [G, inner/G]; canonical weights are flat (Mamba-1 A stays [inner, N]).</summary>
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
