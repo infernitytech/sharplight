@@ -7,3 +7,4 @@ obj/
 TestResults/
 *.slm
 *.slm.tmp
+.claude/

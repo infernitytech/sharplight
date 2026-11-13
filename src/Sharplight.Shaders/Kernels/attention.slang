@@ -2,7 +2,55 @@
 // q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
 // Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys)
+// SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
+// one workgroup each (grid z); every split writes an unnormalized partial (acc[DV], m, l) to part[split][t][h][DV+2]
+// and the `combine` entry merges them. The split ranges follow n_past at run time, so a recorded command buffer
+// stays valid as the context grows.
 #include "common.slang"
+
+#ifndef SPLITS
+#define SPLITS 1
+#endif
+
+#ifdef KERNEL_COMBINE
+
+struct CombineParams
+{
+    float* part;
+    float* o;
+    uint T;
+};
+
+#ifndef WG
+#define WG 128
+#endif
+
+[shader("compute")]
+[numthreads(WG, 1, 1)]
+void combine(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform CombineParams p)
+{
+    uint h = gid.x, t = gid.y;
+    float wgt[SPLITS];
+    float M = -1e30;
+    [ForceUnroll] for (uint s = 0; s < SPLITS; s++) M = max(M, p.part[((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2) + DV]);
+    float den = 0;
+    [ForceUnroll] for (uint s = 0; s < SPLITS; s++)
+    {
+        float* ps = p.part + ((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2);
+        wgt[s] = exp(ps[DV] - M);
+        den += wgt[s] * ps[DV + 1];
+    }
+    float inv = 1.0 / den;
+    float* orow = p.o + (uint64_t(t) * HQ + h) * DV;
+    for (uint d = ltid.x; d < DV; d += WG)
+    {
+        float num = 0;
+        [ForceUnroll] for (uint s = 0; s < SPLITS; s++) num += wgt[s] * p.part[((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2) + d];
+        orow[d] = num * inv;
+    }
+}
+
+#else
 
 struct Params
 {
@@ -10,6 +58,7 @@ struct Params
     uint8_t* kc;
     uint8_t* vc;
     float* o;
+    float* part;
     uint* rt;
     uint T;
 };
@@ -89,6 +138,13 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
     uint L = p.rt[RT_N_PAST] + t + 1;
+#if SPLITS > 1
+    uint split = gid.z;
+    uint per = (L + SPLITS - 1) / SPLITS;
+    uint jBeg = min(L, split * per), jEnd = min(L, jBeg + per);
+#else
+    uint jBeg = 0, jEnd = L;
+#endif
 
     float* qr = p.q + uint64_t(t) * QS0 + uint64_t(h) * QS1;
     for (uint i = tid; i < D; i += WG) sQ[i] = qr[i] * SCALE;
@@ -98,19 +154,19 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     float acc[DPT];
     [ForceUnroll] for (int i = 0; i < DPT; i++) acc[i] = 0;
 
-    for (uint c0 = 0; c0 < L; c0 += WG)
+    for (uint c0 = jBeg; c0 < jEnd; c0 += WG)
     {
         uint j = c0 + tid;
         float s = -1e30;
-        if (j < L) s = dot_k(p.kc, (uint64_t(j) * HKV + hk) * D);
+        if (j < jEnd) s = dot_k(p.kc, (uint64_t(j) * HKV + hk) * D);
         float mc = reduce_max(s, tid);
         float mNew = max(m, mc);
-        float pj = j < L ? exp(s - mNew) : 0;
+        float pj = j < jEnd ? exp(s - mNew) : 0;
         sP[tid] = pj;
         float corr = exp(m - mNew);
         l = l * corr + reduce_sum(pj, tid);   // reduce_sum syncs, so sP is visible afterwards
         m = mNew;
-        uint cnt = min(uint(WG), L - c0);
+        uint cnt = min(uint(WG), jEnd - c0);
         [ForceUnroll]
         for (int di = 0; di < DPT; di++)
         {
@@ -124,6 +180,16 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         GroupMemoryBarrierWithGroupSync();
     }
 
+#if SPLITS > 1
+    float* ps = p.part + ((uint64_t(split) * p.T + t) * HQ + h) * (DV + 2);
+    [ForceUnroll]
+    for (int di = 0; di < DPT; di++)
+    {
+        uint d = tid + di * WG;
+        if (d < DV) ps[d] = acc[di];
+    }
+    if (tid == 0) { ps[DV] = m; ps[DV + 1] = l; }
+#else
     float* orow = p.o + (uint64_t(t) * HQ + h) * DV;
     float inv = 1.0 / l;
     [ForceUnroll]
@@ -132,4 +198,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         uint d = tid + di * WG;
         if (d < DV) orow[d] = acc[di] * inv;
     }
+#endif
 }
+
+#endif
