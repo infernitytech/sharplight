@@ -135,10 +135,11 @@ internal sealed partial class OnnxTranslator
         }
 
         var shape = InputShape(info);
-        bool isInt = info.ElemType is OnnxType.Int64 or OnnxType.Int32;
+        // Integer inputs of every width travel as i32 and float inputs of every precision as f32 (see docs/onnx-support.md, "Types").
+        bool isInt = OnnxType.IsInteger(info.ElemType);
         if (!OnnxType.IsFloat(info.ElemType) && !isInt && info.ElemType != OnnxType.Bool)
         {
-            throw new NotSupportedException($"Graph input '{info.Name}' has type {OnnxType.Name(info.ElemType)}; only float, int32/int64 and bool inputs are supported.");
+            throw new NotSupportedException($"Graph input '{info.Name}' has type {OnnxType.Name(info.ElemType)}; only float, integer and bool inputs are supported.");
         }
 
         bool image = !isInt && shape.Rank == 4 && shape[1].Fixed is 1 or 3 or 4;

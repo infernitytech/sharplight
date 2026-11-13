@@ -74,6 +74,7 @@ public sealed class NodeConformanceTests
             json.WriteString("status", outcome.Status.ToString());
             json.WriteString("message", outcome.Message);
             json.WriteString("skip", SkipList.Reason(provider, test));
+            json.WriteBoolean("pinned", outcome.Pinned.Length > 0);
             json.WriteStartArray("ops");
             foreach (var op in OpsOf(test))
             {

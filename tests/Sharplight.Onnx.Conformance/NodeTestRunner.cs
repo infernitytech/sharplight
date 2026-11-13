@@ -22,6 +22,7 @@ internal static class NodeTestRunner
     {
         string modelPath = Path.Combine(testDirectory, "model.onnx");
         var sets = Directory.GetDirectories(testDirectory, "test_data_set_*").OrderBy(d => d, StringComparer.Ordinal).ToList();
+        var result = NodeTestOutcome.Passed;
         foreach (var set in sets)
         {
             var outcome = RunDataSet(modelPath, set, device, fallback);
@@ -29,13 +30,16 @@ internal static class NodeTestRunner
             {
                 return sets.Count > 1 ? outcome with { Message = $"{Path.GetFileName(set)}: {outcome.Message}" } : outcome;
             }
+
+            result = outcome.Pinned.Length > 0 ? outcome : result;
         }
 
-        return NodeTestOutcome.Passed;
+        return result;
     }
 
     private static NodeTestOutcome RunDataSet(string modelPath, string setDirectory, IComputeDevice device, IComputeDevice? fallback)
     {
+        string[] pinnedNames = [];
         var bytes = File.ReadAllBytes(modelPath);
         OnnxModel model;
         try
@@ -79,22 +83,61 @@ internal static class NodeTestRunner
             return new(NodeTestStatus.HarnessUnsupported, e.Message);
         }
 
-        var options = new OnnxImportOptions();
-        foreach (var (name, tensor) in inputs)
+        // Sharplight compiles static shapes: inputs that define shapes, axes or other import-time parameters (Reshape targets, reduction
+        // axes, pads, ...) are passed as tensors by the node tests but are initializers in real models. When the importer needs them as
+        // constants, the test is retried with them pinned (OnnxImportOptions.ConstantInputs), first the integer inputs, then also small
+        // float inputs (scales, Range bounds, ...).
+        ComputeGraph? graph = null;
+        string importError = "";
+        int pinLevel = 0;
+        for (; pinLevel <= 2 && graph is null; pinLevel++)
         {
-            options.InputShapes[name] = tensor.Dims;
+            var pinned = inputs.Where(p => pinLevel switch
+            {
+                0 => false,
+                1 => !p.Value.IsFloat,
+                _ => !p.Value.IsFloat || p.Value.Elements <= 8,
+            }).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+            if (pinLevel > 0 && (pinned.Count == 0 || pinned.Count == inputs.Count))
+            {
+                continue;
+            }
+
+            var options = new OnnxImportOptions();
+            foreach (var (name, tensor) in inputs)
+            {
+                options.InputShapes[name] = tensor.Dims;
+                if (pinned.ContainsKey(name))
+                {
+                    options.ConstantInputs[name] = tensor.Values;
+                }
+            }
+
+            var attempt = OnnxParser.Parse(bytes);
+            attempt.Options = options;
+            try
+            {
+                var definition = OnnxGraphAdapter.Build(OnnxImporter.FromModel(attempt, modelPath));
+                graph = definition.Graph(OnnxGraphAdapter.MainGraph);
+                pinnedNames = [.. pinned.Keys];
+            }
+            catch (Exception e)
+            {
+                if (pinLevel == 0)
+                {
+                    importError = Describe(e);
+                }
+
+                if (!NeedsConstant(e.Message))
+                {
+                    break;
+                }
+            }
         }
 
-        model.Options = options;
-        ComputeGraph graph;
-        try
+        if (graph is null)
         {
-            var definition = OnnxGraphAdapter.Build(OnnxImporter.FromModel(model, modelPath));
-            graph = definition.Graph(OnnxGraphAdapter.MainGraph);
-        }
-        catch (Exception e)
-        {
-            return new(NodeTestStatus.ImportFail, Describe(e));
+            return new(NodeTestStatus.ImportFail, importError);
         }
 
         CompiledModel compiled;
@@ -154,8 +197,15 @@ internal static class NodeTestRunner
             }
         }
 
-        return NodeTestOutcome.Passed;
+        return pinnedNames.Length == 0 ? NodeTestOutcome.Passed : NodeTestOutcome.Passed with { Pinned = pinnedNames };
     }
+
+    /// <summary>Import errors that pinning inputs to constants can resolve.</summary>
+    private static bool NeedsConstant(string message)
+        => message.Contains("compile-time constant", StringComparison.Ordinal)
+            || message.Contains("data-dependent", StringComparison.Ordinal)
+            || message.Contains("runtime-dependent", StringComparison.Ordinal)
+            || message.Contains("runtime tensor", StringComparison.Ordinal);
 
     private static string? Compare(string name, TestTensor expected, long[] shape, double[] values)
     {
