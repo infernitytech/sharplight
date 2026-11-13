@@ -14,7 +14,9 @@ internal ref struct ProtoReader
     private readonly int _end;
     private int _pos;
 
-    public ProtoReader(ReadOnlySpan<byte> data) : this(data, 0, data.Length) { }
+    public ProtoReader(ReadOnlySpan<byte> data) : this(data, 0, data.Length)
+    {
+    }
 
     public ProtoReader(ReadOnlySpan<byte> data, int start, int end)
     {

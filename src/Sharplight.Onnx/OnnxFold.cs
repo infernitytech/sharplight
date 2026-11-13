@@ -35,448 +35,501 @@ internal static class OnnxFold
 
     private static bool IsSym(long v) => v == OnnxConst.SymBatch;
 
+    /// <summary>Resolves a possibly negative ONNX axis against <paramref name="rank"/>.</summary>
+    public static int NormalizeAxis(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
+
     public static IReadOnlyList<OnnxConst> Eval(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {
-        OnnxConst X(int i) => i < ins.Count && ins[i] is { } c ? c : throw new InvalidDataException($"{n.OpType} '{n.Name}': missing input {i}.");
-        OnnxConst? Opt(int i) => i < ins.Count ? ins[i] : null;
         if (s_math.TryGetValue(n.OpType, out var mf))
         {
-            return [UnF(X(0), mf)];
+            return [UnF(Input(n, ins, 0), mf)];
         }
 
         switch (n.OpType)
         {
             case "IsNaN":
-                return [OnnxConst.FromInts(OnnxType.Bool, X(0).Dims, X(0).Floats().Select(v => double.IsNaN(v) ? 1L : 0L).ToArray())];
+                return [OnnxConst.FromInts(OnnxType.Bool, Input(n, ins, 0).Dims, Input(n, ins, 0).Floats().Select(v => double.IsNaN(v) ? 1L : 0L).ToArray())];
             case "IsInf":
-                return [OnnxConst.FromInts(OnnxType.Bool, X(0).Dims, X(0).Floats().Select(v => double.IsInfinity(v) ? 1L : 0L).ToArray())];
+                return [OnnxConst.FromInts(OnnxType.Bool, Input(n, ins, 0).Dims, Input(n, ins, 0).Floats().Select(v => double.IsInfinity(v) ? 1L : 0L).ToArray())];
             case "Mod":
-                {
-                    bool fm = n.Int("fmod", 0) != 0;
-                    return [Bin(X(0), X(1), (a, b) => fm ? a % b : a - Math.Floor(a / b) * b,
-                    (a, b) => b == 0 ? throw new DivideByZeroException() : fm ? a % b : ((a % b) + b) % b)];
-                }
+                return FoldMod(n, ins);
             case "Tile":
-                {
-                    var x = X(0);
-                    var rep = X(1).Ints();
-                    var dims = x.Dims.Select((d, i) => d * rep[i]).ToArray();
-                    long total = 1;
-                    foreach (var d in dims)
-                    {
-                        total *= d;
-                    }
-
-                    var map = new long[total];
-                    var idx = new long[x.Rank];
-                    var st = new long[x.Rank];
-                    long q = 1;
-                    for (int d = x.Rank - 1; d >= 0; d--) { st[d] = q; q *= x.Dims[d]; }
-                    for (long o = 0; o < total; o++)
-                    {
-                        long p = 0;
-                        for (int d = 0; d < x.Rank; d++)
-                        {
-                            p += (idx[d] % x.Dims[d]) * st[d];
-                        }
-
-                        map[o] = p;
-                        for (int d = x.Rank - 1; d >= 0; d--)
-                        {
-                            if (++idx[d] < dims[d]) { break; } idx[d] = 0;
-                        }
-                    }
-                    return [x.IsFloat ? OnnxConst.FromFloats(x.ElemType, dims, map.Select(p => x.Floats()[p]).ToArray()) : OnnxConst.FromInts(x.ElemType, dims, map.Select(p => x.Ints()[p]).ToArray())];
-                }
+                return FoldTile(n, ins);
             case "NonZero":
-                {
-                    var x = X(0);
-                    var f = x.Floats();
-                    var nz = Enumerable.Range(0, f.Length).Where(i => f[i] != 0).ToArray();
-                    var res = new long[x.Rank * nz.Length];
-                    for (int k = 0; k < nz.Length; k++)
-                    {
-                        long rem = nz[k];
-                        for (int d = x.Rank - 1; d >= 0; d--)
-                        {
-                            res[d * nz.Length + k] = rem % x.Dims[d];
-                            rem /= x.Dims[d];
-                        }
-                    }
-                    return [OnnxConst.FromInts(OnnxType.Int64, [x.Rank, nz.Length], res)];
-                }
+                return FoldNonZero(n, ins);
             case "EyeLike":
-                {
-                    var x = X(0);
-                    long k = n.Int("k", 0);
-                    int et = n.Has("dtype") ? (int)n.Int("dtype", OnnxType.Float) : x.ElemType;
-                    var v = new double[x.Count];
-                    for (long r = 0; r < x.Dims[0]; r++)
-                    {
-                        long c = r + k;
-                        if (c >= 0 && c < x.Dims[1])
-                        {
-                            v[r * x.Dims[1] + c] = 1;
-                        }
-                    }
-                    return [OnnxConst.FromFloats(OnnxType.Float, x.Dims, v).CastTo(et)];
-                }
+                return FoldEyeLike(n, ins);
             case "CastLike":
-                return [X(0).CastTo(X(1).ElemType)];
+                return [Input(n, ins, 0).CastTo(Input(n, ins, 1).ElemType)];
             case "ArgMax":
             case "ArgMin":
-                {
-                    var x = X(0);
-                    int axis = (int)n.Int("axis", 0);
-                    if (axis < 0)
-                    {
-                        axis += x.Rank;
-                    }
-
-                    bool keep = n.Int("keepdims", 1) != 0;
-                    bool last = n.Int("select_last_index", 0) != 0;
-                    long outer = 1;
-                    long inner = 1;
-                    for (int i = 0; i < axis; i++)
-                    {
-                        outer *= x.Dims[i];
-                    }
-
-                    for (int i = axis + 1; i < x.Rank; i++)
-                    {
-                        inner *= x.Dims[i];
-                    }
-
-                    long len = x.Dims[axis];
-                    var f = x.Floats();
-                    var r = new long[outer * inner];
-                    for (long o = 0; o < outer; o++)
-                    {
-                        for (long i = 0; i < inner; i++)
-                        {
-                            long best = 0;
-                            for (long j = 1; j < len; j++)
-                            {
-                                double a = f[(o * len + j) * inner + i];
-                                double b = f[(o * len + best) * inner + i];
-                                bool better = n.OpType == "ArgMax" ? (last ? a >= b : a > b) : (last ? a <= b : a < b);
-                                if (better)
-                                {
-                                    best = j;
-                                }
-                            }
-                            r[o * inner + i] = best;
-                        }
-                    }
-
-                    var dims = x.Dims.ToList();
-                    if (keep)
-                    {
-                        dims[axis] = 1;
-                    }
-                    else
-                    {
-                        dims.RemoveAt(axis);
-                    }
-
-                    return [OnnxConst.FromInts(OnnxType.Int64, [.. dims], r)];
-                }
+                return FoldArgReduce(n, ins);
             case "DequantizeLinear":
-                return [Dequantize(X(0), X(1), Opt(2), (int)n.Int("axis", 1))];
+                return [Dequantize(Input(n, ins, 0), Input(n, ins, 1), Optional(ins, 2), (int)n.Int("axis", 1))];
             case "QuantizeLinear":
-                {
-                    var x = X(0);
-                    var sc = X(1);
-                    var zp = Opt(2);
-                    int et = zp?.ElemType ?? OnnxType.UInt8;
-                    int axis = (int)n.Int("axis", 1);
-                    if (axis < 0)
-                    {
-                        axis += x.Rank;
-                    }
-
-                    var (lo, hi) = Range(et);
-                    var f = x.Floats();
-                    var s = sc.Floats();
-                    var z = zp?.Floats();
-                    long inner = 1;
-                    for (int i = axis + 1; i < x.Rank; i++)
-                    {
-                        inner *= x.Dims[i];
-                    }
-
-                    long ax = x.Rank == 0 ? 1 : x.Dims[axis];
-                    var r = new long[f.Length];
-                    for (long i = 0; i < f.Length; i++)
-                    {
-                        long c = s.Length == 1 ? 0 : (i / inner) % ax;
-                        double q = Math.Round((float)f[i] / (float)s[c], MidpointRounding.ToEven) + (z is null ? 0 : z[z.Length == 1 ? 0 : c]);
-                        r[i] = (long)Math.Clamp(q, lo, hi);
-                    }
-                    return [OnnxConst.FromInts(et, x.Dims, r)];
-                }
+                return FoldQuantizeLinear(n, ins);
             case "Constant":
                 return [ConstantValue(n)];
             case "Identity":
-                return [X(0)];
+                return [Input(n, ins, 0)];
             case "Dropout":
-                return [X(0)];
+                return [Input(n, ins, 0)];
             case "Cast":
-                return [X(0).CastTo((int)n.Int("to", OnnxType.Float))];
+                return [Input(n, ins, 0).CastTo((int)n.Int("to", OnnxType.Float))];
             case "Shape":
-                {
-                    var d = X(0).Dims;
-                    long s = n.Int("start", 0);
-                    long e = n.Int("end", d.Length);
-                    if (s < 0)
-                    {
-                        s += d.Length;
-                    }
-
-                    if (e < 0)
-                    {
-                        e += d.Length;
-                    }
-
-                    s = Math.Clamp(s, 0, d.Length);
-                    e = Math.Clamp(e, s, d.Length);
-                    return [OnnxConst.FromInts(OnnxType.Int64, [e - s], d[(int)s..(int)e])];
-                }
+                return FoldShape(n, ins);
             case "Size":
-                return [OnnxConst.ScalarInt(X(0).Count)];
+                return [OnnxConst.ScalarInt(Input(n, ins, 0).Count)];
             case "Add":
-                return [Bin(X(0), X(1), (a, b) => a + b, (a, b) => a + b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a + b, (a, b) => a + b)];
             case "Sub":
-                return [Bin(X(0), X(1), (a, b) => a - b, (a, b) => a - b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a - b, (a, b) => a - b)];
             case "Mul":
-                return [Bin(X(0), X(1), (a, b) => a * b, (a, b) => a * b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a * b, (a, b) => a * b)];
             case "Div":
-                return [Bin(X(0), X(1), (a, b) => a / b, (a, b) => b == 0 ? throw new DivideByZeroException($"Integer division by zero in constant '{n.Name}'.") : a / b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a / b, (a, b) => b == 0 ? throw new DivideByZeroException($"Integer division by zero in constant '{n.Name}'.") : a / b)];
             case "Pow":
-                return [Bin(X(0), X(1), Math.Pow, (a, b) => (long)Math.Pow(a, b))];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), Math.Pow, (a, b) => (long)Math.Pow(a, b))];
             case "Max":
             case "Min":
             case "Sum":
-                {
-                    Func<double, double, double> f = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
-                    Func<long, long, long> g = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
-                    var r = X(0);
-                    for (int i = 1; i < ins.Count; i++)
-                    {
-                        r = Bin(r, X(i), f, g);
-                    }
-
-                    return [r];
-                }
+                return FoldVariadic(n, ins);
             case "Equal":
-                return [Cmp(X(0), X(1), (a, b) => a == b)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a == b)];
             case "Less":
-                return [Cmp(X(0), X(1), (a, b) => a < b)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a < b)];
             case "Greater":
-                return [Cmp(X(0), X(1), (a, b) => a > b)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a > b)];
             case "LessOrEqual":
-                return [Cmp(X(0), X(1), (a, b) => a <= b)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a <= b)];
             case "GreaterOrEqual":
-                return [Cmp(X(0), X(1), (a, b) => a >= b)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a >= b)];
             case "And":
-                return [Cmp(X(0), X(1), (a, b) => a != 0 && b != 0)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a != 0 && b != 0)];
             case "Or":
-                return [Cmp(X(0), X(1), (a, b) => a != 0 || b != 0)];
+                return [Cmp(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a != 0 || b != 0)];
             case "Not":
-                return [OnnxConst.FromInts(OnnxType.Bool, X(0).Dims, X(0).Ints().Select(v => v == 0 ? 1L : 0L).ToArray())];
+                return [OnnxConst.FromInts(OnnxType.Bool, Input(n, ins, 0).Dims, Input(n, ins, 0).Ints().Select(v => v == 0 ? 1L : 0L).ToArray())];
             case "Neg":
-                return [Un(X(0), v => -v, v => -v)];
+                return [Un(Input(n, ins, 0), v => -v, v => -v)];
             case "Abs":
-                return [Un(X(0), Math.Abs, Math.Abs)];
+                return [Un(Input(n, ins, 0), Math.Abs, Math.Abs)];
             case "Sqrt":
-                return [UnF(X(0), Math.Sqrt)];
+                return [UnF(Input(n, ins, 0), Math.Sqrt)];
             case "Exp":
-                return [UnF(X(0), Math.Exp)];
+                return [UnF(Input(n, ins, 0), Math.Exp)];
             case "Log":
-                return [UnF(X(0), Math.Log)];
+                return [UnF(Input(n, ins, 0), Math.Log)];
             case "Reciprocal":
-                return [UnF(X(0), v => 1.0 / v)];
+                return [UnF(Input(n, ins, 0), v => 1.0 / v)];
             case "Floor":
-                return [UnF(X(0), Math.Floor)];
+                return [UnF(Input(n, ins, 0), Math.Floor)];
             case "Ceil":
-                return [UnF(X(0), Math.Ceiling)];
+                return [UnF(Input(n, ins, 0), Math.Ceiling)];
             case "Relu":
-                return [Un(X(0), v => Math.Max(v, 0), v => Math.Max(v, 0))];
+                return [Un(Input(n, ins, 0), v => Math.Max(v, 0), v => Math.Max(v, 0))];
             case "Sigmoid":
-                return [UnF(X(0), v => 1 / (1 + Math.Exp(-v)))];
+                return [UnF(Input(n, ins, 0), v => 1 / (1 + Math.Exp(-v)))];
             case "Tanh":
-                return [UnF(X(0), Math.Tanh)];
+                return [UnF(Input(n, ins, 0), Math.Tanh)];
             case "Erf":
-                return [UnF(X(0), Erf)];
+                return [UnF(Input(n, ins, 0), Erf)];
             case "Clip":
-                {
-                    double lo = n.Has("min") ? n.Float("min", 0) : Opt(1) is { } l ? l.Floats()[0] : double.NegativeInfinity;
-                    double hi = n.Has("max") ? n.Float("max", 0) : Opt(2) is { } h ? h.Floats()[0] : double.PositiveInfinity;
-                    return [Un(X(0), v => Math.Min(Math.Max(v, lo), hi), v => (long)Math.Min(Math.Max(v, lo), hi))];
-                }
+                return FoldClip(n, ins);
             case "Where":
-                {
-                    var c = X(0);
-                    var a = X(1);
-                    var b = X(2);
-                    var abDims = Broadcast(a.Dims, b.Dims);
-                    bool abFloat = a.IsFloat || b.IsFloat;
-                    int abType = a.IsFloat ? a.ElemType : b.IsFloat ? b.ElemType : a.ElemType;
-                    var dims = Broadcast(c.Dims, abDims);
-                    var cb = ExpandTo(c, dims);
-                    var ae = ExpandTo(a, dims);
-                    var be = ExpandTo(b, dims);
-                    var cv = cb.Ints();
-                    if (abFloat)
-                    {
-                        var av = ae.Floats();
-                        var bv = be.Floats();
-                        return [OnnxConst.FromFloats(abType, dims, cv.Select((m, i) => m != 0 ? av[i] : bv[i]).ToArray())];
-                    }
-                    var ai = ae.Ints();
-                    var bi = be.Ints();
-                    return [OnnxConst.FromInts(abType, dims, cv.Select((m, i) => m != 0 ? ai[i] : bi[i]).ToArray())];
-                }
+                return FoldWhere(n, ins);
             case "Gather":
-                return [Gather(X(0), X(1), (int)n.Int("axis", 0))];
+                return [Gather(Input(n, ins, 0), Input(n, ins, 1), (int)n.Int("axis", 0))];
             case "Unsqueeze":
-                {
-                    var axes = n.Has("axes") ? n.Ints("axes")! : X(1).Ints();
-                    return [X(0).Reshaped(UnsqueezeDims(X(0).Dims, axes))];
-                }
+                return FoldUnsqueeze(n, ins);
             case "Squeeze":
-                {
-                    var axes = n.Has("axes") ? n.Ints("axes") : Opt(1)?.Ints();
-                    return [X(0).Reshaped(SqueezeDims(X(0).Dims, axes))];
-                }
+                return FoldSqueeze(n, ins);
             case "Concat":
-                {
-                    int axis = (int)n.Int("axis", 0);
-                    return [Concat(ins.Select((c, i) => c ?? throw new InvalidDataException("Concat: missing input")).ToList(), axis)];
-                }
+                return FoldConcat(n, ins);
             case "Slice":
                 return [Slice(n, ins)];
             case "Reshape":
-                {
-                    var x = X(0);
-                    var req = X(1).Ints();
-                    bool allowZero = n.Int("allowzero", 0) != 0;
-                    var dims = new long[req.Length];
-                    long known = 1;
-                    int infer = -1;
-                    for (int i = 0; i < req.Length; i++)
-                    {
-                        if (req[i] == 0 && !allowZero)
-                        {
-                            dims[i] = x.Dims[i];
-                        }
-                        else if (req[i] == -1)
-                        {
-                            infer = i;
-                            continue;
-                        }
-                        else
-                        {
-                            dims[i] = req[i];
-                        }
-
-                        known *= dims[i];
-                    }
-                    if (infer >= 0)
-                    {
-                        dims[infer] = known == 0 ? 0 : x.Count / known;
-                    }
-
-                    return [x.Reshaped(dims)];
-                }
+                return FoldReshape(n, ins);
             case "Flatten":
-                {
-                    var x = X(0);
-                    int axis = (int)n.Int("axis", 1);
-                    if (axis < 0)
-                    {
-                        axis += x.Rank;
-                    }
-
-                    long a = 1;
-                    long b = 1;
-                    for (int i = 0; i < x.Rank; i++)
-                    {
-                        if (i < axis)
-                        {
-                            a *= x.Dims[i];
-                        }
-                        else
-                        {
-                            b *= x.Dims[i];
-                        }
-                    }
-
-                    return [x.Reshaped([a, b])];
-                }
+                return FoldFlatten(n, ins);
             case "Transpose":
-                {
-                    var x = X(0);
-                    var perm = n.Ints("perm")?.Select(p => (int)p).ToArray() ?? Enumerable.Range(0, x.Rank).Reverse().ToArray();
-                    return [x.Transposed(perm)];
-                }
+                return FoldTranspose(n, ins);
             case "Expand":
-                return [ExpandTo(X(0), Broadcast(X(0).Dims, X(1).Ints().ToArray()))];
+                return [ExpandTo(Input(n, ins, 0), Broadcast(Input(n, ins, 0).Dims, Input(n, ins, 1).Ints().ToArray()))];
             case "Range":
-                {
-                    var s = X(0);
-                    var l = X(1);
-                    var d = X(2);
-                    if (s.IsFloat || l.IsFloat || d.IsFloat)
-                    {
-                        double a = s.Floats()[0];
-                        double b = l.Floats()[0];
-                        double st = d.Floats()[0];
-                        long cnt = Math.Max(0, (long)Math.Ceiling((b - a) / st));
-                        return [OnnxConst.FromFloats(s.ElemType, [cnt], Enumerable.Range(0, (int)cnt).Select(i => a + i * st).ToArray())];
-                    }
-                    else
-                    {
-                        long a = s.Ints()[0];
-                        long b = l.Ints()[0];
-                        long st = d.Ints()[0];
-                        if (IsSym(a) || IsSym(b) || IsSym(st))
-                        {
-                            throw new NotSupportedException("Range over the symbolic batch size is not supported.");
-                        }
-
-                        long cnt = Math.Max(0, (b - a + st - (st > 0 ? 1 : -1)) / st);
-                        return [OnnxConst.FromInts(s.ElemType, [cnt], Enumerable.Range(0, (int)cnt).Select(i => a + i * st).ToArray())];
-                    }
-                }
+                return FoldRange(n, ins);
             case "ConstantOfShape":
-                {
-                    var dims = X(0).Ints();
-                    if (dims.Any(IsSym))
-                    {
-                        throw new NotSupportedException($"ConstantOfShape '{n.Name}' depends on the symbolic batch size.");
-                    }
-
-                    var v = n.Tensor("value") is { } t ? OnnxConst.FromTensor(t) : OnnxConst.Scalar(0);
-                    long cnt = 1;
-                    foreach (var d in dims)
-                    {
-                        cnt *= d;
-                    }
-
-                    return [v.IsFloat ? OnnxConst.FromFloats(v.ElemType, dims, Enumerable.Repeat(v.Floats()[0], (int)cnt).ToArray())
-                                  : OnnxConst.FromInts(v.ElemType, dims, Enumerable.Repeat(v.Ints()[0], (int)cnt).ToArray())];
-                }
+                return FoldConstantOfShape(n, ins);
             case "Split":
-                return Split(n, X(0), Opt(1));
+                return Split(n, Input(n, ins, 0), Optional(ins, 1));
             case "ReduceProd":
             case "ReduceSum":
             case "ReduceMean":
             case "ReduceMax":
             case "ReduceMin":
-                return [Reduce(n, X(0), Opt(1))];
+                return [Reduce(n, Input(n, ins, 0), Optional(ins, 1))];
         }
         throw new NotSupportedException($"Constant folding of {n.OpType} is not implemented.");
+    }
+
+    private static OnnxConst Input(OnnxNode n, IReadOnlyList<OnnxConst?> ins, int i)
+        => i < ins.Count && ins[i] is { } c ? c : throw new InvalidDataException($"{n.OpType} '{n.Name}': missing input {i}.");
+
+    private static OnnxConst? Optional(IReadOnlyList<OnnxConst?> ins, int i) => i < ins.Count ? ins[i] : null;
+
+    private static IReadOnlyList<OnnxConst> FoldMod(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        bool fm = n.Int("fmod", 0) != 0;
+        return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => fm ? a % b : a - Math.Floor(a / b) * b,
+        (a, b) => b == 0 ? throw new DivideByZeroException() : fm ? a % b : ((a % b) + b) % b)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldTile(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        var rep = Input(n, ins, 1).Ints();
+        var dims = x.Dims.Select((d, i) => d * rep[i]).ToArray();
+        long total = 1;
+        foreach (var d in dims)
+        {
+            total *= d;
+        }
+
+        var map = new long[total];
+        var idx = new long[x.Rank];
+        var st = new long[x.Rank];
+        long q = 1;
+        for (int d = x.Rank - 1; d >= 0; d--)
+        {
+            st[d] = q;
+            q *= x.Dims[d];
+        }
+        for (long o = 0; o < total; o++)
+        {
+            long p = 0;
+            for (int d = 0; d < x.Rank; d++)
+            {
+                p += (idx[d] % x.Dims[d]) * st[d];
+            }
+
+            map[o] = p;
+            for (int d = x.Rank - 1; d >= 0; d--)
+            {
+                if (++idx[d] < dims[d])
+                {
+                    break;
+                }
+                idx[d] = 0;
+            }
+        }
+        return [x.IsFloat ? OnnxConst.FromFloats(x.ElemType, dims, map.Select(p => x.Floats()[p]).ToArray()) : OnnxConst.FromInts(x.ElemType, dims, map.Select(p => x.Ints()[p]).ToArray())];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldNonZero(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        var f = x.Floats();
+        var nz = Enumerable.Range(0, f.Length).Where(i => f[i] != 0).ToArray();
+        var res = new long[x.Rank * nz.Length];
+        for (int k = 0; k < nz.Length; k++)
+        {
+            long rem = nz[k];
+            for (int d = x.Rank - 1; d >= 0; d--)
+            {
+                res[d * nz.Length + k] = rem % x.Dims[d];
+                rem /= x.Dims[d];
+            }
+        }
+        return [OnnxConst.FromInts(OnnxType.Int64, [x.Rank, nz.Length], res)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldEyeLike(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        long k = n.Int("k", 0);
+        int et = n.Has("dtype") ? (int)n.Int("dtype", OnnxType.Float) : x.ElemType;
+        var v = new double[x.Count];
+        for (long r = 0; r < x.Dims[0]; r++)
+        {
+            long c = r + k;
+            if (c >= 0 && c < x.Dims[1])
+            {
+                v[r * x.Dims[1] + c] = 1;
+            }
+        }
+        return [OnnxConst.FromFloats(OnnxType.Float, x.Dims, v).CastTo(et)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldArgReduce(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        int axis = NormalizeAxis(n.Int("axis", 0), x.Rank);
+        bool keep = n.Int("keepdims", 1) != 0;
+        bool last = n.Int("select_last_index", 0) != 0;
+        long outer = 1;
+        long inner = 1;
+        for (int i = 0; i < axis; i++)
+        {
+            outer *= x.Dims[i];
+        }
+
+        for (int i = axis + 1; i < x.Rank; i++)
+        {
+            inner *= x.Dims[i];
+        }
+
+        long len = x.Dims[axis];
+        var f = x.Floats();
+        var r = new long[outer * inner];
+        for (long o = 0; o < outer; o++)
+        {
+            for (long i = 0; i < inner; i++)
+            {
+                long best = 0;
+                for (long j = 1; j < len; j++)
+                {
+                    double a = f[(o * len + j) * inner + i];
+                    double b = f[(o * len + best) * inner + i];
+                    bool better = n.OpType == "ArgMax" ? (last ? a >= b : a > b) : (last ? a <= b : a < b);
+                    if (better)
+                    {
+                        best = j;
+                    }
+                }
+                r[o * inner + i] = best;
+            }
+        }
+
+        var dims = x.Dims.ToList();
+        if (keep)
+        {
+            dims[axis] = 1;
+        }
+        else
+        {
+            dims.RemoveAt(axis);
+        }
+
+        return [OnnxConst.FromInts(OnnxType.Int64, [.. dims], r)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldQuantizeLinear(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        var sc = Input(n, ins, 1);
+        var zp = Optional(ins, 2);
+        int et = zp?.ElemType ?? OnnxType.UInt8;
+        int axis = NormalizeAxis(n.Int("axis", 1), x.Rank);
+        var (lo, hi) = Range(et);
+        var f = x.Floats();
+        var s = sc.Floats();
+        var z = zp?.Floats();
+        long inner = 1;
+        for (int i = axis + 1; i < x.Rank; i++)
+        {
+            inner *= x.Dims[i];
+        }
+
+        long ax = x.Rank == 0 ? 1 : x.Dims[axis];
+        var r = new long[f.Length];
+        for (long i = 0; i < f.Length; i++)
+        {
+            long c = s.Length == 1 ? 0 : (i / inner) % ax;
+            double q = Math.Round((float)f[i] / (float)s[c], MidpointRounding.ToEven) + (z is null ? 0 : z[z.Length == 1 ? 0 : c]);
+            r[i] = (long)Math.Clamp(q, lo, hi);
+        }
+        return [OnnxConst.FromInts(et, x.Dims, r)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldShape(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var d = Input(n, ins, 0).Dims;
+        long s = n.Int("start", 0);
+        long e = n.Int("end", d.Length);
+        if (s < 0)
+        {
+            s += d.Length;
+        }
+
+        if (e < 0)
+        {
+            e += d.Length;
+        }
+
+        s = Math.Clamp(s, 0, d.Length);
+        e = Math.Clamp(e, s, d.Length);
+        return [OnnxConst.FromInts(OnnxType.Int64, [e - s], d[(int)s..(int)e])];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldVariadic(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        Func<double, double, double> f = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
+        Func<long, long, long> g = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
+        var r = Input(n, ins, 0);
+        for (int i = 1; i < ins.Count; i++)
+        {
+            r = Bin(r, Input(n, ins, i), f, g);
+        }
+
+        return [r];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldClip(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        double lo = n.Has("min") ? n.Float("min", 0) : Optional(ins, 1) is { } l ? l.Floats()[0] : double.NegativeInfinity;
+        double hi = n.Has("max") ? n.Float("max", 0) : Optional(ins, 2) is { } h ? h.Floats()[0] : double.PositiveInfinity;
+        return [Un(Input(n, ins, 0), v => Math.Min(Math.Max(v, lo), hi), v => (long)Math.Min(Math.Max(v, lo), hi))];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldWhere(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var c = Input(n, ins, 0);
+        var a = Input(n, ins, 1);
+        var b = Input(n, ins, 2);
+        var abDims = Broadcast(a.Dims, b.Dims);
+        bool abFloat = a.IsFloat || b.IsFloat;
+        int abType = a.IsFloat ? a.ElemType : b.IsFloat ? b.ElemType : a.ElemType;
+        var dims = Broadcast(c.Dims, abDims);
+        var cb = ExpandTo(c, dims);
+        var ae = ExpandTo(a, dims);
+        var be = ExpandTo(b, dims);
+        var cv = cb.Ints();
+        if (abFloat)
+        {
+            var av = ae.Floats();
+            var bv = be.Floats();
+            return [OnnxConst.FromFloats(abType, dims, cv.Select((m, i) => m != 0 ? av[i] : bv[i]).ToArray())];
+        }
+        var ai = ae.Ints();
+        var bi = be.Ints();
+        return [OnnxConst.FromInts(abType, dims, cv.Select((m, i) => m != 0 ? ai[i] : bi[i]).ToArray())];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldUnsqueeze(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var axes = n.Has("axes") ? n.Ints("axes")! : Input(n, ins, 1).Ints();
+        return [Input(n, ins, 0).Reshaped(UnsqueezeDims(Input(n, ins, 0).Dims, axes))];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldSqueeze(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var axes = n.Has("axes") ? n.Ints("axes") : Optional(ins, 1)?.Ints();
+        return [Input(n, ins, 0).Reshaped(SqueezeDims(Input(n, ins, 0).Dims, axes))];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldConcat(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        int axis = (int)n.Int("axis", 0);
+        return [Concat(ins.Select((c, i) => c ?? throw new InvalidDataException("Concat: missing input")).ToList(), axis)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldReshape(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        var req = Input(n, ins, 1).Ints();
+        bool allowZero = n.Int("allowzero", 0) != 0;
+        var dims = new long[req.Length];
+        long known = 1;
+        int infer = -1;
+        for (int i = 0; i < req.Length; i++)
+        {
+            if (req[i] == 0 && !allowZero)
+            {
+                dims[i] = x.Dims[i];
+            }
+            else if (req[i] == -1)
+            {
+                infer = i;
+                continue;
+            }
+            else
+            {
+                dims[i] = req[i];
+            }
+
+            known *= dims[i];
+        }
+        if (infer >= 0)
+        {
+            dims[infer] = known == 0 ? 0 : x.Count / known;
+        }
+
+        return [x.Reshaped(dims)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldFlatten(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        int axis = NormalizeAxis(n.Int("axis", 1), x.Rank);
+        long a = 1;
+        long b = 1;
+        for (int i = 0; i < x.Rank; i++)
+        {
+            if (i < axis)
+            {
+                a *= x.Dims[i];
+            }
+            else
+            {
+                b *= x.Dims[i];
+            }
+        }
+
+        return [x.Reshaped([a, b])];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldTranspose(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var x = Input(n, ins, 0);
+        var perm = n.Ints("perm")?.Select(p => (int)p).ToArray() ?? Enumerable.Range(0, x.Rank).Reverse().ToArray();
+        return [x.Transposed(perm)];
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldRange(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var s = Input(n, ins, 0);
+        var l = Input(n, ins, 1);
+        var d = Input(n, ins, 2);
+        if (s.IsFloat || l.IsFloat || d.IsFloat)
+        {
+            double a = s.Floats()[0];
+            double b = l.Floats()[0];
+            double st = d.Floats()[0];
+            long cnt = Math.Max(0, (long)Math.Ceiling((b - a) / st));
+            return [OnnxConst.FromFloats(s.ElemType, [cnt], Enumerable.Range(0, (int)cnt).Select(i => a + i * st).ToArray())];
+        }
+        else
+        {
+            long a = s.Ints()[0];
+            long b = l.Ints()[0];
+            long st = d.Ints()[0];
+            if (IsSym(a) || IsSym(b) || IsSym(st))
+            {
+                throw new NotSupportedException("Range over the symbolic batch size is not supported.");
+            }
+
+            long cnt = Math.Max(0, (b - a + st - (st > 0 ? 1 : -1)) / st);
+            return [OnnxConst.FromInts(s.ElemType, [cnt], Enumerable.Range(0, (int)cnt).Select(i => a + i * st).ToArray())];
+        }
+    }
+
+    private static IReadOnlyList<OnnxConst> FoldConstantOfShape(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        var dims = Input(n, ins, 0).Ints();
+        if (dims.Any(IsSym))
+        {
+            throw new NotSupportedException($"ConstantOfShape '{n.Name}' depends on the symbolic batch size.");
+        }
+
+        var v = n.Tensor("value") is { } t ? OnnxConst.FromTensor(t) : OnnxConst.Scalar(0);
+        long cnt = 1;
+        foreach (var d in dims)
+        {
+            cnt *= d;
+        }
+
+        return [v.IsFloat ? OnnxConst.FromFloats(v.ElemType, dims, Enumerable.Repeat(v.Floats()[0], (int)cnt).ToArray())
+                      : OnnxConst.FromInts(v.ElemType, dims, Enumerable.Repeat(v.Ints()[0], (int)cnt).ToArray())];
     }
 
     public static (double Lo, double Hi) Range(int et) => et switch
@@ -1019,7 +1072,11 @@ internal static class OnnxFold
             map[o] = off;
             for (int d = x.Rank - 1; d >= 0; d--)
             {
-                if (++idx[d] < len[d]) { break; } idx[d] = 0;
+                if (++idx[d] < len[d])
+                {
+                    break;
+                }
+                idx[d] = 0;
             }
         }
         return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, len, map.Select(p => x.Floats()[p]).ToArray())
@@ -1028,12 +1085,7 @@ internal static class OnnxFold
 
     private static IReadOnlyList<OnnxConst> Split(OnnxNode n, OnnxConst x, OnnxConst? splitIn)
     {
-        int axis = (int)n.Int("axis", 0);
-        if (axis < 0)
-        {
-            axis += x.Rank;
-        }
-
+        int axis = NormalizeAxis(n.Int("axis", 0), x.Rank);
         var sizes = n.Has("split") ? n.Ints("split")! : splitIn?.Ints();
         int outs = n.Outputs.Count;
         sizes ??= Enumerable.Repeat(x.Dims[axis] / outs, outs).ToArray();
@@ -1106,7 +1158,11 @@ internal static class OnnxFold
             cnt[o]++;
             for (int d = x.Rank - 1; d >= 0; d--)
             {
-                if (++idx[d] < x.Dims[d]) { break; } idx[d] = 0;
+                if (++idx[d] < x.Dims[d])
+                {
+                    break;
+                }
+                idx[d] = 0;
             }
         }
         if (op == "ReduceMean")

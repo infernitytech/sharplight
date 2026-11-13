@@ -157,7 +157,11 @@ internal sealed partial class OnnxTranslator
                 for (int k = 0; k < 4; k++)
                 {
                     long i = (long)fl - 1 + k;
-                    if (i < 0 || i >= inLen) { w[k] = 0; } sum += w[k];
+                    if (i < 0 || i >= inLen)
+                    {
+                        w[k] = 0;
+                    }
+                    sum += w[k];
                 }
                 if (sum != 0)
                 {

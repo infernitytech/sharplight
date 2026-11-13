@@ -131,62 +131,63 @@ internal sealed partial class OnnxTranslator
                 ops[i] = new LabeledValue(Emit("Reduce", [ops[i].V], Attributes.From(("mode", "sum"), ("axes", axes), ("keepdims", false))), ops[i].L.Where(c => !drop.Contains(c)).ToList());
             }
         }
-        LabeledValue result;
-        if (ops.Count == 1)
-        {
-            result = ops[0];
-        }
-        else
-        {
-            var a = ops[0];
-            var b = ops[1];
-            var batch = a.L.Where(c => b.L.Contains(c) && outL.Contains(c)).ToList();
-            var contr = a.L.Where(c => b.L.Contains(c) && !outL.Contains(c)).ToList();
-            var aOnly = a.L.Where(c => !b.L.Contains(c)).ToList();
-            var bOnly = b.L.Where(c => !a.L.Contains(c)).ToList();
-            Value ap = PermuteLabels(a, [.. batch, .. aOnly, .. contr]);
-            Value bp = PermuteLabels(b, [.. batch, .. contr, .. bOnly]);
-            var dimOf = new Dictionary<char, Dim>();
-            foreach (var o in new[] { a, b })
-            {
-                for (int i = 0; i < o.L.Count; i++)
-                {
-                    dimOf[o.L[i]] = o.V.Shape[i];
-                }
-            }
-            // A keeps its free dims separate (so a symbolic batch can stay in front); B gets matching size-1 dims to broadcast over them.
-            var aGroups = new List<List<char>>(batch.Select(c => new List<char> { c }));
-            if (aOnly.Count == 0)
-            {
-                aGroups.Add([]);
-            }
-            else
-            {
-                aGroups.AddRange(aOnly.Select(c => new List<char> { c }));
-            }
 
-            aGroups.Add(contr);
-            var bGroups = new List<List<char>>(batch.Select(c => new List<char> { c }));
-            for (int i = 1; i < aOnly.Count; i++)
-            {
-                bGroups.Add([]);
-            }
-
-            bGroups.Add(contr);
-            bGroups.Add(bOnly);
-            var ap2 = ReshapeGroups(ap, aGroups, dimOf);
-            var bp2 = ReshapeGroups(bp, bGroups, dimOf);
-            var y = Emit("BatchMatMul", [ap2, bp2]);
-            Heavy();
-            var yl = new List<List<char>>([.. batch.Select(c => new List<char> { c }), .. aOnly.Select(c => new List<char> { c }), .. bOnly.Select(c => new List<char> { c })]);
-            result = new LabeledValue(ReshapeToLabels(y, [.. batch, .. aOnly, .. bOnly], dimOf), [.. batch, .. aOnly, .. bOnly]);
-        }
+        var result = ops.Count == 1 ? ops[0] : EinsumContract(ops[0], ops[1], outL);
         var final = PermuteLabels(result, outL);
         _env[n.Outputs[0]] = TranslatedTensor.Dyn(ReferenceEquals(final, result.V) ? Emit("Reshape", [final], Attributes.From(("shape", Fixed(final))), Nm(n)) : final);
     }
 
-    // ---- Einsum --------------------------------------------------------------------------------------------
-    private sealed class LabeledValue(Value v, List<char> labels) { public Value V = v; public List<char> L = labels; }
+    /// <summary>
+    /// Two-operand Einsum as one BatchMatMul: labels shared with the output are batch labels, labels shared but not in the output are
+    /// contracted. The result is labelled [batch..., a-only..., b-only...].
+    /// </summary>
+    private LabeledValue EinsumContract(LabeledValue a, LabeledValue b, List<char> outL)
+    {
+        var batch = a.L.Where(c => b.L.Contains(c) && outL.Contains(c)).ToList();
+        var contracted = a.L.Where(c => b.L.Contains(c) && !outL.Contains(c)).ToList();
+        var aOnly = a.L.Where(c => !b.L.Contains(c)).ToList();
+        var bOnly = b.L.Where(c => !a.L.Contains(c)).ToList();
+        Value aPermuted = PermuteLabels(a, [.. batch, .. aOnly, .. contracted]);
+        Value bPermuted = PermuteLabels(b, [.. batch, .. contracted, .. bOnly]);
+        var dimOf = new Dictionary<char, Dim>();
+        foreach (var operand in new[] { a, b })
+        {
+            for (int i = 0; i < operand.L.Count; i++)
+            {
+                dimOf[operand.L[i]] = operand.V.Shape[i];
+            }
+        }
+
+        // A keeps its free dims separate (so a symbolic batch can stay in front); B gets matching size-1 dims to broadcast over them.
+        var aGroups = new List<List<char>>(batch.Select(c => new List<char> { c }));
+        if (aOnly.Count == 0)
+        {
+            aGroups.Add([]);
+        }
+        else
+        {
+            aGroups.AddRange(aOnly.Select(c => new List<char> { c }));
+        }
+
+        aGroups.Add(contracted);
+        var bGroups = new List<List<char>>(batch.Select(c => new List<char> { c }));
+        for (int i = 1; i < aOnly.Count; i++)
+        {
+            bGroups.Add([]);
+        }
+
+        bGroups.Add(contracted);
+        bGroups.Add(bOnly);
+        var aShaped = ReshapeGroups(aPermuted, aGroups, dimOf);
+        var bShaped = ReshapeGroups(bPermuted, bGroups, dimOf);
+        var product = Emit("BatchMatMul", [aShaped, bShaped]);
+        Heavy();
+        List<char> resultLabels = [.. batch, .. aOnly, .. bOnly];
+        return new LabeledValue(ReshapeToLabels(product, resultLabels, dimOf), resultLabels);
+    }
+
+    /// <summary>An Einsum operand: an IR value and the subscript label of each of its dimensions.</summary>
+    private sealed record LabeledValue(Value V, List<char> L);
 
     private Value PermuteLabels(LabeledValue t, List<char> order)
     {
@@ -236,7 +237,11 @@ internal sealed partial class OnnxTranslator
         {
             if (dimOf[labels[i]].IsSymbolic)
             {
-                if (i != 0) { throw new NotSupportedException("Einsum: batch dimension in a non-leading position"); } shape.Add(0);
+                if (i != 0)
+                {
+                    throw new NotSupportedException("Einsum: batch dimension in a non-leading position");
+                }
+                shape.Add(0);
             }
             else
             {

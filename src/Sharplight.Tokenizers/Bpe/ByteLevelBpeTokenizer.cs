@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Sharplight.Tokenizers.Bpe;
@@ -393,28 +394,7 @@ internal sealed class ByteLevelBpeTokenizer : ITokenizer
                     charStart[nc] = i;
                     byteStart[nc] = nb;
                     nc++;
-                    if (cp < 0x80)
-                    {
-                        utf8[nb++] = (byte)cp;
-                    }
-                    else if (cp < 0x800)
-                    {
-                        utf8[nb++] = (byte)(0xC0 | (cp >> 6));
-                        utf8[nb++] = (byte)(0x80 | (cp & 0x3F));
-                    }
-                    else if (cp < 0x10000)
-                    {
-                        utf8[nb++] = (byte)(0xE0 | (cp >> 12));
-                        utf8[nb++] = (byte)(0x80 | ((cp >> 6) & 0x3F));
-                        utf8[nb++] = (byte)(0x80 | (cp & 0x3F));
-                    }
-                    else
-                    {
-                        utf8[nb++] = (byte)(0xF0 | (cp >> 18));
-                        utf8[nb++] = (byte)(0x80 | ((cp >> 12) & 0x3F));
-                        utf8[nb++] = (byte)(0x80 | ((cp >> 6) & 0x3F));
-                        utf8[nb++] = (byte)(0x80 | (cp & 0x3F));
-                    }
+                    nb += WriteUtf8(utf8, nb, cp);
                     i += clen;
                 }
                 charStart[nc] = n;
@@ -432,7 +412,10 @@ internal sealed class ByteLevelBpeTokenizer : ITokenizer
                     EncodeWord(utf8.AsSpan(b0, b1 - b0), ref output);
                 }
             }
-            finally { ArrayPool<int>.Shared.Return(byteStart); }
+            finally
+            {
+                ArrayPool<int>.Shared.Return(byteStart);
+            }
         }
         finally
         {
@@ -440,6 +423,38 @@ internal sealed class ByteLevelBpeTokenizer : ITokenizer
             ArrayPool<int>.Shared.Return(cpts);
             ArrayPool<int>.Shared.Return(charStart);
         }
+    }
+
+    /// <summary>Writes the UTF-8 encoding of a code point at <paramref name="offset"/> and returns its length in bytes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int WriteUtf8(byte[] destination, int offset, int cp)
+    {
+        if (cp < 0x80)
+        {
+            destination[offset] = (byte)cp;
+            return 1;
+        }
+
+        if (cp < 0x800)
+        {
+            destination[offset] = (byte)(0xC0 | (cp >> 6));
+            destination[offset + 1] = (byte)(0x80 | (cp & 0x3F));
+            return 2;
+        }
+
+        if (cp < 0x10000)
+        {
+            destination[offset] = (byte)(0xE0 | (cp >> 12));
+            destination[offset + 1] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+            destination[offset + 2] = (byte)(0x80 | (cp & 0x3F));
+            return 3;
+        }
+
+        destination[offset] = (byte)(0xF0 | (cp >> 18));
+        destination[offset + 1] = (byte)(0x80 | ((cp >> 12) & 0x3F));
+        destination[offset + 2] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+        destination[offset + 3] = (byte)(0x80 | (cp & 0x3F));
+        return 4;
     }
 
     private void EncodeWord(ReadOnlySpan<byte> word, ref IntList output)

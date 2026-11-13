@@ -196,7 +196,12 @@ internal static class OnnxParser
                 case 4:
                     op = r.ReadString();
                     break;
-                case 5: { var a = ParseAttribute(r.ReadMessage(), ctx); attrs[a.Name] = a; break; }
+                case 5:
+                    {
+                        var a = ParseAttribute(r.ReadMessage(), ctx);
+                        attrs[a.Name] = a;
+                        break;
+                    }
                 case 7:
                     domain = r.ReadString();
                     break;
@@ -388,14 +393,24 @@ internal static class OnnxParser
                 case 8 when w == WireType.LengthDelimited:
                     name = r.ReadString();
                     break;
-                case 9 when w == WireType.LengthDelimited: { var b = r.ReadBytes(out rawOff); rawLen = b.Length; break; }
+                case 9 when w == WireType.LengthDelimited:
+                    {
+                        var b = r.ReadBytes(out rawOff);
+                        rawLen = b.Length;
+                        break;
+                    }
                 case 10:
                     r.ReadRepeatedDouble(w, doubleData);
                     break;
                 case 11:
                     r.ReadRepeatedInt64(w, uint64Data);
                     break;
-                case 13 when w == WireType.LengthDelimited: { var (k, v) = ParseStringEntry(r.ReadMessage()); ext[k] = v; break; }
+                case 13 when w == WireType.LengthDelimited:
+                    {
+                        var (k, v) = ParseStringEntry(r.ReadMessage());
+                        ext[k] = v;
+                        break;
+                    }
                 case 14 when w == WireType.Varint:
                     dataLocation = r.ReadInt64();
                     break;
@@ -408,7 +423,11 @@ internal static class OnnxParser
         long elems = 1;
         foreach (var d in dimsArr)
         {
-            if (d < 0) { throw new InvalidDataException($"Tensor '{name}' has a negative dimension."); } elems = checked(elems * d);
+            if (d < 0)
+            {
+                throw new InvalidDataException($"Tensor '{name}' has a negative dimension.");
+            }
+            elems = checked(elems * d);
         }
 
         IWeightSource? src = null;
@@ -437,15 +456,33 @@ internal static class OnnxParser
         }
         else if (dtype == OnnxType.Float && floatData.Count > 0)
         {
-            src = Bytes(floatData.Count * 4, s => { for (int i = 0; i < floatData.Count; i++) { BinaryPrimitives.WriteSingleLittleEndian(s[(i * 4)..], floatData[i]); } });
+            src = Bytes(floatData.Count * 4, s =>
+            {
+                for (int i = 0; i < floatData.Count; i++)
+                {
+                    BinaryPrimitives.WriteSingleLittleEndian(s[(i * 4)..], floatData[i]);
+                }
+            });
         }
         else if (dtype == OnnxType.Double && doubleData.Count > 0)
         {
-            src = Bytes(doubleData.Count * 8, s => { for (int i = 0; i < doubleData.Count; i++) { BinaryPrimitives.WriteDoubleLittleEndian(s[(i * 8)..], doubleData[i]); } });
+            src = Bytes(doubleData.Count * 8, s =>
+            {
+                for (int i = 0; i < doubleData.Count; i++)
+                {
+                    BinaryPrimitives.WriteDoubleLittleEndian(s[(i * 8)..], doubleData[i]);
+                }
+            });
         }
         else if (dtype == OnnxType.Int64 && int64Data.Count > 0)
         {
-            src = Bytes(int64Data.Count * 8, s => { for (int i = 0; i < int64Data.Count; i++) { BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], int64Data[i]); } });
+            src = Bytes(int64Data.Count * 8, s =>
+            {
+                for (int i = 0; i < int64Data.Count; i++)
+                {
+                    BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], int64Data[i]);
+                }
+            });
         }
         else if (dtype is OnnxType.UInt64 or OnnxType.UInt32 && uint64Data.Count > 0)
         {
@@ -504,6 +541,11 @@ internal static class OnnxParser
 
         return new OnnxTensor { Name = name, ElemType = dtype, Dims = dimsArr, Source = src };
 
-        static ArrayWeightSource Bytes(int n, Action<Span<byte>> fill) { var b = new byte[n]; fill(b); return new ArrayWeightSource(b); }
+        static ArrayWeightSource Bytes(int n, Action<Span<byte>> fill)
+        {
+            var bytes = new byte[n];
+            fill(bytes);
+            return new ArrayWeightSource(bytes);
+        }
     }
 }

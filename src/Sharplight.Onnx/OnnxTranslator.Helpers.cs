@@ -96,5 +96,5 @@ internal sealed partial class OnnxTranslator
     }
 
     /// <summary>Resolves a possibly negative ONNX axis against <paramref name="rank"/>.</summary>
-    private static int NormalizeAxis(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
+    private static int NormalizeAxis(long axis, int rank) => OnnxFold.NormalizeAxis(axis, rank);
 }

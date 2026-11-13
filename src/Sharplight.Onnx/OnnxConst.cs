@@ -331,7 +331,11 @@ internal sealed class OnnxConst
             int r = perm.Length;
             var inStr = new long[r];
             long s = 1;
-            for (int d = r - 1; d >= 0; d--) { inStr[d] = s; s *= src.Dims[d]; }
+            for (int d = r - 1; d >= 0; d--)
+            {
+                inStr[d] = s;
+                s *= src.Dims[d];
+            }
             var pStr = perm.Select(p => inStr[p]).ToArray();
             long total = src.Count;
             if (total == 0)
