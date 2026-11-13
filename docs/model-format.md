@@ -30,6 +30,14 @@ A pass pipeline over `ComputeGraph`, independent of devices:
 - Importers keep their own source-level folding (e.g. ONNX `OnnxFold`), the IR phase catches what remains and what every importer
   shares.
 
+Implemented in `Sharplight.Graph.Optimization` (pipeline id `sharplight-ir/1`): `GraphOptimizer.Default` runs `IdentityElimination`,
+`ViewChainSimplification`, `ConstantFolding` (bit-exact with the CPU backend, results up to 256 KiB), `CommonSubexpressionElimination`
+and `DeadNodeElimination`, also inside `If` branches. Values that are graph outputs, nodes that read or write state, own
+data-dependent symbols or run subgraphs are never removed or merged; graph inputs are kept as they are.
+`ModelAdapterRegistry.Build` and `OnnxGraphAdapter.Build` call `GraphOptimizer.PrepareForLoad`; `AdapterOptions.OptimizeGraphs = false`
+or `SHARPLIGHT_NO_GRAPH_OPT=1` skips the phase. A converter calls `GraphOptimizer.Default.Optimize(definition)` and gets per-pass
+node counts (`ModelOptimizationResult.Statistics`).
+
 ## Container (version 2)
 
 Unchanged header and section table (v1 files stay readable). Sections:

@@ -21,6 +21,13 @@ public sealed class AdapterOptions
     public bool? EmbeddingNormalize { get; init; }
 
     /// <summary>
+    /// Run the device-independent graph optimization phase (<see cref="Graph.Optimization.GraphOptimizer"/>) on the built definition
+    /// when it was not optimized by the current pipeline yet (default true). Set false, or the environment variable
+    /// <c>SHARPLIGHT_NO_GRAPH_OPT=1</c>, to compile the graphs exactly as the adapter built them (debugging, bisecting).
+    /// </summary>
+    public bool OptimizeGraphs { get; init; } = true;
+
+    /// <summary>
     /// The type of a KV cache whose rows (per position and head) hold <paramref name="rowLength"/> values: <see cref="KvCacheType"/>,
     /// or f16 when that type is block-quantized and the row is not a whole number of blocks.
     /// </summary>
@@ -40,6 +47,6 @@ public sealed class AdapterOptions
     public AdapterOptions With(Tensors.DataType kvCacheType, int contextLength) => new()
     {
         KvCacheType = kvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = contextLength,
-        EmbeddingPooling = EmbeddingPooling, EmbeddingNormalize = EmbeddingNormalize,
+        EmbeddingPooling = EmbeddingPooling, EmbeddingNormalize = EmbeddingNormalize, OptimizeGraphs = OptimizeGraphs,
     };
 }
