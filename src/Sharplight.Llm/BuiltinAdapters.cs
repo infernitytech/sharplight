@@ -3,10 +3,16 @@ using Sharplight.Models;
 
 namespace Sharplight.Llm;
 
-/// <summary>Registers the architecture adapters shipped with Sharplight.</summary>
-internal static class BuiltinAdapters
+/// <summary>
+/// Registers the architecture adapters shipped with Sharplight (decoder, encoder, hybrid and multimodal families) with
+/// <see cref="ModelAdapterRegistry"/>. <see cref="LlmModel"/> calls this itself; call it directly only when building
+/// <see cref="ModelDefinition"/>s from an importer without going through <see cref="LlmModel"/>.
+/// </summary>
+public static class BuiltinAdapters
 {
     private static int s_done;
+
+    /// <summary>Registers all built-in adapters. Idempotent and thread-safe.</summary>
     public static void RegisterAll()
     {
         if (Interlocked.Exchange(ref s_done, 1) == 1)
