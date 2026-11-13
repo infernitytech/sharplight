@@ -4,23 +4,6 @@ using Sharplight.Vision;
 
 namespace Sharplight.Llm;
 
-public sealed record GenerationOptions
-{
-    public int MaxNewTokens { get; init; } = 256;
-    public SamplingOptions Sampling { get; init; } = new();
-    /// <summary>Stop on end-of-generation tokens.</summary>
-    public bool StopAtEog { get; init; } = true;
-    public IReadOnlyList<string> StopStrings { get; init; } = [];
-}
-
-public readonly record struct GeneratedToken(int Id, string Text);
-
-public sealed record GenerationStats(int PromptTokens, int GeneratedTokens, TimeSpan PrefillTime, TimeSpan DecodeTime)
-{
-    public double PrefillTokensPerSecond => PromptTokens / Math.Max(1e-9, PrefillTime.TotalSeconds);
-    public double DecodeTokensPerSecond => Math.Max(0, GeneratedTokens - 1) / Math.Max(1e-9, DecodeTime.TotalSeconds);
-}
-
 /// <summary>
 /// Autoregressive text generation on top of an <see cref="InferenceSession"/>. With a <see cref="VisionEncoder"/> (and a
 /// session created on the multimodal decoder graph) prompts may contain images.

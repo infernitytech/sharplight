@@ -27,12 +27,3 @@ public sealed class SharplightChatClientOptions
     /// <summary>Extra variables passed to the chat template for every request.</summary>
     public IDictionary<string, object?> TemplateVariables { get; set; } = new Dictionary<string, object?>();
 }
-
-internal static class ImageDecoding
-{
-    public static ImageInput DecodeWithStb(DataContent content)
-    {
-        var img = StbImageSharp.ImageResult.FromMemory(content.Data.ToArray(), StbImageSharp.ColorComponents.RedGreenBlue);
-        return new ImageInput(img.Width, img.Height, img.Data);
-    }
-}

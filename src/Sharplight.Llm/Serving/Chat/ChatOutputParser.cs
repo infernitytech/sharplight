@@ -2,9 +2,6 @@ using System.Text;
 
 namespace Sharplight.Llm.Serving.Chat;
 
-public enum PieceKind { Content, Reasoning, ToolCall }
-public sealed record ParsedPiece(PieceKind Kind, string Text = "", ToolCall? Call = null);
-
 /// <summary>
 /// Incremental parser of model output: separates reasoning (<c>&lt;think&gt;…&lt;/think&gt;</c>) from content and extracts tool calls
 /// in any of the given <see cref="IToolCallFormat"/>s. Text that may be the start of a marker is held back until it is clear.
