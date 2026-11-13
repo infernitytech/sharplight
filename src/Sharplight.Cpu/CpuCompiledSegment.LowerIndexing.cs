@@ -87,6 +87,17 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Outputs[1]] = indices;
     }
 
+    private void LowerSample(Node n)
+    {
+        var logits = Dense(RefF32(n.Inputs[0]));
+        var parameters = Dense(Ref(n.Inputs[1]));
+        var tokens = NewDense(n.Outputs[0]);
+        var logprobs = NewDense(n.Outputs[1]);
+        AddStep(new SampleOp(logits, parameters, tokens, logprobs), logits, parameters, tokens, logprobs);
+        _refs[n.Outputs[0]] = tokens;
+        _refs[n.Outputs[1]] = logprobs;
+    }
+
     private void LowerTrilu(Node n)
     {
         var a = n.Attributes;

@@ -26,8 +26,9 @@ def pct(xs, p):
     return xs[f] + (xs[c] - xs[f]) * (k - f)
 
 async def one(client, args, prompt):
-    body = {"model": args.model, "prompt": prompt, "max_tokens": args.max_tokens, "temperature": 0.0, "stream": True,
+    body = {"model": args.model, "prompt": prompt, "max_tokens": args.max_tokens, "temperature": args.temperature, "stream": True,
             "stream_options": {"include_usage": True}}
+    if args.top_p < 1: body["top_p"] = args.top_p
     if args.ignore_eos: body["ignore_eos"] = True
     t0 = time.perf_counter(); times = []; usage = None
     async with client.stream("POST", args.url + "/v1/completions", json=body) as r:
@@ -57,6 +58,7 @@ async def main():
     ap.add_argument("-c", "--concurrency", type=int, default=4); ap.add_argument("--per-worker", type=int, default=3)
     ap.add_argument("--prompt-words", type=int, default=250); ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--ignore-eos", action="store_true", help="send ignore_eos (vLLM, llama-server)")
+    ap.add_argument("--temperature", type=float, default=0.0); ap.add_argument("--top-p", type=float, default=1.0)
     ap.add_argument("--warmup", type=int, default=1); ap.add_argument("--seed", type=int, default=1); ap.add_argument("--json")
     args = ap.parse_args()
     rng = random.Random(args.seed)

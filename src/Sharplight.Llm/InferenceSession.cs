@@ -20,6 +20,11 @@ public sealed class InferenceSession : IDisposable
     private readonly Value? _outputRows;
     private readonly Value? _embeddings;
     private readonly Value? _embeddingMask;
+    private readonly Value? _samplingParams;
+    private readonly int[] _paramBuf = new int[SamplingRow.Width];
+    private readonly int[] _sampledToken = new int[1];
+    private readonly float[] _sampledLogprob = new float[1];
+    private SamplingRow? _sampleRow;
     private readonly int _hidden;
     private float[] _embBuf = [];
     private float[] _maskBuf = [];
@@ -54,6 +59,7 @@ public sealed class InferenceSession : IDisposable
         _outputRows = _graph.TryInput(InputRole.OutputRows);
         _embeddings = _graph.TryInput(InputRole.Embeddings);
         _embeddingMask = _graph.TryInput(InputRole.EmbeddingMask);
+        _samplingParams = _graph.TryInput(InputRole.SamplingParameters);
         _hidden = _embeddings is null ? 0 : (int)_embeddings.Shape[-1].Fixed;
         _posAxes = _positions is null ? 0 : (int)_positions.Shape[-1].Fixed;
         if (_positions is not null && _positions.Rank == 1)
@@ -105,6 +111,44 @@ public sealed class InferenceSession : IDisposable
 
     /// <summary>The logits of the last processed row (the buffer returned by <see cref="Process(ReadOnlySpan{int})"/>).</summary>
     public float[] Logits => _logits;
+
+    /// <summary>True when the compiled graph has a device sampling head (see <see cref="ProcessSampled(ReadOnlySpan{int}, SamplingRow)"/>).</summary>
+    internal bool SamplesOnDevice => _samplingParams is not null;
+
+    /// <summary>
+    /// Like <see cref="Process(ReadOnlySpan{int})"/>, but chooses the next token on the device with <paramref name="sampling"/> and
+    /// downloads only it (and its log-probability when asked for) instead of the logits; <see cref="Logits"/> is not updated.
+    /// </summary>
+    internal (int Token, float Logprob) ProcessSampled(ReadOnlySpan<int> tokens, SamplingRow sampling)
+    {
+        _sampleRow = sampling;
+        try
+        {
+            Process(tokens);
+        }
+        finally
+        {
+            _sampleRow = null;
+        }
+
+        return (_sampledToken[0], _sampledLogprob[0]);
+    }
+
+    /// <summary>Multimodal form of <see cref="ProcessSampled(ReadOnlySpan{int}, SamplingRow)"/>.</summary>
+    internal (int Token, float Logprob) ProcessSampled(MultimodalPrompt prompt, IReadOnlyList<float[]> imageEmbeddings, SamplingRow sampling)
+    {
+        _sampleRow = sampling;
+        try
+        {
+            Process(prompt, imageEmbeddings);
+        }
+        finally
+        {
+            _sampleRow = null;
+        }
+
+        return (_sampledToken[0], _sampledLogprob[0]);
+    }
 
     private void RunChunk(ReadOnlySpan<int> tokens, bool wantLogits)
     {
@@ -161,12 +205,42 @@ public sealed class InferenceSession : IDisposable
             _compiled.SetInput<int>(_outputRows, [T - 1]);
         }
 
+        bool sample = wantLogits && _sampleRow is not null;
+        if (_samplingParams is not null)
+        {
+            if (sample)
+            {
+                _sampleRow!.Value.WriteTo(_paramBuf);
+            }
+            else
+            {
+                SamplingRow.WriteSkip(_paramBuf);
+            }
+
+            _compiled.SetInput<int>(_samplingParams, _paramBuf);
+        }
+        else if (sample)
+        {
+            throw new InvalidOperationException("This session was compiled without a device sampling head.");
+        }
+
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = 1;
         _run.Scalars[WellKnown.PastScalar] = Position;
+        _run.SkipOutputs.Clear();
+        if (sample || !wantLogits)
+        {
+            _run.SkipOutputs.Add("logits");
+        }
+
         _compiled.Run(_run);
         Position += T;
-        if (wantLogits)
+        if (sample)
+        {
+            _compiled.GetOutput<int>(SamplingHead.TokensOutput, _sampledToken);
+            _compiled.GetOutput<float>(SamplingHead.LogprobsOutput, _sampledLogprob);
+        }
+        else if (wantLogits)
         {
             _compiled.GetOutput<float>("logits", _logits);
         }

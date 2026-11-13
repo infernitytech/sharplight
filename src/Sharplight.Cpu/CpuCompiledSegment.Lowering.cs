@@ -114,6 +114,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "TopK":
                 LowerTopK(n);
                 return;
+            case "Sample":
+                LowerSample(n);
+                return;
             case "Trilu":
                 LowerTrilu(n);
                 return;
@@ -155,6 +158,12 @@ internal sealed unsafe partial class CpuCompiledSegment
                 return;
             case "GatedDeltaRule":
                 LowerGatedDeltaRule(n);
+                return;
+            case "Wkv7":
+                LowerWkv7(n);
+                return;
+            case "Wkv6":
+                LowerWkv6(n);
                 return;
         }
 

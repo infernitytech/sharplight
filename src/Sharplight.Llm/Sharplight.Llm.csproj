@@ -8,6 +8,7 @@
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
     <InternalsVisibleTo Include="Sharplight.Families.Tests" />
     <InternalsVisibleTo Include="Sharplight.Extensions.AI.Tests" />
+    <InternalsVisibleTo Include="BatchBench" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />

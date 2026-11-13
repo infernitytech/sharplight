@@ -84,6 +84,15 @@ public sealed partial class GraphLowerer
             case "SelectiveScan":
                 LowerSelectiveScan(n);
                 break;
+            case "Wkv7":
+                LowerWkv7(n);
+                break;
+            case "Wkv6":
+                LowerWkv6(n);
+                break;
+            case "Sample":
+                LowerSample(n);
+                break;
             default:
                 LowerOtherOp(n);
                 break;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tokenizers;
@@ -83,7 +84,7 @@ public sealed class LlmModel : IDisposable
     {
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
-        var compiled = CompiledModel.Compile(Definition.Graph(graph), placement);
+        var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
         return new InferenceSession(compiled);
     }
@@ -110,12 +111,22 @@ public sealed class LlmModel : IDisposable
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, 1));
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement);
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling);
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;
     }
 
     private const long DefaultReserve = 1L << 30;
+
+    /// <summary>
+    /// Whether decoders get a device sampling head: enabled by the options and the environment, and the logits are computed on an
+    /// accelerator (the last device in pipeline order); on the CPU the head would save nothing over sampling the logits directly.
+    /// </summary>
+    private bool UsesDeviceSampling => _options.DeviceSampling && DiagnosticSwitches.DeviceSampling
+        && _options.Devices.Count > 0 && _options.Devices[^1].Device.Info.Kind != DeviceKind.Cpu;
+
+    private ComputeGraph WithSamplingHead(ComputeGraph graph)
+        => UsesDeviceSampling && SamplingHead.CanAppend(graph) ? SamplingHead.Append(graph) : graph;
 
     /// <summary>Device placement and compile settings shared by sessions and batch decoders.</summary>
     /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>

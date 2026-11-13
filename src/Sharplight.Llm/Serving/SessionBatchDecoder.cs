@@ -1,3 +1,5 @@
+using Sharplight.Graph;
+
 namespace Sharplight.Llm.Serving;
 
 /// <summary>
@@ -7,7 +9,7 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 /// <param name="session">The session that holds the single context.</param>
 /// <param name="ownsSession">Dispose <paramref name="session"/> together with the decoder.</param>
-public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSession = true) : IBatchDecoder
+public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSession = true) : IBatchDecoder, IDeviceSamplingDecoder
 {
     private readonly float[] _logits = new float[session.VocabSize];
 
@@ -59,12 +61,21 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs)
+    bool IDeviceSamplingDecoder.SamplesOnDevice => session.SamplesOnDevice;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
     {
         var res = new float[]?[inputs.Count];
         for (int i = 0; i < inputs.Count; i++)
         {
             Check(inputs[i].Slot);
+            if (inputs[i].WantLogits && i < sampling.Count && sampling[i] is { } row)
+            {
+                (tokens[i], logprobs[i]) = session.ProcessSampled(inputs[i].Tokens.Span, row);
+                continue;
+            }
+
             var lg = session.Process(inputs[i].Tokens.Span);
             if (inputs[i].WantLogits)
             {
@@ -74,6 +85,9 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
         }
         return res;
     }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs) => Step(inputs, [], [], []);
 
     private static void Check(int slot)
     {

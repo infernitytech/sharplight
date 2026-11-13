@@ -31,6 +31,12 @@ public sealed class LlmLoadOptions
     /// <c>MaxTokens</c> (default 1024) tokens per image and images are resized to fit; <c>MinTokens</c> upsizes small images.
     /// </summary>
     public ImageTokenLimits? ImageTokens { get; init; }
+    /// <summary>
+    /// Choose tokens on the accelerator that computes the logits (default true): greedy and temperature / top-k / top-p / min-p sampling
+    /// then download only token ids instead of the full logits. Sampling features the device path cannot express (repetition
+    /// penalties, logit bias, alternatives for logprobs) still run on the CPU. Also disabled by <c>SHARPLIGHT_DEVICE_SAMPLING=0</c>.
+    /// </summary>
+    public bool DeviceSampling { get; init; } = true;
     /// <summary>Receives progress and compile-plan messages; null for silence.</summary>
     public Action<string>? Log { get; init; }
 }

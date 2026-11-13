@@ -1,3 +1,5 @@
+using Sharplight.Graph;
+
 namespace Sharplight.Llm;
 
 /// <summary>
@@ -8,6 +10,7 @@ public sealed class Sampler
 {
     private readonly SamplingOptions _o;
     private readonly Random _rng;
+    private readonly uint _deviceSeed;
     private readonly List<int> _history = [];
     private (int Id, float Logit)[] _cand = [];
 
@@ -16,6 +19,7 @@ public sealed class Sampler
     {
         _o = options;
         _rng = options.Seed is int s ? new Random(s) : new Random();
+        _deviceSeed = unchecked((uint)(options.Seed ?? Random.Shared.Next()));
     }
 
     /// <summary>Records a prompt or sampled token for the repetition penalty.</summary>
@@ -26,6 +30,40 @@ public sealed class Sampler
         {
             _history.RemoveAt(0);
         }
+    }
+
+    /// <summary>
+    /// The device sampling row for the <paramref name="counter"/>-th sampled token, or null when the options need the CPU path
+    /// (repetition penalty, or a top-p cut without a top-k of at most <see cref="SamplingHead.MaxNucleusCandidates"/>: this sampler
+    /// then sorts the whole vocabulary).
+    /// </summary>
+    internal SamplingRow? DeviceRow(int counter)
+    {
+        if (_o.RepetitionPenalty != 1f)
+        {
+            return null;
+        }
+
+        if (_o.Temperature <= 0)
+        {
+            return SamplingRow.Greedy();
+        }
+
+        bool nucleus = _o.TopP < 1;
+        if (nucleus && (_o.TopP <= 0 || _o.TopK <= 0 || _o.TopK > SamplingHead.MaxNucleusCandidates))
+        {
+            return null;
+        }
+
+        return new SamplingRow
+        {
+            Temperature = _o.Temperature,
+            TopK = _o.TopK,
+            TopP = _o.TopP,
+            MinP = _o.MinP,
+            Seed = _deviceSeed,
+            Counter = unchecked((uint)counter),
+        };
     }
 
     /// <summary>Chooses the next token id from <paramref name="logits"/> (one value per vocabulary entry).</summary>

@@ -10,6 +10,7 @@ namespace Sharplight.Runtime;
 public sealed class CompiledModel : IDisposable
 {
     private readonly ICompiledSegment[] _segments;
+    private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
 
     /// <summary>The graph that was compiled.</summary>
@@ -99,14 +100,22 @@ public sealed class CompiledModel : IDisposable
                 }
             }
 
-            seg.Execute(parameters);
+            var skip = SkippedDownloads(i, parameters);
+            if (skip.Count == 0)
+            {
+                seg.Execute(parameters);
+            }
+            else
+            {
+                seg.Execute(parameters, skip);
+            }
 
             // Pull values needed by later segments.
             if (i < _segments.Length - 1)
             {
                 foreach (var o in seg.Segment.Outputs)
                 {
-                    if (!_segments.Skip(i + 1).Any(s => s.Segment.Inputs.Contains(o)))
+                    if (!IsConsumedAfter(i, o))
                     {
                         continue;
                     }
@@ -121,6 +130,28 @@ public sealed class CompiledModel : IDisposable
                 }
             }
         }
+    }
+
+    private bool IsConsumedAfter(int segment, Value v) => _segments.Skip(segment + 1).Any(s => s.Segment.Inputs.Contains(v));
+
+    /// <summary>Graph outputs of segment <paramref name="segment"/> listed in <see cref="RunParameters.SkipOutputs"/> that no later segment needs.</summary>
+    private HashSet<Value> SkippedDownloads(int segment, RunParameters parameters)
+    {
+        if (parameters.SkipOutputs.Count == 0)
+        {
+            return s_noSkips;
+        }
+
+        var skip = new HashSet<Value>();
+        foreach (var name in parameters.SkipOutputs)
+        {
+            if (Graph.Outputs.TryGetValue(name, out var v) && _segments[segment].Segment.Outputs.Contains(v) && !IsConsumedAfter(segment, v))
+            {
+                skip.Add(v);
+            }
+        }
+
+        return skip;
     }
 
     /// <summary>Reads a graph output after <see cref="Run"/>.</summary>
