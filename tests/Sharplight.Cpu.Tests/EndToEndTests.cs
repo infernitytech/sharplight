@@ -11,29 +11,56 @@ namespace Sharplight.Cpu.Tests;
 /// </summary>
 public class EndToEndTests
 {
-    private const int V = 50, E = 32, H = 4, Hkv = 2, D = 8, FF = 64;
-    private const int Hk = 2, Dk = 8, Hv = 4, Dv = 8, ConvK = 4;
+    private const int V = 50;
+    private const int E = 32;
+    private const int H = 4;
+    private const int Hkv = 2;
+    private const int D = 8;
+    private const int FF = 64;
+    private const int Hk = 2;
+    private const int Dk = 8;
+    private const int Hv = 4;
+    private const int Dv = 8;
+    private const int ConvK = 4;
     private const float Eps = 1e-6f;
     private static readonly int[] Sections = [2, 1, 1, 0];
 
     private sealed class Model
     {
         public readonly Dictionary<string, float[]> Deq = [];     // dequantized values for the reference
-        public TG G = new("tiny");
+        public TestGraph G = new("tiny");
         public Value W(string name, string type, int n, int k, int seed, float scale = 0.3f)
         {
             var w = Kit.Rand(n * k, seed, scale);
-            byte[] data; float[] deq; var dt = DataType.Get(type);
+            byte[] data;
+            float[] deq;
+            var dt = DataType.Get(type);
             switch (type)
             {
-                case "f32": data = MemoryMarshal.AsBytes(w.AsSpan()).ToArray(); deq = w; break;
-                case "f16":
-                    data = new byte[n * k * 2]; deq = new float[n * k];
-                    for (int i = 0; i < w.Length; i++) { var h = (Half)w[i]; BitConverter.TryWriteBytes(data.AsSpan(i * 2), h); deq[i] = (float)h; }
+                case "f32":
+                    data = MemoryMarshal.AsBytes(w.AsSpan()).ToArray();
+                    deq = w;
                     break;
-                case "q8_0": data = Quantizers.Q8_0(w); deq = Quantizers.DeqQ8_0(data); break;
-                case "q4_0": data = Quantizers.Q4_0(w); deq = Quantizers.DeqQ4_0(data); break;
-                default: throw new NotSupportedException(type);
+                case "f16":
+                    data = new byte[n * k * 2];
+                    deq = new float[n * k];
+                    for (int i = 0; i < w.Length; i++)
+                    {
+                        var h = (Half)w[i];
+                        BitConverter.TryWriteBytes(data.AsSpan(i * 2), h);
+                        deq[i] = (float)h;
+                    }
+                    break;
+                case "q8_0":
+                    data = Quantizers.Q8_0(w);
+                    deq = Quantizers.DeqQ8_0(data);
+                    break;
+                case "q4_0":
+                    data = Quantizers.Q4_0(w);
+                    deq = Quantizers.DeqQ4_0(data);
+                    break;
+                default:
+                    throw new NotSupportedException(type);
             }
             Deq[name] = deq;
             return G.W(name, dt, k == 0 ? new Shape(n) : new Shape(n, k), data);
@@ -41,13 +68,17 @@ public class EndToEndTests
         public Value Vec(string name, int n, int seed, float scale = 1f, float offset = 0f)
         {
             var w = Kit.Rand(n, seed, scale).Select(x => x + offset).ToArray();
-            Deq[name] = w; return G.WF(name, w, n);
+            Deq[name] = w;
+            return G.WF(name, w, n);
         }
     }
 
     private (Model m, Value tokens, Value pos, Value rows, ComputeGraph graph) Build()
     {
-        var m = new Model(); var g = m.G; var b = g.B; var T = TG.T;
+        var m = new Model();
+        var g = m.G;
+        var b = g.B;
+        var T = TestGraph.T;
         var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
         var pos = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 4));
         var rows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
@@ -64,16 +95,19 @@ public class EndToEndTests
             var residual = x;
             var h = b.RmsNorm(x, m.Vec("l0.attn_norm", E, 10, 0.5f, 1f), Eps);
             var qFull = b.Reshape(b.MatMul(h, m.W("l0.q", "q8_0", 2 * H * D, E, 11)), 0, H, 2 * D);
-            var q = b.Slice(qFull, 2, 0, D); var gate = b.Slice(qFull, 2, D, D);
+            var q = b.Slice(qFull, 2, 0, D);
+            var gate = b.Slice(qFull, 2, D, D);
             q = b.RmsNorm(q, m.Vec("l0.q_norm", D, 12, 0.5f, 1f), Eps);
             var k = b.Reshape(b.MatMul(h, m.W("l0.k", "f32", Hkv * D, E, 13)), 0, Hkv, D);
             k = b.RmsNorm(k, m.Vec("l0.k_norm", D, 14, 0.5f, 1f), Eps);
             var v = b.Reshape(b.MatMul(h, m.W("l0.v", "f16", Hkv * D, E, 15)), 0, Hkv, D);
             var rope = Attributes.From(("dims", D), ("base", 10000f), ("style", "neox"), ("interleaved", true)).With("sections", Sections);
-            q = b.Emit1("Rope", [q, pos], rope); k = b.Emit1("Rope", [k, pos], rope);
+            q = b.Emit1("Rope", [q, pos], rope);
+            k = b.Emit1("Rope", [k, pos], rope);
             var kc = g.State("l0.kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
             var vc = g.State("l0.vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
-            b.CacheWrite(kc, k); b.CacheWrite(vc, v);
+            b.CacheWrite(kc, k);
+            b.CacheWrite(vc, v);
             var attn = b.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D));
             attn = b.Mul(attn, b.Sigmoid(gate));
             var o = b.MatMul(b.Reshape(attn, 0, H * D), m.W("l0.o", "q4_0", E, H * D, 16));
@@ -129,7 +163,8 @@ public class EndToEndTests
     // ---------------------------------------------------------------- scalar reference
     private static float[] RefForward(Model m, int[] tokens, int[] positions /* [T,4] */, out float[] hiddenOut)
     {
-        int T = tokens.Length; var W = m.Deq;
+        int T = tokens.Length;
+        var W = m.Deq;
         var x = new float[T * E];
         for (int t = 0; t < T; t++)
         {
@@ -141,7 +176,8 @@ public class EndToEndTests
         float[] Mlp(float[] x, string p)
         {
             var h = Ref.RmsNorm(x, T, E, W[p + ".ffn_norm"], Eps);
-            var gate = Ref.MatMul(h, T, E, W[p + ".gate"], FF); var up = Ref.MatMul(h, T, E, W[p + ".up"], FF);
+            var gate = Ref.MatMul(h, T, E, W[p + ".gate"], FF);
+            var up = Ref.MatMul(h, T, E, W[p + ".up"], FF);
             var act = gate.Select((v, i) => Ref.Silu(v) * up[i]).ToArray();
             return add(Ref.MatMul(act, T, FF, W[p + ".down"], E), x);
         }
@@ -150,10 +186,15 @@ public class EndToEndTests
         {
             var h = Ref.RmsNorm(x, T, E, W["l0.attn_norm"], Eps);
             var qFull = Ref.MatMul(h, T, E, W["l0.q"], 2 * H * D);
-            var q = new float[T * H * D]; var gate = new float[T * H * D];
+            var q = new float[T * H * D];
+            var gate = new float[T * H * D];
             for (int r = 0; r < T * H; r++)
             {
-                for (int i = 0; i < D; i++) { q[r * D + i] = qFull[r * 2 * D + i]; gate[r * D + i] = qFull[r * 2 * D + D + i]; }
+                for (int i = 0; i < D; i++)
+                {
+                    q[r * D + i] = qFull[r * 2 * D + i];
+                    gate[r * D + i] = qFull[r * 2 * D + D + i];
+                }
             }
 
             q = Ref.RmsNorm(q, T * H, D, W["l0.q_norm"], Eps);
@@ -161,7 +202,8 @@ public class EndToEndTests
             var v = Ref.MatMul(h, T, E, W["l0.v"], Hkv * D);
             q = Ref.Rope(q, T, H, D, positions, 4, D, 10000f, "neox", Sections, true, 1f);
             k = Ref.Rope(k, T, Hkv, D, positions, 4, D, 10000f, "neox", Sections, true, 1f);
-            var kr = k.Select(f => (float)(Half)f).ToArray(); var vr = v.Select(f => (float)(Half)f).ToArray();
+            var kr = k.Select(f => (float)(Half)f).ToArray();
+            var vr = v.Select(f => (float)(Half)f).ToArray();
             var attn = Ref.Attention(q, T, H, D, kr, vr, T, Hkv, D, 1f / MathF.Sqrt(D), 0, true);
             for (int i = 0; i < attn.Length; i++)
             {
@@ -174,10 +216,12 @@ public class EndToEndTests
         {
             var h = Ref.RmsNorm(x, T, E, W["l1.attn_norm"], Eps);
             int qkvDim = 2 * Hk * Dk + Hv * Dv;
-            var qkv = Ref.MatMul(h, T, E, W["l1.qkv"], qkvDim); var z = Ref.MatMul(h, T, E, W["l1.zgate"], Hv * Dv);
+            var qkv = Ref.MatMul(h, T, E, W["l1.qkv"], qkvDim);
+            var z = Ref.MatMul(h, T, E, W["l1.zgate"], Hv * Dv);
             var beta = Ref.MatMul(h, T, E, W["l1.beta"], Hv).Select(Ref.Sigmoid).ToArray();
             var alpha = Ref.MatMul(h, T, E, W["l1.alpha"], Hv);
-            var g = new float[T * Hv]; for (int t = 0; t < T; t++)
+            var g = new float[T * Hv];
+            for (int t = 0; t < T; t++)
             {
                 for (int i = 0; i < Hv; i++)
                 {
@@ -187,7 +231,9 @@ public class EndToEndTests
 
             var conv = Ref.Conv(qkv, T, qkvDim, W["l1.conv1d"], ConvK, new float[(ConvK - 1) * qkvDim], true);
             float[] Cut(int col, int n) { var r = new float[T * n]; for (int t = 0; t < T; t++) { Array.Copy(conv, t * qkvDim + col, r, t * n, n); } return r; }
-            var q = Ref.L2Norm(Cut(0, Hk * Dk), T * Hk, Dk, Eps); var k = Ref.L2Norm(Cut(Hk * Dk, Hk * Dk), T * Hk, Dk, Eps); var v = Cut(2 * Hk * Dk, Hv * Dv);
+            var q = Ref.L2Norm(Cut(0, Hk * Dk), T * Hk, Dk, Eps);
+            var k = Ref.L2Norm(Cut(Hk * Dk, Hk * Dk), T * Hk, Dk, Eps);
+            var v = Cut(2 * Hk * Dk, Hv * Dv);
             var o = Ref.Delta(q, k, v, g, beta, new float[Hv * Dv * Dk], T, Hk, Hv, Dk, Dv, 1f / MathF.Sqrt(Dk));
             var on = Ref.RmsNorm(o, T * Hv, Dv, W["l1.ssm_norm"], Eps);
             for (int i = 0; i < on.Length; i++)
@@ -208,7 +254,8 @@ public class EndToEndTests
         var (model, tokensIn, posIn, rowsIn, graph) = Build();
         int[] tokens = [3, 17, 42, 8, 29, 5];
         int total = tokens.Length;
-        var positions = new int[total * 4]; for (int t = 0; t < total; t++)
+        var positions = new int[total * 4];
+        for (int t = 0; t < total; t++)
         {
             for (int a = 0; a < 4; a++)
             {
@@ -227,7 +274,8 @@ public class EndToEndTests
             cm.SetInput(rowsIn, MemoryMarshal.AsBytes(rows.AsSpan()));
             var p = Kit.P(count, start, ("R", rows.Length));
             cm.Run(p);
-            logits = Kit.Out(cm, "logits", p); hidden = Kit.Out(cm, "hidden", p);
+            logits = Kit.Out(cm, "logits", p);
+            hidden = Kit.Out(cm, "hidden", p);
         }
         // prefill 5 tokens (ask for logits of the last one), then decode token 6
         Run(0, 5, [4], out var l1, out var h1);
@@ -278,11 +326,14 @@ public class EndToEndTests
     [Fact]
     public void UnknownOpIsUnsupported()
     {
-        var tg = new TG(); var x = tg.InF("x", TG.T, 4);
+        var tg = new TestGraph();
+        var x = tg.InF("x", TestGraph.T, 4);
         var op = new OpSchema("MyCustomOp", OpCategory.Composite, 1, 1, (i, a) => [new TensorType(DataType.F32, i[0].Shape)]);
         OpRegistry.Register(op);
-        var y = tg.B.Emit(op, [x])[0]; tg.B.Output("y", y);
+        var y = tg.B.Emit(op, [x])[0];
+        tg.B.Output("y", y);
         var sup = Kit.Device.Supports(tg.B.Build().Nodes[0]);
-        Assert.False(sup.IsSupported); Assert.Contains("MyCustomOp", sup.Reason);
+        Assert.False(sup.IsSupported);
+        Assert.Contains("MyCustomOp", sup.Reason);
     }
 }

@@ -25,9 +25,9 @@ public class MoeTests
         var x = Kit.Rand(perSlot ? T * S * K : T * K, 7);
         var ids = Enumerable.Range(0, T * S).Select(i => sparse ? (i % 3 == 0 ? 2 : 4) : (i * 5 + i / 3) % E).ToArray();
 
-        var tg = new TG();
-        var xin = perSlot ? tg.InF("x", TG.T, S, K) : tg.InF("x", TG.T, K);
-        var idin = tg.In("ids", DataType.I32, TG.T, S);
+        var tg = new TestGraph();
+        var xin = perSlot ? tg.InF("x", TestGraph.T, S, K) : tg.InF("x", TestGraph.T, K);
+        var idin = tg.In("ids", DataType.I32, TestGraph.T, S);
         Value w;
         if (f16)
         {
@@ -46,8 +46,10 @@ public class MoeTests
 
         tg.B.Output("y", tg.B.Emit1("MatMulId", [xin, w, idin]));
         using var m = Kit.Compile(tg.B.Build());
-        Kit.Set(m, xin, x); Kit.Set(m, idin, ids);
-        var p = Kit.P(T); m.Run(p);
+        Kit.Set(m, xin, x);
+        Kit.Set(m, idin, ids);
+        var p = Kit.P(T);
+        m.Run(p);
 
         var exp = new float[T * S * N];
         for (int t = 0; t < T; t++)

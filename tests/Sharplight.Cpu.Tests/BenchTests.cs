@@ -20,7 +20,8 @@ public class BenchTests
         var rng = new Random(seed);
         var data = new byte[rows * t.ByteSize(k)];
         rng.NextBytes(data);
-        int bb = t.BlockBytes; long nb = data.Length / bb;
+        int bb = t.BlockBytes;
+        long nb = data.Length / bb;
         for (long b = 0; b < nb; b++)
         {
             BitConverter.TryWriteBytes(data.AsSpan((int)(b * bb), 2), (Half)(0.01f + 0.01f * (b % 5)));
@@ -47,10 +48,11 @@ public class BenchTests
     public void MatMulThroughput(string type, int tokens)
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
-        const int N = 17408, K = 5120;
+        const int N = 17408;
+        const int K = 5120;
         if (int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_THREADS"), out var thr))
         {
-            Par.Threads = thr;
+            CpuParallel.Threads = thr;
         }
 
         var dt = DataType.Get(type);
@@ -60,9 +62,9 @@ public class BenchTests
                 data[i] &= 0x3B;
             }
         }
-        var tg = new TG();
+        var tg = new TestGraph();
         var w = tg.W("w", dt, new Shape(N, K), data);
-        var x = tg.InF("x", TG.T, K);
+        var x = tg.InF("x", TestGraph.T, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: tokens);
         Kit.Set(m, x, Kit.Rand(tokens * K, 2));
@@ -74,11 +76,16 @@ public class BenchTests
 
         int iters = tokens == 1 ? 300 : 10;
         var times = new double[iters];
-        for (int i = 0; i < iters; i++) { long t0 = Stopwatch.GetTimestamp(); m.Run(p); times[i] = Stopwatch.GetElapsedTime(t0).TotalSeconds; }
+        for (int i = 0; i < iters; i++)
+        {
+            long t0 = Stopwatch.GetTimestamp();
+            m.Run(p);
+            times[i] = Stopwatch.GetElapsedTime(t0).TotalSeconds;
+        }
         Array.Sort(times);
         double sec = times[Math.Max(0, iters / 10)]; // 10th percentile: robust against other processes sharing the machine
         double gbps = data.Length / sec / 1e9;
         double gflops = 2.0 * tokens * N * K / sec / 1e9;
-        Report($"MatMul {type,-5} {N}x{K} T={tokens,-4} {sec * 1e3,8:F3} ms  weights {data.Length / 1e6:F1} MB  {gbps,7:F1} GB/s  {gflops,8:F1} GFLOP/s  (p10 of {iters} runs, threads {Par.Threads})");
+        Report($"MatMul {type,-5} {N}x{K} T={tokens,-4} {sec * 1e3,8:F3} ms  weights {data.Length / 1e6:F1} MB  {gbps,7:F1} GB/s  {gflops,8:F1} GFLOP/s  (p10 of {iters} runs, threads {CpuParallel.Threads})");
     }
 }

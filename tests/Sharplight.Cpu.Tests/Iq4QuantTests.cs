@@ -34,7 +34,11 @@ public unsafe class Iq4QuantTests
             long e0 = blk * t.BlockSize;
             if (t == DataType.IQ4_NL)
             {
-                for (int j = 0; j < 16; j++) { r[e0 + j] = d * KValues[q[o + 2 + j] & 15]; r[e0 + j + 16] = d * KValues[q[o + 2 + j] >> 4]; }
+                for (int j = 0; j < 16; j++)
+                {
+                    r[e0 + j] = d * KValues[q[o + 2 + j] & 15];
+                    r[e0 + j + 16] = d * KValues[q[o + 2 + j] >> 4];
+                }
                 continue;
             }
             int scalesH = q[o + 2] | q[o + 3] << 8;
@@ -72,17 +76,19 @@ public unsafe class Iq4QuantTests
     public void GatherAndMatMul(string name)
     {
         var t = DataType.Get(name);
-        int rows = 7, k = t.BlockSize * 3;
+        int rows = 7;
+        int k = t.BlockSize * 3;
         var q = RandomBlocks(t, (long)rows * k, 4);
         var deq = Reference(t, q, (long)rows * k);
-        var tg = new TG();
+        var tg = new TestGraph();
         var table = tg.W("tbl", t, new Shape(rows, k), q);
-        var idx = tg.In("idx", DataType.I32, TG.T);
+        var idx = tg.In("idx", DataType.I32, TestGraph.T);
         tg.B.Output("y", tg.B.Gather(table, idx));
         using (var m = Kit.Compile(tg.B.Build()))
         {
             m.SetInput(idx, MemoryMarshal.AsBytes(new[] { 6, 0, 2 }.AsSpan()));
-            var p = Kit.P(3); m.Run(p);
+            var p = Kit.P(3);
+            m.Run(p);
             var exp = new List<float>();
             foreach (int r in new[] { 6, 0, 2 })
             {
@@ -94,19 +100,21 @@ public unsafe class Iq4QuantTests
         foreach (int tokens in new[] { 1, 5 })
         {
             var x = Kit.Rand(tokens * k, 12);
-            var tg2 = new TG();
+            var tg2 = new TestGraph();
             var w = tg2.W("w", t, new Shape(rows, k), q);
-            var xin = tg2.InF("x", TG.T, k);
+            var xin = tg2.InF("x", TestGraph.T, k);
             tg2.B.Output("y", tg2.B.MatMul(xin, w));
             using var m = Kit.Compile(tg2.B.Build());
             Kit.Set(m, xin, x);
-            var p = Kit.P(tokens); m.Run(p);
+            var p = Kit.P(tokens);
+            m.Run(p);
             var exp = new float[tokens * rows];
             for (int tt = 0; tt < tokens; tt++)
             {
                 for (int r = 0; r < rows; r++)
                 {
-                    double s = 0; for (int c = 0; c < k; c++)
+                    double s = 0;
+                    for (int c = 0; c < k; c++)
                     {
                         s += (double)x[tt * k + c] * deq[r * k + c];
                     }

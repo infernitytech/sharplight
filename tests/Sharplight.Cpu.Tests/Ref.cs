@@ -8,7 +8,8 @@ internal static class Ref
         var y = new float[x.Length];
         for (int r = 0; r < rows; r++)
         {
-            double s = 0; for (int i = 0; i < n; i++)
+            double s = 0;
+            for (int i = 0; i < n; i++)
             {
                 s += (double)x[r * n + i] * x[r * n + i];
             }
@@ -27,7 +28,8 @@ internal static class Ref
         var y = new float[x.Length];
         for (int r = 0; r < rows; r++)
         {
-            double s = 0; for (int i = 0; i < n; i++)
+            double s = 0;
+            for (int i = 0; i < n; i++)
             {
                 s += (double)x[r * n + i] * x[r * n + i];
             }
@@ -46,7 +48,15 @@ internal static class Ref
         var y = new float[rows * n];
         for (int t = 0; t < rows; t++)
         {
-            for (int r = 0; r < n; r++) { double s = 0; for (int c = 0; c < k; c++) { s += (double)x[t * k + c] * w[r * k + c]; } y[t * n + r] = (float)s; }
+            for (int r = 0; r < n; r++)
+            {
+                double s = 0;
+                for (int c = 0; c < k; c++)
+                {
+                    s += (double)x[t * k + c] * w[r * k + c];
+                }
+                y[t * n + r] = (float)s;
+            }
         }
 
         return y;
@@ -69,7 +79,9 @@ internal static class Ref
                 int axis = 0;
                 if (sections is { Length: 4 })
                 {
-                    int sd = sections.Sum(), sec = i % sd, secW = sections[0] + sections[1];
+                    int sd = sections.Sum();
+                    int sec = i % sd;
+                    int secW = sections[0] + sections[1];
                     if (interleaved)
                     {
                         if (sec % 3 == 1 && sec < 3 * sections[1])
@@ -111,8 +123,10 @@ internal static class Ref
                 int o = (t * H + h) * D;
                 for (int i = 0; i < half; i++)
                 {
-                    int i0 = style == "gptj" ? 2 * i : i, i1 = style == "gptj" ? 2 * i + 1 : i + half;
-                    double x0 = x[o + i0], x1 = x[o + i1];
+                    int i0 = style == "gptj" ? 2 * i : i;
+                    int i1 = style == "gptj" ? 2 * i + 1 : i + half;
+                    double x0 = x[o + i0];
+                    double x1 = x[o + i1];
                     y[o + i0] = (float)(x0 * cs[i].c - x1 * cs[i].s);
                     y[o + i1] = (float)(x0 * cs[i].s + x1 * cs[i].c);
                 }
@@ -135,7 +149,8 @@ internal static class Ref
                 int j0 = window > 0 ? Math.Max(0, n - window) : 0;
                 for (int j = j0; j < n; j++)
                 {
-                    double d = 0; for (int i = 0; i < D; i++)
+                    double d = 0;
+                    for (int i = 0; i < D; i++)
                     {
                         d += (double)q[(t * Hq + h) * D + i] * k[(j * Hkv + hk) * D + i];
                     }
@@ -146,15 +161,22 @@ internal static class Ref
                         sc[j] = softcap * Math.Tanh(sc[j] / softcap);
                     }
                 }
-                double mx = sinks is null ? double.NegativeInfinity : sinks[h]; for (int j = j0; j < n; j++)
+                double mx = sinks is null ? double.NegativeInfinity : sinks[h];
+                for (int j = j0; j < n; j++)
                 {
                     mx = Math.Max(mx, sc[j]);
                 }
 
-                double sum = sinks is null ? 0 : Math.Exp(sinks[h] - mx); for (int j = j0; j < n; j++) { sc[j] = Math.Exp(sc[j] - mx); sum += sc[j]; }
+                double sum = sinks is null ? 0 : Math.Exp(sinks[h] - mx);
+                for (int j = j0; j < n; j++)
+                {
+                    sc[j] = Math.Exp(sc[j] - mx);
+                    sum += sc[j];
+                }
                 for (int i = 0; i < Dv; i++)
                 {
-                    double a = 0; for (int j = j0; j < n; j++)
+                    double a = 0;
+                    for (int j = j0; j < n; j++)
                     {
                         a += sc[j] / sum * v[(j * Hkv + hk) * Dv + i];
                     }
@@ -171,13 +193,15 @@ internal static class Ref
     public static float[] Conv(float[] x, int T, int C, float[] w, int K, float[] state, bool silu)
     {
         var win = new float[(K - 1 + T) * C];
-        Array.Copy(state, win, (K - 1) * C); Array.Copy(x, 0, win, (K - 1) * C, T * C);
+        Array.Copy(state, win, (K - 1) * C);
+        Array.Copy(x, 0, win, (K - 1) * C, T * C);
         var y = new float[T * C];
         for (int t = 0; t < T; t++)
         {
             for (int c = 0; c < C; c++)
             {
-                double s = 0; for (int j = 0; j < K; j++)
+                double s = 0;
+                for (int j = 0; j < K; j++)
                 {
                     s += (double)w[c * K + j] * win[(t + j) * C + c];
                 }
@@ -204,10 +228,18 @@ internal static class Ref
                 {
                     int b = (h * Dv + j) * Dk;
                     double kv = 0;
-                    for (int i = 0; i < Dk; i++) { S[b + i] = (float)(S[b + i] * decay); kv += (double)S[b + i] * k[(t * Hk + hq) * Dk + i]; }
+                    for (int i = 0; i < Dk; i++)
+                    {
+                        S[b + i] = (float)(S[b + i] * decay);
+                        kv += (double)S[b + i] * k[(t * Hk + hq) * Dk + i];
+                    }
                     double delta = (v[(t * Hv + h) * Dv + j] - kv) * beta[t * Hv + h];
                     double acc = 0;
-                    for (int i = 0; i < Dk; i++) { S[b + i] = (float)(S[b + i] + k[(t * Hk + hq) * Dk + i] * delta); acc += (double)S[b + i] * q[(t * Hk + hq) * Dk + i]; }
+                    for (int i = 0; i < Dk; i++)
+                    {
+                        S[b + i] = (float)(S[b + i] + k[(t * Hk + hq) * Dk + i] * delta);
+                        acc += (double)S[b + i] * q[(t * Hk + hq) * Dk + i];
+                    }
                     o[(t * Hv + h) * Dv + j] = (float)(acc * scale);
                 }
             }
@@ -221,12 +253,14 @@ internal static class Ref
         var y = new float[x.Length];
         for (int r = 0; r < rows; r++)
         {
-            double mx = double.NegativeInfinity; for (int i = 0; i < n; i++)
+            double mx = double.NegativeInfinity;
+            for (int i = 0; i < n; i++)
             {
                 mx = Math.Max(mx, (double)x[r * n + i] * scale);
             }
 
-            double s = 0; for (int i = 0; i < n; i++)
+            double s = 0;
+            for (int i = 0; i < n; i++)
             {
                 s += Math.Exp(x[r * n + i] * scale - mx);
             }

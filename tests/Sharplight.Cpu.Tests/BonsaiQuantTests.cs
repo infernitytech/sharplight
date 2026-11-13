@@ -27,7 +27,15 @@ public unsafe class BonsaiQuantTests
         return b;
     }
 
-    private static int Trit(byte b, int n) { int pw = 1; for (int i = 0; i < n; i++) { pw *= 3; } return ((((b * pw) & 0xFF) * 3) >> 8) - 1; }
+    private static int Trit(byte b, int n)
+    {
+        int pw = 1;
+        for (int i = 0; i < n; i++)
+        {
+            pw *= 3;
+        }
+        return ((((b * pw) & 0xFF) * 3) >> 8) - 1;
+    }
 
     public static float[] Reference(DataType t, byte[] q, long elements)
     {
@@ -106,18 +114,20 @@ public unsafe class BonsaiQuantTests
     public void GatherAndMatMul(string name)
     {
         var t = DataType.Get(name);
-        int rows = 9, k = t.BlockSize * 4;
+        int rows = 9;
+        int k = t.BlockSize * 4;
         var q = RandomBlocks(t, (long)rows * k, 9);
         var deq = Reference(t, q, (long)rows * k);
 
-        var tg = new TG();
+        var tg = new TestGraph();
         var table = tg.W("tbl", t, new Shape(rows, k), q);
-        var idx = tg.In("idx", DataType.I32, TG.T);
+        var idx = tg.In("idx", DataType.I32, TestGraph.T);
         tg.B.Output("y", tg.B.Gather(table, idx));
         using (var m = Kit.Compile(tg.B.Build()))
         {
             m.SetInput(idx, MemoryMarshal.AsBytes(new[] { 3, 0, 8 }.AsSpan()));
-            var p = Kit.P(3); m.Run(p);
+            var p = Kit.P(3);
+            m.Run(p);
             var exp = new List<float>();
             foreach (int r in new[] { 3, 0, 8 })
             {
@@ -130,19 +140,21 @@ public unsafe class BonsaiQuantTests
         foreach (int tokens in new[] { 1, 4 })
         {
             var x = Kit.Rand(tokens * k, 11);
-            var tg2 = new TG();
+            var tg2 = new TestGraph();
             var w = tg2.W("w", t, new Shape(rows, k), q);
-            var xin = tg2.InF("x", TG.T, k);
+            var xin = tg2.InF("x", TestGraph.T, k);
             tg2.B.Output("y", tg2.B.MatMul(xin, w));
             using var m = Kit.Compile(tg2.B.Build());
             Kit.Set(m, xin, x);
-            var p = Kit.P(tokens); m.Run(p);
+            var p = Kit.P(tokens);
+            m.Run(p);
             var exp = new float[tokens * rows];
             for (int tt = 0; tt < tokens; tt++)
             {
                 for (int r = 0; r < rows; r++)
                 {
-                    double s = 0; for (int c = 0; c < k; c++)
+                    double s = 0;
+                    for (int c = 0; c < k; c++)
                     {
                         s += (double)x[tt * k + c] * deq[r * k + c];
                     }

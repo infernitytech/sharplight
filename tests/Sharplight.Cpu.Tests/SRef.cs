@@ -20,8 +20,10 @@ internal static class SRef
     public static float[] Conv(float[] x, int N, int C, int H, int W, float[] w, int O, int KH, int KW, float[]? bias,
         int[] stride, int[] pad, int[] dil, int groups, out int HO, out int WO)
     {
-        HO = (int)OutDim(H, KH, stride[0], pad[0], pad[2], dil[0], false); WO = (int)OutDim(W, KW, stride[1], pad[1], pad[3], dil[1], false);
-        int Cg = C / groups, Og = O / groups;
+        HO = (int)OutDim(H, KH, stride[0], pad[0], pad[2], dil[0], false);
+        WO = (int)OutDim(W, KW, stride[1], pad[1], pad[3], dil[1], false);
+        int Cg = C / groups;
+        int Og = O / groups;
         var y = new float[N * O * HO * WO];
         for (int n = 0; n < N; n++)
         {
@@ -39,7 +41,8 @@ internal static class SRef
                             {
                                 for (int kw = 0; kw < KW; kw++)
                                 {
-                                    int ih = oh * stride[0] - pad[0] + kh * dil[0], iw = ow * stride[1] - pad[1] + kw * dil[1];
+                                    int ih = oh * stride[0] - pad[0] + kh * dil[0];
+                                    int iw = ow * stride[1] - pad[1] + kw * dil[1];
                                     if (ih < 0 || ih >= H || iw < 0 || iw >= W)
                                     {
                                         continue;
@@ -61,7 +64,8 @@ internal static class SRef
 
     public static float[] Pool(float[] x, int N, int C, int H, int W, bool max, int[] k, int[] stride, int[] pad, int[] dil, bool ceil, bool includePad, out int HO, out int WO)
     {
-        HO = (int)OutDim(H, k[0], stride[0], pad[0], pad[2], dil[0], ceil); WO = (int)OutDim(W, k[1], stride[1], pad[1], pad[3], dil[1], ceil);
+        HO = (int)OutDim(H, k[0], stride[0], pad[0], pad[2], dil[0], ceil);
+        WO = (int)OutDim(W, k[1], stride[1], pad[1], pad[3], dil[1], ceil);
         var y = new float[N * C * HO * WO];
         for (int nc = 0; nc < N * C; nc++)
         {
@@ -69,20 +73,26 @@ internal static class SRef
             {
                 for (int ow = 0; ow < WO; ow++)
                 {
-                    int hs = oh * stride[0] - pad[0], ws = ow * stride[1] - pad[1];
-                    double best = double.NegativeInfinity, sum = 0; int cnt = 0;
+                    int hs = oh * stride[0] - pad[0];
+                    int ws = ow * stride[1] - pad[1];
+                    double best = double.NegativeInfinity;
+                    double sum = 0;
+                    int cnt = 0;
                     for (int kh = 0; kh < k[0]; kh++)
                     {
                         for (int kw = 0; kw < k[1]; kw++)
                         {
-                            int ih = hs + kh * dil[0], iw = ws + kw * dil[1];
+                            int ih = hs + kh * dil[0];
+                            int iw = ws + kw * dil[1];
                             if (ih < 0 || ih >= H || iw < 0 || iw >= W)
                             {
                                 continue;
                             }
 
                             double v = x[(nc * H + ih) * W + iw];
-                            best = Math.Max(best, v); sum += v; cnt++;
+                            best = Math.Max(best, v);
+                            sum += v;
+                            cnt++;
                         }
                     }
 
@@ -94,7 +104,8 @@ internal static class SRef
                     else if (includePad)
                     {
                         // padded-window area: clipped to [-pad_begin, size + pad_end)
-                        int he = Math.Min(hs + k[0], H + pad[2]), we = Math.Min(ws + k[1], W + pad[3]);
+                        int he = Math.Min(hs + k[0], H + pad[2]);
+                        int we = Math.Min(ws + k[1], W + pad[3]);
                         r = sum / ((he - hs) * (we - ws));
                     }
                     else
@@ -113,7 +124,8 @@ internal static class SRef
     public static float[] Reduce(float[] x, long[] dims, long[] axes, string mode, bool keep, out long[] od)
     {
         int r = dims.Length;
-        var red = new bool[r]; foreach (var a in axes)
+        var red = new bool[r];
+        foreach (var a in axes)
         {
             red[a < 0 ? a + r : a] = true;
         }
@@ -124,11 +136,17 @@ internal static class SRef
         var acc = new double[nOut];
         double init = mode == "max" ? double.NegativeInfinity : mode == "min" ? double.PositiveInfinity : 0;
         Array.Fill(acc, init);
-        long total = Prod(dims), cnt = total / Math.Max(1, nOut);
+        long total = Prod(dims);
+        long cnt = total / Math.Max(1, nOut);
         var idx = new long[r];
         for (long lin = 0; lin < total; lin++)
         {
-            long rem = lin; for (int d = r - 1; d >= 0; d--) { idx[d] = rem % dims[d]; rem /= dims[d]; }
+            long rem = lin;
+            for (int d = r - 1; d >= 0; d--)
+            {
+                idx[d] = rem % dims[d];
+                rem /= dims[d];
+            }
             long o = 0;
             for (int d = 0; d < r; d++)
             {
@@ -147,12 +165,17 @@ internal static class SRef
     /// <summary>a [..., M, K] (or [..., K, M]) times b [..., K, N] (or [..., N, K]) with broadcast batch dims.</summary>
     public static float[] Bmm(float[] a, long[] ad, float[] b, long[] bd, bool ta, bool tb, float alpha, out long[] od)
     {
-        int ra = ad.Length, rb = bd.Length, br = Math.Max(ra, rb) - 2;
-        long M = ta ? ad[ra - 1] : ad[ra - 2], K = ta ? ad[ra - 2] : ad[ra - 1], N = tb ? bd[rb - 2] : bd[rb - 1];
+        int ra = ad.Length;
+        int rb = bd.Length;
+        int br = Math.Max(ra, rb) - 2;
+        long M = ta ? ad[ra - 1] : ad[ra - 2];
+        long K = ta ? ad[ra - 2] : ad[ra - 1];
+        long N = tb ? bd[rb - 2] : bd[rb - 1];
         var batch = new long[br];
         for (int i = 0; i < br; i++)
         {
-            int ia = i - (br - (ra - 2)), ib = i - (br - (rb - 2));
+            int ia = i - (br - (ra - 2));
+            int ib = i - (br - (rb - 2));
             batch[i] = Math.Max(ia >= 0 ? ad[ia] : 1, ib >= 0 ? bd[ib] : 1);
         }
         od = [.. batch, M, N];
@@ -160,15 +183,30 @@ internal static class SRef
         var y = new float[nb * M * N];
         for (long bi = 0; bi < nb; bi++)
         {
-            long rem = bi, oa = 0, ob = 0, sa = 1, sb = 1;
+            long rem = bi;
+            long oa = 0;
+            long ob = 0;
+            long sa = 1;
+            long sb = 1;
             for (int i = br - 1; i >= 0; i--)
             {
-                long ix = rem % batch[i]; rem /= batch[i];
-                int ia = i - (br - (ra - 2)), ib = i - (br - (rb - 2));
-                if (ia >= 0) { oa += (ad[ia] == 1 ? 0 : ix) * sa; sa *= ad[ia]; }
-                if (ib >= 0) { ob += (bd[ib] == 1 ? 0 : ix) * sb; sb *= bd[ib]; }
+                long ix = rem % batch[i];
+                rem /= batch[i];
+                int ia = i - (br - (ra - 2));
+                int ib = i - (br - (rb - 2));
+                if (ia >= 0)
+                {
+                    oa += (ad[ia] == 1 ? 0 : ix) * sa;
+                    sa *= ad[ia];
+                }
+                if (ib >= 0)
+                {
+                    ob += (bd[ib] == 1 ? 0 : ix) * sb;
+                    sb *= bd[ib];
+                }
             }
-            long abase = oa * ad[ra - 2] * ad[ra - 1], bbase = ob * bd[rb - 2] * bd[rb - 1];
+            long abase = oa * ad[ra - 2] * ad[ra - 1];
+            long bbase = ob * bd[rb - 2] * bd[rb - 1];
             for (long m = 0; m < M; m++)
             {
                 for (long n = 0; n < N; n++)
@@ -231,12 +269,22 @@ internal static class SRef
         var idx = new long[r];
         for (long lin = 0; lin < y.Length; lin++)
         {
-            long rem = lin; for (int d = r - 1; d >= 0; d--) { idx[d] = rem % od[d]; rem /= od[d]; }
-            long so = 0; bool fill = false;
+            long rem = lin;
+            for (int d = r - 1; d >= 0; d--)
+            {
+                idx[d] = rem % od[d];
+                rem /= od[d];
+            }
+            long so = 0;
+            bool fill = false;
             for (int d = 0; d < r; d++)
             {
                 long m = PadMap(idx[d], pads[d], dims[d], mode);
-                if (m < 0) { fill = true; break; }
+                if (m < 0)
+                {
+                    fill = true;
+                    break;
+                }
                 so = so * dims[d] + m;
             }
             y[lin] = fill ? value : x[so];
@@ -262,8 +310,10 @@ internal static class SRef
     {
         switch (mode)
         {
-            case "floor": return (int)Math.Floor(x);
-            case "ceil": return (int)Math.Ceiling(x);
+            case "floor":
+                return (int)Math.Floor(x);
+            case "ceil":
+                return (int)Math.Ceiling(x);
             case "round_prefer_ceil":
                 return x == (long)x + 0.5f ? (int)Math.Ceiling(x) : (int)MathF.Round(x, MidpointRounding.AwayFromZero);
             default:
@@ -280,19 +330,25 @@ internal static class SRef
             {
                 for (int ox = 0; ox < OW; ox++)
                 {
-                    float fy = Coord(coord, oy, H, OH), fx = Coord(coord, ox, W, OW);
+                    float fy = Coord(coord, oy, H, OH);
+                    float fx = Coord(coord, ox, W, OW);
                     float v;
                     if (mode == "nearest")
                     {
-                        int iy = Math.Clamp(Nearest(nearest, fy), 0, H - 1), ix = Math.Clamp(Nearest(nearest, fx), 0, W - 1);
+                        int iy = Math.Clamp(Nearest(nearest, fy), 0, H - 1);
+                        int ix = Math.Clamp(Nearest(nearest, fx), 0, W - 1);
                         v = x[(nc * H + iy) * W + ix];
                     }
                     else
                     {
-                        fy = Math.Clamp(fy, 0, H - 1); fx = Math.Clamp(fx, 0, W - 1);
-                        int y0 = (int)Math.Floor(fy), x0 = (int)Math.Floor(fx);
-                        int y1 = Math.Min(y0 + 1, H - 1), x1 = Math.Min(x0 + 1, W - 1);
-                        double dy = fy - y0, dx = fx - x0;
+                        fy = Math.Clamp(fy, 0, H - 1);
+                        fx = Math.Clamp(fx, 0, W - 1);
+                        int y0 = (int)Math.Floor(fy);
+                        int x0 = (int)Math.Floor(fx);
+                        int y1 = Math.Min(y0 + 1, H - 1);
+                        int x1 = Math.Min(x0 + 1, W - 1);
+                        double dy = fy - y0;
+                        double dx = fx - x0;
                         double Px(int yy, int xx) => x[(nc * H + yy) * W + xx];
                         v = (float)((1 - dy) * ((1 - dx) * Px(y0, x0) + dx * Px(y0, x1)) + dy * ((1 - dx) * Px(y1, x0) + dx * Px(y1, x1)));
                     }

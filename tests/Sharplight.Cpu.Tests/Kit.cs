@@ -1,53 +1,8 @@
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
-using Sharplight.Models;
 using Sharplight.Runtime;
-using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
-
-/// <summary>Weight bytes in managed memory; optionally exposes a pinned pointer to exercise the zero-copy path.</summary>
-internal sealed class MemSource : IWeightSource, IDisposable
-{
-    private readonly byte[] _data; private readonly GCHandle _h; private readonly bool _zeroCopy;
-    public MemSource(byte[] data, bool zeroCopy = true) { _data = data; _zeroCopy = zeroCopy; if (zeroCopy)
-        {
-            _h = GCHandle.Alloc(data, GCHandleType.Pinned);
-        }
-    }
-    public long ByteLength => _data.Length;
-    public void Read(long offset, Span<byte> destination) => _data.AsSpan((int)offset, destination.Length).CopyTo(destination);
-    public nint TryGetPointer() => _zeroCopy ? _h.AddrOfPinnedObject() : 0;
-    public void Dispose() { if (_zeroCopy && _h.IsAllocated)
-        {
-            _h.Free();
-        }
-    }
-}
-
-/// <summary>Builder wrapper that owns weights.</summary>
-internal sealed class TG
-{
-    public readonly Dictionary<string, WeightInfo> Weights = [];
-    public readonly GraphBuilder B;
-    public static readonly Dim T = Dim.Sym("T");
-    public TG(string name = "t") { B = new GraphBuilder(name, n => Weights.GetValueOrDefault(n)); }
-
-    public Value W(string name, DataType type, Shape shape, byte[] data, bool zeroCopy = true)
-    {
-        Weights[name] = new WeightInfo { Name = name, Type = type, Shape = shape, Source = new MemSource(data, zeroCopy) };
-        return B.Weight(name);
-    }
-
-    public Value WF(string name, float[] data, params long[] dims) =>
-        W(name, DataType.F32, new Shape(dims.Select(d => (Dim)d)), MemoryMarshal.AsBytes(data.AsSpan()).ToArray());
-
-    public Value In(string name, DataType type, params Dim[] dims) => B.Input(name, InputRole.Other, type, new Shape(dims));
-    public Value InF(string name, params Dim[] dims) => In(name, DataType.F32, dims);
-
-    public Value State(string name, DataType type, StateKind kind, params Dim[] dims) =>
-        B.State(new StateDefinition { Name = name, Type = type, Shape = new Shape(dims), Kind = kind });
-}
 
 internal static class Kit
 {
@@ -71,7 +26,8 @@ internal static class Kit
     public static RunParameters P(long t, long past = 0, params (string, long)[] extra)
     {
         var p = new RunParameters();
-        p.Symbols["T"] = t; p.Symbols["R"] = t;
+        p.Symbols["T"] = t;
+        p.Symbols["R"] = t;
         p.Scalars["n_past"] = past;
         foreach (var (k, v) in extra)
         {
@@ -114,7 +70,8 @@ internal static class Kit
         Assert.Equal(expected.Length, actual.Length);
         for (int i = 0; i < expected.Length; i++)
         {
-            double e = expected[i], a = actual[i];
+            double e = expected[i];
+            double a = actual[i];
             if (double.IsNaN(e) != double.IsNaN(a) || Math.Abs(e - a) > atol + rtol * Math.Abs(e))
             {
                 Assert.Fail($"{what} mismatch at {i}: expected {e:G9}, actual {a:G9} (atol {atol}, rtol {rtol})");
