@@ -12,11 +12,23 @@ public class SentencePieceTests
         var tokens = new List<string> { "<unk>", "<s>", "</s>", "▁", "a", "b", "c", "ab", "abc", "▁a", "▁ab", "▁abc", "<end_of_turn>" };
         var scores = new List<float> { 0, 0, 0, -1, -2, -2, -2, -1.5f, -1.2f, -1.4f, -1.1f, -0.5f, 0 };
         var types = new List<int> { 2, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4 };
-        for (int i = 0; i < 256; i++) { tokens.Add($"<0x{i:X2}>"); scores.Add(0); types.Add(6); }
+        for (int i = 0; i < 256; i++)
+        {
+            tokens.Add($"<0x{i:X2}>");
+            scores.Add(0);
+            types.Add(6);
+        }
         return new SentencePieceTokenizer(new TokenizerData
         {
-            Model = "spm", Tokens = [.. tokens], Scores = [.. scores], TokenTypes = [.. types],
-            BosId = 1, EosId = 2, UnkId = 0, AddBos = true, AddSpacePrefix = addSpacePrefix,
+            Model = "spm",
+            Tokens = [.. tokens],
+            Scores = [.. scores],
+            TokenTypes = [.. types],
+            BosId = 1,
+            EosId = 2,
+            UnkId = 0,
+            AddBos = true,
+            AddSpacePrefix = addSpacePrefix,
         });
     }
 

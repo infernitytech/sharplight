@@ -1,7 +1,7 @@
 # Sharplight.Onnx
 
 ONNX importer + generic graph adapter. `OnnxImporter` (format `onnx`) memory-maps the model, decodes it with a hand-rolled
-protobuf reader (`Protobuf.cs`, `OnnxParser.cs`) and exposes initializers as zero-copy weights (`raw_data` and
+protobuf reader (`ProtoReader.cs`, `OnnxParser.cs`) and exposes initializers as zero-copy weights (`raw_data` and
 `.onnx.data` external data). `OnnxGraphAdapter` (architecture `onnx`) translates the graph op-by-op into one Sharplight
 `ComputeGraph` named `main`.
 
@@ -77,6 +77,15 @@ BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/Lea
 * `ConstantInputs[name] = values` pins a graph input (e.g. `sr`, `use_cache_branch`, an `orig_im_size` that fixes output shapes) to a
   compile-time constant so `If` branches and shape computations fold.
 * Scalar (rank-0) graph inputs are carried as one-element vectors; `Unsqueeze`/`Squeeze` honour the logical rank.
+
+## Source layout
+
+* `OnnxImporter`, `OnnxGraphAdapter`, `OnnxImportOptions`: the public API; everything else is internal.
+* `OnnxParser`, `ProtoReader`, `Mapped*` and `*WeightSource`: protobuf decoding and zero-copy weight sources.
+* `OnnxConst`, `OnnxFold`: compile-time constants and their host-side evaluation.
+* `OnnxTranslator.*.cs`: one partial class split by operator category (`Dispatch` routes nodes to `Elementwise`, `Spatial`, `Resample`,
+  `Reduction`, `Linear`, `Shape`, `Indexing`, `Normalization`, `Quant`, `Recurrent`, `ControlFlow` and `Contrib`; `Helpers` holds shared
+  utilities). Each operator is translated by a method named after it.
 
 ## Tests
 

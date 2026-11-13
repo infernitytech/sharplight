@@ -14,6 +14,10 @@ public sealed class StreamingDecoder
     private readonly Decoder _decoder = new UTF8Encoding(false, false).GetDecoder();
     private char[] _chars = new char[64];
 
+    /// <summary>Creates a decoder for one generation stream.</summary>
+    /// <param name="tokenizer">Supplies the bytes of each token.</param>
+    /// <param name="skipSpecial">Drop control and unknown tokens instead of rendering their text.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="tokenizer"/> is null.</exception>
     public StreamingDecoder(ITokenizer tokenizer, bool skipSpecial = false)
     {
         _tokenizer = tokenizer ?? throw new ArgumentNullException(nameof(tokenizer));

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace Sharplight.Tokenizers.Bpe;
@@ -8,7 +9,7 @@ namespace Sharplight.Tokenizers.Bpe;
 /// GPT-2 style byte-level BPE (model "gpt2"), behaviour-compatible with llama.cpp's <c>llm_tokenizer_bpe</c>.
 /// Thread-safe after construction.
 /// </summary>
-public sealed class ByteLevelBpeTokenizer : ITokenizer
+internal sealed class ByteLevelBpeTokenizer : ITokenizer
 {
     private const int StackWordLimit = 256;
     private const int MaxCachedWordBytes = 128;
@@ -57,7 +58,7 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
 
         int vocab = data.Tokens.Length;
         _tokens = new string[vocab];
-        _types = new TokenType[vocab];
+        _types = TokenizerSetup.ResolveTypes(data);
         _tokenBytes = new byte[vocab][];
         _tokenToId = new Dictionary<string, int>(vocab, StringComparer.Ordinal);
         for (int i = 0; i < vocab; i++)
@@ -70,22 +71,30 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
 
             _tokens[i] = t;
             _tokenToId[t] = i; // last duplicate wins, as in llama.cpp
-            _types[i] = data.TokenTypes is { } tt && i < tt.Length && Enum.IsDefined((TokenType)tt[i]) ? (TokenType)tt[i] : TokenType.Normal;
         }
+
         _tokenToIdSpan = _tokenToId.GetAlternateLookup<ReadOnlySpan<char>>();
 
-        int? ValidId(int? id) => id is int v && v >= 0 && v < vocab ? v : null;
-        BosId = ValidId(data.BosId);
-        EosId = ValidId(data.EosId);
-        PadId = ValidId(data.PadId);
+        BosId = TokenizerSetup.ValidId(data.BosId, vocab);
+        EosId = TokenizerSetup.ValidId(data.EosId, vocab);
+        PadId = TokenizerSetup.ValidId(data.PadId, vocab);
         AddBos = data.AddBos ?? preset.DefaultAddBos;
         AddEos = data.AddEos ?? false;
 
         _merges = BuildMerges(data.Merges ?? []);
+        _specials = SpecialsLongestFirst();
+        _eogIds = TokenizerSetup.ResolveEndOfGeneration(data, EosId, _types, EogNames, name => _tokenToId.TryGetValue(name, out int id) ? id : null);
+        _eogSet = [.. _eogIds];
 
-        // special tokens, longest (UTF-8 bytes) first; stable for equal lengths
-        var specials = new List<(string, int, int)>();
-        for (int i = 0; i < vocab; i++)
+        _wordCache = new ConcurrentDictionary<byte[], int[]>(ByteArrayComparer.Instance);
+        _wordCacheSpan = _wordCache.GetAlternateLookup<ReadOnlySpan<byte>>();
+    }
+
+    /// <summary>Special tokens, longest (UTF-8 bytes) first; stable for equal lengths.</summary>
+    private (string Text, int Id)[] SpecialsLongestFirst()
+    {
+        var specials = new List<(string Text, int Id, int ByteCount)>();
+        for (int i = 0; i < _tokens.Length; i++)
         {
             if (_types[i] is TokenType.Control or TokenType.UserDefined or TokenType.Unknown)
             {
@@ -93,37 +102,7 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
             }
         }
 
-        _specials = specials.OrderByDescending(s => s.Item3).Select(s => (s.Item1, s.Item2)).ToArray();
-
-        // end-of-generation ids
-        var eog = new List<int>();
-        foreach (int id in data.EosIds)
-        {
-            if (ValidId(id) is int v && !eog.Contains(v))
-            {
-                eog.Add(v);
-            }
-        }
-
-        if (EosId is int e && !eog.Contains(e))
-        {
-            eog.Add(e);
-        }
-
-        foreach (string name in EogNames)
-        {
-            if (_tokenToId.TryGetValue(name, out int id) && _types[id] is TokenType.Control or TokenType.UserDefined && !eog.Contains(id))
-            {
-                eog.Add(id);
-            }
-        }
-
-        eog.Sort();
-        _eogIds = eog.ToArray();
-        _eogSet = [.. _eogIds];
-
-        _wordCache = new ConcurrentDictionary<byte[], int[]>(ByteArrayComparer.Instance);
-        _wordCacheSpan = _wordCache.GetAlternateLookup<ReadOnlySpan<byte>>();
+        return specials.OrderByDescending(s => s.ByteCount).Select(s => (s.Text, s.Id)).ToArray();
     }
 
     // Symbol ids: vocabulary ids, then "virtual" ids for strings that occur in merges but not in the vocabulary
@@ -175,15 +154,18 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                 continue;
             }
 
-            ReadOnlySpan<char> a = m.AsSpan(0, sep), b2 = m.AsSpan(sep + 1);
-            Sym(a, true); Sym(b2, true);
+            ReadOnlySpan<char> a = m.AsSpan(0, sep);
+            ReadOnlySpan<char> b2 = m.AsSpan(sep + 1);
+            Sym(a, true);
+            Sym(b2, true);
             int total = a.Length + b2.Length;
             if (buf.Length < total)
             {
                 buf = new char[total * 2];
             }
 
-            a.CopyTo(buf); b2.CopyTo(buf.AsSpan(a.Length));
+            a.CopyTo(buf);
+            b2.CopyTo(buf.AsSpan(a.Length));
             Sym(buf.AsSpan(0, total), true);
         }
 
@@ -198,9 +180,11 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
             }
 
             string m = merges[i];
-            ReadOnlySpan<char> a = m.AsSpan(0, sep), b2 = m.AsSpan(sep + 1);
+            ReadOnlySpan<char> a = m.AsSpan(0, sep);
+            ReadOnlySpan<char> b2 = m.AsSpan(sep + 1);
             int total = a.Length + b2.Length;
-            a.CopyTo(buf); b2.CopyTo(buf.AsSpan(a.Length));
+            a.CopyTo(buf);
+            b2.CopyTo(buf.AsSpan(a.Length));
             table.TryAdd(Sym(a, false), Sym(b2, false), i, Sym(buf.AsSpan(0, total), false));
         }
         return table;
@@ -339,8 +323,13 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
             var next = new List<Fragment>(buffer.Count + 4);
             foreach (var frag in buffer)
             {
-                if (frag.IsToken) { next.Add(frag); continue; }
-                int pos = frag.Start, end = frag.Start + frag.Length;
+                if (frag.IsToken)
+                {
+                    next.Add(frag);
+                    continue;
+                }
+                int pos = frag.Start;
+                int end = frag.Start + frag.Length;
                 while (true)
                 {
                     int rel = pos < end ? text.AsSpan(pos, end - pos).IndexOf(stext, StringComparison.Ordinal) : -1;
@@ -377,7 +366,8 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
         try
         {
             // decode to code points + UTF-8 (lone surrogates become U+FFFD like Encoding.UTF8)
-            int nc = 0, nb = 0;
+            int nc = 0;
+            int nb = 0;
             int[] byteStart = ArrayPool<int>.Shared.Rent(n + 2);
             try
             {
@@ -386,7 +376,11 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                     int cp;
                     int clen = 1;
                     char ch = text[i];
-                    if (char.IsHighSurrogate(ch) && i + 1 < n && char.IsLowSurrogate(text[i + 1])) { cp = char.ConvertToUtf32(ch, text[i + 1]); clen = 2; }
+                    if (char.IsHighSurrogate(ch) && i + 1 < n && char.IsLowSurrogate(text[i + 1]))
+                    {
+                        cp = char.ConvertToUtf32(ch, text[i + 1]);
+                        clen = 2;
+                    }
                     else if (char.IsSurrogate(ch))
                     {
                         cp = 0xFFFD;
@@ -396,17 +390,15 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                         cp = ch;
                     }
 
-                    cpts[nc] = cp; charStart[nc] = i; byteStart[nc] = nb; nc++;
-                    if (cp < 0x80)
-                    {
-                        utf8[nb++] = (byte)cp;
-                    }
-                    else if (cp < 0x800) { utf8[nb++] = (byte)(0xC0 | (cp >> 6)); utf8[nb++] = (byte)(0x80 | (cp & 0x3F)); }
-                    else if (cp < 0x10000) { utf8[nb++] = (byte)(0xE0 | (cp >> 12)); utf8[nb++] = (byte)(0x80 | ((cp >> 6) & 0x3F)); utf8[nb++] = (byte)(0x80 | (cp & 0x3F)); }
-                    else { utf8[nb++] = (byte)(0xF0 | (cp >> 18)); utf8[nb++] = (byte)(0x80 | ((cp >> 12) & 0x3F)); utf8[nb++] = (byte)(0x80 | ((cp >> 6) & 0x3F)); utf8[nb++] = (byte)(0x80 | (cp & 0x3F)); }
+                    cpts[nc] = cp;
+                    charStart[nc] = i;
+                    byteStart[nc] = nb;
+                    nc++;
+                    nb += WriteUtf8(utf8, nb, cp);
                     i += clen;
                 }
-                charStart[nc] = n; byteStart[nc] = nb;
+                charStart[nc] = n;
+                byteStart[nc] = nb;
 
                 var lengths = new List<int>(nc / 4 + 4);
                 _splitter.Split(new SplitInput(text, cpts.AsSpan(0, nc), charStart.AsSpan(0, nc + 1)), lengths);
@@ -414,12 +406,16 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                 int c = 0;
                 foreach (int len in lengths)
                 {
-                    int b0 = byteStart[c], b1 = byteStart[c + len];
+                    int b0 = byteStart[c];
+                    int b1 = byteStart[c + len];
                     c += len;
                     EncodeWord(utf8.AsSpan(b0, b1 - b0), ref output);
                 }
             }
-            finally { ArrayPool<int>.Shared.Return(byteStart); }
+            finally
+            {
+                ArrayPool<int>.Shared.Return(byteStart);
+            }
         }
         finally
         {
@@ -429,12 +425,52 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
         }
     }
 
+    /// <summary>Writes the UTF-8 encoding of a code point at <paramref name="offset"/> and returns its length in bytes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int WriteUtf8(byte[] destination, int offset, int cp)
+    {
+        if (cp < 0x80)
+        {
+            destination[offset] = (byte)cp;
+            return 1;
+        }
+
+        if (cp < 0x800)
+        {
+            destination[offset] = (byte)(0xC0 | (cp >> 6));
+            destination[offset + 1] = (byte)(0x80 | (cp & 0x3F));
+            return 2;
+        }
+
+        if (cp < 0x10000)
+        {
+            destination[offset] = (byte)(0xE0 | (cp >> 12));
+            destination[offset + 1] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+            destination[offset + 2] = (byte)(0x80 | (cp & 0x3F));
+            return 3;
+        }
+
+        destination[offset] = (byte)(0xF0 | (cp >> 18));
+        destination[offset + 1] = (byte)(0x80 | ((cp >> 12) & 0x3F));
+        destination[offset + 2] = (byte)(0x80 | ((cp >> 6) & 0x3F));
+        destination[offset + 3] = (byte)(0x80 | (cp & 0x3F));
+        return 4;
+    }
+
     private void EncodeWord(ReadOnlySpan<byte> word, ref IntList output)
     {
-        if (word.Length == 1 && _initialSymbol[word[0]] < _tokens.Length) { output.Add(_initialSymbol[word[0]]); return; }
+        if (word.Length == 1 && _initialSymbol[word[0]] < _tokens.Length)
+        {
+            output.Add(_initialSymbol[word[0]]);
+            return;
+        }
 
         bool cacheable = word.Length <= MaxCachedWordBytes;
-        if (cacheable && _wordCacheSpan.TryGetValue(word, out int[]? cached)) { output.AddRange(cached); return; }
+        if (cacheable && _wordCacheSpan.TryGetValue(word, out int[]? cached))
+        {
+            output.AddRange(cached);
+            return;
+        }
 
         var local = new IntList(8);
         BpeWord(word, ref local);
@@ -457,7 +493,11 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                 chars[i] = ByteEncoding.ByteToChar[word[i]];
             }
 
-            if (_tokenToIdSpan.TryGetValue(chars, out int whole)) { output.Add(whole); return; }
+            if (_tokenToIdSpan.TryGetValue(chars, out int whole))
+            {
+                output.Add(whole);
+                return;
+            }
         }
 
         int vocab = _tokens.Length;
@@ -465,7 +505,11 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
         Span<int> mem = n <= StackWordLimit ? stackalloc int[n * 5] : (rented = ArrayPool<int>.Shared.Rent(n * 5)).AsSpan(0, n * 5);
         try
         {
-            Span<int> ids = mem[..n], len = mem.Slice(n, n), next = mem.Slice(2 * n, n), rankAt = mem.Slice(3 * n, n), resAt = mem.Slice(4 * n, n);
+            Span<int> ids = mem[..n];
+            Span<int> len = mem.Slice(n, n);
+            Span<int> next = mem.Slice(2 * n, n);
+            Span<int> rankAt = mem.Slice(3 * n, n);
+            Span<int> resAt = mem.Slice(4 * n, n);
             for (int i = 0; i < n; i++)
             {
                 ids[i] = _initialSymbol[word[i]];
@@ -508,7 +552,9 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                 pos += len[i];
             }
         }
-        finally { if (rented != null)
+        finally
+        {
+            if (rented != null)
             {
                 ArrayPool<int>.Shared.Return(rented);
             }
@@ -518,7 +564,11 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
     private void Refresh(int i, Span<int> ids, Span<int> next, Span<int> rankAt, Span<int> resAt)
     {
         int j = next[i];
-        if (j >= 0 && _merges.TryGet(ids[i], ids[j], out int r, out int res)) { rankAt[i] = r; resAt[i] = res; }
+        if (j >= 0 && _merges.TryGet(ids[i], ids[j], out int r, out int res))
+        {
+            rankAt[i] = r;
+            resAt[i] = res;
+        }
         else
         {
             rankAt[i] = int.MaxValue;
@@ -542,10 +592,15 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
 
         while (true)
         {
-            int best = -1, bestRank = int.MaxValue;
+            int best = -1;
+            int bestRank = int.MaxValue;
             for (int i = 0; i != -1; i = next[i])
             {
-                if (rankAt[i] < bestRank) { bestRank = rankAt[i]; best = i; }
+                if (rankAt[i] < bestRank)
+                {
+                    bestRank = rankAt[i];
+                    best = i;
+                }
             }
 
             if (best < 0)
@@ -570,9 +625,9 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
         }
     }
 
-    private readonly record struct Bigram(int Left, int Right, int IdL, int IdR, int Result);
+    
 
-    private void Push(PriorityQueue<Bigram, long> queue, Span<int> ids, int l, int r)
+    private void Push(PriorityQueue<BpeBigram, long> queue, Span<int> ids, int l, int r)
     {
         if (l < 0 || r < 0)
         {
@@ -581,7 +636,7 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
 
         if (_merges.TryGet(ids[l], ids[r], out int rank, out int res))
         {
-            queue.Enqueue(new Bigram(l, r, ids[l], ids[r], res), ((long)rank << 32) | (uint)l);
+            queue.Enqueue(new BpeBigram(l, r, ids[l], ids[r], res), ((long)rank << 32) | (uint)l);
         }
     }
 
@@ -590,8 +645,12 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
         int n = ids.Length;
         var prev = new int[n];
         var alive = new bool[n];
-        for (int i = 0; i < n; i++) { prev[i] = i - 1; alive[i] = true; }
-        var queue = new PriorityQueue<Bigram, long>(n);
+        for (int i = 0; i < n; i++)
+        {
+            prev[i] = i - 1;
+            alive[i] = true;
+        }
+        var queue = new PriorityQueue<BpeBigram, long>(n);
 
         for (int i = 0; i + 1 < n; i++)
         {
@@ -600,7 +659,7 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
 
         while (queue.TryDequeue(out var bg, out _))
         {
-            if (!alive[bg.Left] || !alive[bg.Right] || ids[bg.Left] != bg.IdL || ids[bg.Right] != bg.IdR || next[bg.Left] != bg.Right)
+            if (!alive[bg.Left] || !alive[bg.Right] || ids[bg.Left] != bg.LeftId || ids[bg.Right] != bg.RightId || next[bg.Left] != bg.Right)
             {
                 continue;
             }
@@ -617,49 +676,5 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
             Push(queue, ids, prev[bg.Left], bg.Left);
             Push(queue, ids, bg.Left, next[bg.Left]);
         }
-    }
-
-    // ---------------------------------------------------------------- helpers
-
-    private struct IntList
-    {
-        private int[] _buf;
-        private int _count;
-        public IntList(int capacity) { _buf = new int[capacity]; _count = 0; }
-        public void Add(int v)
-        {
-            if (_count == _buf.Length)
-            {
-                Array.Resize(ref _buf, _buf.Length * 2);
-            }
-
-            _buf[_count++] = v;
-        }
-        public void AddRange(ReadOnlySpan<int> vs)
-        {
-            if (_count + vs.Length > _buf.Length)
-            {
-                Array.Resize(ref _buf, Math.Max(_buf.Length * 2, _count + vs.Length));
-            }
-
-            vs.CopyTo(_buf.AsSpan(_count));
-            _count += vs.Length;
-        }
-        public int[] ToArray() => _buf.AsSpan(0, _count).ToArray();
-    }
-
-    private sealed class ByteArrayComparer : IEqualityComparer<byte[]>, IAlternateEqualityComparer<ReadOnlySpan<byte>, byte[]>
-    {
-        public static readonly ByteArrayComparer Instance = new();
-        public bool Equals(byte[]? x, byte[]? y) => x is not null && y is not null && x.AsSpan().SequenceEqual(y);
-        public int GetHashCode(byte[] obj) => GetHashCode((ReadOnlySpan<byte>)obj);
-        public bool Equals(ReadOnlySpan<byte> alternate, byte[] other) => alternate.SequenceEqual(other);
-        public int GetHashCode(ReadOnlySpan<byte> alternate)
-        {
-            var h = new HashCode();
-            h.AddBytes(alternate);
-            return h.ToHashCode();
-        }
-        public byte[] Create(ReadOnlySpan<byte> alternate) => alternate.ToArray();
     }
 }
