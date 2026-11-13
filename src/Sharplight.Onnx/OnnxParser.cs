@@ -415,6 +415,7 @@ internal static class OnnxParser
         var int64Data = new List<long>();
         var doubleData = new List<double>();
         var uint64Data = new List<long>();
+        var stringData = new List<string>();
         var ext = new Dictionary<string, string>();
         long dataLocation = 0;
         while (r.Next(out int f, out var w))
@@ -432,6 +433,9 @@ internal static class OnnxParser
                     break;
                 case 5:
                     r.ReadRepeatedInt64(w, int32Data);
+                    break;
+                case 6 when w == WireType.LengthDelimited:
+                    stringData.Add(System.Text.Encoding.UTF8.GetString(r.ReadBytes(out _)));
                     break;
                 case 7:
                     r.ReadRepeatedInt64(w, int64Data);
@@ -479,6 +483,10 @@ internal static class OnnxParser
         IWeightSource? src = null;
         if (dtype == OnnxType.String)
         {
+            if (stringData.Count != elems)
+            {
+                throw new InvalidDataException($"Tensor '{name}': {stringData.Count} strings for {elems} elements.");
+            }
         }
         else if (dataLocation == 1)
         {
@@ -585,7 +593,7 @@ internal static class OnnxParser
             throw new InvalidDataException($"Tensor '{name}': {src.ByteLength} data bytes for {elems} {OnnxType.Name(dtype)} elements.");
         }
 
-        return new OnnxTensor { Name = name, ElemType = dtype, Dims = dimsArr, Source = src };
+        return new OnnxTensor { Name = name, ElemType = dtype, Dims = dimsArr, Source = src, Strings = dtype == OnnxType.String ? [.. stringData] : null };
 
         static ArrayWeightSource Bytes(int n, Action<Span<byte>> fill)
         {

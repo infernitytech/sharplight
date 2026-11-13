@@ -192,6 +192,42 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Unique":
                 LowerUnique(n);
                 return;
+            case "Dft":
+                LowerDft(n);
+                return;
+            case "Random":
+                LowerRandom(n);
+                return;
+            case "Multinomial":
+                LowerMultinomial(n);
+                return;
+            case "TfIdf":
+                LowerTfIdf(n);
+                return;
+            case "StringConst":
+                LowerStringConst(n);
+                return;
+            case "StringBinary":
+                LowerStringBinary(n);
+                return;
+            case "StringNormalize":
+                LowerStringNormalize(n);
+                return;
+            case "RegexMatch":
+                LowerRegexMatch(n);
+                return;
+            case "StringCast":
+                LowerStringCast(n);
+                return;
+            case "TreeEnsemble":
+                LowerTreeEnsemble(n);
+                return;
+            case "OneVsOne":
+                LowerOneVsOne(n);
+                return;
+            case "LabelEncode":
+                LowerLabelEncode(n);
+                return;
         }
 
         if (s_unaryKinds.TryGetValue(op, out var unaryKind))

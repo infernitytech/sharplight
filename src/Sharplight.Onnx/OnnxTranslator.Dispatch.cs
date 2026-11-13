@@ -21,6 +21,10 @@ internal sealed partial class OnnxTranslator
         "GlobalLpPool", "MaxUnpool", "MaxRoiPool", "DeformConv", "Col2Im", "AffineGrid", "CenterCropPad",
         "SequenceEmpty", "SequenceConstruct", "SequenceInsert", "SequenceErase", "SequenceAt", "SequenceLength", "SplitToSequence",
         "ConcatFromSequence", "SequenceMap", "Optional", "OptionalHasElement", "OptionalGetElement",
+        "DFT", "STFT",
+        "RandomNormal", "RandomUniform", "RandomNormalLike", "RandomUniformLike", "Bernoulli", "Multinomial",
+        "TfIdfVectorizer",
+        "StringNormalizer", "StringConcat", "RegexFullMatch",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -36,6 +40,7 @@ internal sealed partial class OnnxTranslator
     public static IEnumerable<string> SupportedOperators
         => s_dynamicOps.Concat(OnnxFold.Ops).Concat(s_contribInDefaultDomain)
             .Concat(s_contribOps.Concat(s_quantContrib).Select(op => "com.microsoft." + op))
+            .Concat(s_mlOps.Select(op => "ai.onnx.ml." + op))
             .Distinct().Order(StringComparer.Ordinal);
 
     public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
@@ -46,6 +51,18 @@ internal sealed partial class OnnxTranslator
         if (n.Domain == "com.microsoft" || s_contribInDefaultDomain.Contains(n.OpType))
         {
             TranslateContrib(n, ins);
+            return;
+        }
+
+        if (n.Domain == "ai.onnx.ml")
+        {
+            TranslateMl(n, ins);
+            return;
+        }
+
+        if (IsStringNode(n, ins))
+        {
+            TranslateStrings(n, ins);
             return;
         }
 
@@ -312,6 +329,30 @@ internal sealed partial class OnnxTranslator
                 break;
             case "LSTM" or "GRU" or "RNN":
                 Rnn(n, ins);
+                break;
+
+            // Signal processing.
+            case "DFT":
+                Dft(n, ins);
+                break;
+            case "STFT":
+                Stft(n, ins);
+                break;
+
+            // Random number generation.
+            case "RandomNormal" or "RandomUniform" or "RandomNormalLike" or "RandomUniformLike":
+                RandomTensor(n, ins);
+                break;
+            case "Bernoulli":
+                Bernoulli(n, ins);
+                break;
+            case "Multinomial":
+                Multinomial(n, ins);
+                break;
+
+            // Text.
+            case "TfIdfVectorizer":
+                TfIdfVectorizer(n, ins);
                 break;
 
             case "EyeLike":

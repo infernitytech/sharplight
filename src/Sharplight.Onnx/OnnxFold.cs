@@ -3,7 +3,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Onnx;
 
 /// <summary>Host-side evaluation of constant subgraphs (shape computations, weight preprocessing).</summary>
-internal static class OnnxFold
+internal static partial class OnnxFold
 {
     /// <summary>Ops that can be evaluated when all their inputs are constants.</summary>
     public static readonly HashSet<string> Ops =
@@ -15,6 +15,7 @@ internal static class OnnxFold
         "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh", "Round", "Sign", "Softplus", "Softsign", "Mod", "IsNaN", "IsInf",
         "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin", "BatchNormalization",
         "MatMul",
+        "HannWindow", "HammingWindow", "BlackmanWindow", "MelWeightMatrix",
     ];
 
     /// <summary>
@@ -27,7 +28,7 @@ internal static class OnnxFold
     /// <summary>Whether <paramref name="n"/> should be evaluated on the host given that all its inputs are constants.</summary>
     public static bool ShouldFold(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {
-        if (!Ops.Contains(n.OpType))
+        if (!Ops.Contains(n.OpType) || ins.Any(c => c?.Strings is not null))
         {
             return false;
         }
@@ -246,6 +247,10 @@ internal static class OnnxFold
                 return [Reduce(n, Input(n, ins, 0), Optional(ins, 1))];
             case "MatMul":
                 return [MatMul(n, Input(n, ins, 0), Input(n, ins, 1))];
+            case "HannWindow" or "HammingWindow" or "BlackmanWindow":
+                return [FoldWindow(n, ins)];
+            case "MelWeightMatrix":
+                return [FoldMelWeightMatrix(n, ins)];
         }
         throw new NotSupportedException($"Constant folding of {n.OpType} is not implemented.");
     }
@@ -806,6 +811,17 @@ internal static class OnnxFold
         {
             var i = n.Ints("value_ints")!;
             return OnnxConst.FromInts(OnnxType.Int64, [i.Length], i);
+        }
+
+        if (n.Has("value_string"))
+        {
+            return OnnxConst.FromStrings([], [n.Str("value_string", "")]);
+        }
+
+        if (n.Has("value_strings"))
+        {
+            var s = n.Attributes["value_strings"].Strings;
+            return OnnxConst.FromStrings([s.Count], [.. s]);
         }
         throw new NotSupportedException($"Constant node '{n.Name}' has no supported value attribute.");
     }

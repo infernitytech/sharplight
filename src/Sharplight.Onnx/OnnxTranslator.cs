@@ -82,7 +82,7 @@ internal sealed partial class OnnxTranslator
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var tensor in _graph.Initializers)
         {
-            if (tensor.Source is null)
+            if (tensor.Source is null && tensor.Strings is null)
             {
                 continue;
             }
@@ -167,6 +167,12 @@ internal sealed partial class OnnxTranslator
         }
 
         var shape = InputShape(info);
+        if (info.ElemType == OnnxType.String)
+        {
+            // Strings travel as handles into the run's string heap (see StandardOps.Text).
+            return TranslatedTensor.Dyn(_b.Input(info.Name, InputRole.Other, DataType.Str, shape));
+        }
+
         // Integer inputs of every width travel as i32 and float inputs of every precision as f32 (see docs/onnx-support.md, "Types").
         bool isInt = OnnxType.IsInteger(info.ElemType);
         if (!OnnxType.IsFloat(info.ElemType) && !isInt && info.ElemType != OnnxType.Bool)
@@ -389,7 +395,9 @@ internal sealed partial class OnnxTranslator
     }
 
     private static bool IsSupportedNode(OnnxNode n)
-        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
+        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType)
+            : n.Domain == "ai.onnx.ml" ? s_mlOps.Contains(n.OpType)
+            : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
 
     // ---- group handling --------------------------------------------------------------------------------
     private void NextGroup()
@@ -551,7 +559,7 @@ internal sealed partial class OnnxTranslator
             return;
         }
 
-        int leadingUnits = ins.Max(t => t?.LeadingUnits ?? 0);
+        int leadingUnits = ins.Select(t => t?.LeadingUnits ?? 0).DefaultIfEmpty().Max();   // generators (RandomNormal) have no inputs
         bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
         if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
         {

@@ -1,16 +1,17 @@
 namespace Sharplight.Onnx.Conformance;
 
-/// <summary>A tensor of an ONNX test data set (input_k.pb / output_k.pb), decoded to doubles.</summary>
+/// <summary>A tensor of an ONNX test data set (input_k.pb / output_k.pb), decoded to doubles or strings.</summary>
 /// <param name="ElemType">ONNX element type id.</param>
 /// <param name="Dims">ONNX dims (empty for a scalar).</param>
-/// <param name="Values">Element values in row-major order.</param>
-internal sealed record TestTensor(int ElemType, long[] Dims, double[] Values)
+/// <param name="Values">Element values in row-major order (empty for a string tensor).</param>
+/// <param name="Strings">Elements of a string tensor in row-major order; null for other types.</param>
+internal sealed record TestTensor(int ElemType, long[] Dims, double[] Values, string[]? Strings = null)
 {
     public long Elements => Dims.Aggregate(1L, (a, b) => a * b);
 
     public bool IsFloat => OnnxType.IsFloat(ElemType);
 
-    /// <summary>Parses a serialized TensorProto; throws <see cref="NotSupportedException"/> for strings and non-tensors.</summary>
+    /// <summary>Parses a serialized TensorProto; throws <see cref="NotSupportedException"/> for non-tensors.</summary>
     /// <param name="bytes">The TensorProto.</param>
     /// <param name="what">The file or element it was read from (for error messages).</param>
     public static TestTensor Parse(byte[] bytes, string what)
@@ -27,7 +28,7 @@ internal sealed record TestTensor(int ElemType, long[] Dims, double[] Values)
 
         if (tensor.ElemType == OnnxType.String)
         {
-            throw new NotSupportedException($"{what}: string tensors are not supported by the harness");
+            return new TestTensor(tensor.ElemType, tensor.Dims, [], tensor.Strings);
         }
 
         if (tensor.ElemType == 0)

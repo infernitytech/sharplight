@@ -41,8 +41,14 @@ internal sealed class OnnxConst
     public IWeightSource? Source => _source;
     public long ByteSize => Count * OnnxType.ElementSize(ElemType);
 
+    /// <summary>Elements of a string constant (row-major); null for other types, whose data the string constant does not have.</summary>
+    public string[]? Strings { get; private init; }
+
     public static OnnxConst FromTensor(OnnxTensor t)
-        => new(t.ElemType, t.Dims) { Name = t.Name, _source = t.Source ?? throw new NotSupportedException($"String tensor '{t.Name}' is not supported.") };
+        => t.Strings is { } strings ? FromStrings(t.Dims, strings, t.Name)
+            : new(t.ElemType, t.Dims) { Name = t.Name, _source = t.Source ?? throw new InvalidDataException($"Tensor '{t.Name}' has no data.") };
+
+    public static OnnxConst FromStrings(long[] dims, string[] strings, string name = "") => new(OnnxType.String, dims) { Name = name, Strings = strings };
 
     public static OnnxConst FromInts(int elemType, long[] dims, long[] values, string name = "")
     {
