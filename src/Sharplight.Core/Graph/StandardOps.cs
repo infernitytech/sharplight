@@ -115,7 +115,8 @@ public static partial class StandardOps
     /// plain RoPE, &gt;1 for multi-axis / M-RoPE). Attributes:
     /// <c>dims</c> (rotated dims, ≤ D), <c>base</c>, <c>style</c> ("neox" pairs (i, i+dims/2), "gptj" pairs (2i, 2i+1)),
     /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style),
-    /// <c>freq_scale</c> (float, default 1).
+    /// <c>freq_scale</c> (float, default 1). Optional third input: f32 [dims/2] per-frequency divisors
+    /// (θᵢ = position · base^(-2i/dims) · freq_scale / factorᵢ; llama3 / yarn / longrope scaling, see <c>RopeScaling</c>).
     /// </summary>
     public static readonly OpSchema Rope = new("Rope", OpCategory.Composite, 2, 3, SameF32);
 
@@ -123,7 +124,9 @@ public static partial class StandardOps
     /// Scaled dot-product attention against a KV cache.
     /// q [T, Hq, D]; kcache/vcache: State [Ctx, Hkv, D]/[Ctx, Hkv, Dv]. Query t attends cache rows
     /// [0, offset + t] (causal) where offset is the runtime scalar named by attribute <c>offset</c>
-    /// (default "n_past"). Attributes: scale. Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
+    /// (default "n_past"). Attributes: scale; optional <c>window</c> (int &gt; 0: a query only sees its last <c>window</c> keys,
+    /// sliding-window attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
+    /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// </summary>
     public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 3, (i, a) =>
     {
