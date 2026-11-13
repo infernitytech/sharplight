@@ -22,7 +22,7 @@ namespace Sharplight.Graph;
 /// </summary>
 public static class MultiSequence
 {
-    /// <summary>Name of the <see cref="InputRole.SequenceRows"/> input added by <see cref="Transform"/>.</summary>
+    /// <summary>Name of the <see cref="InputRole.SequenceRows"/> input added by <see cref="Transform(ComputeGraph, int, int, int)"/>.</summary>
     public const string RowsInput = "sequence_rows";
     private const string RunsInput = "sequence_runs";
     /// <summary>Name of the <see cref="InputRole.KvBlockTable"/> input of a paged graph.</summary>

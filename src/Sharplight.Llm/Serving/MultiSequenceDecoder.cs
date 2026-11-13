@@ -7,7 +7,7 @@ namespace Sharplight.Llm.Serving;
 
 /// <summary>
 /// <see cref="IBatchDecoder"/> that runs rows of several sequences in one forward pass (continuous batching): the
-/// decoder graph rewritten by <see cref="MultiSequence.Transform"/> and compiled with <c>slots · context</c> cache rows.
+/// decoder graph rewritten by <see cref="MultiSequence.Transform(ComputeGraph, int, int, int)"/> and compiled with <c>slots · context</c> cache rows.
 /// Each step packs every input's rows consecutively and fills the sequence row / run tables, positions and output rows.
 /// A slot whose next input starts at position 0 starts from empty state (recurrent state is cleared by the kernels,
 /// KV rows past a sequence's position are never read), so <see cref="Reset"/> costs nothing.
@@ -66,7 +66,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <summary>Default rows per block of a paged cache (a multiple of the attention kernels' key tiles' granularity).</summary>
     public const int DefaultKvBlockSize = 16;
 
-    /// <param name="compiled">A model compiled from <see cref="MultiSequence.Transform"/>'s graph with context length
+    /// <param name="compiled">A model compiled from <see cref="MultiSequence.Transform(ComputeGraph, int, int, int)"/>'s graph with context length
     /// <paramref name="slots"/> · <paramref name="contextLength"/> and symbol bounds U = slots, R ≥ slots.</param>
     /// <param name="slots">Number of sequence slots.</param>
     /// <param name="contextLength">Context length of each slot.</param>
