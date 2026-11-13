@@ -41,6 +41,21 @@ public sealed class ConvMatrixTests
         Diff.Check("Conv.matrix", g, steps, atol: 2e-5, rtol: 1e-4, maxTokens: 2, what: $"C={c} {hw}x{hw} O={o} k{k} s{stride} g{groups} {weightType}");
     }
 
+    /// <summary>Input as a channel slice of a larger tensor (strided batch and channel offsets).</summary>
+    [Theory]
+    [InlineData(1, 1, 0)]
+    [InlineData(3, 2, 1)]
+    public void StrictChannelSliceInput(int k, int stride, int pad)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 96, 20, 20);
+        var xs = tg.B.Slice(x, 1, 32, 64);
+        var g = Graph(tg, xs, 64, 64, k, stride, pad, 1, "f32", true);
+        int[] batches = [1, 2];
+        var steps = batches.Select((n, i) => new Step(n, 0, (x, Rnd.F((long)n * 96 * 400, 60 + i)))).ToArray();
+        Diff.Check("Conv.matrix.slice", g, steps, atol: 2e-5, rtol: 1e-4, maxTokens: 2, what: $"k{k} s{stride}");
+    }
+
     /// <summary>
     /// Activations around 1e6 (beyond the f16 range) stay accurate with the bf16 split: about 16 mantissa bits per product
     /// (TF32 has 10), so errors relative to the summed term magnitudes (~1e7 here) stay near 1e-6.
