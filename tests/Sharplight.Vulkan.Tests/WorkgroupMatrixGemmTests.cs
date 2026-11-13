@@ -26,7 +26,9 @@ public sealed class WorkgroupMatrixGemmTests
                 var x = tg.InF("x", TG.T, K);
                 var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
                 tg.B.Output("y", tg.B.MatMul(x, w));
-                Diff.Check("MatMul.nv2." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: 1.5e-1, rtol: 1e-2,
+                // Up to 16 rows q8_0 with K % 256 == 0 runs on the integer-dot matvec (8-bit activations, see MatMulTests).
+                double atol = t <= 16 && fmt == "q8_0" && K % 256 == 0 ? 3.0 : 1.5e-1;
+                Diff.Check("MatMul.nv2." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: atol, rtol: 1e-2,
                     maxTokens: 300, what: $"T={t} K={K} N={N}");
             }
         }
