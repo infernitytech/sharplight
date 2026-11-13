@@ -64,6 +64,7 @@ internal static class GgufArchitectureMappings
         yield return new Llama4GgufMapping();
         yield return new Mistral3GgufMapping();
         yield return new BitnetGgufMapping();
+        yield return new AfmoeGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>

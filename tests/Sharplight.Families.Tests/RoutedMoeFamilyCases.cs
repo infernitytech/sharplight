@@ -54,6 +54,7 @@ internal static class RoutedMoeFamilyCases
         new("tiny-random-hy-v3 HF (hy_v3 sigmoid routing with bias and scale, transformers)", "hf/tiny-random-hy-v3", HfPrompt, "ids", [854,894,320,513,349,520,904,932,894,304,338,195,711,656,338,803,338,414,803,1016,101,321,555,203], ""),
         new("tiny-random-dots1 HF (dots1 group-limited routing, transformers)", "hf/tiny-random-dots1", HfPrompt, "ids", [557,683,396,750,619,279,523,503,995,662,487,926,166,964,821,637], ""),
         new("tiny-random-exaone-moe HF (exaone_moe, transformers)", "hf/tiny-random-exaone-moe", HfPrompt, "ids", [77,583,803,940,458,9,236,236,676,834,236,989,3,768,338,656], ""),
+        new("tiny-random-afmoe HF (afmoe sandwich norms, gated attention, NoPE global layers, transformers)", "hf/tiny-random-afmoe", HfPrompt, "ids", [620,299,927,288,634,914,477,299,348,383,694,202,908,346,788,646,46,985,729,518,547,647,138,907], ""),
         new("tiny-random-bitnet HF (bitnet, transformers)", "hf/tiny-random-bitnet", HfPrompt, "ids", [508,432,843,582,109,60,109,130,15,102,655,601,453,281,474,1009], ""),
         new("tiny-random-ministral3 HF (ministral3 yarn + query temperature, transformers)", "hf/tiny-random-ministral3", HfPrompt, "ids", [288,581,321,444,914,110,447,530,221,845,262,243,941,602,526,790], ""),
     ];

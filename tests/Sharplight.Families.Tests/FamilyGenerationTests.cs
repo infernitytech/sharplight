@@ -34,7 +34,12 @@ public class FamilyGenerationTests
     private static readonly string P2 = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
     private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
 
-    public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
+    /// <summary>The case names; <c>SHARPLIGHT_TEST_CASE</c> limits them to those containing that text (to run one family).</summary>
+    public static IEnumerable<TheoryDataRow<string>> CaseNames()
+    {
+        string? filter = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_CASE");
+        return Cases.Where(c => filter is null || c.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).Select(c => new TheoryDataRow<string>(c.Name));
+    }
 
     private static readonly Case[] Cases =
     [

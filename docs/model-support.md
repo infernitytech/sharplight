@@ -280,7 +280,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `bailingmoe3` | Ling 3 / Ring-linear | MLA + KDA/GDN hybrid + MoE | **missing** | `MLA`, `KDA`, `GDN`, `RGRP` | - | - |
 | `dots1` | dots.llm1 | QK-norm, MoE sigmoid + bias + shared | **supported** | - (GGUF mapping not verified on a real file) | dots1 | hf/tiny-random-dots1 |
 | `dots3note` | dots.3 | MLA + indexer + SWA | **missing** | `MLA`, `IDX` | - | - |
-| `afmoe` | AFM-MoE (Trinity) | SWA 3:1, gates, MoE sigmoid + shared, post-norms | **partial** | `RBIAS`, `MAP` | afmoe | - |
+| `afmoe` | AFM-MoE (Trinity) | SWA 3:1 (rope on the sliding layers only), sigmoid attention gate, sandwich norms, mup embedding scale, MoE sigmoid + bias + shared | **supported** (not run on a real model) | - | afmoe | hf/tiny-random-afmoe, gguf/tiny-random-afmoe-f32 |
 | `laguna` | Laguna (poolside) | MoE sigmoid + bias + shared, softplus out gate, yarn/SWA | **partial** | `RBIAS`, `MAP` | - | - |
 | `ernie4_5-moe` | ERNIE-4.5-21B-A3B, 300B-A47B | MoE softmax + bias + shared, dense lead | **supported** | - | ernie4_5_moe | gguf/ERNIE-4.5-21B-A3B-PT, hf/tiny-random-ernie-4.5-moe |
 | `hunyuan-moe` | Hunyuan-A13B | QK-norm, MoE + shared, dynamic NTK | **supported** | - (GGUF mapping not verified on a real file) | hunyuan_v1_moe | hf/tiny-random-hunyuan-v1-moe |

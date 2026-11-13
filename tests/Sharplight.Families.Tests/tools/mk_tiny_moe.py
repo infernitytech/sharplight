@@ -1,16 +1,19 @@
 """
 Builds tiny random Hugging Face checkpoints for the routed-MoE / wave-6 families that have no tiny-random model in ~/models/hf:
-Hunyuan MoE (hunyuan_v1_moe), dots.llm1 (dots1, with group-limited routing), EXAONE MoE (exaone_moe), BitNet (bitnet) and
-Ministral 3 (ministral3), all with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024), plus
+Hunyuan MoE (hunyuan_v1_moe), dots.llm1 (dots1, with group-limited routing), EXAONE MoE (exaone_moe), BitNet (bitnet),
+Ministral 3 (ministral3), and Arcee Trinity (afmoe), all with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024), plus
 tiny-random-bailing-moe-v2-llamacpp: Ling 2.0 re-sized from tiny-random-bailing-moe-v2 so that llama.cpp can convert and run it
 (hidden size = heads x head_dim); convert it with convert_hf_to_gguf.py --outtype f32 for the GGUF case.
 
-    python mk_tiny_moe.py <models/hf directory>
+    python mk_tiny_moe.py <models/hf directory> [family ...]
+
+With family names (for example afmoe) only those transformers-based checkpoints are written and the Hunyuan / Ling
+variants below are skipped, so a later addition does not rewrite the checkpoints that existing references were taken from.
 
 Every model is written to <dir>/tiny-random-<family>/ in fp32 safetensors; the tests skip a family whose directory is missing.
 Norm weights, biases and router selection biases are randomized so that every parameter matters.
 """
-import os, sys, shutil, torch
+import json, os, sys, shutil, torch
 import transformers
 
 root = os.path.expanduser(sys.argv[1])
@@ -35,6 +38,9 @@ configs = {
                                                n_shared_experts=1, n_group=4, topk_group=2, first_k_dense_replace=1, norm_topk_prob=True,
                                                routed_scaling_factor=2.5),
     "hy-v3": transformers.HYV3Config(**common, **moe, intermediate_size=96, num_experts=8, num_shared_experts=1, router_scaling_factor=2.5),
+    "afmoe": transformers.AfmoeConfig(**{**common, "num_hidden_layers": 4}, moe_intermediate_size=32, num_experts_per_tok=2, intermediate_size=96,
+                                      num_experts=8, num_shared_experts=1, num_dense_layers=1, route_scale=2.5, sliding_window=16,
+                                      global_attn_every_n_layers=4, mup_enabled=True, route_norm=True),
     "bitnet": transformers.BitNetConfig(**common, intermediate_size=96),
     "ministral3": transformers.Ministral3Config(**common, intermediate_size=96,
                                                 rope_parameters={"rope_type": "yarn", "rope_theta": 1000000.0, "factor": 16.0,
@@ -43,7 +49,10 @@ configs = {
                                                                  "llama_4_scaling_beta": 0.1}),
 }
 
+only = sys.argv[2:]
 for name, config in configs.items():
+    if only and name not in only:
+        continue
     torch.manual_seed(0)
     model = transformers.AutoModelForCausalLM.from_config(config)
     with torch.no_grad():
@@ -62,10 +71,11 @@ for name, config in configs.items():
         if os.path.exists(src):
             shutil.copy(src, os.path.join(out, f))
     print("wrote", out)
+if only:
+    sys.exit(0)
 
 # Hunyuan MoE for llama.cpp's converter: it reads per-layer lists (moe_intermediate_size, moe_topk, num_shared_expert) and accepts only the
 # 32k / 256k contexts of the real model; the weights are those of tiny-random-hunyuan-v1-moe.
-import json
 hunyuan_source = os.path.join(root, "tiny-random-hunyuan-v1-moe")
 hunyuan_out = os.path.join(root, "tiny-random-hunyuan-v1-moe-llamacpp")
 os.makedirs(hunyuan_out, exist_ok=True)
