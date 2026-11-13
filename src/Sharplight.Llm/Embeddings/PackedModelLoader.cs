@@ -21,7 +21,7 @@ internal static class PackedModelLoader
             sources = new ModelSourceSet { Primary = HalfMatrices(sources.Primary), Auxiliary = sources.Auxiliary };
         }
 
-        var def = ModelAdapterRegistry.Build(sources, adapter);
+        var def = ModelAdapterRegistry.Build(sources, adapter, o.Log);
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         o.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
         return (def, sources.Primary, tok);

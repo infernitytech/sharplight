@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Sharplight.Graph.Optimization;
 
 namespace Sharplight.Models;
 
@@ -30,13 +31,17 @@ public static class ModelAdapterRegistry
     public static IEnumerable<IModelAdapter> All => s_adapters.Values.Distinct();
 
     /// <summary>
-    /// Builds the model definition for a set of sources: a prebuilt definition (saved package) is returned as is, otherwise the matching adapter builds it.
+    /// Builds the model definition for a set of sources: a prebuilt definition (saved package) is used as is, otherwise the matching adapter
+    /// builds it. Then the graph optimization phase runs unless the definition already carries the current pipeline id or
+    /// <see cref="AdapterOptions.OptimizeGraphs"/> is false (see <see cref="GraphOptimizer.PrepareForLoad"/>).
     /// </summary>
     /// <param name="sources">The sources to build from.</param>
     /// <param name="options">Adapter options, or <see langword="null"/> for the defaults.</param>
+    /// <param name="log">Receives progress messages (the optimization summary), or <see langword="null"/>.</param>
     /// <exception cref="NotSupportedException">No adapter handles the architecture, or auxiliary sources were given with an already built definition.</exception>
-    public static ModelDefinition Build(ModelSourceSet sources, AdapterOptions? options = null)
+    public static ModelDefinition Build(ModelSourceSet sources, AdapterOptions? options = null, Action<string>? log = null)
     {
+        options ??= new AdapterOptions();
         if (sources.Primary.Definition is { } prebuilt)
         {
             if (sources.Auxiliary.Count > 0)
@@ -44,10 +49,10 @@ public static class ModelAdapterRegistry
                 throw new NotSupportedException($"'{sources.Primary.Path}' already contains a built model; auxiliary files ({string.Join(", ", sources.Auxiliary.Keys)}) must be added before it is saved.");
             }
 
-            return prebuilt;
+            return GraphOptimizer.PrepareForLoad(prebuilt, options.OptimizeGraphs, log);
         }
         var adapter = Find(sources.Primary)
             ?? throw new NotSupportedException($"No adapter for architecture '{sources.Primary.Architecture}'. Registered: {string.Join(", ", s_adapters.Keys)}");
-        return adapter.Build(sources, options ?? new AdapterOptions());
+        return GraphOptimizer.PrepareForLoad(adapter.Build(sources, options), options.OptimizeGraphs, log);
     }
 }

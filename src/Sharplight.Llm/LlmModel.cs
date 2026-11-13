@@ -70,7 +70,7 @@ public sealed class LlmModel : IDisposable
         var sources = ModelImporterRegistry.OpenSet(path, [.. options.Auxiliary]);
         var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
             options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength);
-        var def = ModelAdapterRegistry.Build(sources, adapter);
+        var def = ModelAdapterRegistry.Build(sources, adapter, options.Log);
         var kvStates = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
         int kept = kvStates.Count(st => st.Type != adapter.KvCacheType);
         if (kept > 0 && adapter.KvCacheType.BlockSize > 1)
