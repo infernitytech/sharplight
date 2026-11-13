@@ -30,6 +30,10 @@ configs = {
                                                sliding_window=16, sliding_window_pattern=3,
                                                layer_types=["sliding_attention", "sliding_attention", "full_attention"],
                                                norm_topk_prob=True, routed_scaling_factor=2.5),
+    # llama.cpp's dots1 loader has no grouped-query attention (key/value width = query width): multi-head variant for the GGUF reference.
+    "dots1-llamacpp": transformers.Dots1Config(**{**common, "num_key_value_heads": 4}, **moe, intermediate_size=96, n_routed_experts=16,
+                                               n_shared_experts=1, n_group=4, topk_group=2, first_k_dense_replace=1, norm_topk_prob=True,
+                                               routed_scaling_factor=2.5),
     "bitnet": transformers.BitNetConfig(**common, intermediate_size=96),
     "ministral3": transformers.Ministral3Config(**common, intermediate_size=96,
                                                 rope_parameters={"rope_type": "yarn", "rope_theta": 1000000.0, "factor": 16.0,
@@ -58,10 +62,24 @@ for name, config in configs.items():
             shutil.copy(src, os.path.join(out, f))
     print("wrote", out)
 
+# Hunyuan MoE for llama.cpp's converter: it reads per-layer lists (moe_intermediate_size, moe_topk, num_shared_expert) and accepts only the
+# 32k / 256k contexts of the real model; the weights are those of tiny-random-hunyuan-v1-moe.
+import json
+hunyuan_source = os.path.join(root, "tiny-random-hunyuan-v1-moe")
+hunyuan_out = os.path.join(root, "tiny-random-hunyuan-v1-moe-llamacpp")
+os.makedirs(hunyuan_out, exist_ok=True)
+for f in ["model.safetensors", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "generation_config.json"]:
+    shutil.copy(os.path.join(hunyuan_source, f), os.path.join(hunyuan_out, f))
+hunyuan_cfg = json.load(open(os.path.join(hunyuan_source, "config.json")))
+hunyuan_layers = hunyuan_cfg["num_hidden_layers"]
+hunyuan_cfg.update(moe_intermediate_size=[hunyuan_cfg["intermediate_size"]] * hunyuan_layers, moe_topk=[hunyuan_cfg["moe_topk"]] * hunyuan_layers,
+                   num_shared_expert=[1] * hunyuan_layers, max_position_embeddings=32768)
+json.dump(hunyuan_cfg, open(os.path.join(hunyuan_out, "config.json"), "w"), indent=2)
+print("wrote", hunyuan_out)
+
 # Ling 2.0 (bailing_moe_v2) is remote code without a transformers class: write its tensors directly, with q/k/v sizes llama.cpp
 # accepts (hidden = heads * head_dim), so that llama.cpp's converter and CPU build provide the reference. Tokenizer and the
 # remaining config come from tiny-random-bailing-moe-v2.
-import json
 from safetensors.torch import save_file
 source = os.path.join(root, "tiny-random-bailing-moe-v2")
 cfg = json.load(open(os.path.join(source, "config.json")))

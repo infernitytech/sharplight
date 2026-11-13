@@ -245,7 +245,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **mapped, untested (no model)**| -| chatglm | - |
+| `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **supported (GGUF, tiny random vs llama.cpp)**| -| chatglm | gguf/tiny-random-chatglm-f32 |
 | `glm4` | GLM-4-0414 (9B/32B), GLM-Z1 | GQA, sandwich norms, partial rope, fused gate-up | **supported**| -| glm4 | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4 |
 | `glm4moe` | GLM-4.5/4.6/4.7, GLM-4.5-Air | QK-norm, partial rope, MoE sigmoid + bias + groups + shared, dense lead, MTP | **supported** | - (MTP layers dropped) | glm4_moe | hf/tiny-random-glm-4-moe |
 | `glm-dsa` | GLM-5 / DSA models | MLA + DSA indexer, MoE | **missing** | `MLA`, `IDX`, `RGRP` | glm_moe_dsa | - |
@@ -347,7 +347,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `stablelm` | StableLM 2 / 3B | LN, QK-norm (per head), partial rope, SwiGLU | **supported**| -| stablelm | gguf/stablelm-2-1_6b, hf/tiny-random-StableLmForCausalLM |
 | `codeshell` | CodeShell | LN, rope, GELU | **partial** | `LN` | - | - |
 | `orion` | Orion-14B | LN, SwiGLU, rope | **partial** | `LN` | - | - |
-| `xverse` | XVERSE | RMS, SwiGLU, rope | **mapped, untested (no model)**| -| - | - |
+| `xverse` | XVERSE | RMS, SwiGLU, rope | **supported (GGUF, tiny random vs llama.cpp)**| -| - | gguf/tiny-random-xverse-f32 |
 | `jais` | Jais | ALiBi, LN, SwiGLU | **missing** | `ALIBI`, `LN` | jais | - |
 | `jais2` | Jais 2 | LN, ReLU2, rope | **partial** | `LN`, `ACT` | - | - |
 
