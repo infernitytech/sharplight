@@ -130,6 +130,11 @@ public class FamilyGenerationTests
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
         new("Qwen3-Coder-Next Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", Large: true, Tokens: 16),
+        // Qwen3.8-Flash-Next (qwen4exp, 111 GB): the layers that do not fit on the GPU run on the CPU; the 28.8 GB n-gram table
+        // exercises weight rows beyond 4 GiB.
+        new("Qwen3.8-Flash-Next UD-Q4_K_XL GGUF (llama.cpp)",
+            "gguf/Qwen3.8-Flash-Next-UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf", "The capital of France is", "text", [],
+            " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", NeedsCpuFallback: true, Large: true, Tokens: 16),
         // Generic-decoder families (waves 0 and 2 of docs/model-support.md section 5).
         .. DecoderFamilyCases.All,
     ];
