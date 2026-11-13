@@ -56,8 +56,9 @@ static. `Dim * long`, `Dim + long`, `Dim.FloorDiv`, `Dim.CeilDiv`, `Dim.Min` and
 * `Reshape` accepts an `outer_symbol` attribute that is now any expression; shape inference checks the element count
   symbolically, so `[N, 12, 16, 64] → [12*N, 16, 64] → [N, 12, 16, 64]` round-trips without fixing the batch.
 * The ONNX translator keeps shape tensors (the results of `Shape`, `Gather`, `Concat`, `Mul`, `Div`, ... on shapes) as
-  compile-time constants whose elements may be expressions (`OnnxConst` carries a side table of symbolic elements in
-  place of the old single `SymBatch` sentinel). Arithmetic, comparisons that can be decided, `Gather`, `Slice`, `Concat`,
+  compile-time constants whose elements may be expressions (`SymbolicInts` encodes an expression as a reserved int64
+  code, and as a NaN payload in float shape tensors, which TF exports produce; ops that would treat such a code as a
+  number refuse to fold). Arithmetic, comparisons that can be decided, `Gather`, `Slice`, `Concat`,
   `Squeeze`/`Unsqueeze`, `Cast`, `Min`/`Max`, `Where` with constant conditions, `ReduceProd` and `Equal` on shape
   tensors propagate expressions. The consumers of shape tensors then produce IR with expression dims:
   * `Reshape` targets mentioning the batch (`[-1, 16, 64]`, `[N*12, ...]`) become `Reshape` with `outer_symbol`.
@@ -111,6 +112,17 @@ selection) or at the front of a model (masks → indices). See "Performance" bel
 | `Unique` x (flattened, sorted or first-occurrence order) | values/first indices/counts `[u]`, inverse `[n]` | elements of x | yes | fallback |
 | `TopK` with `k_symbol` | `[k, ...]` along the symbolic axis | `k` expression | yes | fallback |
 | `Fill` (start, delta, outer expr, inner dims) | `start + i·delta` along axis 0 | — (not data dependent) | yes | yes |
+| `RoiAlign` x, rois `[R, 4]`, batch indices `[R]` | f32 `[R, C, oh, ow]` (R usually data dependent) | R | yes | fallback |
+
+Consumers of a data-dependent (or any symbolic) outer axis:
+
+* `Concat` along the outer axis has the sum expression as extent (`nms_1+nms_2+...`). The CPU kernel places each input at
+  its run-time offset; Vulkan declines the node (its copies use compile-time offsets), so it runs on the fallback device.
+* `Slice` of a prefix of the outer axis (`x[:1000]`, the "top-k proposals" pattern) is a view with extent `min(n,1000)`
+  on both providers.
+* `NonMaxSuppression` also accepts one batch and class with a symbolic box count: ONNX `[1, S, 4]` / `[1, 1, S]` are
+  boxes `[S, 4]` and scores `[S]` behind leading unit dims (below).
+* `NonZero(ConstantOfShape([n], c ≠ 0))`, the exporters' spelling of `arange(n)`, becomes `Fill` (no count to discover).
 
 `Compress` (axis 0 or flattened) is translated as `NonZero` + `GatherAxis`. `NonZero` keeps the ONNX `[rank, nnz]` view
 in the translator: `Transpose`, `Squeeze`, `Gather`/`Slice` of one coordinate row and `GatherND` read the IR `[nnz, rank]`
@@ -125,35 +137,35 @@ identical.
 
 ### IR
 
-Control flow nodes carry **subgraphs** (`Node.Subgraphs`, ordinary `ComputeGraph`s). Captured outer-scope values become
-explicit node inputs and the matching subgraph inputs, so a subgraph is a self-contained graph:
+The IR `If` op (`StandardOps.If`, category `ControlFlow`) holds its branches as ordinary `ComputeGraph`s in the
+attributes `then_branch` / `else_branch`. Values the branches read from the enclosing graph become explicit node inputs
+(`[cond, captured...]`) bound by name (`inputs`) to the branch graph inputs, so a branch is a self-contained graph;
+constants are embedded in the branch. Both branches produce the outputs named by `outputs`. Outputs whose shapes agree keep
+them; an output whose outermost dims differ gets a dynamic symbol (`output_symbols`) bounded by the larger branch.
 
-* `If`: inputs `[cond, captured...]`; subgraphs `[then, else]`, both taking the captured values as inputs and producing
-  the same number of outputs. Outputs whose shapes agree keep them. Outputs whose outermost dims differ get a dynamic
-  symbol bounded by the larger branch.
-* `Loop`: inputs `[max_trip_count?, cond, carried..., captured...]`; one body subgraph with inputs
-  `[iteration, cond, carried..., captured...]` and outputs `[cond, carried..., scan...]`. Carried values must keep their
-  shape. Scan outputs are stacked along a new outermost dim, a dynamic symbol bounded by the trip-count bound (constant
-  `M`, or `OnnxImportOptions.MaxLoopIterations`).
+A branch can be impossible to translate for the shapes known at import, typically because it is written for other inputs
+(silero-vad's 8 kHz branch with 16 kHz frames). Such a branch is replaced by its error message (`then_error` /
+`else_error`); the If imports, and taking that branch at run time throws with the message.
 
 ### Executor
 
 The planner gives every control-flow node a segment of its own that runs on the host. `CompiledModel.Compile` turns it
-into a `ControlFlowSegment`, which compiles each subgraph as a nested `CompiledModel` with the same placement options. Its
-`Execute` reads the condition or trip count from host memory and runs the chosen branch, or the body, until the
-condition is false. Values move through host memory exactly as between ordinary segments, and dynamic symbols (the
-chosen branch's output size, the iteration count) are written into `RunParameters.Symbols`. Nested control flow works
-recursively.
+into an `IfSegment`, which compiles each branch as a nested `CompiledModel` with the same placement options. Its
+`Execute` reads the condition from host memory, runs the chosen branch on the captured values and keeps the outputs in
+host memory, exactly like values crossing ordinary segment boundaries; the dynamic symbol of a disagreeing output is
+written into `RunParameters.Symbols`. Nested Ifs work recursively.
 
 ### Translation strategy
 
 The translator removes control flow statically whenever it can, so the runtime construct is the last resort:
 
-1. `If` with a compile-time condition: the taken branch is inlined (as before).
-2. `Loop` whose inputs are all compile-time constants: evaluated at import (for example TF-style `arange` loops).
-3. `Loop` with a constant trip count up to `OnnxImportOptions.MaxUnrolledLoop` (default 16), and every `Scan` (its trip
-   count is a static sequence length): unrolled, so the body becomes ordinary nodes that fuse and run on the GPU.
-4. Otherwise, runtime `If` / `Loop` nodes.
+1. `If` with a compile-time condition: the taken branch is inlined.
+2. `Loop` / `Scan` bodies run through the translator at import, iteration by iteration. Bodies that only compute constants
+   are evaluated (TF-style `arange` loops, up to `OnnxImportOptions.MaxLoopIterations`).
+3. Bodies that depend on runtime tensors are unrolled up to `OnnxImportOptions.MaxUnrolledLoop` (default 64) iterations,
+   so the body becomes ordinary nodes that fuse and run on the GPU. The trip count and the loop condition must be known
+   at import.
+4. Otherwise `If` becomes the runtime `If` node. There is no runtime `Loop` yet (see Limitations).
 
 ## 4. DynamicQuantizeLinear with a symbolic batch
 
@@ -180,7 +192,12 @@ keeps the compile-time constant.
 * Only the outermost dimension may be symbolic (static strides). Tensors whose dynamic dim moves inward, beyond the
   leading-unit-dim case above, are rejected with a clear error, as is reducing or transposing it away.
 * Runtime `Range`, `Reshape`, `Expand` whose *values* (not just shapes) come from tensor data are supported only when
-  the result can be expressed with symbols; truly value-dependent inner dimensions are not.
-* `Unique` with an `axis`, `Compress` on an inner axis and `Loop` carried values whose shape changes per iteration are
-  unsupported.
+  the result can be expressed with symbols; truly value-dependent extents (GLiNER's `Range` up to the word count) are
+  not, since they would need a value-range analysis to bound them.
+* `Loop` whose trip count or condition depends on runtime tensors, or that needs more than `MaxUnrolledLoop` iterations
+  of a runtime body, is rejected: there is no runtime loop construct.
+* A gather along a data-dependent axis that is not the outermost (Grounding DINO's `NonZero` results indexing an inner
+  axis), `Unique` with an `axis` and `Compress` on an inner axis are unsupported.
+* `Concat` along a symbolic outer axis and `RoiAlign` run on the CPU; on Vulkan this costs a host round trip per node.
+* Packages (`ModelPackage.Save`) reject graphs with dynamic symbols or runtime `If` nodes.
 * Subgraph weights are not shared between nested compiled models on accelerators.
