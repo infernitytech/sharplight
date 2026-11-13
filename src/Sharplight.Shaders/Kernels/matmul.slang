@@ -423,6 +423,20 @@ uint q8x4_h2(uint u, half2 d, bool hi)
     return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(1152.0h, 1152.0h)) * d);
 }
 
+// Bytes 0,1 (hi false) or 2,3 of u (codes 0..255) as half2 (code - offset) * scale + add.
+uint codes_h2(uint u, bool hi, half offset, half2 scale, half2 add)
+{
+    uint v = hi ? (((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u)) : ((u & 0xFFu) | ((u << 8) & 0xFF0000u));
+    return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(offset, offset)) * scale + add);
+}
+
+// 16 bytes from a 2-byte aligned address.
+uint4 load16_u16(uint8_t* p)
+{
+    uint16_t* h = (uint16_t*)p;
+    return uint4(uint(h[0]) | (uint(h[1]) << 16), uint(h[2]) | (uint(h[3]) << 16), uint(h[4]) | (uint(h[5]) << 16), uint(h[6]) | (uint(h[7]) << 16));
+}
+
 // 8 consecutive weights of row `row` from K offset 8g as packed halves.
 uint4 load8h(uint8_t* w, uint row, uint g);
 
@@ -436,6 +450,42 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     uint4 q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(g16) * 16);
     lo = uint4(q8x4_h2(q.x, d, false), q8x4_h2(q.x, d, true), q8x4_h2(q.y, d, false), q8x4_h2(q.y, d, true));
     hi = uint4(q8x4_h2(q.z, d, false), q8x4_h2(q.z, d, true), q8x4_h2(q.w, d, false), q8x4_h2(q.w, d, true));
+#elif WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
+    // One 16-byte load of the 16 codes (144 / 176-byte blocks: 16-byte aligned; the offset is summed before it is added
+    // to the pointer, as pointer minus integer miscompiles), then packed-half math: (1024 + q) - 1024
+    // is exact, q * scale - min rounds about like the f32 value converted to half (plus the rounding of scale and min).
+#if WFMT == FMT_Q4_K
+#define KQ_BLOCK 144
+#else
+#define KQ_BLOCK 176
+#endif
+    uint8_t* blk = w + uint64_t(ROW_BYTES) * row + uint64_t(g16 >> 4) * KQ_BLOCK;
+    uint idx = (g16 & 15) * 16, j = idx >> 6, upper = (idx >> 5) & 1, l0 = idx & 31;
+    uint4 q = (*(uint4*)(blk + (KQ_BLOCK - 128 + 32 * j + l0)) >> (4 * upper)) & 0x0F0F0F0Fu;
+#if WFMT == FMT_Q5_K
+    q |= ((*(uint4*)(blk + 16 + l0) >> (2 * j + upper)) & 0x01010101u) << 4;
+#endif
+#undef KQ_BLOCK
+    float sc, mn;
+    scale_min_k4(blk + 4, 2 * j + upper, sc, mn);
+    uint dm = *(uint*)blk;
+    half2 a = half2(half(f16tof32(dm & 0xFFFF) * sc));
+    half2 nb = half2(half(-f16tof32(dm >> 16) * mn));
+    lo = uint4(codes_h2(q.x, false, 1024.0h, a, nb), codes_h2(q.x, true, 1024.0h, a, nb), codes_h2(q.y, false, 1024.0h, a, nb), codes_h2(q.y, true, 1024.0h, a, nb));
+    hi = uint4(codes_h2(q.z, false, 1024.0h, a, nb), codes_h2(q.z, true, 1024.0h, a, nb), codes_h2(q.w, false, 1024.0h, a, nb), codes_h2(q.w, true, 1024.0h, a, nb));
+#elif WFMT == FMT_Q6_K
+    // 6-bit codes from 16 low-nibble and 16 high-bit bytes (210-byte blocks: 2-byte aligned, so u16 loads);
+    // (1024 + q) - 1056 = q - 32 is exact, one rounding for the scaled value besides the scale's own.
+    uint8_t* blk = w + uint64_t(ROW_BYTES) * row + uint64_t(g16 >> 4) * 210;
+    uint idx = (g16 & 15) * 16, n = idx >> 7, qd = (idx & 127) >> 5, l0 = idx & 31;
+    uint4 ql = load16_u16(blk + n * 64 + (qd & 1) * 32 + l0);
+    uint4 qh = load16_u16(blk + 128 + n * 32 + l0);
+    uint4 q = ((ql >> ((qd >> 1) * 4)) & 0x0F0F0F0Fu) | (((qh >> (2 * qd)) & 0x03030303u) << 4);
+    float d = h2f(*(uint16_t*)(blk + 208));
+    half2 s = half2(half(d * float(int(uint(blk[192 + n * 8 + (l0 >> 4) + 2 * qd]) << 24) >> 24)));
+    half2 z = half2(0.0h, 0.0h);
+    lo = uint4(codes_h2(q.x, false, 1056.0h, s, z), codes_h2(q.x, true, 1056.0h, s, z), codes_h2(q.y, false, 1056.0h, s, z), codes_h2(q.y, true, 1056.0h, s, z));
+    hi = uint4(codes_h2(q.z, false, 1056.0h, s, z), codes_h2(q.z, true, 1056.0h, s, z), codes_h2(q.w, false, 1056.0h, s, z), codes_h2(q.w, true, 1056.0h, s, z));
 #else
     lo = load8h(w, row, g16 * 2);
     hi = load8h(w, row, g16 * 2 + 1);
