@@ -55,58 +55,59 @@ internal sealed partial class OnnxTranslator
         switch (n.OpType)
         {
             case "Where": SetDyn(n, 0, Emit("Where", [X(ins, 0), X(ins, 1), X(ins, 2)], null, name)); return true;
-            case "ArgMax": case "ArgMin":
-            {
-                var x = X(ins, 0);
-                int axis = (int)n.Int("axis", 0); if (axis < 0)
+            case "ArgMax":
+            case "ArgMin":
+                {
+                    var x = X(ins, 0);
+                    int axis = (int)n.Int("axis", 0); if (axis < 0)
                     {
                         axis += x.Rank;
                     }
 
                     SetDyn(n, 0, Emit("ArgReduce", [x], Attributes.From(("mode", n.OpType == "ArgMax" ? "max" : "min"), ("axis", (long)axis),
                     ("keepdims", n.Int("keepdims", 1) != 0), ("select_last_index", n.Int("select_last_index", 0) != 0)), name));
-                return true;
-            }
+                    return true;
+                }
             case "TopK":
-            {
-                var x = X(ins, 0);
-                long k = n.Has("k") ? n.Int("k", 1) : ConstIn(ins, 1, "TopK k").ScalarInt();
-                var outs = _b.Emit("TopK", [x], Attributes.From(("k", k), ("axis", n.Int("axis", -1)), ("largest", n.Int("largest", 1) != 0), ("sorted", n.Int("sorted", 1) != 0)), name);
-                SetDyn(n, 0, outs[0]); if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+                {
+                    var x = X(ins, 0);
+                    long k = n.Has("k") ? n.Int("k", 1) : ConstIn(ins, 1, "TopK k").ScalarInt();
+                    var outs = _b.Emit("TopK", [x], Attributes.From(("k", k), ("axis", n.Int("axis", -1)), ("largest", n.Int("largest", 1) != 0), ("sorted", n.Int("sorted", 1) != 0)), name);
+                    SetDyn(n, 0, outs[0]); if (n.Outputs.Count > 1 && n.Outputs[1] != "")
                     {
                         SetDyn(n, 1, outs[1]);
                     }
 
                     return true;
-            }
+                }
             case "Hardmax": Hardmax(n, ins); return true;
             case "GroupNormalization": GroupNorm(n, ins); return true;
             case "LpNormalization":
-            {
-                var x = X(ins, 0); long axis = n.Int("axis", -1); if (axis < 0)
+                {
+                    var x = X(ins, 0); long axis = n.Int("axis", -1); if (axis < 0)
                     {
                         axis += x.Rank;
                     }
 
                     long p = n.Int("p", 2);
-                var norm = Emit("Reduce", [x], Attributes.From(("mode", p == 1 ? "l1" : "l2"), ("axes", L(axis)), ("keepdims", true)));
-                SetDyn(n, 0, Emit("Div", [x, norm], null, name));
-                return true;
-            }
+                    var norm = Emit("Reduce", [x], Attributes.From(("mode", p == 1 ? "l1" : "l2"), ("axes", L(axis)), ("keepdims", true)));
+                    SetDyn(n, 0, Emit("Div", [x, norm], null, name));
+                    return true;
+                }
             case "RMSNormalization": case "SimplifiedLayerNormalization": RmsNorm(n, ins); return true;
             case "LRN": LRN(n, ins); return true;
             case "MeanVarianceNormalization":
-            {
-                var x = X(ins, 0);
-                var axes = n.Ints("axes") ?? [0, 2, 3];
-                var mean = Emit("Reduce", [x], Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true)));
-                var xc = _b.Sub(x, mean);
-                var v = Emit("Reduce", [xc], Attributes.From(("mode", "sumsquare"), ("axes", axes), ("keepdims", true)));
-                long cnt = axes.Aggregate(1L, (a, ax) => a * x.Shape[(int)(ax < 0 ? ax + x.Rank : ax)].Fixed);
-                var sd = _b.Unary("Sqrt", _b.Scale(v, 1f / cnt, 1e-9f));
-                SetDyn(n, 0, Emit("Div", [xc, sd], null, name));
-                return true;
-            }
+                {
+                    var x = X(ins, 0);
+                    var axes = n.Ints("axes") ?? [0, 2, 3];
+                    var mean = Emit("Reduce", [x], Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true)));
+                    var xc = _b.Sub(x, mean);
+                    var v = Emit("Reduce", [xc], Attributes.From(("mode", "sumsquare"), ("axes", axes), ("keepdims", true)));
+                    long cnt = axes.Aggregate(1L, (a, ax) => a * x.Shape[(int)(ax < 0 ? ax + x.Rank : ax)].Fixed);
+                    var sd = _b.Unary("Sqrt", _b.Scale(v, 1f / cnt, 1e-9f));
+                    SetDyn(n, 0, Emit("Div", [xc, sd], null, name));
+                    return true;
+                }
             case "ConvTranspose": ConvTranspose(n, ins); return true;
             case "LpPool": LpPool(n, ins); return true;
             case "Einsum": Einsum(n, ins); return true;
@@ -116,7 +117,8 @@ internal sealed partial class OnnxTranslator
                 SetDyn(n, 0, Emit("GatherElements", [X(ins, 0), Idx(ins[1]!)], Attributes.From(("axis", n.Int("axis", 0))), name)); return true;
             case "GatherND":
                 SetDyn(n, 0, Emit("GatherND", [X(ins, 0), Idx(ins[1]!)], Attributes.From(("batch_dims", n.Int("batch_dims", 0))), name)); return true;
-            case "ScatterElements": case "Scatter":
+            case "ScatterElements":
+            case "Scatter":
                 SetDyn(n, 0, Emit("ScatterElements", [X(ins, 0), Idx(ins[1]!), X(ins, 2)], Attributes.From(("axis", n.Int("axis", 0)), ("reduction", n.Str("reduction", "none"))), name)); return true;
             case "ScatterND":
                 SetDyn(n, 0, Emit("ScatterND", [X(ins, 0), Idx(ins[1]!), X(ins, 2)], Attributes.From(("reduction", n.Str("reduction", "none"))), name)); return true;
@@ -124,34 +126,35 @@ internal sealed partial class OnnxTranslator
                 SetDyn(n, 0, Emit("CumSum", [X(ins, 0)], Attributes.From(("axis", ConstIn(ins, 1, "CumSum axis").ScalarInt()), ("exclusive", n.Int("exclusive", 0) != 0), ("reverse", n.Int("reverse", 0) != 0)), name)); return true;
             case "DepthToSpace": case "SpaceToDepth": DepthSpace(n, ins); return true;
             case "Trilu":
-            {
-                long k = ins.Length > 1 && ins[1] is not null ? ConstIn(ins, 1, "Trilu k").ScalarInt() : 0;
-                SetDyn(n, 0, Emit("Trilu", [X(ins, 0)], Attributes.From(("upper", n.Int("upper", 1) != 0), ("k", k)), name)); return true;
-            }
+                {
+                    long k = ins.Length > 1 && ins[1] is not null ? ConstIn(ins, 1, "Trilu k").ScalarInt() : 0;
+                    SetDyn(n, 0, Emit("Trilu", [X(ins, 0)], Attributes.From(("upper", n.Int("upper", 1) != 0), ("k", k)), name)); return true;
+                }
             case "OneHot":
-            {
-                long depth = ConstIn(ins, 1, "OneHot depth").ScalarInt();
-                var vals = ConstIn(ins, 2, "OneHot values").Floats();
-                SetDyn(n, 0, Emit("OneHot", [Idx(ins[0]!)], Attributes.From(("depth", depth), ("axis", n.Int("axis", -1)), ("on", (float)vals[1]), ("off", (float)vals[0])), name)); return true;
-            }
+                {
+                    long depth = ConstIn(ins, 1, "OneHot depth").ScalarInt();
+                    var vals = ConstIn(ins, 2, "OneHot values").Floats();
+                    SetDyn(n, 0, Emit("OneHot", [Idx(ins[0]!)], Attributes.From(("depth", depth), ("axis", n.Int("axis", -1)), ("on", (float)vals[1]), ("off", (float)vals[0])), name)); return true;
+                }
             case "GridSample":
-            {
-                string mode = n.Str("mode", "bilinear"); mode = mode == "bilinear" ? "linear" : mode == "bicubic" ? "cubic" : mode;
-                SetDyn(n, 0, Emit("GridSample", [X(ins, 0), X(ins, 1)], Attributes.From(("mode", mode), ("padding", n.Str("padding_mode", "zeros")), ("align_corners", n.Int("align_corners", 0) != 0)), name)); return true;
-            }
+                {
+                    string mode = n.Str("mode", "bilinear"); mode = mode == "bilinear" ? "linear" : mode == "bicubic" ? "cubic" : mode;
+                    SetDyn(n, 0, Emit("GridSample", [X(ins, 0), X(ins, 1)], Attributes.From(("mode", mode), ("padding", n.Str("padding_mode", "zeros")), ("align_corners", n.Int("align_corners", 0) != 0)), name)); return true;
+                }
             case "CastLike":
-            {
-                var like = ins[1]!;
-                int to = like.IsConst ? like.C!.ElemType : OnnxType.Float;
-                var fake = new OnnxNode { OpType = "Cast", Inputs = n.Inputs.Take(1).ToList(), Outputs = n.Outputs, Attributes = new Dictionary<string, OnnxAttribute> { ["to"] = new() { Name = "to", Type = OnnxAttrType.Int, I = to } } };
-                CastDyn(fake, ins);
-                return true;
-            }
+                {
+                    var like = ins[1]!;
+                    int to = like.IsConst ? like.C!.ElemType : OnnxType.Float;
+                    var fake = new OnnxNode { OpType = "Cast", Inputs = n.Inputs.Take(1).ToList(), Outputs = n.Outputs, Attributes = new Dictionary<string, OnnxAttribute> { ["to"] = new() { Name = "to", Type = OnnxAttrType.Int, I = to } } };
+                    CastDyn(fake, ins);
+                    return true;
+                }
             case "QuantizeLinear": case "DequantizeLinear": QuantDyn(n, ins); return true;
             case "MatMulInteger": case "ConvInteger": case "QLinearMatMul": case "QLinearConv": QuantOps(n, ins); return true;
             case "If": IfOp(n, ins); return true;
             case "LSTM": case "GRU": case "RNN": Rnn(n, ins); return true;
-            case "NonZero": case "EyeLike":
+            case "NonZero":
+            case "EyeLike":
                 throw new NotSupportedException($"{n.OpType} of a runtime-dependent tensor has a data-dependent shape");
         }
         return false;
@@ -431,7 +434,9 @@ internal sealed partial class OnnxTranslator
         for (int gi = 0; gi < groups.Count; gi++)
         {
             long prod = 1; bool sym = false;
-            foreach (var c in groups[gi]) { if (dimOf[c].IsSymbolic)
+            foreach (var c in groups[gi])
+            {
+                if (dimOf[c].IsSymbolic)
                 {
                     sym = true;
                 }
@@ -539,31 +544,32 @@ internal sealed partial class OnnxTranslator
         switch (n.OpType)
         {
             case "MatMulInteger":
-            {
-                var a = ShiftZp(ins[0]!, Opt(ins, 2), name);
-                var bC = ConstIn(ins, 1, "MatMulInteger B");
-                var bz = OptConst(ins, 3, "b zero point");
-                var bf = DequantConst(bC, OnnxConst.Scalar(1f), bz, bC.Rank - 1);   // per-column zero points when bz is a vector
-                SetDyn(n, 0, MatMulWeightOrBatch(a, bf, name));
-                break;
-            }
+                {
+                    var a = ShiftZp(ins[0]!, Opt(ins, 2), name);
+                    var bC = ConstIn(ins, 1, "MatMulInteger B");
+                    var bz = OptConst(ins, 3, "b zero point");
+                    var bf = DequantConst(bC, OnnxConst.Scalar(1f), bz, bC.Rank - 1);   // per-column zero points when bz is a vector
+                    SetDyn(n, 0, MatMulWeightOrBatch(a, bf, name));
+                    break;
+                }
             case "QLinearMatMul":
-            {
-                var aScale = ConstIn(ins, 1, "a_scale").ScalarF32();
-                var a = _b.Scale(ShiftZp(ins[0]!, OptConst(ins, 2, "a_zp"), name), aScale);
-                var bf = DequantConst(ConstIn(ins, 3, "B"), ConstIn(ins, 4, "b_scale"), OptConst(ins, 5, "b_zp"), 1);
-                var y = MatMulWeightOrBatch(a, bf, name + ".mm");
-                SetDyn(n, 0, Requant(y, ConstIn(ins, 6, "y_scale").ScalarF32(), OptConst(ins, 7, "y_zp"), name));
-                break;
-            }
-            case "ConvInteger": case "QLinearConv":
-            {
-                bool q = n.OpType == "QLinearConv";
-                Tn xin = ins[0]!;
-                float aScale = q ? ConstIn(ins, 1, "x_scale").ScalarF32() : 1f;
-                var xzp = q ? OptConst(ins, 2, "x_zp") : null;
-                var xv = ShiftZp(xin, q ? xzp : null, name);
-                if (!q)
+                {
+                    var aScale = ConstIn(ins, 1, "a_scale").ScalarF32();
+                    var a = _b.Scale(ShiftZp(ins[0]!, OptConst(ins, 2, "a_zp"), name), aScale);
+                    var bf = DequantConst(ConstIn(ins, 3, "B"), ConstIn(ins, 4, "b_scale"), OptConst(ins, 5, "b_zp"), 1);
+                    var y = MatMulWeightOrBatch(a, bf, name + ".mm");
+                    SetDyn(n, 0, Requant(y, ConstIn(ins, 6, "y_scale").ScalarF32(), OptConst(ins, 7, "y_zp"), name));
+                    break;
+                }
+            case "ConvInteger":
+            case "QLinearConv":
+                {
+                    bool q = n.OpType == "QLinearConv";
+                    Tn xin = ins[0]!;
+                    float aScale = q ? ConstIn(ins, 1, "x_scale").ScalarF32() : 1f;
+                    var xzp = q ? OptConst(ins, 2, "x_zp") : null;
+                    var xv = ShiftZp(xin, q ? xzp : null, name);
+                    if (!q)
                     {
                         xv = ShiftZp(xin, Opt(ins, 2), name);
                     }
@@ -574,22 +580,22 @@ internal sealed partial class OnnxTranslator
                     }
 
                     var wC = ConstIn(ins, q ? 3 : 1, "W");
-                var wscale = q ? ConstIn(ins, 4, "w_scale") : OnnxConst.Scalar(1f);
-                var wzp = OptConst(ins, q ? 5 : 3, "w_zp");
-                var wf = DequantConst(wC, wscale, wzp, 0);
-                OnnxConst? bias = null;
-                if (q && ins.Length > 8 && ins[8] is not null)
+                    var wscale = q ? ConstIn(ins, 4, "w_scale") : OnnxConst.Scalar(1f);
+                    var wzp = OptConst(ins, q ? 5 : 3, "w_zp");
+                    var wf = DequantConst(wC, wscale, wzp, 0);
+                    OnnxConst? bias = null;
+                    if (q && ins.Length > 8 && ins[8] is not null)
                     {
                         bias = OnnxConst.FromFloats(OnnxType.Float, [wf.Dims[0]], ConstIn(ins, 8, "B").Floats().Select((v, i) => v * aScale * wscale.Floats()[wscale.Count == 1 ? 0 : i]).ToArray());
                     }
 
                     var tmpIns = new Tn?[] { Tn.Dyn(xv), Tn.Const(wf.Reshaped(wf.Dims, name + ".w")), bias is null ? null : Tn.Const(bias) };
-                var conv = new OnnxNode { OpType = "Conv", Name = n.Name, Inputs = ["x", "w", bias is null ? "" : "b"], Outputs = [name + ".conv"], Attributes = n.Attributes };
-                Conv(conv, tmpIns);
-                var y = _env[name + ".conv"].V!;
-                SetDyn(n, 0, q ? Requant(y, ConstIn(ins, 6, "y_scale").ScalarF32(), OptConst(ins, 7, "y_zp"), name) : y);
-                break;
-            }
+                    var conv = new OnnxNode { OpType = "Conv", Name = n.Name, Inputs = ["x", "w", bias is null ? "" : "b"], Outputs = [name + ".conv"], Attributes = n.Attributes };
+                    Conv(conv, tmpIns);
+                    var y = _env[name + ".conv"].V!;
+                    SetDyn(n, 0, q ? Requant(y, ConstIn(ins, 6, "y_scale").ScalarF32(), OptConst(ins, 7, "y_zp"), name) : y);
+                    break;
+                }
         }
     }
 
@@ -845,96 +851,97 @@ internal sealed partial class OnnxTranslator
             case "Gelu": SetDyn(n, 0, Emit("Gelu", [X(ins, 0)], null, name)); break;
             case "BiasGelu": SetDyn(n, 0, Emit("Gelu", [_b.Add(X(ins, 0), X(ins, 1))], null, name)); break;
             case "FastGelu":
-            {
-                var x = X(ins, 0); if (ins.Length > 1 && ins[1] is not null)
+                {
+                    var x = X(ins, 0); if (ins.Length > 1 && ins[1] is not null)
                     {
                         x = _b.Add(x, X(ins, 1));
                     }
 
                     SetDyn(n, 0, Emit("GeluTanh", [x], null, name)); break;
-            }
+                }
             case "QuickGelu":
-            {
-                var x = X(ins, 0);
-                SetDyn(n, 0, Emit("Mul", [x, _b.Sigmoid(_b.Scale(x, n.Float("alpha", 1.702f)))], null, name)); break;
-            }
+                {
+                    var x = X(ins, 0);
+                    SetDyn(n, 0, Emit("Mul", [x, _b.Sigmoid(_b.Scale(x, n.Float("alpha", 1.702f)))], null, name)); break;
+                }
             case "BiasAdd":
-            {
-                var y = _b.Add(X(ins, 0), X(ins, 1)); if (ins.Length > 2 && ins[2] is not null)
+                {
+                    var y = _b.Add(X(ins, 0), X(ins, 1)); if (ins.Length > 2 && ins[2] is not null)
                     {
                         y = _b.Add(y, X(ins, 2));
                     }
 
                     SetDyn(n, 0, y); break;
-            }
+                }
             case "FusedConv":
-            {
-                var conv = new OnnxNode { OpType = "Conv", Name = n.Name, Inputs = n.Inputs.Take(3).ToList(), Outputs = [name + ".conv"], Attributes = n.Attributes };
-                Conv(conv, ins.Take(3).ToArray());
-                var y = _env[name + ".conv"].V!;
-                if (ins.Length > 3 && ins[3] is not null)
+                {
+                    var conv = new OnnxNode { OpType = "Conv", Name = n.Name, Inputs = n.Inputs.Take(3).ToList(), Outputs = [name + ".conv"], Attributes = n.Attributes };
+                    Conv(conv, ins.Take(3).ToArray());
+                    var y = _env[name + ".conv"].V!;
+                    if (ins.Length > 3 && ins[3] is not null)
                     {
                         y = _b.Add(y, X(ins, 3));
                     }
 
                     y = Act(n.Has("activation") ? n.Str("activation", "") : null, y, n.Floats("activation_params"));
-                SetDyn(n, 0, y); break;
-            }
+                    SetDyn(n, 0, y); break;
+                }
             case "FusedMatMul":
                 SetDyn(n, 0, Emit("BatchMatMul", [X(ins, 0), X(ins, 1)], Attributes.From(("trans_a", n.Int("transA", 0) != 0), ("trans_b", n.Int("transB", 0) != 0), ("alpha", n.Float("alpha", 1f))), name));
                 Heavy(); break;
-            case "SkipLayerNormalization": case "SkipSimplifiedLayerNormalization":
-            {
-                var sum = _b.Add(X(ins, 0), X(ins, 1));
-                bool simple = n.OpType == "SkipSimplifiedLayerNormalization";
-                int biasIdx = simple ? 3 : 4;
-                if (ins.Length > biasIdx && ins[biasIdx] is not null)
+            case "SkipLayerNormalization":
+            case "SkipSimplifiedLayerNormalization":
+                {
+                    var sum = _b.Add(X(ins, 0), X(ins, 1));
+                    bool simple = n.OpType == "SkipSimplifiedLayerNormalization";
+                    int biasIdx = simple ? 3 : 4;
+                    if (ins.Length > biasIdx && ins[biasIdx] is not null)
                     {
                         sum = _b.Add(sum, X(ins, biasIdx));
                     }
 
                     Value y;
-                float eps = n.Float("epsilon", 1e-12f);
-                if (simple)
+                    float eps = n.Float("epsilon", 1e-12f);
+                    if (simple)
                     {
                         y = Emit("RmsNorm", [sum, X(ins, 2)], Attributes.From(("eps", eps)), name);
                     }
                     else
-                {
-                    var args = new List<Value> { sum, X(ins, 2) };
-                    if (ins.Length > 3 && ins[3] is not null)
+                    {
+                        var args = new List<Value> { sum, X(ins, 2) };
+                        if (ins.Length > 3 && ins[3] is not null)
                         {
                             args.Add(X(ins, 3));
                         }
 
                         y = Emit("LayerNorm", [.. args], Attributes.From(("eps", eps)), name);
-                }
-                SetDyn(n, 0, y);
-                if (n.Outputs.Count > 3 && n.Outputs[3] != "")
+                    }
+                    SetDyn(n, 0, y);
+                    if (n.Outputs.Count > 3 && n.Outputs[3] != "")
                     {
                         SetDyn(n, 3, sum);
                     }
 
                     break;
-            }
+                }
             case "SimplifiedLayerNormalization": RmsNorm(n, ins); break;
             case "MatMulNBits": MatMulNBits(n, ins); break;
             case "Attention": ContribAttention(n, ins); break;
             case "MultiHeadAttention":
-            {
-                if (ins.Length > 4 && ins.Skip(4).Any(t => t is not null))
+                {
+                    if (ins.Length > 4 && ins.Skip(4).Any(t => t is not null))
                     {
                         throw new NotSupportedException("MultiHeadAttention with mask/past/bias inputs beyond bias");
                     }
 
                     var q = X(ins, 0); var k = X(ins, 1); var v = X(ins, 2);
-                if (ins.Length > 3 && ins[3] is not null)
-                {
-                    long h = q.Shape[2].Fixed; var bias = X(ins, 3);
-                    q = _b.Add(q, _b.Slice(bias, 0, 0, h)); k = _b.Add(k, _b.Slice(bias, 0, h, h)); v = _b.Add(v, _b.Slice(bias, 0, 2 * h, h));
+                    if (ins.Length > 3 && ins[3] is not null)
+                    {
+                        long h = q.Shape[2].Fixed; var bias = X(ins, 3);
+                        q = _b.Add(q, _b.Slice(bias, 0, 0, h)); k = _b.Add(k, _b.Slice(bias, 0, h, h)); v = _b.Add(v, _b.Slice(bias, 0, 2 * h, h));
+                    }
+                    SetDyn(n, 0, AttentionCore(q, k, v, (int)n.Int("num_heads", 1), n.Has("scale") ? n.Float("scale", 0) : 0f, false, name)); break;
                 }
-                SetDyn(n, 0, AttentionCore(q, k, v, (int)n.Int("num_heads", 1), n.Has("scale") ? n.Float("scale", 0) : 0f, false, name)); break;
-            }
             default: throw new NotSupportedException(n.OpType);
         }
     }

@@ -92,9 +92,9 @@ public sealed class OnnxImporter : IModelImporter
                     case 1: i += 8; break;
                     case 5: i += 4; break;
                     case 2:
-                    {
-                        ulong l = ReadVar();
-                        if ((long)l < 0 || pos + i + (long)l > len)
+                        {
+                            ulong l = ReadVar();
+                            if ((long)l < 0 || pos + i + (long)l > len)
                             {
                                 return false;
                             }
@@ -105,8 +105,8 @@ public sealed class OnnxImporter : IModelImporter
                             }
 
                             pos += (long)l;
-                        break;
-                    }
+                            break;
+                        }
                     default: return false;
                 }
             }

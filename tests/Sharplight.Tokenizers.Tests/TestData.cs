@@ -98,8 +98,15 @@ internal static class TestData
         // fix up: merges must reference existing symbols; add intermediate tokens as needed (done by virtual symbols otherwise)
         return new TokenizerData
         {
-            Model = "gpt2", PreTokenizer = pre, Tokens = tokens.ToArray(), TokenTypes = types.ToArray(),
-            Merges = merges, BosId = tokens.Count - 3, EosId = tokens.Count - 2, EosIds = [tokens.Count - 2], AddBos = addBos,
+            Model = "gpt2",
+            PreTokenizer = pre,
+            Tokens = tokens.ToArray(),
+            TokenTypes = types.ToArray(),
+            Merges = merges,
+            BosId = tokens.Count - 3,
+            EosId = tokens.Count - 2,
+            EosIds = [tokens.Count - 2],
+            AddBos = addBos,
         };
     }
 }

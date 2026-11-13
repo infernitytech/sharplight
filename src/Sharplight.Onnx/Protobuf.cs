@@ -152,7 +152,9 @@ public ref struct ProtoReader
     // ---- repeated scalar helpers (packed or not) ---------------------------------------------
     public void ReadRepeatedInt64(WireType wire, List<long> into)
     {
-        if (wire == WireType.LengthDelimited) { var m = ReadMessage(); while (!m.AtEnd)
+        if (wire == WireType.LengthDelimited)
+        {
+            var m = ReadMessage(); while (!m.AtEnd)
             {
                 into.Add(m.ReadInt64());
             }

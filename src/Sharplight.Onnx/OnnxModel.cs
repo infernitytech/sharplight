@@ -22,9 +22,21 @@ public static class OnnxType
 
     public static string Name(int t) => t switch
     {
-        Float => "float", UInt8 => "uint8", Int8 => "int8", UInt16 => "uint16", Int16 => "int16", Int32 => "int32", Int64 => "int64",
-        String => "string", Bool => "bool", Float16 => "float16", Double => "double", UInt32 => "uint32", UInt64 => "uint64",
-        BFloat16 => "bfloat16", _ => $"type#{t}",
+        Float => "float",
+        UInt8 => "uint8",
+        Int8 => "int8",
+        UInt16 => "uint16",
+        Int16 => "int16",
+        Int32 => "int32",
+        Int64 => "int64",
+        String => "string",
+        Bool => "bool",
+        Float16 => "float16",
+        Double => "double",
+        UInt32 => "uint32",
+        UInt64 => "uint64",
+        BFloat16 => "bfloat16",
+        _ => $"type#{t}",
     };
 }
 

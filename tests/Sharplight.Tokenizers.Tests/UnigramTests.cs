@@ -13,7 +13,10 @@ public class UnigramTests
         Tokens = ["<s>", "<pad>", "</s>", "<unk>", "▁", "▁hello", "▁he", "llo", "l", "o", "h", "e", "▁world", "▁wor", "ld", "!"],
         Scores = [0, 0, 0, 0, -3, -5, -2, -2, -4, -4, -4, -4, -3, -2, -2, -3],
         TokenTypes = [3, 3, 3, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        BosId = 0, EosId = 2, PadId = 1, UnkId = 3,
+        BosId = 0,
+        EosId = 2,
+        PadId = 1,
+        UnkId = 3,
     });
 
     [Fact]

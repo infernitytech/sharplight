@@ -231,7 +231,9 @@ public static class OnnxExec
         foreach (var (name, v) in graph.Outputs)
         {
             var buf = new float[v.Shape.Elements(run.Symbols)];
-            if (v.Type == Sharplight.Tensors.DataType.I32) { var ib = new int[buf.Length]; compiled.GetOutput<int>(name, ib); for (int q = 0; q < ib.Length; q++)
+            if (v.Type == Sharplight.Tensors.DataType.I32)
+            {
+                var ib = new int[buf.Length]; compiled.GetOutput<int>(name, ib); for (int q = 0; q < ib.Length; q++)
                 {
                     buf[q] = ib[q];
                 }
@@ -248,7 +250,9 @@ public static class OnnxExec
 
     private sealed class Disposer(IReadOnlyList<IDisposable> items) : IDisposable
     {
-        public void Dispose() { foreach (var i in items)
+        public void Dispose()
+        {
+            foreach (var i in items)
             {
                 i.Dispose();
             }

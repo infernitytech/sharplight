@@ -131,11 +131,11 @@ public static class OnnxParser
                 case 6 when w == WireType.LengthDelimited: doc = r.ReadString(); break;
                 case 7 when w == WireType.LengthDelimited: graph = ParseGraph(r.ReadMessage(), ctx, data); break;
                 case 8 when w == WireType.LengthDelimited:
-                {
-                    var m = r.ReadMessage(); string d = ""; long v = 0;
-                    while (m.Next(out int mf, out var mw))
                     {
-                        if (mf == 1 && mw == WireType.LengthDelimited)
+                        var m = r.ReadMessage(); string d = ""; long v = 0;
+                        while (m.Next(out int mf, out var mw))
+                        {
+                            if (mf == 1 && mw == WireType.LengthDelimited)
                             {
                                 d = m.ReadString();
                             }
@@ -148,22 +148,28 @@ public static class OnnxParser
                                 m.Skip(mw);
                             }
                         }
-                    opsets[d] = v;
-                    break;
-                }
+                        opsets[d] = v;
+                        break;
+                    }
                 case 14 when w == WireType.LengthDelimited:
-                {
-                    var (k, v) = ParseStringEntry(r.ReadMessage());
-                    meta[k] = v;
-                    break;
-                }
+                    {
+                        var (k, v) = ParseStringEntry(r.ReadMessage());
+                        meta[k] = v;
+                        break;
+                    }
                 default: r.Skip(w); break;
             }
         }
         return new OnnxModel
         {
-            IrVersion = irVersion, ProducerName = producer, ProducerVersion = producerVersion, Domain = domain,
-            ModelVersion = modelVersion, DocString = doc, Opsets = opsets, MetadataProps = meta,
+            IrVersion = irVersion,
+            ProducerName = producer,
+            ProducerVersion = producerVersion,
+            Domain = domain,
+            ModelVersion = modelVersion,
+            DocString = doc,
+            Opsets = opsets,
+            MetadataProps = meta,
             Graph = graph ?? throw new InvalidDataException("ONNX model has no graph."),
         };
     }
@@ -407,7 +413,11 @@ public static class OnnxParser
         else if (dtype is OnnxType.UInt64 or OnnxType.UInt32 && uint64Data.Count > 0)
         {
             int es = OnnxType.ElementSize(dtype);
-            src = Bytes(uint64Data.Count * es, s => { for (int i = 0; i < uint64Data.Count; i++) { if (es == 8)
+            src = Bytes(uint64Data.Count * es, s =>
+            {
+                for (int i = 0; i < uint64Data.Count; i++)
+                {
+                    if (es == 8)
                     {
                         BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], uint64Data[i]);
                     }
@@ -415,7 +425,8 @@ public static class OnnxParser
                     {
                         BinaryPrimitives.WriteUInt32LittleEndian(s[(i * 4)..], (uint)uint64Data[i]);
                     }
-                } });
+                }
+            });
         }
         else if (int32Data.Count > 0 && dtype is OnnxType.Int32 or OnnxType.Int16 or OnnxType.Int8 or OnnxType.UInt8 or OnnxType.UInt16 or OnnxType.Bool or OnnxType.Float16 or OnnxType.BFloat16)
         {

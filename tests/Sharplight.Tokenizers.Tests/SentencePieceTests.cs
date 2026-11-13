@@ -15,8 +15,15 @@ public class SentencePieceTests
         for (int i = 0; i < 256; i++) { tokens.Add($"<0x{i:X2}>"); scores.Add(0); types.Add(6); }
         return new SentencePieceTokenizer(new TokenizerData
         {
-            Model = "spm", Tokens = [.. tokens], Scores = [.. scores], TokenTypes = [.. types],
-            BosId = 1, EosId = 2, UnkId = 0, AddBos = true, AddSpacePrefix = addSpacePrefix,
+            Model = "spm",
+            Tokens = [.. tokens],
+            Scores = [.. scores],
+            TokenTypes = [.. types],
+            BosId = 1,
+            EosId = 2,
+            UnkId = 0,
+            AddBos = true,
+            AddSpacePrefix = addSpacePrefix,
         });
     }
 

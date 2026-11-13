@@ -508,7 +508,9 @@ public sealed class ByteLevelBpeTokenizer : ITokenizer
                 pos += len[i];
             }
         }
-        finally { if (rented != null)
+        finally
+        {
+            if (rented != null)
             {
                 ArrayPool<int>.Shared.Return(rented);
             }

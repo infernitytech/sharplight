@@ -272,7 +272,9 @@ internal sealed class DefaultRegexStages : PreTokenizer
     /// <summary>A splitter with its own successive regex stages (same semantics as the default one).</summary>
     public DefaultRegexStages(string[] stagePatterns) { _stages = stagePatterns.Select(New).ToArray(); }
 
-    internal const string Ws = @"\t\n\v\f\r \u0085   -     　";
+    internal const string Ws = @"\t\n\v\f\r \u0085   - 
+
+  　";
 
     private readonly Regex[] _stages;
 

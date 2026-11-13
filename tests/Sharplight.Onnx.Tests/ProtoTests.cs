@@ -8,8 +8,14 @@ public class ProtoReaderTests
     private static ulong Var(byte[] b) { var r = new ProtoReader(b); return r.ReadVarint(); }
 
     [Theory]
-    [InlineData(0UL)] [InlineData(1UL)] [InlineData(127UL)] [InlineData(128UL)] [InlineData(300UL)] [InlineData(16384UL)]
-    [InlineData(uint.MaxValue)] [InlineData(ulong.MaxValue)]
+    [InlineData(0UL)]
+    [InlineData(1UL)]
+    [InlineData(127UL)]
+    [InlineData(128UL)]
+    [InlineData(300UL)]
+    [InlineData(16384UL)]
+    [InlineData(uint.MaxValue)]
+    [InlineData(ulong.MaxValue)]
     public void Varint_RoundTrips(ulong v) => Assert.Equal(v, Var(new ProtoWriter().Varint(v).ToArray()));
 
     [Fact]
@@ -196,7 +202,9 @@ public class OnnxParserTests : IDisposable
     {
         public ModelSource S = s;
         public IReadOnlyDictionary<string, WeightInfo> Weights => S.Weights;
-        public void Dispose() { foreach (var r in S.OwnedResources)
+        public void Dispose()
+        {
+            foreach (var r in S.OwnedResources)
             {
                 r.Dispose();
             }
@@ -224,7 +232,9 @@ public class OnnxParserTests : IDisposable
             Assert.Equal("f32", w.Type.Name); Assert.Equal("[2, 2]", w.Shape.ToString());
             Assert.NotEqual(0, w.Source.TryGetPointer());   // memory-mapped, no copy
         }
-        finally { foreach (var r in src.OwnedResources)
+        finally
+        {
+            foreach (var r in src.OwnedResources)
             {
                 r.Dispose();
             }
@@ -259,7 +269,9 @@ public class OnnxParserTests : IDisposable
             Assert.Single(def.Graphs);
             Assert.Equal("main", def.Graphs.Keys.Single());
         }
-        finally { foreach (var r in src.OwnedResources)
+        finally
+        {
+            foreach (var r in src.OwnedResources)
             {
                 r.Dispose();
             }

@@ -81,53 +81,55 @@ internal sealed partial class OnnxTranslator
 
         switch (n.OpType)
         {
-            case "QLinearAdd": case "QLinearMul":
-            {
-                var a = Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".a");
-                var b = Deq(ins[3]!, ins[4]!, Opt(ins, 5), name + ".b");
-                var r = n.OpType == "QLinearAdd" ? _b.Add(a, b) : _b.Mul(a, b);
-                SetDyn(n, 0, Req(r, ins[6]!, Opt(ins, 7), name));
-                return true;
-            }
+            case "QLinearAdd":
+            case "QLinearMul":
+                {
+                    var a = Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".a");
+                    var b = Deq(ins[3]!, ins[4]!, Opt(ins, 5), name + ".b");
+                    var r = n.OpType == "QLinearAdd" ? _b.Add(a, b) : _b.Mul(a, b);
+                    SetDyn(n, 0, Req(r, ins[6]!, Opt(ins, 7), name));
+                    return true;
+                }
             case "QLinearSigmoid":
                 SetDyn(n, 0, Req(_b.Sigmoid(Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x")), ins[3]!, Opt(ins, 4), name)); return true;
             case "QLinearLeakyRelu":
                 SetDyn(n, 0, Req(Emit("LeakyRelu", [Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x")], Attributes.From(("alpha", n.Float("alpha", 0.01f)))), ins[3]!, Opt(ins, 4), name)); return true;
             case "QLinearSoftmax":
-            {
-                var sm = new OnnxNode { OpType = "Softmax", Name = n.Name, Inputs = ["x"], Outputs = [name + ".sm"], Attributes = n.Attributes };
-                Dynamic(sm, [Tn.Dyn(Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x"))]);
-                SetDyn(n, 0, Req(_env[name + ".sm"].V!, ins[3]!, Opt(ins, 4), name)); return true;
-            }
-            case "QLinearGlobalAveragePool": case "QLinearAveragePool":
-            {
-                var x = Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x");
-                if (n.Int("channels_last", 0) != 0)
+                {
+                    var sm = new OnnxNode { OpType = "Softmax", Name = n.Name, Inputs = ["x"], Outputs = [name + ".sm"], Attributes = n.Attributes };
+                    Dynamic(sm, [Tn.Dyn(Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x"))]);
+                    SetDyn(n, 0, Req(_env[name + ".sm"].V!, ins[3]!, Opt(ins, 4), name)); return true;
+                }
+            case "QLinearGlobalAveragePool":
+            case "QLinearAveragePool":
+                {
+                    var x = Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x");
+                    if (n.Int("channels_last", 0) != 0)
                     {
                         x = Permute(x, [0, 3, 1, 2]);
                     }
 
                     var pool = new OnnxNode { OpType = n.OpType == "QLinearGlobalAveragePool" ? "GlobalAveragePool" : "AveragePool", Name = n.Name, Inputs = ["x"], Outputs = [name + ".pool"], Attributes = n.Attributes };
-                Dynamic(pool, [Tn.Dyn(x)]);
-                var y = _env[name + ".pool"].V!;
-                if (n.Int("channels_last", 0) != 0)
+                    Dynamic(pool, [Tn.Dyn(x)]);
+                    var y = _env[name + ".pool"].V!;
+                    if (n.Int("channels_last", 0) != 0)
                     {
                         y = Permute(y, [0, 2, 3, 1]);
                     }
 
                     SetDyn(n, 0, Req(y, ins[3]!, Opt(ins, 4), name)); return true;
-            }
+                }
             case "QLinearConcat":
-            {
-                var parts = new List<Value>();
-                for (int i = 2; i + 2 < ins.Length; i += 3)
+                {
+                    var parts = new List<Value>();
+                    for (int i = 2; i + 2 < ins.Length; i += 3)
                     {
                         parts.Add(Deq(ins[i]!, ins[i + 1]!, Opt(ins, i + 2), name + $".in{i}"));
                     }
 
                     var cat = Emit("Concat", [.. parts], Attributes.From(("axis", n.Int("axis", 1))));
-                SetDyn(n, 0, Req(cat, ins[0]!, Opt(ins, 1), name)); return true;
-            }
+                    SetDyn(n, 0, Req(cat, ins[0]!, Opt(ins, 1), name)); return true;
+                }
         }
         return false;
     }

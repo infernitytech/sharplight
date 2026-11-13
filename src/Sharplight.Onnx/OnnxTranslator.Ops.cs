@@ -7,11 +7,40 @@ internal sealed partial class OnnxTranslator
 {
     private static readonly Dictionary<string, string> s_unary = new()
     {
-        ["Relu"] = "Relu", ["Sigmoid"] = "Sigmoid", ["Tanh"] = "Tanh", ["Exp"] = "Exp", ["Log"] = "Log", ["Sqrt"] = "Sqrt", ["Neg"] = "Neg",
-        ["Abs"] = "Abs", ["Erf"] = "Erf", ["Reciprocal"] = "Recip", ["HardSwish"] = "HardSwish", ["Softplus"] = "Softplus", ["Mish"] = "Mish",
-        ["Sin"] = "Sin", ["Cos"] = "Cos", ["Tan"] = "Tan", ["Asin"] = "Asin", ["Acos"] = "Acos", ["Atan"] = "Atan", ["Sinh"] = "Sinh", ["Cosh"] = "Cosh",
-        ["Asinh"] = "Asinh", ["Acosh"] = "Acosh", ["Atanh"] = "Atanh", ["Floor"] = "Floor", ["Ceil"] = "Ceil", ["Round"] = "Round", ["Sign"] = "Sign",
-        ["Softsign"] = "Softsign", ["Not"] = "Not", ["IsNaN"] = "IsNaN", ["IsInf"] = "IsInf", ["Silu"] = "Silu", ["Swish"] = "Silu",
+        ["Relu"] = "Relu",
+        ["Sigmoid"] = "Sigmoid",
+        ["Tanh"] = "Tanh",
+        ["Exp"] = "Exp",
+        ["Log"] = "Log",
+        ["Sqrt"] = "Sqrt",
+        ["Neg"] = "Neg",
+        ["Abs"] = "Abs",
+        ["Erf"] = "Erf",
+        ["Reciprocal"] = "Recip",
+        ["HardSwish"] = "HardSwish",
+        ["Softplus"] = "Softplus",
+        ["Mish"] = "Mish",
+        ["Sin"] = "Sin",
+        ["Cos"] = "Cos",
+        ["Tan"] = "Tan",
+        ["Asin"] = "Asin",
+        ["Acos"] = "Acos",
+        ["Atan"] = "Atan",
+        ["Sinh"] = "Sinh",
+        ["Cosh"] = "Cosh",
+        ["Asinh"] = "Asinh",
+        ["Acosh"] = "Acosh",
+        ["Atanh"] = "Atanh",
+        ["Floor"] = "Floor",
+        ["Ceil"] = "Ceil",
+        ["Round"] = "Round",
+        ["Sign"] = "Sign",
+        ["Softsign"] = "Softsign",
+        ["Not"] = "Not",
+        ["IsNaN"] = "IsNaN",
+        ["IsInf"] = "IsInf",
+        ["Silu"] = "Silu",
+        ["Swish"] = "Silu",
     };
 
     /// <summary>ONNX unary ops with float attributes: (attribute, default) pairs, same names on the IR op.</summary>
@@ -27,8 +56,20 @@ internal sealed partial class OnnxTranslator
 
     private static readonly Dictionary<string, string> s_binary = new()
     {
-        ["Add"] = "Add", ["Sub"] = "Sub", ["Mul"] = "Mul", ["Div"] = "Div", ["Pow"] = "Pow", ["PRelu"] = "PRelu", ["Equal"] = "Equal",
-        ["Less"] = "Less", ["Greater"] = "Greater", ["LessOrEqual"] = "LessEqual", ["GreaterOrEqual"] = "GreaterEqual", ["And"] = "And", ["Or"] = "Or", ["Xor"] = "Xor",
+        ["Add"] = "Add",
+        ["Sub"] = "Sub",
+        ["Mul"] = "Mul",
+        ["Div"] = "Div",
+        ["Pow"] = "Pow",
+        ["PRelu"] = "PRelu",
+        ["Equal"] = "Equal",
+        ["Less"] = "Less",
+        ["Greater"] = "Greater",
+        ["LessOrEqual"] = "LessEqual",
+        ["GreaterOrEqual"] = "GreaterEqual",
+        ["And"] = "And",
+        ["Or"] = "Or",
+        ["Xor"] = "Xor",
     };
 
     private Value X(Tn?[] ins, int i, string? hint = null)
@@ -73,23 +114,24 @@ internal sealed partial class OnnxTranslator
             case "Conv": Conv(n, ins); break;
             case "BatchNormalization": BatchNorm(n, ins); break;
             case "MaxPool": case "AveragePool": Pool(n, ins); break;
-            case "GlobalAveragePool": case "GlobalMaxPool":
-            {
-                var x = X(ins, 0);
-                var axes = Enumerable.Range(2, Math.Max(0, x.Rank - 2)).Select(i => (long)i).ToArray();
-                SetDyn(n, 0, Emit("Reduce", [x], Attributes.From(("mode", op == "GlobalAveragePool" ? "mean" : "max"), ("axes", axes), ("keepdims", true)), Nm(n)));
-                break;
-            }
+            case "GlobalAveragePool":
+            case "GlobalMaxPool":
+                {
+                    var x = X(ins, 0);
+                    var axes = Enumerable.Range(2, Math.Max(0, x.Rank - 2)).Select(i => (long)i).ToArray();
+                    SetDyn(n, 0, Emit("Reduce", [x], Attributes.From(("mode", op == "GlobalAveragePool" ? "mean" : "max"), ("axes", axes), ("keepdims", true)), Nm(n)));
+                    break;
+                }
             case "ReduceMean": case "ReduceSum": case "ReduceMax": case "ReduceMin": case "ReduceL2": case "ReduceL1": case "ReduceProd": case "ReduceSumSquare": case "ReduceLogSum": case "ReduceLogSumExp": Reduce(n, ins); break;
             case "Gemm": Gemm(n, ins); break;
             case "MatMul": MatMul(n, ins); break;
             case "Clip":
-            {
-                var x = X(ins, 0);
-                var items = new List<(string, object)>();
-                float? lo = n.Has("min") ? n.Float("min", 0) : OptConst(ins, 1, "Clip min") is { } l ? l.ScalarF32() : null;
-                float? hi = n.Has("max") ? n.Float("max", 0) : OptConst(ins, 2, "Clip max") is { } h ? h.ScalarF32() : null;
-                if (lo is { } a)
+                {
+                    var x = X(ins, 0);
+                    var items = new List<(string, object)>();
+                    float? lo = n.Has("min") ? n.Float("min", 0) : OptConst(ins, 1, "Clip min") is { } l ? l.ScalarF32() : null;
+                    float? hi = n.Has("max") ? n.Float("max", 0) : OptConst(ins, 2, "Clip max") is { } h ? h.ScalarF32() : null;
+                    if (lo is { } a)
                     {
                         items.Add(("min", a));
                     }
@@ -100,15 +142,18 @@ internal sealed partial class OnnxTranslator
                     }
 
                     SetDyn(n, 0, Emit("Clip", [x], Attributes.From(items.ToArray()), Nm(n)));
-                break;
-            }
+                    break;
+                }
             case "Gelu":
                 SetDyn(n, 0, Emit(n.Str("approximate", "none") == "tanh" ? "GeluTanh" : "Gelu", [X(ins, 0)], null, Nm(n))); break;
-            case "Max": case "Min": case "Sum": case "Mean":
-            {
-                string irOp = op == "Max" ? "Max" : op == "Min" ? "Min" : "Add";
-                var acc = X(ins, 0);
-                for (int i = 1; i < ins.Length; i++)
+            case "Max":
+            case "Min":
+            case "Sum":
+            case "Mean":
+                {
+                    string irOp = op == "Max" ? "Max" : op == "Min" ? "Min" : "Add";
+                    var acc = X(ins, 0);
+                    for (int i = 1; i < ins.Length; i++)
                     {
                         acc = Emit(irOp, [acc, X(ins, i)], null, i == ins.Length - 1 && op != "Mean" ? Nm(n) : null);
                     }
@@ -119,19 +164,19 @@ internal sealed partial class OnnxTranslator
                     }
 
                     SetDyn(n, 0, acc);
-                break;
-            }
+                    break;
+                }
             case "Identity": _env[n.Outputs[0]] = ins[0]!; break;
             case "Dropout":
                 CheckUnusedOutputs(n, 1);
                 _env[n.Outputs[0]] = ins[0]!; break;
             case "Cast": CastDyn(n, ins); break;
             case "Shape":
-            {
-                var d = ins[0]!.V!.Shape;
-                var dims = d.Dims.Select(x => x.IsSymbolic ? OnnxConst.SymBatch : x.Fixed).ToArray();
-                long s = n.Int("start", 0), e = n.Int("end", dims.Length);
-                if (s < 0)
+                {
+                    var d = ins[0]!.V!.Shape;
+                    var dims = d.Dims.Select(x => x.IsSymbolic ? OnnxConst.SymBatch : x.Fixed).ToArray();
+                    long s = n.Int("start", 0), e = n.Int("end", dims.Length);
+                    if (s < 0)
                     {
                         s += dims.Length;
                     }
@@ -142,9 +187,9 @@ internal sealed partial class OnnxTranslator
                     }
 
                     s = Math.Clamp(s, 0, dims.Length); e = Math.Clamp(e, s, dims.Length);
-                _env[n.Outputs[0]] = Tn.Const(OnnxConst.FromInts(OnnxType.Int64, [e - s], dims[(int)s..(int)e]));
-                break;
-            }
+                    _env[n.Outputs[0]] = Tn.Const(OnnxConst.FromInts(OnnxType.Int64, [e - s], dims[(int)s..(int)e]));
+                    break;
+                }
             case "Size":
                 if (Sym(ins[0]!.V!))
                 {
@@ -159,12 +204,12 @@ internal sealed partial class OnnxTranslator
                 break;
             case "Squeeze": case "Unsqueeze": SqueezeUnsqueeze(n, ins); break;
             case "Transpose":
-            {
-                var x = X(ins, 0);
-                var perm = n.Ints("perm")?.Select(p => (int)p).ToArray() ?? Enumerable.Range(0, x.Rank).Reverse().ToArray();
-                SetDyn(n, 0, Permute(x, perm));
-                break;
-            }
+                {
+                    var x = X(ins, 0);
+                    var perm = n.Ints("perm")?.Select(p => (int)p).ToArray() ?? Enumerable.Range(0, x.Rank).Reverse().ToArray();
+                    SetDyn(n, 0, Permute(x, perm));
+                    break;
+                }
             case "Concat": Concat(n, ins); break;
             case "Slice": Slice(n, ins); break;
             case "Split": Split(n, ins); break;
@@ -938,7 +983,9 @@ internal sealed partial class OnnxTranslator
         bool changed = false;
         for (int i = 0; i < rank; i++)
         {
-            if (td[i] == OnnxConst.SymBatch || xd[i] == OnnxConst.SymBatch) { res[i] = OnnxConst.SymBatch; if (xd[i] != OnnxConst.SymBatch)
+            if (td[i] == OnnxConst.SymBatch || xd[i] == OnnxConst.SymBatch)
+            {
+                res[i] = OnnxConst.SymBatch; if (xd[i] != OnnxConst.SymBatch)
                 {
                     changed = true;
                 }
