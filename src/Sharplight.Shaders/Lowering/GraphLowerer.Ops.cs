@@ -26,7 +26,7 @@ public sealed partial class GraphLowerer
             case "Rope": LowerRope(n); break;
             case "Gather": LowerGather(n); break;
             case "CacheWrite": LowerCacheWrite(n); break;
-            case "CachedAttention": LowerAttention(n); break;
+            case "CachedAttention" or "Attention": LowerAttention(n); break;
             case "CausalConv1d": LowerConv(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
             default:
@@ -431,15 +431,22 @@ public sealed partial class GraphLowerer
 
     void LowerAttention(Node n)
     {
+        // "Attention": bidirectional self-attention over K/V given as plain tensors (vision encoders), every query sees all T keys.
+        bool full = n.Op.Name == "Attention";
         var q = Ref(n.Inputs[0]);
         var kc = Ref(n.Inputs[1]);
         var vc = Ref(n.Inputs[2]);
         if (q.Rank != 3 || q.Strides[2] != 1) q = DenseTemp(q, "attn-q");
+        if (full)
+        {
+            kc = AsDenseF32(kc, "attn-k");
+            vc = AsDenseF32(vc, "attn-v");
+        }
         var o = Produce(n.Output);
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
         var k = Lib("attention.slang", "main", Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
-            ("SCALE", n.Attributes.Get<float>("scale")), ("KV_F16", kc.Type == DataType.F16), ("RT_N_PAST", Slot(n))));
+            ("SCALE", n.Attributes.Get<float>("scale")), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full ? 0 : Slot(n))));
         var tq = q;
         Emit($"attention {n.Output.Name}", [n],
             [Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq)))],

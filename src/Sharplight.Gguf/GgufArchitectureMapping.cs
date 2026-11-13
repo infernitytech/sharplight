@@ -23,6 +23,21 @@ public interface IGgufArchitectureMapping
 
     /// <summary>Canonical name of a GGUF tensor, or null when it has none (the import then fails).</summary>
     string? MapWeightName(string ggufName, GgufMetadataView gguf);
+
+    /// <summary>
+    /// The canonical architecture id for this particular file. Mappings whose GGUF architecture covers several
+    /// layouts (e.g. <c>clip</c> projector types) override it; default: <see cref="Architecture"/>.
+    /// </summary>
+    string ResolveArchitecture(GgufMetadataView gguf) => Architecture;
+}
+
+/// <summary>
+/// Optional second stage of a mapping: rewrites the canonically named weight set where the file layout needs
+/// several tensors combined into one canonical weight (derived lazily).
+/// </summary>
+public interface IGgufWeightTransformer
+{
+    void Transform(Dictionary<string, Models.WeightInfo> weights, GgufMetadataView gguf);
 }
 
 /// <summary>Read access to GGUF metadata of one architecture (<c>{gguf_arch}.key</c>).</summary>
@@ -45,6 +60,7 @@ public static class GgufArchitectureMappings
     static GgufArchitectureMappings()
     {
         Register(new Qwen35GgufMapping());
+        Register(new ClipGgufMapping());
     }
 
     public static void Register(IGgufArchitectureMapping mapping)

@@ -88,7 +88,11 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint t = gid.y;
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
+#if FULL_ATTN
+    uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
+#else
     uint L = p.rt[RT_N_PAST] + t + 1;
+#endif
 
     float* qr = p.q + uint64_t(t) * QS0 + uint64_t(h) * QS1;
     for (uint i = tid; i < D; i += WG) sQ[i] = qr[i] * SCALE;

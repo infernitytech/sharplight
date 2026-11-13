@@ -23,4 +23,19 @@ public class VisionParityTests(ITestOutputHelper output)
         { output.WriteLine($"CPU vs torch: max abs {abs:E3}, max rel {rel:E3}, relative RMS {rms:E3}"); Console.Error.WriteLine($"CPU vs torch: max abs {abs:E3}, max rel {rel:E3}, relative RMS {rms:E3}"); }
         Assert.True(rms < 1e-4, $"relative RMS {rms}");
     }
+
+    [Fact]
+    public void Vulkan_embeddings_match_torch()
+    {
+        Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
+        var slot = Env.Vulkan();
+        Assert.SkipUnless(slot is not null, "no Vulkan device");
+        using var model = LoadHf(slot!);
+        using var enc = model.CreateVisionEncoder();
+        var got = enc.Encode(Env.Shapes());
+        var expected = Env.ReadFloats(Env.Fixture("shapes_hf_embeddings_100x1024.f32"));
+        var (abs, rel, rms) = Env.Compare(got, expected);
+        { output.WriteLine($"Vulkan vs torch: max abs {abs:E3}, max rel {rel:E3}, relative RMS {rms:E3}"); Console.Error.WriteLine($"Vulkan vs torch: max abs {abs:E3}, max rel {rel:E3}, relative RMS {rms:E3}"); }
+        Assert.True(rms < 1e-3, $"relative RMS {rms}");
+    }
 }
