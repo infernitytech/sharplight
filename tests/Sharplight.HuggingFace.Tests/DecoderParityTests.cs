@@ -31,6 +31,12 @@ public class DecoderParityTests
         new("OLMoE-1B-7B-0924-Instruct", "hf/OLMoE-1B-7B-0924-Instruct", "gguf/OLMoE-1B-7B-0924-Instruct/OLMoE-1B-7B-0924-Instruct-Q4_K_M.gguf"),
         new("gemma-3-1b-it", "hf/gemma-3-1b-it", "gguf/gemma-3-1b-it/gemma-3-1b-it-Q8_0.gguf"),
         new("gemma-2-2b-it", "hf/gemma-2-2b-it", "gguf/gemma-2-2b-it/gemma-2-2b-it-Q8_0.gguf"),
+        new("gemma-4-E2B-it-Q8_0", "hf/gemma-4-E2B-it", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-Q8_0.gguf"),
+        new("gemma-4-E2B-it-BF16", "hf/gemma-4-E2B-it", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-BF16.gguf"),
+        new("gemma-4-12B-it-BF16 (k = v global layers)", "hf/gemma-4-12B-it", "gguf/gemma-4-12b-it/gemma-4-12b-it-BF16.gguf"),   // 23 GB; skipped when the BF16 GGUF is not downloaded
+        new("NVIDIA-Nemotron-3-Nano-4B-Q8_0", "hf/NVIDIA-Nemotron-3-Nano-4B", "gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-Q8_0.gguf"),
+        new("NVIDIA-Nemotron-3-Nano-4B-BF16", "hf/NVIDIA-Nemotron-3-Nano-4B", "gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-BF16.gguf"),
+        new("Muse-Glimmer-30B-Q4_K_XL", "hf/Muse-Glimmer-30B", "gguf/Muse-Glimmer-30B/Muse-Glimmer-30B-UD-Q4_K_XL.gguf"),
         new("Bonsai-1.7B-Q1_0", "hf/Bonsai-1.7B", "gguf/Bonsai-1.7B/Bonsai-1.7B-Q1_0.gguf"),
         new("Ternary-Bonsai-1.7B-PQ2_0", "hf/Ternary-Bonsai-1.7B", "gguf/Ternary-Bonsai-1.7B/Ternary-Bonsai-1.7B-PQ2_0.gguf"),
         new("Ternary-Bonsai-1.7B-Q2_0_g64", "hf/Ternary-Bonsai-1.7B", "gguf/Ternary-Bonsai-1.7B/Ternary-Bonsai-1.7B-Q2_0_g64.gguf"),
@@ -49,13 +55,13 @@ public class DecoderParityTests
     {
         if (Open(hf, gguf) is not var (h, g)) { Assert.Skip($"{name}: files missing or unsupported"); return; }
         using var _1 = new Disposer(h); using var _2 = new Disposer(g);
-        Assert.Equal("decoder", h.Architecture);
-        Assert.Equal("decoder", g.Architecture);
+        Assert.Equal(g.Architecture, h.Architecture);
+        Assert.Contains(g.Architecture, new[] { "decoder", "nemotron_h" });
         var problems = new List<string>();
-        foreach (var key in h.Metadata.Keys.Concat(g.Metadata.Keys).Where(k => k.StartsWith("decoder.", StringComparison.Ordinal)).Distinct().Order(StringComparer.Ordinal))
+        foreach (var key in h.Metadata.Keys.Concat(g.Metadata.Keys).Where(k => k.StartsWith(g.Architecture + ".", StringComparison.Ordinal)).Distinct().Order(StringComparer.Ordinal))
         {
             bool inH = h.Metadata.TryGetValue(key, out var hv), inG = g.Metadata.TryGetValue(key, out var gv);
-            if (key == "decoder.context_length") continue;   // repackagers sometimes truncate; informational
+            if (key.EndsWith(".context_length")) continue;   // repackagers sometimes truncate; informational
             if (inH != inG) problems.Add($"{key}: HF present={inH} GGUF present={inG}");
             else if (!ValueEquals(hv!, gv!)) problems.Add($"{key}: HF {Fmt(hv!)} vs GGUF {Fmt(gv!)}");
         }
@@ -103,17 +109,21 @@ public class DecoderParityTests
         var tg = TokenizerFactory.Create(TokenizerData.FromMetadata(g.Metadata));
         Assert.Equal(tg.VocabSize, th.VocabSize);
         Assert.Equal(tg.BosId, th.BosId);
-        Assert.Equal(tg.AddBos, th.AddBos);
-        Assert.Equal(tg.EndOfGenerationIds.Order(), th.EndOfGenerationIds.Order());
+        // The unsloth Nemotron GGUF enables add_bos_token while the official tokenizer_config.json disables it: a repackaging choice, compare plain encodings then.
+        bool sameBos = tg.AddBos == th.AddBos;
+        if (!name.StartsWith("NVIDIA-Nemotron", StringComparison.Ordinal)) Assert.True(sameBos, "add_bos differs");
+        if (name.Contains("12B", StringComparison.Ordinal)) Assert.Subset(th.EndOfGenerationIds.ToHashSet(), tg.EndOfGenerationIds.ToHashSet());   // the unsloth 12B GGUF lists only <turn|> (eos id 106), the HF generation_config also <eos>
+        else Assert.Equal(tg.EndOfGenerationIds.Order(), th.EndOfGenerationIds.Order());
         foreach (var s in new[]
         {
             "Hello, world!", "The quick brown fox jumps over the lazy dog.", "  leading and trailing  ", "numbers 1234567890 3.14159",
             "Unicode: héllo wörld, 你好世界, 😀🚀", "def fib(n):\n    return n if n < 2 else fib(n-1) + fib(n-2)\n\n\tprint(fib(10))",
             "I've been told he's there, 'RE you sure?", "<start_of_turn>user\nHi<end_of_turn>\n<|im_start|>x<|im_end|>",
+            "<|turn>user\nHello there<turn|>\n<|turn>model\n", "a\n\n\n\nb   c    d\n \n", "Ünïcödé  mixed 日本語のテキスト and emoji 🎉👍🏽", "x = [1, 2, 3]  # comment\n\treturn x",
         })
         {
-            var a = tg.Encode(s, addSpecial: true, parseSpecial: true);
-            var b = th.Encode(s, addSpecial: true, parseSpecial: true);
+            var a = tg.Encode(s, addSpecial: sameBos, parseSpecial: true);
+            var b = th.Encode(s, addSpecial: sameBos, parseSpecial: true);
             Assert.True(a.AsSpan().SequenceEqual(b), $"encode mismatch for '{s}': GGUF [{string.Join(",", a)}] vs HF [{string.Join(",", b)}]");
         }
     }

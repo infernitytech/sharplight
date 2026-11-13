@@ -322,6 +322,7 @@ public sealed class CpuDevice : IComputeDevice
                 return ins[1].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("CacheWrite source must be f32");
             case "CachedAttention":
                 if (ins[0].Type != DataType.F32) return OpSupport.No("CachedAttention q must be f32");
+                if (node.Attributes.Get("sinks", false) && ins[3].Type != DataType.F32) return OpSupport.No("CachedAttention sinks must be f32");
                 if (!IsKv(ins[1].Type) || !IsKv(ins[2].Type)) return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32/f16 only)");
                 return OpSupport.Yes;
             case "Attention":
@@ -331,7 +332,8 @@ public sealed class CpuDevice : IComputeDevice
                 return OpSupport.Yes;
             case "CausalConv1d":
                 if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32) return OpSupport.No("CausalConv1d needs f32 activations and state");
-                return F32Like(ins[1]) && (ins.Length < 4 || ins[3].Type == DataType.I32 || F32Like(ins[3])) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight/bias must be f32-convertible");
+                bool convBias = node.Attributes.Get("bias", false) || (ins.Length > 3 && ins[3].Type != DataType.I32);
+                return F32Like(ins[1]) && (!convBias || F32Like(ins[3])) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight/bias must be f32-convertible");
             case "SelectiveScan":
                 if (ins[0].Type != DataType.F32 || ins[1].Type != DataType.F32 || ins[4].Type != DataType.F32 || ins[5].Type != DataType.F32 || ins[7].Type != DataType.F32)
                     return OpSupport.No("SelectiveScan needs f32 x/dt/B/C and state");

@@ -12,15 +12,18 @@ namespace Sharplight.Gguf;
 /// </summary>
 public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4", "muse-glimmer", "flint"];
     public string Architecture => "decoder";
 
     static bool IsGemma(string a) => a is "gemma2" or "gemma3";
-    static bool PermutesQk(string a) => a == "llama";
+    static bool PermutesQk(string a) => a is "llama" or "muse-glimmer";   // both store q/k rows permuted for llama.cpp's interleaved ("normal") rope
 
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string arch = g.GgufArchitecture;
+        if (arch == "gemma4") return Gemma4Hyper(g);
+        if (arch == "muse-glimmer") return MuseHyper(g);
+        if (arch == "flint") return FlintHyper(g);
         string a = Architecture + ".";
         int nEmbd = g.Int("embedding_length");
         int nHead = g.Int("attention.head_count");
@@ -104,6 +107,11 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
         ["ffn_down_exps.weight"] = "mlp.experts.down.weight",
+        // Flint: always-on shared expert and per-head attention sinks.
+        ["ffn_gate_shexp.weight"] = "mlp.shared.gate.weight",
+        ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
+        ["ffn_down_shexp.weight"] = "mlp.shared.down.weight",
+        ["attn_sinks.weight"] = "attention.sinks",
         // Gemma 2/3: llama.cpp's post_attention_norm / post_ffw_norm are the norms of the sub-layer outputs.
         ["post_attention_norm.weight"] = "attention.out_norm.weight",
         ["post_ffw_norm.weight"] = "mlp.out_norm.weight",
@@ -120,8 +128,10 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
             case "rope_factors_short.weight": return "rope.freq_factors";
             case "rope_factors_long.weight": return "rope.freq_factors_long";
         }
+        if (IsExtended(g.GgufArchitecture) && s_extendedGlobal.TryGetValue(name, out var gn)) return gn;
         var m = BlockName().Match(name);
         if (!m.Success) return null;
+        if (IsExtended(g.GgufArchitecture) && s_extended.TryGetValue(m.Groups[2].Value, out var xn)) return $"layers.{m.Groups[1].Value}.{xn}";
         return s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
     }
 

@@ -72,15 +72,16 @@ public sealed partial class GraphLowerer
     static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
     static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "MatMulId", "SelectiveScan", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", .. SpatialOpNames, .. GeneralOpNames];
 
     public static OpSupport Supports(Node node)
     {
         if (!s_supported.Contains(node.Op.Name)) return OpSupport.No($"no kernel for {node.Op.Name}");
         if (s_spatialOps.Contains(node.Op.Name)) return SupportsSpatial(node);
         if (s_generalOps.Contains(node.Op.Name)) return SupportsGeneral(node);
-        if (node.Op.Name == "MatMulId") return SupportsMoe(node);
         if (node.Op.Name == "SelectiveScan") return SupportsSelectiveScan(node);
+        if (node.Op.Name == "MatMulId") return SupportsMoe(node);
+        if (node.Op.Name == "CachedAttention" && node.Attributes.Get("sinks", false) && node.Inputs[3].Type != DataType.F32) return OpSupport.No("attention sinks must be f32");
         if (node.Op.Name == "Attention" && (node.Inputs.Length != 3 || node.Attributes.Get("causal", false) || node.Inputs[1].Shape[1] != node.Inputs[2].Shape[1]
             || node.Inputs[0].Shape[0] != node.Inputs[1].Shape[0] || node.Inputs[0].Shape[2].Fixed % 8 != 0 || node.Inputs[1].Shape[2].Fixed % 8 != 0))
             return OpSupport.No("Attention: only bidirectional self-attention without mask over equally long q/k/v with head size % 8 == 0 is implemented");
@@ -101,7 +102,7 @@ public sealed partial class GraphLowerer
     static int? WeightFormat(DataType t) =>
         t == DataType.F32 ? 0 : t == DataType.F16 ? 1 : t == DataType.BF16 ? 2 : t == DataType.Q8_0 ? 8 : t == ShaderTypes.Q8_0R ? 108 :
         t == DataType.Q4_0 ? 2001 : t == DataType.Q4_K ? 12 : t == DataType.Q5_K ? 13 : t == DataType.Q6_K ? 14 :
-        t == DataType.Q1_0 ? 41 : t == DataType.Q2_0 ? 42 : t == DataType.Q2_0_G128 ? 142 : t == DataType.Tern1_G128 ? 143 : null;
+        t == DataType.Q4_1 ? 3 : t == DataType.Q5_0 ? 6 : t == DataType.Q5_1 ? 7 : t == DataType.IQ4_NL ? 20 : t == DataType.IQ4_XS ? 23 : t == DataType.Q1_0 ? 41 : t == DataType.Q2_0 ? 42 : t == DataType.Q2_0_G128 ? 142 : t == DataType.Tern1_G128 ? 143 : null;
 
     // ---- main --------------------------------------------------------------------------------
     KernelProgram Run()

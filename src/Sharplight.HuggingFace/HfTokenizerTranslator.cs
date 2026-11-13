@@ -13,7 +13,7 @@ namespace Sharplight.HuggingFace;
 /// </summary>
 public static class HfTokenizerTranslator
 {
-    const int TypeNormal = 1, TypeControl = 3, TypeUserDefined = 4, TypeUnused = 5;
+    const int TypeNormal = 1, TypeControl = 3, TypeUserDefined = 4, TypeUnused = 5, TypeByte = 6;
 
     /// <summary>Known pre-tokenizer split regexes (as found in tokenizer.json) → Sharplight/llama.cpp preset names.</summary>
     static readonly (string Preset, string Regex)[] KnownRegexes =
@@ -21,6 +21,8 @@ public static class HfTokenizerTranslator
         ("qwen35", @"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}| ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
         ("qwen2", @"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
         ("llama-bpe", @"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
+        ("pixtral", @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
+        ("llama4", @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
         ("gpt-2", @"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"),
     ];
 
@@ -49,6 +51,12 @@ public static class HfTokenizerTranslator
 
         var addedTokens = tok.TryGetProperty("added_tokens", out var at) && at.ValueKind == JsonValueKind.Array
             ? at.EnumerateArray().ToArray() : [];
+
+        // Gemma 4: character-level BPE with merge ranks and byte fallback over a space → ▁ normalizer (no tokenizer.model, no pre-tokenizer regex).
+        bool spaceBpe = model.TryGetProperty("byte_fallback", out var bf2) && bf2.ValueKind == JsonValueKind.True
+            && tok.TryGetProperty("normalizer", out var norm) && norm.ValueKind == JsonValueKind.Object
+            && norm.TryGetProperty("type", out var nt) && nt.GetString() == "Replace"
+            && norm.TryGetProperty("content", out var nc) && nc.GetString() == "▁";
 
         // ---- tokens + types (llama.cpp get_vocab_base) ---------------------------------------
         var vocab = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -89,14 +97,14 @@ public static class HfTokenizerTranslator
                 // TODO: llama.cpp re-normalizes non-"normalized" added tokens via decode(encode(tok)); identity for common vocabularies.
                 bool special = a.TryGetProperty("special", out var sp) && sp.ValueKind == JsonValueKind.True;
                 if (special || LooksSpecial(token)) types[i] = TypeControl;
-                else { token = token.Replace("▁", " "); types[i] = TypeUserDefined; }
+                else { if (!spaceBpe) token = token.Replace("▁", " "); types[i] = TypeUserDefined; }
             }
-            else types[i] = TypeNormal;
+            else types[i] = spaceBpe && IsByteToken(token) ? TypeByte : TypeNormal;
             tokens[i] = token;
         }
 
-        md[CanonicalKeys.TokenizerModel] = "gpt2";
-        md[CanonicalKeys.TokenizerPre] = DetectPreTokenizer(tok);
+        md[CanonicalKeys.TokenizerModel] = spaceBpe ? "bpe" : "gpt2";
+        md[CanonicalKeys.TokenizerPre] = spaceBpe ? "default" : DetectPreTokenizer(tok);
         md[CanonicalKeys.TokenizerTokens] = tokens;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
         if (ReadMerges(model) is { Length: > 0 } merges) md[CanonicalKeys.TokenizerMerges] = merges;
@@ -140,6 +148,8 @@ public static class HfTokenizerTranslator
         AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
     }
 
+    static bool IsByteToken(string t) => t.Length == 6 && t.StartsWith("<0x", StringComparison.Ordinal) && t[5] == '>';
+
     static bool LooksSpecial(string t)
         => t is "<pad>" or "<mask>" or "<2mass>" or "[@BOS@]"
            || (t.StartsWith("<|", StringComparison.Ordinal) && t.EndsWith("|>", StringComparison.Ordinal))
@@ -165,6 +175,8 @@ public static class HfTokenizerTranslator
         }
 
         if (byteLevelRegex && regexes.Count == 0) return "gpt-2";
+        // Flint: three successive splits (digit groups, CJK runs, case-aware words).
+        if (regexes.Count == 3 && regexes[0] == @"\p{N}{1,3}" && regexes[1].StartsWith("[\u4e00", StringComparison.Ordinal)) return "flint";
         foreach (var r in regexes)
             foreach (var (preset, known) in KnownRegexes)
                 if (r == known) return preset;

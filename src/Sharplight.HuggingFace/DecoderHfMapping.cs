@@ -14,7 +14,7 @@ namespace Sharplight.HuggingFace;
 public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 {
     public string Architecture => "decoder";
-    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "muse_glimmer", "flint"];
 
     static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
 
@@ -90,6 +90,9 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     {
         string a = Architecture + ".";
         string? type = c.ModelType;
+        if (type is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text") return Gemma4Hyper(c);
+        if (type == "muse_glimmer") return MuseHyper(c);
+        if (type == "flint") return FlintHyper(c);
         int nLayer = c.Int("num_hidden_layers");
         int nHead = c.Int("num_attention_heads");
         int hidden = c.Int("hidden_size");
@@ -174,6 +177,12 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         ["mlp.gate_proj.bias"] = "mlp.gate.bias",
         ["mlp.up_proj.bias"] = "mlp.up.bias",
         ["mlp.down_proj.bias"] = "mlp.down.bias",
+        // Flint: attention sinks and the always-on shared expert.
+        ["self_attn.sinks"] = "attention.sinks",
+        ["self_attn.softmax_offset"] = "attention.sinks",   // the name transformers 5 writes
+        ["mlp.shared_expert.gate_proj.weight"] = "mlp.shared.gate.weight",
+        ["mlp.shared_expert.up_proj.weight"] = "mlp.shared.up.weight",
+        ["mlp.shared_expert.down_proj.weight"] = "mlp.shared.down.weight",
     };
 
     // Norm tensors by HF name; Gemma's four-norm layout is renamed to the canonical roles.
@@ -186,23 +195,34 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
-        bool gemma = IsGemma(c.ModelType);
+        bool extended = IsGemma4OrMuse(c.ModelType);
+        bool gemma = IsGemma(c.ModelType) || extended;
+        bool plusOne = IsGemma(c.ModelType) || c.ModelType == "muse_glimmer";   // Gemma 2/3 and Muse layer norms store w - 1 (Gemma 4's store w)
         // Gemma: post_attention_layernorm is the attention output norm, pre_feedforward_layernorm precedes the MLP.
         string postAttn = gemma ? "attention.out_norm.weight" : "post_attention_norm.weight";
         var result = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var unmapped = new List<string>();
         var experts = new SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>>();
         void Add(WeightInfo w) { if (!result.TryAdd(w.Name, w)) throw new InvalidDataException($"Two HF tensors map to '{w.Name}'."); }
-        WeightInfo Norm(WeightInfo w, string name) => gemma ? HfTransforms.NormPlusOne(w, name) : HfTransforms.Plain(w, name);
+        WeightInfo Norm(WeightInfo w, string name) => plusOne ? HfTransforms.NormPlusOne(w, name) : HfTransforms.Plain(w, name);
 
-        foreach (var (name, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
+        foreach (var (rawName, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
+            string name = rawName;
             if (name.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal)) continue;
             var w = t.ToWeightInfo();
+            if (extended)
+            {
+                if (IsNonTextTensor(name)) continue;
+                name = name.Replace("model.language_model.", "model.");
+            }
             switch (name)
             {
                 case "model.embed_tokens.weight": Add(HfTransforms.Plain(w, "token_embedding.weight")); continue;
-                case "model.norm.weight": Add(Norm(w, "output_norm.weight")); continue;
+                case "model.embed_tokens_per_layer.weight" when extended: Add(HfTransforms.Plain(w, "per_layer.embedding.weight")); continue;
+                case "model.per_layer_model_projection.weight" when extended: Add(HfTransforms.Plain(w, "per_layer.model_projection.weight")); continue;
+                case "model.per_layer_projection_norm.weight" when extended: Add(HfTransforms.Plain(w, "per_layer.projection_norm.weight")); continue;
+                case "model.norm.weight": Add(c.ModelType == "muse_glimmer" ? HfTransforms.Plain(w, "output_norm.weight") : Norm(w, "output_norm.weight")); continue;
                 case "lm_head.weight":
                     if (!(c.GetBool("tie_word_embeddings") ?? false)) Add(HfTransforms.Plain(w, "lm_head.weight"));
                     continue;
@@ -235,6 +255,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
                 Add(HfTransforms.Plain(w.RowSlice("", ff, ff), p + "mlp.up.weight"));
             }
             else if (gemma && suffix == "post_feedforward_layernorm.weight") Add(Norm(w, p + "mlp.out_norm.weight"));
+            else if (extended && s_extended.TryGetValue(suffix, out var xn)) Add(xn.EndsWith("norm.weight") ? Norm(w, p + xn) : HfTransforms.Plain(w, p + xn));
             else unmapped.Add(name);
         }
         foreach (var ((layer, kind), list) in experts)
@@ -245,7 +266,14 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         if (unmapped.Count > 0)
             throw new NotSupportedException($"{c.ModelType}: {unmapped.Count} tensor(s) have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
 
-        if (LongRope(c) is { } lr)
+        if (extended)
+        {
+            if (ExtendedRopeFactors(c) is { } ef)
+                Add(WeightInfo.Derived("rope.freq_factors", DataType.F32, new Shape(ef.Length), () => HfTransforms.EncodeF32(ef)));
+            if (c.ModelType == "muse_glimmer")
+                foreach (var (nm, v) in MuseQkNorms(c)) Add(nm);
+        }
+        else if (LongRope(c) is { } lr)
         {
             WeightInfo F32(string wn, float[] f) => WeightInfo.Derived(wn, DataType.F32, new Shape(f.Length), () => HfTransforms.EncodeF32(f));
             Add(F32("rope.freq_factors", lr.Short));

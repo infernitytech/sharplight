@@ -565,9 +565,16 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             case "CachedAttention":
             {
                 var q = RowContig(Ref(ins[0])); var k = Ref(ins[1]); var v = Ref(ins[2]); var y = NewDense(n.Output);
-                var rows = ins.Length > 3 ? Dense(Ref(ins[3])) : null;
+                bool hasSinks = a.Get("sinks", false);
+                int ox = hasSinks ? 1 : 0;   // inputs: q, k, v, [sinks], [rows, runs]
+                TRef? sinks = hasSinks ? Ref(ins[3]) : null;
+                var rows = ins.Length > 3 + ox ? Dense(Ref(ins[3 + ox])) : null;
+                var touched = new List<TRef> { q, k, v };
+                if (sinks is not null) touched.Add(sinks);
+                if (rows is not null) touched.Add(rows);
+                touched.Add(y);
                 AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
-                    rows, (int)a.Get("slots", 1L)), rows is null ? [q, k, v, y] : [q, k, v, rows, y]);
+                    rows, (int)a.Get("slots", 1L), sinks), [.. touched]);
                 _refs[n.Output] = y; return;
             }
             case "Attention":
@@ -584,9 +591,10 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var x = RowContig(RefF32(ins[0])); var w = RefF32(ins[1]); var st = Ref(ins[2]); var y = NewDense(n.Output);
                 bool stat = ins[1].Kind is ValueKind.Weight or ValueKind.Constant;
                 if (!stat) w = Dense(w);
-                // Optional f32 bias (input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
-                var cb = ins.Length > 3 && ins[3].Type == DataType.F32 ? Dense(RefF32(ins[3])) : null;
-                var runs = ins[^1].Type == DataType.I32 && ins.Length > 3 ? Dense(Ref(ins[^1])) : null;
+                // Optional bias (attribute "bias", or a non-i32 input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
+                bool hasBias = a.Get("bias", false) || (ins.Length > 3 && ins[3].Type != DataType.I32);
+                var cb = hasBias ? Dense(RefF32(ins[3])) : null;
+                var runs = ins.Length > (hasBias ? 4 : 3) ? Dense(Ref(ins[^1])) : null;
                 TRef[] uses = [x, w, st, y, .. cb is null ? [] : new[] { cb }, .. runs is null ? [] : new[] { runs }];
                 AddStep(new CausalConv1dOp(x, w, st, y, a.Get("activation", "none") == "silu", stat, cb, runs), uses);
                 _refs[n.Output] = y; return;
