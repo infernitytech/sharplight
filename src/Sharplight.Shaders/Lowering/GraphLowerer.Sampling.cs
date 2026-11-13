@@ -14,7 +14,7 @@ public sealed partial class GraphLowerer
         var parameters = Ref(n.Inputs[1]);
         var tokens = Produce(n.Outputs[0]);
         var logprobs = Produce(n.Outputs[1]);
-        var k = Lib("sample.slang", "sample", Macros(("V", x.Shape[^1]), ("WG", SampleWorkgroup), ("NC", SamplingHead.MaxNucleusCandidates)));
+        var k = Lib("sample.slang", "sample", Macros(("V", x.Shape[^1]), ("WG", SampleWorkgroup), ("NC", SamplingHead.MaxNucleusCandidates), ("VEC", x.Shape[^1] % 4 == 0)));
         var tx = x;
         Emit($"sample {n.Outputs[0].Name}", [n], [Always(k, b => new Grid((uint)Rows(b, tx)))],
             [Pointer(x), Pointer(parameters), Pointer(tokens), Pointer(logprobs), TokenArg(x)], [x, parameters], [tokens, logprobs]);

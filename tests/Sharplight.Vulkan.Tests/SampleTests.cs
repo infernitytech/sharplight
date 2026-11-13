@@ -72,8 +72,12 @@ public sealed class SampleTests
         public void Dispose() => _model.Dispose();
     }
 
-    /// <summary>Logits shaped like a language model's: a few strong candidates on top of a broad tail.</summary>
-    private static float[] Logits(int rows, int vocab, int seed)
+    /// <summary>
+    /// Logits shaped like a language model's: a few strong candidates on top of a broad tail, uniform in [-3, 3] or (when
+    /// <paramref name="gaussian"/>) normal with deviation 1.5, whose sparse upper end puts the top-k into the kernel's
+    /// candidate window instead of its radix select.
+    /// </summary>
+    private static float[] Logits(int rows, int vocab, int seed, bool gaussian = false)
     {
         var rng = new Random(seed);
         var x = new float[rows * vocab];
@@ -81,7 +85,9 @@ public sealed class SampleTests
         {
             for (int i = 0; i < vocab; i++)
             {
-                x[r * vocab + i] = (float)(rng.NextDouble() * 6 - 3);
+                x[r * vocab + i] = gaussian
+                    ? (float)(1.5 * Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble()))
+                    : (float)(rng.NextDouble() * 6 - 3);
             }
 
             for (int j = 0; j < 20; j++)
@@ -148,9 +154,9 @@ public sealed class SampleTests
     {
         Gpu.Require();
         const int Rows = 64;
-        foreach (int vocab in new[] { 1000, 128256 })
+        foreach (var (vocab, gaussian) in new[] { (1000, false), (128256, false), (128256, true), (151935, true) })
         {
-            var x = Logits(Rows, vocab, vocab + topK);
+            var x = Logits(Rows, vocab, vocab + topK, gaussian);
             var rows = Enumerable.Range(0, Rows).Select(i => (SamplingRow?)new SamplingRow
             {
                 Temperature = temperature, TopK = topK, TopP = topP, MinP = minP, Seed = 1234, Counter = (uint)i, WantLogprob = i % 3 == 0,
@@ -160,7 +166,7 @@ public sealed class SampleTests
             var a = gpu.Run(x, rows);
             var b = cpu.Run(x, rows);
             int mismatches = Enumerable.Range(0, Rows).Count(i => a.Tokens[i] != b.Tokens[i]);
-            Assert.True(mismatches <= 1, $"{name} V={vocab}: {mismatches} of {Rows} rows differ between Vulkan and CPU");
+            Assert.True(mismatches <= 1, $"{name} V={vocab} gaussian={gaussian}: {mismatches} of {Rows} rows differ between Vulkan and CPU");
             for (int i = 0; i < Rows; i += 3)
             {
                 if (a.Tokens[i] == b.Tokens[i])

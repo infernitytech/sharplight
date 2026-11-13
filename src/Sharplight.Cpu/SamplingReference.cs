@@ -114,8 +114,15 @@ internal static class SamplingReference
 
         if (candidates.Count > SamplingHead.MaxNucleusCandidates)
         {
-            // The kernel keeps the first candidates in thread-major order (thread i % WG, then i).
-            candidates.Sort((a, b) => a % WorkgroupSize != b % WorkgroupSize ? (a % WorkgroupSize).CompareTo(b % WorkgroupSize) : a.CompareTo(b));
+            // The kernel keeps the first candidates in thread-major order (owning thread, then index); with a vocabulary divisible
+            // by 4 a thread owns groups of 4 consecutive entries.
+            int group = x.Length % 4 == 0 ? 4 : 1;
+            candidates.Sort((a, b) =>
+            {
+                int ta = a / group % WorkgroupSize;
+                int tb = b / group % WorkgroupSize;
+                return ta != tb ? ta.CompareTo(tb) : a.CompareTo(b);
+            });
             candidates.RemoveRange(SamplingHead.MaxNucleusCandidates, candidates.Count - SamplingHead.MaxNucleusCandidates);
         }
 
