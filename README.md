@@ -51,6 +51,27 @@ Of the 172 architectures llama.cpp knows, 79 are supported end to end, 39 partia
 Weight types (CPU and Vulkan): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K, IQ1_S/M, IQ2_XXS/XS/S, IQ3_XXS/S,
 IQ4_NL/XS, TQ1_0, TQ2_0, MXFP4, NVFP4. ONNX operator coverage is in [docs/onnx-support.md](docs/onnx-support.md).
 
+## Performance
+
+Single stream on an RTX PRO 6000 Blackwell Max-Q (Vulkan) against llama.cpp b11177 with its **CUDA** backend (`llama-bench -ngl 99
+-fa 1`), same GGUF files, tokens per second (2026-11-13). Prefill is 512 prompt tokens. Dense rows: median of 3 runs, decode at depth 0.
+Ministral and MoE rows: best of 3 runs, decode after the 512-token prompt, llama.cpp run right after on the same GPU. The GPU was
+shared with a desktop session, so differences under about 5 % are noise.
+
+| Model | Prefill Sharplight | Prefill llama.cpp | | Decode Sharplight | Decode llama.cpp | |
+|---|---:|---:|---:|---:|---:|---:|
+| Llama-3.2-1B Q8_0 | 55057 | 58918 | 0.93x | 749 | 739 | 1.01x |
+| Gemma-3-1B Q8_0 | 45270 | 45353 | 1.00x | 560 | 538 | 1.04x |
+| Ministral-3-3B Q4_K_M | 19817 | 20666 | 0.96x | 376 | 396 | 0.95x |
+| Mistral-7B Q4_K_M | 9496 | 11229 | 0.85x | 248 | 246 | 1.01x |
+| Qwen3.8-27B Q8_0 | 2656 | 3058 | 0.87x | 43.9 | 48.5 | 0.90x |
+| OLMoE-1B-7B Q4_K_M (MoE) | 26791 | 26541 | 1.01x | 761 | 816 | 0.93x |
+| ERNIE-4.5-21B-A3B Q4_K_M (MoE) | 10405 | 10383 | 1.00x | 320 | 365 | 0.88x |
+| Nemotron-3-Nano-30B-A3B Q4_K_M (hybrid MoE) | 9327 | 8464 | 1.10x | 309 | 338 | 0.91x |
+| gpt-oss-20b MXFP4 (MoE) | 11831 | 17432 | 0.68x | 310 | 345 | 0.90x |
+
+Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
+
 ## Building
 
 ```sh
