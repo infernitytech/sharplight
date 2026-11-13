@@ -58,6 +58,16 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
+    private void LowerNGramHash(Node n)
+    {
+        var a = n.Attributes;
+        var window = RefF32(n.Inputs[0]);
+        var y = NewDense(n.Output);
+        AddStep(new NGramHashOp(window, y, a.Get<long[]>("multipliers"), a.Get<long[]>("head_sizes"), a.Get<long[]>("head_offsets"),
+            (int)a.Get<long>("heads_per_order"), a.Get<long>("stop_token")), window, y);
+        _refs[n.Output] = y;
+    }
+
     private void LowerCumSum(Node n)
     {
         var a = n.Attributes;
@@ -82,7 +92,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var x = Dense(RefF32(n.Inputs[0]));
         var values = NewDense(n.Outputs[0]);
         var indices = NewDense(n.Outputs[1]);
-        AddStep(new TopKOp(x, values, indices, NormalizeAxis(a.Get("axis", -1L), x.Rank), (int)a.Get<long>("k"), a.Get("largest", true)), x, values, indices);
+        AddStep(new TopKOp(x, values, indices, NormalizeAxis(a.Get("axis", -1L), x.Rank), a.Get("largest", true)), x, values, indices);
         _refs[n.Outputs[0]] = values;
         _refs[n.Outputs[1]] = indices;
     }

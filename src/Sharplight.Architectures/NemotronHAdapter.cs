@@ -48,22 +48,13 @@ public sealed class NemotronHAdapter : IModelAdapter
             throw new InvalidDataException("nemotron_h: block_kinds must have layer_count entries.");
         }
 
-        string act = src.Arch("mlp.activation", "relu2");
+        var act = MlpActivations.Create(src.Arch("mlp.activation", "relu2"));
         int nHead = src.Arch("attention.head_count", 0);
         int nKv = src.Arch("attention.kv_head_count", 0);
         int headDim = src.Arch("attention.head_dim", 0);
-        int convK = src.Arch("ssm.conv_kernel", 4);
-        int N = src.Arch("ssm.state_size", 0);
-        int G = src.Arch("ssm.group_count", 1);
-        int H = src.Arch("ssm.head_count", 0);
-        int P = src.Arch("ssm.head_dim", 0);
-        float dtMin = src.Arch("ssm.time_step_min", 0f);
-        int experts = src.Arch("moe.expert_count", 0);
-        int expertsUsed = src.Arch("moe.expert_used_count", 0);
-        bool normWeights = src.Arch("moe.normalize_weights", true);
-        float weightsScale = src.Arch("moe.weights_scale", 1f);
-        int inner = H * P;
-        int convDim = inner + 2 * G * N;
+        var mamba = new Mamba2Layer(src, eps);
+        // Sigmoid-scored routing (with a selection-only bias), whatever moe.router_activation says.
+        var moe = MoeOptions.Read(src, normalizeDefault: true) with { ScoreFunction = MoeScoreFunction.Sigmoid };
         int vocab = src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed;
 
         var states = new List<StateDefinition>();
@@ -77,8 +68,9 @@ public sealed class NemotronHAdapter : IModelAdapter
             switch (kinds[il])
             {
                 case "ssm":
-                    states.Add(convState[il] = new StateDefinition { Name = $"{g}.conv_state", Type = DataType.F32, Shape = new Shape(convK - 1, convDim), Kind = StateKind.Recurrent, Group = g });
-                    states.Add(ssmState[il] = new StateDefinition { Name = $"{g}.ssm_state", Type = DataType.F32, Shape = new Shape(H, P, N), Kind = StateKind.Recurrent, Group = g });
+                    (convState[il], ssmState[il]) = mamba.DefineStates(g);
+                    states.Add(convState[il]);
+                    states.Add(ssmState[il]);
                     break;
                 case "attention":
                     var shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), nKv, headDim);
@@ -154,7 +146,7 @@ public sealed class NemotronHAdapter : IModelAdapter
                 var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), eps, $"{p}norm");
                 var y = kinds[il] switch
                 {
-                    "ssm" => Ssm(b, h, p, il),
+                    "ssm" => mamba.Build(b, h, p, convState[il], ssmState[il]),
                     "attention" => Attention(b, h, p, il),
                     "moe" => Moe(b, h, p),
                     _ => Mlp(b, h, p),
@@ -173,28 +165,6 @@ public sealed class NemotronHAdapter : IModelAdapter
             return b.Build();
         }
 
-        Value Ssm(GraphBuilder b, Value h, string p, int il)
-        {
-            var proj = b.Linear(h, p + "ssm.in.weight");                                   // [T, inner + conv_dim + H]
-            var z = b.Slice(proj, 1, 0, inner);
-            var xbc = b.Slice(proj, 1, inner, convDim);
-            var dt = b.Slice(proj, 1, inner + convDim, H);
-            var cs = b.State(convState[il]);
-            var ss = b.State(ssmState[il]);
-            var conv = b.Emit("CausalConv1d", [xbc, b.Weight(p + "ssm.conv1d.weight"), cs, b.Weight(p + "ssm.conv1d.bias")],
-                Attributes.From(("activation", "silu"), ("bias", true)), writes: [cs])[0];
-            var xs = b.Reshape(b.Slice(conv, 1, 0, inner), 0, H, P);
-            var bs = b.Reshape(b.Slice(conv, 1, inner, G * N), 0, G, N);
-            var cc = b.Reshape(b.Slice(conv, 1, inner + G * N, G * N), 0, G, N);
-            var scan = b.Emit("SelectiveScan", [xs, dt, b.Weight(p + "ssm.dt_bias"), b.Weight(p + "ssm.a"), bs, cc, b.Weight(p + "ssm.d"), ss],
-                Attributes.From(("dt_min", dtMin)), $"{p}scan", writes: [ss])[0];                // [T, H, P]
-            // gated group RMS norm: norm_G(y · silu(z)) · weight
-            var gated = b.Mul(b.Reshape(scan, 0, inner), b.Silu(z));
-            var normed = b.Reshape(b.RmsNorm(b.Reshape(gated, 0, G, inner / G), null, eps), 0, inner);
-            normed = b.Mul(normed, b.Weight(p + "ssm.norm.weight"), $"{p}gated_norm");
-            return b.Linear(normed, p + "ssm.out.weight", name: $"{p}ssm_out");
-        }
-
         Value Attention(GraphBuilder b, Value h, string p, int il)
         {
             var q = b.Reshape(b.Linear(h, p + "attention.q.weight"), 0, nHead, headDim);
@@ -206,61 +176,10 @@ public sealed class NemotronHAdapter : IModelAdapter
             return b.Linear(b.Reshape(attn, 0, nHead * headDim), p + "attention.o.weight", name: $"{p}attn_out");
         }
 
-        Value Act(GraphBuilder b, Value up) => act switch
-        {
-            "relu2" => b.Unary("Square", b.Unary("Relu", up)),
-            "silu" => b.Silu(up),
-            "gelu" => b.Unary("Gelu", up),
-            "relu" => b.Unary("Relu", up),
-            _ => throw new NotSupportedException($"nemotron_h: unknown mlp.activation '{act}'."),
-        };
-
         Value Mlp(GraphBuilder b, Value h, string p, string prefix = "mlp.")
-            => b.Linear(Act(b, b.Linear(h, p + prefix + "up.weight")), p + prefix + "down.weight", name: $"{p}ffn_out");
+            => b.Linear(act.Activate(b, b.Linear(h, p + prefix + "up.weight"), p), p + prefix + "down.weight", name: $"{p}ffn_out");
 
-        // Sigmoid-scored routing with a selection-only bias, k experts per token (non-gated MLPs), plus the shared MLP.
-        Value Moe(GraphBuilder b, Value h, string p)
-        {
-            if (experts <= 0 || expertsUsed <= 0)
-            {
-                throw new InvalidDataException("nemotron_h: moe layers need moe.expert_count and moe.expert_used_count.");
-            }
-
-            var scores = b.Sigmoid(b.Linear(h, p + "moe.router.weight"), $"{p}router_scores");                 // [T, E]
-            var choice = b.TryWeight(p + "moe.router_bias") is { } bias ? b.Add(scores, bias) : scores;
-            var top = b.Emit("TopK", [choice], Attributes.From(("k", (long)expertsUsed)), $"{p}router_topk");
-            var ids = top[1];                                                                                     // [T, k] i32
-            // The weights are the unbiased scores of the selected experts: one-hot pick (ids == iota) instead of a gather along the expert axis.
-            var iota = b.Constant($"{p}expert_iota", DataType.F32, new Shape(experts), IotaBytes(experts));
-            var onehot = b.Binary("Equal", b.Reshape(b.Emit1("Cast", [ids], Attributes.From(("type", "f32"))), 0, expertsUsed, 1), iota);   // [T, k, E]
-            var picked = b.Reshape(b.Emit1("ReduceSum", [b.Mul(onehot, b.Reshape(scores, 0, 1, experts))]), 0, expertsUsed);               // [T, k]
-            var weights = picked;
-            if (normWeights)
-            {
-                weights = b.Binary("Div", weights, b.Scale(b.Emit1("ReduceSum", [weights]), 1f, 1e-20f));
-            }
-
-            if (weightsScale != 1f)
-            {
-                weights = b.Scale(weights, weightsScale);
-            }
-
-            var up = b.Emit1("MatMulId", [h, b.Weight(p + "moe.experts.up.weight"), ids], null, $"{p}experts_up");                         // [T, k, I]
-            var down = b.Emit1("MatMulId", [Act(b, up), b.Weight(p + "moe.experts.down.weight"), ids], null, $"{p}experts_down");         // [T, k, H]
-            var summed = b.Emit1("ReduceSum", [b.Permute(b.Mul(down, b.Reshape(weights, 0, expertsUsed, 1)), 0, 2, 1)]);                    // [T, H, 1]
-            var routed = b.Reshape(summed, 0, nEmbd);
-            return b.HasWeight(p + "moe.shared.up.weight") ? b.Add(routed, Mlp(b, h, p, "moe.shared.")) : routed;
-        }
-
-        static byte[] IotaBytes(int n)
-        {
-            var bytes = new byte[n * 4];
-            for (int i = 0; i < n; i++)
-            {
-                BitConverter.TryWriteBytes(bytes.AsSpan(i * 4, 4), (float)i);
-            }
-
-            return bytes;
-        }
+        // k experts per token (non-gated MLPs) plus the shared MLP.
+        Value Moe(GraphBuilder b, Value h, string p) => MoeBlock.Build(b, h, p, "moe.", moe, nEmbd, act);
     }
 }

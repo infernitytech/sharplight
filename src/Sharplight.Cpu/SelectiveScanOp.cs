@@ -4,7 +4,7 @@ using Sharplight.Runtime;
 namespace Sharplight.Cpu;
 
 /// <summary>
-/// Mamba-2 selective scan (see <c>StandardOps.SelectiveScan</c>): per head sequential over tokens; the P rows of a head's
+/// Selective scan (see <c>StandardOps.SelectiveScan</c>; Mamba-2, or Mamba-1 when A is [H, N]): per head sequential over tokens; the P rows of a head's
 /// state matrix S[p, :N] are independent, so (head, row-chunk) tasks run in parallel and N is vectorized.
 /// </summary>
 internal sealed unsafe class SelectiveScanOp : CpuOp
@@ -23,13 +23,16 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     private readonly int _g;
     private readonly int _n;
     private readonly float _dtMin;
+    private readonly bool _aPerState;   // A is [H, N] (Mamba-1) instead of [H]
     private readonly Action<int> _body;
+    private readonly TRef? _runs;   // multi-sequence: [U, 4] (slot, firstRow, count, firstPos); state [S, H, P, N]
     private long _t;
+    private long _u;
     private int _pChunks;
     private int _pPer;
     public override string Name => "SelectiveScan";
 
-    public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin)
+    public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin, TRef? runs = null)
     {
         _x = x;
         _dt = dt;
@@ -41,6 +44,9 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         _state = state;
         _y = y;
         _dtMin = dtMin;
+        _runs = runs;
+        _aPerState = a.Rank == 2;
+        int o = runs is null ? 0 : 1;
         _h = (int)x.Dims[1];
         _p = (int)x.Dims[2];
         _g = (int)b.Dims[1];
@@ -55,7 +61,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             throw new ArgumentException("SelectiveScan: B/C shape mismatch.");
         }
 
-        if (state.Dims[0] != _h || state.Dims[1] != _p || state.Dims[2] != _n)
+        if (state.Dims[o] != _h || state.Dims[o + 1] != _p || state.Dims[o + 2] != _n)
         {
             throw new ArgumentException("SelectiveScan: state shape mismatch.");
         }
@@ -74,6 +80,24 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         if (_t == 0)
         {
             return;
+        }
+
+        _u = _runs is null ? 1 : _runs.Dim(0, p);
+        if (_runs is not null)
+        {
+            for (long u = 0; u < _u; u++)
+            {
+                int* r = (int*)_runs.P + u * 4;
+                if ((uint)r[0] >= _state.Dims[0] || r[1] < 0 || r[2] < 0 || r[1] + r[2] > _t)
+                {
+                    throw new InvalidOperationException($"SelectiveScan: bad sequence run {u}.");
+                }
+
+                if (r[3] == 0)
+                {
+                    new Span<float>((float*)_state.P + (long)r[0] * _h * _p * _n, _h * _p * _n).Clear();
+                }
+            }
         }
 
         _pChunks = Math.Max(1, Math.Min(_p / 4, (CpuParallel.Threads * 2 + _h - 1) / _h));
@@ -95,14 +119,33 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         }
 
         int g = h / (_h / _g);
-        float* S = (float*)_state.P + (long)h * _p * _n;
         float bias = ((float*)_dtBias.P)[h];
-        float A = ((float*)_a.P)[h];
+        float A = _aPerState ? 0f : ((float*)_a.P)[h];
         float D = ((float*)_d.P)[h];
-        for (long t = 0; t < _t; t++)
+        for (long u = 0; u < _u; u++)
+        {
+            long slot = 0;
+            long t0 = 0;
+            long t1 = _t;
+            if (_runs is not null)
+            {
+                int* r = (int*)_runs.P + u * 4;
+                slot = r[0];
+                t0 = r[1];
+                t1 = t0 + r[2];
+            }
+
+            float* S = (float*)_state.P + (slot * _h + h) * (long)_p * _n;
+            ScanRun(S, t0, t1, g, h, p0, p1, bias, A, D);
+        }
+    }
+
+    private void ScanRun(float* S, long t0, long t1, int g, int h, int p0, int p1, float bias, float A, float D)
+    {
+        for (long t = t0; t < t1; t++)
         {
             float dt = MathF.Max(Softplus(((float*)_dt.P)[t * _dt.Strides[0] + h * _dt.Strides[1]] + bias), _dtMin);
-            float decay = MathF.Exp(dt * A);
+            float decay = _aPerState ? 0f : MathF.Exp(dt * A);
             float* B = (float*)_b.P + t * _b.Strides[0] + g * _b.Strides[1];
             float* C = (float*)_c.P + t * _c.Strides[0] + g * _c.Strides[1];
             float* x = (float*)_x.P + t * _x.Strides[0] + h * _x.Strides[1];
@@ -110,9 +153,25 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             for (int p = p0; p < p1; p++)
             {
                 float xp = x[p];
-                y[p] = DecayUpdateDot(S + (long)p * _n, B, C, decay, dt * xp, _n) + D * xp;
+                float* row = S + (long)p * _n;
+                float dot = _aPerState ? DecayUpdateDotPerState(row, B, C, (float*)_a.P + (long)h * _n, dt, dt * xp, _n) : DecayUpdateDot(row, B, C, decay, dt * xp, _n);
+                y[p] = dot + D * xp;
             }
         }
+    }
+
+    /// <summary>row[i] = row[i]·exp(dt·a[i]) + b[i]·coef (a decay per state element, Mamba-1); returns dot(row, c).</summary>
+    private static float DecayUpdateDotPerState(float* row, float* b, float* c, float* a, float dt, float coef, long n)
+    {
+        float sum = 0;
+        for (long i = 0; i < n; i++)
+        {
+            float r = row[i] * MathF.Exp(dt * a[i]) + b[i] * coef;
+            row[i] = r;
+            sum += r * c[i];
+        }
+
+        return sum;
     }
 
     /// <summary>row = row*decay + b*coef; returns dot(row, c).</summary>

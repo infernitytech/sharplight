@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "NGramHash", .. SpatialOpNames, .. GeneralOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -33,6 +33,19 @@ public sealed partial class GraphLowerer
         [DataType.Q2_0] = 42,
         [DataType.Q2_0_G128] = 142,
         [DataType.Tern1_G128] = 143,
+        [DataType.Q2_K] = 10,
+        [DataType.Q3_K] = 11,
+        [DataType.IQ2_XXS] = 16,
+        [DataType.IQ2_XS] = 17,
+        [DataType.IQ3_XXS] = 18,
+        [DataType.IQ1_S] = 19,
+        [DataType.IQ3_S] = 21,
+        [DataType.IQ2_S] = 22,
+        [DataType.IQ1_M] = 29,
+        [DataType.TQ1_0] = 34,
+        [DataType.TQ2_0] = 35,
+        [DataType.MXFP4] = 39,
+        [DataType.NVFP4] = 40,
     };
 
     /// <summary>Tells whether the lowering has a kernel for <paramref name="node"/> (and, if not, why), so callers can partition unsupported nodes to another provider.</summary>
@@ -56,6 +69,11 @@ public sealed partial class GraphLowerer
             return SupportsGeneral(node);
         }
 
+        if (op is "Wkv7" or "Wkv6")
+        {
+            return SupportsWkv(node, op == "Wkv7" ? 7 : 6);
+        }
+
         if (op == "SelectiveScan")
         {
             return SupportsSelectiveScan(node);
@@ -71,8 +89,11 @@ public sealed partial class GraphLowerer
             "CachedAttention" => SupportsCachedAttention(node),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
+            "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
+            "Concat" when node.Output.Shape[0].IsSymbolic && node.Inputs.Any(i => i.Shape[0] != node.Output.Shape[0])
+                => OpSupport.No("Concat along the symbolic axis (offsets known only at run time)"),
             _ => OpSupport.Yes,
         };
         if (!opSpecific.IsSupported)

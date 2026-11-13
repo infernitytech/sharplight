@@ -32,14 +32,41 @@ public sealed class CompileOptions
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
     /// <summary>
-    /// Upper bound of a symbolic dimension: <see cref="MaxTokens"/> for the token symbol, <see cref="ContextLength"/> for the context symbol, otherwise from <see cref="SymbolBounds"/>.
+    /// Upper bound of a symbolic dimension: <see cref="MaxTokens"/> for the token symbol, <see cref="ContextLength"/> for the context symbol, otherwise from
+    /// <see cref="SymbolBounds"/>. An expression (<c>12*N</c>) is bounded through the bounds of its symbols (<see cref="Tensors.SymbolicExpression.UpperBound"/>).
     /// </summary>
-    /// <param name="symbol">Symbol name.</param>
-    /// <exception cref="InvalidOperationException">No bound is known for the symbol.</exception>
+    /// <param name="symbol">Symbol name or expression text.</param>
+    /// <exception cref="InvalidOperationException">No bound is known for a symbol.</exception>
     public long Bound(string symbol) => symbol switch
     {
         Models.WellKnown.TokenSymbol => MaxTokens,
         Models.WellKnown.ContextSymbol => ContextLength,
-        _ => SymbolBounds.TryGetValue(symbol, out var v) ? v : throw new InvalidOperationException($"No bound for symbol '{symbol}'."),
+        _ when SymbolBounds.TryGetValue(symbol, out var v) => v,
+        _ when !Tensors.SymbolicExpression.IsSymbolName(symbol) => Tensors.SymbolicExpression.Parse(symbol).UpperBound(Bound),
+        _ => throw new InvalidOperationException($"No bound for symbol '{symbol}'."),
     };
+
+    /// <summary>Whether <see cref="Bound"/> knows a bound for the symbol or for every symbol of the expression.</summary>
+    public bool HasBound(string symbol) => symbol is Models.WellKnown.TokenSymbol or Models.WellKnown.ContextSymbol || SymbolBounds.ContainsKey(symbol)
+        || (!Tensors.SymbolicExpression.IsSymbolName(symbol) && Tensors.SymbolicExpression.Parse(symbol).Atoms().All(HasBound));
+
+    /// <summary>A copy with additional symbol bounds (existing bounds of the same symbols are replaced).</summary>
+    internal CompileOptions WithSymbolBounds(IEnumerable<KeyValuePair<string, long>> bounds)
+    {
+        var merged = new Dictionary<string, long>(SymbolBounds, StringComparer.Ordinal);
+        foreach (var (k, v) in bounds)
+        {
+            merged[k] = v;
+        }
+
+        return new CompileOptions
+        {
+            MaxTokens = MaxTokens,
+            ContextLength = ContextLength,
+            SymbolBounds = merged,
+            DisabledFeatures = DisabledFeatures,
+            AllowReducedPrecision = AllowReducedPrecision,
+            CacheFor = CacheFor,
+        };
+    }
 }

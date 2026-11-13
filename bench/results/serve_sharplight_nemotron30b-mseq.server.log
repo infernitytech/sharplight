@@ -1,0 +1,8 @@
+Loaded Nemotron Nano 3 30B A3B (nemotron_h): 401 tensors, 24.51 GB, vocab 131072 [270 ms]
+Compiled 'decode' for 64 sequences x 512 tokens in 5124 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 54 groups, 25.99 GiB weights+state
+1 segment(s): [0@0: 1301 nodes]
+Model 'NVIDIA-Nemotron-3-Nano-30B-A3B-Q4_K_M' loaded in 5414 ms (estimated 28060 MiB, resident 26777 MiB).
+Serving 'NVIDIA-Nemotron-3-Nano-30B-A3B-Q4_K_M' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18090
+  NVIDIA-Nemotron-3-Nano-30B-A3B-Q4_K_M [Chat] Loaded 26776 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 90056 MiB, used 26918 MiB (ours 26855 MiB), available 63137 MiB

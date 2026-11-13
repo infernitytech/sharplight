@@ -15,6 +15,8 @@ namespace Sharplight.Serve;
 /// <param name="Slots">Default concurrent sequences per model.</param>
 /// <param name="MaxQueue">Waiting requests per model before answering 429.</param>
 /// <param name="PrefillChunk">Prompt rows per step and sequence.</param>
+/// <param name="StepTokens">Token budget per engine step; null uses the model's batch size.</param>
+/// <param name="NgramDraftTokens">Draft length of prompt-lookup speculation; 0 disables it.</param>
 /// <param name="MmprojPath">Default vision projector.</param>
 /// <param name="ChatTemplatePath">Chat template file replacing the models' own.</param>
 /// <param name="DefaultTemperature">Temperature for requests that give none.</param>
@@ -36,6 +38,8 @@ internal sealed record ServeSettings(
     int Slots,
     int MaxQueue,
     int PrefillChunk,
+    int? StepTokens,
+    int NgramDraftTokens,
     string? MmprojPath,
     string? ChatTemplatePath,
     float DefaultTemperature,

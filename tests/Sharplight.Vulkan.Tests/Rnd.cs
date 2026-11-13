@@ -35,6 +35,21 @@ internal static class Rnd
         return [.. Enumerable.Range(0, (int)n).Select(_ => rng.Next(max))];
     }
 
+    /// <summary>Byte offsets of the f16 scale fields of the block formats whose scales are plain f16 values.</summary>
+    private static readonly Dictionary<DataType, int[]> ScaleOffsets = new()
+    {
+        [DataType.Q2_K] = [80, 82],
+        [DataType.Q3_K] = [108],
+        [DataType.IQ2_XXS] = [0],
+        [DataType.IQ2_XS] = [0],
+        [DataType.IQ2_S] = [0],
+        [DataType.IQ3_XXS] = [0],
+        [DataType.IQ3_S] = [0],
+        [DataType.IQ1_S] = [0],
+        [DataType.TQ1_0] = [52],
+        [DataType.TQ2_0] = [64],
+    };
+
     private static void PutHalf(byte[] b, long off, float v) => BitConverter.TryWriteBytes(b.AsSpan((int)off, 2), (Half)v);
 
     /// <summary>Random but valid weight bytes (float formats: uniform values; quantized: random quants with sane f16 scales).</summary>
@@ -88,6 +103,36 @@ internal static class Rnd
             else if (t == DataType.Tern1_G128)
             {
                 PutHalf(bytes, o + 26, d());
+            }
+            else if (ScaleOffsets.TryGetValue(t, out var offsets))
+            {
+                foreach (int offset in offsets)
+                {
+                    PutHalf(bytes, o + offset, d());
+                }
+            }
+            else if (t == DataType.IQ1_M)
+            {
+                // The f16 super-scale is spread over the top nibble of each of the four 16-bit scale words.
+                uint bits = BitConverter.HalfToUInt16Bits((Half)d());
+                for (int w = 0; w < 4; w++)
+                {
+                    int word = bytes[o + 48 + 2 * w] | bytes[o + 49 + 2 * w] << 8;
+                    word = (word & 0x0FFF) | (int)((bits >> (4 * w)) & 0xF) << 12;
+                    bytes[o + 48 + 2 * w] = (byte)word;
+                    bytes[o + 49 + 2 * w] = (byte)(word >> 8);
+                }
+            }
+            else if (t == DataType.MXFP4)
+            {
+                bytes[o] = (byte)(122 + rng.Next(6));
+            }
+            else if (t == DataType.NVFP4)
+            {
+                for (int s = 0; s < 4; s++)
+                {
+                    bytes[o + s] = (byte)(0x28 + rng.Next(16));
+                }
             }
             else
             {

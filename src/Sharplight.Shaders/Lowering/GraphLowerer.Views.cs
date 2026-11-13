@@ -19,7 +19,7 @@ public sealed partial class GraphLowerer
             // The output becomes its own root (its memory is not tracked by the view-root liveness of the input; it is
             // simply never reused, which only costs arena space).
             var dst = Produce(n.Output);
-            EmitCopy(src, dst with { Shape = src.Shape, Strides = TensorRef.DenseStrides(src.Shape) }, "reshape-copy", [n]);
+            EmitCopy(src, dst with { Shape = src.Shape, Strides = TensorRef.DenseStrides(src.Shape), Symbol = src.Symbol }, "reshape-copy", [n]);
         }
     }
 

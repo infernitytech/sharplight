@@ -7,7 +7,7 @@ namespace Sharplight.HuggingFace;
 /// A checkpoint's <c>config.json</c>. Like llama.cpp's converter, the nested <c>text_config</c> (if any)
 /// is merged over the root object (text_config wins), so hyper-parameters are looked up flat.
 /// </summary>
-internal sealed class HfConfig : IDisposable
+internal sealed partial class HfConfig : IDisposable
 {
     private readonly JsonDocument _doc;
     private readonly Dictionary<string, JsonElement> _flat = new(StringComparer.Ordinal);
@@ -35,11 +35,16 @@ internal sealed class HfConfig : IDisposable
         }
     }
 
+    [System.Text.RegularExpressions.GeneratedRegex(@"(?<=[:\[,]\s*)(-?Infinity|NaN)")]
+    private static partial System.Text.RegularExpressions.Regex NonFiniteLiteral();
+
     /// <summary>Loads <c>config.json</c> from <paramref name="directory"/>; trailing commas are tolerated.</summary>
     public static HfConfig Load(string directory)
     {
         var path = Path.Combine(directory, "config.json");
-        var document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions { AllowTrailingCommas = true });
+        // Python's json module writes non-finite numbers as bare Infinity / NaN (e.g. Mamba-2 time_step_limit), which JSON proper lacks.
+        string text = NonFiniteLiteral().Replace(File.ReadAllText(path), m => m.Value switch { "-Infinity" => "-1e308", "Infinity" => "1e308", _ => "null" });
+        var document = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = true });
         return new HfConfig(document, directory);
     }
 

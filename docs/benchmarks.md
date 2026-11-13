@@ -1,0 +1,393 @@
+# Benchmarks: Sharplight vs llama.cpp vs vLLM
+
+Baseline measured on 2026-11-13. Measurement only: nothing under `src/` or `tests/` was modified. All scripts and raw results
+(JSON/JSONL/text, GPU snapshots, server logs) live in [`bench/`](../bench) and [`bench/results/`](../bench/results).
+
+## 1. Setup and conditions
+
+| | |
+|---|---|
+| GPU | NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB, sm_120, 300 W power limit, driver 610.57.04). Boost clock up to 3090 MHz, about 2340 MHz observed during runs |
+| CPU / RAM | Ryzen 9 9950X, 91 GB (typically 55-70 GB used by the desktop session, so little free RAM) |
+| OS | Fedora 44, Linux 7.1.8 |
+| Sharplight | working tree of 2026-11-13 (no git metadata available), `dotnet build -c Release`, .NET SDK 11.0.100, Vulkan provider with Slang kernels; benchmarked binaries: `samples/Sharplight.Cli` (`--bench`), `samples/Sharplight.Serve` |
+| llama.cpp | b11177 (commit 1ab7e5ad2), builds `runtime.llama-b11177-cuda13` and `runtime.llama-b11177-vulkan` (Vulkan device 0 = the NVIDIA GPU; the RADV iGPU is ignored by default), `-ngl 99 -fa 1/on` |
+| vLLM | 0.33.0 in `~/.venvs/vllm` (uv, Python 3.12.13, torch 2.14.0+cu130, flash-attn backend, CUDA graphs on). `VLLM_USE_FLASHINFER_SAMPLER=0` because no CUDA toolkit matching the wheels is installed (FlashInfer JIT needs nvcc). Prefix caching off |
+
+**Shared GPU.** The GPU is shared with the user's desktop (kwin, VS Code, Chrome, Rider, a Python process) and three idle
+`sharplight-serve` processes that were already running (about 10-13 GB of VRAM in use before every run, 0-2 % utilisation when idle).
+`nvidia-smi` was sampled before every measurement (`bench/results/*.gpu.txt`, and a line per run in `single_sharplight_*.txt`); no other
+heavy GPU user was seen, but samples taken right after the previous process exited show residual utilisation, and another agent
+was running tests in the same period, so a few outliers (marked by wide min..max ranges, mainly the small-model prefill rows) may come
+from interference. Every cell therefore reports the **median over repetitions with (min..max)**:
+
+* llama-bench: 5 repetitions (`-r 5`), median of `samples_ts`.
+* Sharplight CLI `--bench N`: 3 process runs; each run is a warm prefill of N tokens (best of 4 inside the run) and 64 decode steps (median step); table shows the median over the 3 runs.
+* vLLM: offline `LLM` API, median of 5 repetitions per point (`bench/vllm_single.py`).
+* Serving runs: one run per cell (3-8 requests per worker, 8-192 requests); treat differences below about 10 % as noise.
+
+**Models and quantisations** (same GGUF for Sharplight and llama.cpp; vLLM needs HF checkpoints and cannot load these GGUFs, so its
+quantisation differs):
+
+| key | Sharplight / llama.cpp | vLLM |
+|---|---|---|
+| qwen27b-q8 | Qwen3.8-27B Q8_0 GGUF (29 GB; Sharplight also as `.slm`) | `Qwen/Qwen3.8-27B-FP8` (download, 31 GB) |
+| qwen3-0.6b-q8 | Qwen3-0.6B Q8_0 | `~/models/hf/Qwen3-0.6B` bf16 |
+| llama3.2-1b-q8 | Llama-3.2-1B-Instruct Q8_0 | `~/models/hf/Llama-3.2-1B-Instruct` bf16 |
+| gemma3-1b-q8 | gemma-3-1b-it Q8_0 | `~/models/hf/gemma-3-1b-it` bf16 |
+| mistral7b-q4km | Mistral-7B-Instruct-v0.3 Q4_K_M | `mistralai/Mistral-7B-Instruct-v0.3` bf16 (download, 14.5 GB) |
+| olmoe-q4km | OLMoE-1B-7B-0924-Instruct Q4_K_M | `~/models/hf/OLMoE-1B-7B-0924-Instruct` bf16 (max 4096 positions, so its "deep" point is depth 3800) |
+| nemotron30b-q4km | NVIDIA-Nemotron-3-Nano-30B-A3B Q4_K_M | FP8 checkpoint downloaded, **could not run** (FP8 KV cache forces FlashInfer, whose JIT fails without a matching nvcc) |
+
+The vLLM columns are bf16 (or FP8 for the 27B) and therefore move 2-3.5x more weight bytes than the Q4_K_M models: on Mistral/OLMoE
+they are **not comparable for decode**, only for the batching behaviour. For Qwen3.8-27B, FP8 (about 29 GB) is the closest match to Q8_0 (29 GB).
+The downloaded HF checkpoints are in `~/models/hf-vllm/`.
+
+## 2. Single-stream results
+
+Units: tokens/s, higher is better. `SL/x` = Sharplight divided by engine x (below 1.00x means Sharplight is slower).
+Rows: `pp512` / `pp2048` = prompt processing of 512 / 2048 tokens from an empty context; `tg128 @d0` = decode from an (almost) empty context
+(Sharplight: depth 16 after a 16-token prefill; vLLM: 16 tokens; llama-bench: depth 0); `tg128 @d4096` = decode at a context depth of 4096
+(OLMoE/vLLM: 3800).
+
+| model | metric | Sharplight med (min..max) | llama.cpp CUDA med (min..max) | llama.cpp Vulkan med (min..max) | vLLM med | SL/CUDA | SL/Vulkan | SL/vLLM |
+|---|---|---|---|---|---|---|---|---|
+| gemma3-1b-q8 | pp512 | 45642 (45634..45679) | 45353 (31416..45456) | 46408 (45920..46509) | 35259 | 1.01x | 0.98x | 1.29x |
+| gemma3-1b-q8 | pp2048 | 41899 (41844..41902) | 46479 (42244..46680) | 46661 (45842..47104) | 65038 | 0.90x | 0.90x | 0.64x |
+| gemma3-1b-q8 | tg128 @d0 | 554 (547..557) | 538 (535..539) | 500 (494..501) | 205 | 1.03x | 1.11x | 2.70x |
+| gemma3-1b-q8 | tg128 @d4096 | 505 (488..523) | 524 (522..526) | 488 (486..492) | 297 | 0.96x | 1.03x | 1.70x |
+| llama3.2-1b-q8 | pp512 | 53317 (50152..53531) | 58918 (43826..59213) | 50868 (50363..51035) | 71161 | 0.90x | 1.05x | 0.75x |
+| llama3.2-1b-q8 | pp2048 | 48470 (46673..49116) | 58092 (55435..59754) | 49845 (49024..49986) | 100434 | 0.83x | 0.97x | 0.48x |
+| llama3.2-1b-q8 | tg128 @d0 | 752 (698..753) | 739 (738..740) | 703 (689..707) | 459 | 1.02x | 1.07x | 1.64x |
+| llama3.2-1b-q8 | tg128 @d4096 | 483 (473..486) | 681 (679..683) | 636 (631..639) | 444 | 0.71x | 0.76x | 1.09x |
+| mistral7b-q4km | pp512 | 6387 (6371..6392) | 11229 (10612..11937) | 9840 (9296..10496) | 13908 | 0.57x | 0.65x | 0.46x |
+| mistral7b-q4km | pp2048 | 6074 (6071..6088) | 10756 (10521..10789) | 9415 (9380..9464) | 15549 | 0.56x | 0.65x | 0.39x |
+| mistral7b-q4km | tg128 @d0 | 135 (135..136) | 246 (245..247) | 229 (226..233) | 95.4 | 0.55x | 0.59x | 1.42x |
+| mistral7b-q4km | tg128 @d4096 | 107 (106..108) | 215 (138..221) | 203 (200..207) | 91.3 | 0.50x | 0.53x | 1.17x |
+| nemotron30b-q4km | pp512 | 5586 (5551..5591) | 8346 (7436..8833) | 7242 (7172..7487) | n/a | 0.67x | 0.77x | - |
+| nemotron30b-q4km | pp2048 | 5445 (5438..5446) | 7983 (7706..8274) | 7130 (7118..7142) | n/a | 0.68x | 0.76x | - |
+| nemotron30b-q4km | tg128 @d0 | 221 (218..231) | 328 (311..331) | 280 (279..284) | n/a | 0.67x | 0.79x | - |
+| nemotron30b-q4km | tg128 @d4096 | 207 (205..209) | 312 (295..331) | 275 (274..276) | n/a | 0.66x | 0.75x | - |
+| olmoe-q4km | pp512 | 15014 (14977..15059) | 27624 (18768..29607) | 27081 (25431..27740) | 38093 | 0.54x | 0.55x | 0.39x |
+| olmoe-q4km | pp2048 | 14407 (14246..14513) | 24564 (23599..25280) | 26648 (25865..27770) | 65885 | 0.59x | 0.54x | 0.22x |
+| olmoe-q4km | tg128 @d0 | 503 (497..529) | 844 (762..845) | 605 (568..633) | 350 | 0.60x | 0.83x | 1.44x |
+| olmoe-q4km | tg128 @d4096 | 393 (356..409) | 616 (585..622) | 503 (358..536) | 254 | 0.64x | 0.78x | 1.55x |
+| qwen27b-q8 | pp512 | 2663 (2538..2680) | 3058 (2914..3063) | 2394 (2368..2436) | 6348 | 0.87x | 1.11x | 0.42x |
+| qwen27b-q8 | pp2048 | 2508 (2490..2518) | 3030 (2696..3033) | 2332 (1998..2338) | 7425 | 0.83x | 1.08x | 0.34x |
+| qwen27b-q8 | tg128 @d0 | 44.8 (44.6..44.9) | 48.5 (37.5..48.9) | 44.1 (40.8..44.3) | 48.5 | 0.92x | 1.02x | 0.92x |
+| qwen27b-q8 | tg128 @d4096 | 40.6 (40.1..41.0) | 47.9 (47.4..47.9) | 43.2 (39.8..43.4) | 47.6 | 0.85x | 0.94x | 0.85x |
+| qwen3-0.6b-q8 | pp512 | 62021 (34682..62032) | 26977 (21071..38436) | 61296 (60828..61505) | 31164 | 2.30x | 1.01x | 1.99x |
+| qwen3-0.6b-q8 | pp2048 | 43732 (20334..44888) | 55097 (48865..55235) | 56316 (55165..56608) | 119055 | 0.79x | 0.78x | 0.37x |
+| qwen3-0.6b-q8 | tg128 @d0 | 825 (824..827) | 817 (808..818) | 725 (717..734) | 487 | 1.01x | 1.14x | 1.70x |
+| qwen3-0.6b-q8 | tg128 @d4096 | 483 (477..484) | 629 (608..635) | 578 (573..583) | 452 | 0.77x | 0.84x | 1.07x |
+
+Notes on the table:
+* Qwen3-0.6B / Gemma / Llama-1B prefill rows are 8-60 ms long and clock-ramp sensitive; the min..max spread there (for example Sharplight 0.6B pp512 34682..62032) is noise, not signal. llama.cpp CUDA 0.6B pp512 (26977, min 21071) is a clock-ramp artefact as well.
+* vLLM small-model numbers are measured through the offline Python API, which adds roughly 2 ms of host overhead per token (decode) and about 10 ms per call (prefill); they are a fair "what you get from the Python engine" number, not a kernel-level number.
+* Nemotron on vLLM: not measured (see section 1).
+
+## 3. Batched serving throughput
+
+`bench/loadgen.py` (asyncio + httpx, `/v1/completions` streaming): closed loop with N workers, each sending 3-8 requests back to back, so N
+requests are always in flight. Prompts are unique random-word sequences (about 250 tokens, no prefix-cache hits), `max_tokens=128`,
+temperature 0. llama-server and vLLM get `ignore_eos` (always exactly 128 tokens); Sharplight Serve has no `ignore_eos`, so OLMoE streams stop
+early (average 108-117 tokens, which lowers its aggregate tok/s slightly). Aggregate tok/s = output tokens / wall time of the whole run;
+per-stream tok/s = 1 / mean inter-token gap; TTFT and ITL are measured client-side from SSE chunks (one chunk per token). One server per
+engine is started for the largest concurrency (Sharplight `--slots 64 --ctx 512`, llama-server `-np 64 -c 32768`, vLLM
+`--max-num-seqs 64 --max-model-len 512`) and the four concurrency levels run against it. A check with matching slot counts on the 27B
+(`--slots 4` at c=4: 63 tok/s, `--slots 16` at c=16: 227 tok/s) gave the same numbers as the 64-slot server, so the shared server is not penalising Sharplight.
+llama-server for the 27B and Nemotron runs with `--cache-ram 0` (the default 8 GB prompt cache made the 27B server grow to 17 GB RSS and get killed by the kernel OOM killer on this RAM-starved desktop).
+
+
+#### llama3.2-1b-q8
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | sharplight | 427 | 449.8 | 12 | 27 | 2.2 | 5.0 | 128 | 0 |
+| 1 | llama-cuda13 | 493 | 547.6 | 23 | 42 | 1.8 | 3.3 | 128 | 0 |
+| 1 | llama-vulkan | 310 | 333.6 | 31 | 39 | 3.0 | 5.8 | 128 | 0 |
+| 1 | vllm | 458 | 470.0 | 8 | 11 | 2.1 | 2.4 | 128 | 0 |
+| 4 | sharplight | 783 | 202.2 | 22 | 42 | 4.9 | 8.5 | 128 | 0 |
+| 4 | llama-cuda13 | 637 | 175.7 | 81 | 103 | 5.7 | 10.4 | 128 | 0 |
+| 4 | llama-vulkan | 572 | 153.4 | 68 | 82 | 6.5 | 10.2 | 128 | 0 |
+| 4 | vllm | 1533 | 397.6 | 14 | 19 | 2.5 | 3.2 | 128 | 0 |
+| 16 | sharplight | 1716 | 111.9 | 29 | 207 | 8.9 | 13.7 | 128 | 0 |
+| 16 | llama-cuda13 | 998 | 71.0 | 269 | 392 | 14.1 | 26.3 | 128 | 0 |
+| 16 | llama-vulkan | 422 | 40.5 | 1457 | 3591 | 24.7 | 33.6 | 128 | 0 |
+| 16 | vllm | 5419 | 375.5 | 42 | 50 | 2.7 | 3.1 | 128 | 0 |
+| 64 | sharplight | 3469 | 58.4 | 64 | 518 | 17.1 | 23.2 | 128 | 0 |
+| 64 | llama-cuda13 | 1340 | 22.2 | 355 | 474 | 45.1 | 61.0 | 128 | 0 |
+| 64 | llama-vulkan | 1454 | 25.7 | 326 | 1727 | 38.9 | 57.3 | 128 | 0 |
+| 64 | vllm | 15728 | 313.2 | 108 | 161 | 3.2 | 3.9 | 128 | 0 |
+
+#### mistral7b-q4km
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | sharplight | 123 | 128.3 | 51 | 55 | 7.8 | 7.9 | 128 | 0 |
+| 1 | llama-cuda13 | 198 | 211.8 | 48 | 51 | 4.7 | 7.3 | 128 | 0 |
+| 1 | llama-vulkan | 204 | 220.1 | 50 | 52 | 4.5 | 4.7 | 128 | 0 |
+| 1 | vllm | 94 | 95.4 | 25 | 26 | 10.5 | 11.5 | 128 | 0 |
+| 4 | sharplight | 196 | 51.5 | 139 | 181 | 19.4 | 19.4 | 128 | 0 |
+| 4 | llama-cuda13 | 311 | 87.6 | 184 | 285 | 11.4 | 19.9 | 128 | 0 |
+| 4 | llama-vulkan | 321 | 87.4 | 143 | 147 | 11.4 | 11.8 | 128 | 0 |
+| 4 | vllm | 365 | 94.9 | 74 | 76 | 10.5 | 11.5 | 128 | 0 |
+| 16 | sharplight | 505 | 33.8 | 183 | 853 | 29.6 | 64.3 | 128 | 0 |
+| 16 | llama-cuda13 | 626 | 46.1 | 530 | 766 | 21.7 | 27.0 | 128 | 0 |
+| 16 | llama-vulkan | 411 | 30.2 | 858 | 1046 | 33.1 | 46.2 | 128 | 0 |
+| 16 | vllm | 1205 | 87.0 | 251 | 254 | 11.5 | 12.0 | 128 | 0 |
+| 64 | sharplight | 1201 | 21.4 | 321 | 2717 | 46.7 | 99.5 | 128 | 0 |
+| 64 | llama-cuda13 | 1928 | 36.8 | 747 | 1282 | 27.2 | 19.6 | 128 | 0 |
+| 64 | llama-vulkan | 1233 | 23.6 | 1029 | 2267 | 42.4 | 32.2 | 128 | 0 |
+| 64 | vllm | 2980 | 62.5 | 910 | 984 | 16.0 | 14.9 | 128 | 0 |
+
+#### nemotron30b-q4km
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | sharplight | 194 | 213.0 | 64 | 65 | 4.7 | 4.9 | 128 | 0 |
+| 1 | llama-cuda13 | 286 | 321.6 | 52 | 57 | 3.1 | 3.6 | 128 | 0 |
+| 1 | llama-vulkan | 237 | 268.4 | 68 | 69 | 3.7 | 4.0 | 128 | 0 |
+| 4 | sharplight | 192 | 210.3 | 2065 | 2080 | 4.8 | 4.9 | 128 | 0 |
+| 4 | llama-cuda13 | 413 | 114.5 | 149 | 170 | 8.7 | 8.9 | 128 | 0 |
+| 4 | llama-vulkan | 315 | 86.2 | 175 | 200 | 11.6 | 12.8 | 128 | 0 |
+| 16 | sharplight | 189 | 207.6 | 10209 | 10219 | 4.8 | 5.0 | 128 | 0 |
+| 16 | llama-cuda13 | 546 | 38.9 | 538 | 674 | 25.7 | 27.3 | 128 | 0 |
+| 16 | llama-vulkan | 350 | 24.9 | 678 | 2294 | 40.1 | 38.8 | 128 | 0 |
+| 64 | sharplight | 189 | 207.4 | 42386 | 42629 | 4.8 | 5.0 | 127 | 0 |
+| 64 | llama-cuda13 | 922 | 17.4 | 1259 | 3221 | 57.4 | 60.7 | 128 | 0 |
+| 64 | llama-vulkan | 784 | 14.8 | 1512 | 4279 | 67.6 | 83.5 | 128 | 0 |
+
+#### olmoe-q4km
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | sharplight | 423 | 468.0 | 24 | 28 | 2.1 | 3.6 | 108 | 0 |
+| 1 | llama-cuda13 | 595 | 694.9 | 29 | 41 | 1.4 | 2.9 | 128 | 0 |
+| 1 | llama-vulkan | 521 | 599.4 | 32 | 41 | 1.7 | 3.3 | 128 | 0 |
+| 1 | vllm | 445 | 463.9 | 14 | 15 | 2.2 | 2.3 | 128 | 0 |
+| 4 | sharplight | 489 | 133.1 | 38 | 69 | 7.5 | 9.8 | 116 | 0 |
+| 4 | llama-cuda13 | 871 | 261.4 | 93 | 131 | 3.8 | 4.7 | 128 | 0 |
+| 4 | llama-vulkan | 731 | 206.7 | 84 | 93 | 4.8 | 5.3 | 128 | 0 |
+| 4 | vllm | 848 | 221.5 | 24 | 77 | 4.5 | 4.9 | 128 | 0 |
+| 16 | sharplight | 930 | 66.4 | 63 | 314 | 15.1 | 25.9 | 115 | 0 |
+| 16 | llama-cuda13 | 850 | 81.9 | 427 | 2346 | 12.2 | 18.4 | 128 | 0 |
+| 16 | llama-vulkan | 699 | 58.6 | 740 | 1430 | 17.1 | 17.3 | 128 | 0 |
+| 16 | vllm | 1890 | 132.9 | 61 | 362 | 7.5 | 8.6 | 128 | 0 |
+| 64 | sharplight | 1909 | 34.2 | 161 | 949 | 29.2 | 47.0 | 117 | 0 |
+| 64 | llama-cuda13 | 1776 | 32.9 | 667 | 1092 | 30.4 | 37.5 | 128 | 0 |
+| 64 | llama-vulkan | 1896 | 34.6 | 615 | 1049 | 28.9 | 21.4 | 128 | 0 |
+| 64 | vllm | 5216 | 90.2 | 156 | 216 | 11.1 | 12.1 | 128 | 0 |
+
+#### qwen27b-q8
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | sharplight | 40 | 41.6 | 118 | 126 | 24.0 | 24.3 | 128 | 0 |
+| 1 | llama-cuda13 | 41 | 42.5 | 138 | 144 | 23.5 | 41.9 | 128 | 0 |
+| 1 | llama-vulkan | 36 | 38.3 | 210 | 267 | 26.1 | 36.2 | 128 | 0 |
+| 1 | vllm | 46 | 47.2 | 56 | 178 | 21.2 | 25.6 | 128 | 0 |
+| 4 | sharplight | 60 | 15.5 | 329 | 415 | 64.6 | 64.8 | 128 | 0 |
+| 4 | llama-cuda13 | 68 | 19.2 | 542 | 3731 | 52.2 | 57.5 | 128 | 0 |
+| 4 | llama-vulkan | 50 | 13.4 | 752 | 1158 | 74.7 | 114.7 | 128 | 0 |
+| 4 | vllm | 164 | 43.2 | 175 | 274 | 23.2 | 28.0 | 128 | 0 |
+| 16 | sharplight | 207 | 13.7 | 422 | 1496 | 72.9 | 166.0 | 128 | 0 |
+| 16 | llama-cuda13 | 106 | 7.7 | 3015 | 4007 | 129.4 | 215.6 | 128 | 0 |
+| 16 | llama-vulkan | 80 | 5.5 | 2817 | 4891 | 181.0 | 226.2 | 128 | 0 |
+| 16 | vllm | 556 | 40.5 | 566 | 573 | 24.7 | 25.6 | 128 | 0 |
+| 64 | sharplight | 479 | 8.5 | 709 | 6434 | 118.0 | 236.0 | 128 | 0 |
+| 64 | llama-cuda13 | 263 | 5.0 | 4169 | 12888 | 201.0 | 378.0 | 128 | 0 |
+| 64 | llama-vulkan | 213 | 4.1 | 6218 | 16391 | 245.3 | 511.7 | 128 | 0 |
+| 64 | vllm | 1166 | 24.6 | 1625 | 2185 | 40.6 | 40.4 | 128 | 0 |
+
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 16 | sharplight | 227 | 15.1 | 422 | 1444 | 66.0 | 92.4 | 128 | 0 |
+
+
+| conc | engine | agg tok/s | per-stream tok/s | TTFT p50 ms | TTFT p95 ms | ITL mean ms | ITL p95 ms | avg out tok | errors |
+|---|---|---|---|---|---|---|---|---|---|
+| 4 | sharplight | 63 | 16.2 | 323 | 349 | 61.8 | 62.7 | 128 | 0 |
+
+### Batched decode step, kernel level (`bench/BatchBench`)
+
+Per-step latency of Sharplight's multi-sequence decoder (`LlmModel.CreateBatchDecoder`, 64 slots, about 250 tokens of context per slot,
+logits wanted for every row). This isolates the GPU/engine step from HTTP and sampling:
+
+| batch | Qwen3.8-27B Q8_0 step ms (tok/s) | Mistral-7B Q4_K_M | Llama-1B Q8_0 | OLMoE Q4_K_M |
+|---|---|---|---|---|
+| 1 | 24.8 (40) | 7.5 (133) | 1.37 (727) | 1.96 (510) |
+| 2 | 37.1 (54) | 11.8 (169) | 2.34 (855) | 3.31 (604) |
+| 4 | 60.7 (66) | 18.8 (213) | 3.71 (1078) | 6.31 (634) |
+| 8 | 113.6 (70) | 33.8 (237) | 7.15 (1118) | 9.11 (878) |
+| 16 | 58.8 (272) | 24.8 (646) | 5.83 (2742) | 12.0 (1331) |
+| 32 | 68.3 (469) | 28.1 (1138) | 8.90 (3594) | 14.8 (2167) |
+| 64 | 92.2 (694) | 32.0 (2000) | 12.1 (5277) | 19.9 (3222) |
+
+Reference points from the serving runs: vLLM's inter-token latency at 64 streams is 40.6 ms on the 27B (FP8), 3.2 ms on Llama-1B (bf16), 11.1 ms
+on OLMoE. Without logits the Llama-1B step at batch 64 takes 5.1 ms instead of 12.1 ms (the lm-head, 128k-entry logits readback and
+CPU-side sampling cost 7 ms per step); through the HTTP server the measured ITL at c=64 is 17.1 ms, i.e. another 5 ms of host-side engine/HTTP work.
+
+## 4. Load time (time to first generated token, `bench/load_time.sh`)
+
+Wall-clock seconds for `sharplight <model> -p hi -n 1` (resp. `llama-completion -n 1`), including process start, weight upload, kernel
+compilation or cache lookup, 1-token prefill and 1 decode. Sharplight has three cache layers: the Slang kernel disk cache
+(`$XDG_DATA_HOME/sharplight/kernels`, i.e. `~/.local/share/sharplight/kernels`, filled automatically), the driver pipeline cache, and the `.slm`
+model package created with `sharplight model.gguf --save out.slm` (built model + compiled kernels + pipeline cache; load it by passing the `.slm` path).
+"Cold caches" = empty `XDG_DATA_HOME` and `__GL_SHADER_DISK_CACHE_PATH`.
+"Cold page cache" = model file evicted with `posix_fadvise(DONTNEED)` before each run (`bench/evict.py`; a real cold start from NVMe).
+
+| model | engine / case | seconds |
+|---|---|---|
+| Qwen3.8-27B Q8_0 | Sharplight GGUF, cold kernel + driver caches (file in page cache) | 23.5 |
+| | Sharplight GGUF, warm caches, file in page cache | 4.8, 4.8 |
+| | Sharplight GGUF, warm caches, cold page cache | 9.7, 8.6 (8.4, 8.5 in an earlier run) |
+| | Sharplight `.slm`, file in page cache | 8.8 (first), 4.8 |
+| | Sharplight `.slm`, cold page cache | 8.0, 7.9 |
+| | llama.cpp CUDA, file in page cache | 8.9 (first), 4.4 |
+| | llama.cpp Vulkan, file in page cache | 8.1, 7.7 |
+| | llama.cpp CUDA / Vulkan, cold page cache | 36.1, 22.2 / 25.7, 39.3 |
+| | vLLM FP8 (`LLM()` init, torch.compile and CUDA graph caches warm) / `vllm serve` ready | 131 / 126 |
+| Llama-3.2-1B Q8_0 | Sharplight GGUF cold caches | 8.9 |
+| | Sharplight GGUF warm / `.slm` | 1.0-1.1 / 0.94-0.97 |
+| | llama.cpp CUDA / Vulkan | 0.77-1.05 / 1.02-1.07 |
+| | vLLM bf16, first ever start (cold torch.compile cache) / later `vllm serve` ready | 229 / 62 |
+| Mistral-7B Q4_K_M | Sharplight GGUF cold caches | 12.8 |
+| | Sharplight GGUF warm / `.slm` | 1.3-1.6 / 1.2 |
+| | Sharplight GGUF / llama.cpp CUDA / llama.cpp Vulkan, cold page cache | 2.2-2.9 / 1.5-1.7 / 1.9 |
+| | llama.cpp CUDA / Vulkan, file in page cache | 0.94-1.03 / 1.17 (3.9 first) |
+| | vLLM bf16 `LLM()` init / `vllm serve` ready | 54 / 43 |
+| Qwen3-0.6B / Gemma-3-1B bf16 (vLLM only) | first ever start, cold torch.compile cache | 241 / 143 |
+
+Take-aways: the Slang kernel/pipeline cache is what matters (cold start costs 8-23 s of shader compilation; warm start is on par with
+llama.cpp); the `.slm` package is not faster than a GGUF with a warm kernel cache on this machine, its benefit is portability of the compiled state.
+Sharplight reads the 27B from a cold page cache in 8-10 s versus 22-39 s for llama.cpp (mmap); vLLM needs 1-4 minutes (torch.compile + CUDA graph capture, cached afterwards).
+
+
+## 5. Ranked gaps (where Sharplight is slower)
+
+Ratios are Sharplight / best comparable engine (higher is better for Sharplight). "Comparable" means same quantisation class: llama.cpp
+for the GGUF models, vLLM FP8 for the 27B, vLLM bf16 only for batching behaviour.
+
+| # | Gap | Size | Evidence |
+|---|---|---|---|
+| 1 | **Serving a Mamba/SSM-hybrid (Nemotron-3-Nano) does not batch at all** | c=64: 189 vs 922 tok/s llama.cpp CUDA (**0.21x**); c=16 0.35x; c=4 0.46x; TTFT at c=64 is 42 s | Server log: `Multi-sequence decoding unavailable (op SelectiveScan uses state but has no multi-sequence form); serving one sequence at a time.` Throughput stays at the c=1 value (about 190 tok/s) for every concurrency. Feature gap, not a kernel gap. |
+| 2 | **Batched decode on the 27B hybrid (gated delta net + attention)** | vs vLLM FP8: c=4 0.37x (60 vs 164), c=16 0.37x (207 vs 556), c=64 0.41x (479 vs 1166). vs llama.cpp CUDA: 0.88x at c=4, but 1.9x / 1.8x at c=16 / 64 | Step latency B=1 24.8 ms, B=4 60.7 ms, B=8 113.6 ms, B=16 58.8 ms, B=64 92.2 ms (vLLM: about 24 ms up to 16 streams, 40 ms at 64). Using four streams costs 2.5x the single-stream step, so aggregate throughput is flat between 1 and 8 streams. |
+| 3 | **Batched decode on small dense / MoE models** | Llama-1B vs vLLM bf16: c=4 0.51x, c=16 0.32x, c=64 0.22x (3469 vs 15728); OLMoE: c=4 0.58x, c=16 0.49x, c=64 0.37x vs vLLM and 0.56x at c=4 vs llama.cpp CUDA (489 vs 871). Mistral Q4_K_M: c=4 0.63x, c=64 0.62x vs llama.cpp CUDA. Sharplight still beats llama.cpp at c=16/64 for Llama-1B (1.7x / 2.6x) and the 27B | Kernel-level step: Llama-1B B=4 is 2.7x of B=1, B=8 5.2x; B=64 12.1 ms of which about 7 ms is logits (lm-head + readback), plus about 5 ms of engine/HTTP overhead. vLLM's step at 64 streams is 3.2 ms. |
+| 4 | **Q4_K / Q6_K quantised models, single stream** | Mistral-7B Q4_K_M: decode 135 vs 246 tok/s CUDA (**0.55x**), pp512 6387 vs 11229 (**0.57x**); OLMoE: pp 0.54x, decode 0.60x (0.83x vs llama.cpp Vulkan); Nemotron-30B: 0.67x prefill and decode. Q8_0 models are at parity | Profile: Q4_K matvec kernels reach 0.54-0.90 TB/s, Q6_K 0.84 TB/s, whole token 0.59 TB/s effective (llama.cpp CUDA 1.07 TB/s), against 1.59 TB/s for the Q8_0 matvec of the 27B. |
+| 5 | **Prefill throughput on large dense models vs FP8** | 27B: pp512 2663 vs 6348 tok/s vLLM FP8 (**0.42x**), pp2048 0.34x; vs llama.cpp CUDA 0.87x / 0.83x, vs llama.cpp Vulkan 1.11x / 1.08x. Llama-1B pp2048: 0.83x vs llama.cpp CUDA, 0.48x vs vLLM; Qwen3-0.6B pp2048 0.79x | `gemm_cm2` reaches 101 TFLOPS (Mistral Q4_K) to 178 TFLOPS (27B Q8_0) at T=512. |
+| 6 | **Decode at long context on small models** | tg128 @d4096: Llama-1B 483 vs 681 tok/s CUDA (**0.71x**), Qwen3-0.6B 0.77x, 27B 0.85x, Mistral 0.50x (compounded by #4), OLMoE 0.64x; Gemma-3-1B 0.96x | Profile: decode attention reads KV at only about 0.18 TB/s at depth 4096 (47 us per layer for 8.4 MB), 0.75 ms of a 2.0 ms step. |
+| 7 | **Server per-token overhead at c=1 for small models** | Llama-1B c=1: 427 vs 493 tok/s llama.cpp CUDA (0.87x); OLMoE 423 vs 595 (0.71x). CLI shows 752 / 503 tok/s, so the server loses 40 % | ITL mean 2.2 ms vs 1.37 ms step: host-side logits readback, sampling over a 128k vocabulary, SSE per token. |
+
+Where Sharplight is at or ahead of the field: Q8_0 single-stream decode (Qwen3.8-27B 0.92x CUDA / 1.02x Vulkan, small Q8_0 models 1.01-1.07x
+CUDA / 1.07-1.14x Vulkan, and 1.4-2.7x over vLLM's bf16 Python path on the small models, partly a quantisation effect), Gemma-3-1B (near parity everywhere, 0.90x at pp2048), large-concurrency serving versus llama-server (27B c=16/64: 1.95x / 1.8x
+CUDA, Llama-1B c=16/64: 1.7x / 2.6x), TTFT at high concurrency versus llama-server (Llama-1B c=64: 64 vs 355 ms p50), and cold-file load of the 27B (8-10 s vs 22-39 s).
+
+## 5a. Serving-stack follow-up (server overhead, chunked prefill, speculation, structured outputs)
+
+Measured after the table above, on the same machine while other jobs kept the GPU at 100 % utilisation, so wall-clock tok/s
+swings by ±30 % between runs. The robust numbers are the server's own `/metrics` (GPU-synchronous step time versus the
+inter-token latency it reports) and step counts.
+
+**Per-token server overhead (gap #7).** Llama-3.2-1B Q8_0, c=1, 256 tokens with `ignore_eos`: decoder step mean 1.81 ms against
+an inter-token latency of 2.02 ms before (0.21 ms, 10 % host overhead), 1.74 ms against 1.84 ms after (0.10 ms, 5.6 %).
+Changes: logits rows are handed to the sampler without copies (`IBatchDecoder.Step` returns slices of the readback buffer),
+large readbacks are split across threads, sampling and stop checks run in parallel once four or more sequences are in the step,
+arg-max is vectorised, and SSE chunks are written with `Utf8JsonWriter` straight into the response pipe with one flush per
+burst of ready events. At c=64 the profile share of the logits memmove dropped from 23 % to 13.5 % of engine time and per-sequence
+sampling/emit from 17.7 % to 7.9 %. The remaining gap between the CLI's 752 tok/s and the server's 427 tok/s mean in the table
+is mostly measurement (CLI best-of versus server mean under contention, plus TTFT inside the server's mean); what is left on the
+host is the thread-pool wake per streamed token. `ignore_eos` and `min_tokens` are now accepted, so the table's OLMoE caveat no
+longer applies to new runs.
+
+**Chunked prefill with decode interleaving** (`bench/loadgen.py --long-prompt-words 2500 --long-every 3`, Llama-1B, 8 slots,
+c=8, 100-word prompts plus every third request about 3k tokens, 128 output tokens):
+
+| step budget / chunk | agg tok/s | TTFT p50 ms | short-request TTFT p95 ms | ITL p99 ms | worst inter-token gap ms |
+|---|---|---|---|---|---|
+| whole prompts (4096 / 4096) | 287 | 128 | 248 | 28.8 | 4347 |
+| 512 / 512 (default) | 554 | 61 | 203 | 30.9 | 36 |
+| 256 / 256 | 430 | 221 | 506 | 31.7 | 37 |
+
+With chunking the worst stall a running stream sees is one step (36 ms) instead of seconds. Part of the unchunked worst case
+is the first compilation of the 4096-row graph during the run (the warm-up only used short prompts), which is itself an argument
+for a bounded step shape.
+
+**Prompt-lookup speculation** (`sharplight-serve --speculate-ngram N`; an edit task whose answer copies the prompt, Llama-1B,
+c=1, temperature 0, 6 requests of 140 tokens; output identical to non-speculative decoding):
+
+| drafts | engine steps | GPU step time total | drafted | accepted | wall tok/s (noisy) |
+|---|---|---|---|---|---|
+| off | 846 | 2.20 s | 0 | 0 | 390-550 |
+| 4 | 372 | 1.22 s (0.55x) | 672 | 474 (70 %) | 545-644 |
+| 8 | 318 | 0.97 s (0.44x) | 888 | 528 (59 %) | 731-864 |
+
+**Structured outputs.** Qwen3-0.6B (151k vocabulary): vocabulary trie built once per tokenizer in 0.2-0.6 s (on first use);
+the first mask of a JSON-schema grammar 0.3-3 ms; a JSON string body 11-16 ms the first time per grammar, then 0.15-0.5 ms in any
+other context or request (shared per-stack-top cache) and 0.01-0.2 ms for a repeated state. A schema answer and a forced tool
+call on the real model parse and validate (`RealModelStructuredTests`).
+
+## 6. Hypotheses for the top gaps
+
+Diagnostics used: `SHARPLIGHT_VK_PROFILE=1` (per-kernel GPU timestamps in `--bench`, and in `bench/BatchBench --profile B` for batched steps; raw output in
+`bench/results/profiles/`), `SHARPLIGHT_ATTN_SPLIT/ATTN_FA` ablations, `SHARPLIGHT_NO_*` switches listed in `src/Sharplight.Shaders/DiagnosticSwitches.cs`,
+the server log, and the dispatch/barrier counts printed by `--bench` (for example 420 dispatches / 291 barriers per decode step for Mistral-7B).
+
+**Gap 1, SSM serving.** `SelectiveScan` (Mamba-2) has no multi-sequence form, so `LlmModel.CreateBatchDecoder` falls back to `SessionBatchDecoder`, which runs the
+slots of a step one after another. Adding a multi-sequence selective scan (and its conv state) would remove the gap; `delta_rule` already has one, which is why the Qwen hybrid batches.
+
+**Gap 2/3, small-batch decode.** Evidence from `bench/results/profiles/batch_*.txt`:
+* For 2-8 rows the lowering picks the row-batched `matvec` kernels (`MatvecMaxRows = 8` in `GraphLowerer.MatMul.cs`). Their cost grows almost linearly with rows: on the 27B, `[5120→17408]x2` takes 119 us at T=1 and 252 us at T=4 (the weights are not amortised across rows, the kernels become dequantisation/FMA bound); `[17408→5120]` 68 us vs 250 us. The 8-row step (113.6 ms) is slower than the 16-row step (58.8 ms) that already uses the tensor-core path, so the crossover is far too high; lowering `MatvecMaxRows` to 2-4, or a dedicated skinny-M tensor-core / `mma` path with weights read once, is the first experiment.
+* The tensor-core path for 9-64 rows (`gemm_cm2` split-k, 128-row tiles) is bandwidth-inefficient for skinny M: `[5120→17408]` at T=16 reads 94.7 MB in 143 us = 0.66 TB/s versus 1.59 TB/s for the T=1 matvec; `to_f16` activation conversion plus `splitk_reduce` add 9940 + 9920 tiny launches per 20 steps (74.6 ms of 1081 ms GPU time, about 7 %), and gate/up are not fused as in the matvec path (`matmul2 ... fused[Silu,Mul]` exists only for matvec). A step at B=16 should cost about the same as B=1 (weight-bandwidth bound: about 25 ms for the 27B, 1.5-2 ms for Llama-1B) but costs 2.4x and 4x of that.
+* Logits: `IBatchDecoder.Step` returns a `float[vocab]` per sequence. For Llama-1B (vocab 128256) at B=64 that is 33 MB per step over PCIe plus 64 CPU argmax/softmax passes; the step takes 12.1 ms with logits and 5.1 ms without. For the 27B vocab (248320) it is 63 MB per step. Sampling on the GPU (argmax/top-k/top-p kernel, return only token ids) would remove most of this.
+* Remaining host overhead (about 5 ms per step at c=64 for Llama-1B, 2.2 ms vs 1.37 ms at c=1): per-token SSE flush and request bookkeeping in `InferenceEngine`/`OpenAiApi`; the engine step itself is single-threaded between GPU submissions (GPU idle while the CPU samples and schedules). vLLM overlaps scheduling with the previous step (async scheduling) and uses CUDA graphs; Sharplight records command buffers per shape (`record T=...` in the load timing), which is fine for B=1 but each new batch size is a separate recording.
+* The matvec kernels at T=1 are at the bandwidth roof for Q8_0, so single-stream and batch-1 are fine; the loss is entirely in the 2-64 range.
+
+**Gap 4, Q4_K/Q6_K.** The Q8_0 path has an "aligned quants" repack (`SHARPLIGHT_NO_REPACK`, `q8_0r` in the profile); K-quants are read in their 144/210-byte super-block file layout and dequantised with scalar unpacking (`load8_q4_k` in `common.slang`). Profile of Mistral decode: `[4096→14336]x2` q4_k 73.7 us for 66 MB = 0.90 TB/s, `[14336→4096]` q4_k 53.6 us for 33 MB = 0.62 TB/s, `[4096→4096]` q4_k 17.4 us for 9.4 MB = 0.54 TB/s, `[14336→4096]` q6_k 57.7 us for 48 MB = 0.84 TB/s, versus 1.59 TB/s for Q8_0. The device reports `int_dot` and `matrix_int8` (`sharplight --devices`); llama.cpp uses them (q8_1-quantised activations, `dp4a`/int8 MMA) while Sharplight dequantises to float. For prefill (`gemm_cm2`, 594 us for a 60 GFLOP gate/up at T=512 = 101 TFLOPS) the in-kernel K-quant dequantisation limits the tensor-core feed; Q8_0 reaches 178 TFLOPS. Hypotheses to test: a repacked/aligned K-quant layout, integer-dot matvec with quantised activations, and dequantise-to-f16 staging in shared memory for the GEMM.
+
+**Gap 5, prefill.** Prefill of the 27B at T=512 is spent 79 % in `gemm_cm2` (178 TFLOPS of f16 tensor-core math on 513 us tiles) and 9.5 % in `delta_rule`; llama.cpp CUDA (int8 tensor cores with q8_1 activations) is 15 % faster, vLLM FP8 (fp8 tensor cores) 2.4x faster. The device already reports `matrix_int8` and 16x16x32 `i8*i8+i32` / `f8E4m3*f8E4m3` cooperative-matrix shapes (`sharplight --devices`), so the hypothesis is that an 8-bit MMA GEMM (activations quantised to int8/fp8, Q8_0 weights used as stored) instead of the f16 coopmat would close most of the gap. Llama-1B pp2048: `gemm_cm2` is 66 % of GPU time, `attention fa` 16 %; `SHARPLIGHT_ATTN_FA=0` drops 4096-token prefill from 43.6k to 8.7k tok/s, so the flash path is essential and fine.
+
+**Gap 6, long-context decode.** `SHARPLIGHT_ATTN_SPLIT=0` drops Llama-1B decode at depth 4096 from 489 to 155 tok/s, so split-key attention is working, but it still only reaches about 0.18 TB/s (KV is 8 KV heads x 64 dims; 47 us per layer at 4096 vs 26.6 us at 2048). Likely too few workgroups/too short per-workgroup key ranges for GQA with 8 KV heads, plus the extra `attention combine` launch and its barrier; try more splits at depth > 2048 and processing all query heads of a KV head in one workgroup (the kernels already share K/V reads only if grouped this way, which could be verified with `SHARPLIGHT_DUMP_KERNELS`).
+
+## 7. How to reproduce
+
+```bash
+# build (not rebuilt for the bench: the binaries in samples/*/bin/Release were used as they were)
+dotnet build Sharplight.slnx -c Release
+dotnet build bench/BatchBench -c Release              # batched-decode micro benchmark (not in the .slnx)
+
+# llama.cpp single stream (both builds), all models:           bench/results/single_llama-*.jsonl
+bench/run_llama_single_all.sh                          # llama-bench -ngl 99 -fa 1 -p 512,2048 -n 128 -d 0,4096 -r 5 -o jsonl
+# Sharplight single stream (3 process runs per point):          bench/results/single_sharplight_*.txt
+bench/run_sharplight_single_all.sh                     # sharplight MODEL --bench N --ctx N+256 --batch 512, N = 16,512,2048,4096
+# vLLM single stream (offline LLM API):                          bench/results/single_vllm_*.json
+VLLM_USE_FLASHINFER_SAMPLER=0 ~/.venvs/vllm/bin/python -I bench/vllm_single.py ~/models/hf/Llama-3.2-1B-Instruct llama3.2-1b-bf16 --gpu-util 0.25
+bench/run_vllm_single_all.sh                           # (+ --max-len 4000 --depth 3800 for OLMoE, see below)
+
+# serving (one server per engine/model, concurrency 1 4 16 64):   bench/results/serve_<engine>_<model>_c<N>.json
+bench/run_serve_all.sh llama3.2-1b-q8                  # sharplight, llama-cuda13, llama-vulkan, vllm (VLLM_MODEL / VLLM_UTIL env)
+#   Sharplight:  sharplight-serve MODEL --slots 64 --ctx 512 --listen http://127.0.0.1:18080 --temp 0
+#   llama.cpp:   llama-server -m MODEL -ngl 99 -fa on -np 64 -c 32768 --port 18080 --no-webui [--cache-ram 0]
+#   vLLM:        vllm serve HF_DIR --served-model-name m --max-model-len 512 --max-num-seqs 64 --no-enable-prefix-caching --gpu-memory-utilization 0.3
+#   load:        python bench/loadgen.py --url http://127.0.0.1:18080 -c N --per-worker 3 [--ignore-eos]   # -c 1,4,16,64
+# load time:                                                    bench/results/load_time*.txt
+bench/load_time.sh <models.sh entries>; bench/load_time_coldfile.sh
+# batched decode step and per-kernel profiles:                   bench/results/profiles/
+bench/BatchBench/bin/Release/net11.0/BatchBench MODEL --ctx 1024 --profile 4
+SHARPLIGHT_VK_PROFILE=1 samples/Sharplight.Cli/bin/Release/net11.0/sharplight MODEL --bench 512 --ctx 768
+# tables
+python3 bench/summarize_single.py; python3 bench/summarize_serve.py
+```
+
+Sharplight serve/CLI binaries used: `samples/Sharplight.Cli/bin/Release/net11.0/sharplight`, `samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve`.
+`vllm_single.py` options used beyond the defaults: `--gpu-util 0.5` (27B), `--gpu-util 0.35 --depth 3800 --max-len 4000` (OLMoE).
+
+### Caveats and things that went wrong
+
+* vLLM could not be benchmarked on Nemotron-3-Nano (FP8 checkpoint needs FP8 KV cache, hence the FlashInfer backend, whose JIT needs an nvcc matching the CUDA 13.0 wheels; the pip nvcc 13.5 is incompatible with the 13.0 headers). GGUF loading in vLLM was not usable: vLLM needs an HF config for GGUF and none of the 27B / Mistral / Nemotron checkpoints are local, so HF checkpoints were downloaded instead (`~/models/hf-vllm/`, about 75 GB; delete when no longer needed).
+* The first llama-server 27B serving attempt was killed by the kernel OOM killer (prompt cache in host RAM); it was rerun with `--cache-ram 0` and the earlier partial files deleted.
+* The first `load_time_coldfile.sh` run hung because `llama-completion` waited on stdin; rerun with `</dev/null`. The 27B Sharplight cold-file numbers of that first run (8.4, 8.5 s) agree with the rerun.
+* Sharplight Serve has no `ignore_eos`, so OLMoE responses stop at 108-117 tokens on average; its per-token metrics (ITL, per-stream tok/s) are unaffected.
+* Sharplight prefill figures are the best of 4 in-process repetitions per run (the CLI reports best), medians are taken over 3 process runs; llama-bench reports all 5 samples (median shown).
+* No git history is available in this tree, so "version" for Sharplight is the working tree as of the measurement date. A repo-wide cleanup is about to start; numbers here are the pre-cleanup baseline.

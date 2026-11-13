@@ -6,10 +6,11 @@ using Sharplight.Vision;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// Qwen3.5 / Qwen3.6 / Qwen3.8 dense hybrid architecture (canonical arch <c>qwen3_5</c>):
-/// every <c>full_attention_interval</c>-th layer is gated softmax attention with partial interleaved
-/// M-RoPE; all others are Gated DeltaNet linear-attention layers with a short causal conv.
-/// Optional MTP layers are exposed as an auxiliary draft graph later.
+/// Qwen3.5 / Qwen3.6 / Qwen3.8 hybrid architecture, dense and MoE, and Qwen3-Next (canonical arch <c>qwen3_5</c>):
+/// every <c>full_attention_interval</c>-th layer is gated softmax attention with partial (interleaved M-)RoPE; all others are
+/// Gated DeltaNet linear-attention layers with a short causal conv. The feed-forward block is a dense SwiGLU MLP or routed
+/// experts plus a sigmoid-gated shared expert (<see cref="MoeBlock"/>). Optional MTP layers are exposed as an auxiliary draft
+/// graph later.
 /// </summary>
 /// <remarks>
 /// Canonical description consumed (importers translate their formats into exactly this):
@@ -17,17 +18,29 @@ namespace Sharplight.Architectures;
 /// <item>Hyper-parameters (<c>qwen3_5.*</c>): <c>layer_count</c> (trunk, without MTP), <c>hidden_size</c>,
 /// <c>ffn_hidden_size</c>, <c>context_length</c>, <c>norm_eps</c>, <c>attention.head_count</c>,
 /// <c>attention.kv_head_count</c>, <c>attention.head_dim</c>, <c>rope.dim</c>, <c>rope.base</c>,
-/// <c>rope.sections</c> (4 M-RoPE axes), <c>full_attention_interval</c>, <c>linear_attention.conv_kernel</c>,
-/// <c>linear_attention.key_head_count</c>, <c>linear_attention.key_head_dim</c>,
-/// <c>linear_attention.value_head_count</c>, <c>linear_attention.value_head_dim</c>, <c>mtp.layer_count</c>.</item>
+/// <c>rope.sections</c> (4 M-RoPE axes; absent: plain RoPE over one position axis), <c>full_attention_interval</c>,
+/// <c>linear_attention.conv_kernel</c>, <c>linear_attention.key_head_count</c>, <c>linear_attention.key_head_dim</c>,
+/// <c>linear_attention.value_head_count</c>, <c>linear_attention.value_head_dim</c>,
+/// <c>linear_attention.grouped_value_heads</c> (bool, default false), <c>mtp.layer_count</c>; MoE models
+/// <c>moe.expert_count</c>, <c>moe.expert_used_count</c>, <c>moe.normalize_weights</c> (default true) and the other
+/// <see cref="MoeOptions"/> keys.</item>
 /// <item>Weights: <c>token_embedding.weight</c>, <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied
 /// to the embedding otherwise); per layer <c>layers.{i}.</c>: <c>input_norm</c>, <c>post_attention_norm</c>,
-/// <c>mlp.{gate,up,down}</c>; attention layers <c>attention.{q,k,v,o,q_norm,k_norm}</c> (q rows interleave
+/// <c>mlp.{gate,up,down}</c> or the MoE weights documented on <see cref="MoeBlock"/> below <c>mlp.</c>; attention layers <c>attention.{q,k,v,o,q_norm,k_norm}</c> (q rows interleave
 /// [query | output gate] per head); linear-attention layers <c>linear_attention.{qkv,z,beta,alpha,out,norm,conv1d}</c>
 /// (all <c>.weight</c>), <c>linear_attention.a</c> (A = -exp(A_log)) and <c>linear_attention.dt_bias</c>.
 /// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>.</item>
 /// <item>Semantics: RMS norm weights multiply directly (any "1 + w" convention already folded in); value heads in
-/// tiled order; conv1d weights [channels, kernel] f32.</item>
+/// tiled order (value head h reads key head h mod key_head_count), or grouped by key head (h / (value/key heads)) when
+/// <c>linear_attention.grouped_value_heads</c> is set (Qwen3-Next files whose out projection cannot be reordered); conv1d
+/// weights [channels, kernel] f32.</item>
+/// <item>Qwen3.8-Flash-Next extensions, all optional: <c>hyper_connections.count</c> (residual streams; then the layers have
+/// no <c>input_norm</c> / <c>post_attention_norm</c> but the mixers <c>layers.{i}.attention_hc.*</c> / <c>layers.{i}.ffn_hc.*</c>
+/// and <c>output_hc.*</c> replaces <c>output_norm</c>, see <see cref="HyperConnections"/>); <c>ngram_embedding.*</c> with
+/// <c>layers.{i}.ngram.*</c> (see <see cref="NGramOptions"/> and <see cref="NGramEmbedding"/>);
+/// <c>linear_attention.gate_activation</c> ("silu" default, or "sigmoid"); <c>attention.indexer.{head_count, head_dim,
+/// block_size, token_budget}</c> with <c>layers.{i}.attention.indexer.{q,k,q_norm,k_norm}.weight</c> (QSA block selection;
+/// only the dense regime is implemented, which caps the context, see <see cref="DenseIndexerContext"/>).</item>
 /// <item>Optional vision tower (image input): hyper-parameters <c>qwen3_5.vision.*</c> and weights <c>vision.*</c> exactly as
 /// documented on <see cref="VisionParameters"/>, found either in the primary source (e.g. Hugging Face checkpoints) or in an
 /// auxiliary source with role <see cref="AuxiliaryRoles.Mmproj"/> (e.g. a separate projector file); the adapter does not care
@@ -38,6 +51,8 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class Qwen35Adapter : IModelAdapter
 {
+    private static readonly IMlpActivation s_silu = MlpActivations.Create("silu");
+
     /// <inheritdoc/>
     public string Name => "Qwen3.5 hybrid (Gated DeltaNet + gated attention)";
     /// <inheritdoc/>
@@ -47,7 +62,33 @@ public sealed class Qwen35Adapter : IModelAdapter
         int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps,
         int RopeDims, float RopeBase, int[] RopeSections,
         int ConvKernel, int SsmState, int SsmGroups, int SsmDtRank, int SsmInner, int FullAttnInterval,
-        int Vocab, int ContextLength);
+        int Vocab, int ContextLength, bool MRope, bool GroupedValueHeads, MoeOptions Moe,
+        int Streams, NGramOptions? NGram, bool SigmoidOutputGate);
+
+    private const int MRopeAxes = 4;
+
+    // [T, heads, dim] → [T, heads·repeats, dim] with each head repeated <repeats> times consecutively.
+    private static Value RepeatHeadsInPlace(GraphBuilder b, Value x, int heads, int repeats, int dim)
+    {
+        var tiled = b.Emit1("Tile", [b.Reshape(x, 0, heads, 1, dim)], Attributes.From(("repeats", new long[] { 1, 1, repeats, 1 })));
+        return b.Reshape(tiled, 0, (long)heads * repeats, dim);
+    }
+
+    /// <summary>
+    /// The longest context for which a QSA block indexer (<c>attention.indexer.*</c>) selects every visible token, so dense
+    /// attention is exact: up to <c>token_budget / block_size</c> complete blocks plus the incomplete tail block. Block
+    /// selection beyond that is not implemented yet, so the usable context is capped there; no limit without an indexer.
+    /// </summary>
+    private static int DenseIndexerContext(ModelSource src)
+    {
+        if (!src.Has($"{src.Architecture}.attention.indexer.token_budget"))
+        {
+            return int.MaxValue;
+        }
+
+        int block = src.Arch("attention.indexer.block_size", 1);
+        return src.Arch<int>("attention.indexer.token_budget") / block * block + block - 1;
+    }
 
     /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
@@ -65,7 +106,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             Eps: src.Arch<float>("norm_eps"),
             RopeDims: src.Arch<int>("rope.dim"),
             RopeBase: src.Arch("rope.base", 10000f),
-            RopeSections: src.Arch<int[]>("rope.sections", [0, 0, 0, 0]),
+            RopeSections: src.Arch("rope.sections", Array.Empty<int>()),
             ConvKernel: src.Arch<int>("linear_attention.conv_kernel"),
             SsmState: src.Arch<int>("linear_attention.key_head_dim"),
             SsmGroups: src.Arch<int>("linear_attention.key_head_count"),
@@ -73,9 +114,25 @@ public sealed class Qwen35Adapter : IModelAdapter
             SsmInner: src.Arch<int>("linear_attention.value_head_dim") * valueHeads,
             FullAttnInterval: src.Arch("full_attention_interval", 4),
             Vocab: src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed,
-            ContextLength: src.Arch("context_length", 32768));
+            ContextLength: Math.Min(src.Arch("context_length", 32768), DenseIndexerContext(src)),
+            MRope: src.Has($"{src.Architecture}.rope.sections"),
+            GroupedValueHeads: src.Arch("linear_attention.grouped_value_heads", false),
+            Moe: MoeOptions.Read(src, normalizeDefault: true),
+            Streams: src.Arch("hyper_connections.count", 0),
+            NGram: NGramOptions.Read(src),
+            SigmoidOutputGate: src.Arch("linear_attention.gate_activation", "silu") switch
+            {
+                "silu" => false,
+                "sigmoid" => true,
+                var other => throw new InvalidDataException($"Unknown linear_attention.gate_activation '{other}'."),
+            });
+        if (hp.NGram is not null && hp.Streams == 0)
+        {
+            throw new InvalidDataException("The n-gram embedding needs hyper-connections (hyper_connections.count).");
+        }
 
         bool IsRecurrent(int il) => (il + 1) % hp.FullAttnInterval != 0;
+        int positionAxes = hp.MRope ? MRopeAxes : 1;
 
         // ---- persistent state ---------------------------------------------------------------
         var states = new List<StateDefinition>();
@@ -83,6 +140,7 @@ public sealed class Qwen35Adapter : IModelAdapter
         var vCache = new Dictionary<int, StateDefinition>();
         var convState = new Dictionary<int, StateDefinition>();
         var ssmState = new Dictionary<int, StateDefinition>();
+        var ngramStates = new Dictionary<int, (StateDefinition Window, StateDefinition Conv)>();
         int convChannels = hp.SsmInner + 2 * hp.SsmGroups * hp.SsmState;
         int headVDim = hp.SsmInner / hp.SsmDtRank;
         for (int il = 0; il < hp.NLayer; il++)
@@ -98,6 +156,13 @@ public sealed class Qwen35Adapter : IModelAdapter
                 states.Add(kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheType, Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.KeyCache, Group = g });
                 states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheType, Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
             }
+
+            if (hp.NGram?.Layer == il)
+            {
+                var ngram = ngramStates[il] = NGramEmbedding.States(g, hp.NGram, src.Weight($"{g}.ngram.conv1d.weight")!);
+                states.Add(ngram.Window);
+                states.Add(ngram.Conv);
+            }
         }
 
         // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
@@ -109,12 +174,21 @@ public sealed class Qwen35Adapter : IModelAdapter
         }
 
         var allWeights = src.Weights;
-        if (vision is not null && !ReferenceEquals(visionSrc, src))
+        bool mergeVision = vision is not null && !ReferenceEquals(visionSrc, src);
+        if (mergeVision || hp.NGram is not null)
         {
             var merged = new Dictionary<string, WeightInfo>(src.Weights, StringComparer.Ordinal);
-            foreach (var (k, w) in visionSrc.Weights)
+            if (mergeVision)
             {
-                merged[k] = w;
+                foreach (var (k, w) in visionSrc.Weights)
+                {
+                    merged[k] = w;
+                }
+            }
+
+            if (hp.NGram is not null)
+            {
+                NGramEmbedding.AddDerivedWeights(merged, hp.NGram);
             }
 
             allWeights = merged;
@@ -124,7 +198,8 @@ public sealed class Qwen35Adapter : IModelAdapter
         {
             [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false),
         };
-        if (options.IncludeAuxiliaryGraphs)
+        // The n-gram embedding hashes token ids, so a graph fed with embeddings only cannot run it.
+        if (options.IncludeAuxiliaryGraphs && hp.NGram is null)
         {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
         }
@@ -151,7 +226,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             [WellKnown.VocabSize] = hp.Vocab,
             [WellKnown.ContextLength] = hp.ContextLength,
             [WellKnown.EmbeddingLength] = hp.NEmbd,
-            [WellKnown.PositionAxes] = 4,
+            [WellKnown.PositionAxes] = positionAxes,
             [WellKnown.EosTokenIds] = eos.ToArray(),
             ["n_layer"] = hp.NLayer,
             ["mtp_layers"] = nextn,
@@ -188,12 +263,13 @@ public sealed class Qwen35Adapter : IModelAdapter
             var b = new GraphBuilder(name, Lookup);
             var T = Dim.Sym(WellKnown.TokenSymbol);
             Value x;
+            Value? tokens = null;
             using (b.Group("input"))
             {
                 if (mixed)
                 {
                     // Rows are token embeddings or media embeddings: x = tok·(1-mask) + emb·mask.
-                    var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                    tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                     var emb = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hp.NEmbd));
                     var mask = b.Input("embedding_mask", InputRole.EmbeddingMask, DataType.F32, new Shape(T, 1));
                     var tok = b.Gather(b.Weight("token_embedding.weight"), tokens, "tok_embd");
@@ -205,17 +281,28 @@ public sealed class Qwen35Adapter : IModelAdapter
                 }
                 else
                 {
-                    var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                    tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                     x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
                 }
             }
-            var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 4));
+            var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, positionAxes));
             var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+
+            if (hp.Streams > 0)
+            {
+                x = HyperConnections.Expand(b, x, hp.Streams);
+            }
 
             for (int il = 0; il < hp.NLayer; il++)
             {
                 using var _ = b.Group($"layers.{il}");
                 string p = $"layers.{il}.";
+                if (hp.Streams > 0)
+                {
+                    x = HyperConnectedLayer(b, x, il, positions, tokens);
+                    continue;
+                }
+
                 var residual = x;
                 var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), hp.Eps, $"{p}attn_norm");
 
@@ -226,21 +313,41 @@ public sealed class Qwen35Adapter : IModelAdapter
                 x = b.Add(attnOut, residual, $"{p}attn_residual");
                 var ffnResidual = x;
                 h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
-                var gate = b.Linear(h, p + "mlp.gate.weight");
-                var up = b.Linear(h, p + "mlp.up.weight");
-                var ffn = b.Linear(b.Mul(b.Silu(gate), up), p + "mlp.down.weight", name: $"{p}ffn_out");
-                x = b.Add(ffn, ffnResidual, $"{p}l_out");
+                x = b.Add(FeedForward(b, h, p), ffnResidual, $"{p}l_out");
             }
 
             using (b.Group("output"))
             {
-                var hidden = b.RmsNorm(x, b.Weight("output_norm.weight"), hp.Eps, "result_norm");
+                var hidden = hp.Streams > 0
+                    ? HyperConnections.Mix(b, x, "output_hc.", hp.Streams, hp.NEmbd, hp.Eps).Mixed
+                    : b.RmsNorm(x, b.Weight("output_norm.weight"), hp.Eps, "result_norm");
                 var rows = b.Gather(hidden, outRows, "selected_rows");
                 var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
                 b.Output("logits", b.MatMul(rows, head, "logits"));
                 b.Output("hidden", hidden);
             }
             return b.Build();
+        }
+
+        // Hyper-connected layer: optional n-gram features, then attention and feed-forward each between a stream mixer and an
+        // injection back into the streams (no separate norms, no plain residual adds).
+        Value HyperConnectedLayer(GraphBuilder b, Value x, int il, Value positions, Value? tokens)
+        {
+            string p = $"layers.{il}.";
+            if (ngramStates.TryGetValue(il, out var ngram))
+            {
+                var features = NGramEmbedding.Build(b, tokens!, x, p, hp.NGram!, hp.Streams, hp.NEmbd, hp.Eps, b.State(ngram.Window), b.State(ngram.Conv));
+                x = b.Add(x, features, $"{p}ngram_residual");
+            }
+
+            var (h, inject) = HyperConnections.Mix(b, x, p + "attention_hc.", hp.Streams, hp.NEmbd, hp.Eps);
+            Value attnOut = IsRecurrent(il)
+                ? LinearAttention(b, h, p, b.State(convState[il]), b.State(ssmState[il]))
+                : FullAttention(b, h, p, positions, b.State(kCache[il]), b.State(vCache[il]));
+            x = HyperConnections.Inject(b, x, attnOut, inject!, hp.Streams, hp.NEmbd, $"{p}attn_residual");
+
+            (h, inject) = HyperConnections.Mix(b, x, p + "ffn_hc.", hp.Streams, hp.NEmbd, hp.Eps);
+            return HyperConnections.Inject(b, x, FeedForward(b, h, p), inject!, hp.Streams, hp.NEmbd, $"{p}l_out");
         }
 
         Value FullAttention(GraphBuilder b, Value h, string p, Value positions, Value kc, Value vc)
@@ -255,9 +362,9 @@ public sealed class Qwen35Adapter : IModelAdapter
             k = b.RmsNorm(k, b.Weight(p + "attention.k_norm.weight"), hp.Eps);
             var v = b.Reshape(b.Linear(h, p + "attention.v.weight"), 0, hp.NHeadKv, D);
 
-            var rope = Attributes.From(
-                ("dims", hp.RopeDims), ("base", hp.RopeBase), ("style", "neox"),
-                ("sections", hp.RopeSections), ("interleaved", true));
+            var rope = hp.MRope
+                ? Attributes.From(("dims", hp.RopeDims), ("base", hp.RopeBase), ("style", "neox"), ("sections", hp.RopeSections), ("interleaved", true))
+                : Attributes.From(("dims", hp.RopeDims), ("base", hp.RopeBase), ("style", "neox"));
             q = b.Emit1("Rope", [q, positions], rope);
             k = b.Emit1("Rope", [k, positions], rope);
 
@@ -266,6 +373,19 @@ public sealed class Qwen35Adapter : IModelAdapter
             var attn = b.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D), name: $"{p}attn");
             attn = b.Mul(attn, b.Sigmoid(gate), $"{p}attn_gated");
             return b.Linear(b.Reshape(attn, 0, hp.NHead * D), p + "attention.o.weight", name: $"{p}attn_out");
+        }
+
+        // Routed experts (+ shared expert) when the layer has a router, the dense SwiGLU MLP otherwise.
+        Value FeedForward(GraphBuilder b, Value h, string p)
+        {
+            if (MoeBlock.IsPresent(b, p + "mlp."))
+            {
+                return MoeBlock.Build(b, h, p, "mlp.", hp.Moe, hp.NEmbd, s_silu);
+            }
+
+            var gate = b.Linear(h, p + "mlp.gate.weight");
+            var up = b.Linear(h, p + "mlp.up.weight");
+            return b.Linear(b.Mul(b.Silu(gate), up), p + "mlp.down.weight", name: $"{p}ffn_out");
         }
 
         Value LinearAttention(GraphBuilder b, Value h, string p, Value convSt, Value ssmSt)
@@ -288,10 +408,18 @@ public sealed class Qwen35Adapter : IModelAdapter
             var v = b.Reshape(b.Slice(conv, 1, 2 * hk * dk, hv * dv), 0, hv, dv);
             q = b.L2Norm(q, hp.Eps);
             k = b.L2Norm(k, hp.Eps);
+            if (hp.GroupedValueHeads && hv != hk)
+            {
+                // Value heads grouped by key head (head h reads key head h / (hv/hk)): repeat each q/k head in place so the
+                // recurrence sees one q/k head per value head.
+                q = RepeatHeadsInPlace(b, q, hk, hv / hk, dk);
+                k = RepeatHeadsInPlace(b, k, hk, hv / hk, dk);
+            }
 
             var o = b.Emit("GatedDeltaRule", [q, k, v, g, beta, ssmSt], Attributes.From(("scale", 1f / MathF.Sqrt(dk))), $"{p}delta", writes: [ssmSt])[0];
             var on = b.RmsNorm(o, b.Weight(p + "linear_attention.norm.weight"), hp.Eps);
-            on = b.Mul(on, b.Silu(b.Reshape(z, 0, hv, dv)), $"{p}gated_norm");
+            var zh = b.Reshape(z, 0, hv, dv);
+            on = b.Mul(on, hp.SigmoidOutputGate ? b.Sigmoid(zh) : b.Silu(zh), $"{p}gated_norm");
             return b.Linear(b.Reshape(on, 0, hv * dv), p + "linear_attention.out.weight", name: $"{p}linear_attn_out");
         }
     }

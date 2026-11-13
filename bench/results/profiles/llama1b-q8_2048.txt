@@ -1,0 +1,40 @@
+Loaded Llama 3.2 1B Instruct (decoder): 147 tensors, 1.31 GB, vocab 128256 [203 ms]
+Compiled 'decode' in 412 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 18 groups, 1.29 GiB weights+state
+1 segment(s): [0@0: 356 nodes]
+segment 0: 212 dispatches, 147 barriers per step
+--- prefill T=2048 profile, segment 0
+GPU time 41.83 ms
+    14.661 ms  35.0%    128x  min    110.6 us  matmul [2048→8192] q8_0r gemm_cm2 T=512,1
+     7.187 ms  17.2%     64x  min    109.4 us  matmul [8192→2048] q8_0r split-k gemm_cm2 T=512,1
+     6.712 ms  16.0%     64x  min     39.9 us  attention fa T=512,1
+     4.144 ms   9.9%    128x  min     30.6 us  matmul [2048→2048] q8_0r split-k gemm_cm2 T=512,1
+     1.942 ms   4.6%    128x  min     14.2 us  matmul [2048→512] q8_0r split-k gemm_cm2 T=512,1
+     1.874 ms   4.5%    448x  min      3.1 us  matmul x→f16 to_f16 T=512,1
+     1.703 ms   4.1%    320x  min      3.1 us  matmul split-k reduce splitk_reduce T=512,1
+     0.907 ms   2.2%    128x  min      5.9 us  fused[Add]+RmsNorm main T=512,1
+     0.900 ms   2.2%     64x  min     14.0 us  fused[Silu,Mul] main T=512,1
+     0.800 ms   1.9%      4x  min    198.7 us  matmul [2048→128256] q8_0r matvec_sk T=512,1
+     0.393 ms   0.9%     64x  min      6.1 us  rope main T=512,1
+     0.263 ms   0.6%     64x  min      4.1 us  rope+cache_write rope_row T=512,1
+     0.262 ms   0.6%     64x  min      4.1 us  cache_write cache_write T=512,1
+     0.066 ms   0.2%      8x  min      4.1 us  gather gather T=512,1
+     0.018 ms   0.0%      4x  min      4.1 us  RmsNorm main T=512,1
+
+--- decode x64 profile, segment 0
+GPU time 125.77 ms
+    28.665 ms  22.8%   1024x  min     26.6 us  attention main T=1,1
+    25.271 ms  20.1%   1024x  min     24.2 us  matmul2 [2048→8192]x2 q8_0r fused[Silu,Mul] matvec_sk T=1,1
+    16.452 ms  13.1%   1024x  min     14.8 us  matmul [8192→2048] q8_0r matvec_sk T=1,1
+    16.079 ms  12.8%   2048x  min      6.1 us  matmul [2048→2048] q8_0r matvec_sk T=1,1
+    12.448 ms   9.9%     64x  min    192.5 us  matmul [2048→128256] q8_0r matvec_sk T=1,1
+     8.925 ms   7.1%   2048x  min      3.5 us  matmul [2048→512] q8_0r matvec_sk T=1,1
+     7.246 ms   5.8%   2048x  min      2.3 us  fused[Add]+RmsNorm main T=1,1
+     3.579 ms   2.8%   1024x  min      2.3 us  rope main T=1,1
+     2.127 ms   1.7%   1024x  min      1.8 us  rope+cache_write rope_row T=1,1
+     2.104 ms   1.7%   1024x  min      2.0 us  attention combine combine T=1,1
+     2.101 ms   1.7%   1024x  min      2.0 us  cache_write cache_write T=1,1
+     0.508 ms   0.4%    128x  min      2.3 us  gather gather T=1,1
+     0.262 ms   0.2%     64x  min      4.1 us  RmsNorm main T=1,1
+
+prefill 2048 tok: best 56 ms = 36820.1 tok/s | decode: best 249.11, median 227.12, mean 213.85 tok/s | GPU ms/step: best 0.00, median 0.00, wall best 4.01

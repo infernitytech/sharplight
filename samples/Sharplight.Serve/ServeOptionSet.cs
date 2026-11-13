@@ -76,6 +76,10 @@ internal sealed class ServeOptionSet
 
     private readonly Option<int> _prefillChunk = OptionFactory.Integer("--prefill-chunk", "Prompt rows per step and sequence, interleaved with decoding.", DefaultPrefillChunk, helpName: "rows");
 
+    private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
+
+    private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off; attention-only models).", 0, minimum: 0, helpName: "tokens");
+
     private readonly Option<string?> _mmproj = new("--mmproj")
     {
         HelpName = "file",
@@ -128,6 +132,8 @@ internal sealed class ServeOptionSet
         command.Options.Add(_slots);
         command.Options.Add(_maxQueue);
         command.Options.Add(_prefillChunk);
+        command.Options.Add(_stepTokens);
+        command.Options.Add(_draftTokens);
         command.Options.Add(_mmproj);
         command.Options.Add(_chatTemplate);
         command.Options.Add(_temperature);
@@ -167,6 +173,8 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_slots),
             parseResult.GetValue(_maxQueue),
             parseResult.GetValue(_prefillChunk),
+            parseResult.GetValue(_stepTokens),
+            parseResult.GetValue(_draftTokens),
             parseResult.GetValue(_mmproj),
             parseResult.GetValue(_chatTemplate),
             parseResult.GetValue(_temperature),

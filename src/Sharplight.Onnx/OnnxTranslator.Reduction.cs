@@ -78,8 +78,9 @@ internal sealed partial class OnnxTranslator
     private void TopK(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
-        long k = n.Has("k") ? n.Int("k", 1) : ConstIn(ins, 1, "TopK k").ScalarInt();
-        var attributes = Attributes.From(("k", k), ("axis", n.Int("axis", -1)), ("largest", n.Int("largest", 1) != 0), ("sorted", n.Int("sorted", 1) != 0));
+        long k = n.Has("k") ? n.Int("k", 1) : ConstIn(ins, 1, "TopK k", symbolic: true).Ints()[0];
+        var attributes = Attributes.From(("axis", n.Int("axis", -1)), ("largest", n.Int("largest", 1) != 0), ("sorted", n.Int("sorted", 1) != 0));
+        attributes = SymbolicInts.IsSymbolic(k) ? attributes.With("k_symbol", SymbolicInts.Format(k)) : attributes.With("k", k);
         var outputs = _b.Emit("TopK", [x], attributes, Nm(n));
         SetDyn(n, 0, outputs[0]);
         if (n.Outputs.Count > 1 && n.Outputs[1] != "")

@@ -1,14 +1,22 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using Sharplight.Llm.Serving.Speculative;
+using Sharplight.Llm.Structured;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Serving;
 
 /// <summary>
 /// Continuous-batching scheduler over an <see cref="IBatchDecoder"/>. A single scheduler thread owns the decoder; every step it
-/// mixes one decode token of each running sequence with prompt chunks of newly admitted ones (decode first, then prefill, within
-/// the batch-token budget), samples, streams text deltas and frees finished slots. With a one-slot decoder requests simply run one
-/// after another; with a multi-slot decoder they are batched together.
+/// mixes the decode tokens of all running sequences with prompt chunks of newly admitted ones (decode first, then chunked
+/// prefill, within a per-step token budget, so a long prompt never stalls the running streams), samples, streams text deltas
+/// and frees finished slots. With a one-slot decoder requests simply run one after another; with a multi-slot decoder they are
+/// batched together.
+/// <para>
+/// Optional per-request features: output constraints (<see cref="GenerationRequest.Constraint"/>, applied as a token mask
+/// before sampling), minimum lengths, priorities with per-tenant fair queuing, and speculative decoding
+/// (<see cref="EngineOptions.Speculator"/>) that verifies several draft tokens of a sequence in one forward pass.
+/// </para>
 /// <para>
 /// Thread safety: all members may be called from any thread. The engine owns the decoder and disposes it. Idle slots keep their
 /// context, so a later prompt that shares a prefix with it skips recomputing the shared part (<see cref="EngineOptions.PrefixCache"/>).
@@ -32,43 +40,26 @@ namespace Sharplight.Llm.Serving;
 /// </example>
 public sealed class InferenceEngine : IDisposable
 {
-    private sealed class Slot
+    /// <summary>How a sequence ends after a token was emitted (null = it continues).</summary>
+    private readonly record struct Ending(FinishReason Reason, string? StopSequence, bool Flush);
+
+    /// <summary>Result of sampling one step's logits of a sequence (computed in parallel, applied on the scheduler thread).</summary>
+    private struct Outcome
     {
-        public int Index;
-        public List<int> Tokens = [];
-        public long LastUsed;
-        public Seq? Active;
+        public int Accepted;
+        public Ending? Ending;
+        public string? Error;
     }
 
-    private sealed class Seq
-    {
-        public long Id;
-        public required GenerationRequest Req;
-        public required ChannelWriter<GenerationChunk> Writer;
-        public required int[] Prompt;
-        public required int MaxTokens;
-        public required long SubmitTicks;
-        public long DeadlineTicks = long.MaxValue;
-        public long QueueDeadlineTicks = long.MaxValue;
-        public CancellationTokenRegistration Reg;
-        public volatile bool CancelRequested;
-        public int Finished;
-        public Slot? Slot;
-        public int PromptPos, Cached, Generated, Pending;
-        public long LastTokenTicks;
-        public RequestSampler Sampler = null!;
-        public StreamingDecoder Decoder = null!;
-        public StopStringFilter Filter = null!;
-        public HashSet<int> StopIds = null!;
-        public bool Prefilling => PromptPos < Prompt.Length;
-    }
+    /// <summary>Below this many sequences with logits, sampling runs on the scheduler thread alone.</summary>
+    private const int ParallelSamplingThreshold = 4;
 
     private readonly IBatchDecoder _decoder;
     private readonly ITokenizer _tokenizer;
     private readonly EngineOptions _opt;
-    private readonly Slot[] _slots;
-    private readonly List<Seq> _queue = [];
-    private readonly List<Seq> _active = [];
+    private readonly EngineSlot[] _slots;
+    private readonly RequestQueue _queue;
+    private readonly List<EngineSequence> _active = [];
     private readonly object _gate = new();
     private readonly Thread _thread;
     private readonly HashSet<int> _eog;
@@ -77,6 +68,19 @@ public sealed class InferenceEngine : IDisposable
     private long _nextId, _tick;
     private int _rr, _transit;
     private bool _stop, _draining;
+    private volatile int _kvTokens, _kvActiveTokens;
+
+    // Scratch of the scheduler thread, reused every step.
+    private readonly List<SequenceInput> _inputs = [];
+    private readonly List<EngineSequence> _stepSeqs = [];
+    private readonly List<int> _stepBaseLength = [];
+    private Outcome[] _outcomes = [];
+
+    // Speculative decoding (null when off or unsupported by the decoder).
+    private readonly ISpeculator? _speculator;
+    private readonly List<SpeculationRequest> _specBatch = [];
+    private readonly SpeculationRequest[] _specRequests;
+    private readonly ContextView[] _specViews;
 
     /// <summary>The live counters; most callers want <see cref="GetMetrics"/>.</summary>
     public EngineMetrics Metrics { get; } = new();
@@ -86,10 +90,14 @@ public sealed class InferenceEngine : IDisposable
     public int SlotCount => _decoder.SlotCount;
     /// <summary>Context length of one sequence: prompt plus generated tokens.</summary>
     public int ContextLength => _decoder.ContextLength;
+    /// <summary>Vocabulary size of the served model (length of a logits row; the domain of token masks).</summary>
+    public int VocabSize => _decoder.VocabSize;
     /// <summary>True once <see cref="DrainAsync"/> or <see cref="Dispose"/> began: new requests are rejected.</summary>
     public bool IsDraining => _draining;
+    /// <summary>True when speculative decoding is active (a speculator was configured and the decoder can roll back rows).</summary>
+    public bool Speculates => _speculator is not null;
 
-    /// <summary>Starts the scheduler thread. The engine takes ownership of <paramref name="decoder"/>.</summary>
+    /// <summary>Starts the scheduler thread. The engine takes ownership of <paramref name="decoder"/> and of <see cref="EngineOptions.Speculator"/>.</summary>
     /// <param name="decoder">The model execution; obtain it from <see cref="LlmModel.CreateBatchDecoder"/>.</param>
     /// <param name="tokenizer">Tokenizer of the same model (end-of-generation tokens, detokenization).</param>
     /// <param name="options">Scheduler settings; defaults when null.</param>
@@ -98,9 +106,30 @@ public sealed class InferenceEngine : IDisposable
         _decoder = decoder;
         _tokenizer = tokenizer;
         _opt = options ?? new();
-        _slots = Enumerable.Range(0, decoder.SlotCount).Select(i => new Slot { Index = i }).ToArray();
+        _slots = [.. Enumerable.Range(0, decoder.SlotCount).Select(i => new EngineSlot(i))];
+        _queue = new RequestQueue(_opt.FairShareHalfLife);
         _eog = [.. tokenizer.EndOfGenerationIds];
         _budget = Math.Max(1, _opt.MaxBatchTokens > 0 ? Math.Min(_opt.MaxBatchTokens, decoder.MaxBatchTokens) : decoder.MaxBatchTokens);
+        _specRequests = new SpeculationRequest[decoder.SlotCount];
+        _specViews = new ContextView[decoder.SlotCount];
+        if (_opt.Speculator is { } spec)
+        {
+            if (decoder.CanTruncate && decoder.MaxLogitsRows > 1)
+            {
+                _speculator = spec;
+                for (int i = 0; i < _specRequests.Length; i++)
+                {
+                    _specViews[i] = new ContextView();
+                    _specRequests[i] = new SpeculationRequest { Slot = i, Draft = new int[spec.MaxDraftTokens] };
+                }
+            }
+            else
+            {
+                // Recurrent state cannot be rolled back over rejected drafts, and without spare logits rows nothing can be verified.
+                spec.Dispose();
+            }
+        }
+
         _thread = new Thread(Run) { Name = "sharplight-scheduler", IsBackground = true };
         _thread.Start();
     }
@@ -114,7 +143,8 @@ public sealed class InferenceEngine : IDisposable
             q = _queue.Count;
             a = _active.Count;
         }
-        return Metrics.Snapshot(q, a, _slots.Length);
+        long capacity = (long)_slots.Length * _decoder.ContextLength;
+        return Metrics.Snapshot(q, a, _slots.Length) with { KvCapacityTokens = capacity, KvTokens = _kvTokens, KvActiveTokens = _kvActiveTokens };
     }
 
     // ---- submission -------------------------------------------------------------------------------------------------
@@ -151,13 +181,9 @@ public sealed class InferenceEngine : IDisposable
         int room = _decoder.ContextLength - n;
         var ch = Channel.CreateUnbounded<GenerationChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
         long now = Stopwatch.GetTimestamp();
-        Seq? seq = null;
+        EngineSequence? seq = null;
         var handle = new GenerationHandle(Interlocked.Increment(ref _nextId), ch, () => RequestCancel(seq!));
-        seq = new Seq
-        {
-            Id = handle.Id, Req = request, Writer = ch.Writer, Prompt = request.PromptTokens, SubmitTicks = now,
-            MaxTokens = request.MaxTokens > 0 ? Math.Min(request.MaxTokens, room) : room,
-        };
+        seq = new EngineSequence(handle.Id, request, ch.Writer, request.MaxTokens > 0 ? Math.Min(request.MaxTokens, room) : room, now);
         if ((request.Timeout ?? _opt.DefaultTimeout) is { } to)
         {
             seq.DeadlineTicks = now + (long)(to.TotalSeconds * Stopwatch.Frequency);
@@ -186,7 +212,7 @@ public sealed class InferenceEngine : IDisposable
         }
         if (ct.CanBeCanceled)
         {
-            seq.Reg = ct.Register(() => RequestCancel(seq));
+            seq.Registration = ct.Register(() => RequestCancel(seq));
         }
 
         return handle;
@@ -202,25 +228,26 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
-    private void RequestCancel(Seq seq)
+    /// <summary>
+    /// Cancels a request: a waiting one is finished right away; a running one at the end of the step in flight, which frees its
+    /// slot for the next admission.
+    /// </summary>
+    private void RequestCancel(EngineSequence seq)
     {
         seq.CancelRequested = true;
         bool queued;
         lock (_gate)
         {
             queued = _queue.Remove(seq);
+            if (!queued)
+            {
+                Monitor.PulseAll(_gate);
+            }
         }
 
         if (queued)
         {
             Finalize(seq, FinishReason.Cancelled, null, null);
-        }
-        else
-        {
-            lock (_gate)
-            {
-                Monitor.PulseAll(_gate);
-            }
         }
     }
 
@@ -253,10 +280,10 @@ public sealed class InferenceEngine : IDisposable
 
     private void CancelAll()
     {
-        List<Seq> qs;
+        List<EngineSequence> queued;
         lock (_gate)
         {
-            qs = [.. _queue];
+            queued = [.. _queue.Items];
             _queue.Clear();
             foreach (var s in _active)
             {
@@ -265,16 +292,20 @@ public sealed class InferenceEngine : IDisposable
 
             Monitor.PulseAll(_gate);
         }
-        foreach (var s in qs)
+        foreach (var s in queued)
         {
             Finalize(s, FinishReason.Cancelled, null, null);
         }
     }
 
-    /// <summary>Cancels all requests, stops the scheduler thread and disposes the decoder.</summary>
+    /// <summary>Cancels all requests, stops the scheduler thread and disposes the decoder (and the speculator).</summary>
     public void Dispose()
     {
-        lock (_gate) { _draining = true; }
+        lock (_gate)
+        {
+            _draining = true;
+        }
+
         CancelAll();
         lock (_gate)
         {
@@ -286,6 +317,7 @@ public sealed class InferenceEngine : IDisposable
             _thread.Join();
         }
 
+        _speculator?.Dispose();
         _decoder.Dispose();
     }
 
@@ -325,14 +357,17 @@ public sealed class InferenceEngine : IDisposable
                 FailAll(ex.Message);
             }
         }
-        lock (_gate) { _idle.TrySetResult(); }
+        lock (_gate)
+        {
+            _idle.TrySetResult();
+        }
     }
 
     private void FailAll(string message)
     {
-        foreach (var s in _active.ToArray())
+        for (int i = _active.Count - 1; i >= 0; i--)
         {
-            Complete(s, FinishReason.Error, message, null, reset: true);
+            Complete(_active[i], FinishReason.Error, message, null, reset: true);
         }
     }
 
@@ -340,14 +375,22 @@ public sealed class InferenceEngine : IDisposable
     private void Reap()
     {
         long now = Stopwatch.GetTimestamp();
-        List<Seq>? expired = null;
+        List<EngineSequence>? expired = null;
         lock (_gate)
         {
-            foreach (var s in _queue)
+            foreach (var s in _queue.Items)
             {
                 if (s.CancelRequested || now > s.DeadlineTicks || now > s.QueueDeadlineTicks)
                 {
                     (expired ??= []).Add(s);
+                }
+            }
+
+            if (expired is not null)
+            {
+                foreach (var s in expired)
+                {
+                    _queue.Remove(s);
                 }
             }
         }
@@ -356,20 +399,13 @@ public sealed class InferenceEngine : IDisposable
         {
             foreach (var s in expired)
             {
-                lock (_gate)
-                {
-                    if (!_queue.Remove(s))
-                    {
-                        continue;
-                    }
-                }
-
                 Finalize(s, s.CancelRequested ? FinishReason.Cancelled : FinishReason.Timeout, s.CancelRequested ? null : "timed out waiting for a free slot", null);
             }
         }
 
-        foreach (var s in _active.ToArray())
+        for (int i = _active.Count - 1; i >= 0; i--)
         {
+            var s = _active[i];
             if (s.CancelRequested)
             {
                 Complete(s, FinishReason.Cancelled, null, null);
@@ -383,42 +419,17 @@ public sealed class InferenceEngine : IDisposable
 
     private void Admit()
     {
-        while (true)
+        while (FreeSlotExists())
         {
-            Slot? free = null;
-            foreach (var s in _slots)
-            {
-                if (s.Active is null)
-                {
-                    free = s;
-                    break;
-                }
-            }
-
-            if (free is null)
-            {
-                return;
-            }
-
-            Seq seq;
+            EngineSequence? seq;
             lock (_gate)
             {
-                if (_queue.Count == 0)
+                seq = _queue.TakeNext();
+                if (seq is null)
                 {
                     return;
                 }
 
-                int best = 0;
-                for (int i = 1; i < _queue.Count; i++)
-                {
-                    if (_queue[i].Req.Priority > _queue[best].Req.Priority)
-                    {
-                        best = i;   // stable: earliest wins ties
-                    }
-                }
-
-                seq = _queue[best];
-                _queue.RemoveAt(best);
                 _transit++;
             }
             try
@@ -435,7 +446,20 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
-    private int ReusableTokens(Slot slot, int[] prompt)
+    private bool FreeSlotExists()
+    {
+        foreach (var s in _slots)
+        {
+            if (s.Active is null)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private int ReusableTokens(EngineSlot slot, int[] prompt)
     {
         if (!_opt.PrefixCache || slot.Tokens.Count == 0)
         {
@@ -457,9 +481,9 @@ public sealed class InferenceEngine : IDisposable
         return common == slot.Tokens.Count && common < prompt.Length ? common : 0;
     }
 
-    private void AssignSlot(Seq seq)
+    private void AssignSlot(EngineSequence seq)
     {
-        Slot? best = null;
+        EngineSlot? best = null;
         int bestReuse = -1;
         foreach (var s in _slots)
         {
@@ -470,7 +494,7 @@ public sealed class InferenceEngine : IDisposable
 
             int reuse = ReusableTokens(s, seq.Prompt);
             // Equal reuse (typically none): take an empty slot first, then evict the least recently used one.
-            static long Rank(Slot x) => x.Tokens.Count == 0 ? long.MinValue : x.LastUsed;
+            static long Rank(EngineSlot x) => x.Tokens.Count == 0 ? long.MinValue : x.LastUsed;
             bool better = best is null || reuse > bestReuse || (reuse == bestReuse && Rank(s) < Rank(best));
             if (better)
             {
@@ -480,41 +504,57 @@ public sealed class InferenceEngine : IDisposable
         }
         var slot = best!;
         int keep = Math.Max(0, bestReuse);
-        if (slot.Tokens.Count > keep)
-        {
-            if (keep == 0)
-            {
-                _decoder.Reset(slot.Index);
-            }
-            else
-            {
-                _decoder.Truncate(slot.Index, keep);
-            }
-
-            slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
-        }
+        TruncateSlot(slot, keep);
         seq.Slot = slot;
         slot.Active = seq;
         seq.PromptPos = keep;
         seq.Cached = keep;
-        seq.Sampler = new RequestSampler(seq.Req.Sampling, seq.Prompt);
-        seq.Decoder = new StreamingDecoder(_tokenizer, seq.Req.SkipSpecialTokens);
-        seq.Filter = new StopStringFilter(seq.Req.StopStrings);
-        seq.StopIds = [.. seq.Req.StopTokenIds];
+        seq.Sampler = new RequestSampler(seq.Request.Sampling, seq.Prompt);
+        seq.Decoder = new StreamingDecoder(_tokenizer, seq.Request.SkipSpecialTokens);
+        seq.Filter = new StopStringFilter(seq.Request.StopStrings);
+        seq.StopIds = [.. seq.Request.StopTokenIds];
+        seq.Matcher = seq.Request.Constraint?.CreateMatcher();
         _active.Add(seq);
         Metrics.Admitted(seq.Prompt.Length, keep, TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - seq.SubmitTicks) / (double)Stopwatch.Frequency));
     }
 
+    /// <summary>Shortens a slot's context (and the decoder's) to <paramref name="keep"/> tokens.</summary>
+    private void TruncateSlot(EngineSlot slot, int keep)
+    {
+        if (slot.Tokens.Count <= keep)
+        {
+            return;
+        }
+
+        if (keep == 0)
+        {
+            _decoder.Reset(slot.Index);
+        }
+        else
+        {
+            _decoder.Truncate(slot.Index, keep);
+        }
+
+        slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
+    }
+
     private void StepOnce()
     {
+        _inputs.Clear();
+        _stepSeqs.Clear();
+        _stepBaseLength.Clear();
         int budget = _budget;
-        var inputs = new List<SequenceInput>(_active.Count);
-        var seqs = new List<Seq>(_active.Count);
-        int nDecode = 0;
-        // Decode first: one token for every running sequence (rotating the start when the budget cannot cover all of them).
+        int logitsBudget = _decoder.MaxLogitsRows;
+        if (_speculator is not null)
+        {
+            ProposeDrafts();
+        }
+
+        // Decode first: the pending token (plus drafts) of every running sequence, rotating the start when the budget cannot
+        // cover all of them.
         int count = _active.Count;
         _rr = (_rr + 1) % Math.Max(1, count);
-        for (int k = 0; k < count && budget > 0; k++)
+        for (int k = 0; k < count && budget > 0 && logitsBudget > 0; k++)
         {
             var s = _active[(k + _rr) % count];
             if (s.Prefilling)
@@ -522,11 +562,13 @@ public sealed class InferenceEngine : IDisposable
                 continue;
             }
 
-            inputs.Add(new SequenceInput(s.Slot!.Index, new[] { s.Pending }, true));
-            seqs.Add(s);
-            budget--;
-            nDecode++;
+            int n = Math.Min(Math.Min(s.InputLength, budget), logitsBudget);
+            AddInput(s, new SequenceInput(s.Slot!.Index, s.Input.AsMemory(0, n), true, n));
+            budget -= n;
+            logitsBudget -= n;
         }
+
+        // Then chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.
         foreach (var s in _active)
         {
             if (!s.Prefilling || budget <= 0)
@@ -536,79 +578,298 @@ public sealed class InferenceEngine : IDisposable
 
             int chunk = Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget);
             bool last = s.PromptPos + chunk == s.Prompt.Length;
-            inputs.Add(new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
-            seqs.Add(s);
+            if (last && logitsBudget <= 0)
+            {
+                // The final chunk needs a logits row; stop one token short and finish next step.
+                chunk--;
+                last = false;
+                if (chunk == 0)
+                {
+                    continue;
+                }
+            }
+
+            AddInput(s, new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
             budget -= chunk;
+            logitsBudget -= last ? 1 : 0;
         }
-        if (inputs.Count == 0)
+
+        if (_inputs.Count == 0)
         {
             return;
         }
 
-        var sw = Stopwatch.StartNew();
-        var results = _decoder.Step(inputs);
-        Metrics.Step(_budget - budget, sw.Elapsed);
+        long t0 = Stopwatch.GetTimestamp();
+        var results = _decoder.Step(_inputs);
+        Metrics.Step(_budget - budget, _inputs.Count, Stopwatch.GetElapsedTime(t0));
+        ProcessResults(results);
+        UpdateKvGauges();
+    }
 
-        for (int i = 0; i < inputs.Count; i++)
+    /// <summary>
+    /// Records the fed tokens, samples every sequence that got logits (in parallel for larger batches: sampling, detokenizing
+    /// and streaming are per-sequence work), then applies rollbacks and completions on the scheduler thread.
+    /// </summary>
+    private void ProcessResults(IReadOnlyList<Memory<float>> results)
+    {
+        int count = _inputs.Count;
+        if (_outcomes.Length < count)
         {
-            var s = seqs[i];
+            _outcomes = new Outcome[Math.Max(count, _slots.Length)];
+        }
+
+        int withLogits = 0;
+        for (int i = 0; i < count; i++)
+        {
+            var s = _stepSeqs[i];
+            _outcomes[i] = default;
             if (s.Finished != 0)
             {
                 continue;
             }
 
-            var slot = s.Slot!;
-            var toks = inputs[i].Tokens;
-            for (int j = 0; j < toks.Length; j++)
+            var input = _inputs[i];
+            var toks = input.Tokens.Span;
+            foreach (int t in toks)
             {
-                slot.Tokens.Add(toks.Span[j]);
+                s.Slot!.Tokens.Add(t);
             }
 
+            _queue.Charge(s.Request.Tenant, toks.Length);
             if (s.Prefilling)
             {
                 s.PromptPos += toks.Length;
+                // The first token follows the whole prompt: it has no drafts, and its context is everything fed so far.
+                _stepBaseLength[i] = s.Slot!.Tokens.Count - 1;
             }
 
-            if (!inputs[i].WantLogits)
+            withLogits += input.WantLogits ? 1 : 0;
+        }
+
+        if (withLogits >= ParallelSamplingThreshold)
+        {
+            Parallel.For(0, count, i => SampleStep(i, results[i]));
+        }
+        else
+        {
+            for (int i = 0; i < count; i++)
+            {
+                SampleStep(i, results[i]);
+            }
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            var s = _stepSeqs[i];
+            var input = _inputs[i];
+            if (s.Finished != 0 || !input.WantLogits)
             {
                 continue;
             }
 
-            try
+            ref var outcome = ref _outcomes[i];
+            if (outcome.Error is not null)
             {
-                OnLogits(s, results[i]!);
+                Complete(s, FinishReason.Error, outcome.Error, null, reset: true);
+                continue;
             }
-            catch (Exception ex)
+
+            int rows = input.OutputRows;
+            if (rows > 1)
             {
-                Complete(s, FinishReason.Error, ex.Message, null, reset: true);
+                Metrics.Speculation(rows - 1, outcome.Accepted);
+                TruncateSlot(s.Slot!, _stepBaseLength[i] + 1 + outcome.Accepted);
+            }
+
+            s.InputLength = 1;
+            if (outcome.Ending is { } e)
+            {
+                Complete(s, e.Reason, null, e.StopSequence, flush: e.Flush);
             }
         }
     }
 
-    private void OnLogits(Seq s, float[] logits)
+    /// <summary>
+    /// Samples the logits rows of input <paramref name="i"/>: position by position, keeping drafts while they match what the
+    /// model samples. Touches only the sequence's own state, so inputs can be processed in parallel.
+    /// </summary>
+    private void SampleStep(int i, Memory<float> logits)
+    {
+        var s = _stepSeqs[i];
+        var input = _inputs[i];
+        if (s.Finished != 0 || !input.WantLogits)
+        {
+            return;
+        }
+
+        int rows = input.OutputRows;
+        int vocab = _decoder.VocabSize;
+        int baseLength = _stepBaseLength[i];
+        ref var outcome = ref _outcomes[i];
+        try
+        {
+            for (int j = 0; j < rows; j++)
+            {
+                var row = logits.Span.Slice(j * vocab, vocab);
+                int tok = SampleToken(s, row);
+                bool matchesDraft = j + 1 < rows && s.Input[j + 1] == tok;
+                // Context once this token is the next input: everything fed up to row j, plus the token itself.
+                outcome.Ending = Emit(s, tok, row, baseLength + j + 1);
+                if (outcome.Ending is not null || !matchesDraft)
+                {
+                    return;
+                }
+
+                outcome.Accepted++;
+            }
+        }
+        catch (Exception ex)
+        {
+            outcome.Error = ex.Message;
+        }
+    }
+
+    private void AddInput(EngineSequence s, SequenceInput input)
+    {
+        _inputs.Add(input);
+        _stepSeqs.Add(s);
+        _stepBaseLength.Add(s.Slot!.Tokens.Count);
+    }
+
+    /// <summary>Asks the speculator for drafts of the decoding sequences (when the batch is small enough to profit).</summary>
+    private void ProposeDrafts()
+    {
+        _specBatch.Clear();
+        int decoding = 0;
+        foreach (var s in _active)
+        {
+            s.InputLength = 1;
+            decoding += s.Prefilling ? 0 : 1;
+        }
+
+        if (decoding == 0 || decoding > _opt.SpeculationMaxBatch)
+        {
+            return;
+        }
+
+        int perSequence = Math.Min(_speculator!.MaxDraftTokens, (_decoder.MaxLogitsRows / decoding) - 1);
+        foreach (var s in _active)
+        {
+            var slot = s.Slot!;
+            int room = Math.Min(Math.Min(perSequence, _decoder.ContextLength - slot.Tokens.Count - 1), s.MaxTokens - s.Generated - 1);
+            if (s.Prefilling || room <= 0 || s.Matcher is not null)
+            {
+                continue;
+            }
+
+            var view = _specViews[slot.Index];
+            view.Set(slot.Tokens, s.Pending);
+            var r = _specRequests[slot.Index];
+            r.Context = view;
+            r.MaxTokens = room;
+            r.Count = 0;
+            _specBatch.Add(r);
+        }
+
+        if (_specBatch.Count == 0)
+        {
+            return;
+        }
+
+        _speculator.Propose(_specBatch);
+        foreach (var r in _specBatch)
+        {
+            var s = _slots[r.Slot].Active!;
+            int n = Math.Clamp(r.Count, 0, r.MaxTokens);
+            s.EnsureInput(1 + n);
+            r.Draft.AsSpan(0, n).CopyTo(s.Input.AsSpan(1));
+            s.InputLength = 1 + n;
+        }
+    }
+
+    /// <summary>Applies the request's masks (minimum length, constraint) to <paramref name="logits"/> in place and samples.</summary>
+    private int SampleToken(EngineSequence s, Span<float> logits)
+    {
+        if (s.Request.Logprobs)
+        {
+            // Log-probabilities are reported from the model's distribution, before masks and penalties.
+            s.RawLogits ??= new float[logits.Length];
+            logits.CopyTo(s.RawLogits);
+        }
+
+        if (s.Generated < s.Request.MinTokens)
+        {
+            MaskStopTokens(s, logits);
+        }
+
+        if (s.Matcher is { } matcher)
+        {
+            var mask = s.Mask ??= new TokenMask(_decoder.VocabSize);
+            matcher.FillAllowed(mask);
+            if (s.Request.StopAtEog)
+            {
+                foreach (int id in _eog)
+                {
+                    if (matcher.IsComplete)
+                    {
+                        mask.Allow(id);
+                    }
+                    else
+                    {
+                        mask.Disallow(id);
+                    }
+                }
+            }
+
+            if (mask.Count() == 0)
+            {
+                throw new InvalidOperationException("The output constraint allows no token here (the grammar cannot be continued with this vocabulary).");
+            }
+
+            mask.Apply(logits);
+        }
+
+        return s.Sampler.Sample(logits);
+    }
+
+    /// <summary>
+    /// Commits a sampled token: stop checks, streaming, length limits. Returns how the sequence ends, or null when it continues
+    /// with <paramref name="tok"/> as its pending input.
+    /// </summary>
+    /// <param name="s">The sequence.</param>
+    /// <param name="tok">The sampled token.</param>
+    /// <param name="logits">The (masked) logits row it was sampled from.</param>
+    /// <param name="contextAfter">Context length once <paramref name="tok"/> becomes the next input, minus that input.</param>
+    private Ending? Emit(EngineSequence s, int tok, ReadOnlySpan<float> logits, int contextAfter)
     {
         long now = Stopwatch.GetTimestamp();
-        int tok = s.Sampler.Sample(logits);
         List<TokenLogprob>? lps = null;
-        if (s.Req.Logprobs)
+        if (s.Request.Logprobs)
         {
-            var (lp, top) = RequestSampler.Logprobs(logits, tok, s.Req.TopLogprobs);
+            var raw = s.RawLogits.AsSpan(0, logits.Length);
+            var (lp, top) = RequestSampler.Logprobs(raw, tok, s.Request.TopLogprobs);
             lps = [new TokenLogprob(tok, TokenText(tok), lp, [.. top.Select(t => new TokenAlternative(t.Id, TokenText(t.Id), t.Logprob))])];
         }
+
         s.Sampler.Accept(tok);
         s.Generated++;
         if (s.Generated == 1)
         {
-            Metrics.FirstToken(TimeSpan.FromSeconds((now - s.SubmitTicks) / (double)Stopwatch.Frequency));
+            Metrics.FirstToken(Stopwatch.GetElapsedTime(s.SubmitTicks, now));
         }
 
-        if (s.StopIds.Contains(tok) || (s.Req.StopAtEog && _eog.Contains(tok)))
+        if (s.StopIds.Contains(tok) || (s.Request.StopAtEog && _eog.Contains(tok)))
         {
             s.Generated--;   // the stop token itself is not part of the completion
-            Complete(s, FinishReason.Stop, null, null, flush: true);
-            return;
+            return new Ending(FinishReason.Stop, null, true);
         }
-        Metrics.Token(s.Generated == 1 ? null : TimeSpan.FromSeconds((now - s.LastTokenTicks) / (double)Stopwatch.Frequency));
+
+        if (s.Matcher is { } matcher && !matcher.Accept(tok))
+        {
+            throw new InvalidOperationException($"Token {tok} violates the output constraint.");
+        }
+
+        Metrics.Token(s.Generated == 1 ? null : Stopwatch.GetElapsedTime(s.LastTokenTicks, now));
         s.LastTokenTicks = now;
         string text = s.Filter.Push(s.Decoder.Push(tok));
         if (text.Length > 0 || lps is not null)
@@ -618,21 +879,66 @@ public sealed class InferenceEngine : IDisposable
 
         if (s.Filter.Stopped)
         {
-            Complete(s, FinishReason.Stop, null, s.Filter.Matched);
-            return;
+            return new Ending(FinishReason.Stop, s.Filter.Matched, false);
         }
-        if (s.Generated >= s.MaxTokens || s.Slot!.Tokens.Count + 1 > _decoder.ContextLength)
+
+        if (s.Matcher is { IsTerminated: true })
         {
-            Complete(s, FinishReason.Length, null, null, flush: true);
+            return new Ending(FinishReason.Stop, null, true);
+        }
+
+        if (s.Generated >= s.MaxTokens || contextAfter + 1 > _decoder.ContextLength)
+        {
+            return new Ending(FinishReason.Length, null, true);
+        }
+
+        s.Pending = tok;
+        return null;
+    }
+
+    /// <summary>Makes the tokens that would end <paramref name="s"/> unselectable (<see cref="GenerationRequest.MinTokens"/>).</summary>
+    private void MaskStopTokens(EngineSequence s, Span<float> logits)
+    {
+        foreach (int id in s.StopIds)
+        {
+            if ((uint)id < (uint)logits.Length)
+            {
+                logits[id] = float.NegativeInfinity;
+            }
+        }
+
+        if (!s.Request.StopAtEog)
+        {
             return;
         }
-        s.Pending = tok;
+
+        foreach (int id in _eog)
+        {
+            if ((uint)id < (uint)logits.Length)
+            {
+                logits[id] = float.NegativeInfinity;
+            }
+        }
     }
 
     private string TokenText(int id) => _tokenizer.Decode([id]);
 
+    private void UpdateKvGauges()
+    {
+        int total = 0;
+        int active = 0;
+        foreach (var slot in _slots)
+        {
+            total += slot.Tokens.Count;
+            active += slot.Active is null ? 0 : slot.Tokens.Count;
+        }
+
+        _kvTokens = total;
+        _kvActiveTokens = active;
+    }
+
     /// <summary>Ends a running sequence: emits held-back text (when <paramref name="flush"/>), the final chunk, frees the slot.</summary>
-    private void Complete(Seq s, FinishReason reason, string? error, string? stopSeq, bool flush = false, bool reset = false)
+    private void Complete(EngineSequence s, FinishReason reason, string? error, string? stopSeq, bool flush = false, bool reset = false)
     {
         if (s.Finished != 0)
         {
@@ -660,6 +966,7 @@ public sealed class InferenceEngine : IDisposable
         _active.Remove(s);
         slot.Active = null;
         slot.LastUsed = ++_tick;
+        _speculator?.Release(slot.Index);
         if (reset || reason == FinishReason.Error)
         {
             try
@@ -676,7 +983,7 @@ public sealed class InferenceEngine : IDisposable
         Finalize(s, reason, error, stopSeq);
     }
 
-    private void Finalize(Seq s, FinishReason reason, string? error, string? stopSeq)
+    private void Finalize(EngineSequence s, FinishReason reason, string? error, string? stopSeq)
     {
         if (Interlocked.Exchange(ref s.Finished, 1) != 0)
         {
@@ -686,7 +993,7 @@ public sealed class InferenceEngine : IDisposable
         var usage = new GenerationUsage(s.Prompt.Length, s.Generated, s.Cached);
         s.Writer.TryWrite(new GenerationChunk("", null, reason, usage, error, stopSeq));
         s.Writer.TryComplete();
-        s.Reg.Dispose();
-        Metrics.Finished(reason, TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - s.SubmitTicks) / (double)Stopwatch.Frequency));
+        s.Registration.Dispose();
+        Metrics.Finished(reason, Stopwatch.GetElapsedTime(s.SubmitTicks));
     }
 }

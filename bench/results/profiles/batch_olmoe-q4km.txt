@@ -1,0 +1,10 @@
+decoder: MultiSequenceDecoder, slots 64, batches sequences: True, vocab 50304
+| batch | step ms min | step ms median | tok/s (median) | no-logits ms median |
+|---|---|---|---|---|
+| 1 | 1.93 | 1.96 | 510 | 1.93 |
+| 2 | 3.26 | 3.31 | 604 | 3.23 |
+| 4 | 6.04 | 6.31 | 634 | 6.27 |
+| 8 | 8.85 | 9.11 | 878 | 8.41 |
+| 16 | 11.65 | 12.02 | 1331 | 11.22 |
+| 32 | 14.37 | 14.77 | 2167 | 13.36 |
+| 64 | 19.42 | 19.86 | 3222 | 16.54 |

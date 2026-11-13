@@ -58,11 +58,11 @@ public class TranslationTests
     public void UnsupportedOps_AreAllListedInOneError()
     {
         var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4)
-            .Node("Loop", ["x"], ["a"]).Node("NonMaxSuppression", ["a"], ["b"]).Node("Unique", ["b"], ["c"]).Node("Relu", ["c"], ["y"]);
+            .Node("STFT", ["x"], ["a"]).Node("Bernoulli", ["a"], ["b"]).Node("MelWeightMatrix", ["b"], ["c"]).Node("Relu", ["c"], ["y"]);
         var e = Assert.Throws<NotSupportedException>(() => m.Build());
-        Assert.Contains("Loop", e.Message);
-        Assert.Contains("NonMaxSuppression", e.Message);
-        Assert.Contains("Unique", e.Message);
+        Assert.Contains("STFT", e.Message);
+        Assert.Contains("Bernoulli", e.Message);
+        Assert.Contains("MelWeightMatrix", e.Message);
         Assert.DoesNotContain("Relu", e.Message);
     }
 
@@ -100,15 +100,27 @@ public class TranslationTests
     }
 
     [Fact]
-    public void BatchSizeArithmetic_IsRejectedWithClearError()
+    public void BatchSizeArithmetic_FoldsToSymbolicExpression()
     {
-        var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4)
+        var m = new TestModel().Input("x", "N", 2, 4).Output("y", "M", 4)
             .InitI64("zero", [], 0).InitI64("two", [], 2)
             .Node("Shape", ["x"], ["s"]).Node("Gather", ["s", "zero"], ["b"]).Node("Mul", ["b", "two"], ["b2"])
             .InitI64("ax", [1], 0).Node("Unsqueeze", ["b2", "ax"], ["b3"]).InitI64("c4", [1], 4).Node("Concat", ["b3", "c4"], ["t"], TestModel.Attr("axis", 0))
             .Node("Reshape", ["x", "t"], ["y"]);
-        var e = Assert.Throws<NotSupportedException>(() => m.Build());
-        Assert.Contains("symbolic batch", e.Message);
+        var y = m.Build().Graph("main").Outputs["y"];
+        Assert.Equal("2*N", y.Shape[0].Symbol);
+        Assert.Equal(4, y.Shape[1].Fixed);
+    }
+
+    [Fact]
+    public void BatchSizeArithmetic_WithWrongElementCount_IsRejected()
+    {
+        var m = new TestModel().Input("x", "N", 4).Output("y", "M", 4)
+            .InitI64("zero", [], 0).InitI64("two", [], 2)
+            .Node("Shape", ["x"], ["s"]).Node("Gather", ["s", "zero"], ["b"]).Node("Mul", ["b", "two"], ["b2"])
+            .InitI64("ax", [1], 0).Node("Unsqueeze", ["b2", "ax"], ["b3"]).InitI64("c4", [1], 4).Node("Concat", ["b3", "c4"], ["t"], TestModel.Attr("axis", 0))
+            .Node("Reshape", ["x", "t"], ["y"]);
+        Assert.ThrowsAny<Exception>(() => m.Build());
     }
 
     [Fact]
@@ -221,11 +233,18 @@ public class TranslationTests
     }
 
     [Fact]
-    public void ReshapeThatMergesBatch_IsRejected()
+    public void ReshapeThatMergesBatch_GivesExpressionOuterDim()
     {
-        var m = new TestModel().Input("x", "N", 3, 4).Output("y", 12).InitI64("s", [1], -1).Node("Reshape", ["x", "s"], ["y"]);
+        var m = new TestModel().Input("x", "N", 3, 4).Output("y", "M").InitI64("s", [1], -1).Node("Reshape", ["x", "s"], ["y"]);
+        Assert.Equal("12*N", m.Build().Graph("main").Outputs["y"].Shape[0].Symbol);
+    }
+
+    [Fact]
+    public void ReshapeThatPutsBatchOnInnerDim_IsRejected()
+    {
+        var m = new TestModel().Input("x", "N", 3, 4).Output("y", 3, "M").InitI64("s", [2], 3, -1).Node("Reshape", ["x", "s"], ["y"]);
         var e = Assert.Throws<NotSupportedException>(() => m.Build());
-        Assert.Contains("batch", e.Message);
+        Assert.Contains("symbolic", e.Message);
     }
 
     [Fact]

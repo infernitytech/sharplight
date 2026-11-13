@@ -51,14 +51,16 @@ public static partial class StandardOps
     // ---- views ----------------------------------------------------------------------------
     /// <summary>
     /// Reshape (row-major). Attribute: shape (long[]; -1 = infer, 0 = keep symbolic outer dim). Optional attribute
-    /// <c>outer_symbol</c> (string): the first entry of <c>shape</c> is then a new symbolic outer dimension of that name
-    /// (e.g. N patches → M = N/4 merged tokens); the caller binds both symbols consistently at run time.
+    /// <c>outer_symbol</c> (string): the first entry of <c>shape</c> is ignored and the outer dimension is that symbol or expression.
+    /// An expression over the input's symbols must preserve the element count (<c>[N, 12, 16] → [12*N, 16]</c>); a symbol unrelated to
+    /// the input's (e.g. N patches → M = N/4 merged tokens) must be bound consistently by the caller.
     /// </summary>
     public static readonly OpSchema Reshape = new("Reshape", OpCategory.View, 1, 1, InferReshape);
 
     /// <summary>
-    /// Zero-copy slice along one axis. Input: x. Attributes: axis (int, negative counts from the end; must not be the symbolic
-    /// outer axis), start (long), length (long). Output: x with <c>length</c> entries on that axis.
+    /// Zero-copy slice along one axis. Input: x. Attributes: axis (int, negative counts from the end), start (long), length (long).
+    /// Output: x with <c>length</c> entries on that axis. On the symbolic outer axis only a prefix (start 0) is allowed; its extent is
+    /// <c>min(n, length)</c>.
     /// </summary>
     public static readonly OpSchema Slice = new("Slice", OpCategory.View, 1, 1, (i, a) =>
     {
@@ -68,12 +70,15 @@ public static partial class StandardOps
             axis += i[0].Rank;
         }
 
+        long len = a.Get<long>("length");
         if (axis == 0 && i[0].Shape[0].IsSymbolic)
         {
-            throw new NotSupportedException("Slicing the symbolic axis is not supported.");
+            // A prefix of the symbolic axis: the first min(n, length) rows.
+            return a.Get<long>("start") == 0
+                ? [new TensorType(i[0].Type, i[0].Shape.WithDim(0, Dim.Min(i[0].Shape[0], len)))]
+                : throw new NotSupportedException("Slicing the symbolic axis at an offset is not supported.");
         }
 
-        long len = a.Get<long>("length");
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, len))];
     });
 
@@ -89,7 +94,8 @@ public static partial class StandardOps
 
     /// <summary>
     /// Concatenates 2 to 64 operands along an axis. Inputs: tensors with equal type and equal shape except on that axis.
-    /// Attribute: axis (int, negative counts from the end). Output: the summed extent on that axis.
+    /// Attribute: axis (int, negative counts from the end). Output: the summed extent on that axis; along the outer axis the operands may
+    /// be symbolic and the extent is the sum expression (operands are placed at their run-time offsets).
     /// </summary>
     public static readonly OpSchema Concat = new("Concat", OpCategory.Data, 2, 64, (i, a) =>
     {
@@ -99,7 +105,8 @@ public static partial class StandardOps
             axis += i[0].Rank;
         }
 
-        long sum = i.Sum(v => v.Shape[axis].Fixed);
+        // Along the outer axis the inputs may be symbolic: the extent is the sum expression.
+        var sum = axis == 0 ? i.Aggregate(Dim.Of(0), (s, v) => s + v.Shape[0]) : Dim.Of(i.Sum(v => v.Shape[axis].Fixed));
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, sum))];
     });
 
@@ -242,6 +249,18 @@ public static partial class StandardOps
     public static readonly OpSchema SequencePool = new("SequencePool", OpCategory.Reduction, 2, 2, (i, a) =>
         [new(DataType.F32, new Shape(i[1].Shape[0], i[0].Shape[-1]))]);
 
+    /// <summary>
+    /// Hashed n-gram row ids (n-gram hash embeddings). Input: window f32 [T, N]: per token, column j holds the token j positions
+    /// back plus one (column 0 is the token itself; 0 = no token, e.g. before the sequence start). A missing predecessor, an
+    /// end-of-sequence predecessor and everything before it read as the stop token. For every order n = 2..N and each of its
+    /// <c>heads_per_order</c> heads h: mixed = XOR over j &lt; n of (token_j · multipliers[j]) in uint64 arithmetic, and
+    /// id = mixed mod head_sizes[h] + head_offsets[h]. Attributes: <c>multipliers</c> (long[N]), <c>head_sizes</c> and
+    /// <c>head_offsets</c> (long[(N-1)·heads_per_order]), <c>heads_per_order</c> (long), <c>stop_token</c> (long).
+    /// Output i32 [T, (N-1)·heads_per_order], heads of order 2 first.
+    /// </summary>
+    public static readonly OpSchema NGramHash = new("NGramHash", OpCategory.Data, 1, 1, (i, a) =>
+        [new(DataType.I32, new Shape(i[0].Shape[0], a.Get<long[]>("head_sizes").Length))]);
+
     /// <summary>Copies a value between devices (inserted by the partitioner).</summary>
     public static readonly OpSchema Transfer = new("Transfer", OpCategory.Data, 1, 1, Same);
 
@@ -304,6 +323,33 @@ public static partial class StandardOps
     private static IReadOnlyList<TensorType> Broadcast(IReadOnlyList<Value> i, Attributes a) =>
         [new(DataType.F32, BroadcastShapes(i[0].Shape, i[1].Shape))];
 
+    private static Shape ReshapeToOuterSymbol(Shape src, long[] req, Dim outer)
+    {
+        if (src.Rank == 0 || !src[0].IsSymbolic || req.Length < 1 || req.Skip(1).Any(d => d < 0))
+        {
+            throw new ArgumentException("Reshape outer_symbol needs a symbolic outer input dimension and fixed inner target dimensions.");
+        }
+
+        var dims = new Dim[req.Length];
+        dims[0] = outer;
+        long inner = 1;
+        for (int k = 1; k < req.Length; k++)
+        {
+            dims[k] = req[k];
+            inner *= req[k];
+        }
+
+        var source = src[0].Expression * src.InnerElements;
+        var target = outer.Expression * inner;
+        bool related = outer.Expression.Atoms().All(s => source.Atoms().Contains(s));
+        if (related && !source.Equals(target))
+        {
+            throw new ArgumentException($"Reshape {src} → [{outer}, {string.Join(",", req.Skip(1))}] changes the element count ({source} vs {target}).");
+        }
+
+        return new Shape(dims);
+    }
+
     private static IReadOnlyList<TensorType> InferReshape(IReadOnlyList<Value> i, Attributes a)
     {
         var src = i[0].Shape;
@@ -311,18 +357,7 @@ public static partial class StandardOps
         var dims = new Dim[req.Length];
         if (a.Get("outer_symbol", "") is { Length: > 0 } outer)
         {
-            if (!src[0].IsSymbolic || req.Length < 1 || req[0] != 0)
-            {
-                throw new ArgumentException("Reshape outer_symbol needs a symbolic outer dimension and shape[0] = 0.");
-            }
-
-            dims[0] = Dim.Sym(outer);
-            for (int k = 1; k < req.Length; k++)
-            {
-                dims[k] = req[k];
-            }
-
-            return [new(i[0].Type, new Shape(dims))];
+            return [new(i[0].Type, ReshapeToOuterSymbol(src, req, Dim.Sym(outer)))];
         }
 
         long known = 1;

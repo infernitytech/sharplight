@@ -32,7 +32,9 @@ public sealed partial class GraphLowerer
                 LowerReshape(n);
                 break;
             case "Slice":
-                _refs[n.Output] = ViewSlice(Ref(n.Inputs[0]), n.Attributes);
+                _refs[n.Output] = n.Inputs[0].Shape[0].IsSymbolic && n.Attributes.Get<int>("axis") == 0
+                    ? Ref(n.Inputs[0]) with { Shape = BoundShape(n.Output.Shape), Symbol = n.Output.Shape.Symbol }   // prefix of the symbolic axis
+                    : ViewSlice(Ref(n.Inputs[0]), n.Attributes);
                 break;
             case "Permute":
                 _refs[n.Output] = ViewPermute(Ref(n.Inputs[0]), n.Attributes.Get<int[]>("perm"));
@@ -73,11 +75,20 @@ public sealed partial class GraphLowerer
             case "SequencePool":
                 LowerSequencePool(n);
                 break;
+            case "NGramHash":
+                LowerNGramHash(n);
+                break;
             case "GatedDeltaRule":
                 LowerDeltaRule(n);
                 break;
             case "SelectiveScan":
                 LowerSelectiveScan(n);
+                break;
+            case "Wkv7":
+                LowerWkv7(n);
+                break;
+            case "Wkv6":
+                LowerWkv6(n);
                 break;
             default:
                 LowerOtherOp(n);

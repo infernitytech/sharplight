@@ -88,6 +88,11 @@ internal static class DefinitionCodec
 
     private static void WriteGraph(BinaryWriter w, ComputeGraph g, ModelDefinition def)
     {
+        if (g.DynamicSymbols.Count > 0)
+        {
+            throw new NotSupportedException($"Graph {g.Name} has data-dependent shapes ({string.Join(", ", g.DynamicSymbols.Select(s => s.Key))}), which packages cannot store yet.");
+        }
+
         MetadataCodec.WriteString(w, g.Name);
         var index = new Dictionary<Value, int>();
         int next = 0;
