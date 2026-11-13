@@ -1,0 +1,32 @@
+using Sharplight.Tensors;
+
+namespace Sharplight.Vulkan.Tests;
+
+/// <summary>IQ4_NL / IQ4_XS weights on the GPU against the CPU oracle (matmul, GEMV and gather).</summary>
+public class Iq4QuantTests
+{
+    [Theory]
+    [InlineData("iq4_nl", 1)] [InlineData("iq4_nl", 3)] [InlineData("iq4_nl", 40)]
+    [InlineData("iq4_xs", 1)] [InlineData("iq4_xs", 3)] [InlineData("iq4_xs", 40)]
+    public void MatMul(string type, int tokens)
+    {
+        Gpu.Require();
+        int K = 768, N = 37;
+        var tg = new TG(); var x = tg.InF("x", TG.T, K);
+        var w = tg.RandW("w", DataType.Get(type), 1f, N, K);
+        tg.B.Output("y", tg.B.MatMul(x, w));
+        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))), atol: 5e-2, rtol: 1e-2);   // f16 tensor-core path for T > 1: random 6-bit scales span a wide weight range
+    }
+
+    [Theory]
+    [InlineData("iq4_nl")] [InlineData("iq4_xs")]
+    public void Gather(string type)
+    {
+        Gpu.Require();
+        int D = 512, V = 11;
+        var tg = new TG(); var idx = tg.In("idx", DataType.I32, TG.T);
+        var tbl = tg.RandW("tbl", DataType.Get(type), 1f, V, D);
+        tg.B.Output("y", tg.B.Gather(tbl, idx));
+        Diff.Check("Gather." + type, tg.B.Build(), new Step(5, 0, (idx, new[] { 3, 0, 10, 10, 7 })), atol: 1e-6, rtol: 1e-6);
+    }
+}
