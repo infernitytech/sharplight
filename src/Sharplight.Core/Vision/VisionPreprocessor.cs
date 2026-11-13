@@ -82,14 +82,26 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         var (tw, th) = TargetSize(image.Width, image.Height);
         byte[] px = image.Width == tw && image.Height == th ? image.Rgb : ResizeBicubic(image.Rgb, image.Width, image.Height, tw, th);
 
-        int ps = p.PatchSize, m = p.SpatialMergeSize, tp = p.TemporalPatchSize;
-        int gh = th / ps, gw = tw / ps, n = gh * gw, k = p.PatchDim;
-        var patches = new float[checked(n * k)];
-        var positions = new int[n * 2];
         // Normalization: (x/255 - mean) / std  ==  x * a + b.
         Span<float> a = stackalloc float[3], b = stackalloc float[3];
         for (int c = 0; c < 3; c++) { a[c] = 1f / (255f * p.ImageStd[c]); b[c] = -p.ImageMean[c] / p.ImageStd[c]; }
+        var values = new float[px.Length];
+        for (int i = 0; i < px.Length; i += 3)
+            for (int c = 0; c < 3; c++) values[i + c] = px[i + c] * a[c] + b[c];
+        return Patchify(values, tw, th);
+    }
 
+    /// <summary>
+    /// Patchifies an already normalized image (interleaved RGB floats, width and height multiples of patch_size·merge_size)
+    /// into the encoder inputs; what <see cref="Process"/> does after resizing and normalizing.
+    /// </summary>
+    public PreprocessedImage Patchify(float[] rgb, int tw, int th)
+    {
+        int ps = p.PatchSize, m = p.SpatialMergeSize, tp = p.TemporalPatchSize;
+        int gh = th / ps, gw = tw / ps, n = gh * gw, k = p.PatchDim;
+        if (th % (ps * m) != 0 || tw % (ps * m) != 0 || rgb.Length != 3 * tw * th) throw new ArgumentException($"Image {tw}x{th} does not fit patch_size {ps} x spatial_merge_size {m}.");
+        var patches = new float[checked(n * k)];
+        var positions = new int[n * 2];
         int idx = 0;
         for (int br = 0; br < gh / m; br++)
             for (int bc = 0; bc < gw / m; bc++)
@@ -105,7 +117,7 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
                                 for (int y = 0; y < ps; y++)
                                 {
                                     int src = ((row * ps + y) * tw + col * ps) * 3 + c;
-                                    for (int x = 0; x < ps; x++, src += 3) dst[o++] = px[src] * a[c] + b[c];
+                                    for (int x = 0; x < ps; x++, src += 3) dst[o++] = rgb[src];
                                 }
                     }
 
