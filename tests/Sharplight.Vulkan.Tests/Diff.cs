@@ -33,7 +33,7 @@ internal static class Diff
             {
                 MaxTokens = maxTokens,
                 ContextLength = ctx,
-                SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens },
+                SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens, [Models.WellKnown.RunSymbol] = maxTokens },
                 DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
                 AllowReducedPrecision = allowReducedPrecision,
             },
@@ -45,6 +45,11 @@ internal static class Diff
         var p = new RunParameters();
         p.Symbols["T"] = s.T; p.Symbols["R"] = s.R ?? s.T;
         p.Scalars["n_past"] = s.Past;
+        foreach (var (name, value) in s.Symbols ?? new Dictionary<string, long>())
+        {
+            p.Symbols[name] = value;
+        }
+
         return p;
     }
 

@@ -40,4 +40,9 @@ public enum InputRole
     SequenceSpans,
     /// <summary>Per-row sampling parameters [R, 8] i32 of a <see cref="Graph.StandardOps.Sample"/> node (see <see cref="Graph.SamplingRow"/>).</summary>
     SamplingParameters,
+    /// <summary>
+    /// Paged multi-sequence graphs (<see cref="Graph.MultiSequence"/> with a block size): per-slot block table [S, B] i32; entry
+    /// (s, j) is the physical cache block holding positions [j · block size, (j + 1) · block size) of slot s.
+    /// </summary>
+    KvBlockTable,
 }

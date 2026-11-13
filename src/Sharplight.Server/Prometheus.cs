@@ -44,11 +44,13 @@ internal static class Prometheus
         Counter("sharplight_prefix_cache_lookups_total", "Prefix cache lookups (one per admitted request).", m => m.PrefixCacheLookups);
         Counter("sharplight_prefix_cache_hits_total", "Lookups that reused cached context.", m => m.PrefixCacheHits);
         Counter("sharplight_steps_total", "Forward passes executed.", m => m.Steps);
-        Gauge("sharplight_kv_capacity_tokens", "KV-cache capacity in tokens (slots x context per slot).", m => m.KvCapacityTokens);
+        Gauge("sharplight_kv_capacity_tokens", "KV-cache capacity in tokens (slots x context per slot, or the paged pool).", m => m.KvCapacityTokens);
         Gauge("sharplight_kv_tokens", "Tokens held in slot contexts, including idle slots kept for prefix reuse.", m => m.KvTokens);
         Gauge("sharplight_kv_active_tokens", "Tokens held by running sequences.", m => m.KvActiveTokens);
         Gauge("sharplight_kv_utilization", "Fraction of the KV capacity held by running sequences.", m => m.KvUtilization);
         Counter("sharplight_spec_draft_tokens_total", "Draft tokens proposed by speculative decoding.", m => m.DraftTokens);
+        Counter("sharplight_kv_preemptions_total", "Sequences preempted for KV blocks (paged cache) and recomputed.", m => m.Preemptions);
+        Counter("sharplight_kv_prefix_hit_tokens_total", "Prompt tokens served from KV blocks shared between slots.", m => m.SharedPrefixTokens);
         Counter("sharplight_spec_accepted_tokens_total", "Draft tokens accepted by the model.", m => m.AcceptedDraftTokens);
 
         if (models.Count > 0)

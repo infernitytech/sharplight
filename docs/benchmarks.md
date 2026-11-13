@@ -507,3 +507,26 @@ earlier (12.9k / 9.9k prefill) and were not investigated further. MiniCPM3 decod
 not attention (~12 % of the step).
 
 Quantised KV caches (`--kv-type q8_0|q4_0`): memory, speed and accuracy are in [kv-cache.md](kv-cache.md#24-quantised-kv-storage-implemented).
+
+## 10. Paged KV cache: concurrency per GiB and c = 64 throughput (2026-11-13)
+
+`sharplight-serve MODEL --ctx 4096 --slots S [--kv-tokens N]`; `bench/loadgen.py -c 64 --per-worker 6 --ignore-eos` (251-token
+prompts, 128 output tokens, 384 requests). Fixed: every slot reserves 4096 tokens. Paged: one pool of N tokens in 16-token
+blocks, shared by 64 slots. VRAM = server process allocation; raw results in `bench/results/paged/`.
+
+| model | KV layout | VRAM | sequences at once | agg tok/s | TTFT p50 ms | ITL mean ms |
+|---|---|---|---|---|---|---|
+| Llama-3.2-1B Q8_0 | fixed, 4 slots (16K) | 2100 MiB | 4 | 2248 | 3355 | 1.7 |
+| | paged, 16K | 2100 MiB | 51 (234 preemptions) | 7115 | 160 | 5.9 |
+| | fixed, 16 slots (64K) | 3636 MiB | 16 | 3957 | 1555 | 4.0 |
+| | paged, 64K | 3636 MiB | 64 | 10187 | 40 | 5.7 |
+| | fixed, 64 slots (256K) | 9780 MiB | 64 | 10498 | 35 | 5.6 |
+| Mistral-7B Q4_K_M | fixed, 16 slots (64K) | 12696 MiB | 16 | 893 | 6342 | 17.3 |
+| | paged, 24K | 7814 MiB | 64 | 2011 | 210 | 29.0 |
+| | paged, 64K | 12678 MiB | 64 | 1976 | 212 | 29.5 |
+| | fixed, 64 slots (256K) | 37254 MiB | 64 | 2065 | 209 | 28.2 |
+
+In equal memory the paged cache runs 4x the sequences (here capped by the 64 slots) at 2.2-2.6x the throughput; it matches the
+fixed 64-slot cache within 1-4 % with a quarter (Llama) to a fifth (Mistral, 24K pool) of the memory. With a shared ~800-token
+system prompt (`--shared-prefix-words 800`) 64 contexts of ~980 tokens run in a 16K pool (Llama-1B, 2.1 GiB, 11438 tok/s, the
+same as the 9.8 GiB fixed cache). Details and the shared-prefix table: [kv-cache.md](kv-cache.md#25-paged-blocks-admission-by-blocks-preemption-prefix-sharing-implemented).

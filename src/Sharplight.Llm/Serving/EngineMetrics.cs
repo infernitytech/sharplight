@@ -5,7 +5,7 @@ namespace Sharplight.Llm.Serving;
 /// <summary>Counters and histograms the engine updates; read them as an <see cref="EngineMetricsSnapshot"/>.</summary>
 public sealed class EngineMetrics
 {
-    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted;
+    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps, _drafted, _accepted, _preemptions, _sharedPrefixTokens;
     private readonly long[] _finished = new long[Enum.GetValues<FinishReason>().Length];
     private readonly Histogram _ttft = new(Histogram.LatencyBuckets), _itl = new(Histogram.FineLatencyBuckets), _wait = new(Histogram.LatencyBuckets),
         _duration = new(Histogram.LatencyBuckets), _stepTime = new(Histogram.FineLatencyBuckets), _rows = new(Histogram.CountBuckets),
@@ -66,6 +66,8 @@ public sealed class EngineMetrics
         _sequences.Observe(sequences);
         _stepTime.Observe(time.TotalSeconds);
     }
+    internal void Preempted() => Interlocked.Increment(ref _preemptions);
+    internal void SharedPrefix(int tokens) => Interlocked.Add(ref _sharedPrefixTokens, tokens);
     internal void Speculation(int drafted, int accepted)
     {
         Interlocked.Add(ref _drafted, drafted);
@@ -106,6 +108,7 @@ public sealed class EngineMetrics
         PrefixCacheLookups = Interlocked.Read(ref _lookups), PrefixCacheHits = Interlocked.Read(ref _hits),
         Steps = Interlocked.Read(ref _steps), RecentTokensPerSecond = RecentRate(),
         DraftTokens = Interlocked.Read(ref _drafted), AcceptedDraftTokens = Interlocked.Read(ref _accepted),
+        Preemptions = Interlocked.Read(ref _preemptions), SharedPrefixTokens = Interlocked.Read(ref _sharedPrefixTokens),
         TimeToFirstToken = _ttft.Snapshot(), InterTokenLatency = _itl.Snapshot(), QueueWait = _wait.Snapshot(),
         RequestDuration = _duration.Snapshot(), StepDuration = _stepTime.Snapshot(), StepRows = _rows.Snapshot(),
         StepSequences = _sequences.Snapshot(),

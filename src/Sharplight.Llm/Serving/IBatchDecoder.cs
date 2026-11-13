@@ -28,7 +28,11 @@ public interface IBatchDecoder : IDisposable
     /// recurrent state that cannot be rewound (then prefix reuse is limited to whole-context matches).
     /// </summary>
     public bool CanTruncate { get; }
-    /// <summary>Shortens a slot's context to its first <paramref name="length"/> tokens (prefix reuse).</summary>
+    /// <summary>
+    /// Shortens a slot's context to its first <paramref name="length"/> tokens (prefix reuse). A paged cache keeps less when
+    /// <paramref name="length"/> falls inside a block shared with another slot (it never writes into shared blocks): the
+    /// context then ends at that block's start; read <see cref="Length"/> afterwards.
+    /// </summary>
     public void Truncate(int slot, int length);
     /// <summary>
     /// Most logits rows one <see cref="Step"/> can return in total (the sum of <see cref="SequenceInput.OutputRows"/>); at least
@@ -44,4 +48,23 @@ public interface IBatchDecoder : IDisposable
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs);
     /// <summary>Accelerator (GPU) memory held by this decoder's compiled model: weights, state, activations (0 when unknown or all on the CPU).</summary>
     public long DeviceMemoryBytes => 0;
+
+    // ---- paged KV cache (all members are trivial for a decoder whose slots own fixed cache ranges) ----------------------
+
+    /// <summary>Tokens per KV block of a paged cache, 0 when every slot owns a fixed range of <see cref="ContextLength"/> rows.</summary>
+    public int KvBlockSize => 0;
+    /// <summary>Blocks of the paged cache (0 when not paged).</summary>
+    public int KvBlocksTotal => 0;
+    /// <summary>Blocks not held by any slot (<see cref="int.MaxValue"/> when not paged: slots never run out of cache).</summary>
+    public int KvBlocksFree => int.MaxValue;
+    /// <summary>Blocks a slot must newly take to append <paramref name="tokens"/> tokens (0 when not paged).</summary>
+    public int KvBlocksNeeded(int slot, int tokens) => 0;
+    /// <summary>Blocks that become free when the slot is reset (those no other slot shares; 0 when not paged).</summary>
+    public int KvBlocksReleasable(int slot) => 0;
+    /// <summary>
+    /// Makes an empty slot start with the first <paramref name="tokens"/> tokens of <paramref name="source"/>'s context by sharing
+    /// its full blocks (no computation, no copy). Returns the tokens shared: <paramref name="tokens"/> rounded down to whole blocks,
+    /// and 0 when the cache is not paged. The slot's <see cref="Length"/> becomes that count.
+    /// </summary>
+    public int ShareKvPrefix(int slot, int source, int tokens) => 0;
 }

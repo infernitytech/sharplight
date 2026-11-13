@@ -21,6 +21,34 @@
 #ifndef MULTI_SEQ
 #define MULTI_SEQ 0
 #endif
+#ifndef SLOT_CTX
+#define SLOT_CTX 0
+#endif
+
+// Paged KV caches (multi-sequence): the cache is a pool of PAGE_BS-row blocks and `pages` [slots, PAGE_MB] maps block
+// pos / PAGE_BS of a slot to its physical block; otherwise slot s owns rows [s * SLOT_CTX, (s + 1) * SLOT_CTX).
+#ifndef PAGED
+#define PAGED 0
+#endif
+
+// The block table of a parameter struct (member `pages`, present only when PAGED).
+#if PAGED
+#define SEQ_PAGES(p) ((p).pages)
+#else
+#define SEQ_PAGES(p) ((int*)0)
+#endif
+
+// Cache row of position `pos` of sequence slot `slot`.
+uint64_t seq_row(int* pages, uint slot, uint pos)
+{
+#if PAGED
+    // Clamped so that positions past a sequence's end (tile tails whose loads a select discards) still address the cache.
+    int block = pages[slot * PAGE_MB + min(pos / PAGE_BS, uint(PAGE_MB - 1))];
+    return uint64_t(uint(max(block, 0))) * PAGE_BS + pos % PAGE_BS;
+#else
+    return uint64_t(slot) * SLOT_CTX + pos;
+#endif
+}
 
 float gelu_tanh(float x) { return 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x))); }
 float erf_approx(float x)

@@ -8,6 +8,11 @@ public sealed record ChatModelOptions
 {
     /// <summary>Concurrent sequences batched per forward pass, each with the load option's context length.</summary>
     public int Slots { get; init; } = 4;
+    /// <summary>
+    /// Paged KV cache shared by the slots, in tokens (null: every slot reserves the full context). With paging, admission is
+    /// bounded by free cache blocks rather than slots, so <see cref="Slots"/> can exceed what fixed per-slot contexts would fit.
+    /// </summary>
+    public long? KvCacheTokens { get; init; }
     /// <summary>Scheduler settings of the model's engine.</summary>
     public EngineOptions Engine { get; init; } = new();
     /// <summary>Name reported by the API is the registration name; the other settings (chat template override, tool formats, default max tokens) apply.</summary>

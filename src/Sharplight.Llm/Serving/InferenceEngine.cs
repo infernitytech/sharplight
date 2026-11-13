@@ -75,6 +75,7 @@ public sealed class InferenceEngine : IDisposable
     private readonly List<SequenceInput> _inputs = [];
     private readonly List<EngineSequence> _stepSeqs = [];
     private readonly List<int> _stepBaseLength = [];
+    private readonly List<bool> _stepReplay = [];
     private Outcome[] _outcomes = [];
 
     // Device sampling (null when the decoder cannot sample on the device): per-input rows of the current step and the tokens /
@@ -96,8 +97,16 @@ public sealed class InferenceEngine : IDisposable
     public ITokenizer Tokenizer => _tokenizer;
     /// <summary>Number of sequences that can run at the same time.</summary>
     public int SlotCount => _decoder.SlotCount;
-    /// <summary>Context length of one sequence: prompt plus generated tokens.</summary>
-    public int ContextLength => _decoder.ContextLength;
+    /// <summary>Context length of one sequence: prompt plus generated tokens (at most the whole paged KV cache).</summary>
+    public int ContextLength => _decoder.KvBlockSize > 0 ? (int)Math.Min(_decoder.ContextLength, (long)_decoder.KvBlocksTotal * _decoder.KvBlockSize) : _decoder.ContextLength;
+    private bool Paged => _decoder.KvBlockSize > 0;
+
+    /// <summary>
+    /// Paged KV cache: generated tokens per sequence that admission keeps room for, so that newly admitted sequences do not
+    /// immediately preempt each other as they grow (more is idle capacity, less means more preemptions). At most a quarter
+    /// of a slot's share of the pool, so that a small pool still runs several sequences.
+    /// </summary>
+    private const int KvGrowthReserve = 64;
     /// <summary>Vocabulary size of the served model (length of a logits row; the domain of token masks).</summary>
     public int VocabSize => _decoder.VocabSize;
     /// <summary>True once <see cref="DrainAsync"/> or <see cref="Dispose"/> began: new requests are rejected.</summary>
@@ -152,7 +161,7 @@ public sealed class InferenceEngine : IDisposable
             q = _queue.Count;
             a = _active.Count;
         }
-        long capacity = (long)_slots.Length * _decoder.ContextLength;
+        long capacity = Paged ? (long)_decoder.KvBlocksTotal * _decoder.KvBlockSize : (long)_slots.Length * _decoder.ContextLength;
         return Metrics.Snapshot(q, a, _slots.Length) with { KvCapacityTokens = capacity, KvTokens = _kvTokens, KvActiveTokens = _kvActiveTokens };
     }
 
@@ -182,12 +191,12 @@ public sealed class InferenceEngine : IDisposable
             }
         }
 
-        if (n >= _decoder.ContextLength)
+        if (n >= ContextLength)
         {
             Metrics.Rejected();
-            throw new PromptTooLongException(n, _decoder.ContextLength - 1);
+            throw new PromptTooLongException(n, ContextLength - 1);
         }
-        int room = _decoder.ContextLength - n;
+        int room = ContextLength - n;
         var ch = Channel.CreateUnbounded<GenerationChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
         long now = Stopwatch.GetTimestamp();
         EngineSequence? seq = null;
@@ -433,12 +442,13 @@ public sealed class InferenceEngine : IDisposable
             EngineSequence? seq;
             lock (_gate)
             {
-                seq = _queue.TakeNext();
-                if (seq is null)
+                seq = _queue.PeekNext();
+                if (seq is null || !HasKvRoomFor(seq))
                 {
                     return;
                 }
 
+                _queue.Remove(seq);
                 _transit++;
             }
             try
@@ -452,6 +462,49 @@ public sealed class InferenceEngine : IDisposable
                     _transit--;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Paged KV cache: whether the prompt's blocks and some room to grow (up to <see cref="KvGrowthReserve"/> tokens) fit next to
+    /// what the running sequences still need: the rest of their prompts plus the same growth reserve. Cache blocks of idle
+    /// slots count as free; preempted sequences are recomputed before anything new is admitted.
+    /// </summary>
+    private bool HasKvRoomFor(EngineSequence seq)
+    {
+        if (!Paged || _active.Count == 0)
+        {
+            return true;
+        }
+
+        long reserve = 0;
+        foreach (var a in _active)
+        {
+            if (a.Replay is not null)
+            {
+                return false;
+            }
+
+            int pending = a.Prefilling ? a.Prompt.Length - a.PromptPos : 0;
+            reserve += _decoder.KvBlocksNeeded(a.Slot!.Index, pending + Growth(a));
+        }
+
+        long available = _decoder.KvBlocksFree;
+        foreach (var slot in _slots)
+        {
+            if (slot.Active is null && slot.Tokens.Count > 0)
+            {
+                available += _decoder.KvBlocksReleasable(slot.Index);
+            }
+        }
+
+        long need = (seq.Prompt.Length + Growth(seq) + _decoder.KvBlockSize - 1) / _decoder.KvBlockSize;
+        return available - reserve >= need;
+
+        int Growth(EngineSequence s)
+        {
+            long share = (long)_decoder.KvBlocksTotal * _decoder.KvBlockSize / (4 * _slots.Length);
+            return (int)Math.Clamp(s.MaxTokens - s.Generated, 1, Math.Max(1, Math.Min(KvGrowthReserve, share)));
         }
     }
 
@@ -514,6 +567,13 @@ public sealed class InferenceEngine : IDisposable
         var slot = best!;
         int keep = Math.Max(0, bestReuse);
         TruncateSlot(slot, keep);
+        keep = slot.Tokens.Count;
+        if (Paged && _opt.PrefixCache && _decoder.CanTruncate)
+        {
+            keep = SharePrefix(slot, seq.Prompt, keep);
+        }
+
+        seq.AdmitTick = ++_tick;
         seq.Slot = slot;
         slot.Active = seq;
         seq.PromptPos = keep;
@@ -527,7 +587,57 @@ public sealed class InferenceEngine : IDisposable
         Metrics.Admitted(seq.Prompt.Length, keep, TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - seq.SubmitTicks) / (double)Stopwatch.Frequency));
     }
 
-    /// <summary>Shortens a slot's context (and the decoder's) to <paramref name="keep"/> tokens.</summary>
+    /// <summary>
+    /// Paged KV cache: when another slot's context (running or idle) starts with more of <paramref name="prompt"/> than the
+    /// <paramref name="keep"/> tokens the chosen slot already holds, the slot restarts from that context's full blocks
+    /// (shared, not copied). Returns the prompt tokens now in the slot.
+    /// </summary>
+    private int SharePrefix(EngineSlot slot, int[] prompt, int keep)
+    {
+        EngineSlot? source = null;
+        int best = 0;
+        foreach (var other in _slots)
+        {
+            if (other == slot)
+            {
+                continue;
+            }
+
+            int common = 0;
+            int max = Math.Min(other.Tokens.Count, prompt.Length - 1);   // the last prompt token is always computed
+            while (common < max && other.Tokens[common] == prompt[common])
+            {
+                common++;
+            }
+
+            if (common > best)
+            {
+                best = common;
+                source = other;
+            }
+        }
+
+        int bs = _decoder.KvBlockSize;
+        if (source is null || best / bs * bs <= keep)
+        {
+            return keep;
+        }
+
+        TruncateSlot(slot, 0);
+        int shared = _decoder.ShareKvPrefix(slot.Index, source.Index, best / bs * bs);
+        for (int i = 0; i < shared; i++)
+        {
+            slot.Tokens.Add(prompt[i]);
+        }
+
+        Metrics.SharedPrefix(shared);
+        return shared;
+    }
+
+    /// <summary>
+    /// Shortens a slot's context (and the decoder's) to <paramref name="keep"/> tokens; a paged decoder may keep fewer (a cut
+    /// inside a shared block), so the slot's tokens follow the decoder's length.
+    /// </summary>
     private void TruncateSlot(EngineSlot slot, int keep)
     {
         if (slot.Tokens.Count <= keep)
@@ -542,6 +652,7 @@ public sealed class InferenceEngine : IDisposable
         else
         {
             _decoder.Truncate(slot.Index, keep);
+            keep = _decoder.Length(slot.Index);
         }
 
         slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
@@ -552,12 +663,15 @@ public sealed class InferenceEngine : IDisposable
         _inputs.Clear();
         _stepSeqs.Clear();
         _stepBaseLength.Clear();
+        _stepReplay.Clear();
         int budget = _budget;
         int logitsBudget = _decoder.MaxLogitsRows;
         if (_speculator is not null)
         {
             ProposeDrafts();
         }
+
+        int freeBlocks = EnsureKvBlocksForDecode();
 
         // Decode first: the pending token (plus drafts) of every running sequence, rotating the start when the budget cannot
         // cover all of them.
@@ -566,26 +680,57 @@ public sealed class InferenceEngine : IDisposable
         for (int k = 0; k < count && budget > 0 && logitsBudget > 0; k++)
         {
             var s = _active[(k + _rr) % count];
-            if (s.Prefilling)
+            if (s.Prefilling || s.Replay is not null)
             {
                 continue;
             }
 
             int n = Math.Min(Math.Min(s.InputLength, budget), logitsBudget);
+            int blocks = _decoder.KvBlocksNeeded(s.Slot!.Index, n);
+            if (blocks > freeBlocks)
+            {
+                continue;
+            }
+
+            freeBlocks -= blocks;
             AddInput(s, new SequenceInput(s.Slot!.Index, s.Input.AsMemory(0, n), true, n));
             budget -= n;
             logitsBudget -= n;
         }
 
-        // Then chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.
+        // Preempted sequences recompute their context (no logits) before new prompts.
         foreach (var s in _active)
         {
-            if (!s.Prefilling || budget <= 0)
+            if (s.Replay is not { } replay || budget <= 0)
             {
                 continue;
             }
 
-            int chunk = Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget);
+            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, replay.Length - s.ReplayPos), budget), KvRoom(s.Slot!, freeBlocks));
+            if (chunk <= 0)
+            {
+                continue;
+            }
+
+            freeBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
+            AddInput(s, new SequenceInput(s.Slot!.Index, replay.AsMemory(s.ReplayPos, chunk), false), replay: true);
+            budget -= chunk;
+        }
+
+        // Then chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.
+        foreach (var s in _active)
+        {
+            if (!s.Prefilling || s.Replay is not null || budget <= 0)
+            {
+                continue;
+            }
+
+            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget), KvRoom(s.Slot!, freeBlocks));
+            if (chunk <= 0)
+            {
+                continue;
+            }
+
             bool last = s.PromptPos + chunk == s.Prompt.Length;
             if (last && logitsBudget <= 0)
             {
@@ -598,6 +743,7 @@ public sealed class InferenceEngine : IDisposable
                 }
             }
 
+            freeBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
             AddInput(s, new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
             budget -= chunk;
             logitsBudget -= last ? 1 : 0;
@@ -605,6 +751,12 @@ public sealed class InferenceEngine : IDisposable
 
         if (_inputs.Count == 0)
         {
+            // Paged cache: every running sequence waits for blocks the others hold; the newest gives its blocks back.
+            if (Paged && _active.Count > 1)
+            {
+                PreemptNewest();
+            }
+
             return;
         }
 
@@ -644,6 +796,17 @@ public sealed class InferenceEngine : IDisposable
             foreach (int t in toks)
             {
                 s.Slot!.Tokens.Add(t);
+            }
+
+            if (_stepReplay[i])
+            {
+                s.ReplayPos += toks.Length;
+                if (s.ReplayPos == s.Replay!.Length)
+                {
+                    s.Replay = null;
+                }
+
+                continue;
             }
 
             _queue.Charge(s.Request.Tenant, toks.Length);
@@ -783,11 +946,135 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
-    private void AddInput(EngineSequence s, SequenceInput input)
+    private void AddInput(EngineSequence s, SequenceInput input, bool replay = false)
     {
         _inputs.Add(input);
         _stepSeqs.Add(s);
         _stepBaseLength.Add(s.Slot!.Tokens.Count);
+        _stepReplay.Add(replay);
+    }
+
+    /// <summary>Tokens a slot can still append with <paramref name="freeBlocks"/> more blocks (unbounded without a paged cache).</summary>
+    private int KvRoom(EngineSlot slot, int freeBlocks)
+    {
+        if (!Paged)
+        {
+            return int.MaxValue;
+        }
+
+        int bs = _decoder.KvBlockSize;
+        int length = _decoder.Length(slot.Index);
+        long room = (long)(length + bs - 1) / bs * bs - length + (long)freeBlocks * bs;
+        return (int)Math.Min(int.MaxValue, room);
+    }
+
+    /// <summary>
+    /// Paged KV cache: frees blocks until every decoding sequence can append its next tokens, first from idle slots' cached
+    /// contexts (least recently used first), then by preempting the newest running sequences (their context is recomputed when
+    /// blocks are free again). Idle contexts also give way to the next chunks of prompts and recomputations. Returns the free
+    /// blocks (<see cref="int.MaxValue"/> without a paged cache).
+    /// </summary>
+    private int EnsureKvBlocksForDecode()
+    {
+        if (!Paged)
+        {
+            return int.MaxValue;
+        }
+
+        while (true)
+        {
+            int decode = 0;
+            int chunks = 0;
+            foreach (var s in _active)
+            {
+                int slot = s.Slot!.Index;
+                if (s.Replay is { } replay)
+                {
+                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_opt.PrefillChunk, replay.Length - s.ReplayPos));
+                }
+                else if (s.Prefilling)
+                {
+                    chunks += _decoder.KvBlocksNeeded(slot, Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos));
+                }
+                else
+                {
+                    decode += _decoder.KvBlocksNeeded(slot, s.InputLength);
+                }
+            }
+
+            int free = _decoder.KvBlocksFree;
+            if (decode > free)
+            {
+                if (!EvictIdleSlot() && !PreemptNewest())
+                {
+                    return free;
+                }
+            }
+            else if (decode + chunks <= free || !EvictIdleSlot())
+            {
+                return free;
+            }
+        }
+    }
+
+    /// <summary>Drops the cached context of the least recently used idle slot that holds unshared blocks.</summary>
+    private bool EvictIdleSlot()
+    {
+        EngineSlot? victim = null;
+        foreach (var slot in _slots)
+        {
+            if (slot.Active is null && slot.Tokens.Count > 0 && _decoder.KvBlocksReleasable(slot.Index) > 0 && (victim is null || slot.LastUsed < victim.LastUsed))
+            {
+                victim = slot;
+            }
+        }
+
+        if (victim is null)
+        {
+            return false;
+        }
+
+        TruncateSlot(victim, 0);
+        return true;
+    }
+
+    /// <summary>
+    /// Takes the KV blocks of the most recently admitted running sequence that holds unshared blocks (never the only running one);
+    /// it keeps its slot and recomputes its context later.
+    /// </summary>
+    private bool PreemptNewest()
+    {
+        EngineSequence? victim = null;
+        int candidates = 0;
+        foreach (var s in _active)
+        {
+            if (_decoder.KvBlocksReleasable(s.Slot!.Index) == 0)
+            {
+                continue;
+            }
+
+            candidates++;
+            if (victim is null || s.AdmitTick > victim.AdmitTick)
+            {
+                victim = s;
+            }
+        }
+
+        if (victim is null || (candidates == 1 && _active.Count == 1))
+        {
+            return false;
+        }
+
+        var slot = victim.Slot!;
+        // A sequence preempted again while recomputing restarts the same replay (its slot holds only a prefix of it).
+        victim.Replay = victim.Replay ?? (slot.Tokens.Count > 0 ? [.. slot.Tokens] : null);
+        victim.ReplayPos = 0;
+        victim.InputLength = 1;
+        _speculator?.Release(slot.Index);
+        _decoder.Reset(slot.Index);
+        slot.Tokens.Clear();
+        Metrics.Preempted();
+        return true;
     }
 
     /// <summary>Asks the speculator for drafts of the decoding sequences (when the batch is small enough to profit).</summary>
@@ -951,7 +1238,7 @@ public sealed class InferenceEngine : IDisposable
             return new Ending(FinishReason.Stop, null, true);
         }
 
-        if (s.Generated >= s.MaxTokens || contextAfter + 1 > _decoder.ContextLength)
+        if (s.Generated >= s.MaxTokens || contextAfter + 1 > ContextLength)
         {
             return new Ending(FinishReason.Length, null, true);
         }

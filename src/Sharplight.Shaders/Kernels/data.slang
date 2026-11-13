@@ -48,7 +48,10 @@ struct CacheParams
     uint8_t* dst;
     uint* rt;
 #if MULTI_SEQ
-    int* seq;   // [T, 4] (slot, position, ...): row t goes to cache row slot * SLOT_CTX + position
+    int* seq;   // [T, 4] (slot, position, ...): row t goes to cache row seq_row(slot, position)
+#endif
+#if PAGED
+    int* pages; // [slots, PAGE_MB] block table
 #endif
     uint T;
 };
@@ -64,7 +67,7 @@ void cache_write(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
     uint r1 = r / INNER, i = r % INNER;
     float v = p.x[uint64_t(t) * S0 + uint64_t(r1) * S1 + i];
 #if MULTI_SEQ
-    uint64_t di = (uint64_t(p.seq[t * 4]) * SLOT_CTX + uint(p.seq[t * 4 + 1])) * ROW + r;
+    uint64_t di = seq_row(SEQ_PAGES(p), uint(p.seq[t * 4]), uint(p.seq[t * 4 + 1])) * ROW + r;
 #else
     uint64_t di = uint64_t(p.rt[RT_N_PAST] + t) * ROW + r;
 #endif
@@ -104,7 +107,7 @@ void cache_write_q(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
         }
     }
 #if MULTI_SEQ
-    uint64_t row = uint64_t(p.seq[t * 4]) * SLOT_CTX + uint(p.seq[t * 4 + 1]);
+    uint64_t row = seq_row(SEQ_PAGES(p), uint(p.seq[t * 4]), uint(p.seq[t * 4 + 1]));
 #else
     uint64_t row = p.rt[RT_N_PAST] + t;
 #endif

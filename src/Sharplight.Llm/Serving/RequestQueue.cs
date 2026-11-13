@@ -61,9 +61,25 @@ internal sealed class RequestQueue(TimeSpan usageHalfLife)
     /// <summary>Removes and returns the request to admit next, or null when empty.</summary>
     public EngineSequence? TakeNext()
     {
-        if (_items.Count == 0)
+        int best = NextIndex();
+        if (best < 0)
         {
             return null;
+        }
+
+        var seq = _items[best];
+        _items.RemoveAt(best);
+        return seq;
+    }
+
+    /// <summary>The request <see cref="TakeNext"/> would return, left in the queue; null when empty.</summary>
+    public EngineSequence? PeekNext() => NextIndex() is >= 0 and var i ? _items[i] : null;
+
+    private int NextIndex()
+    {
+        if (_items.Count == 0)
+        {
+            return -1;
         }
 
         long now = Stopwatch.GetTimestamp();
@@ -87,9 +103,7 @@ internal sealed class RequestQueue(TimeSpan usageHalfLife)
             }
         }
 
-        var seq = _items[best];
-        _items.RemoveAt(best);
-        return seq;
+        return best;
     }
 
     private double Usage(string tenant, long now)

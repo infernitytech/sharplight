@@ -91,7 +91,10 @@ struct RowParams
     uint* rt;
     float* ff;
 #if MULTI_SEQ
-    int* seq;   // [T, 4] (slot, position, ...): CACHE_OUT row of t is slot * SLOT_CTX + position
+    int* seq;   // [T, 4] (slot, position, ...): CACHE_OUT row of t is seq_row(slot, position)
+#endif
+#if PAGED
+    int* pages; // [slots, PAGE_MB] block table
 #endif
     uint T;
 };
@@ -102,7 +105,7 @@ void store(RowParams p, uint t, uint h, uint i, float v)
 {
 #if CACHE_OUT
 #if MULTI_SEQ
-    uint64_t di = ((uint64_t(p.seq[t * 4]) * SLOT_CTX + uint(p.seq[t * 4 + 1])) * H + h) * D + i;
+    uint64_t di = (seq_row(SEQ_PAGES(p), uint(p.seq[t * 4]), uint(p.seq[t * 4 + 1])) * H + h) * D + i;
 #else
     uint64_t di = (uint64_t(p.rt[RT_N_PAST] + t) * H + h) * D + i;
 #endif

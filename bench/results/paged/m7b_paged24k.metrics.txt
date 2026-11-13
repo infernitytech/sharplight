@@ -1,0 +1,18 @@
+# HELP sharplight_kv_capacity_tokens KV-cache capacity in tokens (slots x context per slot, or the paged pool).
+# TYPE sharplight_kv_capacity_tokens gauge
+sharplight_kv_capacity_tokens{model="Mistral-7B-Instruct-v0.3-Q4_K_M"} 24576
+# HELP sharplight_kv_tokens Tokens held in slot contexts, including idle slots kept for prefix reuse.
+# TYPE sharplight_kv_tokens gauge
+sharplight_kv_tokens{model="Mistral-7B-Instruct-v0.3-Q4_K_M"} 24192
+# HELP sharplight_kv_active_tokens Tokens held by running sequences.
+# TYPE sharplight_kv_active_tokens gauge
+sharplight_kv_active_tokens{model="Mistral-7B-Instruct-v0.3-Q4_K_M"} 0
+# HELP sharplight_kv_utilization Fraction of the KV capacity held by running sequences.
+# TYPE sharplight_kv_utilization gauge
+sharplight_kv_utilization{model="Mistral-7B-Instruct-v0.3-Q4_K_M"} 0
+# HELP sharplight_kv_preemptions_total Sequences preempted for KV blocks (paged cache) and recomputed.
+# TYPE sharplight_kv_preemptions_total counter
+sharplight_kv_preemptions_total{model="Mistral-7B-Instruct-v0.3-Q4_K_M"} 0
+# HELP sharplight_kv_prefix_hit_tokens_total Prompt tokens served from KV blocks shared between slots.
+# TYPE sharplight_kv_prefix_hit_tokens_total counter
+sharplight_kv_prefix_hit_tokens_total{model="Mistral-7B-Instruct-v0.3-Q4_K_M"} 0

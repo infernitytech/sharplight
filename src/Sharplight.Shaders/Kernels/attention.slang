@@ -160,6 +160,32 @@ float load_kv(uint8_t* base, uint64_t elem)
 #endif
 }
 
+// ---- Cache rows of a sequence --------------------------------------------------------------------------------------
+// `kv_base(slot)` once per query row, then `kv_row(base, j)` = cache row of key j times HKV (add the KV head). Contiguous
+// caches: base = first row (x HKV) of the slot (0 for single-sequence caches). Paged caches: base = the slot, and every key
+// goes through the block table (g_pages, set from the parameters at kernel entry).
+#if PAGED
+static int* g_pages;
+#endif
+
+uint64_t kv_base(uint slot)
+{
+#if PAGED
+    return slot;
+#else
+    return uint64_t(slot) * SLOT_CTX * HKV;
+#endif
+}
+
+uint64_t kv_row(uint64_t base, uint j)
+{
+#if PAGED
+    return seq_row(g_pages, uint(base), j) * HKV;
+#else
+    return base + uint64_t(j) * HKV;
+#endif
+}
+
 // ---------------------------------------------------------------------------------------------
 // Split-K flash decoding (`decode` + `decode_combine`, few queries against a KV cache). A workgroup handles HPW query
 // heads that share one KV head (GQA group), so K/V rows are read once per group, and one contiguous range of keys of one
@@ -196,13 +222,13 @@ uint decode_split_keys(uint span, uint T)
     return max(per, uint(DEC_MIN_KEYS));
 }
 
-// Key range [jLo, L) of query row t and the first cache row (x HKV) of its sequence.
+// Key range [jLo, L) of query row t and the cache base of its sequence (see kv_base).
 void decode_range(uint t, uint* rt, int* seq, out uint jLo, out uint L, out uint64_t kvRow)
 {
     kvRow = 0;
 #if MULTI_SEQ
     L = uint(seq[t * 4 + 1]) + 1;
-    kvRow = uint64_t(seq[t * 4]) * SLOT_CTX * HKV;
+    kvRow = kv_base(uint(seq[t * 4]));
 #else
     L = rt[RT_N_PAST] + t + 1;
 #endif
@@ -403,6 +429,9 @@ struct Params
     int* seq;    // [T, 4] (slot, position, run length, run index) per query row
     int* runs;   // [U, 4] (slot, first row, row count, first position)
 #endif
+#if PAGED
+    int* pages;  // [slots, PAGE_MB] block table of the paged cache
+#endif
 #if SPANS
     int* spans;  // [T, 2] (first key row, key count) per query row
 #endif
@@ -460,6 +489,9 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
 [numthreads(WG, 1, 1)]
 void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint h = gid.x;
     uint t = gid.y + p.row0;
     uint tid = ltid.x;
@@ -476,7 +508,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
 #elif MULTI_SEQ
     uint L = uint(p.seq[t * 4 + 1]) + 1;
-    kvRow = uint64_t(p.seq[t * 4]) * SLOT_CTX * HKV;
+    kvRow = kv_base(uint(p.seq[t * 4]));
 #else
     uint L = p.rt[RT_N_PAST] + t + 1;
 #endif
@@ -511,7 +543,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     {
         uint j = c0 + tid;
         float s = -1e30;
-        if (j < jEnd) s = dot_k(p.kc, (kvRow + uint64_t(j) * HKV + hk) * D);
+        if (j < jEnd) s = dot_k(p.kc, (kv_row(kvRow, j) + hk) * D);
 #if HAS_SOFTCAP
         if (j < jEnd) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
@@ -530,7 +562,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             float a = acc[di] * corr;
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
-                    a += sP[jj] * load_kv(p.vc, (kvRow + uint64_t(c0 + jj) * HKV + hk) * VRS + d);
+                    a += sP[jj] * load_kv(p.vc, (kv_row(kvRow, c0 + jj) + hk) * VRS + d);
             acc[di] = a;
         }
         GroupMemoryBarrierWithGroupSync();
@@ -609,7 +641,7 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         if (j < L && c < dim)
         {
             float v[8];
-            unpack_kv8(load_kv8(cache, (kvRow + uint64_t(j) * HKV + hk) * rowStride + c), v);
+            unpack_kv8(load_kv8(cache, (kv_row(kvRow, j) + hk) * rowStride + c), v);
             [ForceUnroll] for (uint e = 0; e < 8; e++) faKV[o + e] = half(v[e]);
         }
         else
@@ -623,6 +655,9 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
 [numthreads(FA_T, 1, 1)]
 void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint h = gid.x, t0 = gid.y * FA_BR;
     uint tid = ltid.x, sg = tid / 32;
     uint hk = h / (HQ / HKV);
@@ -638,7 +673,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     if (blk * FA_BR >= uint(run.z)) return;
     t0 = blk * FA_BR; qT = uint(run.z); qRow0 = uint(run.y);
     uint nPast = uint(run.w);
-    kvRow = uint64_t(run.x) * SLOT_CTX * HKV;
+    kvRow = kv_base(uint(run.x));
 #else
     uint nPast = p.rt[RT_N_PAST];
 #endif
@@ -862,7 +897,7 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
         [ForceUnroll] for (uint n = 0; n < FM_NW; n++) buf.w[k * FM_NW + n] = 0;
         if (i < FM_BC * FM_BPR && j < jEnd)
         {
-            uint64_t elem = (kvRow + uint64_t(j) * HKV + hk) * D + (i % FM_BPR) * 32;
+            uint64_t elem = (kv_row(kvRow, j) + hk) * D + (i % FM_BPR) * 32;
             uint64_t s = (elem >> 5) * KV_BLOCK_BYTES;
             uint* w = (uint*)byteAt(cache, s & ~uint64_t(3));
             [ForceUnroll] for (uint n = 0; n + 1 < FM_NW; n++) buf.w[k * FM_NW + n] = w[n];
@@ -885,7 +920,7 @@ void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd
         uint r = i / FM_CPR, c = (i % FM_CPR) * 8;
         uint j = j0 + r;
         bool valid = i < FM_BC * FM_CPR && j < jEnd && c < D;
-        buf.c[k] = valid ? load_kv8(cache, (kvRow + uint64_t(j) * HKV + hk) * D + c) : zero_kv8();
+        buf.c[k] = valid ? load_kv8(cache, (kv_row(kvRow, j) + hk) * D + c) : zero_kv8();
     }
 #endif
 }
@@ -948,6 +983,9 @@ void fm_store(FmTile buf, uint tid)
 [numthreads(FM_T, 1, 1)]
 void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint hk = gid.x / FM_TILES;
     uint g0 = gid.x % FM_TILES * FM_BR;   // first head of the tile within the group
     uint t = gid.y + p.row0;
@@ -1175,6 +1213,9 @@ groupshared float dO[DEC_NSG * HPW * DEC_VC * KLANES * 8];
 [numthreads(DEC_WG, 1, 1)]
 void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint hk = gid.x / (HQ / HKV / HPW);
     uint h0 = hk * (HQ / HKV) + gid.x % (HQ / HKV / HPW) * HPW;
     uint t = gid.y;
@@ -1234,7 +1275,7 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         for (uint i = 0; i < DEC_R; i++)
         {
             uint j = c0 + i * DEC_NRG + rg;
-            uint64_t row = kvRow + uint64_t(j) * HKV + hk;
+            uint64_t row = kv_row(kvRow, j) + hk;
             [ForceUnroll]
             for (uint c = 0; c < DEC_KC; c++)
             {

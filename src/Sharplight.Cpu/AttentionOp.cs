@@ -31,6 +31,7 @@ internal sealed unsafe class AttentionOp : CpuOp
     private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
     private readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
     private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
+    private readonly KvPages? _pages;    // paged multi-sequence cache
     private long _t;
     private long _past;
     private long _s;
@@ -42,9 +43,10 @@ internal sealed unsafe class AttentionOp : CpuOp
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
-        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0)
+        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, KvPages? pages = null)
     {
         _chunk = chunk;
+        _pages = pages;
         _spans = spans;
         _rows = rows;
         _slotCtx = k.Dims[0] / Math.Max(1, slots);
@@ -109,7 +111,14 @@ internal sealed unsafe class AttentionOp : CpuOp
             long slots = _k.Dims[0] / _slotCtx;
             for (long t = 0; t < _t; t++)
             {
-                if ((uint)rw[t * 4] >= slots || (uint)rw[t * 4 + 1] >= _slotCtx)
+                if (_pages is not null)
+                {
+                    for (long pos = rw[t * 4 + 1]; pos >= 0; pos -= _pages.BlockSize)   // every block the row attends to
+                    {
+                        _pages.Check(rw[t * 4], pos, _k.Dims[0]);
+                    }
+                }
+                else if ((uint)rw[t * 4] >= slots || (uint)rw[t * 4 + 1] >= _slotCtx)
                 {
                     throw new InvalidOperationException($"Sequence row {t}: slot {rw[t * 4]} / position {rw[t * 4 + 1]} out of range.");
                 }
@@ -164,6 +173,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 int hk = h / group;
                 long n;
                 long kvBase = 0;
+                int slot = -1;   // paged: the query's slot
                 long j0 = 0;
                 if (_spans is not null)
                 {
@@ -179,6 +189,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 {
                     int* rw = (int*)_rows.P + t * 4;
                     kvBase = rw[0] * _slotCtx;
+                    slot = _pages is null ? -1 : rw[0];
                     n = rw[1] + 1;
                 }
                 else
@@ -211,7 +222,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 float max = sink;
                 for (long j = j0; j < n; j++)
                 {
-                    long off = (kvBase + j) * ks0 + hk * ks1;
+                    long off = (slot >= 0 ? _pages!.Row(slot, j) : kvBase + j) * ks0 + hk * ks1;
                     float dot;
                     if (_kQuant is { } kFormat)
                     {
@@ -262,7 +273,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 }
                 for (long j = j0; j < n; j++)
                 {
-                    long off = (kvBase + j) * vs0 + hk * vs1;
+                    long off = (slot >= 0 ? _pages!.Row(slot, j) : kvBase + j) * vs0 + hk * vs1;
                     if (_vQuant is { } vFormat)
                     {
                         Quant.Dequantize(vFormat, _v.P + off / 32 * Quant.BlockBytes(vFormat), _dv, rowBuf);

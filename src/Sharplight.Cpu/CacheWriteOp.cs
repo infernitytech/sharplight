@@ -14,6 +14,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
     private readonly Action<int> _body;
     private readonly TRef? _seqRows;
     private readonly long _slotCtx;
+    private readonly KvPages? _pages;   // paged cache: rows through the block table
     private readonly long _rowsPerToken;
     private readonly WeightFormat? _quantized;   // q8_0 / q4_0 cache: rows are quantized in 32-value blocks
     private long _past;
@@ -21,8 +22,9 @@ internal sealed unsafe class CacheWriteOp : CpuOp
     private long _per;
     public override string Name => "CacheWrite";
 
-    public CacheWriteOp(TRef state, TRef x, string offset, TRef? seqRows = null, int slots = 1)
+    public CacheWriteOp(TRef state, TRef x, string offset, TRef? seqRows = null, int slots = 1, KvPages? pages = null)
     {
+        _pages = pages;
         _state = state;
         _x = x;
         _offset = offset;
@@ -78,7 +80,11 @@ internal sealed unsafe class CacheWriteOp : CpuOp
             long slots = _state.Dims[0] / _slotCtx;
             for (long i = 0; i < t; i++)
             {
-                if ((uint)rw[i * 4] >= slots || (uint)rw[i * 4 + 1] >= _slotCtx)
+                if (_pages is not null)
+                {
+                    _pages.Check(rw[i * 4], rw[i * 4 + 1], _state.Dims[0]);
+                }
+                else if ((uint)rw[i * 4] >= slots || (uint)rw[i * 4 + 1] >= _slotCtx)
                 {
                     throw new InvalidOperationException($"KV cache overflow: sequence row {i} slot {rw[i * 4]} position {rw[i * 4 + 1]} (slot context {_slotCtx}).");
                 }
@@ -112,7 +118,8 @@ internal sealed unsafe class CacheWriteOp : CpuOp
             {
                 long tok = r / _rowsPerToken;
                 int* rw = (int*)_seqRows.P + tok * 4;
-                dstElem = (rw[0] * _slotCtx + rw[1]) * _inner + (r - tok * _rowsPerToken) * _rowLen;
+                long row = _pages?.Row(rw[0], rw[1]) ?? rw[0] * _slotCtx + rw[1];
+                dstElem = row * _inner + (r - tok * _rowsPerToken) * _rowLen;
             }
             else
             {

@@ -67,6 +67,15 @@ internal sealed class EngineSequence
 
     public bool Prefilling => PromptPos < Prompt.Length;
 
+    /// <summary>
+    /// Preempted (paged KV cache): the context tokens to compute again before the sequence continues, or null. Fed like a prompt
+    /// without logits; <see cref="ReplayPos"/> of them are back in the cache.
+    /// </summary>
+    public int[]? Replay { get; set; }
+    public int ReplayPos { get; set; }
+    /// <summary>Logical admission time (the newest running sequence is preempted first).</summary>
+    public long AdmitTick { get; set; }
+
     /// <summary>Makes room for <paramref name="length"/> input tokens (pending plus drafts).</summary>
     public void EnsureInput(int length)
     {

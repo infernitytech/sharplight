@@ -46,9 +46,27 @@ public class MultiSequenceTests
         return [.. Enumerable.Range(0, n).Select(_ => r.Next(100, 5000))];
     }
 
+    /// <summary>Models with attention layers (the paged KV cache applies to them; recurrent state keeps its slot dimension).</summary>
+    public static TheoryData<string, string> PagedCases => new()
+    {
+        { "qwen2.5-0.5b", "cpu" }, { "qwen2.5-0.5b", "vulkan" },
+        { "gemma3-1b", "vulkan" }, { "gemma3-1b", "cpu" },
+        { "qwen35-0.8b", "vulkan" }, { "granite-4.0-h-350m", "vulkan" },
+    };
+
     [Theory]
     [MemberData(nameof(Cases))]
-    public void Matches_Independent_Sessions(string model, string device)
+    public void Matches_Independent_Sessions(string model, string device) => Run(model, device, null);
+
+    /// <summary>
+    /// The same script on a paged KV cache smaller than slots x context: blocks are taken as contexts grow and the reset slot's
+    /// blocks are reused by others, so sequences end up in interleaved, non-contiguous blocks.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PagedCases))]
+    public void Paged_Matches_Independent_Sessions(string model, string device) => Run(model, device, 640);
+
+    private static void Run(string model, string device, long? kvCacheTokens)
     {
         Assert.SkipWhen(Environment.GetEnvironmentVariable("MSEQ_CASE") is { } only && only != $"{model}/{device}", "filtered");
         var path = ModelPath(model);
@@ -63,8 +81,9 @@ public class MultiSequenceTests
         {
             Devices = [slot!], ContextLength = 256, MaxBatchTokens = 128, DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
         });
-        using var dec = llm.CreateBatchDecoder(4, 256);
+        using var dec = llm.CreateBatchDecoder(4, 256, kvCacheTokens: kvCacheTokens);
         Assert.IsType<MultiSequenceDecoder>(dec);
+        Assert.Equal(kvCacheTokens is null ? 0 : MultiSequenceDecoder.DefaultKvBlockSize, dec.KvBlockSize);
 
         // Script: per step, (slot, tokens) inputs. Slot 0 is reset and reused for a new sequence at step 5.
         // Shapes cover: prompts of several flash-attention tiles next to decode rows, short mixed rows (per-query
@@ -117,6 +136,12 @@ public class MultiSequenceTests
                     Assert.Equal(ArgMax(want), ArgMax(row));
                     Assert.Equal(sess.Position, dec.Length(key.Item1));
                 }
+            }
+
+            if (kvCacheTokens is { } pool)
+            {
+                int held = Enumerable.Range(0, 4).Sum(slot => (dec.Length(slot) + dec.KvBlockSize - 1) / dec.KvBlockSize);
+                Assert.Equal((int)(pool / dec.KvBlockSize) - held, dec.KvBlocksFree);
             }
             TestContext.Current.TestOutputHelper?.WriteLine($"{model}/{device}: worst relative rms {worst:G3}");
         }

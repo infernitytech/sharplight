@@ -11,6 +11,10 @@ namespace Sharplight.Graph;
 /// Rows of one slot form a run of consecutive rows in context order; positions inputs (rope) carry each row's own position.</item>
 /// <item>KV caches keep their [Ctx, ...] shape: compile with context length S · per-slot context; slot s owns rows
 /// [s · Ctx/S, (s + 1) · Ctx/S). CacheWrite gets the rows table, CachedAttention rows and runs tables; both attribute <c>slots</c>.</item>
+/// <item>Paged (<see cref="Transform(ComputeGraph, int, int, int)"/> with a block size): the KV caches are pools of blocks of
+/// <c>block size</c> rows shared by all slots (compile with context length = pool rows), and the <see cref="InputRole.KvBlockTable"/>
+/// input [S, blocks per slot] maps each slot's positions to blocks; CacheWrite and CachedAttention get it as their last input
+/// and attribute <c>block_size</c>.</item>
 /// <item>Other states (recurrent, conv) get a leading [S] dimension; CausalConv1d / GatedDeltaRule / SelectiveScan / Wkv6 / Wkv7 get the runs table.</item>
 /// </list>
 /// The <c>n_past</c> scalar is no longer used by the rewritten ops. A slot is cleared by zeroing its recurrent state rows
@@ -21,9 +25,17 @@ public static class MultiSequence
     /// <summary>Name of the <see cref="InputRole.SequenceRows"/> input added by <see cref="Transform"/>.</summary>
     public const string RowsInput = "sequence_rows";
     private const string RunsInput = "sequence_runs";
+    /// <summary>Name of the <see cref="InputRole.KvBlockTable"/> input of a paged graph.</summary>
+    public const string BlockTableInput = "kv_block_table";
 
     /// <summary>The rewritten graph and, per original state, its multi-sequence definition.</summary>
-    public sealed record Result(ComputeGraph Graph, IReadOnlyDictionary<StateDefinition, StateDefinition> States, int Slots);
+    public sealed record Result(ComputeGraph Graph, IReadOnlyDictionary<StateDefinition, StateDefinition> States, int Slots)
+    {
+        /// <summary>Rows per KV block of a paged graph; 0 when the caches are contiguous per slot.</summary>
+        public int BlockSize { get; init; }
+        /// <summary>Columns of the block table (blocks per slot) of a paged graph.</summary>
+        public int BlocksPerSlot { get; init; }
+    }
 
     private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6"];
 
@@ -54,11 +66,29 @@ public static class MultiSequence
     /// <returns>The rewritten graph and the state definitions to allocate.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1.</exception>
     /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
-    public static Result Transform(ComputeGraph g, int slots)
+    public static Result Transform(ComputeGraph g, int slots) => Transform(g, slots, 0, 0);
+
+    /// <summary>
+    /// Rewrites a single-sequence graph so it advances several independent sequences in one pass, with paged KV caches when
+    /// <paramref name="blockSize"/> is positive.
+    /// </summary>
+    /// <param name="g">The single-sequence graph.</param>
+    /// <param name="slots">Number of sequences ("slots") the rewritten graph serves.</param>
+    /// <param name="blockSize">Rows per KV block (0: each slot owns a contiguous range of the caches).</param>
+    /// <param name="blocksPerSlot">Block table columns: the most blocks one slot can hold (its context / <paramref name="blockSize"/>).</param>
+    /// <returns>The rewritten graph and the state definitions to allocate.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1, or a paged layout without blocks per slot.</exception>
+    /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
+    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot)
     {
         if (slots < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(slots));
+        }
+
+        if (blockSize < 0 || (blockSize > 0 && blocksPerSlot < 1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(blocksPerSlot));
         }
 
         if (!IsSupported(g, out var why))
@@ -79,6 +109,7 @@ public static class MultiSequence
         var T = Dim.Sym(WellKnown.TokenSymbol);
         var rows = b.Input(RowsInput, InputRole.SequenceRows, DataType.I32, new Shape(T, Dim.Of(4)));
         var runs = b.Input(RunsInput, InputRole.SequenceRuns, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(4)));
+        var pages = blockSize > 0 ? b.Input(BlockTableInput, InputRole.KvBlockTable, DataType.I32, new Shape(Dim.Of(slots), Dim.Of(blocksPerSlot))) : null;
         foreach (var s in g.RuntimeScalars)
         {
             if (s != WellKnown.PastScalar)
@@ -138,6 +169,13 @@ public static class MultiSequence
                     ins.Add(runs);
                     break;
             }
+
+            if (pages is not null && n.Op.Name is "CacheWrite" or "CachedAttention")
+            {
+                ins.Add(pages);
+                attrs = attrs.With("block_size", (long)blockSize);
+            }
+
             IReadOnlyList<Value> outs;
             using (b.Group(n.Group))
             {
@@ -154,6 +192,6 @@ public static class MultiSequence
             b.Output(name, Map(v));
         }
 
-        return new Result(b.Build(), states, slots);
+        return new Result(b.Build(), states, slots) { BlockSize = blockSize, BlocksPerSlot = blockSize > 0 ? blocksPerSlot : 0 };
     }
 }
