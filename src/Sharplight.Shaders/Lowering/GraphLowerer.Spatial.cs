@@ -29,6 +29,11 @@ public sealed partial class GraphLowerer
                     return OpSupport.No($"weight format {node.Inputs[1].Type} not supported");
                 }
 
+                if (UsesGrid(node.Inputs[1].Type))
+                {
+                    return OpSupport.No($"Conv weight format {node.Inputs[1].Type} (lookup-grid formats are not supported by the convolution kernels)");
+                }
+
                 if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16 && node.Inputs[1].Type != DataType.BF16 && !node.Inputs[1].Type.IsQuantized)
                 {
                     return OpSupport.No($"Conv weight type {node.Inputs[1].Type}");

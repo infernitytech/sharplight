@@ -9,6 +9,9 @@
 // Macros: D, WFMT, ROW_BYTES
 struct GatherParams
 {
+#if HAS_GRID
+    uint* grid;
+#endif
     uint8_t* table;
     int* idx;
     float* y;
@@ -19,6 +22,7 @@ struct GatherParams
 [numthreads(128, 1, 1)]
 void gather(uint3 dtid : SV_DispatchThreadID, uniform GatherParams p)
 {
+    GRID_BIND(p);
     const uint G = D / 8;
     uint id = dtid.x;
     if (id >= p.N * G) return;
