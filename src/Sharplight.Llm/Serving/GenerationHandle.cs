@@ -14,8 +14,10 @@ public sealed class GenerationHandle
 
     private readonly Channel<GenerationChunk> _channel;
     private readonly Action _cancel;
+    /// <summary>Engine-wide unique, increasing request id.</summary>
     public long Id { get; }
 
+    /// <summary>Asks the engine to stop the request; the stream then ends with <see cref="FinishReason.Cancelled"/>. Idempotent, thread-safe.</summary>
     public void Cancel() => _cancel();
 
     /// <summary>Streams the chunks until the final one. Abandoning the enumeration cancels the request.</summary>
@@ -51,6 +53,7 @@ public sealed class GenerationHandle
     }
 
     /// <summary>Waits for the whole generation and returns the concatenated text.</summary>
+    /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled (the request is cancelled too).</exception>
     public async Task<GenerationResult> CompleteAsync(CancellationToken ct = default)
     {
         var sb = new System.Text.StringBuilder();

@@ -4,7 +4,7 @@ using Sharplight.Vision;
 
 namespace Sharplight.Llm;
 
-/// <summary>Options for loading and compiling a language model.</summary>
+/// <summary>Options for loading and compiling a language model with <see cref="LlmModel.Load"/>.</summary>
 public sealed class LlmLoadOptions
 {
     /// <summary>Devices in pipeline order (layers are split across them). Required.</summary>
@@ -16,9 +16,11 @@ public sealed class LlmLoadOptions
     /// The serving host sets it from <see cref="LlmModel.EstimateFootprint"/> together with a memory limit.
     /// </summary>
     public long? ReservePerDevice { get; init; }
+    /// <summary>Context window in tokens (prompt plus generated text) of each session; the KV cache is sized for it.</summary>
     public int ContextLength { get; init; } = 8192;
     /// <summary>Max tokens per forward pass (prefill chunk size).</summary>
     public int MaxBatchTokens { get; init; } = 512;
+    /// <summary>Architecture-adapter settings (RoPE scaling, context overrides, ...).</summary>
     public AdapterOptions Adapter { get; init; } = new();
     /// <summary>Device features (<see cref="DeviceFeatures"/>) not to use when compiling this model, e.g. "matrix_f16".</summary>
     public IReadOnlySet<string> DisabledFeatures { get; init; } = new HashSet<string>();
@@ -29,5 +31,6 @@ public sealed class LlmLoadOptions
     /// <c>MaxTokens</c> (default 1024) tokens per image and images are resized to fit; <c>MinTokens</c> upsizes small images.
     /// </summary>
     public ImageTokenLimits? ImageTokens { get; init; }
+    /// <summary>Receives progress and compile-plan messages; null for silence.</summary>
     public Action<string>? Log { get; init; }
 }

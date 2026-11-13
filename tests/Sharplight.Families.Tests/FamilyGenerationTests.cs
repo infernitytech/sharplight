@@ -24,7 +24,10 @@ public class FamilyGenerationTests
         HuggingFaceImporter.Register();
     }
 
-    /// <param name="Kind">"ids": expected generated token ids (transformers); "text": expected continuation text of <paramref name="Tokens"/> greedy tokens (llama.cpp).</param>
+    /// <summary>
+    /// One model to generate with. <c>Kind</c> "ids": <c>Ids</c> are the expected generated token ids (transformers); "text": <c>Text</c> is the
+    /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp).
+    /// </summary>
     public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallbackForMoe = false, bool Large = false, int Tokens = 40);
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";

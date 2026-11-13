@@ -7,9 +7,13 @@ namespace Sharplight.Llm.Serving.Chat;
 /// <summary>Built-in formats and format detection from a chat template.</summary>
 public static partial class ToolCallFormats
 {
+    /// <summary><c>&lt;tool_call&gt;{json}&lt;/tool_call&gt;</c> (Hermes, Qwen).</summary>
     public static IToolCallFormat Hermes { get; } = new HermesFormat();
+    /// <summary><c>[TOOL_CALLS][{json}, ...]</c> (Mistral).</summary>
     public static IToolCallFormat Mistral { get; } = new MistralFormat();
+    /// <summary><c>&lt;|python_tag|&gt;{json}</c> or a bare JSON object (Llama 3.x).</summary>
     public static IToolCallFormat Llama3 { get; } = new Llama3Format();
+    /// <summary>All built-in formats.</summary>
     public static IReadOnlyList<IToolCallFormat> All { get; } = [Hermes, Mistral, Llama3];
 
     /// <summary>Picks the formats a chat template instructs the model to use; all built-in ones when it is unknown.</summary>

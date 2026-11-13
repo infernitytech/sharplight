@@ -4,12 +4,19 @@ using Sharplight.Runtime;
 namespace Sharplight.Llm.Serving.Hosting;
 
 /// <summary>Loads a chat model file (any format with an importer registered) onto devices shared with other models.</summary>
+/// <param name="name">Model name reported by the APIs.</param>
+/// <param name="path">Model file or directory.</param>
+/// <param name="load">Devices and compile settings; the devices may be shared with other loaders.</param>
+/// <param name="chat">Slots, engine and chat-service settings.</param>
 public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions load, ChatModelOptions? chat = null) : IModelLoader
 {
     private readonly ChatModelOptions _chat = chat ?? new();
+    /// <inheritdoc/>
     public ModelKind Kind => ModelKind.Chat;
+    /// <summary>The model file or directory.</summary>
     public string Path => path;
 
+    /// <inheritdoc/>
     public IPreparedModel Prepare(CancellationToken ct)
     {
         var model = LlmModel.Load(path, load);

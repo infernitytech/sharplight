@@ -1,5 +1,6 @@
 namespace Sharplight.Llm.Serving.Chat;
 
+/// <summary>Settings of a <see cref="ModelService"/>: reported model name, defaults and chat-template / tool-format overrides.</summary>
 public sealed record ModelServiceOptions
 {
     /// <summary>Name reported by the APIs.</summary>

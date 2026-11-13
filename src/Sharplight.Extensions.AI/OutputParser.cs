@@ -33,6 +33,9 @@ internal sealed class OutputParser
     /// <param name="startInReasoning">The prompt already opened a <c>&lt;think&gt;</c> block (the output begins with reasoning).</param>
     /// <param name="stopSequences">Output is cut before the first occurrence of any of these.</param>
     /// <param name="toolStart">Tool-call start marker, or null to treat tool-call text as plain text.</param>
+    /// <param name="toolEnd">Tool-call end marker.</param>
+    /// <param name="parsers">Parsers tried in order on each tool-call block.</param>
+    /// <param name="tools">The tools offered in the request (for argument coercion).</param>
     public OutputParser(bool startInReasoning, IEnumerable<string>? stopSequences, string? toolStart, string? toolEnd,
         IList<IToolCallParser>? parsers, ToolSchemas? tools)
     {

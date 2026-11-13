@@ -7,17 +7,41 @@ using Sharplight.Vision;
 namespace Sharplight.Llm;
 
 /// <summary>
-/// High-level entry point: a loaded model definition plus its tokenizer and chat template.
-/// Create <see cref="InferenceSession"/>s / <see cref="Generator"/>s from it.
+/// High-level entry point: a loaded decoder-style language model (weights, tokenizer and chat template). Loading reads the
+/// model file and builds its compute graphs; nothing is compiled or uploaded to a device until a session, batch decoder or
+/// vision encoder is created from it. From a model you create
+/// <list type="bullet">
+/// <item><description>an <see cref="InferenceSession"/> plus a <see cref="Generator"/> for simple single-sequence generation,</description></item>
+/// <item><description>a batch decoder (<see cref="CreateBatchDecoder"/>) for the continuous-batching <see cref="Serving.InferenceEngine"/>,</description></item>
+/// <item><description>a <see cref="VisionEncoder"/> (<see cref="CreateVisionEncoder"/>) for image prompts.</description></item>
+/// </list>
+/// The model owns the weight memory: dispose it after everything created from it has been disposed. Creating sessions and
+/// decoders is thread-safe; the created objects are not.
 /// </summary>
+/// <example>
+/// <code>
+/// GgufImporter.Register();   // from Sharplight.Gguf; the host registers the formats it supports
+/// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// using var session = model.CreateSession();
+/// var generator = new Generator(session, model.Tokenizer);
+/// var options = new GenerationOptions { MaxNewTokens = 128, Sampling = SamplingOptions.Greedy };
+/// foreach (var token in generator.Generate("The capital of France is", options))
+/// {
+///     Console.Write(token.Text);
+/// }
+/// </code>
+/// </example>
 public sealed class LlmModel : IDisposable
 {
     static LlmModel() => BuiltinAdapters.RegisterAll();
 
+    /// <summary>The built model: architecture, hyper-parameters, weights and compute graphs.</summary>
     public ModelDefinition Definition { get; }
     /// <summary>The canonical model source the definition was built from (what a saved package stores).</summary>
     public ModelSource Source { get; }
+    /// <summary>The model's tokenizer (shared; safe for concurrent use).</summary>
     public ITokenizer Tokenizer { get; }
+    /// <summary>The Jinja chat template stored in the model file (<c>tokenizer.chat_template</c>), or null if it has none.</summary>
     public string? ChatTemplate { get; }
     private readonly LlmLoadOptions _options;
     private readonly Dictionary<string, (CompilationCache Cache, List<IComputeDevice> Devices)> _caches = [];
@@ -36,6 +60,10 @@ public sealed class LlmModel : IDisposable
     /// Loads a model through <see cref="ModelImporterRegistry"/>; the host must have registered an
     /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Gguf).
     /// </summary>
+    /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
+    /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>
+    /// <exception cref="NotSupportedException">No registered importer or architecture adapter handles the model.</exception>
+    /// <exception cref="FileNotFoundException"><paramref name="path"/> does not exist.</exception>
     public static LlmModel Load(string path, LlmLoadOptions options)
     {
         var sw = Stopwatch.StartNew();
@@ -46,7 +74,12 @@ public sealed class LlmModel : IDisposable
         return new LlmModel(def, sources.Primary, tok, options);
     }
 
-    /// <summary>Compiles the decoder onto the configured devices and returns a fresh session.</summary>
+    /// <summary>
+    /// Compiles the decoder onto the configured devices and returns a fresh single-sequence session. The session owns device
+    /// memory for its share of the weights, the KV cache and the activations.
+    /// </summary>
+    /// <param name="graph">The graph to compile: <see cref="WellKnown.DecodeGraph"/> (text) or <see cref="WellKnown.DecodeMultimodalGraph"/> (text and images).</param>
+    /// <param name="memoryLimit">Caps the bytes of the primary device used by this session (null: the devices as configured).</param>
     public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
         var sw = Stopwatch.StartNew();
@@ -199,6 +232,7 @@ public sealed class LlmModel : IDisposable
         }
     }
 
+    /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()
     {
         foreach (var r in Definition.OwnedResources)

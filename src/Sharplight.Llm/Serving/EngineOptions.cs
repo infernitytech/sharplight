@@ -1,5 +1,6 @@
 namespace Sharplight.Llm.Serving;
 
+/// <summary>Scheduler settings of an <see cref="InferenceEngine"/>.</summary>
 public sealed record EngineOptions
 {
     /// <summary>Maximum number of requests waiting for a slot; further submissions throw <see cref="QueueFullException"/>.</summary>
@@ -12,5 +13,6 @@ public sealed record EngineOptions
     public bool PrefixCache { get; init; } = true;
     /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>
     public TimeSpan? DefaultTimeout { get; init; }
+    /// <summary>Applied to requests without their own <see cref="GenerationRequest.QueueTimeout"/>.</summary>
     public TimeSpan? DefaultQueueTimeout { get; init; }
 }

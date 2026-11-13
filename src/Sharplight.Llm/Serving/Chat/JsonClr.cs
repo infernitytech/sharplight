@@ -6,6 +6,8 @@ namespace Sharplight.Llm.Serving.Chat;
 /// <summary>JSON to template-value conversion (objects become <see cref="JinjaDict"/>, numbers long/double).</summary>
 public static class JsonClr
 {
+    /// <summary>Parses JSON text into template values.</summary>
+    /// <exception cref="JsonException">The text is not valid JSON.</exception>
     public static object? Parse(string json)
     {
         using var doc = JsonDocument.Parse(json);
@@ -31,6 +33,7 @@ public static class JsonClr
         return new Dictionary<string, object?>();
     }
 
+    /// <summary>Converts a parsed element into template values (<see cref="JinjaDict"/>, lists, strings, long / double, bool, null).</summary>
     public static object? Convert(JsonElement e)
     {
         switch (e.ValueKind)

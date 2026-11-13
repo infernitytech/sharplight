@@ -88,6 +88,7 @@ public sealed class EngineMetrics
         }
     }
 
+    /// <summary>Reads all counters and histograms; the gauges are supplied by the caller (the engine).</summary>
     public EngineMetricsSnapshot Snapshot(int queueDepth, int active, int slots) => new()
     {
         QueueDepth = queueDepth, ActiveSequences = active, SlotCount = slots,

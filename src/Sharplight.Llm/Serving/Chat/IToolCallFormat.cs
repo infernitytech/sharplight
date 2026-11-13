@@ -6,6 +6,7 @@ namespace Sharplight.Llm.Serving.Chat;
 /// </summary>
 public interface IToolCallFormat
 {
+    /// <summary>Short identifier, for example <c>hermes</c>.</summary>
     public string Name { get; }
     /// <summary>Text that opens a tool-call block (null when the format has none).</summary>
     public string? StartMarker { get; }

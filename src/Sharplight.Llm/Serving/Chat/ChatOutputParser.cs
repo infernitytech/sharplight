@@ -28,6 +28,8 @@ internal sealed class ChatOutputParser
     /// <param name="formats">Tool-call formats to recognise; empty/null to disable tool parsing.</param>
     /// <param name="toolNames">Names of the offered tools; calls to other names are left as text.</param>
     /// <param name="startInReasoning">The prompt already opened a think block (the output starts with reasoning).</param>
+    /// <param name="thinkOpen">Marker that opens a reasoning block.</param>
+    /// <param name="thinkClose">Marker that closes a reasoning block.</param>
     public ChatOutputParser(IReadOnlyList<IToolCallFormat>? formats, IEnumerable<string>? toolNames, bool startInReasoning = false,
         string thinkOpen = "<think>", string thinkClose = "</think>")
     {

@@ -9,11 +9,13 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 public interface IBatchDecoder : IDisposable
 {
+    /// <summary>Number of independent sequence contexts (slots) the decoder holds.</summary>
     public int SlotCount { get; }
     /// <summary>Maximum context length per slot.</summary>
     public int ContextLength { get; }
     /// <summary>Maximum rows (summed over all inputs) per <see cref="Step"/>.</summary>
     public int MaxBatchTokens { get; }
+    /// <summary>Length of the logits arrays returned by <see cref="Step"/>.</summary>
     public int VocabSize { get; }
     /// <summary>True when one <see cref="Step"/> really executes rows of several slots in one pass.</summary>
     public bool BatchesSequences { get; }

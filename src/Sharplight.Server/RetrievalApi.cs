@@ -15,6 +15,15 @@ namespace Sharplight.Server;
 /// <see cref="AddSharplightReranker"/>; <c>MapSharplight</c> maps these endpoints when any is registered, or call
 /// <see cref="MapSharplightRetrieval"/> directly (e.g. for a host that serves only embeddings).
 /// </summary>
+/// <example>
+/// <code>
+/// using var embedder = EmbeddingModel.Load("bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
+/// builder.Services.AddSharplightEmbeddings(embedder, name: "bge-small");
+/// var app = builder.Build();
+/// app.UseSharplight();
+/// app.MapSharplightRetrieval();   // POST /v1/embeddings with {"model": "bge-small", "input": ["text"]}
+/// </code>
+/// </example>
 public static class RetrievalApi
 {
     extension(IServiceCollection services)

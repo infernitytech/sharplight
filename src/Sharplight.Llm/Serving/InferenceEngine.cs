@@ -9,7 +9,27 @@ namespace Sharplight.Llm.Serving;
 /// mixes one decode token of each running sequence with prompt chunks of newly admitted ones (decode first, then prefill, within
 /// the batch-token budget), samples, streams text deltas and frees finished slots. With a one-slot decoder requests simply run one
 /// after another; with a multi-slot decoder they are batched together.
+/// <para>
+/// Thread safety: all members may be called from any thread. The engine owns the decoder and disposes it. Idle slots keep their
+/// context, so a later prompt that shares a prefix with it skips recomputing the shared part (<see cref="EngineOptions.PrefixCache"/>).
+/// </para>
 /// </summary>
+/// <example>
+/// <code>
+/// using var model = LlmModel.Load(path, loadOptions);
+/// using var engine = new InferenceEngine(model.CreateBatchDecoder(slots: 4), model.Tokenizer);
+/// var request = new GenerationRequest
+/// {
+///     PromptTokens = model.Tokenizer.Encode("Once upon a time", addSpecial: true, parseSpecial: false),
+///     MaxTokens = 64,
+///     Sampling = SamplingParams.GreedyDefault,
+/// };
+/// await foreach (var chunk in engine.GenerateAsync(request))
+/// {
+///     Console.Write(chunk.Text);
+/// }
+/// </code>
+/// </example>
 public sealed class InferenceEngine : IDisposable
 {
     private sealed class Slot { public int Index; public List<int> Tokens = []; public long LastUsed; public Seq? Active; }
@@ -51,12 +71,21 @@ public sealed class InferenceEngine : IDisposable
     private int _rr, _transit;
     private bool _stop, _draining;
 
+    /// <summary>The live counters; most callers want <see cref="GetMetrics"/>.</summary>
     public EngineMetrics Metrics { get; } = new();
+    /// <summary>The tokenizer of the served model, for encoding prompts.</summary>
     public ITokenizer Tokenizer => _tokenizer;
+    /// <summary>Number of sequences that can run at the same time.</summary>
     public int SlotCount => _decoder.SlotCount;
+    /// <summary>Context length of one sequence: prompt plus generated tokens.</summary>
     public int ContextLength => _decoder.ContextLength;
+    /// <summary>True once <see cref="DrainAsync"/> or <see cref="Dispose"/> began: new requests are rejected.</summary>
     public bool IsDraining => _draining;
 
+    /// <summary>Starts the scheduler thread. The engine takes ownership of <paramref name="decoder"/>.</summary>
+    /// <param name="decoder">The model execution; obtain it from <see cref="LlmModel.CreateBatchDecoder"/>.</param>
+    /// <param name="tokenizer">Tokenizer of the same model (end-of-generation tokens, detokenization).</param>
+    /// <param name="options">Scheduler settings; defaults when null.</param>
     public InferenceEngine(IBatchDecoder decoder, ITokenizer tokenizer, EngineOptions? options = null)
     {
         _decoder = decoder;
@@ -69,6 +98,7 @@ public sealed class InferenceEngine : IDisposable
         _thread.Start();
     }
 
+    /// <summary>A consistent snapshot of queue depth, slot usage, token counters and latency histograms.</summary>
     public EngineMetricsSnapshot GetMetrics()
     {
         int q, a;
@@ -82,7 +112,13 @@ public sealed class InferenceEngine : IDisposable
 
     // ---- submission -------------------------------------------------------------------------------------------------
 
-    /// <summary>Queues a request. Throws an <see cref="EngineException"/> when it cannot be admitted (queue full, prompt too long, draining).</summary>
+    /// <summary>Queues a request and returns immediately; read the output through the returned handle.</summary>
+    /// <param name="request">The prompt tokens and generation settings.</param>
+    /// <param name="ct">Cancels the request (it then finishes with <see cref="FinishReason.Cancelled"/>).</param>
+    /// <exception cref="PromptTooLongException">The prompt leaves no room for at least one generated token.</exception>
+    /// <exception cref="QueueFullException"><see cref="EngineOptions.MaxQueue"/> requests are already waiting.</exception>
+    /// <exception cref="EngineStoppedException">The engine is draining or disposed.</exception>
+    /// <exception cref="EngineException">The prompt is empty or contains ids outside the vocabulary (code <c>invalid_request</c>).</exception>
     public GenerationHandle Submit(GenerationRequest request, CancellationToken ct = default)
     {
         int n = request.PromptTokens.Length;
@@ -224,6 +260,7 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
+    /// <summary>Cancels all requests, stops the scheduler thread and disposes the decoder.</summary>
     public void Dispose()
     {
         lock (_gate) { _draining = true; }

@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Vision.Tests;
 
 /// <summary>The Hugging Face importer and the GGUF mmproj importer must produce the same canonical vision description.</summary>
-public class MappingTests(ITestOutputHelper output)
+public class MappingTests
 {
     private static bool Have(string p) => File.Exists(p) || Directory.Exists(p);
 

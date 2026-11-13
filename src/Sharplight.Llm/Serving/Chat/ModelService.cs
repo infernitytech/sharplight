@@ -7,19 +7,41 @@ namespace Sharplight.Llm.Serving.Chat;
 /// <summary>
 /// The chat layer on top of an <see cref="InferenceEngine"/>: renders messages (with tools) through the model's Jinja chat
 /// template, submits the requests and turns the generated text into content / reasoning / tool-call events.
+/// Thread-safe; many requests may be started concurrently (the engine batches them).
 /// </summary>
+/// <example>
+/// <code>
+/// var service = new ModelService(engine, model.ChatTemplate, new ModelServiceOptions { ModelName = "qwen3" });
+/// var request = new ChatRequest
+/// {
+///     Messages = [new ChatTurn("user", "Name three primary colours.")],
+///     MaxTokens = 128,
+/// };
+/// var result = await service.StartChat(request).CompleteAsync();
+/// Console.WriteLine(result.Choices[0].Content);
+/// </code>
+/// </example>
 public sealed class ModelService
 {
     private readonly ChatTemplate? _template;
     private readonly IReadOnlyList<IToolCallFormat> _formats;
     private readonly string? _bos;
 
+    /// <summary>The engine requests are submitted to.</summary>
     public InferenceEngine Engine { get; }
+    /// <summary>The service settings.</summary>
     public ModelServiceOptions Options { get; }
+    /// <summary>The tokenizer of the served model.</summary>
     public ITokenizer Tokenizer => Engine.Tokenizer;
+    /// <summary>Name reported by the APIs.</summary>
     public string ModelName => Options.ModelName;
+    /// <summary>False when the model has no chat template and a plain <c>Role: text</c> transcript is used.</summary>
     public bool HasChatTemplate => _template is not null;
 
+    /// <summary>Creates the chat layer over <paramref name="engine"/>; the caller keeps ownership of the engine.</summary>
+    /// <param name="engine">The scheduler that runs the generations.</param>
+    /// <param name="chatTemplate">The model's Jinja chat template (<see cref="LlmModel.ChatTemplate"/>); <see cref="ModelServiceOptions.ChatTemplate"/> overrides it.</param>
+    /// <param name="options">Name and defaults; library defaults when null.</param>
     public ModelService(InferenceEngine engine, string? chatTemplate, ModelServiceOptions? options = null)
     {
         Engine = engine;
@@ -90,6 +112,8 @@ public sealed class ModelService
         return new ChatPrompt(text, tokens, text.TrimEnd().EndsWith("<think>", StringComparison.Ordinal));
     }
 
+    /// <summary>Number of prompt tokens the request would occupy after template rendering.</summary>
+    /// <exception cref="EngineException">The request contains images (not supported by this configuration).</exception>
     public int CountTokens(ChatRequest r) => BuildPrompt(r).Tokens.Length;
 
     private static string FallbackPrompt(List<Templating.ChatMessage> msgs)
@@ -136,6 +160,9 @@ public sealed class ModelService
     // ---- running ----------------------------------------------------------------------------------------------------
 
     /// <summary>Submits a chat request (N independent choices). Admission errors are thrown here, before any output exists.</summary>
+    /// <param name="r">The conversation and settings.</param>
+    /// <param name="ct">Cancels all choices.</param>
+    /// <exception cref="EngineException">The request was not admitted (see <see cref="InferenceEngine.Submit"/>).</exception>
     public ChatRun StartChat(ChatRequest r, CancellationToken ct = default)
     {
         var prompt = BuildPrompt(r);
@@ -146,6 +173,7 @@ public sealed class ModelService
     }
 
     /// <summary>Submits a raw text completion request.</summary>
+    /// <exception cref="EngineException">The request was not admitted (see <see cref="InferenceEngine.Submit"/>).</exception>
     public ChatRun StartCompletion(CompletionRequest r, CancellationToken ct = default)
     {
         var tokens = r.PromptTokens ?? Tokenizer.Encode(r.Prompt ?? "", addSpecial: true, parseSpecial: true);

@@ -2,6 +2,10 @@ using Sharplight.Llm.Serving;
 
 namespace Sharplight.Server;
 
+/// <summary>
+/// Settings of the HTTP server (see <see cref="SharplightServerExtensions"/>): which APIs are exposed, authentication, CORS,
+/// request limits and default sampling. Configure through the callback of <c>AddSharplight</c>.
+/// </summary>
 public sealed class SharplightServerOptions
 {
     /// <summary>Expose the OpenAI-compatible API (<c>/v1/chat/completions</c>, <c>/v1/completions</c>, <c>/v1/models</c>).</summary>

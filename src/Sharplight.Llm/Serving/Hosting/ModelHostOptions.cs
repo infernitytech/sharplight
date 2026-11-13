@@ -1,5 +1,6 @@
 namespace Sharplight.Llm.Serving.Hosting;
 
+/// <summary>Memory and lifetime policy of a <see cref="ModelHost"/>.</summary>
 public sealed record ModelHostOptions
 {
     /// <summary>Bytes kept free in every memory pool for other applications (a model is only loaded when it fits with this much to spare).</summary>
@@ -8,9 +9,12 @@ public sealed record ModelHostOptions
     public int MaxLoadedModels { get; init; }
     /// <summary>Unload models that served nothing for this long (null = never).</summary>
     public TimeSpan? IdleTimeout { get; init; }
+    /// <summary>How often the idle sweep runs.</summary>
     public TimeSpan IdleCheckInterval { get; init; } = TimeSpan.FromSeconds(10);
     /// <summary>How long an admin unload waits for running requests before it gives up (or cuts them off when forced).</summary>
     public TimeSpan UnloadDrainTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Clock and timers (replace for deterministic tests).</summary>
     public TimeProvider Time { get; init; } = TimeProvider.System;
+    /// <summary>Receives load / unload / eviction messages.</summary>
     public Action<string>? Log { get; init; }
 }

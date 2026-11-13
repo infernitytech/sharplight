@@ -1,6 +1,9 @@
 namespace Sharplight.Llm;
 
-/// <summary>CPU-side token sampler over a logits vector.</summary>
+/// <summary>
+/// CPU-side token sampler over a logits vector: repetition penalty, temperature, top-K, min-P and top-P. Keeps the recent token
+/// history for the penalty. For the serving engine's richer sampler see <see cref="Serving.SamplingParams"/>. Not thread-safe.
+/// </summary>
 public sealed class Sampler
 {
     private readonly SamplingOptions _o;
@@ -8,12 +11,14 @@ public sealed class Sampler
     private readonly List<int> _history = [];
     private (int Id, float Logit)[] _cand = [];
 
+    /// <summary>Creates a sampler; a <see cref="SamplingOptions.Seed"/> makes its choices reproducible.</summary>
     public Sampler(SamplingOptions options)
     {
         _o = options;
         _rng = options.Seed is int s ? new Random(s) : new Random();
     }
 
+    /// <summary>Records a prompt or sampled token for the repetition penalty.</summary>
     public void Accept(int token)
     {
         _history.Add(token);
@@ -23,6 +28,7 @@ public sealed class Sampler
         }
     }
 
+    /// <summary>Chooses the next token id from <paramref name="logits"/> (one value per vocabulary entry).</summary>
     public int Sample(ReadOnlySpan<float> logits)
     {
         int n = logits.Length;
@@ -119,6 +125,7 @@ public sealed class Sampler
         return span[cut - 1].Id;
     }
 
+    /// <summary>Index of the largest value (the first on ties).</summary>
     public static int ArgMax(ReadOnlySpan<float> logits)
     {
         int best = 0;

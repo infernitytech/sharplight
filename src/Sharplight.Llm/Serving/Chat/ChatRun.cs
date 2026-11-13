@@ -16,9 +16,12 @@ public sealed class ChatRun
         PromptTokens = promptTokens;
     }
 
+    /// <summary>Length of the rendered prompt.</summary>
     public int PromptTokens { get; }
+    /// <summary>Number of choices (the request's <c>N</c>).</summary>
     public int ChoiceCount => _handles.Count;
 
+    /// <summary>Cancels all choices; their streams end with <see cref="ChatFinishReason.Cancelled"/>.</summary>
     public void Cancel()
     {
         foreach (var h in _handles)
@@ -118,6 +121,7 @@ public sealed class ChatRun
         }
     }
 
+    /// <summary>Waits for all choices and returns them with their usage.</summary>
     public async Task<ChatResult> CompleteAsync(CancellationToken ct = default)
     {
         int n = _handles.Count;

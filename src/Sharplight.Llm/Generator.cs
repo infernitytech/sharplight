@@ -6,16 +6,22 @@ namespace Sharplight.Llm;
 
 /// <summary>
 /// Autoregressive text generation on top of an <see cref="InferenceSession"/>. With a <see cref="VisionEncoder"/> (and a
-/// session created on the multimodal decoder graph) prompts may contain images.
+/// session created on the multimodal decoder graph) prompts may contain images. Generations are lazy iterators that run the
+/// model while enumerated; the session keeps the context, so successive calls continue the conversation. Not thread-safe.
 /// </summary>
+/// <param name="session">The session to run on; the generator does not own it.</param>
+/// <param name="tokenizer">Tokenizer of the same model.</param>
+/// <param name="vision">Vision encoder for prompts with images; null for text-only use.</param>
 public sealed class Generator(InferenceSession session, ITokenizer tokenizer, VisionEncoder? vision = null)
 {
+    /// <summary>Timings and token counts of the last generation (set when its enumeration ends or is abandoned).</summary>
     public GenerationStats? LastStats { get; private set; }
 
     /// <summary>Continues the session's context with <paramref name="prompt"/> and streams generated text.</summary>
     public IEnumerable<GeneratedToken> Generate(string prompt, GenerationOptions options, bool parseSpecial = true)
         => Generate(tokenizer.Encode(prompt, addSpecial: session.Position == 0, parseSpecial: parseSpecial), options);
 
+    /// <summary>Continues the session's context with already tokenized <paramref name="promptTokens"/> and streams generated text.</summary>
     public IEnumerable<GeneratedToken> Generate(int[] promptTokens, GenerationOptions options)
         => Generate(promptTokens, () => session.Process(promptTokens), options);
 

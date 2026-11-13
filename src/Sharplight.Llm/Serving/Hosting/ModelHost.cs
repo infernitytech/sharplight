@@ -9,7 +9,20 @@ namespace Sharplight.Llm.Serving.Hosting;
 /// recently used idle models are unloaded, then (if the loader can) layers are offloaded to the fallback device, else the
 /// request fails with <see cref="ModelDoesNotFitException"/>. Models idle for <see cref="ModelHostOptions.IdleTimeout"/> are unloaded.
 /// Loads are serialized (so accounting never races); inference on loaded models is fully concurrent.
+/// Thread-safe. Dispose the host to unload every model it loaded.
 /// </summary>
+/// <example>
+/// <code>
+/// using var host = new ModelHost(new ModelHostOptions { IdleTimeout = TimeSpan.FromMinutes(10) });
+/// host.Register(new ModelRegistration
+/// {
+///     Name = "qwen3-4b",
+///     Loader = new LlmChatModelLoader("qwen3-4b", "qwen3-4b-q4_k_m.gguf", loadOptions, new ChatModelOptions { Slots = 4 }),
+/// });
+/// using var lease = await host.AcquireAsync("qwen3-4b");   // loads on first use
+/// var chat = lease.As&lt;ChatModelInstance&gt;().Service;
+/// </code>
+/// </example>
 public sealed class ModelHost : IDisposable
 {
     private sealed class Entry(ModelRegistration reg)
@@ -35,6 +48,7 @@ public sealed class ModelHost : IDisposable
     private ITimer? _timer;
     private bool _disposed;
 
+    /// <summary>Creates an empty host.</summary>
     public ModelHost(ModelHostOptions? options = null)
     {
         _opt = options ?? new();
@@ -52,10 +66,14 @@ public sealed class ModelHost : IDisposable
         }
     }
 
+    /// <summary>The host's policy.</summary>
     public ModelHostOptions Options => _opt;
 
     // ---- registry ---------------------------------------------------------------------------------------------------
 
+    /// <summary>Registers a model; it is loaded on first use (or at startup, see <see cref="ModelRegistration.LoadAtStartup"/>).</summary>
+    /// <exception cref="ArgumentException">The registration has no name.</exception>
+    /// <exception cref="InvalidOperationException">The name is already registered.</exception>
     public void Register(ModelRegistration registration)
     {
         if (string.IsNullOrWhiteSpace(registration.Name))
@@ -97,6 +115,7 @@ public sealed class ModelHost : IDisposable
         public IPreparedModel Prepare(CancellationToken ct) => throw new InvalidOperationException("An adopted model cannot be reloaded after it was unloaded.");
     }
 
+    /// <summary>True when a model is registered under <paramref name="name"/>.</summary>
     public bool Contains(string name)
     {
         lock (_gate)
@@ -114,6 +133,7 @@ public sealed class ModelHost : IDisposable
         }
     }
 
+    /// <summary>Snapshot of all registered models in registration order.</summary>
     public IReadOnlyList<ModelInfo> List()
     {
         lock (_gate)
@@ -131,6 +151,7 @@ public sealed class ModelHost : IDisposable
         }
     }
 
+    /// <summary>The state of one model, or null when it is not registered.</summary>
     public ModelInfo? Get(string name)
     {
         lock (_gate)
@@ -561,6 +582,7 @@ public sealed class ModelHost : IDisposable
         await Task.WhenAll(all.Select(m => m.DrainAsync(timeout))).ConfigureAwait(false);
     }
 
+    /// <summary>Unloads every loaded model (cancelling running requests) and stops the idle timer.</summary>
     public void Dispose()
     {
         List<Entry> all;

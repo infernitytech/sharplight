@@ -14,7 +14,7 @@ public class EndToEndTests
 {
     private const string Question = "Describe this image.";
 
-    private static string Describe(LlmModel model, ImageInput image, int maxTokens = 48, bool imageFirst = true)
+    private static string Describe(LlmModel model, ImageInput image, int maxTokens = 48)
     {
         using var vision = model.CreateVisionEncoder();
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);

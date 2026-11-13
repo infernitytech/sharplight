@@ -17,11 +17,15 @@ public sealed class VisionEncoder : IDisposable
     private readonly Value _patches, _positions, _embIndex, _embWeight;
     private readonly string _output = VisionParameters.EmbeddingsOutput;
 
+    /// <summary>The model the encoder belongs to.</summary>
     public ModelDefinition Definition { get; }
+    /// <summary>Canonical vision-tower parameters (patch size, merge unit, image statistics).</summary>
     public VisionParameters Parameters { get; }
+    /// <summary>The image preprocessing used by <see cref="Preprocess"/>.</summary>
     public VisionPreprocessor Preprocessor { get; }
     /// <summary>Largest number of patches one image may have (the compiled bound).</summary>
     public int MaxPatches { get; }
+    /// <summary>The compiled vision graph.</summary>
     public CompiledModel Compiled => _compiled;
 
     /// <summary>
@@ -65,6 +69,7 @@ public sealed class VisionEncoder : IDisposable
         _embWeight = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingWeightInput)!;
     }
 
+    /// <summary>Width of one embedding row (the language model's hidden size).</summary>
     public int EmbeddingSize => Parameters.OutHiddenSize;
 
     /// <summary>Resizes, normalizes and patchifies an image (see <see cref="VisionPreprocessor"/>).</summary>
@@ -73,6 +78,8 @@ public sealed class VisionEncoder : IDisposable
     /// <summary>Preprocesses and encodes an image: [tokens, <see cref="EmbeddingSize"/>] row-major.</summary>
     public float[] Encode(ImageInput image) => Encode(Preprocess(image));
 
+    /// <summary>Encodes a preprocessed image: [tokens, <see cref="EmbeddingSize"/>] row-major.</summary>
+    /// <exception cref="InvalidOperationException">The image has more patches than the encoder was compiled for.</exception>
     public float[] Encode(PreprocessedImage image)
     {
         int n = image.PatchCount, merged = n / Parameters.MergeUnit;
@@ -93,5 +100,6 @@ public sealed class VisionEncoder : IDisposable
         return result;
     }
 
+    /// <summary>Releases the device memory of the encoder.</summary>
     public void Dispose() => _compiled.Dispose();
 }
