@@ -260,7 +260,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         if (DiagnosticSwitches.LoadTiming)
         {
-            Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers)");
+            Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers); slang {SlangCompiler.Statistics}");
         }
 
         return new VulkanSegment(this, segment, program, options);

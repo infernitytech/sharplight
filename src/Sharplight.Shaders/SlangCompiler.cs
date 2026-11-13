@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using SlangShaderSharp;
@@ -12,6 +13,9 @@ namespace Sharplight.Shaders;
 /// </summary>
 public sealed class SlangCompiler : IDisposable
 {
+    private static long s_compileTicks;
+    private static int s_compiled;
+    private static int s_diskHits;
     private static readonly Lock s_globalLock = new();
     private static IGlobalSession? s_global;
 
@@ -55,6 +59,10 @@ public sealed class SlangCompiler : IDisposable
             }
         }
     }
+
+    /// <summary>Process-wide totals of the kernels this process compiled with Slang or read from the disk cache (diagnostics).</summary>
+    public static CompileStatistics Statistics
+        => new(Volatile.Read(ref s_compiled), Volatile.Read(ref s_diskHits), TimeSpan.FromSeconds((double)Volatile.Read(ref s_compileTicks) / Stopwatch.Frequency));
 
     private static string Version => Global.GetBuildTagString();
 
@@ -128,15 +136,20 @@ public sealed class SlangCompiler : IDisposable
         if (cachePath is not null && TryRead(cachePath) is { } cached)
         {
             var k = new CompiledKernel(name, entryPoint, target, cached, key);
+            Interlocked.Increment(ref s_diskHits);
             _memCache[key] = k;
             return k;
         }
 
         byte[] code;
+        long start = Stopwatch.GetTimestamp();
         lock (_compileLock) // Slang sessions are not thread-safe; compile serially.
         {
             code = CompileUncached(name, source, entryPoint, target, macros);
         }
+
+        Interlocked.Add(ref s_compileTicks, Stopwatch.GetTimestamp() - start);
+        Interlocked.Increment(ref s_compiled);
 
         if (cachePath is not null)
         {
