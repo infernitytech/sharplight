@@ -7,14 +7,17 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    /// <summary>Largest activation row count served by the integer-dot matvec.</summary>
-    private static readonly long IntDotMaxRows = DiagnosticSwitches.IntDotMaxRows;
+    /// <summary>
+    /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/>: 16 for Q8_0,
+    /// 8 for the K-quants, whose GEMM already wins at 16 rows (Mistral-7B Q4_K_M batch 16: 12 vs 18 ms per step).
+    /// </summary>
+    private static long IntDotMaxRows(DataType type) => DiagnosticSwitches.IntDotMaxRows ?? (type == ShaderTypes.Q8_0R ? 16 : 8);
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
     private const long IntDotTargetThreads = 128 * 1024;
 
     /// <summary>Activation-row buckets the integer-dot matvec is specialized for (each serves rows up to its size).</summary>
-    private static readonly int[] s_intDotColumnBuckets = [.. new[] { 1, 2, 4, 8, 16, 32 }.Where(c => c / 2 < IntDotMaxRows)];
+    private static readonly int[] s_intDotColumnBuckets = [1, 2, 4, 8, 16, 32];
 
     /// <summary>
     /// q8 copies of activations, shared by every int-dot matvec that reads the same rows (e.g. the Q, K and V projections),
@@ -48,15 +51,16 @@ public sealed partial class GraphLowerer
         var w = weights[0];
         long minRows = IntDotMinRows(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
-        bool InRange(Bindings b) => rows(b) >= minRows && rows(b) <= IntDotMaxRows;
-        var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, IntDotMaxRows);
+        long maxRows = IntDotMaxRows(w.Type);
+        bool InRange(Bindings b) => rows(b) >= minRows && rows(b) <= maxRows;
+        var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, maxRows);
 
         int format = WeightFormat(w.Type)!.Value;
         long chunks = k / IntDotChunkValues(w.Type);
         var variants = new List<KernelVariant>();
         foreach (int columns in s_intDotColumnBuckets)
         {
-            if (columns < minRows)
+            if (columns < minRows || columns / 2 >= maxRows)
             {
                 continue;
             }
@@ -205,6 +209,7 @@ public sealed partial class GraphLowerer
     private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType)
     {
         long minRows = IntDotMinRows(weightType);
-        return b => Rows(b, x) * rowsPerLead is var r && (r < minRows || r > IntDotMaxRows);
+        long maxRows = IntDotMaxRows(weightType);
+        return b => Rows(b, x) * rowsPerLead is var r && (r < minRows || r > maxRows);
     }
 }

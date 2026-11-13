@@ -90,7 +90,7 @@ public sealed partial class GraphLowerer
         long fusedMaxRows = MatvecMaxRows;
         if (UseIntDotMatvec(weightA.Type, K))
         {
-            fusedMaxRows = Math.Max(MatvecMaxRows, IntDotMaxRows);
+            fusedMaxRows = Math.Max(MatvecMaxRows, IntDotMaxRows(weightA.Type));
             string intDotSource = DualEpilogueSource(a, bNode, group, output, "mmvq.slang");
             EmitIntDotMatvec($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead,
                 [weightA, weightB], y, N, K,
