@@ -201,25 +201,31 @@ internal sealed partial class OnnxTranslator
     private void InstanceNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
-        var sc = ConstIn(ins, 1, "InstanceNormalization scale");
-        var bi = ConstIn(ins, 2, "InstanceNormalization bias");
-        SetDyn(n, 0, Emit("GroupNorm", [x, ConstValue(sc, Nm(n) + ".scale"), ConstValue(bi, Nm(n) + ".bias")],
+        SetDyn(n, 0, Emit("GroupNorm", [x, X(ins, 1, Nm(n) + ".scale"), X(ins, 2, Nm(n) + ".bias")],
             Attributes.From(("groups", x.Shape[1].Fixed), ("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
     }
 
+    /// <summary>GroupNormalization with constant or runtime scale and bias, per channel or (before opset 21) per group.</summary>
     private void GroupNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
         long g = n.Int("num_groups", 1);
         long c = x.Shape[1].Fixed;
-        var sc = ConstIn(ins, 1, "GroupNormalization scale");
-        var bi = ConstIn(ins, 2, "GroupNormalization bias");
-        if (sc.Count == g && g != c)
+        Value PerChannel(int i, string suffix)
         {
-            sc = Repeat(sc, c / g);
-            bi = Repeat(bi, c / g);
+            var t = ins[i]!;
+            long count = t.IsConst ? t.C!.Count : t.V!.Shape.Elements();
+            if (count != g || g == c)
+            {
+                return X(ins, i, Nm(n) + suffix);
+            }
+
+            return t.IsConst
+                ? ConstValue(Repeat(t.C!, c / g), Nm(n) + suffix)
+                : Rs(Emit("Expand", [Rs(X(ins, i), g, 1)], Attributes.From(("shape", L(g, c / g)))), c);
         }
-        SetDyn(n, 0, Emit("GroupNorm", [x, ConstValue(sc, Nm(n) + ".scale"), ConstValue(bi, Nm(n) + ".bias")], Attributes.From(("groups", g), ("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
+
+        SetDyn(n, 0, Emit("GroupNorm", [x, PerChannel(1, ".scale"), PerChannel(2, ".bias")], Attributes.From(("groups", g), ("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
     }
 
     private static OnnxConst Repeat(OnnxConst c, long r)
