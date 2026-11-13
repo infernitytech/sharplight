@@ -28,6 +28,9 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_GEMM_NV2_TILE=bt,bn,bk</c>: tile of the workgroup-matrix GEMM (default 128,128,32).</item>
 /// <item><c>SHARPLIGHT_ATTN_FA=0</c>, <c>SHARPLIGHT_ATTN_SPLIT=0</c>, <c>SHARPLIGHT_ATTN_SEQ_FA=0</c>: disable tensor-core
 /// flash attention, split-key decode attention, and flash attention for multi-sequence batches.</item>
+/// <item><c>SHARPLIGHT_ATTN_DECODE=0</c>: disable split-K flash decoding (GQA-grouped decode attention with a run-time split
+/// count); decode then uses the per-head split kernel. <c>SHARPLIGHT_ATTN_DECODE_CFG=wg,keys,splits[,rows]</c>: workgroups the split
+/// count aims for, minimum keys per split, maximum splits (default 1024,128,64), and optionally key rows per lane group and batch.</item>
 /// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
 /// block of the delta-rule and selective-scan kernels.</item>
 /// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_MMVQ_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
@@ -92,6 +95,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");
+
+    /// <summary>True when decode attention may use the GQA-grouped split-K kernel.</summary>
+    public static bool AttentionDecode { get; } = IsNotZero("SHARPLIGHT_ATTN_DECODE");
+
+    /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
+    public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();
 
     /// <summary>True when multi-sequence batches may use flash attention.</summary>
     public static bool AttentionSequenceFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_SEQ_FA");

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -10,6 +11,9 @@ public sealed partial class GraphLowerer
 {
     /// <summary>Queries up to which decode attention splits the keys over several workgroups (flash decoding).</summary>
     private const long SplitMaxRows = 4;
+
+    /// <summary>Multi-sequence query rows (batched decode) up to which split-K decoding replaces the per-head kernel.</summary>
+    private const long DecodeMaxSequenceRows = 64;
 
     private BufferDecl? _attnScratch;
 
@@ -66,23 +70,31 @@ public sealed partial class GraphLowerer
         var q = plan.Q;
         var o = plan.Output;
 
-        // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
-        // across SPLITS workgroups per head (flash decoding) and merged by a small combine kernel.
-        int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
-        bool split = !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
-        var part = split ? SplitScratch(plan, splits) : o;
-        var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
-
         bool flash = CanUseFlashAttention(plan);
         long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
         long sliceRows = SliceRows(plan, flash, maxRows);
         int slices = (int)((maxRows + sliceRows - 1) / sliceRows);
+
+        // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
+        // across several workgroups (flash decoding) and merged by a small combine kernel. Preferred: the GQA-grouped
+        // split-K kernel with a run-time split count; otherwise SPLITS fixed key ranges per head.
+        var decode = DecodeAttention(plan, flash, sliceRows);
+        int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
+        bool split = decode is null && !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
+        var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits) : o;
+        var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
 
         var scalarKernel = Lib("attention.slang", "main", plan.Macros);
         for (int slice = 0; slice < slices; slice++)
         {
             long firstRow = slice * sliceRows;
             var variants = new List<KernelVariant>();
+            if (slice == 0 && decode is not null)
+            {
+                variants.Add(new KernelVariant(decode.When, Lib("attention.slang", "decode", decode.Macros),
+                    b => new Grid((uint)decode.Groups, (uint)Rows(b, q), (uint)decode.MaxSplits(Rows(b, q)))));
+            }
+
             if (slice == 0 && split)
             {
                 variants.Add(new KernelVariant(b => Rows(b, q) <= SplitMaxRows, Lib("attention.slang", "main", splitMacros),
@@ -104,10 +116,14 @@ public sealed partial class GraphLowerer
                     b => new Grid((uint)plan.HQ, (uint)Math.Min(sliceRows, Rows(b, q) - firstRow))));
             }
 
-            EmitAttentionLaunch(plan, variants, part, firstRow, split);
+            EmitAttentionLaunch(plan, variants, part, firstRow, split || decode is not null);
         }
 
-        if (split)
+        if (decode is not null)
+        {
+            EmitDecodeCombine(plan, part, decode);
+        }
+        else if (split)
         {
             EmitAttentionCombine(plan, part, splitMacros);
         }
@@ -237,7 +253,7 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Tensor-core flash attention. Multi-sequence: fa blocks never straddle sequences (grid z = runs); for short runs
-    /// (batched decode) the per-query kernel wins.
+    /// (batched decode) the per-query kernels win.
     /// </summary>
     private KernelVariant FlashVariant(AttentionPlan plan)
     {
@@ -246,11 +262,106 @@ public sealed partial class GraphLowerer
         var kernel = Lib("attention.slang", "fa", plan.Macros);
         if (runs is null)
         {
-            return new KernelVariant(b => Rows(b, q) > SplitMaxRows, kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32)));
+            return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32)));
         }
 
-        return new KernelVariant(b => DiagnosticSwitches.AttentionSequenceFlash && Rows(b, q) > SplitMaxRows && Rows(b, q) >= 8 * Rows(b, runs), kernel,
-            b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32), (uint)Rows(b, runs)));
+        return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32), (uint)Rows(b, runs)));
+    }
+
+    /// <summary>Bindings for which the flash variant is chosen (when the device supports it).</summary>
+    private static Func<Bindings, bool> FlashWhen(AttentionPlan plan)
+    {
+        var q = plan.Q;
+        var runs = plan.Runs;
+        if (runs is null)
+        {
+            return b => Rows(b, q) > SplitMaxRows;
+        }
+
+        return b => DiagnosticSwitches.AttentionSequenceFlash && Rows(b, q) > SplitMaxRows && Rows(b, q) >= 8 * Rows(b, runs);
+    }
+
+    /// <summary>
+    /// Split-K flash decoding (<c>decode</c> in attention.slang): one workgroup per (GQA group, query row, key range), so
+    /// K/V rows are read once per group; the number of key ranges follows each row's context length at run time (short
+    /// contexts run one range and skip the combine). Needs subgroup shuffles/reductions and head sizes that are multiples
+    /// of 8; returns null when it does not apply (the per-head kernels are the fallback).
+    /// </summary>
+    private DecodeAttentionPlan? DecodeAttention(AttentionPlan plan, bool flash, long sliceRows)
+    {
+        const long threads = 128;
+        int sg = _opt.SubgroupSize;
+        if (plan.Full || !DiagnosticSwitches.AttentionDecode || !_opt.Has(DeviceFeatures.SubgroupOps) || sg < 1 || sg > threads || threads % sg != 0
+            || plan.HQ % plan.HKV != 0 || plan.D % 8 != 0 || plan.DV % 8 != 0 || plan.D > 512 || plan.DV > 512)
+        {
+            return null;
+        }
+
+        long group = plan.HQ / plan.HKV;
+        long headsPerGroup = Math.Min(group, 8);
+        while (group % headsPerGroup != 0)
+        {
+            headsPerGroup--;
+        }
+
+        // KLANES lanes own one key row and the matching value row (8 dims per lane and 16-byte load); each lane group
+        // takes DEC_R rows per batch, about 8 loads per lane in flight.
+        long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)Math.Max(plan.D, plan.DV) / 8), sg);
+        long keySlices = (plan.D / 8 + keyLanes - 1) / keyLanes;
+        long valueSlices = (plan.DV / 8 + keyLanes - 1) / keyLanes;
+        int[] cfg = DiagnosticSwitches.AttentionDecodeConfig;
+        long rowsPerBatch = cfg.Length > 3 ? cfg[3] : Math.Max(1, 8 / (keySlices + valueSlices));
+        long batch = rowsPerBatch * threads / keyLanes;
+        long minKeys = Math.Max(batch, (cfg[1] + batch - 1) / batch * batch);
+        long subgroups = threads / sg;
+        long sharedBytes = 4 * subgroups * headsPerGroup * (2 + valueSlices * keyLanes * 8);
+        if (sharedBytes > _opt.MaxSharedMemory)
+        {
+            return null;
+        }
+
+        var q = plan.Q;
+        long maxRows = plan.Seq is null ? SplitMaxRows : Math.Min(DecodeMaxSequenceRows, sliceRows);
+        var flashWhen = flash ? FlashWhen(plan) : null;
+        var macros = new Dictionary<string, string>(plan.Macros);
+        (string Name, long Value)[] decodeMacros =
+        [
+            ("HPW", headsPerGroup), ("KLANES", keyLanes), ("DEC_WG", threads), ("DEC_R", rowsPerBatch), ("DEC_BC", batch),
+            ("DEC_MAX_SPLITS", cfg[2]), ("DEC_MIN_KEYS", minKeys), ("DEC_TARGET_WG", cfg[0]),
+        ];
+        foreach (var (name, value) in decodeMacros)
+        {
+            macros[name] = value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return new DecodeAttentionPlan
+        {
+            Macros = macros,
+            Groups = plan.HKV * (group / headsPerGroup),
+            MaxRows = maxRows,
+            TargetWorkgroups = cfg[0],
+            MaxSplitCount = cfg[2],
+            When = b => Rows(b, q) <= maxRows && (flashWhen is null || !flashWhen(b)),
+        };
+    }
+
+    /// <summary>Scratch for the partials of split-K decoding (only rows that run more than one key range use it).</summary>
+    private TensorRef DecodeScratch(AttentionPlan plan, DecodeAttentionPlan decode, long maxRows)
+    {
+        long partials = 1;
+        for (long rows = 1; rows <= Math.Min(maxRows, decode.MaxRows); rows++)
+        {
+            long splits = decode.MaxSplits(rows);
+            if (splits > 1)
+            {
+                partials = Math.Max(partials, splits * rows);
+            }
+        }
+
+        long bytes = partials * plan.HQ * (plan.DV + 4) * 4;   // DEC_PS floats per partial
+        _attnScratch ??= NewBuffer(BufferKind.Activations, "attn-split", 0);
+        _attnScratch.Bytes = Math.Max(_attnScratch.Bytes, bytes);
+        return new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
     }
 
     private void EmitAttentionLaunch(AttentionPlan plan, List<KernelVariant> variants, TensorRef part, long firstRow, bool split)
@@ -278,5 +389,18 @@ public sealed partial class GraphLowerer
             [new KernelVariant(b => Rows(b, q) <= SplitMaxRows, Lib("attention.slang", "combine", splitMacros), b => new Grid((uint)plan.HQ, (uint)Rows(b, q)))],
             [Pointer(part), Pointer(o), Pointer(sinks ?? o), TokenArg(q)],
             sinks is null ? [part] : [part, sinks], [o]);
+    }
+
+    /// <summary>Merges the partials of the rows that split-K decoding ran in more than one key range.</summary>
+    private void EmitDecodeCombine(AttentionPlan plan, TensorRef part, DecodeAttentionPlan decode)
+    {
+        var q = plan.Q;
+        var o = plan.Output;
+        var sinks = plan.Sinks;
+        var seq = plan.Seq;
+        Emit($"attention {plan.Node.Output.Name} combine", [plan.Node],
+            [new KernelVariant(decode.When, Lib("attention.slang", "decode_combine", decode.Macros), b => new Grid((uint)plan.HQ, (uint)Rows(b, q)))],
+            [Pointer(part), Pointer(o), Pointer(sinks ?? o), new PointerArg(_runtime, 0), .. SeqArgs(seq), TokenArg(q)],
+            [part, .. sinks is null ? [] : (TensorRef[])[sinks], .. seq is null ? [] : (TensorRef[])[seq]], [o]);
     }
 }
