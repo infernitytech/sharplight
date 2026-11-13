@@ -157,9 +157,9 @@ public static partial class StandardOps
     /// <summary>
     /// Causal depthwise 1-D convolution with carried state (Mamba / DeltaNet short conv).
     /// x [T, C], weight [C, K], state State [K-1, C] → y [T, C]. The state is updated with the last
-    /// K-1 inputs. Attribute: activation ("none" | "silu").
+    /// K-1 inputs. Optional 4th input: bias f32 [C] (added before the activation). Attribute: activation ("none" | "silu").
     /// </summary>
-    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 3, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 4, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
     /// Gated delta rule recurrence (Gated DeltaNet linear attention).

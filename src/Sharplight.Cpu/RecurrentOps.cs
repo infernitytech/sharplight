@@ -6,7 +6,7 @@ namespace Sharplight.Cpu;
 /// <summary>Causal depthwise conv with carried state (+ optional SiLU).</summary>
 internal sealed unsafe class CausalConv1dOp : CpuOp
 {
-    readonly TRef _x, _w, _state, _y; readonly bool _silu, _staticWeight;
+    readonly TRef _x, _w, _state, _y; readonly TRef? _bias; readonly bool _silu, _staticWeight;
     readonly long _c, _k;
     readonly float* _wT; // [K, C]
     readonly Action<int> _body;
@@ -14,9 +14,9 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
     long _t, _per;
     public override string Name => "CausalConv1d";
 
-    public CausalConv1dOp(TRef x, TRef w, TRef state, TRef y, bool silu, bool staticWeight)
+    public CausalConv1dOp(TRef x, TRef w, TRef state, TRef y, bool silu, bool staticWeight, TRef? bias = null)
     {
-        _x = x; _w = w; _state = state; _y = y; _silu = silu; _staticWeight = staticWeight;
+        _bias = bias; _x = x; _w = w; _state = state; _y = y; _silu = silu; _staticWeight = staticWeight;
         _c = w.Dims[0]; _k = w.Dims[1];
         if (x.Dims[1] != _c || state.Dims[0] != _k - 1 || state.Dims[1] != _c) throw new ArgumentException("CausalConv1d shape mismatch.");
         _wT = (float*)Mem.Alloc(_c * _k * 4, false);
@@ -84,6 +84,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
                     for (; i < c1; i++) y[i] += src[i] * w[i];
                 }
             }
+            if (_bias is not null) { float* bi = (float*)_bias.P; for (long i = c0; i < c1; i++) y[i] += bi[i]; }
             if (_silu) Math2.Unary(UnaryKind.Silu, y + c0, y + c0, c1 - c0, 1, 0);
         }
     }
