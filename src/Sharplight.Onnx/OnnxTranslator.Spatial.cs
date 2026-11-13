@@ -203,6 +203,12 @@ internal sealed partial class OnnxTranslator
     private void Conv(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x0 = X(ins, 0);
+        if (x0.Rank == 5)
+        {
+            ConvVolume(n, ins, transposed: false);
+            return;
+        }
+
         var weightIn = ConstIn(ins, 1, "Conv weight");
         var biasIn = ins.Length > 2 && ins[2] is not null ? ConstIn(ins, 2, "Conv bias") : null;
         bool oneD = x0.Rank == 3;
@@ -311,6 +317,12 @@ internal sealed partial class OnnxTranslator
     private void ConvTranspose(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x0 = X(ins, 0);
+        if (x0.Rank == 5)
+        {
+            ConvVolume(n, ins, transposed: true);
+            return;
+        }
+
         var weightIn = ConstIn(ins, 1, "ConvTranspose weight");
         var bias = ins.Length > 2 && ins[2] is not null ? ConstIn(ins, 2, "ConvTranspose bias") : null;
         bool oneD = x0.Rank == 3;

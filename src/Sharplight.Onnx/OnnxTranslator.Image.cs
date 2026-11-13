@@ -8,35 +8,37 @@ internal sealed partial class OnnxTranslator
 {
     /// <summary>
     /// Col2Im: input [N, C·∏block, L] → [N, C, *image]. Every column block is scattered back with overlapping entries summed, which is
-    /// exactly a transposed convolution of the [N, C·K, L_h, L_w] block grid with groups = C and a one-hot [C·K, 1, kh, kw] weight.
+    /// exactly a transposed convolution of the [N, C·K, *block grid] tensor with groups = C and a one-hot [C·K, 1, *block] weight
+    /// (2-D or 3-D images).
     /// </summary>
     private void Col2Im(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
         var image = ConstIn(ins, 1, "Col2Im image_shape").Ints();
         var block = ConstIn(ins, 2, "Col2Im block_shape").Ints();
-        if (image.Length != 2)
+        int s = image.Length;
+        if (s is not (2 or 3))
         {
-            throw new NotSupportedException($"Col2Im with {image.Length} spatial dims (only 2-D)");
+            throw new NotSupportedException($"Col2Im with {s} spatial dims (2-D and 3-D images)");
         }
 
-        var strides = n.Ints("strides") ?? [1, 1];
-        var dilations = n.Ints("dilations") ?? [1, 1];
-        var pads = n.Ints("pads") ?? [0, 0, 0, 0];
-        long k = block[0] * block[1];
+        var strides = n.Ints("strides") ?? Enumerable.Repeat(1L, s).ToArray();
+        var dilations = n.Ints("dilations") ?? Enumerable.Repeat(1L, s).ToArray();
+        var pads = n.Ints("pads") ?? new long[2 * s];
+        long k = block.Aggregate(1L, (a, b) => a * b);
         long channels = x.Shape[1].Fixed / k;
-        var grid = new long[2];
-        var outputPadding = new long[2];
-        for (int i = 0; i < 2; i++)
+        var grid = new long[s];
+        var outputPadding = new long[s];
+        for (int i = 0; i < s; i++)
         {
             long effective = dilations[i] * (block[i] - 1) + 1;
-            grid[i] = (image[i] + pads[i] + pads[i + 2] - effective) / strides[i] + 1;
-            outputPadding[i] = image[i] - (strides[i] * (grid[i] - 1) + effective - pads[i] - pads[i + 2]);
+            grid[i] = (image[i] + pads[i] + pads[i + s] - effective) / strides[i] + 1;
+            outputPadding[i] = image[i] - (strides[i] * (grid[i] - 1) + effective - pads[i] - pads[i + s]);
         }
 
-        if (grid[0] * grid[1] != x.Shape[2].Fixed)
+        if (grid.Aggregate(1L, (a, b) => a * b) != x.Shape[2].Fixed)
         {
-            throw new InvalidDataException($"Col2Im: {x.Shape[2]} blocks do not match the {grid[0]}x{grid[1]} block grid");
+            throw new InvalidDataException($"Col2Im: {x.Shape[2]} blocks do not match the {string.Join("x", grid)} block grid");
         }
 
         var oneHot = new double[channels * k * k];
@@ -45,9 +47,19 @@ internal sealed partial class OnnxTranslator
             oneHot[row * k + row % k] = 1;
         }
 
-        var weight = OnnxConst.FromFloats(OnnxType.Float, [channels * k, 1, block[0], block[1]], oneHot);
-        var attributes = Attributes.From(("strides", strides), ("pads", pads), ("dilations", dilations), ("groups", channels), ("output_padding", outputPadding));
-        var y = Emit("ConvTranspose", [Rs(x, 0, channels * k, grid[0], grid[1]), WeightValue(weight, false, Nm(n) + ".blocks")], attributes, Nm(n));
+        var weight = OnnxConst.FromFloats(OnnxType.Float, [channels * k, 1, .. block], oneHot);
+        var blocks = Rs(x, [0, channels * k, .. grid]);
+        Value y;
+        if (s == 3)
+        {
+            y = VolumeConv(blocks, weight, true, strides, pads, dilations, outputPadding, channels, Nm(n));
+        }
+        else
+        {
+            var attributes = Attributes.From(("strides", strides), ("pads", pads), ("dilations", dilations), ("groups", channels), ("output_padding", outputPadding));
+            y = Emit("ConvTranspose", [blocks, WeightValue(weight, false, Nm(n) + ".blocks")], attributes, Nm(n));
+        }
+
         Heavy();
         SetDyn(n, 0, y);
     }
