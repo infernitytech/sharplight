@@ -16,7 +16,7 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
     public string Architecture => "decoder";
 
     static bool IsGemma(string a) => a is "gemma2" or "gemma3";
-    static bool PermutesQk(string a) => a == "llama";
+    static bool PermutesQk(string a) => a is "llama" or "muse-glimmer";   // both store q/k rows permuted for llama.cpp's interleaved ("normal") rope
 
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {

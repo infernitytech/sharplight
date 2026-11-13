@@ -48,7 +48,7 @@ public sealed partial class DecoderGgufMapping
             [a + "hidden_size"] = nEmbd,
             [a + "ffn_hidden_size"] = g.Int("feed_forward_length"),
             [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
-            [a + "post_norm_eps"] = Environment.GetEnvironmentVariable("MU_PNE") is { } pne ? float.Parse(pne) : 1e-8f,
+            [a + "post_norm_eps"] = 1e-8f,
             [a + "attention.head_count"] = nHead,
             [a + "attention.kv_head_count"] = g.Int("attention.head_count_kv", nHead),
             [a + "attention.head_dim"] = headDim,
@@ -56,10 +56,10 @@ public sealed partial class DecoderGgufMapping
             [a + "attention.sliding_layers"] = sliding,
             [a + "rope.dim"] = headDim,
             [a + "rope.base"] = g.Has("rope.freq_base") ? g.Float("rope.freq_base") : 10000f,
-            [a + "rope.layers"] = Environment.GetEnvironmentVariable("MU_ROPE") == "all" ? sliding.Select(_ => 1).ToArray() : Environment.GetEnvironmentVariable("MU_ROPE") == "inv" ? sliding.Select(s => 1 - s).ToArray() : sliding,
+            [a + "rope.layers"] = sliding,
             [a + "rope.style"] = "neox",
             [a + "mlp.activation"] = "silu",
-            [a + "embedding_norm"] = Environment.GetEnvironmentVariable("MU_EN") != "0",
+            [a + "embedding_norm"] = true,
         };
         if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
         if (g.Has("logit_scale")) md[a + "logit_scale"] = g.Float("logit_scale");
