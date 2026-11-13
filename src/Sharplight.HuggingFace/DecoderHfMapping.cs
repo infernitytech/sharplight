@@ -7,14 +7,14 @@ namespace Sharplight.HuggingFace;
 
 /// <summary>
 /// Hugging Face decoder-only transformers (<c>llama</c>, <c>mistral</c>, <c>qwen2</c>, <c>qwen3</c>, <c>gemma2</c>,
-/// <c>gemma3_text</c>) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>). Weights are
+/// <c>gemma3_text</c>, <c>phi3</c>, <c>olmoe</c>, <c>qwen3_moe</c>) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>). Weights are
 /// mapped by presence (biases, q/k norms, Gemma's extra norms), Gemma's <c>1 + w</c> norms are folded, rope scaling
 /// (llama3 / yarn / linear) becomes the canonical <c>rope.freq_factors</c> weight.
 /// </summary>
 public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 {
     public string Architecture => "decoder";
-    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe"];
 
     static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
 
@@ -109,6 +109,14 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             [a + "mlp.activation"] = Activation(c),
         };
         if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
+        if (type is "olmoe" or "qwen3_moe")
+        {
+            if (c.GetDouble("clip_qkv") is { } clip && clip > 0) throw new NotSupportedException("clip_qkv (qkv clamping) is not supported.");
+            md[a + "moe.expert_count"] = c.Int("num_experts");
+            md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+            md[a + "moe.ffn_hidden_size"] = c.GetInt("moe_intermediate_size") ?? c.Int("intermediate_size");
+            md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? false;
+        }
         if (c.Get("rope_scaling") is { ValueKind: JsonValueKind.Object } && LongRope(c) is { } lr)
         {
             md[a + "rope.attention_scale"] = lr.AttentionScale;
@@ -144,6 +152,8 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     // ---- weights ------------------------------------------------------------------------------
     [GeneratedRegex(@"^model\.layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
+    [GeneratedRegex(@"^mlp\.experts\.(\d+)\.(gate|up|down)_proj\.weight$")]
+    private static partial Regex ExpertName();
 
     static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
@@ -178,6 +188,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         string postAttn = gemma ? "attention.out_norm.weight" : "post_attention_norm.weight";
         var result = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var unmapped = new List<string>();
+        var experts = new SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>>();
         void Add(WeightInfo w) { if (!result.TryAdd(w.Name, w)) throw new InvalidDataException($"Two HF tensors map to '{w.Name}'."); }
         WeightInfo Norm(WeightInfo w, string name) => gemma ? HfTransforms.NormPlusOne(w, name) : HfTransforms.Plain(w, name);
 
@@ -196,7 +207,14 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             var m = LayerName().Match(name);
             if (!m.Success) { unmapped.Add(name); continue; }
             string p = $"layers.{m.Groups[1].Value}.", suffix = m.Groups[2].Value;
-            if (s_layer.TryGetValue(suffix, out var cn)) Add(HfTransforms.Plain(w, p + cn));
+            if (ExpertName().Match(suffix) is { Success: true } em)
+            {
+                var key = (int.Parse(m.Groups[1].Value), em.Groups[2].Value);
+                if (!experts.TryGetValue(key, out var list)) experts[key] = list = [];
+                list[int.Parse(em.Groups[1].Value)] = w;
+            }
+            else if (suffix == "mlp.gate.weight" && c.Has("num_experts")) Add(HfTransforms.Plain(w, p + "mlp.router.weight"));
+            else if (s_layer.TryGetValue(suffix, out var cn)) Add(HfTransforms.Plain(w, p + cn));
             else if (s_norms.TryGetValue(suffix, out var nn)) Add(Norm(w, p + nn));
             else if (suffix == "post_attention_layernorm.weight") Add(Norm(w, p + postAttn));
             else if (gemma && suffix == "pre_feedforward_layernorm.weight") Add(Norm(w, p + "post_attention_norm.weight"));
@@ -215,6 +233,11 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             }
             else if (gemma && suffix == "post_feedforward_layernorm.weight") Add(Norm(w, p + "mlp.out_norm.weight"));
             else unmapped.Add(name);
+        }
+        foreach (var ((layer, kind), list) in experts)
+        {
+            if (list.Count != c.Int("num_experts") || list.Keys.Max() != list.Count - 1) throw new InvalidDataException($"layer {layer}: expected {c.Int("num_experts")} {kind} experts, found {list.Count}.");
+            Add(WeightInfo.Stack($"layers.{layer}.mlp.experts.{kind}.weight", [.. list.Values]));
         }
         if (unmapped.Count > 0)
             throw new NotSupportedException($"{c.ModelType}: {unmapped.Count} tensor(s) have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");

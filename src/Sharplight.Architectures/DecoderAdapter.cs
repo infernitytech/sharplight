@@ -23,6 +23,10 @@ namespace Sharplight.Architectures;
 /// which applies to the layers that are not sliding. Longrope (Phi-3) additionally carries <c>rope.freq_factors_long</c> and
 /// <c>rope.original_context_length</c>: the short factors are used (valid up to the original context), the long ones are not applied yet.</item>
 /// <item><c>mlp.activation</c> ("silu" (default), "gelu", "gelu_tanh", "relu"), <c>mlp.gated</c> (default true: act(gate)·up).</item>
+/// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>): <c>moe.expert_count</c>, <c>moe.expert_used_count</c>
+/// (top-k per token), <c>moe.normalize_weights</c> (renormalize the k selected router probabilities to sum 1; default false).
+/// Router probabilities are softmax(router · h). Expert weights are rank-3 <c>mlp.experts.{gate,up,down}.weight</c> [E, N, K] and
+/// <c>moe.ffn_hidden_size</c> is the experts' inner size (<c>ffn_hidden_size</c> then only describes dense layers).</item>
 /// <item><c>embedding_scale</c> (token embeddings are multiplied by it, default 1; Gemma sqrt(hidden_size)),
 /// <c>final_logit_softcap</c> (logits = cap·tanh(logits/cap), 0 = off).</item>
 /// </list>
@@ -43,7 +47,8 @@ public sealed class DecoderAdapter : IModelAdapter
     sealed record HParams(
         int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps, float AttnScale, float SoftCap,
         int RopeDims, float RopeBase, float RopeLocalBase, string RopeStyle, int Window, int[] SlidingLayers,
-        string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength);
+        string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength,
+        int Experts, int ExpertsUsed, bool NormalizeExpertWeights);
 
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
@@ -72,7 +77,10 @@ public sealed class DecoderAdapter : IModelAdapter
             EmbeddingScale: src.Arch("embedding_scale", 1f),
             FinalSoftCap: src.Arch("final_logit_softcap", 0f),
             Vocab: src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed,
-            ContextLength: src.Arch("context_length", 32768));
+            ContextLength: src.Arch("context_length", 32768),
+            Experts: src.Arch("moe.expert_count", 0),
+            ExpertsUsed: src.Arch("moe.expert_used_count", 0),
+            NormalizeExpertWeights: src.Arch("moe.normalize_weights", false));
         if (hp.NHead % hp.NHeadKv != 0) throw new InvalidDataException("decoder: attention.head_count must be a multiple of attention.kv_head_count.");
         if (hp.SlidingLayers.Length != 0 && hp.SlidingLayers.Length != hp.NLayer) throw new InvalidDataException("decoder: attention.sliding_layers must have layer_count entries.");
         bool Sliding(int il) => hp.Window > 0 && hp.SlidingLayers.Length > 0 && hp.SlidingLayers[il] != 0;
@@ -147,7 +155,7 @@ public sealed class DecoderAdapter : IModelAdapter
 
                 var ffnResidual = x;
                 h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
-                var ffn = Mlp(b, h, p);
+                var ffn = b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
                 if (b.TryWeight(p + "mlp.out_norm.weight") is { } on2) ffn = b.RmsNorm(ffn, on2, hp.Eps);
                 x = b.Add(ffn, ffnResidual, $"{p}l_out");
             }
@@ -169,11 +177,16 @@ public sealed class DecoderAdapter : IModelAdapter
         Value Attention(GraphBuilder b, Value h, string p, int il, Value positions, Value? freqFactors)
         {
             int D = hp.HeadDim;
-            var q = b.Reshape(b.Linear(h, p + "attention.q.weight", p + "attention.q.bias"), 0, hp.NHead, D);
-            var k = b.Reshape(b.Linear(h, p + "attention.k.weight", p + "attention.k.bias"), 0, hp.NHeadKv, D);
+            var q = b.Linear(h, p + "attention.q.weight", p + "attention.q.bias");
+            var k = b.Linear(h, p + "attention.k.weight", p + "attention.k.bias");
             var v = b.Reshape(b.Linear(h, p + "attention.v.weight", p + "attention.v.bias"), 0, hp.NHeadKv, D);
-            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn) q = b.RmsNorm(q, qn, hp.Eps);
-            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn) k = b.RmsNorm(k, kn, hp.Eps);
+            // q/k norms: over the whole projection (weight has heads*D entries) or per head (D entries), before the head split.
+            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn && qn.Shape[0].Fixed != D) q = b.RmsNorm(q, qn, hp.Eps);
+            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn && kn.Shape[0].Fixed != D) k = b.RmsNorm(k, kn, hp.Eps);
+            q = b.Reshape(q, 0, hp.NHead, D);
+            k = b.Reshape(k, 0, hp.NHeadKv, D);
+            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn2 && qn2.Shape[0].Fixed == D) q = b.RmsNorm(q, qn2, hp.Eps);
+            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn2 && kn2.Shape[0].Fixed == D) k = b.RmsNorm(k, kn2, hp.Eps);
 
             bool sliding = Sliding(il);
             var rope = Attributes.From(("dims", hp.RopeDims), ("base", sliding ? hp.RopeLocalBase : hp.RopeBase), ("style", hp.RopeStyle));
@@ -192,16 +205,35 @@ public sealed class DecoderAdapter : IModelAdapter
             return b.Linear(b.Reshape(attn, 0, hp.NHead * D), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
         }
 
+        Value ActOf(GraphBuilder b, Value t) => hp.Activation switch
+        {
+            "silu" => b.Silu(t),
+            "gelu" => b.Unary("Gelu", t),
+            "gelu_tanh" => b.Unary("GeluTanh", t),
+            "relu" => b.Unary("Relu", t),
+            _ => throw new NotSupportedException($"decoder: unknown mlp.activation '{hp.Activation}'."),
+        };
+
+        // Softmax router, top-k experts per token, expert-indexed gate/up/down products, weighted sum over the k slots.
+        Value MoeMlp(GraphBuilder b, Value h, string p)
+        {
+            if (hp.Experts <= 0 || hp.ExpertsUsed <= 0) throw new InvalidDataException("decoder: MoE weights present but moe.expert_count / moe.expert_used_count are missing.");
+            var probs = b.Emit1("Softmax", [b.Linear(h, p + "mlp.router.weight")], null, $"{p}router_probs");
+            var top = b.Emit("TopK", [probs], Attributes.From(("k", (long)hp.ExpertsUsed)), $"{p}router_topk");
+            Value weights = top[0], ids = top[1];
+            if (hp.NormalizeExpertWeights) weights = b.Binary("Div", weights, b.Emit1("ReduceSum", [weights]));
+            var up = b.Emit1("MatMulId", [h, b.Weight(p + "mlp.experts.up.weight"), ids], null, $"{p}experts_up");
+            var gate = b.Emit1("MatMulId", [h, b.Weight(p + "mlp.experts.gate.weight"), ids], null, $"{p}experts_gate");
+            var act = b.Mul(ActOf(b, gate), up);
+            var down = b.Emit1("MatMulId", [act, b.Weight(p + "mlp.experts.down.weight"), ids], null, $"{p}experts_down");   // [T, k, H]
+            var weighted = b.Mul(down, b.Reshape(weights, 0, hp.ExpertsUsed, 1));
+            var summed = b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]);                                              // [T, H, 1]
+            return b.Reshape(summed, 0, hp.NEmbd);
+        }
+
         Value Mlp(GraphBuilder b, Value h, string p)
         {
-            Value Act(Value t) => hp.Activation switch
-            {
-                "silu" => b.Silu(t),
-                "gelu" => b.Unary("Gelu", t),
-                "gelu_tanh" => b.Unary("GeluTanh", t),
-                "relu" => b.Unary("Relu", t),
-                _ => throw new NotSupportedException($"decoder: unknown mlp.activation '{hp.Activation}'."),
-            };
+            Value Act(Value t) => ActOf(b, t);
             var up = b.Linear(h, p + "mlp.up.weight", p + "mlp.up.bias");
             var act = hp.Gated ? b.Mul(Act(b.Linear(h, p + "mlp.gate.weight", p + "mlp.gate.bias")), up) : Act(up);
             return b.Linear(act, p + "mlp.down.weight", p + "mlp.down.bias", $"{p}ffn_out");

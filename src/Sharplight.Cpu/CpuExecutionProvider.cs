@@ -293,6 +293,17 @@ public sealed class CpuDevice : IComputeDevice
                 if (k % Quant.BlockSize(Quant.FormatOf(w.Type)!.Value) != 0) return OpSupport.No($"K={k} is not a multiple of the {w.Type} block size");
                 return OpSupport.Yes;
             }
+            case "MatMulId":
+            {
+                if (!F32Like(ins[0])) return OpSupport.No($"MatMulId activations must be f32, got {ins[0].Type}");
+                var w = ins[1];
+                if (Quant.FormatOf(w.Type) is null) return OpSupport.No($"MatMulId weight type {w.Type} is not supported by the CPU provider");
+                if (!IsStatic(w) && w.Type != DataType.F32) return OpSupport.No("MatMulId with a non-f32 activation as the weight");
+                if (ins[2].Type != DataType.I32) return OpSupport.No("MatMulId expert indices must be i32");
+                long k = w.Shape.Dims[2].Fixed;
+                if (k % Quant.BlockSize(Quant.FormatOf(w.Type)!.Value) != 0) return OpSupport.No($"K={k} is not a multiple of the {w.Type} block size");
+                return OpSupport.Yes;
+            }
             case "Gather":
             {
                 var t = ins[0];

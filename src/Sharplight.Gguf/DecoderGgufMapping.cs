@@ -6,13 +6,13 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp decoder-only architectures (<c>llama</c> (Llama, Mistral, SmolLM, ...), <c>qwen2</c>, <c>qwen3</c>,
-/// <c>gemma2</c>, <c>gemma3</c>, <c>phi3</c> (fused qkv / gate+up are split)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>).
+/// <c>gemma2</c>, <c>gemma3</c>, <c>phi3</c> (fused qkv / gate+up are split), <c>olmoe</c> and <c>qwen3moe</c> (mixture of experts)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>).
 /// llama.cpp's "normal"-rope checkpoints (<c>llama</c>) store q/k rows permuted for interleaved rotation; they are
 /// un-permuted lazily so canonical weights equal those of a Hugging Face import.
 /// </summary>
 public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe"];
     public string Architecture => "decoder";
 
     static bool IsGemma(string a) => a is "gemma2" or "gemma3";
@@ -29,7 +29,7 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
         {
             [a + "layer_count"] = g.Int("block_count"),
             [a + "hidden_size"] = nEmbd,
-            [a + "ffn_hidden_size"] = g.Int("feed_forward_length"),
+            [a + "ffn_hidden_size"] = g.Int("feed_forward_length", g.Int("expert_feed_forward_length", 0)),
             [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
             [a + "attention.head_count"] = nHead,
             [a + "attention.kv_head_count"] = g.Int("attention.head_count_kv", nHead),
@@ -40,6 +40,13 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
             [a + "mlp.activation"] = IsGemma(arch) ? "gelu_tanh" : "silu",
         };
         if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        if (arch is "olmoe" or "qwen3moe")
+        {
+            md[a + "moe.expert_count"] = g.Int("expert_count");
+            md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
+            md[a + "moe.ffn_hidden_size"] = g.Int("expert_feed_forward_length", g.Int("feed_forward_length"));
+            md[a + "moe.normalize_weights"] = arch == "qwen3moe";   // llama.cpp: expert_weights_norm
+        }
 
         if (IsGemma(arch))
         {
@@ -91,6 +98,10 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
         ["ffn_gate.weight"] = "mlp.gate.weight",
         ["ffn_up.weight"] = "mlp.up.weight",
         ["ffn_down.weight"] = "mlp.down.weight",
+        ["ffn_gate_inp.weight"] = "mlp.router.weight",
+        ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
+        ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
+        ["ffn_down_exps.weight"] = "mlp.experts.down.weight",
         // Gemma 2/3: llama.cpp's post_attention_norm / post_ffw_norm are the norms of the sub-layer outputs.
         ["post_attention_norm.weight"] = "attention.out_norm.weight",
         ["post_ffw_norm.weight"] = "mlp.out_norm.weight",

@@ -61,12 +61,44 @@ public sealed class WeightInfo
         return new() { Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes) };
     }
 
+    /// <summary>
+    /// Stacks equally shaped tensors along a new outermost axis (per-expert matrices into one [E, N, K] tensor). The result reads
+    /// its parts lazily; nothing is copied into memory up front.
+    /// </summary>
+    public static WeightInfo Stack(string name, IReadOnlyList<WeightInfo> parts)
+    {
+        var first = parts[0];
+        foreach (var w in parts)
+            if (w.Type != first.Type || !w.Shape.Equals(first.Shape)) throw new ArgumentException($"{name}: cannot stack {w} with {first}.");
+        var dims = new List<Dim> { parts.Count };
+        for (int d = 0; d < first.Shape.Rank; d++) dims.Add(first.Shape[d]);
+        return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]) };
+    }
+
     /// <summary>Reads the whole tensor.</summary>
     public byte[] ReadAll()
     {
         var b = new byte[Source.ByteLength];
         Source.Read(0, b);
         return b;
+    }
+}
+
+sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
+{
+    readonly long _each = parts[0].ByteLength;
+    public long ByteLength => _each * parts.Length;
+    public void Read(long offset, Span<byte> destination)
+    {
+        while (destination.Length > 0)
+        {
+            int i = (int)(offset / _each);
+            long inPart = offset - i * _each;
+            int n = (int)Math.Min(destination.Length, _each - inPart);
+            parts[i].Read(inPart, destination[..n]);
+            destination = destination[n..];
+            offset += n;
+        }
     }
 }
 
