@@ -78,7 +78,7 @@ public sealed partial class GraphLowerer
             ids = DenseTemp(ids, "matmul-id ids");
         }
 
-        x = PrepareMatMulInput(x, "matmul-id", out long xs, out _);
+        x = PrepareMatMulInput(x, "matmul-id", out long xs, out long rowsPerLead);
         var y = Produce(n.Output);
         int fmt = WeightFormat(w.Type)!.Value;
         long rowBytes = w.Type.ByteSize(K);
@@ -90,13 +90,21 @@ public sealed partial class GraphLowerer
         Func<Bindings, long> items = b => Rows(b, tids) * S;
         bool coop = !DiagnosticSwitches.MoeNoCoop && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
                     && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
-        // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much later).
-        long mv = coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E);
+        // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
+        // later, the int-dot matvec only from about 16 items per expert).
+        bool intDot = UseIntDotMatvec(w.Type, K);
+        long mv = intDot ? DiagnosticSwitches.MoeIntDotMaxItems
+            : coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
-        // Decode / few rows: one matvec per (token, slot).
+        // Decode / few rows: one matvec per (token, slot), with int8 dot products when the format allows.
+        if (intDot)
+        {
+            EmitIntDotExpertMatvec(label, n, x, xs, rowsPerLead, w, ids, y, m, mv, S);
+        }
+
         Emit(label + " matvec", [n],
-            [new KernelVariant(b => items(b) <= mv, Lib("moe.slang", "moe_matvec", m), b => new Grid(Grid.Div(N, 4), (uint)Math.Max(1, items(b))))],
+            [new KernelVariant(b => items(b) <= mv && !intDot, Lib("moe.slang", "moe_matvec", m), b => new Grid(Grid.Div(N, 4), (uint)Math.Max(1, items(b))))],
             [Pointer(x), Pointer(w), Pointer(ids),
              Pointer(y), TokenArg(ids)],
             [x, w, ids], [y]);

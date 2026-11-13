@@ -86,8 +86,10 @@ public sealed partial class GraphLowerer
         Func<Bindings, long> rows = b => Rows(b, tx) * rowsPerLead;
         var groupNames = string.Join(",", group.Select(g => g.Op.Name));
         var outer = _launchCondition;
+        long fusedMaxRows = MatvecMaxRows;
         if (UseIntDotMatvec(weightA.Type, K))
         {
+            fusedMaxRows = Math.Max(MatvecMaxRows, IntDotMaxRows);
             string intDotSource = DualEpilogueSource(a, bNode, group, output, "mmvq.slang");
             EmitIntDotMatvec($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead,
                 [weightA, weightB], y, N, K,
@@ -103,10 +105,8 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [x, weightA, weightB], [y]);
 
-        _launchCondition = outer;
-
-        // Larger batches: the regular matmuls and the elementwise group, skipped while rows <= 8.
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > MatvecMaxRows;
+        // Larger batches: the regular matmuls and the elementwise group, skipped while a fused launch serves the rows.
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedMaxRows;
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);

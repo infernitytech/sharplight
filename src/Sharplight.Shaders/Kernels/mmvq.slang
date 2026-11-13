@@ -55,18 +55,7 @@ void quantize_q8_1(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 //   WChunk load_chunk(w, row, ch)            weights of chunk ch of row `row`, unpacked to int8 quads + scales
 //   XChunk load_xchunk(xrow, ch)             the matching activation quads and block scales
 //   float dot_chunk(WChunk, XChunk, ch)      their contribution to the row's dot product
-#ifdef KERNEL_MMVQ
-struct Params
-{
-    uint8_t* xq;
-    uint8_t* w;
-#if DUAL
-    uint8_t* w2;
-#endif
-    float* y;
-    uint T;
-};
-
+#if defined(KERNEL_MMVQ) || defined(KERNEL_MOE_MMVQ)
 int dot4(uint a, uint b, int acc) { return dot4add_i8packed(a, b, acc); }
 int dot16(uint4 a, uint4 b) { return dot4(a.w, b.w, dot4(a.z, b.z, dot4(a.y, b.y, dot4(a.x, b.x, 0)))); }
 
@@ -245,12 +234,49 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
 #ifndef MQ_SG
 #define MQ_SG 4
 #endif
+#ifndef MQ_UNROLL
+#define MQ_UNROLL 1
+#endif
+// MQ_LPR (lanes per row group) < SG: every LPR lanes own MQ_ROWS rows and split K among themselves, so each subgroup
+// works on SG / LPR row groups at once and their activation loads hit the same addresses (broadcast). MQ_LPR == SG:
+// whole subgroups split K, and the MQ_SG subgroups of a workgroup split it further (reduced through shared memory).
+#ifndef MQ_LPR
+#define MQ_LPR SG
+#endif
 #define MQ_THREADS (SG * MQ_SG)
 #define MQ_OUT (MQ_ROWS * MQ_COLS)
+#if MQ_LPR < SG
+#define MQ_GROUP_ROWS (MQ_THREADS / MQ_LPR * MQ_ROWS)
+#else
+#define MQ_GROUP_ROWS MQ_ROWS
+#endif
 
-#if MQ_SG > 1
+#if MQ_SG > 1 && MQ_LPR == SG && defined(KERNEL_MMVQ)
 groupshared float mqPart[MQ_SG][MQ_OUT * (1 + DUAL)];
 #endif
+
+// Sum over the MQ_LPR lanes of a row group (lane groups are aligned within the subgroup).
+float row_group_sum(float v, uint lane)
+{
+#if MQ_LPR < SG
+    [ForceUnroll] for (uint m = 1; m < MQ_LPR; m <<= 1) v += WaveReadLaneAt(v, lane ^ m);
+    return v;
+#else
+    return WaveActiveSum(v);
+#endif
+}
+
+#ifdef KERNEL_MMVQ
+struct Params
+{
+    uint8_t* xq;
+    uint8_t* w;
+#if DUAL
+    uint8_t* w2;
+#endif
+    float* y;
+    uint T;
+};
 
 [shader("compute")]
 [numthreads(MQ_THREADS, 1, 1)]
@@ -258,7 +284,15 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 {
     uint tid = ltid.x;
     uint lane = tid % SG;
+#if MQ_LPR < SG
+    uint row0 = gid.x * MQ_GROUP_ROWS + (tid / MQ_LPR) * MQ_ROWS;
+    uint chBegin = lane % MQ_LPR;
+    const uint chStep = MQ_LPR;
+#else
     uint row0 = gid.x * MQ_ROWS;
+    uint chBegin = tid;
+    const uint chStep = MQ_THREADS;
+#endif
     float acc[MQ_OUT];
     [ForceUnroll] for (int i = 0; i < MQ_OUT; i++) acc[i] = 0;
 #if DUAL
@@ -266,7 +300,8 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     [ForceUnroll] for (int i = 0; i < MQ_OUT; i++) acc2[i] = 0;
 #endif
 
-    for (uint ch = tid; ch < CHUNKS; ch += MQ_THREADS)
+    [unroll(MQ_UNROLL)]
+    for (uint ch = chBegin; ch < CHUNKS; ch += chStep)
     {
         WChunk wc[MQ_ROWS];
 #if DUAL
@@ -281,25 +316,36 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             wc2[r] = load_chunk(p.w2, row, ch);
 #endif
         }
+        // Columns past T (bucket padding) recompute the last row: unconditional loads can all be in flight at once.
         [ForceUnroll]
         for (int c = 0; c < MQ_COLS; c++)
         {
-            if (c < p.T)
+            uint col = min(uint(c), p.T - 1);
+            XChunk xc = load_xchunk(p.xq + uint64_t(col) * QROW, ch);
+            [ForceUnroll]
+            for (int r = 0; r < MQ_ROWS; r++)
             {
-                XChunk xc = load_xchunk(p.xq + uint64_t(c) * QROW, ch);
-                [ForceUnroll]
-                for (int r = 0; r < MQ_ROWS; r++)
-                {
-                    acc[r * MQ_COLS + c] += dot_chunk(wc[r], xc, ch);
+                acc[r * MQ_COLS + c] += dot_chunk(wc[r], xc, ch);
 #if DUAL
-                    acc2[r * MQ_COLS + c] += dot_chunk(wc2[r], xc, ch);
+                acc2[r * MQ_COLS + c] += dot_chunk(wc2[r], xc, ch);
 #endif
-                }
             }
         }
     }
 
-#if MQ_SG > 1
+#if MQ_LPR < SG
+    [ForceUnroll]
+    for (int i = 0; i < MQ_OUT; i++)
+    {
+        uint r = i / MQ_COLS;
+        uint c = i % MQ_COLS;
+        float s = row_group_sum(acc[i], lane);
+#if DUAL
+        s = epi2(s, row_group_sum(acc2[i], lane));
+#endif
+        if (lane % MQ_LPR == 0 && c < p.T && row0 + r < N) p.y[uint64_t(c) * Y_STRIDE + row0 + r] = s;
+    }
+#elif MQ_SG > 1
     uint sg = tid / SG;
     [ForceUnroll]
     for (int i = 0; i < MQ_OUT; i++)
@@ -340,4 +386,61 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     }
 #endif
 }
+#endif
+
+#ifdef KERNEL_MOE_MMVQ
+// Expert-indexed int-dot matvec (MatMulId with few rows): y[item, n] = W[ids[item], n, :] · x[row(item)], item = t * S + s,
+// row(item) = PER_SLOT ? item : t. Grid: (N / MOE_GROUP_ROWS, items). Macros as above plus E, S, PER_SLOT, EXPERT_BYTES;
+// MQ_LPR lanes per row group, no split across subgroups.
+// Every MQ_LPR lanes own MQ_ROWS rows of one item: MQ_THREADS / MQ_LPR row groups per workgroup.
+#define MOE_GROUP_ROWS (MQ_THREADS / MQ_LPR * MQ_ROWS)
+struct MoeParams
+{
+    uint8_t* xq;
+    uint8_t* w;
+    uint* ids;
+    float* y;
+    uint T;
+};
+
+[shader("compute")]
+[numthreads(MQ_THREADS, 1, 1)]
+void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform MoeParams p)
+{
+    uint tid = ltid.x;
+    uint lane = tid % SG;
+    uint item = gid.y;
+    uint row0 = gid.x * MOE_GROUP_ROWS + (tid / MQ_LPR) * MQ_ROWS;
+    uint e = p.ids[item];
+    if (e >= E)
+    {
+        [ForceUnroll]
+        for (int r = 0; r < MQ_ROWS; r++)
+        {
+            if (lane % MQ_LPR == 0 && row0 + r < N) p.y[uint64_t(item) * N + row0 + r] = 0.0;
+        }
+        return;
+    }
+    uint8_t* wb = p.w + uint64_t(e) * EXPERT_BYTES;
+    uint8_t* xr = p.xq + uint64_t(PER_SLOT ? item : item / S) * QROW;
+    float acc[MQ_ROWS];
+    [ForceUnroll] for (int r = 0; r < MQ_ROWS; r++) acc[r] = 0;
+    [unroll(MQ_UNROLL)]
+    for (uint ch = lane % MQ_LPR; ch < CHUNKS; ch += MQ_LPR)
+    {
+        XChunk xc = load_xchunk(xr, ch);
+        [ForceUnroll]
+        for (int r = 0; r < MQ_ROWS; r++)
+        {
+            acc[r] += dot_chunk(load_chunk(wb, min(row0 + r, uint(N - 1)), ch), xc, ch);
+        }
+    }
+    [ForceUnroll]
+    for (int r = 0; r < MQ_ROWS; r++)
+    {
+        float s = row_group_sum(acc[r], lane);
+        if (lane % MQ_LPR == 0 && row0 + r < N) p.y[uint64_t(item) * N + row0 + r] = s;
+    }
+}
+#endif
 #endif

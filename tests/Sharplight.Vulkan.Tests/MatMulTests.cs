@@ -64,25 +64,7 @@ public sealed class MatMulTests
         var x = tg.InF("x", TG.T, K);
         var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
-        Diff.Check("MatMul.exact8." + fmt, tg.B.Build(), new Step(t, 0, (x, ExactInt8Activations((long)t * K, 5))), atol: 2e-3, rtol: 1e-3, what: $"T={t}");
-    }
-
-    /// <summary>
-    /// Values k·s with integer k in [-127, 127] and a power-of-two scale s that differs between 32-value blocks; one value
-    /// per block is ±127·s, so every block quantizes exactly with scale s.
-    /// </summary>
-    private static float[] ExactInt8Activations(long n, int seed)
-    {
-        var rng = new Random(seed);
-        var a = new float[n];
-        for (long i = 0; i < n; i++)
-        {
-            float scale = MathF.ScaleB(1f, -4 - (int)(i / 32 % 5));
-            int k = i % 32 == (i / 32) % 32 ? (rng.Next(2) == 0 ? 127 : -127) : rng.Next(-127, 128);
-            a[i] = k * scale;
-        }
-
-        return a;
+        Diff.Check("MatMul.exact8." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.ExactInt8((long)t * K, 5))), atol: 2e-3, rtol: 1e-3, what: $"T={t}");
     }
 
     [Theory]

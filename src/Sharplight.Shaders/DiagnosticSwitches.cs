@@ -15,6 +15,7 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 weights in the file layout (no aligned-quants repack).</item>
 /// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
+/// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8).</item>
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
@@ -26,7 +27,7 @@ namespace Sharplight.Shaders;
 /// flash attention, split-key decode attention, and flash attention for multi-sequence batches.</item>
 /// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
 /// block of the delta-rule and selective-scan kernels.</item>
-/// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
+/// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_MMVQ_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
 /// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>).</item>
 /// </list>
 /// </summary>
@@ -49,6 +50,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
+
+    /// <summary>Largest activation row count served by the integer-dot matvec.</summary>
+    public static long IntDotMaxRows { get; } = long.Parse(Read("SHARPLIGHT_MMVQ_MAX_ROWS") ?? "8", CultureInfo.InvariantCulture);
 
     /// <summary>Forced integer-dot matvec layout (weight rows per workgroup, subgroups per workgroup), or null.</summary>
     public static int[]? IntDotLayout { get; } = Read("SHARPLIGHT_MMVQ_LAYOUT")?.Split(',').Select(int.Parse).ToArray();
@@ -91,6 +95,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>(token, slot) items up to which a per-item expert matvec beats grouping by expert.</summary>
     public static int MoeMatvecMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MV_MAX") ?? "16", CultureInfo.InvariantCulture);
+
+    /// <summary>(token, slot) items up to which the per-item int-dot expert matvec beats grouping by expert.</summary>
+    public static int MoeIntDotMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MMVQ_MAX") ?? "128", CultureInfo.InvariantCulture);
 
     /// <summary>Forced expert-matmul token tile, or 0 for the heuristic.</summary>
     public static int MoeTile { get; } = int.Parse(Read("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);

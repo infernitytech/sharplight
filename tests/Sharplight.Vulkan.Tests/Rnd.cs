@@ -17,6 +17,24 @@ internal static class Rnd
         return a;
     }
 
+    /// <summary>
+    /// Values k·s with integer k in [-127, 127] and a power-of-two scale s that differs between 32-value blocks; one value
+    /// per block is ±127·s, so 8-bit block quantization (the integer-dot kernels) represents every value exactly.
+    /// </summary>
+    public static float[] ExactInt8(long n, int seed)
+    {
+        var rng = new Random(seed);
+        var a = new float[n];
+        for (long i = 0; i < n; i++)
+        {
+            float scale = MathF.ScaleB(1f, -4 - (int)(i / 32 % 5));
+            int k = i % 32 == (i / 32) % 32 ? (rng.Next(2) == 0 ? 127 : -127) : rng.Next(-127, 128);
+            a[i] = k * scale;
+        }
+
+        return a;
+    }
+
     public static float[] Pos(long n, int seed, float lo = 0.1f, float hi = 2f)
     {
         var rng = new Random(seed);
