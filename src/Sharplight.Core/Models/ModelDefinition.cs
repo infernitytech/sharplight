@@ -97,12 +97,13 @@ public enum InputRole
     OutputRows,
     /// <summary>Image / audio pixel or feature data.</summary>
     Media,
+    Other,
     /// <summary>
     /// Per-row selector [T, 1] f32 of a graph that takes both token ids and embeddings: 1 = take the row from the
     /// embeddings input, 0 = from the token embedding table (multimodal prompts mixing text and media).
+    /// Declared last so the stored values of the other roles (saved packages) stay valid.
     /// </summary>
     EmbeddingMask,
-    Other,
 }
 
 public sealed class InputDefinition
