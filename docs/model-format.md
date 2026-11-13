@@ -1,8 +1,8 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
 Status: container v2, artifact tiers, inspection API and `sharplight-convert` (convert, info, precompile --device, strip,
-compact) are implemented; the graph optimization phase, device profiles (`profile`, `precompile --profile`), the `optimize`
-command and the viewer are not yet (2026-11-13).
+compact) are implemented; the package viewer (`Sharplight.PackageViewer`) is implemented; the graph optimization phase, device profiles (`profile`,
+`precompile --profile`) and the `optimize` command are not yet (2026-11-13).
 
 ## Goals
 
@@ -90,8 +90,9 @@ length), `Weights` (`PackageWeightInfo`: name, type, shape, offset, bytes), `Art
 provider/tier/kind, legacy flag, entry count, total bytes, `ArtifactEntryInfo` key + size), and `Definition` (`DefinitionInfo`,
 decoded on first access: architecture, name, states, raw properties and metadata with `DefinitionInfo.FormatValue` for display,
 `GraphInfo` per graph with node count, op histogram, inputs/outputs as `GraphValueInfo` (type, shape, role), weight and state
-counts, and a lazily built node table of `NodeInfo` (id, op, group, attributes, inputs, outputs)). Used by
-`sharplight-convert info` and the viewer.
+counts, a lazily built node table of `NodeInfo` (id, op, group, attributes, inputs, outputs), and the lazily built textual IR
+`GraphInfo.Ir`: one `IrLine` per line of `ComputeGraph.Dump` (depth, kind, text, scope, node id, defined and used value ids;
+control-flow subgraphs get their own scope)). Used by `sharplight-convert info` and the viewer.
 
 ## Tools
 
@@ -106,8 +107,12 @@ counts, and a lazily built node table of `NodeInfo` (id, op, group, attributes, 
     holds only this model's pipelines. Sets that were served entirely from the package are not stored again.
   - `strip <slm> [--provider] [--tier] [--compact]`, `compact <slm>`.
   - Planned: `optimize <slm>`, `profile --device`, `precompile --profile <json>`.
-- `Sharplight.PackageViewer` (Avalonia, planned): open a `.slm`; tree of sections; graph view (node table with op, shapes,
-  attributes; op histogram); weights table; artifact sets grouped by provider and tier with sizes; metadata/properties.
+- `Sharplight.PackageViewer` (samples/Sharplight.PackageViewer, Avalonia 11; `sharplight-viewer [file.slm]`, open dialog or drag
+  and drop): overview (version, size, reclaimable bytes, section table, filterable properties/metadata), graphs (inputs/outputs,
+  op histogram, virtualized filterable node table, IR view in the `--dump-graph` format with search, go-to-producer / consumers,
+  dataflow neighborhood, linked to the node table), weights (sortable/filterable, totals per type), artifact sets by provider
+  and tier with descriptors and entries. Light/dark theme follows the OS. Qwen3-0.6B Q8_0 with both tiers (624 MiB) opens in
+  about 0.1-0.15 s; a 100k-node graph builds its node table and IR in about 1.2 s on a background thread.
 
 ## Measured load times
 

@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.PackageViewer.ViewModels"
+             x:Class="Sharplight.PackageViewer.Views.ArtifactsView"
+             x:DataType="vm:ArtifactsViewModel">
+  <Grid ColumnDefinitions="400,8,*" RowDefinitions="Auto,*" Margin="0,8,0,0">
+    <TextBlock Grid.ColumnSpan="3" Margin="0,0,0,8" TextWrapping="Wrap" Text="{Binding Summary}" />
+    <TreeView Grid.Row="1" ItemsSource="{Binding Providers}" SelectedItem="{Binding SelectedNode}">
+      <TreeView.ItemTemplate>
+        <TreeDataTemplate x:DataType="vm:ArtifactTreeNode" ItemsSource="{Binding Children}">
+          <StackPanel Margin="0,2">
+            <TextBlock FontWeight="SemiBold" Text="{Binding Label}" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding Detail}" />
+          </StackPanel>
+        </TreeDataTemplate>
+      </TreeView.ItemTemplate>
+    </TreeView>
+
+    <TextBlock Grid.Row="1" Grid.Column="2" Classes="caption" Text="Select a set to see its descriptor and entries."
+               IsVisible="{Binding SelectedSet, Converter={x:Static ObjectConverters.IsNull}}" />
+    <ContentControl Grid.Row="1" Grid.Column="2" Content="{Binding SelectedSet}">
+      <ContentControl.ContentTemplate>
+        <DataTemplate x:DataType="vm:ArtifactSetViewModel">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+            <SelectableTextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding Id}" />
+            <SelectableTextBlock Grid.Row="1" Margin="0,2,0,0" Text="{Binding Sizes}" />
+            <TextBlock Grid.Row="2" Classes="heading" Text="Descriptor" />
+            <DataGrid Grid.Row="3" ItemsSource="{Binding Descriptor}" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                      MaxHeight="260">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Key" Binding="{Binding Key}" />
+                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" />
+              </DataGrid.Columns>
+            </DataGrid>
+            <Grid Grid.Row="4" ColumnDefinitions="Auto,*" Margin="0,8,0,4">
+              <TextBlock Classes="heading" Margin="0,0,12,0" VerticalAlignment="Center" Text="Entries" />
+              <TextBox Grid.Column="1" Watermark="Filter (key)" Text="{Binding EntryFilter}" />
+            </Grid>
+            <DataGrid Grid.Row="5" ItemsSource="{Binding Entries}" IsReadOnly="True" GridLinesVisibility="Horizontal"
+                      FontFamily="monospace">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="*" />
+                <DataGridTextColumn Header="Size" Binding="{Binding Size}" SortMemberPath="Bytes" />
+              </DataGrid.Columns>
+            </DataGrid>
+          </Grid>
+        </DataTemplate>
+      </ContentControl.ContentTemplate>
+    </ContentControl>
+  </Grid>
+</UserControl>

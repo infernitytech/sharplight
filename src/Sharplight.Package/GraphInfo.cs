@@ -6,6 +6,7 @@ namespace Sharplight.Package;
 public sealed class GraphInfo
 {
     private readonly Lazy<IReadOnlyList<NodeInfo>> _nodes;
+    private readonly Lazy<IReadOnlyList<IrLine>> _ir;
 
     internal GraphInfo(string name, ComputeGraph graph)
     {
@@ -21,6 +22,7 @@ public sealed class GraphInfo
         WeightBytes = weights.Sum(v => v.Weight!.ByteSize);
         StateCount = graph.States.Count();
         _nodes = new(() => [.. graph.Nodes.Select(Describe)]);
+        _ir = new(() => IrLine.Build(graph));
     }
 
     /// <summary>Graph name (e.g. <c>decode</c>, <c>vision_encode</c>, <c>main</c>).</summary>
@@ -49,6 +51,12 @@ public sealed class GraphInfo
 
     /// <summary>Every node in execution order; built on first access.</summary>
     public IReadOnlyList<NodeInfo> Nodes => _nodes.Value;
+
+    /// <summary>
+    /// The textual IR, one entry per line of <see cref="ComputeGraph.Dump"/> (inputs, weights, states, constants, nodes, control-flow
+    /// subgraphs, outputs), with value references for navigation; built on first access, reads no weight data. Thread-safe.
+    /// </summary>
+    public IReadOnlyList<IrLine> Ir => _ir.Value;
 
     private static NodeInfo Describe(Node node) => new(
         node.Id,

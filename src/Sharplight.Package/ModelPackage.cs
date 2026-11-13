@@ -128,8 +128,10 @@ public static class ModelPackage
             {
                 ArrayPool<byte>.Shared.Return(buf);
             }
+            // Without weights nothing was padded to dataStart: the (empty) data section starts where the index ends.
             long dataEnd = fs.Position;
-            sections.Add(new PackageSection(PackageSectionKind.WeightData, "", dataStart, dataEnd - dataStart));
+            long dataOffset = weights.Count == 0 ? dataEnd : dataStart;
+            sections.Add(new PackageSection(PackageSectionKind.WeightData, "", dataOffset, dataEnd - dataOffset));
 
             sections.AddRange(WriteArtifactSets(fs, artifacts));
             PackageWriter.WriteTable(fs, sections);

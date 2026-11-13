@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.PackageViewer.ViewModels"
+             xmlns:views="using:Sharplight.PackageViewer.Views"
+             x:Class="Sharplight.PackageViewer.Views.GraphsView"
+             x:DataType="vm:GraphsViewModel">
+  <Grid ColumnDefinitions="200,8,*" Margin="0,8,0,0">
+    <ListBox ItemsSource="{Binding Graphs}" SelectedItem="{Binding SelectedGraph}">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="vm:GraphViewModel">
+          <StackPanel>
+            <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+            <TextBlock Classes="caption" Text="{Binding Summary}" />
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <ContentControl Grid.Column="2" Content="{Binding SelectedGraph}">
+      <ContentControl.ContentTemplate>
+        <DataTemplate x:DataType="vm:GraphViewModel">
+          <Grid RowDefinitions="Auto,Auto,Auto,2*,6,3*">
+            <SelectableTextBlock Margin="0,0,0,4" Text="{Binding Details}" />
+
+            <Expander Grid.Row="1" Header="Inputs, outputs and op histogram" IsExpanded="False" HorizontalAlignment="Stretch">
+              <Grid Height="240" ColumnDefinitions="*,8,280">
+                <Grid RowDefinitions="Auto,*,Auto,*">
+                  <TextBlock Classes="heading" Margin="0,0,0,4" Text="Inputs" />
+                  <DataGrid Grid.Row="1" ItemsSource="{Binding Inputs}" IsReadOnly="True" GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="Name" Binding="{Binding Name}" />
+                      <DataGridTextColumn Header="Type" Binding="{Binding Type}" />
+                      <DataGridTextColumn Header="Shape" Binding="{Binding Shape}" />
+                      <DataGridTextColumn Header="Role" Binding="{Binding Role}" Width="*" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                  <TextBlock Grid.Row="2" Classes="heading" Text="Outputs" />
+                  <DataGrid Grid.Row="3" ItemsSource="{Binding Outputs}" IsReadOnly="True" GridLinesVisibility="Horizontal">
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="Name" Binding="{Binding Name}" />
+                      <DataGridTextColumn Header="Type" Binding="{Binding Type}" />
+                      <DataGridTextColumn Header="Shape" Binding="{Binding Shape}" Width="*" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </Grid>
+                <Grid Grid.Column="2" RowDefinitions="Auto,*">
+                  <TextBlock Classes="heading" Margin="0,0,0,4" Text="Ops (select one to filter)" />
+                  <ListBox Grid.Row="1" ItemsSource="{Binding OpHistogram}" SelectedItem="{Binding SelectedOp}">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:OpCountRow">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <ProgressBar Grid.ColumnSpan="2" MinWidth="0" Height="18" Minimum="0" Maximum="100"
+                                       Value="{Binding Percent}" Opacity="0.35" />
+                          <TextBlock Margin="6,0" VerticalAlignment="Center" Text="{Binding Op}" />
+                          <TextBlock Grid.Column="1" Margin="6,0" VerticalAlignment="Center" Text="{Binding Count}" />
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </Grid>
+              </Grid>
+            </Expander>
+
+            <Grid Grid.Row="2" ColumnDefinitions="Auto,*,Auto" Margin="0,8,0,4">
+              <TextBlock Classes="heading" Margin="0,0,12,0" VerticalAlignment="Center" Text="Nodes" />
+              <TextBox Grid.Column="1" Watermark="Filter (op, name, group, shapes, attributes; op:MatMul matches the op exactly)"
+                       Text="{Binding NodeFilter}" />
+              <TextBlock Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center" Text="{Binding NodeSummary}" />
+            </Grid>
+            <DataGrid Grid.Row="3" ItemsSource="{Binding Nodes}" SelectedItem="{Binding SelectedNode}" IsReadOnly="True"
+                      GridLinesVisibility="Horizontal" FontFamily="monospace" SelectionMode="Single"
+                      SelectionChanged="OnNodeSelectionChanged">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="#" Binding="{Binding Id}" />
+                <DataGridTextColumn Header="Op" Binding="{Binding Op}" />
+                <DataGridTextColumn Header="Name" Binding="{Binding Name}" MaxWidth="320" />
+                <DataGridTextColumn Header="Group" Binding="{Binding Group}" />
+                <DataGridTextColumn Header="Outputs" Binding="{Binding Outputs}" MaxWidth="320" />
+                <DataGridTextColumn Header="Inputs" Binding="{Binding Inputs}" MaxWidth="640" />
+                <DataGridTextColumn Header="Attributes" Binding="{Binding Attributes}" Width="*" MinWidth="200" />
+              </DataGrid.Columns>
+            </DataGrid>
+
+            <GridSplitter Grid.Row="4" ResizeDirection="Rows" Background="Transparent" />
+            <views:IrView Grid.Row="5" DataContext="{Binding Ir}" />
+          </Grid>
+        </DataTemplate>
+      </ContentControl.ContentTemplate>
+    </ContentControl>
+  </Grid>
+</UserControl>

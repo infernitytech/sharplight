@@ -63,31 +63,21 @@ public sealed class ComputeGraph
     /// <param name="role">The role to look for.</param>
     public Value? TryInput(InputRole role) => Inputs.FirstOrDefault(i => i.Input!.Role == role);
 
-    /// <summary>Human readable dump, useful for debugging adapters.</summary>
+    /// <summary>
+    /// Human readable dump, useful for debugging adapters: inputs, the weights, states and constants the nodes read, one line per
+    /// node, control-flow subgraphs (indented below their node), outputs and dynamic symbols. Reads no weight data.
+    /// </summary>
     public string Dump()
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"graph {Name}");
-        foreach (var i in Inputs)
+        foreach (var line in DumpLines())
         {
-            sb.AppendLine($"  input  {i} {i.Input}");
-        }
-
-        foreach (var n in Nodes)
-        {
-            sb.AppendLine("  " + n);
-        }
-
-        foreach (var (k, v) in Outputs)
-        {
-            sb.AppendLine($"  output {k} = %{v.Id}");
-        }
-
-        foreach (var (k, v) in DynamicSymbols)
-        {
-            sb.AppendLine($"  dynamic {k} <= {v}");
+            sb.Append(' ', 2 * line.Depth).AppendLine(line.Text);
         }
 
         return sb.ToString();
     }
+
+    /// <summary>The lines of <see cref="Dump"/> with their structure (nesting depth, kind, node or value), produced lazily.</summary>
+    public IEnumerable<GraphDumpLine> DumpLines() => GraphDump.Lines(this, 0, null);
 }
