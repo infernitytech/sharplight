@@ -50,7 +50,7 @@ internal sealed partial class OnnxTranslator
         }
 
         var y = x;
-        foreach (int a in axes)
+        foreach (int a in axes.Where(a => !x.Shape[a].IsSymbolic))
         {
             int inLen = (int)x.Shape[a].Fixed;
             if (outSize[a] == inLen && Math.Abs(scale[a] - 1) < 1e-12 && roi[a] == 0 && roi[rank + a] == 1)
@@ -75,7 +75,7 @@ internal sealed partial class OnnxTranslator
 
         bool kernelMode = p.Mode is "nearest" or "linear" && p.CoordinateMode is "half_pixel" or "align_corners" or "asymmetric" or "pytorch_half_pixel"
             && !p.ExcludeOutside && p.NearestMode is "round_prefer_floor" or "round_prefer_ceil" or "floor" or "ceil";
-        bool exactScales = Enumerable.Range(2, 2).All(a => Math.Abs(scale[a] - (double)outSize[a] / x.Shape[a].Fixed) < 1e-9 * scale[a]);
+        bool exactScales = Enumerable.Range(2, 2).All(a => Math.Abs(scale[a] - (double)outSize[a] / x.Shape[a].Fixed) < 1e-6 * scale[a]);
         bool noAntialias = !p.Antialias || p.Mode == "nearest" || (scale[2] >= 1 && scale[3] >= 1);
         return kernelMode && exactScales && noAntialias;
     }
@@ -169,6 +169,12 @@ internal sealed partial class OnnxTranslator
                     continue;
                 }
 
+                if (inSize[a] < 0)
+                {
+                    // A fixed size for the symbolic batch axis is the export-time batch; the batch is never resized.
+                    continue;
+                }
+
                 outSize[a] = s[k];
                 scale[a] = (double)s[k] / inSize[a];
             }
@@ -218,7 +224,7 @@ internal sealed partial class OnnxTranslator
             }
 
             scale[a] = s;
-            outSize[a] = (long)Math.Floor(s * inSize[a]);
+            outSize[a] = (long)MathF.Floor((float)s * inSize[a]);   // float32 product, as the ONNX reference and ORT compute it
         }
 
         return (outSize, scale);

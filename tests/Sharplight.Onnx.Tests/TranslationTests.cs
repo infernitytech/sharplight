@@ -252,10 +252,10 @@ public class TranslationTests
     }
 
     [Fact]
-    public void ConstantGraphOutput_IsRejected()
+    public void ConstantGraphOutput_IsMaterialized()
     {
         var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4).Output("k", 1).InitF32("c", [1], [1f]).Node("Relu", ["x"], ["y"]).Node("Identity", ["c"], ["k"]);
-        Assert.Throws<NotSupportedException>(() => m.Build());
+        Assert.Equal(1L, m.Build().Graph("main").Outputs["k"].Shape[0].Fixed);
     }
 
     [Fact]
