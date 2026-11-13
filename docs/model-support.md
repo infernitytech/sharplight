@@ -91,22 +91,22 @@ Next in line: M-RoPE + DeepStack in the decoder adapter (qwen2vl/qwen3vl/glm4v/p
 | Code | Block | Archs needing it | Score | Effort | Sharplight today |
 |---|---|---|---|---|---|
 | `LN` | **LayerNorm (mean-centred, bias) in the generic decoder adapter**. Falcon, GPT-NeoX/J, Phi-2, StarCoder(2), OLMo-1, Command-R/Cohere (no bias), Nemotron-4 (1+w), Bloom, MPT, BERT. | 26 | 34 | S | LayerNorm op exists (used by VisionTowerGraph); decoder adapter has RMS only |
-| `RBIAS` | **Aux-loss-free routing: selection bias (e_score_correction_bias), sigmoid scores, optional renorm + scale**. top-k chosen on score+bias, weights taken from the unbiased score. Nemotron-H adapter has it; the generic decoder adapter only has softmax/sigmoid without bias. | 18 | 31 | S | present in NemotronHAdapter; lift into the shared MoE helper |
+| `RBIAS` | **Aux-loss-free routing: selection bias (e_score_correction_bias), sigmoid scores, optional renorm + scale**. top-k chosen on score+bias, weights taken from the unbiased score. Nemotron-H adapter has it; the generic decoder adapter only has softmax/sigmoid without bias. | 18 | 31 | S | **done** in the shared `MoeOptions`/`MoeRouter`/`MoeBlock` (decoder, hybrid, NemotronH, Qwen3.5 and latent_decoder adapters): `moe.router_activation` softmax / sigmoid / softmax_topk / sqrt_softplus, `mlp.router_bias` selection bias, `moe.normalize_weights`, `moe.weights_scale`, `moe.weights_before_experts` |
 | `MLA` | **Multi-head latent attention**. q_lora / kv_lora compression, decoupled rope dims, absorbed form with a latent KV cache (llama.cpp caches kv_lora_rank + rope_dim per token) and, for prefill, the expanded MHA form; yarn mscale on the softmax scale. | 15 | 24 | L | **done** (LatentAttention block in `latent_decoder`: latent cache [kv_lora normed latent, roped k_pe], absorbed queries via per-head MatMulId, CachedAttention `v_dims`); prefill also uses the absorbed form (expanded prefill and an MQA-shaped decode kernel still to do) |
-| `RGRP` | **Group-limited top-k routing (n_group / topk_group)**. experts split into groups, best groups chosen by (top-2 sum of) scores, then top-k inside them (DeepSeek-V3, Ling, Kimi-K2, GLM-4.5 n_group=1 degenerates). | 11 | 22 | S | missing (TopK on reshaped scores + mask; no new kernel needed if TopK is batched) |
+| `RGRP` | **Group-limited top-k routing (n_group / topk_group)**. experts split into groups, best groups chosen by (top-2 sum of) scores, then top-k inside them (DeepSeek-V3, Ling, Kimi-K2, GLM-4.5 n_group=1 degenerates). | 11 | 22 | S | **done** in `MoeRouter` (`moe.group_count`, `moe.group_used_count`, `moe.group_score` top2_sum / max); latent_decoder uses it too |
 | `IDX` | **Sparse-attention indexer (DSA / QSA / lightning indexer)**. a small per-layer scoring attention (few heads, head_dim 128, q/k norm) picks top-k visible tokens (budget 2048; QSA pools keys in blocks of compress_ratio) and the main attention only attends to them. | 11 | 20 | L | missing: scoring op + gather/top-k + sparse attention path (a masked dense fallback is enough for correctness) |
 | `RES` | **muP-style scalings: residual/branch scale, attention multiplier, embedding & logit scale**. Granite (residual_scale, attention_scale, embedding_scale, logits_scaling), MiniCPM (scale_depth/sqrt(L)), Falcon-H1 (mup multipliers), Cohere logit scale, MiniMax. | 10 | 19 | S | embedding_scale, logit_scale, attention.scale exist; residual (branch) scale missing |
 | `HC` | **Hyper-connections (multi-stream residual)**. hc_count (4) parallel residual streams [hidden, hc, T]; before each mixer/MoE a grouped RMS norm + low-rank (hc_lowrank 320) gate + sigmoid collapses the streams, results are scattered back with learned inject weights; final head mixer replaces output_norm (DeepSeek-V4 uses Sinkhorn-normalised mixing instead of low-rank). | 9 | 16 | M | missing: pure graph feature (RmsNorm, Linear, Silu, Sigmoid, Mul, Add exist); KV/state cache unaffected, but activations are hc times larger |
 | `POOL` | **Pooling and heads for embedding/rerank models**. mean / CLS / last-token pooling, L2 normalise, classification (rank) head, token-type embeddings. | 11 | 15 | S | missing in the runtime API (Qwen3-Embedding works as a decoder with last-token pooling only if exposed) |
 | `ENC` | **Bidirectional encoder graph**. non-causal attention, post-LN BERT blocks / ModernBERT local-global rope / NomicBERT SwiGLU, no KV cache, batch of independent sequences. | 11 | 15 | M | Attention op supports non-causal use (vision tower); no text encoder adapter, no GGUF/HF text-encoder mapping |
 | `PAR` | **Parallel residual (attention and MLP read the same normed input)**. x + attn(n(x)) + mlp(n(x)); Falcon, GPT-NeoX/J, Phi-2, Cohere, Command-R, StableLM-12B, Cohere2. | 9 | 12 | S | missing in DecoderAdapter (graph wiring only) |
-| `ACT` | **Extra activations**. ReLU^2 ungated MLP (Arcee, Nemotron-4, Jais2, PLM), xIELU (Apertus), clamped SwiGLU-OAI with alpha (gpt-oss, MiniMax-M3, Ricursive), GELU-new variants. | 7 | 12 | S | ReLU^2 exists in NemotronHAdapter; SwiGLU-OAI/xIELU missing (elementwise graph, no kernel) |
+| `ACT` | **Extra activations**. ReLU^2 ungated MLP (Arcee, Nemotron-4, Jais2, PLM), xIELU (Apertus), clamped SwiGLU-OAI with alpha (gpt-oss, MiniMax-M3, Ricursive), GELU-new variants. | 7 | 12 | S | **done**: ReLU^2, xIELU and the clamped SwiGLU-OAI (`swiglu_oai`, `mlp.swiglu_limit`) |
 | `SGATE` | **Sigmoid-gated shared expert**. shared expert output multiplied by sigmoid(h . w_gate) (llama.cpp ffn_gate_inp_shexp, [hidden]). Decoder's shared expert is added ungated. | 5 | 12 | S | missing (one Linear + Sigmoid + Mul) |
 | `MROPE` | **M-RoPE / interleaved M-RoPE with sections**. rope.sections over (t,h,w[,e]); Qwen35Adapter has it for its own graph, DecoderAdapter does not. | 6 | 10 | S | exists in Qwen35Adapter; expose in the decoder adapter for qwen2vl/qwen3vl/glm4v/paddleocr |
 | `MOEHYB` | **MoE FFN inside the hybrid (gated-delta + attention) adapter**. Qwen35Adapter layers use a dense SwiGLU MLP; qwen3next/qwen35moe/qwen4exp replace it by routed experts (softmax top-k, norm-topk, 256-512 experts) plus a shared expert. The router/expert code already exists in DecoderAdapter (MatMulId, TopK, Softmax) and NemotronHAdapter. | 4 | 10 | S | ops exist; factor the MoE sub-graph out of DecoderAdapter and call it from Qwen35Adapter |
 | `M2H` | **Mamba-2 inside a generic hybrid layer stack (parallel or interleaved with attention/MoE)**. Granite-4.0-H (interleaved Mamba2 + attention + MoE with shared expert), Falcon-H1 (attention and Mamba2 in parallel in one layer, multipliers), Jamba, PLaMo-2. | 5 | 8 | M | SelectiveScan + CausalConv1d exist and NemotronHAdapter composes them; needs a shared per-layer block factory |
 | `KDA` | **Kimi Delta Attention (per-channel-gated delta rule) / lightning variants**. gated delta rule with a per-key-channel decay instead of a per-head scalar (Kimi-Linear, Ling-3/Ring-linear, GLM5-next, Kimi K3). | 5 | 8 | M | GatedDeltaRule exists with scalar gate; needs per-channel gate variant |
-| `TMP` | **Attention temperature tuning and chunked-local attention**. Llama 4 NoPE layers scale q by log(floor((pos+1)/floor_scale)+1)*attn_scale+1; iRoPE chunked attention mask; Mistral-3/4 use the same scale. | 3 | 6 | S | missing: per-position q scale + chunk mask (SWA mask exists) |
+| `TMP` | **Attention temperature tuning and chunked-local attention**. Llama 4 NoPE layers scale q by log(floor((pos+1)/floor_scale)+1)*attn_scale+1; iRoPE chunked attention mask; Mistral-3/4 use the same scale. | 3 | 6 | S | **done**: per-layer query temperature (`attention.temperature_scale/length/offset/layers`) and chunked attention (`attention.chunk_size/chunk_layers`, CachedAttention `chunk` on CPU and Vulkan) |
 | `ALIBI` | **ALiBi / additive score bias in cached attention**. Bloom, MPT, Baichuan-13B, Refact, Jais, Jina-BERT-v2; same plumbing serves T5 relative-position buckets. | 5 | 5 | M | missing: bias input on Attention/CachedAttention |
 | `CONV` | **Gated short-conv layer (LFM2/LFM3)**. in_proj -> (B, C, x); y = C * conv_k3(B * x); out_proj; interleaved with GQA layers and (lfm2moe) MoE. | 3 | 5 | S | CausalConv1d exists; needs adapter + state plumbing |
 | `YARNM` | **YaRN attention factor on MLA softmax scale**. mscale^2 folded into the MLA scale (rope.attention_scale exists for non-MLA). | 2 | 5 | S | **done** with MLA (`attention.scale` of latent_decoder) |
@@ -121,16 +121,16 @@ Next in line: M-RoPE + DeepStack in the decoder adapter (qwen2vl/qwen3vl/glm4v/p
 | `WKV6` | **RWKV-6 time-mix**. data-dependent decay with LoRA, WKV6 recurrence, token shift, group norm. | 2 | 3 | M | missing: Wkv6 op (WKV7 kernel can share structure) |
 | `LOOP` | **Weight-shared layer loops**. Nanbeige (num_loops), HRM-Text (H/L cycles): the same layer repeated with distinct KV slots. | 2 | 3 | S | graph feature: reuse weights, separate cache keys |
 | `QKVZ` | **qwen3next fused projection layouts**. qwen3next stores in_proj_qkvz / in_proj_ba with head-interleaved layout (llama.cpp ssm_in + ssm_beta_alpha, and a per-layer split rule in the loader); Qwen3.5 uses separate qkv/z/b/a. | 1 | 3 | S | mapping + lazy row permutation in Gguf/HF importers |
-| `MXFP4` | **MXFP4 / NVFP4 weight formats**. gpt-oss ships MXFP4 experts; many 2026 checkpoints ship NVFP4. CPU and Slang decoders, matvec, GEMM and MatMulId exist and are tested against ggml (quantisation track Q); gpt-oss still needs expert bias and SwiGLU-OAI from the decoder track. | 1 | 3 | M | kernels done |
-| `EBIAS` | **Per-expert biases in MatMulId**. gpt-oss experts have gate/up/down biases. | 1 | 3 | S | missing: bias gather per selected expert |
+| `MXFP4` | **MXFP4 / NVFP4 weight formats**. gpt-oss ships MXFP4 experts; many 2026 checkpoints ship NVFP4. CPU and Slang decoders, matvec, GEMM and MatMulId exist and are tested against ggml (quantisation track Q); gpt-oss still needs expert bias and SwiGLU-OAI from the decoder track. | 1 | 3 | M | **done** (kernels; gpt-oss GGUF and HF MXFP4 `*_blocks`/`*_scales` experts import) |
+| `EBIAS` | **Per-expert biases in MatMulId**. gpt-oss experts have gate/up/down biases. | 1 | 3 | S | **done** (`experts.{gate,up,gate_up,down}.bias` gathered per selected expert) |
 | `LIN` | **Lightning / linear attention with fixed decay**. MiniMax-01/M3 lightning attention: block-wise kv state with exponential decay, softmax layer every 8th. | 2 | 2 | M | missing: new recurrent op (close to GatedDeltaRule without delta correction) |
 | `MOELATENT` | **MoE in a latent space (down/up projection around the experts)**. Nemotron-H MoE latent (supported), Muse-Spark, Maion-Coder. | 2 | 2 | S | exists in NemotronHAdapter |
 | `ALTUP` | **Gemma 3n AltUp (4 parallel streams with predict/correct)**. plus LAuReL low-rank residual and activation sparsity; PLE and KV sharing already exist. | 1 | 2 | M | missing |
 | `LAUREL` | **Gemma 3n LAuReL**. low-rank learned residual. | 1 | 2 | S | missing |
 | `XATTN` | **Cross-attention encoder-decoder (T5)**. encoder runs once, decoder cross-attends to cached encoder K/V; relative-position bias buckets; no RoPE. | 1 | 2 | L | missing: 2-graph model + cross-attention cache |
 | `ADAPTM2` | **Pure Mamba-2 model adapter**. mamba2-130m...: all layers SSM; a degenerate case of NemotronHAdapter once its mapping accepts `mamba2`. | 1 | 2 | S | adapter exists in effect; mapping + hparam names missing |
-| `TQ` | **Ternary TQ1_0/TQ2_0/I2_S formats**. BitNet b1.58 official GGUFs. | 1 | 2 | M | registered DataTypes only |
-| `SUBNORM` | **BitNet sub-layer norms**. extra RMS norms before attn-out and ffn-down projections. | 1 | 2 | S | missing (graph only); ternary kernels exist for the Bonsai formats, TQ2_0/I2_S do not |
+| `TQ` | **Ternary TQ1_0/TQ2_0/I2_S formats**. BitNet b1.58 official GGUFs. | 1 | 2 | M | **done** for TQ2_0 (bitnet-b1.58-2B-4T runs on CPU and Vulkan); I2_S not yet |
+| `SUBNORM` | **BitNet sub-layer norms**. extra RMS norms before attn-out and ffn-down projections. | 1 | 2 | S | **done** (`attention.sub_norm.weight`, `mlp.sub_norm.weight`) |
 | `LAYERVAR` | **Per-layer structural variation (skip attention / FFN, NAS)**. Deci / Nemotron-51B layers without attention or with linear replacement. | 1 | 1 | S | partly (per-layer arrays exist for heads/kv) |
 | `SPARSEMIXER` | **Phi-3.5-MoE sparsemixer routing**. 2-step masked top-2 with jitter thresholds. | 1 | 1 | S | missing |
 | `GROVE` | **GroveMoE adjugate/chunk experts**. small shared 'adjugate' experts per expert group. | 1 | 1 | M | missing |
@@ -152,9 +152,9 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `llama` | Llama 1-3.x, Mistral 7B, Mixtral (experts under this arch), SmolLM2, Yi, Falcon3 | GQA, RMS, SwiGLU, rope; Mixtral: MoE softmax top-2 | **supported** | - | llama, mistral, mixtral | hf/tiny-random-MixtralForCausalLM |
-| `llama4` | Llama 4 Scout/Maverick | GQA, RMS, chunked-local attn + NoPE layers, qk-l2norm, MoE sigmoid + shared, attn temperature | **partial** | `TMP`, `MAP` | llama4_text | hf/tiny-random-llama-4 |
+| `llama4` | Llama 4 Scout/Maverick | GQA, RMS, chunked-local attn + NoPE layers, qk-l2norm, MoE sigmoid + shared, attn temperature | **supported** | - (vision tower not imported) | llama4_text | hf/tiny-random-llama-4 (incl. a 160-token prompt across the 128-token chunk) |
 | `deci` | Llama-3.x-Nemotron-51B (NAS) | per-layer GQA/skip-attn/ffn-mult, RMS | **partial** | `MAP`, `LAYERVAR` | deci | - |
-| `mistral3` | Ministral-3, Mistral-Small-3.x (+pixtral mmproj) | GQA, RMS, SwiGLU, yarn, llama4-style attn temperature | **partial** | `TMP`, `MAP`, `MMPROJ` | mistral3 / ministral3 | gguf/Ministral-3-3B-Instruct-2512 (+mmproj), hf/tiny-random-mistral-3 |
+| `mistral3` | Ministral-3, Mistral-Small-3.x (+pixtral mmproj) | GQA, RMS, SwiGLU, yarn, llama4-style attn temperature | **supported** | `MMPROJ` (Pixtral) | mistral3 / ministral3 | gguf/Ministral-3-3B-Instruct-2512 (+mmproj), hf/tiny-random-mistral-3, hf/tiny-random-ministral3 |
 | `llama-embed` | Llama embedding models (pooled) | llama graph + pooling head | **partial** | `POOL`, `MAP` | - | - |
 
 ### Qwen
@@ -247,7 +247,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **mapped, untested (no model)**| -| chatglm | - |
 | `glm4` | GLM-4-0414 (9B/32B), GLM-Z1 | GQA, sandwich norms, partial rope, fused gate-up | **supported**| -| glm4 | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4 |
-| `glm4moe` | GLM-4.5/4.6/4.7, GLM-4.5-Air | QK-norm, partial rope, MoE sigmoid + bias + groups + shared, dense lead, MTP | **partial** | `RBIAS`, `RGRP`, `MAP` | glm4_moe | hf/tiny-random-glm-4-moe, hf/tiny-random-glm-4.5 |
+| `glm4moe` | GLM-4.5/4.6/4.7, GLM-4.5-Air | QK-norm, partial rope, MoE sigmoid + bias + groups + shared, dense lead, MTP | **supported** | - (MTP layers dropped) | glm4_moe | hf/tiny-random-glm-4-moe |
 | `glm-dsa` | GLM-5 / DSA models | MLA + DSA indexer, MoE | **missing** | `MLA`, `IDX`, `RGRP` | glm_moe_dsa | - |
 | `glm5-next` | GLM-5-Next | MLA + indexer + HC + linear-attn layers | **missing** | `MLA`, `IDX`, `HC`, `KDA` | - | - |
 
@@ -274,22 +274,22 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `dbrx` | DBRX | LN, clip_qkv, MoE softmax top-4 fused experts | **partial** | `LN`, `MAP` | dbrx | - |
 | `arctic` | Snowflake Arctic | dense FFN + parallel MoE residual | **partial** | `PAR`, `MAP` | - | - |
 | `grok` | Grok-1 | MoE softmax top-2, attn softcap, escale/lscale, sandwich norms | **partial** | `MAP`, `RES` | grok-1 | - |
-| `exaone-moe` | EXAONE-MoE (K-EXAONE) | exaone4 + MoE sigmoid bias + shared, MTP | **partial** | `RBIAS`, `MAP` | exaone_moe | - |
+| `exaone-moe` | EXAONE-MoE (K-EXAONE) | exaone4 + MoE sigmoid bias + shared, MTP | **supported** | - (GGUF mapping not verified on a real file) | exaone_moe | hf/tiny-random-exaone-moe |
 | `bailingmoe` | Ling-lite, Ling-plus | MoE softmax + shared, dense lead | **partial** | `MAP` | - | - |
-| `bailingmoe2` | Ling-mini-2.0, Ling-flash-2.0, Ring | QK-norm, MoE sigmoid + bias + groups + shared, MTP | **partial** | `RBIAS`, `RGRP`, `MAP` | bailing_moe_v2 | hf/tiny-random-bailing-moe-v2 |
+| `bailingmoe2` | Ling-mini-2.0, Ling-flash-2.0, Ring | QK-norm, MoE sigmoid + bias + groups + shared, MTP | **supported** | - | bailing_moe_v2 | hf/tiny-random-bailing-moe-v2-llamacpp (+ its f32 GGUF, vs llama.cpp) |
 | `bailingmoe3` | Ling 3 / Ring-linear | MLA + KDA/GDN hybrid + MoE | **missing** | `MLA`, `KDA`, `GDN`, `RGRP` | - | - |
-| `dots1` | dots.llm1 | QK-norm, MoE sigmoid + bias + shared | **partial** | `RBIAS`, `MAP` | dots1 | - |
+| `dots1` | dots.llm1 | QK-norm, MoE sigmoid + bias + shared | **supported** | - (GGUF mapping not verified on a real file) | dots1 | hf/tiny-random-dots1 |
 | `dots3note` | dots.3 | MLA + indexer + SWA | **missing** | `MLA`, `IDX` | - | - |
 | `afmoe` | AFM-MoE (Trinity) | SWA 3:1, gates, MoE sigmoid + shared, post-norms | **partial** | `RBIAS`, `MAP` | afmoe | - |
 | `laguna` | Laguna (poolside) | MoE sigmoid + bias + shared, softplus out gate, yarn/SWA | **partial** | `RBIAS`, `MAP` | - | - |
-| `ernie4_5-moe` | ERNIE-4.5-21B-A3B, 300B-A47B | MoE softmax + bias + shared, dense lead | **partial** | `RBIAS`, `MAP` | ernie4_5_moe | gguf/ERNIE-4.5-21B-A3B-PT, hf/tiny-random-ernie-4.5-moe |
-| `hunyuan-moe` | Hunyuan-A13B | QK-norm, MoE + shared, dynamic NTK | **partial** | `MAP` | hunyuan_v1_moe | hf/tiny-random-hunyuan-moe |
+| `ernie4_5-moe` | ERNIE-4.5-21B-A3B, 300B-A47B | MoE softmax + bias + shared, dense lead | **supported** | - | ernie4_5_moe | gguf/ERNIE-4.5-21B-A3B-PT, hf/tiny-random-ernie-4.5-moe |
+| `hunyuan-moe` | Hunyuan-A13B | QK-norm, MoE + shared, dynamic NTK | **supported** | - (GGUF mapping not verified on a real file) | hunyuan_v1_moe | hf/tiny-random-hunyuan-v1-moe |
 | `hy_v3` | Hunyuan v3 | MoE sigmoid + bias + shared, MTP | **partial** | `RBIAS`, `MAP` | - | - |
 | `hy_v4` | Hunyuan v4 | MLA-like + indexer + HC | **missing** | `IDX`, `HC` | - | - |
-| `gpt-oss` | gpt-oss-20b/120b | MoE top-4 softmax + expert biases, clamped SwiGLU-OAI, sinks, alternating SWA, yarn, MXFP4 weights | **missing** | `MXFP4`, `EBIAS`, `ACT` | gpt_oss | gguf/gpt-oss-20b (MXFP4), hf/tiny-random-gpt-oss, hf/tiny-random-gpt-oss-mxfp4 |
-| `smallthinker` | SmallThinker 4B-A0.6B/21B-A3B | MoE (sigmoid gating), SWA+NoPE | **partial** | `MAP` | smallthinker | gguf/SmallThinker-4BA0.6B-Instruct |
+| `gpt-oss` | gpt-oss-20b/120b | MoE top-4 softmax + expert biases, clamped SwiGLU-OAI, sinks, alternating SWA, yarn, MXFP4 weights | **supported** | - | gpt_oss | gguf/gpt-oss-20b (MXFP4), hf/tiny-random-gpt-oss, hf/tiny-random-gpt-oss-mxfp4 |
+| `smallthinker` | SmallThinker 4B-A0.6B/21B-A3B | MoE (sigmoid gating), SWA+NoPE | **supported** | - (HF remote code not mapped) | smallthinker | gguf/SmallThinker-4BA0.6B-Instruct |
 | `grovemoe` | GroveMoE | adjugate/chunk experts, QK-norm | **missing** | `GROVE` | - | - |
-| `minimax-m2` | MiniMax-M2/M2.5 | full-width QK-norm, partial rope, MoE sigmoid + bias | **partial** | `RBIAS`, `MAP` | minimax_m2 | hf/tiny-random-minimax-m2 |
+| `minimax-m2` | MiniMax-M2/M2.5 | full-width QK-norm, partial rope, MoE sigmoid + bias | **supported** | - (GGUF mapping not verified on a real file) | minimax_m2 | hf/tiny-random-minimax-m2 |
 | `mimo2` | MiMo-V2-Flash | SWA + sinks, MoE sigmoid bias, MTP | **partial** | `RBIAS`, `MAP` | mimo_v2_flash | - |
 | `step35` | Step-3.5-Flash | SWA, gated attn, MoE sigmoid + shared | **partial** | `RBIAS`, `MAP` | - | - |
 | `maion-coder` | Maion-Coder | SWA + NoPE, MoE latent | **partial** | `MAP`, `MOELATENT` | - | - |
@@ -309,7 +309,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `internlm2` | InternLM2/2.5, InternLM3 | GQA, fused wqkv, RMS | **supported**| -| internlm2 | gguf/internlm2_5-1_8b-chat, hf/tiny-random-internlm2 |
 | `minicpm` | MiniCPM 2B, MiniCPM4/4.1 | RMS, muP scalings (embed/residual/logit), rope longrope | **supported**| -| minicpm, minicpm4 | gguf/MiniCPM4.1-8B, hf/tiny-random-minicpm4 |
 | `openelm` | OpenELM | per-layer heads/ffn mult, QK-norm | **supported**| -| openelm | gguf/OpenELM-270M-Instruct |
-| `bitnet` | BitNet b1.58 2B/3B | ternary weights, sub-norms (attn/ffn), ReLU2 | **partial** | `TQ`, `SUBNORM` | bitnet | gguf/bitnet-b1.58-2B-4T |
+| `bitnet` | BitNet b1.58 2B/3B | ternary weights, sub-norms (attn/ffn), ReLU2 | **supported** | - (I2_S) | bitnet | gguf/bitnet-b1.58-2B-4T, hf/tiny-random-bitnet |
 | `exaone` | EXAONE 3.0/3.5 | GQA, RMS, SwiGLU | **supported**| -| exaone | gguf/EXAONE-3.5-2.4B-Instruct, hf/tiny-random-exaone |
 | `exaone4` | EXAONE 4.0 | QK-norm, SWA 3:1 + NoPE globals, post-norms | **supported**| -| exaone4 | gguf/EXAONE-4.0-1.2B, hf/EXAONE-4.0-1.2B |
 | `chameleon` | Chameleon | QK-LN, swin norm, VQ image tokens | **missing** | `VQ`, `LN` | - | - |

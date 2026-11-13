@@ -116,10 +116,33 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
                 dim, ropeBase, factor, originalContext,
                 (float)HfMappingHelpers.NumberOr(json, "beta_fast", 32),
                 (float)HfMappingHelpers.NumberOr(json, "beta_slow", 1),
-                (float?)HfMappingHelpers.OptionalNumber(json, "attention_factor"),
+                YarnAttentionFactor(json, factor),
                 !json.TryGetProperty("truncate", out var truncate) || truncate.ValueKind != JsonValueKind.False),
             _ => throw new NotSupportedException($"rope scaling type '{scaling.Type}' is not supported."),
         };
+    }
+
+    /// <summary>
+    /// The YaRN cos/sin magnitude as transformers computes it: <c>attention_factor</c> when given, else with both <c>mscale</c> and
+    /// <c>mscale_all_dim</c> the ratio of their <c>0.1 · m · ln(factor) + 1</c> terms (DeepSeek, Ministral 3); null = the default
+    /// <c>0.1 · ln(factor) + 1</c>.
+    /// </summary>
+    private static float? YarnAttentionFactor(JsonElement json, float factor)
+    {
+        if (HfMappingHelpers.OptionalNumber(json, "attention_factor") is { } explicitFactor)
+        {
+            return (float)explicitFactor;
+        }
+
+        double mscale = HfMappingHelpers.NumberOr(json, "mscale", 0);
+        double mscaleAllDim = HfMappingHelpers.NumberOr(json, "mscale_all_dim", 0);
+        if (mscale == 0 || mscaleAllDim == 0)
+        {
+            return null;
+        }
+
+        double Term(double m) => factor <= 1 ? 1 : 0.1 * m * Math.Log(factor) + 1;
+        return (float)(Term(mscale) / Term(mscaleAllDim));
     }
 
     /// <inheritdoc/>

@@ -17,7 +17,11 @@ internal sealed partial class DecoderGraphBuilder
         var rotate = RotationOf(b, il, positions, freqFactors);
 
         var q = ClipQkv(b, b.Linear(h, p + "attention.q.weight", p + "attention.q.bias"));
-        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), heads, headDim, rotate);
+        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), il, heads, headDim, rotate);
+        if (_hp.TemperatureOn(il))
+        {
+            q = b.Mul(q, AttentionTemperature(b, positions), $"{p}q_tempered");
+        }
 
         if (_hp.KvSourceOf(il) == il)
         {
@@ -44,6 +48,18 @@ internal sealed partial class DecoderGraphBuilder
         return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, heads, headDim);
     }
 
+    /// <summary>
+    /// Llama 4 / Mistral 3 attention temperature per query position: <c>log(floor((pos + offset) / length) + 1) · scale + 1</c>, shaped
+    /// [T, 1, 1] to scale the query heads.
+    /// </summary>
+    private Value AttentionTemperature(GraphBuilder b, Value positions)
+    {
+        var pos = b.Emit1("Cast", [positions], Attributes.From(("type", "f32")));
+        var steps = b.Unary("Floor", b.Scale(pos, 1f / _hp.TemperatureLength, _hp.TemperatureOffset / _hp.TemperatureLength));
+        var temperature = b.Scale(b.Unary("Log", b.Scale(steps, 1f, 1f)), _hp.TemperatureScale, 1f);
+        return b.Reshape(temperature, 0, 1, 1);
+    }
+
     /// <summary>Clamps a q/k/v projection to ±<c>attention.clip_qkv</c> (OLMo 1) when the model asks for it.</summary>
     private Value ClipQkv(GraphBuilder b, Value projection)
         => _hp.ClipQkv > 0 ? b.Emit1("Clip", [projection], Attributes.From(("min", -_hp.ClipQkv), ("max", _hp.ClipQkv))) : projection;
@@ -59,7 +75,8 @@ internal sealed partial class DecoderGraphBuilder
 
         int ropeDims = sliding ? _hp.RopeLocalDims : _hp.RopeDims;
         var rope = Attributes.From(("dims", ropeDims), ("base", sliding ? _hp.RopeLocalBase : _hp.RopeBase), ("style", _hp.RopeStyle));
-        return t => b.Emit1("Rope", freqFactors is { } ff && !sliding ? [t, positions, ff] : [t, positions], rope);
+        bool scaled = !sliding || _hp.RopeLocalFreqFactors;
+        return t => b.Emit1("Rope", freqFactors is { } ff && scaled ? [t, positions, ff] : [t, positions], rope);
     }
 
     /// <summary>
@@ -67,7 +84,7 @@ internal sealed partial class DecoderGraphBuilder
     /// norms after rope). The norm weight covers either the whole projection (heads · head dimension entries, applied before the split)
     /// or one head (head dimension entries, applied after it); without a weight an unweighted norm is applied when the model asks for one.
     /// </summary>
-    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, int heads, int headDim, Func<Value, Value> rotate)
+    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, int il, int heads, int headDim, Func<Value, Value> rotate)
     {
         var x = projection;
         if (normWeight is { } wholeNorm && wholeNorm.Shape[0].Fixed != headDim)
@@ -78,21 +95,21 @@ internal sealed partial class DecoderGraphBuilder
         x = b.Reshape(x, 0, heads, headDim);
         if (_hp.QkNormAfterRope)
         {
-            return NormHead(b, rotate(x), normWeight, headDim);
+            return NormHead(b, rotate(x), normWeight, il, headDim);
         }
 
-        return rotate(NormHead(b, x, normWeight, headDim));
+        return rotate(NormHead(b, x, normWeight, il, headDim));
     }
 
     // The per-head part of the q/k norm: a head-sized weight, or an unweighted norm when the model asks for one and has no weight.
-    private Value NormHead(GraphBuilder b, Value x, Value? normWeight, int headDim)
+    private Value NormHead(GraphBuilder b, Value x, Value? normWeight, int il, int headDim)
     {
         if (normWeight is { } headNorm && headNorm.Shape[0].Fixed == headDim)
         {
             return b.RmsNorm(x, headNorm, _hp.Eps);
         }
 
-        return normWeight is null && _hp.QkNormUnweighted ? b.RmsNorm(x, null, _hp.Eps) : x;
+        return normWeight is null && _hp.QkNormUnweightedOn(il) ? b.RmsNorm(x, null, _hp.Eps) : x;
     }
 
     /// <summary>Projects the layer input to rotated keys and values (k = v layers reuse the key projection for values).</summary>
@@ -108,7 +125,7 @@ internal sealed partial class DecoderGraphBuilder
             v = b.RmsNorm(v, null, _hp.Eps);
         }
 
-        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), kvHeads, headDim, rotate);
+        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), il, kvHeads, headDim, rotate);
         return (k, v);
     }
 
@@ -119,6 +136,11 @@ internal sealed partial class DecoderGraphBuilder
         if (_hp.Windowed(il))
         {
             attrs.Add(("window", _hp.Window));
+        }
+
+        if (_hp.Chunked(il))
+        {
+            attrs.Add(("chunk", _hp.ChunkSize));
         }
 
         if (_hp.SoftCap > 0)
@@ -147,6 +169,6 @@ internal sealed partial class DecoderGraphBuilder
             flat = b.Mul(flat, b.Sigmoid(b.Linear(layerInput, p + "attention.gate.weight")));
         }
 
-        return b.Linear(flat, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+        return b.Linear(SubNorm(b, flat, p + "attention.sub_norm.weight"), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
     }
 }
