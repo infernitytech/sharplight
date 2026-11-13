@@ -290,7 +290,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `smallthinker` | SmallThinker 4B-A0.6B/21B-A3B | MoE (sigmoid gating), SWA+NoPE | **supported** | - (HF remote code not mapped) | smallthinker | gguf/SmallThinker-4BA0.6B-Instruct |
 | `grovemoe` | GroveMoE | adjugate/chunk experts, QK-norm | **missing** | `GROVE` | - | - |
 | `minimax-m2` | MiniMax-M2/M2.5 | full-width QK-norm, partial rope, MoE sigmoid + bias | **supported** | - (GGUF mapping not verified on a real file) | minimax_m2 | hf/tiny-random-minimax-m2 |
-| `mimo2` | MiMo-V2-Flash | SWA + sinks, MoE sigmoid bias, MTP | **partial** | `RBIAS`, `MAP` | mimo_v2_flash | - |
+| `mimo2` | MiMo-V2-Flash | SWA + sinks, value head size < key head size, value scale, MoE sigmoid bias, MTP | **supported** (MTP layers ignored; not run on a real model) | - | mimo_v2_flash | hf/tiny-random-mimo-v2-flash, gguf/tiny-random-mimo-v2-flash-f32 |
 | `step35` | Step-3.5-Flash | SWA, gated attn, MoE sigmoid + shared | **partial** | `RBIAS`, `MAP` | - | - |
 | `maion-coder` | Maion-Coder | SWA + NoPE, MoE latent | **partial** | `MAP`, `MOELATENT` | - | - |
 | `mellum` | Mellum (JetBrains) | SWA + MoE, MTP | **partial** | `MAP` | - | - |

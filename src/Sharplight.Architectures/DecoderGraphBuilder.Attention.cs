@@ -42,10 +42,10 @@ internal sealed partial class DecoderGraphBuilder
             // Packed sequences: causal within each sequence; sliding windows are not applied (inputs are short).
             var (packedK, packedV) = packedKv[_hp.KvSourceOf(il)];
             var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, causal: true, _hp.SoftCap, $"{p}attn");
-            return AttentionOutput(b, packed, h, p, heads, headDim);
+            return AttentionOutput(b, packed, h, p, heads, _hp.ValueDimOf(il));
         }
 
-        return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, heads, headDim);
+        return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, heads, _hp.ValueDimOf(il));
     }
 
     /// <summary>
@@ -119,7 +119,7 @@ internal sealed partial class DecoderGraphBuilder
         int kvHeads = _hp.KvHeadsOf(il);
         var keyProjection = ClipQkv(b, b.Linear(h, p + "attention.k.weight", p + "attention.k.bias"));
         var valueProjection = b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, b.Linear(h, p + "attention.v.weight", p + "attention.v.bias")) : keyProjection;
-        var v = b.Reshape(valueProjection, 0, kvHeads, headDim);
+        var v = b.Reshape(valueProjection, 0, kvHeads, _hp.ValueDimOf(il));
         if (_hp.VNorm)
         {
             v = b.RmsNorm(v, null, _hp.Eps);
@@ -160,10 +160,15 @@ internal sealed partial class DecoderGraphBuilder
         return b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");
     }
 
-    /// <summary>Flattens the heads, applies the optional sigmoid output gate and the output projection.</summary>
-    private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int heads, int headDim)
+    /// <summary>Flattens the heads, applies the optional value scale and sigmoid output gate, and the output projection.</summary>
+    private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int heads, int valueDim)
     {
-        var flat = b.Reshape(attention, 0, heads * headDim);
+        var flat = b.Reshape(attention, 0, heads * valueDim);
+        if (_hp.ValueScale != 1f)
+        {
+            flat = b.Scale(flat, _hp.ValueScale, 0f);
+        }
+
         if (b.HasWeight(p + "attention.gate.weight"))
         {
             flat = b.Mul(flat, b.Sigmoid(b.Linear(layerInput, p + "attention.gate.weight")));

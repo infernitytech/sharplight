@@ -55,6 +55,9 @@ internal static class RoutedMoeFamilyCases
         new("tiny-random-dots1 HF (dots1 group-limited routing, transformers)", "hf/tiny-random-dots1", HfPrompt, "ids", [557,683,396,750,619,279,523,503,995,662,487,926,166,964,821,637], ""),
         new("tiny-random-exaone-moe HF (exaone_moe, transformers)", "hf/tiny-random-exaone-moe", HfPrompt, "ids", [77,583,803,940,458,9,236,236,676,834,236,989,3,768,338,656], ""),
         new("tiny-random-afmoe HF (afmoe sandwich norms, gated attention, NoPE global layers, transformers)", "hf/tiny-random-afmoe", HfPrompt, "ids", [620,299,927,288,634,914,477,299,348,383,694,202,908,346,788,646,46,985,729,518,547,647,138,907], ""),
+        new("tiny-random-mimo-v2-flash HF (mimo_v2_flash sinks, value head size, transformers)", "hf/tiny-random-mimo-v2-flash", HfPrompt, "ids", [748,536,269,51,1012,256,296,742,88,651,634,15,1011,608,325,887,767,409,82,481,419,423,103,794], ""),
+        // The same weights with the flat rope keys of the published config (the file the llama.cpp converter reads).
+        new("tiny-random-mimo-v2-flash-llamacpp HF (flat rope keys, transformers)", "hf/tiny-random-mimo-v2-flash-llamacpp", HfPrompt, "ids", [748,536,269,51,1012,256,296,742,88,651,634,15,1011,608,325,887,767,409,82,481,419,423,103,794], ""),
         new("tiny-random-bitnet HF (bitnet, transformers)", "hf/tiny-random-bitnet", HfPrompt, "ids", [508,432,843,582,109,60,109,130,15,102,655,601,453,281,474,1009], ""),
         new("tiny-random-ministral3 HF (ministral3 yarn + query temperature, transformers)", "hf/tiny-random-ministral3", HfPrompt, "ids", [288,581,321,444,914,110,447,530,221,845,262,243,941,602,526,790], ""),
     ];

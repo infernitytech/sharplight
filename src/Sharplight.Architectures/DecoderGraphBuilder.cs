@@ -52,9 +52,10 @@ internal sealed partial class DecoderGraphBuilder
                 _vCache[il] = _vCache[srcLayer];
                 continue;
             }
-            var shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _hp.KvHeadsOf(il), _hp.HeadDimOf(il));
-            States.Add(_kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = _options.KvCacheType, Shape = shape, Kind = StateKind.KeyCache, Group = g });
-            States.Add(_vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = _options.KvCacheType, Shape = shape, Kind = StateKind.ValueCache, Group = g });
+            var keyShape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _hp.KvHeadsOf(il), _hp.HeadDimOf(il));
+            var valueShape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _hp.KvHeadsOf(il), _hp.ValueDimOf(il));
+            States.Add(_kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = _options.KvCacheType, Shape = keyShape, Kind = StateKind.KeyCache, Group = g });
+            States.Add(_vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = _options.KvCacheType, Shape = valueShape, Kind = StateKind.ValueCache, Group = g });
         }
     }
 

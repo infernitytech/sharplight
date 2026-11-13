@@ -183,11 +183,12 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     {
         var (heads, kvHeads) = HeadsOf(g, layer);
         int headDim = HeadDimOf(g);
+        int valueDim = g.Int("attention.value_length", headDim);
         return
         [
             t.RowSlice($"{prefix}attention.q.{kind}", 0, heads * headDim),
             t.RowSlice($"{prefix}attention.k.{kind}", heads * headDim, kvHeads * headDim),
-            t.RowSlice($"{prefix}attention.v.{kind}", (heads + kvHeads) * headDim, kvHeads * headDim),
+            t.RowSlice($"{prefix}attention.v.{kind}", (heads + kvHeads) * headDim, kvHeads * valueDim),
         ];
     }
 

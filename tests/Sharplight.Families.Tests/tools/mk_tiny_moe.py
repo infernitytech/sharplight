@@ -1,13 +1,13 @@
 """
 Builds tiny random Hugging Face checkpoints for the routed-MoE / wave-6 families that have no tiny-random model in ~/models/hf:
 Hunyuan MoE (hunyuan_v1_moe), dots.llm1 (dots1, with group-limited routing), EXAONE MoE (exaone_moe), BitNet (bitnet),
-Ministral 3 (ministral3), and Arcee Trinity (afmoe), all with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024), plus
+Ministral 3 (ministral3), Arcee Trinity (afmoe) and MiMo-V2-Flash (mimo_v2_flash), all with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024), plus
 tiny-random-bailing-moe-v2-llamacpp: Ling 2.0 re-sized from tiny-random-bailing-moe-v2 so that llama.cpp can convert and run it
 (hidden size = heads x head_dim); convert it with convert_hf_to_gguf.py --outtype f32 for the GGUF case.
 
     python mk_tiny_moe.py <models/hf directory> [family ...]
 
-With family names (for example afmoe) only those transformers-based checkpoints are written and the Hunyuan / Ling
+With family names (for example afmoe mimo-v2-flash) only those transformers-based checkpoints are written and the Hunyuan / Ling
 variants below are skipped, so a later addition does not rewrite the checkpoints that existing references were taken from.
 
 Every model is written to <dir>/tiny-random-<family>/ in fp32 safetensors; the tests skip a family whose directory is missing.
@@ -41,6 +41,14 @@ configs = {
     "afmoe": transformers.AfmoeConfig(**{**common, "num_hidden_layers": 4}, moe_intermediate_size=32, num_experts_per_tok=2, intermediate_size=96,
                                       num_experts=8, num_shared_experts=1, num_dense_layers=1, route_scale=2.5, sliding_window=16,
                                       global_attn_every_n_layers=4, mup_enabled=True, route_norm=True),
+    "mimo-v2-flash": transformers.MiMoV2FlashConfig(**{**common, "num_hidden_layers": 6, "num_key_value_heads": 1}, moe_intermediate_size=32,
+                                                    num_experts_per_tok=2, intermediate_size=96, n_routed_experts=8, routed_scaling_factor=2.5,
+                                                    v_head_dim=8, sliding_window=16, attention_value_scale=0.7,
+                                                    # Keys llama.cpp's converter reads (the transformers class ignores them).
+                                                    swa_head_dim=16, swa_num_attention_heads=4, swa_v_head_dim=8, swa_num_key_value_heads=2,
+                                                    hybrid_layer_pattern=[0, 1, 1, 1, 1, 0], topk_method="noaux_tc", layernorm_epsilon=1e-5,
+                                                    rope_parameters={"full_attention": {"rope_type": "default", "rope_theta": 500000.0, "partial_rotary_factor": 0.5},
+                                                                     "sliding_attention": {"rope_type": "default", "rope_theta": 10000.0, "partial_rotary_factor": 0.5}}),
     "bitnet": transformers.BitNetConfig(**common, intermediate_size=96),
     "ministral3": transformers.Ministral3Config(**common, intermediate_size=96,
                                                 rope_parameters={"rope_type": "yarn", "rope_theta": 1000000.0, "factor": 16.0,
@@ -71,6 +79,16 @@ for name, config in configs.items():
         if os.path.exists(src):
             shutil.copy(src, os.path.join(out, f))
     print("wrote", out)
+    if name == "mimo-v2-flash":
+        # llama.cpp's converter wants the flat rope parameters of the published config (the sliding base is the separate swa_rope_theta key).
+        flat = os.path.join(root, "tiny-random-mimo-v2-flash-llamacpp")
+        shutil.copytree(out, flat, dirs_exist_ok=True)
+        flat_cfg = json.load(open(os.path.join(flat, "config.json")))
+        flat_cfg["rope_parameters"] = {"rope_type": "default", "rope_theta": 500000.0, "partial_rotary_factor": 0.5}
+        flat_cfg["swa_rope_theta"] = 10000.0
+        json.dump(flat_cfg, open(os.path.join(flat, "config.json"), "w"), indent=2)
+        print("wrote", flat)
+
 if only:
     sys.exit(0)
 

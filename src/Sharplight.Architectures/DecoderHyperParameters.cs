@@ -17,7 +17,7 @@ internal sealed record DecoderHyperParameters(
     string NormType, bool PreNorm, bool ParallelResidual, float ResidualScale, float SwigluAlpha, float SwigluLimit,
     float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts,
     int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
-    int ChunkSize, int[] ChunkLayers)
+    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale)
 {
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
@@ -79,7 +79,9 @@ internal sealed record DecoderHyperParameters(
             TemperatureOffset: src.Arch("attention.temperature_offset", 0f),
             TemperatureLayers: src.Arch("attention.temperature_layers", Array.Empty<int>()),
             ChunkSize: src.Arch("attention.chunk_size", 0),
-            ChunkLayers: src.Arch("attention.chunk_layers", Array.Empty<int>()));
+            ChunkLayers: src.Arch("attention.chunk_layers", Array.Empty<int>()),
+            ValueDim: src.Arch("attention.value_dim", 0),
+            ValueScale: src.Arch("attention.value_scale", 1f));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {
@@ -109,6 +111,9 @@ internal sealed record DecoderHyperParameters(
 
     /// <summary>Head dimension of layer <paramref name="il"/>.</summary>
     public int HeadDimOf(int il) => LayerHeadDims.Length > 0 ? LayerHeadDims[il] : HeadDim;
+
+    /// <summary>Value head dimension of layer <paramref name="il"/> (the key head dimension unless <c>attention.value_dim</c> is set).</summary>
+    public int ValueDimOf(int il) => ValueDim > 0 ? ValueDim : HeadDimOf(il);
 
     /// <summary>Number of query heads of layer <paramref name="il"/>.</summary>
     public int HeadsOf(int il) => LayerHeadCounts.Length > 0 ? LayerHeadCounts[il] : NHead;

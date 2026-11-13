@@ -14,6 +14,8 @@ namespace Sharplight.Architectures;
 /// <item><c>attention.head_count</c>, <c>attention.kv_head_count</c> (GQA), <c>attention.head_dim</c>;
 /// optional <c>attention.scale</c> (default 1/sqrt(head_dim)); <c>attention.logit_softcap</c> (tanh soft-capping of scores, 0 = off);
 /// <c>attention.sliding_window</c> (tokens) with <c>attention.sliding_layers</c> (int[layer_count], 1 = layer uses the window).</item>
+/// <item><c>attention.value_dim</c> (value head size when it differs from the key head size, default <c>attention.head_dim</c>; the value cache and the
+/// output projection input follow it, MiMo-V2) and <c>attention.value_scale</c> (constant factor on the attention output before the output projection, default 1).</item>
 /// <item><c>rope.dim</c> (rotated dims, partial rotary when less than head_dim), <c>rope.base</c>, <c>rope.style</c>
 /// ("neox" = rotate-half pairs (i, i+dim/2), the default; "gptj" = interleaved pairs), <c>rope.local_base</c> (base of sliding layers,
 /// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor, e.g. yarn; folded into the score scale as its square).
