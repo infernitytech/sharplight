@@ -27,39 +27,65 @@ public static class PlacementPlanner
             slots.Add(options.Fallback);
             fallbackSlot = slots.Count - 1;
         }
+
         if (slots.Count == 0)
         {
             throw new ArgumentException("No devices given.");
         }
 
-        // ---- cost per group -------------------------------------------------------------------
-        var groupOrder = new List<string>();
-        var groupBytes = new Dictionary<string, long>();
+        var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile);
+        var groupDevice = AssignGroups(groupOrder, groupBytes, options, slots.Count, fallbackSlot, out long[] used);
+        var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot);
+        var segments = BuildSegments(graph, nodeSlot);
+        return new PlacementPlan
+        {
+            Slots = slots,
+            Segments = segments,
+            GroupDevice = groupDevice,
+            BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
+        };
+    }
+
+    /// <summary>Bytes of weights and state per placement group (each weight and state counted once, in its first group), groups in graph order.</summary>
+    private static (List<string> Order, Dictionary<string, long> Bytes) MeasureGroups(ComputeGraph graph, CompileOptions compile)
+    {
+        var order = new List<string>();
+        var bytes = new Dictionary<string, long>();
         var seenWeights = new HashSet<WeightInfo>();
         var seenStates = new HashSet<StateDefinition>();
         foreach (var n in graph.Nodes)
         {
-            if (!groupBytes.ContainsKey(n.Group))
+            if (!bytes.ContainsKey(n.Group))
             {
-                groupBytes[n.Group] = 0;
-                groupOrder.Add(n.Group);
+                bytes[n.Group] = 0;
+                order.Add(n.Group);
             }
+
             foreach (var v in n.Inputs)
             {
                 if (v.Weight is { } w && seenWeights.Add(w))
                 {
-                    groupBytes[n.Group] += w.ByteSize;
+                    bytes[n.Group] += w.ByteSize;
                 }
 
                 if (v.State is { } s && seenStates.Add(s))
                 {
-                    groupBytes[n.Group] += StateBytes(s, options.Compile);
+                    bytes[n.Group] += StateBytes(s, compile);
                 }
             }
         }
-        long total = groupBytes.Values.Sum();
 
-        // ---- capacity per pipeline device -----------------------------------------------------
+        return (order, bytes);
+    }
+
+    /// <summary>
+    /// Greedy fill in graph order: a group moves to the next pipeline device when it does not fit the current one, or when the
+    /// current one already holds its share. Groups that fit nowhere go to the fallback slot. <paramref name="used"/> receives the
+    /// bytes placed on each slot.
+    /// </summary>
+    private static Dictionary<string, int> AssignGroups(List<string> groupOrder, Dictionary<string, long> groupBytes, PlacementOptions options, int slotCount, int fallbackSlot, out long[] used)
+    {
+        long total = groupBytes.Values.Sum();
         int nPipe = options.Devices.Count;
         var capacity = new long[nPipe];
         var share = new double[nPipe];
@@ -69,6 +95,7 @@ public static class PlacementPlanner
             capacity[i] = Math.Max(0, (d.MemoryLimit ?? d.Device.AvailableMemory) - options.ReservePerDevice);
             share[i] = d.Weight ?? capacity[i];
         }
+
         double shareSum = share.Sum();
         var target = new long[nPipe];
         for (int i = 0; i < nPipe; i++)
@@ -76,9 +103,8 @@ public static class PlacementPlanner
             target[i] = shareSum > 0 ? (long)Math.Ceiling(total * (share[i] / shareSum)) : 0;
         }
 
-        // ---- greedy fill in order -------------------------------------------------------------
         var groupDevice = new Dictionary<string, int>();
-        var used = new long[slots.Count];
+        used = new long[slotCount];
         int cur = 0;
         foreach (var g in groupOrder)
         {
@@ -100,14 +126,19 @@ public static class PlacementPlanner
             else
             {
                 throw new InsufficientMemoryException(
-                $"Model does not fit: needs {total / (1024.0 * 1024 * 1024):F2} GiB, group '{g}' ({b / (1024.0 * 1024 * 1024):F2} GiB) has no room and no fallback device is configured.");
+                    $"Model does not fit: needs {total / (1024.0 * 1024 * 1024):F2} GiB, group '{g}' ({b / (1024.0 * 1024 * 1024):F2} GiB) has no room and no fallback device is configured.");
             }
 
             groupDevice[g] = slot;
             used[slot] += b;
         }
 
-        // ---- per-node device (op support fallback) -------------------------------------------
+        return groupDevice;
+    }
+
+    /// <summary>Device of every node: its group's device, the fallback for ops that device cannot run, and views follow their input.</summary>
+    private static int[] AssignNodes(ComputeGraph graph, List<DeviceSlot> slots, Dictionary<string, int> groupDevice, int fallbackSlot)
+    {
         var nodeSlot = new int[graph.Nodes.Count];
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
@@ -124,8 +155,10 @@ public static class PlacementPlanner
                     throw new NotSupportedException($"Op {n.Op.Name} (node {n.Id}) is not supported on {slots[s].Device.Info.Name}: {slots[s].Device.Supports(n).Reason}");
                 }
             }
+
             nodeSlot[i] = s;
         }
+
         if (fallbackSlot >= 0)
         {
             KeepStatesOnOneDevice(graph, slots, nodeSlot, fallbackSlot);
@@ -141,14 +174,7 @@ public static class PlacementPlanner
             }
         }
 
-        var segments = BuildSegments(graph, nodeSlot);
-        return new PlacementPlan
-        {
-            Slots = slots,
-            Segments = segments,
-            GroupDevice = groupDevice,
-            BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
-        };
+        return nodeSlot;
     }
 
     /// <summary>
