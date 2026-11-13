@@ -97,7 +97,8 @@ static class Rnd
         {
             long o = i * t.BlockBytes;
             float d() => (0.002f + (float)rng.NextDouble() * 0.01f) * scale;
-            if (t == DataType.Q8_0 || t == DataType.Q4_0) PutHalf(bytes, o, d());
+            if (t == DataType.Q8_0 || t == DataType.Q4_0 || t == DataType.Q5_0) PutHalf(bytes, o, d());
+            else if (t == DataType.Q4_1 || t == DataType.Q5_1) { PutHalf(bytes, o, d()); PutHalf(bytes, o + 2, d()); }
             else if (t == DataType.Q4_K || t == DataType.Q5_K) { PutHalf(bytes, o, d()); PutHalf(bytes, o + 2, d()); }
             else if (t == DataType.Q6_K) PutHalf(bytes, o + 208, d());
             else if (t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128 || t == DataType.IQ4_NL || t == DataType.IQ4_XS) PutHalf(bytes, o, d());

@@ -4,10 +4,10 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
 
-/// <summary>llama.cpp <c>nemotron_h</c> (Nemotron-H / Nemotron-3 Nano hybrid Mamba-2 + attention + MLP) → canonical <c>nemotron_h</c> (documented on <c>NemotronHAdapter</c>).</summary>
+/// <summary>llama.cpp <c>nemotron_h</c> / <c>nemotron_h_moe</c> (Nemotron-H / Nemotron-3 Nano hybrid Mamba-2 + attention + MLP or mixture of experts) → canonical <c>nemotron_h</c> (documented on <c>NemotronHAdapter</c>).</summary>
 public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
 {
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["nemotron_h"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["nemotron_h", "nemotron_h_moe"];
     public string Architecture => "nemotron_h";
 
     static int[] PerLayer(GgufMetadataView g, string key, int nLayer)
@@ -21,7 +21,8 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
         int nLayer = g.Int("block_count");
         var kv = PerLayer(g, "attention.head_count_kv", nLayer);
         var ffn = PerLayer(g, "feed_forward_length", nLayer);
-        var kinds = Enumerable.Range(0, nLayer).Select(il => kv[il] > 0 ? "attention" : ffn[il] > 0 ? "mlp" : "ssm").ToArray();
+        bool moeArch = g.GgufArchitecture == "nemotron_h_moe";   // there a layer with a feed-forward size is a mixture-of-experts layer
+        var kinds = Enumerable.Range(0, nLayer).Select(il => kv[il] > 0 ? "attention" : ffn[il] > 0 ? (moeArch ? "moe" : "mlp") : "ssm").ToArray();
         int heads = g.Int("ssm.time_step_rank");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -43,6 +44,14 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
             md[a + "attention.head_dim"] = g.Int("attention.key_length", g.Int("embedding_length") / g.Int("attention.head_count"));
         }
         if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        if (moeArch)
+        {
+            if (g.Int("expert_group_count", 1) > 1) throw new NotSupportedException("nemotron_h_moe: group-limited expert routing is not supported yet.");
+            md[a + "moe.expert_count"] = g.Int("expert_count");
+            md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
+            md[a + "moe.normalize_weights"] = g.Raw("expert_weights_norm") is not { } n || Convert.ToBoolean(n);
+            if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var sc && sc != 1f) md[a + "moe.weights_scale"] = sc;
+        }
         return md;
     }
 
@@ -66,6 +75,12 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
         ["attn_output.weight"] = "attention.o.weight",
         ["ffn_up.weight"] = "mlp.up.weight",
         ["ffn_down.weight"] = "mlp.down.weight",
+        ["ffn_gate_inp.weight"] = "moe.router.weight",
+        ["exp_probs_b.bias"] = "moe.router_bias",
+        ["ffn_up_exps.weight"] = "moe.experts.up.weight",
+        ["ffn_down_exps.weight"] = "moe.experts.down.weight",
+        ["ffn_up_shexp.weight"] = "moe.shared.up.weight",
+        ["ffn_down_shexp.weight"] = "moe.shared.down.weight",
     };
 
     public string? MapWeightName(string name, GgufMetadataView g)

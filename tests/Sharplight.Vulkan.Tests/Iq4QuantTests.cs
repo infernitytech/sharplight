@@ -2,12 +2,13 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
 
-/// <summary>IQ4_NL / IQ4_XS weights on the GPU against the CPU oracle (matmul, GEMV and gather).</summary>
+/// <summary>IQ4_NL / IQ4_XS and the legacy Q4_1 / Q5_0 / Q5_1 weights on the GPU against the CPU oracle (matmul, GEMV and gather).</summary>
 public class Iq4QuantTests
 {
     [Theory]
     [InlineData("iq4_nl", 1)] [InlineData("iq4_nl", 3)] [InlineData("iq4_nl", 40)]
     [InlineData("iq4_xs", 1)] [InlineData("iq4_xs", 3)] [InlineData("iq4_xs", 40)]
+    [InlineData("q4_1", 1)] [InlineData("q4_1", 40)] [InlineData("q5_0", 1)] [InlineData("q5_0", 3)] [InlineData("q5_0", 40)] [InlineData("q5_1", 1)] [InlineData("q5_1", 40)]
     public void MatMul(string type, int tokens)
     {
         Gpu.Require();
@@ -19,7 +20,7 @@ public class Iq4QuantTests
     }
 
     [Theory]
-    [InlineData("iq4_nl")] [InlineData("iq4_xs")]
+    [InlineData("iq4_nl")] [InlineData("iq4_xs")] [InlineData("q4_1")] [InlineData("q5_0")] [InlineData("q5_1")]
     public void Gather(string type)
     {
         Gpu.Require();
