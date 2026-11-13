@@ -75,6 +75,12 @@ public static class ModelImporterRegistry
 /// <c>layers.{i}.attention.q.weight</c>, <c>layers.{i}.mlp.down.weight</c>, <c>output_norm.weight</c>,
 /// <c>lm_head.weight</c>, ... Each architecture adapter documents the exact keys, names and weight semantics
 /// it expects; importers (GGUF, Hugging Face, ...) translate into them.
+/// <para>Vision towers (image input) have their own canonical vocabulary — hyper-parameters <c>{architecture}.vision.*</c>
+/// (<c>layer_count</c>, <c>hidden_size</c>, <c>head_count</c>, <c>patch_size</c>, <c>spatial_merge_size</c>, <c>image_mean</c>, ...)
+/// and weights <c>vision.*</c> (<c>vision.patch_embed.weight</c>, <c>vision.layers.{i}.attention.qkv.weight</c>,
+/// <c>vision.merger.*</c>, ...) — documented on <see cref="Vision.VisionParameters"/>. They may come in the primary
+/// source (Hugging Face checkpoints) or in an auxiliary source with role <see cref="Vision.AuxiliaryRoles.Mmproj"/>
+/// (<see cref="ModelImporterRegistry.OpenSet"/>); the architecture adapter treats both alike.</para>
 /// </remarks>
 public static class CanonicalKeys
 {

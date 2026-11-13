@@ -100,26 +100,10 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     public VisionEncoder CreateVisionEncoder()
     {
-        var p = VisionParameters.Of(Definition) ?? throw new NotSupportedException("This model has no vision tower (for GGUF models pass the projector file as the \"mmproj\" auxiliary file).");
         var sw = Stopwatch.StartNew();
-        int maxTokens = _options.ImageTokens?.MaxTokens ?? 1024;
-        int maxPatches = maxTokens * p.MergeUnit;
-        var compiled = CompiledModel.Compile(Definition.Graph(WellKnown.VisionEncodeGraph), new PlacementOptions
-        {
-            Devices = _options.Devices,
-            Fallback = _options.Fallback,
-            Compile = new CompileOptions
-            {
-                MaxTokens = maxPatches,
-                ContextLength = 1,
-                SymbolBounds = new Dictionary<string, long> { [VisionParameters.PatchSymbol] = maxPatches, [VisionParameters.MergedSymbol] = maxTokens },
-                DisabledFeatures = _options.DisabledFeatures,
-                CacheFor = CacheFor,
-            },
-        });
-        _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {maxTokens} image tokens) in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
-        var pre = new VisionPreprocessor(p, new ImageTokenLimits(_options.ImageTokens?.MinTokens, maxTokens));
-        return new VisionEncoder(Definition, p, compiled, pre, maxPatches);
+        var enc = VisionEncoder.Create(Definition, _options.Devices, _options.Fallback, _options.ImageTokens, _options.DisabledFeatures, CacheFor);
+        _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {enc.MaxPatches / enc.Parameters.MergeUnit} image tokens) in {sw.ElapsedMilliseconds} ms\n{enc.Compiled.Plan.Describe()}");
+        return enc;
     }
 
     /// <summary>One recording cache per device target, seeded from caches stored in the model file.</summary>

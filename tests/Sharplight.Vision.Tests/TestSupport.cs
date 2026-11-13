@@ -46,14 +46,15 @@ static class Env
         return new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) };
     }
 
-    /// <summary>A Vulkan device slot, or null if none is available. Index 0 by default (SHARPLIGHT_TEST_VK_DEVICE overrides).</summary>
+    /// <summary>A Vulkan device slot (the discrete GPU if any, SHARPLIGHT_TEST_VK_DEVICE selects an index), or null if none is available.</summary>
     public static DeviceSlot? Vulkan()
     {
         var p = new VulkanProvider();
         if (!p.CheckAvailability().IsAvailable) return null;
         var devs = p.GetDevices();
-        int i = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") ?? "0");
-        return i < devs.Count ? new DeviceSlot { Device = p.OpenDevice(devs[i]) } : null;
+        var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
+            : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
+        return dev is null ? null : new DeviceSlot { Device = p.OpenDevice(dev) };
     }
 
     public static (float MaxAbs, float MaxRel, double Rms) Compare(float[] a, float[] b)

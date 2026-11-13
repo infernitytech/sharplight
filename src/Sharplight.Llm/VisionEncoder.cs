@@ -24,7 +24,34 @@ public sealed class VisionEncoder : IDisposable
     public int MaxPatches { get; }
     public CompiledModel Compiled => _compiled;
 
-    internal VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, VisionPreprocessor pre, int maxPatches)
+    /// <summary>
+    /// Compiles the vision encoder of a built model onto devices. <paramref name="limits"/> bound the image size: the encoder
+    /// handles images of up to <c>MaxTokens</c> (default 1024) output tokens, larger images are resized to fit.
+    /// </summary>
+    public static VisionEncoder Create(ModelDefinition def, IReadOnlyList<DeviceSlot> devices, DeviceSlot? fallback = null, ImageTokenLimits? limits = null,
+        IReadOnlySet<string>? disabledFeatures = null, Func<IComputeDevice, ICompilationCache?>? cacheFor = null)
+    {
+        var p = VisionParameters.Of(def) ?? throw new NotSupportedException("This model has no vision tower (for GGUF models pass the projector file as the \"mmproj\" auxiliary file).");
+        int maxTokens = limits?.MaxTokens ?? 1024;
+        int maxPatches = maxTokens * p.MergeUnit;
+        var compiled = CompiledModel.Compile(def.Graph(WellKnown.VisionEncodeGraph), new PlacementOptions
+        {
+            Devices = devices,
+            Fallback = fallback,
+            Compile = new CompileOptions
+            {
+                MaxTokens = maxPatches,
+                ContextLength = 1,
+                SymbolBounds = new Dictionary<string, long> { [VisionParameters.PatchSymbol] = maxPatches, [VisionParameters.MergedSymbol] = maxTokens },
+                DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
+                CacheFor = cacheFor,
+            },
+        });
+        var pre = new VisionPreprocessor(p, new ImageTokenLimits(limits?.MinTokens, maxTokens));
+        return new VisionEncoder(def, p, compiled, pre, maxPatches);
+    }
+
+    VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, VisionPreprocessor pre, int maxPatches)
     {
         Definition = def; Parameters = p; _compiled = compiled; Preprocessor = pre; MaxPatches = maxPatches;
         var g = compiled.Graph;
