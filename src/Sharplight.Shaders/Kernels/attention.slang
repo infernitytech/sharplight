@@ -71,6 +71,9 @@ void decode_range(uint t, uint* rt, int* seq, out uint jLo, out uint L, out uint
 #else
     jLo = 0;
 #endif
+#if CHUNK && !FULL_ATTN
+    jLo = max(jLo, (L - 1) / CHUNK * CHUNK);   // chunked attention: only the keys of the query's own chunk
+#endif
 }
 #endif
 
