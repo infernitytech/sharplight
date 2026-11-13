@@ -1,8 +1,8 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
 Status: container v2, artifact tiers, inspection API and `sharplight-convert` (convert, info, precompile --device, strip,
-compact) are implemented; the graph optimization phase, device profiles (`profile`, `precompile --profile`), the `optimize`
-command and the viewer are not yet (2026-11-13).
+compact) and the graph optimization phase (run by `convert` unless `--no-optimize`) are implemented; device profiles
+(`profile`, `precompile --profile`), a separate `optimize` command and the viewer are not yet (2026-11-13).
 
 ## Goals
 

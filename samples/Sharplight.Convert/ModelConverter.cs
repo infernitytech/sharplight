@@ -21,7 +21,7 @@ internal sealed class ModelConverter(TextWriter output)
 
         var stopwatch = Stopwatch.StartNew();
         var sources = Open(settings);
-        var definition = Build(sources, settings);
+        var definition = Build(sources, settings, output);
         try
         {
             output.WriteLine($"Built {definition.Name} ({definition.Architecture}) from {sources.Primary.Format}: {definition.Graphs.Count} graph(s), "
@@ -31,9 +31,8 @@ internal sealed class ModelConverter(TextWriter output)
                 output.WriteLine($"Note: the {stored.ArtifactSets.Count} artifact set(s) of the source package are not copied; run precompile on the result.");
             }
 
-            var toStore = settings.Optimize ? Optimize(definition) : definition;
             stopwatch.Restart();
-            ModelPackage.Save(settings.DestinationPath, toStore, [], output.WriteLine);
+            ModelPackage.Save(settings.DestinationPath, definition, [], output.WriteLine);
             output.WriteLine($"Saved {settings.DestinationPath}: {ByteSize.Format(new FileInfo(settings.DestinationPath).Length)} [{stopwatch.ElapsedMilliseconds} ms]");
         }
         finally
@@ -43,17 +42,6 @@ internal sealed class ModelConverter(TextWriter output)
                 resource.Dispose();
             }
         }
-    }
-
-    private ModelDefinition Optimize(ModelDefinition definition)
-    {
-        var optimized = GraphOptimization.Run(definition, out bool applied);
-        if (!applied)
-        {
-            output.WriteLine("Graph optimization is not available yet; the graphs are stored as built.");
-        }
-
-        return optimized;
     }
 
     private static ModelSourceSet Open(ConvertSettings settings)
@@ -80,11 +68,13 @@ internal sealed class ModelConverter(TextWriter output)
         }
     }
 
-    private static ModelDefinition Build(ModelSourceSet sources, ConvertSettings settings)
+    /// <summary>Builds the definition; the graph optimization phase runs inside the build unless disabled.</summary>
+    private static ModelDefinition Build(ModelSourceSet sources, ConvertSettings settings, TextWriter output)
     {
         try
         {
-            return ModelAdapterRegistry.Build(sources, new AdapterOptions { KvCacheType = settings.KvCacheType, ContextLength = settings.ContextLength });
+            var options = new AdapterOptions { KvCacheType = settings.KvCacheType, ContextLength = settings.ContextLength, OptimizeGraphs = settings.Optimize };
+            return ModelAdapterRegistry.Build(sources, options, output.WriteLine);
         }
         catch (NotSupportedException error)
         {
