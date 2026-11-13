@@ -7,7 +7,8 @@
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
 // one workgroup each (grid z); every split writes an unnormalized partial (acc[DV], m, l) to part[split][t][h][DV+2]
 // and the `combine` entry merges them. The split ranges follow n_past at run time, so a recorded command buffer
-// stays valid as the context grows.
+// stays valid as the context grows. The `decode` / `decode_combine` entries (split-K flash decoding with GQA groups and a
+// run-time split count, below) are the preferred decode path; `main` with SPLITS is its fallback.
 #include "common.slang"
 
 #ifndef SPLITS
@@ -20,6 +21,128 @@
 #endif
 #ifndef CAUSAL
 #define CAUSAL 0
+#endif
+
+// ---------------------------------------------------------------------------------------------
+// Split-K flash decoding (`decode` + `decode_combine`, few queries against a KV cache). A workgroup handles HPW query
+// heads that share one KV head (GQA group), so K/V rows are read once per group, and one contiguous range of keys of one
+// query row. The split count follows the key count at run time: a row is split into ranges of at least DEC_MIN_KEYS
+// keys, and into at most decode_max_splits(T) ranges (the grid z of the launch), so short contexts run a single range
+// and write the output directly, while long ones spread over many workgroups. Ranges beyond a row's split count exit.
+// Multi-sequence: every row has its own context length. Partials: part[split][t][h][DV+2] (acc, m, l).
+// Macros: HPW (divisor of HQ/HKV), KLANES (lanes sharing a key row, power of two <= SG), VLANES (lanes sharing a value
+// row, power of two), DEC_WG (threads), DEC_BC (keys per chunk), DEC_MAX_SPLITS, DEC_MIN_KEYS (multiple of DEC_BC),
+// DEC_TARGET_WG (workgroups the split count aims for).
+#if defined(KERNEL_DECODE) || defined(KERNEL_DECODE_COMBINE)
+#define DEC_GROUPS (HKV * (HQ / HKV / HPW))   // workgroups per (row, split)
+
+uint decode_max_splits(uint T)
+{
+    return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));
+}
+
+// Keys per split range of a row with `span` keys (a multiple of DEC_BC).
+uint decode_split_keys(uint span, uint T)
+{
+    uint ms = decode_max_splits(T);
+    uint per = (span + ms - 1) / ms;
+    per = (per + DEC_BC - 1) / DEC_BC * DEC_BC;
+    return max(per, uint(DEC_MIN_KEYS));
+}
+
+// Key range [jLo, L) of query row t and the first cache row (x HKV) of its sequence.
+void decode_range(uint t, uint* rt, int* seq, out uint jLo, out uint L, out uint64_t kvRow)
+{
+    kvRow = 0;
+#if MULTI_SEQ
+    L = uint(seq[t * 4 + 1]) + 1;
+    kvRow = uint64_t(seq[t * 4]) * SLOT_CTX * HKV;
+#else
+    L = rt[RT_N_PAST] + t + 1;
+#endif
+#if WINDOW
+    jLo = L > WINDOW ? L - WINDOW : 0;
+#else
+    jLo = 0;
+#endif
+}
+#endif
+
+#ifdef KERNEL_DECODE_COMBINE
+struct DecodeCombineParams
+{
+    float* part;
+    float* o;
+    float* sinks;
+    uint* rt;
+#if MULTI_SEQ
+    int* seq;
+#endif
+    uint T;
+};
+
+#define DC_WG 64
+groupshared float dcW[DEC_MAX_SPLITS];
+groupshared float dcRed[DC_WG / SG + 1];
+
+// One workgroup per (head, row): merges the row's split partials; rows that ran a single range were written by `decode`.
+[shader("compute")]
+[numthreads(DC_WG, 1, 1)]
+void decode_combine(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform DecodeCombineParams p)
+{
+    uint h = gid.x, t = gid.y, tid = ltid.x;
+    uint jLo, L;
+    uint64_t kvRow;
+#if MULTI_SEQ
+    decode_range(t, p.rt, p.seq, jLo, L, kvRow);
+#else
+    decode_range(t, p.rt, nullptr, jLo, L, kvRow);
+#endif
+    uint span = L - jLo;
+    uint per = decode_split_keys(span, p.T);
+    uint ns = (span + per - 1) / per;
+    if (ns <= 1)
+    {
+        return;
+    }
+
+    // Split statistics in parallel: thread s holds (m, l) of split s (DC_WG >= ns is not required).
+    float M = -1e30;
+    for (uint s = tid; s < ns; s += DC_WG) M = max(M, p.part[((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2) + DV]);
+    M = WaveActiveMax(M);
+    if (tid % SG == 0) dcRed[tid / SG] = M;
+    GroupMemoryBarrierWithGroupSync();
+    M = dcRed[0];
+    [ForceUnroll] for (uint i = 1; i < DC_WG / SG; i++) M = max(M, dcRed[i]);
+#if HAS_SINKS
+    M = max(M, p.sinks[h]);
+#endif
+    float den = 0;
+    for (uint s = tid; s < ns; s += DC_WG)
+    {
+        float* ps = p.part + ((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2);
+        float w = exp(ps[DV] - M);
+        dcW[s] = w;
+        den += w * ps[DV + 1];
+    }
+    den = WaveActiveSum(den);
+    GroupMemoryBarrierWithGroupSync();
+    if (tid % SG == 0) dcRed[tid / SG] = den;
+    GroupMemoryBarrierWithGroupSync();
+    den = 0;
+    [ForceUnroll] for (uint i = 0; i < DC_WG / SG; i++) den += dcRed[i];
+#if HAS_SINKS
+    den += exp(p.sinks[h] - M);
+#endif
+    float inv = 1.0 / den;
+    float* orow = p.o + (uint64_t(t) * HQ + h) * DV;
+    for (uint d = tid; d < DV; d += DC_WG)
+    {
+        float num = 0;
+        for (uint s = 0; s < ns; s++) num += dcW[s] * p.part[((uint64_t(s) * p.T + t) * HQ + h) * (DV + 2) + d];
+        orow[d] = num * inv;
+    }
+}
 #endif
 
 #ifdef KERNEL_COMBINE
@@ -486,6 +609,287 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         [ForceUnroll]
         for (uint c = 0; c < FA_NC; c++)
             [ForceUnroll] for (uint e = 0; e < 16; e++) if (c * FA_DC + sub * 16 + e < DV) orow[c * FA_DC + sub * 16 + e] = o[c * 16 + e] * inv;
+    }
+}
+#endif
+
+#ifdef KERNEL_DECODE
+// ---------------------------------------------------------------------------------------------
+// Split-K flash decoding, see decode_range above. Per DEC_BC-key chunk: scores of the HPW heads (KLANES lanes per key
+// row, 16-byte loads, butterfly sum), online softmax per head (one subgroup per head), then P·V with VLANES lanes per
+// value row (value rows of the chunk are loaded before the scores so the loads overlap). Each thread keeps its value
+// slice's accumulators for all HPW heads in registers; the row partitions are summed through shared memory at the end.
+#define DEC_KC ((D / 8 + KLANES - 1) / KLANES)    // 8-dim slices of a key row per lane
+#define DEC_VC ((DV / 8 + VLANES - 1) / VLANES)   // 8-dim slices of a value row per lane
+#define DEC_KR (DEC_WG / KLANES)                  // key rows per pass
+#define DEC_VR (DEC_WG / VLANES)                  // value rows per pass
+
+groupshared float dS[HPW * DEC_BC];
+groupshared float dP[HPW * DEC_BC];
+groupshared float dM[HPW];
+groupshared float dL[HPW];
+groupshared float dCorr[HPW];
+groupshared float dO[DEC_VR * DV];
+
+// 8 consecutive cache elements, kept packed in registers until used.
+struct Kv8
+{
+#if KV_F16
+    uint4 u;
+#else
+    float4 a;
+    float4 b;
+#endif
+};
+
+Kv8 load_kv8(uint8_t* cache, uint64_t elem)
+{
+    Kv8 r;
+#if KV_F16
+    r.u = *(uint4*)(cache + elem * 2);
+#else
+    float4* f = (float4*)(cache + elem * 4);
+    r.a = f[0];
+    r.b = f[1];
+#endif
+    return r;
+}
+
+Kv8 zero_kv8()
+{
+    Kv8 r;
+#if KV_F16
+    r.u = uint4(0);
+#else
+    r.a = float4(0);
+    r.b = float4(0);
+#endif
+    return r;
+}
+
+void unpack_kv8(Kv8 k, out float v[8])
+{
+#if KV_F16
+    v[0] = f16tof32(k.u.x & 0xFFFF); v[1] = f16tof32(k.u.x >> 16);
+    v[2] = f16tof32(k.u.y & 0xFFFF); v[3] = f16tof32(k.u.y >> 16);
+    v[4] = f16tof32(k.u.z & 0xFFFF); v[5] = f16tof32(k.u.z >> 16);
+    v[6] = f16tof32(k.u.w & 0xFFFF); v[7] = f16tof32(k.u.w >> 16);
+#else
+    v[0] = k.a.x; v[1] = k.a.y; v[2] = k.a.z; v[3] = k.a.w;
+    v[4] = k.b.x; v[5] = k.b.y; v[6] = k.b.z; v[7] = k.b.w;
+#endif
+}
+
+[shader("compute")]
+[numthreads(DEC_WG, 1, 1)]
+void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    uint hk = gid.x / (HQ / HKV / HPW);
+    uint h0 = hk * (HQ / HKV) + gid.x % (HQ / HKV / HPW) * HPW;
+    uint t = gid.y;
+    uint tid = ltid.x;
+    uint kl = tid % KLANES, kr = tid / KLANES;
+    uint vl = tid % VLANES, vr = tid / VLANES;
+    // Queries first: their loads do not depend on the key range.
+    float q[HPW][DEC_KC * 8];
+    [ForceUnroll]
+    for (uint g = 0; g < HPW; g++)
+    {
+        float* qr = p.q + uint64_t(t) * QS0 + uint64_t(h0 + g) * QS1;
+        [ForceUnroll]
+        for (uint c = 0; c < DEC_KC; c++)
+        {
+            uint d0 = (c * KLANES + kl) * 8;
+            [ForceUnroll] for (uint e = 0; e < 8; e++) q[g][c * 8 + e] = d0 < D ? qr[d0 + e] * SCALE : 0.0;
+        }
+    }
+
+    uint jLo, L;
+    uint64_t kvRow;
+#if MULTI_SEQ
+    decode_range(t, p.rt, p.seq, jLo, L, kvRow);
+#else
+    decode_range(t, p.rt, nullptr, jLo, L, kvRow);
+#endif
+    uint span = L - jLo;
+    uint per = decode_split_keys(span, p.T);
+    uint ns = (span + per - 1) / per;
+    uint split = gid.z;
+    if (split >= ns)
+    {
+        return;
+    }
+
+    uint jBeg = jLo + split * per;
+    uint jEnd = min(L, jBeg + per);
+    float acc[HPW][DEC_VC * 8];
+    [ForceUnroll] for (uint g = 0; g < HPW; g++) [ForceUnroll] for (uint i = 0; i < DEC_VC * 8; i++) acc[g][i] = 0;
+    if (tid < HPW)
+    {
+        dM[tid] = -1e30;
+        dL[tid] = 0;
+    }
+
+    for (uint c0 = jBeg; c0 < jEnd; c0 += DEC_BC)
+    {
+        // Value rows of the chunk: issued first, consumed after the softmax.
+        Kv8 vb[DEC_BC / DEC_VR][DEC_VC];
+        [ForceUnroll]
+        for (uint i = 0; i < DEC_BC / DEC_VR; i++)
+        {
+            uint j = c0 + vr + i * DEC_VR;
+            [ForceUnroll]
+            for (uint c = 0; c < DEC_VC; c++)
+            {
+                uint d0 = (c * VLANES + vl) * 8;
+                vb[i][c] = j < jEnd && d0 < DV ? load_kv8(p.vc, (kvRow + uint64_t(j) * HKV + hk) * DV + d0) : zero_kv8();
+            }
+        }
+
+        // Scores: KLANES lanes per key row, butterfly sum inside the subgroup. All key loads of the chunk are issued
+        // before the first use (the subgroup shuffles would otherwise serialize them).
+        Kv8 kb[DEC_BC / DEC_KR][DEC_KC];
+        [ForceUnroll]
+        for (uint i = 0; i < DEC_BC / DEC_KR; i++)
+        {
+            uint j = c0 + kr + i * DEC_KR;
+            [ForceUnroll]
+            for (uint c = 0; c < DEC_KC; c++)
+            {
+                uint d0 = (c * KLANES + kl) * 8;
+                kb[i][c] = j < jEnd && d0 < D ? load_kv8(p.kc, (kvRow + uint64_t(j) * HKV + hk) * D + d0) : zero_kv8();
+            }
+        }
+        [ForceUnroll]
+        for (uint i = 0; i < DEC_BC / DEC_KR; i++)
+        {
+            uint r = kr + i * DEC_KR;
+            uint j = c0 + r;
+            float s[HPW];
+            [ForceUnroll] for (uint g = 0; g < HPW; g++) s[g] = 0;
+            [ForceUnroll]
+            for (uint c = 0; c < DEC_KC; c++)
+            {
+                float k[8];
+                unpack_kv8(kb[i][c], k);
+                [ForceUnroll]
+                for (uint g = 0; g < HPW; g++)
+                    [ForceUnroll] for (uint e = 0; e < 8; e++) s[g] += q[g][c * 8 + e] * k[e];
+            }
+            [ForceUnroll]
+            for (uint off = KLANES / 2; off > 0; off >>= 1)
+                [ForceUnroll] for (uint g = 0; g < HPW; g++) s[g] += WaveReadLaneAt(s[g], WaveGetLaneIndex() ^ off);
+            if (kl == 0)
+            {
+                [ForceUnroll]
+                for (uint g = 0; g < HPW; g++)
+                {
+#if HAS_SOFTCAP
+                    s[g] = SOFTCAP * tanh(s[g] / SOFTCAP);
+#endif
+                    dS[g * DEC_BC + r] = j < jEnd ? s[g] : -1e30;
+                }
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        // Online softmax, one subgroup per head.
+        uint lane = tid % SG;
+        for (uint g = tid / SG; g < HPW; g += DEC_WG / SG)
+        {
+            float mx = -1e30;
+            for (uint i = lane; i < DEC_BC; i += SG) mx = max(mx, dS[g * DEC_BC + i]);
+            mx = WaveActiveMax(mx);
+            float mOld = dM[g];
+            float mNew = max(mOld, mx);
+            float sum = 0;
+            for (uint i = lane; i < DEC_BC; i += SG)
+            {
+                float sc = dS[g * DEC_BC + i];
+                float pv = sc > -1e29 ? exp(sc - mNew) : 0.0;
+                dP[g * DEC_BC + i] = pv;
+                sum += pv;
+            }
+            sum = WaveActiveSum(sum);
+            if (lane == 0)
+            {
+                float corr = exp(mOld - mNew);
+                dCorr[g] = corr;
+                dL[g] = dL[g] * corr + sum;
+                dM[g] = mNew;
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        // P·V into the registers (dS/dP are rewritten only after the next chunk's first barrier).
+        [ForceUnroll]
+        for (uint g = 0; g < HPW; g++)
+        {
+            float corr = dCorr[g];
+            [ForceUnroll] for (uint i = 0; i < DEC_VC * 8; i++) acc[g][i] *= corr;
+        }
+        [ForceUnroll]
+        for (uint i = 0; i < DEC_BC / DEC_VR; i++)
+        {
+            uint r = vr + i * DEC_VR;
+            [ForceUnroll]
+            for (uint c = 0; c < DEC_VC; c++)
+            {
+                float v[8];
+                unpack_kv8(vb[i][c], v);
+                [ForceUnroll]
+                for (uint g = 0; g < HPW; g++)
+                {
+                    float pg = dP[g * DEC_BC + r];
+                    [ForceUnroll] for (uint e = 0; e < 8; e++) acc[g][c * 8 + e] += pg * v[e];
+                }
+            }
+        }
+    }
+
+    // Sum the value-row partitions of each head and write the output (single range) or the partial.
+    bool direct = ns == 1;
+    [ForceUnroll]
+    for (uint g = 0; g < HPW; g++)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        [ForceUnroll]
+        for (uint c = 0; c < DEC_VC; c++)
+        {
+            uint d0 = (c * VLANES + vl) * 8;
+            if (d0 < DV)
+                [ForceUnroll] for (uint e = 0; e < 8; e++) dO[vr * DV + d0 + e] = acc[g][c * 8 + e];
+        }
+        GroupMemoryBarrierWithGroupSync();
+        uint h = h0 + g;
+        float m = dM[g], l = dL[g];
+        float* dst;
+        float scale = 1.0;
+        if (direct)
+        {
+#if HAS_SINKS
+            float sk = p.sinks[h], mf = max(m, sk), cf = exp(m - mf);
+            l = l * cf + exp(sk - mf);
+            scale = cf;
+#endif
+            scale = l > 0 ? scale / l : 0.0;
+            dst = p.o + (uint64_t(t) * HQ + h) * DV;
+        }
+        else
+        {
+            dst = p.part + ((uint64_t(split) * p.T + t) * HQ + h) * (DV + 2);
+            if (tid == 0)
+            {
+                dst[DV] = m;
+                dst[DV + 1] = l;
+            }
+        }
+        for (uint d = tid; d < DV; d += DEC_WG)
+        {
+            float sum = 0;
+            [ForceUnroll] for (uint r = 0; r < DEC_VR; r++) sum += dO[r * DV + d];
+            dst[d] = sum * scale;
+        }
     }
 }
 #endif
