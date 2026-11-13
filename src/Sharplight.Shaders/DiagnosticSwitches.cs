@@ -19,6 +19,9 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
+/// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
+/// <item><c>SHARPLIGHT_GEMM2_CFG32</c>, <c>SHARPLIGHT_GEMM2_CFG64=wm,wn,fm,fn</c>: force the layout of the 32- and 64-token
+/// gemm_cm2 tiles.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -62,6 +65,15 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced gemm_cm2 layout (warps M, warps N, fragments M, fragments N), or null.</summary>
     public static int[]? Gemm2Layout { get; } = Read("SHARPLIGHT_GEMM2_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>False keeps gemm_cm2 at 128-token tiles for every batch.</summary>
+    public static bool Gemm2Skinny { get; } = IsNotZero("SHARPLIGHT_GEMM2_SKINNY");
+
+    /// <summary>Forced layout of the 32-token gemm_cm2 tile, or null.</summary>
+    public static int[]? Gemm2Layout32 { get; } = Read("SHARPLIGHT_GEMM2_CFG32")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Forced layout of the 64-token gemm_cm2 tile, or null.</summary>
+    public static int[]? Gemm2Layout64 { get; } = Read("SHARPLIGHT_GEMM2_CFG64")?.Split(',').Select(int.Parse).ToArray();
 
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);

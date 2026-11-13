@@ -8,7 +8,7 @@ public sealed class MatMulTests
     {
         foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k" })
         {
-            foreach (var t in new[] { 1, 2, 8, 9, 20, 64 })
+            foreach (var t in new[] { 1, 2, 8, 9, 20, 40, 64 })
             {
                 yield return [fmt, t];
             }

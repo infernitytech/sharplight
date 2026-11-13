@@ -11,7 +11,8 @@ public sealed partial class GraphLowerer
     /// <summary>Largest row count served by the matrix-vector kernels.</summary>
     private const long MatvecMaxRows = 8;
 
-    // Tensor-core GEMM (gemm_cm2) tile: both supported warp layouts produce 128x128 tiles.
+    // Tensor-core GEMM (gemm_cm2) tile for prefill: both large warp layouts produce 128x128 tiles. Small batches use
+    // 32- or 64-token tiles (see Gemm2TileRowsFor) so the MMA work stays proportional to the rows.
     private const int Gemm2TileRows = 128;
     private const int Gemm2TileColumns = 128;
 
@@ -133,25 +134,75 @@ public sealed partial class GraphLowerer
         return src.ToString();
     }
 
-    /// <summary>Macros of gemm_cm2 for the 4-warp (<paramref name="large"/> false) or 8-warp layout.</summary>
-    private static Dictionary<string, string> Gemm2Macros(Dictionary<string, string> m, bool large)
+    /// <summary>
+    /// Token rows of the gemm_cm2 tile for a batch of <paramref name="rows"/>: 32 or 64 for small batches (decode of many
+    /// sequences), where a 128-token tile would mostly multiply padding, else 128.
+    /// </summary>
+    private static int Gemm2TileRowsFor(long rows) => !DiagnosticSwitches.Gemm2Skinny ? Gemm2TileRows : rows <= 32 ? 32 : rows <= 64 ? 64 : Gemm2TileRows;
+
+    /// <summary>
+    /// gemm_cm2 layout (warps M, warps N, fragments M, fragments N) of a tile with <paramref name="tileRows"/> tokens and
+    /// a K block of 64 (<paramref name="wideK"/>) or 32. Every thread stages at least one 8-value activation group per K
+    /// block, so the 32-token tile with a 32-value K block has only 4 warps.
+    /// </summary>
+    private static int[] Gemm2Layout(int tileRows, bool large, bool wideK = true) => tileRows switch
     {
-        // warps M, warps N, fragments M, fragments N
-        int[] layout = DiagnosticSwitches.Gemm2Layout ?? (large ? [2, 4, 4, 2] : [2, 2, 4, 4]);
-        if (layout[0] * layout[2] * 16 != Gemm2TileRows || layout[1] * layout[3] * 16 != Gemm2TileColumns)
+        32 => DiagnosticSwitches.Gemm2Layout32 ?? (wideK ? [2, 4, 1, 2] : [1, 4, 2, 2]),
+        64 => DiagnosticSwitches.Gemm2Layout64 ?? [2, 4, 2, 2],
+        _ => DiagnosticSwitches.Gemm2Layout ?? (large ? [2, 4, 4, 2] : [2, 2, 4, 4]),
+    };
+
+    /// <summary>Weight rows (output columns) of the gemm_cm2 tile with <paramref name="tileRows"/> tokens.</summary>
+    private static int Gemm2Columns(int tileRows)
+    {
+        var layout = Gemm2Layout(tileRows, large: false);
+        return layout[1] * layout[3] * 16;
+    }
+
+    /// <summary>Macros of gemm_cm2 for a tile of <paramref name="tileRows"/> tokens; 128-token tiles use the 4-warp (<paramref name="large"/> false) or 8-warp layout.</summary>
+    private static Dictionary<string, string> Gemm2Macros(Dictionary<string, string> m, int tileRows, bool large)
+    {
+        bool wideK = DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
+        int[] layout = Gemm2Layout(tileRows, large, wideK);
+        int threads = layout[0] * layout[1] * 32;
+        int columns = layout[1] * layout[3] * 16;
+        int blockK = wideK ? 64 : 32;
+        if (layout[0] * layout[2] * 16 != tileRows || (tileRows == Gemm2TileRows && columns != Gemm2TileColumns)
+            || columns != Gemm2Columns(tileRows) || tileRows * blockK / 8 % threads != 0 || columns * blockK / 16 % threads != 0)
         {
-            throw new NotSupportedException("GEMM layout must give 128x128 tiles.");
+            throw new NotSupportedException($"GEMM layout {string.Join(',', layout)} does not give {tileRows}-token tiles staged evenly by its threads.");
         }
 
-        bool wideK = DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
         return new(m)
         {
             ["WARPS_M"] = layout[0].ToString(CultureInfo.InvariantCulture),
             ["WARPS_N"] = layout[1].ToString(CultureInfo.InvariantCulture),
             ["FRAG_M"] = layout[2].ToString(CultureInfo.InvariantCulture),
             ["FRAG_N"] = layout[3].ToString(CultureInfo.InvariantCulture),
-            ["GBK"] = wideK ? "64" : "32",
+            ["GBK"] = blockK.ToString(CultureInfo.InvariantCulture),
         };
+    }
+
+    /// <summary>
+    /// The gemm_cm2 variants (no split-K) for activations with macros <paramref name="m"/>, each also gated by
+    /// <paramref name="when"/>: the 8-warp 128-token layout for large grids, the skinny tiles, then the 4-warp layout.
+    /// </summary>
+    private List<KernelVariant> Gemm2Variants(MatMulPlan p, Dictionary<string, string> m, Func<Bindings, bool> when)
+    {
+        List<KernelVariant> variants =
+        [
+            new KernelVariant(b => when(b) && p.Split(b) == 1 && LargeGemm2Grid(p, b),
+                Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, Gemm2TileRows, large: true)), b => Gemm2Grid(p, b)),
+        ];
+        foreach (int tileRows in new[] { 32, 64 })
+        {
+            variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1 && Gemm2TileRowsFor(p.RowCount(b)) == tileRows,
+                Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, tileRows, large: false)), b => Gemm2Grid(p, b)));
+        }
+
+        variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1,
+            Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, Gemm2TileRows, large: false)), b => Gemm2Grid(p, b)));
+        return variants;
     }
 
     private void LowerMatMul(Node n)
@@ -232,7 +283,8 @@ public sealed partial class GraphLowerer
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
         Func<long, int> splitRows = workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
-            : rows => ChooseSplit(N, K, rows, blockK: DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32);
+            : rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows), Gemm2Columns(Gemm2TileRowsFor(rows)),
+                DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32);
 
         return new MatMulPlan
         {
@@ -254,36 +306,33 @@ public sealed partial class GraphLowerer
     private static string MatMulLabel(MatMulPlan p) => $"matmul {p.Node.Output.Name} [{p.K}→{p.N}] {p.W.Type}";
 
     private static Grid Gemm2Grid(MatMulPlan p, Bindings b, uint splits = 1)
-        => new(Grid.Div(p.N, Gemm2TileColumns), Grid.Div(p.RowCount(b), Gemm2TileRows), splits);
+    {
+        int tileRows = Gemm2TileRowsFor(p.RowCount(b));
+        return new(Grid.Div(p.N, Gemm2Columns(tileRows)), Grid.Div(p.RowCount(b), tileRows), splits);
+    }
 
     private static bool LargeGemm2Grid(MatMulPlan p, Bindings b)
-        => Grid.Div(p.N, Gemm2TileColumns) * Grid.Div(p.RowCount(b), Gemm2TileRows) >= LargeGridWorkgroups;
+        => Gemm2TileRowsFor(p.RowCount(b)) == Gemm2TileRows
+           && Grid.Div(p.N, Gemm2TileColumns) * Grid.Div(p.RowCount(b), Gemm2TileRows) >= LargeGridWorkgroups;
 
     /// <summary>One launch with matvec variants and GEMM variants that read f32 activations.</summary>
     private void EmitDirectMatMul(MatMulPlan p)
     {
         var m = p.Macros;
-        KernelVariant big;
+        List<KernelVariant> variants = MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount);
         if (p.Coop && DiagnosticSwitches.Gemm2)
         {
-            big = new KernelVariant(b => p.Split(b) == 1 && LargeGemm2Grid(p, b),
-                Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, large: true)), b => Gemm2Grid(p, b));
+            variants.AddRange(Gemm2Variants(p, m, _ => true));
         }
         else if (p.Coop)
         {
-            big = new KernelVariant(_ => true, Lib("matmul.slang", "gemm_cm", m),
-                b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64)));
+            variants.Add(new KernelVariant(_ => true, Lib("matmul.slang", "gemm_cm", m),
+                b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64))));
         }
         else
         {
-            big = new KernelVariant(_ => true, Lib("matmul.slang", "gemm", m),
-                b => new Grid(Grid.Div(p.N, 64), Grid.Div(p.RowCount(b), 64)));
-        }
-
-        List<KernelVariant> variants = [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), big];
-        if (p.Coop && DiagnosticSwitches.Gemm2)
-        {
-            variants.Add(new KernelVariant(b => p.Split(b) == 1, Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, large: false)), b => Gemm2Grid(p, b)));
+            variants.Add(new KernelVariant(_ => true, Lib("matmul.slang", "gemm", m),
+                b => new Grid(Grid.Div(p.N, 64), Grid.Div(p.RowCount(b), 64))));
         }
 
         Emit(MatMulLabel(p), [p.Node], variants,
@@ -335,13 +384,7 @@ public sealed partial class GraphLowerer
         }
         else
         {
-            gemmVariants =
-            [
-                new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == 1 && LargeGemm2Grid(p, b),
-                    Lib("matmul.slang", "gemm_cm2", Gemm2Macros(halfMacros, large: true)), b => Gemm2Grid(p, b)),
-                new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == 1,
-                    Lib("matmul.slang", "gemm_cm2", Gemm2Macros(halfMacros, large: false)), b => Gemm2Grid(p, b)),
-            ];
+            gemmVariants = Gemm2Variants(p, halfMacros, b => p.RowCount(b) > MatvecMaxRows);
         }
 
         Emit(MatMulLabel(p), [p.Node], gemmVariants,
@@ -366,13 +409,16 @@ public sealed partial class GraphLowerer
         long rowsMax = p.X.Shape[0] * rowsPerLead;
         long scratchBytes = 0;
         var splits = new SortedSet<int>();
-        // The split depends on rows only through the token tile count; the largest row count per tile count bounds scratch.
+        var tiledSplits = new SortedSet<(int TileRows, int Split)>();
+        // The split depends on rows only through the token tile size and count; the largest row count per tile count
+        // bounds scratch.
         for (long rows = Math.Min(rowsMax, MatvecMaxRows + 1); rows <= rowsMax; rows = NextSplitProbe(rows, rowsMax))
         {
             int split = p.SplitRows(rows);
             if (split > 1)
             {
                 splits.Add(split);
+                tiledSplits.Add((p.WorkgroupMatrix ? NvTileTokens : Gemm2TileRowsFor(rows), split));
                 scratchBytes = Math.Max(scratchBytes, split * rows * N * 4);
             }
         }
@@ -387,13 +433,16 @@ public sealed partial class GraphLowerer
         var partial = new TensorRef(_splitScratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var splitMacros = (int split) => new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) };
 
-        var partialVariants = splits.Select(split => p.WorkgroupMatrix
-            ? new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
-                Lib("matmul.slang", "gemm_nv2", splitMacros(split)),
-                b => new Grid(Grid.Div(N, NvTileColumns), Grid.Div(p.RowCount(b), NvTileTokens), (uint)split))
-            : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
-                Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(Gemm2Macros(p.Macros, large: false)) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) }),
-                b => Gemm2Grid(p, b, (uint)split)));
+        var partialVariants = tiledSplits.Select(ts => p.WorkgroupMatrix
+            ? new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split,
+                Lib("matmul.slang", "gemm_nv2", splitMacros(ts.Split)),
+                b => new Grid(Grid.Div(N, NvTileColumns), Grid.Div(p.RowCount(b), NvTileTokens), (uint)ts.Split))
+            : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split && Gemm2TileRowsFor(p.RowCount(b)) == ts.TileRows,
+                Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(Gemm2Macros(p.Macros, ts.TileRows, large: false))
+                {
+                    ["SPLITK"] = ts.Split.ToString(CultureInfo.InvariantCulture),
+                }),
+                b => Gemm2Grid(p, b, (uint)ts.Split)));
         Emit($"{MatMulLabel(p)} split-k", [p.Node],
             [.. partialVariants],
             [Pointer(activations), Pointer(p.W), new PointerArg(_splitScratch, 0), TokenArg(activations, rowsPerLead)],
@@ -409,21 +458,24 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// Next row count to probe when searching the split factors: 128 rows first (when the batch is larger), then
-    /// 128-row steps, finishing at <paramref name="rowsMax"/>.
+    /// Next row count to probe when searching the split factors: the largest row count of each token tile size (32, 64,
+    /// 128) first, then 128-row steps, finishing at <paramref name="rowsMax"/>.
     /// </summary>
     private static long NextSplitProbe(long rows, long rowsMax)
     {
-        if (rows < 128 && rowsMax > 128)
+        foreach (long tileEnd in new long[] { 32, 64, 128 })
         {
-            return 128;
+            if (rows < tileEnd && rowsMax > tileEnd)
+            {
+                return tileEnd;
+            }
         }
 
         return rows == rowsMax ? rowsMax + 1 : Math.Min(rowsMax, rows + 128);
     }
 
     /// <summary>
-    /// K split for the 128x128 tensor-core GEMM: aim for ~256 workgroups, keep at least 4 K blocks per split
+    /// K split for the tensor-core GEMM tiles: aim for ~256 workgroups, keep at least 4 K blocks per split
     /// and no empty splits.
     /// </summary>
     private static int ChooseSplit(long N, long K, long rows, long blockRows = Gemm2TileRows, long blockColumns = Gemm2TileColumns, long blockK = 32)
