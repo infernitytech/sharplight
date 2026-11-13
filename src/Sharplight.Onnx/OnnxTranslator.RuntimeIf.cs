@@ -78,7 +78,35 @@ internal sealed partial class OnnxTranslator
     }
 
     /// <summary>Translates a branch into its own graph; <paramref name="free"/> are the enclosing values it reads.</summary>
-    private ComputeGraph BuildBranch(OnnxGraph g, List<string> free, string prefix)
+    private ComputeGraph BuildBranch(OnnxGraph g, List<string> free, string prefix) => BuildSubgraph(free, prefix, () =>
+    {
+        RunSubgraph(g, "If branch");
+        for (int k = 0; k < g.Outputs.Count; k++)
+        {
+            var t = Get(g.Outputs[k].Name);
+            bool integer = !OnnxType.IsFloat(g.Outputs[k].ElemType);
+            var v = t.IsConst ? (integer ? Idx(t) : AsValue(t)) : t.V!;
+            if (t.LeadingUnits > 0 || t.TransposedNonZero)
+            {
+                throw new NotSupportedException("an If branch returns a tensor with leading unit dims or a NonZero result");
+            }
+
+            var type = integer ? DataType.I32 : DataType.F32;
+            if (v.Type != type)
+            {
+                v = _b.Emit1("Cast", [v], Attributes.From(("type", type.Name)));
+            }
+
+            _b.Output($"out{k}", OutputCopy(v, $"{prefix}out{k}"));
+        }
+    });
+
+    /// <summary>
+    /// Builds a self-contained subgraph with its own <see cref="GraphBuilder"/>: the non-constant values of <paramref name="free"/> (enclosing
+    /// values the subgraph reads) become its inputs under their own names, constants are embedded. <paramref name="build"/> declares further
+    /// inputs, translates the nodes and declares the outputs. The enclosing translation state is restored afterwards.
+    /// </summary>
+    private ComputeGraph BuildSubgraph(List<string> free, string prefix, Action build)
     {
         var saved = free.ToDictionary(name => name, name => _env[name]);
         var (builder, constants, groupScope, heavy, symbolPrefix) = (_b, _constValues, _groupScope, _heavyInGroup, _symbolPrefix);
@@ -97,26 +125,7 @@ internal sealed partial class OnnxTranslator
                     : new TranslatedTensor { V = _b.Input(name, InputRole.Other, t.V!.Type, t.V.Shape), Scalar = t.Scalar };
             }
 
-            RunSubgraph(g, "If branch");
-            for (int k = 0; k < g.Outputs.Count; k++)
-            {
-                var t = Get(g.Outputs[k].Name);
-                bool integer = !OnnxType.IsFloat(g.Outputs[k].ElemType);
-                var v = t.IsConst ? (integer ? Idx(t) : AsValue(t)) : t.V!;
-                if (t.LeadingUnits > 0 || t.TransposedNonZero)
-                {
-                    throw new NotSupportedException("an If branch returns a tensor with leading unit dims or a NonZero result");
-                }
-
-                var type = integer ? DataType.I32 : DataType.F32;
-                if (v.Type != type)
-                {
-                    v = _b.Emit1("Cast", [v], Attributes.From(("type", type.Name)));
-                }
-
-                _b.Output($"out{k}", OutputCopy(v, $"{prefix}out{k}"));
-            }
-
+            build();
             _groupScope?.Dispose();
             return _b.Build();
         }
