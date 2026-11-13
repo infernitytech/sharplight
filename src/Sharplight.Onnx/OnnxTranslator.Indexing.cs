@@ -10,7 +10,18 @@ internal sealed partial class OnnxTranslator
         var x = X(ins, 0);
         if (!ins[1]!.IsConst)
         {
-            SetDyn(n, 0, Emit("GatherAxis", [x, Idx(ins[1]!)], Attributes.From(("axis", n.Int("axis", 0))), Nm(n)));
+            var indices = Idx(ins[1]!);
+            int gatherAxis = NormalizeAxis(n.Int("axis", 0), x.Rank);
+            if (Sym(indices) && gatherAxis > 0 && !Sym(x) && x.Shape.Dims.Take(gatherAxis).All(d => d.Fixed == 1))
+            {
+                // Data-dependent indices behind unit dims ([1, S, 4] gathered on axis 1): the unit dims stay in front of the count.
+                var inner = Rs(x, x.Shape.Dims.Skip(gatherAxis).Select(d => d.Fixed).ToArray());
+                SetDyn(n, 0, Emit("GatherAxis", [inner, indices], Attributes.From(("axis", 0L)), Nm(n)));
+                _env[n.Outputs[0]].LeadingUnits = gatherAxis + ins[1]!.LeadingUnits;
+                return;
+            }
+
+            SetDyn(n, 0, Emit("GatherAxis", [x, indices], Attributes.From(("axis", n.Int("axis", 0))), Nm(n)));
             return;
         }
         var idxC = ConstIn(ins, 1, "Gather indices");

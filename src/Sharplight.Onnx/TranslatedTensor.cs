@@ -23,6 +23,12 @@ internal sealed class TranslatedTensor
     /// </summary>
     public int LeadingUnits { get; set; }
 
+    /// <summary>
+    /// The IR value holds the transpose of the ONNX tensor: NonZero yields ONNX <c>[rank, count]</c>, stored as <c>[count, rank]</c> so that
+    /// the data-dependent count is the outer dim. Only Transpose, Gather of a row, Squeeze, Shape, Cast and Identity accept it.
+    /// </summary>
+    public bool TransposedNonZero { get; set; }
+
     /// <summary>True when the value is known at import time.</summary>
     public bool IsConst => C is not null;
 

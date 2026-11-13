@@ -485,8 +485,15 @@ internal sealed partial class OnnxTranslator
 
             return;
         }
+        if (ins.Any(t => t is { TransposedNonZero: true }))
+        {
+            NonZeroConsumer(n, ins);
+            return;
+        }
+
         int leadingUnits = ins.Max(t => t?.LeadingUnits ?? 0);
-        if (leadingUnits > 0 && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
+        bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
+        if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
         {
             throw new NotSupportedException($"{n.OpType} of a tensor with unit dims in front of its symbolic dim");
         }

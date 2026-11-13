@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
@@ -25,5 +26,105 @@ internal sealed partial class OnnxTranslator
         var attributes = Attributes.From(("count_symbol", count), ("max_per_class", perClass), ("iou_threshold", (float)iou),
             ("score_threshold", (float)score), ("center_point_box", n.Int("center_point_box", 0) != 0));
         SetDyn(n, 0, Emit("NonMaxSuppression", [boxes, scores], attributes, Nm(n)));
+    }
+
+    /// <summary>NonZero → IR <c>[count, rank]</c> (see <see cref="TranslatedTensor.TransposedNonZero"/>).</summary>
+    private void NonZero(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var x = ins[0]!.V ?? AsValue(ins[0]!);
+        if (ins[0]!.LeadingUnits > 0 || x.Rank == 0)
+        {
+            throw new NotSupportedException("NonZero of a scalar or of a tensor with leading unit dims");
+        }
+
+        var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)x.Shape.Elements();
+        string count = _b.DynamicSymbol("nonzero", bound);
+        SetDyn(n, 0, Emit("NonZero", [x], Attributes.From(("count_symbol", count)), Nm(n)));
+        _env[n.Outputs[0]].TransposedNonZero = true;
+    }
+
+    /// <summary>Compress(x, condition, axis) = Gather(x, NonZero(condition), axis); without axis over the flattened x.</summary>
+    private void Compress(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var x = ins[0]!;
+        var conditionTensor = ins[1]!;
+        long axis = 0;
+        if (n.Has("axis"))
+        {
+            axis = n.Int("axis", 0);
+        }
+        else
+        {
+            var flat = TranslatedTensor.Const(OnnxConst.FromInts(OnnxType.Int64, [1], [-1]));
+            x = Synthetic("Reshape", [x, flat]);
+            conditionTensor = Synthetic("Reshape", [conditionTensor, flat]);
+        }
+
+        var condition = conditionTensor.V ?? AsValue(conditionTensor);
+        var bound = Sym(condition) ? condition.Shape[0] * condition.Shape.InnerElements : (Dim)condition.Shape.Elements();
+        string count = _b.DynamicSymbol("compress", bound);
+        var rows = Emit("NonZero", [condition], Attributes.From(("count_symbol", count)));
+        var indices = Rs(rows, 0);
+        _env[n.Outputs[0]] = Synthetic("Gather", [x, TranslatedTensor.Dyn(indices)], IntAttribute("axis", axis));
+    }
+
+    /// <summary>Unique over the flattened input (outputs: values, first indices, inverse indices, counts).</summary>
+    private void Unique(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        if (n.Has("axis"))
+        {
+            throw new NotSupportedException("Unique along an axis");
+        }
+
+        var x = ins[0]!.V ?? AsValue(ins[0]!);
+        var bound = Sym(x) ? x.Shape[0] * x.Shape.InnerElements : (Dim)Math.Max(1, x.Shape.Elements());
+        string count = _b.DynamicSymbol("unique", bound);
+        var outputs = _b.Emit("Unique", [x], Attributes.From(("count_symbol", count), ("sorted", n.Int("sorted", 1) != 0)), Nm(n));
+        for (int i = 0; i < n.Outputs.Count && i < outputs.Count; i++)
+        {
+            if (n.Outputs[i] != "")
+            {
+                SetDyn(n, i, outputs[i]);
+            }
+        }
+    }
+
+    /// <summary>Consumers of a NonZero result, whose IR value is the transpose of the ONNX tensor.</summary>
+    private void NonZeroConsumer(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var t = ins[0]!;
+        if (!t.TransposedNonZero || ins.Skip(1).Any(i => i is { TransposedNonZero: true }))
+        {
+            throw new NotSupportedException($"{n.OpType} of a NonZero result (only Transpose, Gather of a row, Squeeze, Shape, Cast and Identity are supported)");
+        }
+
+        var v = t.V!;   // [count, rank]
+        long rank = v.Shape[1].Fixed;
+        switch (n.OpType)
+        {
+            case "Transpose" when n.Ints("perm") is null or [1, 0]:
+                SetDyn(n, 0, v);
+                return;
+            case "Identity" or "Cast":
+                _env[n.Outputs[0]] = t;
+                return;
+            case "Shape":
+                _env[n.Outputs[0]] = TranslatedTensor.Const(OnnxConst.FromInts(OnnxType.Int64, [2], [rank, SymbolicInts.Encode(v.Shape[0])]));
+                return;
+            case "Squeeze" when rank == 1:
+                SetDyn(n, 0, Rs(v, 0));
+                return;
+            case "Gather" when NormalizeAxis(n.Int("axis", 0), 2) == 0 && ins[1] is { IsConst: true, C.Count: 1 } index:
+            {
+                long row = index.C!.Ints()[0];
+                var column = Rs(_b.Slice(v, 1, row < 0 ? row + rank : row, 1), 0);
+                SetDyn(n, 0, column);
+                _env[n.Outputs[0]].LeadingUnits = index.C.Rank;   // a [1] index keeps a unit dim in front of the count
+                return;
+            }
+
+            default:
+                throw new NotSupportedException($"{n.OpType} of a NonZero result (only Transpose, Gather of a row, Squeeze, Shape, Cast and Identity are supported)");
+        }
     }
 }
