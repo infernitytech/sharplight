@@ -33,10 +33,18 @@ public interface IComputeDevice : IDisposable
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options);
 
     /// <summary>
-    /// Identifies devices that can share compilation artifacts (provider, device model, driver, enabled features).
-    /// Saved compiled models keep one <see cref="ICompilationCache"/> per target.
+    /// Version 1 identifier of devices that can share compilation artifacts (provider, device model, driver, enabled features).
+    /// Only used to find legacy kernel sets (<see cref="ArtifactTiers.Mixed"/>) stored for this device; new artifacts are
+    /// described by <see cref="ArtifactTargets"/>.
     /// </summary>
     public string CompilationTarget => $"{Info.Provider}|{Info.Name}|{Info.Driver}|{string.Join(",", EnabledFeatures.Order(StringComparer.Ordinal))}";
+
+    /// <summary>
+    /// The tiers of precompiled artifacts this device produces and consumes (e.g. a code tier keyed by a device profile and a
+    /// binary tier keyed by device and driver), in routing order: a cache key belongs to the first target that claims it
+    /// (<see cref="ArtifactTarget.KeyPrefixes"/>). Empty when the device has nothing worth precompiling.
+    /// </summary>
+    public IReadOnlyList<ArtifactTarget> ArtifactTargets => [];
 
     /// <summary>
     /// Adds device-level compilation state (e.g. a driver pipeline cache covering every kernel compiled so far) to

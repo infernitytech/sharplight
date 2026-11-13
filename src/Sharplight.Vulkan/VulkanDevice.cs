@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
@@ -49,6 +50,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     public DeviceOptions Options { get; }
     /// <summary>Detected features minus the ones disabled for this device; only these are enabled in the driver.</summary>
     public IReadOnlySet<string> EnabledFeatures { get; }
+    /// <summary>
+    /// Code tier: SPIR-V kernels (<c>kernel/*</c>), content addressed, so any stored set for the same SPIR-V target may be
+    /// consulted. Binary tier: the driver pipeline cache, only valid for the same vendor, device and driver.
+    /// </summary>
+    public IReadOnlyList<ArtifactTarget> ArtifactTargets { get; }
     private bool Has(string feature) => EnabledFeatures.Contains(feature);
     public long AvailableMemory => GetMemoryInfo().Available;
 
@@ -85,6 +91,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         Info = info;
         Options = options;
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
+        ArtifactTargets = CreateArtifactTargets();
         SubmissionBudgetMs = info.SubmissionBudgetMs;
         options.Settings.TryGetValue("submission_budget_ms", out var budgetSetting);
         if (DiagnosticSwitches.SubmissionBudgetMs(budgetSetting) is { } budgetMs)
@@ -259,6 +266,37 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         VkPipelineLayout layout;
         Api.vkCreatePipelineLayout(&createInfo, null, &layout).CheckResult();
         return layout;
+    }
+
+    private IReadOnlyList<ArtifactTarget> CreateArtifactTargets()
+    {
+        var code = new ArtifactTarget(
+            new Dictionary<string, string>
+            {
+                [ArtifactDescriptorKeys.Provider] = Info.Provider,
+                [ArtifactDescriptorKeys.Tier] = ArtifactTiers.Code,
+                [ArtifactDescriptorKeys.Kind] = "spirv",
+                [ArtifactDescriptorKeys.Target] = SlangCompiler.TargetProfile(ShaderTarget.SpirV),
+                [ArtifactDescriptorKeys.Subgroup] = Phys.SubgroupSize.ToString(CultureInfo.InvariantCulture),
+                [ArtifactDescriptorKeys.SharedMemory] = Phys.MaxSharedMemory.ToString(CultureInfo.InvariantCulture),
+                [ArtifactDescriptorKeys.Features] = string.Join(",", EnabledFeatures.Order(StringComparer.Ordinal)),
+                [ArtifactDescriptorKeys.Compiler] = SlangCompiler.CompilerId,
+            },
+            [ArtifactDescriptorKeys.Target],
+            [SlangCompiler.KernelKeyPrefix]);
+        var binary = new ArtifactTarget(
+            new Dictionary<string, string>
+            {
+                [ArtifactDescriptorKeys.Provider] = Info.Provider,
+                [ArtifactDescriptorKeys.Tier] = ArtifactTiers.Binary,
+                [ArtifactDescriptorKeys.Kind] = "pipeline-cache",
+                [ArtifactDescriptorKeys.Vendor] = Phys.VendorId.ToString("x", CultureInfo.InvariantCulture),
+                [ArtifactDescriptorKeys.Device] = Phys.Uuid ?? "",
+                [ArtifactDescriptorKeys.Driver] = Phys.DriverVersion.ToString("x", CultureInfo.InvariantCulture),
+            },
+            [ArtifactDescriptorKeys.Vendor, ArtifactDescriptorKeys.Device, ArtifactDescriptorKeys.Driver],
+            []);
+        return [code, binary];
     }
 
     internal void Track(long bytes) => Interlocked.Add(ref _used, bytes);

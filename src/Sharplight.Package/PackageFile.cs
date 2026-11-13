@@ -3,7 +3,6 @@ using System.IO.MemoryMappedFiles;
 using System.Text;
 using Sharplight.Models;
 using Sharplight.Runtime;
-using Sharplight.Tensors;
 
 namespace Sharplight.Package;
 
@@ -14,20 +13,20 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
     private readonly MemoryMappedViewAccessor _view;
     private readonly byte* _base;
     private readonly long _length;
-    private readonly Dictionary<string, KernelSet> _targets = new(StringComparer.Ordinal);
     private bool _disposed;
 
     public string Path { get; }
     public IReadOnlyDictionary<string, WeightInfo> Weights { get; }
     /// <summary>The stored model; owns this file (disposing the definition's resources closes it).</summary>
     public ModelDefinition Definition { get; }
-    public IEnumerable<string> Targets => _targets.Keys;
+    /// <summary>Stored artifact sets (ARTS and legacy KSET sections), newest first.</summary>
+    public IReadOnlyList<StoredArtifactSet> ArtifactSets { get; }
 
     public PackageFile(string path)
     {
         Path = path;
         var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        IReadOnlyList<ModelPackage.Section> sections;
+        IReadOnlyList<PackageSection> sections;
         try
         {
             (_, sections) = ModelPackage.ReadHeader(fs);
@@ -52,53 +51,33 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             }
         }
 
-        var idx = sections.Single(s => s.Kind == ModelPackage.SectionKind.WeightIndex);
+        var idx = sections.Single(s => s.Kind == PackageSectionKind.WeightIndex);
         Weights = ReadIndex(Reader(idx));
-        var def = sections.Single(s => s.Kind == ModelPackage.SectionKind.Definition);
+        var def = sections.Single(s => s.Kind == PackageSectionKind.Definition);
         Definition = DefinitionCodec.Read(Reader(def), Weights, [this]);
-        foreach (var s in sections.Where(s => s.Kind == ModelPackage.SectionKind.KernelSet))
+        var sets = new List<StoredArtifactSet>();
+        foreach (var s in sections.Where(s => s.IsArtifactSet).Reverse())
         {
-            _targets[s.Name] = new KernelSet(this, s);
+            var directory = ArtifactSetCodec.ReadDirectory(Reader(s), s);
+            sets.Add(new StoredArtifactSet(directory.Descriptor, new MappedArtifactSet(this, directory)));
         }
+        ArtifactSets = sets;
     }
 
-    private BinaryReader Reader(ModelPackage.Section s)
+    private BinaryReader Reader(PackageSection s)
         => new(new UnmanagedMemoryStream(_base + s.Offset, s.Length), Encoding.UTF8);
 
     private Dictionary<string, WeightInfo> ReadIndex(BinaryReader r)
     {
-        int n = r.ReadInt32();
-        var d = new Dictionary<string, WeightInfo>(n, StringComparer.Ordinal);
-        for (int i = 0; i < n; i++)
+        var entries = WeightIndexCodec.Read(r, _length);
+        var weights = new Dictionary<string, WeightInfo>(entries.Count, StringComparer.Ordinal);
+        foreach (var e in entries)
         {
-            string name = MetadataCodec.ReadString(r);
-            var type = DataType.Get(MetadataCodec.ReadString(r));
-            int rank = r.ReadInt32();
-            var dims = new Dim[rank];
-            for (int j = 0; j < rank; j++)
-            {
-                dims[j] = Dim.Of(r.ReadInt64());
-            }
-
-            long off = r.ReadInt64();
-            long len = r.ReadInt64();
-            if (off < 0 || off + len > _length)
-            {
-                throw new InvalidDataException($"Weight {name} lies outside the package.");
-            }
-
-            var shape = new Shape(dims);
-            if (type.ByteSize(shape.Elements()) != len)
-            {
-                throw new InvalidDataException($"Weight {name}: {len} bytes do not match {type}{shape}.");
-            }
-
-            d[name] = new WeightInfo { Name = name, Type = type, Shape = shape, Source = new MappedSource(this, off, len) };
+            weights[e.Name] = new WeightInfo { Name = e.Name, Type = e.Type, Shape = e.Shape, Source = new MappedSource(this, e.Offset, e.ByteSize) };
         }
-        return d;
-    }
 
-    public ICompilationCache? Find(string target) => _targets.GetValueOrDefault(target);
+        return weights;
+    }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -135,28 +114,18 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         }
     }
 
-    /// <summary>A stored target's entries, served from the mapping without copying.</summary>
-    private sealed class KernelSet : ICompilationCache
+    /// <summary>A stored set's entries, served from the mapping without copying.</summary>
+    private sealed class MappedArtifactSet : ICompilationCache
     {
         private readonly PackageFile _file;
         private readonly Dictionary<string, (long Offset, int Length)> _entries = new(StringComparer.Ordinal);
 
-        public KernelSet(PackageFile file, ModelPackage.Section s)
+        public MappedArtifactSet(PackageFile file, ArtifactSetDirectory directory)
         {
             _file = file;
-            var r = file.Reader(s);
-            int n = r.ReadInt32();
-            for (int i = 0; i < n; i++)
+            foreach (var (key, offset, length) in directory.Entries)
             {
-                string key = MetadataCodec.ReadString(r);
-                long off = r.ReadInt64();
-                long len = r.ReadInt64();
-                if (off < 0 || len < 0 || len > int.MaxValue || off + len > s.Length)
-                {
-                    throw new InvalidDataException($"Package entry {key} lies outside its section.");
-                }
-
-                _entries[key] = (s.Offset + off, (int)len);
+                _entries[key] = (offset, length);
             }
         }
 
@@ -172,7 +141,7 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             return true;
         }
 
-        public void Put(string key, ReadOnlyMemory<byte> data) => throw new NotSupportedException("Stored package targets are read-only.");
+        public void Put(string key, ReadOnlyMemory<byte> data) => throw new NotSupportedException("Stored artifact sets are read-only.");
     }
 
     private sealed class MappedMemory(byte* ptr, int length) : MemoryManager<byte>

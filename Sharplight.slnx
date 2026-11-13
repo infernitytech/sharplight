@@ -23,6 +23,7 @@
     <Project Path="samples/Sharplight.OnnxRun/Sharplight.OnnxRun.csproj" />
     <Project Path="samples/Sharplight.Serve/Sharplight.Serve.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
+    <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />

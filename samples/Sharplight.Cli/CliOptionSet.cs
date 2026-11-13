@@ -58,7 +58,7 @@ internal sealed class CliOptionSet
     private readonly Option<string?> _save = new("--save")
     {
         HelpName = "file",
-        Description = "Store the built model and this device's compiled kernels in one .slm package. When the model already is that package, the compiled target is appended to it.",
+        Description = "Store the built model and this device's compiled artifacts (kernel code and driver pipeline cache) in one .slm package. When the model already is that package, the artifact sets are appended to it. See sharplight-convert for conversion and precompilation without generating.",
     };
 
     private readonly Option<int?> _bench = OptionFactory.OptionalInteger(
