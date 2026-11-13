@@ -13,10 +13,11 @@ public static partial class StandardOps
     /// (the op reads it, advances it by the T tokens and writes it back: declare it in the node's writes). All f32.
     /// Per token t and head h: <c>dt' = max(softplus(dt[t,h] + dt_bias[h]), dt_min)</c>, <c>S[p,n] = exp(dt'·A[h])·S[p,n] + dt'·x[t,h,p]·B[t,g,n]</c>,
     /// <c>y[t,h,p] = Σₙ S[p,n]·C[t,g,n] + D[h]·x[t,h,p]</c>. Attribute <c>dt_min</c> (float, default 0): lower clamp of the discretised step
-    /// (Nemotron-H: time_step_min). Output y [T, H, P] f32. The gated group RMS norm that follows in Mamba-2 blocks
+    /// (Nemotron-H: time_step_min). Output y [T, H, P] f32. Multi-sequence form (see <c>MultiSequence</c>): ninth input = sequence runs [U, 4] i32 and state [S, H, P, N]; each run
+    /// continues its slot's state and a run starting at position 0 starts from zero state. The gated group RMS norm that follows in Mamba-2 blocks
     /// (<c>rmsnorm_groups(y·silu(z))·w</c>) is not part of the op: express it with Silu/Mul, a Reshape to [T, G, H·P/G] and an unweighted RmsNorm.
     /// </summary>
-    public static readonly OpSchema SelectiveScan = new("SelectiveScan", OpCategory.Composite, 8, 8, (i, a) =>
+    public static readonly OpSchema SelectiveScan = new("SelectiveScan", OpCategory.Composite, 8, 9, (i, a) =>
     {
         var x = i[0].Shape;
         if (x.Rank != 3)

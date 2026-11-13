@@ -9,7 +9,7 @@ public sealed partial class GraphLowerer
     /// <summary>Support check of the Mamba-2 scan: everything f32 (anything else is partitioned to the CPU provider).</summary>
     private static OpSupport SupportsSelectiveScan(Node node)
     {
-        foreach (var v in node.Inputs)
+        foreach (var v in node.Inputs.Take(8))
         {
             if (v.Type != DataType.F32)
             {
@@ -31,6 +31,7 @@ public sealed partial class GraphLowerer
         var c = Ref(n.Inputs[5]);
         var d = Ref(n.Inputs[6]);
         var st = Ref(n.Inputs[7]);
+        var runs = n.Inputs.Length > 8 ? DenseInput(n.Inputs[8], "seq-runs") : null;
         x = EnsureUnitInnerStride(x, 2, "ssm-x");
         dt = EnsureUnitInnerStride(dt, 1, "ssm-dt");
         b = EnsureUnitInnerStride(b, 2, "ssm-B");
@@ -60,12 +61,12 @@ public sealed partial class GraphLowerer
         long timeBlock = Math.Clamp(2048 / N, 1, 16);
         var k = Lib("ssm.slang", "ssm_scan", Macros(("H", H), ("P", P), ("G", G), ("N", N),
             ("XS0", x.Strides[0]), ("XS1", x.Strides[1]), ("DTS0", dt.Strides[0]), ("BS0", b.Strides[0]), ("BS1", b.Strides[1]), ("CS0", c.Strides[0]), ("CS1", c.Strides[1]),
-            ("LPR", lanesPerRow), ("PB", rowsPerBlock), ("TB", timeBlock), ("DT_MIN", n.Attributes.Get("dt_min", 0f))));
+            ("LPR", lanesPerRow), ("PB", rowsPerBlock), ("TB", timeBlock), ("DT_MIN", n.Attributes.Get("dt_min", 0f)), ("MULTI_SEQ", runs is not null)));
         Emit($"ssm_scan {n.Output.Name}", [n],
-            [Always(k, _ => new Grid((uint)H, (uint)(P / rowsPerBlock)))],
+            [Always(k, b => new Grid((uint)H, (uint)(P / rowsPerBlock), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(x), Pointer(dt), Pointer(dtb), Pointer(a),
              Pointer(b), Pointer(c), Pointer(d), Pointer(st),
-             Pointer(y), TokenArg(x)],
-            [x, dt, dtb, a, b, c, d, st], [y, st]);
+             Pointer(y), .. SeqArgs(runs), TokenArg(x)],
+            [x, dt, dtb, a, b, c, d, st, .. runs is null ? [] : (TensorRef[])[runs]], [y, st]);
     }
 }

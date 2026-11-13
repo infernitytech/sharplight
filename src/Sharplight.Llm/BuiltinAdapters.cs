@@ -25,5 +25,6 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new DecoderAdapter());
         ModelAdapterRegistry.Register(new EncoderAdapter());
         ModelAdapterRegistry.Register(new NemotronHAdapter());
+        ModelAdapterRegistry.Register(new HybridAdapter());
     }
 }

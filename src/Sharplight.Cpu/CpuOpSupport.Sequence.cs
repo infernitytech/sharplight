@@ -109,6 +109,11 @@ internal static partial class CpuOpSupport
             return OpSupport.No("SelectiveScan needs f32 x/dt/B/C and state");
         }
 
+        if (ins.Length > 8 && ins[8].Type != DataType.I32)
+        {
+            return OpSupport.No("SelectiveScan sequence runs must be i32");
+        }
+
         return F32Like(ins[2]) && F32Like(ins[3]) && F32Like(ins[6])
             ? OpSupport.Yes
             : OpSupport.No("SelectiveScan dt_bias/A/D must be f32-convertible");

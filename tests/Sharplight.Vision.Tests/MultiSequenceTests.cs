@@ -15,6 +15,9 @@ public class MultiSequenceTests
         { "qwen35-0.8b", "cpu" }, { "qwen35-0.8b", "vulkan" },
         { "qwen2.5-0.5b", "cpu" }, { "qwen2.5-0.5b", "vulkan" },
         { "gemma3-1b", "vulkan" }, { "gemma3-1b", "cpu" },
+        { "mamba2-130m", "cpu" }, { "mamba2-130m", "vulkan" },
+        { "nemotron-h-4b", "vulkan" },
+        { "granite-4.0-h-350m", "cpu" }, { "granite-4.0-h-350m", "vulkan" },
     };
 
     private static string ModelPath(string m) => m switch
@@ -22,6 +25,9 @@ public class MultiSequenceTests
         "qwen35-0.8b" => Env.Gguf08,
         "qwen2.5-0.5b" => Path.Combine(Home, "models/gguf/Qwen2.5-0.5B-Instruct/qwen2.5-0.5b-instruct-fp16.gguf"),
         "gemma3-1b" => Path.Combine(Home, "models/gguf/gemma-3-1b-it/gemma-3-1b-it-BF16.gguf"),
+        "mamba2-130m" => Path.Combine(Home, "models/gguf/mamba2-130m-hf/mamba2-130m-hf-q8_0.gguf"),
+        "nemotron-h-4b" => Path.Combine(Home, "models/gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-Q8_0.gguf"),
+        "granite-4.0-h-350m" => Path.Combine(Home, "models/gguf/granite-4.0-h-350m/granite-4.0-h-350m-Q4_K_M.gguf"),
         _ => throw new ArgumentException(m),
     };
 

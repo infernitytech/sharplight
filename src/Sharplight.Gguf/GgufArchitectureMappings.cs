@@ -11,6 +11,7 @@ internal static class GgufArchitectureMappings
     {
         Register(new Qwen35GgufMapping());
         Register(new NemotronHGgufMapping());
+        Register(new HybridGgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());

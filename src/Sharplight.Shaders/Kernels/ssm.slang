@@ -2,8 +2,9 @@
 // row p is owned by LPR lanes of one subgroup, each holding N/LPR state elements in registers (lanes interleaved: conflict-free
 // shared reads); the per-row dot with C is a subgroup butterfly sum (LPR = 1 needs no subgroup ops at all).
 //   dt' = max(softplus(dt + bias), DT_MIN);  S = exp(dt' A) S + dt' x B;  y = S . C + D x
-// x [T, H, P] strides (XS0, XS1); dt [T, H] row stride DTS0; B, C [T, G, N] strides (BS0, BS1)/(CS0, CS1); state [H, P, N] f32; y dense.
-// Macros: H, P, G, N, XS0, XS1, DTS0, BS0, BS1, CS0, CS1, LPR, PB (P % PB == 0), TB (tokens staged per block), DT_MIN
+// x [T, H, P] strides (XS0, XS1); dt [T, H] row stride DTS0; B, C [T, G, N] strides (BS0, BS1)/(CS0, CS1); state [H, P, N] f32 (MULTI_SEQ: [S, H, P, N], grid z = run of the
+// [U, 4] runs table, a run at position 0 starts from zero state); y dense.
+// Macros: H, P, G, N, XS0, XS1, DTS0, BS0, BS1, CS0, CS1, LPR, PB (P % PB == 0), TB (tokens staged per block), DT_MIN, MULTI_SEQ
 #include "common.slang"
 
 #ifdef KERNEL_SSM_SCAN
@@ -18,6 +19,9 @@ struct SsmParams
     float* d;
     float* state;
     float* y;
+#if MULTI_SEQ
+    int* runs;
+#endif
     uint T;
 };
 
@@ -49,13 +53,22 @@ void ssm_scan(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Ssm
     uint part = ltid.x % LPR;
     float bias = p.dtb[h], A = p.a[h], Dh = p.d[h];
 
+#if MULTI_SEQ
+    int4 run = int4(p.runs[gid.z * 4], p.runs[gid.z * 4 + 1], p.runs[gid.z * 4 + 2], p.runs[gid.z * 4 + 3]);
+    float* st = p.state + ((uint64_t(run.x) * H + h) * P + row) * N + part;
+    uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
+    bool fresh = run.w == 0;
+#else
     float* st = p.state + (uint64_t(h) * P + row) * N + part;
+    uint tBeg = 0, tEnd = p.T;
+    bool fresh = false;
+#endif
     float M[EPL];
-    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = st[e * LPR];
+    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : st[e * LPR];
 
-    for (uint t0 = 0; t0 < p.T; t0 += TB)
+    for (uint t0 = tBeg; t0 < tEnd; t0 += TB)
     {
-        uint nt = min(uint(TB), p.T - t0);
+        uint nt = min(uint(TB), tEnd - t0);
         GroupMemoryBarrierWithGroupSync();
         for (uint i = ltid.x; i < nt * N; i += NT)
         {

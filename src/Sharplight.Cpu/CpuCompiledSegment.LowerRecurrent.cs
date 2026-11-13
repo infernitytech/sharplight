@@ -41,7 +41,8 @@ internal sealed unsafe partial class CpuCompiledSegment
         var d = Dense(RefF32(ins[6]));
         var state = Ref(ins[7]);
         var y = NewDense(n.Output);
-        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f)), x, dt, dtBias, a, b, c, d, state, y);
+        TRef? runs = ins.Length > 8 ? Dense(Ref(ins[8])) : null;
+        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f), runs), Touched(x, dt, dtBias, a, b, c, d, state, runs, y));
         _refs[n.Output] = y;
     }
 

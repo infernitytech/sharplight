@@ -1,0 +1,136 @@
+using Sharplight.Graph;
+using Sharplight.Models;
+using Sharplight.Tensors;
+
+namespace Sharplight.Architectures;
+
+/// <summary>
+/// Layer-pattern hybrid decoder (canonical arch <c>hybrid</c>): a stack of residual layers whose token mixer is a Mamba-2 state-space layer, grouped-query
+/// attention, or both in parallel (their outputs are summed), optionally followed by a gated feed-forward block (dense and/or routed experts).
+/// Covers Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer),
+/// and pure Mamba-2 stacks (no feed-forward).
+/// </summary>
+/// <remarks>
+/// The layer pattern is read from the weights: a layer with <c>ssm.in.weight</c> has the Mamba-2 mixer, one with <c>attention.q.weight</c> has attention;
+/// a layer with <c>mlp.*</c> weights has the feed-forward block (see <see cref="Mamba2Layer"/>, <see cref="HybridAttention"/>,
+/// <see cref="HybridFeedForward"/> for their weight vocabulary).
+/// Layer: <c>x += residual_scale · mixers(norm(x))</c>, then (with a feed-forward) <c>x += residual_scale · ffn(post_attention_norm(x))</c>.
+/// Hyper-parameters (<c>hybrid.*</c>): <c>layer_count</c>, <c>hidden_size</c>, <c>norm_eps</c>, <c>context_length</c>, optional <c>embedding_scale</c> (default 1),
+/// <c>logit_scale</c> (multiplier of the logits, default 1), <c>residual_scale</c> (default 1), <c>mlp.activation</c>, <c>attention.*</c>/<c>rope.*</c>, <c>ssm.*</c>, <c>moe.*</c>.
+/// Weights: <c>token_embedding.weight</c>, <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied otherwise); per layer <c>input_norm.weight</c> and,
+/// with a feed-forward, <c>post_attention_norm.weight</c>.
+/// </remarks>
+public sealed class HybridAdapter : IModelAdapter
+{
+    /// <inheritdoc/>
+    public string Name => "Hybrid (Mamba-2 / attention / gated feed-forward layer stack)";
+    /// <inheritdoc/>
+    public IReadOnlyList<string> Architectures => ["hybrid"];
+
+    private sealed record LayerStates(StateDefinition? Conv, StateDefinition? Scan, StateDefinition? Keys, StateDefinition? Values);
+
+    /// <inheritdoc/>
+    public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
+    {
+        var src = sources.Primary;
+        int layerCount = src.Arch<int>("layer_count");
+        int hidden = src.Arch<int>("hidden_size");
+        float eps = src.Arch("norm_eps", 1e-5f);
+        float embeddingScale = src.Arch("embedding_scale", 1f);
+        float logitScale = src.Arch("logit_scale", 1f);
+        float residualScale = src.Arch("residual_scale", 1f);
+        var mamba = new Mamba2Layer(src, eps);
+        var attention = new HybridAttention(src);
+        var feedForward = new HybridFeedForward(src, hidden);
+
+        var states = new List<StateDefinition>();
+        var layers = new LayerStates[layerCount];
+        for (int il = 0; il < layerCount; il++)
+        {
+            string p = $"layers.{il}.";
+            var ssm = src.Weight(p + "ssm.in.weight") is not null ? mamba.DefineStates($"layers.{il}") : default;
+            var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType) : default;
+            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values);
+            states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values }.OfType<StateDefinition>());
+        }
+
+        var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, false) };
+        if (options.IncludeAuxiliaryGraphs)
+        {
+            graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", true);
+        }
+
+        return RecurrentModelDefinition.Create(src, layerCount, hidden, graphs, states);
+
+        ComputeGraph BuildTrunk(string name, bool embeddingsInput)
+        {
+            var b = new GraphBuilder(name, src.Weight);
+            var T = Dim.Sym(WellKnown.TokenSymbol);
+            Value x;
+            using (b.Group("input"))
+            {
+                if (embeddingsInput)
+                {
+                    x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hidden));
+                }
+                else
+                {
+                    x = b.Gather(b.Weight("token_embedding.weight"), b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T)), "inp_embd");
+                    if (embeddingScale != 1f)
+                    {
+                        x = b.Scale(x, embeddingScale);
+                    }
+                }
+            }
+
+            var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
+            var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+            for (int il = 0; il < layerCount; il++)
+            {
+                using var _ = b.Group($"layers.{il}");
+                x = Layer(b, x, positions, il);
+            }
+
+            using (b.Group("output"))
+            {
+                var hiddenStates = b.RmsNorm(x, b.Weight("output_norm.weight"), eps, "result_norm");
+                var rows = b.Gather(hiddenStates, outRows, "selected_rows");
+                var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
+                var logits = b.MatMul(rows, head, "logits");
+                b.Output("logits", logitScale != 1f ? b.Scale(logits, logitScale) : logits);
+                b.Output("hidden", hiddenStates);
+            }
+
+            return b.Build();
+        }
+
+        Value Layer(GraphBuilder b, Value x, Value positions, int il)
+        {
+            string p = $"layers.{il}.";
+            var layer = layers[il];
+            var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), eps, $"{p}norm");
+            Value? mixed = null;
+            if (layer.Scan is not null)
+            {
+                mixed = mamba.Build(b, h, p, layer.Conv!, layer.Scan);
+            }
+
+            if (layer.Keys is not null)
+            {
+                var attended = attention.Build(b, h, positions, p, layer.Keys, layer.Values!);
+                mixed = mixed is null ? attended : b.Add(mixed, attended);
+            }
+
+            x = b.Add(Scaled(b, mixed ?? throw new InvalidDataException($"hybrid: layer {il} has neither a state-space nor an attention mixer."), residualScale), x, $"{p}mix_out");
+            if (!HybridFeedForward.Exists(src, p))
+            {
+                return x;
+            }
+
+            var normed = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), eps, $"{p}post_attn_norm");
+            return b.Add(Scaled(b, feedForward.Build(b, normed, p), residualScale), x, $"{p}l_out");
+        }
+
+        static Value Scaled(GraphBuilder b, Value v, float scale) => scale == 1f ? v : b.Scale(v, scale);
+    }
+}
