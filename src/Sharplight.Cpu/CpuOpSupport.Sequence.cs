@@ -137,4 +137,18 @@ internal static partial class CpuOpSupport
 
         return OpSupport.Yes;
     }
+
+    /// <summary>RWKV recurrences: f32 activations and state; the optional trailing sequence-runs table is i32 (<paramref name="inputs"/> counts the inputs before it).</summary>
+    private static OpSupport CheckWkv(Node node, int inputs)
+    {
+        for (int i = 0; i < inputs; i++)
+        {
+            if (node.Inputs[i].Type != DataType.F32 && !(i == 4 && inputs == 6 && F32Like(node.Inputs[i])))
+            {
+                return OpSupport.No($"{node.Op.Name} needs f32 inputs and state, got {node.Inputs[i].Type}");
+            }
+        }
+
+        return node.Inputs.Length > inputs && node.Inputs[inputs].Type != DataType.I32 ? OpSupport.No($"{node.Op.Name} sequence runs must be i32") : OpSupport.Yes;
+    }
 }

@@ -18,6 +18,10 @@ public class MultiSequenceTests
         { "mamba2-130m", "cpu" }, { "mamba2-130m", "vulkan" },
         { "nemotron-h-4b", "vulkan" },
         { "granite-4.0-h-350m", "cpu" }, { "granite-4.0-h-350m", "vulkan" },
+        { "lfm2.5-1.2b", "cpu" }, { "lfm2.5-1.2b", "vulkan" },
+        { "mamba-130m", "cpu" }, { "mamba-130m", "vulkan" },
+        { "rwkv7-g1h-1.5b", "cpu" }, { "rwkv7-g1h-1.5b", "vulkan" },
+        { "rwkv6-1.6b", "cpu" }, { "rwkv6-1.6b", "vulkan" },
     };
 
     private static string ModelPath(string m) => m switch
@@ -28,6 +32,10 @@ public class MultiSequenceTests
         "mamba2-130m" => Path.Combine(Home, "models/gguf/mamba2-130m-hf/mamba2-130m-hf-q8_0.gguf"),
         "nemotron-h-4b" => Path.Combine(Home, "models/gguf/NVIDIA-Nemotron-3-Nano-4B/NVIDIA-Nemotron-3-Nano-4B-Q8_0.gguf"),
         "granite-4.0-h-350m" => Path.Combine(Home, "models/gguf/granite-4.0-h-350m/granite-4.0-h-350m-Q4_K_M.gguf"),
+        "lfm2.5-1.2b" => Path.Combine(Home, "models/gguf/LFM2.5-1.2B-Instruct/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"),
+        "mamba-130m" => Path.Combine(Home, "models/gguf/mamba-130m-hf/mamba-130m-hf.Q4_K_M.gguf"),
+        "rwkv7-g1h-1.5b" => Path.Combine(Home, "models/gguf/rwkv7-g1h-1.5b/rwkv7-g1h-1.5b-20260710-ctx10240.i1-Q4_K_M.gguf"),
+        "rwkv6-1.6b" => Path.Combine(Home, "models/gguf/rwkv-6-world-1b6/rwkv-6-world-1.6b-Q8_0.gguf"),
         _ => throw new ArgumentException(m),
     };
 
@@ -93,7 +101,7 @@ public class MultiSequenceTests
                     var (maxAbs, _, rms) = Env.Compare(got[u]!, want);
                     worst = Math.Max(worst, (float)rms);
                     // CPU: same math per row up to summation order. Vulkan: f16 tensor-core paths depend on the batch shape (more visibly on the tiny Mamba-2 model).
-                    Assert.True(rms < (device == "cpu" ? 1e-3 : model.StartsWith("mamba", StringComparison.Ordinal) ? 1e-2 : 5e-3), $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
+                    Assert.True(rms < (device == "cpu" ? 1e-3 : model.StartsWith("mamba", StringComparison.Ordinal) || model.StartsWith("rwkv", StringComparison.Ordinal) ? 1e-2 : 5e-3), $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
                     Assert.Equal(ArgMax(want), ArgMax(got[u]!));
                     Assert.Equal(sess.Position, dec.Length(key.Item1));
                 }

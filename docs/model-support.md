@@ -46,7 +46,7 @@ GQA/MQA; per-head QK RMS norm (weighted or unweighted), value norm; partial rota
 
 ### 2.3 Graph ops available (Sharplight.Core StandardOps)
 
-Attention, CachedAttention, CacheWrite, Rope, RmsNorm, LayerNorm, GroupNorm, L2Norm, Linear, MatMul, BatchMatMul, **MatMulId** (MoE), TopK, Softmax, Gather*/Scatter*, CumSum, Trilu, **CausalConv1d**, **GatedDeltaRule** (Qwen3.5 linear attention), **SelectiveScan** (Mamba-2 SSD), the ONNX-style elementwise/reduction/spatial set (Conv, Pool, Resize, GridSample, ...). Not present: Mamba-1 scan, WKV6/7, KDA/lightning variants, MLA cache, attention score bias, sparse/indexed attention, int hash ops.
+Attention, CachedAttention, CacheWrite, Rope, RmsNorm, LayerNorm, GroupNorm, L2Norm, Linear, MatMul, BatchMatMul, **MatMulId** (MoE), TopK, Softmax, Gather*/Scatter*, CumSum, Trilu, **CausalConv1d**, **GatedDeltaRule** (Qwen3.5 linear attention), **SelectiveScan** (Mamba-2 SSD), the ONNX-style elementwise/reduction/spatial set (Conv, Pool, Resize, GridSample, ...). **SelectiveScan** also covers Mamba-1 (A as [H, N]), **Wkv7**, **Wkv6** (RWKV recurrences); all of them have the multi-sequence form. Not present: KDA/lightning variants, MLA cache, attention score bias, sparse/indexed attention, int hash ops.
 
 ### 2.4 Weight formats with compute kernels
 
@@ -355,27 +355,27 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `mamba` | Mamba 1 (130M-2.8B), Falcon-Mamba, Codestral-Mamba(2) | Mamba1 selective scan (per-channel A, dt_rank), conv4, RMS | **missing** | `M1` | mamba, falcon_mamba | gguf/mamba-130m-hf, hf/mamba-130m-hf, hf/tiny-random-MambaForCausalLM |
-| `mamba2` | Mamba2, Codestral Mamba | Mamba2 SSD, groups, gated RMS | **partial** | `ADAPTM2`, `MAP` | mamba2 | gguf/mamba2-130m-hf, hf/mamba2-130m-hf |
-| `jamba` | Jamba, Jamba-Reasoning-3B | Mamba1 + attention interleave + MoE | **missing** | `M1`, `MOE`, `M2H` | jamba | gguf/AI21-Jamba-Reasoning-3B |
-| `falcon-h1` | Falcon-H1 0.5B-34B | parallel attention + Mamba2 in each layer, mup multipliers | **partial** | `M2H`, `RES`, `MAP` | falcon_h1 | gguf/Falcon-H1-0.5B-Instruct, hf/Falcon-H1-0.5B-Instruct, hf/tiny-random-falcon-h1 |
-| `granitehybrid` | Granite 4.0 H micro/tiny/small | Mamba2 + attention layers + MoE shared, mup scalings | **partial** | `M2H`, `RES`, `SHAREDMOE`, `MAP` | granitemoehybrid | gguf/granite-4.0-h-350m, gguf/granite-4.0-h-tiny, hf/granite-4.0-h-350m, hf/tiny-random-granite-4.0-h, hf/tiny-random-granite-moe-hybrid |
-| `plamo2` | PLaMo 2 | Mamba-like + attention + sandwich norms | **missing** | `M1`, `M2H` | - | - |
+| `mamba` | Mamba 1 (130M-2.8B), Falcon-Mamba, Codestral-Mamba(2) | Mamba1 selective scan (per-channel A, dt_rank), conv4, RMS | **supported** | - | mamba, falcon_mamba | gguf/mamba-130m-hf, hf/mamba-130m-hf, hf/tiny-random-MambaForCausalLM |
+| `mamba2` | Mamba2, Codestral Mamba | Mamba2 SSD, groups, gated RMS | **supported** | - | mamba2 | gguf/mamba2-130m-hf, hf/mamba2-130m-hf |
+| `jamba` | Jamba, Jamba-Reasoning-3B | Mamba1 + attention interleave + MoE | **supported** | - (MoE layers untested: the local Jamba-Reasoning-3B is dense) | jamba | gguf/AI21-Jamba-Reasoning-3B |
+| `falcon-h1` | Falcon-H1 0.5B-34B | parallel attention + Mamba2 in each layer, mup multipliers | **supported** | - | falcon_h1 | gguf/Falcon-H1-0.5B-Instruct, hf/Falcon-H1-0.5B-Instruct, hf/tiny-random-falcon-h1 |
+| `granitehybrid` | Granite 4.0 H micro/tiny/small | Mamba2 + attention layers + MoE shared, mup scalings | **supported** | - | granitemoehybrid | gguf/granite-4.0-h-350m, gguf/granite-4.0-h-tiny, hf/granite-4.0-h-350m, hf/tiny-random-granite-4.0-h, hf/tiny-random-granite-moe-hybrid |
+| `plamo2` | PLaMo 2 | Mamba-like + attention + sandwich norms | **missing** | `M1`, `M2H` (no checkpoint available locally) | - | - |
 
 ### RNN
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `rwkv6` | RWKV v6 World | WKV6 time-mix, token-shift, LN, ChannelMix | **missing** | `WKV6` | rwkv6 (remote code) | gguf/rwkv-6-world-1b6 |
-| `rwkv6qwen2` | RWKV6-Qwen2 (QRWKV6) | WKV6 + RMS + SwiGLU | **missing** | `WKV6` | - | - |
-| `rwkv7` | RWKV v7 G1 (0.1B-13B) | WKV7 (generalised delta rule), LoRA decay/a/v/g, LN | **missing** | `WKV7` | rwkv7 (remote code) | gguf/rwkv7-g1h-1.5b |
-| `arwkv7` | ARWKV7 (Qwen-distilled) | WKV7 + RMS + SwiGLU | **missing** | `WKV7` | - | - |
+| `rwkv6` | RWKV v6 World | WKV6 time-mix, token-shift, LN, ChannelMix | **supported** | - | rwkv6 (remote code) | gguf/rwkv-6-world-1b6 |
+| `rwkv6qwen2` | RWKV6-Qwen2 (QRWKV6) | WKV6 + RMS + SwiGLU | **missing** | `WKV6` (op exists; adapter variant with RMS norm + SwiGLU and a checkpoint missing) | - | - |
+| `rwkv7` | RWKV v7 G1 (0.1B-13B) | WKV7 (generalised delta rule), LoRA decay/a/v/g, LN | **supported** | - | rwkv7 (remote code) | gguf/rwkv7-g1h-1.5b |
+| `arwkv7` | ARWKV7 (Qwen-distilled) | WKV7 + RMS + SwiGLU | **missing** | `WKV7` (op exists; adapter variant with RMS norm + SwiGLU and a checkpoint missing) | - | - |
 
 ### Hybrid conv
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **partial** | `CONV`, `MAP` | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
+| `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
 | `lfm2moe` | LFM2-8B-A1B, LFM2.5-8B-A1B | lfm2 + MoE sigmoid bias | **partial** | `CONV`, `RBIAS`, `MAP` | lfm2_moe | gguf/LFM2.5-8B-A1B, hf/tiny-random-lfm2-moe |
 | `lfm3` | LFM3 | gated conv + gated attention | **partial** | `CONV`, `MAP` | - | gguf/LFM2-VL-450M (+mmproj) |
 

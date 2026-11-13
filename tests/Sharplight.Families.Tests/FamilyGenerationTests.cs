@@ -85,6 +85,9 @@ public class FamilyGenerationTests
             [275, 253, 2846, 273, 7785, 15, 187, 187, 510, 2846, 273, 7785, 310, 275, 253, 2846], ""),
         new("AI21-Jamba-Reasoning-3B Q4_K_M GGUF (llama.cpp)", "gguf/AI21-Jamba-Reasoning-3B/jamba-reasoning-3b-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris.\n\nThe capital of Germany is", Tokens: 9),
+        // RWKV-7 G1 (Wkv7 recurrence, value residual, LoRA decay / learning rate / gate); RWKV-6 is covered by LogprobReferenceTests.
+        new("rwkv7-g1h-1.5b Q4_K_M GGUF (llama.cpp)", "gguf/rwkv7-g1h-1.5b/rwkv7-g1h-1.5b-20260710-ctx10240.i1-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris.\nThe capital of France is Paris.\nThe capital of France is", Tokens: 16),
         new("mamba2-130m-hf HF (transformers)", "hf/mamba2-130m-hf", "The capital of France is", "ids",
             [247, 2846, 273, 253, 5112, 952, 13, 285, 253, 5347, 273, 253, 5112, 4687, 15, 733], ""),
         new("granite-4.0-h-350m Q4_K_M GGUF (llama.cpp)", "gguf/granite-4.0-h-350m/granite-4.0-h-350m-Q4_K_M.gguf", "The capital of France is", "text", [], " Paris.", Tokens: 16),

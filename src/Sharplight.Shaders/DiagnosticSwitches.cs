@@ -80,6 +80,12 @@ internal static class DiagnosticSwitches
     /// <summary>Preferred lanes per row of the selective scan.</summary>
     public static int SsmLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_SSM_LPR") ?? "8", CultureInfo.CurrentCulture);
 
+    /// <summary>Preferred lanes per state row of the RWKV recurrences.</summary>
+    public static int WkvLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_WKV_LPR") ?? "8", CultureInfo.CurrentCulture);
+
+    /// <summary>Preferred state rows per workgroup of the RWKV recurrences.</summary>
+    public static long WkvRowsPerBlock { get; } = long.Parse(Read("SHARPLIGHT_WKV_RB") ?? "16", CultureInfo.CurrentCulture);
+
     /// <summary>(token, slot) items up to which a per-item expert matvec beats grouping by expert.</summary>
     public static int MoeMatvecMaxItems { get; } = int.Parse(Read("SHARPLIGHT_MOE_MV_MAX") ?? "16", CultureInfo.InvariantCulture);
 

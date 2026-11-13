@@ -11,7 +11,7 @@ namespace Sharplight.Graph;
 /// Rows of one slot form a run of consecutive rows in context order; positions inputs (rope) carry each row's own position.</item>
 /// <item>KV caches keep their [Ctx, ...] shape: compile with context length S · per-slot context; slot s owns rows
 /// [s · Ctx/S, (s + 1) · Ctx/S). CacheWrite gets the rows table, CachedAttention rows and runs tables; both attribute <c>slots</c>.</item>
-/// <item>Other states (recurrent, conv) get a leading [S] dimension; CausalConv1d / GatedDeltaRule / SelectiveScan get the runs table.</item>
+/// <item>Other states (recurrent, conv) get a leading [S] dimension; CausalConv1d / GatedDeltaRule / SelectiveScan / Wkv6 / Wkv7 get the runs table.</item>
 /// </list>
 /// The <c>n_past</c> scalar is no longer used by the rewritten ops. A slot is cleared by zeroing its recurrent state rows
 /// (KV rows need no clearing: attention only reads rows up to each query's position).
@@ -25,7 +25,7 @@ public static class MultiSequence
     /// <summary>The rewritten graph and, per original state, its multi-sequence definition.</summary>
     public sealed record Result(ComputeGraph Graph, IReadOnlyDictionary<StateDefinition, StateDefinition> States, int Slots);
 
-    private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan"];
+    private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6"];
 
     /// <summary>True when every stateful op of the graph has a multi-sequence form.</summary>
     public static bool IsSupported(ComputeGraph g, out string? reason)
@@ -134,7 +134,7 @@ public static class MultiSequence
                     ins.Add(runs);
                     attrs = attrs.With("slots", (long)slots);
                     break;
-                case "CausalConv1d" or "GatedDeltaRule" or "SelectiveScan":
+                case "CausalConv1d" or "GatedDeltaRule" or "SelectiveScan" or "Wkv7" or "Wkv6":
                     ins.Add(runs);
                     break;
             }
