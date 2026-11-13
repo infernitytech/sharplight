@@ -48,6 +48,7 @@ internal static class RoutedMoeFamilyCases
         // follows (with SiLU it reproduces llama.cpp's " the capital of France is the capital of France is ..." exactly).
         new("bitnet-b1.58-2B-4T TQ2_0 GGUF (bitnet, squared ReLU)", "gguf/bitnet-b1.58-2B-4T/bitnet-2b4t-tq2_0.gguf", "The capital of France is", "text", [],
             " Paris. Paris is a city in the north of France, and it is the", Tokens: 16),
+        new("tiny-random-mistral-3 HF (mistral3 text model, transformers)", "hf/tiny-random-mistral-3", HfPrompt, "ids", [45407,27662,72872,3774,100074,57942,30819,57942], ""),
         // Tiny checkpoints from tools/mk_tiny_moe.py.
         new("tiny-random-hunyuan-v1-moe HF (hunyuan_v1_moe, transformers)", "hf/tiny-random-hunyuan-v1-moe", HfPrompt, "ids", [906,479,659,442,304,481,929,839,151,414,296,434,19,105,185,647], ""),
         new("tiny-random-dots1 HF (dots1 group-limited routing, transformers)", "hf/tiny-random-dots1", HfPrompt, "ids", [557,683,396,750,619,279,523,503,995,662,487,926,166,964,821,637], ""),
