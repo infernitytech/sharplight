@@ -174,11 +174,27 @@ public class GgufRoundTripTests : IDisposable
     }
 
     [Fact]
+    public void GroupBitFormats_HaveGgmlIds()
+    {
+        Assert.Equal(DataType.Q1_0, GgmlTypes.GetDataType(41));
+        Assert.Equal(DataType.Q2_0, GgmlTypes.GetDataType(42));
+        Assert.Equal(DataType.Q2_0_G128, GgmlTypes.GetDataType(142));   // PrismML fork: PQ2_0
+        Assert.Equal(DataType.Tern1_G128, GgmlTypes.GetDataType(143));  // PrismML fork: PTQ1_0
+        Assert.Equal(142, GgmlTypes.GetGgmlType(DataType.Q2_0_G128));
+        Assert.Equal(143, GgmlTypes.GetGgmlType(DataType.Tern1_G128));
+        Assert.Equal((128, 18), (DataType.Q1_0.BlockSize, DataType.Q1_0.BlockBytes));
+        Assert.Equal((64, 18), (DataType.Q2_0.BlockSize, DataType.Q2_0.BlockBytes));
+        Assert.Equal((128, 34), (DataType.Q2_0_G128.BlockSize, DataType.Q2_0_G128.BlockBytes));
+        Assert.Equal((128, 28), (DataType.Tern1_G128.BlockSize, DataType.Tern1_G128.BlockBytes));
+    }
+
+    [Fact]
     public void ManyTensorTypes_RoundTrip()
     {
         var path = Path.Combine(_dir, "many.gguf");
         var w = new GgufWriter().AddMetadata("general.architecture", "toy");
-        var types = new[] { DataType.Q4_0, DataType.Q5_1, DataType.Q2_K, DataType.Q6_K, DataType.IQ4_XS, GgmlTypes.IQ3_S, GgmlTypes.TQ1_0, GgmlTypes.NVFP4, DataType.MXFP4, DataType.BF16, DataType.I32 };
+        var types = new[] { DataType.Q4_0, DataType.Q5_1, DataType.Q2_K, DataType.Q6_K, DataType.IQ4_XS, GgmlTypes.IQ3_S, GgmlTypes.TQ1_0, GgmlTypes.NVFP4, DataType.MXFP4, DataType.BF16, DataType.I32,
+            DataType.Q1_0, DataType.Q2_0, DataType.Q2_0_G128, DataType.Tern1_G128 };
         foreach (var t in types)
             w.AddTensor("t." + t.Name, t, Pattern((int)t.ByteSize(t.BlockSize * 2)), 2, t.BlockSize);
         w.Write(path);

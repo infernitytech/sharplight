@@ -79,6 +79,11 @@ public sealed class GgufImporter : IModelImporter
                 throw new NotSupportedException($"{path}: {unmapped.Count} tensor(s) of '{ggufArch}' have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
             }
 
+            if (PrismHadamard.Applies(files.Metadata))
+            {
+                PrismHadamard.Apply(weights, files.Metadata, n => mapping.MapWeightName(n, view));
+            }
+
             if (mapping is IGgufWeightTransformer transformer)
             {
                 transformer.Transform(weights, view);
@@ -126,11 +131,6 @@ public sealed class GgufImporter : IModelImporter
         {
             md[k.StartsWith(GgmlTokenizerPrefix, StringComparison.Ordinal) ? "tokenizer." + k[GgmlTokenizerPrefix.Length..] : k] = v;
         }
-        // llama.cpp calls SentencePiece-style tokenizers "llama"; the canonical name is "spm".
-        if (md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm) && tm is "llama")
-        {
-            md[CanonicalKeys.TokenizerModel] = "spm";
-        }
         // llama.cpp's spelling and names of the pair / classifier tokens.
         if (md.Remove("tokenizer.seperator_token_id", out var sep))
         {
@@ -142,8 +142,13 @@ public sealed class GgufImporter : IModelImporter
             md[CanonicalKeys.TokenizerClassifierId] = cls;
         }
 
+        md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm);
         switch (tm)
         {
+            // llama.cpp calls SentencePiece-style tokenizers "llama"; the canonical name is "spm".
+            case "llama": md[CanonicalKeys.TokenizerModel] = "spm"; break;
+            // llama.cpp's "gemma4" tokenizer is a character-level, merge-ranked BPE with ▁ spaces and byte fallback: canonical "bpe".
+            case "gemma4": md[CanonicalKeys.TokenizerModel] = "bpe"; break;
             // SentencePiece unigram models (T5, XLM-RoBERTa) are "t5" in llama.cpp.
             case "t5": md[CanonicalKeys.TokenizerModel] = "unigram"; break;
             case "bert":

@@ -14,6 +14,11 @@ public sealed class LlmLoadOptions
     public required IReadOnlyList<DeviceSlot> Devices { get; init; }
     /// <summary>Fallback device (e.g. CPU) for layers that don't fit and unsupported ops.</summary>
     public DeviceSlot? Fallback { get; init; }
+    /// <summary>
+    /// Bytes kept free on each device for activations and scratch when splitting layers (null = placement default, 1 GiB).
+    /// The serving host sets it from <see cref="LlmModel.EstimateFootprint"/> together with a memory limit.
+    /// </summary>
+    public long? ReservePerDevice { get; init; }
     public int ContextLength { get; init; } = 8192;
     /// <summary>Max tokens per forward pass (prefill chunk size).</summary>
     public int MaxBatchTokens { get; init; } = 512;
@@ -71,13 +76,14 @@ public sealed class LlmModel : IDisposable
     }
 
     /// <summary>Compiles the decoder onto the configured devices and returns a fresh session.</summary>
-    public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph)
+    public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
         var sw = Stopwatch.StartNew();
         var compiled = CompiledModel.Compile(Definition.Graph(graph), new PlacementOptions
         {
-            Devices = _options.Devices,
+            Devices = DevicesWithLimit(memoryLimit),
             Fallback = _options.Fallback,
+            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
             Compile = new CompileOptions
             {
                 MaxTokens = _options.MaxBatchTokens,
@@ -97,21 +103,22 @@ public sealed class LlmModel : IDisposable
     /// <paramref name="slots"/> sequences per forward pass, each with <paramref name="contextLength"/> tokens of context,
     /// default the load option); otherwise a single-slot <see cref="Serving.SessionBatchDecoder"/>.
     /// </summary>
-    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null)
+    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null)
     {
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
         if (slots <= 1 || !Graph.MultiSequence.IsSupported(graph, out why))
         {
             if (slots > 1) _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
-            return new Serving.SessionBatchDecoder(CreateSession());
+            return new Serving.SessionBatchDecoder(CreateSession(memoryLimit: memoryLimit));
         }
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, new PlacementOptions
         {
-            Devices = _options.Devices,
+            Devices = DevicesWithLimit(memoryLimit),
             Fallback = _options.Fallback,
+            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
             Compile = new CompileOptions
             {
                 MaxTokens = _options.MaxBatchTokens,
@@ -123,6 +130,38 @@ public sealed class LlmModel : IDisposable
         });
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;
+    }
+
+    const long DefaultReserve = 1L << 30;
+
+    /// <summary>
+    /// Caps the first (primary) device's share of the model at <paramref name="memoryLimit"/> bytes (layers beyond it go to
+    /// the fallback device or the load fails); other devices keep their own limits. Null = the devices as configured.
+    /// </summary>
+    IReadOnlyList<DeviceSlot> DevicesWithLimit(long? memoryLimit)
+    {
+        if (memoryLimit is not { } limit || _options.Devices.Count == 0) return _options.Devices;
+        var d0 = _options.Devices[0];
+        var first = new DeviceSlot { Device = d0.Device, Weight = d0.Weight, MemoryLimit = d0.MemoryLimit is { } m ? Math.Min(m, limit) : limit };
+        return [first, .. _options.Devices.Skip(1)];
+    }
+
+    /// <summary>
+    /// Device memory needed to serve this model with <paramref name="slots"/> concurrent sequences of
+    /// <paramref name="contextLength"/> tokens (default the load option): weights + KV/recurrent state + activation bound.
+    /// Computed from the graph alone; nothing is allocated on a device.
+    /// </summary>
+    public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null)
+    {
+        int ctx = contextLength ?? _options.ContextLength;
+        var graph = Definition.Graph(WellKnown.DecodeGraph);
+        bool multi = slots > 1 && Graph.MultiSequence.IsSupported(graph, out _);
+        return PlacementPlanner.Estimate(graph, new CompileOptions
+        {
+            MaxTokens = _options.MaxBatchTokens,
+            ContextLength = ctx,
+            SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? slots : _options.MaxBatchTokens },
+        }, multi ? slots : 1);
     }
 
     /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>
@@ -185,5 +224,6 @@ public static class BuiltinAdapters
         Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
         ModelAdapterRegistry.Register(new DecoderAdapter());
         ModelAdapterRegistry.Register(new EncoderAdapter());
+        ModelAdapterRegistry.Register(new NemotronHAdapter());
     }
 }

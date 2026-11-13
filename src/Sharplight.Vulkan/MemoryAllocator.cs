@@ -35,6 +35,8 @@ internal sealed unsafe class MemoryBlock
     public bool Dedicated { get; init; }
     public bool Coherent { get; init; }
     public MemoryUsage Usage { get; init; }
+    /// <summary>Bytes counted against the device-local budget (0 for host-only memory).</summary>
+    public long Tracked { get; init; }
     public readonly SortedList<ulong, ulong> Free = [];   // offset → size
 }
 
@@ -45,7 +47,8 @@ internal sealed unsafe class MemoryBlock
 /// </summary>
 internal sealed unsafe class MemoryAllocator : IDisposable
 {
-    const ulong BlockSize = 256UL << 20;
+    /// <summary>Weights and state go in big device blocks; the small host-visible staging buffers of inputs/outputs in small ones (a 256 MiB mapped block per usage wastes memory on small models).</summary>
+    static ulong BlockSizeOf(MemoryUsage u) => u == MemoryUsage.Device ? 256UL << 20 : 16UL << 20;
     const ulong Alignment = 256;
     readonly VulkanDevice _dev;
     readonly List<MemoryBlock> _blocks = [];
@@ -65,6 +68,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         size = Math.Max(Alignment, (size + Alignment - 1) & ~(Alignment - 1));
         lock (_lock)
         {
+            ulong BlockSize = BlockSizeOf(usage);
             if (size < BlockSize / 2)
             {
                 foreach (var b in _blocks)
@@ -103,6 +107,13 @@ internal sealed unsafe class MemoryAllocator : IDisposable
                     b.Free[off] = sz;
                 }
                 else i++;
+            }
+            // Give a fully free block back to the driver, so unloading a model really returns its memory to the device
+            // (other models on the same device, and other applications, can use it).
+            if (b.Free.Count == 1 && b.Free.Keys[0] == 0 && b.Free.Values[0] == b.Size)
+            {
+                Destroy(b);
+                _blocks.Remove(b);
             }
         }
     }
@@ -163,10 +174,11 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         {
             Memory = mem, Buffer = buf, Size = size, Address = api.vkGetBufferDeviceAddress(&bai), Mapped = mapped,
             Dedicated = dedicated, Usage = usage, Coherent = (flags & VkMemoryPropertyFlags.HostCoherent) != 0,
+            Tracked = (flags & VkMemoryPropertyFlags.DeviceLocal) != 0 ? (long)req.size : 0,
         };
         block.Free.Add(0, size);
         _blocks.Add(block);
-        if ((flags & VkMemoryPropertyFlags.DeviceLocal) != 0) _dev.Track((long)req.size);
+        _dev.Track(block.Tracked);
         return block;
     }
 
@@ -218,7 +230,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         if (b.Mapped != null) _dev.Api.vkUnmapMemory(b.Memory);
         _dev.Api.vkDestroyBuffer(b.Buffer, null);
         _dev.Api.vkFreeMemory(b.Memory, null);
-        _dev.Track(-(long)b.Size);
+        _dev.Track(-b.Tracked);
     }
 
     public void Dispose()

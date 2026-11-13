@@ -245,6 +245,41 @@ public class StatefulOpTests
         }
     }
 
+    /// <summary>Attention sinks (a learned per-head logit that only joins the softmax denominator), with and without a sliding window, f16/f32 caches.</summary>
+    [Theory]
+    [InlineData("f32", 0), InlineData("f16", 0), InlineData("f32", 5), InlineData("f16", 9)]
+    public void CachedAttentionSinks(string cacheType, int window)
+    {
+        int Hq = 4, Hkv = 2, D = 16, ctx = 40; float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [6, 3, 1, 1];
+        int total = chunks.Sum();
+        var q = Kit.Rand(total * Hq * D, 1); var k = Kit.Rand(total * Hkv * D, 2); var v = Kit.Rand(total * Hkv * D, 3);
+        var sinks = new[] { 3.5f, -2f, 0.7f, 6f };
+        var ct = DataType.Get(cacheType);
+        var tg = new TG(); var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D); var ki = tg.InF("k", T, Hkv, D); var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        var sk = tg.WF("sinks", sinks, Hq);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
+        if (window > 0) attrs.Add(("window", window));
+        tg.B.RuntimeScalar("n_past");
+        attrs.Add(("sinks", true));
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sk], Attributes.From([.. attrs])));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 8, ctx: ctx);
+        Func<float, float> rnd = cacheType == "f16" ? (x => (float)(Half)x) : (x => x);
+        var kr = k.Select(rnd).ToArray(); var vr = v.Select(rnd).ToArray();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            Kit.Set(m, qi, q[(past * Hq * D)..((past + c) * Hq * D)]); Kit.Set(m, ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]); Kit.Set(m, vi, v[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            var p = Kit.P(c, past); m.Run(p);
+            var exp = Ref.Attention(q[(past * Hq * D)..((past + c) * Hq * D)], c, Hq, D, kr, vr, past + c, Hkv, D, scale, past, true, null, window, 0f, sinks);
+            Kit.AssertClose(exp, Kit.Out(m, "o", p), 2e-5, 2e-4, $"sinks window {window} past {past} T {c}");
+            past += c;
+        }
+    }
+
     [Fact]
     public void CacheOverflowThrowsAndResetStateClears()
     {

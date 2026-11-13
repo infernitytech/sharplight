@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
+using Sharplight.Llm.Serving.Hosting;
 
 namespace Sharplight.Server;
 
@@ -21,11 +22,14 @@ public static class AnthropicApi
         return routes;
     }
 
-    internal static JsonNode ModelObject(SharplightServerContext ctx)
-        => new JsonObject { ["type"] = "model", ["id"] = ctx.Model.ModelName, ["display_name"] = ctx.Model.ModelName, ["created_at"] = "2025-01-01T00:00:00Z" };
+    internal static JsonNode ModelObject(ModelInfo m)
+        => new JsonObject { ["type"] = "model", ["id"] = m.Name, ["display_name"] = m.Name, ["created_at"] = "2025-01-01T00:00:00Z" };
 
     internal static JsonNode ModelList(SharplightServerContext ctx)
-        => new JsonObject { ["data"] = new JsonArray(ModelObject(ctx)), ["has_more"] = false, ["first_id"] = ctx.Model.ModelName, ["last_id"] = ctx.Model.ModelName };
+    {
+        var l = ctx.Host.List();
+        return new JsonObject { ["data"] = new JsonArray(l.Select(m => ModelObject(m)).ToArray()), ["has_more"] = false, ["first_id"] = l.FirstOrDefault()?.Name, ["last_id"] = l.LastOrDefault()?.Name };
+    }
 
     // ---- request parsing --------------------------------------------------------------------------------------------
 
@@ -153,7 +157,8 @@ public static class AnthropicApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var req = ParseRequest(doc.RootElement, ctx, requireMaxTokens: false);
-        await HttpJson.WriteAsync(http, new JsonObject { ["input_tokens"] = ctx.Model.CountTokens(req) });
+        using var lease = await ctx.AcquireAsync(http, doc.RootElement.Str("model"));
+        await HttpJson.WriteAsync(http, new JsonObject { ["input_tokens"] = SharplightServerContext.ChatOf(lease).CountTokens(req) });
     }
 
     static async Task Messages(HttpContext http, SharplightServerContext ctx)
@@ -162,9 +167,10 @@ public static class AnthropicApi
         var b = doc.RootElement;
         var req = ParseRequest(b, ctx, requireMaxTokens: true);
         bool stream = b.Bool("stream") ?? false;
-        var run = ctx.Model.StartChat(req, http.RequestAborted);
+        using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete
+        var run = SharplightServerContext.ChatOf(lease).StartChat(req, http.RequestAborted);
         string id = "msg_" + Guid.NewGuid().ToString("N")[..24];
-        string model = ctx.Model.ModelName;
+        string model = lease.Name;
 
         if (!stream)
         {

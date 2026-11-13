@@ -76,6 +76,7 @@ public static class GgufArchitectureMappings
     static GgufArchitectureMappings()
     {
         Register(new Qwen35GgufMapping());
+        Register(new NemotronHGgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());

@@ -50,25 +50,38 @@ Status: **yes** = runtime op mapped to IR; **fold** = only when all inputs are c
 | Gemm MatMul | yes | constant B or BatchMatMul; `transA` on batched A no |
 | Einsum | limit | two operands, no ellipsis/diagonals; batch dim must stay leading |
 | Flatten Reshape Squeeze Unsqueeze Transpose Identity Dropout | yes | reshapes that merge/move the batch dim: limit (error) |
-| Concat Split Slice Pad Resize Upsample | yes | Slice step must be 1; Pad modes constant/reflect/edge; Resize nearest/linear, 4-D, constant scales/sizes (non-integer *scales* are converted to sizes) |
+| Concat Split Slice Pad Resize Upsample | yes | Slice: any non-zero step (positive = Reshape trick, negative = constant-index gather); Pad modes constant/reflect/edge; Resize nearest/linear/**cubic**, 4-D, constant scales/sizes (cubic = two constant interpolation-matrix MatMuls; non-integer *scales* are converted to sizes) |
 | Gather | yes | constant indices -> Slice/Concat views; dynamic indices -> `GatherAxis` |
 | GatherElements GatherND ScatterElements ScatterND Scatter CumSum Tile Expand Trilu OneHot GridSample | yes | Expand to the dynamic batch uses a zero-broadcast trick |
 | DepthToSpace SpaceToDepth | yes | Reshape + Permute |
 | Cast CastLike | yes | to float: identity; to int: i32; to bool: `!= 0` mask |
 | Shape Size Range ConstantOfShape Constant NonZero EyeLike | fold | dynamic-shape results are unsupported |
 | QuantizeLinear DequantizeLinear | yes | fold on constants; runtime = Div/Round/Add/Clip (values carried as f32) |
-| MatMulInteger ConvInteger QLinearMatMul QLinearConv | yes | weights dequantized at import; activations carried as f32 ints |
+| DynamicQuantizeLinear | yes | whole-tensor min/max, so the batch must be fixed (`InputShapes`); scale / zero point are runtime values |
+| MatMulInteger ConvInteger QLinearMatMul QLinearConv | yes | weights dequantized at import (per-tensor / per-column / per-channel zero points); activations carried as f32 ints; activation zero point may be a runtime value |
 | If | limit | constant condition only (taken branch inlined) |
-| LSTM GRU RNN | limit | unrolled over a static sequence length; forward/reverse/bidirectional, `layout` 0/1, default activations, no peepholes/clip/sequence_lens; initial states must be constants |
+| LSTM GRU RNN | limit | unrolled over a static sequence length; forward/reverse/bidirectional, `layout` 0/1, default activations, no peepholes/clip/sequence_lens; initial states may be runtime inputs |
 | DynamicQuantizeLinear, Loop, Scan, NonMaxSuppression, Unique, Compress, RoiAlign, Det, ... | no | |
 
 ### com.microsoft contrib ops
 
 Gelu, BiasGelu, FastGelu, QuickGelu, FusedConv, FusedMatMul, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
 SimplifiedLayerNormalization (RmsNorm), Attention (no mask/past; `unidirectional` via a constant causal mask), MultiHeadAttention (no mask/past),
-BiasAdd, MatMulNBits (4/8-bit dequantized at import). **RotaryEmbedding is not supported** (needs a Rope op taking cos/sin caches).
+BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/LeakyRelu/Softmax/AveragePool/GlobalAveragePool/Concat (dequantize, op, requantize). **RotaryEmbedding is not supported** (needs a Rope op taking cos/sin caches).
+
+## Import options worth knowing
+
+* `InputShapes[name]` fixes dynamic dims; giving the concrete batch (instead of `-1`) makes the batch static, which lifts the
+  restrictions around the symbolic batch (reshapes that merge it, transposes that move it, arithmetic on it, global reductions such as
+  `DynamicQuantizeLinear`, scalar-to-batch `Expand`). Models traced with explicit window/batch reshapes (Swin, GPT-2, wav2vec2, PaddleOCR ...) need this.
+* `ConstantInputs[name] = values` pins a graph input (e.g. `sr`, `use_cache_branch`, an `orig_im_size` that fixes output shapes) to a
+  compile-time constant so `If` branches and shape computations fold.
+* Scalar (rank-0) graph inputs are carried as one-element vectors; `Unsqueeze`/`Squeeze` honour the logical rank.
 
 ## Tests
 
 `dotnet run --project tests/Sharplight.Onnx.Tests`: protobuf/parser unit tests, translation tests, and numeric comparisons against onnxruntime
 (`.work/onnx_ref/make_synthetic.py`, `make_synthetic2.py`, `make_model_refs.py` generate the references into `~/models/onnx/ref`).
+`ZooTests` covers ~45 architecturally diverse real models (detection, super-resolution, SAM, diffusion, speech, LLM decoders with KV cache,
+OCR, optical flow, quantized ...): `tests/Sharplight.Onnx.Tests/scripts/make_zoo_refs.py` lists the models (downloaded to `~/models/onnx/<name>/`) and writes
+references to `~/models/onnx/ref/zoo`; `make_zoo_synth.py` builds small synthetic cases for the ops they needed.

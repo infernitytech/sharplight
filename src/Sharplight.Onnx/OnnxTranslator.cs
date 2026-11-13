@@ -10,6 +10,8 @@ internal sealed class Tn
     public Value? V;
     public OnnxConst? C;
     public Value? CachedValue;
+    /// <summary>Logically rank-0 (an ONNX scalar graph input); physically a one-element vector.</summary>
+    public bool Scalar;
     public bool IsConst => C is not null;
     public static Tn Dyn(Value v) => new() { V = v };
     public static Tn Const(OnnxConst c) => new() { C = c };
@@ -32,7 +34,7 @@ internal sealed partial class OnnxTranslator
         "ReduceL1", "ReduceProd", "ReduceLogSum", "ReduceLogSumExp", "ArgMax", "ArgMin", "TopK", "Hardmax", "GroupNormalization", "LpNormalization", "LRN",
         "MeanVarianceNormalization", "ConvTranspose", "LpPool", "Einsum", "Tile", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "Scatter", "CumSum",
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
-        "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike",
+        "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
     ];
 
     static readonly HashSet<string> s_contribOps =
@@ -94,6 +96,12 @@ internal sealed partial class OnnxTranslator
         foreach (var vi in _graph.Inputs)
         {
             if (initNames.Contains(vi.Name)) continue;
+            if (_opts.ConstantInputs.TryGetValue(vi.Name, out var pinned))
+            {
+                long[] cd = _opts.InputShapes.GetValueOrDefault(vi.Name) ?? vi.Shape!.Select(d => d.Value ?? 1).ToArray();
+                _env[vi.Name] = Tn.Const(OnnxType.IsFloat(vi.ElemType) ? OnnxConst.FromFloats(vi.ElemType, cd, pinned, vi.Name) : OnnxConst.FromInts(vi.ElemType, cd, pinned.Select(v => (long)v).ToArray(), vi.Name));
+                continue;
+            }
             var shape = InputShape(vi);
             bool isInt = vi.ElemType is OnnxType.Int64 or OnnxType.Int32;
             if (!OnnxType.IsFloat(vi.ElemType) && !isInt && vi.ElemType != OnnxType.Bool)
@@ -102,8 +110,9 @@ internal sealed partial class OnnxTranslator
             var v = _b.Input(vi.Name, image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other, isInt ? DataType.I32 : DataType.F32, shape);
             if (!isInt) _firstInput ??= v;
             _env[vi.Name] = Tn.Dyn(v);
+            if ((_opts.InputShapes.GetValueOrDefault(vi.Name)?.Length ?? vi.Shape?.Count) == 0) _env[vi.Name].Scalar = true;
         }
-        if (_graph.Inputs.All(i => initNames.Contains(i.Name))) throw new NotSupportedException("The ONNX graph has no dynamic inputs.");
+        if (_graph.Inputs.All(i => initNames.Contains(i.Name) || _opts.ConstantInputs.ContainsKey(i.Name))) throw new NotSupportedException("The ONNX graph has no dynamic inputs.");
 
         foreach (var n in live)
         {
@@ -136,7 +145,7 @@ internal sealed partial class OnnxTranslator
     {
         long[]? ov = _opts.InputShapes.GetValueOrDefault(vi.Name);
         int rank = ov?.Length ?? vi.Shape?.Count ?? throw new NotSupportedException($"Graph input '{vi.Name}' has no shape; supply one through OnnxImportOptions.InputShapes.");
-        if (rank == 0) throw new NotSupportedException($"Graph input '{vi.Name}' is a scalar.");
+        if (rank == 0) return new Shape([(Dim)1L]);   // scalar inputs are carried as one-element vectors (numpy-style broadcasting makes them equivalent)
         var dims = new Dim[rank];
         for (int i = 0; i < rank; i++)
         {
@@ -206,7 +215,7 @@ internal sealed partial class OnnxTranslator
     }
 
     static bool IsSupportedNode(OnnxNode n)
-        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && s_contribOps.Contains(n.OpType);
+        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
 
     // ---- group handling --------------------------------------------------------------------------------
     void NextGroup()
@@ -311,7 +320,12 @@ internal sealed partial class OnnxTranslator
             return;
         }
         Dynamic(n, ins);
+        if (ins.Any(t => t is { Scalar: true }) && s_scalarPreserving.Contains(n.OpType) && ins.All(t => t is null || t.Scalar || (t.IsConst && t.C!.Count == 1)))
+            foreach (var o in n.Outputs) if (o != "" && _env.TryGetValue(o, out var r) && !r.IsConst) r.Scalar = true;
     }
+
+    static readonly HashSet<string> s_scalarPreserving =
+        ["Cast", "Add", "Sub", "Mul", "Div", "Neg", "Abs", "Sqrt", "Exp", "Log", "Sin", "Cos", "Tanh", "Sigmoid", "Relu", "Identity", "Pow", "Floor", "Ceil", "Round"];
 
     void SetDyn(OnnxNode n, int idx, Value v) => _env[n.Outputs[idx]] = Tn.Dyn(v);
 

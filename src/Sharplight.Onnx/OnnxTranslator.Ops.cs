@@ -448,6 +448,8 @@ internal sealed partial class OnnxTranslator
         bool sym = Sym(x);
         var axesArr = n.Has("axes") ? n.Ints("axes") : OptConst(ins, 1, "axes")?.Ints();
         var dims = x.Shape.Dims.Select(d => d.IsSymbolic ? 0L : d.Fixed).ToArray();   // 0 marks the symbolic outer dim
+        if (ins[0]!.Scalar && n.OpType == "Squeeze") { SetDyn(n, 0, x); _env[n.Outputs[0]].Scalar = true; return; }
+        if (ins[0]!.Scalar) dims = [];   // a logical scalar (stored as [1]): unsqueeze yields rank = number of axes, squeeze is a no-op
         long[] outDims;
         if (n.OpType == "Unsqueeze")
         {
@@ -497,16 +499,55 @@ internal sealed partial class OnnxTranslator
         for (int i = 0; i < axes.Length; i++)
         {
             int ax = (int)(axes[i] < 0 ? axes[i] + x.Rank : axes[i]);
-            if (steps is not null && steps[i] != 1) throw new NotSupportedException($"Slice with step {steps[i]} is not supported (only 1)");
+            long step = steps is null ? 1 : steps[i];
+            if (step == 0) throw new InvalidDataException("Slice with step 0");
+            if (step < 0)
+            {
+                if (ax == 0 && Sym(x)) throw new NotSupportedException("slicing the symbolic batch axis");
+                y = ReverseSlice(y, ax, starts[i], ends[i], step);
+                continue;
+            }
             if (ax == 0 && Sym(x))
             {
                 if (starts[i] == 0 && ends[i] >= int.MaxValue) continue;
                 throw new NotSupportedException("slicing the symbolic batch axis");
             }
             var (s, l) = OnnxFold.SliceRange(starts[i], ends[i], x.Shape[ax].Fixed);
-            y = SliceAxis(y, ax, s, l);
+            y = step == 1 ? SliceAxis(y, ax, s, l) : StridedSlice(y, ax, s, l, step);
         }
         SetDyn(n, 0, ReferenceEquals(y, x) ? Emit("Reshape", [x], Attributes.From(("shape", x.Shape.Dims.Select((d, i) => d.IsSymbolic ? 0L : d.Fixed).ToArray())), Nm(n)) : y);
+    }
+
+    /// <summary>Negative-step slice as a gather with constant indices.</summary>
+    Value ReverseSlice(Value x, int ax, long start, long end, long step)
+    {
+        long dim = x.Shape[ax].Fixed;
+        if (start < 0) start += dim;
+        start = Math.Clamp(start, 0, dim - 1);
+        if (end < 0) end += dim;
+        end = Math.Clamp(end, -1, dim - 1);
+        var idx = new List<long>();
+        for (long k = start; k > end; k += step) idx.Add(k);
+        if (idx.Count == 0) throw new NotSupportedException("empty Slice result");
+        return Emit("GatherAxis", [x, Idx(Tn.Const(OnnxConst.FromInts(OnnxType.Int64, [idx.Count], idx.ToArray())))], Attributes.From(("axis", (long)ax)));
+    }
+
+    /// <summary>x[start : start+length : step] along <paramref name="ax"/> as Slice + Reshape([..., groups, step, ...]) + Slice(0) (+ one trailing element).</summary>
+    Value StridedSlice(Value x, int ax, long start, long length, long step)
+    {
+        long full = length / step, rem = length % step;
+        long[] dims = x.Shape.Dims.Select(d => d.IsSymbolic ? 0L : d.Fixed).ToArray();
+        Value? main = null;
+        if (full > 0)
+        {
+            var region = SliceAxis(x, ax, start, full * step);
+            var split = dims.Take(ax).Append(full).Append(step).Concat(dims.Skip(ax + 1)).ToArray();
+            var picked = _b.Slice(_b.Reshape(region, split), ax + 1, 0, 1);
+            main = _b.Reshape(picked, dims.Take(ax).Append(full).Concat(dims.Skip(ax + 1)).ToArray());
+        }
+        if (rem == 0) return main!;
+        var tail = _b.Slice(x, ax, start + full * step, 1);
+        return main is null ? tail : _b.Concat(ax, main, tail);
     }
 
     void Split(OnnxNode n, Tn?[] ins)
@@ -718,12 +759,19 @@ internal sealed partial class OnnxTranslator
         else throw new NotSupportedException("Resize needs constant scales or sizes");
         string mode = n.Str("mode", "nearest");
         if (mode == "bilinear") mode = "linear";
-        if (mode is not ("nearest" or "linear")) throw new NotSupportedException($"Resize mode '{mode}'");
+        if (mode == "bicubic") mode = "cubic";
+        if (mode is not ("nearest" or "linear" or "cubic")) throw new NotSupportedException($"Resize mode '{mode}'");
         string coord = n.Str("coordinate_transformation_mode", upsample || (!upsample && ins.Length == 2) ? "asymmetric" : "half_pixel");
         if (coord is not ("half_pixel" or "align_corners" or "asymmetric" or "pytorch_half_pixel")) throw new NotSupportedException($"Resize coordinate_transformation_mode '{coord}'");
         if (n.Int("antialias", 0) != 0) throw new NotSupportedException("antialiased Resize");
         if (n.Int("exclude_outside", 0) != 0) throw new NotSupportedException("Resize exclude_outside");
         string nearest = n.Str("nearest_mode", upsample ? "floor" : "round_prefer_floor");
+        if (mode == "cubic")
+        {
+            double[]? sc = scales is not null && sizes is null ? [scales.Floats()[2], scales.Floats()[3]] : null;
+            SetDyn(n, 0, ResizeCubic(n, x, size, sc, coord));
+            return;
+        }
         if (size[0] == h && size[1] == w && mode == "nearest") { SetDyn(n, 0, x); return; }
         SetDyn(n, 0, Emit("Resize", [x], Attributes.From(("size", size), ("mode", mode), ("coord", coord), ("nearest_mode", nearest)), Nm(n)));
     }

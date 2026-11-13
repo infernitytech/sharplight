@@ -95,7 +95,10 @@ public static class DeviceFeatures
     /// <summary>The kernel can pin the subgroup size.</summary>
     public const string SubgroupSizeControl = "subgroup_size_control";
 
-    public static IReadOnlyList<string> All { get; } = [MatrixF16, MatrixBF16, MatrixInt8, MatrixWorkgroup, Float16, BFloat16, IntDot, SubgroupOps, SubgroupSizeControl];
+    /// <summary>The device reports a live memory budget / usage that accounts for other processes (Vulkan: VK_EXT_memory_budget); without it memory figures are estimates from our own allocations.</summary>
+    public const string MemoryBudget = "memory_budget";
+
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, MatrixF16, MatrixBF16, MatrixInt8, MatrixWorkgroup, Float16, BFloat16, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>
@@ -142,14 +145,38 @@ public readonly record struct OpSupport(bool IsSupported, string? Reason = null)
     public static OpSupport No(string reason) => new(false, reason);
 }
 
+/// <summary>Memory figures of an opened device, in bytes.</summary>
+/// <param name="Total">Physical capacity (device-local heap; system RAM for CPU).</param>
+/// <param name="Budget">Most this process may use in total: the smaller of the configured cap and what the driver reports
+/// as obtainable (which shrinks when other applications use the device).</param>
+/// <param name="Usage">What this process uses now, as reported by the driver when <paramref name="IsExact"/>, else our own tally.</param>
+/// <param name="UsedByUs">Bytes Sharplight allocated on this device instance (weights, state, activations, staging).</param>
+/// <param name="IsExact">True when <paramref name="Budget"/>/<paramref name="Usage"/> come from the driver.</param>
+public readonly record struct DeviceMemoryInfo(long Total, long Budget, long Usage, long UsedByUs, bool IsExact)
+{
+    /// <summary>Bytes this process can still allocate.</summary>
+    public long Available => Math.Max(0, Budget - Usage);
+    public override string ToString() => $"total {Total / 1048576} MiB, budget {Budget / 1048576} MiB, used {Usage / 1048576} MiB (ours {UsedByUs / 1048576} MiB), available {Available / 1048576} MiB{(IsExact ? "" : " (estimate)")}";
+}
+
 /// <summary>An opened device able to compile and run graph segments.</summary>
 public interface IComputeDevice : IDisposable
 {
     DeviceInfo Info { get; }
     /// <summary>Features this opened device may use: detected minus <see cref="DeviceOptions.DisabledFeatures"/> (and the environment).</summary>
     IReadOnlySet<string> EnabledFeatures => DeviceFeatures.Effective(Info.Features);
-    /// <summary>Memory budget remaining for new allocations.</summary>
+    /// <summary>Memory budget remaining for new allocations (see <see cref="GetMemoryInfo"/>).</summary>
     long AvailableMemory { get; }
+    /// <summary>
+    /// Current device memory figures. Devices that can ask the driver (<see cref="DeviceFeatures.MemoryBudget"/>) report
+    /// the live budget, which already accounts for other processes; others derive it from <see cref="AvailableMemory"/>.
+    /// Cheap enough to call per load decision; safe from any thread.
+    /// </summary>
+    DeviceMemoryInfo GetMemoryInfo()
+    {
+        long total = Info.TotalMemory, avail = AvailableMemory;
+        return new DeviceMemoryInfo(total, total, Math.Max(0, total - avail), Math.Max(0, total - avail), false);
+    }
     OpSupport Supports(Node node);
     ICompiledSegment Compile(GraphSegment segment, CompileOptions options);
 

@@ -4,6 +4,7 @@ using Sharplight.Models;
 
 // Loads a model through the adapter layer and dumps the resulting compute graph.
 ModelAdapterRegistry.Register(new Qwen35Adapter());
+ModelAdapterRegistry.Register(new NemotronHAdapter());
 GgufImporter.Register();
 var def = ModelAdapterRegistry.Build(ModelImporterRegistry.OpenSet(args[0]));
 var g = def.Graph(args.Length > 1 ? args[1] : WellKnown.DecodeGraph);

@@ -130,11 +130,12 @@ public static partial class StandardOps
     /// [0, offset + t] (causal) where offset is the runtime scalar named by attribute <c>offset</c>
     /// (default "n_past"). Attributes: scale; optional <c>window</c> (int &gt; 0: a query only sees its last <c>window</c> keys,
     /// sliding-window attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
+    /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
-    /// Multi-sequence form (see <see cref="MultiSequence"/>): fourth / fifth inputs = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
+    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 5, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 6, (i, a) =>
     {
         var q = i[0].Shape; var v = i[2].Shape;
         return [new(DataType.F32, new Shape(q[0], q[1], v[2]))];
@@ -167,10 +168,11 @@ public static partial class StandardOps
     /// <summary>
     /// Causal depthwise 1-D convolution with carried state (Mamba / DeltaNet short conv).
     /// x [T, C], weight [C, K], state State [K-1, C] → y [T, C]. The state is updated with the last
-    /// K-1 inputs. Attribute: activation ("none" | "silu").
-    /// Multi-sequence form: fourth input = sequence runs [U, 4], state [S, K-1, C]; each run continues its slot's state.
+    /// K-1 inputs. Optional 4th input: bias [C] (added before the activation), flagged by attribute <c>bias</c> (bool) or by a non-i32 type.
+    /// Attribute: activation ("none" | "silu").
+    /// Multi-sequence form: trailing i32 input = sequence runs [U, 4], state [S, K-1, C]; each run continues its slot's state.
     /// </summary>
-    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 4, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 5, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
     /// Gated delta rule recurrence (Gated DeltaNet linear attention).

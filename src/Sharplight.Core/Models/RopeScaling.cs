@@ -13,6 +13,17 @@ public static class RopeScaling
     /// <summary>Linear scaling: positions are divided by <paramref name="factor"/> for every frequency.</summary>
     public static Result Linear(int dim, float factor) => new(Enumerable.Repeat(factor, dim / 2).ToArray(), 1f);
 
+    /// <summary>
+    /// "Proportional" partial rotary (Gemma 4 global layers): the whole head (<paramref name="dim"/> dims) is the frequency basis
+    /// (θᵢ = base^(-2i/dim)) but only the first <paramref name="rotatedAngles"/> frequencies rotate; the rest get a huge divisor (no rotation).
+    /// </summary>
+    public static Result Proportional(int dim, int rotatedAngles, float factor = 1f)
+    {
+        var f = new float[dim / 2];
+        for (int i = 0; i < f.Length; i++) f[i] = i < rotatedAngles ? factor : 1e30f;
+        return new Result(f, 1f);
+    }
+
     /// <summary>Llama 3.x scaling (long wavelengths divided by <paramref name="factor"/>, smooth blend in between).</summary>
     public static Result Llama3(int dim, float @base, float factor, float lowFreqFactor, float highFreqFactor, int originalContext)
     {

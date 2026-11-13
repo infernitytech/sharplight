@@ -47,6 +47,7 @@ public static class HfArchitectureMappings
     static HfArchitectureMappings()
     {
         Register(new Qwen35HfMapping());
+        Register(new NemotronHHfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
     }

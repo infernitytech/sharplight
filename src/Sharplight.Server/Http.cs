@@ -30,6 +30,9 @@ static class ApiErrors
             "queue_full" => WriteAsync(http, 429, anthropic ? "rate_limit_error" : "rate_limit_exceeded", ex.Message, "queue_full", null, retryAfter: 1),
             "shutting_down" => WriteAsync(http, 503, anthropic ? "api_error" : "server_error", ex.Message, "shutting_down"),
             "context_length_exceeded" => WriteAsync(http, 400, "invalid_request_error", ex.Message, "context_length_exceeded"),
+            "model_not_found" => WriteAsync(http, 404, anthropic ? "not_found_error" : "invalid_request_error", ex.Message, "model_not_found", "model"),
+            "insufficient_memory" => WriteAsync(http, 503, anthropic ? "api_error" : "server_error", ex.Message, "insufficient_memory", retryAfter: 5),
+            "model_busy" => WriteAsync(http, 503, anthropic ? "overloaded_error" : "server_error", ex.Message, "model_busy", retryAfter: 2),
             _ => WriteAsync(http, 400, "invalid_request_error", ex.Message, ex.Code),
         };
     }

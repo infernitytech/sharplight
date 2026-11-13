@@ -5,13 +5,14 @@
 // ---------------------------------------------------------------------------------------------
 // CausalConv1d: x [T, C] (row stride XS), weight [C, KS] f32, state [KS-1, C] f32 (oldest first),
 // y dense [T, C]. One thread per channel; walks tokens sequentially and updates the state.
-// Macros: C, KS, XS, ACT_SILU
+// Macros: C, KS, XS, ACT_SILU, HAS_BIAS (optional bias [C] added before the activation)
 struct ConvParams
 {
     float* x;
     float* w;
     float* state;
     float* y;
+    float* bias;
 #if MULTI_SEQ
     int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, KS-1, C]
 #endif
@@ -44,6 +45,9 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
         win[KS - 1] = p.x[uint64_t(t) * XS + c];
         float s = 0;
         [ForceUnroll] for (int j = 0; j < KS; j++) s += win[j] * wk[j];
+#if HAS_BIAS
+        s += p.bias[c];
+#endif
 #if ACT_SILU
         s = s / (1.0 + exp(-s));
 #endif

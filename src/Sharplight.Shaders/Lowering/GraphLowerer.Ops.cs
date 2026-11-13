@@ -31,6 +31,7 @@ public sealed partial class GraphLowerer
             case "CausalConv1d": LowerConv(n); break;
             case "SequencePool": LowerSequencePool(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
+            case "SelectiveScan": LowerSelectiveScan(n); break;
             default:
                 if (LowerGeneral(n))
                 {
@@ -651,6 +652,9 @@ public sealed partial class GraphLowerer
             vc = AsDenseF32(vc, "attn-v");
         }
         var o = Produce(n.Output);
+        bool hasSinks = !full && n.Attributes.Get("sinks", false);
+        int so = hasSinks ? 1 : 0;   // inputs: q, k, v, [sinks], [rows, runs]
+        TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type)
         {
@@ -666,14 +670,15 @@ public sealed partial class GraphLowerer
             spans = DenseInput(n.Inputs[3], "attn-spans");
         }
 
-        if (!full && n.Inputs.Length > 3)
+        if (!full && n.Inputs.Length > 3 + so)
         {
-            seq = DenseInput(n.Inputs[3], "seq-rows");
-            runs = n.Inputs.Length > 4 ? DenseInput(n.Inputs[4], "seq-runs") : throw new NotSupportedException("Multi-sequence attention needs the runs table.");
+            seq = DenseInput(n.Inputs[3 + so], "seq-rows");
+            runs = n.Inputs.Length > 4 + so ? DenseInput(n.Inputs[4 + so], "seq-runs") : throw new NotSupportedException("Multi-sequence attention needs the runs table.");
         }
         var m = Macros(("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, kc)),("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
             ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)),
-            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("SPANS", spans is not null), ("CAUSAL", causal));
+            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
+            ("SPANS", spans is not null), ("CAUSAL", causal));
         var k = Lib("attention.slang", "main", m);
         var tq = q;
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -742,16 +747,18 @@ public sealed partial class GraphLowerer
             Emit($"attention {n.Output.Name}", [n],
                 variants,
                 [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
-                 new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), .. SeqArgs(seq, runs, spans),
+                 new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset),
+                 new PointerArg((sinks ?? o).Buffer, (sinks ?? o).ByteOffset), new PointerArg(_runtime, 0), .. SeqArgs(seq, runs, spans),
                  TokenArg(q), new UIntArg((uint)row0)],
-                [q, kc, vc, .. seq is null ? [] : (TensorRef[])[seq, runs!], .. spans is null ? [] : (TensorRef[])[spans]], split ? [o, part] : [o]);
+                [q, kc, vc, .. sinks is null ? [] : (TensorRef[])[sinks], .. seq is null ? [] : (TensorRef[])[seq, runs!], .. spans is null ? [] : (TensorRef[])[spans]],
+                split ? [o, part] : [o]);
         }
         if (split)
         {
             Emit($"attention {n.Output.Name} combine", [n],
                 [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
-                [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), TokenArg(q)],
-                [part], [o]);
+                [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), new PointerArg((sinks ?? o).Buffer, (sinks ?? o).ByteOffset), TokenArg(q)],
+                sinks is null ? [part] : [part, sinks], [o]);
         }
     }
 
@@ -797,13 +804,17 @@ public sealed partial class GraphLowerer
 
         var y = Produce(n.Output);
         long C = x.Shape[1], KS = w.Shape[1];
-        var runs = n.Inputs.Length > 3 ? DenseInput(n.Inputs[3], "seq-runs") : null;
+        // Optional bias (attribute "bias", or a non-i32 input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
+        bool hasBias = n.Attributes.Get("bias", false) || (n.Inputs.Length > 3 && n.Inputs[3].Type != DataType.I32);
+        TensorRef? cb = hasBias ? Ref(n.Inputs[3]) : null;
+        var runs = n.Inputs.Length > (hasBias ? 4 : 3) ? DenseInput(n.Inputs[^1], "seq-runs") : null;
         var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
-            ("MULTI_SEQ", runs is not null)));
+            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null)));
         Emit($"conv1d {n.Output.Name}", [n],
             [Always(k, b => new Grid(Grid.Div(C, 128), 1, runs is null ? 1u : (uint)Rows(b, runs)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), .. SeqArgs(runs), TokenArg(x)],
-            runs is null ? [x, w, st] : [x, w, st, runs], [y, st]);
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset),
+             new PointerArg((cb ?? y).Buffer, (cb ?? y).ByteOffset), .. SeqArgs(runs), TokenArg(x)],
+            [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. runs is null ? [] : (TensorRef[])[runs]], [y, st]);
     }
 
     void LowerDeltaRule(Node n)
@@ -1306,6 +1317,11 @@ public sealed partial class GraphLowerer
     void EmitElementwiseKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol,
         List<TensorRef> inputs, List<(TensorRef Ref, string Expr)> outputs, List<string> stmts)
     {
+        if (shape.Any(d => d == 0))
+        {
+            return;   // empty tensor: nothing to compute (and the stride maths would divide by zero)
+        }
+
         int rank = shape.Length;
         var P = new long[rank];
         long acc = 1;
