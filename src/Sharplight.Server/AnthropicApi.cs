@@ -146,7 +146,7 @@ internal static class AnthropicApi
         };
     }
 
-    private static ChatRequest ParseRequest(JsonElement b, SharplightServerContext ctx, bool requireMaxTokens)
+    private static ChatRequest ParseRequest(JsonElement b, SharplightServerContext ctx, HttpContext http, bool requireMaxTokens)
     {
         int maxTokens = b.Int("max_tokens") ?? 0;
         if (requireMaxTokens)
@@ -211,7 +211,7 @@ internal static class AnthropicApi
         {
             Messages = turns, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
             StopStrings = [.. b.Arr("stop_sequences").Select(s => s.GetString() ?? "")], EnableThinking = thinking, Timeout = ctx.Options.RequestTimeout,
-            ResponseFormat = ParseOutputFormat(b),
+            ResponseFormat = ParseOutputFormat(b), Tenant = Tenants.Of(http, b.Obj("metadata")?.Str("user_id")),
         };
     }
 
@@ -245,7 +245,7 @@ internal static class AnthropicApi
     private static async Task CountTokens(HttpContext http, SharplightServerContext ctx)
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
-        var req = ParseRequest(doc.RootElement, ctx, requireMaxTokens: false);
+        var req = ParseRequest(doc.RootElement, ctx, http, requireMaxTokens: false);
         using var lease = await ctx.AcquireAsync(http, doc.RootElement.Str("model"));
         await HttpJson.WriteAsync(http, new JsonObject { ["input_tokens"] = SharplightServerContext.ChatOf(lease).CountTokens(req) });
     }
@@ -254,7 +254,7 @@ internal static class AnthropicApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
-        var req = ParseRequest(b, ctx, requireMaxTokens: true);
+        var req = ParseRequest(b, ctx, http, requireMaxTokens: true);
         bool stream = b.Bool("stream") ?? false;
         using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete
         var run = SharplightServerContext.ChatOf(lease).StartChat(req, http.RequestAborted);

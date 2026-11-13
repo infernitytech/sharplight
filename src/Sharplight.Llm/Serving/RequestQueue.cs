@@ -33,7 +33,29 @@ internal sealed class RequestQueue(TimeSpan usageHalfLife)
 
         string key = tenant ?? "";
         long now = Stopwatch.GetTimestamp();
+        if (_usage.Count >= PruneThreshold && !_usage.ContainsKey(key))
+        {
+            Prune(now);
+        }
+
         _usage[key] = (Usage(key, now) + tokens, now);
+    }
+
+    /// <summary>Tenants tracked before idle ones (usage decayed below one token) are forgotten.</summary>
+    private const int PruneThreshold = 4096;
+
+    /// <summary>Number of tenants with recorded usage.</summary>
+    public int TenantCount => _usage.Count;
+
+    private void Prune(long now)
+    {
+        foreach (var tenant in _usage.Keys.ToList())
+        {
+            if (Usage(tenant, now) < 1)
+            {
+                _usage.Remove(tenant);
+            }
+        }
     }
 
     /// <summary>Removes and returns the request to admit next, or null when empty.</summary>

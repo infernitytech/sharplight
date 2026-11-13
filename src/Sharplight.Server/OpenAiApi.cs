@@ -263,7 +263,7 @@ internal static class OpenAiApi
     /// <summary>A schema given as an object or as a JSON string.</summary>
     private static string SchemaText(JsonElement schema) => schema.ValueKind == JsonValueKind.String ? schema.GetString()! : schema.GetRawText();
 
-    private static ChatRequest ParseChat(JsonElement b, SharplightServerContext ctx)
+    private static ChatRequest ParseChat(JsonElement b, SharplightServerContext ctx, HttpContext http)
     {
         var msgs = new List<ChatTurn>();
         int idx = 0;
@@ -316,7 +316,7 @@ internal static class OpenAiApi
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
-            EnableThinking = thinking, ResponseFormat = ParseOutputFormat(b),
+            EnableThinking = thinking, ResponseFormat = ParseOutputFormat(b), Tenant = Tenants.Of(http, b.Str("user")),
             Logprobs = b.Bool("logprobs") ?? false, TopLogprobs = Math.Clamp(top, 0, 20),
             TemplateContext = kwargs,
         };
@@ -370,7 +370,7 @@ internal static class OpenAiApi
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
-        var req = ParseChat(b, ctx);
+        var req = ParseChat(b, ctx, http);
         bool stream = b.Bool("stream") ?? false;
         bool includeUsage = b.Obj("stream_options")?.Bool("include_usage") ?? false;
         using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete
@@ -563,6 +563,7 @@ internal static class OpenAiApi
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
             Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20), ResponseFormat = ParseOutputFormat(b),
+            Tenant = Tenants.Of(http, b.Str("user")),
         };
         bool stream = b.Bool("stream") ?? false;
         bool echo = (b.Bool("echo") ?? false) && prompt is not null;

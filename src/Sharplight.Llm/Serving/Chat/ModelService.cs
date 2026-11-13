@@ -181,7 +181,7 @@ public sealed class ModelService
         var template = new GenerationRequest
         {
             PromptTokens = prompt.Tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
-            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Timeout = r.Timeout,
+            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt),
         };
         return Start(template, r.N, () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning), ct);
@@ -195,7 +195,7 @@ public sealed class ModelService
         var template = new GenerationRequest
         {
             PromptTokens = tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
-            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Timeout = r.Timeout,
+            StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs,
             Constraint = r.ResponseFormat is { } format ? Compile("completion|" + format.CacheKey, b => format.AddTo(b), null) : null,
         };

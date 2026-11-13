@@ -25,6 +25,8 @@ public sealed class CompletionRequest
     public int N { get; init; } = 1;
     /// <summary>Higher runs first when requests queue for a slot.</summary>
     public int Priority { get; init; }
+    /// <summary>Who the request is charged to for fair queuing among equal priorities (see <see cref="GenerationRequest.Tenant"/>).</summary>
+    public string? Tenant { get; init; }
     /// <summary>Total time budget (queue plus generation); null uses the engine default.</summary>
     public TimeSpan? Timeout { get; init; }
     /// <summary>Report the log-probability of every sampled token.</summary>
