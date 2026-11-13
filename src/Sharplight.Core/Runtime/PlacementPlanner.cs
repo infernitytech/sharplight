@@ -10,6 +10,14 @@ namespace Sharplight.Runtime;
 /// </summary>
 public static class PlacementPlanner
 {
+    /// <summary>
+    /// Distributes a graph over devices and cuts it into segments.
+    /// </summary>
+    /// <param name="graph">The graph to place.</param>
+    /// <param name="options">Devices, fallback and memory reserve.</param>
+    /// <exception cref="ArgumentException">No device was given.</exception>
+    /// <exception cref="InsufficientMemoryException">A placement group fits on no device and no fallback device is configured.</exception>
+    /// <exception cref="NotSupportedException">A node is supported neither by its device nor by the fallback device.</exception>
     public static PlacementPlan Plan(ComputeGraph graph, PlacementOptions options)
     {
         var slots = options.Devices.ToList();
@@ -224,6 +232,7 @@ public static class PlacementPlanner
         return v.Type.ByteSize(elems);
     }
 
+    /// <summary>Bytes of a state with its symbolic dimensions bound by <paramref name="o"/>.</summary>
     public static long StateBytes(StateDefinition s, CompileOptions o)
     {
         long elems = 1;

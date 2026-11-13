@@ -31,6 +31,11 @@ public sealed class CompileOptions
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
+    /// <summary>
+    /// Upper bound of a symbolic dimension: <see cref="MaxTokens"/> for the token symbol, <see cref="ContextLength"/> for the context symbol, otherwise from <see cref="SymbolBounds"/>.
+    /// </summary>
+    /// <param name="symbol">Symbol name.</param>
+    /// <exception cref="InvalidOperationException">No bound is known for the symbol.</exception>
     public long Bound(string symbol) => symbol switch
     {
         Models.WellKnown.TokenSymbol => MaxTokens,

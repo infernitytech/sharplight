@@ -53,6 +53,7 @@ public sealed class DevicePool : IDisposable
         throw new InvalidOperationException($"No available execution provider named '{providerName}'.");
     }
 
+    /// <summary>Snapshot of the devices opened so far.</summary>
     public IReadOnlyList<IComputeDevice> Devices
     {
         get
@@ -64,6 +65,7 @@ public sealed class DevicePool : IDisposable
         }
     }
 
+    /// <summary>Disposes every device that was opened through the pool.</summary>
     public void Dispose()
     {
         List<IComputeDevice> all;

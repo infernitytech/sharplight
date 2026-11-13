@@ -8,6 +8,13 @@ namespace Sharplight.Runtime;
 /// </summary>
 public interface ICompilationCache
 {
+    /// <summary>
+    /// Looks up an artifact.
+    /// </summary>
+    /// <param name="key">Content hash or provider-defined name.</param>
+    /// <param name="data">The stored bytes when found.</param>
+    /// <returns>Whether the key was found.</returns>
     public bool TryGet(string key, out ReadOnlyMemory<byte> data);
+    /// <summary>Stores an artifact. Implementations must be safe to call from several threads.</summary>
     public void Put(string key, ReadOnlyMemory<byte> data);
 }

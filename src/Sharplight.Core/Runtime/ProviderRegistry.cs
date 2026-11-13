@@ -6,6 +6,9 @@ public static class ProviderRegistry
     private static readonly List<Func<IExecutionProvider>> s_factories = [];
     private static readonly Lock s_lock = new();
 
+    /// <summary>
+    /// Adds a provider factory. Factories are called on every <see cref="Discover"/>; a factory that throws yields an unavailable provider.
+    /// </summary>
     public static void Register(Func<IExecutionProvider> factory)
     {
         lock (s_lock)

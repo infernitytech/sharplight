@@ -3,6 +3,7 @@ namespace Sharplight.Models;
 /// <summary>Semantic role of a graph input so generic runtimes (LLM sessions, vision pipelines) can feed it.</summary>
 public enum InputRole
 {
+    /// <summary>Token ids [T], i32.</summary>
     TokenIds,
     /// <summary>Position ids, shape [axes, T].</summary>
     Positions,
@@ -12,6 +13,7 @@ public enum InputRole
     OutputRows,
     /// <summary>Image / audio pixel or feature data.</summary>
     Media,
+    /// <summary>An input without a runtime-defined meaning; the host feeds it by name.</summary>
     Other,
     /// <summary>
     /// Per-row selector [T, 1] f32 of a graph that takes both token ids and embeddings: 1 = take the row from the

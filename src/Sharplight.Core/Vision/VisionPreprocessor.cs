@@ -9,6 +9,7 @@ namespace Sharplight.Vision;
 /// </summary>
 public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? limits = null)
 {
+    /// <summary>The vision tower parameters this preprocessor follows.</summary>
     public VisionParameters Parameters => p;
 
     /// <summary>Target size in pixels for an input size (smart resize).</summary>
@@ -38,6 +39,12 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         return (wBar, hBar);
     }
 
+    /// <summary>
+    /// Converts an image into encoder inputs. The input image is not modified.
+    /// </summary>
+    /// <param name="image">The decoded image.</param>
+    /// <exception cref="ArgumentException">The image has no pixels or its byte count does not match its size.</exception>
+    /// <exception cref="NotSupportedException">The tower does not take 3-channel input.</exception>
     public PreprocessedImage Process(ImageInput image)
     {
         image.Validate();

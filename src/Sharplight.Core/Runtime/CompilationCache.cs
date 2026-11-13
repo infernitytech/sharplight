@@ -10,10 +10,14 @@ public sealed class CompilationCache(string target, ICompilationCache? fallback 
 {
     private readonly ConcurrentDictionary<string, ReadOnlyMemory<byte>> _entries = new(StringComparer.Ordinal);
 
+    /// <summary>The device target this cache belongs to.</summary>
     public string Target => target;
+    /// <summary>Cache consulted on a miss (for example one loaded from a saved model), or <see langword="null"/>.</summary>
     public ICompilationCache? Fallback => fallback;
+    /// <summary>Everything stored or served so far.</summary>
     public IReadOnlyDictionary<string, ReadOnlyMemory<byte>> Entries => _entries;
 
+    /// <summary>Looks the key up here first, then in <see cref="Fallback"/> (recording a hit).</summary>
     public bool TryGet(string key, out ReadOnlyMemory<byte> data)
     {
         if (_entries.TryGetValue(key, out data))
@@ -29,5 +33,6 @@ public sealed class CompilationCache(string target, ICompilationCache? fallback 
         return false;
     }
 
+    /// <summary>Records an entry.</summary>
     public void Put(string key, ReadOnlyMemory<byte> data) => _entries[key] = data;
 }

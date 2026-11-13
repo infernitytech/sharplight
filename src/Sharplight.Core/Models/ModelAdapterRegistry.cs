@@ -7,6 +7,9 @@ public static class ModelAdapterRegistry
 {
     private static readonly ConcurrentDictionary<string, IModelAdapter> s_adapters = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Registers an adapter for each of its architectures; a later registration for the same architecture replaces the earlier one.
+    /// </summary>
     public static void Register(IModelAdapter adapter)
     {
         foreach (var a in adapter.Architectures)
@@ -15,12 +18,23 @@ public static class ModelAdapterRegistry
         }
     }
 
+    /// <summary>
+    /// Finds the adapter for a source: the one registered for its architecture, else any adapter whose <see cref="IModelAdapter.CanLoad"/> accepts it.
+    /// </summary>
+    /// <returns>The adapter, or <see langword="null"/> when none matches.</returns>
     public static IModelAdapter? Find(ModelSource source)
         => s_adapters.TryGetValue(source.Architecture, out var a) && a.CanLoad(source) ? a
            : s_adapters.Values.Distinct().FirstOrDefault(x => x.CanLoad(source));
 
+    /// <summary>The registered adapters, each once.</summary>
     public static IEnumerable<IModelAdapter> All => s_adapters.Values.Distinct();
 
+    /// <summary>
+    /// Builds the model definition for a set of sources: a prebuilt definition (saved package) is returned as is, otherwise the matching adapter builds it.
+    /// </summary>
+    /// <param name="sources">The sources to build from.</param>
+    /// <param name="options">Adapter options, or <see langword="null"/> for the defaults.</param>
+    /// <exception cref="NotSupportedException">No adapter handles the architecture, or auxiliary sources were given with an already built definition.</exception>
     public static ModelDefinition Build(ModelSourceSet sources, AdapterOptions? options = null)
     {
         if (sources.Primary.Definition is { } prebuilt)

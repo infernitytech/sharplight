@@ -39,38 +39,65 @@ namespace Sharplight.Vision;
 public sealed record VisionParameters
 {
     internal const string PropertyPrefix = "vision.";
+    /// <summary>Name of the patches input of the vision-encode graph, f32 [N, <see cref="PatchDim"/>].</summary>
     public const string PatchesInput = "patches";
+    /// <summary>Name of the (row, col) positions input of the vision-encode graph, i32 [N, 2].</summary>
     public const string PositionsInput = "positions";
+    /// <summary>Name of the position-embedding tap indices input, i32 [N, 4].</summary>
     public const string EmbeddingIndexInput = "position_embedding_index";
+    /// <summary>Name of the position-embedding tap weights input, f32 [N, 4].</summary>
     public const string EmbeddingWeightInput = "position_embedding_weight";
+    /// <summary>Name of the output of the vision-encode graph, f32 [M, <see cref="OutHiddenSize"/>].</summary>
     public const string EmbeddingsOutput = "embeddings";
+    /// <summary>Symbol of the patch count N.</summary>
     public const string PatchSymbol = "N";
+    /// <summary>Symbol of the merged token count M (N divided by <see cref="MergeUnit"/>).</summary>
     public const string MergedSymbol = "M";
 
+    /// <summary>Number of transformer layers in the tower.</summary>
     public int LayerCount { get; init; }
+    /// <summary>Width of the tower's hidden states; a multiple of <see cref="HeadCount"/>.</summary>
     public int HiddenSize { get; init; }
+    /// <summary>Width of the feed-forward hidden layer.</summary>
     public int FfnHiddenSize { get; init; }
+    /// <summary>Attention heads per layer.</summary>
     public int HeadCount { get; init; }
+    /// <summary>Epsilon of the layer norms.</summary>
     public float NormEps { get; init; } = 1e-6f;
+    /// <summary>Activation of the trunk MLP: "gelu_tanh", "gelu" or "silu".</summary>
     public string Activation { get; init; } = "gelu_tanh";
+    /// <summary>Side of a square patch in pixels.</summary>
     public int PatchSize { get; init; }
+    /// <summary>Frames per patch; a still image is repeated to fill it.</summary>
     public int TemporalPatchSize { get; init; } = 1;
+    /// <summary>Colour channels of the input (3 for RGB).</summary>
     public int InChannels { get; init; } = 3;
+    /// <summary>Side m of the window of neighbouring patches merged into one output token.</summary>
     public int SpatialMergeSize { get; init; } = 1;
+    /// <summary>Entries of the learned absolute position grid (a perfect square), or 0 for none.</summary>
     public int PositionEmbeddingCount { get; init; }
+    /// <summary>Base of the axial 2-D rotary position embedding, or 0 for none.</summary>
     public float RopeBase { get; init; }
+    /// <summary>Width of the produced embeddings; equals the hidden size of the language model.</summary>
     public int OutHiddenSize { get; init; }
+    /// <summary>Activation of the patch merger MLP: "gelu", "gelu_tanh" or "silu".</summary>
     public string MergerActivation { get; init; } = "gelu";
+    /// <summary>Per-channel mean of the input normalization.</summary>
     public float[] ImageMean { get; init; } = [0.5f, 0.5f, 0.5f];
+    /// <summary>Per-channel standard deviation of the input normalization.</summary>
     public float[] ImageStd { get; init; } = [0.5f, 0.5f, 0.5f];
+    /// <summary>Lower bound of the resized image area in pixels; 0 = unlimited.</summary>
     public long MinPixels { get; init; }
+    /// <summary>Upper bound of the resized image area in pixels; 0 = unlimited.</summary>
     public long MaxPixels { get; init; }
 
+    /// <summary>Width of one attention head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
     /// <summary>Values per patch: in_channels · temporal_patch_size · patch_size².</summary>
     public int PatchDim => InChannels * TemporalPatchSize * PatchSize * PatchSize;
     /// <summary>Side of the learned position grid.</summary>
     public int PositionGridSide => (int)Math.Round(Math.Sqrt(PositionEmbeddingCount));
+    /// <summary>Patches merged into one output token (m²).</summary>
     public int MergeUnit => SpatialMergeSize * SpatialMergeSize;
 
     /// <summary>Reads <c>{prefix}{key}</c> entries; null when <c>layer_count</c> is absent (no vision tower).</summary>
@@ -111,9 +138,11 @@ public sealed record VisionParameters
     public static VisionParameters? FromProperties(IReadOnlyDictionary<string, object> props) => FromMetadata(props, PropertyPrefix);
 
     /// <summary>The tower of a built model, or null.</summary>
+    /// <param name="model">The built model.</param>
     public static VisionParameters? Of(ModelDefinition model) => FromProperties(model.Properties);
 
     /// <summary>Adds the parameters as <c>vision.*</c> properties (what packages store).</summary>
+    /// <param name="props">Receives the <c>vision.*</c> entries.</param>
     public void WriteProperties(IDictionary<string, object> props)
     {
         void Set(string k, object v) => props[PropertyPrefix + k] = v;

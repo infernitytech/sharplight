@@ -17,6 +17,7 @@ public sealed class AdapterOptions
     /// <summary>Whether <see cref="WellKnown.EmbedGraph"/> L2-normalizes; null = what the model declares.</summary>
     public bool? EmbeddingNormalize { get; init; }
 
+    /// <summary>Returns a copy of these options with another <see cref="ContextLength"/>.</summary>
     public AdapterOptions WithContext(int contextLength) => new()
     {
         KvCacheType = KvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = contextLength,

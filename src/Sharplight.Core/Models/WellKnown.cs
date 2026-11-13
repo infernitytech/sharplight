@@ -3,12 +3,17 @@ namespace Sharplight.Models;
 /// <summary>Well-known graph and property names shared by adapters and runtimes.</summary>
 public static class WellKnown
 {
+    /// <summary>Name of the autoregressive decoder graph: token ids in, logits out, advancing the KV cache.</summary>
     public const string DecodeGraph = "decode";
+    /// <summary>Name of the graph that turns preprocessed image patches into embeddings for the decoder.</summary>
     public const string VisionEncodeGraph = "vision_encode";
     /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>
     public const string DecodeMultimodalGraph = "decode_multimodal";
+    /// <summary>Symbol of the token (row) count of a graph execution.</summary>
     public const string TokenSymbol = "T";
+    /// <summary>Symbol of the context length that sizes KV caches.</summary>
     public const string ContextSymbol = "ctx";
+    /// <summary>Runtime scalar: number of tokens already in the KV cache before this execution.</summary>
     public const string PastScalar = "n_past";
     /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
     public const string RunSymbol = "U";
@@ -27,15 +32,24 @@ public static class WellKnown
     /// sequence's last row, C = vocabulary).
     /// </summary>
     public const string ClassifyGraph = "classify";
+    /// <summary>Name of the embedding graph output (pooled vectors).</summary>
     public const string EmbeddingsOutput = "embeddings";
+    /// <summary>Name of the logits output of the decoder and classifier graphs.</summary>
     public const string LogitsOutput = "logits";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 
+    /// <summary>Property: vocabulary size (int).</summary>
     public const string VocabSize = "vocab_size";
+    /// <summary>Property: maximum context length the model supports (int).</summary>
     public const string ContextLength = "context_length";
+    /// <summary>Property: hidden size of the model (int).</summary>
     public const string EmbeddingLength = "embedding_length";
+    /// <summary>
+    /// Property: number of position axes the positions input carries (1 for plain RoPE, more for multi-axis RoPE) (int).
+    /// </summary>
     public const string PositionAxes = "position_axes";
+    /// <summary>Property: token ids that end generation (int[]).</summary>
     public const string EosTokenIds = "eos_token_ids";
     /// <summary>Pooling of <see cref="EmbedGraph"/>: "mean", "cls" (first row), "last", "none" (string).</summary>
     public const string EmbeddingPooling = "embedding_pooling";

@@ -15,8 +15,10 @@ public sealed class MultimodalPrompt
     public required int[] ImageRow { get; init; }
     /// <summary>Rope positions [rows, PositionAxes].</summary>
     public required int[] Positions { get; init; }
+    /// <summary>Number of rope position axes per row (columns of <see cref="Positions"/>).</summary>
     public required int PositionAxes { get; init; }
     /// <summary>Rope position of the next text token after this prompt.</summary>
     public required int NextPosition { get; init; }
+    /// <summary>Number of rows.</summary>
     public int Length => Tokens.Length;
 }

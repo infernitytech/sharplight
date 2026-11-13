@@ -5,6 +5,7 @@ namespace Sharplight.Runtime;
 /// <summary>A compiled, device-resident part of a graph.</summary>
 public interface ICompiledSegment : IDisposable
 {
+    /// <summary>The segment this object was compiled from.</summary>
     public GraphSegment Segment { get; }
     /// <summary>Uploads host data for a segment input (dense, logical layout).</summary>
     public void SetInput(Value value, ReadOnlySpan<byte> data);

@@ -44,7 +44,7 @@ public sealed class Attributes : IReadOnlyDictionary<string, object>
     /// <exception cref="KeyNotFoundException">The attribute is not present.</exception>
     /// <exception cref="InvalidCastException">The stored value cannot be converted to <typeparamref name="T"/>.</exception>
     public T Get<T>(string key) => _values.TryGetValue(key, out var v)
-        ? Convert<T>(v, key)
+        ? ValueConverter.Convert<T>(v, "Attribute", key)
         : throw new KeyNotFoundException($"Missing attribute '{key}'.");
 
     /// <summary>
@@ -54,38 +54,10 @@ public sealed class Attributes : IReadOnlyDictionary<string, object>
     /// <param name="defaultValue">Returned when the attribute is not present.</param>
     /// <returns>The converted value, or <paramref name="defaultValue"/>.</returns>
     /// <exception cref="InvalidCastException">The stored value cannot be converted to <typeparamref name="T"/>.</exception>
-    public T Get<T>(string key, T defaultValue) => _values.TryGetValue(key, out var v) ? Convert<T>(v, key) : defaultValue;
+    public T Get<T>(string key, T defaultValue) => _values.TryGetValue(key, out var v) ? ValueConverter.Convert<T>(v, "Attribute", key) : defaultValue;
 
     /// <summary>Whether the attribute is present.</summary>
     public bool Has(string key) => _values.ContainsKey(key);
-
-    private static T Convert<T>(object v, string key)
-    {
-        if (v is T t)
-        {
-            return t;
-        }
-
-        if (typeof(T).IsArray && v is Array src)
-        {
-            var et = typeof(T).GetElementType()!;
-            var dst = Array.CreateInstance(et, src.Length);
-            for (int k = 0; k < src.Length; k++)
-            {
-                dst.SetValue(System.Convert.ChangeType(src.GetValue(k), et, CultureInfo.InvariantCulture), k);
-            }
-
-            return (T)(object)dst;
-        }
-        try
-        {
-            return (T)System.Convert.ChangeType(v, typeof(T), CultureInfo.InvariantCulture);
-        }
-        catch (Exception e)
-        {
-            throw new InvalidCastException($"Attribute '{key}' ({v.GetType().Name}) is not convertible to {typeof(T).Name}.", e);
-        }
-    }
 
     /// <summary>Gets the raw stored value of an attribute.</summary>
     public object this[string key] => _values[key];

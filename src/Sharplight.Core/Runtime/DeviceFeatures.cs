@@ -5,6 +5,13 @@ namespace Sharplight.Runtime;
 /// (e.g. Vulkan VK_KHR_cooperative_matrix, CUDA tensor cores / mma.sync, Metal simdgroup_matrix all
 /// provide <see cref="MatrixF16"/>). Hosts can turn any of them off for a device or a single compilation.
 /// </summary>
+/// <remarks>
+/// Diagnostic environment switches of Sharplight.Core:
+/// <list type="bullet">
+/// <item><c>SHARPLIGHT_DISABLE_FEATURES</c>: comma-separated feature names (or "all") disabled for every device, see <see cref="DisabledByEnvironment"/>.</item>
+/// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c>: process-wide override of <see cref="DeviceInfo.SubmissionBudgetMs"/>; read by the providers.</item>
+/// </list>
+/// </remarks>
 public static class DeviceFeatures
 {
     /// <summary>Subgroup/warp-level matrix multiply-accumulate on f16 inputs with f32 accumulation (tensor cores).</summary>
@@ -33,6 +40,7 @@ public static class DeviceFeatures
     /// <summary>The device reports a live memory budget / usage that accounts for other processes (Vulkan: VK_EXT_memory_budget); without it memory figures are estimates from our own allocations.</summary>
     public const string MemoryBudget = "memory_budget";
 
+    /// <summary>Every feature name defined here.</summary>
     public static IReadOnlyList<string> All { get; } = [MemoryBudget, MatrixF16, MatrixBF16, MatrixInt8, MatrixWorkgroup, Float16, BFloat16, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>

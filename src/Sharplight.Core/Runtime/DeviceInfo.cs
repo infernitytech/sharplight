@@ -3,14 +3,19 @@ namespace Sharplight.Runtime;
 /// <summary>A device an <see cref="IExecutionProvider"/> can run on.</summary>
 public sealed record DeviceInfo
 {
+    /// <summary>Name of the <see cref="IExecutionProvider"/> that reported the device.</summary>
     public required string Provider { get; init; }
     /// <summary>Provider-local index (stable for the process lifetime).</summary>
     public required int Index { get; init; }
+    /// <summary>Device name as reported by the driver.</summary>
     public required string Name { get; init; }
+    /// <summary>Device class.</summary>
     public required DeviceKind Kind { get; init; }
     /// <summary>Device-local memory in bytes (system RAM for CPU devices).</summary>
     public long TotalMemory { get; init; }
+    /// <summary>Vendor name; empty when unknown.</summary>
     public string Vendor { get; init; } = "";
+    /// <summary>Driver version string; empty when unknown.</summary>
     public string Driver { get; init; } = "";
     /// <summary>Stable identifier across providers (e.g. PCI bus id / device UUID) so the same GPU
     /// exposed by several providers (Vulkan + CUDA) can be recognized.</summary>
