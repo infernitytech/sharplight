@@ -347,3 +347,82 @@ Sharplight serve/CLI binaries used: `samples/Sharplight.Cli/bin/Release/net11.0/
 * Sharplight Serve has no `ignore_eos`, so OLMoE responses stop at 108-117 tokens on average; its per-token metrics (ITL, per-stream tok/s) are unaffected.
 * Sharplight prefill figures are the best of 4 in-process repetitions per run (the CLI reports best), medians are taken over 3 process runs; llama-bench reports all 5 samples (median shown).
 * No git history is available in this tree, so "version" for Sharplight is the working tree as of the measurement date. A repo-wide cleanup is about to start; numbers here are the pre-cleanup baseline.
+
+## 8. After the decode / prefill performance work (2026-11-13)
+
+Same commands as section 7: `sharplight MODEL --bench N --ctx N+256 --batch 512`, N = 16, 512, 2048, 4096, 3 process runs per
+point, median shown ("before" = the baseline of section 2, llama.cpp CUDA column copied from there). The GPU was shared with other
+agents' test runs and benchmarks during these measurements; small-model prefill rows stay noisy.
+
+What changed (each switch selects the previous kernel, which is also the fallback on devices without the feature):
+
+* **Integer-dot matvec** (`mmvq.slang`, needs `DeviceFeatures.IntDot`): activations quantized to q8_1 once per row and shared by all
+  matmuls reading them, int8 dot products against Q8_0 / Q4_K / Q5_K / Q6_K weights for 1-16 rows (Q8_0 from 2 rows, K-quants up
+  to 8), also for expert matmuls (MatMulId, up to 128 items) and the fused gate/up pair. `SHARPLIGHT_MMVQ_MAX_ROWS`,
+  `SHARPLIGHT_MOE_MMVQ_MAX`.
+* **Packed-half K-quant decoding** in the tensor-core GEMMs (`gemm_cm2`, `moe_gemm_cm`): one vector load of the codes and half2 math
+  instead of a per-value f32 conversion (Mistral `4096→14336` GEMM at T=512: 100 → 155 TFLOPS).
+* **32/64-token GEMM tiles** for 17-64 rows (`SHARPLIGHT_GEMM2_SKINNY=0` restores the 128-token tiles).
+* **Split-K flash decoding**: all query heads of a KV head in one workgroup, split count chosen per row at run time
+  (`SHARPLIGHT_ATTN_DECODE=0`), also for multi-sequence batches up to 64 rows.
+* **GPU sampling**: greedy / temperature / top-k / top-p / min-p with a seeded RNG on the device, only token ids read back
+  (`LlmLoadOptions.DeviceSampling`, `SHARPLIGHT_DEVICE_SAMPLING=0`; penalties, logit bias and top_logprobs still sample on the CPU).
+* Workgroup-per-row LayerNorm for decode (Phi-2 Q4_K_M decode 322 → 458 tok/s; llama-bench CUDA 362) and a thread-per-row
+  reduction for the MoE slot sum.
+
+### Single stream, before → after
+
+| model | metric | before | after | after/before | llama.cpp CUDA | after/CUDA |
+|---|---|---|---|---|---|---|
+| gemma3-1b-q8 | pp512 | 45642 | 45270 | 0.99x | 45353 | 1.00x |
+| gemma3-1b-q8 | pp2048 | 41899 | 41956 | 1.00x | 46479 | 0.90x |
+| gemma3-1b-q8 | tg128 @d0 | 554 | 560 | 1.01x | 538 | 1.04x |
+| gemma3-1b-q8 | tg128 @d4096 | 505 | 533 | 1.06x | 524 | 1.02x |
+| llama3.2-1b-q8 | pp512 | 53317 | 55057 | 1.03x | 58918 | 0.93x |
+| llama3.2-1b-q8 | pp2048 | 48470 | 49585 | 1.02x | 58092 | 0.85x |
+| llama3.2-1b-q8 | tg128 @d0 | 752 | 749 | 1.00x | 739 | 1.01x |
+| llama3.2-1b-q8 | tg128 @d4096 | 483 | 663 | 1.37x | 681 | 0.97x |
+| mistral7b-q4km | pp512 | 6387 | 9496 | 1.49x | 11229 | 0.85x |
+| mistral7b-q4km | pp2048 | 6074 | 8677 | 1.43x | 10756 | 0.81x |
+| mistral7b-q4km | tg128 @d0 | 135 | 248 | 1.83x | 246 | 1.01x |
+| mistral7b-q4km | tg128 @d4096 | 107 | 218 | 2.04x | 215 | 1.01x |
+| nemotron30b-q4km | pp512 | 5586 | 5867 | 1.05x | 8346 | 0.70x |
+| nemotron30b-q4km | pp2048 | 5445 | 5626 | 1.03x | 7983 | 0.70x |
+| nemotron30b-q4km | tg128 @d0 | 221 | 239 | 1.08x | 328 | 0.73x |
+| nemotron30b-q4km | tg128 @d4096 | 207 | 226 | 1.09x | 312 | 0.72x |
+| olmoe-q4km | pp512 | 15014 | 19897 | 1.33x | 27624 | 0.72x |
+| olmoe-q4km | pp2048 | 14407 | 19069 | 1.32x | 24564 | 0.78x |
+| olmoe-q4km | tg128 @d0 | 503 | 705 | 1.40x | 844 | 0.84x |
+| olmoe-q4km | tg128 @d4096 | 393 | 585 | 1.49x | 616 | 0.95x |
+| qwen27b-q8 | pp512 | 2663 | 2656 | 1.00x | 3058 | 0.87x |
+| qwen27b-q8 | pp2048 | 2508 | 2441 | 0.97x | 3030 | 0.81x |
+| qwen27b-q8 | tg128 @d0 | 44.8 | 43.9 | 0.98x | 48.5 | 0.90x |
+| qwen27b-q8 | tg128 @d4096 | 40.6 | 41.7 | 1.03x | 47.9 | 0.87x |
+| qwen3-0.6b-q8 | pp512 | 62021 | 62192 | 1.00x | 26977 | 2.31x |
+| qwen3-0.6b-q8 | pp2048 | 43732 | 45136 | 1.03x | 55097 | 0.82x |
+| qwen3-0.6b-q8 | tg128 @d0 | 825 | 833 | 1.01x | 817 | 1.02x |
+| qwen3-0.6b-q8 | tg128 @d4096 | 483 | 651 | 1.35x | 629 | 1.03x |
+
+Open gaps: Nemotron-30B (0.70-0.73x; its expert GEMM reaches about 47 TFLOPS against 155 for the dense K-quant GEMM), OLMoE
+(0.72-0.84x except deep decode), prefill at 2048 tokens (0.81-0.90x), the 27B decode (0.87-0.90x). An int8 tensor-core prefill
+(MMQ-style) was not done.
+
+### Batched decode step, before → after (`bench/BatchBench`)
+
+`BatchBench MODEL --ctx 2048` (64 slots, 256 tokens of context per slot; with `--ctx 1024` as in section 3 the slots now run out of
+context, because four modes are measured). Step ms, minimum over 30 steps, logits read back for every row ("before" = section 3);
+"greedy" is the same step with device greedy sampling (token ids only).
+
+| batch | 27B before | 27B after | 27B greedy | Mistral before | Mistral after | Mistral greedy | Llama-1B before | Llama-1B after | Llama-1B greedy | OLMoE before | OLMoE after | OLMoE greedy |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 24.8 | 22.7 | 22.8 | 7.5 | 4.26 | 4.20 | 1.37 | 1.47 | 1.35 | 1.96 | 1.44 | 1.41 |
+| 2 | 37.1 | 21.2 | 20.6 | 11.8 | 4.57 | 4.51 | 2.34 | 1.62 | 1.39 | 3.31 | 1.93 | 1.83 |
+| 4 | 60.7 | 23.4 | 22.7 | 18.8 | 6.52 | 6.43 | 3.71 | 1.99 | 1.64 | 6.31 | 2.65 | 2.54 |
+| 8 | 113.6 | 30.4 | 29.6 | 33.8 | 9.38 | 9.21 | 7.15 | 3.58 | 2.82 | 9.11 | 5.11 | 4.84 |
+| 16 | 58.8 | 44.2 | 41.9 | 24.8 | 11.1 | 10.8 | 5.83 | 6.01 | 4.31 | 12.0 | 10.2 | 9.76 |
+| 32 | 68.3 | 53.7 | 49.1 | 28.1 | 13.0 | 12.4 | 8.90 | 7.18 | 4.02 | 14.8 | 21.3 | 27.3 |
+| 64 | 92.2 | 79.0 | 66.6 | 32.0 | 17.6 | 16.6 | 12.1 | 14.4 | 5.22 | 19.9 | 19.0 | 16.5 |
+
+Aggregate throughput with device greedy sampling at batch 16: 27B 382 tok/s (44 at batch 1), Mistral 1486 (238), Llama-1B 3712
+(741), OLMoE 1639 (709). The Llama-1B logits column at 16-64 rows is dominated by the 128k-entry logits readback and varies by 2x
+between runs; the OLMoE batch-32 row was disturbed by another GPU user (its no-logits step measured 13.4 ms in the same run).
