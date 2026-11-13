@@ -406,7 +406,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `t5` | T5, Flan-T5, UL2 | cross-attention, relative-position buckets, RMS(no bias), GeGLU/ReLU | **missing** | `XATTN`, `RELPOS` | t5 | gguf/flan-t5-small, hf/tiny-random-T5Model |
+| `t5` | T5, Flan-T5, UL2 | cross-attention, relative-position buckets, RMS(no bias), GeGLU/ReLU | **missing** (not started: needs an encoder pass with its own graph, cross-attention K/V caches filled once per request and a decoder start-token generation path in the Llm layer; the additive score bias plumbing of `alibi_slopes` is the model for `RELPOS`) | `XATTN`, `RELPOS` | t5 | gguf/flan-t5-small, hf/tiny-random-T5Model |
 | `t5encoder` | T5 encoder (embeddings) | bidirectional + relative buckets | **missing** | `ENC`, `RELPOS` | - | - |
 
 ### Diffusion
