@@ -148,7 +148,7 @@ internal static class OnnxFold
             case "Dropout":
                 return [Input(n, ins, 0)];
             case "Cast":
-                return [Input(n, ins, 0).CastTo((int)n.Int("to", OnnxType.Float))];
+                return [Input(n, ins, 0).CastTo((int)n.Int("to", OnnxType.Float), n.Int("saturate", 1) != 0)];
             case "Shape":
                 return FoldShape(n, ins);
             case "Size":

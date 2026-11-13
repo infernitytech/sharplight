@@ -446,7 +446,7 @@ internal static class OnnxParser
             }
 
             long off = ext.TryGetValue("offset", out var os) ? long.Parse(os) : 0;
-            long len = ext.TryGetValue("length", out var ls) ? long.Parse(ls) : OnnxType.ElementSize(dtype) * elems;
+            long len = ext.TryGetValue("length", out var ls) ? long.Parse(ls) : OnnxType.ByteSize(dtype, elems);
             if (ctx.External is null)
             {
                 throw new NotSupportedException($"Tensor '{name}' uses external data '{loc}' but no resolver is available.");
@@ -506,9 +506,10 @@ internal static class OnnxParser
                 }
             });
         }
-        else if (int32Data.Count > 0 && dtype is OnnxType.Int32 or OnnxType.Int16 or OnnxType.Int8 or OnnxType.UInt8 or OnnxType.UInt16 or OnnxType.Bool or OnnxType.Float16 or OnnxType.BFloat16)
+        else if (int32Data.Count > 0 && (dtype is OnnxType.Int32 or OnnxType.Int16 or OnnxType.UInt16 or OnnxType.Float16 or OnnxType.BFloat16 || OnnxType.ElementBits(dtype) <= 8))
         {
-            int es = OnnxType.ElementSize(dtype);
+            // 8-bit floats hold one value and the packed 4- and 2-bit types one byte per int32_data entry.
+            int es = OnnxType.IsSubByte(dtype) ? 1 : OnnxType.ElementSize(dtype);
             src = Bytes(int32Data.Count * es, s =>
             {
                 for (int i = 0; i < int32Data.Count; i++)
@@ -538,7 +539,7 @@ internal static class OnnxParser
             throw new InvalidDataException($"Tensor '{name}' ({OnnxType.Name(dtype)}) carries no data.");
         }
 
-        if (src is not null && dtype != OnnxType.String && src.ByteLength != OnnxType.ElementSize(dtype) * elems)
+        if (src is not null && dtype != OnnxType.String && src.ByteLength != OnnxType.ByteSize(dtype, elems))
         {
             throw new InvalidDataException($"Tensor '{name}': {src.ByteLength} data bytes for {elems} {OnnxType.Name(dtype)} elements.");
         }
