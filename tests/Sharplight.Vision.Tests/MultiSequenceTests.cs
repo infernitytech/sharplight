@@ -1,5 +1,6 @@
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
+using Sharplight.Runtime;
 
 namespace Sharplight.Vision.Tests;
 
@@ -55,11 +56,15 @@ public class MultiSequenceTests
         var slot = device == "cpu" ? Env.Cpu() : Env.Vulkan();
         Assert.SkipWhen(slot is null, "no Vulkan device");
         using var dev = slot!.Device;
-        using var llm = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot!], ContextLength = 256, MaxBatchTokens = 128 });
+        // The integer-dot matvec (DeviceFeatures.IntDot) quantizes activations to 8 bits, so whether a chunk runs there or in a
+        // larger tensor-core batch would change its logits by percents (tens of percents on outlier-heavy Mamba layers); it is
+        // off here so the comparison checks the multi-sequence bookkeeping. Its precision is covered by the Vulkan kernel tests.
+        using var llm = LlmModel.Load(path, new LlmLoadOptions
+        {
+            Devices = [slot!], ContextLength = 256, MaxBatchTokens = 128, DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
+        });
         using var dec = llm.CreateBatchDecoder(4, 256);
         Assert.IsType<MultiSequenceDecoder>(dec);
-        bool quantized = !path.Contains("fp16", StringComparison.OrdinalIgnoreCase) && !path.Contains("bf16", StringComparison.OrdinalIgnoreCase)
-                         && path.EndsWith(".gguf", StringComparison.Ordinal);
 
         // Script: per step, (slot, tokens) inputs. Slot 0 is reset and reused for a new sequence at step 5.
         // Shapes cover: prompts of several flash-attention tiles next to decode rows, short mixed rows (per-query
@@ -103,21 +108,13 @@ public class MultiSequenceTests
                     var row = got[u].ToArray();
                     var (maxAbs, _, rms) = Env.Compare(row, want);
                     worst = Math.Max(worst, (float)rms);
-                    // CPU: same math per row up to summation order. Vulkan: f16 tensor-core paths depend on the batch shape (more visibly on the tiny Mamba-2 model).
-                    // Quantized weights on Vulkan: up to 8-16 rows run the integer-dot matvec, which quantizes activations to 8 bits per
-                    // 32-value block (llama.cpp's MMVQ), so a chunk computed there and the same chunk inside a larger tensor-core batch
-                    // differ by about 1-5 % relative rms in the logits, and near-tied top tokens may swap.
-                    bool intDot = device == "vulkan" && quantized;
-                    double tol = device == "cpu" ? 1e-3 : intDot ? 8e-2 : model.StartsWith("mamba", StringComparison.Ordinal) || model.StartsWith("rwkv", StringComparison.Ordinal) ? 1e-2 : 5e-3;
-                    Assert.True(rms < tol, $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
-                    if (intDot)
-                    {
-                        Assert.Contains(ArgMax(want), TopK(row, 3));
-                    }
-                    else
-                    {
-                        Assert.Equal(ArgMax(want), ArgMax(row));
-                    }
+                    // CPU: same math per row up to summation order. Vulkan: f16 tensor-core paths depend on the batch shape (more visibly on the tiny Mamba-2 model);
+                    // K-quant weights in a tensor-core batch are decoded in packed half math (scale and min rounded to f16), while a
+                    // short chunk runs the f32 matvec.
+                    bool kQuant = device == "vulkan" && path.Contains("Q4_K", StringComparison.OrdinalIgnoreCase);
+                    bool loose = kQuant || model.StartsWith("mamba", StringComparison.Ordinal) || model.StartsWith("rwkv", StringComparison.Ordinal);
+                    Assert.True(rms < (device == "cpu" ? 1e-3 : loose ? 1e-2 : 5e-3), $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
+                    Assert.Equal(ArgMax(want), ArgMax(row));
                     Assert.Equal(sess.Position, dec.Length(key.Item1));
                 }
             }
@@ -131,8 +128,6 @@ public class MultiSequenceTests
             }
         }
     }
-
-    private static int[] TopK(float[] v, int k) => [.. Enumerable.Range(0, v.Length).OrderByDescending(i => v[i]).Take(k)];
 
     private static int ArgMax(float[] v)
     {
