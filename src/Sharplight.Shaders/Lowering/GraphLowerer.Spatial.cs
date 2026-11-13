@@ -331,7 +331,7 @@ public sealed partial class GraphLowerer
         long HO = y.Shape[2];
         long WO = y.Shape[3];
         var k = Lib("spatial.slang", "pool", Macros(("C", C), ("H", x.Shape[2]), ("W", x.Shape[3]), ("HO", HO), ("WO", WO), ("KH", kernel[0]), ("KW", kernel[1]),
-            ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("PB", pd[2]), ("PR", pd[3]), ("DH", avg ? 1 : dl[0]), ("DW", avg ? 1 : dl[1]),
+            ("SH", st[0]), ("SW", st[1]), ("PH", pd[0]), ("PW", pd[1]), ("PB", pd[2]), ("PR", pd[3]), ("DH", dl[0]), ("DW", dl[1]),
             ("XS_N", x.Strides[0]), ("XS_C", x.Strides[1]), ("XS_H", x.Strides[2]), ("XS_W", x.Strides[3]),
             ("MODE", avg ? 1 : 0), ("COUNT_PAD", a.Get("count_include_pad", false))));
         var tx = x;

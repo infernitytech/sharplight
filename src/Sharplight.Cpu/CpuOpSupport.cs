@@ -30,6 +30,8 @@ internal static partial class CpuOpSupport
             "Conv" => CheckConv(node),
             "ConvTranspose" => CheckConvTranspose(node),
             "Pool" => CheckPool(node),
+            "PoolArgMax" => CheckPool(node),
+            "MaxRoiPool" => AllF32(node),
             "Reduce" => CheckReduce(node),
             "Pad" => CheckPad(node),
             "Resize" => CheckResize(node),

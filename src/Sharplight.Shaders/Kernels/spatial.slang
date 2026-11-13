@@ -42,19 +42,20 @@ void pool(uint3 dtid : SV_DispatchThreadID, uniform PoolParams p)
     int cnt = 0;
     for (int kh = 0; kh < KH; kh++)
     {
-        int ih = hs + kh;
+        int ih = hs + kh * DH;
         if (uint(ih) >= uint(H)) continue;
         for (int kw = 0; kw < KW; kw++)
         {
-            int iw = ws + kw;
+            int iw = ws + kw * DW;
             if (uint(iw) >= uint(W)) continue;
             acc += xp[ih * XS_H + iw * XS_W];
             cnt++;
         }
     }
 #if COUNT_PAD
-    int he = min(hs + KH, H + PB), we = min(ws + KW, W + PR);
-    float div = float((he - hs) * (we - ws));
+    // taps inside the padded input (ceil_mode overhang is not counted)
+    int th = min(KH, (H + PB - 1 - hs) / DH + 1), tw = min(KW, (W + PR - 1 - ws) / DW + 1);
+    float div = float(th * tw);
 #else
     float div = float(cnt);
 #endif

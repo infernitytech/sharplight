@@ -39,7 +39,7 @@ public static partial class StandardOps
 
     /// <summary>
     /// 2-D pooling over x [N, C, H, W]. Attributes: <c>mode</c> ("max" | "avg"), <c>kernel</c> long[2],
-    /// <c>strides</c> (default = 1,1), <c>pads</c> long[4] (top, left, bottom, right), <c>dilations</c> (max only),
+    /// <c>strides</c> (default = 1,1), <c>pads</c> long[4] (top, left, bottom, right), <c>dilations</c>,
     /// <c>ceil_mode</c> (bool), <c>count_include_pad</c> (bool, avg only). Padding never wins a max.
     /// Global pooling is <see cref="Reduce"/> over axes [2, 3].
     /// </summary>

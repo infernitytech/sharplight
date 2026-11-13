@@ -74,6 +74,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Pool":
                 LowerPool(n);
                 return;
+            case "PoolArgMax":
+                LowerPoolArgMax(n);
+                return;
+            case "MaxRoiPool":
+                LowerMaxRoiPool(n);
+                return;
             case "Reduce":
                 LowerReduce(n);
                 return;

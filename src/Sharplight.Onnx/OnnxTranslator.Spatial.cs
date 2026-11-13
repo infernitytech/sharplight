@@ -103,24 +103,6 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, Emit("Add", [y, ConstValue(sh, null)], null, Nm(n)));
     }
 
-    private void LpPool(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        long p = n.Int("p", 2);
-        if (p is not (1 or 2))
-        {
-            throw new NotSupportedException("LpPool with p other than 1 or 2");
-        }
-
-        var x = X(ins, 0);
-        var kernel = n.Ints("kernel_shape")!;
-        var strides = n.Ints("strides") ?? [1, 1];
-        var pads = n.Ints("pads") ?? [0, 0, 0, 0];
-        var inp = p == 1 ? _b.Unary("Abs", x) : _b.Mul(x, x);
-        var avg = Emit("Pool", [inp], Attributes.From(("mode", "avg"), ("kernel", kernel), ("strides", strides), ("pads", pads), ("dilations", L(1, 1)), ("ceil_mode", n.Int("ceil_mode", 0) != 0), ("count_include_pad", true)));
-        var s = _b.Scale(avg, kernel[0] * kernel[1]);
-        SetDyn(n, 0, p == 1 ? s : Emit("Sqrt", [s], null, Nm(n)));
-    }
-
     private void DepthSpace(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
@@ -294,36 +276,6 @@ internal sealed partial class OnnxTranslator
             return ToBytes(result);
         }, outName + ".bnfold_bias");
         return (foldedWeight, foldedBias);
-    }
-
-    private void Pool(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        CheckUnusedOutputs(n, 1);
-        var x0 = X(ins, 0);
-        bool oneD = x0.Rank == 3;
-        var x = To4D(x0);
-        var kernel = oneD ? [1, n.Ints("kernel_shape")![0]] : n.Ints("kernel_shape")!;
-        var strides = ExpandSpatial(n.Ints("strides"), 1, oneD);
-        var dilations = ExpandSpatial(n.Ints("dilations"), 1, oneD);
-        var pads = ResolvePads(n, x, kernel, strides, dilations, oneD);
-        bool max = n.OpType == "MaxPool";
-        var attributes = Attributes.From(("mode", max ? "max" : "avg"), ("kernel", kernel), ("strides", strides), ("pads", pads), ("dilations", dilations),
-            ("ceil_mode", n.Int("ceil_mode", 0) != 0), ("count_include_pad", n.Int("count_include_pad", 0) != 0));
-        var y = Emit("Pool", [x], attributes, oneD ? Nm(n) + ".2d" : Nm(n));
-        if (oneD)
-        {
-            y = Rs(y, 0, y.Shape[1].Fixed, y.Shape[3].Fixed);
-        }
-
-        SetDyn(n, 0, y);
-    }
-
-    private void GlobalPool(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        var x = X(ins, 0);
-        var axes = Enumerable.Range(2, Math.Max(0, x.Rank - 2)).Select(i => (long)i).ToArray();
-        string mode = n.OpType == "GlobalAveragePool" ? "mean" : "max";
-        SetDyn(n, 0, Emit("Reduce", [x], Attributes.From(("mode", mode), ("axes", axes), ("keepdims", true)), Nm(n)));
     }
 
     private void GridSample(OnnxNode n, TranslatedTensor?[] ins)
