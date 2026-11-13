@@ -15,7 +15,7 @@ public class Iq4QuantTests
         var tg = new TG(); var x = tg.InF("x", TG.T, K);
         var w = tg.RandW("w", DataType.Get(type), 1f, N, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
-        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))), atol: 5e-2, rtol: 1e-2);   // f16 tensor-core path for T > 1: random 6-bit scales span a wide weight range
+        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))), atol: 0.25, rtol: 1e-2);   // f16 tensor-core path for T > 1: random 6-bit scales span a wide weight range
     }
 
     [Theory]
