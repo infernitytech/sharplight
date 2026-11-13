@@ -5,6 +5,9 @@ namespace Sharplight.Llm.Serving;
 /// <summary>Stateful sampler of one request: applies penalties/bias over the request's history, then samples. Not thread-safe.</summary>
 internal sealed class RequestSampler
 {
+    /// <summary>Candidates a top-p or min-p cut considers when no top-k bounds the set.</summary>
+    private const int DefaultCandidateLimit = 1024;
+
     private readonly SamplingParams _p;
     private readonly Random _rng;
     private readonly bool _hasPenalties;
@@ -98,6 +101,7 @@ internal sealed class RequestSampler
         };
     }
 
+    /// <summary>Picks the next token from <paramref name="logits"/> (not modified) after applying bias and penalties.</summary>
     public int Sample(ReadOnlySpan<float> logits)
     {
         int n = logits.Length;
@@ -113,6 +117,20 @@ internal sealed class RequestSampler
 
         var w = _work.AsSpan(0, n);
         logits.CopyTo(w);
+        ApplyBiasAndPenalties(w);
+        if (_p.IsGreedy)
+        {
+            return ArgMax(w);
+        }
+
+        float invT = 1f / _p.Temperature;
+        bool filtered = _p.TopK > 0 || _p.TopP < 1f || _p.MinP > 0;
+        return filtered ? SampleFiltered(w, invT) : SampleFromFullDistribution(w, invT);
+    }
+
+    private void ApplyBiasAndPenalties(Span<float> w)
+    {
+        int n = w.Length;
         if (_p.LogitBias is { } bias)
         {
             foreach (var (id, b) in bias)
@@ -145,61 +163,58 @@ internal sealed class RequestSampler
                 }
             }
         }
+    }
 
-        if (_p.IsGreedy)
+    /// <summary>Samples from the softmax over every token (no top-k, top-p or min-p cut).</summary>
+    private int SampleFromFullDistribution(ReadOnlySpan<float> w, float invT)
+    {
+        float max = float.NegativeInfinity;
+        foreach (var v in w)
         {
-            return ArgMax(w);
+            if (v > max)
+            {
+                max = v;
+            }
         }
 
-        float invT = 1f / _p.Temperature;
-        bool filtered = _p.TopK > 0 || _p.TopP < 1f || _p.MinP > 0;
-        if (!filtered)
+        double sum = 0;
+        foreach (var v in w)
         {
-            float max = float.NegativeInfinity;
-            foreach (var v in w)
-            {
-                if (v > max)
-                {
-                    max = v;
-                }
-            }
-
-            double sum = 0;
-            foreach (var v in w)
-            {
-                sum += Math.Exp((v - max) * invT);
-            }
-
-            double r = _rng.NextDouble() * sum;
-            for (int i = 0; i < n; i++)
-            {
-                r -= Math.Exp((w[i] - max) * invT);
-                if (r <= 0)
-                {
-                    return i;
-                }
-            }
-
-            return n - 1;
+            sum += Math.Exp((v - max) * invT);
         }
 
-        // Candidate selection: top-K (or the 1024 best when only top-p / min-p is active), sorted descending.
-        int k = _p.TopK > 0 ? Math.Min(_p.TopK, n) : Math.Min(1024, n);
-        SelectTop(w, k, out int cnt);
-        var ti = _ti;
-        var tv = _tv;
-        var probs = new double[cnt];
+        double r = _rng.NextDouble() * sum;
+        for (int i = 0; i < w.Length; i++)
+        {
+            r -= Math.Exp((w[i] - max) * invT);
+            if (r <= 0)
+            {
+                return i;
+            }
+        }
+
+        return w.Length - 1;
+    }
+
+    /// <summary>Samples among the top-k candidates, cut by min-p and then top-p.</summary>
+    private int SampleFiltered(ReadOnlySpan<float> w, float invT)
+    {
+        int k = _p.TopK > 0 ? Math.Min(_p.TopK, w.Length) : Math.Min(DefaultCandidateLimit, w.Length);
+        SelectTop(w, k, out int candidates);
+        var ids = _ti;
+        var values = _tv;
+        var probs = new double[candidates];
         double tot = 0;
-        for (int i = 0; i < cnt; i++)
+        for (int i = 0; i < candidates; i++)
         {
-            probs[i] = Math.Exp((tv[i] - tv[0]) * invT);
+            probs[i] = Math.Exp((values[i] - values[0]) * invT);
             tot += probs[i];
         }
 
-        int cut = cnt;
+        int cut = candidates;
         if (_p.MinP > 0)
         {
-            for (int i = 1; i < cnt; i++)
+            for (int i = 1; i < candidates; i++)
             {
                 if (probs[i] < _p.MinP * probs[0])
                 {
@@ -222,6 +237,7 @@ internal sealed class RequestSampler
                 }
             }
         }
+
         double total = 0;
         for (int i = 0; i < cut; i++)
         {
@@ -234,11 +250,11 @@ internal sealed class RequestSampler
             rr -= probs[i];
             if (rr <= 0)
             {
-                return ti[i];
+                return ids[i];
             }
         }
 
-        return ti[cut - 1];
+        return ids[cut - 1];
     }
 
     /// <summary>Fills _tv/_ti with the k largest values (descending) using a bounded min-heap.</summary>
@@ -249,54 +265,75 @@ internal sealed class RequestSampler
             _tv = new float[k];
             _ti = new int[k];
         }
-        var hv = _tv;
-        var hi = _ti;
-        int c = 0;
+
+        var heapValues = _tv;
+        var heapIds = _ti;
+        int size = 0;
         for (int i = 0; i < w.Length; i++)
         {
             float v = w[i];
-            if (c < k)
+            if (size < k)
             {
-                int j = c++;
-                while (j > 0)
-                {
-                    int pa = (j - 1) >> 1;
-                    if (hv[pa] <= v) { break; }
-                    hv[j] = hv[pa];
-                    hi[j] = hi[pa];
-                    j = pa;
-                }
-                hv[j] = v;
-                hi[j] = i;
+                SiftUp(heapValues, heapIds, size++, v, i);
             }
-            else if (v > hv[0])
+            else if (v > heapValues[0])
             {
-                int j = 0;
-                while (true)
-                {
-                    int l = 2 * j + 1; if (l >= c)
-                    {
-                        break;
-                    }
-
-                    int m = l + 1 < c && hv[l + 1] < hv[l] ? l + 1 : l;
-                    if (hv[m] >= v)
-                    {
-                        break;
-                    }
-
-                    hv[j] = hv[m];
-                    hi[j] = hi[m];
-                    j = m;
-                }
-                hv[j] = v;
-                hi[j] = i;
+                SiftDownReplaceRoot(heapValues, heapIds, size, v, i);
             }
         }
-        Array.Sort(hv, hi, 0, c);
-        Array.Reverse(hv, 0, c);
-        Array.Reverse(hi, 0, c);
-        count = c;
+
+        Array.Sort(heapValues, heapIds, 0, size);
+        Array.Reverse(heapValues, 0, size);
+        Array.Reverse(heapIds, 0, size);
+        count = size;
+    }
+
+    /// <summary>Inserts (<paramref name="value"/>, <paramref name="id"/>) at the new leaf <paramref name="leaf"/> of a min-heap.</summary>
+    private static void SiftUp(float[] values, int[] ids, int leaf, float value, int id)
+    {
+        int j = leaf;
+        while (j > 0)
+        {
+            int parent = (j - 1) >> 1;
+            if (values[parent] <= value)
+            {
+                break;
+            }
+
+            values[j] = values[parent];
+            ids[j] = ids[parent];
+            j = parent;
+        }
+
+        values[j] = value;
+        ids[j] = id;
+    }
+
+    /// <summary>Replaces the root of a min-heap of <paramref name="size"/> entries with (<paramref name="value"/>, <paramref name="id"/>).</summary>
+    private static void SiftDownReplaceRoot(float[] values, int[] ids, int size, float value, int id)
+    {
+        int j = 0;
+        while (true)
+        {
+            int left = 2 * j + 1;
+            if (left >= size)
+            {
+                break;
+            }
+
+            int smaller = left + 1 < size && values[left + 1] < values[left] ? left + 1 : left;
+            if (values[smaller] >= value)
+            {
+                break;
+            }
+
+            values[j] = values[smaller];
+            ids[j] = ids[smaller];
+            j = smaller;
+        }
+
+        values[j] = value;
+        ids[j] = id;
     }
 
     public static int ArgMax(ReadOnlySpan<float> logits) => LogitsMath.ArgMax(logits);
@@ -322,6 +359,7 @@ internal sealed class RequestSampler
                 top.Add((s._ti[i], s._tv[i] - lse));
             }
         }
+
         return (logits[token] - lse, [.. top]);
     }
 }

@@ -259,51 +259,65 @@ internal static class AnthropicApi
         using var lease = await ctx.AcquireAsync(http, b.Str("model"));   // held until the response is complete
         var run = SharplightServerContext.ChatOf(lease).StartChat(req, http.RequestAborted);
         string id = "msg_" + Guid.NewGuid().ToString("N")[..24];
-        string model = lease.Name;
 
-        if (!stream)
+        if (stream)
         {
-            var res = await run.CompleteAsync(http.RequestAborted);
-            var c = res.Choices[0];
-            if (c.Finish == ChatFinishReason.Timeout)
-            {
-                await ApiErrors.WriteAsync(http, 504, "api_error", c.Error ?? "The request timed out.");
-                return;
-            }
-            if (c.Finish == ChatFinishReason.Error)
-            {
-                await ApiErrors.WriteAsync(http, 500, "api_error", c.Error ?? "Generation failed.");
-                return;
-            }
-            if (c.Finish == ChatFinishReason.Cancelled)
-            {
-                await ApiErrors.WriteAsync(http, 529, "overloaded_error", "The request was cancelled because the server is shutting down.");
-                return;
-            }
-            var content = new JsonArray();
-            if (c.Reasoning is not null)
-            {
-                content.Add(new JsonObject { ["type"] = "thinking", ["thinking"] = c.Reasoning, ["signature"] = "" });
-            }
-
-            if (c.Content.Length > 0 || c.ToolCalls.Count == 0)
-            {
-                content.Add(new JsonObject { ["type"] = "text", ["text"] = c.Content });
-            }
-
-            foreach (var t in c.ToolCalls)
-            {
-                content.Add(new JsonObject { ["type"] = "tool_use", ["id"] = ToolUseId(t.Id), ["name"] = t.Name, ["input"] = ParseInput(t.ArgumentsJson) });
-            }
-
-            await HttpJson.WriteAsync(http, new JsonObject
-            {
-                ["id"] = id, ["type"] = "message", ["role"] = "assistant", ["model"] = model, ["content"] = content,
-                ["stop_reason"] = StopReason(c.Finish, c.StopSequence), ["stop_sequence"] = c.StopSequence, ["usage"] = UsageJson(res.Usage),
-            });
+            await StreamMessage(http, run, id, lease.Name);
             return;
         }
 
+        var res = await run.CompleteAsync(http.RequestAborted);
+        var choice = res.Choices[0];
+        if (FailureOf(choice) is { } failure)
+        {
+            await ApiErrors.WriteAsync(http, failure.Status, failure.Type, failure.Message);
+            return;
+        }
+
+        await HttpJson.WriteAsync(http, new JsonObject
+        {
+            ["id"] = id,
+            ["type"] = "message",
+            ["role"] = "assistant",
+            ["model"] = lease.Name,
+            ["content"] = ContentBlocks(choice),
+            ["stop_reason"] = StopReason(choice.Finish, choice.StopSequence),
+            ["stop_sequence"] = choice.StopSequence,
+            ["usage"] = UsageJson(res.Usage),
+        });
+    }
+
+    private static (int Status, string Type, string Message)? FailureOf(ChatChoice choice) => choice.Finish switch
+    {
+        ChatFinishReason.Timeout => (504, "api_error", choice.Error ?? "The request timed out."),
+        ChatFinishReason.Error => (500, "api_error", choice.Error ?? "Generation failed."),
+        ChatFinishReason.Cancelled => (529, "overloaded_error", "The request was cancelled because the server is shutting down."),
+        _ => null,
+    };
+
+    private static JsonArray ContentBlocks(ChatChoice choice)
+    {
+        var content = new JsonArray();
+        if (choice.Reasoning is not null)
+        {
+            content.Add(new JsonObject { ["type"] = "thinking", ["thinking"] = choice.Reasoning, ["signature"] = "" });
+        }
+
+        if (choice.Content.Length > 0 || choice.ToolCalls.Count == 0)
+        {
+            content.Add(new JsonObject { ["type"] = "text", ["text"] = choice.Content });
+        }
+
+        foreach (var t in choice.ToolCalls)
+        {
+            content.Add(new JsonObject { ["type"] = "tool_use", ["id"] = ToolUseId(t.Id), ["name"] = t.Name, ["input"] = ParseInput(t.ArgumentsJson) });
+        }
+
+        return content;
+    }
+
+    private static async Task StreamMessage(HttpContext http, ChatRun run, string id, string model)
+    {
         var sse = new SseWriter(http);
         await sse.EventAsync("message_start", new JsonObject
         {
@@ -317,79 +331,20 @@ internal static class AnthropicApi
         });
         await sse.EventAsync("ping", new JsonObject { ["type"] = "ping" });
 
-        int index = -1;
-        string? open = null;   // open block type: text | thinking
-        void Close()
-        {
-            if (open is null)
-            {
-                return;
-            }
-
-            if (open == "thinking")
-            {
-                sse.Event("content_block_delta", new JsonObject { ["type"] = "content_block_delta", ["index"] = index, ["delta"] = new JsonObject { ["type"] = "signature_delta", ["signature"] = "" } });
-            }
-
-            sse.Event("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
-            open = null;
-        }
-        void Open(string type)
-        {
-            Close();
-            index++;
-            open = type;
-            sse.Event("content_block_start", new JsonObject
-            {
-                ["type"] = "content_block_start", ["index"] = index,
-                ["content_block"] = type == "text" ? new JsonObject { ["type"] = "text", ["text"] = "" } : new JsonObject { ["type"] = "thinking", ["thinking"] = "" },
-            });
-        }
-        void Delta(string kind, string field, string value)
-        {
-            var w = sse.BeginEvent("content_block_delta");
-            w.WriteStartObject();
-            w.WriteString("type", "content_block_delta");
-            w.WriteNumber("index", index);
-            w.WriteStartObject("delta");
-            w.WriteString("type", kind);
-            w.WriteString(field, value);
-            w.WriteEndObject();
-            w.WriteEndObject();
-            sse.EndEvent();
-        }
-
+        var blocks = new AnthropicBlockWriter(sse);
         await SsePump.PumpAsync(run.ReadAllAsync(http.RequestAborted), sse, e =>
         {
             if (e.Content is not null)
             {
-                if (open != "text")
-                {
-                    Open("text");
-                }
-
-                Delta("text_delta", "text", e.Content);
+                blocks.Text(e.Content);
             }
             else if (e.Reasoning is not null)
             {
-                if (open != "thinking")
-                {
-                    Open("thinking");
-                }
-
-                Delta("thinking_delta", "thinking", e.Reasoning);
+                blocks.Thinking(e.Reasoning);
             }
             else if (e.ToolCall is { } t)
             {
-                Close();
-                index++;
-                sse.Event("content_block_start", new JsonObject
-                {
-                    ["type"] = "content_block_start", ["index"] = index,
-                    ["content_block"] = new JsonObject { ["type"] = "tool_use", ["id"] = ToolUseId(t.Id), ["name"] = t.Name, ["input"] = new JsonObject() },
-                });
-                Delta("input_json_delta", "partial_json", t.ArgumentsJson);
-                sse.Event("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
+                blocks.ToolUse(ToolUseId(t.Id), t.Name, t.ArgumentsJson);
             }
             else if (e.Finish is { } f)
             {
@@ -403,12 +358,7 @@ internal static class AnthropicApi
                     return false;
                 }
 
-                if (index < 0 && open is null)
-                {
-                    Open("text");
-                }
-
-                Close();
+                blocks.CloseAll();
                 var u = e.Usage ?? default;
                 sse.Event("message_delta", new JsonObject
                 {
