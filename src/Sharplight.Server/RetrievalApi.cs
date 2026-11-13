@@ -142,34 +142,13 @@ public static class RetrievalApi
             throw ApiException.BadRequest($"'dimensions' must be between 1 and {model.Dimensions}.", "dimensions");
         }
 
-        string? prompt = b.Str("prompt_name");
-        if (prompt is not null && !model.Prompts.ContainsKey(prompt))
-        {
-            throw ApiException.BadRequest($"The model has no prompt named '{prompt}' (available: {string.Join(", ", model.Prompts.Keys)}).", "prompt_name");
-        }
-        // input_type (Cohere / Jina / Voyage style): use the model's prompt of that name when it has one, else embed as is.
-        if (prompt is null && b.Str("input_type") is { } type)
-        {
-            string t = type.Replace("search_", "").Replace("retrieval.", "").Replace("passage", "document");
-            if (model.Prompts.ContainsKey(t))
-            {
-                prompt = t;
-            }
-        }
+        string? prompt = ResolvePrompt(b, model);
         var options = new EmbedOptions { Prompt = prompt, Dimensions = dims, Truncate = b.Bool("truncate") ?? models.TruncateByDefault };
 
         var (texts, tokens) = ParseInput(b, models.MaxInputs);
         var result = await Task.Run(() => texts is not null ? model.Embed(texts, options) : model.EmbedTokens(tokens!, options), http.RequestAborted);
 
-        var data = new JsonArray();
-        for (int i = 0; i < result.Vectors.Count; i++)
-        {
-            var v = result.Vectors[i];
-            JsonNode embedding = format == "base64"
-                ? JsonValue.Create(Convert.ToBase64String(MemoryMarshal.AsBytes(v.AsSpan())))
-                : new JsonArray([.. v.Select(x => (JsonNode)JsonValue.Create(x))]);
-            data.Add(new JsonObject { ["object"] = "embedding", ["index"] = i, ["embedding"] = embedding });
-        }
+        var data = EmbeddingData(result.Vectors, format == "base64");
         await HttpJson.WriteAsync(http, new JsonObject
         {
             ["object"] = "list",
@@ -177,6 +156,44 @@ public static class RetrievalApi
             ["model"] = requested ?? model.Name,
             ["usage"] = new JsonObject { ["prompt_tokens"] = result.TotalTokens, ["total_tokens"] = result.TotalTokens },
         });
+    }
+
+    /// <summary>
+    /// The model prompt to prepend: <c>prompt_name</c> when given, else the prompt named like <c>input_type</c> (Cohere / Jina /
+    /// Voyage style) when the model has one, else none (embed as is).
+    /// </summary>
+    private static string? ResolvePrompt(JsonElement body, ITextEmbedder model)
+    {
+        string? prompt = body.Str("prompt_name");
+        if (prompt is not null)
+        {
+            return model.Prompts.ContainsKey(prompt)
+                ? prompt
+                : throw ApiException.BadRequest($"The model has no prompt named '{prompt}' (available: {string.Join(", ", model.Prompts.Keys)}).", "prompt_name");
+        }
+
+        if (body.Str("input_type") is not { } inputType)
+        {
+            return null;
+        }
+
+        string name = inputType.Replace("search_", "").Replace("retrieval.", "").Replace("passage", "document");
+        return model.Prompts.ContainsKey(name) ? name : null;
+    }
+
+    private static JsonArray EmbeddingData(IReadOnlyList<float[]> vectors, bool base64)
+    {
+        var data = new JsonArray();
+        for (int i = 0; i < vectors.Count; i++)
+        {
+            var vector = vectors[i];
+            JsonNode embedding = base64
+                ? JsonValue.Create(Convert.ToBase64String(MemoryMarshal.AsBytes(vector.AsSpan())))
+                : new JsonArray([.. vector.Select(x => (JsonNode)JsonValue.Create(x))]);
+            data.Add(new JsonObject { ["object"] = "embedding", ["index"] = i, ["embedding"] = embedding });
+        }
+
+        return data;
     }
 
     /// <summary>OpenAI's <c>input</c>: a string, an array of strings, an array of token ids or an array of token-id arrays.</summary>
@@ -238,6 +255,36 @@ public static class RetrievalApi
         }
     }
 
+    /// <summary>Cohere v1 / Jina accept <c>{ "text": ... }</c> objects as documents next to plain strings.</summary>
+    private static List<string> ParseDocuments(JsonElement documents)
+    {
+        return [.. documents.EnumerateArray().Select(e => e.ValueKind switch
+        {
+            JsonValueKind.String => e.GetString()!,
+            JsonValueKind.Object when e.Str("text") is { } text => text,
+            _ => throw ApiException.BadRequest("Each document must be a string or an object with a \"text\" string.", "documents"),
+        })];
+    }
+
+    /// <summary>The <paramref name="topN"/> best documents, highest score first (ties keep input order).</summary>
+    private static JsonArray RankedResults(IReadOnlyList<float> scores, List<string> docs, int topN, bool returnDocuments)
+    {
+        var order = Enumerable.Range(0, docs.Count).OrderByDescending(i => scores[i]).ThenBy(i => i).Take(topN);
+        var results = new JsonArray();
+        foreach (int i in order)
+        {
+            var result = new JsonObject { ["index"] = i, ["relevance_score"] = scores[i] };
+            if (returnDocuments)
+            {
+                result["document"] = new JsonObject { ["text"] = docs[i] };
+            }
+
+            results.Add(result);
+        }
+
+        return results;
+    }
+
     // ---- /v1/rerank ---------------------------------------------------------------------------------------------------
 
     private static async Task Rerank(HttpContext http, RetrievalModels models)
@@ -251,13 +298,7 @@ public static class RetrievalApi
         {
             throw ApiException.BadRequest("'documents' is required and must be an array.", "documents");
         }
-        // Cohere v1 / Jina accept { "text": ... } objects as documents.
-        var docs = docsEl.EnumerateArray().Select(e => e.ValueKind switch
-        {
-            JsonValueKind.String => e.GetString()!,
-            JsonValueKind.Object when e.Str("text") is { } t => t,
-            _ => throw ApiException.BadRequest("Each document must be a string or an object with a \"text\" string.", "documents"),
-        }).ToList();
+        var docs = ParseDocuments(docsEl);
         if (docs.Count > models.MaxInputs)
         {
             throw ApiException.BadRequest($"'documents' has {docs.Count} items; at most {models.MaxInputs} are accepted.", "documents");
@@ -273,18 +314,7 @@ public static class RetrievalApi
         var options = new RerankOptions { Instruction = b.Str("instruction"), Truncate = b.Bool("truncate") ?? true };
 
         var result = docs.Count == 0 ? new RerankResult([], [], []) : await Task.Run(() => model.Score(query, docs, options), http.RequestAborted);
-        var order = Enumerable.Range(0, docs.Count).OrderByDescending(i => result.Scores[i]).ThenBy(i => i).Take(topN);
-        var results = new JsonArray();
-        foreach (int i in order)
-        {
-            var r = new JsonObject { ["index"] = i, ["relevance_score"] = result.Scores[i] };
-            if (returnDocuments)
-            {
-                r["document"] = new JsonObject { ["text"] = docs[i] };
-            }
-
-            results.Add(r);
-        }
+        var results = RankedResults(result.Scores, docs, topN, returnDocuments);
         await HttpJson.WriteAsync(http, new JsonObject
         {
             ["id"] = Guid.NewGuid().ToString(),

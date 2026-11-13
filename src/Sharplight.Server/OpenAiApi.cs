@@ -377,44 +377,64 @@ internal static class OpenAiApi
         var run = SharplightServerContext.ChatOf(lease).StartChat(req, http.RequestAborted);
         string id = "chatcmpl-" + Guid.NewGuid().ToString("N")[..24];
         long created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        string model = lease.Name;
 
-        if (!stream)
+        if (stream)
         {
-            var res = await run.CompleteAsync(http.RequestAborted);
-            if (FailureOf(res.Choices) is { } fail)
-            {
-                await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message);
-                return;
-            }
-            var choices = new JsonArray();
-            foreach (var c in res.Choices)
-            {
-                var msg = new JsonObject { ["role"] = "assistant", ["content"] = c.Content.Length == 0 && c.ToolCalls.Count > 0 ? null : c.Content };
-                if (c.Reasoning is not null)
-                {
-                    msg["reasoning_content"] = c.Reasoning;
-                }
-
-                if (c.ToolCalls.Count > 0)
-                {
-                    msg["tool_calls"] = new JsonArray(c.ToolCalls.Select(t => (JsonNode)ToolCallJson(t)).ToArray());
-                }
-
-                choices.Add(new JsonObject
-                {
-                    ["index"] = c.Index, ["message"] = msg, ["logprobs"] = req.Logprobs ? ChatLogprobs(c.Logprobs) : null, ["finish_reason"] = FinishName(c.Finish),
-                });
-            }
-            await HttpJson.WriteAsync(http, new JsonObject
-            {
-                ["id"] = id, ["object"] = "chat.completion", ["created"] = created, ["model"] = model, ["choices"] = choices, ["usage"] = UsageJson(res.Usage),
-            });
+            var sse = new SseWriter(http);
+            var chunks = new OpenAiChunkWriter(sse, id, "chat.completion.chunk", created, lease.Name, includeUsage);
+            await StreamChat(http, run, req, sse, chunks, includeUsage);
             return;
         }
 
-        var sse = new SseWriter(http);
-        var chunks = new OpenAiChunkWriter(sse, id, "chat.completion.chunk", created, model, includeUsage);
+        var res = await run.CompleteAsync(http.RequestAborted);
+        if (FailureOf(res.Choices) is { } fail)
+        {
+            await ApiErrors.WriteAsync(http, fail.Status, fail.Type, fail.Message);
+            return;
+        }
+
+        await HttpJson.WriteAsync(http, new JsonObject
+        {
+            ["id"] = id,
+            ["object"] = "chat.completion",
+            ["created"] = created,
+            ["model"] = lease.Name,
+            ["choices"] = ChatChoicesJson(res.Choices, req.Logprobs),
+            ["usage"] = UsageJson(res.Usage),
+        });
+    }
+
+    private static JsonArray ChatChoicesJson(IReadOnlyList<ChatChoice> choices, bool withLogprobs)
+    {
+        var result = new JsonArray();
+        foreach (var c in choices)
+        {
+            var message = new JsonObject { ["role"] = "assistant", ["content"] = c.Content.Length == 0 && c.ToolCalls.Count > 0 ? null : c.Content };
+            if (c.Reasoning is not null)
+            {
+                message["reasoning_content"] = c.Reasoning;
+            }
+
+            if (c.ToolCalls.Count > 0)
+            {
+                message["tool_calls"] = new JsonArray(c.ToolCalls.Select(t => (JsonNode)ToolCallJson(t)).ToArray());
+            }
+
+            result.Add(new JsonObject
+            {
+                ["index"] = c.Index,
+                ["message"] = message,
+                ["logprobs"] = withLogprobs ? ChatLogprobs(c.Logprobs) : null,
+                ["finish_reason"] = FinishName(c.Finish),
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>Streams a chat run as server-sent events; the usage chunk reports the prompt once and the completion tokens of all choices.</summary>
+    private static async Task StreamChat(HttpContext http, ChatRun run, ChatRequest req, SseWriter sse, OpenAiChunkWriter chunks, bool includeUsage)
+    {
         for (int i = 0; i < req.N; i++)
         {
             chunks.Delta(i, null, null, new JsonObject { ["role"] = "assistant", ["content"] = "" });
@@ -448,7 +468,7 @@ internal static class OpenAiApi
             {
                 if (f is ChatFinishReason.Error or ChatFinishReason.Timeout)
                 {
-                    sse.Data(ApiErrors.Body(false, f == ChatFinishReason.Timeout ? "timeout" : "server_error", e.Error ?? "generation failed"));
+                    WriteStreamFailure(sse, f, e.Error);
                     return false;
                 }
 
@@ -473,6 +493,12 @@ internal static class OpenAiApi
         }
 
         await sse.FlushAsync();
+    }
+
+    /// <summary>Ends a stream with an error event (a stream already started cannot change its HTTP status).</summary>
+    private static void WriteStreamFailure(SseWriter sse, ChatFinishReason reason, string? message)
+    {
+        sse.Data(ApiErrors.Body(false, reason == ChatFinishReason.Timeout ? "timeout" : "server_error", message ?? "generation failed"));
     }
 
     private static (int Status, string Type, string Message)? FailureOf(IReadOnlyList<ChatChoice> choices)
@@ -523,38 +549,39 @@ internal static class OpenAiApi
         return new JsonObject { ["tokens"] = tokens, ["token_logprobs"] = lp, ["top_logprobs"] = top, ["text_offset"] = offs };
     }
 
-    private static async Task Completions(HttpContext http, SharplightServerContext ctx)
+    /// <summary>The legacy <c>prompt</c>: a string, a list of token ids or a single-element list of strings.</summary>
+    private static (string? Text, int[]? Tokens) ParseCompletionPrompt(JsonElement body)
     {
-        using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
-        var b = doc.RootElement;
-        string? prompt = null;
-        int[]? tokens = null;
-        var p = b.Get("prompt") ?? throw ApiException.BadRequest("'prompt' is required.", "prompt");
-        if (p.ValueKind == JsonValueKind.String)
+        var prompt = body.Get("prompt") ?? throw ApiException.BadRequest("'prompt' is required.", "prompt");
+        if (prompt.ValueKind == JsonValueKind.String)
         {
-            prompt = p.GetString();
+            return (prompt.GetString(), null);
         }
-        else if (p.ValueKind == JsonValueKind.Array)
-        {
-            var items = p.EnumerateArray().ToList();
-            if (items.Count > 0 && items.All(x => x.ValueKind == JsonValueKind.Number))
-            {
-                tokens = [.. items.Select(x => x.GetInt32())];
-            }
-            else if (items.Count == 1 && items[0].ValueKind == JsonValueKind.String)
-            {
-                prompt = items[0].GetString();
-            }
-            else
-            {
-                throw ApiException.BadRequest("'prompt' must be a string, a list of token ids or a single-element list of strings (batched prompts are not supported).", "prompt");
-            }
-        }
-        else
+
+        if (prompt.ValueKind != JsonValueKind.Array)
         {
             throw ApiException.BadRequest("'prompt' must be a string or an array.", "prompt");
         }
 
+        var items = prompt.EnumerateArray().ToList();
+        if (items.Count > 0 && items.All(x => x.ValueKind == JsonValueKind.Number))
+        {
+            return (null, [.. items.Select(x => x.GetInt32())]);
+        }
+
+        if (items.Count == 1 && items[0].ValueKind == JsonValueKind.String)
+        {
+            return (items[0].GetString(), null);
+        }
+
+        throw ApiException.BadRequest("'prompt' must be a string, a list of token ids or a single-element list of strings (batched prompts are not supported).", "prompt");
+    }
+
+    private static async Task Completions(HttpContext http, SharplightServerContext ctx)
+    {
+        using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
+        var b = doc.RootElement;
+        var (prompt, tokens) = ParseCompletionPrompt(b);
         int? lpCount = b.Int("logprobs");
         var req = new CompletionRequest
         {
@@ -596,11 +623,17 @@ internal static class OpenAiApi
 
         var sse = new SseWriter(http);
         var chunks = new OpenAiChunkWriter(sse, id, "text_completion", created, model, includeUsage);
-        if (echo)
+        await StreamCompletion(http, run, req, sse, chunks, echo ? prompt : null, includeUsage);
+    }
+
+    /// <summary>Streams a completion run as server-sent events; <paramref name="echoedPrompt"/> is sent first for every choice when not null.</summary>
+    private static async Task StreamCompletion(HttpContext http, ChatRun run, CompletionRequest req, SseWriter sse, OpenAiChunkWriter chunks, string? echoedPrompt, bool includeUsage)
+    {
+        if (echoedPrompt is not null)
         {
             for (int i = 0; i < req.N; i++)
             {
-                chunks.Text(i, prompt!);
+                chunks.Text(i, echoedPrompt);
             }
         }
 
@@ -621,7 +654,7 @@ internal static class OpenAiApi
             {
                 if (f is ChatFinishReason.Error or ChatFinishReason.Timeout)
                 {
-                    sse.Data(ApiErrors.Body(false, f == ChatFinishReason.Timeout ? "timeout" : "server_error", e.Error ?? "generation failed"));
+                    WriteStreamFailure(sse, f, e.Error);
                     return false;
                 }
 

@@ -50,13 +50,10 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
         }
     }
 
-    private static float* Row(TRef x, long t, int head) => (float*)x.P + t * x.Strides[0] + head * x.Strides[1];
-
     /// <summary>row = row·w + vi·k + sa·b; returns dot(row, r).</summary>
     private static float UpdateDot(float* row, float* w, float* k, float* b, float* r, float vi, float sa, long n)
     {
         long j = 0;
-        float sum = 0;
         int width = Vector<float>.Count;
         var acc = Vector<float>.Zero;
         for (; j + width <= n; j += width)
@@ -66,7 +63,7 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
             acc += updated * Vector.Load(r + j);
         }
 
-        sum = Vector.Sum(acc);
+        float sum = Vector.Sum(acc);
         for (; j < n; j++)
         {
             float updated = row[j] * w[j] + k[j] * vi + b[j] * sa;
