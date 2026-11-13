@@ -312,7 +312,11 @@ public sealed partial class GraphLowerer
         int[] cfg = DiagnosticSwitches.AttentionDecodeConfig;
         long rowsPerBatch = cfg.Length > 3 ? cfg[3] : Math.Max(1, 8 / (keySlices + valueSlices));
         long batch = rowsPerBatch * threads / keyLanes;
-        long minKeys = Math.Max(batch, (cfg[1] + batch - 1) / batch * batch);
+        // Fewer than 8 workgroups per key range (few KV heads, e.g. Gemma-3-1B's single one): shorter ranges, so short
+        // (sliding-window) contexts still spread over enough workgroups.
+        long groups = plan.HKV * (group / headsPerGroup);
+        long minKeysTarget = Math.Clamp(cfg[1] * groups / 8, 1, cfg[1]);
+        long minKeys = Math.Max(batch, (minKeysTarget + batch - 1) / batch * batch);
         long subgroups = threads / sg;
         long sharedBytes = 4 * subgroups * headsPerGroup * (2 + valueSlices * keyLanes * 8);
         if (sharedBytes > _opt.MaxSharedMemory)
@@ -337,7 +341,7 @@ public sealed partial class GraphLowerer
         return new DecodeAttentionPlan
         {
             Macros = macros,
-            Groups = plan.HKV * (group / headsPerGroup),
+            Groups = groups,
             MaxRows = maxRows,
             TargetWorkgroups = cfg[0],
             MaxSplitCount = cfg[2],
