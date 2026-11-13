@@ -506,6 +506,11 @@ public sealed partial class GraphLowerer
     {
         var x = RowsInput(n.Inputs[0], "softmax", out long r1, out long s0, out long s1);
         var y = Produce(n.Output);
+        if (TryLowerSoftmaxSplit(n, x, y, r1, s0, s1))
+        {
+            return;
+        }
+
         var k = Lib("rows.slang", "softmax", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("SCALE", n.Attributes.Get("scale", 1f)), ("LOG_SOFTMAX", n.Attributes.Get("log", false))));
         var tx = x;
         Emit($"softmax {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],

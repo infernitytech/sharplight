@@ -528,6 +528,11 @@ public sealed partial class GraphLowerer
         }
 
         long G = n.Attributes.Get("groups", 1L);
+        if (TryLowerGroupNormSplit(n, x, sc, bi, y, C, S, G))
+        {
+            return;
+        }
+
         var k2 = Lib("general.slang", "groupnorm", Macros(("C", C), ("S", S), ("G", G), ("EPS", n.Attributes.Get("eps", 1e-5f)), ("HAS_SCALE", sc is not null), ("HAS_BIAS", bi is not null)));
         var tx = x;
         var sp = sc ?? x;
