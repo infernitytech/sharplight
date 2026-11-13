@@ -57,7 +57,7 @@ public static partial class StandardOps
     });
 
     /// <summary>
-    /// Reduction over arbitrary axes (never the symbolic outermost axis).
+    /// Reduction over arbitrary axes, including the symbolic outermost axis (whose output extent is then 1 or dropped).
     /// Attributes: <c>mode</c> ("sum" | "mean" | "max" | "min" | "prod" | "l1" | "l2" | "sumsquare" | "logsumexp"),
     /// <c>axes</c> long[], <c>keepdims</c> (bool, default true).
     /// </summary>
@@ -65,11 +65,6 @@ public static partial class StandardOps
     {
         var x = i[0].Shape;
         var axes = a.Get<long[]>("axes").Select(ax => (int)(ax < 0 ? ax + x.Rank : ax)).ToHashSet();
-        if (axes.Contains(0) && x[0].IsSymbolic)
-        {
-            throw new ArgumentException("Reduce over the symbolic outermost axis is not supported.");
-        }
-
         bool keep = a.Get("keepdims", true);
         var dims = new List<Dim>();
         for (int d = 0; d < x.Rank; d++)

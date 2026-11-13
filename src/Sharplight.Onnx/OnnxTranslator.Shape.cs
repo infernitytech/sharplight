@@ -7,24 +7,29 @@ namespace Sharplight.Onnx;
 internal sealed partial class OnnxTranslator
 {
     // ================================ shape manipulation ===================================================
-    /// <summary>ONNX Reshape semantics (0 = copy, -1 = infer; <see cref="OnnxConst.SymBatch"/> = batch size) on top of Sharplight's.</summary>
+    /// <summary>
+    /// ONNX Reshape semantics (0 = copy, -1 = infer, <see cref="SymbolicInts"/> codes = symbolic extents such as <c>N</c> or <c>12*N</c>)
+    /// on top of Sharplight's. Only the outermost target dim may be symbolic; it becomes the <c>outer_symbol</c> of the IR Reshape.
+    /// </summary>
     private Value ReshapeOnnx(Value x, long[] req, bool allowZero, string? name = null)
     {
         bool srcSym = Sym(x);
-        var r = new long[req.Length];
+        var dims = new SymbolicExpression?[req.Length];
+        int infer = -1;
         for (int k = 0; k < req.Length; k++)
         {
             long v = req[k];
-            if (v == OnnxConst.SymBatch)
+            if (v == -1)
             {
-                if (!srcSym || k != 0)
+                if (infer >= 0)
                 {
-                    throw new NotSupportedException("the target shape mentions the symbolic batch size somewhere other than the outermost dim of a batched tensor");
+                    throw new InvalidDataException("Reshape: two inferred dims.");
                 }
 
-                r[k] = 0;
+                infer = k;
                 continue;
             }
+
             if (v == 0 && !allowZero)
             {
                 if (k >= x.Rank)
@@ -32,53 +37,86 @@ internal sealed partial class OnnxTranslator
                     throw new InvalidDataException("Reshape: 0 beyond the input rank.");
                 }
 
-                if (k == 0 && srcSym)
-                {
-                    r[0] = 0;
-                    continue;
-                }
-                v = x.Shape[k].Fixed;
+                dims[k] = x.Shape[k].IsSymbolic ? x.Shape[k].Expression : SymbolicExpression.Constant(x.Shape[k].Fixed);
+                continue;
             }
-            r[k] = v;
+
+            dims[k] = SymbolicInts.Decode(v);
         }
-        if (srcSym)
+
+        if (!srcSym)
         {
-            if (r.Length == 0)
+            if (dims.Any(d => d is { IsConstant: false }))
             {
-                throw new NotSupportedException("reshaping a batched tensor to a scalar");
+                throw new NotSupportedException("the target shape has a symbolic extent but the input has none");
             }
 
-            if (r[0] == -1)
-            {
-                long rest = 1;
-                for (int k = 1; k < r.Length; k++)
-                {
-                    if (r[k] == -1)
-                    {
-                        throw new NotSupportedException("two inferred dims");
-                    }
-
-                    rest *= r[k];
-                }
-
-                if (rest != x.Shape.InnerElements)
-                {
-                    throw new NotSupportedException($"reshape of batched {x.Shape} to [{string.Join(",", req)}] would merge the batch dimension into another dim");
-                }
-
-                r[0] = 0;
-            }
-            else if (r[0] != 0)
-            {
-                throw new NotSupportedException($"reshape of batched {x.Shape} fixes the batch dimension to {r[0]}");
-            }
+            var fixedDims = dims.Select(d => d?.ConstantValue ?? -1).ToArray();
+            return Emit("Reshape", [x], Attributes.From(("shape", fixedDims)), name);
         }
-        else if (req.Any(v => v == OnnxConst.SymBatch))
+
+        if (req.Length == 0)
         {
-            throw new NotSupportedException("the target shape mentions the symbolic batch size but the input is not batched");
+            throw new NotSupportedException("reshaping a batched tensor to a scalar");
         }
 
-        return Emit("Reshape", [x], Attributes.From(("shape", r)), name);
+        var total = x.Shape[0].Expression * x.Shape.InnerElements;
+        if (infer >= 0)
+        {
+            var known = dims.Where(d => d is not null).Aggregate(SymbolicExpression.Constant(1), (a, b) => a * b!);
+            dims[infer] = DivideExactly(total, known)
+                ?? throw new NotSupportedException($"reshape of {x.Shape} to [{string.Join(",", req.Select(SymbolicInts.Format))}]: cannot infer the -1 dim symbolically");
+        }
+
+        if (dims.Skip(1).Any(d => !d!.IsConstant))
+        {
+            throw new NotSupportedException($"reshape of {x.Shape} to [{string.Join(", ", dims.Select(d => d!.ToString()))}] puts a symbolic extent on an inner dim");
+        }
+
+        var outer = dims[0]!;
+        if (outer.IsConstant)
+        {
+            throw new NotSupportedException($"reshape of batched {x.Shape} fixes the batch dimension to {outer}");
+        }
+
+        var shape = dims.Select(d => d!.IsConstant ? d.ConstantValue : 0L).ToArray();
+        if (outer.Equals(x.Shape[0].Expression))
+        {
+            return Emit("Reshape", [x], Attributes.From(("shape", shape)), name);
+        }
+
+        return Emit("Reshape", [x], Attributes.From(("shape", shape), ("outer_symbol", outer.ToString())), name);
+    }
+
+    /// <summary><paramref name="total"/> / <paramref name="known"/> when the quotient is the same expression for every symbol value, else null.</summary>
+    private static SymbolicExpression? DivideExactly(SymbolicExpression total, SymbolicExpression known)
+    {
+        if (known.IsConstant)
+        {
+            if (known.ConstantValue == 0)
+            {
+                return null;
+            }
+
+            var q = total.FloorDiv(known.ConstantValue);
+            return (q * known.ConstantValue).Equals(total) ? q : null;
+        }
+
+        // Symbolic divisor: the quotient must be a constant (e.g. 12*N / N); check it at several symbol values.
+        long? ratio = null;
+        foreach (long probe in new long[] { 1, 2, 3, 7, 64 })
+        {
+            long t = total.Evaluate(_ => probe);
+            long k = known.Evaluate(_ => probe);
+            if (k == 0 || t % k != 0 || (ratio is { } r && r != t / k))
+            {
+                return null;
+            }
+
+            ratio = t / k;
+        }
+
+        return (known * ratio!.Value).Equals(total) ? SymbolicExpression.Constant(ratio.Value) : null;
     }
 
     private void Flatten(OnnxNode n, TranslatedTensor?[] ins)
@@ -114,13 +152,16 @@ internal sealed partial class OnnxTranslator
         var x = X(ins, 0);
         bool sym = Sym(x);
         var axesArr = n.Has("axes") ? n.Ints("axes") : OptConst(ins, 1, "axes")?.Ints();
-        var dims = x.Shape.Dims.Select(d => d.IsSymbolic ? 0L : d.Fixed).ToArray();   // 0 marks the symbolic outer dim
+        const long symbolic = -7;   // marks the symbolic outer dim while the ONNX dims are rearranged
+        int lead = ins[0]!.LeadingUnits;
+        var dims = Enumerable.Repeat(1L, lead).Concat(x.Shape.Dims.Select(d => d.IsSymbolic ? symbolic : d.Fixed)).ToArray();
         if (ins[0]!.Scalar && n.OpType == "Squeeze")
         {
             SetDyn(n, 0, x);
             _env[n.Outputs[0]].Scalar = true;
             return;
         }
+
         if (ins[0]!.Scalar)
         {
             dims = [];   // a logical scalar (stored as [1]): unsqueeze yields rank = number of axes, squeeze is a no-op
@@ -129,47 +170,34 @@ internal sealed partial class OnnxTranslator
         long[] outDims;
         if (n.OpType == "Unsqueeze")
         {
-            if (axesArr is null)
-            {
-                throw new InvalidDataException("Unsqueeze without axes");
-            }
-
-            outDims = OnnxFold.UnsqueezeDims(dims, axesArr);
-            if (sym && outDims[0] != 0)
-            {
-                throw new NotSupportedException("Unsqueeze at axis 0 of a batched tensor would move the batch dimension");
-            }
+            outDims = OnnxFold.UnsqueezeDims(dims, axesArr ?? throw new InvalidDataException("Unsqueeze without axes"));
         }
         else
         {
-            if (sym && axesArr is not null && axesArr.Any(a => a == 0 || a == -x.Rank))
+            if (sym && axesArr is not null && axesArr.Any(a => NormalizeAxis(a, dims.Length) == lead))
             {
                 throw new NotSupportedException("Squeeze of the batch dimension");
             }
 
-            outDims = OnnxFold.SqueezeDims(sym ? dims.Select((d, i) => i == 0 ? -7 : d).ToArray() : dims, axesArr);
-            if (sym)
-            {
-                outDims = outDims.Select(d => d == -7 ? 0 : d).ToArray();
-            }
-
-            if (sym && axesArr is null && outDims[0] != 0)
-            {
-                throw new NotSupportedException("Squeeze moved the batch dimension");
-            }
+            outDims = OnnxFold.SqueezeDims(dims, axesArr);
         }
-        SetDyn(n, 0, Emit("Reshape", [x], Attributes.From(("shape", outDims)), Nm(n)));
+
+        // Unit dims in front of the symbolic dim are not part of the IR value (only its outermost dim may be symbolic).
+        int outLead = sym ? Array.IndexOf(outDims, symbolic) : 0;
+        if (outLead < 0 || outDims.Take(outLead).Any(d => d != 1))
+        {
+            throw new NotSupportedException($"{n.OpType} moved the symbolic dimension behind a non-unit dim");
+        }
+
+        var irDims = outDims.Skip(outLead).Select(d => d == symbolic ? 0 : d).ToArray();
+        SetDyn(n, 0, Emit("Reshape", [x], Attributes.From(("shape", irDims)), Nm(n)));
+        _env[n.Outputs[0]].LeadingUnits = outLead;
     }
 
     private void Concat(OnnxNode n, TranslatedTensor?[] ins)
     {
         var vals = ins.Select((t, i) => X(ins, i, Nm(n) + $".in{i}")).ToList();
         int axis = NormalizeAxis(n.Int("axis", 0), vals[0].Rank);
-
-        if (axis == 0 && Sym(vals[0]))
-        {
-            throw new NotSupportedException("Concat along the symbolic batch axis");
-        }
 
         if (vals.Count == 1)
         {
@@ -210,8 +238,8 @@ internal sealed partial class OnnxTranslator
         }
         else
         {
-            starts = ConstIn(ins, 1, "Slice starts").Ints();
-            ends = ConstIn(ins, 2, "Slice ends").Ints();
+            starts = ConstIn(ins, 1, "Slice starts", symbolic: true).Ints();
+            ends = ConstIn(ins, 2, "Slice ends", symbolic: true).Ints();
             axes = OptConst(ins, 3, "Slice axes")?.Ints();
             steps = OptConst(ins, 4, "Slice steps")?.Ints();
         }
@@ -238,12 +266,23 @@ internal sealed partial class OnnxTranslator
             }
             if (ax == 0 && Sym(x))
             {
-                if (starts[i] == 0 && ends[i] >= int.MaxValue)
+                if (starts[i] == 0 && (ends[i] >= int.MaxValue || ends[i] == SymbolicInts.Encode(x.Shape[0])))
                 {
                     continue;
                 }
 
-                throw new NotSupportedException("slicing the symbolic batch axis");
+                if (starts[i] == 0 && ends[i] > 0 && !SymbolicInts.IsSymbolic(ends[i]))
+                {
+                    y = _b.Slice(y, 0, 0, ends[i]);   // the first min(n, end) rows
+                    continue;
+                }
+
+                throw new NotSupportedException($"slicing the symbolic batch axis ({SymbolicInts.Format(starts[i])}:{SymbolicInts.Format(ends[i])})");
+            }
+
+            if (SymbolicInts.IsSymbolic(starts[i]) || SymbolicInts.IsSymbolic(ends[i]))
+            {
+                throw new NotSupportedException($"slicing a fixed axis at the symbolic position {SymbolicInts.Format(SymbolicInts.IsSymbolic(starts[i]) ? starts[i] : ends[i])}");
             }
             var (s, l) = OnnxFold.SliceRange(starts[i], ends[i], x.Shape[ax].Fixed);
             y = step == 1 ? SliceAxis(y, ax, s, l) : StridedSlice(y, ax, s, l, step);
@@ -334,110 +373,69 @@ internal sealed partial class OnnxTranslator
         }
     }
 
-    /// <summary>A zero tensor [N,1,...,1] with the dynamic batch size, used to materialize broadcasts.</summary>
-    private Value BatchZeros(int rank)
-    {
-        if (_batchZero is null)
-        {
-            var inp = _firstInput ?? throw new NotSupportedException("broadcasting a constant to the batch size needs a floating point graph input");
-            var v = inp;
-            for (int a = 1; a < inp.Rank; a++)
-            {
-                v = _b.Slice(v, a, 0, 1);
-            }
-
-            _batchZero = _b.Scale(v, 0f, 0f);
-        }
-        var shape = new long[rank];
-        for (int i = 1; i < rank; i++)
-        {
-            shape[i] = 1;
-        }
-
-        return Rs(_batchZero, shape);
-    }
-
     private void Expand(OnnxNode n, TranslatedTensor?[] ins)
     {
         var xt = ins[0]!;
-        var target = ConstIn(ins, 1, "Expand shape").Ints();
+        var target = ConstIn(ins, 1, "Expand shape", symbolic: true).Ints();
         var x = AsValue(xt);
         int rank = Math.Max(x.Rank, target.Length);
-        var xd = Enumerable.Repeat(1L, rank - x.Rank).Concat(x.Shape.Dims.Select(d => d.IsSymbolic ? OnnxConst.SymBatch : d.Fixed)).ToArray();
+        var xd = Enumerable.Repeat(1L, rank - x.Rank).Concat(x.Shape.Dims.Select(SymbolicInts.Encode)).ToArray();
         var td = Enumerable.Repeat(1L, rank - target.Length).Concat(target).ToArray();
         var res = new long[rank];
-        bool changed = false;
         for (int i = 0; i < rank; i++)
         {
-            if (td[i] == OnnxConst.SymBatch || xd[i] == OnnxConst.SymBatch)
-            {
-                res[i] = OnnxConst.SymBatch;
-                if (xd[i] != OnnxConst.SymBatch)
-                {
-                    changed = true;
-                }
-            }
-            else if (td[i] == xd[i] || td[i] == 1)
+            if (td[i] == xd[i] || td[i] == 1)
             {
                 res[i] = xd[i];
             }
             else if (xd[i] == 1)
             {
                 res[i] = td[i];
-                changed = true;
             }
             else
             {
-                throw new InvalidDataException("Expand: incompatible shapes.");
+                throw new NotSupportedException($"Expand of [{string.Join(", ", xd.Select(SymbolicInts.Format))}] to [{string.Join(", ", td.Select(SymbolicInts.Format))}]: incompatible or undecidable extents");
             }
         }
-        if (res.Count(v => v == OnnxConst.SymBatch) > 1 || (res.Any(v => v == OnnxConst.SymBatch) && res[0] != OnnxConst.SymBatch))
+
+        if (res.Skip(1).Any(SymbolicInts.IsSymbolic))
         {
-            throw new NotSupportedException("Expand of the batch dimension to a position other than the outermost");
+            throw new NotSupportedException("Expand to a symbolic extent at a position other than the outermost");
         }
 
-        if (!changed && x.Rank == rank)
+        if (x.Rank == rank && res.SequenceEqual(xd))
         {
             _env[n.Outputs[0]] = xt;
             return;
         }
-        // y = x + zeros(target): the zeros come from a batch-sized zero tensor and (if needed) a static zero constant.
-        bool hasBatch = res[0] == OnnxConst.SymBatch;
-        var zeroParts = new List<Value>();
-        var innerDims = res.Skip(hasBatch ? 1 : 0).ToArray();
-        bool needInner = false;
-        for (int i = hasBatch ? 1 : 0; i < rank; i++)
-        {
-            if (xd[i] != res[i])
-            {
-                needInner = true;
-            }
-        }
 
+        // y = x + zeros(target): a Fill over the symbolic outer extent and (if needed) a static zero constant for the inner dims.
+        bool symbolic = SymbolicInts.IsSymbolic(res[0]);
         Value y = x;
         if (x.Rank < rank)
         {
-            y = Emit("Reshape", [x], Attributes.From(("shape", xd.Select((d, i) => d == OnnxConst.SymBatch ? 0L : d).ToArray())));
+            y = Emit("Reshape", [x], Attributes.From(("shape", xd.Select(d => SymbolicInts.IsSymbolic(d) ? 0L : d).ToArray())));
         }
 
-        if (hasBatch && xd[0] != OnnxConst.SymBatch)
+        if (symbolic && xd[0] != res[0])
         {
-            y = Emit("Add", [y, BatchZeros(rank)]);
+            y = Emit("Add", [y, FillOuter(SymbolicInts.Decode(res[0]), Enumerable.Repeat(1L, rank - 1).ToArray(), y.Type, 0, 0)]);
         }
 
-        if (needInner)
+        if (res.Skip(symbolic ? 1 : 0).Where((d, i) => d != xd[i + (symbolic ? 1 : 0)]).Any())
         {
-            var zd = (hasBatch ? new long[] { 1 } : []).Concat(innerDims).ToArray();
+            var zd = (symbolic ? new long[] { 1 } : []).Concat(res.Skip(symbolic ? 1 : 0)).ToArray();
             var z = _b.Constant($"{Nm(n)}.zeros", DataType.F32, new Shape(zd.Select(d => (Dim)d).ToArray()), new byte[zd.Aggregate(1L, (a, b) => a * b) * 4]);
             y = Emit("Add", [y, z]);
         }
+
         SetDyn(n, 0, y);
     }
 
-    /// <summary>Shape of a dynamic tensor as a compile-time constant (the symbolic batch dimension is encoded as <see cref="OnnxConst.SymBatch"/>).</summary>
+    /// <summary>Shape of a dynamic tensor as a compile-time constant (symbolic dims are encoded as <see cref="SymbolicInts"/> codes).</summary>
     private void ShapeOf(OnnxNode n, TranslatedTensor?[] ins)
     {
-        var dims = ins[0]!.V!.Shape.Dims.Select(d => d.IsSymbolic ? OnnxConst.SymBatch : d.Fixed).ToArray();
+        var dims = Enumerable.Repeat(1L, ins[0]!.LeadingUnits).Concat(ins[0]!.V!.Shape.Dims.Select(SymbolicInts.Encode)).ToArray();
         long start = n.Int("start", 0);
         long end = n.Int("end", dims.Length);
         if (start < 0)
@@ -457,17 +455,14 @@ internal sealed partial class OnnxTranslator
 
     private void SizeOf(OnnxNode n, TranslatedTensor?[] ins)
     {
-        if (Sym(ins[0]!.V!))
-        {
-            throw new NotSupportedException("Size of a tensor with a symbolic batch dimension");
-        }
-
-        _env[n.Outputs[0]] = TranslatedTensor.Const(OnnxConst.ScalarInt(ins[0]!.V!.Shape.Elements()));
+        var shape = ins[0]!.V!.Shape;
+        long size = Sym(ins[0]!.V!) ? SymbolicInts.Encode(shape[0].Expression * shape.InnerElements) : shape.Elements();
+        _env[n.Outputs[0]] = TranslatedTensor.Const(OnnxConst.ScalarInt(size));
     }
 
     private void Reshape(OnnxNode n, TranslatedTensor?[] ins)
     {
-        var target = ConstIn(ins, 1, "Reshape target shape").Ints();
+        var target = ConstIn(ins, 1, "Reshape target shape", symbolic: true).Ints();
         SetDyn(n, 0, ReshapeOnnx(X(ins, 0), target, n.Int("allowzero", 0) != 0, Nm(n)));
     }
 
@@ -480,8 +475,30 @@ internal sealed partial class OnnxTranslator
 
     private void Tile(OnnxNode n, TranslatedTensor?[] ins)
     {
-        var attributes = Attributes.From(("repeats", ConstIn(ins, 1, "Tile repeats").Ints()));
-        SetDyn(n, 0, Emit("Tile", [X(ins, 0)], attributes, Nm(n)));
+        var repeats = ConstIn(ins, 1, "Tile repeats", symbolic: true).Ints();
+        var x = X(ins, 0);
+        if (!SymbolicInts.AnySymbolic(repeats))
+        {
+            SetDyn(n, 0, Emit("Tile", [x], Attributes.From(("repeats", repeats)), Nm(n)));
+            return;
+        }
+
+        // Repeating the outer dim a symbolic number of times r: broadcast over a new outer axis [r, d0, ...] and merge it into [r*d0, ...].
+        if (repeats.Skip(1).Any(SymbolicInts.IsSymbolic) || Sym(x) || x.Rank == 0)
+        {
+            throw new NotSupportedException($"Tile of {x.Shape} by [{string.Join(", ", repeats.Select(SymbolicInts.Format))}]");
+        }
+
+        var inner = (long[])[1, .. repeats[1..]];
+        var y = inner.All(r => r == 1) ? x : Emit("Tile", [x], Attributes.From(("repeats", inner)));
+        var count = SymbolicInts.Decode(repeats[0]);
+        var dims = y.Shape.Dims.Select(d => d.Fixed).ToArray();
+        var zeros = FillOuter(count, Enumerable.Repeat(1L, y.Rank).ToArray(), y.Type, 0, 0);
+        var stacked = Emit("Add", [Rs(y, [1, .. dims]), zeros]);
+        var merged = (long[])[0, .. dims[1..]];
+        var outer = count * dims[0];
+        SetDyn(n, 0, dims[0] == 1 ? Emit("Reshape", [stacked], Attributes.From(("shape", merged)), Nm(n))
+            : Emit("Reshape", [stacked], Attributes.From(("shape", merged), ("outer_symbol", outer.ToString())), Nm(n)));
     }
 
     private void Trilu(OnnxNode n, TranslatedTensor?[] ins)

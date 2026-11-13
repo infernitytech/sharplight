@@ -82,7 +82,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var x = Dense(RefF32(n.Inputs[0]));
         var values = NewDense(n.Outputs[0]);
         var indices = NewDense(n.Outputs[1]);
-        AddStep(new TopKOp(x, values, indices, NormalizeAxis(a.Get("axis", -1L), x.Rank), (int)a.Get<long>("k"), a.Get("largest", true)), x, values, indices);
+        AddStep(new TopKOp(x, values, indices, NormalizeAxis(a.Get("axis", -1L), x.Rank), a.Get("largest", true)), x, values, indices);
         _refs[n.Outputs[0]] = values;
         _refs[n.Outputs[1]] = indices;
     }

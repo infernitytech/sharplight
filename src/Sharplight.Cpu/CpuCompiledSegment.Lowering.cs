@@ -89,6 +89,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "GroupNorm":
                 LowerGroupNorm(n);
                 return;
+            case "RoiAlign":
+                LowerRoiAlign(n);
+                return;
 
             case "GatherAxis":
                 LowerGatherAxis(n);
@@ -161,6 +164,18 @@ internal sealed unsafe partial class CpuCompiledSegment
                 return;
             case "Wkv6":
                 LowerWkv6(n);
+                return;
+            case "Fill":
+                LowerFill(n);
+                return;
+            case "NonZero":
+                LowerNonZero(n);
+                return;
+            case "NonMaxSuppression":
+                LowerNonMaxSuppression(n);
+                return;
+            case "Unique":
+                LowerUnique(n);
                 return;
         }
 

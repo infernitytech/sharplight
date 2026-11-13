@@ -41,13 +41,16 @@ public sealed class CompiledModel : IDisposable
     /// <exception cref="NotSupportedException">A node is supported neither by its device nor by the fallback device.</exception>
     public static CompiledModel Compile(ComputeGraph graph, PlacementOptions placement)
     {
+        placement = WithDynamicBounds(graph, placement);
         var plan = PlacementPlanner.Plan(graph, placement);
         var compiled = new List<ICompiledSegment>();
         try
         {
             foreach (var seg in plan.Segments)
             {
-                compiled.Add(plan.Slots[seg.DeviceSlot].Device.Compile(seg, placement.Compile));
+                compiled.Add(seg.Nodes is [{ Op.Category: OpCategory.ControlFlow }]
+                    ? new IfSegment(seg, placement)
+                    : plan.Slots[seg.DeviceSlot].Device.Compile(seg, placement.Compile));
             }
         }
         catch
@@ -61,6 +64,42 @@ public sealed class CompiledModel : IDisposable
         }
         return new CompiledModel(graph, plan, placement.Compile, [.. compiled]);
     }
+
+    /// <summary>
+    /// Adds the upper bounds of the graph's data-dependent symbols (<see cref="ComputeGraph.DynamicSymbols"/>) to the symbol bounds, so providers size
+    /// buffers and specialize kernels for them like for any caller-bound symbol. Bounds are evaluated in creation order, so a bound may refer
+    /// to earlier dynamic symbols.
+    /// </summary>
+    private static PlacementOptions WithDynamicBounds(ComputeGraph graph, PlacementOptions placement)
+    {
+        if (graph.DynamicSymbols.Count == 0)
+        {
+            return placement;
+        }
+
+        var compile = placement.Compile;
+        foreach (var (name, bound) in graph.DynamicSymbols)
+        {
+            long value = bound.IsSymbolic ? compile.Bound(bound.Symbol!) : bound.Fixed;
+            compile = compile.WithSymbolBounds([new(name, Math.Max(1, value))]);
+        }
+
+        return new PlacementOptions
+        {
+            Devices = placement.Devices,
+            Fallback = placement.Fallback,
+            ReservePerDevice = placement.ReservePerDevice,
+            Compile = compile,
+        };
+    }
+
+    /// <summary>
+    /// The actual shape of a graph output after <see cref="Run"/>: symbolic dimensions are evaluated with the caller's bindings and the values
+    /// data-dependent ops wrote into <paramref name="parameters"/>.
+    /// </summary>
+    /// <param name="name">Output name.</param>
+    /// <param name="parameters">The parameters passed to the last <see cref="Run"/>.</param>
+    public long[] OutputShape(string name, RunParameters parameters) => Graph.Outputs[name].Shape.Resolve(parameters.Symbols);
 
     /// <summary>Device memory held on accelerators (segments placed on non-CPU devices): what counts against GPU memory budgets.</summary>
     public long AcceleratorMemoryBytes
@@ -85,7 +124,10 @@ public sealed class CompiledModel : IDisposable
     /// <summary>
     /// Executes all segments in order, forwarding boundary activations through host memory. Not thread-safe: one run at a time per instance.
     /// </summary>
-    /// <param name="parameters">Bindings for symbolic dimensions and runtime scalars; must cover every symbol and scalar the graph uses.</param>
+    /// <param name="parameters">
+    /// Bindings for symbolic dimensions and runtime scalars; must cover every caller-bound symbol and scalar the graph uses. Data-dependent ops
+    /// add the values of their symbols (<see cref="ComputeGraph.DynamicSymbols"/>) to <see cref="RunParameters.Symbols"/>.
+    /// </param>
     public void Run(RunParameters parameters)
     {
         _lastRun = parameters;

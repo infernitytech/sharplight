@@ -2,7 +2,7 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Concatenation along one axis into a dense output.</summary>
+/// <summary>Concatenation along one axis into a dense output; along the outer axis the offsets follow the inputs' run-time extents.</summary>
 internal sealed unsafe class ConcatOp : CpuOp
 {
     private readonly TRef[] _xs;
@@ -30,10 +30,14 @@ internal sealed unsafe class ConcatOp : CpuOp
     public override void Run(RunParameters p)
     {
         int es = _y.ElemSize;
+        long outer = 0;
         for (int i = 0; i < _xs.Length; i++)
         {
             var x = _xs[i];
-            Mem.CopyStrided(x.P, x.Strides, _y.P + _offsets[i] * _dstStrides[_axis] * es, _dstStrides, x.Dims, x.Dim(0, p), es);
+            long rows = x.Dim(0, p);
+            long offset = _axis == 0 ? outer : _offsets[i];
+            Mem.CopyStrided(x.P, x.Strides, _y.P + offset * _dstStrides[_axis] * es, _dstStrides, x.Dims, rows, es);
+            outer += rows;
         }
     }
 }

@@ -25,15 +25,21 @@ public sealed class ComputeGraph
     /// Names of the scalars (for example <see cref="WellKnown.PastScalar"/>) the caller must bind in <see cref="Runtime.RunParameters.Scalars"/> for every execution.
     /// </summary>
     public IReadOnlyList<string> RuntimeScalars { get; }
+    /// <summary>
+    /// Data-dependent symbols (see <see cref="GraphBuilder.DynamicSymbol"/>) in creation order, each with its upper bound. Ops that own such a
+    /// symbol write its actual value into <see cref="Runtime.RunParameters.Symbols"/> when they run; the caller does not bind them.
+    /// </summary>
+    public IReadOnlyList<KeyValuePair<string, Tensors.Dim>> DynamicSymbols { get; }
 
     internal ComputeGraph(string name, IReadOnlyList<Node> nodes, IReadOnlyList<Value> inputs,
-        IReadOnlyDictionary<string, Value> outputs, IReadOnlyList<string> runtimeScalars)
+        IReadOnlyDictionary<string, Value> outputs, IReadOnlyList<string> runtimeScalars, IReadOnlyList<KeyValuePair<string, Tensors.Dim>> dynamicSymbols)
     {
         Name = name;
         Nodes = nodes;
         Inputs = inputs;
         Outputs = outputs;
         RuntimeScalars = runtimeScalars;
+        DynamicSymbols = dynamicSymbols;
     }
 
     /// <summary>All weight values referenced by the graph.</summary>
@@ -75,6 +81,11 @@ public sealed class ComputeGraph
         foreach (var (k, v) in Outputs)
         {
             sb.AppendLine($"  output {k} = %{v.Id}");
+        }
+
+        foreach (var (k, v) in DynamicSymbols)
+        {
+            sb.AppendLine($"  dynamic {k} <= {v}");
         }
 
         return sb.ToString();

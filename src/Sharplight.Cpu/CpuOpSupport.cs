@@ -57,6 +57,11 @@ internal static partial class CpuOpSupport
             "GatedDeltaRule" => CheckGatedDeltaRule(node),
             "Wkv7" => CheckWkv(node, 7),
             "Wkv6" => CheckWkv(node, 6),
+            "Fill" => CheckFill(node),
+            "NonZero" or "Unique" => CheckDataDependentInput(node),
+            "NonMaxSuppression" => AllF32(node),
+            "RoiAlign" => node.Inputs[0].Type == DataType.F32 && node.Inputs[1].Type == DataType.F32 && node.Inputs[2].Type == DataType.I32
+                ? OpSupport.Yes : OpSupport.No("RoiAlign expects f32 x and rois and i32 batch indices"),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
         };
     }
@@ -137,23 +142,7 @@ internal static partial class CpuOpSupport
             return OpSupport.No("Concat of quantized data");
         }
 
-        if (ins.Any(v => v.Type != ins[0].Type))
-        {
-            return OpSupport.No("Concat inputs must share a type");
-        }
-
-        int axis = node.Attributes.Get<int>("axis");
-        if (axis < 0)
-        {
-            axis += ins[0].Rank;
-        }
-
-        if (axis == 0 && ins[0].Shape.Dims[0].IsSymbolic)
-        {
-            return OpSupport.No("Concat along the symbolic axis");
-        }
-
-        return OpSupport.Yes;
+        return ins.Any(v => v.Type != ins[0].Type) ? OpSupport.No("Concat inputs must share a type") : OpSupport.Yes;
     }
 
     private static OpSupport CheckPlainInput(Node node)

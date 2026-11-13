@@ -42,40 +42,46 @@ Status: **yes** = runtime op mapped to IR; **fold** = only when all inputs are c
 | Conv | yes | 1-D (via H=1) and 2-D, groups, dilation, auto_pad, BN folding; 3-D no |
 | ConvTranspose | yes | 1-D/2-D, output_padding, output_shape |
 | MaxPool AveragePool LpPool (p=1,2) GlobalAveragePool GlobalMaxPool | yes | ceil_mode, dilations, count_include_pad; MaxPool indices output no |
-| BatchNormalization | yes | inference mode only |
+| BatchNormalization | yes | inference mode only; folded on constants (BiT weight standardization) |
 | InstanceNormalization GroupNormalization LayerNormalization LpNormalization LRN MeanVarianceNormalization RMSNormalization | yes | LayerNorm over trailing axes via reshape; stash outputs no |
 | Softmax LogSoftmax Hardmax | yes | any axis via Permute, opset <13 coercion semantics |
-| ReduceMean/Sum/Max/Min/Prod/L1/L2/SumSquare/LogSum/LogSumExp | yes | axes attr or input; reducing the batch axis no |
-| ArgMax ArgMin TopK | yes | outputs i32 |
+| ReduceMean/Sum/Max/Min/Prod/L1/L2/SumSquare/LogSum/LogSumExp | yes | axes attr or input; including the symbolic batch axis |
+| ArgMax ArgMin TopK | yes | outputs i32; TopK k may be a symbolic expression (e.g. `min(k, count)`) |
 | Gemm MatMul | yes | constant B or BatchMatMul; `transA` on batched A no |
 | Einsum | limit | two operands, no ellipsis/diagonals; batch dim must stay leading |
-| Flatten Reshape Squeeze Unsqueeze Transpose Identity Dropout | yes | reshapes that merge/move the batch dim: limit (error) |
-| Concat Split Slice Pad Resize Upsample | yes | Slice: any non-zero step (positive = Reshape trick, negative = constant-index gather); Pad modes constant/reflect/edge; Resize nearest/linear/**cubic**, 4-D, constant scales/sizes (cubic = two constant interpolation-matrix MatMuls; non-integer *scales* are converted to sizes) |
+| Flatten Reshape Squeeze Unsqueeze Transpose Identity Dropout | yes | reshapes to expression outer dims (`12*N`); moving the batch dim inward (Transpose, inner-axis reshape): limit (error) |
+| Concat Split Slice Pad Resize Upsample | yes | Concat along the symbolic outer axis (sum extent, CPU kernel); Slice of a prefix of the symbolic axis (`min(n, end)`); Slice: any non-zero step (positive = Reshape trick, negative = constant-index gather); Pad modes constant/reflect/edge; Resize nearest/linear/**cubic**, 4-D, constant scales/sizes (cubic = two constant interpolation-matrix MatMuls; non-integer *scales* are converted to sizes) |
 | Gather | yes | constant indices -> Slice/Concat views; dynamic indices -> `GatherAxis` |
-| GatherElements GatherND ScatterElements ScatterND Scatter CumSum Tile Expand Trilu OneHot GridSample | yes | Expand to the dynamic batch uses a zero-broadcast trick |
+| GatherElements GatherND ScatterElements ScatterND Scatter CumSum Tile Expand Trilu OneHot GridSample | yes | Expand/Tile by symbolic sizes (`Fill` / outer-axis broadcast) |
+| RoiAlign | yes | avg/max, `half_pixel` and opset-10 `output_half_pixel`; CPU kernel (Vulkan falls back) |
 | DepthToSpace SpaceToDepth | yes | Reshape + Permute |
 | Cast CastLike | yes | to float: identity; to int: i32; to bool: `!= 0` mask |
-| Shape Size Range ConstantOfShape Constant NonZero EyeLike | fold | dynamic-shape results are unsupported |
+| Shape Size Range ConstantOfShape Constant EyeLike | fold | symbolic shape values are expressions (docs/dynamic-shapes.md); Range/ConstantOfShape over a symbolic size become `Fill`; Range up to a runtime *value* no |
+| NonZero Compress Unique NonMaxSuppression | yes | data-dependent counts (dynamic symbols, CPU kernels); Unique without `axis`, Compress on axis 0 or flattened |
 | QuantizeLinear DequantizeLinear | yes | fold on constants; runtime = Div/Round/Add/Clip (values carried as f32) |
-| DynamicQuantizeLinear | yes | whole-tensor min/max, so the batch must be fixed (`InputShapes`); scale / zero point are runtime values |
-| MatMulInteger ConvInteger QLinearMatMul QLinearConv | yes | weights dequantized at import (per-tensor / per-column / per-channel zero points); activations carried as f32 ints; activation zero point may be a runtime value |
-| If | limit | constant condition only (taken branch inlined) |
+| DynamicQuantizeLinear | yes | whole-tensor min/max (also over a symbolic batch); scale / zero point are runtime values |
+| MatMulInteger ConvInteger QLinearMatMul QLinearConv | yes | weights dequantized at import (per-tensor / per-column / per-channel zero points); activations carried as f32 ints; activation zero point may be a runtime value; MatMulInteger B may be a runtime value |
+| If | yes | constant condition: taken branch inlined; otherwise a runtime `If` node (branches are nested graphs; a branch that cannot be built for the import shapes fails only when taken) |
+| Loop Scan | limit | run at import: constant bodies folded, runtime bodies unrolled up to `MaxUnrolledLoop` (64); trip count and condition must be import-time constants |
 | LSTM GRU RNN | limit | unrolled over a static sequence length; forward/reverse/bidirectional, `layout` 0/1, default activations, no peepholes/clip/sequence_lens; initial states may be runtime inputs |
-| DynamicQuantizeLinear, Loop, Scan, NonMaxSuppression, Unique, Compress, RoiAlign, Det, ... | no | |
+| STFT, Det, ... | no | |
 
 ### com.microsoft contrib ops
 
 Gelu, BiasGelu, FastGelu, QuickGelu, FusedConv, FusedMatMul, SkipLayerNormalization, SkipSimplifiedLayerNormalization,
-SimplifiedLayerNormalization (RmsNorm), Attention (no mask/past; `unidirectional` via a constant causal mask), MultiHeadAttention (no mask/past),
-BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/LeakyRelu/Softmax/AveragePool/GlobalAveragePool/Concat (dequantize, op, requantize). **RotaryEmbedding is not supported** (needs a Rope op taking cos/sin caches).
+SimplifiedLayerNormalization (RmsNorm; also accepted in the default domain, as some exporters emit it), Attention (no mask/past; `unidirectional` via a constant causal mask), MultiHeadAttention (attention bias, past/present key/value),
+GroupQueryAttention (rotary, local window, softcap, attention bias, present key/value), RotaryEmbedding (constant or runtime position ids,
+interleaved, partial rotary dim),
+BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/LeakyRelu/Softmax/AveragePool/GlobalAveragePool/Concat (dequantize, op, requantize).
 
 ## Import options worth knowing
 
 * `InputShapes[name]` fixes dynamic dims; giving the concrete batch (instead of `-1`) makes the batch static, which lifts the
-  restrictions around the symbolic batch (reshapes that merge it, transposes that move it, arithmetic on it, global reductions such as
-  `DynamicQuantizeLinear`, scalar-to-batch `Expand`). Models traced with explicit window/batch reshapes (Swin, GPT-2, wav2vec2, PaddleOCR ...) need this.
+  remaining restrictions around the symbolic batch (transposes that move it inward, reshapes that put it on an inner axis). Shape
+  arithmetic on the batch, reshapes that merge it (`12*N`), global reductions and `Expand`/`Tile`/`Range` by it work symbolically.
+* `MaxUnrolledLoop` / `MaxLoopIterations` bound how far `Loop`/`Scan` are unrolled or evaluated at import.
 * `ConstantInputs[name] = values` pins a graph input (e.g. `sr`, `use_cache_branch`, an `orig_im_size` that fixes output shapes) to a
-  compile-time constant so `If` branches and shape computations fold.
+  compile-time constant so `If` branches and shape computations fold. Without it, an `If` on such an input is a runtime `If`.
 * Scalar (rank-0) graph inputs are carried as one-element vectors; `Unsqueeze`/`Squeeze` honour the logical rank.
 
 ## Source layout
@@ -84,8 +90,8 @@ BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/Lea
 * `OnnxParser`, `ProtoReader`, `Mapped*` and `*WeightSource`: protobuf decoding and zero-copy weight sources.
 * `OnnxConst`, `OnnxFold`: compile-time constants and their host-side evaluation.
 * `OnnxTranslator.*.cs`: one partial class split by operator category (`Dispatch` routes nodes to `Elementwise`, `Spatial`, `Resample`,
-  `Reduction`, `Linear`, `Shape`, `Indexing`, `Normalization`, `Quant`, `Recurrent`, `ControlFlow` and `Contrib`; `Helpers` holds shared
-  utilities). Each operator is translated by a method named after it.
+  `Reduction`, `Linear`, `Shape`, `Indexing`, `Normalization`, `Quant`, `Recurrent`, `ControlFlow`/`RuntimeIf`, `Symbolic`, `DataDependent`,
+  `Gqa` and `Contrib`; `Helpers` holds shared utilities). `SymbolicInts` encodes symbolic shape values inside constants. Each operator is translated by a method named after it.
 
 ## Tests
 
@@ -94,3 +100,5 @@ BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/Lea
 `ZooTests` covers ~45 architecturally diverse real models (detection, super-resolution, SAM, diffusion, speech, LLM decoders with KV cache,
 OCR, optical flow, quantized ...): `tests/Sharplight.Onnx.Tests/scripts/make_zoo_refs.py` lists the models (downloaded to `~/models/onnx/<name>/`) and writes
 references to `~/models/onnx/ref/zoo`; `make_zoo_synth.py` builds small synthetic cases for the ops they needed.
+`SurveyModelTests` runs the survey models that need symbolic/data-dependent shapes, control flow or the newer contrib attention ops
+(references in `~/models/onnx/ref/survey` from `bench/onnx`); `scripts/make_dynamic_synth.py` writes the matching synthetic cases.

@@ -32,7 +32,9 @@ public sealed partial class GraphLowerer
                 LowerReshape(n);
                 break;
             case "Slice":
-                _refs[n.Output] = ViewSlice(Ref(n.Inputs[0]), n.Attributes);
+                _refs[n.Output] = n.Inputs[0].Shape[0].IsSymbolic && n.Attributes.Get<int>("axis") == 0
+                    ? Ref(n.Inputs[0]) with { Shape = BoundShape(n.Output.Shape), Symbol = n.Output.Shape.Symbol }   // prefix of the symbolic axis
+                    : ViewSlice(Ref(n.Inputs[0]), n.Attributes);
                 break;
             case "Permute":
                 _refs[n.Output] = ViewPermute(Ref(n.Inputs[0]), n.Attributes.Get<int[]>("perm"));

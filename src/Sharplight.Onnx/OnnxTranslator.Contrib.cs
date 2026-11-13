@@ -110,6 +110,12 @@ internal sealed partial class OnnxTranslator
             case "MultiHeadAttention":
                 MultiHeadAttention(n, ins);
                 break;
+            case "GroupQueryAttention":
+                GroupQueryAttention(n, ins);
+                break;
+            case "RotaryEmbedding":
+                RotaryEmbedding(n, ins);
+                break;
             default:
                 if (!s_quantContrib.Contains(n.OpType))
                 {
@@ -209,17 +215,22 @@ internal sealed partial class OnnxTranslator
         }
     }
 
+    /// <summary>
+    /// MultiHeadAttention with separate query/key/value [B, S, H·D], optional bias, additive attention_bias [B or 1, H or 1, S, T] and
+    /// past key/value [B, H, P, D] (outputs present key/value [B, H, P+S, D]). A key_padding_mask is not supported.
+    /// </summary>
     private void MultiHeadAttention(OnnxNode n, TranslatedTensor?[] ins)
     {
-        if (ins.Length > 4 && ins.Skip(4).Any(t => t is not null))
+        TranslatedTensor? In(int i) => i < ins.Length ? ins[i] : null;
+        if (In(4) is not null || In(8) is not null || n.Int("unidirectional", 0) != 0)
         {
-            throw new NotSupportedException("MultiHeadAttention with mask/past/bias inputs beyond bias");
+            throw new NotSupportedException("MultiHeadAttention with key_padding_mask, past_sequence_length or unidirectional");
         }
 
         var q = X(ins, 0);
         var k = X(ins, 1);
         var v = X(ins, 2);
-        if (ins.Length > 3 && ins[3] is not null)
+        if (In(3) is not null)
         {
             long hidden = q.Shape[2].Fixed;
             var bias = X(ins, 3);
@@ -228,7 +239,45 @@ internal sealed partial class OnnxTranslator
             v = _b.Add(v, _b.Slice(bias, 0, 2 * hidden, hidden));
         }
 
+        int heads = (int)n.Int("num_heads", 1);
         float scale = n.Has("scale") ? n.Float("scale", 0) : 0f;
-        SetDyn(n, 0, AttentionCore(q, k, v, (int)n.Int("num_heads", 1), scale, false, Nm(n)));
+        if (In(5) is null && In(6) is null)
+        {
+            SetDyn(n, 0, AttentionCore(q, k, v, heads, scale, false, Nm(n)));
+            return;
+        }
+
+        long s = q.Shape[1].Fixed;
+        long d = q.Shape[2].Fixed / heads;
+        long vd = v.Shape[2].Fixed / heads;
+        Value Heads(Value x, long dh) => _b.Permute(Rs(x, 0, x.Shape[1].Fixed, heads, dh), 0, 2, 1, 3);
+        var kh = Heads(k, d);
+        var vh = Heads(v, vd);
+        if (In(6) is not null)
+        {
+            kh = Emit("Concat", [X(ins, 6), kh], Attributes.From(("axis", 2L)));
+            vh = Emit("Concat", [X(ins, 7), vh], Attributes.From(("axis", 2L)));
+        }
+
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            SetDyn(n, 1, kh);
+        }
+
+        if (n.Outputs.Count > 2 && n.Outputs[2] != "")
+        {
+            SetDyn(n, 2, vh);
+        }
+
+        var scores = Emit("BatchMatMul", [Heads(q, d), kh], Attributes.From(("trans_b", true), ("alpha", scale != 0 ? scale : 1f / MathF.Sqrt(d))));
+        Heavy();
+        if (In(5) is not null)
+        {
+            scores = _b.Add(scores, X(ins, 5));
+        }
+
+        var o = Emit("BatchMatMul", [_b.Emit1("Softmax", [scores]), vh]);
+        Heavy();
+        SetDyn(n, 0, Emit("Reshape", [_b.Permute(o, 0, 2, 1, 3)], Attributes.From(("shape", L(0, s, heads * vd))), Nm(n)));
     }
 }

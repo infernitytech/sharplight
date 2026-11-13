@@ -17,20 +17,24 @@ internal sealed partial class OnnxTranslator
         "MeanVarianceNormalization", "ConvTranspose", "LpPool", "Einsum", "Tile", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "Scatter", "CumSum",
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
+        "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
     ];
 
     private static readonly HashSet<string> s_contribOps =
     [
         "Gelu", "BiasGelu", "FastGelu", "QuickGelu", "FusedConv", "FusedMatMul", "SkipLayerNormalization", "SkipSimplifiedLayerNormalization",
-        "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits",
+        "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits", "GroupQueryAttention", "RotaryEmbedding",
     ];
 
-    public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType);
+    // Contrib ops that onnxruntime also registers in the default domain (onnxruntime-genai exports use it).
+    private static readonly HashSet<string> s_contribInDefaultDomain = ["SimplifiedLayerNormalization"];
+
+    public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
 
     /// <summary>Translates a node with at least one runtime-dependent input into IR values stored in the environment.</summary>
     private void Dynamic(OnnxNode n, TranslatedTensor?[] ins)
     {
-        if (n.Domain == "com.microsoft")
+        if (n.Domain == "com.microsoft" || s_contribInDefaultDomain.Contains(n.OpType))
         {
             TranslateContrib(n, ins);
             return;
@@ -114,6 +118,9 @@ internal sealed partial class OnnxTranslator
             case "DepthToSpace" or "SpaceToDepth":
                 DepthSpace(n, ins);
                 break;
+            case "RoiAlign":
+                RoiAlign(n, ins);
+                break;
             case "GridSample":
                 GridSample(n, ins);
                 break;
@@ -128,6 +135,18 @@ internal sealed partial class OnnxTranslator
                 break;
             case "TopK":
                 TopK(n, ins);
+                break;
+            case "NonMaxSuppression":
+                NonMaxSuppression(n, ins);
+                break;
+            case "NonZero":
+                NonZero(n, ins);
+                break;
+            case "Unique":
+                Unique(n, ins);
+                break;
+            case "Compress":
+                Compress(n, ins);
                 break;
             case "CumSum":
                 CumSum(n, ins);
@@ -174,6 +193,12 @@ internal sealed partial class OnnxTranslator
                 break;
             case "Expand":
                 Expand(n, ins);
+                break;
+            case "Range":
+                Range(n, ins);
+                break;
+            case "ConstantOfShape":
+                ConstantOfShape(n, ins);
                 break;
             case "Tile":
                 Tile(n, ins);
@@ -252,11 +277,17 @@ internal sealed partial class OnnxTranslator
             case "If":
                 IfOp(n, ins);
                 break;
+            case "Loop":
+                LoopOp(n, ins);
+                break;
+            case "Scan":
+                ScanOp(n, ins);
+                break;
             case "LSTM" or "GRU" or "RNN":
                 Rnn(n, ins);
                 break;
 
-            case "NonZero" or "EyeLike":
+            case "EyeLike":
                 throw new NotSupportedException($"{op} of a runtime-dependent tensor has a data-dependent shape");
             default:
                 throw new NotSupportedException($"{op} on a runtime-dependent tensor is not supported (only constant-foldable uses are).");
