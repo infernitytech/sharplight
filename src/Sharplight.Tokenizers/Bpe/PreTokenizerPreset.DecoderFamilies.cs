@@ -10,6 +10,8 @@ internal sealed partial record PreTokenizerPreset
     private static PreTokenizerPreset? ResolveDecoderFamily(string name) => name switch
     {
         "refact" or "command-r" => SingleDigitGpt2(),
+        // DBRX / Smaug / OLMo-2 / Granite 4: the Llama-3 expression with ordinary merge application and no default BOS
+        // (Granite 4 GGUFs set add_bos_token explicitly; OLMo-2 relies on this default).
         "dbrx" or "smaug-bpe" => new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), false, false),
         "glm4" or "glm5" or "chatglm-bpe" => new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, false),
         "seed-coder" => new(new DefaultRegexStages([@"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1}| ?[^\s\p{L}\p{N}\r\n]+|\s*[\r\n]+|\s+(?!\S)|\s+"]), false, false),
