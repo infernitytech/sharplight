@@ -1,0 +1,17 @@
+## Qwen3.8-27B-Q8_0.gguf cold page cache
+sharplight GGUF #1: 9.716345970
+sharplight GGUF #2: 8.581045559
+llama.cpp cuda13 #1: 36.079772165
+llama.cpp cuda13 #2: 22.249363378
+llama.cpp vulkan #1: 25.700545162
+llama.cpp vulkan #2: 39.277950389
+## Mistral-7B-Instruct-v0.3-Q4_K_M.gguf cold page cache
+sharplight GGUF #1: 2.882355039
+sharplight GGUF #2: 2.171940199
+llama.cpp cuda13 #1: 1.743923448
+llama.cpp cuda13 #2: 1.503062038
+llama.cpp vulkan #1: 1.887647467
+llama.cpp vulkan #2: 1.884189126
+## Qwen3.8-27B .slm cold page cache
+sharplight .slm #1: 7.992730472
+sharplight .slm #2: 7.898379379

@@ -1,0 +1,8 @@
+Loaded Llama 3.2 1B Instruct (decoder): 147 tensors, 1.31 GB, vocab 128256 [558 ms]
+Compiled 'decode' for 64 sequences x 512 tokens in 1543 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 18 groups, 2.22 GiB weights+state
+1 segment(s): [0@0: 356 nodes]
+Model 'Llama-3.2-1B-Instruct-Q8_0' loaded in 2127 ms (estimated 2749 MiB, resident 2400 MiB).
+Serving 'Llama-3.2-1B-Instruct-Q8_0' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18080
+  Llama-3.2-1B-Instruct-Q8_0 [Chat] Loaded 2399 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 87101 MiB, used 2588 MiB (ours 2586 MiB), available 84512 MiB

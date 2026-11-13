@@ -1,0 +1,8 @@
+Loaded Mistral-7B-Instruct-v0.3 (decoder): 291 tensors, 4.37 GB, vocab 32768 [51 ms]
+Compiled 'decode' for 64 sequences x 512 tokens in 1980 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 34 groups, 8.07 GiB weights+state
+1 segment(s): [0@0: 708 nodes]
+Model 'Mistral-7B-Instruct-v0.3-Q4_K_M' loaded in 2048 ms (estimated 8964 MiB, resident 8426 MiB).
+Serving 'Mistral-7B-Instruct-v0.3-Q4_K_M' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18080
+  Mistral-7B-Instruct-v0.3-Q4_K_M [Chat] Loaded 8426 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 87105 MiB, used 8720 MiB (ours 8720 MiB), available 78385 MiB

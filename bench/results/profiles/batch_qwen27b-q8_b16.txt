@@ -1,0 +1,32 @@
+decoder: MultiSequenceDecoder, slots 64, batches sequences: True, vocab 248320
+| batch | step ms min | step ms median | tok/s (median) | no-logits ms median |
+|---|---|---|---|---|
+| 16 | 55.87 | 63.66 | 251 | 54.78 |
+--- profile batch 16
+GPU time 1080.90 ms
+   399.521 ms  37.0%   2560x  min    143.2 us  matmul [5120→17408] q8_0r split-k gemm_cm2 T=16,16,16
+   168.371 ms  15.6%   1280x  min    128.8 us  matmul [17408→5120] q8_0r split-k gemm_cm2 T=16,16,16
+    79.169 ms   7.3%    960x  min     77.7 us  matmul [5120→10240] q8_0r split-k gemm_cm2 T=16,16,16
+    68.525 ms   6.3%   1280x  min     49.0 us  matmul [6144→5120] q8_0r split-k gemm_cm2 T=16,16,16
+    63.425 ms   5.9%    960x  min     64.4 us  matmul [5120→6144] q8_0r split-k gemm_cm2 T=16,16,16
+    41.260 ms   3.8%    320x  min    126.8 us  matmul [5120→12288] q8_0r split-k gemm_cm2 T=16,16,16
+    38.916 ms   3.6%   9940x  min      2.6 us  matmul x→f16 to_f16 T=16,16,16
+    38.518 ms   3.6%     20x  min   1918.9 us  matmul [5120→248320] q8_0r gemm_cm2 T=16,16,16
+    36.433 ms   3.4%    960x  min     36.4 us  delta_rule delta_rule T=16,16,16
+    35.731 ms   3.3%   9920x  min      2.0 us  matmul split-k reduce splitk_reduce T=16,16,16
+    30.620 ms   2.8%   1920x  min     14.1 us  matmul [5120→48] q8_0r split-k gemm_cm2 T=16,16,16
+    29.995 ms   2.8%    320x  min     89.1 us  attention main T=16,16,16
+    15.707 ms   1.5%   2560x  min      4.1 us  fused[Add]+RmsNorm main T=16,16,16
+    10.979 ms   1.0%    640x  min     16.2 us  matmul [5120→1024] q8_0r split-k gemm_cm2 T=16,16,16
+     5.746 ms   0.5%    960x  min      4.1 us  conv1d conv1d T=16,16,16
+     5.239 ms   0.5%   1280x  min      3.1 us  fused[Silu,Mul] main T=16,16,16
+     3.951 ms   0.4%    960x  min      3.1 us  RmsNorm+fused[Silu,Mul] main T=16,16,16
+     1.983 ms   0.2%    960x  min      2.0 us  fused[Add,Softplus,Mul] main T=16,16,16
+     1.972 ms   0.2%    960x  min      1.7 us  fused[Sigmoid] main T=16,16,16
+     1.313 ms   0.1%    320x  min      4.1 us  rope+norm rope_row T=16,16,16
+     1.311 ms   0.1%    320x  min      4.1 us  rope+norm+cache_write rope_row T=16,16,16
+     1.311 ms   0.1%    320x  min      4.1 us  cache_write cache_write T=16,16,16
+     0.662 ms   0.1%    320x  min      1.9 us  fused[Sigmoid,Mul] main T=16,16,16
+     0.162 ms   0.0%     40x  min      3.6 us  gather gather T=16,16,16
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=16,16,16
+
