@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm;
+using Sharplight.Llm.Embeddings;
 
 namespace Sharplight.Extensions.AI;
 
@@ -35,4 +36,21 @@ public static class SharplightServiceCollectionExtensions
             configure?.Invoke(o);
             return new SharplightChatClient(model, o);
         });
+
+    /// <summary>
+    /// Registers a singleton <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> over the embedding model at <paramref name="path"/>
+    /// (loaded on first use; the container disposes it). Returns the builder for middleware (e.g. <c>.UseDistributedCache()</c>).
+    /// </summary>
+    public static EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(this IServiceCollection services, string path,
+        Func<IServiceProvider, EmbeddingLoadOptions> load)
+        => services.AddEmbeddingGenerator(sp => SharplightEmbeddingGenerator.Load(path, load(sp)));
+
+    /// <inheritdoc cref="AddSharplightEmbeddingGenerator(IServiceCollection, string, Func{IServiceProvider, EmbeddingLoadOptions})"/>
+    public static EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(this IServiceCollection services, string path,
+        EmbeddingLoadOptions load)
+        => services.AddSharplightEmbeddingGenerator(path, _ => load);
+
+    /// <summary>Registers a generator over an already loaded embedder (not disposed by the container).</summary>
+    public static EmbeddingGeneratorBuilder<string, Embedding<float>> AddSharplightEmbeddingGenerator(this IServiceCollection services, ITextEmbedder model)
+        => services.AddEmbeddingGenerator(_ => new SharplightEmbeddingGenerator(model));
 }

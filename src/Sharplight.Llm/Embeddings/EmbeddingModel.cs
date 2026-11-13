@@ -77,7 +77,7 @@ public sealed record EmbeddingResult(IReadOnlyList<float[]> Vectors, IReadOnlyLi
 /// through the model's <see cref="WellKnown.EmbedGraph"/>; outputs are pooled and normalized as the model declares (overridable).
 /// Thread-safe (calls are serialized).
 /// </summary>
-public sealed class EmbeddingModel : IDisposable
+public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 {
     readonly PackedBatchRunner _runner;
     readonly Lock _lock = new();

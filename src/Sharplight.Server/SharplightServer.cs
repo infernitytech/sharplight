@@ -120,13 +120,17 @@ public static class SharplightServerExtensions
         return ok;
     }
 
-    /// <summary>Maps everything the options enable: <c>/health</c>, <c>/metrics</c>, the OpenAI and the Anthropic API.</summary>
+    /// <summary>
+    /// Maps everything the options enable: <c>/health</c>, <c>/metrics</c>, the OpenAI and the Anthropic API, plus the retrieval
+    /// endpoints of <see cref="RetrievalApi"/> when embedding / rerank models are registered.
+    /// </summary>
     public static IEndpointRouteBuilder MapSharplight(this IEndpointRouteBuilder routes)
     {
         var o = routes.ServiceProvider.GetRequiredService<SharplightServerContext>().Options;
         routes.MapOperations();
         if (o.OpenAi) routes.MapOpenAi();
         if (o.Anthropic) routes.MapAnthropic();
+        routes.MapSharplightRetrieval();   // /v1/embeddings, /v1/rerank when such models are registered
         return routes;
     }
 

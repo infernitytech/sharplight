@@ -45,7 +45,7 @@ public sealed record RerankResult(IReadOnlyList<float> Scores, IReadOnlyList<flo
 /// pair through the model's <see cref="WellKnown.ClassifyGraph"/>; decoder rerankers (Qwen3-Reranker) get a judging prompt and
 /// score P(yes) from the last token's "yes" / "no" logits. Documents are batched. Thread-safe (calls are serialized).
 /// </summary>
-public sealed class Reranker : IDisposable
+public sealed class Reranker : ITextReranker, IDisposable
 {
     const string DefaultInstruction = "Given a web search query, retrieve relevant passages that answer the query";
     const string YesNoPrefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
