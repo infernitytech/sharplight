@@ -11,9 +11,6 @@ namespace Sharplight.Onnx;
 /// </summary>
 internal sealed class OnnxConst
 {
-    /// <summary>Stand-in for the symbolic batch dim inside int64 shape tensors computed by Shape ops.</summary>
-    public const long SymBatch = long.MinValue + 0x5AF7;
-
     public int ElemType { get; }
     public long[] Dims { get; }
     public long Count { get; }
@@ -87,6 +84,9 @@ internal sealed class OnnxConst
     public static OnnxConst ScalarInt(long v) => FromInts(OnnxType.Int64, [], [v]);
 
     // ---- views (no data movement) ---------------------------------------------------------------
+    /// <summary>Whether an integer element is a symbolic shape value (see <see cref="SymbolicInts"/>).</summary>
+    public bool HasSymbols => !IsFloat && _source is null && _produce is null && SymbolicInts.AnySymbolic(Ints());
+
     public OnnxConst Reshaped(long[] dims, string? name = null)
     {
         long n = 1;
@@ -230,6 +230,11 @@ internal sealed class OnnxConst
 
         if (_ints is not null && _bytes is null && _source is null)
         {
+            if (SymbolicInts.AnySymbolic(_ints))
+            {
+                throw new NotSupportedException($"A symbolic shape value ({string.Join(", ", _ints.Where(SymbolicInts.IsSymbolic).Select(SymbolicInts.Format).Distinct())}) is used as a floating point number.");
+            }
+
             return _floats = _ints.Select(i => (double)i).ToArray();
         }
 

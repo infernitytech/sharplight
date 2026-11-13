@@ -17,6 +17,7 @@ internal sealed partial class OnnxTranslator
         "MeanVarianceNormalization", "ConvTranspose", "LpPool", "Einsum", "Tile", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "Scatter", "CumSum",
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
+        "Range", "ConstantOfShape", "NonMaxSuppression",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -129,6 +130,9 @@ internal sealed partial class OnnxTranslator
             case "TopK":
                 TopK(n, ins);
                 break;
+            case "NonMaxSuppression":
+                NonMaxSuppression(n, ins);
+                break;
             case "CumSum":
                 CumSum(n, ins);
                 break;
@@ -174,6 +178,12 @@ internal sealed partial class OnnxTranslator
                 break;
             case "Expand":
                 Expand(n, ins);
+                break;
+            case "Range":
+                Range(n, ins);
+                break;
+            case "ConstantOfShape":
+                ConstantOfShape(n, ins);
                 break;
             case "Tile":
                 Tile(n, ins);

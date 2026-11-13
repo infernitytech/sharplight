@@ -1,3 +1,5 @@
+using Sharplight.Tensors;
+
 namespace Sharplight.Onnx;
 
 /// <summary>Host-side evaluation of constant subgraphs (shape computations, weight preprocessing).</summary>
@@ -33,13 +35,39 @@ internal static class OnnxFold
         ["Softsign"] = v => v / (1 + Math.Abs(v)),
     };
 
-    private static bool IsSym(long v) => v == OnnxConst.SymBatch;
+    private static bool IsSym(long v) => SymbolicInts.IsSymbolic(v);
+
+    /// <summary>Refuses to fold an op that would treat a symbolic shape value as an ordinary number.</summary>
+    private static void CheckSymbols(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        bool known = s_symbolAware.TryGetValue(n.OpType, out var allowed);
+        for (int i = 0; i < ins.Count; i++)
+        {
+            if (ins[i] is { HasSymbols: true } c && !(known && (allowed is null || allowed.Contains(i))))
+            {
+                var symbols = c.Ints().Where(IsSym).Select(SymbolicInts.Format).Distinct();
+                throw new NotSupportedException($"{n.OpType} '{n.Name}' on the symbolic shape value(s) {string.Join(", ", symbols)} is not supported.");
+            }
+        }
+    }
 
     /// <summary>Resolves a possibly negative ONNX axis against <paramref name="rank"/>.</summary>
     public static int NormalizeAxis(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
 
+    // Ops that handle symbolic shape values (SymbolicInts codes) in the inputs listed (null: every input).
+    private static readonly Dictionary<string, int[]?> s_symbolAware = new()
+    {
+        ["Identity"] = null, ["Dropout"] = null, ["Cast"] = null, ["CastLike"] = [0], ["Shape"] = null, ["Size"] = null,
+        ["Add"] = null, ["Sub"] = null, ["Mul"] = null, ["Div"] = null, ["Mod"] = null, ["Max"] = null, ["Min"] = null, ["Sum"] = null,
+        ["Neg"] = null, ["Abs"] = null, ["Relu"] = null, ["Equal"] = null, ["Less"] = null, ["Greater"] = null, ["LessOrEqual"] = null,
+        ["GreaterOrEqual"] = null, ["Where"] = [1, 2], ["Gather"] = [0], ["Unsqueeze"] = [0], ["Squeeze"] = [0], ["Concat"] = null,
+        ["Slice"] = [0], ["Reshape"] = [0], ["Flatten"] = [0], ["Transpose"] = [0], ["Expand"] = [0], ["Split"] = [0], ["Tile"] = [0],
+        ["ReduceProd"] = [0], ["ReduceSum"] = [0], ["ReduceMax"] = [0], ["ReduceMin"] = [0],
+    };
+
     public static IReadOnlyList<OnnxConst> Eval(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {
+        CheckSymbols(n, ins);
         if (s_math.TryGetValue(n.OpType, out var mf))
         {
             return [UnF(Input(n, ins, 0), mf)];
@@ -81,13 +109,13 @@ internal static class OnnxFold
             case "Size":
                 return [OnnxConst.ScalarInt(Input(n, ins, 0).Count)];
             case "Add":
-                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a + b, (a, b) => a + b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a + b, (a, b) => a + b, (a, b) => a + b)];
             case "Sub":
-                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a - b, (a, b) => a - b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a - b, (a, b) => a - b, (a, b) => a - b)];
             case "Mul":
-                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a * b, (a, b) => a * b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a * b, (a, b) => a * b, (a, b) => a * b)];
             case "Div":
-                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a / b, (a, b) => b == 0 ? throw new DivideByZeroException($"Integer division by zero in constant '{n.Name}'.") : a / b)];
+                return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => a / b, (a, b) => b == 0 ? throw new DivideByZeroException($"Integer division by zero in constant '{n.Name}'.") : a / b, SymbolicDivide)];
             case "Pow":
                 return [Bin(Input(n, ins, 0), Input(n, ins, 1), Math.Pow, (a, b) => (long)Math.Pow(a, b))];
             case "Max":
@@ -111,9 +139,9 @@ internal static class OnnxFold
             case "Not":
                 return [OnnxConst.FromInts(OnnxType.Bool, Input(n, ins, 0).Dims, Input(n, ins, 0).Ints().Select(v => v == 0 ? 1L : 0L).ToArray())];
             case "Neg":
-                return [Un(Input(n, ins, 0), v => -v, v => -v)];
+                return [Un(Input(n, ins, 0), v => -v, v => IsSym(v) ? SymbolicInts.Encode(-SymbolicInts.Decode(v)) : -v)];
             case "Abs":
-                return [Un(Input(n, ins, 0), Math.Abs, Math.Abs)];
+                return [Un(Input(n, ins, 0), Math.Abs, v => IsSym(v) ? v : Math.Abs(v))];   // symbolic sizes are non-negative
             case "Sqrt":
                 return [UnF(Input(n, ins, 0), Math.Sqrt)];
             case "Exp":
@@ -127,7 +155,7 @@ internal static class OnnxFold
             case "Ceil":
                 return [UnF(Input(n, ins, 0), Math.Ceiling)];
             case "Relu":
-                return [Un(Input(n, ins, 0), v => Math.Max(v, 0), v => Math.Max(v, 0))];
+                return [Un(Input(n, ins, 0), v => Math.Max(v, 0), v => IsSym(v) ? v : Math.Max(v, 0))];
             case "Sigmoid":
                 return [UnF(Input(n, ins, 0), v => 1 / (1 + Math.Exp(-v)))];
             case "Tanh":
@@ -181,8 +209,13 @@ internal static class OnnxFold
     {
         bool fm = n.Int("fmod", 0) != 0;
         return [Bin(Input(n, ins, 0), Input(n, ins, 1), (a, b) => fm ? a % b : a - Math.Floor(a / b) * b,
-        (a, b) => b == 0 ? throw new DivideByZeroException() : fm ? a % b : ((a % b) + b) % b)];
+        (a, b) => b == 0 ? throw new DivideByZeroException() : fm ? a % b : ((a % b) + b) % b, (a, b) => a - (SymbolicDivide(a, b) * b))];
     }
+
+    /// <summary>Integer division of symbolic sizes (non-negative, so truncation equals floor) by a constant.</summary>
+    private static SymbolicExpression SymbolicDivide(SymbolicExpression a, SymbolicExpression b)
+        => b.IsConstant ? a.FloorDiv(b.ConstantValue) : (a - b).IsConstant && (a - b).ConstantValue == 0 ? SymbolicExpression.Constant(1)
+            : throw new NotSupportedException($"Dividing {a} by the symbolic value {b}.");
 
     private static IReadOnlyList<OnnxConst> FoldTile(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {
@@ -365,10 +398,11 @@ internal static class OnnxFold
     {
         Func<double, double, double> f = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
         Func<long, long, long> g = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
+        Func<SymbolicExpression, SymbolicExpression, SymbolicExpression> s = n.OpType == "Max" ? SymbolicExpression.Max : n.OpType == "Min" ? SymbolicExpression.Min : (a, b) => a + b;
         var r = Input(n, ins, 0);
         for (int i = 1; i < ins.Count; i++)
         {
-            r = Bin(r, Input(n, ins, i), f, g);
+            r = Bin(r, Input(n, ins, i), f, g, s);
         }
 
         return [r];
@@ -483,6 +517,28 @@ internal static class OnnxFold
         var x = Input(n, ins, 0);
         var perm = n.Ints("perm")?.Select(p => (int)p).ToArray() ?? Enumerable.Range(0, x.Rank).Reverse().ToArray();
         return [x.Transposed(perm)];
+    }
+
+    /// <summary>Product / sum / max / min of a shape tensor with symbolic elements (all axes; e.g. the element count of a shape).</summary>
+    private static OnnxConst SymbolicReduce(OnnxNode n, OnnxConst x, OnnxConst? axesIn)
+    {
+        var axes = n.Has("axes") ? n.Ints("axes") : axesIn?.Ints();
+        if (axes is not null && !(x.Rank == 1 && axes.Length == 1 && NormalizeAxis(axes[0], 1) == 0))
+        {
+            throw new NotSupportedException($"{n.OpType} over some axes of a shape tensor with symbolic values.");
+        }
+
+        Func<SymbolicExpression, SymbolicExpression, SymbolicExpression> combine = n.OpType switch
+        {
+            "ReduceProd" => (a, b) => a * b,
+            "ReduceSum" => (a, b) => a + b,
+            "ReduceMax" => SymbolicExpression.Max,
+            "ReduceMin" => SymbolicExpression.Min,
+            _ => throw new NotSupportedException($"{n.OpType} of symbolic shape values."),
+        };
+        var result = x.Ints().Select(SymbolicInts.Decode).Aggregate(combine);
+        bool keep = n.Int("keepdims", 1) != 0;
+        return OnnxConst.FromInts(x.ElemType, keep ? Enumerable.Repeat(1L, x.Rank).ToArray() : [], [SymbolicInts.Encode(result)]);
     }
 
     private static IReadOnlyList<OnnxConst> FoldRange(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
@@ -696,7 +752,8 @@ internal static class OnnxFold
         }
     }
 
-    private static OnnxConst Bin(OnnxConst a, OnnxConst b, Func<double, double, double> ff, Func<long, long, long> fi)
+    private static OnnxConst Bin(OnnxConst a, OnnxConst b, Func<double, double, double> ff, Func<long, long, long> fi,
+        Func<SymbolicExpression, SymbolicExpression, SymbolicExpression>? fs = null)
     {
         var dims = Broadcast(a.Dims, b.Dims);
         long total = 1;
@@ -731,7 +788,10 @@ internal static class OnnxFold
             {
                 if (IsSym(av[i]) || IsSym(bv[j]))
                 {
-                    throw new NotSupportedException("Arithmetic on the symbolic batch size is not supported; the model computes with a dynamic batch dimension.");
+                    r[o] = fs is null
+                        ? throw new NotSupportedException($"This operation on the symbolic size {SymbolicInts.Format(IsSym(av[i]) ? av[i] : bv[j])} is not supported.")
+                        : SymbolicInts.Encode(fs(SymbolicInts.Decode(av[i]), SymbolicInts.Decode(bv[j])));
+                    return;
                 }
 
                 r[o] = fi(av[i], bv[j]);
@@ -749,9 +809,18 @@ internal static class OnnxFold
             total *= d;
         }
 
+        var r = new long[total];
+        if (a.HasSymbols || b.HasSymbols)
+        {
+            // Comparisons are invariant under subtracting b, so the sign of the (symbolic) difference decides them.
+            var ai = a.Ints();
+            var bi = b.Ints();
+            ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) => r[o] = f(SymbolicInts.CompareSigned(ai[i], bi[j]), 0) ? 1 : 0);
+            return OnnxConst.FromInts(OnnxType.Bool, dims, r);
+        }
+
         var av = a.Floats();
         var bv = b.Floats();
-        var r = new long[total];
         ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) => r[o] = f(av[i], bv[j]) ? 1 : 0);
         return OnnxConst.FromInts(OnnxType.Bool, dims, r);
     }
@@ -1113,6 +1182,11 @@ internal static class OnnxFold
 
     private static OnnxConst Reduce(OnnxNode n, OnnxConst x, OnnxConst? axesIn)
     {
+        if (x.HasSymbols)
+        {
+            return SymbolicReduce(n, x, axesIn);
+        }
+
         var axesL = n.Has("axes") ? n.Ints("axes") : axesIn?.Ints();
         var axes = (axesL ?? Enumerable.Range(0, x.Rank).Select(i => (long)i).ToArray()).Select(a => (int)(a < 0 ? a + x.Rank : a)).ToHashSet();
         bool keep = n.Int("keepdims", 1) != 0;
