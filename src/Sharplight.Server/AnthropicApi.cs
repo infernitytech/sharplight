@@ -11,15 +11,19 @@ using Sharplight.Llm.Serving.Hosting;
 namespace Sharplight.Server;
 
 /// <summary>Anthropic-compatible endpoints: <c>/v1/messages</c> (also streaming) and <c>/v1/messages/count_tokens</c>.</summary>
-public static class AnthropicApi
+internal static class AnthropicApi
 {
-    public static IEndpointRouteBuilder MapAnthropic(this IEndpointRouteBuilder routes)
+    extension(IEndpointRouteBuilder routes)
     {
-        var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
-        routes.MapModels(ctx);
-        routes.MapPost("/v1/messages", http => Messages(http, ctx));
-        routes.MapPost("/v1/messages/count_tokens", http => CountTokens(http, ctx));
-        return routes;
+        /// <summary>Maps <c>/v1/messages</c> and <c>/v1/messages/count_tokens</c> (and <c>/v1/models</c>).</summary>
+        public IEndpointRouteBuilder MapAnthropic()
+        {
+            var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
+            routes.MapModels(ctx);
+            routes.MapPost("/v1/messages", http => Messages(http, ctx));
+            routes.MapPost("/v1/messages/count_tokens", http => CountTokens(http, ctx));
+            return routes;
+        }
     }
 
     internal static JsonNode ModelObject(ModelInfo m)

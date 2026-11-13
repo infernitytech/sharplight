@@ -65,7 +65,7 @@ public sealed class LlmModel : IDisposable
             },
         });
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
-        return new InferenceSession(Definition, compiled);
+        return new InferenceSession(compiled);
     }
 
     /// <summary>

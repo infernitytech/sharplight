@@ -125,8 +125,7 @@ internal sealed class PackedBatchRunner : IDisposable
             {
                 _tokBuf[r + t] = seq.Tokens[t];
                 _posBuf[r + t] = t;
-                _typeBuf[r + t] = seq.TokenTypes is { }
-                tt ? tt[t] : 0;
+                _typeBuf[r + t] = seq.TokenTypes is { } tt ? tt[t] : 0;
                 _rowBuf[(r + t) * 2] = r;
                 _rowBuf[(r + t) * 2 + 1] = len;
             }

@@ -40,7 +40,7 @@ public sealed class InferenceSession : IDisposable
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
     public CompiledModel Compiled => _compiled;
 
-    public InferenceSession(ModelDefinition model, CompiledModel compiled)
+    internal InferenceSession(CompiledModel compiled)
     {
         _compiled = compiled;
         _graph = compiled.Graph;

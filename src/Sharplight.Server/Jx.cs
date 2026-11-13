@@ -2,42 +2,75 @@ using System.Text.Json;
 
 namespace Sharplight.Server;
 
-/// <summary>Typed accessors over a request JSON object.</summary>
+/// <summary>Typed accessors over a request JSON object. Wrongly typed fields raise a 400 <see cref="ApiException"/>.</summary>
 internal static class Jx
 {
-    public static JsonElement? Get(this JsonElement o, string name)
-        => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v : null;
-    public static string? Str(this JsonElement o, string name) => o.Get(name) is { ValueKind: JsonValueKind.String }
-    v ? v.GetString() : null;
-    public static int? Int(this JsonElement o, string name, string? param = null)
+    extension(JsonElement o)
     {
-        if (o.Get(name) is not { } v)
+        /// <summary>The property <paramref name="name"/>, or null when absent or JSON null (also null when the element is not an object).</summary>
+        public JsonElement? Get(string name)
+            => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v : null;
+
+        /// <summary>A string property, or null when absent or not a string.</summary>
+        public string? Str(string name)
+            => o.Get(name) is { ValueKind: JsonValueKind.String } v ? v.GetString() : null;
+
+        /// <summary>An integer property; fractional numbers are truncated. <paramref name="param"/> names the field in the error (default: the property name).</summary>
+        public int? Int(string name, string? param = null)
         {
-            return null;
+            if (o.Get(name) is not { } v)
+            {
+                return null;
+            }
+
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i))
+            {
+                return i;
+            }
+
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d))
+            {
+                return (int)d;
+            }
+
+            throw ApiException.BadRequest($"'{name}' must be an integer.", param ?? name);
         }
 
-        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i))
+        /// <summary>A numeric property as float; null when absent.</summary>
+        public float? Float(string name)
         {
-            return i;
+            if (o.Get(name) is not { } v)
+            {
+                return null;
+            }
+
+            return v.ValueKind == JsonValueKind.Number ? v.GetSingle() : throw ApiException.BadRequest($"'{name}' must be a number.", name);
         }
 
-        if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d))
+        /// <summary>A boolean property; null when absent.</summary>
+        public bool? Bool(string name)
         {
-            return (int)d;
+            if (o.Get(name) is not { } v)
+            {
+                return null;
+            }
+
+            return v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : throw ApiException.BadRequest($"'{name}' must be a boolean.", name);
         }
 
-        throw ApiException.BadRequest($"'{name}' must be an integer.", param ?? name);
+        /// <summary>The elements of an array property; empty when absent.</summary>
+        public IEnumerable<JsonElement> Arr(string name)
+        {
+            if (o.Get(name) is not { } v)
+            {
+                return [];
+            }
+
+            return v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : throw ApiException.BadRequest($"'{name}' must be an array.", name);
+        }
+
+        /// <summary>An object property, or null when absent or not an object.</summary>
+        public JsonElement? Obj(string name)
+            => o.Get(name) is { ValueKind: JsonValueKind.Object } v ? v : null;
     }
-    public static float? Float(this JsonElement o, string name)
-        => o.Get(name) is { }
-        v ? v.ValueKind == JsonValueKind.Number ? v.GetSingle() : throw ApiException.BadRequest($"'{name}' must be a number.", name) : null;
-    public static bool? Bool(this JsonElement o, string name)
-        => o.Get(name) is { }
-        v ? v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : throw ApiException.BadRequest($"'{name}' must be a boolean.", name) : null;
-    public static IEnumerable<JsonElement> Arr(this JsonElement o, string name)
-        => o.Get(name) is { }
-        v ? v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : throw ApiException.BadRequest($"'{name}' must be an array.", name) : [];
-    public static JsonElement? Obj(this JsonElement o, string name)
-        => o.Get(name) is { ValueKind: JsonValueKind.Object }
-        v ? v : null;
 }

@@ -40,8 +40,7 @@ public sealed class FakeLoader : IModelLoader
                 Thread.Sleep(o.LoadDelay);
             }
 
-            long bytes = limit is { }
-            l ? Math.Min(l, o._bytes) : o._bytes;
+            long bytes = limit is { } l ? Math.Min(l, o._bytes) : o._bytes;
             var dec = o.MakeDecoder?.Invoke() ?? new FakeBatchDecoder(2);
             dec.Script(o.Reply);
             var inst = new FakeLoaded(o._pool, bytes, o.Kind, dec);

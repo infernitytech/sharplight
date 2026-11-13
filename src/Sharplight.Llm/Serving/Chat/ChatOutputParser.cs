@@ -13,7 +13,7 @@ internal sealed class ChatOutputParser
 
     private readonly IReadOnlyList<IToolCallFormat> _formats;
     private readonly HashSet<string> _toolNames;
-    private readonly string _thinkOpen, _thinkClose;
+    private readonly string _thinkClose;
     private readonly List<string> _contentMarkers;
     private readonly IToolCallFormat? _bare;
     private readonly StringBuilder _buf = new();
@@ -33,7 +33,6 @@ internal sealed class ChatOutputParser
     {
         _formats = formats ?? [];
         _toolNames = [.. toolNames ?? []];
-        _thinkOpen = thinkOpen;
         _thinkClose = thinkClose;
         _contentMarkers = [thinkOpen, .. _formats.Where(f => f.StartMarker is not null).Select(f => f.StartMarker!)];
         _bare = _formats.FirstOrDefault(f => f.AllowLeadingJson);

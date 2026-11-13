@@ -44,9 +44,8 @@ public class VisionParityTests(ITestOutputHelper output)
         Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
         var slot = Env.Vulkan();
         Assert.SkipUnless(slot is not null, "no Vulkan device");
-        int w = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_W") is { }
-        sw ? int.Parse(sw) : 640, h = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_H") is { }
-        sh ? int.Parse(sh) : 488;
+        int w = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_W") is { } sw ? int.Parse(sw) : 640;
+        int h = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_H") is { } sh ? int.Parse(sh) : 488;
         var rgb = new byte[w * h * 3];
         var rng = new Random(7);
         for (int y = 0; y < h; y++)

@@ -13,7 +13,6 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 {
     private readonly PackedBatchRunner _runner;
     private readonly Lock _lock = new();
-    private readonly ModelSource _source;
 
     /// <summary>The model's definition (graphs, weights, metadata).</summary>
     public ModelDefinition Definition { get; }
@@ -36,10 +35,9 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
     /// <summary>The compiled packed-sequence graph.</summary>
     internal PackedBatchRunner Runner => _runner;
 
-    private EmbeddingModel(ModelDefinition def, ModelSource source, ITokenizer tok, PackedBatchRunner runner, int maxLength)
+    private EmbeddingModel(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, int maxLength)
     {
         Definition = def;
-        _source = source;
         Tokenizer = tok;
         _runner = runner;
         MaxSequenceLength = maxLength;
@@ -79,7 +77,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             EmbeddingPooling = options.Pooling ?? options.Adapter.EmbeddingPooling,
             EmbeddingNormalize = options.Normalize ?? options.Adapter.EmbeddingNormalize,
         };
-        var (def, source, tok) = PackedModelLoadOptions.Open(path, options, adapter);
+        var (def, _, tok) = PackedModelLoadOptions.Open(path, options, adapter);
         try
         {
             if (!def.Graphs.ContainsKey(WellKnown.EmbedGraph))
@@ -89,7 +87,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
 
             var runner = PackedBatchRunner.Compile(def, WellKnown.EmbedGraph, WellKnown.EmbeddingsOutput, options.Devices, options.Fallback,
                 options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, null, options.Log);
-            return new EmbeddingModel(def, source, tok, runner, options.ResolveMaxLength(def));
+            return new EmbeddingModel(def, tok, runner, options.ResolveMaxLength(def));
         }
         catch
         {

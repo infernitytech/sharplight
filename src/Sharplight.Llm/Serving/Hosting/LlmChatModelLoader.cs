@@ -39,8 +39,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         public LoadedModel Load(long? primaryLimit)
         {
             // The limit covers the whole model on the primary device; placement only sees weights + state, so leave room for activations.
-            long? limit = primaryLimit is { }
-            l ? Math.Max(0, l - fp.ActivationBytes) : null;
+            long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes) : null;
             var decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit);
             InferenceEngine? engine = null;
             try

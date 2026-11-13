@@ -12,17 +12,21 @@ using Sharplight.Llm.Serving.Hosting;
 namespace Sharplight.Server;
 
 /// <summary>OpenAI-compatible endpoints: <c>/v1/chat/completions</c>, <c>/v1/completions</c>, <c>/v1/models</c>.</summary>
-public static class OpenAiApi
+internal static class OpenAiApi
 {
     private static readonly long Created = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-    public static IEndpointRouteBuilder MapOpenAi(this IEndpointRouteBuilder routes)
+    extension(IEndpointRouteBuilder routes)
     {
-        var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
-        routes.MapModels(ctx);
-        routes.MapPost("/v1/chat/completions", http => ChatCompletions(http, ctx));
-        routes.MapPost("/v1/completions", http => Completions(http, ctx));
-        return routes;
+        /// <summary>Maps <c>/v1/chat/completions</c>, <c>/v1/completions</c> and <c>/v1/models</c>.</summary>
+        public IEndpointRouteBuilder MapOpenAi()
+        {
+            var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
+            routes.MapModels(ctx);
+            routes.MapPost("/v1/chat/completions", http => ChatCompletions(http, ctx));
+            routes.MapPost("/v1/completions", http => Completions(http, ctx));
+            return routes;
+        }
     }
 
     internal static JsonNode ModelObject(ModelInfo m) => new JsonObject

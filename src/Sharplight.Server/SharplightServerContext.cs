@@ -5,7 +5,7 @@ using Sharplight.Llm.Serving.Hosting;
 namespace Sharplight.Server;
 
 /// <summary>Shared state behind the endpoints (one per host): the models (a <see cref="ModelHost"/>) and the server options.</summary>
-public sealed class SharplightServerContext
+internal sealed class SharplightServerContext
 {
     public SharplightServerContext(ModelHost host, SharplightServerOptions options)
     {

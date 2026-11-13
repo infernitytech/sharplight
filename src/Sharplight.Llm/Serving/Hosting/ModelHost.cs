@@ -78,7 +78,7 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    /// <summary>Registers a model that is already loaded (kept loaded; <paramref name="instance"/> is disposed with the host unless <paramref name="pinned"/> models are left to the caller).</summary>
+    /// <summary>Registers a model that is already loaded (pinned: kept loaded and never evicted; <paramref name="instance"/> is disposed with the host).</summary>
     public void Adopt(string name, LoadedModel instance, string? description = null)
     {
         Register(new ModelRegistration { Name = name, Loader = new AdoptedLoader(instance.Kind), Pinned = true, Description = description });
