@@ -100,6 +100,57 @@ internal sealed partial class OnnxTranslator
         return Emit("Reshape", [product], Attributes.From(("shape", dims.ToArray())), name);
     }
 
+    /// <summary>
+    /// Replaces "..." in the terms (and output) with fresh labels for the operands' leading axes, right-aligned across operands
+    /// as in broadcasting. Returns the rewritten terms and output, and the ellipsis labels in order (the implicit output starts with them).
+    /// </summary>
+    private static (string[] Terms, string? Rhs, string EllipsisLabels) ExpandEllipsis(string equation, string[] terms, string? rhs, Value[] values)
+    {
+        if (!equation.Contains("..."))
+        {
+            return (terms, rhs, "");
+        }
+
+        var fresh = Enumerable.Range('A', 26).Select(c => (char)c).Concat(Enumerable.Range('a', 26).Select(c => (char)c)).Where(c => !equation.Contains(c)).ToArray();
+        int widest = terms.Select((t, i) => t.Contains("...") ? values[i].Rank - (t.Length - 3) : 0).Max();
+        string labels = new(fresh.Take(widest).ToArray());
+        var expanded = terms.Select((t, i) => t.Contains("...") ? t.Replace("...", labels[(widest - (values[i].Rank - (t.Length - 3)))..]) : t).ToArray();
+        return (expanded, rhs?.Replace("...", labels), labels);
+    }
+
+    /// <summary>Removes repeated labels of one operand by taking diagonals: x · I(axis i == axis j) summed over axis j.</summary>
+    private LabeledValue Diagonals(LabeledValue operand)
+    {
+        while (operand.L.GroupBy(c => c).FirstOrDefault(g => g.Count() > 1) is { } repeated)
+        {
+            int first = operand.L.IndexOf(repeated.Key);
+            int second = operand.L.IndexOf(repeated.Key, first + 1);
+            var x = operand.V;
+            if (Sym(x) && (first == 0 || second == 0))
+            {
+                throw new NotSupportedException("Einsum diagonal over the symbolic outer axis");
+            }
+
+            long size = x.Shape[first].Fixed;
+            var maskDims = Enumerable.Repeat(1L, x.Rank).ToArray();
+            maskDims[first] = size;
+            maskDims[second] = size;
+            var identity = new double[size * size];
+            for (long i = 0; i < size; i++)
+            {
+                identity[i * size + i] = 1;
+            }
+
+            var mask = ConstValue(OnnxConst.FromFloats(OnnxType.Float, maskDims, identity, $"einsum.eye{size}"), $"einsum.eye{size}");
+            var diagonal = Emit("Reduce", [_b.Mul(x, mask)], Attributes.From(("mode", "sum"), ("axes", L(second)), ("keepdims", false)));
+            var labels = operand.L.ToList();
+            labels.RemoveAt(second);
+            operand = new LabeledValue(diagonal, labels);
+        }
+
+        return operand;
+    }
+
     private Value MatMulWeightOrBatch(Value a, OnnxConst bf, string name)
     {
         Value y;
@@ -119,25 +170,32 @@ internal sealed partial class OnnxTranslator
     private void Einsum(OnnxNode n, TranslatedTensor?[] ins)
     {
         string eq = n.Str("equation", "").Replace(" ", "");
-        if (eq.Contains("..."))
-        {
-            throw new NotSupportedException("Einsum with ellipsis");
-        }
-
         var parts = eq.Split("->");
         var terms = parts[0].Split(',');
-        string rhs = parts.Length > 1 ? parts[1] : new string(string.Concat(terms).GroupBy(c => c).Where(g => g.Count() == 1).Select(g => g.Key).OrderBy(c => c).ToArray());
         if (terms.Length is < 1 or > 2)
         {
             throw new NotSupportedException("Einsum with more than two operands");
         }
 
-        var ops = terms.Select((t, i) => new LabeledValue(X(ins, i), [.. t])).ToList();
+        var values = terms.Select((_, i) => X(ins, i)).ToArray();
+        string? explicitRhs = parts.Length > 1 ? parts[1] : null;
+        (terms, explicitRhs, string ellipsisLabels) = ExpandEllipsis(eq, terms, explicitRhs, values);
+        string rhs = explicitRhs ?? ellipsisLabels + new string(string.Concat(terms).Where(c => !ellipsisLabels.Contains(c)).GroupBy(c => c)
+            .Where(g => g.Count() == 1).Select(g => g.Key).OrderBy(c => c).ToArray());
+        if (terms.All(t => t.Length == 0) && rhs.Length == 0)
+        {
+            // "->" over scalars: the (product of the) operands.
+            var scalar = values.Length == 1 ? values[0] : _b.Mul(values[0], values[1]);
+            SetDyn(n, 0, Emit("Reshape", [scalar], Attributes.From(("shape", Array.Empty<long>())), Nm(n)));
+            return;
+        }
+
+        var ops = terms.Select((t, i) => Diagonals(new LabeledValue(values[i], [.. t]))).ToList();
         foreach (var o in ops)
         {
-            if (o.L.Count != o.V.Rank || o.L.Distinct().Count() != o.L.Count)
+            if (o.L.Count != o.V.Rank)
             {
-                throw new NotSupportedException("Einsum with repeated labels (traces/diagonals)");
+                throw new NotSupportedException($"Einsum term with {o.L.Count} labels for an operand of rank {o.V.Rank}");
             }
         }
 
