@@ -31,14 +31,17 @@ public sealed partial class GraphLowerer
 
         switch (op)
         {
-            case "GatherAxis": case "GatherElements": case "GatherND":
+            case "GatherAxis":
+            case "GatherElements":
+            case "GatherND":
                 if (!IsIndexType(node.Inputs[1].Type))
                 {
                     return OpSupport.No($"{op} indices must be i32/i64");
                 }
 
                 break;
-            case "ScatterElements": case "ScatterND":
+            case "ScatterElements":
+            case "ScatterND":
                 if (!IsIndexType(node.Inputs[1].Type))
                 {
                     return OpSupport.No($"{op} indices must be i32/i64");
@@ -67,7 +70,12 @@ public sealed partial class GraphLowerer
                 }
 
                 break;
-            case "CumSum": case "GroupNorm": case "ConvTranspose": case "GridSample": case "TopK": case "ArgReduce":
+            case "CumSum":
+            case "GroupNorm":
+            case "ConvTranspose":
+            case "GridSample":
+            case "TopK":
+            case "ArgReduce":
                 if (node.Inputs[0].Type == DataType.I64 || node.Inputs[0].Type == DataType.U32)
                 {
                     return OpSupport.No($"{op} on {node.Inputs[0].Type}");
@@ -335,7 +343,11 @@ public sealed partial class GraphLowerer
     // ---- scatter (deterministic: sequential along the scatter axis) -------------------------------
     private static string ScatterOp(string reduction, string o, string u) => reduction switch
     {
-        "add" => $"({o} + {u})", "mul" => $"({o} * {u})", "max" => $"max({o}, {u})", "min" => $"min({o}, {u})", _ => u,
+        "add" => $"({o} + {u})",
+        "mul" => $"({o} * {u})",
+        "max" => $"max({o}, {u})",
+        "min" => $"min({o}, {u})",
+        _ => u,
     };
 
     private void LowerScatterElements(Node n)

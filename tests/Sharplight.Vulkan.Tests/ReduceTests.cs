@@ -27,11 +27,17 @@ public sealed class ReduceTests
     }
 
     [Theory]
-    [InlineData("sum")] [InlineData("mean")] [InlineData("max")] [InlineData("min")]
+    [InlineData("sum")]
+    [InlineData("mean")]
+    [InlineData("max")]
+    [InlineData("min")]
     public void GlobalAveragePoolStyle(string mode) => Run("hw " + mode, mode, [2, 3], true, [24, 7, 7]);
 
     [Theory]
-    [InlineData("sum")] [InlineData("mean")] [InlineData("max")] [InlineData("min")]
+    [InlineData("sum")]
+    [InlineData("mean")]
+    [InlineData("max")]
+    [InlineData("min")]
     public void ChannelAxis(string mode) => Run("c " + mode, mode, [1], false, [24, 5, 6]);
 
     [Fact] public void LastAxis() => Run("last", "mean", [-1], true, [10, 131]);

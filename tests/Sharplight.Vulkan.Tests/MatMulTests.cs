@@ -34,7 +34,14 @@ public sealed class MatMulTests
     }
 
     [Theory]
-    [InlineData("f32", 288, 100)] [InlineData("f16", 160, 33)] [InlineData("q8_0", 96, 130)] [InlineData("q4_0", 64, 7)] [InlineData("bf16", 40, 17)] [InlineData("f32", 16, 8)] [InlineData("f16", 64, 8)] [InlineData("f32", 24, 40)]
+    [InlineData("f32", 288, 100)]
+    [InlineData("f16", 160, 33)]
+    [InlineData("q8_0", 96, 130)]
+    [InlineData("q4_0", 64, 7)]
+    [InlineData("bf16", 40, 17)]
+    [InlineData("f32", 16, 8)]
+    [InlineData("f16", 64, 8)]
+    [InlineData("f32", 24, 40)]
     public void OddShapes(string fmt, int K, int N)
     {
         Gpu.Require();
@@ -48,7 +55,9 @@ public sealed class MatMulTests
         }
     }
 
-    [Theory] [InlineData(1)] [InlineData(12)]
+    [Theory]
+    [InlineData(1)]
+    [InlineData(12)]
     public void StridedAndHigherRankInputs(int t)
     {
         Gpu.Require();

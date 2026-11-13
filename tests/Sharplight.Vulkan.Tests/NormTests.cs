@@ -6,8 +6,13 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class NormTests
 {
     [Theory]
-    [InlineData("RmsNorm", 1, 64, true)] [InlineData("RmsNorm", 6, 2048, true)] [InlineData("RmsNorm", 5, 100, false)] [InlineData("RmsNorm", 3, 33, true)]
-    [InlineData("L2Norm", 1, 64, false)] [InlineData("L2Norm", 6, 128, false)] [InlineData("L2Norm", 4, 50, false)]
+    [InlineData("RmsNorm", 1, 64, true)]
+    [InlineData("RmsNorm", 6, 2048, true)]
+    [InlineData("RmsNorm", 5, 100, false)]
+    [InlineData("RmsNorm", 3, 33, true)]
+    [InlineData("L2Norm", 1, 64, false)]
+    [InlineData("L2Norm", 6, 128, false)]
+    [InlineData("L2Norm", 4, 50, false)]
     public void Dense(string op, int t, int d, bool weight)
     {
         Gpu.Require();
@@ -24,7 +29,9 @@ public sealed class NormTests
     }
 
     [Theory]
-    [InlineData("RmsNorm", true)] [InlineData("RmsNorm", false)] [InlineData("L2Norm", false)]
+    [InlineData("RmsNorm", true)]
+    [InlineData("RmsNorm", false)]
+    [InlineData("L2Norm", false)]
     public void ThreeAndFourDimStrided(string op, bool weight)
     {
         Gpu.Require();

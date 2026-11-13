@@ -111,8 +111,13 @@ internal sealed unsafe class MemoryAllocator : IDisposable
 
             a = new Allocation
             {
-                Buffer = b.Buffer, Offset = off, Size = size, Address = b.Address + off,
-                Mapped = b.Mapped == null ? null : b.Mapped + off, Block = b, Coherent = b.Coherent,
+                Buffer = b.Buffer,
+                Offset = off,
+                Size = size,
+                Address = b.Address + off,
+                Mapped = b.Mapped == null ? null : b.Mapped + off,
+                Block = b,
+                Coherent = b.Coherent,
             };
             return true;
         }
@@ -156,8 +161,14 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         var bai = new VkBufferDeviceAddressInfo { buffer = buf };
         var block = new MemoryBlock
         {
-            Memory = mem, Buffer = buf, Size = size, Address = api.vkGetBufferDeviceAddress(&bai), Mapped = mapped,
-            Dedicated = dedicated, Usage = usage, Coherent = (flags & VkMemoryPropertyFlags.HostCoherent) != 0,
+            Memory = mem,
+            Buffer = buf,
+            Size = size,
+            Address = api.vkGetBufferDeviceAddress(&bai),
+            Mapped = mapped,
+            Dedicated = dedicated,
+            Usage = usage,
+            Coherent = (flags & VkMemoryPropertyFlags.HostCoherent) != 0,
             Tracked = (flags & VkMemoryPropertyFlags.DeviceLocal) != 0 ? (long)req.size : 0,
         };
         block.Free.Add(0, size);

@@ -50,19 +50,37 @@ public sealed class MoeTests
     public void WeightFormat(string fmt, int t) => Run(fmt, t, 4, false, "random");
 
     [Theory]
-    [InlineData(1, 1)] [InlineData(1, 2)] [InlineData(1, 8)] [InlineData(3, 2)] [InlineData(3, 8)] [InlineData(5, 4)] [InlineData(70, 1)] [InlineData(70, 2)] [InlineData(70, 8)]
+    [InlineData(1, 1)]
+    [InlineData(1, 2)]
+    [InlineData(1, 8)]
+    [InlineData(3, 2)]
+    [InlineData(3, 8)]
+    [InlineData(5, 4)]
+    [InlineData(70, 1)]
+    [InlineData(70, 2)]
+    [InlineData(70, 8)]
     public void TopKValues(int t, int s) => Run("q4_k", t, s, false, "random");
 
     [Theory]
-    [InlineData(1, 4)] [InlineData(3, 4)] [InlineData(70, 4)] [InlineData(70, 8)]
+    [InlineData(1, 4)]
+    [InlineData(3, 4)]
+    [InlineData(70, 4)]
+    [InlineData(70, 8)]
     public void PerSlotInput(int t, int s) => Run("q4_k", t, s, true, "random");
 
     [Theory]
-    [InlineData("f16", 70, "few")] [InlineData("q4_k", 70, "few")] [InlineData("q4_k", 70, "one")] [InlineData("q6_k", 20, "few")] [InlineData("f32", 40, "one")]
+    [InlineData("f16", 70, "few")]
+    [InlineData("q4_k", 70, "few")]
+    [InlineData("q4_k", 70, "one")]
+    [InlineData("q6_k", 20, "few")]
+    [InlineData("f32", 40, "one")]
     public void ExpertsWithoutTokens(string fmt, int t, string pattern) => Run(fmt, t, 2, false, pattern);
 
     [Theory]
-    [InlineData(64, 24, 256)] [InlineData(16, 130, 256)] [InlineData(32, 33, 512)] [InlineData(4, 200, 288)]
+    [InlineData(64, 24, 256)]
+    [InlineData(16, 130, 256)]
+    [InlineData(32, 33, 512)]
+    [InlineData(4, 200, 288)]
     public void ShapeVariants(int E, int N, int K) => Run(K % 256 == 0 ? "q4_k" : "q8_0", 70, 3, false, "random", E, N, K);
 
     /// <summary>Two expert products on one ids tensor followed by a second block with other ids (routing is recomputed).</summary>

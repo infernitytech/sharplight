@@ -12,7 +12,9 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class FusionTests
 {
     [Theory]
-    [InlineData(1, 64)] [InlineData(5, 100)] [InlineData(3, 5120)]
+    [InlineData(1, 64)]
+    [InlineData(5, 100)]
+    [InlineData(3, 5120)]
     public void ResidualAddThenRmsNorm(int t, int d)
     {
         Gpu.Require();
@@ -27,7 +29,9 @@ public sealed class FusionTests
     }
 
     [Theory]
-    [InlineData(1, 4, 128)] [InlineData(6, 3, 32)] [InlineData(2, 2, 300)]
+    [InlineData(1, 4, 128)]
+    [InlineData(6, 3, 32)]
+    [InlineData(2, 2, 300)]
     public void GatedRmsNorm(int t, int h, int d)
     {
         Gpu.Require();
@@ -71,7 +75,8 @@ public sealed class FusionTests
     }
 
     [Theory]
-    [InlineData(2, 4, 32, 16)] [InlineData(1, 2, 128, 128)]
+    [InlineData(2, 4, 32, 16)]
+    [InlineData(1, 2, 128, 128)]
     public void L2NormedQkInDeltaRule(int Hk, int Hv, int Dk, int Dv)
     {
         Gpu.Require();
@@ -93,7 +98,9 @@ public sealed class FusionTests
     }
 
     [Theory]
-    [InlineData("f16", 16, 16)] [InlineData("f32", 32, 32)] [InlineData("f16", 256, 64)]
+    [InlineData("f16", 16, 16)]
+    [InlineData("f32", 32, 32)]
+    [InlineData("f16", 256, 64)]
     public void NormRopeIntoCache(string cacheType, int D, int rot)
     {
         Gpu.Require();

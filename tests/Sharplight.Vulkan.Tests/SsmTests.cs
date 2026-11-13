@@ -8,8 +8,12 @@ public sealed class SsmTests
 {
     // (H, P, N, G): tiny, odd sizes, Nemotron-H Nano 4B, Nemotron-3-Nano-30B.
     [Theory]
-    [InlineData(4, 8, 16, 2, false)] [InlineData(4, 8, 16, 2, true)] [InlineData(3, 5, 8, 3, true)] [InlineData(2, 6, 12, 1, false)]
-    [InlineData(96, 80, 128, 8, true)] [InlineData(64, 64, 128, 8, false)]
+    [InlineData(4, 8, 16, 2, false)]
+    [InlineData(4, 8, 16, 2, true)]
+    [InlineData(3, 5, 8, 3, true)]
+    [InlineData(2, 6, 12, 1, false)]
+    [InlineData(96, 80, 128, 8, true)]
+    [InlineData(64, 64, 128, 8, false)]
     public void SelectiveScanAcrossSteps(int H, int P, int N, int G, bool sliced)
     {
         Gpu.Require();
@@ -47,7 +51,9 @@ public sealed class SsmTests
     }
 
     [Theory]
-    [InlineData(20, 4, true)] [InlineData(600, 4, false)] [InlineData(33, 2, true)]
+    [InlineData(20, 4, true)]
+    [InlineData(600, 4, false)]
+    [InlineData(33, 2, true)]
     public void CausalConvBiasAcrossSteps(int C, int K, bool silu)
     {
         Gpu.Require();

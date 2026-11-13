@@ -6,7 +6,11 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class RowOpTests
 {
     [Theory]
-    [InlineData(1, 100, 1f)] [InlineData(7, 1000, 0.125f)] [InlineData(5, 33, 1f)] [InlineData(3, 8, 2f)] [InlineData(2, 5000, 1f)]
+    [InlineData(1, 100, 1f)]
+    [InlineData(7, 1000, 0.125f)]
+    [InlineData(5, 33, 1f)]
+    [InlineData(3, 8, 2f)]
+    [InlineData(2, 5000, 1f)]
     public void Softmax(int t, int d, float scale)
     {
         Gpu.Require();
@@ -39,7 +43,11 @@ public sealed class RowOpTests
     }
 
     [Theory]
-    [InlineData(3, 64, true, true)] [InlineData(5, 768, true, true)] [InlineData(4, 100, false, false)] [InlineData(4, 100, true, false)] [InlineData(2, 33, false, true)]
+    [InlineData(3, 64, true, true)]
+    [InlineData(5, 768, true, true)]
+    [InlineData(4, 100, false, false)]
+    [InlineData(4, 100, true, false)]
+    [InlineData(2, 33, false, true)]
     public void LayerNorm(int t, int d, bool w, bool b)
     {
         Gpu.Require();
@@ -73,7 +81,9 @@ public sealed class RowOpTests
     }
 
     [Theory]
-    [InlineData("ReduceSum")] [InlineData("ReduceMax")] [InlineData("ArgMax")]
+    [InlineData("ReduceSum")]
+    [InlineData("ReduceMax")]
+    [InlineData("ArgMax")]
     public void RowReduce(string op)
     {
         Gpu.Require();

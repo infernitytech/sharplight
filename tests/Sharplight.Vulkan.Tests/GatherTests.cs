@@ -5,7 +5,14 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class GatherTests
 {
     [Theory]
-    [InlineData("f32", 128)] [InlineData("f16", 128)] [InlineData("bf16", 64)] [InlineData("q8_0", 128)] [InlineData("q4_0", 96)] [InlineData("q4_k", 256)] [InlineData("q5_k", 512)] [InlineData("q6_k", 256)]
+    [InlineData("f32", 128)]
+    [InlineData("f16", 128)]
+    [InlineData("bf16", 64)]
+    [InlineData("q8_0", 128)]
+    [InlineData("q4_0", 96)]
+    [InlineData("q4_k", 256)]
+    [InlineData("q5_k", 512)]
+    [InlineData("q6_k", 256)]
     public void Table(string fmt, int d)
     {
         Gpu.Require();

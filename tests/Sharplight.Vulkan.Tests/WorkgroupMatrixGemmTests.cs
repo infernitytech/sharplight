@@ -7,7 +7,11 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class WorkgroupMatrixGemmTests
 {
     [Theory]
-    [InlineData("f16", 512, 96)] [InlineData("q8_0", 512, 300)] [InlineData("q8_0", 192, 130)] [InlineData("f16", 4096, 64)] [InlineData("q8_0", 4096, 520)]
+    [InlineData("f16", 512, 96)]
+    [InlineData("q8_0", 512, 300)]
+    [InlineData("q8_0", 192, 130)]
+    [InlineData("f16", 4096, 64)]
+    [InlineData("q8_0", 4096, 520)]
     public void MatchesCpu(string fmt, int K, int N)
     {
         Gpu.Require();

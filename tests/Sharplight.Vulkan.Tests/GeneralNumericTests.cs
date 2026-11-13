@@ -6,7 +6,11 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class GeneralNumericTests
 {
     [Theory]
-    [InlineData("prod")] [InlineData("l1")] [InlineData("l2")] [InlineData("sumsquare")] [InlineData("logsumexp")]
+    [InlineData("prod")]
+    [InlineData("l1")]
+    [InlineData("l2")]
+    [InlineData("sumsquare")]
+    [InlineData("logsumexp")]
     public void ReduceModes(string mode)
     {
         Gpu.Require();
@@ -40,7 +44,11 @@ public sealed class GeneralNumericTests
     }
 
     [Theory]
-    [InlineData(4, 1, 6, true, true)] [InlineData(4, 4, 6, true, true)] [InlineData(12, 3, 5, true, false)] [InlineData(8, 2, 7, false, true)] [InlineData(32, 8, 3, false, false)]
+    [InlineData(4, 1, 6, true, true)]
+    [InlineData(4, 4, 6, true, true)]
+    [InlineData(12, 3, 5, true, false)]
+    [InlineData(8, 2, 7, false, true)]
+    [InlineData(32, 8, 3, false, false)]
     public void GroupNorm(int c, int groups, int s, bool scale, bool bias)
     {
         Gpu.Require();
@@ -92,8 +100,15 @@ public sealed class GeneralNumericTests
     }
 
     [Theory]
-    [InlineData("linear", "zeros", false)] [InlineData("linear", "zeros", true)] [InlineData("linear", "border", false)] [InlineData("linear", "reflection", true)]
-    [InlineData("linear", "reflection", false)] [InlineData("nearest", "zeros", false)] [InlineData("nearest", "border", true)] [InlineData("cubic", "zeros", false)] [InlineData("cubic", "border", true)]
+    [InlineData("linear", "zeros", false)]
+    [InlineData("linear", "zeros", true)]
+    [InlineData("linear", "border", false)]
+    [InlineData("linear", "reflection", true)]
+    [InlineData("linear", "reflection", false)]
+    [InlineData("nearest", "zeros", false)]
+    [InlineData("nearest", "border", true)]
+    [InlineData("cubic", "zeros", false)]
+    [InlineData("cubic", "border", true)]
     public void GridSample(string mode, string padding, bool align)
     {
         Gpu.Require();

@@ -27,11 +27,15 @@ public sealed class PadTests
 
     // pads layout: begin per axis (incl. the batch axis), then end per axis
     [Theory]
-    [InlineData("constant")] [InlineData("reflect")] [InlineData("edge")]
+    [InlineData("constant")]
+    [InlineData("reflect")]
+    [InlineData("edge")]
     public void Spatial4D(string mode) => Run(mode, mode, [4, 9, 11], [0, 0, 2, 1, 0, 0, 3, 2], 1.5f);
 
     [Theory]
-    [InlineData("constant")] [InlineData("reflect")] [InlineData("edge")]
+    [InlineData("constant")]
+    [InlineData("reflect")]
+    [InlineData("edge")]
     public void Rank3(string mode) => Run(mode, mode, [10, 7], [0, 1, 2, 0, 3, 1], -0.5f);
 
     [Fact] public void ConstantOnlyOneSide() => Run("one side", "constant", [3, 5, 6], [0, 0, 0, 2, 0, 0, 0, 0], 7f);

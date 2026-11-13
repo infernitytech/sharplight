@@ -64,7 +64,8 @@ public sealed class BenchTests
     }
 
     [Theory]
-    [InlineData("f16")] [InlineData("q8_0")]
+    [InlineData("f16")]
+    [InlineData("q8_0")]
     public void MatMulPrefill(string type)
     {
         RequireBench();

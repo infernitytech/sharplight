@@ -6,7 +6,10 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class CastAndIntegerTests
 {
     [Theory]
-    [InlineData("f16")] [InlineData("bf16")] [InlineData("i32")] [InlineData("i64")]
+    [InlineData("f16")]
+    [InlineData("bf16")]
+    [InlineData("i32")]
+    [InlineData("i64")]
     public void CastRoundTrip(string t)
     {
         Gpu.Require();
@@ -39,7 +42,9 @@ public sealed class CastAndIntegerTests
         Diff.Check("Cast.int", tg.B.Build(), new Step(3, 0, (x, Enumerable.Range(-7, 15).Select(v => (long)v * 3).ToArray())), atol: 0, rtol: 0);
     }
 
-    [Theory] [InlineData("i32")] [InlineData("i64")]
+    [Theory]
+    [InlineData("i32")]
+    [InlineData("i64")]
     public void IntegerTensorsThroughViewsConcatGatherWhereExpand(string t)
     {
         Gpu.Require();

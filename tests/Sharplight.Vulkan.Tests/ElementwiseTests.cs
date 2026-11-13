@@ -150,8 +150,16 @@ public sealed class ElementwiseTests
     }
 
     [Theory]
-    [InlineData("Equal")] [InlineData("NotEqual")] [InlineData("Less")] [InlineData("LessEqual")] [InlineData("Greater")] [InlineData("GreaterEqual")]
-    [InlineData("And")] [InlineData("Or")] [InlineData("Xor")] [InlineData("PRelu")]
+    [InlineData("Equal")]
+    [InlineData("NotEqual")]
+    [InlineData("Less")]
+    [InlineData("LessEqual")]
+    [InlineData("Greater")]
+    [InlineData("GreaterEqual")]
+    [InlineData("And")]
+    [InlineData("Or")]
+    [InlineData("Xor")]
+    [InlineData("PRelu")]
     public void ComparisonLogicAndPRelu(string op)
     {
         Gpu.Require();
@@ -164,7 +172,9 @@ public sealed class ElementwiseTests
         Diff.Check("Binary." + op, tg.B.Build(), new Step(4, 0, (a, av), (b, bv)));
     }
 
-    [Theory] [InlineData(true)] [InlineData(false)]
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
     public void Mod(bool fmod)
     {
         Gpu.Require();
@@ -177,7 +187,11 @@ public sealed class ElementwiseTests
     }
 
     [Theory]
-    [InlineData("Elu", 0.7f)] [InlineData("Celu", 1.3f)] [InlineData("Selu", 1.2f)] [InlineData("LeakyRelu", 0.1f)] [InlineData("ThresholdedRelu", 0.5f)]
+    [InlineData("Elu", 0.7f)]
+    [InlineData("Celu", 1.3f)]
+    [InlineData("Selu", 1.2f)]
+    [InlineData("LeakyRelu", 0.1f)]
+    [InlineData("ThresholdedRelu", 0.5f)]
     public void ParameterizedActivations(string op, float alpha)
     {
         Gpu.Require();

@@ -7,13 +7,20 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class StatefulTests
 {
     [Theory]
-    [InlineData("f16", 16, 16, 6, 2)] [InlineData("f32", 16, 16, 6, 2)] [InlineData("f16", 24, 32, 4, 4)] [InlineData("f32", 64, 64, 8, 1)] [InlineData("f16", 128, 128, 4, 2)]
+    [InlineData("f16", 16, 16, 6, 2)]
+    [InlineData("f32", 16, 16, 6, 2)]
+    [InlineData("f16", 24, 32, 4, 4)]
+    [InlineData("f32", 64, 64, 8, 1)]
+    [InlineData("f16", 128, 128, 4, 2)]
     public void CachedAttentionAcrossSteps(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [5, 3, 1, 1, 7, 1], 40);
 
     // Long prefill chunks: several key blocks, partial query blocks, GQA (the tensor-core flash-attention path when available).
     [Theory]
-    [InlineData("f16", 128, 128, 8, 2)] [InlineData("f16", 256, 256, 4, 1)] [InlineData("f16", 64, 128, 6, 3)] [InlineData("f32", 128, 128, 4, 2)]
+    [InlineData("f16", 128, 128, 8, 2)]
+    [InlineData("f16", 256, 256, 4, 1)]
+    [InlineData("f16", 64, 128, 6, 3)]
+    [InlineData("f32", 128, 128, 4, 2)]
     public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
 
@@ -48,7 +55,10 @@ public sealed class StatefulTests
     }
 
     [Theory]
-    [InlineData(4, 0f)] [InlineData(0, 20f)] [InlineData(5, 30f)] [InlineData(150, 0f)]
+    [InlineData(4, 0f)]
+    [InlineData(0, 20f)]
+    [InlineData(5, 30f)]
+    [InlineData(150, 0f)]
     public void CachedAttentionWindowAndSoftcap(int window, float softcap)
     {
         Gpu.Require();
@@ -96,7 +106,10 @@ public sealed class StatefulTests
 
     // Attention sinks: decode (split-K + combine), short chunks, and long prefill chunks (flash kernel), full and windowed.
     [Theory]
-    [InlineData("f16", 0)] [InlineData("f16", 17)] [InlineData("f32", 0)] [InlineData("f32", 40)]
+    [InlineData("f16", 0)]
+    [InlineData("f16", 17)]
+    [InlineData("f32", 0)]
+    [InlineData("f32", 40)]
     public void CachedAttentionSinks(string cacheType, int window)
     {
         Gpu.Require();
@@ -164,7 +177,11 @@ public sealed class StatefulTests
     }
 
     [Theory]
-    [InlineData(20, 4, true)] [InlineData(20, 4, false)] [InlineData(600, 4, true)] [InlineData(33, 2, true)] [InlineData(16, 6, false)]
+    [InlineData(20, 4, true)]
+    [InlineData(20, 4, false)]
+    [InlineData(600, 4, true)]
+    [InlineData(33, 2, true)]
+    [InlineData(16, 6, false)]
     public void CausalConvAcrossSteps(int C, int K, bool silu)
     {
         Gpu.Require();
@@ -179,7 +196,10 @@ public sealed class StatefulTests
     }
 
     [Theory]
-    [InlineData(2, 4, 16, 8)] [InlineData(1, 3, 128, 128)] [InlineData(4, 4, 32, 64)] [InlineData(2, 2, 64, 32)]
+    [InlineData(2, 4, 16, 8)]
+    [InlineData(1, 3, 128, 128)]
+    [InlineData(4, 4, 32, 64)]
+    [InlineData(2, 2, 64, 32)]
     public void GatedDeltaRuleAcrossSteps(int Hk, int Hv, int Dk, int Dv)
     {
         Gpu.Require();

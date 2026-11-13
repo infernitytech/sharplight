@@ -440,7 +440,8 @@ public sealed partial class GraphLowerer
                 long mm = mdyn ? dyn : Mb;
                 long batches = nb == 0 ? 1 : (y.Symbol is not null ? dyn * batchesInner : y.Shape.Take(nb).Aggregate(1L, (p, q) => p * q));
                 return new Grid(Grid.Div(N, t.BN), Grid.Div(mm, t.BM), (uint)batches);
-            });
+            }
+            );
         });
         KernelArg dynArg = mdyn ? new SymbolArg(y.Symbol!) : new UIntArg(0);
         Emit($"bmm {n.Output.Name} [{M}x{K}x{N}]", [n], variants,

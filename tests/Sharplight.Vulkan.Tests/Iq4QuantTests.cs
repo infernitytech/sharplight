@@ -6,9 +6,19 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class Iq4QuantTests
 {
     [Theory]
-    [InlineData("iq4_nl", 1)] [InlineData("iq4_nl", 3)] [InlineData("iq4_nl", 40)]
-    [InlineData("iq4_xs", 1)] [InlineData("iq4_xs", 3)] [InlineData("iq4_xs", 40)]
-    [InlineData("q4_1", 1)] [InlineData("q4_1", 40)] [InlineData("q5_0", 1)] [InlineData("q5_0", 3)] [InlineData("q5_0", 40)] [InlineData("q5_1", 1)] [InlineData("q5_1", 40)]
+    [InlineData("iq4_nl", 1)]
+    [InlineData("iq4_nl", 3)]
+    [InlineData("iq4_nl", 40)]
+    [InlineData("iq4_xs", 1)]
+    [InlineData("iq4_xs", 3)]
+    [InlineData("iq4_xs", 40)]
+    [InlineData("q4_1", 1)]
+    [InlineData("q4_1", 40)]
+    [InlineData("q5_0", 1)]
+    [InlineData("q5_0", 3)]
+    [InlineData("q5_0", 40)]
+    [InlineData("q5_1", 1)]
+    [InlineData("q5_1", 40)]
     public void MatMul(string type, int tokens)
     {
         Gpu.Require();
@@ -22,7 +32,11 @@ public sealed class Iq4QuantTests
     }
 
     [Theory]
-    [InlineData("iq4_nl")] [InlineData("iq4_xs")] [InlineData("q4_1")] [InlineData("q5_0")] [InlineData("q5_1")]
+    [InlineData("iq4_nl")]
+    [InlineData("iq4_xs")]
+    [InlineData("q4_1")]
+    [InlineData("q5_0")]
+    [InlineData("q5_1")]
     public void Gather(string type)
     {
         Gpu.Require();

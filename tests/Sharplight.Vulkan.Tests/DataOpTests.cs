@@ -19,7 +19,10 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData(0, 3)] [InlineData(1, 3)] [InlineData(-1, 2)] [InlineData(1, 0)]
+    [InlineData(0, 3)]
+    [InlineData(1, 3)]
+    [InlineData(-1, 2)]
+    [InlineData(1, 0)]
     public void GatherAxis(int axis, int idxRank)
     {
         Gpu.Require();
@@ -46,7 +49,11 @@ public sealed class DataOpTests
         Diff.Check("GatherAxis.i64", tg.B.Build(), new Step(5, 0, (x, Rnd.F(35, 1)), (idx, new long[] { 6, 0, -1, 3 })), atol: 0, rtol: 0);
     }
 
-    [Theory] [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(-1)]
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(-1)]
     public void GatherElements(int axis)
     {
         Gpu.Require();
@@ -59,7 +66,11 @@ public sealed class DataOpTests
         Diff.Check("GatherElements", tg.B.Build(), new Step(1, 0, (x, Rnd.F(120, 1)), (idx, Rnd.I(90, 2, (int)lim))), atol: 0, rtol: 0, what: $"axis {axis}");
     }
 
-    [Theory] [InlineData(0, 2)] [InlineData(0, 1)] [InlineData(1, 1)] [InlineData(0, 3)]
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(0, 1)]
+    [InlineData(1, 1)]
+    [InlineData(0, 3)]
     public void GatherND(int batchDims, int q)
     {
         Gpu.Require();
@@ -80,7 +91,12 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData("none", 1)] [InlineData("add", 1)] [InlineData("mul", 0)] [InlineData("max", 1)] [InlineData("min", 0)] [InlineData("add", 0)]
+    [InlineData("none", 1)]
+    [InlineData("add", 1)]
+    [InlineData("mul", 0)]
+    [InlineData("max", 1)]
+    [InlineData("min", 0)]
+    [InlineData("add", 0)]
     public void ScatterElements(string red, int axis)
     {
         Gpu.Require();
@@ -101,7 +117,9 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData("none")] [InlineData("add")] [InlineData("max")]
+    [InlineData("none")]
+    [InlineData("add")]
+    [InlineData("max")]
     public void ScatterND(string red)
     {
         Gpu.Require();
@@ -120,7 +138,10 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData(false, false)] [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
     public void CumSum(bool exclusive, bool reverse)
     {
         Gpu.Require();
@@ -132,7 +153,11 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData("max", 1, true, false)] [InlineData("min", 1, true, false)] [InlineData("max", 2, false, false)] [InlineData("max", 1, true, true)] [InlineData("min", 2, false, true)]
+    [InlineData("max", 1, true, false)]
+    [InlineData("min", 1, true, false)]
+    [InlineData("max", 2, false, false)]
+    [InlineData("max", 1, true, true)]
+    [InlineData("min", 2, false, true)]
     public void ArgReduce(string mode, int axis, bool keep, bool last)
     {
         Gpu.Require();
@@ -144,7 +169,10 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData(true, 1, 3)] [InlineData(false, 1, 4)] [InlineData(true, 2, 5)] [InlineData(true, 1, 7)]
+    [InlineData(true, 1, 3)]
+    [InlineData(false, 1, 4)]
+    [InlineData(true, 2, 5)]
+    [InlineData(true, 1, 7)]
     public void TopK(bool largest, int axis, int k)
     {
         Gpu.Require();
@@ -157,7 +185,9 @@ public sealed class DataOpTests
     }
 
     [Theory]
-    [InlineData(0, 1, 4)] [InlineData(0, -1, 4)] [InlineData(1, 2, 5)]
+    [InlineData(0, 1, 4)]
+    [InlineData(0, -1, 4)]
+    [InlineData(1, 2, 5)]
     public void Trilu(int k, int unused, int n)
     {
         Gpu.Require();
@@ -170,7 +200,9 @@ public sealed class DataOpTests
         }
     }
 
-    [Theory] [InlineData(-1)] [InlineData(1)]
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
     public void OneHot(int axis)
     {
         Gpu.Require();

@@ -118,8 +118,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         bool coopMat2 = coopMat && Has(DeviceFeatures.MatrixWorkgroup);
         var coop2 = new VkPhysicalDeviceCooperativeMatrix2FeaturesNV
         {
-            pNext = coop.pNext, cooperativeMatrixWorkgroupScope = true, cooperativeMatrixFlexibleDimensions = true,
-            cooperativeMatrixTensorAddressing = true, cooperativeMatrixBlockLoads = true,
+            pNext = coop.pNext,
+            cooperativeMatrixWorkgroupScope = true,
+            cooperativeMatrixFlexibleDimensions = true,
+            cooperativeMatrixTensorAddressing = true,
+            cooperativeMatrixBlockLoads = true,
         };
         if (coopMat2)
         {
