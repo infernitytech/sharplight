@@ -114,6 +114,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "TopK":
                 LowerTopK(n);
                 return;
+            case "Sample":
+                LowerSample(n);
+                return;
             case "Trilu":
                 LowerTrilu(n);
                 return;

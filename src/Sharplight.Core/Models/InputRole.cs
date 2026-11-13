@@ -38,4 +38,6 @@ public enum InputRole
     RowSpans,
     /// <summary>Packed-sequence graphs: per-sequence table [B, 2] i32 of (first row, row count); rows of one sequence are consecutive.</summary>
     SequenceSpans,
+    /// <summary>Per-row sampling parameters [R, 8] i32 of a <see cref="Graph.StandardOps.Sample"/> node (see <see cref="Graph.SamplingRow"/>).</summary>
+    SamplingParameters,
 }

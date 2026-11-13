@@ -79,6 +79,9 @@ public sealed partial class GraphLowerer
             case "SelectiveScan":
                 LowerSelectiveScan(n);
                 break;
+            case "Sample":
+                LowerSample(n);
+                break;
             default:
                 LowerOtherOp(n);
                 break;

@@ -55,6 +55,7 @@ internal static partial class CpuOpSupport
             "CausalConv1d" => CheckCausalConv1d(node),
             "SelectiveScan" => CheckSelectiveScan(node),
             "GatedDeltaRule" => CheckGatedDeltaRule(node),
+            "Sample" => OpSupport.Yes,
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
         };
     }
