@@ -436,6 +436,11 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 AddStep(new ScatterOp(x, idx, upd, y, op == "ScatterND" ? 0 : Norm(a.Get("axis", 0L), x.Rank), op == "ScatterND", a.Get("reduction", "none")), x, idx, upd, y);
                 _refs[n.Output] = y; return;
             }
+            case "SequencePool":
+            {
+                var x = RowContig(RefF32(ins[0])); var sp = Dense(Ref(ins[1])); var y = NewDense(n.Output);
+                AddStep(new SequencePoolOp(x, sp, y, a.Get("mode", "mean")), x, sp, y); _refs[n.Output] = y; return;
+            }
             case "CumSum":
             {
                 var x = Dense(RefF32(ins[0])); var y = NewDense(n.Output);
@@ -573,10 +578,11 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             case "Attention":
             {
                 var q = RowContig(Ref(ins[0])); var k = RowContig(Ref(ins[1])); var v = RowContig(Ref(ins[2]));
-                TRef? mask = ins.Length > 3 ? Ref(ins[3]) : null;
+                TRef? extra = ins.Length > 3 ? ins[3].Type == DataType.I32 ? Dense(Ref(ins[3])) : Ref(ins[3]) : null;
+                bool spans = extra is not null && ins[3].Type == DataType.I32;
                 var y = NewDense(n.Output);
-                AddStep(new AttentionOp(q, k, v, mask, y, a.Get("scale", 1f), null, a.Get("causal", false)),
-                    mask is null ? [q, k, v, y] : [q, k, v, mask, y]);
+                AddStep(new AttentionOp(q, k, v, spans ? null : extra, y, a.Get("scale", 1f), null, a.Get("causal", false), a.Get("window", 0), a.Get("softcap", 0f),
+                    spans: spans ? extra : null), extra is null ? [q, k, v, y] : [q, k, v, extra, y]);
                 _refs[n.Output] = y; return;
             }
             case "CausalConv1d":

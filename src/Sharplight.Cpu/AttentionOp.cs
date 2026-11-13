@@ -17,6 +17,7 @@ internal sealed unsafe class AttentionOp : CpuOp
     readonly bool _kHalf, _vHalf;
     readonly Action<int> _body;
     readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
+    readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
     readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
     long _t, _past, _s, _tasks, _per;
     [ThreadStatic] static float[]? s_scores;
@@ -24,8 +25,9 @@ internal sealed unsafe class AttentionOp : CpuOp
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
-        TRef? rows = null, int slots = 1)
+        TRef? rows = null, int slots = 1, TRef? spans = null)
     {
+        _spans = spans;
         _rows = rows; _slotCtx = k.Dims[0] / Math.Max(1, slots);
         _window = window; _softcap = softcap;
         _q = q; _k = k; _v = v; _y = y; _mask = mask; _scale = scale; _offsetScalar = offsetScalar; _causal = causal;
@@ -42,7 +44,14 @@ internal sealed unsafe class AttentionOp : CpuOp
         _t = _q.Dim(0, p);
         if (_t == 0) return;
         _s = _k.Dim(0, p);
-        if (_rows is not null)
+        if (_spans is not null)
+        {
+            int* sp = (int*)_spans.P;
+            for (long t = 0; t < _t; t++)
+                if (sp[t * 2] < 0 || sp[t * 2 + 1] < 0 || sp[t * 2] + (long)sp[t * 2 + 1] > _s)
+                    throw new InvalidOperationException($"Attention span of row {t} ({sp[t * 2]}, {sp[t * 2 + 1]}) exceeds the {_s} key rows.");
+        }
+        else if (_rows is not null)
         {
             int* rw = (int*)_rows.P;
             long slots = _k.Dims[0] / _slotCtx;
@@ -75,8 +84,14 @@ internal sealed unsafe class AttentionOp : CpuOp
             {
                 long t = task / _hq; int h = (int)(task - t * _hq);
                 int hk = h / group;
-                long n, kvBase = 0;
-                if (_rows is not null)
+                long n, kvBase = 0, j0 = 0;
+                if (_spans is not null)
+                {
+                    int* sp = (int*)_spans.P + t * 2;
+                    j0 = sp[0]; n = sp[0] + (long)sp[1];
+                    if (_causal) n = Math.Min(n, t + 1);
+                }
+                else if (_rows is not null)
                 {
                     int* rw = (int*)_rows.P + t * 4;
                     kvBase = rw[0] * _slotCtx; n = rw[1] + 1;
@@ -86,10 +101,10 @@ internal sealed unsafe class AttentionOp : CpuOp
                 float* q = _q.F(task);
                 float* o = (float*)_y.P + task * _dv;
                 new Span<float>(o, _dv).Clear();
-                if (n <= 0) continue;
+                if (n <= j0) continue;
                 float* mrow = _mask is null ? null : (float*)_mask.P + t * _mask.Strides[0];
                 long mstride = _mask is null ? 0 : _mask.Strides[1];
-                long j0 = _window > 0 ? Math.Max(0, n - _window) : 0;
+                if (_window > 0) j0 = Math.Max(j0, n - _window);
                 float max = float.NegativeInfinity;
                 for (long j = j0; j < n; j++)
                 {

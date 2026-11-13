@@ -72,7 +72,7 @@ public sealed partial class GraphLowerer
     static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
     static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "MatMulId", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
 
     public static OpSupport Supports(Node node)
     {
@@ -80,9 +80,21 @@ public sealed partial class GraphLowerer
         if (s_spatialOps.Contains(node.Op.Name)) return SupportsSpatial(node);
         if (s_generalOps.Contains(node.Op.Name)) return SupportsGeneral(node);
         if (node.Op.Name == "MatMulId") return SupportsMoe(node);
-        if (node.Op.Name == "Attention" && (node.Inputs.Length != 3 || node.Attributes.Get("causal", false) || node.Inputs[1].Shape[1] != node.Inputs[2].Shape[1]
-            || node.Inputs[0].Shape[0] != node.Inputs[1].Shape[0] || node.Inputs[0].Shape[2].Fixed % 8 != 0 || node.Inputs[1].Shape[2].Fixed % 8 != 0))
-            return OpSupport.No("Attention: only bidirectional self-attention without mask over equally long q/k/v with head size % 8 == 0 is implemented");
+        if (node.Op.Name == "Attention")
+        {
+            var ins = node.Inputs;
+            bool spans = ins.Length == 4 && ins[3].Type == DataType.I32 && ins[3].Rank == 2 && ins[3].Shape[1] == 2;
+            bool causal = node.Attributes.Get("causal", false);
+            if (ins.Length != 3 && !spans) return OpSupport.No("Attention: an f32 mask input is not implemented (i32 spans are)");
+            if (ins[1].Shape[1] != ins[2].Shape[1] || ins[0].Shape[2].Fixed % 8 != 0 || ins[1].Shape[2].Fixed % 8 != 0 || ins[2].Shape[2].Fixed % 8 != 0)
+                return OpSupport.No("Attention: k/v head counts must match and head sizes be multiples of 8");
+            if (ins[0].Shape[1].Fixed % ins[1].Shape[1].Fixed != 0) return OpSupport.No("Attention: query heads must be a multiple of key heads");
+            if (!spans && (causal || ins[0].Shape[0] != ins[1].Shape[0])) return OpSupport.No("Attention: causal or cross attention needs i32 spans");
+            if (spans && causal && ins[0].Shape[0] != ins[1].Shape[0]) return OpSupport.No("Attention: causal attention must be self-attention");
+        }
+        if (node.Op.Name == "SequencePool" && (node.Inputs[1].Type != DataType.I32 || node.Inputs[0].Type.IsQuantized
+            || node.Attributes.Get("mode", "mean") is not ("mean" or "sum" or "max" or "first" or "last")))
+            return OpSupport.No("SequencePool: i32 spans and mode mean | sum | max | first | last");
         if (node.Op.Name == "MatMul" && node.Inputs[1].Type.IsQuantized && node.Inputs[1].Shape[-1] is { IsSymbolic: false } kd && kd.Fixed % 8 != 0)
             return OpSupport.No($"quantized MatMul K={kd.Fixed} is not a multiple of 8");
         if (node.Op.Name == "Rope" && node.Inputs.Length > 2 && (node.Inputs[2].Type != DataType.F32 || node.Inputs[2].Shape.Rank != 1))

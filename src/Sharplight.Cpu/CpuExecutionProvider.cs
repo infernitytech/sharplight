@@ -327,7 +327,13 @@ public sealed class CpuDevice : IComputeDevice
             case "Attention":
                 if (ins[0].Type != DataType.F32) return OpSupport.No("Attention q must be f32");
                 if (!IsKv(ins[1].Type) || !IsKv(ins[2].Type)) return OpSupport.No("Attention k/v must be f32 or f16");
-                if (ins.Length > 3 && (ins[3].Type != DataType.F32 || ins[3].Rank != 2)) return OpSupport.No("Attention mask must be an f32 [T, S] tensor");
+                if (ins.Length > 3 && !(ins[3].Type == DataType.F32 && ins[3].Rank == 2) && !(ins[3].Type == DataType.I32 && ins[3].Rank == 2 && ins[3].Shape[1] == 2))
+                    return OpSupport.No("Attention fourth input must be an f32 [T, S] mask or i32 [T, 2] spans");
+                return OpSupport.Yes;
+            case "SequencePool":
+                if (ins[0].Type != DataType.F32) return OpSupport.No("SequencePool input must be f32");
+                if (ins[1].Type != DataType.I32 || ins[1].Rank != 2 || ins[1].Shape[1] != 2) return OpSupport.No("SequencePool spans must be i32 [B, 2]");
+                if (node.Attributes.Get("mode", "mean") is not ("mean" or "sum" or "max" or "first" or "last")) return OpSupport.No("SequencePool mode must be mean | sum | max | first | last");
                 return OpSupport.Yes;
             case "CausalConv1d":
                 if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32) return OpSupport.No("CausalConv1d needs f32 activations and state");

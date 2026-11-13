@@ -29,6 +29,7 @@ public sealed partial class GraphLowerer
             case "CacheWrite": LowerCacheWrite(n); break;
             case "CachedAttention" or "Attention": LowerAttention(n); break;
             case "CausalConv1d": LowerConv(n); break;
+            case "SequencePool": LowerSequencePool(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
             default:
                 if (LowerGeneral(n)) break;
@@ -532,7 +533,9 @@ public sealed partial class GraphLowerer
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
         int window = n.Attributes.Get("window", 0);
         float softcap = n.Attributes.Get("softcap", 0f);
-        TensorRef? seq = null, runs = null;
+        TensorRef? seq = null, runs = null, spans = null;
+        bool causal = full && n.Attributes.Get("causal", false);
+        if (full && n.Inputs.Length > 3) spans = DenseInput(n.Inputs[3], "attn-spans");
         if (!full && n.Inputs.Length > 3)
         {
             seq = DenseInput(n.Inputs[3], "seq-rows");
@@ -540,7 +543,7 @@ public sealed partial class GraphLowerer
         }
         var m = Macros(("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, kc)),("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
             ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)),
-            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f));
+            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("SPANS", spans is not null), ("CAUSAL", causal));
         var k = Lib("attention.slang", "main", m);
         var tq = q;
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -594,15 +597,35 @@ public sealed partial class GraphLowerer
             Emit($"attention {n.Output.Name}", [n],
                 variants,
                 [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
-                 new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), .. SeqArgs(seq, runs),
+                 new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), .. SeqArgs(seq, runs, spans),
                  TokenArg(q), new UIntArg((uint)row0)],
-                [q, kc, vc, .. seq is null ? [] : (TensorRef[])[seq, runs!]], split ? [o, part] : [o]);
+                [q, kc, vc, .. seq is null ? [] : (TensorRef[])[seq, runs!], .. spans is null ? [] : (TensorRef[])[spans]], split ? [o, part] : [o]);
         }
         if (split)
             Emit($"attention {n.Output.Name} combine", [n],
                 [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
                 [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), TokenArg(q)],
                 [part], [o]);
+    }
+
+    /// <summary>SequencePool: one thread per (sequence, column) loops over the sequence's rows.</summary>
+    void LowerSequencePool(Node n)
+    {
+        var x = AsF32(Ref(n.Inputs[0]), "seqpool");
+        if (x.Rank != 2 || x.Strides[1] != 1) x = DenseTemp(x, "seqpool");
+        var sp = DenseInput(n.Inputs[1], "seqpool-spans");
+        var y = Produce(n.Output);
+        string mode = n.Attributes.Get("mode", "mean");
+        string load = $"p.in0[uint64_t(first + r) * {x.Strides[0]}u + d1]";
+        string body = mode switch
+        {
+            "first" => $"  int first = p.in1[d0 * 2], cnt = p.in1[d0 * 2 + 1];\n  p.out0[idx] = cnt > 0 ? p.in0[uint64_t(first) * {x.Strides[0]}u + d1] : 0.0;",
+            "last" => $"  int first = p.in1[d0 * 2], cnt = p.in1[d0 * 2 + 1];\n  p.out0[idx] = cnt > 0 ? p.in0[uint64_t(first + cnt - 1) * {x.Strides[0]}u + d1] : 0.0;",
+            "max" => $"  int first = p.in1[d0 * 2], cnt = p.in1[d0 * 2 + 1];\n  float acc = -3.4028235e38;\n  for (int r = 0; r < cnt; r++) acc = max(acc, {load});\n  p.out0[idx] = cnt > 0 ? acc : 0.0;",
+            _ => $"  int first = p.in1[d0 * 2], cnt = p.in1[d0 * 2 + 1];\n  float acc = 0.0;\n  for (int r = 0; r < cnt; r++) acc += {load};\n" +
+                 (mode == "mean" ? "  p.out0[idx] = cnt > 0 ? acc / float(cnt) : 0.0;" : "  p.out0[idx] = acc;"),
+        };
+        EmitGen($"seqpool {mode} {n.Output.Name}", [n], y.Shape, y.Symbol, [x, sp], [y], body);
     }
 
     // ---- recurrent ---------------------------------------------------------------------------

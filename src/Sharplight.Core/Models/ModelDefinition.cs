@@ -166,6 +166,15 @@ public enum InputRole
     /// <summary>Multi-sequence graphs: per-run table [U, 4] i32 of (slot, first row, row count, first position); a run is a
     /// slot's consecutive rows, in context order.</summary>
     SequenceRuns,
+    /// <summary>Token type (segment) ids [T] i32 of encoders with a token type embedding table (BERT: 0 = first text, 1 = second).</summary>
+    TokenTypes,
+    /// <summary>
+    /// Packed-sequence graphs (several independent sequences concatenated along the token axis, e.g. <see cref="WellKnown.EmbedGraph"/>):
+    /// per-row table [T, 2] i32 of (first row, row count) of the sequence the row belongs to. Attention only looks within it.
+    /// </summary>
+    RowSpans,
+    /// <summary>Packed-sequence graphs: per-sequence table [B, 2] i32 of (first row, row count); rows of one sequence are consecutive.</summary>
+    SequenceSpans,
 }
 
 public sealed class InputDefinition
@@ -217,9 +226,36 @@ public static class WellKnown
     /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
     public const string RunSymbol = "U";
 
+    /// <summary>
+    /// Packed-sequence graph that turns a batch of sequences into one vector each (embedding models): inputs token ids [T],
+    /// positions [T, 1] (each sequence starting at 0), optional token types [T], <see cref="InputRole.RowSpans"/> and
+    /// <see cref="InputRole.SequenceSpans"/> [B, 2]; output <see cref="EmbeddingsOutput"/> [B, H] (pooled as the model's
+    /// <see cref="EmbeddingPooling"/> property says and L2-normalized when <see cref="EmbeddingNormalize"/> is set) — or, for
+    /// pooling "none", [T, H] (one vector per token).
+    /// </summary>
+    public const string EmbedGraph = "embed";
+    /// <summary>
+    /// Packed-sequence graph with the same inputs as <see cref="EmbedGraph"/> that scores each sequence with a head:
+    /// output <see cref="LogitsOutput"/> [B, C] (cross-encoder classifier: C labels; decoder: the language model head over the
+    /// sequence's last row, C = vocabulary).
+    /// </summary>
+    public const string ClassifyGraph = "classify";
+    public const string EmbeddingsOutput = "embeddings";
+    public const string LogitsOutput = "logits";
+    /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
+    public const string SequenceSymbol = "B";
+
     public const string VocabSize = "vocab_size";
     public const string ContextLength = "context_length";
     public const string EmbeddingLength = "embedding_length";
     public const string PositionAxes = "position_axes";
     public const string EosTokenIds = "eos_token_ids";
+    /// <summary>Pooling of <see cref="EmbedGraph"/>: "mean", "cls" (first row), "last", "none" (string).</summary>
+    public const string EmbeddingPooling = "embedding_pooling";
+    /// <summary>Whether <see cref="EmbedGraph"/> L2-normalizes its output (bool).</summary>
+    public const string EmbeddingNormalize = "embedding_normalize";
+    /// <summary>Whether attention of the packed-sequence graphs is causal (decoder-based embedders) (bool).</summary>
+    public const string CausalAttention = "causal_attention";
+    /// <summary>Label count of <see cref="ClassifyGraph"/> (int; the vocabulary size for decoders).</summary>
+    public const string ClassifierLabels = "classifier_labels";
 }

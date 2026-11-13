@@ -105,4 +105,37 @@ public static class CanonicalKeys
     public const string TokenizerAddBos = "tokenizer.add_bos_token";
     public const string TokenizerAddEos = "tokenizer.add_eos_token";
     public const string ChatTemplate = "tokenizer.chat_template";
+    /// <summary>Separator token id (BERT [SEP], RoBERTa &lt;/s&gt;) used between the two texts of a pair.</summary>
+    public const string TokenizerSeparatorId = "tokenizer.separator_token_id";
+    /// <summary>Classifier token id (BERT [CLS], RoBERTa &lt;s&gt;).</summary>
+    public const string TokenizerClassifierId = "tokenizer.classifier_token_id";
+    /// <summary>Mask token id (masked language models).</summary>
+    public const string TokenizerMaskId = "tokenizer.mask_token_id";
+    /// <summary>
+    /// How a text pair is laid out (cross-encoders): "bert" = cls A sep B sep (second text with token type 1),
+    /// "roberta" = cls A sep sep B sep (no token types). String.
+    /// </summary>
+    public const string TokenizerPairStyle = "tokenizer.pair_style";
+    /// <summary>WordPiece / text normalization: lowercase the input (bool).</summary>
+    public const string TokenizerLowercase = "tokenizer.lowercase";
+    /// <summary>WordPiece / text normalization: strip accents (bool; defaults to the lowercase setting like BERT).</summary>
+    public const string TokenizerStripAccents = "tokenizer.strip_accents";
+    /// <summary>Longest input in tokens the model was trained for (int; embedding / reranking models).</summary>
+    public const string TokenizerMaxLength = "tokenizer.max_length";
+
+    /// <summary>Pooling an embedding model was trained with: "mean", "cls", "last" or "none" (string).</summary>
+    public const string EmbeddingPooling = "embedding.pooling";
+    /// <summary>Whether the embedding model's output is L2-normalized (bool).</summary>
+    public const string EmbeddingNormalize = "embedding.normalize";
+    /// <summary>
+    /// Named prompt prefixes of an embedding model (string[] of "name=prefix" entries, e.g. "query=Instruct: ...\nQuery:"):
+    /// prepended to the input text when the caller selects the prompt.
+    /// </summary>
+    public const string EmbeddingPrompts = "embedding.prompts";
+    /// <summary>Default prompt name (string) applied when the caller selects none.</summary>
+    public const string EmbeddingDefaultPrompt = "embedding.default_prompt";
+    /// <summary>Activation applied to classifier logits to get a score: "sigmoid", "softmax", "none" (string).</summary>
+    public const string ClassifierActivation = "classifier.activation";
+    /// <summary>Label names of a classifier head (string[]).</summary>
+    public const string ClassifierLabels = "classifier.labels";
 }

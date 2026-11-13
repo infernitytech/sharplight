@@ -142,7 +142,14 @@ public static partial class StandardOps
 
     /// <summary>
     /// Bidirectional/causal attention without cache (e.g. vision encoders): q [T,Hq,D], k [S,Hkv,D], v [S,Hkv,Dv].
-    /// Attributes: scale, causal (bool).
+    /// Attributes: scale, causal (bool), optional softcap (float &gt; 0).
+    /// Optional fourth input, by type:
+    /// <list type="bullet">
+    /// <item>f32 [T, S]: additive mask added to the scaled scores.</item>
+    /// <item>i32 [T, 2] spans (packed sequences, see <see cref="Models.InputRole.RowSpans"/>): query row t sees key rows
+    /// [first, first + count) of its span; with <c>causal</c> additionally only rows ≤ t (self-attention, so q and k rows
+    /// coincide). An empty span yields zeros. Lets one pass attend independently within many concatenated sequences.</item>
+    /// </list>
     /// </summary>
     public static readonly OpSchema Attention = new("Attention", OpCategory.Composite, 3, 4, (i, a) =>
     {
@@ -173,6 +180,13 @@ public static partial class StandardOps
     /// Multi-sequence form: seventh input = sequence runs [U, 4], state [S, Hv, Dv, Dk]; each run continues its slot's state.
     /// </summary>
     public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 7, (i, a) => [new(DataType.F32, i[2].Shape)]);
+
+    /// <summary>
+    /// Pools consecutive row ranges of x [T, D] (packed sequences): spans i32 [B, 2] of (first row, row count) → [B, D] f32.
+    /// Attribute <c>mode</c>: "mean" (default), "sum", "max", "first", "last". An empty span yields zeros.
+    /// </summary>
+    public static readonly OpSchema SequencePool = new("SequencePool", OpCategory.Reduction, 2, 2, (i, a) =>
+        [new(DataType.F32, new Shape(i[1].Shape[0], i[0].Shape[-1]))]);
 
     /// <summary>Copies a value between devices (inserted by the partitioner).</summary>
     public static readonly OpSchema Transfer = new("Transfer", OpCategory.Data, 1, 1, Same);

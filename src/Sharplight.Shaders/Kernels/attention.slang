@@ -13,6 +13,14 @@
 #ifndef SPLITS
 #define SPLITS 1
 #endif
+// SPANS (FULL_ATTN only): spans [T, 2] (first key row, count) per query row — packed independent sequences; with CAUSAL a
+// query row t additionally sees only key rows <= t.
+#ifndef SPANS
+#define SPANS 0
+#endif
+#ifndef CAUSAL
+#define CAUSAL 0
+#endif
 
 #ifdef KERNEL_COMBINE
 
@@ -65,6 +73,9 @@ struct Params
 #if MULTI_SEQ
     int* seq;    // [T, 4] (slot, position, run length, run index) per query row
     int* runs;   // [U, 4] (slot, first row, row count, first position)
+#endif
+#if SPANS
+    int* spans;  // [T, 2] (first key row, key count) per query row
 #endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
@@ -147,7 +158,14 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
     uint64_t kvRow = 0;   // multi-sequence: first cache row (x HKV) of the query's slot
-#if FULL_ATTN
+#if FULL_ATTN && SPANS
+    uint spBeg = uint(p.spans[t * 2]);
+    uint L = spBeg + uint(p.spans[t * 2 + 1]);
+#if CAUSAL
+    L = min(L, t + 1);
+#endif
+    L = max(L, spBeg);
+#elif FULL_ATTN
     uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
 #elif MULTI_SEQ
     uint L = uint(p.seq[t * 4 + 1]) + 1;
@@ -157,6 +175,8 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
 #if WINDOW && !FULL_ATTN
     uint jLo = L > WINDOW ? L - WINDOW : 0;
+#elif FULL_ATTN && SPANS
+    uint jLo = spBeg;
 #else
     uint jLo = 0;
 #endif
@@ -217,7 +237,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     if (tid == 0) { ps[DV] = m; ps[DV + 1] = l; }
 #else
     float* orow = p.o + (uint64_t(t) * HQ + h) * DV;
-    float inv = 1.0 / l;
+    float inv = l > 0 ? 1.0 / l : 0.0;
     [ForceUnroll]
     for (int di = 0; di < DPT; di++)
     {
@@ -327,6 +347,23 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     float m = -1e30, l = 0;
     float o[FA_NC * 16];   // output dims c * FA_DC + sub * 16 + e
     [ForceUnroll] for (uint i = 0; i < FA_NC * 16; i++) o[i] = 0;
+#if FULL_ATTN && SPANS
+    // Packed sequences: the block's key range is the union of its rows' spans; each row masks to its own span.
+    uint rowBeg = 0, rowEnd = 0, jMin = 0xFFFFFFFFu, jMax = 0;
+    for (uint r = 0; r < FA_BR; r++)
+    {
+        uint t = t0 + r;
+        if (t >= qT) break;
+        uint b = uint(p.spans[t * 2]), e = b + uint(p.spans[t * 2 + 1]);
+#if CAUSAL
+        e = min(e, t + 1);
+#endif
+        if (r == row) { rowBeg = b; rowEnd = e; }
+        if (e > b) { jMin = min(jMin, b); jMax = max(jMax, e); }
+    }
+    if (jMin >= jMax) { jMin = 0; jMax = 0; }
+    uint L = jMax, jFirst = jMin / FA_BC * FA_BC;
+#else
 #if FULL_ATTN
     uint L = p.T, rowEnd = p.T;
 #else
@@ -338,6 +375,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint jFirst = nPast + t0 + 1 > WINDOW ? (nPast + t0 + 1 - WINDOW) / FA_BC * FA_BC : 0;   // first query's window
 #else
     uint rowBeg = 0, jFirst = 0;
+#endif
 #endif
     GroupMemoryBarrierWithGroupSync();
 
