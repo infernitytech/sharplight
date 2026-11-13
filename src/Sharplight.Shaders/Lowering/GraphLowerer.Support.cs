@@ -103,6 +103,12 @@ public sealed partial class GraphLowerer
             return OpSupport.No("attention sinks must be f32");
         }
 
+        // The key dot products read 8 (f16) / 4 (f32) elements per load.
+        if (node.Inputs[0].Shape[2] is { IsSymbolic: false } keyDims && keyDims.Fixed % 8 != 0)
+        {
+            return OpSupport.No($"CachedAttention: key head size {keyDims.Fixed} is not a multiple of 8");
+        }
+
         return OpSupport.Yes;
     }
 
