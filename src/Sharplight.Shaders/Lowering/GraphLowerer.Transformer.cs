@@ -55,6 +55,7 @@ public sealed partial class GraphLowerer
         var frequencyFactors = n.Inputs.Length > 2 ? Ref(n.Inputs[2]) : null;   // optional per-frequency divisors (f32 [rot/2])
         var ropeMacros = RopeMacros(n.Attributes, x, pos, frequencyFactors is not null);
         var seq = cacheWrite is not null && cacheWrite.Inputs.Length > 2 ? DenseInput(cacheWrite.Inputs[2], "seq-rows") : null;
+        var pages = cacheWrite is null ? null : PageTable(cacheWrite, 3);
         var tx = x;
         long H = x.Shape[1];
         if (norm is not null || cacheWrite is not null)
@@ -79,6 +80,7 @@ public sealed partial class GraphLowerer
                 ("RT_N_PAST", cacheWrite is null || seq is not null ? 0 : Slot(cacheWrite)),
                 ("MULTI_SEQ", seq is not null),
                 ("SLOT_CTX", seq is null ? 0 : SlotContext(cacheWrite!, y)),
+                .. cacheWrite is null ? [] : PageMacros(cacheWrite, pages),
             ];
             var rowKernel = Lib("rope.slang", "rope_row", Macros(fusedMacros));
             var weightOrX = normWeight ?? x;
@@ -86,9 +88,9 @@ public sealed partial class GraphLowerer
             var nodes = new[] { norm, n, cacheWrite }.OfType<Node>();
             Emit($"rope{(norm is null ? "" : "+norm")}{(cacheWrite is null ? "" : "+cache_write")} {n.Output.Name}", [.. nodes],
                 [Always(rowKernel, b => new Grid((uint)(Rows(b, tx) * H)))],
-                [Pointer(x), Pointer(pos), Pointer(weightOrX), Pointer(y), new PointerArg(_runtime, 0), Pointer(factorsOrX), .. SeqArgs(seq), TokenArg(x)],
+                [Pointer(x), Pointer(pos), Pointer(weightOrX), Pointer(y), new PointerArg(_runtime, 0), Pointer(factorsOrX), .. SeqArgs(seq, pages), TokenArg(x)],
                 [.. (normWeight is null ? [x, pos] : (TensorRef[])[x, pos, normWeight]), .. frequencyFactors is null ? [] : (TensorRef[])[frequencyFactors],
-                 .. seq is null ? [] : (TensorRef[])[seq]], [y]);
+                 .. PresentTables(seq, pages)], [y]);
             return;
         }
 

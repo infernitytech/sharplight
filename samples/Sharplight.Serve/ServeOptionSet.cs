@@ -70,12 +70,15 @@ internal sealed class ServeOptionSet
         DefaultValueFactory = _ => [],
     };
 
-    private readonly Option<int> _slots = OptionFactory.Integer("--slots", "Concurrent sequences batched per forward pass, each with --ctx tokens of context.", DefaultSlots, helpName: "count");
+    private readonly Option<int> _slots = OptionFactory.Integer("--slots", "Concurrent sequences batched per forward pass, each with up to --ctx tokens of context (reserved per slot unless --kv-tokens sets a shared pool).", DefaultSlots, helpName: "count");
 
     private readonly Option<int> _maxQueue = OptionFactory.Integer("--max-queue", "Waiting requests per model before answering 429.", DefaultMaxQueue, helpName: "count");
 
     private readonly Option<int> _prefillChunk = OptionFactory.Integer("--prefill-chunk", "Prompt rows per step and sequence, interleaved with decoding.", DefaultPrefillChunk, helpName: "rows");
 
+    private readonly Option<long?> _kvTokens = OptionFactory.Size("--kv-tokens",
+        "Paged KV cache: one pool of this many tokens (K/M suffixes) shared by all --slots, each growing up to --ctx as needed; "
+        + "admission and preemption follow free cache blocks. Default: every slot reserves --ctx tokens.", helpName: "tokens");
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
     private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off; attention-only models).", 0, minimum: 0, helpName: "tokens");
@@ -133,6 +136,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_maxQueue);
         command.Options.Add(_prefillChunk);
         command.Options.Add(_stepTokens);
+        command.Options.Add(_kvTokens);
         command.Options.Add(_draftTokens);
         command.Options.Add(_mmproj);
         command.Options.Add(_chatTemplate);
@@ -174,6 +178,7 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_maxQueue),
             parseResult.GetValue(_prefillChunk),
             parseResult.GetValue(_stepTokens),
+            parseResult.GetValue(_kvTokens),
             parseResult.GetValue(_draftTokens),
             parseResult.GetValue(_mmproj),
             parseResult.GetValue(_chatTemplate),

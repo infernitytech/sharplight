@@ -31,7 +31,7 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
     public StateDefinition CreateCache(string group, DataType type) => new()
     {
         Name = $"{group}.latent_cache",
-        Type = type,
+        Type = AdapterOptions.KvRowType(type, parameters.CacheRowDims),
         Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), 1, parameters.CacheRowDims),
         Kind = StateKind.KeyCache,
         Group = group,

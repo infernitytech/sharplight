@@ -1,5 +1,6 @@
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Vision;
 
 namespace Sharplight.Llm;
@@ -20,6 +21,12 @@ public sealed class LlmLoadOptions
     public int ContextLength { get; init; } = 8192;
     /// <summary>Max tokens per forward pass (prefill chunk size).</summary>
     public int MaxBatchTokens { get; init; } = 512;
+    /// <summary>
+    /// Element type of the attention KV caches, overriding <see cref="AdapterOptions.KvCacheType"/> of <see cref="Adapter"/>: f16,
+    /// f32, or the block-quantized q8_0 (about half the memory of f16) / q4_0 (about a quarter). Caches whose rows per head are not
+    /// whole 32-value blocks stay f16. Null keeps the adapter setting (default f16).
+    /// </summary>
+    public DataType? KvCacheType { get; init; }
     /// <summary>Architecture-adapter settings (RoPE scaling, context overrides, ...).</summary>
     public AdapterOptions Adapter { get; init; } = new();
     /// <summary>Device features (<see cref="DeviceFeatures"/>) not to use when compiling this model, e.g. "matrix_f16".</summary>

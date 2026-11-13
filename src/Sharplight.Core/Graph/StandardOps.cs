@@ -187,8 +187,10 @@ public static partial class StandardOps
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
+    /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
+    /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 6, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 7, (i, a) =>
     {
         var q = i[0].Shape;
         var v = i[2].Shape;
@@ -223,8 +225,9 @@ public static partial class StandardOps
     /// Writes x [T, ...] into rows [offset, offset+T) of a state tensor [Ctx, ...] (converting type).
     /// Inputs: state, x. Attribute: offset (runtime scalar name, default "n_past"). No outputs; side effect.
     /// Multi-sequence form: third input = sequence rows [T, 4], attribute <c>slots</c>; row t goes to row (slot · Ctx/S + position).
+    /// Paged form: attribute <c>block_size</c> and a fourth input, the block table (see <see cref="CachedAttention"/>).
     /// </summary>
-    public static readonly OpSchema CacheWrite = new("CacheWrite", OpCategory.Data, 2, 3, (i, a) => []);
+    public static readonly OpSchema CacheWrite = new("CacheWrite", OpCategory.Data, 2, 4, (i, a) => []);
 
     /// <summary>
     /// Causal depthwise 1-D convolution with carried state (Mamba / DeltaNet short conv).

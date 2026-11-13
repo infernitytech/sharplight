@@ -45,6 +45,10 @@ public sealed record EngineMetricsSnapshot
     public long DraftTokens { get; init; }
     /// <summary>Draft tokens the model accepted.</summary>
     public long AcceptedDraftTokens { get; init; }
+    /// <summary>Running sequences whose KV blocks were taken back for others (paged cache) and recomputed later.</summary>
+    public long Preemptions { get; init; }
+    /// <summary>Prompt tokens served from KV blocks shared with another slot's context (paged cache).</summary>
+    public long SharedPrefixTokens { get; init; }
     /// <summary>Accepted divided by proposed draft tokens (0 without speculation).</summary>
     public double DraftAcceptanceRate => DraftTokens == 0 ? 0 : (double)AcceptedDraftTokens / DraftTokens;
     /// <summary>Seconds from submission to the first generated token.</summary>

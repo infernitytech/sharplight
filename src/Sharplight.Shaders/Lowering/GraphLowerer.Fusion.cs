@@ -291,7 +291,8 @@ public sealed partial class GraphLowerer
             }
         }
 
-        // Rope of an RmsNorm-ed row computes the norm itself; a rope whose only consumer is a cache write stores into the cache.
+        // Rope of an RmsNorm-ed row computes the norm itself; a rope whose only consumer is a cache write stores into the cache
+        // (f16 / f32 caches; quantized caches are written by the quantizing cache_write_q).
         var unitOfNode = units.Where(u => u.Node is not null).ToDictionary(u => u.Node!);
         foreach (var unit in units)
         {
@@ -308,7 +309,7 @@ public sealed partial class GraphLowerer
         foreach (var unit in units)
         {
             if (unit.Node is { Op.Name: "CacheWrite" } cacheWrite && cacheWrite.Inputs[1] is var cv && cv.Producer is { Op.Name: "Rope" } rope
-                && SingleUse(cv) && unitOfNode.TryGetValue(rope, out var ropeUnit)
+                && SingleUse(cv) && unitOfNode.TryGetValue(rope, out var ropeUnit) && !IsQuantizedKv(cacheWrite.Inputs[0].Type)
                 && cacheWrite.Inputs[0].Shape.Rank == 3 && cv.Shape.Rank == 3
                 && cacheWrite.Inputs[0].Shape[1].Equals(cv.Shape[1]) && cacheWrite.Inputs[0].Shape[2].Equals(cv.Shape[2]))
             {

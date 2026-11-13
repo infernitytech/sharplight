@@ -26,24 +26,30 @@ internal sealed unsafe class AttentionOp : CpuOp
     private readonly int _dv;
     private readonly bool _kHalf;
     private readonly bool _vHalf;
+    private readonly WeightFormat? _kQuant;   // q8_0 / q4_0 caches: rows are dequantized before use
+    private readonly WeightFormat? _vQuant;
     private readonly Action<int> _body;
     private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
     private readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
     private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
+    private readonly KvPages? _pages;    // paged multi-sequence cache
     private long _t;
     private long _past;
     private long _s;
     private long _tasks;
     private long _per;
     [ThreadStatic] private static float[]? s_scores;
+    [ThreadStatic] private static float[]? s_row;
 
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
-        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null)
+        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
+        KvPages? pages = null)
     {
         _alibiSlopes = alibiSlopes;
         _chunk = chunk;
+        _pages = pages;
         _spans = spans;
         _rows = rows;
         _slotCtx = k.Dims[0] / Math.Max(1, slots);
@@ -64,6 +70,8 @@ internal sealed unsafe class AttentionOp : CpuOp
         _dv = valueDims > 0 ? valueDims : (int)v.Dims[2];   // v_dims: values are a prefix of the cache rows (latent attention)
         _kHalf = k.Type == DataType.F16;
         _vHalf = v.Type == DataType.F16;
+        _kQuant = QuantizedFormat(k.Type);
+        _vQuant = QuantizedFormat(v.Type);
         if (_hq % _hkv != 0)
         {
             throw new ArgumentException("Hq must be a multiple of Hkv.");
@@ -81,6 +89,9 @@ internal sealed unsafe class AttentionOp : CpuOp
 
         _body = Body;
     }
+
+    /// <summary>The block format of a quantized KV cache (q8_0 / q4_0, rows of whole 32-value blocks), or null.</summary>
+    private static WeightFormat? QuantizedFormat(DataType type) => Quant.FormatOf(type) is { } f && Quant.CanQuantize(f) ? f : null;
 
     public override void Run(RunParameters p)
     {
@@ -108,7 +119,14 @@ internal sealed unsafe class AttentionOp : CpuOp
             long slots = _k.Dims[0] / _slotCtx;
             for (long t = 0; t < _t; t++)
             {
-                if ((uint)rw[t * 4] >= slots || (uint)rw[t * 4 + 1] >= _slotCtx)
+                if (_pages is not null)
+                {
+                    for (long pos = rw[t * 4 + 1]; pos >= 0; pos -= _pages.BlockSize)   // every block the row attends to
+                    {
+                        _pages.Check(rw[t * 4], pos, _k.Dims[0]);
+                    }
+                }
+                else if ((uint)rw[t * 4] >= slots || (uint)rw[t * 4 + 1] >= _slotCtx)
                 {
                     throw new InvalidOperationException($"Sequence row {t}: slot {rw[t * 4]} / position {rw[t * 4 + 1]} out of range.");
                 }
@@ -143,12 +161,18 @@ internal sealed unsafe class AttentionOp : CpuOp
             s_scores = scores = new float[Math.Max(maxKv, 1024)];
         }
 
+        var row = s_row;
+        if (row is null || row.Length < Math.Max(_d, _dv))
+        {
+            s_row = row = new float[Math.Max(_d, _dv)];
+        }
+
         int group = _hq / _hkv;
         long ks0 = _k.Strides[0];
         long ks1 = _k.Strides[1];
         long vs0 = _v.Strides[0];
         long vs1 = _v.Strides[1];
-        fixed (float* sc = scores)
+        fixed (float* sc = scores, rowBuf = row)
         {
             for (long task = s; task < e; task++)
             {
@@ -157,6 +181,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 int hk = h / group;
                 long n;
                 long kvBase = 0;
+                int slot = -1;   // paged: the query's slot
                 long j0 = 0;
                 if (_spans is not null)
                 {
@@ -172,6 +197,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 {
                     int* rw = (int*)_rows.P + t * 4;
                     kvBase = rw[0] * _slotCtx;
+                    slot = _pages is null ? -1 : rw[0];
                     n = rw[1] + 1;
                 }
                 else
@@ -204,8 +230,18 @@ internal sealed unsafe class AttentionOp : CpuOp
                 float max = sink;
                 for (long j = j0; j < n; j++)
                 {
-                    long off = (kvBase + j) * ks0 + hk * ks1;
-                    float dot = _kHalf ? Simd.DotHalf(q, (ushort*)_k.P + off, _d) : Simd.Dot(q, (float*)_k.P + off, _d);
+                    long off = (slot >= 0 ? _pages!.Row(slot, j) : kvBase + j) * ks0 + hk * ks1;
+                    float dot;
+                    if (_kQuant is { } kFormat)
+                    {
+                        Quant.Dequantize(kFormat, _k.P + off / 32 * Quant.BlockBytes(kFormat), _d, rowBuf);
+                        dot = Simd.Dot(q, rowBuf, _d);
+                    }
+                    else
+                    {
+                        dot = _kHalf ? Simd.DotHalf(q, (ushort*)_k.P + off, _d) : Simd.Dot(q, (float*)_k.P + off, _d);
+                    }
+
                     dot *= _scale;
                     if (_softcap > 0)
                     {
@@ -250,8 +286,13 @@ internal sealed unsafe class AttentionOp : CpuOp
                 }
                 for (long j = j0; j < n; j++)
                 {
-                    long off = (kvBase + j) * vs0 + hk * vs1;
-                    if (_vHalf)
+                    long off = (slot >= 0 ? _pages!.Row(slot, j) : kvBase + j) * vs0 + hk * vs1;
+                    if (_vQuant is { } vFormat)
+                    {
+                        Quant.Dequantize(vFormat, _v.P + off / 32 * Quant.BlockBytes(vFormat), _dv, rowBuf);
+                        Simd.Axpy(o, rowBuf, sc[j], _dv);
+                    }
+                    else if (_vHalf)
                     {
                         Simd.AxpyHalf(o, (ushort*)_v.P + off, sc[j], _dv);
                     }

@@ -68,7 +68,16 @@ public sealed class LlmModel : IDisposable
     {
         var sw = Stopwatch.StartNew();
         var sources = ModelImporterRegistry.OpenSet(path, [.. options.Auxiliary]);
-        var def = ModelAdapterRegistry.Build(sources, options.Adapter.ContextLength > 0 ? options.Adapter : options.Adapter.WithContext(options.ContextLength));
+        var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
+            options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength);
+        var def = ModelAdapterRegistry.Build(sources, adapter);
+        var kvStates = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
+        int kept = kvStates.Count(st => st.Type != adapter.KvCacheType);
+        if (kept > 0 && adapter.KvCacheType.BlockSize > 1)
+        {
+            options.Log?.Invoke($"KV cache: {kept} of {kvStates.Count} caches stay f16 (rows are not whole {adapter.KvCacheType} blocks).");
+        }
+
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
         return new LlmModel(def, sources.Primary, tok, options);
@@ -102,7 +111,13 @@ public sealed class LlmModel : IDisposable
     /// Logits rows one step may return (default <paramref name="slots"/>, one per sequence). Speculative decoding needs
     /// <c>slots · (draft tokens + 1)</c>; each extra row costs <c>vocabulary · 4</c> bytes of activations.
     /// </param>
-    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null)
+    /// <param name="kvCacheTokens">
+    /// Paged KV cache: one pool of this many tokens (in blocks of <see cref="Serving.MultiSequenceDecoder.DefaultKvBlockSize"/>)
+    /// shared by all slots, each slot growing up to <paramref name="contextLength"/> as its sequence needs, so many short
+    /// sequences fit in the memory of a few long ones. Null: every slot owns <paramref name="contextLength"/> cache rows.
+    /// </param>
+    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
+        long? kvCacheTokens = null)
     {
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
@@ -118,8 +133,10 @@ public sealed class LlmModel : IDisposable
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling);
-        _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged);
+        string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
+        _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;
     }
 
@@ -175,7 +192,10 @@ public sealed class LlmModel : IDisposable
     /// <paramref name="contextLength"/> tokens (default the load option): weights + KV/recurrent state + activation bound.
     /// Computed from the graph alone; nothing is allocated on a device.
     /// </summary>
-    public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null)
+    /// <param name="slots">Concurrent sequences.</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>), or null.</param>
+    public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null)
     {
         int ctx = contextLength ?? _options.ContextLength;
         var graph = Definition.Graph(WellKnown.DecodeGraph);
@@ -185,7 +205,14 @@ public sealed class LlmModel : IDisposable
             MaxTokens = _options.MaxBatchTokens,
             ContextLength = ctx,
             SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? slots : _options.MaxBatchTokens },
-        }, multi ? slots : 1);
+        }, multi ? slots : 1, multi && kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0);
+    }
+
+    /// <summary>Cache rows of a paged KV cache of <paramref name="tokens"/> tokens (whole blocks).</summary>
+    private static long PagedRows(long tokens)
+    {
+        long b = Serving.MultiSequenceDecoder.DefaultKvBlockSize;
+        return (tokens + b - 1) / b * b;
     }
 
     /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>

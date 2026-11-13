@@ -32,7 +32,7 @@ internal static partial class CpuOpSupport
     {
         var ins = node.Inputs;
         var cacheType = ins[0].Type;
-        if (!(cacheType == DataType.F32 || cacheType == DataType.F16 || cacheType == DataType.BF16))
+        if (!(cacheType == DataType.F32 || cacheType == DataType.F16 || cacheType == DataType.BF16 || IsQuantizedKvCache(ins[0])))
         {
             return OpSupport.No($"KV cache type {cacheType} is not supported by the CPU provider");
         }
@@ -53,9 +53,9 @@ internal static partial class CpuOpSupport
             return OpSupport.No("CachedAttention sinks must be f32");
         }
 
-        if (!IsKvCacheType(ins[1].Type) || !IsKvCacheType(ins[2].Type))
+        if (!(IsKvCacheType(ins[1].Type) || IsQuantizedKvCache(ins[1])) || !(IsKvCacheType(ins[2].Type) || IsQuantizedKvCache(ins[2])))
         {
-            return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32/f16 only)");
+            return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32, f16, q8_0, q4_0)");
         }
 
         return OpSupport.Yes;

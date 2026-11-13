@@ -20,9 +20,14 @@ public sealed partial class GraphLowerer
     /// <summary>Index of the runtime scalar holding the cache position of a stateful node.</summary>
     private int Slot(Node n) => _scalarSlots[n.Attributes.Get("offset", WellKnown.PastScalar)];
 
-    /// <summary>Multi-sequence ops: cache rows per sequence slot (cache rows / attribute <c>slots</c>).</summary>
+    /// <summary>Multi-sequence ops: cache rows per sequence slot (cache rows / attribute <c>slots</c>; 0 for a paged cache).</summary>
     private static long SlotContext(Node n, TensorRef cache)
     {
+        if (n.Attributes.Get("block_size", 0L) > 0)
+        {
+            return 0;
+        }
+
         long slots = n.Attributes.Get("slots", 1L);
         if (slots < 1 || cache.Shape[0] % slots != 0)
         {
@@ -34,7 +39,29 @@ public sealed partial class GraphLowerer
 
     private TensorRef DenseInput(Value v, string name) => EnsureDense(Ref(v), name);
 
+    /// <summary>
+    /// The block table [slots, blocks per slot] of a paged multi-sequence op (input <paramref name="index"/>, attribute
+    /// <c>block_size</c>), or null for a contiguous cache.
+    /// </summary>
+    private TensorRef? PageTable(Node n, int index)
+        => n.Attributes.Get("block_size", 0L) > 0 && n.Inputs.Length > index ? DenseInput(n.Inputs[index], "kv-pages") : null;
+
+    /// <summary>The PAGED / PAGE_BS / PAGE_MB kernel macros of a paged op (see common.slang).</summary>
+    private static (string, object)[] PageMacros(Node n, TensorRef? pages)
+        => [("PAGED", pages is not null), ("PAGE_BS", pages is null ? 1 : n.Attributes.Get("block_size", 0L)), ("PAGE_MB", pages is null ? 1 : pages.Shape[1])];
+
+    /// <summary>Whether a KV-cache type is one of the quantized block formats (q8_0, q4_0) the attention kernels read.</summary>
+    internal static bool IsQuantizedKv(DataType type) => type == DataType.Q8_0 || type == DataType.Q4_0;
+
+    /// <summary>The <c>KV_FMT</c> / <c>DST_FMT</c> kernel id (the <c>FMT_*</c> ids of common.slang) of a KV-cache type.</summary>
+    private static int KvFormat(DataType type) => s_weightFormats.TryGetValue(type, out int id) && (type == DataType.F32 || type == DataType.F16 || IsQuantizedKv(type))
+        ? id
+        : throw new NotSupportedException($"KV cache type {type}");
+
     private static KernelArg[] SeqArgs(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>().Select(t => (KernelArg)Pointer(t))];
+
+    /// <summary>The present tables of <paramref name="tables"/> (kernel inputs to track).</summary>
+    private static TensorRef[] PresentTables(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>()];
 
     private void LowerCacheWrite(Node n)
     {
@@ -49,24 +76,35 @@ public sealed partial class GraphLowerer
         x = PrepareRows3(x, "cache", out long r1, out long s0, out long s1);
         long inner = x.Shape[^1];
         bool f16 = state.Type == DataType.F16;
-        if (!f16 && state.Type != DataType.F32)
+        bool quantized = IsQuantizedKv(state.Type);
+        if (!f16 && !quantized && state.Type != DataType.F32)
         {
             throw new NotSupportedException($"Cache type {state.Type}");
         }
 
         var seq = n.Inputs.Length > 2 ? DenseInput(n.Inputs[2], "seq-rows") : null;
-        var k = Lib("data.slang", "cache_write", Macros(("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
-            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state))));
+        var pages = PageTable(n, 3);
+        var macros = Macros([("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
+            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state)), .. PageMacros(n, pages)]);
+        macros["DST_FMT"] = KvFormat(state.Type).ToString(CultureInfo.InvariantCulture);
+        var k = Lib("data.slang", quantized ? "cache_write_q" : "cache_write", macros);
+        long perThread = quantized ? 32 : 1;   // the quantizing kernel writes one 32-value block per thread
         var tx = x;
         Emit($"cache_write {state.Buffer.Name}", [n],
-            [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1 * inner, 128)))],
-            [Pointer(x), Pointer(state), new PointerArg(_runtime, 0), .. SeqArgs(seq), TokenArg(x)],
-            seq is null ? [x] : [x, seq], [state]);
+            [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1 * inner / perThread, 128)))],
+            [Pointer(x), Pointer(state), new PointerArg(_runtime, 0), .. SeqArgs(seq, pages), TokenArg(x)],
+            [x, .. PresentTables(seq, pages)], [state]);
     }
 
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
+        if (MqaAttention(plan) is { } mqa)
+        {
+            EmitMqaAttention(plan, mqa);
+            return;
+        }
+
         var q = plan.Q;
         var o = plan.Output;
 
@@ -167,6 +205,7 @@ public sealed partial class GraphLowerer
         TensorRef? seq = null;
         TensorRef? runs = null;
         TensorRef? spans = null;
+        TensorRef? pages = null;
         bool causal = full && n.Attributes.Get("causal", false);
         if (full && n.Inputs.Length > 3)
         {
@@ -179,14 +218,16 @@ public sealed partial class GraphLowerer
             runs = n.Inputs.Length > 4 + sinksInputs
                 ? DenseInput(n.Inputs[4 + sinksInputs], "seq-runs")
                 : throw new NotSupportedException("Multi-sequence attention needs the runs table.");
+            pages = PageTable(n, 5 + sinksInputs);
         }
 
         var macros = Macros(
+            [.. PageMacros(n, pages),
             ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, k)), ("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("VRS", valueRowStride),
-            ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16),
+            ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
-            ("SPANS", spans is not null), ("CAUSAL", causal));
+            ("SPANS", spans is not null), ("CAUSAL", causal)]);
         return new AttentionPlan
         {
             Node = n,
@@ -198,6 +239,7 @@ public sealed partial class GraphLowerer
             Sinks = sinks,
             Seq = seq,
             Runs = runs,
+            Pages = pages,
             Spans = spans,
             HQ = HQ,
             HKV = HKV,
@@ -220,7 +262,7 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Many queries (prefill, vision encoders): tensor-core flash attention (f16 Q/K/V/P) when the device and shapes allow
     /// it. Head sizes are padded in the kernel; the padded tiles must fit shared memory. f32 caches keep the exact kernel
-    /// unless reduced precision is allowed.
+    /// unless reduced precision is allowed; quantized caches are converted to f16 tiles.
     /// </summary>
     private bool CanUseFlashAttention(AttentionPlan plan)
     {
@@ -228,7 +270,7 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 63) / 64 * 64;
         long paddedKV = Math.Max(paddedD, paddedDV);
         long sharedBytes = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 32 * 4 + 32 * 40 * 2 + 32 * 64 * 4;
-        bool typeAllowed = plan.K.Type == DataType.F16 || (plan.K.Type == DataType.F32 && (plan.Full || _opt.Compile.AllowReducedPrecision));
+        bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type) || (plan.K.Type == DataType.F32 && (plan.Full || _opt.Compile.AllowReducedPrecision));
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
@@ -378,9 +420,8 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, spans), TokenArg(plan.Q), new UIntArg((uint)firstRow)],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. seq is null ? [] : (TensorRef[])[seq, plan.Runs!],
-             .. spans is null ? [] : (TensorRef[])[spans]],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans), TokenArg(plan.Q), new UIntArg((uint)firstRow)],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans)],
             split ? [o, part] : [o]);
     }
 

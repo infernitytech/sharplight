@@ -1,8 +1,10 @@
 // Causal attention of T queries against a KV cache (online softmax, one workgroup per (head, query)).
-// q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
+// q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] in format KV_FMT (FMT_F32, FMT_F16, or the
+// GGUF block formats FMT_Q8_0 / FMT_Q4_0 with 32-value blocks; quantized rows are a multiple of 32 values);
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
 // Macros: HQ, HKV, D, DV, VRS (value cache row stride in elements, >= DV: the values are the first DV entries of each row,
-//         e.g. the latent prefix of a multi-head latent attention cache whose K and V are one buffer), QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
+//         e.g. the latent prefix of a multi-head latent attention cache whose K and V are one buffer), QS0, QS1, SCALE, KV_FMT
+//         (KV_F16: KV_FMT == FMT_F16), WG (threads, = chunk of keys),
 //         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers),
 //         CHUNK (> 0: a query at position p sees only keys [p - p % CHUNK, p]; Llama 4 chunked attention), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
@@ -27,6 +29,162 @@
 #ifndef CAUSAL
 #define CAUSAL 0
 #endif
+#ifndef KV_FMT
+#define KV_FMT (KV_F16 ? FMT_F16 : FMT_F32)
+#endif
+#define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0)
+#define KV_BLOCK_BYTES (KV_FMT == FMT_Q8_0 ? 34 : 18)
+
+// ---- KV cache element access (elements are addressed linearly in the cache; quantized caches in 32-value blocks) -------
+// Block of cache element `elem`, its f16 scale, and the 16-bit word holding the byte at offset `b` of its quants (blocks are
+// 2-byte aligned: 34 / 18 bytes).
+uint8_t* kv_block(uint8_t* base, uint64_t elem) { return byteAt(base, (elem >> 5) * KV_BLOCK_BYTES); }
+uint kv_word(uint8_t* blk, uint b) { return uint(*(uint16_t*)(blk + 2 + b)); }
+
+// 8 cache values starting at element `elem` (a multiple of 8) as raw data: kept packed in registers until used, so a kernel
+// can issue many loads before the first one is consumed.
+struct Kv8
+{
+#if KV_FMT == FMT_F16
+    uint4 u;
+#elif KV_FMT == FMT_F32
+    float4 a;
+    float4 b;
+#else
+    float d;     // block scale
+    uint2 q;     // q8_0: the 8 int8 quants; q4_0: the 8 bytes holding them (nibble at `shift`)
+    uint shift;
+#endif
+};
+
+Kv8 load_kv8(uint8_t* cache, uint64_t elem)
+{
+    Kv8 r;
+#if KV_FMT == FMT_F16
+    r.u = *(uint4*)byteAt(cache, elem * 2);
+#elif KV_FMT == FMT_F32
+    float4* f = (float4*)byteAt(cache, elem * 4);
+    r.a = f[0];
+    r.b = f[1];
+#else
+    uint8_t* blk = kv_block(cache, elem);
+    uint within = uint(elem & 31);
+    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
+    r.d = h2f(*(uint16_t*)blk);
+    r.q = uint2(kv_word(blk, b) | (kv_word(blk, b + 2) << 16), kv_word(blk, b + 4) | (kv_word(blk, b + 6) << 16));
+    r.shift = KV_FMT == FMT_Q4_0 && within >= 16 ? 4 : 0;
+#endif
+    return r;
+}
+
+Kv8 zero_kv8()
+{
+    Kv8 r;
+#if KV_FMT == FMT_F16
+    r.u = uint4(0);
+#elif KV_FMT == FMT_F32
+    r.a = float4(0);
+    r.b = float4(0);
+#else
+    r.d = 0;
+    r.q = uint2(0);
+    r.shift = 0;
+#endif
+    return r;
+}
+
+#if KV_QUANT
+// Quant e (0..7) of a packed Kv8 as a signed integer value (before the scale).
+float kv_quant(Kv8 k, uint e)
+{
+    uint w = e < 4 ? k.q.x : k.q.y;
+    uint byte = (w >> ((e & 3) * 8)) & 0xFF;
+#if KV_FMT == FMT_Q8_0
+    return float(int(byte << 24) >> 24);
+#else
+    return float((byte >> k.shift) & 0xF) - 8.0;
+#endif
+}
+#endif
+
+void unpack_kv8(Kv8 k, out float v[8])
+{
+#if KV_FMT == FMT_F16
+    v[0] = f16tof32(k.u.x & 0xFFFF); v[1] = f16tof32(k.u.x >> 16);
+    v[2] = f16tof32(k.u.y & 0xFFFF); v[3] = f16tof32(k.u.y >> 16);
+    v[4] = f16tof32(k.u.z & 0xFFFF); v[5] = f16tof32(k.u.z >> 16);
+    v[6] = f16tof32(k.u.w & 0xFFFF); v[7] = f16tof32(k.u.w >> 16);
+#elif KV_FMT == FMT_F32
+    v[0] = k.a.x; v[1] = k.a.y; v[2] = k.a.z; v[3] = k.a.w;
+    v[4] = k.b.x; v[5] = k.b.y; v[6] = k.b.z; v[7] = k.b.w;
+#else
+    [ForceUnroll] for (uint e = 0; e < 8; e++) v[e] = k.d * kv_quant(k, e);
+#endif
+}
+
+// 8 values as packed f16 (shared-memory tiles of the tensor-core kernels).
+uint4 pack_half8(float v[8])
+{
+    return uint4(f32tof16(v[0]) | (f32tof16(v[1]) << 16), f32tof16(v[2]) | (f32tof16(v[3]) << 16),
+                 f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
+}
+
+uint4 kv8_to_half(Kv8 k)
+{
+#if KV_FMT == FMT_F16
+    return k.u;
+#else
+    float v[8];
+    unpack_kv8(k, v);
+    return pack_half8(v);
+#endif
+}
+
+// One cache element.
+float load_kv(uint8_t* base, uint64_t elem)
+{
+#if KV_FMT == FMT_F16
+    return h2f(*(uint16_t*)byteAt(base, elem * 2));
+#elif KV_FMT == FMT_F32
+    return *(float*)byteAt(base, elem * 4);
+#else
+    uint8_t* blk = kv_block(base, elem);
+    uint within = uint(elem & 31);
+    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
+    uint byte = (kv_word(blk, b & ~1u) >> ((b & 1) * 8)) & 0xFF;
+#if KV_FMT == FMT_Q8_0
+    return h2f(*(uint16_t*)blk) * float(int(byte << 24) >> 24);
+#else
+    return h2f(*(uint16_t*)blk) * (float((byte >> (within >= 16 ? 4 : 0)) & 0xF) - 8.0);
+#endif
+#endif
+}
+
+// ---- Cache rows of a sequence --------------------------------------------------------------------------------------
+// `kv_base(slot)` once per query row, then `kv_row(base, j)` = cache row of key j times HKV (add the KV head). Contiguous
+// caches: base = first row (x HKV) of the slot (0 for single-sequence caches). Paged caches: base = the slot, and every key
+// goes through the block table (g_pages, set from the parameters at kernel entry).
+#if PAGED
+static int* g_pages;
+#endif
+
+uint64_t kv_base(uint slot)
+{
+#if PAGED
+    return slot;
+#else
+    return uint64_t(slot) * SLOT_CTX * HKV;
+#endif
+}
+
+uint64_t kv_row(uint64_t base, uint j)
+{
+#if PAGED
+    return seq_row(g_pages, uint(base), j) * HKV;
+#else
+    return base + uint64_t(j) * HKV;
+#endif
+}
 
 // ---------------------------------------------------------------------------------------------
 // Split-K flash decoding (`decode` + `decode_combine`, few queries against a KV cache). A workgroup handles HPW query
@@ -38,12 +196,20 @@
 // Macros: HPW (divisor of HQ/HKV), KLANES (lanes sharing a key/value row, power of two <= SG), DEC_WG (threads), DEC_R
 // (rows per lane group and batch), DEC_BC (keys per batch = DEC_R * DEC_WG / KLANES), DEC_MAX_SPLITS, DEC_MIN_KEYS
 // (multiple of DEC_BC), DEC_TARGET_WG (workgroups the split count aims for).
-#if defined(KERNEL_DECODE) || defined(KERNEL_DECODE_COMBINE)
+#if defined(KERNEL_DECODE) || defined(KERNEL_DECODE_COMBINE) || defined(KERNEL_FA_MQA)
+#ifndef DEC_GROUPS
 #define DEC_GROUPS (HKV * (HQ / HKV / HPW))   // workgroups per (row, split)
+#endif
 #define DEC_PS (DV + 4)                        // floats per partial: acc[DV], m, l, padding (16-byte rows)
 
 uint decode_max_splits(uint T)
 {
+#ifdef DEC_SPLIT_ROWS
+    if (T > DEC_SPLIT_ROWS)
+    {
+        return 1;
+    }
+#endif
     return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));
 }
 
@@ -56,13 +222,13 @@ uint decode_split_keys(uint span, uint T)
     return max(per, uint(DEC_MIN_KEYS));
 }
 
-// Key range [jLo, L) of query row t and the first cache row (x HKV) of its sequence.
+// Key range [jLo, L) of query row t and the cache base of its sequence (see kv_base).
 void decode_range(uint t, uint* rt, int* seq, out uint jLo, out uint L, out uint64_t kvRow)
 {
     kvRow = 0;
 #if MULTI_SEQ
     L = uint(seq[t * 4 + 1]) + 1;
-    kvRow = uint64_t(seq[t * 4]) * SLOT_CTX * HKV;
+    kvRow = kv_base(uint(seq[t * 4]));
 #else
     L = rt[RT_N_PAST] + t + 1;
 #endif
@@ -263,6 +429,9 @@ struct Params
     int* seq;    // [T, 4] (slot, position, run length, run index) per query row
     int* runs;   // [U, 4] (slot, first row, row count, first position)
 #endif
+#if PAGED
+    int* pages;  // [slots, PAGE_MB] block table of the paged cache
+#endif
 #if SPANS
     int* spans;  // [T, 2] (first key row, key count) per query row
 #endif
@@ -303,38 +472,16 @@ float reduce_sum(float v, uint tid)
     return r;
 }
 
-float load_kv(uint8_t* base, uint64_t elem)
-{
-#if KV_F16
-    return h2f(*(uint16_t*)byteAt(base, elem * 2));
-#else
-    return *(float*)byteAt(base, elem * 4);
-#endif
-}
-
 float dot_k(uint8_t* kc, uint64_t rowElem)
 {
     float s = 0;
-#if KV_F16
-    uint4* kp = (uint4*)byteAt(kc, rowElem * 2);
     [ForceUnroll]
     for (uint i = 0; i < D / 8; i++)
     {
-        uint4 u = kp[i];
-        s += sQ[8 * i + 0] * f16tof32(u.x & 0xFFFF) + sQ[8 * i + 1] * f16tof32(u.x >> 16)
-           + sQ[8 * i + 2] * f16tof32(u.y & 0xFFFF) + sQ[8 * i + 3] * f16tof32(u.y >> 16)
-           + sQ[8 * i + 4] * f16tof32(u.z & 0xFFFF) + sQ[8 * i + 5] * f16tof32(u.z >> 16)
-           + sQ[8 * i + 6] * f16tof32(u.w & 0xFFFF) + sQ[8 * i + 7] * f16tof32(u.w >> 16);
+        float k[8];
+        unpack_kv8(load_kv8(kc, rowElem + i * 8), k);
+        [ForceUnroll] for (uint e = 0; e < 8; e++) s += sQ[8 * i + e] * k[e];
     }
-#else
-    float4* kp = (float4*)byteAt(kc, rowElem * 4);
-    [ForceUnroll]
-    for (uint i = 0; i < D / 4; i++)
-    {
-        float4 k = kp[i];
-        s += sQ[4 * i] * k.x + sQ[4 * i + 1] * k.y + sQ[4 * i + 2] * k.z + sQ[4 * i + 3] * k.w;
-    }
-#endif
     return s;
 }
 
@@ -342,6 +489,9 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
 [numthreads(WG, 1, 1)]
 void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint h = gid.x;
     uint t = gid.y + p.row0;
     uint tid = ltid.x;
@@ -358,7 +508,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
 #elif MULTI_SEQ
     uint L = uint(p.seq[t * 4 + 1]) + 1;
-    kvRow = uint64_t(p.seq[t * 4]) * SLOT_CTX * HKV;
+    kvRow = kv_base(uint(p.seq[t * 4]));
 #else
     uint L = p.rt[RT_N_PAST] + t + 1;
 #endif
@@ -393,7 +543,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     {
         uint j = c0 + tid;
         float s = -1e30;
-        if (j < jEnd) s = dot_k(p.kc, (kvRow + uint64_t(j) * HKV + hk) * D);
+        if (j < jEnd) s = dot_k(p.kc, (kv_row(kvRow, j) + hk) * D);
 #if HAS_SOFTCAP
         if (j < jEnd) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
@@ -412,7 +562,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             float a = acc[di] * corr;
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
-                    a += sP[jj] * load_kv(p.vc, (kvRow + uint64_t(c0 + jj) * HKV + hk) * VRS + d);
+                    a += sP[jj] * load_kv(p.vc, (kv_row(kvRow, c0 + jj) + hk) * VRS + d);
             acc[di] = a;
         }
         GroupMemoryBarrierWithGroupSync();
@@ -455,7 +605,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 // in FA_DC-wide chunks and accumulated into the registers. Causal: query t sees keys [0, n_past + t]; FULL_ATTN:
 // every key of the launch (bidirectional); WINDOW: only the last WINDOW keys; HAS_SOFTCAP: capped scores.
 // Head sizes are zero-padded in shared memory (D to 16, DV to 64), so D % 8 == DV % 8 == 0 suffices.
-// K/V: f16 (KV_F16) or f32. Requires padded D, DV <= 256 and 32-wide subgroups with quad operations.
+// K/V: any KV_FMT (converted to f16 in shared memory). Requires padded D, DV <= 256 and 32-wide subgroups with quad operations.
 using namespace linalg;
 #define FA_BR 32
 #define FA_BC 32
@@ -490,18 +640,9 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         uint o = r * FA_KS + c;
         if (j < L && c < dim)
         {
-#if KV_F16
-            uint4 u = *(uint4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 2);
-            faKV[o + 0] = half(f16tof32(u.x & 0xFFFF)); faKV[o + 1] = half(f16tof32(u.x >> 16));
-            faKV[o + 2] = half(f16tof32(u.y & 0xFFFF)); faKV[o + 3] = half(f16tof32(u.y >> 16));
-            faKV[o + 4] = half(f16tof32(u.z & 0xFFFF)); faKV[o + 5] = half(f16tof32(u.z >> 16));
-            faKV[o + 6] = half(f16tof32(u.w & 0xFFFF)); faKV[o + 7] = half(f16tof32(u.w >> 16));
-#else
-            float4* f = (float4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 4);
-            float4 a = f[0], b = f[1];
-            faKV[o + 0] = half(a.x); faKV[o + 1] = half(a.y); faKV[o + 2] = half(a.z); faKV[o + 3] = half(a.w);
-            faKV[o + 4] = half(b.x); faKV[o + 5] = half(b.y); faKV[o + 6] = half(b.z); faKV[o + 7] = half(b.w);
-#endif
+            float v[8];
+            unpack_kv8(load_kv8(cache, (kv_row(kvRow, j) + hk) * rowStride + c), v);
+            [ForceUnroll] for (uint e = 0; e < 8; e++) faKV[o + e] = half(v[e]);
         }
         else
         {
@@ -514,6 +655,9 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
 [numthreads(FA_T, 1, 1)]
 void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint h = gid.x, t0 = gid.y * FA_BR;
     uint tid = ltid.x, sg = tid / 32;
     uint hk = h / (HQ / HKV);
@@ -529,7 +673,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     if (blk * FA_BR >= uint(run.z)) return;
     t0 = blk * FA_BR; qT = uint(run.z); qRow0 = uint(run.y);
     uint nPast = uint(run.w);
-    kvRow = uint64_t(run.x) * SLOT_CTX * HKV;
+    kvRow = kv_base(uint(run.x));
 #else
     uint nPast = p.rt[RT_N_PAST];
 #endif
@@ -679,6 +823,376 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 }
 #endif
 
+#ifdef KERNEL_FA_MQA
+// ---------------------------------------------------------------------------------------------
+// Flash attention on tensor cores for many query heads per key head whose values are the first DV entries of the key rows
+// (VRS == D): the absorbed multi-head latent attention cache (D = latent + rope = 576 / 288, DV = latent = 512 / 256,
+// HKV = 1). A workgroup handles FM_BR heads of one query row (a tile of its key head's group, FM_TILES tiles per group)
+// and one key range, so each cache row is loaded once per tile and serves as key and value. Prefill and decode use the
+// same kernel: a row's keys are split at run time like `decode` (decode_split_keys: long batches run one range per row and
+// write the output directly, few rows spread their keys over up to decode_max_splits(T) workgroups and leave partials for
+// `decode_combine`).
+// Per FM_BC-key tile: cache rows (fetched into registers during the previous tile) into shared memory (f16), S = Q·Kᵀ split along D over the subgroups (the query fragments
+// stay in registers), online softmax in scalar code, then O += P·V with the output tiles in cooperative-matrix
+// accumulators, rescaled per row by an element-wise product with a matrix of the row corrections.
+using namespace linalg;
+#define FM_BR 16
+#define FM_BC 32
+#define FM_T 128
+#define FM_NSG (FM_T / 32)
+#define FM_G (HQ / HKV)
+#define FM_TILES ((FM_G + FM_BR - 1) / FM_BR)
+#define FM_DP ((D + 15) / 16 * 16)
+#define FM_KS (FM_DP + 8)
+#define FM_KCH (FM_DP / 16)
+#define FM_KPS ((FM_KCH + FM_NSG - 1) / FM_NSG)   // 16-wide D chunks of the scores per subgroup
+#define FM_OT ((DV + 15) / 16)                      // 16-wide output tiles
+#define FM_OPS ((FM_OT + FM_NSG - 1) / FM_NSG)      // output tiles per subgroup
+#define FM_PS (FM_BC + 8)
+#define FM_SS (FM_BR * FM_BC)                       // floats of one subgroup's partial scores (and staging slice)
+typealias FmA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
+typealias FmB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
+typealias FmC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+
+groupshared uint4 fmKV[FM_BC * FM_KS / 8];   // key/value tile as packed f16 x 8; holds the query tile before the key loop
+groupshared float fmS[FM_NSG * FM_SS];   // per-subgroup partial scores, then per-subgroup staging of output tiles
+groupshared half fmP[FM_BR * FM_PS];
+groupshared float fmCorr[FM_BR];
+groupshared float fmCorrM[FM_BR * 16];   // per-tile correction factor of row r in every column of row r
+
+#define FM_CPR (FM_DP / 8)                              // 8-value chunks per tile row
+#define FM_LPT ((FM_BC * FM_CPR + FM_T - 1) / FM_T)      // chunks per thread and tile
+#define FM_QPT ((FM_BR * FM_CPR + FM_T - 1) / FM_T)      // 8-value query chunks per thread
+
+// One tile of cache rows in registers between fm_fetch and fm_store, so the next tile is loaded while the current one is
+// processed. f16 / f32: 8-value chunks. q8_0 / q4_0: whole 32-value blocks, each read as the 32-bit words covering it from
+// the aligned word at or before its start (blocks are only 2-byte aligned; `mis` bit k marks unit k as starting at 2 mod 4),
+// which takes far fewer load instructions than 8-value chunks.
+#if KV_QUANT
+#define FM_NW ((KV_BLOCK_BYTES + 2) / 4)                // words per block
+#define FM_BPR (D / 32)                                 // blocks per row
+#define FM_UPT ((FM_BC * FM_BPR + FM_T - 1) / FM_T)     // blocks per thread and tile
+struct FmTile
+{
+    uint w[FM_UPT * FM_NW];
+    uint mis;
+};
+#else
+struct FmTile
+{
+    Kv8 c[FM_LPT];
+};
+#endif
+
+// Issues the loads of cache rows j0 .. j0 + FM_BC (all D columns, zero-padded to FM_DP; rows >= jEnd are zero).
+void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+{
+#if KV_QUANT
+    buf.mis = 0;
+    [ForceUnroll]
+    for (uint k = 0; k < FM_UPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        uint j = j0 + i / FM_BPR;
+        [ForceUnroll] for (uint n = 0; n < FM_NW; n++) buf.w[k * FM_NW + n] = 0;
+        if (i < FM_BC * FM_BPR && j < jEnd)
+        {
+            uint64_t elem = (kv_row(kvRow, j) + hk) * D + (i % FM_BPR) * 32;
+            uint64_t s = (elem >> 5) * KV_BLOCK_BYTES;
+            uint* w = (uint*)byteAt(cache, s & ~uint64_t(3));
+            [ForceUnroll] for (uint n = 0; n + 1 < FM_NW; n++) buf.w[k * FM_NW + n] = w[n];
+            if ((s & 2) != 0)
+            {
+                buf.w[k * FM_NW + FM_NW - 1] = w[FM_NW - 1];
+                buf.mis |= 1u << k;
+            }
+            else
+            {
+                buf.w[k * FM_NW + FM_NW - 1] = uint(*(uint16_t*)(w + (FM_NW - 1)));   // the block's last 2 bytes
+            }
+        }
+    }
+#else
+    [ForceUnroll]
+    for (uint k = 0; k < FM_LPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        uint r = i / FM_CPR, c = (i % FM_CPR) * 8;
+        uint j = j0 + r;
+        bool valid = i < FM_BC * FM_CPR && j < jEnd && c < D;
+        buf.c[k] = valid ? load_kv8(cache, (kv_row(kvRow, j) + hk) * D + c) : zero_kv8();
+    }
+#endif
+}
+
+// Stores fetched rows into fmKV as f16 (one 16-byte store per 8 values).
+void fm_store(FmTile buf, uint tid)
+{
+#if KV_QUANT
+    [ForceUnroll]
+    for (uint k = 0; k < FM_UPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        if (i < FM_BC * FM_BPR)
+        {
+            bool mis = ((buf.mis >> k) & 1) != 0;
+            uint v[FM_NW];   // the block's bytes, 4 per word
+            [ForceUnroll]
+            for (uint n = 0; n < FM_NW; n++)
+            {
+                uint hi = n + 1 < FM_NW ? buf.w[k * FM_NW + n + 1] << 16 : 0;
+                v[n] = mis ? (buf.w[k * FM_NW + n] >> 16) | hi : buf.w[k * FM_NW + n];
+            }
+
+            float d = f16tof32(v[0] & 0xFFFF);
+            uint dst = i / FM_BPR * (FM_KS / 8) + i % FM_BPR * 4;
+            [ForceUnroll]
+            for (uint c = 0; c < 4; c++)
+            {
+                float x[8];
+                [ForceUnroll]
+                for (uint e = 0; e < 8; e++)
+                {
+                    uint el = c * 8 + e;
+#if KV_FMT == FMT_Q8_0
+                    uint b = 2 + el;
+                    x[e] = d * float(int(((v[b >> 2] >> ((b & 3) * 8)) & 0xFF) << 24) >> 24);
+#else
+                    uint b = 2 + (el & 15);
+                    x[e] = d * (float((v[b >> 2] >> ((b & 3) * 8 + (el >= 16 ? 4 : 0))) & 0xF) - 8.0);
+#endif
+                }
+                fmKV[dst + c] = pack_half8(x);
+            }
+        }
+    }
+#else
+    [ForceUnroll]
+    for (uint k = 0; k < FM_LPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        if (i < FM_BC * FM_CPR)
+        {
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = kv8_to_half(buf.c[k]);
+        }
+    }
+#endif
+}
+
+[shader("compute")]
+[numthreads(FM_T, 1, 1)]
+void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+#if PAGED
+    g_pages = p.pages;
+#endif
+    uint hk = gid.x / FM_TILES;
+    uint g0 = gid.x % FM_TILES * FM_BR;   // first head of the tile within the group
+    uint t = gid.y + p.row0;
+    uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
+
+    uint jLo, L;
+    uint64_t kvRow;
+#if MULTI_SEQ
+    decode_range(t, p.rt, p.seq, jLo, L, kvRow);
+#else
+    decode_range(t, p.rt, nullptr, jLo, L, kvRow);
+#endif
+    uint span = L - jLo;
+    uint per = decode_split_keys(span, p.T);
+    uint ns = (span + per - 1) / per;
+    uint split = gid.z;
+    if (split >= ns)
+    {
+        return;
+    }
+
+    uint jBeg = jLo + split * per;
+    uint jEnd = min(L, jBeg + per);
+
+    // Query tile (scaled, f16) through fmKV into register fragments: subgroup sg owns the D chunks sg * FM_KPS ...
+    // All loads are issued before the first store (one memory round trip).
+    FmTile next;
+    fm_fetch(next, p.kc, kvRow, jBeg, jEnd, hk, tid);
+    float qv[FM_QPT][8];
+    [ForceUnroll]
+    for (uint k = 0; k < FM_QPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        uint r = i / FM_CPR, d0 = (i % FM_CPR) * 8, g = g0 + r;
+        float* qr = p.q + uint64_t(t) * QS0 + uint64_t(hk * FM_G + g) * QS1;
+        [ForceUnroll] for (uint e = 0; e < 8; e++) qv[k][e] = i < FM_BR * FM_CPR && g < FM_G && d0 + e < D ? qr[d0 + e] * SCALE : 0.0;
+    }
+    [ForceUnroll]
+    for (uint k = 0; k < FM_QPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        if (i < FM_BR * FM_CPR)
+        {
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = pack_half8(qv[k]);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    FmA qa[FM_KPS];
+    [ForceUnroll]
+    for (uint c = 0; c < FM_KPS; c++)
+    {
+        uint k = min(sg * FM_KPS + c, uint(FM_KCH) - 1);   // chunks past D are loaded but not used
+        qa[c] = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmKV, k * 2, FM_KS / 8);
+    }
+    FmC o[FM_OPS];
+    [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = FmC(0.0);
+    GroupMemoryBarrierWithGroupSync();
+
+    // Softmax layout: 8 adjacent lanes per row, 4 key columns each.
+    uint row = tid / 8, sub = tid % 8;
+    bool rowValid = g0 + row < FM_G;
+    float m = -1e30, l = 0;
+
+    for (uint j0 = jBeg; j0 < jEnd; j0 += FM_BC)
+    {
+        fm_store(next, tid);
+        GroupMemoryBarrierWithGroupSync();
+        if (j0 + FM_BC < jEnd)
+        {
+            fm_fetch(next, p.kc, kvRow, j0 + FM_BC, jEnd, hk, tid);   // in flight during this tile's products
+        }
+
+        // Partial scores of this subgroup's D chunks for both 16-key halves.
+        {
+            FmC s0 = FmC(0.0), s1 = FmC(0.0);
+            [ForceUnroll]
+            for (uint c = 0; c < FM_KPS; c++)
+            {
+                uint k = sg * FM_KPS + c;
+                if (k < FM_KCH)
+                {
+                    FmB b0 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, k * 2, FM_KS / 8);
+                    FmB b1 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, 2 * FM_KS + k * 2, FM_KS / 8);
+                    s0 = coopMatMulAdd<float, false>(qa[c], b0, s0);
+                    s1 = coopMatMulAdd<float, false>(qa[c], b1, s1);
+                }
+            }
+            s0.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS, FM_BC);
+            s1.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS + 16, FM_BC);
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        float sv[4];
+        float mx = -1e30;
+        [ForceUnroll]
+        for (uint e = 0; e < 4; e++)
+        {
+            uint c = sub * 4 + e;
+            float sc = 0;
+            [ForceUnroll] for (uint w = 0; w < FM_NSG; w++) sc += fmS[w * FM_SS + row * FM_BC + c];
+#if HAS_SOFTCAP
+            sc = SOFTCAP * tanh(sc / SOFTCAP);
+#endif
+            sv[e] = rowValid && j0 + c < jEnd ? sc : -1e30;
+            mx = max(mx, sv[e]);
+        }
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 1));
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 2));
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 4));
+        float mNew = max(m, mx);
+        float corr = exp(m - mNew);
+        m = mNew;
+        float ps = 0;
+        [ForceUnroll]
+        for (uint e = 0; e < 4; e++)
+        {
+            float pe = sv[e] > -1e29 ? exp(sv[e] - m) : 0.0;
+            ps += pe;
+            fmP[row * FM_PS + sub * 4 + e] = half(pe);
+        }
+        ps += WaveReadLaneAt(ps, lane ^ 1);
+        ps += WaveReadLaneAt(ps, lane ^ 2);
+        ps += WaveReadLaneAt(ps, lane ^ 4);
+        l = l * corr + ps;
+        fmCorrM[row * 16 + sub * 2] = corr;
+        fmCorrM[row * 16 + sub * 2 + 1] = corr;
+        GroupMemoryBarrierWithGroupSync();   // P and corrections visible; partial scores consumed
+
+        // Rescale the accumulators row by row: element-wise product with the matrix whose row r is corr[r] (same
+        // accumulator type, so both share the implementation's element layout).
+        FmC cm = FmC.Load<CoopMatMatrixLayout.RowMajor>(fmCorrM, 0, 16);
+        [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = o[i] * cm;
+
+        FmA p0 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 0, FM_PS);
+        FmA p1 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 16, FM_PS);
+        [ForceUnroll]
+        for (uint i = 0; i < FM_OPS; i++)
+        {
+            uint ot = sg * FM_OPS + i;
+            if (ot < FM_OT)
+            {
+                FmB v0 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, ot * 2, FM_KS / 8);
+                FmB v1 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, 2 * FM_KS + ot * 2, FM_KS / 8);
+                o[i] = coopMatMulAdd<float, false>(p0, v0, o[i]);
+                o[i] = coopMatMulAdd<float, false>(p1, v1, o[i]);
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();   // tile, P and staging free for the next keys
+    }
+
+    // Row factors: 1/l for a direct output (sinks join the denominator), 1 for partials (decode_combine normalizes).
+    bool direct = ns == 1;
+    float f = 1.0;
+    if (direct)
+    {
+#if HAS_SINKS
+        if (rowValid)
+        {
+            float sk = p.sinks[hk * FM_G + g0 + row], mf = max(m, sk), cf = exp(m - mf);
+            l = l * cf + exp(sk - mf);
+            f = cf;
+        }
+#endif
+        f = l > 0 ? f / l : 0.0;
+    }
+    else if (rowValid && sub == 0)
+    {
+        float* dst = p.part + ((uint64_t(split) * p.T + t) * HQ + hk * FM_G + g0 + row) * DEC_PS;
+        dst[DV] = m;
+        dst[DV + 1] = l;
+    }
+    fmCorrM[row * 16 + sub * 2] = f;
+    fmCorrM[row * 16 + sub * 2 + 1] = f;
+    GroupMemoryBarrierWithGroupSync();
+    FmC fm = FmC.Load<CoopMatMatrixLayout.RowMajor>(fmCorrM, 0, 16);
+    // Output rows are consecutive heads: [t][h][DV] (direct) or [split][t][h][DEC_PS] (partials).
+    uint64_t rowBytes = direct ? DV * 4 : DEC_PS * 4;
+    uint64_t first = direct ? (uint64_t(t) * HQ + hk * FM_G + g0) * DV * 4 : ((uint64_t(split) * p.T + t) * HQ + hk * FM_G + g0) * DEC_PS * 4;
+    uint8_t* base = byteAt((uint8_t*)(direct ? p.o : p.part), first);
+    [ForceUnroll]
+    for (uint i = 0; i < FM_OPS; i++)
+    {
+        uint ot = sg * FM_OPS + i;
+#if FM_G % FM_BR == 0 && DV % 16 == 0
+        if (ot < FM_OT)
+        {
+            (o[i] * fm).Store<CoopMatMatrixLayout.RowMajor>((float*)byteAt(base, ot * 64), 0, uint(rowBytes / 4));
+        }
+#else
+        // Partial head tiles or value widths: stage and write the valid elements.
+        (o[i] * fm).Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS, 16);
+        GroupMemoryBarrierWithGroupSync();
+        [ForceUnroll]
+        for (uint e = 0; e < 8; e++)
+        {
+            uint idx = lane * 8 + e, r = idx / 16, d = ot * 16 + idx % 16;
+            if (ot < FM_OT && g0 + r < FM_G && d < DV)
+            {
+                *(float*)byteAt(base, r * rowBytes + d * 4) = fmS[sg * FM_SS + idx];
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+#endif
+    }
+}
+#endif
+
 #ifdef KERNEL_DECODE
 // ---------------------------------------------------------------------------------------------
 // Split-K flash decoding, see decode_range above. KLANES adjacent lanes own one key row at a time (16-byte loads of
@@ -695,59 +1209,13 @@ groupshared float dM[DEC_NSG * HPW];
 groupshared float dL[DEC_NSG * HPW];
 groupshared float dO[DEC_NSG * HPW * DEC_VC * KLANES * 8];
 
-// 8 consecutive cache elements, kept packed in registers until used.
-struct Kv8
-{
-#if KV_F16
-    uint4 u;
-#else
-    float4 a;
-    float4 b;
-#endif
-};
-
-Kv8 load_kv8(uint8_t* cache, uint64_t elem)
-{
-    Kv8 r;
-#if KV_F16
-    r.u = *(uint4*)byteAt(cache, elem * 2);
-#else
-    float4* f = (float4*)byteAt(cache, elem * 4);
-    r.a = f[0];
-    r.b = f[1];
-#endif
-    return r;
-}
-
-Kv8 zero_kv8()
-{
-    Kv8 r;
-#if KV_F16
-    r.u = uint4(0);
-#else
-    r.a = float4(0);
-    r.b = float4(0);
-#endif
-    return r;
-}
-
-void unpack_kv8(Kv8 k, out float v[8])
-{
-#if KV_F16
-    v[0] = f16tof32(k.u.x & 0xFFFF); v[1] = f16tof32(k.u.x >> 16);
-    v[2] = f16tof32(k.u.y & 0xFFFF); v[3] = f16tof32(k.u.y >> 16);
-    v[4] = f16tof32(k.u.z & 0xFFFF); v[5] = f16tof32(k.u.z >> 16);
-    v[6] = f16tof32(k.u.w & 0xFFFF); v[7] = f16tof32(k.u.w >> 16);
-#else
-    v[0] = k.a.x; v[1] = k.a.y; v[2] = k.a.z; v[3] = k.a.w;
-    v[4] = k.b.x; v[5] = k.b.y; v[6] = k.b.z; v[7] = k.b.w;
-#endif
-}
-
 [shader("compute")]
 [numthreads(DEC_WG, 1, 1)]
 void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
+#if PAGED
+    g_pages = p.pages;
+#endif
     uint hk = gid.x / (HQ / HKV / HPW);
     uint h0 = hk * (HQ / HKV) + gid.x % (HQ / HKV / HPW) * HPW;
     uint t = gid.y;
@@ -807,7 +1275,7 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         for (uint i = 0; i < DEC_R; i++)
         {
             uint j = c0 + i * DEC_NRG + rg;
-            uint64_t row = kvRow + uint64_t(j) * HKV + hk;
+            uint64_t row = kv_row(kvRow, j) + hk;
             [ForceUnroll]
             for (uint c = 0; c < DEC_KC; c++)
             {

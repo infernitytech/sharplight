@@ -41,6 +41,7 @@ Python: `openai.OpenAI(base_url="http://localhost:8080/v1", api_key="x")` or `an
 | `--listen URL` (`--urls`), `--api openai\|anthropic\|both`, `--api-key K`, `--cors ORIGIN` | HTTP surface; keys also protect `/admin`. |
 | `--cpu`, `--device N`, `--ctx`, `--batch`, `--cpu-offload`, `--disable-features` | Defaults for models without their own setting. |
 | `--slots N`, `--max-queue N`, `--prefill-chunk N` | Concurrent sequences per model (4), waiting requests before HTTP 429 (64), prompt rows per step (512). |
+| `--kv-tokens N`, `--kv-type T` | Paged KV cache: one pool of N tokens (K/M suffixes) shared by all slots, each growing to `--ctx` as needed, so many short chats fit in the memory of a few long ones; requests are admitted by free cache blocks, the newest running sequences are preempted and recomputed when the pool runs out, and common prompt prefixes are shared between requests. Default: each slot reserves `--ctx` tokens. KV element type f16 (default), f32, q8_0 or q4_0. See [docs/kv-cache.md](../../docs/kv-cache.md). |
 | `--vram-reserve SIZE`, `--vram-budget SIZE`, `--max-loaded N` | Memory kept free (1G), total cap, resident model limit with LRU eviction. |
 | `--lazy`, `--idle-timeout SECONDS` | Load on first request; unload idle models (they reload on demand). |
 | `--chat-template FILE`, `--temp T`, `--mmproj FILE` | Template override, default temperature (0.7), vision projector. |

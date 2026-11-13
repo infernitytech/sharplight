@@ -32,6 +32,8 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_ATTN_DECODE=0</c>: disable split-K flash decoding (GQA-grouped decode attention with a run-time split
 /// count); decode then uses the per-head split kernel. <c>SHARPLIGHT_ATTN_DECODE_CFG=wg,keys,splits[,rows]</c>: workgroups the split
 /// count aims for, minimum keys per split, maximum splits (default 1024,128,64), and optionally key rows per lane group and batch.</item>
+/// <item><c>SHARPLIGHT_ATTN_MQA=0</c>: disable the tensor-core attention for many query heads on one key row whose values are a
+/// row prefix (absorbed multi-head latent attention, <c>fa_mqa</c>); prefill and decode then use the generic kernels.</item>
 /// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
 /// block of the delta-rule and selective-scan kernels.</item>
 /// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_MMVQ_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
@@ -106,6 +108,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when multi-sequence batches may use flash attention.</summary>
     public static bool AttentionSequenceFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_SEQ_FA");
+
+    /// <summary>True when shared-key-row attention (absorbed MLA) may use the tensor-core <c>fa_mqa</c> kernel.</summary>
+    public static bool AttentionMqaFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_MQA");
 
     /// <summary>Preferred lanes per state row of the gated delta rule.</summary>
     public static int DeltaLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_DELTA_LPR") ?? "8", CultureInfo.CurrentCulture);

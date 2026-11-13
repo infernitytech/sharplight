@@ -9,6 +9,9 @@ of all gaps), request latency and the actual prompt/completion token counts take
 Mixed load (chunked prefill): with --long-prompt-words W --long-every K every K-th request of a worker sends a W-word
 prompt; the ITL p99 / max of the other streams then show how much a long prefill stalls running decodes.
 
+Shared prefix: with --shared-prefix-words W every prompt starts with the same W-word text (a system prompt), so a prefix cache
+that shares KV between concurrent requests can skip it.
+
 usage: loadgen.py --url http://127.0.0.1:8080 --model NAME -c 16 [--per-worker 3] [--max-tokens 128] [--json out.json]
 """
 import argparse, asyncio, json, random, statistics, sys, time
@@ -20,8 +23,10 @@ WORDS = ("time year people way day man thing woman life child world school state
          "end member law car city community name president team minute idea kid body information back parent face others level office "
          "door health person art war history party result change morning reason research girl guy moment air teacher force education").split()
 
+PREFIX = ""
+
 def make_prompt(rng, words):
-    return " ".join(rng.choice(WORDS) for _ in range(words))
+    return PREFIX + " ".join(rng.choice(WORDS) for _ in range(words))
 
 def pct(xs, p):
     if not xs: return float("nan")
@@ -67,9 +72,13 @@ async def main():
     ap.add_argument("--temperature", type=float, default=0.0); ap.add_argument("--top-p", type=float, default=1.0)
     ap.add_argument("--long-prompt-words", type=int, default=0, help="words of the occasional long prompt (mixed load)")
     ap.add_argument("--long-every", type=int, default=0, help="every K-th request per worker is long (0 = never)")
+    ap.add_argument("--shared-prefix-words", type=int, default=0, help="words of a prefix common to all prompts")
     ap.add_argument("--warmup", type=int, default=1); ap.add_argument("--seed", type=int, default=1); ap.add_argument("--json")
     args = ap.parse_args()
     rng = random.Random(args.seed)
+    global PREFIX
+    if args.shared_prefix_words > 0:
+        PREFIX = " ".join(random.Random(args.seed + 7).choice(WORDS) for _ in range(args.shared_prefix_words)) + "\n"
     limits = httpx.Limits(max_connections=args.concurrency + 4)
     async with httpx.AsyncClient(timeout=httpx.Timeout(600.0), limits=limits) as client:
         for _ in range(args.warmup):  # concurrent warm-up so kernels/graphs for batch shapes exist
@@ -88,6 +97,7 @@ async def main():
     out = {"concurrency": args.concurrency, "requests": len(res), "errors": len(errs), "wall_s": wall,
            "agg_tok_s": toks / wall, "out_tokens": toks, "avg_out_tokens": toks / max(len(ok), 1),
            "avg_prompt_tokens": statistics.mean([r["prompt_tokens"] for r in ok if r["prompt_tokens"]] or [float("nan")]),
+           "shared_prefix_words": args.shared_prefix_words,
            "per_stream_tok_s": 1 / statistics.mean(per_req_itl) if per_req_itl else float("nan"),
            "ttft_p50_ms": pct(ttft, 50) * 1e3, "ttft_p95_ms": pct(ttft, 95) * 1e3,
            "itl_mean_ms": statistics.mean(per_req_itl) * 1e3 if per_req_itl else float("nan"),

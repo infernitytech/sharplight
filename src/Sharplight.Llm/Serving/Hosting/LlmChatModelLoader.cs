@@ -22,7 +22,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         var model = LlmModel.Load(path, load);
         try
         {
-            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength);
+            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens);
             // The model is split over the pipeline devices in proportion to their weights (equal when unset).
             var devs = load.Devices;
             double sum = devs.Sum(d => d.Weight ?? 1);
@@ -55,7 +55,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
             IBatchDecoder decoder;
             try
             {
-                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows);
+                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows, owner._chat.KvCacheTokens);
             }
             catch
             {

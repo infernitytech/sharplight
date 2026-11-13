@@ -7,5 +7,7 @@ internal sealed record Step(long T, long Past, params (Value V, Array Data)[] In
 {
     /// <summary>Value of the secondary symbol "R" (e.g. number of gathered rows); defaults to T.</summary>
     public long? R { get; init; }
+    /// <summary>Further symbol bindings (e.g. the run count "U" of a multi-sequence graph).</summary>
+    public IReadOnlyDictionary<string, long>? Symbols { get; init; }
     public Step With(params (Value, Array)[] more) => this with { Inputs = [.. Inputs, .. more] };
 }

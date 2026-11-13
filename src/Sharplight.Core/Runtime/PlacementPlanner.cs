@@ -230,8 +230,9 @@ public static class PlacementPlanner
     /// state (KV caches / recurrent state) and a rough bound for activations and scratch. <paramref name="slots"/> &gt; 1 sizes
     /// the state of a multi-sequence compilation of the single-sequence <paramref name="graph"/> (KV rows for slots · context,
     /// recurrent state per slot). Use it to decide whether a model fits before compiling it.
+    /// <paramref name="kvCacheRows"/> &gt; 0 sizes the KV caches of a paged multi-sequence compilation instead (rows shared by all slots).
     /// </summary>
-    public static ModelFootprint Estimate(ComputeGraph graph, CompileOptions options, int slots = 1)
+    public static ModelFootprint Estimate(ComputeGraph graph, CompileOptions options, int slots = 1, long kvCacheRows = 0)
     {
         long weights = 0;
         long states = 0;
@@ -253,7 +254,8 @@ public static class PlacementPlanner
                 {
                     if (slots > 1 && MultiSequence.IsKvState(st))
                     {
-                        states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = options.ContextLength * slots, SymbolBounds = options.SymbolBounds });
+                        long rows = kvCacheRows > 0 ? kvCacheRows : options.ContextLength * slots;
+                        states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = rows, SymbolBounds = options.SymbolBounds });
                     }
                     else
                     {

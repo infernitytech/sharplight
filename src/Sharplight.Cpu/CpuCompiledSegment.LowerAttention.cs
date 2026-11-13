@@ -32,7 +32,9 @@ internal sealed unsafe partial class CpuCompiledSegment
         if (ins.Length > 2)
         {
             var rows = Dense(Ref(ins[2]));
-            AddStep(new CacheWriteOp(cache, x, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L)), cache, x, rows);
+            var table = ins.Length > 3 ? Dense(Ref(ins[3])) : null;
+            var pages = table is null ? null : new KvPages(table, a.Get("block_size", 0L));
+            AddStep(new CacheWriteOp(cache, x, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L), pages), Touched(cache, x, rows, table));
             return;
         }
 
@@ -48,13 +50,15 @@ internal sealed unsafe partial class CpuCompiledSegment
         var v = Ref(ins[2]);
         var y = NewDense(n.Output);
         bool hasSinks = a.Get("sinks", false);
-        int sinksOffset = hasSinks ? 1 : 0; // inputs: q, k, v, [sinks], [rows, runs]
+        int sinksOffset = hasSinks ? 1 : 0; // inputs: q, k, v, [sinks], [rows, runs, [block table]]
         TRef? sinks = hasSinks ? Ref(ins[3]) : null;
         TRef? rows = ins.Length > 3 + sinksOffset ? Dense(Ref(ins[3 + sinksOffset])) : null;
+        TRef? table = ins.Length > 5 + sinksOffset ? Dense(Ref(ins[5 + sinksOffset])) : null;
         var attention = new AttentionOp(
             q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
-            rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0), alibiSlopes: a.Get<float[]?>("alibi_slopes", null));
-        AddStep(attention, Touched(q, k, v, sinks, rows, y));
+            rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0),
+            alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)));
+        AddStep(attention, Touched(q, k, v, sinks, rows, table, y));
         _refs[n.Output] = y;
     }
 

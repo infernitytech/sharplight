@@ -31,6 +31,8 @@ internal sealed class AttentionPlan
 
     /// <summary>Multi-sequence form: runs table of (first row, count) per sequence.</summary>
     public TensorRef? Runs { get; init; }
+    /// <summary>Paged cache: the block table [slots, blocks per slot] (null for a contiguous cache).</summary>
+    public TensorRef? Pages { get; init; }
 
     /// <summary>"Attention" with i32 spans: the key range each query may see.</summary>
     public TensorRef? Spans { get; init; }

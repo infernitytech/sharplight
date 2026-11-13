@@ -93,9 +93,9 @@ public class StatefulOpTests
         }
     }
 
-    /// <summary>KV-cache attention across two Execute calls (n_past advancing), GQA, f16 and f32 caches.</summary>
+    /// <summary>KV-cache attention across two Execute calls (n_past advancing), GQA, f16, f32 and q8_0 / q4_0 caches.</summary>
     [Theory]
-    [InlineData("f16", 16, 16), InlineData("f32", 16, 16), InlineData("f16", 24, 32)]
+    [InlineData("f16", 16, 16), InlineData("f32", 16, 16), InlineData("f16", 24, 32), InlineData("q8_0", 32, 32), InlineData("q4_0", 64, 32)]
     public void CachedAttentionAcrossCalls(string cacheType, int D, int Dv)
     {
         int Hq = 6;
@@ -121,8 +121,8 @@ public class StatefulOpTests
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 8, ctx: ctx);
         // reference keys/values rounded like the cache
         Func<float, float> rnd = cacheType == "f16" ? (x => (float)(Half)x) : (x => x);
-        var kr = k.Select(rnd).ToArray();
-        var vr = v.Select(rnd).ToArray();
+        var kr = ct.IsQuantized ? QuantRoundTrip(k, cacheType) : k.Select(rnd).ToArray();
+        var vr = ct.IsQuantized ? QuantRoundTrip(v, cacheType) : v.Select(rnd).ToArray();
         int past = 0;
         foreach (int c in chunks)
         {
@@ -136,6 +136,55 @@ public class StatefulOpTests
             Kit.AssertClose(exp, got, 2e-5, 2e-4, $"past {past} T {c}");
             past += c;
         }
+    }
+
+    /// <summary>Rounds values through q8_0 / q4_0 blocks of 32 (f16 scale), like a quantized KV cache stores them.</summary>
+    private static float[] QuantRoundTrip(float[] x, string format)
+    {
+        var r = new float[x.Length];
+        for (int b = 0; b < x.Length; b += 32)
+        {
+            var blk = x.AsSpan(b, 32);
+            if (format == "q8_0")
+            {
+                float amax = 0f;
+                foreach (float f in blk)
+                {
+                    amax = MathF.Max(amax, MathF.Abs(f));
+                }
+
+                float d = amax / 127f;
+                float inv = d != 0f ? 1f / d : 0f;
+                float dh = (float)(Half)d;
+                for (int i = 0; i < 32; i++)
+                {
+                    r[b + i] = MathF.Round(blk[i] * inv, MidpointRounding.AwayFromZero) * dh;
+                }
+            }
+            else
+            {
+                float amax = 0f;
+                float max = 0f;
+                foreach (float f in blk)
+                {
+                    if (MathF.Abs(f) > amax)
+                    {
+                        amax = MathF.Abs(f);
+                        max = f;
+                    }
+                }
+
+                float d = max / -8f;
+                float inv = d != 0f ? 1f / d : 0f;
+                float dh = (float)(Half)d;
+                for (int i = 0; i < 32; i++)
+                {
+                    r[b + i] = (Math.Min(15, (int)(blk[i] * inv + 8.5f)) - 8) * dh;
+                }
+            }
+        }
+
+        return r;
     }
 
     /// <summary>Sliding-window and soft-capped cached attention (Gemma 2/3) across calls.</summary>
