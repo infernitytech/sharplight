@@ -2,44 +2,6 @@ using Vortice.Vulkan;
 
 namespace Sharplight.Vulkan;
 
-internal enum MemoryUsage
-{
-    /// <summary>Device local, GPU only.</summary>
-    Device,
-    /// <summary>Host writes, device reads (prefers device-local host-visible "ReBAR" memory).</summary>
-    Upload,
-    /// <summary>Device writes, host reads (prefers host-cached memory).</summary>
-    Readback,
-}
-
-/// <summary>A sub-allocation addressed by device address.</summary>
-internal sealed unsafe class Allocation
-{
-    public required VkBuffer Buffer { get; init; }
-    public required ulong Offset { get; init; }
-    public required ulong Size { get; init; }
-    public required ulong Address { get; init; }
-    /// <summary>Host pointer for host-visible memory, else null.</summary>
-    public byte* Mapped { get; init; }
-    internal MemoryBlock? Block { get; init; }
-    internal bool Coherent { get; init; } = true;
-}
-
-internal sealed unsafe class MemoryBlock
-{
-    public required VkDeviceMemory Memory { get; init; }
-    public required VkBuffer Buffer { get; init; }
-    public required ulong Size { get; init; }
-    public required ulong Address { get; init; }
-    public byte* Mapped { get; init; }
-    public bool Dedicated { get; init; }
-    public bool Coherent { get; init; }
-    public MemoryUsage Usage { get; init; }
-    /// <summary>Bytes counted against the device-local budget (0 for host-only memory).</summary>
-    public long Tracked { get; init; }
-    public readonly SortedList<ulong, ulong> Free = [];   // offset → size
-}
-
 /// <summary>
 /// Simple block sub-allocator: large blocks per usage, first-fit with coalescing, dedicated
 /// allocations for big resources. Every block is backed by one VkBuffer with device-address usage,
