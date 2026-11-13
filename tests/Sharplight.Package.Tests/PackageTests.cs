@@ -131,7 +131,7 @@ public class PackageTests
         return outs;
     }
 
-    private static ModelDefinition SmallDefinition(Dictionary<string, object>? extraMeta = null)
+    internal static ModelDefinition SmallDefinition(Dictionary<string, object>? extraMeta = null)
     {
         var w = WeightInfo.Derived("w", DataType.F32, new Shape(4, 8), () => new byte[4 * 8 * 4].Select((_, i) => (byte)i).ToArray());
         var weights = new Dictionary<string, WeightInfo> { ["w"] = w };
@@ -228,57 +228,6 @@ public class PackageTests
         var e = Assert.Throws<NotSupportedException>(() => ModelPackage.Save(tmp.File("nz.slm"), def, []));
         Assert.Contains("data-dependent", e.Message);
         Assert.False(File.Exists(tmp.File("nz.slm")));
-    }
-
-    [Fact]
-    public void TargetsAreStoredReplacedAndAppended()
-    {
-        using var tmp = new TempDir();
-        var p = tmp.File("t.slm");
-        var a = new CompilationCache("dev-a");
-        a.Put("kernel/1", new byte[] { 1, 2, 3 });
-        a.Put("vulkan/pipeline_cache", new byte[100]);
-        ModelPackage.Save(p, SmallDefinition(), [a, new CompilationCache("empty")]);
-
-        using (var f = new PackageFile(p))
-        {
-            Assert.Equal(["dev-a"], f.Targets);
-            Assert.True(f.Find("dev-a")!.TryGet("kernel/1", out var k));
-            Assert.Equal(new byte[] { 1, 2, 3 }, k.ToArray());
-            Assert.False(f.Find("dev-a")!.TryGet("kernel/2", out _));
-            Assert.Null(f.Find("dev-b"));
-
-            // Append while the file is open: the open mapping keeps serving its data.
-            var a2 = new CompilationCache("dev-a");
-            a2.Put("kernel/1", new byte[] { 9 });
-            var b = new CompilationCache("dev-b");
-            b.Put("kernel/7", new byte[] { 7, 7 });
-            ModelPackage.AddTargets(p, [a2, b]);
-            Assert.True(f.Find("dev-a")!.TryGet("kernel/1", out var still));
-            Assert.Equal(new byte[] { 1, 2, 3 }, still.ToArray());
-        }
-
-        using (var f = new PackageFile(p))
-        {
-            Assert.Equal(["dev-a", "dev-b"], f.Targets.Order());
-            Assert.True(f.Find("dev-a")!.TryGet("kernel/1", out var k));
-            Assert.Equal(new byte[] { 9 }, k.ToArray());
-            Assert.True(f.Find("dev-b")!.TryGet("kernel/7", out var k7));
-            Assert.Equal(new byte[] { 7, 7 }, k7.ToArray());
-            Assert.Equal(SmallDefinition().Weights["w"].ReadAll(), f.Weights["w"].ReadAll());
-        }
-    }
-
-    [Fact]
-    public void RecordingCacheCapturesFallbackHitsAndNewEntries()
-    {
-        var stored = new CompilationCache("t");
-        stored.Put("old", new byte[] { 1 });
-        var c = new CompilationCache("t", stored);
-        Assert.True(c.TryGet("old", out _));
-        c.Put("new", new byte[] { 2 });
-        Assert.False(c.TryGet("missing", out _));
-        Assert.Equal(["new", "old"], c.Entries.Keys.Order());
     }
 
     [Fact]

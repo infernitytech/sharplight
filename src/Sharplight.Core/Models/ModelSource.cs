@@ -34,7 +34,7 @@ public sealed class ModelSource
     /// then not involved: <see cref="ModelAdapterRegistry.Build"/> returns it as is.
     /// </summary>
     public ModelDefinition? Definition { get; init; }
-    /// <summary>Compilation caches stored with the model (saved compiled models), per device target.</summary>
+    /// <summary>Precompiled artifact sets stored with the model (code and binaries for any providers), or <see langword="null"/>.</summary>
     public Runtime.ICompilationCacheStore? CompilationCaches { get; init; }
 
     /// <summary>Whether the metadata contains <paramref name="key"/>.</summary>

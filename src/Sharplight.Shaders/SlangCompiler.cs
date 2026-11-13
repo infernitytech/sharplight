@@ -43,6 +43,18 @@ public sealed class SlangCompiler : IDisposable
     private static string Version { get; } = typeof(Slang).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? typeof(Slang).Assembly.GetName().Version?.ToString() ?? "";
 
+    /// <summary>
+    /// Name and version of the compiler (<c>slang-&lt;build tag&gt;</c>), recorded in the descriptors of stored code artifacts.
+    /// Kernel cache keys include it, so code from another compiler version never hits.
+    /// </summary>
+    public static string CompilerId => "slang-" + Version;
+
+    /// <summary>Prefix of the model-level cache keys of compiled kernels (<c>kernel/&lt;content hash&gt;</c>).</summary>
+    public const string KernelKeyPrefix = "kernel/";
+
+    /// <summary>The Slang profile code for <paramref name="target"/> is generated with (e.g. <c>spirv_1_6</c>).</summary>
+    public static string TargetProfile(ShaderTarget target) => Profile(target);
+
     /// <summary>The per-user kernel cache directory.</summary>
     public static string DefaultCacheDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "sharplight", "kernels");
@@ -82,7 +94,7 @@ public sealed class SlangCompiler : IDisposable
         Runtime.ICompilationCache? cache)
     {
         var key = CacheKey(sourceDigest, entryPoint, target, macros);
-        string ckey = "kernel/" + key;
+        string ckey = KernelKeyPrefix + key;
         if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpDirectory)
         {
             Directory.CreateDirectory(dumpDirectory);

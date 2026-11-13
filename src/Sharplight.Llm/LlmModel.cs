@@ -45,8 +45,7 @@ public sealed class LlmModel : IDisposable
     /// <summary>The Jinja chat template stored in the model file (<c>tokenizer.chat_template</c>), or null if it has none.</summary>
     public string? ChatTemplate { get; }
     private readonly LlmLoadOptions _options;
-    private readonly Dictionary<string, (CompilationCache Cache, List<IComputeDevice> Devices)> _caches = [];
-    private readonly Lock _cacheLock = new();
+    private readonly CompilationArtifacts _artifacts;
 
     private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options)
     {
@@ -54,6 +53,7 @@ public sealed class LlmModel : IDisposable
         Source = source;
         Tokenizer = tok;
         _options = options;
+        _artifacts = new CompilationArtifacts(source.CompilationCaches);
         ChatTemplate = def.SourceMetadata.TryGetValue(CanonicalKeys.ChatTemplate, out var t) ? t as string : null;
     }
 
@@ -230,46 +230,17 @@ public sealed class LlmModel : IDisposable
         return enc;
     }
 
-    /// <summary>One recording cache per device target, seeded from caches stored in the model file.</summary>
-    private ICompilationCache CacheFor(IComputeDevice device)
-    {
-        var target = device.CompilationTarget;
-        lock (_cacheLock)
-        {
-            if (!_caches.TryGetValue(target, out var e))
-            {
-                _caches[target] = e = (new CompilationCache(target, Source.CompilationCaches?.Find(target)), []);
-            }
-
-            if (!e.Devices.Contains(device))
-            {
-                e.Devices.Add(device);
-            }
-
-            return e.Cache;
-        }
-    }
+    /// <summary>The device's recording cache, seeded from the matching artifact sets stored in the model file.</summary>
+    private ICompilationCache? CacheFor(IComputeDevice device) => _artifacts.For(device);
 
     /// <summary>
-    /// Compilation artifacts of every graph compiled so far (call after <see cref="CreateSession"/>), one cache per
-    /// device target, including device state such as driver pipeline caches. Save them with the model source
-    /// (e.g. Sharplight.Package's <c>ModelPackage.Save</c>) so later loads skip kernel compilation.
+    /// Compilation artifacts of every graph compiled so far (call after <see cref="CreateSession"/>), one set per device artifact
+    /// target (<see cref="IComputeDevice.ArtifactTargets"/>: e.g. a code tier with the kernels and a binary tier with the driver
+    /// pipeline cache). Store them with the model source (e.g. Sharplight.Package's <c>ModelPackage.Save</c> or
+    /// <c>ModelPackage.AddArtifacts</c>) so later loads skip kernel compilation.
     /// </summary>
-    public IReadOnlyList<CompilationCache> ExportCompilation()
-    {
-        lock (_cacheLock)
-        {
-            foreach (var (cache, devices) in _caches.Values)
-            {
-                foreach (var d in devices)
-                {
-                    d.ExportCompilationState(cache);
-                }
-            }
-
-            return [.. _caches.Values.Select(e => e.Cache)];
-        }
-    }
+    /// <param name="tiers">Only sets of these tiers (<see cref="ArtifactTiers"/>), or <see langword="null"/> for all.</param>
+    public IReadOnlyList<CompilationCache> ExportCompilation(IReadOnlySet<string>? tiers = null) => _artifacts.Export(tiers);
 
     /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()

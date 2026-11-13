@@ -1,6 +1,8 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
-Status: design, being implemented (2026-11-13).
+Status: container v2, artifact tiers, inspection API and `sharplight-convert` (convert, info, precompile --device, strip,
+compact) are implemented; the graph optimization phase, device profiles (`profile`, `precompile --profile`), the `optimize`
+command and the viewer are not yet (2026-11-13).
 
 ## Goals
 
@@ -32,29 +34,46 @@ A pass pipeline over `ComputeGraph`, independent of devices:
 
 ## Container (version 2)
 
-Unchanged header and section table (v1 files stay readable). Sections:
+Unchanged header and section table (v1 files stay readable; any write, including `AddArtifacts` and `Strip`, stores version 2).
+Sections:
 
 | kind | name | content |
 |---|---|---|
 | DEFN | | IR graphs, states, properties, metadata (optimized) |
 | WIDX / WDAT | | weight index / weight bytes, 64 KiB aligned |
-| ARTS | artifact-set id | one artifact set (new in v2) |
-| KSET | target | v1 kernel set; read as an artifact set of tier `mixed` |
+| ARTS (5) | artifact-set id | one artifact set (new in v2) |
+| KSET (4) | v1 target | v1 kernel set; read as an artifact set of tier `mixed` |
 
-An **artifact set** is: descriptor (string → string, at least `provider`, `tier`, `kind`), then entries (key → bytes). Examples:
+An **artifact set** is: descriptor (string → string, at least `provider`, `tier`, `kind`), then entries (key → bytes). ARTS
+layout: `i32 format (1)`, `i32 n` + n key/value strings (keys sorted), `i32 m` + m × (key, `i64` offset relative to the section,
+`i64` length), entries 16-byte aligned. The section name is the set id `provider.tier.kind.<16 hex of SHA-256 over the sorted
+pairs>`, so storing a set with an identical descriptor replaces the old one. Descriptors written today:
 
 ```
-provider=vulkan tier=code   kind=spirv          target=spirv1.6 subgroup=32 shared=49152 features=bf16,coopmat,int8dot,... compiler=slang-2026.22
-provider=vulkan tier=binary kind=pipeline-cache vendor=10de device=<uuid> driver=988e4100
-provider=cuda   tier=code   kind=ptx            sm=90 ...
+provider=vulkan tier=code   kind=spirv          target=spirv_1_6 subgroup=32 shared=49152 features=bf16,fp16,... compiler=slang-2026.22.0+<build>
+provider=vulkan tier=binary kind=pipeline-cache vendor=10de device=<uuid hex> driver=988e4100
 ```
 
-Matching: a device publishes its descriptors per tier (`IComputeDevice.ArtifactTargets`); a set matches when every key the
-device declares significant for that tier is equal. Code entries are content-addressed (`kernel/<hash>` of source, entry point,
-target and macros), so a set for a broader or narrower profile is still safe to consult: a hit is always correct, a miss compiles.
+(A future CUDA provider would write e.g. `provider=cuda tier=code kind=ptx sm=90`.) Well-known keys are in
+`ArtifactDescriptorKeys`, tiers in `ArtifactTiers` (`code`, `binary`, `mixed` for v1 kernel sets). A v1 KSET is read with the
+descriptor `provider=<first field of the target> tier=mixed kind=kernel-set target=<v1 target string>`.
+
+Matching: a device publishes its targets per tier (`IComputeDevice.ArtifactTargets`, a list of `ArtifactTarget`: descriptor,
+significant `MatchKeys`, and `KeyPrefixes` that route cache keys to the tier). A stored set matches when provider, tier, kind and
+every match key are equal. Vulkan: the code tier matches on `target` only (entries are content-addressed `kernel/<hash>` of
+compiler version, source, entry point, target and macros, so a set for a broader or narrower profile is still safe to consult:
+a hit is always correct, a miss compiles); the binary tier matches on `vendor`, `device`, `driver`. Legacy `mixed` sets are
+consulted for every tier when their `target` equals the device's v1 `CompilationTarget`. Unknown providers, tiers and kinds are
+skipped. The CPU device declares no targets and gets no cache.
+
+Loading (`CompilationArtifacts`, used by `LlmModel`): per device one cache that routes each key to the tier claiming it (the Vulkan
+code tier claims `kernel/`, the binary tier is the catch-all for the driver pipeline cache), consults all matching stored sets of
+that tier newest first, and records everything compilation used, per tier, for `ExportCompilation(tiers)`.
 
 Appending artifact sets (`ModelPackage.AddArtifacts`) never rewrites weights; superseded sets become dead space, and
-`sharplight-convert compact` rewrites the file without it. `strip` removes sets by provider/tier.
+`ModelPackage.Compact` / `sharplight-convert compact` rewrites the file without it (the model part is copied byte for byte so
+weight offsets stay; live artifact sections are packed after it). `ModelPackage.Strip(path, provider?, tier?)` removes sets by
+provider/tier by rewriting only the table.
 
 ## Device profiles (offline precompilation)
 
@@ -65,14 +84,43 @@ tier **without the device**. The binary tier needs the real device and driver (`
 
 ## Public inspection API (Sharplight.Package)
 
-`ModelPackageReader.Open(path)` → `PackageInfo`: version, sections (kind, name, offset, length), definition summary (graphs
-with node counts, op histogram, inputs/outputs, properties, metadata), weights (name, type, shape, bytes), artifact sets
-(descriptor, entry count, total bytes, entry keys and sizes). Used by the viewer and by `sharplight-convert info`.
+`ModelPackageReader.Open(path)` → `PackageInfo` (a snapshot; the file is closed again; no weight or artifact entry bytes are read):
+`Version`, `FileSize`, `ReclaimableBytes` (what `Compact` would remove), `Sections` (`PackageSectionInfo`: kind tag, name, offset,
+length), `Weights` (`PackageWeightInfo`: name, type, shape, offset, bytes), `ArtifactSets` (`ArtifactSetInfo`: id, descriptor,
+provider/tier/kind, legacy flag, entry count, total bytes, `ArtifactEntryInfo` key + size), and `Definition` (`DefinitionInfo`,
+decoded on first access: architecture, name, states, raw properties and metadata with `DefinitionInfo.FormatValue` for display,
+`GraphInfo` per graph with node count, op histogram, inputs/outputs as `GraphValueInfo` (type, shape, role), weight and state
+counts, and a lazily built node table of `NodeInfo` (id, op, group, attributes, inputs, outputs)). Used by
+`sharplight-convert info` and the viewer.
 
 ## Tools
 
-- `sharplight-convert` (samples/Sharplight.Convert): `convert <src> <dst.slm> [--no-optimize]`, `info <slm>`,
-  `optimize <slm>`, `profile --device`, `precompile <slm> --profile <json> | --device <id> [--tier code|binary|all]`,
-  `strip <slm> [--provider] [--tier]`, `compact <slm>`.
-- `Sharplight.PackageViewer` (Avalonia): open a `.slm`; tree of sections; graph view (node table with op, shapes, attributes;
-  op histogram); weights table; artifact sets grouped by provider and tier with sizes; metadata/properties.
+- `sharplight-convert` (samples/Sharplight.Convert):
+  - `convert <src> <dst.slm> [--no-optimize] [--kv-type] [--ctx] [--mmproj] [--shape NAME=DIMS]`: GGUF, Hugging Face directory,
+    ONNX or `.slm` source; writes a package without artifacts. The optimization step is a placeholder hook
+    (`GraphOptimization.Run`) until the Core optimizer exists. Artifact sets of an `.slm` source are not copied.
+  - `info <slm> [--weights] [--entries] [--nodes <graph>]`.
+  - `precompile <slm> --device <provider:index> [--tier code|binary|all] [--ctx] [--batch] [--bound SYMBOL=VALUE]
+    [--use-kernel-cache]`: language models are compiled the way `LlmModel` compiles them (decode, decode_multimodal,
+    vision_encode), other graphs with the given bounds; by default with a fresh temporary kernel cache so the stored pipeline cache
+    holds only this model's pipelines. Sets that were served entirely from the package are not stored again.
+  - `strip <slm> [--provider] [--tier] [--compact]`, `compact <slm>`.
+  - Planned: `optimize <slm>`, `profile --device`, `precompile --profile <json>`.
+- `Sharplight.PackageViewer` (Avalonia, planned): open a `.slm`; tree of sections; graph view (node table with op, shapes,
+  attributes; op histogram); weights table; artifact sets grouped by provider and tier with sizes; metadata/properties.
+
+## Measured load times
+
+Qwen3-0.6B Q8_0, RTX PRO 6000 (shared GPU, noisy), `sharplight <model> -p hi -n 1`, cold = empty kernel cache (fresh
+`XDG_DATA_HOME`) and NVIDIA shader disk cache off (`__GL_SHADER_DISK_CACHE=0`), 3 runs each; "compile" is `Compiled 'decode'`.
+
+| Variant | Package size | Cold wall (s) | Cold compile (ms) |
+|---|---:|---:|---:|
+| GGUF | 0.63 GB | 4.8-6.1 | 3900-4900 |
+| `.slm`, no artifacts | 615.8 MiB | 6.0-8.5 | 4900-6800 |
+| `.slm` + code tier (107 SPIR-V kernels, 3.0 MiB) | 618.8 MiB | 2.8-3.6 | 1400-2200 |
+| `.slm` + binary tier (pipeline cache, 3.7 MiB) | 619.5 MiB | 3.8-6.6 | 3000-5200 |
+| `.slm` + both | 622.5 MiB | 1.34-1.38 | 390-420 |
+
+Warm (user kernel cache and driver cache populated): GGUF 1.1-1.7 s (compile 560-1000 ms), `.slm` without artifacts 1.1-1.3 s,
+`.slm` with both tiers 0.87-1.02 s (compile 260-320 ms).

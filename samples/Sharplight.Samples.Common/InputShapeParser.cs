@@ -1,14 +1,18 @@
 using System.Globalization;
 
-namespace Sharplight.OnnxRun;
+namespace Sharplight.Samples;
 
 /// <summary>Parses <c>--shape name=-1x3x224x224</c> values (a non-positive dimension marks the batch axis).</summary>
-internal static class InputShapeParser
+public static class InputShapeParser
 {
     private const char NameSeparator = '=';
     private const char DimensionSeparator = 'x';
 
     /// <summary>Parses one value; on failure returns false and describes the problem in <paramref name="error"/>.</summary>
+    /// <param name="text">The option value, <c>NAME=DIMxDIM...</c>.</param>
+    /// <param name="name">The input name.</param>
+    /// <param name="dimensions">The dimensions.</param>
+    /// <param name="error">The problem when parsing failed, else <see langword="null"/>.</param>
     public static bool TryParse(string text, out string name, out long[] dimensions, out string? error)
     {
         name = "";

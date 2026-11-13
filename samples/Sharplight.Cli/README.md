@@ -22,7 +22,7 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --bench 512
 # Describe an image with a vision model
 dotnet run -c Release --project samples/Sharplight.Cli -- model.gguf --mmproj mmproj.gguf --image photo.png -p "What is this?"
 
-# Save the built model with this device's compiled kernels as one package
+# Save the built model with this device's compiled artifacts as one package (see also samples/Sharplight.Convert)
 dotnet run -c Release --project samples/Sharplight.Cli -- $M --save qwen3-0.6b.slm
 ```
 

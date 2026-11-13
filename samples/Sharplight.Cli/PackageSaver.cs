@@ -1,34 +1,35 @@
 using System.Diagnostics;
 using Sharplight.Llm;
 using Sharplight.Package;
+using Sharplight.Runtime;
 
 namespace Sharplight.Cli;
 
-/// <summary>Stores the built model plus this device's compiled kernels and pipeline cache in one <c>.slm</c> package.</summary>
+/// <summary>Stores the built model plus this device's compiled artifacts (kernel code and driver pipeline cache) in one <c>.slm</c> package.</summary>
 internal static class PackageSaver
 {
     private const double BytesPerGigabyte = 1e9;
 
     /// <summary>
-    /// Writes <paramref name="savePath"/>. When the model already is that package, the compiled targets are appended to it
+    /// Writes <paramref name="savePath"/>. When the model already is that package, the artifact sets are appended to it
     /// instead of rewriting the weights.
     /// </summary>
     public static void Save(LlmModel model, string savePath, TextWriter log)
     {
         var stopwatch = Stopwatch.StartNew();
-        var targets = model.ExportCompilation();
+        var artifacts = model.ExportCompilation();
         if (IsSamePackage(model, savePath))
         {
-            ModelPackage.AddTargets(savePath, targets);
+            ModelPackage.AddArtifacts(savePath, artifacts);
         }
         else
         {
-            ModelPackage.Save(savePath, model.Definition, targets, log.WriteLine);
+            ModelPackage.Save(savePath, model.Definition, artifacts, log.WriteLine);
         }
 
         double sizeGigabytes = new FileInfo(savePath).Length / BytesPerGigabyte;
-        var targetSummary = string.Join("; ", targets.Select(target => $"{target.Target} ({target.Entries.Count} entries)"));
-        log.WriteLine($"Saved {savePath}: {sizeGigabytes:F2} GB, targets: {targetSummary} [{stopwatch.ElapsedMilliseconds} ms]");
+        var setSummary = string.Join("; ", artifacts.Select(set => $"{ArtifactDescriptor.Format(set.Descriptor)} ({set.Entries.Count} entries)"));
+        log.WriteLine($"Saved {savePath}: {sizeGigabytes:F2} GB, artifact sets: {setSummary} [{stopwatch.ElapsedMilliseconds} ms]");
     }
 
     private static bool IsSamePackage(LlmModel model, string savePath)
