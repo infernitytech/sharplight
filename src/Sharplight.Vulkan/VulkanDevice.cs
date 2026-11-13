@@ -291,10 +291,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
                 [ArtifactDescriptorKeys.Tier] = ArtifactTiers.Binary,
                 [ArtifactDescriptorKeys.Kind] = "pipeline-cache",
                 [ArtifactDescriptorKeys.Vendor] = Phys.VendorId.ToString("x", CultureInfo.InvariantCulture),
-                [ArtifactDescriptorKeys.Device] = Phys.Uuid ?? "",
+                [ArtifactDescriptorKeys.Device] = Phys.DeviceId.ToString("x", CultureInfo.InvariantCulture),
+                [ArtifactDescriptorKeys.CacheId] = Phys.PipelineCacheUuid,
                 [ArtifactDescriptorKeys.Driver] = Phys.DriverVersion.ToString("x", CultureInfo.InvariantCulture),
             },
-            [ArtifactDescriptorKeys.Vendor, ArtifactDescriptorKeys.Device, ArtifactDescriptorKeys.Driver],
+            // Same model and driver cache id: valid on any card of that model, not only the one it was built on.
+            [ArtifactDescriptorKeys.Vendor, ArtifactDescriptorKeys.Device, ArtifactDescriptorKeys.CacheId],
             []);
         return [code, binary];
     }

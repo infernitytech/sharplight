@@ -43,6 +43,13 @@ internal sealed unsafe class PhysicalDeviceInfo
     public bool VulkanMemoryModel { get; }
     public List<string> MissingFeatures { get; } = [];
     public string? Uuid { get; }
+    /// <summary>PCI device id (model) reported by the driver.</summary>
+    public uint DeviceId { get; }
+    /// <summary>
+    /// VkPhysicalDeviceProperties.pipelineCacheUUID: identifies which driver pipeline caches this device accepts. Equal for every
+    /// card of the same model on the same driver build, unlike <see cref="Uuid"/>, which identifies one physical card.
+    /// </summary>
+    public string PipelineCacheUuid { get; }
 
     public PhysicalDeviceInfo(VulkanInstance inst, VkPhysicalDevice pd)
     {
@@ -81,6 +88,8 @@ internal sealed unsafe class PhysicalDeviceInfo
         MaxSharedMemory = p.limits.maxComputeSharedMemorySize;
         MaxWorkgroupCount = [p.limits.maxComputeWorkGroupCount[0], p.limits.maxComputeWorkGroupCount[1], p.limits.maxComputeWorkGroupCount[2]];
         Uuid = Convert.ToHexString(new ReadOnlySpan<byte>(idp.deviceUUID, 16));
+        DeviceId = p.deviceID;
+        PipelineCacheUuid = Convert.ToHexString(new ReadOnlySpan<byte>(p.pipelineCacheUUID, 16));
 
         // features
         var coop2 = new VkPhysicalDeviceCooperativeMatrix2FeaturesNV();

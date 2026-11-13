@@ -33,8 +33,13 @@ public static class ArtifactDescriptorKeys
     /// <summary>Hardware vendor id (hexadecimal) of a binary tier.</summary>
     public const string Vendor = "vendor";
 
-    /// <summary>Device identity (UUID) of a binary tier.</summary>
+    /// <summary>Device model of a binary tier (hexadecimal PCI device id); every card of that model shares it.</summary>
     public const string Device = "device";
+    /// <summary>
+    /// Driver cache compatibility id of a binary tier (Vulkan pipelineCacheUUID): changes with the driver build and decides
+    /// whether the driver accepts the stored binaries.
+    /// </summary>
+    public const string CacheId = "cache";
 
     /// <summary>Driver version (hexadecimal) of a binary tier.</summary>
     public const string Driver = "driver";

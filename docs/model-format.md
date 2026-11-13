@@ -51,7 +51,7 @@ pairs>`, so storing a set with an identical descriptor replaces the old one. Des
 
 ```
 provider=vulkan tier=code   kind=spirv          target=spirv_1_6 subgroup=32 shared=49152 features=bf16,fp16,... compiler=slang-2026.22.0+<build>
-provider=vulkan tier=binary kind=pipeline-cache vendor=10de device=<uuid hex> driver=988e4100
+provider=vulkan tier=binary kind=pipeline-cache vendor=10de device=<pci device id> cache=<pipelineCacheUUID> driver=988e4100
 ```
 
 (A future CUDA provider would write e.g. `provider=cuda tier=code kind=ptx sm=90`.) Well-known keys are in
@@ -62,7 +62,7 @@ Matching: a device publishes its targets per tier (`IComputeDevice.ArtifactTarge
 significant `MatchKeys`, and `KeyPrefixes` that route cache keys to the tier). A stored set matches when provider, tier, kind and
 every match key are equal. Vulkan: the code tier matches on `target` only (entries are content-addressed `kernel/<hash>` of
 compiler version, source, entry point, target and macros, so a set for a broader or narrower profile is still safe to consult:
-a hit is always correct, a miss compiles); the binary tier matches on `vendor`, `device`, `driver`. Legacy `mixed` sets are
+a hit is always correct, a miss compiles); the binary tier matches on `vendor`, `device` (model) and `cache` (the driver's pipelineCacheUUID), so one set serves every card of that model on that driver build. Legacy `mixed` sets are
 consulted for every tier when their `target` equals the device's v1 `CompilationTarget`. Unknown providers, tiers and kinds are
 skipped. The CPU device declares no targets and gets no cache.
 
