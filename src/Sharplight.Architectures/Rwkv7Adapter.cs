@@ -7,17 +7,20 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// RWKV-7 "Goose" (canonical arch <c>rwkv7</c>): attention-free recurrent language model. Every layer is a time-mix block (token-shift interpolations, LoRA-parametrised
 /// decay, in-context learning rate, value residual and output gate feeding the <c>Wkv7</c> generalised delta-rule recurrence, per-head group norm) followed by a
-/// channel-mix block (token-shift, squared-ReLU MLP). All norms are LayerNorms with bias.
+/// channel-mix block (token-shift, squared-ReLU MLP). All norms are LayerNorms with bias. The ARWKV7 distillations of Transformer models (llama.cpp <c>arwkv7</c>)
+/// are the same time-mix with RMS norms, no embedding norm, an optional group norm and gate, and a SwiGLU MLP in place of the channel-mix.
 /// </summary>
 /// <remarks>
-/// Hyper-parameters (<c>rwkv7.*</c>): <c>layer_count</c>, <c>hidden_size</c>, <c>head_size</c> (N; heads = hidden / N), <c>norm_eps</c>, <c>context_length</c>.
-/// Weights: <c>token_embedding.weight</c> [V, C], <c>embedding_norm.{weight,bias}</c>, <c>output_norm.{weight,bias}</c>, <c>lm_head.weight</c>; per layer <c>input_norm.{weight,bias}</c>,
+/// Hyper-parameters (<c>rwkv7.*</c>): <c>layer_count</c>, <c>hidden_size</c>, <c>head_size</c> (N; heads = hidden / N), <c>norm_eps</c>, <c>context_length</c>,
+/// <c>norm_type</c> ("layer" (default, weight and bias) or "rms" (weight only)).
+/// Weights: <c>token_embedding.weight</c> [V, C], optional <c>embedding_norm.{weight,bias}</c>, <c>output_norm.{weight,bias}</c>, <c>lm_head.weight</c>; per layer <c>input_norm.{weight,bias}</c>,
 /// <c>post_attention_norm.{weight,bias}</c>, and below <c>time_mix.</c>: <c>lerp.weight</c> [6, C] (interpolation factors for r, w, k, v, a, g), <c>{receptance,key,value,output}.weight</c> [C, C],
 /// <c>decay_bias</c> [C] (w0), <c>decay_down.weight</c> [Dw, C], <c>decay_up.weight</c> [C, Dw], <c>iclr_bias</c>, <c>iclr_down.weight</c>, <c>iclr_up.weight</c> (in-context learning rate),
 /// <c>value_mix_bias</c>, <c>value_mix_down.weight</c>, <c>value_mix_up.weight</c> (value residual, layers after the first), optional <c>gate_down.weight</c> [Dg, C], <c>gate_up.weight</c> [C, Dg],
 /// <c>key_norm_scale</c> [C] (k_k), <c>key_lr_scale</c> [C] (k_a), <c>bonus</c> [C] (r_k), <c>out_norm.{weight,bias}</c> [C] (group norm affine);
-/// below <c>channel_mix.</c>: <c>lerp.weight</c> [C], <c>key.weight</c> [I, C], <c>value.weight</c> [C, I].
-/// Per-layer states: the last time-mix and channel-mix inputs (token shift) and the [H, N, N] wkv state.
+/// below <c>channel_mix.</c>: <c>lerp.weight</c> [C], <c>key.weight</c> [I, C], <c>value.weight</c> [C, I]; or, instead of the channel-mix, <c>mlp.{gate,up,down}.weight</c> (SwiGLU).
+/// <c>time_mix.lerp.weight</c> has 5 rows (no <c>xg</c>) and <c>time_mix.out_norm.*</c> is absent in models without output gate / group norm.
+/// Per-layer states: the last time-mix input and, with the channel-mix, its last input (token shift) and the [H, N, N] wkv state.
 /// </remarks>
 public sealed class Rwkv7Adapter : IModelAdapter
 {
@@ -38,19 +41,21 @@ public sealed class Rwkv7Adapter : IModelAdapter
         int headSize = src.Arch("head_size", 64);
         int heads = hidden / headSize;
         float eps = src.Arch("norm_eps", 1e-5f);
+        bool rmsNorm = src.Arch("norm_type", "layer") == "rms";
+        bool swiglu = src.Weight("layers.0.mlp.gate.weight") is not null;
         var shift = new RwkvTokenShift(hidden);
 
         var states = new List<StateDefinition>();
         var timeShift = new StateDefinition[layerCount];
-        var channelShift = new StateDefinition[layerCount];
+        var channelShift = new StateDefinition?[layerCount];
         var wkvState = new StateDefinition[layerCount];
         for (int il = 0; il < layerCount; il++)
         {
             string g = $"layers.{il}";
             timeShift[il] = shift.DefineState($"{g}.time_shift", g);
-            channelShift[il] = shift.DefineState($"{g}.channel_shift", g);
+            channelShift[il] = swiglu ? null : shift.DefineState($"{g}.channel_shift", g);
             wkvState[il] = new StateDefinition { Name = $"{g}.wkv_state", Type = DataType.F32, Shape = new Shape(heads, headSize, headSize), Kind = StateKind.Recurrent, Group = g };
-            states.AddRange([timeShift[il], channelShift[il], wkvState[il]]);
+            states.AddRange(swiglu ? [timeShift[il], wkvState[il]] : [timeShift[il], channelShift[il]!, wkvState[il]]);
         }
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, false) };
@@ -71,7 +76,7 @@ public sealed class Rwkv7Adapter : IModelAdapter
                 x = embeddingsInput
                     ? b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hidden))
                     : b.Gather(b.Weight("token_embedding.weight"), b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T)), "inp_embd");
-                x = LayerNorm(b, x, "embedding_norm");
+                x = b.HasWeight("embedding_norm.weight") ? Norm(b, x, "embedding_norm") : x;
             }
 
             b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
@@ -82,16 +87,17 @@ public sealed class Rwkv7Adapter : IModelAdapter
             {
                 using var _ = b.Group($"layers.{il}");
                 string p = $"layers.{il}.";
-                var h = LayerNorm(b, x, p + "input_norm");
+                var h = Norm(b, x, p + "input_norm");
                 var (attention, value) = TimeMix(b, h, p, il, selector, firstValue);
                 firstValue ??= value;
                 x = b.Add(attention, x, $"{p}attn_out");
-                x = b.Add(ChannelMix(b, LayerNorm(b, x, p + "post_attention_norm"), p, il, selector), x, $"{p}l_out");
+                var mlpInput = Norm(b, x, p + "post_attention_norm");
+                x = b.Add(swiglu ? SwiGlu(b, mlpInput, p) : ChannelMix(b, mlpInput, p, il, selector), x, $"{p}l_out");
             }
 
             using (b.Group("output"))
             {
-                var hiddenStates = LayerNorm(b, x, "output_norm");
+                var hiddenStates = Norm(b, x, "output_norm");
                 var rows = b.Gather(hiddenStates, outRows, "selected_rows");
                 var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
                 b.Output("logits", b.MatMul(rows, head, "logits"));
@@ -101,8 +107,13 @@ public sealed class Rwkv7Adapter : IModelAdapter
             return b.Build();
         }
 
-        Value LayerNorm(GraphBuilder b, Value v, string prefix)
-            => b.Emit1("LayerNorm", [v, b.Weight(prefix + ".weight"), b.Weight(prefix + ".bias")], Attributes.From(("eps", eps)));
+        Value Norm(GraphBuilder b, Value v, string prefix)
+            => rmsNorm
+                ? b.RmsNorm(v, b.Weight(prefix + ".weight"), eps)
+                : b.Emit1("LayerNorm", [v, b.Weight(prefix + ".weight"), b.Weight(prefix + ".bias")], Attributes.From(("eps", eps)));
+
+        Value SwiGlu(GraphBuilder b, Value h, string p)
+            => b.Linear(b.Mul(b.Silu(b.Linear(h, p + "mlp.gate.weight")), b.Linear(h, p + "mlp.up.weight")), p + "mlp.down.weight", name: $"{p}mlp_out");
 
         // Returns the time-mix output and this layer's value projection (layer 0's feeds the value residual of later layers).
         (Value Output, Value Value) TimeMix(GraphBuilder b, Value h, string p, int il, Value selector, Value? firstValue)
@@ -117,7 +128,7 @@ public sealed class Rwkv7Adapter : IModelAdapter
             var xk = Mixed(2);
             var xv = Mixed(3);
             var xa = Mixed(4);
-            var xg = Mixed(5);
+            bool gated = b.HasWeight(t + "gate_down.weight");
 
             var r = b.Linear(xr, t + "receptance.weight");
             var decayLog = b.Add(b.Weight(t + "decay_bias"), b.Linear(b.Unary("Tanh", b.Linear(xw, t + "decay_down.weight")), t + "decay_up.weight"));
@@ -140,13 +151,18 @@ public sealed class Rwkv7Adapter : IModelAdapter
             var wkv = b.Emit("Wkv7", [Heads(r), Heads(w), Heads(k), Heads(v), Heads(b.Scale(kk, -1f)), Heads(b.Mul(kk, a)), ws], null, $"{p}wkv", writes: [ws])[0];
 
             // Per-head group norm of the recurrence output, plus the "bonus" of the current token: (Σⱼ r·k·r_k) · v per head.
-            var normed = b.Emit1("LayerNorm", [wkv], Attributes.From(("eps", GroupNormEps)));                      // [T, H, N], statistics per head
-            var y = b.Add(b.Mul(b.Reshape(normed, 0, hidden), b.Weight(t + "out_norm.weight")), b.Weight(t + "out_norm.bias"));
+            var y = b.Reshape(wkv, 0, hidden);
+            if (b.HasWeight(t + "out_norm.weight"))
+            {
+                var normed = b.Emit1("LayerNorm", [wkv], Attributes.From(("eps", GroupNormEps)));                  // [T, H, N], statistics per head
+                y = b.Add(b.Mul(b.Reshape(normed, 0, hidden), b.Weight(t + "out_norm.weight")), b.Weight(t + "out_norm.bias"));
+            }
+
             var bonus = b.Emit1("ReduceSum", [Heads(b.Mul(b.Mul(r, k), b.Weight(t + "bonus")))]);                  // [T, H, 1]
             y = b.Add(y, b.Reshape(b.Mul(bonus, Heads(v)), 0, hidden));
-            if (b.HasWeight(t + "gate_down.weight"))
+            if (gated)
             {
-                var gate = b.Linear(b.Sigmoid(b.Linear(xg, t + "gate_down.weight")), t + "gate_up.weight");
+                var gate = b.Linear(b.Sigmoid(b.Linear(Mixed(5), t + "gate_down.weight")), t + "gate_up.weight");
                 y = b.Mul(y, gate);
             }
 
@@ -156,7 +172,7 @@ public sealed class Rwkv7Adapter : IModelAdapter
         Value ChannelMix(GraphBuilder b, Value h, string p, int il, Value selector)
         {
             string c = p + "channel_mix.";
-            var previous = shift.Previous(b, h, selector, channelShift[il]);
+            var previous = shift.Previous(b, h, selector, channelShift[il]!);
             var mixed = b.Add(h, b.Mul(b.Sub(previous, h), b.Weight(c + "lerp.weight")));
             var activated = b.Unary("Square", b.Unary("Relu", b.Linear(mixed, c + "key.weight")));
             return b.Linear(activated, c + "value.weight", name: $"{p}channel_mix_out");

@@ -369,7 +369,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `rwkv6` | RWKV v6 World | WKV6 time-mix, token-shift, LN, ChannelMix | **supported** | - | rwkv6 (remote code) | gguf/rwkv-6-world-1b6 |
 | `rwkv6qwen2` | RWKV6-Qwen2 (QRWKV6) | WKV6 + RMS + SwiGLU | **missing** | `WKV6` (op exists; adapter variant with RMS norm + SwiGLU and a checkpoint missing) | - | - |
 | `rwkv7` | RWKV v7 G1 (0.1B-13B) | WKV7 (generalised delta rule), LoRA decay/a/v/g, LN | **supported** | - | rwkv7 (remote code) | gguf/rwkv7-g1h-1.5b |
-| `arwkv7` | ARWKV7 (Qwen-distilled) | WKV7 + RMS + SwiGLU | **missing** | `WKV7` (op exists; adapter variant with RMS norm + SwiGLU and a checkpoint missing) | - | - |
+| `arwkv7` | ARWKV7 (Qwen-distilled) | WKV7 + RMS + SwiGLU, optional output gate / group norm | **supported** (GGUF, tiny random vs llama.cpp; not run on a real model) | - | - | gguf/tiny-random-arwkv7-f32, gguf/tiny-random-arwkv7-nogate-f32 |
 
 ### Hybrid conv
 

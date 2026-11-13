@@ -3,11 +3,14 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
 
-/// <summary>llama.cpp <c>rwkv7</c> (RWKV-7 G1) → canonical <c>rwkv7</c> (documented on <c>Rwkv7Adapter</c>).</summary>
+/// <summary>
+/// llama.cpp <c>rwkv7</c> (RWKV-7 G1) and <c>arwkv7</c> (ARWKV7, the RMS-normed SwiGLU variant distilled from Transformer models) → canonical <c>rwkv7</c>
+/// (documented on <c>Rwkv7Adapter</c>).
+/// </summary>
 internal sealed class Rwkv7GgufMapping : IGgufArchitectureMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["rwkv7"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["rwkv7", "arwkv7"];
     /// <inheritdoc/>
     public string Architecture => "rwkv7";
 
@@ -20,8 +23,13 @@ internal sealed class Rwkv7GgufMapping : IGgufArchitectureMapping
             [a + "layer_count"] = g.Int("block_count"),
             [a + "hidden_size"] = g.Int("embedding_length"),
             [a + "head_size"] = g.Int("wkv.head_size"),
-            [a + "norm_eps"] = g.Float("attention.layer_norm_epsilon"),
+            [a + "norm_eps"] = g.Has("attention.layer_norm_rms_epsilon") ? g.Float("attention.layer_norm_rms_epsilon") : g.Float("attention.layer_norm_epsilon"),
         };
+        if (g.GgufArchitecture == "arwkv7")
+        {
+            md[a + "norm_type"] = "rms";
+        }
+
         GgufMappingHelpers.AddContextLength(md, a, g);
         return md;
     }
@@ -33,6 +41,10 @@ internal sealed class Rwkv7GgufMapping : IGgufArchitectureMapping
         ["attn_norm.bias"] = "input_norm.bias",
         ["attn_norm_2.weight"] = "post_attention_norm.weight",
         ["attn_norm_2.bias"] = "post_attention_norm.bias",
+        ["ffn_norm.weight"] = "post_attention_norm.weight",
+        ["ffn_gate.weight"] = "mlp.gate.weight",
+        ["ffn_up.weight"] = "mlp.up.weight",
+        ["ffn_down.weight"] = "mlp.down.weight",
         ["time_mix_lerp_fused.weight"] = "time_mix.lerp.weight",
         ["time_mix_receptance.weight"] = "time_mix.receptance.weight",
         ["time_mix_key.weight"] = "time_mix.key.weight",
