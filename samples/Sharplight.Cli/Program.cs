@@ -85,7 +85,7 @@ if (Opt("--bench") is { } benchArg)
     // --bench N: warm prefill of N synthetic tokens, then 64 decode steps. Profile with SHARPLIGHT_VK_PROFILE=1.
     int nb = int.Parse(benchArg);
     var rng = new Random(1);
-    var toks = Enumerable.Range(0, nb).Select(_ => rng.Next(1000, 100000)).ToArray();
+    var toks = Enumerable.Range(0, nb).Select(_ => rng.Next(1000, 50000)).ToArray();
     void ResetProfiles() { foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>()) seg.ResetProfile(); }
     void PrintProfiles(string what) { foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>()) if (seg.Profile) Console.Error.WriteLine($"--- {what} profile, segment {seg.Segment.Index}\n{seg.ProfileReport()}"); }
     session.Process(toks); session.Process([5]); session.Reset(); // warm-up: record command buffers
