@@ -119,6 +119,17 @@ public class RopeTests
     }
 
     [Fact]
+    public void FrequencyFactors()
+    {
+        Gpu.Require();
+        int T = 5, H = 2, D = 16; float @base = 500000f;
+        var tg = new TG(); var x = tg.InF("x", TG.T, H, D); var pos = tg.In("pos", DataType.I32, TG.T, 1); var ff = tg.InF("ff", D / 2);
+        tg.B.Output("y", tg.B.Emit1("Rope", [x, pos, ff], Attributes.From(("dims", D), ("base", @base), ("style", "neox"))));
+        var factors = Sharplight.Models.RopeScaling.Llama3(D, @base, 32f, 1f, 4f, 8192).Factors;
+        Diff.Check("Rope.ff", tg.B.Build(), new Step(T, 0, (x, Rnd.F(T * H * D, 1)), (pos, Enumerable.Range(100, T).ToArray()), (ff, factors)), atol: 1e-4, rtol: 1e-4);
+    }
+
+    [Fact]
     public void OnStridedSlice()
     {
         Gpu.Require();
@@ -180,6 +191,33 @@ public class StatefulTests
             past += c;
         }
         Diff.Check("CachedAttention", tg.B.Build(), steps, atol: 3e-5, rtol: 2e-4, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv}");
+    }
+
+    [Theory]
+    [InlineData(4, 0f)] [InlineData(0, 20f)] [InlineData(5, 30f)] [InlineData(150, 0f)]
+    public void CachedAttentionWindowAndSoftcap(int window, float softcap)
+    {
+        Gpu.Require();
+        int Hq = 4, Hkv = 2, D = 32, ctx = 256; float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [6, 3, 1, 1, 180, 1];
+        int total = chunks.Sum();
+        var tg = new TG(); var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D); var ki = tg.InF("k", T, Hkv, D); var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
+        if (window > 0) attrs.Add(("window", window));
+        if (softcap > 0) attrs.Add(("softcap", softcap));
+        tg.B.RuntimeScalar("n_past");
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
+        var q = Rnd.F(total * Hq * D, 1).Select(x => x * 4).ToArray(); var k = Rnd.F(total * Hkv * D, 2); var v = Rnd.F(total * Hkv * D, 3);
+        var steps = new List<Step>(); int past = 0;
+        foreach (int c in chunks)
+        {
+            steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
+            past += c;
+        }
+        Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 3e-5, rtol: 2e-4, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap}");
     }
 
     [Fact]

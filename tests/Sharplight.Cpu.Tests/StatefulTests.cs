@@ -214,6 +214,37 @@ public class StatefulOpTests
         }
     }
 
+    /// <summary>Sliding-window and soft-capped cached attention (Gemma 2/3) across calls.</summary>
+    [Theory]
+    [InlineData(4, 0f), InlineData(0, 20f), InlineData(5, 30f), InlineData(100, 0f)]
+    public void CachedAttentionWindowAndSoftcap(int window, float softcap)
+    {
+        int Hq = 4, Hkv = 2, D = 16, ctx = 40; float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [6, 3, 1, 1];
+        int total = chunks.Sum();
+        var q = Kit.Rand(total * Hq * D, 1); var k = Kit.Rand(total * Hkv * D, 2); var v = Kit.Rand(total * Hkv * D, 3);
+        for (int i = 0; i < q.Length; i++) q[i] *= 4;   // large scores so that capping / windowing matter
+        var tg = new TG(); var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D); var ki = tg.InF("k", T, Hkv, D); var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", DataType.F32, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", DataType.F32, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
+        if (window > 0) attrs.Add(("window", window));
+        if (softcap > 0) attrs.Add(("softcap", softcap));
+        tg.B.RuntimeScalar("n_past");
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 8, ctx: ctx);
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            Kit.Set(m, qi, q[(past * Hq * D)..((past + c) * Hq * D)]); Kit.Set(m, ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]); Kit.Set(m, vi, v[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            var p = Kit.P(c, past); m.Run(p);
+            var exp = Ref.Attention(q[(past * Hq * D)..((past + c) * Hq * D)], c, Hq, D, k, v, past + c, Hkv, D, scale, past, true, null, window, softcap);
+            Kit.AssertClose(exp, Kit.Out(m, "o", p), 2e-5, 2e-4, $"window {window} cap {softcap} past {past} T {c}");
+            past += c;
+        }
+    }
+
     [Fact]
     public void CacheOverflowThrowsAndResetStateClears()
     {
