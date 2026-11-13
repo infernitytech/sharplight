@@ -3,7 +3,6 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
-
 public sealed partial class GraphLowerer
 {
     // ---- units & fusion ----------------------------------------------------------------------
@@ -11,7 +10,52 @@ public sealed partial class GraphLowerer
         s_elementwise.Contains(n.Op.Name) && n.Outputs[0].Type == DataType.F32 &&
         n.Inputs.All(i => !i.Type.IsQuantized && (i.Type == DataType.F32 || i.Type == DataType.F16 || i.Type == DataType.BF16));
 
+    /// <summary>
+    /// Groups the segment's nodes into scheduling units: elementwise chains become fused groups, and neighbouring
+    /// nodes that can run inside another unit's kernel (norms, matmul pairs, rope, ...) are folded into it.
+    /// </summary>
     private List<LoweringUnit> FormUnits()
+    {
+        var consumers = ConsumersByValue();
+        var units = GroupElementwiseChains();
+        FoldNormTails(units);
+        FoldNormHeads(units, consumers);
+        if (!DiagnosticSwitches.NoDualMatMul)
+        {
+            FoldDualMatMuls(units, consumers);
+        }
+
+        AbsorbIntoConsumers(units, consumers);
+        FindFusedOutputs(units, consumers);
+        return units;
+    }
+
+    /// <summary>For every value, the nodes reading it (a node appears once per input slot that reads the value).</summary>
+    private Dictionary<Value, List<Node>> ConsumersByValue()
+    {
+        var consumers = new Dictionary<Value, List<Node>>();
+        foreach (var node in _seg.Nodes)
+        {
+            foreach (var input in node.Inputs)
+            {
+                if (!consumers.TryGetValue(input, out var list))
+                {
+                    consumers[input] = list = [];
+                }
+
+                list.Add(node);
+            }
+        }
+
+        return consumers;
+    }
+
+    /// <summary>True when <paramref name="v"/> is a segment output or is read by a node outside <paramref name="group"/>.</summary>
+    private bool EscapesGroup(Value v, Dictionary<Value, List<Node>> consumers, HashSet<Node> group)
+        => _segmentOutputs.Contains(v) || (consumers.TryGetValue(v, out var readers) && readers.Any(c => !group.Contains(c)));
+
+    /// <summary>One unit per view or non-fusable node; consecutive fusable elementwise nodes of one shape form a group.</summary>
+    private List<LoweringUnit> GroupElementwiseChains()
     {
         var units = new List<LoweringUnit>();
         List<Node>? open = null;
@@ -41,6 +85,7 @@ public sealed partial class GraphLowerer
                 units.Add(new LoweringUnit { Node = n });
                 continue;
             }
+
             if (IsFusable(n))
             {
                 bool joins = open is not null && n.Outputs[0].Shape.Equals(open[0].Outputs[0].Shape) && n.Inputs.Any(openValues!.Contains);
@@ -50,242 +95,243 @@ public sealed partial class GraphLowerer
                     open = [];
                     openValues = [];
                 }
+
                 open!.Add(n);
                 openValues!.Add(n.Outputs[0]);
                 continue;
             }
+
             Close();
             units.Add(new LoweringUnit { Node = n });
         }
+
         Close();
-
-        // An elementwise group directly followed by a row norm of one of its outputs becomes one kernel
-        // (e.g. residual Add + RmsNorm): saves a dispatch and a barrier.
-        for (int i = 0; i + 1 < units.Count; i++)
-        {
-            if (units[i].Fused is not { } g || units[i + 1].Node is not { } nn || nn.Op.Name is not ("RmsNorm" or "L2Norm"))
-            {
-                continue;
-            }
-
-            var x = nn.Inputs[0];
-            if (!g.Any(f => f.Output == x) || !x.Shape.Equals(g[0].Output.Shape) || x.Shape.Rank < 1 || x.Shape[-1].IsSymbolic)
-            {
-                continue;
-            }
-
-            if (nn.Inputs.Length > 1 && (nn.Inputs[1].Type != DataType.F32 || nn.Inputs[1].Shape.Rank != 1))
-            {
-                continue;
-            }
-
-            units[i].NormTail = nn;
-            units.RemoveAt(i + 1);
-        }
-
-        // A row norm whose output is consumed only by the next elementwise group (views of other values may sit in
-        // between) is computed in that group's kernel.
-        {
-            var uses = new Dictionary<Value, List<Node>>();
-            foreach (var n in _seg.Nodes)
-            {
-                foreach (var i in n.Inputs)
-                {
-                    (uses.TryGetValue(i, out var l) ? l : uses[i] = []).Add(n);
-                }
-            }
-
-            for (int i = 0; i < units.Count; i++)
-            {
-                if (units[i].Node is not { Op.Name: "RmsNorm" or "L2Norm" } nn)
-                {
-                    continue;
-                }
-
-                int j = i + 1;
-                while (j < units.Count && units[j].IsView && !units[j].Node!.Inputs.Contains(nn.Output))
-                {
-                    j++;
-                }
-
-                if (j >= units.Count || units[j].Fused is not { } g || units[j].NormTail is not null)
-                {
-                    continue;
-                }
-
-                var y = nn.Output;
-                if (_segmentOutputs.Contains(y) || !y.Shape.Equals(g[0].Output.Shape) || y.Shape.Rank < 1 || y.Shape[-1].IsSymbolic)
-                {
-                    continue;
-                }
-
-                if (!uses.TryGetValue(y, out var us) || us.Any(c => !g.Contains(c)))
-                {
-                    continue;
-                }
-
-                if (nn.Inputs.Length > 1 && (nn.Inputs[1].Type != DataType.F32 || nn.Inputs[1].Shape.Rank != 1))
-                {
-                    continue;
-                }
-
-                units[j].NormHead = nn;
-                units.RemoveAt(i);
-                i--;
-            }
-        }
-
-        // Gate/up style matmul pairs feeding one elementwise group.
-        if (!DiagnosticSwitches.NoDualMatMul)
-        {
-            var uses = new Dictionary<Value, List<Node>>();
-            foreach (var n in _seg.Nodes)
-            {
-                foreach (var i in n.Inputs)
-                {
-                    (uses.TryGetValue(i, out var l) ? l : uses[i] = []).Add(n);
-                }
-            }
-
-            var unitOf = new Dictionary<Node, LoweringUnit>();
-            foreach (var u in units)
-            {
-                if (u.Node is not null)
-                {
-                    unitOf[u.Node] = u;
-                }
-            }
-
-            var removed = new HashSet<LoweringUnit>();
-            foreach (var u in units)
-            {
-                if (u.Fused is not { } g || u.NormHead is not null || u.NormTail is not null)
-                {
-                    continue;
-                }
-
-                var inGroup = g.ToHashSet();
-                var ext = g.SelectMany(n => n.Inputs).Where(v => !inGroup.Contains(v.Producer!)).Distinct().ToList();
-                if (ext.Count != 2 || ext[0].Producer is not { Op.Name: "MatMul" } a || ext[1].Producer is not { Op.Name: "MatMul" } b)
-                {
-                    continue;
-                }
-
-                if (a.Inputs[0] != b.Inputs[0] || a.Inputs[1].Type != b.Inputs[1].Type || !a.Inputs[1].Shape.Equals(b.Inputs[1].Shape))
-                {
-                    continue;
-                }
-
-                if (a.Inputs[1].Kind != ValueKind.Weight || b.Inputs[1].Kind != ValueKind.Weight || a.Inputs[1].Shape.Rank != 2)
-                {
-                    continue;
-                }
-
-                if (a.Inputs[1].Shape[1] is not { IsSymbolic: false } kd || kd.Fixed % 8 != 0 || WeightFormat(a.Inputs[1].Type) is null)
-                {
-                    continue;
-                }
-
-                if (!unitOf.TryGetValue(a, out var ua) || !unitOf.TryGetValue(b, out var ub))
-                {
-                    continue;
-                }
-
-                if (ext.Any(v => _segmentOutputs.Contains(v) || uses[v].Any(c => !inGroup.Contains(c))))
-                {
-                    continue;
-                }
-
-                var outs = g.Select(n => n.Output).Where(v => _segmentOutputs.Contains(v) || (uses.TryGetValue(v, out var cs) && cs.Any(c => !inGroup.Contains(c)))).ToList();
-                if (outs.Count != 1 || !outs[0].Shape.Equals(a.Output.Shape) || g[0].Output.Shape.Equals(a.Output.Shape) is false)
-                {
-                    continue;
-                }
-
-                u.Dual = (a, b);
-                removed.Add(ua); removed.Add(ub);
-            }
-            units.RemoveAll(removed.Contains);
-        }
-
-        // L2-normalized q/k consumed only by a delta rule are normalized inside the delta-rule kernel.
-        var users = new Dictionary<Value, int>();
-        foreach (var n in _seg.Nodes)
-        {
-            foreach (var i in n.Inputs)
-            {
-                users[i] = users.GetValueOrDefault(i) + 1;
-            }
-        }
-
-        var absorbed = new HashSet<Node>();
-        foreach (var u in units)
-        {
-            if (u.Node is not { Op.Name: "GatedDeltaRule" } dn)
-            {
-                continue;
-            }
-
-            for (int idx = 0; idx < 2; idx++)
-            {
-                var v = dn.Inputs[idx];
-                if (v.Producer is not { Op.Name: "L2Norm" } ln || users.GetValueOrDefault(v) != 1 || _segmentOutputs.Contains(v) || ln.Inputs.Length != 1)
-                {
-                    continue;
-                }
-
-                (u.Absorbed ??= []).Add(ln);
-                absorbed.Add(ln);
-                _absorbedNorms[v] = ln;
-            }
-        }
-        // Rope of an RmsNorm-ed row computes the norm itself; a rope whose only consumer is a cache write stores into the cache.
-        var unitOfNode = units.Where(u => u.Node is not null).ToDictionary(u => u.Node!);
-        foreach (var u in units)
-        {
-            if (u.Node is { Op.Name: "Rope" } r && r.Inputs[0] is var rv && rv.Producer is { Op.Name: "RmsNorm" } rn
-                && users.GetValueOrDefault(rv) == 1 && !_segmentOutputs.Contains(rv) && rn.Inputs.Length == 2
-                && rn.Inputs[1].Type == DataType.F32 && rn.Inputs[1].Shape.Rank == 1 && rv.Shape.Rank == 3 && unitOfNode.ContainsKey(rn))
-            {
-                (u.Absorbed ??= []).Add(rn);
-                absorbed.Add(rn);
-                _absorbedNorms[rv] = rn;
-            }
-        }
-        foreach (var u in units)
-        {
-            if (u.Node is { Op.Name: "CacheWrite" } cw && cw.Inputs[1] is var cv && cv.Producer is { Op.Name: "Rope" } r
-                && users.GetValueOrDefault(cv) == 1 && !_segmentOutputs.Contains(cv) && unitOfNode.TryGetValue(r, out var ru)
-                && cw.Inputs[0].Shape.Rank == 3 && cv.Shape.Rank == 3 && cw.Inputs[0].Shape[1].Equals(cv.Shape[1]) && cw.Inputs[0].Shape[2].Equals(cv.Shape[2]))
-            {
-                u.Absorbed = [.. ru.Absorbed ?? [], r, .. u.Absorbed ?? []];
-                absorbed.Add(r);
-                _absorbedRope[cv] = r;
-            }
-        }
-        units.RemoveAll(u => u.Node is not null && absorbed.Contains(u.Node));
-
-        // Views were emitted as separate units in between; a fused group must be emitted before any
-        // later unit consumes its outputs, which holds because units keep graph order.
-        // Determine materialized outputs of each fused group.
-        var consumers = new Dictionary<Value, List<Node>>();
-        foreach (var n in _seg.Nodes)
-        {
-            foreach (var i in n.Inputs)
-            {
-                (consumers.TryGetValue(i, out var l) ? l : consumers[i] = []).Add(n);
-            }
-        }
-
-        foreach (var u in units.Where(u => u.Fused is not null))
-        {
-            var inGroup = u.Nodes.ToHashSet();
-            u.FusedOutputs = [.. u.Fused!.Select(n => n.Outputs[0]).Where(v =>
-                _segmentOutputs.Contains(v) || (consumers.TryGetValue(v, out var cs) && cs.Any(c => !inGroup.Contains(c))))];
-        }
         return units;
     }
 
+    /// <summary>True when a row norm's optional weight is a rank-1 f32 vector (the only form the fused kernel handles).</summary>
+    private static bool HasFusableNormWeight(Node norm)
+        => norm.Inputs.Length <= 1 || (norm.Inputs[1].Type == DataType.F32 && norm.Inputs[1].Shape.Rank == 1);
+
+    /// <summary>
+    /// An elementwise group directly followed by a row norm of one of its outputs becomes one kernel
+    /// (e.g. residual Add + RmsNorm): saves a dispatch and a barrier.
+    /// </summary>
+    private static void FoldNormTails(List<LoweringUnit> units)
+    {
+        for (int i = 0; i + 1 < units.Count; i++)
+        {
+            if (units[i].Fused is not { } group || units[i + 1].Node is not { } norm || norm.Op.Name is not ("RmsNorm" or "L2Norm"))
+            {
+                continue;
+            }
+
+            var x = norm.Inputs[0];
+            if (!group.Any(f => f.Output == x) || !x.Shape.Equals(group[0].Output.Shape) || x.Shape.Rank < 1 || x.Shape[-1].IsSymbolic)
+            {
+                continue;
+            }
+
+            if (!HasFusableNormWeight(norm))
+            {
+                continue;
+            }
+
+            units[i].NormTail = norm;
+            units.RemoveAt(i + 1);
+        }
+    }
+
+    /// <summary>
+    /// A row norm whose output is consumed only by the next elementwise group (views of other values may sit in
+    /// between) is computed in that group's kernel.
+    /// </summary>
+    private void FoldNormHeads(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        for (int i = 0; i < units.Count; i++)
+        {
+            if (units[i].Node is not { Op.Name: "RmsNorm" or "L2Norm" } norm)
+            {
+                continue;
+            }
+
+            int next = i + 1;
+            while (next < units.Count && units[next].IsView && !units[next].Node!.Inputs.Contains(norm.Output))
+            {
+                next++;
+            }
+
+            if (next >= units.Count || units[next].Fused is not { } group || units[next].NormTail is not null)
+            {
+                continue;
+            }
+
+            var y = norm.Output;
+            if (_segmentOutputs.Contains(y) || !y.Shape.Equals(group[0].Output.Shape) || y.Shape.Rank < 1 || y.Shape[-1].IsSymbolic)
+            {
+                continue;
+            }
+
+            if (!consumers.TryGetValue(y, out var readers) || readers.Any(c => !group.Contains(c)))
+            {
+                continue;
+            }
+
+            if (!HasFusableNormWeight(norm))
+            {
+                continue;
+            }
+
+            units[next].NormHead = norm;
+            units.RemoveAt(i);
+            i--;
+        }
+    }
+
+    /// <summary>Gate/up style matmul pairs (sharing x) feeding one elementwise group become one dual matvec unit.</summary>
+    private void FoldDualMatMuls(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not { } group || unit.NormHead is not null || unit.NormTail is not null)
+            {
+                continue;
+            }
+
+            var inGroup = group.ToHashSet();
+            var external = group.SelectMany(n => n.Inputs).Where(v => !inGroup.Contains(v.Producer!)).Distinct().ToList();
+            if (external.Count != 2 || external[0].Producer is not { Op.Name: "MatMul" } a || external[1].Producer is not { Op.Name: "MatMul" } b)
+            {
+                continue;
+            }
+
+            if (!AreDualMatMulPair(a, b))
+            {
+                continue;
+            }
+
+            if (!unitOf.TryGetValue(a, out var unitA) || !unitOf.TryGetValue(b, out var unitB))
+            {
+                continue;
+            }
+
+            if (external.Any(v => _segmentOutputs.Contains(v) || consumers[v].Any(c => !inGroup.Contains(c))))
+            {
+                continue;
+            }
+
+            var escaping = group.Select(n => n.Output).Where(v => EscapesGroup(v, consumers, inGroup)).ToList();
+            if (escaping.Count != 1 || !escaping[0].Shape.Equals(a.Output.Shape) || !group[0].Output.Shape.Equals(a.Output.Shape))
+            {
+                continue;
+            }
+
+            unit.Dual = (a, b);
+            removed.Add(unitA);
+            removed.Add(unitB);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>Two weight matmuls of the same x, weight type and shape that one dual kernel can compute.</summary>
+    private static bool AreDualMatMulPair(Node a, Node b)
+    {
+        if (a.Inputs[0] != b.Inputs[0] || a.Inputs[1].Type != b.Inputs[1].Type || !a.Inputs[1].Shape.Equals(b.Inputs[1].Shape))
+        {
+            return false;
+        }
+
+        if (a.Inputs[1].Kind != ValueKind.Weight || b.Inputs[1].Kind != ValueKind.Weight || a.Inputs[1].Shape.Rank != 2)
+        {
+            return false;
+        }
+
+        return a.Inputs[1].Shape[1] is { IsSymbolic: false } k && k.Fixed % 8 == 0 && WeightFormat(a.Inputs[1].Type) is not null;
+    }
+
+    /// <summary>
+    /// Lets a consumer compute the single-use producer in its own kernel: L2-normalized q/k inside a delta rule, an
+    /// RmsNorm inside the rope of its row, and a rope inside the cache write that stores it.
+    /// </summary>
+    private void AbsorbIntoConsumers(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        bool SingleUse(Value v) => consumers.TryGetValue(v, out var readers) && readers.Count == 1 && !_segmentOutputs.Contains(v);
+
+        var absorbed = new HashSet<Node>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not { Op.Name: "GatedDeltaRule" } deltaRule)
+            {
+                continue;
+            }
+
+            for (int slot = 0; slot < 2; slot++)
+            {
+                var v = deltaRule.Inputs[slot];
+                if (v.Producer is not { Op.Name: "L2Norm" } l2 || !SingleUse(v) || l2.Inputs.Length != 1)
+                {
+                    continue;
+                }
+
+                (unit.Absorbed ??= []).Add(l2);
+                absorbed.Add(l2);
+                _absorbedNorms[v] = l2;
+            }
+        }
+
+        // Rope of an RmsNorm-ed row computes the norm itself; a rope whose only consumer is a cache write stores into the cache.
+        var unitOfNode = units.Where(u => u.Node is not null).ToDictionary(u => u.Node!);
+        foreach (var unit in units)
+        {
+            if (unit.Node is { Op.Name: "Rope" } rope && rope.Inputs[0] is var rv && rv.Producer is { Op.Name: "RmsNorm" } rmsNorm
+                && SingleUse(rv) && rmsNorm.Inputs.Length == 2
+                && rmsNorm.Inputs[1].Type == DataType.F32 && rmsNorm.Inputs[1].Shape.Rank == 1 && rv.Shape.Rank == 3 && unitOfNode.ContainsKey(rmsNorm))
+            {
+                (unit.Absorbed ??= []).Add(rmsNorm);
+                absorbed.Add(rmsNorm);
+                _absorbedNorms[rv] = rmsNorm;
+            }
+        }
+
+        foreach (var unit in units)
+        {
+            if (unit.Node is { Op.Name: "CacheWrite" } cacheWrite && cacheWrite.Inputs[1] is var cv && cv.Producer is { Op.Name: "Rope" } rope
+                && SingleUse(cv) && unitOfNode.TryGetValue(rope, out var ropeUnit)
+                && cacheWrite.Inputs[0].Shape.Rank == 3 && cv.Shape.Rank == 3
+                && cacheWrite.Inputs[0].Shape[1].Equals(cv.Shape[1]) && cacheWrite.Inputs[0].Shape[2].Equals(cv.Shape[2]))
+            {
+                unit.Absorbed = [.. ropeUnit.Absorbed ?? [], rope, .. unit.Absorbed ?? []];
+                absorbed.Add(rope);
+                _absorbedRope[cv] = rope;
+            }
+        }
+
+        units.RemoveAll(u => u.Node is not null && absorbed.Contains(u.Node));
+    }
+
+    /// <summary>
+    /// Determines the materialized outputs of each fused group. Views were emitted as separate units in between; a
+    /// fused group is emitted before any later unit consumes its outputs, which holds because units keep graph order.
+    /// </summary>
+    private void FindFusedOutputs(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        foreach (var unit in units.Where(u => u.Fused is not null))
+        {
+            var inGroup = unit.Nodes.ToHashSet();
+            unit.FusedOutputs = [.. unit.Fused!.Select(n => n.Outputs[0]).Where(v => EscapesGroup(v, consumers, inGroup))];
+        }
+    }
 
     /// <summary>
     /// Orders units by dependency level (stable within a level) so independent launches are recorded next to

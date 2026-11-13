@@ -325,7 +325,7 @@ public sealed partial class GraphLowerer
     private static BufferRange Range(TensorRef r) => new(r.Buffer, r.ByteOffset, r.ByteOffset + r.MaxBytes);
 
     private static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
-    private static string F(float v)
+    internal static string F(float v)
     {
         if (float.IsPositiveInfinity(v))
         {

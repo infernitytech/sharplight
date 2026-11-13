@@ -1,5 +1,3 @@
-using Sharplight.Tensors;
-
 namespace Sharplight.Shaders.Lowering;
 
 
