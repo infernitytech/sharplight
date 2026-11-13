@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Microsoft.Extensions.AI adapters (IChatClient) over Sharplight.Llm.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="StbImageSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Llm/Sharplight.Llm.csproj" />
+    <ProjectReference Include="../Sharplight.Templating/Sharplight.Templating.csproj" />
+  </ItemGroup>
+</Project>
