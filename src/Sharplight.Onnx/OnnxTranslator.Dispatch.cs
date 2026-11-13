@@ -20,6 +20,7 @@ internal sealed partial class OnnxTranslator
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
         "DFT", "STFT",
         "RandomNormal", "RandomUniform", "RandomNormalLike", "RandomUniformLike", "Bernoulli", "Multinomial",
+        "TfIdfVectorizer",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -312,6 +313,11 @@ internal sealed partial class OnnxTranslator
                 break;
             case "Multinomial":
                 Multinomial(n, ins);
+                break;
+
+            // Text.
+            case "TfIdfVectorizer":
+                TfIdfVectorizer(n, ins);
                 break;
 
             case "EyeLike":

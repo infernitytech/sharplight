@@ -66,6 +66,7 @@ internal static partial class CpuOpSupport
             "Sample" => OpSupport.Yes,
             "Dft" => AllF32(node),
             "Random" => OpSupport.Yes,
+            "TfIdf" => node.Inputs[0].Type == DataType.I32 ? OpSupport.Yes : OpSupport.No("TfIdf expects i32 token ids"),
             "Multinomial" => node.Inputs[0].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("Multinomial expects f32 logits"),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
         };

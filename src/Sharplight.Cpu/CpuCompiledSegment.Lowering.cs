@@ -192,6 +192,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Multinomial":
                 LowerMultinomial(n);
                 return;
+            case "TfIdf":
+                LowerTfIdf(n);
+                return;
         }
 
         if (s_unaryKinds.TryGetValue(op, out var unaryKind))
