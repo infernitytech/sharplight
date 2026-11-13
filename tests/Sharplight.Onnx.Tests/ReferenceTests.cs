@@ -109,7 +109,8 @@ public class ReferenceTests(ITestOutputHelper output)
 
     // ---- additional real models (best effort; each skips when its file/reference is absent) -----------------------
     public static IEnumerable<TheoryDataRow<string>> ExtraModels() => new[]
-        { "whisper-tiny-encoder", "yolov10n", "segformer-b0", "minilm-l6", "squeezenet1.1-7", "mnist-12", "fcn-resnet50-12" }.Select(n => new TheoryDataRow<string>(n));
+        { "whisper-tiny-encoder", "yolov10n", "segformer-b0", "minilm-l6", "squeezenet1.1-7", "mnist-12", "fcn-resnet50-12",
+          "distilbert-base-uncased", "t5-small-encoder", "depth-anything-small", "efficientnet-lite4-11" }.Select(n => new TheoryDataRow<string>(n));
 
     [Theory, MemberData(nameof(ExtraModels))] public void ExtraModel_Cpu(string name) => RunModel(name, name, "cpu", top1: false);
     [Theory, MemberData(nameof(ExtraModels))] public void ExtraModel_Vulkan(string name) => RunModel(name, name, "vulkan", top1: false);

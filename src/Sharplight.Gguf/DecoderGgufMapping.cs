@@ -6,13 +6,13 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp decoder-only architectures (<c>llama</c> (Llama, Mistral, SmolLM, ...), <c>qwen2</c>, <c>qwen3</c>,
-/// <c>gemma2</c>, <c>gemma3</c>) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>).
+/// <c>gemma2</c>, <c>gemma3</c>, <c>phi3</c> (fused qkv / gate+up are split)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>).
 /// llama.cpp's "normal"-rope checkpoints (<c>llama</c>) store q/k rows permuted for interleaved rotation; they are
 /// un-permuted lazily so canonical weights equal those of a Hugging Face import.
 /// </summary>
-public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping
+public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3"];
     public string Architecture => "decoder";
 
     static bool IsGemma(string a) => a is "gemma2" or "gemma3";
@@ -60,7 +60,13 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping
             }
         }
         string? scaling = g.Raw("rope.scaling.type") as string;
-        if (scaling == "yarn") md[a + "rope.attention_scale"] = YarnOf(g).AttentionScale;
+        if (arch == "phi3")
+        {
+            // longrope: per-frequency factors come as tensors, the cos/sin magnitude as attn_factor.
+            if (g.Has("rope.scaling.attn_factor") && g.Float("rope.scaling.attn_factor") is var af && af != 1f) md[a + "rope.attention_scale"] = af;
+            if (g.Has("rope.scaling.original_context_length")) md[a + "rope.original_context_length"] = g.Int("rope.scaling.original_context_length");
+        }
+        else if (scaling == "yarn") md[a + "rope.attention_scale"] = YarnOf(g).AttentionScale;
         else if (scaling is not (null or "" or "none" or "linear")) throw new NotSupportedException($"GGUF rope.scaling.type '{scaling}' is not supported.");
         return md;
     }
@@ -98,10 +104,35 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping
             case "output_norm.weight": return "output_norm.weight";
             case "output.weight": return "lm_head.weight";
             case "rope_freqs.weight": return "rope.freq_factors";
+            case "rope_factors_short.weight": return "rope.freq_factors";
+            case "rope_factors_long.weight": return "rope.freq_factors_long";
         }
         var m = BlockName().Match(name);
         if (!m.Success) return null;
         return s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
+    }
+
+    /// <summary>Phi-3 stores q/k/v as one tensor and gate/up as one tensor (gate rows first).</summary>
+    public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
+    {
+        if (g.GgufArchitecture != "phi3") return null;
+        var m = BlockName().Match(name);
+        if (!m.Success) return null;
+        string p = $"layers.{m.Groups[1].Value}.";
+        int nHead = g.Int("attention.head_count"), nKv = g.Int("attention.head_count_kv", nHead);
+        int headDim = g.Int("attention.key_length", g.Int("embedding_length") / nHead);
+        switch (m.Groups[2].Value)
+        {
+            case "attn_qkv.weight":
+                return [t.RowSlice(p + "attention.q.weight", 0, nHead * headDim),
+                        t.RowSlice(p + "attention.k.weight", nHead * headDim, nKv * headDim),
+                        t.RowSlice(p + "attention.v.weight", (nHead + nKv) * headDim, nKv * headDim)];
+            case "ffn_up.weight":
+                int ff = g.Int("feed_forward_length");
+                if (t.Shape[0].Fixed != 2 * ff) return null;
+                return [t.RowSlice(p + "mlp.gate.weight", 0, ff), t.RowSlice(p + "mlp.up.weight", ff, ff)];
+            default: return null;
+        }
     }
 
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)

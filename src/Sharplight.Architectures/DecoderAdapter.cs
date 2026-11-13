@@ -20,7 +20,8 @@ namespace Sharplight.Architectures;
 /// ("neox" = rotate-half pairs (i, i+dim/2), the default; "gptj" = interleaved pairs), <c>rope.local_base</c> (base of sliding layers,
 /// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor, e.g. yarn; folded into the score scale as its square).
 /// Frequency scaling (llama3 / yarn / linear) is expressed as the optional weight <c>rope.freq_factors</c> (f32 [rope.dim/2], θ is divided by it)
-/// which applies to the layers that are not sliding.</item>
+/// which applies to the layers that are not sliding. Longrope (Phi-3) additionally carries <c>rope.freq_factors_long</c> and
+/// <c>rope.original_context_length</c>: the short factors are used (valid up to the original context), the long ones are not applied yet.</item>
 /// <item><c>mlp.activation</c> ("silu" (default), "gelu", "gelu_tanh", "relu"), <c>mlp.gated</c> (default true: act(gate)·up).</item>
 /// <item><c>embedding_scale</c> (token embeddings are multiplied by it, default 1; Gemma sqrt(hidden_size)),
 /// <c>final_logit_softcap</c> (logits = cap·tanh(logits/cap), 0 = off).</item>

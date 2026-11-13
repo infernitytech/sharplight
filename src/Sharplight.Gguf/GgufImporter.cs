@@ -44,6 +44,12 @@ public sealed class GgufImporter : IModelImporter
             var unmapped = new List<string>();
             foreach (var t in files.Tensors)
             {
+                if (mapping is IGgufSplitMapping splitter && splitter.Split(t.Name, t.ToWeightInfo(), view) is { } parts)
+                {
+                    foreach (var part in parts)
+                        if (!weights.TryAdd(part.Name, mapping.MapWeight(part, view))) throw new InvalidDataException($"{path}: two tensors map to '{part.Name}'.");
+                    continue;
+                }
                 if (mapping.MapWeightName(t.Name, view) is not { } name) { unmapped.Add(t.Name); continue; }
                 if (!weights.TryAdd(name, mapping.MapWeight(t.ToWeightInfo().As(name), view))) throw new InvalidDataException($"{path}: two tensors map to '{name}'.");
             }

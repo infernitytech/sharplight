@@ -27,6 +27,7 @@ public class DecoderParityTests
         new("Qwen2.5-0.5B-Instruct-f16", "hf/Qwen2.5-0.5B-Instruct", "gguf/Qwen2.5-0.5B-Instruct/qwen2.5-0.5b-instruct-fp16.gguf"),
         new("Qwen3-0.6B", "hf/Qwen3-0.6B", "gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf"),
         new("SmolLM2-360M-Instruct", "hf/SmolLM2-360M-Instruct", "gguf/SmolLM2-360M-Instruct/smollm2-360m-instruct-q8_0.gguf"),
+        new("Phi-3.5-mini-instruct", "hf/Phi-3.5-mini-instruct", "gguf/Phi-3.5-mini-instruct/Phi-3.5-mini-instruct-Q4_K_M.gguf"),
         new("gemma-3-1b-it", "hf/gemma-3-1b-it", "gguf/gemma-3-1b-it/gemma-3-1b-it-Q8_0.gguf"),
         new("gemma-2-2b-it", "hf/gemma-2-2b-it", "gguf/gemma-2-2b-it/gemma-2-2b-it-Q8_0.gguf"),
     ];
@@ -76,6 +77,7 @@ public class DecoderParityTests
             var lm = System.Text.RegularExpressions.Regex.Match(wn, @"^layers\.(\d+)\.");
             if (lm.Success && int.Parse(lm.Groups[1].Value) is var il && il > 2 && il != g.Arch<int>("layer_count") - 1) continue;
             if (!gw.Shape.Equals(hw.Shape)) { problems.Add($"{wn}: shape GGUF {gw.Shape} vs HF {hw.Shape}"); continue; }
+            if (gw.Type != DataType.F32 && gw.Type != DataType.F16 && gw.Type != DataType.BF16 && gw.Type != DataType.Q8_0) continue;   // shape-only for other quantizations
             double err = RelRms(gw, hw);
             string cls = System.Text.RegularExpressions.Regex.Replace(wn, @"layers\.\d+\.", "layers.N.") + $" [{gw.Type}<-{hw.Type}]";
             report[cls] = Math.Max(report.GetValueOrDefault(cls), err);

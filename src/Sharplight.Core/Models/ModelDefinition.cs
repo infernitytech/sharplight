@@ -46,6 +46,21 @@ public sealed class WeightInfo
         return new() { Name = name, Type = Type, Shape = s, Source = Source };
     }
 
+    /// <summary>
+    /// Zero-copy view of rows [firstRow, firstRow + rows) of a tensor viewed as [Shape[0], rest...] (e.g. splitting a fused
+    /// q/k/v or gate/up projection). Rows are contiguous in every storage type, including block-quantized ones.
+    /// </summary>
+    public WeightInfo RowSlice(string name, long firstRow, long rows)
+    {
+        long total = Shape[0].Fixed;
+        if (firstRow < 0 || rows <= 0 || firstRow + rows > total) throw new ArgumentOutOfRangeException(nameof(rows), $"{Name}: rows [{firstRow}, {firstRow + rows}) outside [0, {total}).");
+        long rowElems = Shape.Elements() / total;
+        long rowBytes = Type.ByteSize(rowElems);
+        var dims = new List<Dim> { rows };
+        for (int d = 1; d < Shape.Rank; d++) dims.Add(Shape[d]);
+        return new() { Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes) };
+    }
+
     /// <summary>Reads the whole tensor.</summary>
     public byte[] ReadAll()
     {
@@ -53,6 +68,13 @@ public sealed class WeightInfo
         Source.Read(0, b);
         return b;
     }
+}
+
+sealed class SliceWeightSource(IWeightSource parent, long offset, long length) : IWeightSource
+{
+    public long ByteLength => length;
+    public void Read(long off, Span<byte> destination) => parent.Read(offset + off, destination);
+    public nint TryGetPointer() => parent.TryGetPointer() is var p && p != 0 ? p + (nint)offset : 0;
 }
 
 sealed class DerivedWeightSource(long length, Func<byte[]> produce) : IWeightSource

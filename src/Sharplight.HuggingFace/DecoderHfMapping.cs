@@ -14,7 +14,7 @@ namespace Sharplight.HuggingFace;
 public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 {
     public string Architecture => "decoder";
-    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3"];
 
     static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
 
@@ -52,9 +52,24 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 
     static float RopeBase(HfConfig c) => (float)(c.RopeDouble("rope_theta", "rope_theta") ?? 10000.0);
 
+    /// <summary>Phi-3 "longrope": short/long per-frequency factors and the cos/sin magnitude from the context extension ratio.</summary>
+    sealed record LongRopeInfo(float[] Short, float[] Long, float AttentionScale);
+
+    static LongRopeInfo? LongRope(HfConfig c)
+    {
+        if (ScalingOf(c) is not { Type: "longrope" or "su" } s) return null;
+        float[] Arr(string key) => s.Json.GetProperty(key).EnumerateArray().Select(e => (float)e.GetDouble()).ToArray();
+        int orig = c.GetInt("original_max_position_embeddings") ?? 4096, max = c.GetInt("max_position_embeddings") ?? orig;
+        double scale = (double)max / orig;
+        float attn = s.Json.TryGetProperty("attention_factor", out var af) && af.ValueKind == JsonValueKind.Number ? (float)af.GetDouble()
+                   : scale <= 1 ? 1f : (float)Math.Sqrt(1 + Math.Log(scale) / Math.Log(orig));
+        return new LongRopeInfo(Arr("short_factor"), Arr("long_factor"), attn);
+    }
+
     static RopeScaling.Result? ComputeScaling(HfConfig c)
     {
         if (ScalingOf(c) is not { } s) return null;
+        if (s.Type is "longrope" or "su") return null;
         int dim = RopeDim(c, HeadDim(c));
         float @base = RopeBase(c);
         var j = s.Json;
@@ -94,7 +109,12 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             [a + "mlp.activation"] = Activation(c),
         };
         if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
-        if (ComputeScaling(c) is { } sc && sc.AttentionScale != 1f) md[a + "rope.attention_scale"] = sc.AttentionScale;
+        if (c.Get("rope_scaling") is { ValueKind: JsonValueKind.Object } && LongRope(c) is { } lr)
+        {
+            md[a + "rope.attention_scale"] = lr.AttentionScale;
+            md[a + "rope.original_context_length"] = c.GetInt("original_max_position_embeddings") ?? c.GetInt("max_position_embeddings") ?? 4096;
+        }
+        else if (ComputeScaling(c) is { } sc && sc.AttentionScale != 1f) md[a + "rope.attention_scale"] = sc.AttentionScale;
 
         if (IsGemma(type))
         {
@@ -180,13 +200,32 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             else if (s_norms.TryGetValue(suffix, out var nn)) Add(Norm(w, p + nn));
             else if (suffix == "post_attention_layernorm.weight") Add(Norm(w, p + postAttn));
             else if (gemma && suffix == "pre_feedforward_layernorm.weight") Add(Norm(w, p + "post_attention_norm.weight"));
+            else if (suffix == "self_attn.qkv_proj.weight")
+            {
+                int nHead = c.Int("num_attention_heads"), nKv = c.GetInt("num_key_value_heads") ?? nHead, hd = HeadDim(c);
+                Add(HfTransforms.Plain(w.RowSlice("", 0, nHead * hd), p + "attention.q.weight"));
+                Add(HfTransforms.Plain(w.RowSlice("", nHead * hd, nKv * hd), p + "attention.k.weight"));
+                Add(HfTransforms.Plain(w.RowSlice("", (nHead + nKv) * hd, nKv * hd), p + "attention.v.weight"));
+            }
+            else if (suffix == "mlp.gate_up_proj.weight")
+            {
+                int ff = c.Int("intermediate_size");
+                Add(HfTransforms.Plain(w.RowSlice("", 0, ff), p + "mlp.gate.weight"));
+                Add(HfTransforms.Plain(w.RowSlice("", ff, ff), p + "mlp.up.weight"));
+            }
             else if (gemma && suffix == "post_feedforward_layernorm.weight") Add(Norm(w, p + "mlp.out_norm.weight"));
             else unmapped.Add(name);
         }
         if (unmapped.Count > 0)
             throw new NotSupportedException($"{c.ModelType}: {unmapped.Count} tensor(s) have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
 
-        if (ComputeScaling(c) is { } sc)
+        if (LongRope(c) is { } lr)
+        {
+            WeightInfo F32(string wn, float[] f) => WeightInfo.Derived(wn, DataType.F32, new Shape(f.Length), () => HfTransforms.EncodeF32(f));
+            Add(F32("rope.freq_factors", lr.Short));
+            Add(F32("rope.freq_factors_long", lr.Long));
+        }
+        else if (ComputeScaling(c) is { } sc)
         {
             var f = sc.Factors;
             Add(WeightInfo.Derived("rope.freq_factors", DataType.F32, new Shape(f.Length), () =>

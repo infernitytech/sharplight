@@ -34,6 +34,13 @@ public interface IGgufArchitectureMapping
     IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights) => [];
 }
 
+/// <summary>Optional capability of a mapping: one GGUF tensor that becomes several canonical weights (fused projections).</summary>
+public interface IGgufSplitMapping
+{
+    /// <summary>The canonical weights a GGUF tensor splits into, or null when the tensor maps one-to-one.</summary>
+    IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf);
+}
+
 /// <summary>Read access to GGUF metadata of one architecture (<c>{gguf_arch}.key</c>).</summary>
 public sealed class GgufMetadataView(IReadOnlyDictionary<string, object> metadata, string ggufArchitecture)
 {
