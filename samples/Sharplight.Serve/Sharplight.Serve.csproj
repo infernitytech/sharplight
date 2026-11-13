@@ -6,11 +6,10 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <ProjectReference Include="../../src/Sharplight.Server/Sharplight.Server.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
-    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
   </ItemGroup>
 </Project>
