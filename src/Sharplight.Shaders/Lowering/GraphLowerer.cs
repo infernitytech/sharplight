@@ -72,7 +72,7 @@ public sealed partial class GraphLowerer
     static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
     static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "MatMulId", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "MatMulId", "SelectiveScan", .. SpatialOpNames, .. GeneralOpNames];
 
     public static OpSupport Supports(Node node)
     {
@@ -80,6 +80,7 @@ public sealed partial class GraphLowerer
         if (s_spatialOps.Contains(node.Op.Name)) return SupportsSpatial(node);
         if (s_generalOps.Contains(node.Op.Name)) return SupportsGeneral(node);
         if (node.Op.Name == "MatMulId") return SupportsMoe(node);
+        if (node.Op.Name == "SelectiveScan") return SupportsSelectiveScan(node);
         if (node.Op.Name == "Attention" && (node.Inputs.Length != 3 || node.Attributes.Get("causal", false) || node.Inputs[1].Shape[1] != node.Inputs[2].Shape[1]
             || node.Inputs[0].Shape[0] != node.Inputs[1].Shape[0] || node.Inputs[0].Shape[2].Fixed % 8 != 0 || node.Inputs[1].Shape[2].Fixed % 8 != 0))
             return OpSupport.No("Attention: only bidirectional self-attention without mask over equally long q/k/v with head size % 8 == 0 is implemented");

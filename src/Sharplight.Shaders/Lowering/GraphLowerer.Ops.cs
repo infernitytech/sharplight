@@ -30,6 +30,7 @@ public sealed partial class GraphLowerer
             case "CachedAttention" or "Attention": LowerAttention(n); break;
             case "CausalConv1d": LowerConv(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
+            case "SelectiveScan": LowerSelectiveScan(n); break;
             default:
                 if (LowerGeneral(n)) break;
                 if (s_elementwise.Contains(n.Op.Name)) { LowerElementwise([n], [n.Output]); break; }
@@ -615,13 +616,16 @@ public sealed partial class GraphLowerer
         if (w.Type != DataType.F32) throw new NotSupportedException("conv weight must be f32");
         var y = Produce(n.Output);
         long C = x.Shape[1], KS = w.Shape[1];
-        var runs = n.Inputs.Length > 3 ? DenseInput(n.Inputs[3], "seq-runs") : null;
+        // Optional f32 bias (input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
+        TensorRef? cb = n.Inputs.Length > 3 && n.Inputs[3].Type == DataType.F32 ? Ref(n.Inputs[3]) : null;
+        var runs = n.Inputs.Length > 3 && n.Inputs[^1].Type == DataType.I32 ? DenseInput(n.Inputs[^1], "seq-runs") : null;
         var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
-            ("MULTI_SEQ", runs is not null)));
+            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null)));
         Emit($"conv1d {n.Output.Name}", [n],
             [Always(k, b => new Grid(Grid.Div(C, 128), 1, runs is null ? 1u : (uint)Rows(b, runs)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), .. SeqArgs(runs), TokenArg(x)],
-            runs is null ? [x, w, st] : [x, w, st, runs], [y, st]);
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset),
+             new PointerArg((cb ?? y).Buffer, (cb ?? y).ByteOffset), .. SeqArgs(runs), TokenArg(x)],
+            [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. runs is null ? [] : (TensorRef[])[runs]], [y, st]);
     }
 
     void LowerDeltaRule(Node n)

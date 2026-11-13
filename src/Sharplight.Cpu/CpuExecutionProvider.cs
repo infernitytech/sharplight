@@ -331,7 +331,11 @@ public sealed class CpuDevice : IComputeDevice
                 return OpSupport.Yes;
             case "CausalConv1d":
                 if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32) return OpSupport.No("CausalConv1d needs f32 activations and state");
-                return F32Like(ins[1]) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight must be f32-convertible");
+                return F32Like(ins[1]) && (ins.Length < 4 || ins[3].Type == DataType.I32 || F32Like(ins[3])) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight/bias must be f32-convertible");
+            case "SelectiveScan":
+                if (ins[0].Type != DataType.F32 || ins[1].Type != DataType.F32 || ins[4].Type != DataType.F32 || ins[5].Type != DataType.F32 || ins[7].Type != DataType.F32)
+                    return OpSupport.No("SelectiveScan needs f32 x/dt/B/C and state");
+                return F32Like(ins[2]) && F32Like(ins[3]) && F32Like(ins[6]) ? OpSupport.Yes : OpSupport.No("SelectiveScan dt_bias/A/D must be f32-convertible");
             case "GatedDeltaRule":
                 foreach (var v in ins.Take(6)) if (v.Type != DataType.F32) return OpSupport.No($"GatedDeltaRule needs f32 inputs and state, got {v.Type}");
                 if (ins.Length > 6 && ins[6].Type != DataType.I32) return OpSupport.No("GatedDeltaRule sequence runs must be i32");
