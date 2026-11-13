@@ -158,6 +158,8 @@ public class FamilyGenerationTests
         .. DecoderFamilyCases.All,
         // Routed-MoE families, gpt-oss and BitNet (waves 3 and 6).
         .. RoutedMoeFamilyCases.All,
+        // Tiny random GGUF files checked against llama.cpp (Qwen v1, XVERSE, ChatGLM, dots1, MiniMax-M2, Hunyuan, EXAONE-MoE, Falcon).
+        .. TinyGgufFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)

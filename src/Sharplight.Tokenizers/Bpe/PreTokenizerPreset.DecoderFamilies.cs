@@ -9,7 +9,8 @@ internal sealed partial record PreTokenizerPreset
     /// </summary>
     private static PreTokenizerPreset? ResolveDecoderFamily(string name) => name switch
     {
-        "refact" or "command-r" => SingleDigitGpt2(),
+        "refact" or "command-r" or "starcoder" => SingleDigitGpt2(),
+        "falcon" => Falcon(),
         // DBRX / Smaug / OLMo-2 / Granite 4: the Llama-3 expression with ordinary merge application and no default BOS
         // (Granite 4 GGUFs set add_bos_token explicitly; OLMo-2 relies on this default).
         "dbrx" or "smaug-bpe" => new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), false, false),
@@ -24,6 +25,11 @@ internal sealed partial record PreTokenizerPreset
         ]), false, false),
         _ => null,
     };
+
+    // Falcon (llama.cpp LLAMA_VOCAB_PRE_TYPE_FALCON): punctuation runs (including the backtick) are cut out first, then the GPT-2 expression
+    // without its trailing "\\s+" alternative, then digits in groups of exactly three.
+    private static PreTokenizerPreset Falcon()
+        => new(new DefaultRegexStages([@"[\p{P}\$\+<=>\^~\|`]+", $@"'s|'t|'re|'ve|'m|'ll|'d| ?\p{{L}}+| ?\p{{N}}+| ?[^{DefaultRegexStages.Ws}\p{{L}}\p{{N}}]+|[{DefaultRegexStages.Ws}]+(?![^{DefaultRegexStages.Ws}])", "[0-9][0-9][0-9]"]), false, false);
 
     // llama.cpp: digits are split individually first, then the GPT-2 expression (without its trailing "\\s+" alternative).
     private static PreTokenizerPreset SingleDigitGpt2()

@@ -51,6 +51,7 @@ internal static class RoutedMoeFamilyCases
         new("tiny-random-mistral-3 HF (mistral3 text model, transformers)", "hf/tiny-random-mistral-3", HfPrompt, "ids", [45407,27662,72872,3774,100074,57942,30819,57942], ""),
         // Tiny checkpoints from tools/mk_tiny_moe.py.
         new("tiny-random-hunyuan-v1-moe HF (hunyuan_v1_moe, transformers)", "hf/tiny-random-hunyuan-v1-moe", HfPrompt, "ids", [906,479,659,442,304,481,929,839,151,414,296,434,19,105,185,647], ""),
+        new("tiny-random-hy-v3 HF (hy_v3 sigmoid routing with bias and scale, transformers)", "hf/tiny-random-hy-v3", HfPrompt, "ids", [854,894,320,513,349,520,904,932,894,304,338,195,711,656,338,803,338,414,803,1016,101,321,555,203], ""),
         new("tiny-random-dots1 HF (dots1 group-limited routing, transformers)", "hf/tiny-random-dots1", HfPrompt, "ids", [557,683,396,750,619,279,523,503,995,662,487,926,166,964,821,637], ""),
         new("tiny-random-exaone-moe HF (exaone_moe, transformers)", "hf/tiny-random-exaone-moe", HfPrompt, "ids", [77,583,803,940,458,9,236,236,676,834,236,989,3,768,338,656], ""),
         new("tiny-random-bitnet HF (bitnet, transformers)", "hf/tiny-random-bitnet", HfPrompt, "ids", [508,432,843,582,109,60,109,130,15,102,655,601,453,281,474,1009], ""),
