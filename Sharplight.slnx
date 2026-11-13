@@ -38,6 +38,7 @@
     <Project Path="tests/Sharplight.HuggingFace.Tests/Sharplight.HuggingFace.Tests.csproj" />
     <Project Path="tests/Sharplight.Hub.Tests/Sharplight.Hub.Tests.csproj" />
     <Project Path="tests/Sharplight.Onnx.Tests/Sharplight.Onnx.Tests.csproj" />
+    <Project Path="tests/Sharplight.Onnx.Conformance/Sharplight.Onnx.Conformance.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
     <Project Path="tests/Sharplight.PackageViewer.Tests/Sharplight.PackageViewer.Tests.csproj" />
     <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />

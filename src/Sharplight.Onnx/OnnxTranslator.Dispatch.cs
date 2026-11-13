@@ -29,6 +29,12 @@ internal sealed partial class OnnxTranslator
     // Contrib ops that onnxruntime also registers in the default domain (onnxruntime-genai exports use it).
     private static readonly HashSet<string> s_contribInDefaultDomain = ["SimplifiedLayerNormalization"];
 
+    /// <summary>Every operator the translator accepts, domain-qualified except for the default domain (for coverage reports).</summary>
+    public static IEnumerable<string> SupportedOperators
+        => s_dynamicOps.Concat(OnnxFold.Ops).Concat(s_contribInDefaultDomain)
+            .Concat(s_contribOps.Concat(s_quantContrib).Select(op => "com.microsoft." + op))
+            .Distinct().Order(StringComparer.Ordinal);
+
     public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
 
     /// <summary>Translates a node with at least one runtime-dependent input into IR values stored in the environment.</summary>

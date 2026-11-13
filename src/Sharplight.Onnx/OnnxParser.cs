@@ -96,6 +96,10 @@ internal static class OnnxParser
         };
     }
 
+    /// <summary>Parses a serialized TensorProto (for example an ONNX test data file); the data is copied lazily from <paramref name="data"/>.</summary>
+    public static OnnxTensor ParseTensorProto(byte[] data)
+        => ParseTensor(new ProtoReader(data), new Ctx(data.Length, new ArraySliceProvider(data), null));
+
     private sealed record Ctx(long FileLength, IOnnxByteSliceProvider Slices, IOnnxExternalDataResolver? External);
 
     private static (string, string) ParseStringEntry(ProtoReader m)
