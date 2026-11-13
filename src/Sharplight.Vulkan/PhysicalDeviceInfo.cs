@@ -36,6 +36,7 @@ internal sealed unsafe class PhysicalDeviceInfo
     public IReadOnlyList<CoopMatShape> CoopMatShapes { get; } = [];
     public bool ShaderFloat16 { get; }
     public bool ShaderBFloat16 { get; }
+    public bool BFloat16CooperativeMatrix { get; }
     public bool IntegerDotProduct { get; }
     /// <summary>Provider-neutral features (<see cref="DeviceFeatures"/>) this device supports.</summary>
     public IReadOnlySet<string> Features { get; }
@@ -87,7 +88,9 @@ internal sealed unsafe class PhysicalDeviceInfo
         var f13 = new VkPhysicalDeviceVulkan13Features { pNext = Extensions.Contains("VK_KHR_cooperative_matrix") ? &coop : null };
         var f12 = new VkPhysicalDeviceVulkan12Features { pNext = &f13 };
         var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12 };
-        var f2 = new VkPhysicalDeviceFeatures2 { pNext = &f11 };
+        bool bf16Extension = Extensions.Contains("VK_KHR_shader_bfloat16");
+        var bf16 = new VkPhysicalDeviceShaderBfloat16FeaturesKHR { pNext = &f11 };
+        var f2 = new VkPhysicalDeviceFeatures2 { pNext = bf16Extension ? &bf16 : &f11 };
         api.vkGetPhysicalDeviceFeatures2(pd, &f2);
         SubgroupSizeControl = f13.subgroupSizeControl;
         ComputeFullSubgroups = f13.computeFullSubgroups;
@@ -136,7 +139,8 @@ internal sealed unsafe class PhysicalDeviceInfo
                 && f.CType == VkComponentTypeKHR.Float32 && f.ResultType == VkComponentTypeKHR.Float32
                 && f.MGranularity <= 32 && f.NGranularity <= 32 && f.KGranularity <= 16);
         }
-        ShaderBFloat16 = Extensions.Contains("VK_KHR_shader_bfloat16");
+        ShaderBFloat16 = bf16Extension && bf16.shaderBFloat16Type;
+        BFloat16CooperativeMatrix = ShaderBFloat16 && bf16.shaderBFloat16CooperativeMatrix;
         IntegerDotProduct = f13.shaderIntegerDotProduct;
 
         // Map Vulkan mechanisms onto provider-neutral feature names. A matrix feature is only reported
@@ -168,7 +172,7 @@ internal sealed unsafe class PhysicalDeviceInfo
             feats.Add(DeviceFeatures.MatrixF16);
         }
 
-        if (CooperativeMatrix && ShaderBFloat16 && Shape("16x16x16:bf16*bf16+f32->f32"))
+        if (CooperativeMatrix && BFloat16CooperativeMatrix && Shape("16x16x16:bf16*bf16+f32->f32"))
         {
             feats.Add(DeviceFeatures.MatrixBF16);
         }

@@ -192,10 +192,18 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
 // ---------------------------------------------------------------------------------------------
 // Tiled GEMM path (prefill). Workgroup computes a BM(tokens) x BN(rows) tile, 256 threads,
 // each thread a TM x TN micro tile. K is walked in steps of BK=32 (dequantized into shared memory).
-#define BM 64
+// GEMM_SPLITK > 1: workgroup z sums only its share of K into partials [GEMM_SPLITK][T][N] (see splitk_reduce).
+// GEMM_BM: tokens per tile, 64 or 16 (few tokens: less padding work, more workgroups).
+#ifndef GEMM_SPLITK
+#define GEMM_SPLITK 1
+#endif
+#ifndef GEMM_BM
+#define GEMM_BM 64
+#endif
+#define BM GEMM_BM
 #define BN 64
 #define BK 32
-#define TM 4
+#define TM (BM / 16)
 #define TN 4
 
 groupshared float sX[BK][BM + 4];
@@ -214,7 +222,19 @@ void gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     float acc[TM][TN];
     [ForceUnroll] for (int i = 0; i < TM; i++) [ForceUnroll] for (int j = 0; j < TN; j++) acc[i][j] = 0;
 
-    for (uint k0 = 0; k0 < K; k0 += BK)
+#if GEMM_SPLITK > 1
+    const uint kShare = ((K + BK - 1) / BK + GEMM_SPLITK - 1) / GEMM_SPLITK * BK;
+    uint kBegin = gid.z * kShare;
+    uint kEnd = min(uint(K), kBegin + kShare);
+    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+    const uint yStride = N;
+#else
+    uint kBegin = 0;
+    uint kEnd = K;
+    float* yb = p.y;
+    const uint yStride = Y_STRIDE;
+#endif
+    for (uint k0 = kBegin; k0 < kEnd; k0 += BK)
     {
         // W tile: BN rows x BK values = 64 rows * 4 groups of 8 = 256 loads (one per thread).
         {
@@ -224,7 +244,8 @@ void gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             else { [ForceUnroll] for (int i = 0; i < 8; i++) w[i] = 0; }
             [ForceUnroll] for (int i = 0; i < 8; i++) sW[gq * 8 + i][r] = w[i];
         }
-        // X tile: BM tokens x BK values = 64 * 32 floats = 2048 = 256 threads * 8.
+        // X tile: BM tokens x BK values, 8 per thread (BM = 64: every thread; BM = 16: the first 64).
+        if (tid < BM * 4)
         {
             uint r = tid / 4, gq = tid % 4;
             uint t = t0 + r;
@@ -259,7 +280,7 @@ void gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         for (int j = 0; j < TN; j++)
         {
             uint n = n0 + tx * TN + j;
-            if (n < N) p.y[uint64_t(t) * Y_STRIDE + n] = acc[i][j];
+            if (n < N) yb[uint64_t(t) * yStride + n] = acc[i][j];
         }
     }
 }

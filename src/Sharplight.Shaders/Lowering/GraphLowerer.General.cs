@@ -374,6 +374,11 @@ public sealed partial class GraphLowerer
 
     private void LowerScatterND(Node n)
     {
+        if (TryLowerScatterNDFast(n))
+        {
+            return;
+        }
+
         var data = Ref(n.Inputs[0]);
         var ix = Ref(n.Inputs[1]);
         var upd = Ref(n.Inputs[2]);
@@ -457,7 +462,8 @@ public sealed partial class GraphLowerer
         EmitGen("argreduce", [n], iter, x.Symbol, [x], [y], body);
     }
 
-    private void LowerTopK(Node n)
+    /// <summary>Serial top-k (one thread per row, O(k * n)): fallback when k exceeds the shared-memory sort of <see cref="LowerTopK"/>.</summary>
+    private void LowerTopKSerial(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "topk");
         var vals = Produce(n.Outputs[0]);
@@ -522,6 +528,11 @@ public sealed partial class GraphLowerer
         }
 
         long G = n.Attributes.Get("groups", 1L);
+        if (TryLowerGroupNormSplit(n, x, sc, bi, y, C, S, G))
+        {
+            return;
+        }
+
         var k2 = Lib("general.slang", "groupnorm", Macros(("C", C), ("S", S), ("G", G), ("EPS", n.Attributes.Get("eps", 1e-5f)), ("HAS_SCALE", sc is not null), ("HAS_BIAS", bi is not null)));
         var tx = x;
         var sp = sc ?? x;
