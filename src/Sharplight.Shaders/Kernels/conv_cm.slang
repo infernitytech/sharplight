@@ -1,14 +1,16 @@
 // 2-D convolution as an implicit GEMM on cooperative matrices (16x16x16, f32 accumulate):
 //   C[o, pix] = sum_k W[g*OG + o, k] * im2col(x)[k, pix] per group g, pix over N*HO*WO.
 // Workgroup = WARPS_M x 4 subgroups of 32; each subgroup owns 4 x 2 accumulators (64 o x 32 pix), so the workgroup
-// tile is (WARPS_M * 64) o x 128 pix. K advances in steps of 32; the next step's global loads are issued into
+// tile is (WARPS_M * 64) o x (FRAG_N * 64) pix. K advances in steps of 32; the next step's global loads are issued into
 // registers (packed operands) before this step's products.
-// PRECISE = 1: every operand is split into bf16 hi + lo; hi*hi and, separately, hi*lo + lo*hi accumulate (about 16
-//              mantissa bits, f32 range): the strict-precision path. Needs bf16 cooperative matrices.
-// PRECISE = 0: one f16 product per step (reduced precision). Needs f16 cooperative matrices.
+// PARTS = 3: every operand is split into bf16 hi + mid + lo (24 mantissa bits, exact for f32 inputs up to rounding of the
+//            last part); hi*hi, hi*mid + mid*hi and mid*mid + hi*lo + lo*hi accumulate separately in f32 and are summed
+//            smallest first: f32-equivalent products, the strict-precision path. Needs bf16 cooperative matrices.
+// PARTS = 2: bf16 hi + lo; hi*hi and hi*lo + lo*hi (about 16 mantissa bits): reduced precision without f16 matrices.
+// PARTS = 1: one f16 product per step (reduced precision). Needs f16 cooperative matrices.
 // Same layout and macros as conv_gemm (conv.slang): x [N, C, H, W] strided (XS_*), w [O, CG, KH, KW] dense (WFMT
 // f32/f16/bf16), y dense [N, O, HO, WO]. SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce.
-// Extra macros: PRECISE WARPS_M (1 or 2) A_VEC (K % 8 == 0: weights loaded in groups of 8) SPLITK KPS (K per split,
+// Extra macros: PARTS (1-3) FRAG_N (1 or 2 pixel fragments per subgroup) WARPS_M (1 or 2) A_VEC (K % 8 == 0: weights loaded in groups of 8) SPLITK KPS (K per split,
 // multiple of 32).
 #include "common.slang"
 using namespace linalg;
@@ -17,7 +19,6 @@ using namespace linalg;
 #define KTOT (CG * KH * KW)
 #define WARPS_N 4
 #define FRAG_M 4
-#define FRAG_N 2
 #define NT (WARPS_M * WARPS_N * 32)
 #define TBM (WARPS_M * FRAG_M * 16)
 #define TBN (WARPS_N * FRAG_N * 16)
@@ -29,7 +30,7 @@ using namespace linalg;
 #define B_ITEMS (TBN * 4 / NT)
 #define B_STRIDE (NT / TBN)
 
-#if PRECISE
+#if PARTS > 1
 typealias Elem = BFloat16;
 #else
 typealias Elem = half;
@@ -47,12 +48,16 @@ struct ConvParams
     uint N;
 };
 
-// A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, hi (and lo) parts.
+// A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, one tile per part.
 groupshared uint4 sAh[TBM * SAS / 8];
 groupshared uint4 sBh[TBN * SAS / 8];
-#if PRECISE
+#if PARTS > 1
 groupshared uint4 sAl[TBM * SAS / 8];
 groupshared uint4 sBl[TBN * SAS / 8];
+#endif
+#if PARTS > 2
+groupshared uint4 sAm[TBM * SAS / 8];
+groupshared uint4 sBm[TBN * SAS / 8];
 #endif
 groupshared float sC[WARPS_M * WARPS_N * 256];
 
@@ -75,30 +80,47 @@ uint bf16_round(float v)
     return (u + 0x7FFFu + ((u >> 16) & 1u)) >> 16;
 }
 
-// Packs 8 values into hi (and lo) operand words.
-void pack8(float v[8], out uint4 hi, out uint4 lo)
+uint4 pack_words(uint e[8])
+{
+    return uint4(e[0] | (e[1] << 16), e[2] | (e[3] << 16), e[4] | (e[5] << 16), e[6] | (e[7] << 16));
+}
+
+// Packs 8 values into operand words: hi, mid (PARTS 3) and lo (PARTS > 1) parts; each part is the bf16 rounding of what
+// the previous parts leave over. Unused parts are zero.
+void pack8(float v[8], out uint4 hi, out uint4 mid, out uint4 lo)
 {
     uint h[8];
+    uint m[8];
     uint l[8];
     [ForceUnroll]
     for (int j = 0; j < 8; j++)
     {
-#if PRECISE
+#if PARTS > 1
         h[j] = bf16_round(v[j]);
-        l[j] = bf16_round(v[j] - asfloat(h[j] << 16));
+        float r = v[j] - asfloat(h[j] << 16);
+#if PARTS > 2
+        m[j] = bf16_round(r);
+        r -= asfloat(m[j] << 16);
+#else
+        m[j] = 0;
+#endif
+        l[j] = bf16_round(r);
 #else
         h[j] = f32tof16(v[j]);
+        m[j] = 0;
         l[j] = 0;
 #endif
     }
-    hi = uint4(h[0] | (h[1] << 16), h[2] | (h[3] << 16), h[4] | (h[5] << 16), h[6] | (h[7] << 16));
-    lo = uint4(l[0] | (l[1] << 16), l[2] | (l[3] << 16), l[4] | (l[5] << 16), l[6] | (l[7] << 16));
+    hi = pack_words(h);
+    mid = pack_words(m);
+    lo = pack_words(l);
 }
 
 // Global loads of the K step at k0 into packed registers; zero outside the tensors and at or past kEnd.
 // A item it: row idx / 4, k group idx % 4 (idx = tid + it * NT). B item it: the thread's pixel, k group bq0 + it * B_STRIDE.
 void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint bq0, bool bvalid, int ih0, int iw0,
-    float* xb, out uint4 ah[A_ITEMS], out uint4 al[A_ITEMS], out uint4 bh[B_ITEMS], out uint4 bl[B_ITEMS])
+    float* xb, out uint4 ah[A_ITEMS], out uint4 am[A_ITEMS], out uint4 al[A_ITEMS], out uint4 bh[B_ITEMS], out uint4 bm[B_ITEMS],
+    out uint4 bl[B_ITEMS])
 {
     [ForceUnroll]
     for (uint it = 0; it < A_ITEMS; it++)
@@ -123,7 +145,7 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
             }
 #endif
         }
-        pack8(v, ah[it], al[it]);
+        pack8(v, ah[it], am[it], al[it]);
     }
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
@@ -159,7 +181,7 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
 #endif
             }
         }
-        pack8(v, bh[it], bl[it]);
+        pack8(v, bh[it], bm[it], bl[it]);
     }
 }
 
@@ -196,9 +218,14 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     float* xb = p.x + uint64_t(bn) * XS_N + uint64_t(g * CG) * XS_C;
 
     Acc acc[FRAG_M][FRAG_N];
-#if PRECISE
-    // Correction terms (hi*lo + lo*hi) accumulate separately: independent dependency chains for the matrix units.
+#if PARTS > 1
+    // Correction terms accumulate separately by magnitude (independent dependency chains for the matrix units, and the
+    // small terms are not rounded away against the large ones): PARTS 2: cor = hi*lo + lo*hi; PARTS 3: cor = hi*mid + mid*hi,
+    // cor2 = mid*mid + hi*lo + lo*hi.
     Acc cor[FRAG_M][FRAG_N];
+#endif
+#if PARTS > 2
+    Acc cor2[FRAG_M][FRAG_N];
 #endif
     [ForceUnroll]
     for (int i = 0; i < FRAG_M; i++)
@@ -207,17 +234,22 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         for (int j = 0; j < FRAG_N; j++)
         {
             acc[i][j] = Acc(0.0);
-#if PRECISE
+#if PARTS > 1
             cor[i][j] = Acc(0.0);
+#endif
+#if PARTS > 2
+            cor2[i][j] = Acc(0.0);
 #endif
         }
     }
 
     uint4 ah[A_ITEMS];
+    uint4 am[A_ITEMS];
     uint4 al[A_ITEMS];
     uint4 bh[B_ITEMS];
+    uint4 bm[B_ITEMS];
     uint4 bl[B_ITEMS];
-    fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, al, bh, bl);
+    fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl);
     for (uint k0 = kBeg; k0 < kEnd; k0 += TBK)
     {
         [ForceUnroll]
@@ -226,8 +258,11 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             uint idx = tid + it * NT;
             uint o = (idx / 4) * (SAS / 8) + idx % 4;
             sAh[o] = ah[it];
-#if PRECISE
+#if PARTS > 1
             sAl[o] = al[it];
+#endif
+#if PARTS > 2
+            sAm[o] = am[it];
 #endif
         }
         [ForceUnroll]
@@ -235,30 +270,39 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         {
             uint o = bcol * (SAS / 8) + bq0 + it * B_STRIDE;
             sBh[o] = bh[it];
-#if PRECISE
+#if PARTS > 1
             sBl[o] = bl[it];
+#endif
+#if PARTS > 2
+            sBm[o] = bm[it];
 #endif
         }
         GroupMemoryBarrierWithGroupSync();
         if (k0 + TBK < kEnd)
         {
-            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, al, bh, bl);
+            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl);
         }
 
         [ForceUnroll]
         for (uint kk = 0; kk < TBK; kk += 16)
         {
             MatB b[FRAG_N];
-#if PRECISE
+#if PARTS > 1
             MatB bLo[FRAG_N];
+#endif
+#if PARTS > 2
+            MatB bMid[FRAG_N];
 #endif
             [ForceUnroll]
             for (int j = 0; j < FRAG_N; j++)
             {
                 uint ob = ((wn + j * 16) * SAS + kk) / 8;
                 b[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, ob, SAS / 8);
-#if PRECISE
+#if PARTS > 1
                 bLo[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBl, ob, SAS / 8);
+#endif
+#if PARTS > 2
+                bMid[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBm, ob, SAS / 8);
 #endif
             }
             [ForceUnroll]
@@ -266,14 +310,20 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             {
                 uint oa = ((wm + i * 16) * SAS + kk) / 8;
                 MatA a = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAh, oa, SAS / 8);
-#if PRECISE
+#if PARTS > 1
                 MatA aLo = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAl, oa, SAS / 8);
+#endif
+#if PARTS > 2
+                MatA aMid = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAm, oa, SAS / 8);
 #endif
                 [ForceUnroll]
                 for (int j = 0; j < FRAG_N; j++)
                 {
                     acc[i][j] = mma(a, b[j], acc[i][j]);
-#if PRECISE
+#if PARTS > 2
+                    cor[i][j] = mma(aMid, b[j], mma(a, bMid[j], cor[i][j]));
+                    cor2[i][j] = mma(aLo, b[j], mma(a, bLo[j], mma(aMid, bMid[j], cor2[i][j])));
+#elif PARTS > 1
                     cor[i][j] = mma(aLo, b[j], mma(a, bLo[j], cor[i][j]));
 #endif
                 }
@@ -291,7 +341,9 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         [ForceUnroll]
         for (int j = 0; j < FRAG_N; j++)
         {
-#if PRECISE
+#if PARTS > 2
+            Acc c = acc[i][j] + (cor[i][j] + cor2[i][j]);
+#elif PARTS > 1
             Acc c = acc[i][j] + cor[i][j];
 #else
             Acc c = acc[i][j];
