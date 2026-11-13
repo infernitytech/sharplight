@@ -1,6 +1,5 @@
 using Sharplight.Graph;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -21,7 +20,7 @@ internal sealed class ShortConvLayer
 
     /// <summary>Declares the convolution window state of a layer with <paramref name="channels"/> channels.</summary>
     public StateDefinition DefineState(string group, int channels)
-        => new() { Name = $"{group}.conv_state", Type = DataType.F32, Shape = new Shape(_kernel - 1, channels), Kind = StateKind.Recurrent, Group = group };
+        => RecurrentStates.ConvWindow(group, _kernel - 1, channels);
 
     /// <summary>Emits the mixer on the normalized input <paramref name="h"/> [T, hidden].</summary>
     public Value Build(GraphBuilder b, Value h, string p, StateDefinition convState)
