@@ -88,11 +88,13 @@ internal sealed partial class OnnxTranslator
 
     private void BatchNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
-        CheckUnusedOutputs(n, 1);
-        for (int i = 1; i < 5; i++)
+        if (n.Int("training_mode", 0) != 0 || ins.Skip(1).Take(4).Any(t => t is not { IsConst: true }))
         {
-            ConstIn(ins, i, "BatchNormalization parameter");
+            BatchNormRuntime(n, ins);
+            return;
         }
+
+        CheckUnusedOutputs(n, 1);
 
         var x = X(ins, 0);
         var (s, t) = BatchNormParams(n);

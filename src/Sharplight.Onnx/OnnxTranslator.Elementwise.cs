@@ -207,10 +207,26 @@ internal sealed partial class OnnxTranslator
         _env[n.Outputs[0]] = ins[0]!;
     }
 
+    /// <summary>
+    /// Dropout in inference: y = x and the mask (output #1) all true. Training mode (opset 12+: a constant training_mode input) is the
+    /// identity only for ratio 0; random dropout is not supported.
+    /// </summary>
     private void Dropout(OnnxNode n, TranslatedTensor?[] ins)
     {
-        CheckUnusedOutputs(n, 1);
+        bool training = OptConst(ins, 2, "Dropout training_mode") is { } mode && mode.Ints()[0] != 0;
+        float ratio = OptConst(ins, 1, "Dropout ratio") is { } r ? r.ScalarF32() : n.Float("ratio", 0.5f);
+        if (training && ratio != 0)
+        {
+            throw new NotSupportedException("Dropout in training mode (random masks are not reproducible)");
+        }
+
         _env[n.Outputs[0]] = ins[0]!;
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            var x = X(ins, 0);
+            var one = ConstValue(OnnxConst.Scalar(1f), Nm(n) + ".one");
+            SetDyn(n, 1, Emit("Where", [_b.Unary("IsNaN", x), one, one]));
+        }
     }
 
     private void Cast(OnnxNode n, TranslatedTensor?[] ins)

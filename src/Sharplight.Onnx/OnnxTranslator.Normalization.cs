@@ -151,6 +151,53 @@ internal sealed partial class OnnxTranslator
         return !Sym(v) && v.Shape.Elements() == d ? (Rs(v, d), null) : (null, v);
     }
 
+    /// <summary>
+    /// BatchNormalization with runtime parameters or in training mode (batch statistics over all axes but the channel axis; outputs #1
+    /// and #2 are the running mean and variance updated with <c>momentum</c>).
+    /// </summary>
+    private void BatchNormRuntime(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        bool training = n.Int("training_mode", 0) != 0;
+        CheckUnusedOutputs(n, training ? 3 : 1);
+        var x = X(ins, 0);
+        long channels = x.Shape[1].Fixed;
+        long[] perChannel = [channels, .. Enumerable.Repeat(1L, x.Rank - 2)];
+        Value Parameter(int i) => Rs(X(ins, i), perChannel);
+        float eps = n.Float("epsilon", 1e-5f);
+        Value mean, variance;
+        if (training)
+        {
+            long[] axes = [0, .. Enumerable.Range(2, x.Rank - 2).Select(a => (long)a)];
+            mean = Emit("Reduce", [x], Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true)));
+            var centered = _b.Sub(x, mean);
+            variance = Emit("Reduce", [_b.Mul(centered, centered)], Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true)));
+        }
+        else
+        {
+            mean = Parameter(3);
+            variance = Parameter(4);
+        }
+
+        var normalized = _b.Mul(_b.Sub(x, mean), _b.Unary("Rsqrt", _b.Scale(variance, 1f, eps)));
+        SetDyn(n, 0, _b.Add(_b.Mul(normalized, Parameter(1)), Parameter(2), Nm(n)));
+        if (!training)
+        {
+            return;
+        }
+
+        float momentum = n.Float("momentum", 0.9f);
+        Value Running(int input, Value batch) => _b.Add(_b.Scale(X(ins, input), momentum), _b.Scale(Rs(batch, channels), 1f - momentum));
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            SetDyn(n, 1, Running(3, mean));
+        }
+
+        if (n.Outputs.Count > 2 && n.Outputs[2] != "")
+        {
+            SetDyn(n, 2, Running(4, variance));
+        }
+    }
+
     private void InstanceNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
