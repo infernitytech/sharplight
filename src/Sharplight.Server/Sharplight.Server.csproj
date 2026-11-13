@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>ASP.NET Core minimal-API endpoints exposing a Sharplight model through OpenAI- and Anthropic-compatible HTTP APIs.</Description>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../Sharplight.Llm/Sharplight.Llm.csproj" />
+  </ItemGroup>
+</Project>
