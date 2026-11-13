@@ -73,7 +73,7 @@ struct WChunk { uint4 q; float d; };
 struct XChunk { uint4 q; float d; };
 WChunk load_chunk(uint8_t* w, uint row, uint ch)
 {
-    uint8_t* r = w + uint64_t(ROW_BYTES) * row;
+    uint8_t* r = rowStart(w, ROW_BYTES, row);
     WChunk c;
     c.d = h2f(*(uint16_t*)(r + (ch >> 1) * 2));
     c.q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(ch) * 16);
@@ -125,7 +125,7 @@ void scale_min_regs(uint3 s, uint j, out float sc, out float mn)
 
 WChunk load_chunk(uint8_t* w, uint row, uint ch)
 {
-    uint8_t* blk = w + uint64_t(ROW_BYTES) * row + uint64_t(ch >> 3) * KQ_BYTES;
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 3) * KQ_BYTES;
     uint i = ch & 7;
     uint j = i >> 1;
     uint4 head = *(uint4*)blk;
@@ -183,7 +183,7 @@ uint4 minus32(uint4 q) { return (q & 0x1F1F1F1Fu) | (((~q) & 0x20202020u) * 7u);
 
 WChunk load_chunk(uint8_t* w, uint row, uint ch)
 {
-    uint8_t* blk = w + uint64_t(ROW_BYTES) * row + uint64_t(ch >> 2) * 210;
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(ch >> 2) * 210;
     uint n = (ch >> 1) & 1;
     uint l0 = (ch & 1) * 16;
     uint4 qa = load16_a2(blk + n * 64 + l0);
@@ -421,7 +421,7 @@ void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Moe
         }
         return;
     }
-    uint8_t* wb = p.w + uint64_t(e) * EXPERT_BYTES;
+    uint8_t* wb = rowStart(p.w, EXPERT_BYTES, e);
     uint8_t* xr = p.xq + uint64_t(PER_SLOT ? item : item / S) * QROW;
     float acc[MQ_ROWS];
     [ForceUnroll] for (int r = 0; r < MQ_ROWS; r++) acc[r] = 0;

@@ -54,7 +54,7 @@ void moe_matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform M
         if (lane == 0) p.y[uint64_t(item) * N + row] = 0.0;
         return;
     }
-    uint8_t* wb = p.w + uint64_t(e) * EXPERT_BYTES;
+    uint8_t* wb = rowStart(p.w, EXPERT_BYTES, e);
     float* xp = p.x + uint64_t(PER_SLOT ? item : item / S) * X_STRIDE;
     float acc = 0;
     [unroll(MV_UNROLL)]
@@ -171,7 +171,7 @@ void moe_gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Gem
     if (tile >= p.scratch[0]) return;
     uint e = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile], nrows = p.scratch[3 + 3 * tile];
     uint n0 = gid.x * BN;
-    uint8_t* wb = p.w + uint64_t(e) * EXPERT_BYTES;
+    uint8_t* wb = rowStart(p.w, EXPERT_BYTES, e);
     if (tid < BM) sItem[tid] = tid < nrows ? p.scratch[ROW_BASE + rowOff + tid] : 0xFFFFFFFFu;
     GroupMemoryBarrierWithGroupSync();
     uint tx = tid % (BN / TN);
@@ -277,7 +277,7 @@ void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform 
     uint n0 = gid.x * GBN;
     uint wm = (sg / WARPS_N) * (FRAG_M * 16);
     uint wn = (sg % WARPS_N) * (FRAG_N * 16);
-    uint8_t* wbase = p.w + uint64_t(e) * EXPERT_BYTES;
+    uint8_t* wbase = rowStart(p.w, EXPERT_BYTES, e);
     for (uint r = tid; r < GBM; r += GTHREADS) sItem[r] = r < nrows ? p.scratch[ROW_BASE + rowOff + r] : 0xFFFFFFFFu;
     GroupMemoryBarrierWithGroupSync();
 

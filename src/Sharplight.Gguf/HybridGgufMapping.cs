@@ -4,14 +4,18 @@ using Sharplight.Tensors;
 namespace Sharplight.Gguf;
 
 /// <summary>
-/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), and <c>lfm2</c> (gated short convolutions + attention) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
+/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), <c>lfm2</c> (gated short convolutions + attention) and <c>lfm2moe</c> (the same with sigmoid-routed experts after the leading dense layers) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
 /// A layer has attention when its GGUF key/value head count is positive; every layer of these models has the Mamba-2 mixer except the attention-only
 /// layers of Granite-4.0-H (Falcon-H1 has both mixers in every layer, recognised by the SSM weights being present).
 /// </summary>
 internal sealed class HybridGgufMapping : IGgufArchitectureMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "mamba", "jamba"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "lfm2moe", "mamba", "jamba"];
+    private static bool IsLfm2(GgufMetadataView g) => g.GgufArchitecture is "lfm2" or "lfm2moe";
+
+    // llama.cpp expert_gating_func: 1 = softmax, 2 = sigmoid.
+    private const int SigmoidGating = 2;
     /// <inheritdoc/>
     public string Architecture => "hybrid";
 
@@ -71,7 +75,7 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
             md[a + "rope.dim"] = g.Int("rope.dimension_count", g.Int("attention.key_length", hidden / headCount));
             md[a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase);
             // Granite-4.0-H attention is position-less (NoPE) unless the checkpoint is flagged as rope-finetuned; Falcon-H1 and LFM2 always rotate.
-            md[a + "attention.rope"] = g.GgufArchitecture is "falcon-h1" or "lfm2" || g.Bool("rope.scaling.finetuned", false);
+            md[a + "attention.rope"] = g.GgufArchitecture is "falcon-h1" || IsLfm2(g) || g.Bool("rope.scaling.finetuned", false);
         }
 
         if (g.Has("embedding_scale"))
@@ -94,6 +98,15 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
             md[a + "moe.expert_count"] = g.Int("expert_count");
             md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
             md[a + "moe.normalize_weights"] = g.GgufArchitecture != "jamba";   // Jamba uses the raw softmax probabilities of the selected experts
+            if (g.Int("expert_gating_func", 0) == SigmoidGating)
+            {
+                md[a + "moe.router_activation"] = "sigmoid";
+            }
+
+            if (g.Float("expert_weights_scale", 0f) is var scale && scale != 0f)
+            {
+                md[a + "moe.weights_scale"] = scale;
+            }
         }
 
         return md;
@@ -131,6 +144,7 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         ["ffn_up.weight"] = "mlp.up.weight",
         ["ffn_down.weight"] = "mlp.down.weight",
         ["ffn_gate_inp.weight"] = "mlp.router.weight",
+        ["exp_probs_b.bias"] = "mlp.router_bias",
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
         ["ffn_down_exps.weight"] = "mlp.experts.down.weight",
@@ -142,7 +156,7 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
-        if (name == "token_embd_norm.weight" && g.GgufArchitecture == "lfm2")
+        if (name == "token_embd_norm.weight" && IsLfm2(g))
         {
             return "output_norm.weight";   // LFM2 calls its final norm the embedding norm
         }

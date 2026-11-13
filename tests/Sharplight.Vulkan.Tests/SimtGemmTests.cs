@@ -24,7 +24,10 @@ public sealed class SimtGemmTests
         Diff.Check("MatMul.simt", tg.B.Build(), steps, atol: 1e-4, rtol: 1e-4, maxTokens: 256, what: $"K={k} N={n}");
     }
 
-    /// <summary>Quantized weights take the same SIMT kernels when the matrix features are disabled.</summary>
+    /// <summary>
+    /// Quantized weights take the same SIMT kernels when the matrix features are disabled (and the int-dot matvec, which
+    /// would otherwise take the 12-row step of q8_0).
+    /// </summary>
     [Theory]
     [InlineData("q8_0")]
     [InlineData("q4_k")]
@@ -38,6 +41,6 @@ public sealed class SimtGemmTests
         int[] rows = [12, 40, 100];
         var steps = rows.Select((t, i) => new Step(t, 0, (x, Rnd.F((long)t * 512, 30 + i)))).ToArray();
         Diff.Check("MatMul.simt." + format, tg.B.Build(), steps, atol: 2e-3, rtol: 1e-3, maxTokens: 128, what: format,
-            disabledFeatures: new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixWorkgroup });
+            disabledFeatures: new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixWorkgroup, DeviceFeatures.IntDot });
     }
 }

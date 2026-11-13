@@ -4,14 +4,29 @@ using Sharplight.Tensors;
 
 namespace Sharplight.HuggingFace;
 
-/// <summary>Hugging Face <c>lfm2</c> (Liquid LFM2 / LFM2.5: gated short-convolution layers and grouped-query attention layers with q/k norms) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).</summary>
+/// <summary>
+/// Hugging Face <c>lfm2</c> (Liquid LFM2 / LFM2.5: gated short-convolution layers and grouped-query attention layers with q/k norms) and
+/// <c>lfm2_moe</c> (the same with sigmoid-routed experts and a selection bias after the leading dense layers) → canonical <c>hybrid</c>
+/// (documented on <c>HybridAdapter</c>).
+/// </summary>
 internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
 {
     /// <inheritdoc/>
     public string Architecture => "hybrid";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["lfm2"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["lfm2", "lfm2_moe"];
+
+    [GeneratedRegex(@"^feed_forward\.experts\.(\d+)\.(w1|w2|w3)\.weight$")]
+    private static partial Regex ExpertName();
+
+    /// <summary>Per-expert projection names to the canonical stacked weight (w1 gate, w3 up, w2 down).</summary>
+    private static readonly Dictionary<string, string> s_expertProjection = new(StringComparer.Ordinal)
+    {
+        ["w1"] = "mlp.experts.gate.weight",
+        ["w3"] = "mlp.experts.up.weight",
+        ["w2"] = "mlp.experts.down.weight",
+    };
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
@@ -37,6 +52,15 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
         }
 
         HfMappingHelpers.AddContextLength(md, a, c);
+        if (c.GetInt("num_experts") is > 0 and int experts)
+        {
+            md[a + "moe.expert_count"] = experts;
+            md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+            md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? true;
+            md[a + "moe.router_activation"] = "sigmoid";
+            md[a + "moe.weights_scale"] = (float)(c.GetDouble("routed_scaling_factor") ?? 1.0);
+        }
+
         return md;
     }
 
@@ -65,18 +89,20 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
         var collector = new HfWeightCollector();
+        var experts = HfPartJoiner.Experts();
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var w = tensor.ToWeightInfo();
             var m = LayerName().Match(name);
-            bool mapped = m.Success ? TryMapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, w, collector) : TryMapGlobalTensor(c, name, w, collector);
+            bool mapped = m.Success ? TryMapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, w, collector, experts) : TryMapGlobalTensor(c, name, w, collector);
             if (!mapped)
             {
                 collector.AddUnmapped(name);
             }
         }
 
-        collector.ThrowIfUnmapped("lfm2");
+        collector.ThrowIfUnmapped(c.ModelType);
+        experts.JoinInto(collector, c.GetInt("num_experts") ?? 0);
         return collector.Weights;
     }
 
@@ -102,12 +128,28 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
         }
     }
 
-    private static bool TryMapLayerTensor(string prefix, string suffix, WeightInfo w, HfWeightCollector collector)
+    private static bool TryMapLayerTensor(string prefix, string suffix, WeightInfo w, HfWeightCollector collector, HfPartJoiner experts)
     {
         if (s_layer.TryGetValue(suffix, out var renamed))
         {
             collector.Add(HfTransforms.Plain(w, prefix + renamed));
             return true;
+        }
+
+        if (ExpertName().Match(suffix) is { Success: true } expert)
+        {
+            experts.Add(prefix + s_expertProjection[expert.Groups[2].Value], int.Parse(expert.Groups[1].Value), w);
+            return true;
+        }
+
+        switch (suffix)
+        {
+            case "feed_forward.gate.weight":
+                collector.Add(HfTransforms.Plain(w, prefix + "mlp.router.weight"));
+                return true;
+            case "feed_forward.expert_bias":
+                collector.Add(HfTransforms.ToF32(w, prefix + "mlp.router_bias"));
+                return true;
         }
 
         if (suffix != "conv.conv.weight")

@@ -59,7 +59,7 @@ void matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
 #if WFMT == FMT_Q8_0R && MV_Q8R_WIDE && !DUAL
     // Repacked Q8_0: lane l reads 16 consecutive int8 (one 16-byte load, fully coalesced across the
     // subgroup) per iteration; two lanes share a block scale.
-    uint8_t* wr = p.w + ROW_BYTES * row;
+    uint8_t* wr = rowStart(p.w, ROW_BYTES, row);
     uint8_t* qbase = wr + ROW_BYTES / 17;
     [unroll(4)]
     for (uint h = lane; h < K / 16; h += SG)
@@ -458,7 +458,7 @@ uint4 load8h(uint8_t* w, uint row, uint g);
 void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
 {
 #if WFMT == FMT_Q8_0R
-    uint8_t* r = w + uint64_t(ROW_BYTES) * row;
+    uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g16 >> 1) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
     uint4 q = *(uint4*)(r + ROW_BYTES / 17 + uint64_t(g16) * 16);
@@ -473,7 +473,7 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
 #else
 #define KQ_BLOCK 176
 #endif
-    uint8_t* blk = w + uint64_t(ROW_BYTES) * row + uint64_t(g16 >> 4) * KQ_BLOCK;
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(g16 >> 4) * KQ_BLOCK;
     uint idx = (g16 & 15) * 16, j = idx >> 6, upper = (idx >> 5) & 1, l0 = idx & 31;
     uint4 q = (*(uint4*)(blk + (KQ_BLOCK - 128 + 32 * j + l0)) >> (4 * upper)) & 0x0F0F0F0Fu;
 #if WFMT == FMT_Q5_K
@@ -490,7 +490,7 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
 #elif WFMT == FMT_Q6_K
     // 6-bit codes from 16 low-nibble and 16 high-bit bytes (210-byte blocks: 2-byte aligned, so u16 loads);
     // (1024 + q) - 1056 = q - 32 is exact, one rounding for the scaled value besides the scale's own.
-    uint8_t* blk = w + uint64_t(ROW_BYTES) * row + uint64_t(g16 >> 4) * 210;
+    uint8_t* blk = rowStart(w, ROW_BYTES, row) + uint64_t(g16 >> 4) * 210;
     uint idx = (g16 & 15) * 16, n = idx >> 7, qd = (idx & 127) >> 5, l0 = idx & 31;
     uint4 ql = load16_u16(blk + n * 64 + (qd & 1) * 32 + l0);
     uint4 qh = load16_u16(blk + 128 + n * 32 + l0);
@@ -511,7 +511,7 @@ uint4 load8h(uint8_t* w, uint row, uint g)
 #if WFMT == FMT_Q8_0R
     // int8 -> f16 via the 0x6400 exponent trick (1024 + (q + 128)), then (h - 1152) * d: both steps exact but the
     // last, which rounds once, exactly like converting the f32 product d * q to half.
-    uint8_t* r = w + uint64_t(ROW_BYTES) * row;
+    uint8_t* r = rowStart(w, ROW_BYTES, row);
     uint d16 = uint(*(uint16_t*)(r + (g >> 2) * 2));
     half2 d = bit_cast<half2>(d16 * 0x10001u);
     uint2 q = *(uint2*)(r + ROW_BYTES / 17 + uint64_t(g) * 8);

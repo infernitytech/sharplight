@@ -80,6 +80,9 @@ public sealed partial class GraphLowerer
             case "SequencePool":
                 LowerSequencePool(n);
                 break;
+            case "NGramHash":
+                LowerNGramHash(n);
+                break;
             case "GatedDeltaRule":
                 LowerDeltaRule(n);
                 break;

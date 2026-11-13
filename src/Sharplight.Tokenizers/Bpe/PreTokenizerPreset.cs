@@ -32,7 +32,7 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
                 return new(new DefaultRegexStages([@"\p{N}{1,3}", @"[一-龥぀-ゟ゠-ヿ]+", @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"]), false, false);
 
             case "lfm2":
-                return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, false);
+                return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, true);
 
             case "smollm" or "codeshell" or "exaone" or "minerva":
                 return SingleDigitGpt2();

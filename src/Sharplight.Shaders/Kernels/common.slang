@@ -346,6 +346,19 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     }
 }
 
+// Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
+// pointer to 32 bits, which breaks rows that start 4 GiB or more into a table.
+uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
+{
+    return (uint8_t*)(uint64_t(base) + rowBytes * row);
+}
+
+// base + offset bytes, computed on integers like rowStart (for offsets that can reach 4 GiB, e.g. into a large KV cache).
+uint8_t* atByte(uint8_t* base, uint64_t offset)
+{
+    return (uint8_t*)(uint64_t(base) + offset);
+}
+
 #if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K)
 // Packed-half decoding of K-quant codes for the tensor-core GEMMs (needs Float16).
 
@@ -370,7 +383,7 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
 {
     uint idx = (g & 31) * 8;
 #if WFMT == FMT_Q6_K
-    uint8_t* blk = w + rowBytes * row + uint64_t(g >> 5) * 210;
+    uint8_t* blk = rowStart(w, rowBytes, row) + uint64_t(g >> 5) * 210;
     uint n = idx >> 7, qd = (idx & 127) >> 5, l0 = idx & 31;
     uint16_t* pl = (uint16_t*)(blk + (n * 64 + (qd & 1) * 32 + l0));
     uint16_t* ph = (uint16_t*)(blk + (128 + n * 32 + l0));
@@ -383,10 +396,10 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
     half offset = 1056.0h;
 #else
 #if WFMT == FMT_Q4_K
-    uint8_t* blk = w + rowBytes * row + uint64_t(g >> 5) * 144;
+    uint8_t* blk = rowStart(w, rowBytes, row) + uint64_t(g >> 5) * 144;
     uint qsOffset = 16;
 #else
-    uint8_t* blk = w + rowBytes * row + uint64_t(g >> 5) * 176;
+    uint8_t* blk = rowStart(w, rowBytes, row) + uint64_t(g >> 5) * 176;
     uint qsOffset = 48;
 #endif
     uint j = idx >> 6, upper = (idx >> 5) & 1, l0 = idx & 31;
@@ -410,8 +423,11 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
 #include "quant_k.slang"
 #include "quant_iq.slang"
 
-void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
+void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v[8])
 {
+    // Every decoder then addresses within one row only.
+    uint8_t* base = rowStart(table, rowBytes, tableRow);
+    const uint row = 0;
 #if WFMT == FMT_F32
     load8_f32(base, rowBytes, row, g, v);
 #elif WFMT == FMT_F16
