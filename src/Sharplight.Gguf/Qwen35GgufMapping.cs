@@ -87,6 +87,7 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     private static void AddQwen4ExpHyperParameters(GgufMetadataView g, Dictionary<string, object> md, string a)
     {
         md[a + "hyper_connections.count"] = g.Int("hyper_connection.count");
+        md[a + "mtp.layer_count"] = 0;   // the NextN block is not imported (see Split)
         md[a + "linear_attention.gate_activation"] = "sigmoid";
         md[a + "attention.indexer.head_count"] = g.Int("attention.indexer.head_count");
         md[a + "attention.indexer.head_dim"] = g.Int("attention.indexer.key_length");
@@ -207,10 +208,59 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     }
 
     /// <summary>
+    /// Projections that newer llama.cpp converters store as one tensor [a | b] (rows of a, then rows of b): the unfused GGUF names
+    /// of both parts and the metadata key that gives the row count of the second part.
+    /// </summary>
+    private static readonly (string Fused, string First, string Second, string SecondRows)[] s_fused =
+    [
+        (".attn_qkv_gate.", ".attn_qkv.", ".attn_gate.", "ssm.inner_size"),
+        (".ssm_beta_alpha.", ".ssm_beta.", ".ssm_alpha.", "ssm.time_step_rank"),
+        (".hc_attn_down_inject.", ".hc_attn_down.", ".hc_attn_inject.", "hyper_connection.count"),
+        (".hc_ffn_down_inject.", ".hc_ffn_down.", ".hc_ffn_inject.", "hyper_connection.count"),
+    ];
+
+    /// <summary>
+    /// Splits fused tensors into their canonical weights: the [a | b] projections of newer converters (<see cref="s_fused"/>) and the
+    /// qwen3next <c>ssm_ba</c> layout. The MTP (NextN) block of qwen4exp splits into no weights, since it is not used (as on the
+    /// HF path).
+    /// </summary>
+    public IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf)
+    {
+        if (gguf.GgufArchitecture == Qwen4ExpArchitecture && IsNextnBlock(ggufName, gguf))
+        {
+            return [];
+        }
+
+        foreach (var (fused, first, second, secondRowsKey) in s_fused)
+        {
+            if (ggufName.Contains(fused, StringComparison.Ordinal))
+            {
+                long secondRows = gguf.Int(secondRowsKey);
+                long firstRows = tensor.Shape[0].Fixed - secondRows;
+                return
+                [
+                    tensor.RowSlice(PartName(ggufName, fused, first, gguf), 0, firstRows),
+                    tensor.RowSlice(PartName(ggufName, fused, second, gguf), firstRows, secondRows),
+                ];
+            }
+        }
+
+        return SplitQwen3NextBetaAlpha(ggufName, tensor, gguf);
+    }
+
+    private string PartName(string ggufName, string fused, string part, GgufMetadataView gguf)
+        => MapWeightName(ggufName.Replace(fused, part, StringComparison.Ordinal), gguf)
+            ?? throw new InvalidDataException($"GGUF tensor '{ggufName}': no canonical name for its part '{part.Trim('.')}'.");
+
+    private static bool IsNextnBlock(string ggufName, GgufMetadataView gguf)
+        => GgufTensorNames.Block().Match(ggufName) is { Success: true } m
+            && int.Parse(m.Groups[1].Value) >= gguf.Int("block_count") - gguf.Int("nextn_predict_layers", 0);
+
+    /// <summary>
     /// qwen3next keeps the HF <c>in_proj_ba</c> layout: per key head [beta (r rows), alpha (r rows)] with r value heads per key
     /// head; it splits into the canonical beta and alpha projections (value heads grouped by key head).
     /// </summary>
-    public IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf)
+    private IReadOnlyList<WeightInfo>? SplitQwen3NextBetaAlpha(string ggufName, WeightInfo tensor, GgufMetadataView gguf)
     {
         if (!ggufName.EndsWith(".ssm_ba.weight", StringComparison.Ordinal)
             || MapWeightName(ggufName.Replace(".ssm_ba.", ".ssm_beta.", StringComparison.Ordinal), gguf) is not { } betaName)
