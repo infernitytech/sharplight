@@ -11,11 +11,13 @@ internal sealed record DecoderHyperParameters(
     int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps, float AttnScale, float SoftCap,
     int RopeDims, float RopeBase, float RopeLocalBase, string RopeStyle, int Window, int[] SlidingLayers,
     string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength,
-    int Experts, int ExpertsUsed, bool NormalizeExpertWeights, bool SigmoidRouter, float ExpertWeightsScale,
+    MoeOptions Moe, bool RouterReadsLayerInput,
     int[] LayerHeadDims, int[] LayerKvHeads, int[] KvSource, int[] RopeLayers, int RopeLocalDims, bool QkNormUnweighted, bool VNorm,
     float PostNormEps, bool EmbeddingNorm, float LogitScale, int PerLayerSize,
     string NormType, bool PreNorm, bool ParallelResidual, float ResidualScale, float SwigluAlpha, float SwigluLimit,
-    float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts)
+    float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts,
+    int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
+    int ChunkSize, int[] ChunkLayers)
 {
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
@@ -46,11 +48,8 @@ internal sealed record DecoderHyperParameters(
             FinalSoftCap: src.Arch("final_logit_softcap", 0f),
             Vocab: src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed,
             ContextLength: src.Arch("context_length", 32768),
-            Experts: src.Arch("moe.expert_count", 0),
-            ExpertsUsed: src.Arch("moe.expert_used_count", 0),
-            NormalizeExpertWeights: src.Arch("moe.normalize_weights", false),
-            SigmoidRouter: src.Arch("moe.router_activation", "softmax") == "sigmoid",
-            ExpertWeightsScale: src.Arch("moe.weights_scale", 1f),
+            Moe: MoeOptions.Read(src),
+            RouterReadsLayerInput: src.Arch("moe.router_input", "normed") == "layer_input",
             LayerHeadDims: src.Arch("attention.layer_head_dims", Array.Empty<int>()),
             LayerKvHeads: src.Arch("attention.layer_kv_head_counts", Array.Empty<int>()),
             KvSource: src.Arch("attention.kv_source_layers", Array.Empty<int>()),
@@ -72,7 +71,15 @@ internal sealed record DecoderHyperParameters(
             XieluEps: src.Arch("mlp.xielu_eps", -1e-6f),
             ClipQkv: src.Arch("attention.clip_qkv", 0f),
             QkNormAfterRope: src.Arch("attention.qk_norm_after_rope", false),
-            LayerHeadCounts: src.Arch("attention.layer_head_counts", Array.Empty<int>()));
+            LayerHeadCounts: src.Arch("attention.layer_head_counts", Array.Empty<int>()),
+            QkNormLayers: src.Arch("attention.qk_norm_layers", Array.Empty<int>()),
+            RopeLocalFreqFactors: src.Arch("rope.local_freq_factors", false),
+            TemperatureScale: src.Arch("attention.temperature_scale", 0f),
+            TemperatureLength: src.Arch("attention.temperature_length", 0f),
+            TemperatureOffset: src.Arch("attention.temperature_offset", 0f),
+            TemperatureLayers: src.Arch("attention.temperature_layers", Array.Empty<int>()),
+            ChunkSize: src.Arch("attention.chunk_size", 0),
+            ChunkLayers: src.Arch("attention.chunk_layers", Array.Empty<int>()));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {
@@ -84,12 +91,17 @@ internal sealed record DecoderHyperParameters(
             throw new InvalidDataException("decoder: attention.sliding_layers must have layer_count entries.");
         }
 
-        foreach (var (arr, nm) in new[] { (hp.LayerHeadDims, "attention.layer_head_dims"), (hp.LayerHeadCounts, "attention.layer_head_counts"), (hp.LayerKvHeads, "attention.layer_kv_head_counts"), (hp.KvSource, "attention.kv_source_layers"), (hp.RopeLayers, "rope.layers") })
+        foreach (var (arr, nm) in new[] { (hp.LayerHeadDims, "attention.layer_head_dims"), (hp.LayerHeadCounts, "attention.layer_head_counts"), (hp.LayerKvHeads, "attention.layer_kv_head_counts"), (hp.KvSource, "attention.kv_source_layers"), (hp.RopeLayers, "rope.layers"), (hp.QkNormLayers, "attention.qk_norm_layers"), (hp.TemperatureLayers, "attention.temperature_layers"), (hp.ChunkLayers, "attention.chunk_layers") })
         {
             if (arr.Length != 0 && arr.Length != hp.NLayer)
             {
                 throw new InvalidDataException($"decoder: {nm} must have layer_count entries.");
             }
+        }
+
+        if (hp.TemperatureScale != 0f && hp.TemperatureLength <= 0f)
+        {
+            throw new InvalidDataException("decoder: attention.temperature_scale needs a positive attention.temperature_length.");
         }
 
         return hp;
@@ -114,6 +126,15 @@ internal sealed record DecoderHyperParameters(
     // without a layer list (Mistral v0.1: sliding_window) applies it to every layer and keeps the ordinary rope.
     /// <summary>Whether layer <paramref name="il"/> is one of the interleaved sliding-window layers (which use the local rope).</summary>
     public bool Sliding(int il) => Window > 0 && SlidingLayers.Length > 0 && SlidingLayers[il] != 0;
+
+    /// <summary>Whether layer <paramref name="il"/> applies the unweighted q/k norm (<c>attention.qk_norm_unweighted</c>, limited by <c>attention.qk_norm_layers</c>).</summary>
+    public bool QkNormUnweightedOn(int il) => QkNormUnweighted && (QkNormLayers.Length == 0 || QkNormLayers[il] != 0);
+
+    /// <summary>Whether layer <paramref name="il"/> scales its queries by the position-dependent attention temperature.</summary>
+    public bool TemperatureOn(int il) => TemperatureScale != 0f && (TemperatureLayers.Length == 0 || TemperatureLayers[il] != 0);
+
+    /// <summary>Whether layer <paramref name="il"/> attends only within its chunk of <c>attention.chunk_size</c> positions.</summary>
+    public bool Chunked(int il) => ChunkSize > 0 && (ChunkLayers.Length == 0 || ChunkLayers[il] != 0);
 
     /// <summary>Whether attention of layer <paramref name="il"/> is limited to the sliding window.</summary>
     public bool Windowed(int il) => Window > 0 && (SlidingLayers.Length == 0 || SlidingLayers[il] != 0);

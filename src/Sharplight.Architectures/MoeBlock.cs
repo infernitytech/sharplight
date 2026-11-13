@@ -10,10 +10,12 @@ namespace Sharplight.Architectures;
 /// <remarks>
 /// Canonical weights below <c>prefix</c> (e.g. <c>layers.3.mlp.</c>):
 /// <list type="bullet">
-/// <item><c>router.weight</c> [E, H]; optional selection bias <c>router_bias</c> [E] (see <see cref="MoeRouter"/>).</item>
+/// <item>Optional selection bias <c>router_bias</c> [E] (see <see cref="MoeRouter"/>).</item>
+/// <item><c>router.weight</c> [E, H] with an optional logit bias <c>router.bias</c> [E] (gpt-oss).</item>
 /// <item>Experts, rank 3: <c>experts.up.weight</c> [E, I, H], <c>experts.down.weight</c> [E, H, I] and either
 /// <c>experts.gate.weight</c> [E, I, H] or the fused <c>experts.gate_up.weight</c> [E, 2I, H] (gate rows first). Without a gate the
-/// experts are ungated MLPs (act(up)).</item>
+/// experts are ungated MLPs (act(up)). Optional per-expert biases (gpt-oss) <c>experts.{gate,up,gate_up,down}.bias</c> [E, N] are
+/// added to the selected experts' projections.</item>
 /// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
 /// act(up) MLP), optionally scaled per token by
 /// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H].</item>
@@ -33,13 +35,20 @@ internal static class MoeBlock
     /// <param name="hidden">The hidden size H.</param>
     /// <param name="activation">The expert activation: <see cref="IMlpActivation.ActivateGated"/> for gated experts,
     /// <see cref="IMlpActivation.Activate"/> on up for ungated ones.</param>
-    public static Value Build(GraphBuilder b, Value h, string layerPrefix, string block, MoeOptions options, int hidden, IMlpActivation activation)
+    /// <param name="routerInput">Rows [T, H] the router reads when they differ from <paramref name="h"/> (SmallThinker routes on the
+    /// layer input before the norm); null = <paramref name="h"/>.</param>
+    public static Value Build(GraphBuilder b, Value h, string layerPrefix, string block, MoeOptions options, int hidden, IMlpActivation activation,
+        Value? routerInput = null)
     {
         string prefix = layerPrefix + block;
-        var (weights, ids) = MoeRouter.Route(b, h, prefix, options);
-        var act = ExpertActivations(b, h, prefix, ids, Gated);
-        var down = b.Emit1("MatMulId", [act, b.Weight(prefix + "experts.down.weight"), ids], null, $"{prefix}experts_down");   // [T, k, H]
-        var weighted = b.Mul(down, b.Reshape(weights, 0, options.ExpertsUsed, 1));
+        int k = options.ExpertsUsed;
+        var (weights, ids) = MoeRouter.Route(b, routerInput ?? h, prefix, options);
+        var slotWeights = b.Reshape(weights, 0, k, 1);                                                                           // [T, k, 1]
+        var expertInput = options.WeightsBeforeExperts ? b.Mul(b.Reshape(h, 0, 1, hidden), slotWeights) : h;                     // [T, (k,) H]
+        var act = ExpertActivations(b, expertInput, prefix, ids, Gated);
+        var down = WithExpertBias(b, b.Emit1("MatMulId", [act, b.Weight(prefix + "experts.down.weight"), ids], null, $"{prefix}experts_down"),
+            prefix + "experts.down.bias", ids);                                                                                  // [T, k, H]
+        var weighted = options.WeightsBeforeExperts ? down : b.Mul(down, slotWeights);
         var summed = b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]);                                                       // [T, H, 1]
         var routed = b.Reshape(summed, 0, hidden);
         if (!b.HasWeight(prefix + "shared.up.weight"))
@@ -59,18 +68,32 @@ internal static class MoeBlock
         if (b.TryWeight(prefix + "experts.gate_up.weight") is { } gateUpWeight)
         {
             long width = gateUpWeight.Shape[1].Fixed / 2;
-            var gateUp = b.Emit1("MatMulId", [h, gateUpWeight, ids], null, $"{prefix}experts_gate_up");                       // [T, k, 2I]
+            var gateUp = WithExpertBias(b, b.Emit1("MatMulId", [h, gateUpWeight, ids], null, $"{prefix}experts_gate_up"),
+                prefix + "experts.gate_up.bias", ids);                                                                         // [T, k, 2I]
             return activation(b.Slice(gateUp, 2, 0, width), b.Slice(gateUp, 2, width, width));
         }
 
-        var up = b.Emit1("MatMulId", [h, b.Weight(prefix + "experts.up.weight"), ids], null, $"{prefix}experts_up");
+        var up = WithExpertBias(b, b.Emit1("MatMulId", [h, b.Weight(prefix + "experts.up.weight"), ids], null, $"{prefix}experts_up"),
+            prefix + "experts.up.bias", ids);
         if (b.TryWeight(prefix + "experts.gate.weight") is not { } gateWeight)
         {
             return activation(null, up);
         }
 
-        var gate = b.Emit1("MatMulId", [h, gateWeight, ids], null, $"{prefix}experts_gate");
+        var gate = WithExpertBias(b, b.Emit1("MatMulId", [h, gateWeight, ids], null, $"{prefix}experts_gate"),
+            prefix + "experts.gate.bias", ids);
         return activation(gate, up);
+    }
+
+    // Adds the selected experts' rows of an optional per-expert bias [E, N] to their projections [T, k, N].
+    private static Value WithExpertBias(GraphBuilder b, Value projection, string biasName, Value ids)
+    {
+        if (b.TryWeight(biasName) is not { } bias)
+        {
+            return projection;
+        }
+
+        return b.Add(projection, b.Emit1("GatherAxis", [bias, ids], Attributes.From(("axis", 0L))));
     }
 
     private static Value SharedExpert(GraphBuilder b, Value h, string prefix, Func<Value?, Value, Value> activation)

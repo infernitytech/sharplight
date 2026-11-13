@@ -30,6 +30,7 @@ public sealed class ModelService
     private readonly string? _bos;
     /// <summary>The template can emit a <c>&lt;think&gt;</c> block (structured output leaves it free).</summary>
     private readonly bool _reasoningTemplate;
+    private readonly bool _harmony;   // OpenAI harmony output (gpt-oss): channels and recipients instead of think / tool markup
     /// <summary>Compiled output constraints by request shape (format, tools, flags); cleared when it reaches <see cref="MaxCachedConstraints"/>.</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, GrammarConstraint> _constraints = new(StringComparer.Ordinal);
     private const int MaxCachedConstraints = 64;
@@ -61,7 +62,8 @@ public sealed class ModelService
             _template = new ChatTemplate(src, _bos, Tok(engine.Tokenizer.EosId));
         }
 
-        _formats = Options.ToolFormats ?? ToolCallFormats.ForTemplate(src);
+        _harmony = src?.Contains("<|channel|>", StringComparison.Ordinal) == true;
+        _formats = Options.ToolFormats ?? (_harmony ? [ToolCallFormats.Hermes] : ToolCallFormats.ForTemplate(src));
         _reasoningTemplate = src?.Contains("<think>", StringComparison.Ordinal) == true;
     }
 
@@ -184,7 +186,7 @@ public sealed class ModelService
             StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, Timeout = r.Timeout,
             Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt),
         };
-        return Start(template, r.N, () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning), ct);
+        return Start(template, r.N, () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning, harmony: _harmony), ct);
     }
 
     /// <summary>Submits a raw text completion request.</summary>

@@ -52,6 +52,15 @@ internal static class TokenizerSetup
             }
         }
 
+        // Harmony (gpt-oss) and Solar Open end messages with <|end|> but turns with <|return|> / <|call|> (<|calls|> / <|flush|>):
+        // like llama.cpp, <|end|> does not end the generation there, so the final channel can follow the analysis one.
+        bool Has(string name) => lookup(name) is int id && eog.Contains(id);
+        bool hasCall = Has("<|call|>") || Has("<|calls|>");
+        if (lookup("<|end|>") is int end && Has("<|end|>") && hasCall && (Has("<|return|>") || Has("<|flush|>")))
+        {
+            eog.Remove(end);
+        }
+
         eog.Sort();
         return eog.ToArray();
     }

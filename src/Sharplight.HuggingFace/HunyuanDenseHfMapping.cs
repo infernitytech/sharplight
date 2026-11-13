@@ -17,9 +17,14 @@ internal sealed class HunyuanDenseHfMapping : HfDecoderFamilyMapping
     protected override IReadOnlyDictionary<string, string> LayerTensors => s_layerTensors;
 
     /// <inheritdoc/>
-    protected override float RopeBase(HfConfig c)
+    protected override float RopeBase(HfConfig c) => AlphaRopeBase(c, base.RopeBase(c));
+
+    /// <summary>The q/k norm names of Hunyuan layers on top of the Llama names.</summary>
+    internal static IReadOnlyDictionary<string, string> HunyuanLayerTensors => s_layerTensors;
+
+    /// <summary>The rope base with Hunyuan's NTK-aware alpha (<c>rope_scaling.alpha</c>) folded in: <c>base · alpha^(dim / (dim − 2))</c>.</summary>
+    internal static float AlphaRopeBase(HfConfig c, float ropeBase)
     {
-        float ropeBase = base.RopeBase(c);
         double alpha = HfMappingHelpers.NumberOr(c.RopeParameters, "alpha", 0);
         if (alpha <= 0)
         {
