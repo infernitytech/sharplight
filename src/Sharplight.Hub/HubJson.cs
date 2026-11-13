@@ -11,7 +11,21 @@ internal static class HubJson
         using var document = Parse(json);
         var root = document.RootElement;
         var commit = String(root, "sha") ?? throw new HubException("The Hub's answer has no commit sha.");
-        return new HubRevisionInfo(String(root, "id"), commit, IsGated(root));
+        return new HubRevisionInfo(String(root, "id"), commit, IsGated(root), Architecture(root));
+    }
+
+    /// <summary>The model family the Hub derived from the files: <c>gguf.architecture</c>, else <c>config.model_type</c>.</summary>
+    private static string? Architecture(JsonElement root)
+    {
+        foreach (var (section, key) in new[] { ("gguf", "architecture"), ("config", "model_type") })
+        {
+            if (root.TryGetProperty(section, out var value) && value.ValueKind == JsonValueKind.Object && String(value, key) is { Length: > 0 } name)
+            {
+                return name;
+            }
+        }
+
+        return null;
     }
 
     public static IReadOnlyList<HubFile> ParseTree(string json)

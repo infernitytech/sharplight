@@ -1,9 +1,9 @@
 using Sharplight.Hub;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary>The Hub client, downloader, model store and puller one command uses, on one HTTP client (token from <c>HF_TOKEN</c>).</summary>
-internal sealed class HubContext : IDisposable
+public sealed class HubContext : IDisposable
 {
     private readonly HttpClient _http;
 

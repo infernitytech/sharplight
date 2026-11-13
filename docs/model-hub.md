@@ -1,16 +1,22 @@
 # Pulling models from Hugging Face
 
-`sharplight-server` can search the Hugging Face Hub, download a model, convert it to a `.slm` package and run or serve it, in
-the style of `ollama pull` / `ollama run`. The reusable parts live in two libraries:
+`sharplight-server` and `sharplight` can search the Hugging Face Hub, download a model, convert it to a `.slm` package and
+run or serve it, in the style of `ollama pull` / `ollama run`. Both use the same model store, so a model pulled with one is
+available to the other. The reusable parts live in two libraries:
 
 | Assembly | Role | Main entry points |
 |---|---|---|
-| `Sharplight.Packaging` | Convert a source model (any registered importer) to a `.slm` package and precompile kernels into it; shared by `sharplight-convert` and `sharplight-server` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
+| `Sharplight.Packaging` | Convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert`, `sharplight-server` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
 | `Sharplight.Hub` | Hugging Face client, resumable verified downloads, file selection, local model store, pull pipeline | `HubClient`, `FileDownloader`, `ModelFileSelector`, `ModelStore`, `ModelPuller`, `ModelReference` |
 
 Neither references a format importer: `Sharplight.Hub` only looks at file names (to pick a GGUF quantization or the
 safetensors/ONNX files of a checkpoint) and hands the downloaded files to `ModelConverter`, which goes through the
 importers the host registered (`GgufImporter.Register()`, `HuggingFaceImporter.Register()`, `OnnxImporter.Register()`).
+
+The command-line side is shared too: `samples/Sharplight.Samples.Hub` holds the `pull`, `search`, `list`, `show` and `rm`
+commands, the `--models-dir` and pull options, the console progress display and `ModelResolver`, which turns a model
+argument (a file, a stored name or a Hugging Face name, pulled when missing) into a package path. `HubCommands.AddTo` adds
+the commands to an executable's root command; `sharplight-server` and `sharplight` both do.
 
 ## Commands
 
@@ -25,7 +31,13 @@ sharplight-server run qwen3-0.6b:q8_0                    # interactive chat; pul
 sharplight-server run Qwen/Qwen3-0.6B-GGUF:Q8_0 -p "Capital of France?"
 sharplight-server serve qwen3-0.6b:q8_0 Qwen/Qwen3-0.6B  # pulls missing models, then serves them
 sharplight-server rm qwen3-0.6b:q8_0
+
+sharplight list                                          # the same store and commands in the CLI
+sharplight qwen3-0.6b:q8_0 --chat -p "Say hi" -n 32       # stored name
+sharplight Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M -p "Hi"  # pulled first when not stored (--no-pull fails instead)
 ```
+
+In `run`, Ctrl+C stops the current answer (the conversation continues with what was generated); at the prompt it quits.
 
 Model names are `owner/repo[:tag]` (a `hf.co/` or `huggingface.co/` prefix is accepted). The tag selects:
 
@@ -55,8 +67,12 @@ suffix). An ambiguous name lists the candidates. `run` and `serve` also accept f
    retried with exponential backoff and honour `Retry-After`. The finished file is checked against the LFS SHA-256 (or the
    git blob sha1 for small files); a mismatch deletes the partial file and fails.
 4. Convert to `model.slm.pending` with graph optimization on, reopen it with `ModelPackageReader` to verify it, and
-   precompile kernels (code and binary tiers) for the local GPU (`--no-precompile` skips; `--cpu`, `--device` pick the
-   target). A precompile failure is reported but does not fail the pull.
+   precompile kernels (code and binary tiers) for the local GPU with `PackagePrecompiler`, the code path of
+   `sharplight-convert precompile` (`--no-precompile` skips; `--cpu`, `--device`, `--ctx`, `--batch` pick the target).
+   The decode, multimodal and vision graphs and the serving batch decoder for the server's default 4 slots are compiled,
+   using the per-user kernel cache (the stored sets still hold only this model's kernels). A precompile failure is reported
+   but does not fail the pull. To precompile for other GPUs without them, use
+   `sharplight-convert precompile model.slm --profile NAME` on the stored package.
 5. Register: rename to `model.slm` and write `manifest.json`. A model without a manifest is invisible, so an interrupted
    pull never leaves a half-registered model; running the same pull again resumes it.
 6. Delete the downloaded files (`--keep-source` keeps them under `source/`).
@@ -65,13 +81,21 @@ Pulling a model that is already stored at the same commit does nothing (`--force
 
 ## Store
 
-The store root is, in order of precedence, `--models-dir DIR`, the `SHARPLIGHT_MODELS` environment variable, or `models`
-next to the executable. Each model lives in `<root>/<owner>/<repo>/<tag>/` with:
+The store root is, in order of precedence:
+
+1. `--models-dir DIR`;
+2. the `SHARPLIGHT_MODELS` environment variable;
+3. `models` next to the executable, if that directory exists (a portable install: create it to keep models with the binaries);
+4. the per-user store, `sharplight/models` in the local application data directory (`~/.local/share/sharplight/models` on
+   Linux, `%LOCALAPPDATA%\sharplight\models` on Windows, `~/Library/Application Support/sharplight/models` on macOS).
+
+The per-user default is what lets `sharplight` and `sharplight-server` share models although they are built into different
+directories. `list` prints the store it reads. Each model lives in `<root>/<owner>/<repo>/<tag>/` with:
 
 | File | Content |
 |---|---|
 | `model.slm` | The package |
-| `manifest.json` | Repository, tag, alias, revision and commit sha, format, model name and architecture, package size, source files with sizes and SHA-256, whether they were kept, precompiled artifact sets, pull time |
+| `manifest.json` | Repository, tag, alias, revision and commit sha, format, model name and architecture (the family the Hub reports, e.g. `qwen3`), package size, source files with sizes and SHA-256, whether they were kept, precompiled artifact sets, pull time |
 | `source/` | Downloaded files while pulling, or kept with `--keep-source` |
 
 ## Authentication and network

@@ -3,7 +3,7 @@ namespace Sharplight.Packaging;
 /// <summary>What <see cref="ModelConverter"/> wrote.</summary>
 /// <param name="PackagePath">The written package.</param>
 /// <param name="ModelName">Name of the built model.</param>
-/// <param name="Architecture">Architecture of the built model (e.g. <c>qwen3</c>).</param>
+/// <param name="Architecture">Graph layout of the built model (e.g. <c>decoder</c>).</param>
 /// <param name="SourceFormat">Format of the primary source (e.g. <c>gguf</c>).</param>
 /// <param name="GraphCount">Number of graphs stored.</param>
 /// <param name="WeightCount">Number of weights stored.</param>
@@ -12,6 +12,7 @@ namespace Sharplight.Packaging;
 /// <param name="SaveTime">Time spent writing the package.</param>
 /// <param name="KeptArtifactSets">Artifact sets of a source package stored with the result.</param>
 /// <param name="DroppedArtifactSets">Artifact sets of a source package that were not copied (<see cref="ConversionOptions.KeepArtifacts"/> off).</param>
+/// <param name="SourceArchitecture">Canonical architecture of the source (e.g. <c>qwen3</c>), or <see langword="null"/> when unknown.</param>
 public sealed record ConversionResult(
     string PackagePath,
     string ModelName,
@@ -23,4 +24,5 @@ public sealed record ConversionResult(
     TimeSpan BuildTime,
     TimeSpan SaveTime,
     int KeptArtifactSets,
-    int DroppedArtifactSets);
+    int DroppedArtifactSets,
+    string? SourceArchitecture = null);

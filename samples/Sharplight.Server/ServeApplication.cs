@@ -1,4 +1,5 @@
 using Sharplight.Runtime;
+using Sharplight.Samples.Hub;
 using Sharplight.Samples;
 
 namespace Sharplight.Server;

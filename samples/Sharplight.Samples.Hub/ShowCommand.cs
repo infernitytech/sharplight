@@ -1,12 +1,11 @@
 using System.CommandLine;
 using Sharplight.Hub;
 using Sharplight.Package;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary><c>show &lt;model&gt;</c>: where a stored model came from and what its package contains.</summary>
-internal sealed class ShowCommand(StoreOptionSet store)
+public sealed class ShowCommand(StoreOptionSet store)
 {
     private const int MaxPropertyLength = 80;
 

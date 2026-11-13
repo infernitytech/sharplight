@@ -1,11 +1,10 @@
 using System.CommandLine;
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary><c>list</c>: the models in the store.</summary>
-internal sealed class ListCommand(StoreOptionSet store)
+public sealed class ListCommand(StoreOptionSet store)
 {
     public Command Build()
     {

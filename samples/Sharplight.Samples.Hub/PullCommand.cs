@@ -1,11 +1,10 @@
 using System.CommandLine;
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary><c>pull &lt;owner/name[:tag]&gt;</c>: downloads a model, converts it to a package and stores it.</summary>
-internal sealed class PullCommand(StoreOptionSet store)
+public sealed class PullCommand(StoreOptionSet store)
 {
     private readonly Argument<string[]> _models = new("model")
     {

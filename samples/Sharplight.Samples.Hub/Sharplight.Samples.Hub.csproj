@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <Description>Model store commands shared by the Sharplight sample applications: search, pull, list, show and rm of Hugging Face models, console pull progress, and resolving a model argument (file, stored name or Hub name, pulled when missing).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
+  </ItemGroup>
+</Project>

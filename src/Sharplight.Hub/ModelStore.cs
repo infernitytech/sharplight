@@ -24,6 +24,7 @@ public sealed partial class ModelStore
     internal const string LockFileName = ".pull.lock";
     internal const string CommitFileName = ".commit";
     private const string DefaultDirectoryName = "models";
+    private const string UserDirectoryName = "sharplight";
     private const string DefaultTagDirectory = "default";
     private const string TemporarySuffix = ".tmp";
     private const char TagSeparator = ':';
@@ -39,19 +40,38 @@ public sealed partial class ModelStore
     public string Root { get; }
 
     /// <summary>
-    /// The store directory to use: <paramref name="explicitRoot"/> when given, else <c>SHARPLIGHT_MODELS</c>, else
-    /// <c>models</c> next to the executable.
+    /// The store directory to use: <paramref name="explicitRoot"/> when given, else <c>SHARPLIGHT_MODELS</c>, else <c>models</c>
+    /// next to the executable when that directory exists (a portable install), else the per-user store
+    /// (<see cref="UserRoot"/>), which every Sharplight executable of the user shares.
     /// </summary>
     /// <param name="explicitRoot">A directory given on the command line, or <see langword="null"/>.</param>
     public static string ResolveRoot(string? explicitRoot)
+    {
+        return ResolveRoot(explicitRoot, Environment.GetEnvironmentVariable(EnvironmentVariable), AppContext.BaseDirectory, UserRoot);
+    }
+
+    /// <summary>
+    /// The per-user store: <c>sharplight/models</c> in the local application data directory (<c>~/.local/share</c> on Linux,
+    /// <c>%LOCALAPPDATA%</c> on Windows, <c>~/Library/Application Support</c> on macOS).
+    /// </summary>
+    public static string UserRoot => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+        UserDirectoryName, DefaultDirectoryName);
+
+    internal static string ResolveRoot(string? explicitRoot, string? fromEnvironment, string executableDirectory, string userRoot)
     {
         if (!string.IsNullOrWhiteSpace(explicitRoot))
         {
             return explicitRoot;
         }
 
-        var fromEnvironment = Environment.GetEnvironmentVariable(EnvironmentVariable);
-        return string.IsNullOrWhiteSpace(fromEnvironment) ? Path.Combine(AppContext.BaseDirectory, DefaultDirectoryName) : fromEnvironment;
+        if (!string.IsNullOrWhiteSpace(fromEnvironment))
+        {
+            return fromEnvironment;
+        }
+
+        var portable = Path.Combine(executableDirectory, DefaultDirectoryName);
+        return Directory.Exists(portable) ? portable : userRoot;
     }
 
     /// <summary>Every stored model, ordered by name. Directories without a manifest (interrupted pulls) are skipped.</summary>

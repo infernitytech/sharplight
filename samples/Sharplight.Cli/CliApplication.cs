@@ -1,25 +1,27 @@
 using Sharplight.Samples;
+using Sharplight.Samples.Hub;
 
 namespace Sharplight.Cli;
 
 /// <summary>Runs the steps a <see cref="CliSettings"/> asks for: list devices, load, save, then benchmark, dump logits or generate.</summary>
 internal static class CliApplication
 {
-    public static Task<int> RunAsync(CliSettings settings, CancellationToken cancellationToken)
+    public static async Task<int> RunAsync(CliSettings settings, CancellationToken cancellationToken)
     {
         if (settings.ListDevices)
         {
             DeviceLister.Print(Console.Out);
         }
 
-        if (settings.ModelPath is not { } modelPath)
+        if (settings.ModelPath is not { } model)
         {
-            return Task.FromResult(ExitCodes.Success);
+            return ExitCodes.Success;
         }
 
-        if (!File.Exists(modelPath) && !Directory.Exists(modelPath))
+        string modelPath;
+        using (var hub = new HubContext(settings.StoreRoot))
         {
-            throw new SampleException($"Model '{modelPath}' does not exist.");
+            modelPath = await new ModelResolver(hub, settings.Pull).ResolveAsync(model, cancellationToken);
         }
 
         // Image decoding happens before the (slow) model load so a bad path fails fast.
@@ -45,6 +47,6 @@ internal static class CliApplication
             new TextGenerator(loaded, settings.Generation).Run(images, Console.Out, Console.Error, cancellationToken);
         }
 
-        return Task.FromResult(ExitCodes.Success);
+        return ExitCodes.Success;
     }
 }

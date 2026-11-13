@@ -21,6 +21,7 @@ internal sealed class ChatRepl(RunSettings settings)
     private const string ClearCommand = "/clear";
     private const string Dim = "\e[2m";
     private const string Normal = "\e[0m";
+    private const int ChatSlots = 2;
 
     private readonly bool _interactiveOutput = !Console.IsOutputRedirected;
     private readonly List<ChatTurn> _history = [];
@@ -46,7 +47,15 @@ internal sealed class ChatRepl(RunSettings settings)
             KvCacheType = runtime.KvCacheType,
             Log = Console.Error.WriteLine,
         };
-        var chat = new ChatModelOptions { Slots = 1, Service = new ModelServiceOptions { DefaultMaxTokens = settings.MaxTokens } };
+        // A multi-sequence decoder can roll its context back to the part the next turn's prompt shares (the template rewrites the
+        // end of earlier answers, e.g. drops their reasoning), which the single-slot decoder cannot; a paged pool of one context
+        // keeps the memory at one slot's.
+        var chat = new ChatModelOptions
+        {
+            Slots = ChatSlots,
+            KvCacheTokens = runtime.ContextLength,
+            Service = new ModelServiceOptions { DefaultMaxTokens = settings.MaxTokens },
+        };
 
         using var prepared = new LlmChatModelLoader(settings.Model, modelPath, load, chat).Prepare(cancellationToken);
         using var instance = prepared.Load(primaryLimit: null);
@@ -77,7 +86,8 @@ internal sealed class ChatRepl(RunSettings settings)
         bool interactiveInput = !Console.IsInputRedirected;
         if (interactiveInput)
         {
-            Console.Error.WriteLine($"Chatting with {settings.Model}. {ClearCommand} resets the conversation, {ExitCommand} or Ctrl+D quits.");
+            Console.Error.WriteLine($"Chatting with {settings.Model}. Ctrl+C stops an answer, {ClearCommand} resets the conversation, "
+                + $"{ExitCommand} or Ctrl+D quits.");
         }
 
         while (!cancellationToken.IsCancellationRequested)
@@ -131,30 +141,43 @@ internal sealed class ChatRepl(RunSettings settings)
         var stopwatch = Stopwatch.StartNew();
         GenerationUsage? usage = null;
         string? error = null;
-        await foreach (var chunk in service.StartChat(request, cancellationToken).ReadAllAsync(cancellationToken))
+        // Ctrl+C stops this answer only; the conversation goes on with what was generated so far.
+        using var interrupt = ConsoleInterrupt.Begin(cancellationToken);
+        try
         {
-            if (chunk.Reasoning is { } thought)
+            await foreach (var chunk in service.StartChat(request, interrupt.Token).ReadAllAsync(interrupt.Token))
             {
-                reasoning.Append(thought);
-                if (_interactiveOutput)
+                if (chunk.Reasoning is { } thought)
                 {
-                    Console.Write(Dim + thought + Normal);
+                    reasoning.Append(thought);
+                    if (_interactiveOutput)
+                    {
+                        Console.Write(Dim + thought + Normal);
+                    }
                 }
-            }
 
-            if (chunk.Content is { } text)
-            {
-                content.Append(text);
-                Console.Write(text);
-            }
+                if (chunk.Content is { } text)
+                {
+                    content.Append(text);
+                    Console.Write(text);
+                }
 
-            usage = chunk.Usage ?? usage;
-            error = chunk.Error ?? error;
+                usage = chunk.Usage ?? usage;
+                error = chunk.Error ?? error;
+            }
+        }
+        catch (OperationCanceledException) when (interrupt.Interrupted && !cancellationToken.IsCancellationRequested)
+        {
+            usage = null;
         }
 
         Console.WriteLine();
         _history.Add(new ChatTurn("assistant", content.ToString(), Reasoning: reasoning.Length > 0 ? reasoning.ToString() : null));
-        if (error is not null)
+        if (interrupt.Interrupted)
+        {
+            Console.Error.WriteLine("[interrupted]");
+        }
+        else if (error is not null)
         {
             Console.Error.WriteLine($"error: {error}");
         }

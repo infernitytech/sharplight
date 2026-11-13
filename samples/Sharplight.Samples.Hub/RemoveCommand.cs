@@ -1,11 +1,10 @@
 using System.CommandLine;
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary><c>rm &lt;model...&gt;</c>: deletes models from the store.</summary>
-internal sealed class RemoveCommand(StoreOptionSet store)
+public sealed class RemoveCommand(StoreOptionSet store)
 {
     private readonly Argument<string[]> _models = new("model")
     {

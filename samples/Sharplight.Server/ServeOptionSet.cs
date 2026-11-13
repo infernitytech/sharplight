@@ -1,16 +1,16 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using Sharplight.Samples;
+using Sharplight.Samples.Hub;
 
 namespace Sharplight.Server;
 
 /// <summary>Declares the command line of <c>sharplight-server</c> and binds parsed values to <see cref="ServeSettings"/>.</summary>
 internal sealed class ServeOptionSet
 {
-    /// <summary>Default <c>--slots</c>; pulled models are precompiled for it.</summary>
-    public const int DefaultSlots = 4;
-
     private const string DefaultListenUrl = "http://127.0.0.1:8080";
+    /// <summary>Pulled models are precompiled for the default slot count.</summary>
+    private const int DefaultSlots = PrecompileTargets.ServeSlots;
     private const int DefaultMaxQueue = 64;
     private const int DefaultPrefillChunk = 512;
     private const float DefaultTemperature = 0.7f;

@@ -1,11 +1,10 @@
 using System.CommandLine;
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary>Like <see cref="CommandRunner.Guard"/>, and also reports <see cref="HubException"/>s as one-line errors.</summary>
-internal static class HubGuard
+public static class HubGuard
 {
     public static Func<ParseResult, CancellationToken, Task<int>> Guard(Func<ParseResult, CancellationToken, Task<int>> action)
     {

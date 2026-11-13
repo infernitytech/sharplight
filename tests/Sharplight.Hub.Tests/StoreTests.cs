@@ -106,6 +106,27 @@ public sealed class StoreTests : IDisposable
         Assert.Contains("Another pull", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RootPrefersOptionThenEnvironmentThenPortableThenUserStore()
+    {
+        var executable = _directory.Combine("bin");
+        var user = _directory.Combine("user");
+        Directory.CreateDirectory(executable);
+
+        Assert.Equal("cli", ModelStore.ResolveRoot("cli", "env", executable, user));
+        Assert.Equal("env", ModelStore.ResolveRoot(null, "env", executable, user));
+        Assert.Equal(user, ModelStore.ResolveRoot(null, null, executable, user));
+        Directory.CreateDirectory(Path.Combine(executable, "models"));
+        Assert.Equal(Path.Combine(executable, "models"), ModelStore.ResolveRoot(" ", "", executable, user));
+    }
+
+    [Fact]
+    public void UserStoreIsSharedByEveryExecutable()
+    {
+        Assert.EndsWith(Path.Combine("sharplight", "models"), ModelStore.UserRoot, StringComparison.Ordinal);
+        Assert.True(Path.IsPathRooted(ModelStore.UserRoot));
+    }
+
     [Theory]
     [InlineData("Qwen/Qwen3-0.6B-GGUF", "qwen3-0.6b")]
     [InlineData("bartowski/Qwen_Qwen3-0.6B-GGUF", "qwen_qwen3-0.6b")]

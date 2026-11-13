@@ -1,13 +1,13 @@
 using System.CommandLine;
 using Sharplight.Hub;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary>
 /// The pull options: <c>--revision</c>, <c>--keep-source</c>, <c>--no-precompile</c>, plus <c>--force</c> for <c>pull</c> and
 /// <c>--no-pull</c> for the commands that pull missing models automatically (<c>run</c>, <c>serve</c>).
 /// </summary>
-internal sealed class PullOptionSet(bool explicitPull)
+public sealed class PullOptionSet(bool explicitPull)
 {
     private const string DefaultRevision = "main";
 

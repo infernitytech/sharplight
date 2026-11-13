@@ -87,7 +87,7 @@ public sealed class ModelPuller
         log?.Invoke($"Converting to {ModelStore.PackageFileName}");
         var conversion = await Task.Run(() => Converter(primary, projector, pending, log), cancellationToken).ConfigureAwait(false);
         var convertTime = stopwatch.Elapsed;
-        log?.Invoke($"Built {conversion.ModelName} ({conversion.Architecture}): {conversion.GraphCount} graph(s), {conversion.WeightCount} weights, "
+        log?.Invoke($"Built {conversion.ModelName} ({conversion.SourceArchitecture ?? conversion.Architecture}): {conversion.GraphCount} graph(s), {conversion.WeightCount} weights, "
             + $"{ByteCount.Format(conversion.PackageBytes)} [{convertTime.TotalSeconds:F1} s]");
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -206,7 +206,7 @@ public sealed class ModelPuller
             Commit = repository.Commit,
             Format = selection.Format,
             ModelName = conversion.ModelName,
-            Architecture = conversion.Architecture,
+            Architecture = repository.Architecture ?? conversion.SourceArchitecture ?? conversion.Architecture,
             PackageBytes = new FileInfo(packagePath).Length,
             SourceFiles = [.. selection.Files.Select(file => new ManifestFile { Path = file.Path, Size = file.Size, Sha256 = file.Sha256 })],
             SourceKept = options.KeepSource,

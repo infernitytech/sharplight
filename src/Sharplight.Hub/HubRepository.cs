@@ -6,4 +6,8 @@ namespace Sharplight.Hub;
 /// <param name="Commit">The commit sha the revision resolved to; every download is pinned to it.</param>
 /// <param name="Gated">The repository requires accepting terms before files can be downloaded.</param>
 /// <param name="Files">Every file of the repository at <paramref name="Commit"/>.</param>
-public sealed record HubRepository(string Id, string Revision, string Commit, bool Gated, IReadOnlyList<HubFile> Files);
+/// <param name="Architecture">
+/// The model family the Hub reports (e.g. <c>qwen3</c>, from GGUF metadata or the checkpoint's <c>model_type</c>), or
+/// <see langword="null"/>.
+/// </param>
+public sealed record HubRepository(string Id, string Revision, string Commit, bool Gated, IReadOnlyList<HubFile> Files, string? Architecture = null);

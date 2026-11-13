@@ -1,12 +1,11 @@
 using System.CommandLine;
 using System.Globalization;
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary><c>search &lt;query&gt; [--format gguf|safetensors|onnx] [--limit N]</c>: lists Hub repositories, most downloaded first.</summary>
-internal sealed class SearchCommand(StoreOptionSet store)
+public sealed class SearchCommand(StoreOptionSet store)
 {
     private const int MaxVariantsShown = 6;
     private const string FormatGguf = "gguf";

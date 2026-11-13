@@ -113,4 +113,16 @@ public sealed class ReferenceAndSearchTests
 
         Assert.Contains("not found", error.Message, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("""{"id":"o/m","sha":"abc","gguf":{"architecture":"qwen3"},"config":{"model_type":"other"}}""", "qwen3")]
+    [InlineData("""{"id":"o/m","sha":"abc","config":{"model_type":"llama"}}""", "llama")]
+    [InlineData("""{"id":"o/m","sha":"abc","gated":"auto"}""", null)]
+    public void RevisionReportsTheModelFamily(string json, string? architecture)
+    {
+        var info = HubJson.ParseRevision(json);
+
+        Assert.Equal("abc", info.Commit);
+        Assert.Equal(architecture, info.Architecture);
+    }
 }

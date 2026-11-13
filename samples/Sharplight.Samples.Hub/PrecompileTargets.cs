@@ -1,13 +1,17 @@
 using Sharplight.Hub;
 using Sharplight.Packaging;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
-/// <summary>The device a pulled package is precompiled for: the GPU the model will run on, with its context and batch
-/// size and the server's default slot count.</summary>
-internal static class PrecompileTargets
+/// <summary>
+/// The device a pulled package is precompiled for: the GPU the model will run on, with its context and batch size, and the
+/// serving batch decoder at the server's default slot count.
+/// </summary>
+public static class PrecompileTargets
 {
+    /// <summary>The <c>sharplight-server --slots</c> default; pulled packages hold the kernels of a batch decoder with this many slots.</summary>
+    public const int ServeSlots = 4;
+
     /// <summary>The target, or null when nothing is precompiled (CPU runs, <c>--no-precompile</c>, no GPU).</summary>
     public static PrecompileTarget? Create(bool enabled, bool cpu, int deviceIndex, int contextLength, int batchTokens,
         IReadOnlyList<string> disabledFeatures, Action<string> log)
@@ -25,8 +29,7 @@ internal static class PrecompileTargets
             {
                 ContextLength = contextLength,
                 BatchTokens = batchTokens,
-                // The batch decoder serve and run load, at the server's default slot count.
-                Slots = ServeOptionSet.DefaultSlots,
+                Slots = ServeSlots,
                 DisabledFeatures = disabledFeatures,
                 // Kernels compiled now also serve later compiles; the stored sets still hold only this model's.
                 UseUserKernelCache = true,

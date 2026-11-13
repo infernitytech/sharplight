@@ -16,7 +16,9 @@ public sealed class PullerTests : IDisposable
 
     public PullerTests()
     {
-        _hub.Add(RepositoryId)
+        var repository = _hub.Add(RepositoryId);
+        repository.Architecture = "llama";
+        repository
             .WithSize("Model-Q4_K_M.gguf", 20_000)
             .WithSize("Model-Q8_0.gguf", 40_000)
             .WithSize("mmproj-F16.gguf", 5_000)
@@ -41,6 +43,7 @@ public sealed class PullerTests : IDisposable
         Assert.False(result.UpToDate);
         Assert.Equal(25_000, result.DownloadedBytes);
         Assert.Equal("Q4_K_M", manifest.Tag);
+        Assert.Equal("llama", manifest.Architecture);
         Assert.Equal("model:q4_k_m", manifest.ShortName);
         Assert.Equal(["Model-Q4_K_M.gguf", "mmproj-F16.gguf"], manifest.SourceFiles.Select(file => file.Path));
         Assert.True(File.Exists(manifest.PackagePath));
@@ -144,6 +147,6 @@ public sealed class PullerTests : IDisposable
         Assert.True(File.Exists(primary));
         _conversions.Add((primary, projector));
         File.WriteAllText(destination, "package");
-        return new ConversionResult(destination, "Model", "decoder", "gguf", 1, 1, 7, TimeSpan.Zero, TimeSpan.Zero, 0, 0);
+        return new ConversionResult(destination, "Model", "decoder", "gguf", 1, 1, 7, TimeSpan.Zero, TimeSpan.Zero, 0, 0, "qwen3");
     }
 }

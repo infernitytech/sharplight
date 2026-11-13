@@ -1,14 +1,13 @@
 using System.Diagnostics;
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary>
 /// Shows pull progress on stderr: one line rewritten in place (bytes, percent, speed, ETA) on a terminal, or a plain line every
 /// few seconds when stderr is redirected. Log messages are printed above the progress line.
 /// </summary>
-internal sealed class PullProgressPrinter : IProgress<DownloadProgress>
+public sealed class PullProgressPrinter : IProgress<DownloadProgress>
 {
     private static readonly TimeSpan s_terminalInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan s_redirectedInterval = TimeSpan.FromSeconds(5);

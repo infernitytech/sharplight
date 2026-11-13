@@ -91,7 +91,7 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 
 | Sample | Executable | What it does |
 |---|---|---|
-| `samples/Sharplight.Cli` | `sharplight` | Chat / generate / benchmark from the command line |
+| `samples/Sharplight.Cli` | `sharplight` | Chat / generate / benchmark from the command line; pulls Hugging Face models like the server |
 | `samples/Sharplight.Server` | `sharplight-server` | Serve one or several models over HTTP; search, pull and run Hugging Face models ([docs/model-hub.md](docs/model-hub.md)) |
 | `samples/Sharplight.Convert` | `sharplight-convert` | Convert models to `.slm` packages, precompile, inspect |
 | `samples/Sharplight.PackageViewer` | `sharplight-viewer` | Avalonia viewer for `.slm` packages (graphs, IR, weights, artifacts) |

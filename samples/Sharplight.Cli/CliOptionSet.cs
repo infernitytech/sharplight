@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Globalization;
 using Sharplight.Samples;
+using Sharplight.Samples.Hub;
 using Sharplight.Vision;
 
 namespace Sharplight.Cli;
@@ -14,10 +15,13 @@ internal sealed class CliOptionSet
     private const double BytesPerGiB = 1L << 30;
 
     private readonly RuntimeOptionSet _runtime = new();
+    private readonly StoreOptionSet _store = new();
+    private readonly PullOptionSet _pull = new(explicitPull: false);
 
     private readonly Argument<string?> _model = new("model")
     {
-        Description = "Model to load: a .gguf file, a .slm package, or a Hugging Face checkpoint directory. Omit it to only list devices.",
+        Description = "Model to load: a .gguf file, a .slm package, a Hugging Face checkpoint directory, a stored model (see 'list') or a "
+            + "Hugging Face repository owner/name[:tag], pulled when not stored. Omit it to only list devices.",
         Arity = ArgumentArity.ZeroOrOne,
     };
 
@@ -96,10 +100,13 @@ internal sealed class CliOptionSet
     /// <summary>Creates the root command; <paramref name="action"/> receives the validated settings.</summary>
     public RootCommand BuildCommand(Func<CliSettings, CancellationToken, Task<int>> action)
     {
-        var command = new RootCommand("Loads a model and generates text, describes images or benchmarks it on a CPU or Vulkan device.");
+        var command = new RootCommand("Loads a model and generates text, describes images or benchmarks it on a CPU or Vulkan device; "
+            + "searches, pulls and lists Hugging Face models (pull, search, list, show, rm).");
         command.Arguments.Add(_model);
         command.Options.Add(_devices);
         _runtime.AddTo(command);
+        _pull.AddTo(command);
+        HubCommands.AddTo(command, _store);
         command.Options.Add(_split);
         command.Options.Add(_gpuMemory);
         command.Options.Add(_mmproj);
@@ -115,7 +122,7 @@ internal sealed class CliOptionSet
         command.Options.Add(_chat);
         command.Options.Add(_think);
         command.Validators.Add(ValidateCombination);
-        command.SetAction(CommandRunner.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
+        command.SetAction(HubGuard.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
         return command;
     }
 
@@ -154,10 +161,13 @@ internal sealed class CliOptionSet
             parseResult.GetValue(_chat),
             parseResult.GetValue(_think));
 
+        var runtime = _runtime.Read(parseResult);
+        var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,
+            runtime.BatchTokens, runtime.DisabledFeatures, log));
         return new CliSettings(
             modelPath,
             listDevices,
-            _runtime.Read(parseResult),
+            runtime,
             splitWeights,
             gpuMemoryBytes,
             parseResult.GetValue(_mmproj),
@@ -166,7 +176,9 @@ internal sealed class CliOptionSet
             parseResult.GetValue(_save),
             parseResult.GetValue(_bench),
             parseResult.GetValue(_logits),
-            generation);
+            generation,
+            _store.ReadRoot(parseResult),
+            pull);
     }
 
     private ImageTokenLimits? ReadImageTokenLimits(ParseResult parseResult)

@@ -11,7 +11,7 @@ It also pulls models from Hugging Face, ollama style: `search`, `pull`, `list`, 
 ```bash
 sharplight-server search qwen3 --format gguf
 sharplight-server pull Qwen/Qwen3-0.6B-GGUF:Q8_0      # tag = GGUF quantization; default Q4_K_M, else Q8_0
-sharplight-server run qwen3-0.6b:q8_0                  # chat in the terminal (/clear, /bye); -p "..." answers once
+sharplight-server run qwen3-0.6b:q8_0                  # chat in the terminal (Ctrl+C stops an answer, /clear, /bye); -p "..." answers once
 sharplight-server serve qwen3-0.6b:q8_0 Qwen/Qwen3-0.6B --listen http://127.0.0.1:8080
 sharplight-server list
 sharplight-server rm qwen3-0.6b:q8_0
@@ -19,7 +19,7 @@ sharplight-server rm qwen3-0.6b:q8_0
 
 | Option | Meaning |
 | --- | --- |
-| `--models-dir DIR` | Model store (default: `SHARPLIGHT_MODELS`, else `models` next to the executable). All commands. |
+| `--models-dir DIR` | Model store (default: `SHARPLIGHT_MODELS`, else `models` next to the executable if it exists, else the per-user store `~/.local/share/sharplight/models`, shared with `sharplight`). All commands. |
 | `--revision REV`, `--force` | Branch, tag or commit to pull (`main`); rebuild a model that is up to date. |
 | `--keep-source`, `--no-precompile` | Keep the downloaded files; skip kernel precompilation. |
 | `--no-pull` | `run`/`serve`: fail instead of pulling a model that is not stored. |

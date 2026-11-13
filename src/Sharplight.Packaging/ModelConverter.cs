@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
@@ -8,11 +9,14 @@ namespace Sharplight.Packaging;
 /// <summary>
 /// Builds a model from its source through the registered importers (<see cref="ModelImporterRegistry"/>) and architecture
 /// adapters (<see cref="ModelAdapterRegistry"/>) and writes it as a package; the precompiled artifact sets of a package source
-/// are kept unless <see cref="ConversionOptions.KeepArtifacts"/> is off. The host registers the formats and adapters it supports
-/// before converting.
+/// are kept unless <see cref="ConversionOptions.KeepArtifacts"/> is off. The host registers the formats it supports before
+/// converting; the built-in architecture adapters (<see cref="BuiltinAdapters"/>) are registered automatically.
 /// </summary>
 public static class ModelConverter
 {
+    /// <summary>The built-in architecture adapters are always available, as for <see cref="LlmModel"/> loads.</summary>
+    static ModelConverter() => BuiltinAdapters.RegisterAll();
+
     /// <summary>Opens <paramref name="sourcePath"/> (plus auxiliary sources such as a vision projector) and converts it.</summary>
     /// <param name="sourcePath">A model file or directory any registered importer can open.</param>
     /// <param name="destinationPath">The package to write; replaced atomically.</param>
@@ -66,7 +70,8 @@ public static class ModelConverter
                 buildTime,
                 stopwatch.Elapsed,
                 artifacts.Count,
-                Math.Max(dropped, 0));
+                Math.Max(dropped, 0),
+                definition.SourceMetadata.TryGetValue(CanonicalKeys.Architecture, out var architecture) ? architecture as string : null);
         }
         finally
         {

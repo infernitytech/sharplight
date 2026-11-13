@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
+    <ProjectReference Include="../Sharplight.Samples.Hub/Sharplight.Samples.Hub.csproj" />
     <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />

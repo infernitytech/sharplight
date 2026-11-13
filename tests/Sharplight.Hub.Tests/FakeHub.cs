@@ -82,8 +82,13 @@ internal sealed class FakeHub : HttpMessageHandler
         {
             if (rest.StartsWith(repository.Id + "/revision/", StringComparison.Ordinal))
             {
-                var info = new JsonObject { ["id"] = repository.Id, ["sha"] = repository.Commit, ["gated"] = repository.Gated }.ToJsonString();
-                return Json(info);
+                var info = new JsonObject { ["id"] = repository.Id, ["sha"] = repository.Commit, ["gated"] = repository.Gated };
+                if (repository.Architecture is { } architecture)
+                {
+                    info["gguf"] = new JsonObject { ["architecture"] = architecture };
+                }
+
+                return Json(info.ToJsonString());
             }
 
             if (rest == $"{repository.Id}/tree/{repository.Commit}")

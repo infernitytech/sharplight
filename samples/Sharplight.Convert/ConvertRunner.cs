@@ -28,7 +28,7 @@ internal sealed class ConvertRunner(TextWriter output)
         try
         {
             var result = ModelConverter.Convert(Open(settings), settings.DestinationPath, options);
-            output.WriteLine($"Built {result.ModelName} ({result.Architecture}) from {result.SourceFormat}: {result.GraphCount} graph(s), "
+            output.WriteLine($"Built {result.ModelName} ({result.SourceArchitecture ?? result.Architecture}) from {result.SourceFormat}: {result.GraphCount} graph(s), "
                 + $"{result.WeightCount} weights [{result.BuildTime.TotalMilliseconds:F0} ms]");
             output.WriteLine($"Saved {result.PackagePath}: {ByteSize.Format(result.PackageBytes)}, {result.KeptArtifactSets} artifact set(s) "
                 + $"[{result.SaveTime.TotalMilliseconds:F0} ms]");

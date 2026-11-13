@@ -1,13 +1,12 @@
 using Sharplight.Hub;
-using Sharplight.Samples;
 
-namespace Sharplight.Server;
+namespace Sharplight.Samples.Hub;
 
 /// <summary>
 /// Turns a model argument into a file: an existing file or directory is used as is, a stored model (<c>owner/name[:tag]</c>
 /// or <c>alias[:tag]</c>) resolves to its package, and a Hub repository that is not stored yet is pulled first.
 /// </summary>
-internal sealed class ModelResolver(HubContext hub, PullSettings pull)
+public sealed class ModelResolver(HubContext hub, PullSettings pull)
 {
     /// <summary>True when <paramref name="text"/> names an existing file or directory.</summary>
     public static bool IsLocalPath(string text) => File.Exists(text) || Directory.Exists(text);

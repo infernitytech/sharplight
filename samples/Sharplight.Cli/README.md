@@ -1,7 +1,18 @@
 # Sharplight.Cli (`sharplight`)
 
-Loads a model (GGUF file, `.slm` package or Hugging Face checkpoint directory) and generates text, describes images,
-dumps logits or benchmarks it on a Vulkan GPU or the CPU. Run `--help` for every option.
+Loads a model (GGUF file, `.slm` package, Hugging Face checkpoint directory, a stored model or a Hugging Face repository
+that is pulled first) and generates text, describes images, dumps logits or benchmarks it on a Vulkan GPU or the CPU. Run
+`--help` for every option.
+
+It shares the model store and the `pull`, `search`, `list`, `show` and `rm` commands with `sharplight-server` (see
+[docs/model-hub.md](../../docs/model-hub.md)):
+
+```bash
+sharplight pull Qwen/Qwen3-0.6B-GGUF:Q8_0
+sharplight qwen3-0.6b:q8_0 --chat -p "Say hi" -n 32       # stored name
+sharplight Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M -p "Hi"  # pulled when not stored; --no-pull fails instead
+sharplight list
+```
 
 ```bash
 M=~/models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf
@@ -36,5 +47,6 @@ dotnet run -c Release --project samples/Sharplight.Cli -- $M --save qwen3-0.6b.s
 | `-p`, `-n`, `--temp`, `--chat`, `--think` | Prompt, token limit, temperature (0 = greedy), chat template, thinking mode. |
 | `--image`, `--mmproj`, `--image-min-tokens`, `--image-max-tokens` | Image input. |
 | `--bench N`, `--logits FILE`, `--save FILE` | Benchmark, logits dump (raw float32), package export. |
+| `--models-dir DIR`, `--no-pull`, `--revision`, `--keep-source`, `--no-precompile` | Model store and how missing models are pulled. |
 
 Exit codes: `0` success, `1` invalid command line, `2` runtime error (message on stderr), `130` cancelled with Ctrl+C.
