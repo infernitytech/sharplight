@@ -58,6 +58,7 @@ public sealed class GgufImporter : IModelImporter
             if (unmapped.Count > 0)
                 throw new NotSupportedException($"{path}: {unmapped.Count} tensor(s) of '{ggufArch}' have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
 
+            if (PrismHadamard.Applies(files.Metadata)) PrismHadamard.Apply(weights, files.Metadata, n => mapping.MapWeightName(n, view));
             if (mapping is IGgufWeightTransformer transformer) transformer.Transform(weights, view);
             string architecture = mapping.ResolveArchitecture(view);
 
