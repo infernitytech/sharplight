@@ -327,7 +327,7 @@ public sealed partial class GraphLowerer
         {
             Name = name,
             Variants = variants,
-            Args = args,
+            Args = WithGridArgument(args),
             Reads = [.. reads.Select(Range)],
             Writes = [.. writes.Select(Range)],
             Nodes = [.. nodes],

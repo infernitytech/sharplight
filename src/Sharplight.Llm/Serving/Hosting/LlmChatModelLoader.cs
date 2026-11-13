@@ -47,11 +47,26 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         {
             // The limit covers the whole model on the primary device; placement only sees weights + state, so leave room for activations.
             long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes) : null;
-            var decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit);
+            var speculator = owner._chat.Speculator?.Invoke(model);
+            var options = owner._chat.Engine with { Speculator = speculator ?? owner._chat.Engine.Speculator };
+            int? logitsRows = options.Speculator is { } spec
+                ? owner._chat.Slots + Math.Min(owner._chat.Slots, options.SpeculationMaxBatch) * spec.MaxDraftTokens
+                : null;
+            IBatchDecoder decoder;
+            try
+            {
+                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows);
+            }
+            catch
+            {
+                speculator?.Dispose();
+                throw;
+            }
+
             InferenceEngine? engine = null;
             try
             {
-                engine = new InferenceEngine(decoder, model.Tokenizer, owner._chat.Engine);
+                engine = new InferenceEngine(decoder, model.Tokenizer, options);
                 var service = new ModelService(engine, model.ChatTemplate, owner._chat.Service with { ModelName = owner.ModelName });
                 _consumed = true;   // the instance owns the model now
                 return new ChatModelInstance(model, engine, service, decoder.DeviceMemoryBytes);
@@ -61,6 +76,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
                 if (engine is null)
                 {
                     decoder.Dispose();
+                    speculator?.Dispose();
                 }
                 else
                 {

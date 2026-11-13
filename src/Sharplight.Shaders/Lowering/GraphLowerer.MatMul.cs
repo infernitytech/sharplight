@@ -283,8 +283,10 @@ public sealed partial class GraphLowerer
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
         Func<long, int> splitRows = workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
-            : rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows), Gemm2Columns(Gemm2TileRowsFor(rows)),
-                DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32);
+            : coop
+                ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows), Gemm2Columns(Gemm2TileRowsFor(rows)),
+                    DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
+                : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan
         {
@@ -319,20 +321,24 @@ public sealed partial class GraphLowerer
     private void EmitDirectMatMul(MatMulPlan p)
     {
         var m = p.Macros;
+        if (!p.Coop)
+        {
+            Emit(MatMulLabel(p), [p.Node],
+                [.. MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount), .. SimtGemmVariants(p)],
+                [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
+                [p.X, p.W], [p.Y]);
+            return;
+        }
+
         List<KernelVariant> variants = MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), m, p.N, p.K, p.RowCount);
-        if (p.Coop && DiagnosticSwitches.Gemm2)
+        if (DiagnosticSwitches.Gemm2)
         {
             variants.AddRange(Gemm2Variants(p, m, _ => true));
         }
-        else if (p.Coop)
+        else
         {
             variants.Add(new KernelVariant(_ => true, Lib("matmul.slang", "gemm_cm", m),
                 b => new Grid(Grid.Div(p.N, 128), Grid.Div(p.RowCount(b), 64))));
-        }
-        else
-        {
-            variants.Add(new KernelVariant(_ => true, Lib("matmul.slang", "gemm", m),
-                b => new Grid(Grid.Div(p.N, 64), Grid.Div(p.RowCount(b), 64))));
         }
 
         Emit(MatMulLabel(p), [p.Node], variants,
@@ -399,7 +405,13 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void EmitSplitKMatMul(MatMulPlan p, TensorRef activations)
     {
-        if (!p.Coop || !DiagnosticSwitches.Gemm2)
+        if (!p.Coop)
+        {
+            EmitSimtSplitKMatMul(p);
+            return;
+        }
+
+        if (!DiagnosticSwitches.Gemm2)
         {
             return;
         }

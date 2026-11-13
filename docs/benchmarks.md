@@ -284,6 +284,50 @@ Where Sharplight is at or ahead of the field: Q8_0 single-stream decode (Qwen3.8
 CUDA / 1.07-1.14x Vulkan, and 1.4-2.7x over vLLM's bf16 Python path on the small models, partly a quantisation effect), Gemma-3-1B (near parity everywhere, 0.90x at pp2048), large-concurrency serving versus llama-server (27B c=16/64: 1.95x / 1.8x
 CUDA, Llama-1B c=16/64: 1.7x / 2.6x), TTFT at high concurrency versus llama-server (Llama-1B c=64: 64 vs 355 ms p50), and cold-file load of the 27B (8-10 s vs 22-39 s).
 
+## 5a. Serving-stack follow-up (server overhead, chunked prefill, speculation, structured outputs)
+
+Measured after the table above, on the same machine while other jobs kept the GPU at 100 % utilisation, so wall-clock tok/s
+swings by ±30 % between runs. The robust numbers are the server's own `/metrics` (GPU-synchronous step time versus the
+inter-token latency it reports) and step counts.
+
+**Per-token server overhead (gap #7).** Llama-3.2-1B Q8_0, c=1, 256 tokens with `ignore_eos`: decoder step mean 1.81 ms against
+an inter-token latency of 2.02 ms before (0.21 ms, 10 % host overhead), 1.74 ms against 1.84 ms after (0.10 ms, 5.6 %).
+Changes: logits rows are handed to the sampler without copies (`IBatchDecoder.Step` returns slices of the readback buffer),
+large readbacks are split across threads, sampling and stop checks run in parallel once four or more sequences are in the step,
+arg-max is vectorised, and SSE chunks are written with `Utf8JsonWriter` straight into the response pipe with one flush per
+burst of ready events. At c=64 the profile share of the logits memmove dropped from 23 % to 13.5 % of engine time and per-sequence
+sampling/emit from 17.7 % to 7.9 %. The remaining gap between the CLI's 752 tok/s and the server's 427 tok/s mean in the table
+is mostly measurement (CLI best-of versus server mean under contention, plus TTFT inside the server's mean); what is left on the
+host is the thread-pool wake per streamed token. `ignore_eos` and `min_tokens` are now accepted, so the table's OLMoE caveat no
+longer applies to new runs.
+
+**Chunked prefill with decode interleaving** (`bench/loadgen.py --long-prompt-words 2500 --long-every 3`, Llama-1B, 8 slots,
+c=8, 100-word prompts plus every third request about 3k tokens, 128 output tokens):
+
+| step budget / chunk | agg tok/s | TTFT p50 ms | short-request TTFT p95 ms | ITL p99 ms | worst inter-token gap ms |
+|---|---|---|---|---|---|
+| whole prompts (4096 / 4096) | 287 | 128 | 248 | 28.8 | 4347 |
+| 512 / 512 (default) | 554 | 61 | 203 | 30.9 | 36 |
+| 256 / 256 | 430 | 221 | 506 | 31.7 | 37 |
+
+With chunking the worst stall a running stream sees is one step (36 ms) instead of seconds. Part of the unchunked worst case
+is the first compilation of the 4096-row graph during the run (the warm-up only used short prompts), which is itself an argument
+for a bounded step shape.
+
+**Prompt-lookup speculation** (`sharplight-serve --speculate-ngram N`; an edit task whose answer copies the prompt, Llama-1B,
+c=1, temperature 0, 6 requests of 140 tokens; output identical to non-speculative decoding):
+
+| drafts | engine steps | GPU step time total | drafted | accepted | wall tok/s (noisy) |
+|---|---|---|---|---|---|
+| off | 846 | 2.20 s | 0 | 0 | 390-550 |
+| 4 | 372 | 1.22 s (0.55x) | 672 | 474 (70 %) | 545-644 |
+| 8 | 318 | 0.97 s (0.44x) | 888 | 528 (59 %) | 731-864 |
+
+**Structured outputs.** Qwen3-0.6B (151k vocabulary): vocabulary trie built once per tokenizer in 0.2-0.6 s (on first use);
+the first mask of a JSON-schema grammar 0.3-3 ms; a JSON string body 11-16 ms the first time per grammar, then 0.15-0.5 ms in any
+other context or request (shared per-stack-top cache) and 0.01-0.2 ms for a repeated state. A schema answer and a forced tool
+call on the real model parse and validate (`RealModelStructuredTests`).
+
 ## 6. Hypotheses for the top gaps
 
 Diagnostics used: `SHARPLIGHT_VK_PROFILE=1` (per-kernel GPU timestamps in `--bench`, and in `bench/BatchBench --profile B` for batched steps; raw output in

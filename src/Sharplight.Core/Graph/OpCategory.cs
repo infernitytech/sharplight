@@ -15,4 +15,6 @@ public enum OpCategory
     Data,
     /// <summary>Higher-level fused operator (attention, rope, recurrent rules, ...).</summary>
     Composite,
+    /// <summary>Runs subgraphs (If): executed on the host between device segments, never by a device.</summary>
+    ControlFlow,
 }

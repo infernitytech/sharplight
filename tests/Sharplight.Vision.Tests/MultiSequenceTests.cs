@@ -100,7 +100,8 @@ public class MultiSequenceTests
                     }
 
                     var want = sess.Process(steps[s][u].Tokens);
-                    var (maxAbs, _, rms) = Env.Compare(got[u]!, want);
+                    var row = got[u].ToArray();
+                    var (maxAbs, _, rms) = Env.Compare(row, want);
                     worst = Math.Max(worst, (float)rms);
                     // CPU: same math per row up to summation order. Vulkan: f16 tensor-core paths depend on the batch shape (more visibly on the tiny Mamba-2 model).
                     // Quantized weights on Vulkan: up to 8-16 rows run the integer-dot matvec, which quantizes activations to 8 bits per
@@ -111,11 +112,11 @@ public class MultiSequenceTests
                     Assert.True(rms < tol, $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
                     if (intDot)
                     {
-                        Assert.Contains(ArgMax(want), TopK(got[u]!, 3));
+                        Assert.Contains(ArgMax(want), TopK(row, 3));
                     }
                     else
                     {
-                        Assert.Equal(ArgMax(want), ArgMax(got[u]!));
+                        Assert.Equal(ArgMax(want), ArgMax(row));
                     }
                     Assert.Equal(sess.Position, dec.Length(key.Item1));
                 }

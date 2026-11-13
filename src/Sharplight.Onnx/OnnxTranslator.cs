@@ -15,7 +15,7 @@ internal sealed partial class OnnxTranslator
     private readonly OnnxImportOptions _opts;
     private readonly Dictionary<string, WeightInfo> _weights = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslatedTensor> _env = new(StringComparer.Ordinal);
-    private readonly Dictionary<(OnnxConst, string), Value> _constValues = new();
+    private Dictionary<(OnnxConst, string), Value> _constValues = new();
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
     private readonly HashSet<OnnxNode> _skip = [];
@@ -24,8 +24,6 @@ internal sealed partial class OnnxTranslator
     private IDisposable? _groupScope;
     private int _groupIndex;
     private int _heavyInGroup;
-    private Value? _batchZero;
-    private Value? _firstInput;
     private int _anon;
 
     public OnnxTranslator(OnnxModel model)
@@ -146,11 +144,6 @@ internal sealed partial class OnnxTranslator
         bool image = !isInt && shape.Rank == 4 && shape[1].Fixed is 1 or 3 or 4;
         var role = image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other;
         var value = _b.Input(info.Name, role, isInt ? DataType.I32 : DataType.F32, shape);
-        if (!isInt)
-        {
-            _firstInput ??= value;
-        }
-
         var tensor = TranslatedTensor.Dyn(value);
         _env[info.Name] = tensor;
         if ((_opts.InputShapes.GetValueOrDefault(info.Name)?.Length ?? info.Shape?.Count) == 0)
@@ -188,11 +181,7 @@ internal sealed partial class OnnxTranslator
             throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
         }
 
-        var value = tensor.V!;
-        if (value.Kind != ValueKind.Intermediate)
-        {
-            value = _b.Scale(value, 1f, 0f, output.Name);   // outputs must be produced by a node
-        }
+        var value = OutputCopy(tensor.V!, output.Name);
 
         _b.Output(output.Name, value);
     }
@@ -406,6 +395,11 @@ internal sealed partial class OnnxTranslator
             return cached;
         }
 
+        if (c.HasSymbols)
+        {
+            return _constValues[(c, "f32")] = SymbolicData(c, DataType.F32, hint);
+        }
+
         var shape = new Shape(dims.Select(d => (Dim)d).ToArray());
         Value v;
         string name = c.Name != "" ? c.Name : hint ?? $"const.{_anon}";
@@ -473,7 +467,7 @@ internal sealed partial class OnnxTranslator
         }
 
         bool allConst = ins.All(t => t is null || t.IsConst);
-        if (allConst && OnnxFold.Ops.Contains(n.OpType) && !(n.OpType == "Expand" && ins[1]!.C!.Ints().Any(v => v == OnnxConst.SymBatch)))
+        if (allConst && OnnxFold.Ops.Contains(n.OpType) && !BuildsSymbolicExtent(n, ins))
         {
             var res = OnnxFold.Eval(n, ins.Select(t => t?.C).ToList());
             for (int i = 0; i < n.Outputs.Count && i < res.Count; i++)
@@ -487,7 +481,30 @@ internal sealed partial class OnnxTranslator
 
             return;
         }
+        if (ins.Any(t => t is { TransposedNonZero: true }))
+        {
+            NonZeroConsumer(n, ins);
+            return;
+        }
+
+        int leadingUnits = ins.Max(t => t?.LeadingUnits ?? 0);
+        bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
+        if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
+        {
+            throw new NotSupportedException($"{n.OpType} of a tensor with unit dims in front of its symbolic dim");
+        }
+
         Dynamic(n, ins);
+        if (leadingUnits > 0 && !s_leadingUnitSetters.Contains(n.OpType))
+        {
+            foreach (var o in n.Outputs)
+            {
+                if (o != "" && _env.TryGetValue(o, out var r) && r.V is { } v && Sym(v))
+                {
+                    r.LeadingUnits = leadingUnits;
+                }
+            }
+        }
         if (ins.Any(t => t is { Scalar: true }) && s_scalarPreserving.Contains(n.OpType) && ins.All(t => t is null || t.Scalar || (t.IsConst && t.C!.Count == 1)))
         {
             foreach (var o in n.Outputs)
@@ -499,6 +516,11 @@ internal sealed partial class OnnxTranslator
             }
         }
     }
+
+    // Ops that accept tensors with leading unit dims (see TranslatedTensor.LeadingUnits) besides unary and binary elementwise ops;
+    // the setters compute the leading units of their outputs themselves.
+    private static readonly HashSet<string> s_leadingUnitAware = ["Identity", "Cast", "Unsqueeze", "Squeeze", "Shape", "Clip", "NonMaxSuppression"];
+    private static readonly HashSet<string> s_leadingUnitSetters = ["Unsqueeze", "Squeeze", "Shape", "NonMaxSuppression"];
 
     private static readonly HashSet<string> s_scalarPreserving =
         ["Cast", "Add", "Sub", "Mul", "Div", "Neg", "Abs", "Sqrt", "Exp", "Log", "Sin", "Cos", "Tanh", "Sigmoid", "Relu", "Identity", "Pow", "Floor", "Ceil", "Round"];

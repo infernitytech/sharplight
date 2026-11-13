@@ -26,6 +26,7 @@ public sealed partial class GraphLowerer
         }
 
         AbsorbIntoConsumers(units, consumers);
+        FoldScatterChains(units, consumers);
         FindFusedOutputs(units, consumers);
         return units;
     }

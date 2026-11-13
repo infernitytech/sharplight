@@ -10,13 +10,19 @@ internal sealed partial class OnnxTranslator
     private Value X(TranslatedTensor?[] ins, int i, string? hint = null)
         => i < ins.Length && ins[i] is { } t ? AsValue(t, hint) : throw new InvalidDataException($"missing input {i}");
 
-    private OnnxConst ConstIn(TranslatedTensor?[] ins, int i, string what)
+    /// <summary>A constant input; symbolic shape values (<see cref="SymbolicInts"/>) only where the caller handles them.</summary>
+    private OnnxConst ConstIn(TranslatedTensor?[] ins, int i, string what, bool symbolic = false)
         => i < ins.Length && ins[i] is { } t
-            ? t.C ?? throw new NotSupportedException($"{what} must be a compile-time constant (initializer or constant-folded value)")
+            ? NoSymbols(t.C ?? throw new NotSupportedException($"{what} must be a compile-time constant (initializer or constant-folded value)"), what, symbolic)
             : throw new InvalidDataException($"missing input {i} ({what})");
 
-    private OnnxConst? OptConst(TranslatedTensor?[] ins, int i, string what)
-        => i < ins.Length && ins[i] is { } t ? t.C ?? throw new NotSupportedException($"{what} must be a compile-time constant") : null;
+    private OnnxConst? OptConst(TranslatedTensor?[] ins, int i, string what, bool symbolic = false)
+        => i < ins.Length && ins[i] is { } t ? NoSymbols(t.C ?? throw new NotSupportedException($"{what} must be a compile-time constant"), what, symbolic) : null;
+
+    private static OnnxConst NoSymbols(OnnxConst c, string what, bool allowed)
+        => allowed || !c.HasSymbols
+            ? c
+            : throw new NotSupportedException($"{what} depends on a symbolic size ({string.Join(", ", c.Ints().Where(SymbolicInts.IsSymbolic).Select(SymbolicInts.Format).Distinct())})");
 
     private TranslatedTensor? Opt(TranslatedTensor?[] ins, int i) => i < ins.Length ? ins[i] : null;
 
@@ -62,6 +68,11 @@ internal sealed partial class OnnxTranslator
         }
 
         var c = t.C!;
+        if (c.HasSymbols)
+        {
+            return t.CachedValue ??= SymbolicData(c, DataType.I32, c.Name != "" ? c.Name : null);
+        }
+
         var dims = c.Rank == 0 ? [1L] : c.Dims;
         var ints = c.Ints();
         var bytes = new byte[ints.Length * 4];

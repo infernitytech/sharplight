@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Sharplight.Graph;
 using Sharplight.Runtime;
@@ -11,7 +12,7 @@ public sealed partial class GraphLowerer
 {
     private static string[] GeneralOpNames =>
         ["Expand", "Tile", "GatherAxis", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "CumSum", "ArgReduce", "TopK",
-         "GroupNorm", "ConvTranspose", "Trilu", "OneHot", "GridSample"];
+         "GroupNorm", "ConvTranspose", "Trilu", "OneHot", "GridSample", "Fill"];
     private static readonly HashSet<string> s_generalOps = [.. GeneralOpNames];
 
     private static bool IsDataType(DataType t) => !t.IsQuantized && (t == DataType.F32 || t == DataType.F16 || t == DataType.BF16 || t == DataType.I32 || t == DataType.I64 || t == DataType.U32);
@@ -31,6 +32,10 @@ public sealed partial class GraphLowerer
 
         switch (op)
         {
+            case "Fill":
+                return node.Output.Type == DataType.F32 || node.Output.Type == DataType.I32 ? OpSupport.Yes : OpSupport.No($"Fill of {node.Output.Type}");
+            case "TopK" when node.Attributes.Has("k_symbol"):
+                return OpSupport.No("TopK with a data-dependent k");
             case "GatherAxis":
             case "GatherElements":
             case "GatherND":
@@ -125,6 +130,7 @@ public sealed partial class GraphLowerer
             case "Trilu": LowerTrilu(n); return true;
             case "OneHot": LowerOneHot(n); return true;
             case "GridSample": LowerGridSample(n); return true;
+            case "Fill": LowerFill(n); return true;
         }
         return false;
     }
@@ -374,6 +380,11 @@ public sealed partial class GraphLowerer
 
     private void LowerScatterND(Node n)
     {
+        if (TryLowerScatterNDFast(n))
+        {
+            return;
+        }
+
         var data = Ref(n.Inputs[0]);
         var ix = Ref(n.Inputs[1]);
         var upd = Ref(n.Inputs[2]);
@@ -457,7 +468,19 @@ public sealed partial class GraphLowerer
         EmitGen("argreduce", [n], iter, x.Symbol, [x], [y], body);
     }
 
-    private void LowerTopK(Node n)
+    /// <summary>y[i, ...] = start + i·delta along the (possibly symbolic) outer axis.</summary>
+    private void LowerFill(Node n)
+    {
+        var y = Produce(n.Output);
+        float start = n.Attributes.Get("start", 0f);
+        float delta = n.Attributes.Get("delta", 0f);
+        string value = $"float({start.ToString("R", CultureInfo.InvariantCulture)}) + float(d0) * float({delta.ToString("R", CultureInfo.InvariantCulture)})";
+        string store = y.Type == DataType.I32 ? $"int({value})" : $"float({value})";
+        EmitGen($"fill {n.Output.Name}", [n], y.Shape, y.Symbol, [], [y], $"  p.out0[idx] = {store};");
+    }
+
+    /// <summary>Serial top-k (one thread per row, O(k * n)): fallback when k exceeds the shared-memory sort of <see cref="LowerTopK"/>.</summary>
+    private void LowerTopKSerial(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "topk");
         var vals = Produce(n.Outputs[0]);
@@ -522,6 +545,11 @@ public sealed partial class GraphLowerer
         }
 
         long G = n.Attributes.Get("groups", 1L);
+        if (TryLowerGroupNormSplit(n, x, sc, bi, y, C, S, G))
+        {
+            return;
+        }
+
         var k2 = Lib("general.slang", "groupnorm", Macros(("C", C), ("S", S), ("G", G), ("EPS", n.Attributes.Get("eps", 1e-5f)), ("HAS_SCALE", sc is not null), ("HAS_BIAS", bi is not null)));
         var tx = x;
         var sp = sc ?? x;

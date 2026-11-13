@@ -9,6 +9,7 @@ using Sharplight.Vulkan;
 namespace Sharplight.Serving.Tests;
 
 /// <summary>End-to-end on a real small model (skipped when the file is absent): engine + chat layer on SessionBatchDecoder.</summary>
+[Collection("RealModel")]
 public class RealModelSmokeTests
 {
     private static readonly string ModelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf");

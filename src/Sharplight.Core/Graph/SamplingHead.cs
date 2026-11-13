@@ -72,6 +72,6 @@ public static class SamplingHead
             [TokensOutput] = tokens,
             [LogprobsOutput] = logprobs,
         };
-        return new ComputeGraph(graph.Name, [.. graph.Nodes, node], [.. graph.Inputs, parameters], outputs, graph.RuntimeScalars);
+        return new ComputeGraph(graph.Name, [.. graph.Nodes, node], [.. graph.Inputs, parameters], outputs, graph.RuntimeScalars, graph.DynamicSymbols);
     }
 }

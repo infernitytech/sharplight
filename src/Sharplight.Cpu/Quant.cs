@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Cpu;
 
 /// <summary>Dequantization of ggml block formats (exact ggml layouts).</summary>
-internal static unsafe class Quant
+internal static unsafe partial class Quant
 {
     public static WeightFormat? FormatOf(DataType t)
     {
@@ -74,6 +74,71 @@ internal static unsafe class Quant
             return WeightFormat.IQ4_XS;
         }
 
+        if (t == DataType.Q2_K)
+        {
+            return WeightFormat.Q2_K;
+        }
+
+        if (t == DataType.Q3_K)
+        {
+            return WeightFormat.Q3_K;
+        }
+
+        if (t == DataType.IQ2_XXS)
+        {
+            return WeightFormat.IQ2_XXS;
+        }
+
+        if (t == DataType.IQ2_XS)
+        {
+            return WeightFormat.IQ2_XS;
+        }
+
+        if (t == DataType.IQ2_S)
+        {
+            return WeightFormat.IQ2_S;
+        }
+
+        if (t == DataType.IQ3_XXS)
+        {
+            return WeightFormat.IQ3_XXS;
+        }
+
+        if (t == DataType.IQ3_S)
+        {
+            return WeightFormat.IQ3_S;
+        }
+
+        if (t == DataType.IQ1_S)
+        {
+            return WeightFormat.IQ1_S;
+        }
+
+        if (t == DataType.IQ1_M)
+        {
+            return WeightFormat.IQ1_M;
+        }
+
+        if (t == DataType.MXFP4)
+        {
+            return WeightFormat.MXFP4;
+        }
+
+        if (t == DataType.NVFP4)
+        {
+            return WeightFormat.NVFP4;
+        }
+
+        if (t == DataType.TQ1_0)
+        {
+            return WeightFormat.TQ1_0;
+        }
+
+        if (t == DataType.TQ2_0)
+        {
+            return WeightFormat.TQ2_0;
+        }
+
         if (t == DataType.Q1_0)
         {
             return WeightFormat.Q1_0;
@@ -99,7 +164,11 @@ internal static unsafe class Quant
 
     public static int BlockSize(WeightFormat f) => f switch
     {
-        WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_XS => 256,
+        WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_XS or WeightFormat.Q2_K or WeightFormat.Q3_K or
+        WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S or
+        WeightFormat.IQ1_S or WeightFormat.IQ1_M or WeightFormat.TQ1_0 or WeightFormat.TQ2_0 => 256,
+        WeightFormat.NVFP4 => 64,
+        WeightFormat.MXFP4 => 32,
         WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
         WeightFormat.Q2_0 => 64,
         WeightFormat.Q4_0 or WeightFormat.Q4_1 or WeightFormat.Q5_0 or WeightFormat.Q5_1 or WeightFormat.Q8_0 or WeightFormat.IQ4_NL => 32,
@@ -122,6 +191,18 @@ internal static unsafe class Quant
         WeightFormat.IQ4_XS => 136,
         WeightFormat.Q2_0_G128 => 34,
         WeightFormat.Tern1_G128 => 28,
+        WeightFormat.Q2_K => 84,
+        WeightFormat.Q3_K => 110,
+        WeightFormat.IQ2_XXS or WeightFormat.TQ2_0 => 66,
+        WeightFormat.IQ2_XS => 74,
+        WeightFormat.IQ2_S => 82,
+        WeightFormat.IQ3_XXS => 98,
+        WeightFormat.IQ3_S => 110,
+        WeightFormat.IQ1_S => 50,
+        WeightFormat.IQ1_M => 56,
+        WeightFormat.TQ1_0 => 54,
+        WeightFormat.MXFP4 => 17,
+        WeightFormat.NVFP4 => 36,
         _ => throw new ArgumentOutOfRangeException(nameof(f)),
     };
 
@@ -185,6 +266,45 @@ internal static unsafe class Quant
                 break;
             case WeightFormat.Tern1_G128:
                 Tern1(src, nb, dst);
+                break;
+            case WeightFormat.Q2_K:
+                Q2_K(src, nb, dst);
+                break;
+            case WeightFormat.Q3_K:
+                Q3_K(src, nb, dst);
+                break;
+            case WeightFormat.IQ2_XXS:
+                IQ2_XXS(src, nb, dst);
+                break;
+            case WeightFormat.IQ2_XS:
+                IQ2_XS(src, nb, dst);
+                break;
+            case WeightFormat.IQ2_S:
+                IQ2_S(src, nb, dst);
+                break;
+            case WeightFormat.IQ3_XXS:
+                IQ3_XXS(src, nb, dst);
+                break;
+            case WeightFormat.IQ3_S:
+                IQ3_S(src, nb, dst);
+                break;
+            case WeightFormat.IQ1_S:
+                IQ1_S(src, nb, dst);
+                break;
+            case WeightFormat.IQ1_M:
+                IQ1_M(src, nb, dst);
+                break;
+            case WeightFormat.MXFP4:
+                MXFP4(src, nb, dst);
+                break;
+            case WeightFormat.NVFP4:
+                NVFP4(src, nb, dst);
+                break;
+            case WeightFormat.TQ1_0:
+                TQ1_0(src, nb, dst);
+                break;
+            case WeightFormat.TQ2_0:
+                TQ2_0(src, nb, dst);
                 break;
             default:
                 throw new NotSupportedException(f.ToString());

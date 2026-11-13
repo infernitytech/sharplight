@@ -25,6 +25,40 @@ internal static unsafe class OpHelpers
         }
     }
 
+    /// <summary>Element <paramref name="i"/> of a dense f32/i32/i64/u8/i8 tensor as a double.</summary>
+    public static double Read(TRef t, long i)
+    {
+        if (t.Type == DataType.F32)
+        {
+            return ((float*)t.P)[i];
+        }
+
+        if (t.Type == DataType.I32)
+        {
+            return ((int*)t.P)[i];
+        }
+
+        if (t.Type == DataType.I64)
+        {
+            return ((long*)t.P)[i];
+        }
+
+        if (t.Type == DataType.I8)
+        {
+            return ((sbyte*)t.P)[i];
+        }
+
+        if (t.Type == DataType.U8 || t.Type == DataType.Bool)
+        {
+            return t.P[i];
+        }
+
+        throw new NotSupportedException($"Reading {t.Type} elements.");
+    }
+
+    /// <summary>Whether element <paramref name="i"/> of a dense tensor is non-zero (NaN counts as non-zero).</summary>
+    public static bool IsNonZero(TRef t, long i) => Read(t, i) != 0;
+
     /// <summary>Reads element <paramref name="i"/> of a dense i32/i64 index tensor.</summary>
     public static long Idx(TRef t, long i) => t.Type == DataType.I64 ? ((long*)t.P)[i] : ((int*)t.P)[i];
 

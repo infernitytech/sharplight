@@ -33,6 +33,20 @@ public sealed record EngineMetricsSnapshot
     public long Steps { get; init; }
     /// <summary>Completion tokens per second over the last ~10 s.</summary>
     public double RecentTokensPerSecond { get; init; }
+    /// <summary>KV-cache capacity in tokens: slots times the context length of a slot.</summary>
+    public long KvCapacityTokens { get; init; }
+    /// <summary>Tokens held in slot contexts, including idle slots kept for prefix reuse.</summary>
+    public long KvTokens { get; init; }
+    /// <summary>Tokens held by running sequences.</summary>
+    public long KvActiveTokens { get; init; }
+    /// <summary>Fraction of the KV capacity held by running sequences (0..1).</summary>
+    public double KvUtilization => KvCapacityTokens == 0 ? 0 : (double)KvActiveTokens / KvCapacityTokens;
+    /// <summary>Draft tokens proposed by speculative decoding and verified by the model.</summary>
+    public long DraftTokens { get; init; }
+    /// <summary>Draft tokens the model accepted.</summary>
+    public long AcceptedDraftTokens { get; init; }
+    /// <summary>Accepted divided by proposed draft tokens (0 without speculation).</summary>
+    public double DraftAcceptanceRate => DraftTokens == 0 ? 0 : (double)AcceptedDraftTokens / DraftTokens;
     /// <summary>Seconds from submission to the first generated token.</summary>
     public HistogramSnapshot TimeToFirstToken { get; init; } = null!;
     /// <summary>Seconds between consecutive tokens of a sequence.</summary>
@@ -45,4 +59,6 @@ public sealed record EngineMetricsSnapshot
     public HistogramSnapshot StepDuration { get; init; } = null!;
     /// <summary>Rows (tokens) per forward pass.</summary>
     public HistogramSnapshot StepRows { get; init; } = null!;
+    /// <summary>Sequences per forward pass (the batch size).</summary>
+    public HistogramSnapshot StepSequences { get; init; } = null!;
 }

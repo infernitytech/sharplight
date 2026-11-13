@@ -24,6 +24,7 @@ internal static class OnnxExec
         using var compiled = CompiledModel.Compile(graph, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = device }],
+            Fallback = device.Info.Kind == DeviceKind.Cpu ? null : new DeviceSlot { Device = Providers.Cpu },   // data-dependent ops run on CPU
             Compile = new CompileOptions { SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch } },
             ReservePerDevice = 128L << 20,
         });
@@ -66,7 +67,7 @@ internal static class OnnxExec
         var outs = new List<float[]>();
         foreach (var (name, v) in graph.Outputs)
         {
-            var buf = new float[v.Shape.Elements(run.Symbols)];
+            var buf = new float[compiled.OutputShape(name, run).Aggregate(1L, (a, b) => a * b)];   // data-dependent sizes are known after the run
             if (v.Type == Sharplight.Tensors.DataType.I32)
             {
                 var ib = new int[buf.Length];

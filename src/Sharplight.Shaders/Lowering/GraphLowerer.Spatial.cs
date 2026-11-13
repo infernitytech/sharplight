@@ -29,6 +29,11 @@ public sealed partial class GraphLowerer
                     return OpSupport.No($"weight format {node.Inputs[1].Type} not supported");
                 }
 
+                if (UsesGrid(node.Inputs[1].Type))
+                {
+                    return OpSupport.No($"Conv weight format {node.Inputs[1].Type} (lookup-grid formats are not supported by the convolution kernels)");
+                }
+
                 if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16 && node.Inputs[1].Type != DataType.BF16 && !node.Inputs[1].Type.IsQuantized)
                 {
                     return OpSupport.No($"Conv weight type {node.Inputs[1].Type}");
@@ -263,6 +268,11 @@ public sealed partial class GraphLowerer
             return;
         }
 
+        if (TryLowerConvMatrix(n, x, w, bias, y, common, name))
+        {
+            return;
+        }
+
         bool aVec = w.Type.IsQuantized || K % 8 == 0;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
         Func<long, ConvCfg> choose = N => ChooseConv(N, OG, G, HW, K);
@@ -359,21 +369,23 @@ public sealed partial class GraphLowerer
             }
         }
         long rTotal = red.Aggregate(1L, (acc, r) => acc * r.Shape);
-        long nOutInner = kept.Skip(x.Symbol is not null ? 1 : 0).Aggregate(1L, (acc, r) => acc * r.Shape);
+        // The outermost kept (or reduced) dim is the quotient; with a symbolic dim its (bound) shape is never used in a modulo.
         bool sym = x.Symbol is not null;
-        // Outermost kept dim is the quotient; with a symbolic dim its (bound) shape is never used in a modulo.
+        bool symReduced = sym && axes.Contains(0);
+        bool symKept = sym && !symReduced;
         int tpo = rTotal >= 2048 ? 256 : _opt.SubgroupSize;
         var k = Lib("spatial.slang", "reduce", Macros(
             ("KN", Math.Max(1, kept.Count)), ("KSH", kept.Count == 0 ? "1" : IntList(kept.Select(t => t.Shape))), ("KST", kept.Count == 0 ? "0" : IntList(kept.Select(t => t.Stride))),
             ("RN", Math.Max(1, red.Count)), ("RSH", red.Count == 0 ? "1" : IntList(red.Select(t => t.Shape))), ("RST", red.Count == 0 ? "0" : IntList(red.Select(t => t.Stride))),
-            ("R_TOTAL", rTotal), ("MODE", mode switch { "sum" => 0, "mean" => 1, "max" => 2, "min" => 3, "prod" => 4, "l1" => 5, "l2" => 6, "sumsquare" => 7, _ => 8 }), ("TPO", tpo)));
+            ("R_TOTAL", symReduced ? "p.nRed" : rTotal), ("MODE", mode switch { "sum" => 0, "mean" => 1, "max" => 2, "min" => 3, "prod" => 4, "l1" => 5, "l2" => 6, "sumsquare" => 7, _ => 8 }), ("TPO", tpo)));
         long inner = y.Shape.Skip(1).Aggregate(1L, (acc, v) => acc * v);
         var tx = x;
         long perWg = tpo == 256 ? 1 : 256 / tpo;
-        KernelArg count = sym ? new SymbolArg(x.Symbol!, inner) : new UIntArg((uint)(y.MaxElements));
+        KernelArg count = symKept ? new SymbolArg(x.Symbol!, inner) : new UIntArg((uint)y.MaxElements);
+        KernelArg reduced = symReduced ? new SymbolArg(x.Symbol!, rTotal / Math.Max(1, x.Shape[0])) : new UIntArg((uint)rTotal);
         Emit($"reduce-{mode} {n.Output.Name}", [n],
-            [Always(k, b => new Grid(Grid.Div((sym ? b[tx.Symbol!] * inner : y.MaxElements), perWg)))],
-            [Pointer(x), Pointer(y), count], [x], [y]);
+            [Always(k, b => new Grid(Grid.Div(symKept ? b[tx.Symbol!] * inner : y.MaxElements, perWg)))],
+            [Pointer(x), Pointer(y), count, reduced], [x], [y]);
     }
 
     // ---- BatchMatMul -------------------------------------------------------------------------
@@ -501,6 +513,11 @@ public sealed partial class GraphLowerer
     {
         var x = RowsInput(n.Inputs[0], "softmax", out long r1, out long s0, out long s1);
         var y = Produce(n.Output);
+        if (TryLowerSoftmaxSplit(n, x, y, r1, s0, s1))
+        {
+            return;
+        }
+
         var k = Lib("rows.slang", "softmax", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("SCALE", n.Attributes.Get("scale", 1f)), ("LOG_SOFTMAX", n.Attributes.Get("log", false))));
         var tx = x;
         Emit($"softmax {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],

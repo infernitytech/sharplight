@@ -109,9 +109,25 @@ internal sealed partial class OnnxTranslator
         return _b.Sub(v, ConstValue(zp.Count == 1 ? zp.CastTo(OnnxType.Float).Reshaped([1]) : throw new NotSupportedException("per-row activation zero points"), nm + ".azp"));
     }
 
-    private Value Requant(Value y, float yScale, OnnxConst? yzp, string name)
+    /// <summary>
+    /// clip(round(acc · m) + zp) for an integer accumulator, with onnxruntime's f32 multipliers m = a_scale · w_scale / y_scale (one, or one
+    /// per output channel along <paramref name="channelAxis"/>), so results match its integer kernels bit for bit.
+    /// </summary>
+    private Value Requant(Value acc, float[] multipliers, int channelAxis, OnnxConst? yzp, string name)
     {
-        var q = Emit("Round", [_b.Scale(y, 1f / yScale)]);
+        Value scaled;
+        if (multipliers.Length == 1)
+        {
+            scaled = _b.Scale(acc, multipliers[0]);
+        }
+        else
+        {
+            var dims = Enumerable.Repeat(1L, acc.Rank - channelAxis).ToArray();
+            dims[0] = multipliers.Length;
+            scaled = _b.Mul(acc, ConstValue(OnnxConst.FromFloats(OnnxType.Float, dims, multipliers.Select(m => (double)m).ToArray()), name + ".m"));
+        }
+
+        var q = Emit("Round", [scaled]);
         int et = yzp?.ElemType ?? OnnxType.UInt8;
         if (yzp is not null)
         {
@@ -153,6 +169,14 @@ internal sealed partial class OnnxTranslator
     {
         string name = Nm(n);
         var a = ShiftZp(ins[0]!, Opt(ins, 2), name);
+        if (!ins[1]!.IsConst)
+        {
+            // Runtime B (e.g. attention scores of dynamically quantized activations): subtract its zero point and multiply as f32.
+            var shifted = Opt(ins, 3) is { } zeroPoint ? Synthetic("Sub", [ins[1]!, zeroPoint]) : ins[1]!;
+            _env[n.Outputs[0]] = Synthetic("MatMul", [TranslatedTensor.Dyn(a), shifted]);
+            return;
+        }
+
         var bConst = ConstIn(ins, 1, "MatMulInteger B");
         var bZeroPoint = OptConst(ins, 3, "b zero point");
         var b = DequantConst(bConst, OnnxConst.Scalar(1f), bZeroPoint, bConst.Rank - 1);   // per-column zero points when bZeroPoint is a vector
@@ -162,47 +186,42 @@ internal sealed partial class OnnxTranslator
     private void QLinearMatMul(OnnxNode n, TranslatedTensor?[] ins)
     {
         string name = Nm(n);
-        var aScale = ConstIn(ins, 1, "a_scale").ScalarF32();
-        var a = _b.Scale(ShiftZp(ins[0]!, OptConst(ins, 2, "a_zp"), name), aScale);
-        var b = DequantConst(ConstIn(ins, 3, "B"), ConstIn(ins, 4, "b_scale"), OptConst(ins, 5, "b_zp"), 1);
-        var y = MatMulWeightOrBatch(a, b, name + ".mm");
-        SetDyn(n, 0, Requant(y, ConstIn(ins, 6, "y_scale").ScalarF32(), OptConst(ins, 7, "y_zp"), name));
+        var a = ShiftZp(ins[0]!, OptConst(ins, 2, "a_zp"), name);
+        var b = DequantConst(ConstIn(ins, 3, "B"), OnnxConst.Scalar(1f), OptConst(ins, 5, "b_zp"), 1);
+        var acc = MatMulWeightOrBatch(a, b, name + ".mm");
+        var multipliers = Multipliers(ConstIn(ins, 1, "a_scale").ScalarF32(), ConstIn(ins, 4, "b_scale"), ConstIn(ins, 6, "y_scale").ScalarF32());
+        SetDyn(n, 0, Requant(acc, multipliers, acc.Rank - 1, OptConst(ins, 7, "y_zp"), name));
     }
 
-    /// <summary>ConvInteger and QLinearConv: dequantize to f32, run a regular Conv and (for QLinearConv) requantize.</summary>
+    /// <summary>onnxruntime's requantization multipliers a_scale · w_scale / y_scale, evaluated in f32 in the same order.</summary>
+    private static float[] Multipliers(float inputScale, OnnxConst weightScale, float outputScale)
+        => weightScale.Floats().Select(w => inputScale * (float)w / outputScale).ToArray();
+
+    /// <summary>
+    /// ConvInteger and QLinearConv: a regular f32 Conv over the zero-point-shifted integer values (exact integer accumulation while it stays
+    /// below 2^24) and, for QLinearConv, onnxruntime's requantization of the accumulator.
+    /// </summary>
     private void QuantizedConv(OnnxNode n, TranslatedTensor?[] ins)
     {
         string name = Nm(n);
         bool linear = n.OpType == "QLinearConv";
-        float inputScale = linear ? ConstIn(ins, 1, "x_scale").ScalarF32() : 1f;
-        Value x;
-        if (linear)
-        {
-            x = _b.Scale(ShiftZp(ins[0]!, OptConst(ins, 2, "x_zp"), name), inputScale);
-        }
-        else
-        {
-            x = ShiftZp(ins[0]!, Opt(ins, 2), name);
-        }
-
+        var x = linear ? ShiftZp(ins[0]!, OptConst(ins, 2, "x_zp"), name) : ShiftZp(ins[0]!, Opt(ins, 2), name);
         var weightConst = ConstIn(ins, linear ? 3 : 1, "W");
-        var weightScale = linear ? ConstIn(ins, 4, "w_scale") : OnnxConst.Scalar(1f);
         var weightZeroPoint = OptConst(ins, linear ? 5 : 3, "w_zp");
-        var weight = DequantConst(weightConst, weightScale, weightZeroPoint, 0);
-        OnnxConst? bias = null;
-        if (linear && ins.Length > 8 && ins[8] is not null)
-        {
-            var scales = weightScale.Floats();
-            var quantizedBias = ConstIn(ins, 8, "B").Floats();
-            var values = quantizedBias.Select((v, i) => v * inputScale * scales[weightScale.Count == 1 ? 0 : i]).ToArray();
-            bias = OnnxConst.FromFloats(OnnxType.Float, [weight.Dims[0]], values);
-        }
+        var weight = DequantConst(weightConst, OnnxConst.Scalar(1f), weightZeroPoint, 0);
+        var bias = linear && ins.Length > 8 && ins[8] is not null ? ConstIn(ins, 8, "B").CastTo(OnnxType.Float).Reshaped([weight.Dims[0]]) : null;
 
         var convInputs = new TranslatedTensor?[] { TranslatedTensor.Dyn(x), TranslatedTensor.Const(weight.Reshaped(weight.Dims, name + ".w")), bias is null ? null : TranslatedTensor.Const(bias) };
         var conv = new OnnxNode { OpType = "Conv", Name = n.Name, Inputs = ["x", "w", bias is null ? "" : "b"], Outputs = [name + ".conv"], Attributes = n.Attributes };
         Conv(conv, convInputs);
         var y = _env[name + ".conv"].V!;
-        SetDyn(n, 0, linear ? Requant(y, ConstIn(ins, 6, "y_scale").ScalarF32(), OptConst(ins, 7, "y_zp"), name) : y);
+        if (linear)
+        {
+            var multipliers = Multipliers(ConstIn(ins, 1, "x_scale").ScalarF32(), ConstIn(ins, 4, "w_scale"), ConstIn(ins, 6, "y_scale").ScalarF32());
+            y = Requant(y, multipliers, 1, OptConst(ins, 7, "y_zp"), name);
+        }
+
+        SetDyn(n, 0, y);
     }
 
     /// <summary>Quantized com.microsoft operators (QLinearAdd, QLinearSigmoid, ...): dequantize, apply the f32 op, requantize.</summary>

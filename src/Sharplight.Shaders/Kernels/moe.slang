@@ -21,6 +21,9 @@ float dot8m(float w[8], float4 a, float4 b)
 #ifdef KERNEL_MOE_MATVEC
 struct MvParams
 {
+#if HAS_GRID
+    uint* grid;
+#endif
     float* x;
     uint8_t* w;
     uint* ids;
@@ -40,6 +43,7 @@ struct MvParams
 [numthreads(SG * MV_ROWS_PER_WG, 1, 1)]
 void moe_matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform MvParams p)
 {
+    GRID_BIND(p);
     uint lane = ltid.x % SG;
     uint row = gid.x * MV_ROWS_PER_WG + ltid.x / SG;
     uint item = gid.y;
@@ -136,6 +140,9 @@ void moe_route(uint3 ltid : SV_GroupThreadID, uniform RouteParams p)
 
 struct GemmParams
 {
+#if HAS_GRID
+    uint* grid;
+#endif
     float* x;
     uint8_t* w;
     uint* scratch;
@@ -158,6 +165,7 @@ groupshared uint sItem[BM];
 [numthreads(256, 1, 1)]
 void moe_gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform GemmParams p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint tile = gid.y;
     if (tile >= p.scratch[0]) return;
@@ -260,6 +268,7 @@ uint4 load8h(uint8_t* w, uint row, uint g)
 [numthreads(GTHREADS, 1, 1)]
 void moe_gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform GemmParams p)
 {
+    GRID_BIND(p);
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
     uint tile = gid.y;

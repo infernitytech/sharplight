@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -26,7 +27,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly float[] _logits;
     private readonly int[] _paramBuf, _sampledBuf;
     private readonly float[] _logprobBuf;
-    private readonly List<float[]> _results = [];
+    private readonly Memory<float>[] _results;
 
     /// <inheritdoc/>
     public int SlotCount { get; }
@@ -36,6 +37,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public int MaxBatchTokens { get; }
     /// <inheritdoc/>
     public int VocabSize { get; }
+    /// <inheritdoc/>
+    public int MaxLogitsRows { get; }
     /// <inheritdoc/>
     public bool BatchesSequences => true;
     /// <inheritdoc/>
@@ -51,7 +54,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <param name="slots">Number of sequence slots.</param>
     /// <param name="contextLength">Context length of each slot.</param>
     /// <param name="hasRecurrentState">Whether a slot holds state other than KV rows (then contexts cannot be truncated).</param>
-    internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState)
+    /// <param name="maxLogitsRows">Bound of the <c>R</c> symbol the model was compiled with (logits rows per step).</param>
+    internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -77,15 +81,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _posBuf = new int[MaxBatchTokens * Math.Max(1, _posAxes)];
         _rowBuf = new int[MaxBatchTokens * 4];
         _runBuf = new int[slots * 4];
-        _outBuf = new int[slots];
-        _paramBuf = new int[slots * SamplingRow.Width];
-        _sampledBuf = new int[slots];
-        _logprobBuf = new float[slots];
-        _logits = new float[(long)slots * VocabSize > int.MaxValue ? throw new NotSupportedException("Logits buffer too large.") : slots * VocabSize];
-        for (int i = 0; i < slots; i++)
-        {
-            _results.Add(new float[VocabSize]);
-        }
+        MaxLogitsRows = Math.Max(slots, maxLogitsRows);
+        _outBuf = new int[MaxLogitsRows];
+        _paramBuf = new int[MaxLogitsRows * SamplingRow.Width];
+        _sampledBuf = new int[MaxLogitsRows];
+        _logprobBuf = new float[MaxLogitsRows];
+        _logits = new float[(long)MaxLogitsRows * VocabSize > int.MaxValue ? throw new NotSupportedException("Logits buffer too large.") : MaxLogitsRows * VocabSize];
+        _results = new Memory<float>[slots];
     }
 
     /// <summary>
@@ -97,10 +99,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         var ms = MultiSequence.Transform(graph, slots);
         var decoderGraph = deviceSampling && SamplingHead.CanAppend(ms.Graph) ? SamplingHead.Append(ms.Graph) : ms.Graph;
         var c = placement.Compile;
+        int maxLogitsRows = (int)Math.Min(maxBatchTokens, Math.Max(slots, c.SymbolBounds.GetValueOrDefault("R", 1)));
         var bounds = new Dictionary<string, long>(c.SymbolBounds)
         {
             [WellKnown.RunSymbol] = slots,
-            ["R"] = Math.Max(slots, c.SymbolBounds.GetValueOrDefault("R", 1)),
+            ["R"] = maxLogitsRows,
         };
         var compiled = CompiledModel.Compile(decoderGraph, new PlacementOptions
         {
@@ -118,7 +121,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             },
         });
         bool recurrent = ms.States.Keys.Any(s => !MultiSequence.IsKvState(s));
-        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent);
+        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows);
     }
 
     /// <inheritdoc/>
@@ -154,20 +157,21 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     }
 
     /// <inheritdoc/>
-    /// <exception cref="ArgumentException">Too many inputs, a slot twice, an empty input or more rows than <see cref="MaxBatchTokens"/>.</exception>
+    /// <exception cref="ArgumentException">Too many inputs, a slot twice, an empty input, more rows than <see cref="MaxBatchTokens"/>
+    /// or more logits rows than <see cref="MaxLogitsRows"/>.</exception>
     /// <exception cref="InvalidOperationException">A slot's context would overflow.</exception>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs) => Step(inputs, s_noSampling, [], []);
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs) => Step(inputs, s_noSampling, [], []);
 
     /// <inheritdoc/>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
     {
-        var res = new float[]?[inputs.Count];
-        if (inputs.Count == 0)
+        int count = inputs.Count;
+        if (count == 0)
         {
-            return res;
+            return [];
         }
 
-        if (inputs.Count > SlotCount)
+        if (count > SlotCount)
         {
             throw new ArgumentException("More inputs than slots.");
         }
@@ -175,7 +179,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         int T = 0;
         int R = 0;
         Span<bool> seen = stackalloc bool[SlotCount];
-        for (int u = 0; u < inputs.Count; u++)
+        for (int u = 0; u < count; u++)
         {
             var inp = inputs[u];
             Check(inp.Slot);
@@ -202,6 +206,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 throw new InvalidOperationException($"Context of slot {inp.Slot} full ({pos0} + {n} > {ContextLength}).");
             }
 
+            int rows = inp.OutputRows;
+            if (R + rows > MaxLogitsRows)
+            {
+                throw new ArgumentException($"Step asks for more than {MaxLogitsRows} logits rows.");
+            }
+
             inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
             for (int i = 0; i < n; i++)
             {
@@ -221,9 +231,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _runBuf[u * 4 + 1] = T;
             _runBuf[u * 4 + 2] = n;
             _runBuf[u * 4 + 3] = pos0;
-            if (inp.WantLogits)
+            for (int i = n - rows; i < n; i++)
             {
-                _outBuf[R++] = T + n - 1;
+                _outBuf[R++] = T + i;
             }
 
             T += n;
@@ -243,7 +253,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         _compiled.SetInput<int>(_rows, _rowBuf.AsSpan(0, T * 4));
-        _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, inputs.Count * 4));
+        _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, count * 4));
         if (_outputRows is not null)
         {
             _compiled.SetInput<int>(_outputRows, _outBuf.AsSpan(0, R));
@@ -251,7 +261,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = R;
-        _run.Symbols[WellKnown.RunSymbol] = inputs.Count;
+        _run.Symbols[WellKnown.RunSymbol] = count;
         _run.SkipOutputs.Clear();
         if (!needLogits)
         {
@@ -259,19 +269,15 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         _compiled.Run(_run);
-        foreach (var inp in inputs)
+        for (int u = 0; u < count; u++)
         {
-            _length[inp.Slot] += inp.Tokens.Length;
-        }
-
-        if (!anyLogits)
-        {
-            return res;
+            _length[inputs[u].Slot] += inputs[u].Tokens.Length;
         }
 
         if (needLogits)
         {
-            _compiled.GetOutput<float>("logits", _logits.AsSpan(0, R * VocabSize));
+            // The per-input results are slices of one buffer (no per-sequence copies).
+            ReadLogits(R);
         }
 
         if (anySampled)
@@ -280,26 +286,44 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _compiled.GetOutput<float>(SamplingHead.LogprobsOutput, _logprobBuf.AsSpan(0, R));
         }
 
-        for (int u = 0, r = 0; u < inputs.Count; u++)
+        for (int u = 0, r = 0; u < count; u++)
         {
-            if (!inputs[u].WantLogits)
-            {
-                continue;
-            }
-
-            if (u < sampling.Count && sampling[u] is not null)
+            int rows = inputs[u].OutputRows;
+            if (rows == 1 && u < sampling.Count && sampling[u] is not null)
             {
                 tokens[u] = _sampledBuf[r];
                 logprobs[u] = _logprobBuf[r];
-                r++;
-                continue;
+                _results[u] = Memory<float>.Empty;
+            }
+            else
+            {
+                _results[u] = rows == 0 ? Memory<float>.Empty : _logits.AsMemory(r * VocabSize, rows * VocabSize);
             }
 
-            var dst = _results[u];
-            _logits.AsSpan(r++ * VocabSize, VocabSize).CopyTo(dst);
-            res[u] = dst;
+            r += rows;
         }
-        return res;
+        return new ArraySegment<Memory<float>>(_results, 0, count);
+    }
+
+    /// <summary>Downloads <paramref name="rows"/> logits rows; large batches are read by several threads (memory-bandwidth bound).</summary>
+    private void ReadLogits(int rows)
+    {
+        const long ParallelReadBytes = 4L << 20;
+        long rowBytes = (long)VocabSize * sizeof(float);
+        int parts = (int)Math.Min(Math.Min(rows, Environment.ProcessorCount / 2), rows * rowBytes / ParallelReadBytes + 1);
+        if (parts <= 1)
+        {
+            _compiled.GetOutput<float>("logits", _logits.AsSpan(0, rows * VocabSize));
+            return;
+        }
+
+        Parallel.For(0, parts, part =>
+        {
+            int first = rows * part / parts;
+            int end = rows * (part + 1) / parts;
+            var destination = MemoryMarshal.AsBytes(_logits.AsSpan(first * VocabSize, (end - first) * VocabSize));
+            _compiled.GetOutput("logits", first * rowBytes, destination);
+        });
     }
 
     /// <summary>
@@ -323,21 +347,26 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         int r = 0;
         for (int u = 0; u < inputs.Count; u++)
         {
-            if (!inputs[u].WantLogits)
+            int outputRows = inputs[u].OutputRows;
+            var row = u < sampling.Count ? sampling[u] : null;
+            if (row is not null && outputRows != 1)
             {
-                continue;
+                throw new ArgumentException($"Input {u} is sampled on the device but returns {outputRows} logits rows (device sampling needs exactly one).");
             }
 
-            var dst = _paramBuf.AsSpan(r++ * SamplingRow.Width, SamplingRow.Width);
-            if (u < sampling.Count && sampling[u] is { } row)
+            for (int i = 0; i < outputRows; i++)
             {
-                row.WriteTo(dst);
-                anySampled = true;
-            }
-            else
-            {
-                SamplingRow.WriteSkip(dst);
-                needLogits = true;
+                var dst = _paramBuf.AsSpan(r++ * SamplingRow.Width, SamplingRow.Width);
+                if (row is { } sampled)
+                {
+                    sampled.WriteTo(dst);
+                    anySampled = true;
+                }
+                else
+                {
+                    SamplingRow.WriteSkip(dst);
+                    needLogits = true;
+                }
             }
         }
 
