@@ -139,8 +139,20 @@ var options = new GenerationOptions
     MaxNewTokens = int.Parse(Opt("-n", "64")!),
     Sampling = temp <= 0 ? SamplingOptions.Greedy : new SamplingOptions { Temperature = temp, Seed = 42 },
 };
+// --chat: wrap the prompt as a user message and render it with the model's chat template (the template emits BOS itself).
+int[]? promptIds = null;
+if (Flag("--chat"))
+{
+    if (model.ChatTemplate is not { } tpl) throw new InvalidOperationException("The model has no chat template.");
+    string? Tok(int? id) => id is int i ? model.Tokenizer.TokenString(i) : null;
+    var rendered = new Sharplight.Templating.ChatTemplate(tpl, Tok(model.Tokenizer.BosId), Tok(model.Tokenizer.EosId))
+        .Render([new Sharplight.Templating.ChatMessage("user", prompt)], addGenerationPrompt: true);
+    Console.WriteLine("--- rendered prompt ---\n" + rendered + "\n-----------------------");
+    promptIds = model.Tokenizer.Encode(rendered, addSpecial: false, parseSpecial: true);
+    prompt = "";
+}
 Console.Write(prompt);
-foreach (var t in gen.Generate(prompt, options)) Console.Write(t.Text);
+foreach (var t in promptIds is null ? gen.Generate(prompt, options) : gen.Generate(promptIds, options)) Console.Write(t.Text);
 Console.WriteLine();
 var s = gen.LastStats!;
 Console.Error.WriteLine($"prompt: {s.PromptTokens} tok in {s.PrefillTime.TotalMilliseconds:F0} ms ({s.PrefillTokensPerSecond:F1} tok/s) | generated: {s.GeneratedTokens} tok, {s.DecodeTokensPerSecond:F2} tok/s");
