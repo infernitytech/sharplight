@@ -62,6 +62,7 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         md[a + "rope.sections"] = four;
 
         // TODO: rope scaling (yarn / linear) parameters are not mapped yet; the adapter does not consume them.
+        AddVisionHyperParameters(c, md);
         return md;
     }
 
@@ -110,8 +111,13 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         foreach (var (rawName, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             string name = rawName;
-            // TODO: the vision tower (model.visual.*, merger, ...) becomes a separate "mmproj" auxiliary
-            // source later; llama.cpp's text model skips these too.
+            // Vision tower → canonical vision.* weights (Qwen35HfVision.cs); skipped if the config has no vision_config.
+            if (IsVisionTensor(name))
+            {
+                if (VisionConfig(c) is null) continue;
+                if (MapVisionTensor(name, t, c) is { } vw) Add(vw); else unmapped.Add(rawName);
+                continue;
+            }
             if (name.Contains("visual.") || name.Contains("vision_") || name.Contains("vision.") || name.Contains("audio") ||
                 name.Contains("patch_embed") || name.Contains("merger."))
                 continue;

@@ -1,16 +1,20 @@
 using System.Diagnostics;
 using Sharplight.Llm;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Cpu;
 using Sharplight.Gguf;
 using Sharplight.HuggingFace;
 using Sharplight.Package;
+using Sharplight.Vision;
 using Sharplight.Vulkan;
+using StbImageSharp;
 
-// sharplight <model.gguf | model.slm | hf-checkpoint-dir> [--save out.slm] [-p prompt] [-n tokens] [--temp t] [--ctx n] [--batch n] [--devices] [--split a,b] [--gpu-mem GiB] [--cpu-offload] [--disable-features a,b] [--bench N]
+// sharplight <model.gguf | model.slm | hf-checkpoint-dir> [--mmproj vision.gguf] [--image img.png ...] [--image-max-tokens n] [--save out.slm] [-p prompt] [-n tokens] [--temp t] [--ctx n] [--batch n] [--devices] [--split a,b] [--gpu-mem GiB] [--cpu-offload] [--disable-features a,b] [--bench N]
 var argv = args.ToList();
 string? Opt(string name, string? def = null) { int i = argv.IndexOf(name); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : def; }
 bool Flag(string name) => argv.Contains(name);
+List<string> Opts(string name) { var l = new List<string>(); for (int i = 0; i + 1 < argv.Count; i++) if (argv[i] == name) l.Add(argv[i + 1]); return l; }
 
 ProviderRegistry.Register(() => new VulkanProvider());
 CpuExecutionProvider.Register();
@@ -30,7 +34,8 @@ if (Flag("--devices") || argv.Count == 0)
 }
 
 var modelPath = argv[0];
-var provider = ProviderRegistry.Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
+// --cpu: run everything on the CPU provider instead of a GPU.
+var provider = ProviderRegistry.Discover().First(x => x.Availability.IsAvailable && (x.Provider.Name == "cpu") == Flag("--cpu")).Provider;
 var devInfo = provider.GetDevices()[int.Parse(Opt("--device", "0")!)];
 // --split 0.5,0.5 opens the same GPU several times to exercise the multi-device pipeline path.
 var split = Opt("--split")?.Split(',').Select(double.Parse).ToArray() ?? [1.0];
@@ -47,15 +52,22 @@ if (Flag("--cpu-offload"))
     fallback = new DeviceSlot { Device = cpu.OpenDevice(cpu.GetDevices()[0]) };
 }
 
+// --image path (repeatable): the prompt is formatted with the model's chat template and the images are encoded by the
+// model's vision tower (HF checkpoints contain it; GGUF models need --mmproj vision.gguf).
+var imagePaths = Opts("--image");
+var imageTokens = Opt("--image-max-tokens") is not null || Opt("--image-min-tokens") is not null
+    ? new ImageTokenLimits(Opt("--image-min-tokens") is { } imn ? int.Parse(imn) : null, Opt("--image-max-tokens") is { } imx ? int.Parse(imx) : null) : null;
 using var model = LlmModel.Load(modelPath, new LlmLoadOptions
 {
+    Auxiliary = Opt("--mmproj") is { } mmproj ? [("mmproj", mmproj)] : [],
+    ImageTokens = imageTokens,
     Devices = slots,
     Fallback = fallback,
     ContextLength = int.Parse(Opt("--ctx", "4096")!),
     MaxBatchTokens = int.Parse(Opt("--batch", "256")!),
     Log = Console.Error.WriteLine,
 });
-var session = model.CreateSession();
+var session = model.CreateSession(imagePaths.Count > 0 ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph);
 // --save out.slm: store the built model and this device's compiled kernels + pipeline cache in one file. When the
 // model already is that package, the compiled target is appended to it instead.
 if (Opt("--save") is { } savePath)
@@ -111,19 +123,40 @@ if (Opt("--bench") is { } benchArg)
     fallback?.Device.Dispose();
     return;
 }
-var gen = new Generator(session, model.Tokenizer);
+VisionEncoder? vision = null;
+var images = new List<ImageInput>();
+if (imagePaths.Count > 0)
+{
+    vision = model.CreateVisionEncoder();
+    foreach (var path in imagePaths)
+    {
+        var img = ImageResult.FromMemory(File.ReadAllBytes(path), ColorComponents.RedGreenBlue);
+        images.Add(new ImageInput(img.Width, img.Height, img.Data));
+    }
+}
+var gen = new Generator(session, model.Tokenizer, vision);
 var prompt = Opt("-p", "The capital of France is")!.Replace("\\n", "\n");
+if (images.Count > 0)
+{
+    // Chat formatting: the template turns each image part into the model's placeholder tokens.
+    var template = new Sharplight.Templating.ChatTemplate(model.ChatTemplate ?? throw new InvalidOperationException("The model has no chat template."), "", "");
+    var parts = images.Select(_ => Sharplight.Templating.ChatContentPart.Image()).Append(Sharplight.Templating.ChatContentPart.FromText(prompt)).ToList();
+    prompt = template.Render([new Sharplight.Templating.ChatMessage("user", Parts: parts)], addGenerationPrompt: true,
+        new Dictionary<string, object?> { ["enable_thinking"] = Flag("--think") });
+}
 float temp = float.Parse(Opt("--temp", "0")!, System.Globalization.CultureInfo.InvariantCulture);
 var options = new GenerationOptions
 {
     MaxNewTokens = int.Parse(Opt("-n", "64")!),
     Sampling = temp <= 0 ? SamplingOptions.Greedy : new SamplingOptions { Temperature = temp, Seed = 42 },
 };
-Console.Write(prompt);
-foreach (var t in gen.Generate(prompt, options)) Console.Write(t.Text);
+if (images.Count == 0) Console.Write(prompt);
+foreach (var t in images.Count > 0 ? gen.Generate(prompt, images, options) : gen.Generate(prompt, options)) Console.Write(t.Text);
 Console.WriteLine();
 var s = gen.LastStats!;
 Console.Error.WriteLine($"prompt: {s.PromptTokens} tok in {s.PrefillTime.TotalMilliseconds:F0} ms ({s.PrefillTokensPerSecond:F1} tok/s) | generated: {s.GeneratedTokens} tok, {s.DecodeTokensPerSecond:F2} tok/s");
+if (images.Count > 0) Console.Error.WriteLine($"images: {images.Count} preprocessed and encoded in {gen.LastImageTime.TotalMilliseconds:F0} ms");
+vision?.Dispose();
 session.Dispose();
 foreach (var d in slots) d.Device.Dispose();
 fallback?.Device.Dispose();

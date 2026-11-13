@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
+    <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

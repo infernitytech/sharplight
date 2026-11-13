@@ -98,6 +98,12 @@ public enum InputRole
     /// <summary>Image / audio pixel or feature data.</summary>
     Media,
     Other,
+    /// <summary>
+    /// Per-row selector [T, 1] f32 of a graph that takes both token ids and embeddings: 1 = take the row from the
+    /// embeddings input, 0 = from the token embedding table (multimodal prompts mixing text and media).
+    /// Declared last so the stored values of the other roles (saved packages) stay valid.
+    /// </summary>
+    EmbeddingMask,
 }
 
 public sealed class InputDefinition
@@ -141,6 +147,8 @@ public static class WellKnown
 {
     public const string DecodeGraph = "decode";
     public const string VisionEncodeGraph = "vision_encode";
+    /// <summary>Decoder taking token ids, an embeddings input and a per-row mask (<see cref="InputRole.EmbeddingMask"/>): text mixed with media embeddings.</summary>
+    public const string DecodeMultimodalGraph = "decode_multimodal";
     public const string TokenSymbol = "T";
     public const string ContextSymbol = "ctx";
     public const string PastScalar = "n_past";

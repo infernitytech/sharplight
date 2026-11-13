@@ -3,6 +3,7 @@ using Sharplight.Architectures;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tokenizers;
+using Sharplight.Vision;
 
 namespace Sharplight.Llm;
 
@@ -21,6 +22,11 @@ public sealed class LlmLoadOptions
     public IReadOnlySet<string> DisabledFeatures { get; init; } = new HashSet<string>();
     /// <summary>Auxiliary model files, e.g. ("mmproj", path) for a vision projector.</summary>
     public IReadOnlyList<(string Role, string Path)> Auxiliary { get; init; } = [];
+    /// <summary>
+    /// Image token budget (output tokens per image): the vision encoder is compiled for at most
+    /// <c>MaxTokens</c> (default 1024) tokens per image and images are resized to fit; <c>MinTokens</c> upsizes small images.
+    /// </summary>
+    public ImageTokenLimits? ImageTokens { get; init; }
     public Action<string>? Log { get; init; }
 }
 
@@ -85,6 +91,21 @@ public sealed class LlmModel : IDisposable
         return new InferenceSession(Definition, compiled);
     }
 
+    /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>
+    public bool SupportsImages => Definition.Graphs.ContainsKey(WellKnown.VisionEncodeGraph);
+
+    /// <summary>
+    /// Compiles the vision encoder onto the configured devices. The returned encoder turns <see cref="ImageInput"/>s into
+    /// embeddings; pass it to a <see cref="Generator"/> (with a session created on <see cref="WellKnown.DecodeMultimodalGraph"/>).
+    /// </summary>
+    public VisionEncoder CreateVisionEncoder()
+    {
+        var sw = Stopwatch.StartNew();
+        var enc = VisionEncoder.Create(Definition, _options.Devices, _options.Fallback, _options.ImageTokens, _options.DisabledFeatures, CacheFor);
+        _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {enc.MaxPatches / enc.Parameters.MergeUnit} image tokens) in {sw.ElapsedMilliseconds} ms\n{enc.Compiled.Plan.Describe()}");
+        return enc;
+    }
+
     /// <summary>One recording cache per device target, seeded from caches stored in the model file.</summary>
     ICompilationCache CacheFor(IComputeDevice device)
     {
@@ -127,5 +148,6 @@ public static class BuiltinAdapters
     {
         if (Interlocked.Exchange(ref s_done, 1) == 1) return;
         ModelAdapterRegistry.Register(new Qwen35Adapter());
+        Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
     }
 }

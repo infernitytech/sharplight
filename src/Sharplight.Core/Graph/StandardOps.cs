@@ -39,7 +39,11 @@ public static partial class StandardOps
         (i, a) => [new TensorType(DataType.Get(a.Get<string>("type")), i[0].Shape)]);
 
     // ---- views ----------------------------------------------------------------------------
-    /// <summary>Reshape (row-major). Attribute: shape (long[]; -1 = infer, 0 = keep symbolic outer dim).</summary>
+    /// <summary>
+    /// Reshape (row-major). Attribute: shape (long[]; -1 = infer, 0 = keep symbolic outer dim). Optional attribute
+    /// <c>outer_symbol</c> (string): the first entry of <c>shape</c> is then a new symbolic outer dimension of that name
+    /// (e.g. N patches → M = N/4 merged tokens); the caller binds both symbols consistently at run time.
+    /// </summary>
     public static readonly OpSchema Reshape = new("Reshape", OpCategory.View, 1, 1, InferReshape);
 
     /// <summary>Strided slice along one axis. Attributes: axis, start, length.</summary>
@@ -202,6 +206,13 @@ public static partial class StandardOps
         var src = i[0].Shape;
         var req = a.Get<long[]>("shape");
         var dims = new Dim[req.Length];
+        if (a.Get("outer_symbol", "") is { Length: > 0 } outer)
+        {
+            if (!src[0].IsSymbolic || req.Length < 1 || req[0] != 0) throw new ArgumentException("Reshape outer_symbol needs a symbolic outer dimension and shape[0] = 0.");
+            dims[0] = Dim.Sym(outer);
+            for (int k = 1; k < req.Length; k++) dims[k] = req[k];
+            return [new(i[0].Type, new Shape(dims))];
+        }
         long known = 1; int infer = -1;
         bool srcSym = src.Rank > 0 && src[0].IsSymbolic;
         for (int k = 0; k < req.Length; k++)

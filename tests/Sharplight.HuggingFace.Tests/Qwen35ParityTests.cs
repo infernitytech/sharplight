@@ -73,7 +73,9 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
     {
         RequireModels(fx);
         var g = fx.Gguf!.Weights.Keys.ToHashSet();
-        var h = fx.Hf!.Weights.Keys.ToHashSet();
+        // The HF checkpoint also holds the vision tower (vision.*), which the text GGUF has in its separate mmproj file
+        // (see Sharplight.Vision.Tests for that parity).
+        var h = fx.Hf!.Weights.Keys.Where(k => !k.StartsWith("vision.", StringComparison.Ordinal)).ToHashSet();
         var onlyG = g.Except(h).Order().ToList();
         var onlyH = h.Except(g).Order().ToList();
         Assert.True(onlyG.Count == 0 && onlyH.Count == 0,
@@ -224,7 +226,9 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         var adapter = new Qwen35Adapter();
         var dg = adapter.Build(new ModelSourceSet { Primary = fx.Gguf! }, new AdapterOptions());
         var dh = ModelAdapterRegistryBuild(fx.Hf!);
-        Assert.Equal(dg.Graphs.Keys.Order(), dh.Graphs.Keys.Order());
+        // The text GGUF has no vision tower: its graphs are the HF model's minus the vision ones.
+        var visionGraphs = new[] { WellKnown.VisionEncodeGraph, WellKnown.DecodeMultimodalGraph };
+        Assert.Equal(dg.Graphs.Keys.Order(), dh.Graphs.Keys.Except(visionGraphs).Order());
         foreach (var (name, graph) in dg.Graphs)
             Assert.Equal(graph.Nodes.Count, dh.Graphs[name].Nodes.Count);
         Assert.Equal(dg.States.Count, dh.States.Count);

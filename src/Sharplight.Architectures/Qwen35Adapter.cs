@@ -1,6 +1,7 @@
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Tensors;
+using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
 
@@ -27,6 +28,12 @@ namespace Sharplight.Architectures;
 /// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>.</item>
 /// <item>Semantics: RMS norm weights multiply directly (any "1 + w" convention already folded in); value heads in
 /// tiled order; conv1d weights [channels, kernel] f32.</item>
+/// <item>Optional vision tower (image input): hyper-parameters <c>qwen3_5.vision.*</c> and weights <c>vision.*</c> exactly as
+/// documented on <see cref="VisionParameters"/>, found either in the primary source (e.g. Hugging Face checkpoints) or in an
+/// auxiliary source with role <see cref="AuxiliaryRoles.Mmproj"/> (e.g. a separate projector file); the adapter does not care
+/// which file they came from. With a tower the definition also has the <see cref="WellKnown.VisionEncodeGraph"/> and
+/// <see cref="WellKnown.DecodeMultimodalGraph"/> graphs and <c>vision.*</c> properties; prompt assembly is
+/// <see cref="Qwen35Multimodal"/>.</item>
 /// </list>
 /// </remarks>
 public sealed class Qwen35Adapter : IModelAdapter
@@ -90,47 +97,83 @@ public sealed class Qwen35Adapter : IModelAdapter
             }
         }
 
-        WeightInfo? Lookup(string n) => src.Weight(n);
+        // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
+        var visionSrc = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Mmproj) ?? src;
+        var vision = VisionParameters.FromMetadata(visionSrc.Metadata, visionSrc.Architecture + ".vision.");
+        if (vision is not null && !string.Equals(visionSrc.Architecture, src.Architecture, StringComparison.OrdinalIgnoreCase))
+            throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
+        var allWeights = src.Weights;
+        if (vision is not null && !ReferenceEquals(visionSrc, src))
+        {
+            var merged = new Dictionary<string, WeightInfo>(src.Weights, StringComparer.Ordinal);
+            foreach (var (k, w) in visionSrc.Weights) merged[k] = w;
+            allWeights = merged;
+        }
+        WeightInfo? Lookup(string n) => allWeights.TryGetValue(n, out var w) ? w : null;
         var graphs = new Dictionary<string, ComputeGraph>
         {
             [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false),
         };
         if (options.IncludeAuxiliaryGraphs)
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
+        if (vision is not null)
+        {
+            graphs[WellKnown.DecodeMultimodalGraph] = BuildTrunk(WellKnown.DecodeMultimodalGraph, embeddingsInput: true, mixed: true);
+            graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, Lookup);
+        }
 
         var eos = new List<int>();
         if (src.Has(CanonicalKeys.TokenizerEosId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
         if (src.Has(CanonicalKeys.TokenizerEotId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
 
+        var props = new Dictionary<string, object>
+        {
+            [WellKnown.VocabSize] = hp.Vocab,
+            [WellKnown.ContextLength] = hp.ContextLength,
+            [WellKnown.EmbeddingLength] = hp.NEmbd,
+            [WellKnown.PositionAxes] = 4,
+            [WellKnown.EosTokenIds] = eos.ToArray(),
+            ["n_layer"] = hp.NLayer,
+            ["mtp_layers"] = nextn,
+        };
+        if (vision is not null)
+        {
+            if (vision.OutHiddenSize != hp.NEmbd)
+                throw new InvalidDataException($"The vision tower produces {vision.OutHiddenSize}-wide embeddings but the language model's hidden size is {hp.NEmbd}.");
+            vision.WriteProperties(props);
+        }
+        var owned = new List<IDisposable>(src.OwnedResources);
+        if (!ReferenceEquals(visionSrc, src)) owned.AddRange(visionSrc.OwnedResources);
+
         return new ModelDefinition
         {
             Architecture = src.Architecture,
             Name = src.Get(CanonicalKeys.Name, src.Architecture),
-            Weights = src.Weights,
+            Weights = allWeights,
             Graphs = graphs,
             States = states,
             SourceMetadata = src.Metadata,
-            OwnedResources = src.OwnedResources,
-            Properties = new Dictionary<string, object>
-            {
-                [WellKnown.VocabSize] = hp.Vocab,
-                [WellKnown.ContextLength] = hp.ContextLength,
-                [WellKnown.EmbeddingLength] = hp.NEmbd,
-                [WellKnown.PositionAxes] = 4,
-                [WellKnown.EosTokenIds] = eos.ToArray(),
-                ["n_layer"] = hp.NLayer,
-                ["mtp_layers"] = nextn,
-            },
+            OwnedResources = owned,
+            Properties = props,
         };
 
-        ComputeGraph BuildTrunk(string name, bool embeddingsInput)
+        ComputeGraph BuildTrunk(string name, bool embeddingsInput, bool mixed = false)
         {
             var b = new GraphBuilder(name, Lookup);
             var T = Dim.Sym(WellKnown.TokenSymbol);
             Value x;
             using (b.Group("input"))
             {
-                if (embeddingsInput)
+                if (mixed)
+                {
+                    // Rows are token embeddings or media embeddings: x = tok·(1-mask) + emb·mask.
+                    var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                    var emb = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hp.NEmbd));
+                    var mask = b.Input("embedding_mask", InputRole.EmbeddingMask, DataType.F32, new Shape(T, 1));
+                    var tok = b.Gather(b.Weight("token_embedding.weight"), tokens, "tok_embd");
+                    x = b.Add(b.Mul(tok, b.Scale(mask, -1f, 1f)), b.Mul(emb, mask), "inp_embd");
+                }
+                else if (embeddingsInput)
                     x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hp.NEmbd));
                 else
                 {

@@ -26,7 +26,7 @@ public sealed partial class GraphLowerer
             case "Rope": LowerRope(n); break;
             case "Gather": LowerGather(n); break;
             case "CacheWrite": LowerCacheWrite(n); break;
-            case "CachedAttention": LowerAttention(n); break;
+            case "CachedAttention" or "Attention": LowerAttention(n); break;
             case "CausalConv1d": LowerConv(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
             default:
@@ -475,22 +475,29 @@ public sealed partial class GraphLowerer
 
     void LowerAttention(Node n)
     {
+        // "Attention": bidirectional self-attention over K/V given as plain tensors (vision encoders), every query sees all T keys.
+        bool full = n.Op.Name == "Attention";
         var q = Ref(n.Inputs[0]);
         var kc = Ref(n.Inputs[1]);
         var vc = Ref(n.Inputs[2]);
         if (q.Rank != 3 || q.Strides[2] != 1) q = DenseTemp(q, "attn-q");
+        if (full)
+        {
+            kc = AsDenseF32(kc, "attn-k");
+            vc = AsDenseF32(vc, "attn-v");
+        }
         var o = Produce(n.Output);
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
         var m = Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
-            ("SCALE", n.Attributes.Get<float>("scale")), ("KV_F16", kc.Type == DataType.F16), ("RT_N_PAST", Slot(n)));
+            ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", kc.Type == DataType.F16), ("FULL_ATTN", full), ("RT_N_PAST", full ? 0 : Slot(n)));
         var k = Lib("attention.slang", "main", m);
         var tq = q;
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
         // across SPLITS workgroups per head (flash decoding) and merged by a small combine kernel.
         const long SplitMaxRows = 4;
         int splits = (int)Math.Clamp((256 + HQ - 1) / HQ, 1, 32);
-        bool split = splits > 1 && s_attnSplit;
+        bool split = !full && splits > 1 && s_attnSplit;
         long rowsMax = tq.Shape[0];
         var part = o;
         if (split)
@@ -502,7 +509,7 @@ public sealed partial class GraphLowerer
         }
         var sm = new Dictionary<string, string>(m) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
         // Many queries (prefill): tensor-core flash attention when the device and shapes allow it.
-        bool fa = s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
+        bool fa = !full && s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
                   && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0;
         var variants = new List<KernelVariant>();
         if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));

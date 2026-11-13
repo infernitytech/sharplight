@@ -50,15 +50,18 @@ public sealed class GgufImporter : IModelImporter
             if (unmapped.Count > 0)
                 throw new NotSupportedException($"{path}: {unmapped.Count} tensor(s) of '{ggufArch}' have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
 
+            if (mapping is IGgufWeightTransformer transformer) transformer.Transform(weights, view);
+            string architecture = mapping.ResolveArchitecture(view);
+
             var metadata = new Dictionary<string, object>(ToCanonical(files.Metadata), StringComparer.Ordinal);
             // Drop llama.cpp's per-architecture keys; the mapping provides the canonical ones.
             foreach (var k in metadata.Keys.Where(k => k.StartsWith(ggufArch + ".", StringComparison.Ordinal)).ToList()) metadata.Remove(k);
             foreach (var (k, v) in mapping.MapHyperParameters(view)) metadata[k] = v;
-            metadata[CanonicalKeys.Architecture] = mapping.Architecture;
+            metadata[CanonicalKeys.Architecture] = architecture;
             return new ModelSource
             {
                 Format = "gguf",
-                Architecture = mapping.Architecture,
+                Architecture = architecture,
                 Metadata = metadata,
                 Weights = weights,
                 OwnedResources = [files],

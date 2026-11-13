@@ -137,7 +137,11 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint t = gid.y;
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
+#if FULL_ATTN
+    uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
+#else
     uint L = p.rt[RT_N_PAST] + t + 1;
+#endif
 #if SPLITS > 1
     uint split = gid.z;
     uint per = (L + SPLITS - 1) / SPLITS;
