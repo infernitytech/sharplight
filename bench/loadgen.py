@@ -6,6 +6,9 @@ word sequences (unique per request, so prefix caches cannot help) of about --pro
 default). Reports aggregate output tok/s, TTFT p50/p95, inter-token latency (mean of per-request mean gaps, plus p50/p95
 of all gaps), request latency and the actual prompt/completion token counts taken from the server's usage chunk.
 
+Mixed load (chunked prefill): with --long-prompt-words W --long-every K every K-th request of a worker sends a W-word
+prompt; the ITL p99 / max of the other streams then show how much a long prefill stalls running decodes.
+
 usage: loadgen.py --url http://127.0.0.1:8080 --model NAME -c 16 [--per-worker 3] [--max-tokens 128] [--json out.json]
 """
 import argparse, asyncio, json, random, statistics, sys, time
@@ -47,9 +50,12 @@ async def one(client, args, prompt):
     return {"ttft": times[0] - t0, "latency": t1 - t0, "gaps": gaps, "chunks": len(times),
             "prompt_tokens": (usage or {}).get("prompt_tokens"), "completion_tokens": (usage or {}).get("completion_tokens", len(times))}
 
-async def worker(client, args, rng, out):
-    for _ in range(args.per_worker):
-        out.append(await one(client, args, make_prompt(rng, args.prompt_words)))
+async def worker(client, args, rng, out, index):
+    for k in range(args.per_worker):
+        long = args.long_every > 0 and (k + index) % args.long_every == args.long_every - 1
+        r = await one(client, args, make_prompt(rng, args.long_prompt_words if long else args.prompt_words))
+        r["long"] = long
+        out.append(r)
 
 async def main():
     ap = argparse.ArgumentParser()
@@ -57,6 +63,8 @@ async def main():
     ap.add_argument("-c", "--concurrency", type=int, default=4); ap.add_argument("--per-worker", type=int, default=3)
     ap.add_argument("--prompt-words", type=int, default=250); ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--ignore-eos", action="store_true", help="send ignore_eos (vLLM, llama-server)")
+    ap.add_argument("--long-prompt-words", type=int, default=0, help="words of the occasional long prompt (mixed load)")
+    ap.add_argument("--long-every", type=int, default=0, help="every K-th request per worker is long (0 = never)")
     ap.add_argument("--warmup", type=int, default=1); ap.add_argument("--seed", type=int, default=1); ap.add_argument("--json")
     args = ap.parse_args()
     rng = random.Random(args.seed)
@@ -66,11 +74,13 @@ async def main():
             await asyncio.gather(*[one(client, args, make_prompt(rng, args.prompt_words)) for _ in range(min(args.concurrency, 4))])
         res = []
         t0 = time.perf_counter()
-        await asyncio.gather(*[worker(client, args, random.Random(args.seed * 1000 + i), res) for i in range(args.concurrency)])
+        await asyncio.gather(*[worker(client, args, random.Random(args.seed * 1000 + i), res, i) for i in range(args.concurrency)])
         wall = time.perf_counter() - t0
     ok = [r for r in res if "error" not in r]; errs = [r["error"] for r in res if "error" in r]
     toks = sum(r["completion_tokens"] for r in ok)
     gaps = [g for r in ok for g in r["gaps"]]
+    short = [r for r in ok if not r.get("long")]
+    short_gaps = [g for r in short for g in r["gaps"]]
     per_req_itl = [statistics.mean(r["gaps"]) for r in ok if r["gaps"]]
     ttft = [r["ttft"] for r in ok]
     out = {"concurrency": args.concurrency, "requests": len(res), "errors": len(errs), "wall_s": wall,
@@ -79,7 +89,10 @@ async def main():
            "per_stream_tok_s": 1 / statistics.mean(per_req_itl) if per_req_itl else float("nan"),
            "ttft_p50_ms": pct(ttft, 50) * 1e3, "ttft_p95_ms": pct(ttft, 95) * 1e3,
            "itl_mean_ms": statistics.mean(per_req_itl) * 1e3 if per_req_itl else float("nan"),
-           "itl_p50_ms": pct(gaps, 50) * 1e3, "itl_p95_ms": pct(gaps, 95) * 1e3,
+           "itl_p50_ms": pct(gaps, 50) * 1e3, "itl_p95_ms": pct(gaps, 95) * 1e3, "itl_p99_ms": pct(gaps, 99) * 1e3,
+           "itl_max_ms": max(gaps) * 1e3 if gaps else float("nan"),
+           "short_ttft_p95_ms": pct([r["ttft"] for r in short], 95) * 1e3,
+           "short_itl_p99_ms": pct(short_gaps, 99) * 1e3, "long_requests": len(ok) - len(short),
            "latency_p50_s": pct([r["latency"] for r in ok], 50), "error_samples": errs[:3]}
     print(json.dumps(out))
     if args.json: json.dump(out, open(args.json, "w"))
