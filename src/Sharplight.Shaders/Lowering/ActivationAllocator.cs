@@ -1,6 +1,5 @@
 namespace Sharplight.Shaders.Lowering;
 
-
 /// <summary>First-fit allocator for the activation arena (offsets aligned to 256 bytes).</summary>
 internal sealed class ActivationAllocator
 {

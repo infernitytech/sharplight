@@ -4,16 +4,15 @@ using System.Text;
 namespace Sharplight.Shaders;
 
 /// <summary>The embedded Slang kernel sources, extracted to a content-addressed directory on first use.</summary>
-public static class KernelLibrary
+internal static class KernelLibrary
 {
     private const string Prefix = "Sharplight.Kernels.";
     private static readonly Lazy<(string Dir, string Hash)> s_extracted = new(DoExtract);
 
+    /// <summary>Content hash of all kernel sources (part of every kernel cache key).</summary>
     public static string Hash => s_extracted.Value.Hash;
+    /// <summary>Directory holding the extracted kernel sources.</summary>
     public static string Extract() => s_extracted.Value.Dir;
-
-    public static IEnumerable<string> Files =>
-        typeof(KernelLibrary).Assembly.GetManifestResourceNames().Where(n => n.StartsWith(Prefix, StringComparison.Ordinal)).Select(n => n[Prefix.Length..]);
 
     private static (string, string) DoExtract()
     {

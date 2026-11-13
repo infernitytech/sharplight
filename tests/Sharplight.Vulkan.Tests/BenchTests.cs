@@ -9,12 +9,12 @@ namespace Sharplight.Vulkan.Tests;
 /// GPU micro-benchmarks (per-dispatch timestamps). Run with SHARPLIGHT_BENCH=1:
 /// <c>SHARPLIGHT_BENCH=1 dotnet run --project tests/Sharplight.Vulkan.Tests -- -class Sharplight.Vulkan.Tests.BenchTests</c>
 /// </summary>
-public class BenchTests
+public sealed class BenchTests
 {
     private static void RequireBench()
     {
         Gpu.Require();
-        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        Assert.SkipUnless(TestSwitches.BenchmarksEnabled, "set SHARPLIGHT_BENCH=1 to run benchmarks");
     }
 
     private static CompiledModel Compile(ComputeGraph g, long maxTokens = 8) => CompiledModel.Compile(g, new PlacementOptions
@@ -28,9 +28,12 @@ public class BenchTests
     private static (double Ms, string Report) Profile(CompiledModel m, int n, int iters = 20)
     {
         var seg = (VulkanSegment)m.Segments[0];
-        var p = new RunParameters(); p.Symbols["T"] = n; p.Scalars["n_past"] = 0;
+        var p = new RunParameters();
+        p.Symbols["T"] = n;
+        p.Scalars["n_past"] = 0;
         m.Run(p);   // warmup (pipelines)
-        seg.Profile = true; seg.ResetProfile();
+        seg.Profile = true;
+        seg.ResetProfile();
         for (int i = 0; i < iters; i++)
         {
             m.Run(p);
@@ -45,7 +48,8 @@ public class BenchTests
 
     private static void ConvBench(string label, int N, int C, int H, int W, int O, int k, int stride, int pad, int groups)
     {
-        var tg = new TG(); var x = tg.InF("x", TG.T, C, H, W);
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, C, H, W);
         var w = tg.RandW("w", DataType.F32, 0.1f, O, C / groups, k, k);
         var b = tg.RandW("b", DataType.F32, 0.1f, O);
         var y = tg.B.Emit1("Conv", [x, w, b], Attributes.From(("strides", new long[] { stride, stride }), ("pads", new long[] { pad, pad, pad, pad }), ("groups", (long)groups)));
@@ -53,7 +57,8 @@ public class BenchTests
         using var m = Compile(tg.B.Build());
         Feed(m, x, (long)N * C * H * W);
         var (ms, rep) = Profile(m, N);
-        long HO = y.Shape[2].Fixed, WO = y.Shape[3].Fixed;
+        long HO = y.Shape[2].Fixed;
+        long WO = y.Shape[3].Fixed;
         double gflop = 2.0 * N * O * HO * WO * (C / groups) * k * k * 1e-9;
         Console.WriteLine($"BENCH {label,-44} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s  ({gflop:F3} GFLOP)");
     }
@@ -65,7 +70,8 @@ public class BenchTests
         RequireBench();
         foreach (var (K, N) in new[] { (5120, 17408), (17408, 5120), (5120, 6144) })
         {
-            var tg = new TG(); var x = tg.InF("x", TG.T, K);
+            var tg = new TG();
+            var x = tg.InF("x", TG.T, K);
             var w = tg.RandW("w", DataType.Get(type), 0.05f, N, K);
             tg.B.Output("y", tg.B.MatMul(x, w));
             using var m = Compile(tg.B.Build(), 512);
@@ -114,9 +120,11 @@ public class BenchTests
 
     internal static ComputeGraph BuildResNet50(out TG tgOut, out Value input)
     {
-        var tg = new TG("resnet50"); tgOut = tg;
+        var tg = new TG("resnet50");
+        tgOut = tg;
         var n = new Net(tg);
-        var x = tg.InF("image", TG.T, 3, 224, 224); input = x;
+        var x = tg.InF("image", TG.T, 3, 224, 224);
+        input = x;
         var h = n.Conv(x, 3, 64, 7, 2, 3, true);
         h = tg.B.Emit1("Pool", [h], Attributes.From(("mode", "max"), ("kernel", new long[] { 3, 3 }), ("strides", new long[] { 2, 2 }), ("pads", new long[] { 1, 1, 1, 1 })));
         int c = 64;
@@ -125,7 +133,9 @@ public class BenchTests
         {
             for (int b = 0; b < blocks[stage]; b++)
             {
-                int s = b == 0 && stage > 0 ? 2 : 1, w = widths[stage], o = w * 4;
+                int s = b == 0 && stage > 0 ? 2 : 1;
+                int w = widths[stage];
+                int o = w * 4;
                 var y = n.Conv(h, c, w, 1, 1, 0, true);
                 y = n.Conv(y, w, w, 3, s, 1, true);
                 y = n.Conv(y, w, o, 1, 1, 0, false);

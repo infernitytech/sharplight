@@ -3,7 +3,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Vulkan.Tests;
 
 /// <summary>MatMulId (expert-indexed matmul): per-item matvec for few rows, grouped-by-expert GEMM for many.</summary>
-public class MoeTests
+public sealed class MoeTests
 {
     // Grouped (tensor-core / tiled) path above 16 (token, slot) items may round activations/weights to f16.
     private static double Atol(int items) => items > 16 ? 1.5e-1 : 2e-3;
@@ -70,7 +70,11 @@ public class MoeTests
     public void ChainedBlocks()
     {
         Gpu.Require();
-        int E = 8, K = 256, H = 256, S = 2, t = 40;
+        int E = 8;
+        int K = 256;
+        int H = 256;
+        int S = 2;
+        int t = 40;
         var tg = new TG();
         var x = tg.InF("x", TG.T, K);
         var ids = tg.In("ids", DataType.I32, TG.T, S);

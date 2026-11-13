@@ -3,7 +3,7 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
 
-public class ConvTests
+public sealed class ConvTests
 {
     private static void Run(string label, int[] batches, int C, int H, int W, int O, int KH, int KW, int[] stride, int[] pads, int[] dil, int groups,
         bool bias, string wtype = "f32", bool sliceInput = false, double atol = 2e-4, double rtol = 1e-4)

@@ -3,6 +3,8 @@ namespace Sharplight.Shaders.Lowering;
 /// <summary>Host-side weight layout transforms, applied row by row during upload (backend-neutral).</summary>
 public static class WeightRepacker
 {
+    /// <summary>Bytes per row of <paramref name="k"/> logical elements in the repacked layout.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">Unknown layout.</exception>
     public static long RowBytes(WeightRepack r, long k) => r switch
     {
         WeightRepack.Q8_0Split => k / 32 * 34,
@@ -10,6 +12,11 @@ public static class WeightRepacker
     };
 
     /// <summary>Transforms whole rows from <paramref name="src"/> into <paramref name="dst"/> (same length).</summary>
+    /// <param name="r">The layout to produce.</param>
+    /// <param name="k">Logical elements per row.</param>
+    /// <param name="src">Source rows in the file layout.</param>
+    /// <param name="dst">Receives the rows; must not overlap <paramref name="src"/>.</param>
+    /// <exception cref="ArgumentException">The spans differ in length or hold partial rows.</exception>
     public static void Apply(WeightRepack r, long k, ReadOnlySpan<byte> src, Span<byte> dst)
     {
         long rowBytes = RowBytes(r, k);

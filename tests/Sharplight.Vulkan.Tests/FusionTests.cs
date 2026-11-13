@@ -9,14 +9,16 @@ namespace Sharplight.Vulkan.Tests;
 /// elementwise + row norm, norm + elementwise, dual matvec + elementwise epilogue, L2Norm inside the delta rule,
 /// RmsNorm + rope (+ cache write).
 /// </summary>
-public class FusionTests
+public sealed class FusionTests
 {
     [Theory]
     [InlineData(1, 64)] [InlineData(5, 100)] [InlineData(3, 5120)]
     public void ResidualAddThenRmsNorm(int t, int d)
     {
         Gpu.Require();
-        var tg = new TG(); var x = tg.InF("x", TG.T, d); var r = tg.InF("r", TG.T, d);
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, d);
+        var r = tg.InF("r", TG.T, d);
         var h = tg.B.Add(x, r);
         tg.B.Output("h", h);                                       // group output still materialized
         tg.B.Output("n", tg.B.RmsNorm(h, tg.RandW("w", DataType.F32, 1f, d), 1e-6f));
@@ -29,7 +31,9 @@ public class FusionTests
     public void GatedRmsNorm(int t, int h, int d)
     {
         Gpu.Require();
-        var tg = new TG(); var o = tg.InF("o", TG.T, h, d); var z = tg.InF("z", TG.T, h * d);
+        var tg = new TG();
+        var o = tg.InF("o", TG.T, h, d);
+        var z = tg.InF("z", TG.T, h * d);
         var n = tg.B.RmsNorm(o, tg.RandW("w", DataType.F32, 1f, d), 1e-6f);
         tg.B.Output("y", tg.B.Mul(n, tg.B.Silu(tg.B.Reshape(z, 0, h, d))));
         Diff.Check("Fusion.norm+gate", tg.B.Build(), new Step(t, 0, (o, Rnd.F((long)t * h * d, 1)), (z, Rnd.F((long)t * h * d, 2))), atol: 2e-5, rtol: 1e-4, what: $"T={t}");
@@ -52,7 +56,8 @@ public class FusionTests
     {
         Gpu.Require();
         int K = 1024, N = 96;                                      // K >= 1024: split-K decode kernel
-        var tg = new TG(); var x = tg.InF("x", TG.T, K);
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
         var g = tg.B.MatMul(x, tg.RandW("wg", DataType.Get(fmt), 0.1f, N, K));
         var u = tg.B.MatMul(x, tg.RandW("wu", DataType.Get(fmt), 0.1f, N, K));
         tg.B.Output("y", tg.B.Mul(tg.B.Silu(g), u));
@@ -70,12 +75,14 @@ public class FusionTests
     public void L2NormedQkInDeltaRule(int Hk, int Hv, int Dk, int Dv)
     {
         Gpu.Require();
-        var tg = new TG(); var T = TG.T;
+        var tg = new TG();
+        var T = TG.T;
         var qkv = tg.InF("qkv", T, 2 * Hk * Dk + Hv * Dv);         // one strided buffer, as after the causal conv
         var q = tg.B.L2Norm(tg.B.Reshape(tg.B.Slice(qkv, 1, 0, Hk * Dk), 0, Hk, Dk), 1e-6f);
         var k = tg.B.L2Norm(tg.B.Reshape(tg.B.Slice(qkv, 1, Hk * Dk, Hk * Dk), 0, Hk, Dk), 1e-6f);
         var v = tg.B.Reshape(tg.B.Slice(qkv, 1, 2 * Hk * Dk, Hv * Dv), 0, Hv, Dv);
-        var gi = tg.InF("g", T, Hv); var bi = tg.InF("b", T, Hv);
+        var gi = tg.InF("g", T, Hv);
+        var bi = tg.InF("b", T, Hv);
         var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
         tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [q, k, v, gi, bi, st], Attributes.From(("scale", 1f / MathF.Sqrt(Dk))), writes: [st])[0]);
         int C = 2 * Hk * Dk + Hv * Dv;
@@ -90,20 +97,26 @@ public class FusionTests
     public void NormRopeIntoCache(string cacheType, int D, int rot)
     {
         Gpu.Require();
-        int Hq = 4, Hkv = 2, ctx = 32;
-        var tg = new TG(); var T = TG.T;
+        int Hq = 4;
+        int Hkv = 2;
+        int ctx = 32;
+        var tg = new TG();
+        var T = TG.T;
         var qf = tg.InF("qf", T, Hq, 2 * D);                       // q and gate interleaved per head (strided q)
         var q = tg.B.Slice(qf, 2, 0, D);
-        var ki = tg.InF("k", T, Hkv * D); var vi = tg.InF("v", T, Hkv, D);
+        var ki = tg.InF("k", T, Hkv * D);
+        var vi = tg.InF("v", T, Hkv, D);
         var pos = tg.In("pos", DataType.I32, T, 4);
         var rope = Attributes.From(("dims", rot), ("base", 10000f), ("style", "neox"), ("interleaved", true)).With("sections", new[] { rot / 8, rot / 8, rot / 4, 0 });
         q = tg.B.Emit1("Rope", [tg.B.RmsNorm(q, tg.RandW("qn", DataType.F32, 1f, D), 1e-6f), pos], rope);
         var k = tg.B.Emit1("Rope", [tg.B.RmsNorm(tg.B.Reshape(ki, 0, Hkv, D), tg.RandW("kn", DataType.F32, 1f, D), 1e-6f), pos], rope);
         var ct = DataType.Get(cacheType);
-        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
         tg.B.CacheWrite(kc, k); tg.B.CacheWrite(vc, vi);
         tg.B.Output("o", tg.B.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D)));
-        int[] chunks = [5, 1, 3, 1]; int past = 0;
+        int[] chunks = [5, 1, 3, 1];
+        int past = 0;
         var steps = new List<Step>();
         foreach (var (c, i) in chunks.Select((c, i) => (c, i)))
         {

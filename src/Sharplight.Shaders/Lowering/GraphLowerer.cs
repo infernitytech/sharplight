@@ -6,7 +6,6 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
-
 /// <summary>
 /// Lowers a graph segment into a backend-neutral <see cref="KernelProgram"/>:
 /// resolves views to strided tensor references, fuses elementwise chains into generated kernels,

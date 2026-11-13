@@ -4,7 +4,7 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
 
-public class SsmTests
+public sealed class SsmTests
 {
     // (H, P, N, G): tiny, odd sizes, Nemotron-H Nano 4B, Nemotron-3-Nano-30B.
     [Theory]
@@ -15,8 +15,10 @@ public class SsmTests
         Gpu.Require();
         int width = H * P + 2 * G * N;
         var tg = new TG();
-        var xi = tg.InF("x", TG.T, sliced ? width : H * P); var dti = tg.InF("dt", TG.T, H);
-        var bi = tg.InF("b", TG.T, G * N); var ci = tg.InF("c", TG.T, G * N);
+        var xi = tg.InF("x", TG.T, sliced ? width : H * P);
+        var dti = tg.InF("dt", TG.T, H);
+        var bi = tg.InF("b", TG.T, G * N);
+        var ci = tg.InF("c", TG.T, G * N);
         Value xv, bv, cv;
         if (sliced)
         {
@@ -24,7 +26,12 @@ public class SsmTests
             bv = tg.B.Reshape(tg.B.Slice(xi, 1, H * P, G * N), 0, G, N);
             cv = tg.B.Reshape(tg.B.Slice(xi, 1, H * P + G * N, G * N), 0, G, N);
         }
-        else { xv = tg.B.Reshape(xi, 0, H, P); bv = tg.B.Reshape(bi, 0, G, N); cv = tg.B.Reshape(ci, 0, G, N); }
+        else
+        {
+            xv = tg.B.Reshape(xi, 0, H, P);
+            bv = tg.B.Reshape(bi, 0, G, N);
+            cv = tg.B.Reshape(ci, 0, G, N);
+        }
         var dtb = tg.RandW("dtb", DataType.F32, 1f, H);
         var A = tg.RandW("A", DataType.F32, 1f, H);
         var Dw = tg.RandW("D", DataType.F32, 1f, H);
@@ -44,7 +51,8 @@ public class SsmTests
     public void CausalConvBiasAcrossSteps(int C, int K, bool silu)
     {
         Gpu.Require();
-        var tg = new TG(); var x = tg.InF("x", TG.T, C);
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, C);
         var w = tg.RandW("w", DataType.F32, 1f, C, K);
         var bias = tg.RandW("bias", DataType.F32, 1f, C);
         var state = tg.State("cs", DataType.F32, StateKind.Recurrent, K - 1, C);

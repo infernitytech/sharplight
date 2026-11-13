@@ -9,7 +9,7 @@ namespace Sharplight.Vulkan.Tests;
 /// Submission budget (<see cref="DeviceInfo.SubmissionBudgetMs"/>): with a tiny budget every launch becomes its own submission;
 /// results must still match the CPU oracle, across the calibration run, plan replay and different token counts.
 /// </summary>
-public class SubmissionBudgetTests
+public sealed class SubmissionBudgetTests
 {
     [Theory]
     [InlineData("0.001")]   // every launch alone
@@ -25,7 +25,8 @@ public class SubmissionBudgetTests
         using var dev = provider.OpenDevice(info, opts);
 
         const int H = 64, F = 96, Hq = 4, Hkv = 2, D = 16;
-        var tg = new TG(); var T = TG.T;
+        var tg = new TG();
+        var T = TG.T;
         var x = tg.InF("x", T, H);
         var w1 = tg.RandW("w1", DataType.F32, 0.3f, F, H);
         var w2 = tg.RandW("w2", DataType.F32, 0.3f, H, F);
@@ -51,7 +52,8 @@ public class SubmissionBudgetTests
         int past = 0;
         foreach (int t in new[] { 20, 20, 7, 1, 1, 20 })   // repeated token counts replay a plan
         {
-            var xs = Rnd.F(t * H, 10 + past); var qs = Rnd.F(t * Hq * D, 20 + past);
+            var xs = Rnd.F(t * H, 10 + past);
+            var qs = Rnd.F(t * Hq * D, 20 + past);
             foreach (var m in new[] { vk, cpu })
             {
                 m.SetInput(x, MemoryMarshal.AsBytes(xs.AsSpan())); m.SetInput(q, MemoryMarshal.AsBytes(qs.AsSpan()));
@@ -62,7 +64,8 @@ public class SubmissionBudgetTests
             foreach (var (name, v) in g.Outputs)
             {
                 long n = t * (name == "h" ? H : Hq * D);
-                var a = new float[n]; var b = new float[n];
+                var a = new float[n];
+                var b = new float[n];
                 vk.GetOutput<float>(name, a); cpu.GetOutput<float>(name, b);
                 for (long i = 0; i < n; i++)
                 {

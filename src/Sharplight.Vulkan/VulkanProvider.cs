@@ -12,10 +12,14 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
     private static VulkanInstance? s_instance;
     private static string? s_initError;
 
+    /// <inheritdoc />
     public string Name => "vulkan";
 
-    /// <summary>Enable the Khronos validation layer for instances created after this is set.</summary>
-    public static bool EnableValidation { get; set; } = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_VALIDATION") == "1";
+    /// <summary>
+    /// Enables the Khronos validation layer for the Vulkan instance, which is created on first use: set it before the
+    /// first provider call. Process-wide; defaults to on when <c>SHARPLIGHT_VK_VALIDATION=1</c>.
+    /// </summary>
+    public static bool EnableValidation { get; set; } = DiagnosticSwitches.Validation;
 
     internal static VulkanInstance Instance
     {
@@ -46,6 +50,7 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         }
     }
 
+    /// <inheritdoc />
     public ProviderAvailability CheckAvailability()
     {
         try
@@ -66,6 +71,8 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>Devices lacking a required feature are not listed; their index in <see cref="DeviceInfo.Index"/> still refers to the Vulkan enumeration order.</remarks>
     public IReadOnlyList<DeviceInfo> GetDevices()
     {
         var inst = Instance;
@@ -83,6 +90,8 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         return list;
     }
 
+    /// <inheritdoc />
+    /// <exception cref="ArgumentException"><paramref name="device"/> was listed by another provider.</exception>
     public IComputeDevice OpenDevice(DeviceInfo device, DeviceOptions? options = null)
     {
         if (device.Provider != Name)
@@ -93,5 +102,9 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         return new VulkanDevice(Instance, Instance.PhysicalDevices[device.Index], device, options ?? new DeviceOptions());
     }
 
-    public void Dispose() { }
+    /// <inheritdoc />
+    /// <remarks>Does nothing: the Vulkan instance is process-wide and lives until exit.</remarks>
+    public void Dispose()
+    {
+    }
 }
