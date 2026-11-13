@@ -3,7 +3,7 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type).</summary>
+/// <summary>Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type: f32, f16, bf16, or q8_0 / q4_0 blocks).</summary>
 internal sealed unsafe class CacheWriteOp : CpuOp
 {
     private readonly TRef _state;
@@ -15,6 +15,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
     private readonly TRef? _seqRows;
     private readonly long _slotCtx;
     private readonly long _rowsPerToken;
+    private readonly WeightFormat? _quantized;   // q8_0 / q4_0 cache: rows are quantized in 32-value blocks
     private long _past;
     private long _rows;
     private long _per;
@@ -40,6 +41,15 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         }
 
         _rowLen = x.Dims[^1];
+        if (Quant.FormatOf(state.Type) is { } format && Quant.CanQuantize(format))
+        {
+            _quantized = format;
+            if (_rowLen % 32 != 0)
+            {
+                throw new ArgumentException($"CacheWrite: {state.Type} cache rows must be a multiple of 32 values.");
+            }
+        }
+
         long xi = 1;
         for (int i = 1; i < x.Rank; i++)
         {
@@ -112,6 +122,10 @@ internal sealed unsafe class CacheWriteOp : CpuOp
             if (type == DataType.F32)
             {
                 Buffer.MemoryCopy(src, (float*)_state.P + dstElem, _rowLen * 4, _rowLen * 4);
+            }
+            else if (_quantized is { } format)
+            {
+                Quant.Quantize(format, src, _rowLen, _state.P + dstElem / 32 * Quant.BlockBytes(format));
             }
             else if (type == DataType.F16) { ushort* d = (ushort*)_state.P + dstElem; for (long i = 0; i < _rowLen; i++)
                 {

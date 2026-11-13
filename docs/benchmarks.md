@@ -477,3 +477,33 @@ context, because four modes are measured). Step ms, minimum over 30 steps, logit
 Aggregate throughput with device greedy sampling at batch 16: 27B 382 tok/s (44 at batch 1), Mistral 1486 (238), Llama-1B 3712
 (741), OLMoE 1639 (709). The Llama-1B logits column at 16-64 rows is dominated by the 128k-entry logits readback and varies by 2x
 between runs; the OLMoE batch-32 row was disturbed by another GPU user (its no-logits step measured 13.4 ms in the same run).
+
+## 9. Multi-head latent attention on tensor cores (2026-11-13)
+
+DeepSeek-V2-Lite (16 heads, cache rows 576 = 512 latent + 64 rope) and MiniCPM3-4B (40 heads, 288 = 256 + 32) attend in the
+absorbed form: one cache row per token serves as key (all 576 values) and value (the first 512) for every head. The generic
+kernels read that row once per head; `fa_mqa` (`attention.slang`) runs the 16 heads of one query row as the 16 rows of a
+cooperative-matrix tile, so each cache row is loaded once per workgroup and S = QKᵀ and O = PV run on tensor cores
+(f16 in, f32 accumulate). The same kernel does prefill and split-K decode (grid z = key ranges, merged by `decode_combine`).
+The expanded alternative (decompress K/V per head, then the regular flash kernel) was rejected after measuring that attention was
+80 % of prefill time at 2048 tokens (795 of 990 ms), i.e. the absorbed kernel itself was the problem. `SHARPLIGHT_ATTN_MQA=0`
+restores the previous kernels.
+
+`sharplight MODEL --bench N --ctx N+256 --batch 512`, best prefill / median decode, tok/s:
+
+| model | N | prefill before | prefill after | decode before | decode after |
+|---|---|---|---|---|---|
+| DeepSeek-V2-Lite Q4_K_M | 512 | 5531 | 10831 | 280 | 327 |
+| | 2048 | 2000 | 9675 | 175 | 311 |
+| | 4096 | 1067 | 8462 | 152 | 297 |
+| MiniCPM3-4B | 512 | 3790 | 12008 | 135 | 170 |
+| | 2048 | 977 | 8375 | 134 | 168 |
+| | 4096 | 493 | 6364 | 124 | 168 |
+
+Kernel level (`BenchTests.LatentAttention`, DeepSeek shape): decode at 4096 keys 69.6 → 22.5 µs including the combine; a 512-row
+prefill chunk at 3584 keys of history 712 µs. llama.cpp CUDA b11177 (`-fa 1`), measured in the same session on the shared GPU:
+DeepSeek pp512 3906, pp2048 2652, tg128 108; MiniCPM3 pp512 2150, pp2048 1002, tg128 42. These are far below the figures quoted
+earlier (12.9k / 9.9k prefill) and were not investigated further. MiniCPM3 decode is bound by its per-head expert-style matmuls,
+not attention (~12 % of the step).
+
+Quantised KV caches (`--kv-type q8_0|q4_0`): memory, speed and accuracy are in [kv-cache.md](kv-cache.md#24-quantised-kv-storage-implemented).

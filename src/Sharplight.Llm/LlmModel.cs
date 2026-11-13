@@ -68,7 +68,16 @@ public sealed class LlmModel : IDisposable
     {
         var sw = Stopwatch.StartNew();
         var sources = ModelImporterRegistry.OpenSet(path, [.. options.Auxiliary]);
-        var def = ModelAdapterRegistry.Build(sources, options.Adapter.ContextLength > 0 ? options.Adapter : options.Adapter.WithContext(options.ContextLength));
+        var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
+            options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength);
+        var def = ModelAdapterRegistry.Build(sources, adapter);
+        var kvStates = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
+        int kept = kvStates.Count(st => st.Type != adapter.KvCacheType);
+        if (kept > 0 && adapter.KvCacheType.BlockSize > 1)
+        {
+            options.Log?.Invoke($"KV cache: {kept} of {kvStates.Count} caches stay f16 (rows are not whole {adapter.KvCacheType} blocks).");
+        }
+
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
         return new LlmModel(def, sources.Primary, tok, options);

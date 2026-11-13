@@ -34,6 +34,14 @@ public sealed partial class GraphLowerer
 
     private TensorRef DenseInput(Value v, string name) => EnsureDense(Ref(v), name);
 
+    /// <summary>Whether a KV-cache type is one of the quantized block formats (q8_0, q4_0) the attention kernels read.</summary>
+    internal static bool IsQuantizedKv(DataType type) => type == DataType.Q8_0 || type == DataType.Q4_0;
+
+    /// <summary>The <c>KV_FMT</c> / <c>DST_FMT</c> kernel id (the <c>FMT_*</c> ids of common.slang) of a KV-cache type.</summary>
+    private static int KvFormat(DataType type) => s_weightFormats.TryGetValue(type, out int id) && (type == DataType.F32 || type == DataType.F16 || IsQuantizedKv(type))
+        ? id
+        : throw new NotSupportedException($"KV cache type {type}");
+
     private static KernelArg[] SeqArgs(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>().Select(t => (KernelArg)Pointer(t))];
 
     private void LowerCacheWrite(Node n)
@@ -49,17 +57,21 @@ public sealed partial class GraphLowerer
         x = PrepareRows3(x, "cache", out long r1, out long s0, out long s1);
         long inner = x.Shape[^1];
         bool f16 = state.Type == DataType.F16;
-        if (!f16 && state.Type != DataType.F32)
+        bool quantized = IsQuantizedKv(state.Type);
+        if (!f16 && !quantized && state.Type != DataType.F32)
         {
             throw new NotSupportedException($"Cache type {state.Type}");
         }
 
         var seq = n.Inputs.Length > 2 ? DenseInput(n.Inputs[2], "seq-rows") : null;
-        var k = Lib("data.slang", "cache_write", Macros(("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
-            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state))));
+        var macros = Macros(("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
+            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state)));
+        macros["DST_FMT"] = KvFormat(state.Type).ToString(CultureInfo.InvariantCulture);
+        var k = Lib("data.slang", quantized ? "cache_write_q" : "cache_write", macros);
+        long perThread = quantized ? 32 : 1;   // the quantizing kernel writes one 32-value block per thread
         var tx = x;
         Emit($"cache_write {state.Buffer.Name}", [n],
-            [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1 * inner, 128)))],
+            [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1 * inner / perThread, 128)))],
             [Pointer(x), Pointer(state), new PointerArg(_runtime, 0), .. SeqArgs(seq), TokenArg(x)],
             seq is null ? [x] : [x, seq], [state]);
     }
@@ -189,7 +201,7 @@ public sealed partial class GraphLowerer
 
         var macros = Macros(
             ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, k)), ("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("VRS", valueRowStride),
-            ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16),
+            ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
             ("SPANS", spans is not null), ("CAUSAL", causal));
@@ -226,7 +238,7 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Many queries (prefill, vision encoders): tensor-core flash attention (f16 Q/K/V/P) when the device and shapes allow
     /// it. Head sizes are padded in the kernel; the padded tiles must fit shared memory. f32 caches keep the exact kernel
-    /// unless reduced precision is allowed.
+    /// unless reduced precision is allowed; quantized caches are converted to f16 tiles.
     /// </summary>
     private bool CanUseFlashAttention(AttentionPlan plan)
     {
@@ -234,7 +246,7 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 63) / 64 * 64;
         long paddedKV = Math.Max(paddedD, paddedDV);
         long sharedBytes = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 32 * 4 + 32 * 40 * 2 + 32 * 64 * 4;
-        bool typeAllowed = plan.K.Type == DataType.F16 || (plan.K.Type == DataType.F32 && (plan.Full || _opt.Compile.AllowReducedPrecision));
+        bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type) || (plan.K.Type == DataType.F32 && (plan.Full || _opt.Compile.AllowReducedPrecision));
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256

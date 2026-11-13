@@ -91,6 +91,9 @@ public sealed class BenchTests
     [Theory]
     [InlineData(16, 576, 512, "f16")]
     [InlineData(40, 288, 256, "f16")]
+    [InlineData(16, 576, 512, "q8_0")]
+    [InlineData(16, 576, 512, "q4_0")]
+    [InlineData(40, 288, 256, "q8_0")]
     public void LatentAttention(int heads, int D, int valueDims, string cacheType)
     {
         RequireBench();

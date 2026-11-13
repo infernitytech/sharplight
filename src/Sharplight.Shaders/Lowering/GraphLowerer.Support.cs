@@ -87,6 +87,7 @@ public sealed partial class GraphLowerer
         var opSpecific = op switch
         {
             "CachedAttention" => SupportsCachedAttention(node),
+            "CacheWrite" => SupportsKvRows(node.Inputs[0]),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
             "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
@@ -103,7 +104,7 @@ public sealed partial class GraphLowerer
 
         foreach (var v in node.Inputs)
         {
-            if (v.Type.IsQuantized && op is not ("MatMul" or "Gather"))
+            if (v.Type.IsQuantized && op is not ("MatMul" or "Gather" or "CacheWrite" or "CachedAttention"))
             {
                 return OpSupport.No($"{op} cannot read quantized {v.Type}");
             }
@@ -130,7 +131,30 @@ public sealed partial class GraphLowerer
             return OpSupport.No($"CachedAttention: key head size {keyDims.Fixed} is not a multiple of 8");
         }
 
-        return OpSupport.Yes;
+        if (node.Inputs[1].Type != node.Inputs[2].Type)
+        {
+            return OpSupport.No($"CachedAttention: K and V caches of different types ({node.Inputs[1].Type}, {node.Inputs[2].Type})");
+        }
+
+        return SupportsKvRows(node.Inputs[1]) is { IsSupported: false } keys ? keys : SupportsKvRows(node.Inputs[2]);
+    }
+
+    /// <summary>KV-cache storage the kernels read and write: f32, f16, or q8_0 / q4_0 rows of whole 32-value blocks.</summary>
+    private static OpSupport SupportsKvRows(Value cache)
+    {
+        if (cache.Type == DataType.F32 || cache.Type == DataType.F16)
+        {
+            return OpSupport.Yes;
+        }
+
+        if (!IsQuantizedKv(cache.Type))
+        {
+            return OpSupport.No($"KV cache type {cache.Type}");
+        }
+
+        return cache.Shape[-1] is { IsSymbolic: false } rowDims && rowDims.Fixed % 32 == 0
+            ? OpSupport.Yes
+            : OpSupport.No($"{cache.Type} KV cache rows must be a multiple of 32 values");
     }
 
     /// <summary>Bidirectional attention over plain K/V tensors, optionally with i32 [rows, 2] key spans.</summary>

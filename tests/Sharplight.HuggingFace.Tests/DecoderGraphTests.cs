@@ -129,4 +129,20 @@ public class DecoderGraphTests
         var windows = Nodes(def, "CachedAttention").Select(a => a.Attributes.Get("window", 0)).ToList();
         Assert.Equal([64, 0], windows);
     }
+    [Theory]
+    [InlineData("q8_0", 128, "q8_0")]
+    [InlineData("q4_0", 64, "q4_0")]
+    [InlineData("q8_0", 80, "f16")]     // not whole 32-value blocks: stays f16
+    [InlineData("f32", 80, "f32")]
+    public void KvCacheTypeFallsBackToF16ForPartialBlocks(string requested, int rowLength, string expected)
+        => Assert.Equal(DataType.Get(expected), new AdapterOptions { KvCacheType = DataType.Get(requested) }.KvCacheTypeFor(rowLength));
+
+    [Fact]
+    public void QuantizedKvCacheTypeKeepsF16ForSmallHeads()
+    {
+        var def = new DecoderAdapter().Build(new ModelSourceSet { Primary = Source() }, new AdapterOptions { KvCacheType = DataType.Q8_0 });
+        var caches = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
+        Assert.Equal(2 * Layers, caches.Count);
+        Assert.All(caches, st => Assert.Equal(DataType.F16, st.Type));   // head_dim 4
+    }
 }

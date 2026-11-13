@@ -38,6 +38,7 @@ internal sealed class HybridAttention
     public (StateDefinition Keys, StateDefinition Values) DefineStates(string group, DataType cacheType)
     {
         var shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _kvHeads, _headDim);
+        cacheType = AdapterOptions.KvRowType(cacheType, _headDim);
         var keys = new StateDefinition { Name = $"{group}.k_cache", Type = cacheType, Shape = shape, Kind = StateKind.KeyCache, Group = group };
         var values = new StateDefinition { Name = $"{group}.v_cache", Type = cacheType, Shape = shape, Kind = StateKind.ValueCache, Group = group };
         return (keys, values);

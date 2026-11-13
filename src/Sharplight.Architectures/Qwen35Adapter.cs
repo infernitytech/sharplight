@@ -153,8 +153,8 @@ public sealed class Qwen35Adapter : IModelAdapter
             }
             else
             {
-                states.Add(kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheType, Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.KeyCache, Group = g });
-                states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheType, Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
+                states.Add(kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.KeyCache, Group = g });
+                states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
             }
 
             if (hp.NGram?.Layer == il)

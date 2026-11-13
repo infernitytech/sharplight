@@ -1,7 +1,8 @@
 # KV cache: paged blocks, prefix sharing, quantised storage (design)
 
-Status: design. Today's cache and its limits are described first, then the target design, the order in which it lands and
-how each step is tested. Nothing here changes the public API until step 3; the engine-facing contract is `IBatchDecoder`.
+Status: step 1 (quantised KV storage, section 2.4) is implemented; the rest is design. Today's cache and its limits are
+described first, then the target design, the order in which it lands and how each step is tested. The engine-facing contract
+is `IBatchDecoder`.
 
 ## 1. Today
 
@@ -14,8 +15,8 @@ how each step is tested. Nothing here changes the public API until step 3; the e
 - Prefix reuse is per slot: a finished slot keeps its tokens, and a new request whose prompt starts with them is put into
   that slot and skips the shared part (`EngineOptions.PrefixCache`, `GenerationUsage.CachedTokens`). Two concurrent requests
   with the same system prompt each compute and store it.
-- Storage is `AdapterOptions.KvCacheType` (F16 default, F32 possible). The CPU backend accepts F16/F32 only
-  (`CpuOpSupport.IsKvCacheType`), Vulkan likewise.
+- Storage is `LlmLoadOptions.KvCacheType` / `AdapterOptions.KvCacheType`: F16 (default), F32, Q8_0 or Q4_0 (section 2.4),
+  on the CPU and on Vulkan.
 - Recurrent state (Mamba, RWKV, gated delta nets, conv) has a leading `[S]` slot dimension and is small and fixed; it is not
   part of this design except where noted (prefix sharing cannot reuse it).
 
@@ -72,36 +73,67 @@ and per compile like the other device features, with the contiguous path as the 
 - Hybrid models: the recurrent state at the end of a shared prefix is not stored, so prefix sharing is disabled for models
   with recurrent state (as speculation is). A later step can snapshot recurrent state at block boundaries.
 
-### 2.4 Quantised KV storage
+### 2.4 Quantised KV storage (implemented)
 
-Formats (per row of `head_dim` values, blocks of 32 along `head_dim`, same bit layout as GGUF so existing dequant helpers
-apply):
+Formats (per row of `head_dim` values, blocks of 32 along `head_dim`, the GGUF bit layout, so the CPU dequantisers apply):
 
 | type | bytes per 32 values | vs F16 | notes |
 |---|---|---|---|
 | F16 | 64 | 1x | default |
-| Q8_0 | 34 (f16 scale + 32 × i8) | 0.53x | perplexity change typically < 0.1 % |
-| Q4_0 | 18 (f16 scale + 32 × 4 bit) | 0.28x | opt-in; noticeable quality loss on small models, mainly for V |
+| Q8_0 | 34 (f16 scale + 32 × i8) | 0.53x | scale amax / 127, round to nearest |
+| Q4_0 | 18 (f16 scale + 32 × 4 bit) | 0.28x | scale = value of largest magnitude / -8 (llama.cpp's reference quantiser) |
 
-- `CacheWrite` quantises the new rows on write (one workgroup per row block: max-abs reduction, scale, round).
-- Attention dequantises in the inner loop: K tiles feed the QK dot product as `scale × int8` (on Vulkan with an int8 dot product
-  where the device supports it, else converted to f16 in shared memory), V tiles are dequantised when
-  loaded. CPU: the same per-block dequant in the vectorised attention kernel.
-- Separate K and V types (`KvCacheTypeK`, `KvCacheTypeV`), since K is more sensitive than V.
-- Feature detection as above: a device or backend without the quantised kernels rejects the type at compile time and the
-  loader falls back to F16 with a log line (never a hard failure).
+Selecting it: `LlmLoadOptions.KvCacheType` (overrides `AdapterOptions.KvCacheType`), `--kv-type f16|f32|q8_0|q4_0` in the CLI
+and in `sharplight-serve`. The adapters declare each KV state through `AdapterOptions.KvCacheTypeFor(row length)`: a cache whose
+rows per head are not whole 32-value blocks stays F16, and `LlmModel.Load` logs how many did. K and V share one type, and the
+MLA latent cache (one row holds keys and values) is quantised as a whole. `EstimateFootprint` and placement size states from
+their types, so the smaller cache shows up in the slot / layer budget.
+
+Kernels:
+
+- `CacheWrite`: Vulkan `cache_write_q` (`data.slang`), one thread per 32-value block, 16-bit stores (blocks are 2-byte
+  aligned); CPU `Quant.Quantize`. The rope → cache-write fusion is skipped for quantised caches (one more dispatch per layer).
+- `CachedAttention` on Vulkan (`attention.slang`, macro `KV_FMT`): every path reads the cache through one set of helpers
+  (`Kv8`, `load_kv8`, `unpack_kv8`, `kv8_to_half`): the scalar `main` kernel, split-K `decode`, the tensor-core `fa` (K/V tiles
+  converted to f16 in shared memory) and the shared-row MLA kernel `fa_mqa`, which loads whole blocks with 32-bit loads.
+  CPU: rows dequantised per key before the dot product / axpy.
+- Not done: int8 dot products for K (the f16 tile path is used), separate K and V types, the fallback when a backend
+  lacks the quantised kernels (both backends have them; an unsupported shape falls back to F16 at definition time).
+
+Measured (2026-11-13, RTX PRO 6000 shared with other jobs, `sharplight MODEL --bench 4096 --ctx 32768 --kv-type T`; accuracy:
+last-token logits after a 2.8k-token prompt, KL divergence from the F16-cache run):
+
+| model | KV type | weights + state | prefill 4096 tok/s | decode tok/s @ 4k | KL vs F16 | top-1 |
+|---|---|---|---|---|---|---|
+| Mistral-7B Q4_K_M | f16 | 8.07 GiB | 8109 | 227 | – | – |
+| | q8_0 | 6.20 GiB | 7401 | 215 | 0.0006 | same |
+| | q4_0 | 5.20 GiB | 7269 | 215 | 0.079 | same |
+| DeepSeek-V2-Lite Q4_K_M (MLA) | f16 | 10.64 GiB | 8637 | 304 | – | – |
+| | q8_0 | 10.19 GiB | 8201 | 289 | 0.0045 | same |
+| | q4_0 | 9.95 GiB | 8272 | 290 | 0.47 | same |
+| MiniCPM3-4B (MLA) | q8_0 / q4_0 | | | | 0.000 / 0.0002 | same |
+| Qwen3-0.6B Q8_0 | q8_0 / q4_0 | | | | 0.018 / 3.8 | differs |
+
+- Memory: the KV share of the footprint shrinks to 0.53x (q8_0) and 0.28x (q4_0): Mistral at 32k context 4 GiB → 2.1 / 1.1 GiB.
+- Speed: 5-9 % slower prefill and decode than F16 (more ALU per loaded value; the decode kernel issues five 16-bit loads per
+  8 values). Worth it where memory limits context or concurrency, not for speed.
+- Accuracy: q8_0 is close to F16. q4_0 is model dependent: fine on Mistral and MiniCPM3, poor on DeepSeek's latent cache and
+  unusable on Qwen3-0.6B, whose keys have large outlier channels. CPU and Vulkan agree to the same KL (Qwen3-0.6B: q8_0 0.012 /
+  0.018, q4_0 3.72 / 3.77), so the loss is the format's, not a kernel error.
+- Tests: `StatefulTests.CachedAttention*` (Vulkan: q8_0 / q4_0 through decode, split-K, flash and the MLA kernels against a
+  reference on the dequantised cache) and `StatefulOpTests.CachedAttentionAcrossCalls` (CPU, q8_0 / q4_0 against the reference
+  on rounded keys and values); `BenchTests.LatentAttention` has q8_0 / q4_0 cases.
 
 ## 3. Steps
 
-1. Quantised KV in the contiguous layout (independent of paging): Q8_0 `CacheWrite` + `CachedAttention` for CPU and Vulkan,
-   `LlmLoadOptions.KvCacheType` / `--kv-type` in `sharplight-serve`, footprint estimate updated. Coordinate with the GPU-kernel
-   work (attention shaders are shared).
+1. Done: quantised KV in the contiguous layout (independent of paging): Q8_0 and Q4_0 `CacheWrite` + `CachedAttention` for
+   CPU and Vulkan, `LlmLoadOptions.KvCacheType` / `--kv-type`, footprint estimate from the state types.
 2. Paged ops (`block_table` input, paged `CacheWrite` / `CachedAttention`) with a trivial block manager that gives each slot
    a fixed range of blocks: bit-identical outputs to today, proves the ops.
 3. `KvBlockPool` + dynamic allocation + admission by blocks + preemption by recompute; `IBatchDecoder` gains
    `KvBlocksFree` / `KvBlockSize` and per-sequence block management (`Truncate`, `Reset` release blocks).
 4. Prefix sharing by block hashes (attention-only models), `n > 1` sharing with copy-on-write.
-5. Optional: Q4_0, host swap, recurrent-state snapshots for hybrid prefix sharing.
+5. Optional: host swap, recurrent-state snapshots for hybrid prefix sharing.
 
 ## 4. Testing and acceptance
 

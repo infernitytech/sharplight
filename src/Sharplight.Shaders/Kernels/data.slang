@@ -36,11 +36,12 @@ void gather(uint3 dtid : SV_DispatchThreadID, uniform GatherParams p)
 
 #endif
 
-#ifdef KERNEL_CACHE_WRITE
+#if defined(KERNEL_CACHE_WRITE) || defined(KERNEL_CACHE_WRITE_Q)
 // ---------------------------------------------------------------------------------------------
 // Cache write: x [T, R1, INNER] with strides (S0, S1) → state rows [n_past + t] (dense rows of
-// R1*INNER elements) converting to f16 when DST_F16.
-// Macros: R1, INNER, S0, S1, DST_F16
+// R1*INNER elements) converting to f16 when DST_F16; `cache_write_q` quantizes to the GGUF block format DST_FMT
+// (FMT_Q8_0 / FMT_Q4_0, INNER a multiple of 32).
+// Macros: R1, INNER, S0, S1, DST_F16 / DST_FMT
 struct CacheParams
 {
     float* x;
@@ -73,7 +74,65 @@ void cache_write(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
     *(float*)byteAt((uint8_t*)p.dst, di * 4) = v;
 #endif
 }
+#endif
 
+#ifdef KERNEL_CACHE_WRITE_Q
+// One thread per 32-value block: scale from the block's absolute maximum (q8_0: amax / 127; q4_0: the value of largest
+// magnitude / -8, as llama.cpp's reference quantizers), then the f16 scale and the quants as 16-bit words (blocks of 34 / 18
+// bytes are 2-byte aligned).
+#define CQ_BPR (R1 * INNER / 32)                         // blocks per token row
+#define CQ_BYTES (DST_FMT == FMT_Q8_0 ? 34 : 18)
+[shader("compute")]
+[numthreads(128, 1, 1)]
+void cache_write_q(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
+{
+    uint id = dtid.x;
+    if (id >= p.T * CQ_BPR) return;
+    uint t = id / CQ_BPR, blk = id % CQ_BPR;
+    uint r1 = blk * 32 / INNER, i0 = blk * 32 % INNER;
+    float* src = p.x + uint64_t(t) * S0 + uint64_t(r1) * S1 + i0;
+    float v[32];
+    float amax = 0, vmax = 0;
+    [ForceUnroll]
+    for (uint i = 0; i < 32; i++)
+    {
+        v[i] = src[i];
+        if (abs(v[i]) > amax)
+        {
+            amax = abs(v[i]);
+            vmax = v[i];
+        }
+    }
+#if MULTI_SEQ
+    uint64_t row = uint64_t(p.seq[t * 4]) * SLOT_CTX + uint(p.seq[t * 4 + 1]);
+#else
+    uint64_t row = p.rt[RT_N_PAST] + t;
+#endif
+    uint8_t* dst = byteAt(p.dst, (row * CQ_BPR + blk) * CQ_BYTES);
+#if DST_FMT == FMT_Q8_0
+    float d = amax / 127.0;
+    float inv = d != 0 ? 1.0 / d : 0.0;
+    *(uint16_t*)dst = f2h(d);
+    [ForceUnroll]
+    for (uint i = 0; i < 16; i++)
+    {
+        uint lo = uint(int(round(v[2 * i] * inv))) & 0xFF;
+        uint hi = uint(int(round(v[2 * i + 1] * inv))) & 0xFF;
+        *(uint16_t*)(dst + 2 + 2 * i) = uint16_t(lo | (hi << 8));
+    }
+#else
+    float d = vmax / -8.0;
+    float inv = d != 0 ? 1.0 / d : 0.0;
+    *(uint16_t*)dst = f2h(d);
+    [ForceUnroll]
+    for (uint i = 0; i < 8; i++)
+    {
+        uint b0 = min(15u, uint(v[2 * i] * inv + 8.5)) | (min(15u, uint(v[2 * i + 16] * inv + 8.5)) << 4);
+        uint b1 = min(15u, uint(v[2 * i + 1] * inv + 8.5)) | (min(15u, uint(v[2 * i + 17] * inv + 8.5)) << 4);
+        *(uint16_t*)(dst + 2 + 2 * i) = uint16_t(b0 | (b1 << 8));
+    }
+#endif
+}
 #endif
 
 #ifdef KERNEL_FILL

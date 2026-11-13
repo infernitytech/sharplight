@@ -90,6 +90,7 @@ internal sealed class ModelHostBuilder
             Fallback = offload ? new DeviceSlot { Device = GetCpuDevice() } : null,
             ContextLength = spec.Ctx ?? runtime.ContextLength,
             MaxBatchTokens = spec.Batch ?? runtime.BatchTokens,
+            KvCacheType = runtime.KvCacheType,
             Log = log,
         };
     }

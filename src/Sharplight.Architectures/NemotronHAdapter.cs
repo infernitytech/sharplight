@@ -74,8 +74,8 @@ public sealed class NemotronHAdapter : IModelAdapter
                     break;
                 case "attention":
                     var shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), nKv, headDim);
-                    states.Add(kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheType, Shape = shape, Kind = StateKind.KeyCache, Group = g });
-                    states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheType, Shape = shape, Kind = StateKind.ValueCache, Group = g });
+                    states.Add(kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheTypeFor(headDim), Shape = shape, Kind = StateKind.KeyCache, Group = g });
+                    states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(headDim), Shape = shape, Kind = StateKind.ValueCache, Group = g });
                     break;
                 case "mlp" or "moe": break;
                 default: throw new NotSupportedException($"nemotron_h: block kind '{kinds[il]}' is not supported.");

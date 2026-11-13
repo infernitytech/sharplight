@@ -39,6 +39,7 @@ internal static class ModelLoader
             Fallback = fallback,
             ContextLength = runtime.ContextLength,
             MaxBatchTokens = runtime.BatchTokens,
+            KvCacheType = runtime.KvCacheType,
             Log = Console.Error.WriteLine,
         };
 

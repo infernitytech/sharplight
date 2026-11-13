@@ -1,8 +1,10 @@
 // Causal attention of T queries against a KV cache (online softmax, one workgroup per (head, query)).
-// q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
+// q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] in format KV_FMT (FMT_F32, FMT_F16, or the
+// GGUF block formats FMT_Q8_0 / FMT_Q4_0 with 32-value blocks; quantized rows are a multiple of 32 values);
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
 // Macros: HQ, HKV, D, DV, VRS (value cache row stride in elements, >= DV: the values are the first DV entries of each row,
-//         e.g. the latent prefix of a multi-head latent attention cache whose K and V are one buffer), QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
+//         e.g. the latent prefix of a multi-head latent attention cache whose K and V are one buffer), QS0, QS1, SCALE, KV_FMT
+//         (KV_F16: KV_FMT == FMT_F16), WG (threads, = chunk of keys),
 //         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
@@ -26,6 +28,136 @@
 #ifndef CAUSAL
 #define CAUSAL 0
 #endif
+#ifndef KV_FMT
+#define KV_FMT (KV_F16 ? FMT_F16 : FMT_F32)
+#endif
+#define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0)
+#define KV_BLOCK_BYTES (KV_FMT == FMT_Q8_0 ? 34 : 18)
+
+// ---- KV cache element access (elements are addressed linearly in the cache; quantized caches in 32-value blocks) -------
+// Block of cache element `elem`, its f16 scale, and the 16-bit word holding the byte at offset `b` of its quants (blocks are
+// 2-byte aligned: 34 / 18 bytes).
+uint8_t* kv_block(uint8_t* base, uint64_t elem) { return byteAt(base, (elem >> 5) * KV_BLOCK_BYTES); }
+uint kv_word(uint8_t* blk, uint b) { return uint(*(uint16_t*)(blk + 2 + b)); }
+
+// 8 cache values starting at element `elem` (a multiple of 8) as raw data: kept packed in registers until used, so a kernel
+// can issue many loads before the first one is consumed.
+struct Kv8
+{
+#if KV_FMT == FMT_F16
+    uint4 u;
+#elif KV_FMT == FMT_F32
+    float4 a;
+    float4 b;
+#else
+    float d;     // block scale
+    uint2 q;     // q8_0: the 8 int8 quants; q4_0: the 8 bytes holding them (nibble at `shift`)
+    uint shift;
+#endif
+};
+
+Kv8 load_kv8(uint8_t* cache, uint64_t elem)
+{
+    Kv8 r;
+#if KV_FMT == FMT_F16
+    r.u = *(uint4*)byteAt(cache, elem * 2);
+#elif KV_FMT == FMT_F32
+    float4* f = (float4*)byteAt(cache, elem * 4);
+    r.a = f[0];
+    r.b = f[1];
+#else
+    uint8_t* blk = kv_block(cache, elem);
+    uint within = uint(elem & 31);
+    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
+    r.d = h2f(*(uint16_t*)blk);
+    r.q = uint2(kv_word(blk, b) | (kv_word(blk, b + 2) << 16), kv_word(blk, b + 4) | (kv_word(blk, b + 6) << 16));
+    r.shift = KV_FMT == FMT_Q4_0 && within >= 16 ? 4 : 0;
+#endif
+    return r;
+}
+
+Kv8 zero_kv8()
+{
+    Kv8 r;
+#if KV_FMT == FMT_F16
+    r.u = uint4(0);
+#elif KV_FMT == FMT_F32
+    r.a = float4(0);
+    r.b = float4(0);
+#else
+    r.d = 0;
+    r.q = uint2(0);
+    r.shift = 0;
+#endif
+    return r;
+}
+
+#if KV_QUANT
+// Quant e (0..7) of a packed Kv8 as a signed integer value (before the scale).
+float kv_quant(Kv8 k, uint e)
+{
+    uint w = e < 4 ? k.q.x : k.q.y;
+    uint byte = (w >> ((e & 3) * 8)) & 0xFF;
+#if KV_FMT == FMT_Q8_0
+    return float(int(byte << 24) >> 24);
+#else
+    return float((byte >> k.shift) & 0xF) - 8.0;
+#endif
+}
+#endif
+
+void unpack_kv8(Kv8 k, out float v[8])
+{
+#if KV_FMT == FMT_F16
+    v[0] = f16tof32(k.u.x & 0xFFFF); v[1] = f16tof32(k.u.x >> 16);
+    v[2] = f16tof32(k.u.y & 0xFFFF); v[3] = f16tof32(k.u.y >> 16);
+    v[4] = f16tof32(k.u.z & 0xFFFF); v[5] = f16tof32(k.u.z >> 16);
+    v[6] = f16tof32(k.u.w & 0xFFFF); v[7] = f16tof32(k.u.w >> 16);
+#elif KV_FMT == FMT_F32
+    v[0] = k.a.x; v[1] = k.a.y; v[2] = k.a.z; v[3] = k.a.w;
+    v[4] = k.b.x; v[5] = k.b.y; v[6] = k.b.z; v[7] = k.b.w;
+#else
+    [ForceUnroll] for (uint e = 0; e < 8; e++) v[e] = k.d * kv_quant(k, e);
+#endif
+}
+
+// 8 values as packed f16 (shared-memory tiles of the tensor-core kernels).
+uint4 pack_half8(float v[8])
+{
+    return uint4(f32tof16(v[0]) | (f32tof16(v[1]) << 16), f32tof16(v[2]) | (f32tof16(v[3]) << 16),
+                 f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
+}
+
+uint4 kv8_to_half(Kv8 k)
+{
+#if KV_FMT == FMT_F16
+    return k.u;
+#else
+    float v[8];
+    unpack_kv8(k, v);
+    return pack_half8(v);
+#endif
+}
+
+// One cache element.
+float load_kv(uint8_t* base, uint64_t elem)
+{
+#if KV_FMT == FMT_F16
+    return h2f(*(uint16_t*)byteAt(base, elem * 2));
+#elif KV_FMT == FMT_F32
+    return *(float*)byteAt(base, elem * 4);
+#else
+    uint8_t* blk = kv_block(base, elem);
+    uint within = uint(elem & 31);
+    uint b = KV_FMT == FMT_Q8_0 ? within : within & 15;
+    uint byte = (kv_word(blk, b & ~1u) >> ((b & 1) * 8)) & 0xFF;
+#if KV_FMT == FMT_Q8_0
+    return h2f(*(uint16_t*)blk) * float(int(byte << 24) >> 24);
+#else
+    return h2f(*(uint16_t*)blk) * (float((byte >> (within >= 16 ? 4 : 0)) & 0xF) - 8.0);
+#endif
+#endif
+}
 
 // ---------------------------------------------------------------------------------------------
 // Split-K flash decoding (`decode` + `decode_combine`, few queries against a KV cache). A workgroup handles HPW query
@@ -307,38 +439,16 @@ float reduce_sum(float v, uint tid)
     return r;
 }
 
-float load_kv(uint8_t* base, uint64_t elem)
-{
-#if KV_F16
-    return h2f(*(uint16_t*)byteAt(base, elem * 2));
-#else
-    return *(float*)byteAt(base, elem * 4);
-#endif
-}
-
 float dot_k(uint8_t* kc, uint64_t rowElem)
 {
     float s = 0;
-#if KV_F16
-    uint4* kp = (uint4*)byteAt(kc, rowElem * 2);
     [ForceUnroll]
     for (uint i = 0; i < D / 8; i++)
     {
-        uint4 u = kp[i];
-        s += sQ[8 * i + 0] * f16tof32(u.x & 0xFFFF) + sQ[8 * i + 1] * f16tof32(u.x >> 16)
-           + sQ[8 * i + 2] * f16tof32(u.y & 0xFFFF) + sQ[8 * i + 3] * f16tof32(u.y >> 16)
-           + sQ[8 * i + 4] * f16tof32(u.z & 0xFFFF) + sQ[8 * i + 5] * f16tof32(u.z >> 16)
-           + sQ[8 * i + 6] * f16tof32(u.w & 0xFFFF) + sQ[8 * i + 7] * f16tof32(u.w >> 16);
+        float k[8];
+        unpack_kv8(load_kv8(kc, rowElem + i * 8), k);
+        [ForceUnroll] for (uint e = 0; e < 8; e++) s += sQ[8 * i + e] * k[e];
     }
-#else
-    float4* kp = (float4*)byteAt(kc, rowElem * 4);
-    [ForceUnroll]
-    for (uint i = 0; i < D / 4; i++)
-    {
-        float4 k = kp[i];
-        s += sQ[4 * i] * k.x + sQ[4 * i + 1] * k.y + sQ[4 * i + 2] * k.z + sQ[4 * i + 3] * k.w;
-    }
-#endif
     return s;
 }
 
@@ -456,7 +566,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 // in FA_DC-wide chunks and accumulated into the registers. Causal: query t sees keys [0, n_past + t]; FULL_ATTN:
 // every key of the launch (bidirectional); WINDOW: only the last WINDOW keys; HAS_SOFTCAP: capped scores.
 // Head sizes are zero-padded in shared memory (D to 16, DV to 64), so D % 8 == DV % 8 == 0 suffices.
-// K/V: f16 (KV_F16) or f32. Requires padded D, DV <= 256 and 32-wide subgroups with quad operations.
+// K/V: any KV_FMT (converted to f16 in shared memory). Requires padded D, DV <= 256 and 32-wide subgroups with quad operations.
 using namespace linalg;
 #define FA_BR 32
 #define FA_BC 32
@@ -491,18 +601,9 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         uint o = r * FA_KS + c;
         if (j < L && c < dim)
         {
-#if KV_F16
-            uint4 u = *(uint4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 2);
-            faKV[o + 0] = half(f16tof32(u.x & 0xFFFF)); faKV[o + 1] = half(f16tof32(u.x >> 16));
-            faKV[o + 2] = half(f16tof32(u.y & 0xFFFF)); faKV[o + 3] = half(f16tof32(u.y >> 16));
-            faKV[o + 4] = half(f16tof32(u.z & 0xFFFF)); faKV[o + 5] = half(f16tof32(u.z >> 16));
-            faKV[o + 6] = half(f16tof32(u.w & 0xFFFF)); faKV[o + 7] = half(f16tof32(u.w >> 16));
-#else
-            float4* f = (float4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 4);
-            float4 a = f[0], b = f[1];
-            faKV[o + 0] = half(a.x); faKV[o + 1] = half(a.y); faKV[o + 2] = half(a.z); faKV[o + 3] = half(a.w);
-            faKV[o + 4] = half(b.x); faKV[o + 5] = half(b.y); faKV[o + 6] = half(b.z); faKV[o + 7] = half(b.w);
-#endif
+            float v[8];
+            unpack_kv8(load_kv8(cache, (kvRow + uint64_t(j) * HKV + hk) * rowStride + c), v);
+            [ForceUnroll] for (uint e = 0; e < 8; e++) faKV[o + e] = half(v[e]);
         }
         else
         {
@@ -717,20 +818,55 @@ groupshared float fmCorrM[FM_BR * 16];   // per-tile correction factor of row r 
 #define FM_LPT ((FM_BC * FM_CPR + FM_T - 1) / FM_T)      // chunks per thread and tile
 #define FM_QPT ((FM_BR * FM_CPR + FM_T - 1) / FM_T)      // 8-value query chunks per thread
 
-// 8 consecutive cache values in registers (the next tile is fetched while the current one is processed).
-struct FmChunk
+// One tile of cache rows in registers between fm_fetch and fm_store, so the next tile is loaded while the current one is
+// processed. f16 / f32: 8-value chunks. q8_0 / q4_0: whole 32-value blocks, each read as the 32-bit words covering it from
+// the aligned word at or before its start (blocks are only 2-byte aligned; `mis` bit k marks unit k as starting at 2 mod 4),
+// which takes far fewer load instructions than 8-value chunks.
+#if KV_QUANT
+#define FM_NW ((KV_BLOCK_BYTES + 2) / 4)                // words per block
+#define FM_BPR (D / 32)                                 // blocks per row
+#define FM_UPT ((FM_BC * FM_BPR + FM_T - 1) / FM_T)     // blocks per thread and tile
+struct FmTile
 {
-#if KV_F16
-    uint4 u;
-#else
-    float4 a;
-    float4 b;
-#endif
+    uint w[FM_UPT * FM_NW];
+    uint mis;
 };
-
-// Issues the loads of cache rows j0 .. j0 + FM_BC (all D columns, zero-padded to FM_DP); rows >= jEnd are zero.
-void fm_fetch(out FmChunk buf[FM_LPT], uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+#else
+struct FmTile
 {
+    Kv8 c[FM_LPT];
+};
+#endif
+
+// Issues the loads of cache rows j0 .. j0 + FM_BC (all D columns, zero-padded to FM_DP; rows >= jEnd are zero).
+void fm_fetch(out FmTile buf, uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+{
+#if KV_QUANT
+    buf.mis = 0;
+    [ForceUnroll]
+    for (uint k = 0; k < FM_UPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        uint j = j0 + i / FM_BPR;
+        [ForceUnroll] for (uint n = 0; n < FM_NW; n++) buf.w[k * FM_NW + n] = 0;
+        if (i < FM_BC * FM_BPR && j < jEnd)
+        {
+            uint64_t elem = (kvRow + uint64_t(j) * HKV + hk) * D + (i % FM_BPR) * 32;
+            uint64_t s = (elem >> 5) * KV_BLOCK_BYTES;
+            uint* w = (uint*)byteAt(cache, s & ~uint64_t(3));
+            [ForceUnroll] for (uint n = 0; n + 1 < FM_NW; n++) buf.w[k * FM_NW + n] = w[n];
+            if ((s & 2) != 0)
+            {
+                buf.w[k * FM_NW + FM_NW - 1] = w[FM_NW - 1];
+                buf.mis |= 1u << k;
+            }
+            else
+            {
+                buf.w[k * FM_NW + FM_NW - 1] = uint(*(uint16_t*)(w + (FM_NW - 1)));   // the block's last 2 bytes
+            }
+        }
+    }
+#else
     [ForceUnroll]
     for (uint k = 0; k < FM_LPT; k++)
     {
@@ -738,38 +874,63 @@ void fm_fetch(out FmChunk buf[FM_LPT], uint8_t* cache, uint64_t kvRow, uint j0, 
         uint r = i / FM_CPR, c = (i % FM_CPR) * 8;
         uint j = j0 + r;
         bool valid = i < FM_BC * FM_CPR && j < jEnd && c < D;
-        uint64_t elem = (kvRow + uint64_t(j) * HKV + hk) * D + c;
-#if KV_F16
-        buf[k].u = valid ? *(uint4*)byteAt(cache, elem * 2) : uint4(0);
-#else
-        buf[k].a = valid ? *(float4*)byteAt(cache, elem * 4) : float4(0);
-        buf[k].b = valid ? *(float4*)byteAt(cache, elem * 4 + 16) : float4(0);
-#endif
+        buf.c[k] = valid ? load_kv8(cache, (kvRow + uint64_t(j) * HKV + hk) * D + c) : zero_kv8();
     }
+#endif
 }
 
-uint4 fm_pack8(float4 a, float4 b)
+// Stores fetched rows into fmKV as f16 (one 16-byte store per 8 values).
+void fm_store(FmTile buf, uint tid)
 {
-    return uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
-                 f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
-}
+#if KV_QUANT
+    [ForceUnroll]
+    for (uint k = 0; k < FM_UPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        if (i < FM_BC * FM_BPR)
+        {
+            bool mis = ((buf.mis >> k) & 1) != 0;
+            uint v[FM_NW];   // the block's bytes, 4 per word
+            [ForceUnroll]
+            for (uint n = 0; n < FM_NW; n++)
+            {
+                uint hi = n + 1 < FM_NW ? buf.w[k * FM_NW + n + 1] << 16 : 0;
+                v[n] = mis ? (buf.w[k * FM_NW + n] >> 16) | hi : buf.w[k * FM_NW + n];
+            }
 
-// Stores fetched rows into fmKV as f16 (one 16-byte store per chunk).
-void fm_store(FmChunk buf[FM_LPT], uint tid)
-{
+            float d = f16tof32(v[0] & 0xFFFF);
+            uint dst = i / FM_BPR * (FM_KS / 8) + i % FM_BPR * 4;
+            [ForceUnroll]
+            for (uint c = 0; c < 4; c++)
+            {
+                float x[8];
+                [ForceUnroll]
+                for (uint e = 0; e < 8; e++)
+                {
+                    uint el = c * 8 + e;
+#if KV_FMT == FMT_Q8_0
+                    uint b = 2 + el;
+                    x[e] = d * float(int(((v[b >> 2] >> ((b & 3) * 8)) & 0xFF) << 24) >> 24);
+#else
+                    uint b = 2 + (el & 15);
+                    x[e] = d * (float((v[b >> 2] >> ((b & 3) * 8 + (el >= 16 ? 4 : 0))) & 0xF) - 8.0);
+#endif
+                }
+                fmKV[dst + c] = pack_half8(x);
+            }
+        }
+    }
+#else
     [ForceUnroll]
     for (uint k = 0; k < FM_LPT; k++)
     {
         uint i = tid + k * FM_T;
         if (i < FM_BC * FM_CPR)
         {
-#if KV_F16
-            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = buf[k].u;
-#else
-            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = fm_pack8(buf[k].a, buf[k].b);
-#endif
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = kv8_to_half(buf.c[k]);
         }
     }
+#endif
 }
 
 [shader("compute")]
@@ -802,7 +963,7 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
 
     // Query tile (scaled, f16) through fmKV into register fragments: subgroup sg owns the D chunks sg * FM_KPS ...
     // All loads are issued before the first store (one memory round trip).
-    FmChunk next[FM_LPT];
+    FmTile next;
     fm_fetch(next, p.kc, kvRow, jBeg, jEnd, hk, tid);
     float qv[FM_QPT][8];
     [ForceUnroll]
@@ -819,7 +980,7 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
         uint i = tid + k * FM_T;
         if (i < FM_BR * FM_CPR)
         {
-            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = fm_pack8(float4(qv[k][0], qv[k][1], qv[k][2], qv[k][3]), float4(qv[k][4], qv[k][5], qv[k][6], qv[k][7]));
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = pack_half8(qv[k]);
         }
     }
     GroupMemoryBarrierWithGroupSync();
@@ -998,55 +1159,6 @@ void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
 groupshared float dM[DEC_NSG * HPW];
 groupshared float dL[DEC_NSG * HPW];
 groupshared float dO[DEC_NSG * HPW * DEC_VC * KLANES * 8];
-
-// 8 consecutive cache elements, kept packed in registers until used.
-struct Kv8
-{
-#if KV_F16
-    uint4 u;
-#else
-    float4 a;
-    float4 b;
-#endif
-};
-
-Kv8 load_kv8(uint8_t* cache, uint64_t elem)
-{
-    Kv8 r;
-#if KV_F16
-    r.u = *(uint4*)byteAt(cache, elem * 2);
-#else
-    float4* f = (float4*)byteAt(cache, elem * 4);
-    r.a = f[0];
-    r.b = f[1];
-#endif
-    return r;
-}
-
-Kv8 zero_kv8()
-{
-    Kv8 r;
-#if KV_F16
-    r.u = uint4(0);
-#else
-    r.a = float4(0);
-    r.b = float4(0);
-#endif
-    return r;
-}
-
-void unpack_kv8(Kv8 k, out float v[8])
-{
-#if KV_F16
-    v[0] = f16tof32(k.u.x & 0xFFFF); v[1] = f16tof32(k.u.x >> 16);
-    v[2] = f16tof32(k.u.y & 0xFFFF); v[3] = f16tof32(k.u.y >> 16);
-    v[4] = f16tof32(k.u.z & 0xFFFF); v[5] = f16tof32(k.u.z >> 16);
-    v[6] = f16tof32(k.u.w & 0xFFFF); v[7] = f16tof32(k.u.w >> 16);
-#else
-    v[0] = k.a.x; v[1] = k.a.y; v[2] = k.a.z; v[3] = k.a.w;
-    v[4] = k.b.x; v[5] = k.b.y; v[6] = k.b.z; v[7] = k.b.w;
-#endif
-}
 
 [shader("compute")]
 [numthreads(DEC_WG, 1, 1)]
