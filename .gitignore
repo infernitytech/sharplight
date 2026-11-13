@@ -8,3 +8,4 @@ TestResults/
 *.slm
 *.slm.tmp
 .claude/
+__pycache__/
