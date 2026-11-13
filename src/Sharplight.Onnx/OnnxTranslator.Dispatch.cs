@@ -31,6 +31,9 @@ internal sealed partial class OnnxTranslator
         "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits", "GroupQueryAttention", "RotaryEmbedding",
     ];
 
+    // ai.onnx.preview operators.
+    private static readonly HashSet<string> s_previewOps = ["FlexAttention"];
+
     // Contrib ops that onnxruntime also registers in the default domain (onnxruntime-genai exports use it).
     private static readonly HashSet<string> s_contribInDefaultDomain = ["SimplifiedLayerNormalization"];
 
@@ -38,6 +41,7 @@ internal sealed partial class OnnxTranslator
     public static IEnumerable<string> SupportedOperators
         => s_dynamicOps.Concat(OnnxFold.Ops).Concat(s_contribInDefaultDomain)
             .Concat(s_contribOps.Concat(s_quantContrib).Select(op => "com.microsoft." + op))
+            .Concat(s_previewOps.Select(op => "ai.onnx.preview." + op))
             .Distinct().Order(StringComparer.Ordinal);
 
     public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
@@ -48,6 +52,12 @@ internal sealed partial class OnnxTranslator
         if (n.Domain == "com.microsoft" || s_contribInDefaultDomain.Contains(n.OpType))
         {
             TranslateContrib(n, ins);
+            return;
+        }
+
+        if (n.Domain == "ai.onnx.preview")
+        {
+            FlexAttention(n, ins);
             return;
         }
 

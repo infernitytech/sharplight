@@ -188,6 +188,57 @@ internal sealed partial class OnnxTranslator
     }
 
     /// <summary>
+    /// ai.onnx.preview FlexAttention: Q [B, Hq, L, E], K [B, Hkv, S, E], V [B, Hkv, S, Ev]; the optional score_mod and prob_mod graphs
+    /// (one tensor in, one out) are inlined on the scaled scores [B, Hq, L, S] and on the softmax probabilities.
+    /// </summary>
+    private void FlexAttention(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var q = X(ins, 0);
+        var k = X(ins, 1);
+        var v = X(ins, 2);
+        if (q.Rank != 4 || k.Rank != 4 || v.Rank != 4)
+        {
+            throw new InvalidDataException("FlexAttention needs rank-4 Q, K and V");
+        }
+
+        long hq = q.Shape[1].Fixed;
+        long l = q.Shape[2].Fixed;
+        long e = q.Shape[3].Fixed;
+        long hkv = k.Shape[1].Fixed;
+        long s = k.Shape[2].Fixed;
+        long ev = v.Shape[3].Fixed;
+        long reps = hq / hkv;
+        float scale = n.Has("scale") ? n.Float("scale", 1f) : 1f / MathF.Sqrt(e);
+        var grouped = reps > 1 ? Rs(q, 0, hkv, reps * l, e) : q;
+        var scores = Emit("BatchMatMul", [grouped, k], Attributes.From(("trans_b", true), ("alpha", scale)));
+        Heavy();
+        scores = reps > 1 ? Rs(scores, 0, hq, l, s) : scores;
+        scores = ApplyModifier(n, "score_mod", scores);
+        var probabilities = ApplyModifier(n, "prob_mod", _b.Emit1("Softmax", [scores]));
+        var y = Emit("BatchMatMul", [reps > 1 ? Rs(probabilities, 0, hkv, reps * l, s) : probabilities, v]);
+        Heavy();
+        SetDyn(n, 0, reps > 1 ? Rs(y, 0, hq, l, ev) : y);
+    }
+
+    /// <summary>Inlines a one-input, one-output graph attribute on <paramref name="x"/> (returns x when the attribute is absent).</summary>
+    private Value ApplyModifier(OnnxNode n, string attribute, Value x)
+    {
+        if (!n.Attributes.TryGetValue(attribute, out var graphAttribute) || graphAttribute.G is not { } g)
+        {
+            return x;
+        }
+
+        if (g.Inputs.Count != 1 || g.Outputs.Count != 1)
+        {
+            throw new InvalidDataException($"{n.OpType} {attribute} must have one input and one output");
+        }
+
+        _env[g.Inputs[0].Name] = TranslatedTensor.Dyn(x);
+        RunSubgraph(g, $"{n.OpType} {attribute}");
+        return AsValue(Get(g.Outputs[0].Name));
+    }
+
+    /// <summary>
     /// LinearAttention (opset 27): query/key/value [B, T, H·D], optional past_state [B, Hkv, Dk, Dv], decay and beta as the update rule
     /// requires (linear, gated, delta, gated_delta); outputs the attention output and present_state. The IR LinearAttention op (CPU).
     /// </summary>
