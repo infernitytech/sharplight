@@ -9,78 +9,85 @@ namespace Sharplight.HuggingFace;
 /// (names and semantics documented on <c>Qwen35Adapter</c>). Weight semantics: norm weights get the
 /// implicit +1 folded in (except the linear-attention gated norm), A = -exp(A_log), conv1d as [C, K] f32,
 /// and linear-attention V heads reordered from grouped to tiled order when key heads != value heads.
+/// The vision tower is mapped in <c>Qwen35HfVision.cs</c>.
 /// </summary>
-public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
+internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 {
+    private const int RopeAxisCount = 4;
+
+    /// <inheritdoc/>
     public string Architecture => "qwen3_5";
+
+    /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["qwen3_5", "qwen3_5_text"];
 
     // ---- hyper-parameters ---------------------------------------------------------------------
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
     {
-        int nLayer = c.Int("num_hidden_layers", "n_layers", "n_layer", "num_layers");
-        int nMtp = options.IncludeMtp ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
-        int nHead = c.Int("num_attention_heads", "n_head", "n_heads");
+        int layerCount = c.Int("num_hidden_layers", "n_layers", "n_layer", "num_layers");
+        int mtpLayerCount = options.IncludeMtp ? c.GetInt("mtp_num_hidden_layers") ?? 0 : 0;
+        int headCount = c.Int("num_attention_heads", "n_head", "n_heads");
         int hidden = c.Int("hidden_size", "n_embd", "dim");
-        int headDim = c.GetInt("head_dim") ?? hidden / nHead;
+        int headDim = c.GetInt("head_dim") ?? hidden / headCount;
         int interval = c.GetInt("full_attention_interval") ?? 4;
-        CheckLayerTypes(c, nLayer, interval);
+        CheckLayerTypes(c, layerCount, interval);
 
         string a = Architecture + ".";
-        int valueHeads = c.Int("linear_num_value_heads");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
-            [a + "layer_count"] = nLayer,
+            [a + "layer_count"] = layerCount,
             [a + "hidden_size"] = hidden,
             [a + "ffn_hidden_size"] = c.Int("intermediate_size", "n_inner", "hidden_dim"),
             [a + "norm_eps"] = (float)c.Double("rms_norm_eps", "norm_eps"),
-            [a + "attention.head_count"] = nHead,
+            [a + "attention.head_count"] = headCount,
             [a + "attention.kv_head_count"] = c.Int("num_key_value_heads", "n_kv_heads"),
             [a + "attention.head_dim"] = headDim,
             [a + "full_attention_interval"] = interval,
             [a + "linear_attention.conv_kernel"] = c.Int("linear_conv_kernel_dim"),
             [a + "linear_attention.key_head_dim"] = c.Int("linear_key_head_dim"),
             [a + "linear_attention.key_head_count"] = c.Int("linear_num_key_heads"),
-            [a + "linear_attention.value_head_count"] = valueHeads,
+            [a + "linear_attention.value_head_count"] = c.Int("linear_num_value_heads"),
             [a + "linear_attention.value_head_dim"] = c.Int("linear_value_head_dim"),
-            [a + "mtp.layer_count"] = nMtp,
+            [a + "mtp.layer_count"] = mtpLayerCount,
         };
-        if (c.GetInt("max_position_embeddings", "n_ctx", "n_positions", "max_length", "max_sequence_length", "model_max_length") is { } ctx)
-        {
-            md[a + "context_length"] = ctx;
-        }
+        HfMappingHelpers.AddContextLength(md, a, c, "max_position_embeddings", "n_ctx", "n_positions", "max_length", "max_sequence_length", "model_max_length");
 
         // Partial rotary: rope dims = head_dim * partial_rotary_factor (default 0.25).
-        double prf = c.RopeDouble("partial_rotary_factor", "partial_rotary_factor", "rope_pct", "rope_percent") ?? 0.25;
-        md[a + "rope.dim"] = (int)(headDim * prf);
+        double partialRotaryFactor = c.RopeDouble("partial_rotary_factor", "partial_rotary_factor", "rope_pct", "rope_percent") ?? 0.25;
+        md[a + "rope.dim"] = (int)(headDim * partialRotaryFactor);
         if (c.RopeDouble("rope_theta", "rope_theta", "global_rope_theta", "rope_global_theta", "rotary_emb_base") is { } theta)
         {
             md[a + "rope.base"] = (float)theta;
         }
 
-        // M-RoPE sections, padded to 4 axes; Qwen3.5 always uses interleaved M-RoPE, default [11, 11, 10, 0].
-        var sections = c.RopeIntArray("mrope_section");
-        int[] four = [0, 0, 0, 0];
-        if (sections == null)
-        {
-            four = [11, 11, 10, 0];
-        }
-        else
-        {
-            for (int i = 0; i < Math.Min(4, sections.Length); i++)
-            {
-                four[i] = sections[i];
-            }
-        }
-
-        md[a + "rope.sections"] = four;
+        md[a + "rope.sections"] = MropeSections(c);
 
         // TODO: rope scaling (yarn / linear) parameters are not mapped yet; the adapter does not consume them.
         AddVisionHyperParameters(c, md);
         return md;
     }
 
-    private static void CheckLayerTypes(HfConfig c, int nLayer, int interval)
+    /// <summary>M-RoPE sections, padded to 4 axes; Qwen3.5 always uses interleaved M-RoPE, default [11, 11, 10, 0].</summary>
+    private static int[] MropeSections(HfConfig c)
+    {
+        var sections = c.RopeIntArray("mrope_section");
+        if (sections == null)
+        {
+            return [11, 11, 10, 0];
+        }
+
+        var padded = new int[RopeAxisCount];
+        for (int i = 0; i < Math.Min(RopeAxisCount, sections.Length); i++)
+        {
+            padded[i] = sections[i];
+        }
+
+        return padded;
+    }
+
+    private static void CheckLayerTypes(HfConfig c, int layerCount, int interval)
     {
         var types = c.GetStringArray("layer_types");
         if (types == null)
@@ -88,12 +95,12 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
             return;
         }
 
-        if (types.Length != nLayer)
+        if (types.Length != layerCount)
         {
-            throw new InvalidDataException($"layer_types has {types.Length} entries, expected num_hidden_layers ({nLayer}).");
+            throw new InvalidDataException($"layer_types has {types.Length} entries, expected num_hidden_layers ({layerCount}).");
         }
 
-        for (int i = 0; i < nLayer; i++)
+        for (int i = 0; i < layerCount; i++)
         {
             bool linear = (i + 1) % interval != 0;
             if ((types[i] == "linear_attention") != linear)
@@ -106,187 +113,222 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     // ---- weights ------------------------------------------------------------------------------
     [GeneratedRegex(@"^(?:model\.)?layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
+
     [GeneratedRegex(@"^mtp\.layers\.(\d+)\.(.+)$")]
     private static partial Regex MtpLayerName();
 
-    private sealed record Ctx(int NumK, int NumV, int HeadK, int HeadV, int ConvK, int Hidden)
+    /// <summary>The Gated DeltaNet geometry that decides whether and how V heads are reordered.</summary>
+    private sealed record LinearAttentionShape(int KeyHeads, int ValueHeads, int KeyHeadDim, int ValueHeadDim)
     {
-        public int VPerK => NumV / NumK;
-        public bool NeedsReorder => NumK != NumV;
+        public int ValueHeadsPerKeyHead => ValueHeads / KeyHeads;
+
+        public bool NeedsReorder => KeyHeads != ValueHeads;
     }
 
+    /// <summary>Norm tensors (x * (1 + w)), HF suffix to canonical suffix; the 1 is folded into the weight.</summary>
+    private static readonly Dictionary<string, string> s_normPlusOne = new(StringComparer.Ordinal)
+    {
+        ["input_layernorm.weight"] = "input_norm.weight",
+        ["post_attention_layernorm.weight"] = "post_attention_norm.weight",
+        ["self_attn.q_norm.weight"] = "attention.q_norm.weight",
+        ["self_attn.k_norm.weight"] = "attention.k_norm.weight",
+    };
+
+    /// <summary>Tensors that are only renamed, HF suffix to canonical suffix. q_proj rows are already [q|gate] interleaved per head, as the adapter expects.</summary>
+    private static readonly Dictionary<string, string> s_plain = new(StringComparer.Ordinal)
+    {
+        ["self_attn.q_proj.weight"] = "attention.q.weight",
+        ["self_attn.k_proj.weight"] = "attention.k.weight",
+        ["self_attn.v_proj.weight"] = "attention.v.weight",
+        ["self_attn.o_proj.weight"] = "attention.o.weight",
+        ["mlp.gate_proj.weight"] = "mlp.gate.weight",
+        ["mlp.up_proj.weight"] = "mlp.up.weight",
+        ["mlp.down_proj.weight"] = "mlp.down.weight",
+        ["linear_attn.norm.weight"] = "linear_attention.norm.weight",   // the gated norm has no +1
+    };
+
+    /// <summary>The MTP tensors that are not inside a layer, HF name to canonical name (norms fold the +1).</summary>
+    private static readonly Dictionary<string, string> s_mtpNormPlusOne = new(StringComparer.Ordinal)
+    {
+        ["mtp.pre_fc_norm_embedding.weight"] = "mtp.embedding_norm.weight",
+        ["mtp.pre_fc_norm_hidden.weight"] = "mtp.hidden_norm.weight",
+        ["mtp.norm.weight"] = "mtp.output_norm.weight",
+    };
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
-        int nLayer = c.Int("num_hidden_layers", "n_layers", "n_layer", "num_layers");
         bool tied = c.GetBool("tie_word_embeddings") ?? false;
-        var ctx = new Ctx(c.Int("linear_num_key_heads"), c.Int("linear_num_value_heads"),
-                          c.Int("linear_key_head_dim"), c.Int("linear_value_head_dim"),
-                          c.Int("linear_conv_kernel_dim"), c.Int("hidden_size", "n_embd", "dim"));
-        if (ctx.NumV % ctx.NumK != 0)
+        var shape = new LinearAttentionShape(
+            c.Int("linear_num_key_heads"),
+            c.Int("linear_num_value_heads"),
+            c.Int("linear_key_head_dim"),
+            c.Int("linear_value_head_dim"));
+        if (shape.ValueHeads % shape.KeyHeads != 0)
         {
             throw new InvalidDataException("linear_num_value_heads must be a multiple of linear_num_key_heads.");
         }
 
-        var result = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
-        var unmapped = new List<string>();
-
-        void Add(WeightInfo w)
+        var collector = new HfWeightCollector();
+        foreach (var (rawName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            if (!result.TryAdd(w.Name, w))
+            var mapped = MapTensor(c, options, rawName, tensor, shape, tied, collector);
+            if (mapped == TensorOutcome.Unmapped)
             {
-                throw new InvalidDataException($"Two HF tensors map to '{w.Name}'.");
+                collector.AddUnmapped(rawName);
             }
         }
 
-        foreach (var (rawName, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
-        {
-            string name = rawName;
-            // Vision tower → canonical vision.* weights (Qwen35HfVision.cs); skipped if the config has no vision_config.
-            if (IsVisionTensor(name))
-            {
-                if (VisionConfig(c) is null)
-                {
-                    continue;
-                }
-
-                if (MapVisionTensor(name, t, c) is { } vw)
-                {
-                    Add(vw);
-                }
-                else
-                {
-                    unmapped.Add(rawName);
-                }
-
-                continue;
-            }
-            if (name.Contains("visual.") || name.Contains("vision_") || name.Contains("vision.") || name.Contains("audio") ||
-                name.Contains("patch_embed") || name.Contains("merger."))
-            {
-                continue;
-            }
-
-            if (name.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal))
-            {
-                continue; // derived buffer
-            }
-
-            name = name.Replace("language_model.", "");   // llama.cpp: model.language_model.layers.N → model.layers.N
-
-            if (name.StartsWith("mtp.", StringComparison.Ordinal))
-            {
-                if (!options.IncludeMtp)
-                {
-                    continue;
-                }
-
-                if (MapMtp(name, t, nLayer, c, ctx) is { } mw)
-                {
-                    Add(mw);
-                }
-                else
-                {
-                    unmapped.Add(rawName);
-                }
-
-                continue;
-            }
-
-            switch (name)
-            {
-                case "model.embed_tokens.weight" or "embed_tokens.weight":
-                    Add(HfTransforms.Plain(t.ToWeightInfo(), "token_embedding.weight")); continue;
-                case "model.norm.weight" or "norm.weight":
-                    Add(HfTransforms.NormPlusOne(t.ToWeightInfo(), "output_norm.weight")); continue;
-                case "lm_head.weight":
-                    if (!tied)
-                    {
-                        Add(HfTransforms.Plain(t.ToWeightInfo(), "lm_head.weight"));
-                    }
-
-                    continue;
-            }
-
-            var m = LayerName().Match(name);
-            if (m.Success && MapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, t, ctx) is { } w)
-            {
-                Add(w);
-            }
-            else
-            {
-                unmapped.Add(rawName);
-            }
-        }
-
-        if (unmapped.Count > 0)
-        {
-            throw new NotSupportedException($"qwen3_5: {unmapped.Count} tensor(s) have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
-        }
-
-        return result;
+        collector.ThrowIfUnmapped("qwen3_5");
+        return collector.Weights;
     }
 
-    private static WeightInfo? MapMtp(string name, SafetensorsTensor t, int nLayer, HfConfig c, Ctx ctx)
+    private enum TensorOutcome
+    {
+        /// <summary>Added to the result.</summary>
+        Mapped,
+
+        /// <summary>Deliberately not part of this source (derived buffers, tied head, other towers).</summary>
+        Skipped,
+
+        /// <summary>No rule handles the tensor.</summary>
+        Unmapped,
+    }
+
+    private static TensorOutcome MapTensor(
+        HfConfig c,
+        HfImportOptions options,
+        string rawName,
+        SafetensorsTensor tensor,
+        LinearAttentionShape shape,
+        bool tied,
+        HfWeightCollector collector)
+    {
+        // Vision tower → canonical vision.* weights (Qwen35HfVision.cs); skipped if the config has no vision_config.
+        if (IsVisionTensor(rawName))
+        {
+            if (VisionConfig(c) is null)
+            {
+                return TensorOutcome.Skipped;
+            }
+
+            return Add(collector, MapVisionTensor(rawName, tensor));
+        }
+
+        if (rawName.Contains("visual.") || rawName.Contains("vision_") || rawName.Contains("vision.") || rawName.Contains("audio")
+            || rawName.Contains("patch_embed") || rawName.Contains("merger."))
+        {
+            return TensorOutcome.Skipped;
+        }
+
+        if (rawName.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal))
+        {
+            return TensorOutcome.Skipped;   // derived buffer
+        }
+
+        string name = rawName.Replace("language_model.", "");   // llama.cpp: model.language_model.layers.N → model.layers.N
+
+        if (name.StartsWith("mtp.", StringComparison.Ordinal))
+        {
+            return options.IncludeMtp ? Add(collector, MapMtp(name, tensor, shape)) : TensorOutcome.Skipped;
+        }
+
+        switch (name)
+        {
+            case "model.embed_tokens.weight" or "embed_tokens.weight":
+                collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), "token_embedding.weight"));
+                return TensorOutcome.Mapped;
+            case "model.norm.weight" or "norm.weight":
+                collector.Add(HfTransforms.NormPlusOne(tensor.ToWeightInfo(), "output_norm.weight"));
+                return TensorOutcome.Mapped;
+            case "lm_head.weight":
+                if (!tied)
+                {
+                    collector.Add(HfTransforms.Plain(tensor.ToWeightInfo(), "lm_head.weight"));
+                }
+
+                return TensorOutcome.Mapped;
+        }
+
+        var m = LayerName().Match(name);
+        if (!m.Success)
+        {
+            return TensorOutcome.Unmapped;
+        }
+
+        return Add(collector, MapLayerTensor($"layers.{m.Groups[1].Value}.", m.Groups[2].Value, tensor, shape));
+    }
+
+    private static TensorOutcome Add(HfWeightCollector collector, WeightInfo? weight)
+    {
+        if (weight is null)
+        {
+            return TensorOutcome.Unmapped;
+        }
+
+        collector.Add(weight);
+        return TensorOutcome.Mapped;
+    }
+
+    private static WeightInfo? MapMtp(string name, SafetensorsTensor tensor, LinearAttentionShape shape)
     {
         // mtp.layers.{j}.X → mtp.layers.{j}.<canonical X>; fc / norms → mtp.*
         var m = MtpLayerName().Match(name);
         if (m.Success)
         {
-            return MapLayerTensor($"mtp.layers.{m.Groups[1].Value}.", m.Groups[2].Value, t, ctx);
+            return MapLayerTensor($"mtp.layers.{m.Groups[1].Value}.", m.Groups[2].Value, tensor, shape);
         }
 
-        var w = t.ToWeightInfo();
-        return name switch
+        var w = tensor.ToWeightInfo();
+        if (name == "mtp.fc.weight")
         {
-            "mtp.fc.weight" => HfTransforms.Plain(w, "mtp.fc.weight"),
-            "mtp.pre_fc_norm_embedding.weight" => HfTransforms.NormPlusOne(w, "mtp.embedding_norm.weight"),
-            "mtp.pre_fc_norm_hidden.weight" => HfTransforms.NormPlusOne(w, "mtp.hidden_norm.weight"),
-            "mtp.norm.weight" => HfTransforms.NormPlusOne(w, "mtp.output_norm.weight"),
-            _ => null,
-        };
+            return HfTransforms.Plain(w, "mtp.fc.weight");
+        }
+
+        return s_mtpNormPlusOne.TryGetValue(name, out var canonical) ? HfTransforms.NormPlusOne(w, canonical) : null;
     }
 
-    private static WeightInfo? MapLayerTensor(string p, string suffix, SafetensorsTensor t, Ctx x)
+    private static WeightInfo? MapLayerTensor(string prefix, string suffix, SafetensorsTensor tensor, LinearAttentionShape x)
     {
-        var w = t.ToWeightInfo();
+        var w = tensor.ToWeightInfo();
+        if (s_normPlusOne.TryGetValue(suffix, out var normName))
+        {
+            return HfTransforms.NormPlusOne(w, prefix + normName);
+        }
+
+        if (s_plain.TryGetValue(suffix, out var plainName))
+        {
+            return HfTransforms.Plain(w, prefix + plainName);
+        }
+
+        // Gated DeltaNet
         switch (suffix)
         {
-            // norms: x * (1 + w) → fold the 1 (all "*norm.weight" except linear_attn.norm)
-            case "input_layernorm.weight": return HfTransforms.NormPlusOne(w, p + "input_norm.weight");
-            case "post_attention_layernorm.weight": return HfTransforms.NormPlusOne(w, p + "post_attention_norm.weight");
-            case "self_attn.q_norm.weight": return HfTransforms.NormPlusOne(w, p + "attention.q_norm.weight");
-            case "self_attn.k_norm.weight": return HfTransforms.NormPlusOne(w, p + "attention.k_norm.weight");
-
-            // full attention (q_proj rows are already [q|gate] interleaved per head, as the adapter expects)
-            case "self_attn.q_proj.weight": return HfTransforms.Plain(w, p + "attention.q.weight");
-            case "self_attn.k_proj.weight": return HfTransforms.Plain(w, p + "attention.k.weight");
-            case "self_attn.v_proj.weight": return HfTransforms.Plain(w, p + "attention.v.weight");
-            case "self_attn.o_proj.weight": return HfTransforms.Plain(w, p + "attention.o.weight");
-
-            case "mlp.gate_proj.weight": return HfTransforms.Plain(w, p + "mlp.gate.weight");
-            case "mlp.up_proj.weight": return HfTransforms.Plain(w, p + "mlp.up.weight");
-            case "mlp.down_proj.weight": return HfTransforms.Plain(w, p + "mlp.down.weight");
-
-            // Gated DeltaNet
-            case "linear_attn.in_proj_qkv.weight": return ReorderRows(w, p + "linear_attention.qkv.weight", x, firstRow: 2 * x.NumK * x.HeadK, headDim: x.HeadV);
-            case "linear_attn.in_proj_z.weight": return ReorderRows(w, p + "linear_attention.z.weight", x, 0, x.HeadV);
-            case "linear_attn.in_proj_b.weight": return ReorderRows(w, p + "linear_attention.beta.weight", x, 0, 1);
-            case "linear_attn.in_proj_a.weight": return ReorderRows(w, p + "linear_attention.alpha.weight", x, 0, 1);
-            case "linear_attn.out_proj.weight": return ReorderCols(w, p + "linear_attention.out.weight", x);
-            case "linear_attn.norm.weight": return HfTransforms.Plain(w, p + "linear_attention.norm.weight"); // no +1
-            case "linear_attn.conv1d.weight": return Conv1d(w, p + "linear_attention.conv1d.weight", x);
-            case "linear_attn.A_log": return Vec(w, p + "linear_attention.a", x, static v => -MathF.Exp(v));   // A = -exp(A_log)
-            case "linear_attn.dt_bias": return Vec(w, p + "linear_attention.dt_bias", x, null);
-            default: return null;
+            case "linear_attn.in_proj_qkv.weight":
+                return ReorderRows(w, prefix + "linear_attention.qkv.weight", x, firstRow: 2 * x.KeyHeads * x.KeyHeadDim, headDim: x.ValueHeadDim);
+            case "linear_attn.in_proj_z.weight":
+                return ReorderRows(w, prefix + "linear_attention.z.weight", x, 0, x.ValueHeadDim);
+            case "linear_attn.in_proj_b.weight":
+                return ReorderRows(w, prefix + "linear_attention.beta.weight", x, 0, 1);
+            case "linear_attn.in_proj_a.weight":
+                return ReorderRows(w, prefix + "linear_attention.alpha.weight", x, 0, 1);
+            case "linear_attn.out_proj.weight":
+                return ReorderCols(w, prefix + "linear_attention.out.weight", x);
+            case "linear_attn.conv1d.weight":
+                return Conv1d(w, prefix + "linear_attention.conv1d.weight", x);
+            case "linear_attn.A_log":
+                return PerValueHead(w, prefix + "linear_attention.a", x, static v => -MathF.Exp(v));   // A = -exp(A_log)
+            case "linear_attn.dt_bias":
+                return PerValueHead(w, prefix + "linear_attention.dt_bias", x, null);
+            default:
+                return null;
         }
     }
 
     // ---- V-head reordering (grouped → tiled; identity when num_k_heads == num_v_heads) --------------
 
-    private static int ElemBytes(WeightInfo w) => w.Type.ElementSize;
-
     /// <summary>Reorders rows [firstRow, end) of a 2-D weight as V heads of <paramref name="headDim"/> rows each.</summary>
-    private static WeightInfo ReorderRows(WeightInfo w, string name, Ctx x, int firstRow, int headDim)
+    private static WeightInfo ReorderRows(WeightInfo w, string name, LinearAttentionShape x, int firstRow, int headDim)
     {
         if (!x.NeedsReorder)
         {
@@ -296,17 +338,18 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         long cols = w.Shape[1].Fixed;
         return WeightInfo.Derived(name, w.Type, w.Shape, () =>
         {
-            int eb = ElemBytes(w);
+            int elementBytes = w.Type.ElementSize;
             var src = w.ReadAll();
-            long rowBytes = cols * eb, off = firstRow * rowBytes;
-            var tail = HfTransforms.ReorderVHeads(src.AsSpan((int)off).ToArray(), eb, 1, x.NumK, x.VPerK, headDim * cols);
-            Buffer.BlockCopy(tail, 0, src, (int)off, tail.Length);
+            long rowBytes = cols * elementBytes;
+            long offset = firstRow * rowBytes;
+            var tail = HfTransforms.ReorderVHeads(src.AsSpan((int)offset).ToArray(), elementBytes, 1, x.KeyHeads, x.ValueHeadsPerKeyHead, headDim * cols);
+            Buffer.BlockCopy(tail, 0, src, (int)offset, tail.Length);
             return src;
         });
     }
 
     /// <summary>out_proj: reorder input columns (V channels) in groups of head_v_dim.</summary>
-    private static WeightInfo ReorderCols(WeightInfo w, string name, Ctx x)
+    private static WeightInfo ReorderCols(WeightInfo w, string name, LinearAttentionShape x)
     {
         if (!x.NeedsReorder)
         {
@@ -315,11 +358,11 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 
         long rows = w.Shape[0].Fixed;
         return WeightInfo.Derived(name, w.Type, w.Shape,
-            () => HfTransforms.ReorderVHeads(w.ReadAll(), ElemBytes(w), rows, x.NumK, x.VPerK, x.HeadV));
+            () => HfTransforms.ReorderVHeads(w.ReadAll(), w.Type.ElementSize, rows, x.KeyHeads, x.ValueHeadsPerKeyHead, x.ValueHeadDim));
     }
 
     /// <summary>1-D per-V-head parameter (A_log, dt_bias): F32, optional element map, V heads reordered.</summary>
-    private static WeightInfo Vec(WeightInfo w, string name, Ctx x, Func<float, float>? map)
+    private static WeightInfo PerValueHead(WeightInfo w, string name, LinearAttentionShape x, Func<float, float>? map)
     {
         if (!x.NeedsReorder)
         {
@@ -327,14 +370,15 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         }
 
         return WeightInfo.Derived(name, DataType.F32, w.Shape, () =>
-            HfTransforms.ReorderVHeads(HfTransforms.EncodeF32(HfTransforms.DecodeF32(w, map)), 4, 1, x.NumK, x.VPerK, 1));
+            HfTransforms.ReorderVHeads(HfTransforms.EncodeF32(HfTransforms.DecodeF32(w, map)), 4, 1, x.KeyHeads, x.ValueHeadsPerKeyHead, 1));
     }
 
     /// <summary>conv1d [C,1,K] → [C,K] in F32; V channels (after q,k) reordered.</summary>
-    private static WeightInfo Conv1d(WeightInfo w, string name, Ctx x)
+    private static WeightInfo Conv1d(WeightInfo w, string name, LinearAttentionShape x)
     {
-        long C = w.Shape[0].Fixed, K = w.Shape.Elements() / C;
-        var shape = new Shape(C, K);
+        long channels = w.Shape[0].Fixed;
+        long kernel = w.Shape.Elements() / channels;
+        var shape = new Shape(channels, kernel);
         if (!x.NeedsReorder)
         {
             return HfTransforms.ToF32(w, name, shape);
@@ -343,9 +387,9 @@ public sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         return WeightInfo.Derived(name, DataType.F32, shape, () =>
         {
             var bytes = HfTransforms.EncodeF32(HfTransforms.DecodeF32(w));
-            long off = 2L * x.NumK * x.HeadK * K * 4;
-            var tail = HfTransforms.ReorderVHeads(bytes.AsSpan((int)off).ToArray(), 4, 1, x.NumK, x.VPerK, x.HeadV * K);
-            Buffer.BlockCopy(tail, 0, bytes, (int)off, tail.Length);
+            long offset = 2L * x.KeyHeads * x.KeyHeadDim * kernel * 4;
+            var tail = HfTransforms.ReorderVHeads(bytes.AsSpan((int)offset).ToArray(), 4, 1, x.KeyHeads, x.ValueHeadsPerKeyHead, x.ValueHeadDim * kernel);
+            Buffer.BlockCopy(tail, 0, bytes, (int)offset, tail.Length);
             return bytes;
         });
     }
