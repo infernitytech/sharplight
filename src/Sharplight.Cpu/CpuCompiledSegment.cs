@@ -552,7 +552,7 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             case "CachedAttention":
             {
                 var q = RowContig(Ref(ins[0])); var k = Ref(ins[1]); var v = Ref(ins[2]); var y = NewDense(n.Output);
-                AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true), q, k, v, y);
+                AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f)), q, k, v, y);
                 _refs[n.Output] = y; return;
             }
             case "Attention":

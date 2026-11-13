@@ -77,6 +77,8 @@ public sealed partial class GraphLowerer
         if (s_generalOps.Contains(node.Op.Name)) return SupportsGeneral(node);
         if (node.Op.Name == "MatMul" && node.Inputs[1].Type.IsQuantized && node.Inputs[1].Shape[-1] is { IsSymbolic: false } kd && kd.Fixed % 8 != 0)
             return OpSupport.No($"quantized MatMul K={kd.Fixed} is not a multiple of 8");
+        if (node.Op.Name == "Rope" && node.Inputs.Length > 2 && (node.Inputs[2].Type != DataType.F32 || node.Inputs[2].Shape.Rank != 1))
+            return OpSupport.No("Rope frequency factors must be a rank-1 f32 tensor");
         foreach (var v in node.Inputs)
         {
             if (v.Type.IsQuantized && node.Op.Name is not ("MatMul" or "Gather"))

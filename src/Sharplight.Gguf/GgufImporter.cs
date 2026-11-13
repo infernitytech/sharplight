@@ -45,8 +45,10 @@ public sealed class GgufImporter : IModelImporter
             foreach (var t in files.Tensors)
             {
                 if (mapping.MapWeightName(t.Name, view) is not { } name) { unmapped.Add(t.Name); continue; }
-                if (!weights.TryAdd(name, t.ToWeightInfo().As(name))) throw new InvalidDataException($"{path}: two tensors map to '{name}'.");
+                if (!weights.TryAdd(name, mapping.MapWeight(t.ToWeightInfo().As(name), view))) throw new InvalidDataException($"{path}: two tensors map to '{name}'.");
             }
+            foreach (var w in mapping.SyntheticWeights(view, weights).ToList())
+                if (!weights.TryAdd(w.Name, w)) throw new InvalidDataException($"{path}: synthetic weight '{w.Name}' collides with a tensor.");
             if (unmapped.Count > 0)
                 throw new NotSupportedException($"{path}: {unmapped.Count} tensor(s) of '{ggufArch}' have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
 

@@ -352,7 +352,9 @@ public sealed partial class GraphLowerer
         var sec = new int[4];
         for (int i = 0; i < Math.Min(4, sections.Length); i++) sec[i] = sections[i];
         long axes = pos.Rank > 1 ? pos.Shape[1] : 1;
-        var k = Lib("rope.slang", "main", Macros(
+        var ff = n.Inputs.Length > 2 ? Ref(n.Inputs[2]) : null;   // optional per-frequency divisors (f32 [rot/2])
+        var ffArg = new PointerArg((ff ?? x).Buffer, (ff ?? x).ByteOffset);
+        var k = Lib("rope.slang", "main", Macros(("HAS_FF", ff is not null),
             ("H", H), ("D", D), ("S0", x.Strides[0]), ("S1", x.Strides[1]), ("A", axes), ("ROT", rot),
             ("THETA_SCALE", (float)Math.Pow(@base, -2.0 / rot)), ("FREQ_SCALE", a.Get("freq_scale", 1f)),
             ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
@@ -362,7 +364,7 @@ public sealed partial class GraphLowerer
         {
             if (norm is not null && nw is null) throw new NotSupportedException("Fused rope norm expects a weight.");
             if (cacheWrite is not null && y.Type != DataType.F16 && y.Type != DataType.F32) throw new NotSupportedException($"Cache type {y.Type}");
-            var rm = Macros(
+            var rm = Macros(("HAS_FF", ff is not null),
                 ("H", H), ("D", D), ("S0", x.Strides[0]), ("S1", x.Strides[1]), ("A", axes), ("ROT", rot),
                 ("THETA_SCALE", (float)Math.Pow(@base, -2.0 / rot)), ("FREQ_SCALE", a.Get("freq_scale", 1f)),
                 ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
@@ -374,14 +376,14 @@ public sealed partial class GraphLowerer
             Emit($"rope{(norm is null ? "" : "+norm")}{(cacheWrite is null ? "" : "+cache_write")} {n.Output.Name}", [.. new[] { norm, n, cacheWrite }.OfType<Node>()],
                 [Always(rk, b => new Grid((uint)(Rows(b, tx) * H)))],
                 [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(wRef.Buffer, wRef.ByteOffset),
-                 new PointerArg(y.Buffer, y.ByteOffset), new PointerArg(_runtime, 0), TokenArg(x)],
-                nw is null ? [x, pos] : [x, pos, nw], [y]);
+                 new PointerArg(y.Buffer, y.ByteOffset), new PointerArg(_runtime, 0), ffArg, TokenArg(x)],
+                [.. (nw is null ? [x, pos] : (TensorRef[])[x, pos, nw]), .. ff is null ? [] : (TensorRef[])[ff]], [y]);
             return;
         }
         Emit($"rope {n.Output.Name}", [n],
             [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * H * (D / 2), 64)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)],
-            [x, pos], [y]);
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(pos.Buffer, pos.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), ffArg, TokenArg(x)],
+            ff is null ? [x, pos] : [x, pos, ff], [y]);
     }
 
     // ---- gather ------------------------------------------------------------------------------
@@ -439,7 +441,8 @@ public sealed partial class GraphLowerer
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
         var k = Lib("attention.slang", "main", Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
-            ("SCALE", n.Attributes.Get<float>("scale")), ("KV_F16", kc.Type == DataType.F16), ("RT_N_PAST", Slot(n))));
+            ("SCALE", n.Attributes.Get<float>("scale")), ("KV_F16", kc.Type == DataType.F16), ("RT_N_PAST", Slot(n)),
+            ("WINDOW", n.Attributes.Get("window", 0)), ("HAS_SOFTCAP", n.Attributes.Get("softcap", 0f) > 0), ("SOFTCAP", n.Attributes.Get("softcap", 0f) is var cap and > 0 ? cap : 1f)));
         var tq = q;
         Emit($"attention {n.Output.Name}", [n],
             [Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq)))],

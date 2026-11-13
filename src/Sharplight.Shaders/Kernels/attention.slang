@@ -1,7 +1,8 @@
 // Causal attention of T queries against a KV cache (online softmax, one workgroup per (head, query)).
 // q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
-// Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys)
+// Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
+//         optional WINDOW (> 0: a query sees only its last WINDOW keys), HAS_SOFTCAP + SOFTCAP (cap value: s = SOFTCAP * tanh(s / SOFTCAP))
 #include "common.slang"
 
 struct Params
@@ -98,11 +99,19 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     float acc[DPT];
     [ForceUnroll] for (int i = 0; i < DPT; i++) acc[i] = 0;
 
-    for (uint c0 = 0; c0 < L; c0 += WG)
+#if WINDOW
+    uint jStart = L > WINDOW ? L - WINDOW : 0;
+#else
+    uint jStart = 0;
+#endif
+    for (uint c0 = jStart; c0 < L; c0 += WG)
     {
         uint j = c0 + tid;
         float s = -1e30;
         if (j < L) s = dot_k(p.kc, (uint64_t(j) * HKV + hk) * D);
+#if HAS_SOFTCAP
+        if (j < L) s = SOFTCAP * tanh(s / SOFTCAP);
+#endif
         float mc = reduce_max(s, tid);
         float mNew = max(m, mc);
         float pj = j < L ? exp(s - mNew) : 0;

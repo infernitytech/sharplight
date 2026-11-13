@@ -127,5 +127,6 @@ public static class BuiltinAdapters
     {
         if (Interlocked.Exchange(ref s_done, 1) == 1) return;
         ModelAdapterRegistry.Register(new Qwen35Adapter());
+        ModelAdapterRegistry.Register(new DecoderAdapter());
     }
 }

@@ -39,6 +39,13 @@ long? gpuMem = Opt("--gpu-mem") is { } gm ? (long)(double.Parse(gm, System.Globa
 var devOptions = new DeviceOptions();
 foreach (var f in (Opt("--disable-features") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)) devOptions.DisabledFeatures.Add(f.Trim());
 var slots = split.Select(w => new DeviceSlot { Device = provider.OpenDevice(devInfo, devOptions), Weight = w, MemoryLimit = gpuMem }).ToList();
+// --cpu: run everything on the CPU provider (reference / no GPU).
+if (Flag("--cpu"))
+{
+    foreach (var sl in slots) sl.Device.Dispose();
+    var cpuOnly = new CpuExecutionProvider();
+    slots = [new DeviceSlot { Device = cpuOnly.OpenDevice(cpuOnly.GetDevices()[0]) }];
+}
 // --cpu-offload: layers that don't fit (see --gpu-mem) and unsupported ops run on the CPU.
 DeviceSlot? fallback = null;
 if (Flag("--cpu-offload"))

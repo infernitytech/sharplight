@@ -9,6 +9,8 @@ internal sealed unsafe class AttentionOp : CpuOp
 {
     readonly TRef _q, _k, _v, _y; readonly TRef? _mask;
     readonly float _scale;
+    readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
+    readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
     readonly string? _offsetScalar;   // non-null => cached attention
     readonly bool _causal;
     readonly int _hq, _hkv, _d, _dv;
@@ -19,8 +21,9 @@ internal sealed unsafe class AttentionOp : CpuOp
 
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
-    public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal)
+    public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f)
     {
+        _window = window; _softcap = softcap;
         _q = q; _k = k; _v = v; _y = y; _mask = mask; _scale = scale; _offsetScalar = offsetScalar; _causal = causal;
         _hq = (int)q.Dims[1]; _d = (int)q.Dims[2];
         _hkv = (int)k.Dims[1]; _dv = (int)v.Dims[2];
@@ -68,18 +71,20 @@ internal sealed unsafe class AttentionOp : CpuOp
                 if (n <= 0) continue;
                 float* mrow = _mask is null ? null : (float*)_mask.P + t * _mask.Strides[0];
                 long mstride = _mask is null ? 0 : _mask.Strides[1];
+                long j0 = _window > 0 ? Math.Max(0, n - _window) : 0;
                 float max = float.NegativeInfinity;
-                for (long j = 0; j < n; j++)
+                for (long j = j0; j < n; j++)
                 {
                     long off = j * ks0 + hk * ks1;
                     float dot = _kHalf ? Simd.DotHalf(q, (ushort*)_k.P + off, _d) : Simd.Dot(q, (float*)_k.P + off, _d);
                     dot *= _scale;
+                    if (_softcap > 0) dot = _softcap * MathF.Tanh(dot / _softcap);
                     if (mrow != null) dot += mrow[j * mstride];
                     sc[j] = dot;
                     if (dot > max) max = dot;
                 }
                 float sum = 0;
-                long i = 0;
+                long i = j0;
                 if (Vector256.IsHardwareAccelerated)
                 {
                     var mv = Vector256.Create(max); var acc = Vector256<float>.Zero;
@@ -87,7 +92,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                     sum = Vector256.Sum(acc);
                 }
                 for (; i < n; i++) { float ev = MathF.Exp(sc[i] - max); sc[i] = ev; sum += ev; }
-                for (long j = 0; j < n; j++)
+                for (long j = j0; j < n; j++)
                 {
                     long off = j * vs0 + hk * vs1;
                     if (_vHalf) Simd.AxpyHalf(o, (ushort*)_v.P + off, sc[j], _dv);
