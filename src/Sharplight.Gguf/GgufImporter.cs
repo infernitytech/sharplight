@@ -93,6 +93,8 @@ public sealed class GgufImporter : IModelImporter
             md[k.StartsWith(GgmlTokenizerPrefix, StringComparison.Ordinal) ? "tokenizer." + k[GgmlTokenizerPrefix.Length..] : k] = v;
         // llama.cpp calls SentencePiece-style tokenizers "llama"; the canonical name is "spm".
         if (md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm) && tm is "llama") md[CanonicalKeys.TokenizerModel] = "spm";
+        // llama.cpp's "gemma4" tokenizer is a character-level, merge-ranked BPE with ▁ spaces and byte fallback: canonical "bpe".
+        else if (tm is "gemma4") md[CanonicalKeys.TokenizerModel] = "bpe";
         return md;
     }
 }

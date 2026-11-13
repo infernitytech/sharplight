@@ -12,7 +12,7 @@ namespace Sharplight.Gguf;
 /// </summary>
 public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4"];
     public string Architecture => "decoder";
 
     static bool IsGemma(string a) => a is "gemma2" or "gemma3";
@@ -21,6 +21,7 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string arch = g.GgufArchitecture;
+        if (arch == "gemma4") return Gemma4Hyper(g);
         string a = Architecture + ".";
         int nEmbd = g.Int("embedding_length");
         int nHead = g.Int("attention.head_count");
@@ -118,8 +119,10 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
             case "rope_factors_short.weight": return "rope.freq_factors";
             case "rope_factors_long.weight": return "rope.freq_factors_long";
         }
+        if (IsExtended(g.GgufArchitecture) && s_extendedGlobal.TryGetValue(name, out var gn)) return gn;
         var m = BlockName().Match(name);
         if (!m.Success) return null;
+        if (IsExtended(g.GgufArchitecture) && s_extended.TryGetValue(m.Groups[2].Value, out var xn)) return $"layers.{m.Groups[1].Value}.{xn}";
         return s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
     }
 
