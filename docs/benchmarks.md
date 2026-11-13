@@ -414,6 +414,13 @@ What changed (each switch selects the previous kernel, which is also the fallbac
 * Workgroup-per-row LayerNorm for decode (Phi-2 Q4_K_M decode 322 → 458 tok/s; llama-bench CUDA 362) and a thread-per-row
   reduction for the MoE slot sum.
 
+Precision: the int-dot matvec errs by 0.2-0.4 % relative rms per matmul (uniform inputs, Q4_K/Q5_K/Q6_K/Q8_0), a few percent in
+the logits of small models and up to ~20 % on Mamba-130m tokens with activation outliers; greedy text then follows llama.cpp
+only until near-tied tokens. The Families greedy-string tests and the multi-sequence test therefore run with `int_dot` off.
+The packed-half decoding rounds the K-quant scale and min to f16 (multi-sequence logits within 1e-2 instead of 5e-3).
+All new kernels address weight rows, expert slices and KV-cache elements on integers (`rowStart`/`atByte`, NVIDIA's 4 GiB
+pointer-offset truncation).
+
 ### Single stream, before → after
 
 | model | metric | before | after | after/before | llama.cpp CUDA | after/CUDA |
