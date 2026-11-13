@@ -110,12 +110,11 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
     uint hk = h % HK;
     uint jl = ltid.x / LPR;                 // state row within this workgroup
     uint j = gid.y * DVB + jl;              // state row (value dim)
-    uint part = ltid.x % LPR;               // which slice of DK this lane owns
-    uint i0 = part * EPL;
+    uint part = ltid.x % LPR;               // this lane owns DK elements part + e * LPR (interleaved: conflict-free shared reads)
 
-    float* st = p.state + (uint64_t(h) * DV + j) * DK + i0;
+    float* st = p.state + (uint64_t(h) * DV + j) * DK + part;
     float M[EPL];
-    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = st[e];
+    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = st[e * LPR];
 
     for (uint t0 = 0; t0 < p.T; t0 += TB)
     {
@@ -171,19 +170,21 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             float decay = sgd[tt];
             float b = sbeta[tt];
             float vj = sv[tt * DVB + jl];
-            uint base = tt * DK + i0;
+            uint base = tt * DK + part;
 
-            float kd = 0;
-            [ForceUnroll] for (int e = 0; e < EPL; e++) { M[e] *= decay; kd += M[e] * sk[base + e]; }
-            kd = row_sum(kd) * kn;
+            // Independent partial sums keep the dependency chains short (the loop is latency-bound).
+            float kv[EPL];
+            float ka[4] = { 0, 0, 0, 0 };
+            [ForceUnroll] for (int e = 0; e < EPL; e++) { kv[e] = sk[base + e * LPR]; M[e] *= decay; ka[e % 4] += M[e] * kv[e]; }
+            float kd = row_sum((ka[0] + ka[1]) + (ka[2] + ka[3])) * kn;
             float delta = (vj - kd) * b;
-            float od = 0;
             float dk = delta * kn;
-            [ForceUnroll] for (int e = 0; e < EPL; e++) { M[e] += sk[base + e] * dk; od += M[e] * sq[base + e]; }
-            od = row_sum(od) * qn;
+            float oa[4] = { 0, 0, 0, 0 };
+            [ForceUnroll] for (int e = 0; e < EPL; e++) { M[e] += kv[e] * dk; oa[e % 4] += M[e] * sq[base + e * LPR]; }
+            float od = row_sum((oa[0] + oa[1]) + (oa[2] + oa[3])) * qn;
             if (part == 0) p.o[(uint64_t(t0 + tt) * HV + h) * DV + j] = od * SCALE;
         }
     }
-    [ForceUnroll] for (int e = 0; e < EPL; e++) st[e] = M[e];
+    [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
 }
 #endif
