@@ -27,11 +27,19 @@ internal sealed partial class OnnxTranslator
         }
 
         string prefix = $"if{_ifCount++}.";
-        var thenGraph = BuildBranch(thenBranch, free, prefix + "then.");
-        var elseGraph = BuildBranch(elseBranch, free, prefix + "else.");
+        var (thenGraph, thenError) = TryBuildBranch(thenBranch, free, prefix + "then.");
+        var (elseGraph, elseError) = TryBuildBranch(elseBranch, free, prefix + "else.");
+        if (thenGraph is null && elseGraph is null)
+        {
+            throw new NotSupportedException($"neither If branch translates: {thenError}; {elseError}");
+        }
+
         var names = Enumerable.Range(0, n.Outputs.Count).Select(k => $"out{k}").ToArray();
-        var symbols = new string[names.Length];
-        for (int k = 0; k < names.Length; k++)
+        var symbols = names.Select(_ => "").ToArray();
+        var attributes = Attributes.From(("inputs", captured.ToArray()), ("outputs", names));
+        attributes = thenGraph is null ? attributes.With("then_error", thenError!) : attributes.With("then_branch", thenGraph);
+        attributes = elseGraph is null ? attributes.With("else_error", elseError!) : attributes.With("else_branch", elseGraph);
+        for (int k = 0; k < names.Length && thenGraph is not null && elseGraph is not null; k++)
         {
             var t = thenGraph.Outputs[names[k]];
             var e = elseGraph.Outputs[names[k]];
@@ -43,15 +51,29 @@ internal sealed partial class OnnxTranslator
             symbols[k] = t.Rank == 0 || t.Shape[0] == e.Shape[0] ? "" : NewDynamicSymbol(prefix + "out", Dim.Max(t.Shape[0], e.Shape[0]));
         }
 
-        var attributes = Attributes.From(("then_branch", thenGraph), ("else_branch", elseGraph), ("inputs", captured.ToArray()), ("outputs", names),
-            ("output_symbols", symbols));
-        var outputs = _b.Emit("If", [Idx(ins[0]!), .. captured.Select(name => _env[name].V!)], attributes, Nm(n));
+        var outputs = _b.Emit("If", [Idx(ins[0]!), .. captured.Select(name => _env[name].V!)], attributes.With("output_symbols", symbols), Nm(n));
         for (int k = 0; k < outputs.Count; k++)
         {
             if (n.Outputs[k] != "")
             {
                 SetDyn(n, k, outputs[k]);
             }
+        }
+    }
+
+    /// <summary>
+    /// A branch graph, or the reason it does not translate: with the import-time shapes one branch can be invalid (it is written for other
+    /// inputs, e.g. another sample rate); the If then fails at run time only if that branch is taken.
+    /// </summary>
+    private (ComputeGraph? Graph, string? Error) TryBuildBranch(OnnxGraph g, List<string> free, string prefix)
+    {
+        try
+        {
+            return (BuildBranch(g, free, prefix), null);
+        }
+        catch (Exception e) when (e is NotSupportedException or InvalidDataException or ArgumentException)
+        {
+            return (null, e.Message);
         }
     }
 

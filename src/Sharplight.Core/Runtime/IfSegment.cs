@@ -11,8 +11,8 @@ namespace Sharplight.Runtime;
 internal sealed class IfSegment : ICompiledSegment
 {
     private readonly Node _node;
-    private readonly CompiledModel _then;
-    private readonly CompiledModel _else;
+    private readonly CompiledModel? _then;
+    private readonly CompiledModel? _else;
     private readonly string[] _inputNames;
     private readonly string[] _outputNames;
     private readonly string[] _outputSymbols;
@@ -27,21 +27,21 @@ internal sealed class IfSegment : ICompiledSegment
         _inputNames = a.Get<string[]>("inputs");
         _outputNames = a.Get<string[]>("outputs");
         _outputSymbols = a.Get<string[]>("output_symbols");
-        _then = CompiledModel.Compile(a.Get<ComputeGraph>("then_branch"), placement);
+        _then = a.TryGetValue("then_branch", out var then) ? CompiledModel.Compile((ComputeGraph)then, placement) : null;
         try
         {
-            _else = CompiledModel.Compile(a.Get<ComputeGraph>("else_branch"), placement);
+            _else = a.TryGetValue("else_branch", out var other) ? CompiledModel.Compile((ComputeGraph)other, placement) : null;
         }
         catch
         {
-            _then.Dispose();
+            _then?.Dispose();
             throw;
         }
     }
 
     public GraphSegment Segment { get; }
 
-    public long DeviceMemoryBytes => _then.AcceleratorMemoryBytes + _else.AcceleratorMemoryBytes;
+    public long DeviceMemoryBytes => (_then?.AcceleratorMemoryBytes ?? 0) + (_else?.AcceleratorMemoryBytes ?? 0);
 
     public void SetInput(Value value, ReadOnlySpan<byte> data)
     {
@@ -55,7 +55,9 @@ internal sealed class IfSegment : ICompiledSegment
 
     public void Execute(RunParameters parameters)
     {
-        var branch = Condition() ? _then : _else;
+        bool condition = Condition();
+        var branch = (condition ? _then : _else) ?? throw new NotSupportedException(
+            $"The {(condition ? "then" : "else")} branch of If node {_node.Id} was not built for these shapes: {_node.Attributes.Get<string>(condition ? "then_error" : "else_error")}");
         for (int k = 0; k < _inputNames.Length; k++)
         {
             var captured = _node.Inputs[k + 1];
@@ -90,14 +92,14 @@ internal sealed class IfSegment : ICompiledSegment
 
     public void ResetState()
     {
-        _then.ResetState();
-        _else.ResetState();
+        _then?.ResetState();
+        _else?.ResetState();
     }
 
     public void Dispose()
     {
-        _then.Dispose();
-        _else.Dispose();
+        _then?.Dispose();
+        _else?.Dispose();
     }
 
     private bool Condition()

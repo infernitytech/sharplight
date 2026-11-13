@@ -11,11 +11,12 @@ public static partial class StandardOps
     /// branch inputs named by <c>inputs</c> (string[]; a branch may leave some unused). Attributes: <c>then_branch</c>, <c>else_branch</c>
     /// (<see cref="ComputeGraph"/>), <c>outputs</c> (string[]: output names, the same in both branches), <c>output_symbols</c> (string[]:
     /// the dynamic symbol of the outer dimension of an output whose branches disagree on it, else empty). The outputs take the types and
-    /// inner dimensions of the then branch.
+    /// inner dimensions of the then branch. A branch that could not be built for the graph's shapes is replaced by <c>then_error</c> /
+    /// <c>else_error</c> (string): taking it fails at run time.
     /// </summary>
     public static readonly OpSchema If = new("If", OpCategory.ControlFlow, 1, int.MaxValue, (i, a) =>
     {
-        var then = a.Get<ComputeGraph>("then_branch");
+        var then = a.TryGetValue("then_branch", out var t) ? (ComputeGraph)t : a.Get<ComputeGraph>("else_branch");
         var symbols = a.Get<string[]>("output_symbols");
         return a.Get<string[]>("outputs").Select((name, k) =>
         {

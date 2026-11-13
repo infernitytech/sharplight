@@ -11,12 +11,13 @@ namespace Sharplight.Onnx.Tests;
 public class SurveyModelTests(ITestOutputHelper output)
 {
     /// <summary>Per-model settings on top of the manifest.</summary>
-    /// <param name="Name">Manifest name in ref/survey.</param>
+    /// <param name="Name">Manifest name in ref/survey, or a path relative to ref (e.g. "zoo/silero-vad").</param>
     /// <param name="Providers">Providers to run on ("cpu", "vulkan").</param>
     /// <param name="RmsTol">Relative RMS criterion instead of the element-wise tolerance (noisy fp16 references, near-tied detections).</param>
     /// <param name="FixBatch">Import with the concrete batch size.</param>
     /// <param name="Pins">Inputs pinned to their reference values at import (they decide output shapes).</param>
-    private sealed record Spec(string Name, string[] Providers, double? RmsTol = null, bool FixBatch = false, string[]? Pins = null);
+    /// <param name="Unpins">Inputs the manifest pins that are fed at run time instead (they select a runtime If branch).</param>
+    private sealed record Spec(string Name, string[] Providers, double? RmsTol = null, bool FixBatch = false, string[]? Pins = null, string[]? Unpins = null);
 
     private static readonly Spec[] s_specs =
     [
@@ -33,6 +34,10 @@ public class SurveyModelTests(ITestOutputHelper output)
         new("bertsquad-12", ["cpu", "vulkan"], FixBatch: true),
         // Tile by the batch size, reshapes to expression dims.
         new("deberta-v3-small", ["cpu", "vulkan"]),
+        // Runtime If on the sample rate; the branch for the other rate does not translate for these frame sizes and is left out.
+        new("zoo/silero-vad", ["cpu", "vulkan"], Unpins: ["sr"]),
+        // optimum merged decoder: runtime If between the with-past and without-past graphs.
+        new("zoo/gpt2-merged", ["cpu", "vulkan"], Unpins: ["use_cache_branch"]),
     ];
 
     public static IEnumerable<TheoryDataRow<string, string>> Cases()
@@ -67,7 +72,7 @@ public class SurveyModelTests(ITestOutputHelper output)
 
     private static RefCase? Load(Spec spec)
     {
-        var manifest = Path.Combine(RefCase.RefRoot, "survey", spec.Name + ".json");
+        var manifest = Path.Combine(RefCase.RefRoot, spec.Name.Contains('/') ? spec.Name : "survey/" + spec.Name) + ".json";
         if (!File.Exists(manifest))
         {
             return null;
@@ -85,6 +90,11 @@ public class SurveyModelTests(ITestOutputHelper output)
         {
             int k = Array.FindIndex(c.Inputs, i => i.Name == pin);
             constants[pin] = c.ReadInput(c.Batches[0], k).Select(v => (double)v).ToArray();
+        }
+
+        foreach (var unpin in spec.Unpins ?? [])
+        {
+            constants.Remove(unpin);
         }
 
         return new RefCase
