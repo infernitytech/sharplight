@@ -80,6 +80,12 @@ public class FamilyGenerationTests
             [521, 12688, 521, 810, 11458, 523, 941, 3771, 856, 1236, 779, 6584, 3771, 797, 779, 3374], ""),
         new("LFM2.5-1.2B-Instruct Q4_K_M GGUF (llama.cpp)", "gguf/LFM2.5-1.2B-Instruct/LFM2.5-1.2B-Instruct-Q4_K_M.gguf", "The capital of France is", "text", [],
             " the city of Paris. It is the most populous city in the country and", Tokens: 16),
+        // LFM2-MoE: sigmoid-routed experts with a selection bias (shared MoeBlock) after the leading dense layers. The GGUF reference is
+        // llama.cpp's Vulkan backend; its CUDA backend picks " Paris" over " the" for the first token (logit margin 0.1).
+        new("tiny-random-lfm2-moe HF (transformers)", "hf/tiny-random-lfm2-moe", P2, "ids",
+            [60355, 59557, 60355, 59557, 60355, 59557, 60355, 59557, 60355, 59557, 60355, 27023, 60355, 27023, 60355, 27023], ""),
+        new("LFM2.5-8B-A1B Q4_K_M GGUF (llama.cpp Vulkan)", "gguf/LFM2.5-8B-A1B/LFM2.5-8B-A1B-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " the city of Paris. city of Paris is a city in the region of the", Tokens: 16),
         // Mamba-1 (per-channel decay, low-rank dt) and Jamba (Mamba-1 + attention + dt/B/C norms).
         new("mamba-130m-hf HF (transformers)", "hf/mamba-130m-hf", "The capital of France is", "ids",
             [275, 253, 2846, 273, 7785, 15, 187, 187, 510, 2846, 273, 7785, 310, 275, 253, 2846], ""),

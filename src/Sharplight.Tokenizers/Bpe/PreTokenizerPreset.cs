@@ -36,7 +36,7 @@ internal sealed record PreTokenizerPreset(PreTokenizer Splitter, bool IgnoreMerg
                 return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), false, true);
 
             case "lfm2":
-                return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, false);
+                return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, true);
 
             // llama.cpp: digits are split individually first, then the GPT-2 expression (without its trailing "\\s+" alternative).
             case "smollm" or "codeshell" or "exaone" or "minerva":

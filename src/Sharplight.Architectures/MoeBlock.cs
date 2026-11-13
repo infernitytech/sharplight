@@ -10,11 +10,12 @@ namespace Sharplight.Architectures;
 /// <remarks>
 /// Canonical weights below <c>prefix</c> (e.g. <c>layers.3.mlp.</c>):
 /// <list type="bullet">
-/// <item><c>router.weight</c> [E, H].</item>
+/// <item><c>router.weight</c> [E, H]; optional selection bias <c>router_bias</c> [E] (see <see cref="MoeRouter"/>).</item>
 /// <item>Experts, rank 3: <c>experts.up.weight</c> [E, I, H], <c>experts.down.weight</c> [E, H, I] and either
 /// <c>experts.gate.weight</c> [E, I, H] or the fused <c>experts.gate_up.weight</c> [E, 2I, H] (gate rows first). Without a gate the
 /// experts are ungated MLPs (act(up)).</item>
-/// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP), optionally scaled per token by
+/// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
+/// act(up) MLP), optionally scaled per token by
 /// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H].</item>
 /// </list>
 /// </remarks>
@@ -69,7 +70,7 @@ internal static class MoeBlock
     private static Value SharedExpert(GraphBuilder b, Value h, string prefix, Func<Value, Value> activation)
     {
         var up = b.Linear(h, prefix + "shared.up.weight");
-        var act = b.Mul(activation(b.Linear(h, prefix + "shared.gate.weight")), up);
+        var act = b.HasWeight(prefix + "shared.gate.weight") ? b.Mul(activation(b.Linear(h, prefix + "shared.gate.weight")), up) : activation(up);
         var shared = b.Linear(act, prefix + "shared.down.weight", name: $"{prefix}shared_out");
         if (!b.HasWeight(prefix + "shared.input_gate.weight"))
         {
