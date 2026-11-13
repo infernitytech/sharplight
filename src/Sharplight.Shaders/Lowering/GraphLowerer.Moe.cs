@@ -14,6 +14,9 @@ public sealed partial class GraphLowerer
 
     static readonly int s_moeMvMax = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_MV_MAX") ?? MoeMatvecMaxItems.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
     static readonly int s_moeTile = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);
+    // Without tensor cores the 64-row scalar tile only pays off when experts see many rows: below this average the
+    // per-item matvec (which re-reads shared experts' weights from cache) is faster.
+    static readonly int s_moeScalarRows = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_SCALAR_ROWS") ?? "12", CultureInfo.InvariantCulture);
     static readonly bool s_moeNoCoop = Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_NO_COOP") == "1";
 
     static OpSupport SupportsMoe(Node node)
@@ -55,7 +58,10 @@ public sealed partial class GraphLowerer
         var tids = ids; var tx = x;
         long maxItems = ids.Shape[0] * S;
         Func<Bindings, long> items = b => Rows(b, tids) * S;
-        long mv = s_moeMvMax;
+        bool coop = !s_moeNoCoop && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
+                    && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+        // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much later).
+        long mv = coop ? s_moeMvMax : Math.Max(s_moeMvMax, s_moeScalarRows * E);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
 
         // Decode / few rows: one matvec per (token, slot).
@@ -66,8 +72,6 @@ public sealed partial class GraphLowerer
             [x, w, ids], [y]);
 
         // Many rows: group by expert, then a GEMM per expert tile.
-        bool coop = !s_moeNoCoop && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
-                    && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
         long maxTiles = Math.Min(maxItems, maxItems / MoeMinTile + E);
         long scratchWords = 1 + 3 * maxTiles + maxItems;
         _moeScratch ??= NewBuffer(BufferKind.Activations, "moe-routing", 0);
