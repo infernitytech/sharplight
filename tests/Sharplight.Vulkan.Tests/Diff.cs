@@ -11,6 +11,9 @@ internal static class Diff
 {
     public static readonly ConcurrentDictionary<string, (double MaxAbs, double MaxScaled, int Cases)> Results = new();
 
+    /// <summary>Features the CPU oracle runs without, so that it computes in f32 (the integer-dot matmuls quantize activations).</summary>
+    private static readonly HashSet<string> s_exactOracle = [DeviceFeatures.IntDot];
+
     static Diff()
     {
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
@@ -81,7 +84,8 @@ internal static class Diff
         CompiledModel cpu;
         try
         {
-            cpu = Compile(Gpu.Cpu, g, maxTokens, ctx);
+            // The oracle stays exact: no int8-quantized activations on the CPU's integer-dot kernels.
+            cpu = Compile(Gpu.Cpu, g, maxTokens, ctx, s_exactOracle);
         }
         catch (NotSupportedException e)
         {
