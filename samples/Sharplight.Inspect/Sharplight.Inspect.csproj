@@ -1,7 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>sharplight-inspect</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
   </ItemGroup>
 </Project>

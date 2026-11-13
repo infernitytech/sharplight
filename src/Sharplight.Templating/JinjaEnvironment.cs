@@ -1,10 +1,9 @@
-using System.Text;
-
 namespace Sharplight.Templating;
 
 /// <summary>Configuration shared by templates: whitespace options, undefined behavior, globals, filters and tests.</summary>
 public sealed class JinjaEnvironment
 {
+    /// <summary>Creates an environment with the built-in filters and tests and default options.</summary>
     public JinjaEnvironment()
     {
         Filters = Builtins.CreateFilters();
@@ -30,7 +29,9 @@ public sealed class JinjaEnvironment
     /// <summary>Global variables; values must be in the template value model (see <see cref="JinjaValue.From"/>).</summary>
     public Dictionary<string, object?> Globals { get; } = new();
 
+    /// <summary>Filters by name (<c>{{ x | name }}</c>); add entries to register custom filters. Not thread-safe to mutate while rendering.</summary>
     public Dictionary<string, FilterFunction> Filters { get; }
+    /// <summary>Tests by name (<c>{% if x is name %}</c>); add entries to register custom tests.</summary>
     public Dictionary<string, TestFunction> Tests { get; }
 
     /// <summary>Parses a template. Throws <see cref="TemplateSyntaxException"/> on errors.</summary>
@@ -39,35 +40,5 @@ public sealed class JinjaEnvironment
         var tokens = Lexer.Tokenize(source, TrimBlocks, LstripBlocks, KeepTrailingNewline);
         var body = Parser.Parse(tokens);
         return new JinjaTemplate(this, body);
-    }
-}
-
-/// <summary>A compiled template. Thread-safe for concurrent <see cref="Render"/> calls as long as the context values are not shared mutable lists.</summary>
-public sealed class JinjaTemplate
-{
-    private readonly JinjaEnvironment _env;
-    private readonly List<Stmt> _body;
-
-    internal JinjaTemplate(JinjaEnvironment env, List<Stmt> body)
-    {
-        _env = env;
-        _body = body;
-    }
-
-    public string Render(IReadOnlyDictionary<string, object?>? context = null)
-    {
-        var vars = new Dictionary<string, object?>();
-        if (context != null)
-        {
-            foreach (var kv in context)
-            {
-                vars[kv.Key] = JinjaValue.From(kv.Value);
-            }
-        }
-
-        var frame = new Frame(_env, null, vars);
-        var sb = new StringBuilder();
-        Stmt.ExecAll(_body, frame, sb);
-        return sb.ToString();
     }
 }

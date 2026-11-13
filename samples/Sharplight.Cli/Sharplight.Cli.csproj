@@ -7,13 +7,13 @@
   <ItemGroup>
     <!-- Image file decoding lives in samples only; the libraries take raw RGB pixels. -->
     <PackageReference Include="StbImageSharp" />
+    <PackageReference Include="System.CommandLine" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
-    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
     <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
   </ItemGroup>
 </Project>

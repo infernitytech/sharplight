@@ -16,6 +16,7 @@
     <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <Project Path="samples/Sharplight.Cli/Sharplight.Cli.csproj" />
     <Project Path="samples/Sharplight.Inspect/Sharplight.Inspect.csproj" />
     <Project Path="samples/Sharplight.GgufDump/Sharplight.GgufDump.csproj" />

@@ -168,7 +168,10 @@ internal static class PyFormat
                 throw new TemplateRuntimeException("incomplete format");
             }
 
-            bool left = false, zero = false, plus = false, space = false;
+            bool left = false;
+            bool zero = false;
+            bool plus = false;
+            bool space = false;
             for (; i < fmt.Length; i++)
             {
                 if (fmt[i] == '-')
@@ -393,7 +396,8 @@ internal static class PyFormat
         }
 
         int i = 0;
-        char fill = ' ', align = '\0';
+        char fill = ' ';
+        char align = '\0';
         if (spec.Length >= 2 && "<>^".IndexOf(spec[1]) >= 0)
         {
             fill = spec[0];

@@ -5,6 +5,7 @@ public class TemplateException : Exception
 {
     private readonly string _raw;
 
+    /// <summary>Creates an exception with an optional 1-based source position (0 = unknown).</summary>
     public TemplateException(string message, int line = 0, int column = 0) : base(message)
     {
         _raw = message;
@@ -21,6 +22,7 @@ public class TemplateException : Exception
     /// <summary>The message without position information.</summary>
     public string RawMessage => _raw;
 
+    /// <summary>The message including the source position when known.</summary>
     public override string Message => Line > 0 ? $"{_raw} (line {Line}, column {Column})" : _raw;
 
     /// <summary>Fills in the position if it is not set yet. Always returns false (for use in exception filters).</summary>
@@ -33,24 +35,4 @@ public class TemplateException : Exception
         }
         return false;
     }
-}
-
-/// <summary>Thrown for lexing and parsing errors.</summary>
-public sealed class TemplateSyntaxException : TemplateException
-{
-    public TemplateSyntaxException(string message, int line = 0, int column = 0) : base(message, line, column) { }
-}
-
-/// <summary>Thrown for errors raised while rendering (type errors, undefined values in strict mode, ...).</summary>
-public class TemplateRuntimeException : TemplateException
-{
-    public TemplateRuntimeException(string message, int line = 0, int column = 0) : base(message, line, column) { }
-}
-
-/// <summary>Thrown by the template's own <c>raise_exception(...)</c> call. <see cref="Exception.Message"/> is the text given by the template.</summary>
-public sealed class TemplateRaisedException : TemplateRuntimeException
-{
-    public TemplateRaisedException(string message) : base(message) { }
-
-    public override string Message => RawMessage;
 }

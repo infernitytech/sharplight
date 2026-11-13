@@ -3,9 +3,6 @@ using System.Text;
 
 namespace Sharplight.Templating;
 
-public delegate object? FilterFunction(JinjaEnvironment env, object? value, CallArgs args);
-public delegate bool TestFunction(JinjaEnvironment env, object? value, CallArgs args);
-
 /// <summary>Builtin filters, tests and global functions.</summary>
 internal static class Builtins
 {
@@ -157,7 +154,8 @@ internal static class Builtins
         };
         f["replace"] = (env, v, a) =>
         {
-            string o = S(a.Get(0, "old")), n = S(a.Get(1, "new"));
+            string o = S(a.Get(0, "old"));
+            string n = S(a.Get(1, "new"));
             long cnt = a.Get(2, "count") is long c ? c : -1;
             return Methods.Replace(S(v), o, n, cnt);
         };
@@ -167,7 +165,8 @@ internal static class Builtins
             bool ascii = Boolean(a, 0, "ensure_ascii", false);
             var ind = a.Get(1, "indent");
             string? indent = ind is null or Undefined ? null : Indent(ind);
-            string? item = null, key = null;
+            string? item = null;
+            string? key = null;
             if (a.Get(2, "separators") is List<object?> sep && sep.Count == 2)
             {
                 item = S(sep[0]);
@@ -371,7 +370,9 @@ internal static class Builtins
             int n = (int)Ops.ToLong(a.Get(0, "slices"));
             var fill = a.Get(1, "fill_with");
             var seq = Seq(v);
-            int per = seq.Count / n, extra = seq.Count % n, offset = 0;
+            int per = seq.Count / n;
+            int extra = seq.Count % n;
+            int offset = 0;
             var res = new List<object?>();
             for (int i = 0; i < n; i++)
             {
@@ -458,7 +459,8 @@ internal static class Builtins
         {
             string s = S(v);
             string pad = Indent(a.Get(0, "width", 4L));
-            bool first = Boolean(a, 1, "first", false), blank = Boolean(a, 2, "blank", false);
+            bool first = Boolean(a, 1, "first", false);
+            bool blank = Boolean(a, 2, "blank", false);
             var lines = s.Split('\n');
             var sb = new StringBuilder();
             for (int i = 0; i < lines.Length; i++)
@@ -553,24 +555,6 @@ internal static class Builtins
             return sb.Length > 0 ? sb.ToString() : "";
         };
         return f;
-    }
-
-    private static string Escape(string s)
-    {
-        var sb = new StringBuilder(s.Length);
-        foreach (char c in s)
-        {
-            switch (c)
-            {
-                case '&': sb.Append("&amp;"); break;
-                case '<': sb.Append("&lt;"); break;
-                case '>': sb.Append("&gt;"); break;
-                case '\'': sb.Append("&#39;"); break;
-                case '"': sb.Append("&#34;"); break;
-                default: sb.Append(c); break;
-            }
-        }
-        return sb.ToString();
     }
 
     private static string JinjaTitle(string s)
@@ -721,7 +705,9 @@ internal static class Builtins
         var g = env.Globals;
         g["range"] = new NativeFunction("range", a =>
         {
-            long start = 0, stop, step = 1;
+            long start = 0;
+            long stop;
+            long step = 1;
             var p = a.Positional;
             if (p.Count == 1)
             {

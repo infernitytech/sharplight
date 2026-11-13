@@ -4,7 +4,7 @@ using Xunit;
 namespace Sharplight.Templating.Tests;
 
 /// <summary>Snippets rendered by real Python jinja2 (see Goldens/gen_snippets.py); outputs must match exactly.</summary>
-public class SnippetTests
+public sealed class SnippetTests
 {
     private static readonly Dictionary<string, JsonElement> Snippets = Load();
 

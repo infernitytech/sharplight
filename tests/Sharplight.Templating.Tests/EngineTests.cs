@@ -2,7 +2,7 @@ using Xunit;
 
 namespace Sharplight.Templating.Tests;
 
-public class EngineTests
+public sealed class EngineTests
 {
     private static string R(string src, Dictionary<string, object?>? ctx = null, Action<JinjaEnvironment>? configure = null)
     {
