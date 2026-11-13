@@ -7,11 +7,11 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// Layer-pattern hybrid decoder (canonical arch <c>hybrid</c>): a stack of residual layers whose token mixer is a Mamba-2 state-space layer, grouped-query
 /// attention, or both in parallel (their outputs are summed), optionally followed by a gated feed-forward block (dense and/or routed experts).
-/// Covers Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer),
+/// Covers Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer), LFM2 (gated short convolutions interleaved with attention),
 /// and pure Mamba-2 stacks (no feed-forward).
 /// </summary>
 /// <remarks>
-/// The layer pattern is read from the weights: a layer with <c>ssm.in.weight</c> has the Mamba-2 mixer, one with <c>attention.q.weight</c> has attention;
+/// The layer pattern is read from the weights: a layer with <c>ssm.in.weight</c> has the Mamba-2 mixer, one with <c>shortconv.in.weight</c> the short-convolution mixer (<see cref="ShortConvLayer"/>), one with <c>attention.q.weight</c> has attention;
 /// a layer with <c>mlp.*</c> weights has the feed-forward block (see <see cref="Mamba2Layer"/>, <see cref="HybridAttention"/>,
 /// <see cref="HybridFeedForward"/> for their weight vocabulary).
 /// Layer: <c>x += residual_scale · mixers(norm(x))</c>, then (with a feed-forward) <c>x += residual_scale · ffn(post_attention_norm(x))</c>.
@@ -27,7 +27,7 @@ public sealed class HybridAdapter : IModelAdapter
     /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["hybrid"];
 
-    private sealed record LayerStates(StateDefinition? Conv, StateDefinition? Scan, StateDefinition? Keys, StateDefinition? Values);
+    private sealed record LayerStates(StateDefinition? Conv, StateDefinition? Scan, StateDefinition? Keys, StateDefinition? Values, StateDefinition? ShortConv);
 
     /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
@@ -41,6 +41,7 @@ public sealed class HybridAdapter : IModelAdapter
         float residualScale = src.Arch("residual_scale", 1f);
         var mamba = new Mamba2Layer(src, eps);
         var attention = new HybridAttention(src);
+        var shortConv = new ShortConvLayer(src);
         var feedForward = new HybridFeedForward(src, hidden);
 
         var states = new List<StateDefinition>();
@@ -50,8 +51,9 @@ public sealed class HybridAdapter : IModelAdapter
             string p = $"layers.{il}.";
             var ssm = src.Weight(p + "ssm.in.weight") is not null ? mamba.DefineStates($"layers.{il}") : default;
             var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType) : default;
-            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values);
-            states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values }.OfType<StateDefinition>());
+            var conv = src.Weight(p + "shortconv.in.weight") is { } convIn ? shortConv.DefineState($"layers.{il}", (int)(convIn.Shape[0].Fixed / 3)) : null;
+            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv);
+            states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv }.OfType<StateDefinition>());
         }
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, false) };
@@ -113,6 +115,11 @@ public sealed class HybridAdapter : IModelAdapter
             if (layer.Scan is not null)
             {
                 mixed = mamba.Build(b, h, p, layer.Conv!, layer.Scan);
+            }
+
+            if (layer.ShortConv is not null)
+            {
+                mixed = shortConv.Build(b, h, p, layer.ShortConv);
             }
 
             if (layer.Keys is not null)

@@ -73,6 +73,13 @@ public class FamilyGenerationTests
             [11, 11401, 11, 323, 36105, 13, 11450, 11, 433, 374, 3967, 369, 1202, 18112, 11, 11401], ""),
         new("Falcon-H1-0.5B-Instruct HF (transformers)", "hf/Falcon-H1-0.5B-Instruct", P2, "ids",
             [535, 16379, 535, 823, 6535, 537, 1692, 1179, 774, 26731, 813, 14793, 5897, 823, 774, 2220], ""),
+        // LFM2: gated short convolutions + QK-normed attention.
+        new("tiny-random-lfm2 HF (transformers)", "hf/tiny-random-lfm2", P2, "ids",
+            [11762, 12390, 31881, 32488, 20232, 42609, 52418, 27614, 2051, 53259, 32162, 53259, 32162, 53259, 32162, 53259], ""),
+        new("LFM2.5-1.2B-Instruct HF (transformers)", "hf/LFM2.5-1.2B-Instruct", P2, "ids",
+            [521, 12688, 521, 810, 11458, 523, 941, 3771, 856, 1236, 779, 6584, 3771, 797, 779, 3374], ""),
+        new("LFM2.5-1.2B-Instruct Q4_K_M GGUF (llama.cpp)", "gguf/LFM2.5-1.2B-Instruct/LFM2.5-1.2B-Instruct-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " the city of Paris. It is the most populous city in the country and", Tokens: 16),
         new("mamba2-130m-hf HF (transformers)", "hf/mamba2-130m-hf", "The capital of France is", "ids",
             [247, 2846, 273, 253, 5112, 952, 13, 285, 253, 5347, 273, 253, 5112, 4687, 15, 733], ""),
         new("granite-4.0-h-350m Q4_K_M GGUF (llama.cpp)", "gguf/granite-4.0-h-350m/granite-4.0-h-350m-Q4_K_M.gguf", "The capital of France is", "text", [], " Paris.", Tokens: 16),

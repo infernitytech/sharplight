@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Architectures;
 
 /// <summary>
-/// Grouped-query attention mixer of the <see cref="HybridAdapter"/> over a KV cache: weights <c>attention.{q,k,v,o}.weight</c>, optional rotary
+/// Grouped-query attention mixer of the <see cref="HybridAdapter"/> over a KV cache: weights <c>attention.{q,k,v,o}.weight</c>, optional per-head q/k RMS norms (<c>attention.{q,k}_norm.weight</c> [head_dim]), optional rotary
 /// embeddings (<c>attention.rope</c>), scale <c>attention.scale</c> (default 1/sqrt(head_dim)).
 /// </summary>
 internal sealed class HybridAttention
@@ -18,6 +18,7 @@ internal sealed class HybridAttention
     private readonly int _ropeDims;
     private readonly float _ropeBase;
     private readonly string _ropeStyle;
+    private readonly float _eps;
 
     /// <summary>Reads the <c>attention.*</c> and <c>rope.*</c> hyper-parameters of a source.</summary>
     public HybridAttention(ModelSource src)
@@ -30,6 +31,7 @@ internal sealed class HybridAttention
         _ropeDims = src.Arch("rope.dim", _headDim);
         _ropeBase = src.Arch("rope.base", 10000f);
         _ropeStyle = src.Arch("rope.style", "neox");
+        _eps = src.Arch("norm_eps", 1e-5f);
     }
 
     /// <summary>Declares the key and value caches of one layer.</summary>
@@ -47,6 +49,16 @@ internal sealed class HybridAttention
         var q = b.Reshape(b.Linear(h, p + "attention.q.weight"), 0, _heads, _headDim);
         var k = b.Reshape(b.Linear(h, p + "attention.k.weight"), 0, _kvHeads, _headDim);
         var v = b.Reshape(b.Linear(h, p + "attention.v.weight"), 0, _kvHeads, _headDim);
+        if (b.TryWeight(p + "attention.q_norm.weight") is { } qNorm)
+        {
+            q = b.RmsNorm(q, qNorm, _eps);
+        }
+
+        if (b.TryWeight(p + "attention.k_norm.weight") is { } kNorm)
+        {
+            k = b.RmsNorm(k, kNorm, _eps);
+        }
+
         if (_rope)
         {
             var rope = Attributes.From(("dims", _ropeDims), ("base", _ropeBase), ("style", _ropeStyle));

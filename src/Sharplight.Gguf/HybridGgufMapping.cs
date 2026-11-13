@@ -4,14 +4,14 @@ using Sharplight.Tensors;
 namespace Sharplight.Gguf;
 
 /// <summary>
-/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c> and <c>mamba2</c> → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
+/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c> and <c>lfm2</c> (gated short convolutions + attention) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
 /// A layer has attention when its GGUF key/value head count is positive; every layer of these models has the Mamba-2 mixer except the attention-only
 /// layers of Granite-4.0-H (Falcon-H1 has both mixers in every layer, recognised by the SSM weights being present).
 /// </summary>
 internal sealed class HybridGgufMapping : IGgufArchitectureMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2"];
     /// <inheritdoc/>
     public string Architecture => "hybrid";
 
@@ -27,18 +27,27 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         string a = Architecture + ".";
         int layerCount = g.Int("block_count");
         int hidden = g.Int("embedding_length");
-        int ssmHeads = g.Int("ssm.time_step_rank");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "layer_count"] = layerCount,
             [a + "hidden_size"] = hidden,
             [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
-            [a + "ssm.conv_kernel"] = g.Int("ssm.conv_kernel"),
-            [a + "ssm.state_size"] = g.Int("ssm.state_size"),
-            [a + "ssm.group_count"] = g.Int("ssm.group_count"),
-            [a + "ssm.head_count"] = ssmHeads,
-            [a + "ssm.head_dim"] = g.Int("ssm.inner_size") / ssmHeads,
         };
+        if (g.Has("ssm.inner_size"))
+        {
+            int ssmHeads = g.Int("ssm.time_step_rank");
+            md[a + "ssm.conv_kernel"] = g.Int("ssm.conv_kernel");
+            md[a + "ssm.state_size"] = g.Int("ssm.state_size");
+            md[a + "ssm.group_count"] = g.Int("ssm.group_count");
+            md[a + "ssm.head_count"] = ssmHeads;
+            md[a + "ssm.head_dim"] = g.Int("ssm.inner_size") / ssmHeads;
+        }
+
+        if (g.Has("shortconv.l_cache"))
+        {
+            md[a + "shortconv.kernel"] = g.Int("shortconv.l_cache");
+        }
+
         GgufMappingHelpers.AddContextLength(md, a, g);
 
         int kvHeads = KvHeadCounts(g, layerCount).Max();
@@ -51,8 +60,8 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
             md[a + "attention.scale"] = g.Float("attention.scale", 1f / MathF.Sqrt(g.Int("attention.key_length", hidden / headCount)));
             md[a + "rope.dim"] = g.Int("rope.dimension_count", g.Int("attention.key_length", hidden / headCount));
             md[a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase);
-            // Granite-4.0-H attention is position-less (NoPE) unless the checkpoint is flagged as rope-finetuned; Falcon-H1 always rotates.
-            md[a + "attention.rope"] = g.GgufArchitecture == "falcon-h1" || g.Bool("rope.scaling.finetuned", false);
+            // Granite-4.0-H attention is position-less (NoPE) unless the checkpoint is flagged as rope-finetuned; Falcon-H1 and LFM2 always rotate.
+            md[a + "attention.rope"] = g.GgufArchitecture is "falcon-h1" or "lfm2" || g.Bool("rope.scaling.finetuned", false);
         }
 
         if (g.Has("embedding_scale"))
@@ -93,6 +102,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         ["ssm_a"] = "ssm.a",
         ["ssm_d"] = "ssm.d",
         ["ssm_norm.weight"] = "ssm.norm.weight",
+        ["shortconv.in_proj.weight"] = "shortconv.in.weight",
+        ["shortconv.conv.weight"] = "shortconv.conv.weight",
+        ["shortconv.out_proj.weight"] = "shortconv.out.weight",
+        ["attn_q_norm.weight"] = "attention.q_norm.weight",
+        ["attn_k_norm.weight"] = "attention.k_norm.weight",
         ["attn_q.weight"] = "attention.q.weight",
         ["attn_k.weight"] = "attention.k.weight",
         ["attn_v.weight"] = "attention.v.weight",
@@ -112,6 +126,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (name == "token_embd_norm.weight" && g.GgufArchitecture == "lfm2")
+        {
+            return "output_norm.weight";   // LFM2 calls its final norm the embedding norm
+        }
+
         if (GgufTensorNames.MapGlobal(name) is { } globalName)
         {
             return globalName;

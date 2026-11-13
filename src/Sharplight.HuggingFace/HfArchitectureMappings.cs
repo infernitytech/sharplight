@@ -14,6 +14,7 @@ internal static class HfArchitectureMappings
         Register(new GraniteHybridHfMapping());
         Register(new FalconH1HfMapping());
         Register(new Mamba2HfMapping());
+        Register(new Lfm2HfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
     }
