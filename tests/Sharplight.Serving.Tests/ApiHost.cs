@@ -80,7 +80,8 @@ public sealed class ApiHost : IAsyncDisposable
         var res = new List<(string?, string)>();
         foreach (var block in body.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
         {
-            string? ev = null; var data = new StringBuilder();
+            string? ev = null;
+            var data = new StringBuilder();
             foreach (var line in block.Split('\n'))
             {
                 if (line.StartsWith("event: "))

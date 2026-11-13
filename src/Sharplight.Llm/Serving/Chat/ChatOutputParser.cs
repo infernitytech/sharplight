@@ -2,21 +2,18 @@ using System.Text;
 
 namespace Sharplight.Llm.Serving.Chat;
 
-public enum PieceKind { Content, Reasoning, ToolCall }
-public sealed record ParsedPiece(PieceKind Kind, string Text = "", ToolCall? Call = null);
-
 /// <summary>
 /// Incremental parser of model output: separates reasoning (<c>&lt;think&gt;…&lt;/think&gt;</c>) from content and extracts tool calls
 /// in any of the given <see cref="IToolCallFormat"/>s. Text that may be the start of a marker is held back until it is clear.
 /// Blocks that fail to parse as tool calls are returned as plain content.
 /// </summary>
-public sealed class ChatOutputParser
+internal sealed class ChatOutputParser
 {
     private enum Mode { Content, Reasoning, Tool }
 
     private readonly IReadOnlyList<IToolCallFormat> _formats;
     private readonly HashSet<string> _toolNames;
-    private readonly string _thinkOpen, _thinkClose;
+    private readonly string _thinkClose;
     private readonly List<string> _contentMarkers;
     private readonly IToolCallFormat? _bare;
     private readonly StringBuilder _buf = new();
@@ -31,15 +28,21 @@ public sealed class ChatOutputParser
     /// <param name="formats">Tool-call formats to recognise; empty/null to disable tool parsing.</param>
     /// <param name="toolNames">Names of the offered tools; calls to other names are left as text.</param>
     /// <param name="startInReasoning">The prompt already opened a think block (the output starts with reasoning).</param>
+    /// <param name="thinkOpen">Marker that opens a reasoning block.</param>
+    /// <param name="thinkClose">Marker that closes a reasoning block.</param>
     public ChatOutputParser(IReadOnlyList<IToolCallFormat>? formats, IEnumerable<string>? toolNames, bool startInReasoning = false,
         string thinkOpen = "<think>", string thinkClose = "</think>")
     {
         _formats = formats ?? [];
         _toolNames = [.. toolNames ?? []];
-        _thinkOpen = thinkOpen; _thinkClose = thinkClose;
+        _thinkClose = thinkClose;
         _contentMarkers = [thinkOpen, .. _formats.Where(f => f.StartMarker is not null).Select(f => f.StartMarker!)];
         _bare = _formats.FirstOrDefault(f => f.AllowLeadingJson);
-        if (startInReasoning) { _mode = Mode.Reasoning; _trimLeading = true; }
+        if (startInReasoning)
+        {
+            _mode = Mode.Reasoning;
+            _trimLeading = true;
+        }
     }
 
     public List<ParsedPiece> Push(string text)
@@ -76,7 +79,14 @@ public sealed class ChatOutputParser
                                 return;
                             }
 
-                            if (t.StartsWith('{')) { _mode = Mode.Tool; _cur = _bare; _curBare = true; _buf.Clear().Append(t); continue; }
+                            if (t.StartsWith('{'))
+                            {
+                                _mode = Mode.Tool;
+                                _cur = _bare;
+                                _curBare = true;
+                                _buf.Clear().Append(t);
+                                continue;
+                            }
                     }
                     var markers = HasTools ? _contentMarkers : _contentMarkers.GetRange(0, 1);
                     var (idx, m) = MarkerScanner.FindFirst(s, markers);
@@ -85,8 +95,17 @@ public sealed class ChatOutputParser
                         bool isThink = m == 0;
                         EmitContent(isThink ? s[..idx] : s[..idx].TrimEnd(), o);
                         _buf.Clear().Append(s, idx + markers[m].Length, s.Length - idx - markers[m].Length);
-                        if (isThink) { _mode = Mode.Reasoning; _trimLeading = true; }
-                        else { _mode = Mode.Tool; _cur = _formats.First(f => f.StartMarker == markers[m]); _curBare = false; }
+                        if (isThink)
+                        {
+                            _mode = Mode.Reasoning;
+                            _trimLeading = true;
+                        }
+                        else
+                        {
+                            _mode = Mode.Tool;
+                            _cur = _formats.First(f => f.StartMarker == markers[m]);
+                            _curBare = false;
+                        }
                         continue;
                     }
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, markers);
@@ -107,12 +126,18 @@ public sealed class ChatOutputParser
                     {
                         EmitReasoning(s[..idx].TrimEnd(), o);
                         _buf.Clear().Append(s, idx + _thinkClose.Length, s.Length - idx - _thinkClose.Length);
-                        _mode = Mode.Content; _trimLeading = true;
+                        _mode = Mode.Content;
+                        _trimLeading = true;
                         continue;
                     }
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, [_thinkClose]);
                     string emit = s[..(s.Length - hold)];
-                    if (!final) { int ws = emit.Length - emit.TrimEnd().Length; hold += ws; emit = emit[..(emit.Length - ws)]; }
+                    if (!final)
+                    {
+                        int ws = emit.Length - emit.TrimEnd().Length;
+                        hold += ws;
+                        emit = emit[..(emit.Length - ws)];
+                    }
                     else
                         {
                             emit = emit.TrimEnd();
@@ -128,7 +153,15 @@ public sealed class ChatOutputParser
                     if (end is not null)
                     {
                         int idx = s.IndexOf(end, StringComparison.Ordinal);
-                        if (idx < 0) { if (final) { Finish(s, "", o); _buf.Clear(); } return; }
+                        if (idx < 0)
+                        {
+                            if (final)
+                            {
+                                Finish(s, "", o);
+                                _buf.Clear();
+                            }
+                            return;
+                        }
                         Finish(s[..idx], end, o);
                         _buf.Clear().Append(s, idx + end.Length, s.Length - idx - end.Length);
                         continue;
@@ -177,11 +210,15 @@ public sealed class ChatOutputParser
 
     private void EmitContent(string text, List<ParsedPiece> o)
     {
-        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0)
+        if (_trimLeading)
+        {
+            text = text.TrimStart();
+            if (text.Length > 0)
             {
                 _trimLeading = false;
             }
         }
+
         if (text.Length == 0)
         {
             return;
@@ -197,11 +234,15 @@ public sealed class ChatOutputParser
 
     private void EmitReasoning(string text, List<ParsedPiece> o)
     {
-        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0)
+        if (_trimLeading)
+        {
+            text = text.TrimStart();
+            if (text.Length > 0)
             {
                 _trimLeading = false;
             }
         }
+
         if (text.Length > 0)
         {
             o.Add(new ParsedPiece(PieceKind.Reasoning, text));

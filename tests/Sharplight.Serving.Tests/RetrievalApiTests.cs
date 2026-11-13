@@ -10,8 +10,10 @@ namespace Sharplight.Serving.Tests;
 
 public sealed class RetrievalApiTests : IAsyncLifetime
 {
-    private WebApplication _app = null!, _standalone = null!;
-    private HttpClient _client = null!, _standaloneClient = null!;
+    private WebApplication _app = null!;
+    private WebApplication _standalone = null!;
+    private HttpClient _client = null!;
+    private HttpClient _standaloneClient = null!;
     private readonly FakeEmbedder _embedder = new();
     private Sharplight.Llm.Serving.InferenceEngine? _engine;
 
@@ -34,7 +36,11 @@ public sealed class RetrievalApiTests : IAsyncLifetime
         }
         b.Services.AddSharplightEmbeddings(_embedder).AddSharplightReranker(new FakeReranker());
         var app = b.Build();
-        if (full) { app.UseSharplight(); app.MapSharplight(); }
+        if (full)
+        {
+            app.UseSharplight();
+            app.MapSharplight();
+        }
         else
         {
             app.MapSharplightRetrieval();
@@ -46,7 +52,11 @@ public sealed class RetrievalApiTests : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
-        foreach (var a in new[] { _app, _standalone }) { await a.StopAsync(); await a.DisposeAsync(); }
+        foreach (var a in new[] { _app, _standalone })
+        {
+            await a.StopAsync();
+            await a.DisposeAsync();
+        }
         _engine?.Dispose();
     }
 

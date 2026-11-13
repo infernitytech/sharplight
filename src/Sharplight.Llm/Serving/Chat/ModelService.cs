@@ -1,42 +1,47 @@
 using System.Text;
-using System.Text.Json;
-using System.Threading.Channels;
 using Sharplight.Templating;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Serving.Chat;
 
-public sealed record ModelServiceOptions
-{
-    /// <summary>Name reported by the APIs.</summary>
-    public string ModelName { get; init; } = "sharplight";
-    /// <summary>Completion length when a request gives none (0 = until the context is full).</summary>
-    public int DefaultMaxTokens { get; init; } = 1024;
-    /// <summary>Tool-call formats to parse; null = detected from the chat template.</summary>
-    public IReadOnlyList<IToolCallFormat>? ToolFormats { get; init; }
-    /// <summary>Overrides the model's own chat template (Jinja source).</summary>
-    public string? ChatTemplate { get; init; }
-}
-
-/// <summary>A rendered and tokenized chat prompt.</summary>
-public sealed record ChatPrompt(string Text, int[] Tokens, bool StartsInReasoning);
-
 /// <summary>
 /// The chat layer on top of an <see cref="InferenceEngine"/>: renders messages (with tools) through the model's Jinja chat
 /// template, submits the requests and turns the generated text into content / reasoning / tool-call events.
+/// Thread-safe; many requests may be started concurrently (the engine batches them).
 /// </summary>
+/// <example>
+/// <code>
+/// var service = new ModelService(engine, model.ChatTemplate, new ModelServiceOptions { ModelName = "qwen3" });
+/// var request = new ChatRequest
+/// {
+///     Messages = [new ChatTurn("user", "Name three primary colours.")],
+///     MaxTokens = 128,
+/// };
+/// var result = await service.StartChat(request).CompleteAsync();
+/// Console.WriteLine(result.Choices[0].Content);
+/// </code>
+/// </example>
 public sealed class ModelService
 {
     private readonly ChatTemplate? _template;
     private readonly IReadOnlyList<IToolCallFormat> _formats;
     private readonly string? _bos;
 
+    /// <summary>The engine requests are submitted to.</summary>
     public InferenceEngine Engine { get; }
+    /// <summary>The service settings.</summary>
     public ModelServiceOptions Options { get; }
+    /// <summary>The tokenizer of the served model.</summary>
     public ITokenizer Tokenizer => Engine.Tokenizer;
+    /// <summary>Name reported by the APIs.</summary>
     public string ModelName => Options.ModelName;
+    /// <summary>False when the model has no chat template and a plain <c>Role: text</c> transcript is used.</summary>
     public bool HasChatTemplate => _template is not null;
 
+    /// <summary>Creates the chat layer over <paramref name="engine"/>; the caller keeps ownership of the engine.</summary>
+    /// <param name="engine">The scheduler that runs the generations.</param>
+    /// <param name="chatTemplate">The model's Jinja chat template (<see cref="LlmModel.ChatTemplate"/>); <see cref="ModelServiceOptions.ChatTemplate"/> overrides it.</param>
+    /// <param name="options">Name and defaults; library defaults when null.</param>
     public ModelService(InferenceEngine engine, string? chatTemplate, ModelServiceOptions? options = null)
     {
         Engine = engine;
@@ -54,7 +59,7 @@ public sealed class ModelService
 
     // ---- prompt -----------------------------------------------------------------------------------------------------
 
-    public ChatPrompt BuildPrompt(ChatRequest r)
+    internal ChatPrompt BuildPrompt(ChatRequest r)
     {
         foreach (var m in r.Messages)
         {
@@ -107,6 +112,8 @@ public sealed class ModelService
         return new ChatPrompt(text, tokens, text.TrimEnd().EndsWith("<think>", StringComparison.Ordinal));
     }
 
+    /// <summary>Number of prompt tokens the request would occupy after template rendering.</summary>
+    /// <exception cref="EngineException">The request contains images (not supported by this configuration).</exception>
     public int CountTokens(ChatRequest r) => BuildPrompt(r).Tokens.Length;
 
     private static string FallbackPrompt(List<Templating.ChatMessage> msgs)
@@ -153,6 +160,9 @@ public sealed class ModelService
     // ---- running ----------------------------------------------------------------------------------------------------
 
     /// <summary>Submits a chat request (N independent choices). Admission errors are thrown here, before any output exists.</summary>
+    /// <param name="r">The conversation and settings.</param>
+    /// <param name="ct">Cancels all choices.</param>
+    /// <exception cref="EngineException">The request was not admitted (see <see cref="InferenceEngine.Submit"/>).</exception>
     public ChatRun StartChat(ChatRequest r, CancellationToken ct = default)
     {
         var prompt = BuildPrompt(r);
@@ -163,6 +173,7 @@ public sealed class ModelService
     }
 
     /// <summary>Submits a raw text completion request.</summary>
+    /// <exception cref="EngineException">The request was not admitted (see <see cref="InferenceEngine.Submit"/>).</exception>
     public ChatRun StartCompletion(CompletionRequest r, CancellationToken ct = default)
     {
         var tokens = r.PromptTokens ?? Tokenizer.Encode(r.Prompt ?? "", addSpecial: true, parseSpecial: true);
@@ -188,211 +199,15 @@ public sealed class ModelService
                 }, ct));
             }
         }
-        catch { foreach (var h in handles) { h.Cancel(); } throw; }
+        catch
+        {
+            foreach (var h in handles)
+            {
+                h.Cancel();
+            }
+
+            throw;
+        }
         return new ChatRun(handles, parser, tokens.Length);
-    }
-}
-
-/// <summary>A submitted chat/completion request: stream <see cref="ChatEvent"/>s or wait for the <see cref="ChatResult"/>.</summary>
-public sealed class ChatRun(IReadOnlyList<GenerationHandle> handles, Func<ChatOutputParser>? parserFactory, int promptTokens)
-{
-    public int PromptTokens { get; } = promptTokens;
-    public int ChoiceCount => handles.Count;
-
-    public void Cancel() { foreach (var h in handles)
-        {
-            h.Cancel();
-        }
-    }
-
-    /// <summary>Streams events of all choices (interleaved when N &gt; 1). Abandoning the enumeration cancels the requests.</summary>
-    public async IAsyncEnumerable<ChatEvent> ReadAllAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
-    {
-        if (handles.Count == 1)
-        {
-            await foreach (var e in Choice(0, ct).ConfigureAwait(false))
-            {
-                yield return e;
-            }
-
-            yield break;
-        }
-        var ch = Channel.CreateUnbounded<ChatEvent>(new UnboundedChannelOptions { SingleReader = true });
-        var tasks = Enumerable.Range(0, handles.Count).Select(i => Task.Run(async () =>
-        {
-            await foreach (var e in Choice(i, ct).ConfigureAwait(false))
-            {
-                ch.Writer.TryWrite(e);
-            }
-        }, CancellationToken.None)).ToArray();
-        _ = Task.WhenAll(tasks).ContinueWith(t => ch.Writer.TryComplete(t.Exception?.GetBaseException()), TaskScheduler.Default);
-        try
-        {
-            await foreach (var e in ch.Reader.ReadAllAsync(ct).ConfigureAwait(false))
-            {
-                yield return e;
-            }
-        }
-        finally { Cancel(); }
-    }
-
-    private async IAsyncEnumerable<ChatEvent> Choice(int index, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
-    {
-        var parser = parserFactory?.Invoke();
-        await foreach (var c in handles[index].ReadAllAsync(ct).ConfigureAwait(false))
-        {
-            if (c.Text.Length > 0)
-            {
-                if (parser is null)
-                {
-                    yield return new ChatEvent(index, Content: c.Text);
-                }
-                else
-                {
-                    foreach (var e in Map(index, parser.Push(c.Text)))
-                    {
-                        yield return e;
-                    }
-                }
-            }
-            if (c.Logprobs is not null)
-            {
-                yield return new ChatEvent(index, Logprobs: c.Logprobs);
-            }
-
-            if (c.Finish is { } f)
-            {
-                if (parser is not null)
-                {
-                    foreach (var e in Map(index, parser.Finish()))
-                    {
-                        yield return e;
-                    }
-                }
-
-                var reason = f switch
-                {
-                    FinishReason.Stop => parser?.ToolCallCount > 0 ? ChatFinishReason.ToolCalls : ChatFinishReason.Stop,
-                    FinishReason.Length => ChatFinishReason.Length,
-                    FinishReason.Cancelled => ChatFinishReason.Cancelled,
-                    FinishReason.Timeout => ChatFinishReason.Timeout,
-                    _ => ChatFinishReason.Error,
-                };
-                yield return new ChatEvent(index, Finish: reason, Usage: c.Usage, StopSequence: c.StopSequence, Error: c.Error);
-            }
-        }
-    }
-
-    private static IEnumerable<ChatEvent> Map(int index, List<ParsedPiece> pieces)
-    {
-        foreach (var p in pieces)
-        {
-            yield return p.Kind switch
-            {
-                PieceKind.Content => new ChatEvent(index, Content: p.Text),
-                PieceKind.Reasoning => new ChatEvent(index, Reasoning: p.Text),
-                _ => new ChatEvent(index, ToolCall: p.Call),
-            };
-        }
-    }
-
-    public async Task<ChatResult> CompleteAsync(CancellationToken ct = default)
-    {
-        int n = handles.Count;
-        var content = Enumerable.Range(0, n).Select(_ => new StringBuilder()).ToArray();
-        var reasoning = Enumerable.Range(0, n).Select(_ => new StringBuilder()).ToArray();
-        var calls = Enumerable.Range(0, n).Select(_ => new List<ToolCall>()).ToArray();
-        var lps = Enumerable.Range(0, n).Select(_ => new List<TokenLogprob>()).ToArray();
-        var choices = new ChatChoice?[n];
-        await foreach (var e in ReadAllAsync(ct).ConfigureAwait(false))
-        {
-            int i = e.Index;
-            if (e.Content is not null)
-            {
-                content[i].Append(e.Content);
-            }
-
-            if (e.Reasoning is not null)
-            {
-                reasoning[i].Append(e.Reasoning);
-            }
-
-            if (e.ToolCall is not null)
-            {
-                calls[i].Add(e.ToolCall);
-            }
-
-            if (e.Logprobs is not null)
-            {
-                lps[i].AddRange(e.Logprobs);
-            }
-
-            if (e.Finish is { } f)
-            {
-                choices[i] = new ChatChoice
-                {
-                    Index = i, Content = content[i].ToString(), Reasoning = reasoning[i].Length > 0 ? reasoning[i].ToString() : null,
-                    ToolCalls = calls[i], Finish = f, StopSequence = e.StopSequence, Error = e.Error, Logprobs = lps[i], Usage = e.Usage ?? default,
-                };
-            }
-        }
-        var done = choices.Select(c => c ?? throw new InvalidOperationException("A choice ended without a finish event.")).ToList();
-        return new ChatResult
-        {
-            Choices = done,
-            Usage = new GenerationUsage(done[0].Usage.PromptTokens, done.Sum(c => c.Usage.CompletionTokens), done[0].Usage.CachedTokens),
-        };
-    }
-}
-
-/// <summary>JSON to template-value conversion (objects become <see cref="JinjaDict"/>, numbers long/double).</summary>
-public static class JsonClr
-{
-    public static object? Parse(string json)
-    {
-        using var doc = JsonDocument.Parse(json);
-        return Convert(doc.RootElement);
-    }
-
-    /// <summary>Parses a JSON object text into a dictionary; non-object or invalid text gives an empty dictionary.</summary>
-    public static IReadOnlyDictionary<string, object?> ParseObject(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return new Dictionary<string, object?>();
-        }
-
-        try
-        {
-            if (Parse(json) is JinjaDict d)
-            {
-                return d.ToDictionary(kv => (string)kv.Key, kv => kv.Value);
-            }
-        }
-        catch (JsonException) { }
-        return new Dictionary<string, object?>();
-    }
-
-    public static object? Convert(JsonElement e)
-    {
-        switch (e.ValueKind)
-        {
-            case JsonValueKind.Object:
-            {
-                var d = new Dictionary<string, object?>();
-                foreach (var p in e.EnumerateObject())
-                    {
-                        d[p.Name] = Convert(p.Value);
-                    }
-
-                    return JinjaValue.From(d);
-            }
-            case JsonValueKind.Array: return e.EnumerateArray().Select(Convert).ToList();
-            case JsonValueKind.String: return e.GetString();
-            case JsonValueKind.Number: return e.TryGetInt64(out var l) ? l : e.GetDouble();
-            case JsonValueKind.True: return true;
-            case JsonValueKind.False: return false;
-            default: return null;
-        }
     }
 }

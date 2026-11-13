@@ -10,7 +10,7 @@ namespace Sharplight.Llm.Embeddings;
 /// concatenated into batches of at most <see cref="MaxBatchTokens"/> rows and <see cref="MaxBatchSequences"/> sequences, each
 /// batch is one forward pass, and the per-sequence output rows are returned in input order. Not thread-safe; callers serialize.
 /// </summary>
-public sealed class PackedBatchRunner : IDisposable
+internal sealed class PackedBatchRunner : IDisposable
 {
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _positions, _rowSpans, _seqSpans;
@@ -68,8 +68,11 @@ public sealed class PackedBatchRunner : IDisposable
         OutputWidth = (int)o.Shape[-1].Fixed;
         MaxBatchTokens = maxTokens;
         MaxBatchSequences = maxSequences;
-        _tokBuf = new int[maxTokens]; _posBuf = new int[maxTokens]; _typeBuf = new int[maxTokens];
-        _rowBuf = new int[maxTokens * 2]; _seqBuf = new int[maxSequences * 2];
+        _tokBuf = new int[maxTokens];
+        _posBuf = new int[maxTokens];
+        _typeBuf = new int[maxTokens];
+        _rowBuf = new int[maxTokens * 2];
+        _seqBuf = new int[maxSequences * 2];
     }
 
     /// <summary>
@@ -82,7 +85,8 @@ public sealed class PackedBatchRunner : IDisposable
         int i = 0;
         while (i < sequences.Count)
         {
-            int start = i, rows = 0;
+            int start = i;
+            int rows = 0;
             while (i < sequences.Count && i - start < MaxBatchSequences)
             {
                 int len = sequences[i].Tokens.Length;
@@ -116,13 +120,15 @@ public sealed class PackedBatchRunner : IDisposable
         {
             var seq = seqs[first + s];
             int len = seq.Tokens.Length;
-            _seqBuf[s * 2] = r; _seqBuf[s * 2 + 1] = len;
+            _seqBuf[s * 2] = r;
+            _seqBuf[s * 2 + 1] = len;
             for (int t = 0; t < len; t++)
             {
                 _tokBuf[r + t] = seq.Tokens[t];
                 _posBuf[r + t] = t;
                 _typeBuf[r + t] = seq.TokenTypes is { } tt ? tt[t] : 0;
-                _rowBuf[(r + t) * 2] = r; _rowBuf[(r + t) * 2 + 1] = len;
+                _rowBuf[(r + t) * 2] = r;
+                _rowBuf[(r + t) * 2 + 1] = len;
             }
             r += len;
         }
@@ -142,7 +148,8 @@ public sealed class PackedBatchRunner : IDisposable
         _compiled.GetOutput<float>(_output, outRows);
         for (int s = 0; s < count; s++)
         {
-            int row0 = _perToken ? _seqBuf[s * 2] : s, n = _perToken ? _seqBuf[s * 2 + 1] : 1;
+            int row0 = _perToken ? _seqBuf[s * 2] : s;
+            int n = _perToken ? _seqBuf[s * 2 + 1] : 1;
             results[first + s] = outRows.AsSpan(row0 * OutputWidth, n * OutputWidth).ToArray();
         }
     }

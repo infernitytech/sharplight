@@ -8,6 +8,8 @@ namespace Sharplight.Llm;
 /// <summary>
 /// One sequence of autoregressive inference over a compiled decoder graph. Owns the position
 /// counter; persistent state (KV cache, recurrent state) lives inside the compiled model.
+/// Not thread-safe: use one session per sequence and drive it from one thread at a time. Create with
+/// <see cref="LlmModel.CreateSession"/>; most callers use it through a <see cref="Generator"/>.
 /// </summary>
 public sealed class InferenceSession : IDisposable
 {
@@ -27,7 +29,9 @@ public sealed class InferenceSession : IDisposable
     private readonly RunParameters _run = new();
     private int[] _posBuf = [];
 
+    /// <summary>Number of logits per step (the model's vocabulary size).</summary>
     public int VocabSize { get; }
+    /// <summary>Capacity of the context in rows (prompt plus generated tokens).</summary>
     public int ContextLength { get; }
     /// <summary>Number of rows already in the context (cache positions; image rows count individually).</summary>
     public int Position { get; private set; }
@@ -38,9 +42,10 @@ public sealed class InferenceSession : IDisposable
     public int RopePosition { get; private set; }
     /// <summary>Whether the session's graph accepts media embeddings (a <see cref="WellKnown.DecodeMultimodalGraph"/>).</summary>
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
+    /// <summary>The compiled graph (placement plan, profiling and device state).</summary>
     public CompiledModel Compiled => _compiled;
 
-    public InferenceSession(ModelDefinition model, CompiledModel compiled)
+    internal InferenceSession(CompiledModel compiled)
     {
         _compiled = compiled;
         _graph = compiled.Graph;
@@ -75,6 +80,8 @@ public sealed class InferenceSession : IDisposable
     /// Long inputs are processed in chunks of the compiled maximum batch size.
     /// The returned array is reused by the next call.
     /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="tokens"/> is empty.</exception>
+    /// <exception cref="InvalidOperationException">The tokens do not fit the remaining context.</exception>
     public float[] Process(ReadOnlySpan<int> tokens)
     {
         if (tokens.Length == 0)
@@ -96,6 +103,7 @@ public sealed class InferenceSession : IDisposable
         return _logits;
     }
 
+    /// <summary>The logits of the last processed row (the buffer returned by <see cref="Process(ReadOnlySpan{int})"/>).</summary>
     public float[] Logits => _logits;
 
     private void RunChunk(ReadOnlySpan<int> tokens, bool wantLogits)
@@ -203,10 +211,15 @@ public sealed class InferenceSession : IDisposable
             int T = Math.Min(_maxTokens, prompt.Length - start);
             for (int t = 0; t < T; t++)
             {
-                int row = start + t, img = prompt.ImageIndex[row];
+                int row = start + t;
+                int img = prompt.ImageIndex[row];
                 toks[t] = prompt.Tokens[row];
                 var dst = _embBuf.AsSpan(t * _hidden, _hidden);
-                if (img < 0) { dst.Clear(); _maskBuf[t] = 0; }
+                if (img < 0)
+                {
+                    dst.Clear();
+                    _maskBuf[t] = 0;
+                }
                 else
                 {
                     imageEmbeddings[img].AsSpan(prompt.ImageRow[row] * _hidden, _hidden).CopyTo(dst);
@@ -228,5 +241,6 @@ public sealed class InferenceSession : IDisposable
         return _logits;
     }
 
+    /// <summary>Releases the device memory of the compiled graph.</summary>
     public void Dispose() => _compiled.Dispose();
 }

@@ -24,7 +24,10 @@ public class FamilyGenerationTests
         HuggingFaceImporter.Register();
     }
 
-    /// <param name="Kind">"ids": expected generated token ids (transformers); "text": expected continuation text of <paramref name="Tokens"/> greedy tokens (llama.cpp).</param>
+    /// <summary>
+    /// One model to generate with. <c>Kind</c> "ids": <c>Ids</c> are the expected generated token ids (transformers); "text": <c>Text</c> is the
+    /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp).
+    /// </summary>
     public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallbackForMoe = false, bool Large = false, int Tokens = 40);
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
@@ -81,7 +84,11 @@ public class FamilyGenerationTests
             var p = new CpuExecutionProvider();
             slot = new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) };
         }
-        if (vulkan && cpuFallback) { var c = new CpuExecutionProvider(); fallback = new DeviceSlot { Device = c.OpenDevice(c.GetDevices()[0]) }; }
+        if (vulkan && cpuFallback)
+        {
+            var c = new CpuExecutionProvider();
+            fallback = new DeviceSlot { Device = c.OpenDevice(c.GetDevices()[0]) };
+        }
         var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256 });
         return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
     }
@@ -112,12 +119,28 @@ public class FamilyGenerationTests
     {
         var c = Cases.Single(x => x.Name == name);
         string path = System.IO.Path.Combine(Home, "models", c.Path);
-        if (!File.Exists(path) && !Directory.Exists(path)) { Assert.Skip($"{c.Name}: {path} not present"); return; }
-        if (vulkan && c.Large && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LARGE") is null) { Assert.Skip("large model: set SHARPLIGHT_TEST_LARGE=1 to run it"); return; }
-        if (!vulkan && c.Large) { Assert.Skip("large model is only run on the GPU"); return; }
+        if (!File.Exists(path) && !Directory.Exists(path))
+        {
+            Assert.Skip($"{c.Name}: {path} not present");
+            return;
+        }
+        if (vulkan && c.Large && Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_LARGE") is null)
+        {
+            Assert.Skip("large model: set SHARPLIGHT_TEST_LARGE=1 to run it");
+            return;
+        }
+        if (!vulkan && c.Large)
+        {
+            Assert.Skip("large model is only run on the GPU");
+            return;
+        }
         (int[] ids, string text) result;
         try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallbackForMoe); }
-        catch (SkipException s) { Assert.Skip(s.Message); return; }
+        catch (SkipException s)
+        {
+            Assert.Skip(s.Message);
+            return;
+        }
         if (c.Kind == "ids")
         {
             Assert.Equal(c.Ids, result.ids);

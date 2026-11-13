@@ -4,30 +4,41 @@ using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Serving;
 
-public sealed record EngineOptions
-{
-    /// <summary>Maximum number of requests waiting for a slot; further submissions throw <see cref="QueueFullException"/>.</summary>
-    public int MaxQueue { get; init; } = 256;
-    /// <summary>Upper bound of rows per step (0 = the decoder's <see cref="IBatchDecoder.MaxBatchTokens"/>).</summary>
-    public int MaxBatchTokens { get; init; }
-    /// <summary>Maximum prompt rows of one sequence per step. Smaller chunks interleave long prefills with other sequences' decoding.</summary>
-    public int PrefillChunk { get; init; } = 512;
-    /// <summary>Reuse the cached context of idle slots for prompts sharing a prefix.</summary>
-    public bool PrefixCache { get; init; } = true;
-    /// <summary>Applied to requests without their own <see cref="GenerationRequest.Timeout"/>.</summary>
-    public TimeSpan? DefaultTimeout { get; init; }
-    public TimeSpan? DefaultQueueTimeout { get; init; }
-}
-
 /// <summary>
 /// Continuous-batching scheduler over an <see cref="IBatchDecoder"/>. A single scheduler thread owns the decoder; every step it
 /// mixes one decode token of each running sequence with prompt chunks of newly admitted ones (decode first, then prefill, within
 /// the batch-token budget), samples, streams text deltas and frees finished slots. With a one-slot decoder requests simply run one
 /// after another; with a multi-slot decoder they are batched together.
+/// <para>
+/// Thread safety: all members may be called from any thread. The engine owns the decoder and disposes it. Idle slots keep their
+/// context, so a later prompt that shares a prefix with it skips recomputing the shared part (<see cref="EngineOptions.PrefixCache"/>).
+/// </para>
 /// </summary>
+/// <example>
+/// <code>
+/// using var model = LlmModel.Load(path, loadOptions);
+/// using var engine = new InferenceEngine(model.CreateBatchDecoder(slots: 4), model.Tokenizer);
+/// var request = new GenerationRequest
+/// {
+///     PromptTokens = model.Tokenizer.Encode("Once upon a time", addSpecial: true, parseSpecial: false),
+///     MaxTokens = 64,
+///     Sampling = SamplingParams.GreedyDefault,
+/// };
+/// await foreach (var chunk in engine.GenerateAsync(request))
+/// {
+///     Console.Write(chunk.Text);
+/// }
+/// </code>
+/// </example>
 public sealed class InferenceEngine : IDisposable
 {
-    private sealed class Slot { public int Index; public List<int> Tokens = []; public long LastUsed; public Seq? Active; }
+    private sealed class Slot
+    {
+        public int Index;
+        public List<int> Tokens = [];
+        public long LastUsed;
+        public Seq? Active;
+    }
 
     private sealed class Seq
     {
@@ -37,7 +48,8 @@ public sealed class InferenceEngine : IDisposable
         public required int[] Prompt;
         public required int MaxTokens;
         public required long SubmitTicks;
-        public long DeadlineTicks = long.MaxValue, QueueDeadlineTicks = long.MaxValue;
+        public long DeadlineTicks = long.MaxValue;
+        public long QueueDeadlineTicks = long.MaxValue;
         public CancellationTokenRegistration Reg;
         public volatile bool CancelRequested;
         public int Finished;
@@ -66,12 +78,21 @@ public sealed class InferenceEngine : IDisposable
     private int _rr, _transit;
     private bool _stop, _draining;
 
+    /// <summary>The live counters; most callers want <see cref="GetMetrics"/>.</summary>
     public EngineMetrics Metrics { get; } = new();
+    /// <summary>The tokenizer of the served model, for encoding prompts.</summary>
     public ITokenizer Tokenizer => _tokenizer;
+    /// <summary>Number of sequences that can run at the same time.</summary>
     public int SlotCount => _decoder.SlotCount;
+    /// <summary>Context length of one sequence: prompt plus generated tokens.</summary>
     public int ContextLength => _decoder.ContextLength;
+    /// <summary>True once <see cref="DrainAsync"/> or <see cref="Dispose"/> began: new requests are rejected.</summary>
     public bool IsDraining => _draining;
 
+    /// <summary>Starts the scheduler thread. The engine takes ownership of <paramref name="decoder"/>.</summary>
+    /// <param name="decoder">The model execution; obtain it from <see cref="LlmModel.CreateBatchDecoder"/>.</param>
+    /// <param name="tokenizer">Tokenizer of the same model (end-of-generation tokens, detokenization).</param>
+    /// <param name="options">Scheduler settings; defaults when null.</param>
     public InferenceEngine(IBatchDecoder decoder, ITokenizer tokenizer, EngineOptions? options = null)
     {
         _decoder = decoder;
@@ -84,26 +105,49 @@ public sealed class InferenceEngine : IDisposable
         _thread.Start();
     }
 
+    /// <summary>A consistent snapshot of queue depth, slot usage, token counters and latency histograms.</summary>
     public EngineMetricsSnapshot GetMetrics()
     {
         int q, a;
-        lock (_gate) { q = _queue.Count; a = _active.Count; }
+        lock (_gate)
+        {
+            q = _queue.Count;
+            a = _active.Count;
+        }
         return Metrics.Snapshot(q, a, _slots.Length);
     }
 
     // ---- submission -------------------------------------------------------------------------------------------------
 
-    /// <summary>Queues a request. Throws an <see cref="EngineException"/> when it cannot be admitted (queue full, prompt too long, draining).</summary>
+    /// <summary>Queues a request and returns immediately; read the output through the returned handle.</summary>
+    /// <param name="request">The prompt tokens and generation settings.</param>
+    /// <param name="ct">Cancels the request (it then finishes with <see cref="FinishReason.Cancelled"/>).</param>
+    /// <exception cref="PromptTooLongException">The prompt leaves no room for at least one generated token.</exception>
+    /// <exception cref="QueueFullException"><see cref="EngineOptions.MaxQueue"/> requests are already waiting.</exception>
+    /// <exception cref="EngineStoppedException">The engine is draining or disposed.</exception>
+    /// <exception cref="EngineException">The prompt is empty or contains ids outside the vocabulary (code <c>invalid_request</c>).</exception>
     public GenerationHandle Submit(GenerationRequest request, CancellationToken ct = default)
     {
         int n = request.PromptTokens.Length;
-        if (n == 0) { Metrics.Rejected(); throw new EngineException("The prompt is empty.", "invalid_request"); }
+        if (n == 0)
+        {
+            Metrics.Rejected();
+            throw new EngineException("The prompt is empty.", "invalid_request");
+        }
         foreach (var t in request.PromptTokens)
         {
-            if ((uint)t >= (uint)_decoder.VocabSize) { Metrics.Rejected(); throw new EngineException($"Token id {t} is outside the vocabulary.", "invalid_request"); }
+            if ((uint)t >= (uint)_decoder.VocabSize)
+            {
+                Metrics.Rejected();
+                throw new EngineException($"Token id {t} is outside the vocabulary.", "invalid_request");
+            }
         }
 
-        if (n >= _decoder.ContextLength) { Metrics.Rejected(); throw new PromptTooLongException(n, _decoder.ContextLength - 1); }
+        if (n >= _decoder.ContextLength)
+        {
+            Metrics.Rejected();
+            throw new PromptTooLongException(n, _decoder.ContextLength - 1);
+        }
         int room = _decoder.ContextLength - n;
         var ch = Channel.CreateUnbounded<GenerationChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
         long now = Stopwatch.GetTimestamp();
@@ -126,8 +170,16 @@ public sealed class InferenceEngine : IDisposable
 
         lock (_gate)
         {
-            if (_stop || _draining) { Metrics.Rejected(); throw new EngineStoppedException(); }
-            if (_queue.Count >= _opt.MaxQueue) { Metrics.Rejected(); throw new QueueFullException(_opt.MaxQueue); }
+            if (_stop || _draining)
+            {
+                Metrics.Rejected();
+                throw new EngineStoppedException();
+            }
+            if (_queue.Count >= _opt.MaxQueue)
+            {
+                Metrics.Rejected();
+                throw new QueueFullException(_opt.MaxQueue);
+            }
             _queue.Add(seq);
             Metrics.Submitted();
             Monitor.PulseAll(_gate);
@@ -202,18 +254,33 @@ public sealed class InferenceEngine : IDisposable
     private void CancelAll()
     {
         List<Seq> qs;
-        lock (_gate) { qs = [.. _queue]; _queue.Clear(); foreach (var s in _active) { s.CancelRequested = true; } Monitor.PulseAll(_gate); }
+        lock (_gate)
+        {
+            qs = [.. _queue];
+            _queue.Clear();
+            foreach (var s in _active)
+            {
+                s.CancelRequested = true;
+            }
+
+            Monitor.PulseAll(_gate);
+        }
         foreach (var s in qs)
         {
             Finalize(s, FinishReason.Cancelled, null, null);
         }
     }
 
+    /// <summary>Cancels all requests, stops the scheduler thread and disposes the decoder.</summary>
     public void Dispose()
     {
         lock (_gate) { _draining = true; }
         CancelAll();
-        lock (_gate) { _stop = true; Monitor.PulseAll(_gate); }
+        lock (_gate)
+        {
+            _stop = true;
+            Monitor.PulseAll(_gate);
+        }
         if (Thread.CurrentThread != _thread)
         {
             _thread.Join();
@@ -321,7 +388,11 @@ public sealed class InferenceEngine : IDisposable
             Slot? free = null;
             foreach (var s in _slots)
             {
-                if (s.Active is null) { free = s; break; }
+                if (s.Active is null)
+                {
+                    free = s;
+                    break;
+                }
             }
 
             if (free is null)
@@ -350,8 +421,13 @@ public sealed class InferenceEngine : IDisposable
                 _queue.RemoveAt(best);
                 _transit++;
             }
-            try { AssignSlot(seq); }
-            finally { lock (_gate)
+            try
+            {
+                AssignSlot(seq);
+            }
+            finally
+            {
+                lock (_gate)
                 {
                     _transit--;
                 }
@@ -366,7 +442,8 @@ public sealed class InferenceEngine : IDisposable
             return 0;
         }
 
-        int common = 0, max = Math.Min(slot.Tokens.Count, prompt.Length);
+        int common = 0;
+        int max = Math.Min(slot.Tokens.Count, prompt.Length);
         while (common < max && slot.Tokens[common] == prompt[common])
         {
             common++;
@@ -382,7 +459,8 @@ public sealed class InferenceEngine : IDisposable
 
     private void AssignSlot(Seq seq)
     {
-        Slot? best = null; int bestReuse = -1;
+        Slot? best = null;
+        int bestReuse = -1;
         foreach (var s in _slots)
         {
             if (s.Active is not null)
@@ -394,7 +472,11 @@ public sealed class InferenceEngine : IDisposable
             // Equal reuse (typically none): take an empty slot first, then evict the least recently used one.
             static long Rank(Slot x) => x.Tokens.Count == 0 ? long.MinValue : x.LastUsed;
             bool better = best is null || reuse > bestReuse || (reuse == bestReuse && Rank(s) < Rank(best));
-            if (better) { best = s; bestReuse = reuse; }
+            if (better)
+            {
+                best = s;
+                bestReuse = reuse;
+            }
         }
         var slot = best!;
         int keep = Math.Max(0, bestReuse);
@@ -411,8 +493,10 @@ public sealed class InferenceEngine : IDisposable
 
             slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
         }
-        seq.Slot = slot; slot.Active = seq;
-        seq.PromptPos = keep; seq.Cached = keep;
+        seq.Slot = slot;
+        slot.Active = seq;
+        seq.PromptPos = keep;
+        seq.Cached = keep;
         seq.Sampler = new RequestSampler(seq.Req.Sampling, seq.Prompt);
         seq.Decoder = new StreamingDecoder(_tokenizer, seq.Req.SkipSpecialTokens);
         seq.Filter = new StopStringFilter(seq.Req.StopStrings);
@@ -439,7 +523,9 @@ public sealed class InferenceEngine : IDisposable
             }
 
             inputs.Add(new SequenceInput(s.Slot!.Index, new[] { s.Pending }, true));
-            seqs.Add(s); budget--; nDecode++;
+            seqs.Add(s);
+            budget--;
+            nDecode++;
         }
         foreach (var s in _active)
         {
@@ -451,7 +537,8 @@ public sealed class InferenceEngine : IDisposable
             int chunk = Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget);
             bool last = s.PromptPos + chunk == s.Prompt.Length;
             inputs.Add(new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
-            seqs.Add(s); budget -= chunk;
+            seqs.Add(s);
+            budget -= chunk;
         }
         if (inputs.Count == 0)
         {
@@ -487,8 +574,14 @@ public sealed class InferenceEngine : IDisposable
                 continue;
             }
 
-            try { OnLogits(s, results[i]!); }
-            catch (Exception ex) { Complete(s, FinishReason.Error, ex.Message, null, reset: true); }
+            try
+            {
+                OnLogits(s, results[i]!);
+            }
+            catch (Exception ex)
+            {
+                Complete(s, FinishReason.Error, ex.Message, null, reset: true);
+            }
         }
     }
 
@@ -523,7 +616,11 @@ public sealed class InferenceEngine : IDisposable
             s.Writer.TryWrite(new GenerationChunk(text, lps));
         }
 
-        if (s.Filter.Stopped) { Complete(s, FinishReason.Stop, null, s.Filter.Matched); return; }
+        if (s.Filter.Stopped)
+        {
+            Complete(s, FinishReason.Stop, null, s.Filter.Matched);
+            return;
+        }
         if (s.Generated >= s.MaxTokens || s.Slot!.Tokens.Count + 1 > _decoder.ContextLength)
         {
             Complete(s, FinishReason.Length, null, null, flush: true);
@@ -565,7 +662,15 @@ public sealed class InferenceEngine : IDisposable
         slot.LastUsed = ++_tick;
         if (reset || reason == FinishReason.Error)
         {
-            try { _decoder.Reset(slot.Index); } catch { /* the decoder is broken; later requests will fail visibly */ }
+            try
+            {
+                _decoder.Reset(slot.Index);
+            }
+            catch
+            {
+                // The decoder is broken; later requests will fail visibly.
+            }
+
             slot.Tokens.Clear();
         }
         Finalize(s, reason, error, stopSeq);

@@ -2,22 +2,6 @@ using System.Text;
 
 namespace Sharplight.Llm.Serving.Hosting;
 
-/// <summary>A claim on a loaded model: while any lease is open the model is neither evicted nor unloaded. Dispose when the request (incl. its streamed response) is done.</summary>
-public sealed class ModelLease : IDisposable
-{
-    private readonly Action _release;
-    private int _released;
-    internal ModelLease(string name, LoadedModel model, Action release) { Name = name; Model = model; _release = release; }
-    public string Name { get; }
-    public LoadedModel Model { get; }
-    public T As<T>() where T : LoadedModel => Model as T ?? throw new InvalidOperationException($"Model '{Name}' is a {Model.GetType().Name}, not a {typeof(T).Name}.");
-    public void Dispose() { if (Interlocked.Exchange(ref _released, 1) == 0)
-        {
-            _release();
-        }
-    }
-}
-
 /// <summary>
 /// Registry and memory-aware host for several models sharing the same devices. Models are registered by name and loaded eagerly
 /// or on first use. Before a model is loaded its footprint is estimated (<see cref="IPreparedModel.Requirements"/>) and checked
@@ -25,7 +9,20 @@ public sealed class ModelLease : IDisposable
 /// recently used idle models are unloaded, then (if the loader can) layers are offloaded to the fallback device, else the
 /// request fails with <see cref="ModelDoesNotFitException"/>. Models idle for <see cref="ModelHostOptions.IdleTimeout"/> are unloaded.
 /// Loads are serialized (so accounting never races); inference on loaded models is fully concurrent.
+/// Thread-safe. Dispose the host to unload every model it loaded.
 /// </summary>
+/// <example>
+/// <code>
+/// using var host = new ModelHost(new ModelHostOptions { IdleTimeout = TimeSpan.FromMinutes(10) });
+/// host.Register(new ModelRegistration
+/// {
+///     Name = "qwen3-4b",
+///     Loader = new LlmChatModelLoader("qwen3-4b", "qwen3-4b-q4_k_m.gguf", loadOptions, new ChatModelOptions { Slots = 4 }),
+/// });
+/// using var lease = await host.AcquireAsync("qwen3-4b");   // loads on first use
+/// var chat = lease.As&lt;ChatModelInstance&gt;().Service;
+/// </code>
+/// </example>
 public sealed class ModelHost : IDisposable
 {
     private sealed class Entry(ModelRegistration reg)
@@ -51,6 +48,7 @@ public sealed class ModelHost : IDisposable
     private ITimer? _timer;
     private bool _disposed;
 
+    /// <summary>Creates an empty host.</summary>
     public ModelHost(ModelHostOptions? options = null)
     {
         _opt = options ?? new();
@@ -60,18 +58,34 @@ public sealed class ModelHost : IDisposable
         }
     }
 
+    private void SweepIdleLogged()
+    {
+        try
+        {
+            SweepIdle();
+        }
+        catch (Exception e)
+        {
+            _opt.Log?.Invoke("idle sweep failed: " + e.Message);
+        }
+    }
+
     private void EnsureTimer()
     {
         lock (_gate)
         {
-            _timer ??= _opt.Time.CreateTimer(_ => { try { SweepIdle(); } catch (Exception e) { _opt.Log?.Invoke("idle sweep failed: " + e.Message); } }, null, _opt.IdleCheckInterval, _opt.IdleCheckInterval);
+            _timer ??= _opt.Time.CreateTimer(_ => SweepIdleLogged(), null, _opt.IdleCheckInterval, _opt.IdleCheckInterval);
         }
     }
 
+    /// <summary>The host's policy.</summary>
     public ModelHostOptions Options => _opt;
 
     // ---- registry ---------------------------------------------------------------------------------------------------
 
+    /// <summary>Registers a model; it is loaded on first use (or at startup, see <see cref="ModelRegistration.LoadAtStartup"/>).</summary>
+    /// <exception cref="ArgumentException">The registration has no name.</exception>
+    /// <exception cref="InvalidOperationException">The name is already registered.</exception>
     public void Register(ModelRegistration registration)
     {
         if (string.IsNullOrWhiteSpace(registration.Name))
@@ -94,7 +108,7 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    /// <summary>Registers a model that is already loaded (kept loaded; <paramref name="instance"/> is disposed with the host unless <paramref name="pinned"/> models are left to the caller).</summary>
+    /// <summary>Registers a model that is already loaded (pinned: kept loaded and never evicted; <paramref name="instance"/> is disposed with the host).</summary>
     public void Adopt(string name, LoadedModel instance, string? description = null)
     {
         Register(new ModelRegistration { Name = name, Loader = new AdoptedLoader(instance.Kind), Pinned = true, Description = description });
@@ -113,7 +127,10 @@ public sealed class ModelHost : IDisposable
         public IPreparedModel Prepare(CancellationToken ct) => throw new InvalidOperationException("An adopted model cannot be reloaded after it was unloaded.");
     }
 
-    public bool Contains(string name) { lock (_gate)
+    /// <summary>True when a model is registered under <paramref name="name"/>.</summary>
+    public bool Contains(string name)
+    {
+        lock (_gate)
         {
             return _entries.ContainsKey(name);
         }
@@ -128,7 +145,10 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    public IReadOnlyList<ModelInfo> List() { lock (_gate)
+    /// <summary>Snapshot of all registered models in registration order.</summary>
+    public IReadOnlyList<ModelInfo> List()
+    {
+        lock (_gate)
         {
             return [.. _order.Select(n => Snapshot(_entries[n]))];
         }
@@ -143,7 +163,10 @@ public sealed class ModelHost : IDisposable
         }
     }
 
-    public ModelInfo? Get(string name) { lock (_gate)
+    /// <summary>The state of one model, or null when it is not registered.</summary>
+    public ModelInfo? Get(string name)
+    {
+        lock (_gate)
         {
             return _entries.TryGetValue(name, out var e) ? Snapshot(e) : null;
         }
@@ -226,8 +249,17 @@ public sealed class ModelHost : IDisposable
     }
 
     // caller holds _gate
-    private void SetState(Entry e, ModelState s) { e.State = s; Signal(e); }
-    private void Signal(Entry e) { var old = e.Changed; e.Changed = new(TaskCreationOptions.RunContinuationsAsynchronously); old.TrySetResult(); }
+    private void SetState(Entry e, ModelState s)
+    {
+        e.State = s;
+        Signal(e);
+    }
+    private void Signal(Entry e)
+    {
+        var old = e.Changed;
+        e.Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        old.TrySetResult();
+    }
 
     // ---- loading ----------------------------------------------------------------------------------------------------
 
@@ -277,7 +309,11 @@ public sealed class ModelHost : IDisposable
             lock (_gate)
             {
                 e.Error = ex.Message;
-                if (prepared is not null) { e.Requirements = prepared.Requirements; e.Estimated = prepared.Requirements.Sum(r => r.Bytes); }
+                if (prepared is not null)
+                {
+                    e.Requirements = prepared.Requirements;
+                    e.Estimated = prepared.Requirements.Sum(r => r.Bytes);
+                }
                 SetState(e, ModelState.Failed);
             }
             _opt.Log?.Invoke($"Model '{e.Reg.Name}' failed to load: {ex.Message}");
@@ -335,12 +371,16 @@ public sealed class ModelHost : IDisposable
         return limit;
     }
 
-    private int LoadedCount() { lock (_gate)
+    private int LoadedCount()
+    {
+        lock (_gate)
         {
             return _entries.Values.Count(x => x.State is ModelState.Loaded or ModelState.Unloading);
         }
     }
-    private string Busy() { lock (_gate)
+    private string Busy()
+    {
+        lock (_gate)
         {
             return string.Join(", ", _entries.Values.Where(x => x.State == ModelState.Loaded).Select(x => $"{x.Reg.Name} ({x.Leases} active)"));
         }
@@ -397,7 +437,10 @@ public sealed class ModelHost : IDisposable
             inst = e.Instance;
         }
 
-        try { inst?.Dispose(); }
+        try
+        {
+            inst?.Dispose();
+        }
         finally
         {
             lock (_gate)
@@ -419,7 +462,9 @@ public sealed class ModelHost : IDisposable
     public async Task<bool> UnloadAsync(string name, TimeSpan? drainTimeout = null, bool force = false)
     {
         Entry e;
-        lock (_gate) { if (!_entries.TryGetValue(name, out e!))
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(name, out e!))
             {
                 throw new ModelNotFoundException(name);
             }
@@ -431,7 +476,18 @@ public sealed class ModelHost : IDisposable
             loading = e.State == ModelState.Loading ? e.LoadTask : null;
         }
 
-        if (loading is not null) { try { await loading.ConfigureAwait(false); } catch { } }
+        if (loading is not null)
+        {
+            try
+            {
+                await loading.ConfigureAwait(false);
+            }
+            catch
+            {
+                // A failed load is reported to its own caller; the unload proceeds regardless.
+            }
+        }
+
         var deadline = _opt.Time.GetUtcNow() + (drainTimeout ?? _opt.UnloadDrainTimeout);
         lock (_gate)
         {
@@ -453,11 +509,27 @@ public sealed class ModelHost : IDisposable
             while (true)
             {
                 Task wait;
-                lock (_gate) { if (e.Leases == 0) { SetState(e, ModelState.Unloading); break; } wait = e.Changed.Task; }
+                lock (_gate)
+                {
+                    if (e.Leases == 0)
+                    {
+                        SetState(e, ModelState.Unloading);
+                        break;
+                    }
+                    wait = e.Changed.Task;
+                }
                 var left = deadline - _opt.Time.GetUtcNow();
                 if (left <= TimeSpan.Zero || await Task.WhenAny(wait, Task.Delay(left)).ConfigureAwait(false) != wait)
                 {
-                    lock (_gate) { if (e.Leases == 0) { SetState(e, ModelState.Unloading); break; } }
+                    lock (_gate)
+                    {
+                        if (e.Leases == 0)
+                        {
+                            SetState(e, ModelState.Unloading);
+                            break;
+                        }
+                    }
+
                     if (!force)
                     {
                         throw new ModelBusyException(name, $"{e.Leases} request(s) still running.");
@@ -474,7 +546,15 @@ public sealed class ModelHost : IDisposable
         }
         catch
         {
-            lock (_gate) { if (e.State == ModelState.Loaded) { e.Draining = false; Signal(e); } }
+            lock (_gate)
+            {
+                if (e.State == ModelState.Loaded)
+                {
+                    e.Draining = false;
+                    Signal(e);
+                }
+            }
+
             throw;
         }
         await Task.Run(() => FinishUnload(e)).ConfigureAwait(false);
@@ -505,7 +585,11 @@ public sealed class ModelHost : IDisposable
                 victims.Add(x);
             }
         }
-        foreach (var v in victims) { _opt.Log?.Invoke($"Unloading idle model '{v.Reg.Name}'."); FinishUnload(v); }
+        foreach (var v in victims)
+        {
+            _opt.Log?.Invoke($"Unloading idle model '{v.Reg.Name}'.");
+            FinishUnload(v);
+        }
         return victims.Count;
     }
 
@@ -540,10 +624,20 @@ public sealed class ModelHost : IDisposable
         await Task.WhenAll(all.Select(m => m.DrainAsync(timeout))).ConfigureAwait(false);
     }
 
+    /// <summary>Unloads every loaded model (cancelling running requests) and stops the idle timer.</summary>
     public void Dispose()
     {
         List<Entry> all;
-        lock (_gate) { if (_disposed) { return; } _disposed = true; all = [.. _entries.Values]; }
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            all = [.. _entries.Values];
+        }
         _timer?.Dispose();
         _loadGate.Wait();   // let a load in progress finish
         try
@@ -551,10 +645,19 @@ public sealed class ModelHost : IDisposable
             foreach (var e in all)
             {
                 LoadedModel? inst;
-                lock (_gate) { inst = e.Instance; e.Instance = null; e.State = ModelState.Unloaded; Signal(e); }
+                lock (_gate)
+                {
+                    inst = e.Instance;
+                    e.Instance = null;
+                    e.State = ModelState.Unloaded;
+                    Signal(e);
+                }
                 inst?.Dispose();
             }
         }
-        finally { _loadGate.Release(); }
+        finally
+        {
+            _loadGate.Release();
+        }
     }
 }

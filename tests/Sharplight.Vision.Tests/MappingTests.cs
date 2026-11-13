@@ -5,7 +5,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Vision.Tests;
 
 /// <summary>The Hugging Face importer and the GGUF mmproj importer must produce the same canonical vision description.</summary>
-public class MappingTests(ITestOutputHelper output)
+public class MappingTests
 {
     private static bool Have(string p) => File.Exists(p) || Directory.Exists(p);
 
@@ -16,7 +16,8 @@ public class MappingTests(ITestOutputHelper output)
         using var _ = new Disposer(out var res);
         var hf = HuggingFaceImporter.Open(Env.Hf08);
         var gg = GgufImporter.Open(Env.Mmproj08);
-        res.AddRange(hf.OwnedResources); res.AddRange(gg.OwnedResources);
+        res.AddRange(hf.OwnedResources);
+        res.AddRange(gg.OwnedResources);
 
         Assert.Equal("qwen3_5", gg.Architecture);
         var ph = VisionParameters.FromMetadata(hf.Metadata, "qwen3_5.vision.")!;
@@ -33,7 +34,8 @@ public class MappingTests(ITestOutputHelper output)
         {
             var g = gw[name];
             Assert.Equal(h.Shape.ToString(), g.Shape.ToString());
-            var a = HfTransforms.DecodeF32(h); var b = HfTransforms.DecodeF32(g);
+            var a = HfTransforms.DecodeF32(h);
+            var b = HfTransforms.DecodeF32(g);
             double maxDiff = 0;
             for (int i = 0; i < a.Length; i++)
             {
@@ -59,17 +61,5 @@ public class MappingTests(ITestOutputHelper output)
         Assert.Equal(new Shape(3456, 1152), src.Weights["vision.layers.26.attention.qkv.weight"].Shape);
         Assert.Equal(new Shape(5120, 4608), src.Weights["vision.merger.down.weight"].Shape);
         Assert.Equal(27 * 12 + 9, src.Weights.Count);
-    }
-}
-
-internal sealed class Disposer : IDisposable
-{
-    private readonly List<IDisposable> _items;
-    public Disposer(out List<IDisposable> items) { items = _items = []; }
-    public Disposer(IEnumerable<IDisposable> items) { _items = [.. items]; }
-    public void Dispose() { foreach (var i in _items)
-        {
-            i.Dispose();
-        }
     }
 }

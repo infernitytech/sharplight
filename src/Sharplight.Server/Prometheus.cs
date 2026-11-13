@@ -6,7 +6,7 @@ using Sharplight.Llm.Serving.Hosting;
 namespace Sharplight.Server;
 
 /// <summary>Renders an <see cref="EngineMetricsSnapshot"/> in the Prometheus text exposition format.</summary>
-public static class Prometheus
+internal static class Prometheus
 {
     public static string Render(EngineMetricsSnapshot m, string model) => Render([(model, m)]);
 
@@ -102,9 +102,6 @@ public static class Prometheus
 
     private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
     private static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
-
-    private static void Metric(StringBuilder sb, string name, string type, string help, string labels, double v)
-        => sb.Append($"# HELP {name} {help}\n# TYPE {name} {type}\n{name}{labels} {Num(v)}\n");
 
     private static void Histogram(StringBuilder sb, string name, string help, IReadOnlyList<(string Model, EngineMetricsSnapshot M)> models, Func<EngineMetricsSnapshot, HistogramSnapshot> pick)
     {

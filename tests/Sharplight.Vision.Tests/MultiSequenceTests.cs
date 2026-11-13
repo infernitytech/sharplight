@@ -58,7 +58,8 @@ public class MultiSequenceTests
             new[] { (0, Tokens(16, 9)), (3, Tokens(17, 1)) },   // slot 0: new sequence
             new[] { (0, Tokens(18, 1)), (1, Tokens(19, 1)), (2, Tokens(20, 1)), (3, Tokens(21, 1)) },
         };
-        const int ResetStep = 5, ResetSlot = 0;
+        const int ResetStep = 5;
+        const int ResetSlot = 0;
 
         // Reference: one session per sequence, fed the same chunks in order.
         var refs = new Dictionary<(int Slot, int Gen), InferenceSession>();

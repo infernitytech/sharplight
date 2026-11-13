@@ -44,7 +44,8 @@ public class VisionParityTests(ITestOutputHelper output)
         Assert.SkipUnless(Directory.Exists(Env.Hf08), "Qwen3.5-0.8B (HF) not available");
         var slot = Env.Vulkan();
         Assert.SkipUnless(slot is not null, "no Vulkan device");
-        int w = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_W") is { } sw ? int.Parse(sw) : 640, h = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_H") is { } sh ? int.Parse(sh) : 488;
+        int w = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_W") is { } sw ? int.Parse(sw) : 640;
+        int h = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_H") is { } sh ? int.Parse(sh) : 488;
         var rgb = new byte[w * h * 3];
         var rng = new Random(7);
         for (int y = 0; y < h; y++)
@@ -52,14 +53,24 @@ public class VisionParityTests(ITestOutputHelper output)
             for (int x = 0; x < w; x++)
             {
                 int o = (y * w + x) * 3;
-                rgb[o] = (byte)(x * 255 / w); rgb[o + 1] = (byte)(y * 255 / h); rgb[o + 2] = (byte)(((x / 40 + y / 40) & 1) * 200 + rng.Next(40));
+                rgb[o] = (byte)(x * 255 / w);
+                rgb[o + 1] = (byte)(y * 255 / h);
+                rgb[o + 2] = (byte)(((x / 40 + y / 40) & 1) * 200 + rng.Next(40));
             }
         }
 
         var image = new ImageInput(w, h, rgb);
         float[] cpu, vk;
-        using (var m = LoadHf(Env.Cpu())) { using var e = m.CreateVisionEncoder(); cpu = e.Encode(image); }
-        using (var m = LoadHf(slot!)) { using var e = m.CreateVisionEncoder(); vk = e.Encode(image); }
+        using (var m = LoadHf(Env.Cpu()))
+        {
+            using var e = m.CreateVisionEncoder();
+            cpu = e.Encode(image);
+        }
+        using (var m = LoadHf(slot!))
+        {
+            using var e = m.CreateVisionEncoder();
+            vk = e.Encode(image);
+        }
         var (abs, rel, rms) = Env.Compare(vk, cpu);
         Console.Error.WriteLine($"Vulkan vs CPU ({w}x{h}): max abs {abs:E3}, max rel {rel:E3}, relative RMS {rms:E3}");
         Assert.True(rms < 2e-2, $"relative RMS {rms}");   // GPUs may run bf16-weight matmuls with bf16 operands (~5e-3)

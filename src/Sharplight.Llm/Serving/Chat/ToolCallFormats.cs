@@ -4,31 +4,16 @@ using System.Text.RegularExpressions;
 
 namespace Sharplight.Llm.Serving.Chat;
 
-public readonly record struct ParsedCall(string Name, string ArgumentsJson);
-
-/// <summary>
-/// How a model family writes tool calls into its output. The output parser watches for <see cref="StartMarker"/>, collects text up to
-/// <see cref="EndMarker"/> (or the end of the output) and hands the block to <see cref="TryParse"/>. Implement this to add a format.
-/// </summary>
-public interface IToolCallFormat
-{
-    public string Name { get; }
-    /// <summary>Text that opens a tool-call block (null when the format has none).</summary>
-    public string? StartMarker { get; }
-    /// <summary>Text that closes the block; null when the block runs to the end of the output.</summary>
-    public string? EndMarker { get; }
-    /// <summary>The call may also appear as bare JSON at the very beginning of the output (Llama 3).</summary>
-    public bool AllowLeadingJson { get; }
-    /// <summary>Parses the block text (without markers). False when it is not a valid call.</summary>
-    public bool TryParse(string block, out IReadOnlyList<ParsedCall> calls);
-}
-
 /// <summary>Built-in formats and format detection from a chat template.</summary>
 public static partial class ToolCallFormats
 {
+    /// <summary><c>&lt;tool_call&gt;{json}&lt;/tool_call&gt;</c> (Hermes, Qwen).</summary>
     public static IToolCallFormat Hermes { get; } = new HermesFormat();
+    /// <summary><c>[TOOL_CALLS][{json}, ...]</c> (Mistral).</summary>
     public static IToolCallFormat Mistral { get; } = new MistralFormat();
+    /// <summary><c>&lt;|python_tag|&gt;{json}</c> or a bare JSON object (Llama 3.x).</summary>
     public static IToolCallFormat Llama3 { get; } = new Llama3Format();
+    /// <summary>All built-in formats.</summary>
     public static IReadOnlyList<IToolCallFormat> All { get; } = [Hermes, Mistral, Llama3];
 
     /// <summary>Picks the formats a chat template instructs the model to use; all built-in ones when it is unknown.</summary>
@@ -73,7 +58,15 @@ public static partial class ToolCallFormats
         foreach (var piece in SplitTopLevel(text))
         {
             JsonDocument doc;
-            try { doc = JsonDocument.Parse(piece); } catch (JsonException) { return false; }
+            try
+            {
+                doc = JsonDocument.Parse(piece);
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+
             using (doc)
             {
                 var root = doc.RootElement;
@@ -121,7 +114,15 @@ public static partial class ToolCallFormats
                 if (a.ValueKind == JsonValueKind.String)
                 {
                     var s = a.GetString()!;
-                    try { using var d = JsonDocument.Parse(s); args = s; } catch (JsonException) { args = JsonString(s); }
+                    try
+                    {
+                        using var d = JsonDocument.Parse(s);
+                        args = s;
+                    }
+                    catch (JsonException)
+                    {
+                        args = JsonString(s);
+                    }
                 }
                 else
                 {
@@ -152,12 +153,29 @@ public static partial class ToolCallFormats
                 yield break;
             }
 
-            if (s[i] != '{' && s[i] != '[') { yield return s[i..]; yield break; }
-            int depth = 0, start = i; bool inStr = false;
+            if (s[i] != '{' && s[i] != '[')
+            {
+                yield return s[i..];
+                yield break;
+            }
+            int depth = 0;
+            int start = i;
+            bool inStr = false;
             for (; i < s.Length; i++)
             {
                 char c = s[i];
-                if (inStr) { if (c == '\\') { i++; } else if (c == '"') { inStr = false; } continue; }
+                if (inStr)
+                {
+                    if (c == '\\')
+                    {
+                        i++;
+                    }
+                    else if (c == '"')
+                    {
+                        inStr = false;
+                    }
+                    continue;
+                }
                 if (c == '"')
                 {
                     inStr = true;
@@ -166,7 +184,14 @@ public static partial class ToolCallFormats
                 {
                     depth++;
                 }
-                else if (c == '}' || c == ']') { if (--depth == 0) { i++; break; } }
+                else if (c == '}' || c == ']')
+                {
+                    if (--depth == 0)
+                    {
+                        i++;
+                        break;
+                    }
+                }
             }
             yield return s[start..i];
         }
@@ -220,7 +245,18 @@ public static partial class ToolCallFormats
             var t = v.Trim();
             if (t.Length > 0)
             {
-                try { using var d = JsonDocument.Parse(t); if (d.RootElement.ValueKind != JsonValueKind.String) { return t; } } catch (JsonException) { }
+                try
+                {
+                    using var d = JsonDocument.Parse(t);
+                    if (d.RootElement.ValueKind != JsonValueKind.String)
+                    {
+                        return t;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Not JSON: the value is a plain string.
+                }
             }
 
             return ToolCallFormats.JsonString(v);

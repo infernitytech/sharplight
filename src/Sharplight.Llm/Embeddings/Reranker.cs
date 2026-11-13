@@ -8,6 +8,13 @@ namespace Sharplight.Llm.Embeddings;
 /// pair through the model's <see cref="WellKnown.ClassifyGraph"/>; decoder rerankers (Qwen3-Reranker) get a judging prompt and
 /// score P(yes) from the last token's "yes" / "no" logits. Documents are batched. Thread-safe (calls are serialized).
 /// </summary>
+/// <example>
+/// <code>
+/// using var reranker = Reranker.Load("bge-reranker-v2-m3", new RerankerLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// RerankResult result = reranker.Score("what is a vector?", ["a quantity with direction", "a kind of animal"]);
+/// // result.Scores[i] in [0, 1] belongs to documents[i]; sort descending to rank.
+/// </code>
+/// </example>
 public sealed class Reranker : ITextReranker, IDisposable
 {
     private const string DefaultInstruction = "Given a web search query, retrieve relevant passages that answer the query";
@@ -18,7 +25,8 @@ public sealed class Reranker : ITextReranker, IDisposable
     private readonly Lock _lock = new();
     private readonly string _activation, _pairStyle, _instruction;
     private readonly int _yes, _no;
-    private readonly int[] _prefixTokens = [], _suffixTokens = [];
+    private readonly int[] _prefixTokens = [];
+    private readonly int[] _suffixTokens = [];
 
     /// <summary>The model's definition (graphs, weights, metadata).</summary>
     public ModelDefinition Definition { get; }
@@ -31,11 +39,16 @@ public sealed class Reranker : ITextReranker, IDisposable
     /// <summary>Longest (query, document) input in tokens.</summary>
     public int MaxSequenceLength { get; }
     /// <summary>The compiled packed-sequence graph.</summary>
-    public PackedBatchRunner Runner => _runner;
+    internal PackedBatchRunner Runner => _runner;
 
     private Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, RerankerKind kind, int maxLength, string? instruction)
     {
-        Definition = def; Tokenizer = tok; _runner = runner; Kind = kind; MaxSequenceLength = maxLength; Name = def.Name;
+        Definition = def;
+        Tokenizer = tok;
+        _runner = runner;
+        Kind = kind;
+        MaxSequenceLength = maxLength;
+        Name = def.Name;
         var md = def.SourceMetadata;
         _activation = md.TryGetValue(CanonicalKeys.ClassifierActivation, out var a) && a is string s ? s : "sigmoid";
         _pairStyle = md.TryGetValue(CanonicalKeys.TokenizerPairStyle, out var ps) && ps is string p ? p
@@ -86,7 +99,7 @@ public sealed class Reranker : ITextReranker, IDisposable
     }
 
     /// <summary>The model input of one (query, document) pair.</summary>
-    public PackedSequence Encode(string query, string document, RerankOptions? options = null)
+    internal PackedSequence Encode(string query, string document, RerankOptions? options = null)
     {
         options ??= new RerankOptions();
         if (Kind == RerankerKind.YesNo)
@@ -121,8 +134,11 @@ public sealed class Reranker : ITextReranker, IDisposable
                 throw new ArgumentException($"The pair has {a.Length + b.Length + specials} tokens; the model accepts at most {MaxSequenceLength}.");
             }
 
-            int la = a.Length, lb = b.Length;
-            while (over-- > 0) { if (la > lb)
+            int la = a.Length;
+            int lb = b.Length;
+            while (over-- > 0)
+            {
+                if (la > lb)
                 {
                     la--;
                 }
@@ -131,17 +147,20 @@ public sealed class Reranker : ITextReranker, IDisposable
                     lb--;
                 }
             }
-            a = a[..Math.Max(0, la)]; b = b[..Math.Max(0, lb)];
+            a = a[..Math.Max(0, la)];
+            b = b[..Math.Max(0, lb)];
         }
         var tokens = new List<int>(a.Length + b.Length + specials) { cls };
-        tokens.AddRange(a); tokens.Add(sep);
+        tokens.AddRange(a);
+        tokens.Add(sep);
         if (!bert)
         {
             tokens.Add(sep);
         }
 
         int second = tokens.Count;
-        tokens.AddRange(b); tokens.Add(sep);
+        tokens.AddRange(b);
+        tokens.Add(sep);
         var types = new int[tokens.Count];
         if (bert)
         {

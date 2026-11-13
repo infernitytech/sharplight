@@ -75,7 +75,9 @@ internal static class Env
 
     public static double Cosine(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
-        double ab = 0, aa = 0, bb = 0;
+        double ab = 0;
+        double aa = 0;
+        double bb = 0;
         for (int i = 0; i < a.Length; i++) { ab += (double)a[i] * b[i]; aa += (double)a[i] * a[i]; bb += (double)b[i] * b[i]; }
         return ab / Math.Sqrt(aa * bb);
     }

@@ -102,7 +102,8 @@ public class MultiModelRealTests
         using var pool = Setup(out var device)!;
         var baseline = device.GetMemoryInfo();
         Console.Error.WriteLine($"[baseline] {baseline}");
-        const string PromptA = "The capital of France is", PromptB = "Once upon a time, in a small village";
+        const string PromptA = "The capital of France is";
+        const string PromptB = "Once upon a time, in a small village";
         const int N = 48;
 
         // ---- each model alone ----
@@ -147,12 +148,17 @@ public class MultiModelRealTests
         for (int round = 0; round < 3; round++)
         {
             int[]? a = null, b = null;
-            Exception? ea = null, eb = null;
+            Exception? ea = null;
+            Exception? eb = null;
             using var go = new Barrier(2);
             var ta = new Thread(() => { try { go.SignalAndWait(); a = Greedy(decA, modelA, PromptA, N); } catch (Exception e) { ea = e; } });
             var tb = new Thread(() => { try { go.SignalAndWait(); b = Greedy(decB, modelB, PromptB, N); } catch (Exception e) { eb = e; } });
-            ta.Start(); tb.Start(); ta.Join(); tb.Join();
-            Assert.Null(ea); Assert.Null(eb);
+            ta.Start();
+            tb.Start();
+            ta.Join();
+            tb.Join();
+            Assert.Null(ea);
+            Assert.Null(eb);
             Assert.Equal(soloA, a);
             Assert.Equal(soloB, b);
         }
@@ -168,7 +174,8 @@ public class MultiModelRealTests
     {
         using var pool = Setup(out var device)!;
         const int N = 64;
-        const string PromptA = "The capital of France is", PromptB = "Once upon a time, in a small village";
+        const string PromptA = "The capital of France is";
+        const string PromptB = "Once upon a time, in a small village";
         using var ma = LlmModel.Load(PathA, Options(device));
         using var mb = LlmModel.Load(PathB, Options(device));
         var decs = new List<(IBatchDecoder Dec, LlmModel Model, string Prompt)>();
@@ -201,7 +208,9 @@ public class MultiModelRealTests
                 }
             }
         }
-        finally { foreach (var d in decs)
+        finally
+        {
+            foreach (var d in decs)
             {
                 d.Dec.Dispose();
             }
@@ -236,7 +245,8 @@ public class MultiModelRealTests
             Assert.Equal(0, device.GetMemoryInfo().UsedByUs);
             var soloS = await Ask("smol", "Name an animal.");
             Assert.Equal(ModelState.Loaded, host.Get("smol")!.State);
-            Assert.NotEmpty(soloQ); Assert.NotEmpty(soloS);
+            Assert.NotEmpty(soloQ);
+            Assert.NotEmpty(soloS);
 
             // Both resident, several concurrent requests to each from different threads.
             _ = await Ask("qwen", "Name a color.");

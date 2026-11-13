@@ -15,6 +15,15 @@ namespace Sharplight.Server;
 /// <see cref="AddSharplightReranker"/>; <c>MapSharplight</c> maps these endpoints when any is registered, or call
 /// <see cref="MapSharplightRetrieval"/> directly (e.g. for a host that serves only embeddings).
 /// </summary>
+/// <example>
+/// <code>
+/// using var embedder = EmbeddingModel.Load("bge-small-en-v1.5", new EmbeddingLoadOptions { Devices = [slot] });
+/// builder.Services.AddSharplightEmbeddings(embedder, name: "bge-small");
+/// var app = builder.Build();
+/// app.UseSharplight();
+/// app.MapSharplightRetrieval();   // POST /v1/embeddings with {"model": "bge-small", "input": ["text"]}
+/// </code>
+/// </example>
 public static class RetrievalApi
 {
     extension(IServiceCollection services)
@@ -78,10 +87,23 @@ public static class RetrievalApi
     /// <summary>Errors become API error bodies even when the host did not add <c>UseSharplight</c>.</summary>
     private static async Task Handle(HttpContext http, Func<Task> body)
     {
-        try { await body(); }
-        catch (ApiException ex) { await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param); }
-        catch (ArgumentException ex) { await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message, ex.Message.Contains("at most") ? "context_length_exceeded" : null); }
-        catch (NotSupportedException ex) { await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message); }
+        try
+        {
+            await body();
+        }
+        catch (ApiException ex)
+        {
+            await ApiErrors.WriteAsync(http, ex.Status, ex.Type, ex.Message, ex.Code, ex.Param);
+        }
+        catch (ArgumentException ex)
+        {
+            string? code = ex.Message.Contains("at most") ? "context_length_exceeded" : null;
+            await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message, code);
+        }
+        catch (NotSupportedException ex)
+        {
+            await ApiErrors.WriteAsync(http, 400, "invalid_request_error", ex.Message);
+        }
     }
 
     private static T Pick<T>(Dictionary<string, T> all, string? requested, string? fallback, string kind)

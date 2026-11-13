@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Sharplight.Architectures;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tokenizers;
@@ -7,46 +6,42 @@ using Sharplight.Vision;
 
 namespace Sharplight.Llm;
 
-/// <summary>Options for loading and compiling a language model.</summary>
-public sealed class LlmLoadOptions
-{
-    /// <summary>Devices in pipeline order (layers are split across them). Required.</summary>
-    public required IReadOnlyList<DeviceSlot> Devices { get; init; }
-    /// <summary>Fallback device (e.g. CPU) for layers that don't fit and unsupported ops.</summary>
-    public DeviceSlot? Fallback { get; init; }
-    /// <summary>
-    /// Bytes kept free on each device for activations and scratch when splitting layers (null = placement default, 1 GiB).
-    /// The serving host sets it from <see cref="LlmModel.EstimateFootprint"/> together with a memory limit.
-    /// </summary>
-    public long? ReservePerDevice { get; init; }
-    public int ContextLength { get; init; } = 8192;
-    /// <summary>Max tokens per forward pass (prefill chunk size).</summary>
-    public int MaxBatchTokens { get; init; } = 512;
-    public AdapterOptions Adapter { get; init; } = new();
-    /// <summary>Device features (<see cref="DeviceFeatures"/>) not to use when compiling this model, e.g. "matrix_f16".</summary>
-    public IReadOnlySet<string> DisabledFeatures { get; init; } = new HashSet<string>();
-    /// <summary>Auxiliary model files, e.g. ("mmproj", path) for a vision projector.</summary>
-    public IReadOnlyList<(string Role, string Path)> Auxiliary { get; init; } = [];
-    /// <summary>
-    /// Image token budget (output tokens per image): the vision encoder is compiled for at most
-    /// <c>MaxTokens</c> (default 1024) tokens per image and images are resized to fit; <c>MinTokens</c> upsizes small images.
-    /// </summary>
-    public ImageTokenLimits? ImageTokens { get; init; }
-    public Action<string>? Log { get; init; }
-}
-
 /// <summary>
-/// High-level entry point: a loaded model definition plus its tokenizer and chat template.
-/// Create <see cref="InferenceSession"/>s / <see cref="Generator"/>s from it.
+/// High-level entry point: a loaded decoder-style language model (weights, tokenizer and chat template). Loading reads the
+/// model file and builds its compute graphs; nothing is compiled or uploaded to a device until a session, batch decoder or
+/// vision encoder is created from it. From a model you create
+/// <list type="bullet">
+/// <item><description>an <see cref="InferenceSession"/> plus a <see cref="Generator"/> for simple single-sequence generation,</description></item>
+/// <item><description>a batch decoder (<see cref="CreateBatchDecoder"/>) for the continuous-batching <see cref="Serving.InferenceEngine"/>,</description></item>
+/// <item><description>a <see cref="VisionEncoder"/> (<see cref="CreateVisionEncoder"/>) for image prompts.</description></item>
+/// </list>
+/// The model owns the weight memory: dispose it after everything created from it has been disposed. Creating sessions and
+/// decoders is thread-safe; the created objects are not.
 /// </summary>
+/// <example>
+/// <code>
+/// GgufImporter.Register();   // from Sharplight.Gguf; the host registers the formats it supports
+/// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
+/// using var session = model.CreateSession();
+/// var generator = new Generator(session, model.Tokenizer);
+/// var options = new GenerationOptions { MaxNewTokens = 128, Sampling = SamplingOptions.Greedy };
+/// foreach (var token in generator.Generate("The capital of France is", options))
+/// {
+///     Console.Write(token.Text);
+/// }
+/// </code>
+/// </example>
 public sealed class LlmModel : IDisposable
 {
     static LlmModel() => BuiltinAdapters.RegisterAll();
 
+    /// <summary>The built model: architecture, hyper-parameters, weights and compute graphs.</summary>
     public ModelDefinition Definition { get; }
     /// <summary>The canonical model source the definition was built from (what a saved package stores).</summary>
     public ModelSource Source { get; }
+    /// <summary>The model's tokenizer (shared; safe for concurrent use).</summary>
     public ITokenizer Tokenizer { get; }
+    /// <summary>The Jinja chat template stored in the model file (<c>tokenizer.chat_template</c>), or null if it has none.</summary>
     public string? ChatTemplate { get; }
     private readonly LlmLoadOptions _options;
     private readonly Dictionary<string, (CompilationCache Cache, List<IComputeDevice> Devices)> _caches = [];
@@ -65,6 +60,9 @@ public sealed class LlmModel : IDisposable
     /// Loads a model through <see cref="ModelImporterRegistry"/>; the host must have registered an
     /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Gguf).
     /// </summary>
+    /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
+    /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>
+    /// <exception cref="NotSupportedException">No registered importer or architecture adapter handles the model.</exception>
     public static LlmModel Load(string path, LlmLoadOptions options)
     {
         var sw = Stopwatch.StartNew();
@@ -75,26 +73,19 @@ public sealed class LlmModel : IDisposable
         return new LlmModel(def, sources.Primary, tok, options);
     }
 
-    /// <summary>Compiles the decoder onto the configured devices and returns a fresh session.</summary>
+    /// <summary>
+    /// Compiles the decoder onto the configured devices and returns a fresh single-sequence session. The session owns device
+    /// memory for its share of the weights, the KV cache and the activations.
+    /// </summary>
+    /// <param name="graph">The graph to compile: <see cref="WellKnown.DecodeGraph"/> (text) or <see cref="WellKnown.DecodeMultimodalGraph"/> (text and images).</param>
+    /// <param name="memoryLimit">Caps the bytes of the primary device used by this session (null: the devices as configured).</param>
     public InferenceSession CreateSession(string graph = WellKnown.DecodeGraph, long? memoryLimit = null)
     {
         var sw = Stopwatch.StartNew();
-        var compiled = CompiledModel.Compile(Definition.Graph(graph), new PlacementOptions
-        {
-            Devices = DevicesWithLimit(memoryLimit),
-            Fallback = _options.Fallback,
-            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
-            Compile = new CompileOptions
-            {
-                MaxTokens = _options.MaxBatchTokens,
-                ContextLength = _options.ContextLength,
-                SymbolBounds = new Dictionary<string, long> { ["R"] = _options.MaxBatchTokens },
-                DisabledFeatures = _options.DisabledFeatures,
-                CacheFor = CacheFor,
-            },
-        });
+        var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
+        var compiled = CompiledModel.Compile(Definition.Graph(graph), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
-        return new InferenceSession(Definition, compiled);
+        return new InferenceSession(compiled);
     }
 
     /// <summary>
@@ -118,25 +109,32 @@ public sealed class LlmModel : IDisposable
         }
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, new PlacementOptions
-        {
-            Devices = DevicesWithLimit(memoryLimit),
-            Fallback = _options.Fallback,
-            ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
-            Compile = new CompileOptions
-            {
-                MaxTokens = _options.MaxBatchTokens,
-                ContextLength = ctx,
-                SymbolBounds = new Dictionary<string, long> { ["R"] = Math.Max(slots, 1) },
-                DisabledFeatures = _options.DisabledFeatures,
-                CacheFor = CacheFor,
-            },
-        });
+        var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, 1));
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement);
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;
     }
 
     private const long DefaultReserve = 1L << 30;
+
+    /// <summary>Device placement and compile settings shared by sessions and batch decoders.</summary>
+    /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>
+    /// <param name="contextLength">KV-cache rows per sequence.</param>
+    /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
+    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound) => new()
+    {
+        Devices = DevicesWithLimit(memoryLimit),
+        Fallback = _options.Fallback,
+        ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
+        Compile = new CompileOptions
+        {
+            MaxTokens = _options.MaxBatchTokens,
+            ContextLength = contextLength,
+            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound },
+            DisabledFeatures = _options.DisabledFeatures,
+            CacheFor = CacheFor,
+        },
+    };
 
     /// <summary>
     /// Caps the first (primary) device's share of the model at <paramref name="memoryLimit"/> bytes (layers beyond it go to
@@ -228,30 +226,12 @@ public sealed class LlmModel : IDisposable
         }
     }
 
+    /// <summary>Releases the weight memory (mapped files, host buffers). Sessions and decoders created from the model must be disposed first.</summary>
     public void Dispose()
     {
         foreach (var r in Definition.OwnedResources)
         {
             r.Dispose();
         }
-    }
-}
-
-/// <summary>Registers the architecture adapters shipped with Sharplight.</summary>
-public static class BuiltinAdapters
-{
-    private static int s_done;
-    public static void RegisterAll()
-    {
-        if (Interlocked.Exchange(ref s_done, 1) == 1)
-        {
-            return;
-        }
-
-        ModelAdapterRegistry.Register(new Qwen35Adapter());
-        Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
-        ModelAdapterRegistry.Register(new DecoderAdapter());
-        ModelAdapterRegistry.Register(new EncoderAdapter());
-        ModelAdapterRegistry.Register(new NemotronHAdapter());
     }
 }

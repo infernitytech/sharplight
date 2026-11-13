@@ -44,21 +44,24 @@ public class PreprocessorTests
         Assert.Equal((6, 4, 3, 2), (im.GridHeight, im.GridWidth, im.MergedHeight, im.MergedWidth));
         Assert.Equal(24, im.PatchCount);
         Assert.Equal(6, im.TokenCount);
-        int K = p.PatchDim; Assert.Equal(1536, K);
+        int K = p.PatchDim;
+        Assert.Equal(1536, K);
         Assert.Equal(24 * K, im.Patches.Length);
 
         // Window order: patches 0..3 are the first 2×2 block (rows 0-1, cols 0-1), 4..7 the next block to the right.
         Assert.Equal([0, 0, 0, 1, 1, 0, 1, 1, 0, 2, 0, 3, 1, 2, 1, 3], im.Positions[..16]);
         for (int i = 0; i < 24; i++)
         {
-            int row = im.Positions[i * 2], col = im.Positions[i * 2 + 1];
+            int row = im.Positions[i * 2];
+            int col = im.Positions[i * 2 + 1];
             for (int c = 0; c < 3; c++)
             {
                 for (int t = 0; t < 2; t++)
                 {
                     foreach (var (y, x) in new[] { (0, 0), (3, 5), (15, 15) })
                     {
-                        int px = col * 16 + x, py = row * 16 + y;
+                        int px = col * 16 + x;
+                        int py = row * 16 + y;
                         float raw = c == 0 ? px : c == 1 ? py : 255;
                         float expected = (raw / 255f - p.ImageMean[c]) / p.ImageStd[c];
                         float got = im.Patches[i * K + ((c * 2 + t) * 16 + y) * 16 + x];
@@ -106,7 +109,8 @@ public class PreprocessorTests
                 Assert.Equal((200, 100, 7), (r[i], r[i + 1], r[i + 2]));
             }
         }
-        var rnd = new byte[50 * 30 * 3]; new Random(1).NextBytes(rnd);
+        var rnd = new byte[50 * 30 * 3];
+        new Random(1).NextBytes(rnd);
         Assert.Equal(rnd, VisionPreprocessor.ResizeBicubic(rnd, 50, 30, 50, 30));
         // 2× downscale of a 2-pixel checkerboard averages to mid-grey (antialiased filter).
         var chk = new byte[16 * 16 * 3];
@@ -140,7 +144,9 @@ public class PreprocessorTests
     [Fact]
     public void Qwen_prompt_assembly_expands_the_placeholder_with_mrope_positions()
     {
-        const int Start = 10, Pad = 11, End = 12;
+        const int Start = 10;
+        const int Pad = 11;
+        const int End = 12;
         var ctx = new MultimodalContext(Tiny.Build(true, false), s => s switch { "<|image_pad|>" => Pad, _ => null });
         var p = Qwen with { MinPixels = 0, MaxPixels = 0 };
         var im = new VisionPreprocessor(p).Process(new ImageInput(96, 64, new byte[96 * 64 * 3]));   // 4 rows × 6 cols of patches → 2 × 3 tokens
@@ -162,42 +168,5 @@ public class PreprocessorTests
         Assert.Equal(13, prompt.NextPosition);
         Assert.Throws<ArgumentException>(() => arch.Assemble(ctx, [1, 2], [im], 0));
         Assert.Throws<ArgumentException>(() => arch.Assemble(ctx, [1, Pad, Pad], [im], 0));
-    }
-}
-
-/// <summary>Developer check against transformers' pixel_values for a photo that needs resizing (needs .work/ref from .work/ref_vision.py).</summary>
-public class ReferencePreprocessingTests(ITestOutputHelper output)
-{
-    [Fact]
-    public void Resized_photo_patches_match_transformers()
-    {
-        string root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../.work/ref"));
-        string rgbPath = Path.Combine(root, "test-1.rgb"), npy = Path.Combine(root, "test-1_pixels.npy");
-        Assert.SkipUnless(File.Exists(rgbPath) && File.Exists(npy), "reference pixel_values not generated (.work/ref)");
-        var raw = File.ReadAllBytes(npy);
-        int header = 10 + BitConverter.ToUInt16(raw, 8);
-        var expected = new float[(raw.Length - header) / 4];
-        Buffer.BlockCopy(raw, header, expected, 0, raw.Length - header);
-
-        var p = new VisionParameters
-        {
-            LayerCount = 1, HiddenSize = 64, FfnHiddenSize = 64, HeadCount = 1, PatchSize = 16, TemporalPatchSize = 2, SpatialMergeSize = 2,
-            PositionEmbeddingCount = 2304, OutHiddenSize = 64, MinPixels = 65536, MaxPixels = 16777216,
-        };
-        var im = new VisionPreprocessor(p).Process(new ImageInput(640, 488, File.ReadAllBytes(rgbPath)));
-        Assert.Equal(expected.Length, im.Patches.Length);
-        var (abs, rel, rms) = Env.Compare(im.Patches, expected);
-        // Values are in [-1, 1] steps of 2/255; our filter vs torch's antialiased bicubic differ by at most a rounding step.
-        long off = 0; for (int i = 0; i < expected.Length; i++)
-        {
-            if (Math.Abs(im.Patches[i] - expected[i]) > 2.5f / 255)
-            {
-                off++;
-            }
-        }
-
-        Console.Error.WriteLine($"preprocessing vs transformers (640x488 -> {im.Width}x{im.Height}): max abs {abs:E3}, relative RMS {rms:E3}, {off}/{expected.Length} values off by more than one 8-bit step");
-        output.WriteLine($"max abs {abs}");
-        Assert.True(abs < 0.05f);
     }
 }

@@ -13,51 +13,55 @@ namespace Sharplight.Server;
 /// <c>POST /admin/models/{name}/unload[?force=true]</c>. Protected by the API keys when any are configured; without keys only
 /// loopback callers are let in (the API-key middleware has nothing to check).
 /// </summary>
-public static class AdminApi
+internal static class AdminApi
 {
-    public static IEndpointRouteBuilder MapAdmin(this IEndpointRouteBuilder routes)
+    extension(IEndpointRouteBuilder routes)
     {
-        var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
-        if (!ctx.Options.Admin)
+        /// <summary>Maps the <c>/admin/models</c> endpoints (nothing when <see cref="SharplightServerOptions.Admin"/> is off).</summary>
+    public IEndpointRouteBuilder MapAdmin()
         {
+            var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
+            if (!ctx.Options.Admin)
+            {
+                return routes;
+            }
+
+            var host = ctx.Host;
+
+            routes.MapGet("/admin/models", async http =>
+            {
+                if (!await Allowed(http, ctx))
+                {
+                    return;
+                }
+
+                await HttpJson.WriteAsync(http, Describe(host));
+            });
+            routes.MapPost("/admin/models/{name}/load", async http =>
+            {
+                if (!await Allowed(http, ctx))
+                {
+                    return;
+                }
+
+                string name = (string)http.Request.RouteValues["name"]!;
+                await host.LoadAsync(name, http.RequestAborted);   // errors map to 404 / 503 through the shared handler
+                await HttpJson.WriteAsync(http, ModelJson(host.Get(name)!));
+            });
+            routes.MapPost("/admin/models/{name}/unload", async http =>
+            {
+                if (!await Allowed(http, ctx))
+                {
+                    return;
+                }
+
+                string name = (string)http.Request.RouteValues["name"]!;
+                bool force = http.Request.Query.TryGetValue("force", out var f) && f.ToString() is "1" or "true";
+                await host.UnloadAsync(name, null, force);
+                await HttpJson.WriteAsync(http, ModelJson(host.Get(name)!));
+            });
             return routes;
         }
-
-        var host = ctx.Host;
-
-        routes.MapGet("/admin/models", async http =>
-        {
-            if (!await Allowed(http, ctx))
-            {
-                return;
-            }
-
-            await HttpJson.WriteAsync(http, Describe(host));
-        });
-        routes.MapPost("/admin/models/{name}/load", async http =>
-        {
-            if (!await Allowed(http, ctx))
-            {
-                return;
-            }
-
-            string name = (string)http.Request.RouteValues["name"]!;
-            await host.LoadAsync(name, http.RequestAborted);   // errors map to 404 / 503 through the shared handler
-            await HttpJson.WriteAsync(http, ModelJson(host.Get(name)!));
-        });
-        routes.MapPost("/admin/models/{name}/unload", async http =>
-        {
-            if (!await Allowed(http, ctx))
-            {
-                return;
-            }
-
-            string name = (string)http.Request.RouteValues["name"]!;
-            bool force = http.Request.Query.TryGetValue("force", out var f) && f.ToString() is "1" or "true";
-            await host.UnloadAsync(name, null, force);
-            await HttpJson.WriteAsync(http, ModelJson(host.Get(name)!));
-        });
-        return routes;
     }
 
     private static async Task<bool> Allowed(HttpContext http, SharplightServerContext ctx)

@@ -14,7 +14,7 @@ public class EndToEndTests
 {
     private const string Question = "Describe this image.";
 
-    private static string Describe(LlmModel model, ImageInput image, int maxTokens = 48, bool imageFirst = true)
+    private static string Describe(LlmModel model, ImageInput image, int maxTokens = 48)
     {
         using var vision = model.CreateVisionEncoder();
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -142,12 +142,17 @@ public class EndToEndTests
         var g = b.Build();
         var rng = new Random(4);
         float[] Rand(int n) => Enumerable.Range(0, n).Select(_ => (float)(rng.NextDouble() * 2 - 1)).ToArray();
-        float[] qd = Rand(T * heads * D), kd = Rand(T * heads * D), vd = Rand(T * heads * D);
+        float[] qd = Rand(T * heads * D);
+        float[] kd = Rand(T * heads * D);
+        float[] vd = Rand(T * heads * D);
         float[] Run(DeviceSlot slot)
         {
             using var cm = CompiledModel.Compile(g, new PlacementOptions { Devices = [slot], Compile = new CompileOptions { MaxTokens = 128 } });
-            cm.SetInput<float>(g.Inputs[0], qd); cm.SetInput<float>(g.Inputs[1], kd); cm.SetInput<float>(g.Inputs[2], vd);
-            var run = new RunParameters(); run.Symbols["T"] = T;
+            cm.SetInput<float>(g.Inputs[0], qd);
+            cm.SetInput<float>(g.Inputs[1], kd);
+            cm.SetInput<float>(g.Inputs[2], vd);
+            var run = new RunParameters();
+            run.Symbols["T"] = T;
             cm.Run(run);
             var o = new float[T * heads * D];
             cm.GetOutput<float>("o", o);

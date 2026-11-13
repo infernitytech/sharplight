@@ -20,34 +20,62 @@ public class SyntheticImporterTests : IDisposable
     public void Dispose() { foreach (var d in _open) { d.Dispose(); } try { Directory.Delete(_dir, true); } catch { } }
 
     private static readonly VisionParameters P = Tiny.Vision;
-    private static readonly float[] Mean = [0.48f, 0.46f, 0.41f], Std = [0.27f, 0.26f, 0.28f];
+    private static readonly float[] Mean = [0.48f, 0.46f, 0.41f];
+    private static readonly float[] Std = [0.27f, 0.26f, 0.28f];
 
     /// <summary>HF tensor name → (shape, values) for the tower.</summary>
     private static Dictionary<string, (long[] Shape, float[] Data)> HfTensors()
     {
         var rng = new Random(11);
         var t = new Dictionary<string, (long[], float[])>();
-        void Add(string n, params long[] shape) { var d = new float[shape.Aggregate(1L, (a, b) => a * b)]; for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); } t["model.visual." + n] = (shape, d); }
-        long H = P.HiddenSize, F = P.FfnHiddenSize, M = P.MergeUnit * H;
-        Add("patch_embed.proj.weight", H, P.InChannels, P.TemporalPatchSize, P.PatchSize, P.PatchSize); Add("patch_embed.proj.bias", H);
+        void Add(string n, params long[] shape)
+        {
+            var d = new float[shape.Aggregate(1L, (a, b) => a * b)];
+            for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); }
+            t["model.visual." + n] = (shape, d);
+        }
+        long H = P.HiddenSize;
+        long F = P.FfnHiddenSize;
+        long M = P.MergeUnit * H;
+        Add("patch_embed.proj.weight", H, P.InChannels, P.TemporalPatchSize, P.PatchSize, P.PatchSize);
+        Add("patch_embed.proj.bias", H);
         Add("pos_embed.weight", P.PositionEmbeddingCount, H);
         for (int i = 0; i < P.LayerCount; i++)
         {
             string b = $"blocks.{i}.";
-            Add(b + "norm1.weight", H); Add(b + "norm1.bias", H); Add(b + "norm2.weight", H); Add(b + "norm2.bias", H);
-            Add(b + "attn.qkv.weight", 3 * H, H); Add(b + "attn.qkv.bias", 3 * H); Add(b + "attn.proj.weight", H, H); Add(b + "attn.proj.bias", H);
-            Add(b + "mlp.linear_fc1.weight", F, H); Add(b + "mlp.linear_fc1.bias", F); Add(b + "mlp.linear_fc2.weight", H, F); Add(b + "mlp.linear_fc2.bias", H);
+            Add(b + "norm1.weight", H);
+            Add(b + "norm1.bias", H);
+            Add(b + "norm2.weight", H);
+            Add(b + "norm2.bias", H);
+            Add(b + "attn.qkv.weight", 3 * H, H);
+            Add(b + "attn.qkv.bias", 3 * H);
+            Add(b + "attn.proj.weight", H, H);
+            Add(b + "attn.proj.bias", H);
+            Add(b + "mlp.linear_fc1.weight", F, H);
+            Add(b + "mlp.linear_fc1.bias", F);
+            Add(b + "mlp.linear_fc2.weight", H, F);
+            Add(b + "mlp.linear_fc2.bias", H);
         }
-        Add("merger.norm.weight", H); Add("merger.norm.bias", H);
-        Add("merger.linear_fc1.weight", M, M); Add("merger.linear_fc1.bias", M); Add("merger.linear_fc2.weight", P.OutHiddenSize, M); Add("merger.linear_fc2.bias", P.OutHiddenSize);
+        Add("merger.norm.weight", H);
+        Add("merger.norm.bias", H);
+        Add("merger.linear_fc1.weight", M, M);
+        Add("merger.linear_fc1.bias", M);
+        Add("merger.linear_fc2.weight", P.OutHiddenSize, M);
+        Add("merger.linear_fc2.bias", P.OutHiddenSize);
         return t;
     }
 
-    private static byte[] Bytes(float[] d) { var b = new byte[d.Length * 4]; Buffer.BlockCopy(d, 0, b, 0, b.Length); return b; }
+    private static byte[] Bytes(float[] d)
+    {
+        var b = new byte[d.Length * 4];
+        Buffer.BlockCopy(d, 0, b, 0, b.Length);
+        return b;
+    }
 
     private string WriteHf(Dictionary<string, (long[] Shape, float[] Data)> tensors)
     {
-        string dir = Path.Combine(_dir, "hf"); Directory.CreateDirectory(dir);
+        string dir = Path.Combine(_dir, "hf");
+        Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "config.json"), JsonSerializer.Serialize(new
         {
             model_type = "qwen3_5", architectures = new[] { "Qwen3_5ForConditionalGeneration" }, tie_word_embeddings = true,
@@ -69,17 +97,23 @@ public class SyntheticImporterTests : IDisposable
             size = new { shortest_edge = P.MinPixels, longest_edge = P.MaxPixels }, image_mean = Mean, image_std = Std, patch_size = P.PatchSize,
         }));
         // safetensors: u64 header length, JSON header, data.
-        var header = new Dictionary<string, object>(); long off = 0; var data = new MemoryStream();
+        var header = new Dictionary<string, object>();
+        long off = 0;
+        var data = new MemoryStream();
         foreach (var (name, (shape, d)) in tensors.OrderBy(k => k.Key, StringComparer.Ordinal))
         {
             var b = Bytes(d);
             header[name] = new { dtype = "F32", shape, data_offsets = new[] { off, off + b.Length } };
-            data.Write(b); off += b.Length;
+            data.Write(b);
+            off += b.Length;
         }
         var h = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(header));
         using (var f = File.Create(Path.Combine(dir, "model.safetensors")))
         {
-            f.Write(BitConverter.GetBytes((ulong)h.Length)); f.Write(h); data.Position = 0; data.CopyTo(f);
+            f.Write(BitConverter.GetBytes((ulong)h.Length));
+            f.Write(h);
+            data.Position = 0;
+            data.CopyTo(f);
         }
         return dir;
     }
@@ -113,7 +147,10 @@ public class SyntheticImporterTests : IDisposable
             if (n == "patch_embed.proj.weight")
             {
                 // Conv3d [H, C, T, p, p] → one conv2d kernel [H, C, p, p] per temporal frame.
-                long H = shape[0], C = shape[1], T = shape[2], pp = shape[3] * shape[4];
+                long H = shape[0];
+                long C = shape[1];
+                long T = shape[2];
+                long pp = shape[3] * shape[4];
                 for (int t = 0; t < T; t++)
                 {
                     var part = new float[H * C * pp];
@@ -147,7 +184,11 @@ public class SyntheticImporterTests : IDisposable
         return path;
     }
 
-    private ModelSource Track(ModelSource s) { _open.AddRange(s.OwnedResources); return s; }
+    private ModelSource Track(ModelSource s)
+    {
+        _open.AddRange(s.OwnedResources);
+        return s;
+    }
 
     [Fact]
     public void Hf_and_mmproj_importers_agree_and_preserve_the_weights()
@@ -161,8 +202,10 @@ public class SyntheticImporterTests : IDisposable
         var pg = VisionParameters.FromMetadata(ggSrc.Metadata, "qwen3_5.vision.")!;
         Assert.Equal(P with { ImageMean = [], ImageStd = [] }, ph with { ImageMean = [], ImageStd = [] });
         Assert.Equal(ph with { ImageMean = [], ImageStd = [] }, pg with { ImageMean = [], ImageStd = [] });
-        Assert.Equal(Mean, ph.ImageMean); Assert.Equal(Mean, pg.ImageMean);
-        Assert.Equal(Std, ph.ImageStd); Assert.Equal(Std, pg.ImageStd);
+        Assert.Equal(Mean, ph.ImageMean);
+        Assert.Equal(Mean, pg.ImageMean);
+        Assert.Equal(Std, ph.ImageStd);
+        Assert.Equal(Std, pg.ImageStd);
 
         Assert.Equal(hfSrc.Keys.Order(), ggSrc.Weights.Keys.Order());
         Assert.Equal(Tiny.VisionWeights().Keys.Order(), ggSrc.Weights.Keys.Order());
@@ -215,7 +258,8 @@ public class SyntheticImporterTests : IDisposable
         int at = bytes.AsSpan().IndexOf(idx);
         Assert.True(at > 0);
         Encoding.ASCII.GetBytes("mystery_merger").CopyTo(bytes, at);
-        string bad = Path.Combine(_dir, "bad.gguf"); File.WriteAllBytes(bad, bytes);
+        string bad = Path.Combine(_dir, "bad.gguf");
+        File.WriteAllBytes(bad, bytes);
         Assert.Throws<NotSupportedException>(() => GgufImporter.Open(bad));
     }
 }

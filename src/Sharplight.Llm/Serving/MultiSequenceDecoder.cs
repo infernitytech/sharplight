@@ -10,6 +10,7 @@ namespace Sharplight.Llm.Serving;
 /// Each step packs every input's rows consecutively and fills the sequence row / run tables, positions and output rows.
 /// A slot whose next input starts at position 0 starts from empty state (recurrent state is cleared by the kernels,
 /// KV rows past a sequence's position are never read), so <see cref="Reset"/> costs nothing.
+/// Create with <see cref="LlmModel.CreateBatchDecoder"/>. Not thread-safe.
 /// </summary>
 public sealed class MultiSequenceDecoder : IBatchDecoder
 {
@@ -24,19 +25,28 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
     private readonly float[] _logits;
     private readonly List<float[]> _results = [];
 
+    /// <inheritdoc/>
     public int SlotCount { get; }
+    /// <inheritdoc/>
     public int ContextLength { get; }
+    /// <inheritdoc/>
     public int MaxBatchTokens { get; }
+    /// <inheritdoc/>
     public int VocabSize { get; }
+    /// <inheritdoc/>
     public bool BatchesSequences => true;
+    /// <inheritdoc/>
     public bool CanTruncate { get; }
-    public CompiledModel Compiled => _compiled;
+    internal CompiledModel Compiled => _compiled;
+    /// <inheritdoc/>
     public long DeviceMemoryBytes => _compiled.AcceleratorMemoryBytes;
 
     /// <param name="compiled">A model compiled from <see cref="MultiSequence.Transform"/>'s graph with context length
     /// <paramref name="slots"/> · <paramref name="contextLength"/> and symbol bounds U = slots, R ≥ slots.</param>
+    /// <param name="slots">Number of sequence slots.</param>
+    /// <param name="contextLength">Context length of each slot.</param>
     /// <param name="hasRecurrentState">Whether a slot holds state other than KV rows (then contexts cannot be truncated).</param>
-    public MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState)
+    internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -70,7 +80,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
     }
 
     /// <summary>Compiles <paramref name="graph"/> (single-sequence decoder) for <paramref name="slots"/> sequences.</summary>
-    public static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement)
+    internal static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement)
     {
         var ms = MultiSequence.Transform(graph, slots);
         var c = placement.Compile;
@@ -98,10 +108,22 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent);
     }
 
-    public int Length(int slot) { Check(slot); return _length[slot]; }
+    /// <inheritdoc/>
+    public int Length(int slot)
+    {
+        Check(slot);
+        return _length[slot];
+    }
 
-    public void Reset(int slot) { Check(slot); _length[slot] = 0; }
+    /// <inheritdoc/>
+    public void Reset(int slot)
+    {
+        Check(slot);
+        _length[slot] = 0;
+    }
 
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">The model has recurrent state and <paramref name="length"/> is neither 0 nor the current length.</exception>
     public void Truncate(int slot, int length)
     {
         Check(slot);
@@ -118,6 +140,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         _length[slot] = length;
     }
 
+    /// <inheritdoc/>
+    /// <exception cref="ArgumentException">Too many inputs, a slot twice, an empty input or more rows than <see cref="MaxBatchTokens"/>.</exception>
+    /// <exception cref="InvalidOperationException">A slot's context would overflow.</exception>
     public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs)
     {
         var res = new float[]?[inputs.Count];
@@ -131,7 +156,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
             throw new ArgumentException("More inputs than slots.");
         }
 
-        int T = 0, R = 0;
+        int T = 0;
+        int R = 0;
         Span<bool> seen = stackalloc bool[SlotCount];
         for (int u = 0; u < inputs.Count; u++)
         {
@@ -163,15 +189,22 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
             inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
             for (int i = 0; i < n; i++)
             {
-                int row = T + i, pos = pos0 + i;
-                _rowBuf[row * 4] = inp.Slot; _rowBuf[row * 4 + 1] = pos; _rowBuf[row * 4 + 2] = n; _rowBuf[row * 4 + 3] = u;
+                int row = T + i;
+                int pos = pos0 + i;
+                _rowBuf[row * 4] = inp.Slot;
+                _rowBuf[row * 4 + 1] = pos;
+                _rowBuf[row * 4 + 2] = n;
+                _rowBuf[row * 4 + 3] = u;
                 // Text rows use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
                 for (int a = 0; a < _posAxes; a++)
                 {
                     _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
                 }
             }
-            _runBuf[u * 4] = inp.Slot; _runBuf[u * 4 + 1] = T; _runBuf[u * 4 + 2] = n; _runBuf[u * 4 + 3] = pos0;
+            _runBuf[u * 4] = inp.Slot;
+            _runBuf[u * 4 + 1] = T;
+            _runBuf[u * 4 + 2] = n;
+            _runBuf[u * 4 + 3] = pos0;
             if (inp.WantLogits)
             {
                 _outBuf[R++] = T + n - 1;
@@ -227,11 +260,14 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         return res;
     }
 
-    private void Check(int slot) { if ((uint)slot >= (uint)SlotCount)
+    private void Check(int slot)
+    {
+        if ((uint)slot >= (uint)SlotCount)
         {
             throw new ArgumentOutOfRangeException(nameof(slot));
         }
     }
 
+    /// <summary>Releases the compiled model and its device memory.</summary>
     public void Dispose() => _compiled.Dispose();
 }

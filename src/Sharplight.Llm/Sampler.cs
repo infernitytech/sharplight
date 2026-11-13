@@ -1,20 +1,9 @@
 namespace Sharplight.Llm;
 
-/// <summary>Sampling configuration. Temperature 0 = greedy.</summary>
-public sealed record SamplingOptions
-{
-    public float Temperature { get; init; } = 0.7f;
-    public int TopK { get; init; } = 40;
-    public float TopP { get; init; } = 0.95f;
-    public float MinP { get; init; } = 0.0f;
-    public float RepetitionPenalty { get; init; } = 1.0f;
-    public int RepetitionWindow { get; init; } = 64;
-    public int? Seed { get; init; }
-
-    public static SamplingOptions Greedy { get; } = new() { Temperature = 0 };
-}
-
-/// <summary>CPU-side token sampler over a logits vector.</summary>
+/// <summary>
+/// CPU-side token sampler over a logits vector: repetition penalty, temperature, top-K, min-P and top-P. Keeps the recent token
+/// history for the penalty. For the serving engine's richer sampler see <see cref="Serving.SamplingParams"/>. Not thread-safe.
+/// </summary>
 public sealed class Sampler
 {
     private readonly SamplingOptions _o;
@@ -22,12 +11,14 @@ public sealed class Sampler
     private readonly List<int> _history = [];
     private (int Id, float Logit)[] _cand = [];
 
+    /// <summary>Creates a sampler; a <see cref="SamplingOptions.Seed"/> makes its choices reproducible.</summary>
     public Sampler(SamplingOptions options)
     {
         _o = options;
         _rng = options.Seed is int s ? new Random(s) : new Random();
     }
 
+    /// <summary>Records a prompt or sampled token for the repetition penalty.</summary>
     public void Accept(int token)
     {
         _history.Add(token);
@@ -37,6 +28,7 @@ public sealed class Sampler
         }
     }
 
+    /// <summary>Chooses the next token id from <paramref name="logits"/> (one value per vocabulary entry).</summary>
     public int Sample(ReadOnlySpan<float> logits)
     {
         int n = logits.Length;
@@ -94,7 +86,12 @@ public sealed class Sampler
         float max = span[0].Logit;
         var probs = new float[span.Length];
         double sum = 0;
-        for (int i = 0; i < span.Length; i++) { probs[i] = MathF.Exp((span[i].Logit - max) / _o.Temperature); sum += probs[i]; }
+        for (int i = 0; i < span.Length; i++)
+        {
+            probs[i] = MathF.Exp((span[i].Logit - max) / _o.Temperature);
+            sum += probs[i];
+        }
+
         for (int i = 0; i < probs.Length; i++)
         {
             probs[i] = (float)(probs[i] / sum);
@@ -105,14 +102,26 @@ public sealed class Sampler
         {
             for (int i = 0; i < probs.Length; i++)
             {
-                if (probs[i] < _o.MinP * probs[0]) { cut = Math.Max(1, i); break; }
+                if (probs[i] < _o.MinP * probs[0])
+                {
+                    cut = Math.Max(1, i);
+                    break;
+                }
             }
         }
 
         if (_o.TopP < 1)
         {
             double acc = 0;
-            for (int i = 0; i < cut; i++) { acc += probs[i]; if (acc >= _o.TopP) { cut = i + 1; break; } }
+            for (int i = 0; i < cut; i++)
+            {
+                acc += probs[i];
+                if (acc >= _o.TopP)
+                {
+                    cut = i + 1;
+                    break;
+                }
+            }
         }
         double total = 0;
         for (int i = 0; i < cut; i++)
@@ -121,21 +130,30 @@ public sealed class Sampler
         }
 
         double r = _rng.NextDouble() * total;
-        for (int i = 0; i < cut; i++) { r -= probs[i]; if (r <= 0)
+        for (int i = 0; i < cut; i++)
+        {
+            r -= probs[i];
+            if (r <= 0)
             {
                 return span[i].Id;
             }
         }
+
         return span[cut - 1].Id;
     }
 
+    /// <summary>Index of the largest value (the first on ties).</summary>
     public static int ArgMax(ReadOnlySpan<float> logits)
     {
         int best = 0;
         float bv = logits[0];
         for (int i = 1; i < logits.Length; i++)
         {
-            if (logits[i] > bv) { bv = logits[i]; best = i; }
+            if (logits[i] > bv)
+            {
+                bv = logits[i];
+                best = i;
+            }
         }
 
         return best;

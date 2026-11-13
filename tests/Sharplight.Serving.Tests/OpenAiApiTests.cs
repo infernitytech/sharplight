@@ -282,7 +282,8 @@ public class OpenAiApiTests
         Assert.Equal((HttpStatusCode)429, resp.StatusCode);
         Assert.Equal("rate_limit_exceeded", JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.GetProperty("error").GetProperty("type").GetString());
         Assert.True(resp.Headers.Contains("Retry-After"));
-        r1.Cancel(); r2.Cancel();
+        r1.Cancel();
+        r2.Cancel();
     }
 
     [Fact]
@@ -347,7 +348,8 @@ public class OpenAiApiTests
         Assert.True(await stream.ReadAsync(buf, cts.Token) > 0);
         Assert.Equal(1, h.Engine.GetMetrics().ActiveSequences);
         cts.Cancel();
-        stream.Dispose(); resp.Dispose();
+        stream.Dispose();
+        resp.Dispose();
         Assert.True(await T.WaitUntil(() => h.Engine.GetMetrics().ActiveSequences == 0, 5000));
         Assert.Equal(1, h.Engine.GetMetrics().RequestsFinished[Sharplight.Llm.Serving.FinishReason.Cancelled]);
     }
