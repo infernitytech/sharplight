@@ -1,0 +1,8 @@
+== llama3.2-1b-bf16
+RESULT {"name": "llama3.2-1b-bf16", "load_s": 229.31183886528015, "results": {"p
+== gemma3-1b-bf16
+RESULT {"name": "gemma3-1b-bf16", "load_s": 143.4614508152008, "results": {"pp51
+== olmoe-bf16
+== qwen27b-q8-gguf
+== mistral7b-q4km-gguf
+== nemotron30b-q4km-gguf

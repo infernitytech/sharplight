@@ -1,0 +1,3 @@
+## Qwen3.8-27B-Q8_0.gguf cold page cache
+sharplight GGUF #1: 8.388447525
+sharplight GGUF #2: 8.549473727
