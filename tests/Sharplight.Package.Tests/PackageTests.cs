@@ -218,16 +218,37 @@ public class PackageTests
     }
 
     [Fact]
-    public void GraphsWithDataDependentShapesAreRejected()
+    public void DataDependentShapesAndSubgraphsRoundTrip()
     {
         using var tmp = new TempDir();
+        var branch = new GraphBuilder("then", _ => null);
+        var captured = branch.Input("x", InputRole.Other, DataType.F32, new Shape(6));
+        branch.Output("out0", branch.Emit1("NonZero", [captured], Attributes.From(("count_symbol", branch.DynamicSymbol("inner", Dim.Of(6))))));
+        var other = new GraphBuilder("else", _ => null);
+        var unused = other.Input("x", InputRole.Other, DataType.F32, new Shape(6));
+        other.Output("out0", other.Emit1("NonZero", [other.Emit1("Neg", [unused])], Attributes.From(("count_symbol", other.DynamicSymbol("inner", Dim.Of(6))))));
+
         var b = new GraphBuilder("nz", _ => null);
         var x = b.Input("x", InputRole.Other, DataType.F32, new Shape(6));
-        b.Output("y", b.Emit1("NonZero", [x], Attributes.From(("count_symbol", b.DynamicSymbol("nonzero", Dim.Of(6))))));
+        var cond = b.Input("cond", InputRole.Other, DataType.F32, new Shape(1));
+        var count = b.DynamicSymbol("nonzero", Dim.Of(6));
+        b.Output("y", b.Emit1("NonZero", [x], Attributes.From(("count_symbol", count))));
+        var selected = b.Emit("If", [cond, x], Attributes.From(
+            ("then_branch", branch.Build()), ("else_branch", other.Build()), ("inputs", new[] { "x" }), ("outputs", new[] { "out0" }),
+            ("output_symbols", new[] { "" })));
+        b.Output("z", selected[0]);
         var def = new ModelDefinition { Architecture = "test_arch", Name = "nz", Weights = new Dictionary<string, WeightInfo>(), Graphs = new Dictionary<string, ComputeGraph> { ["nz"] = b.Build() } };
-        var e = Assert.Throws<NotSupportedException>(() => ModelPackage.Save(tmp.File("nz.slm"), def, []));
-        Assert.Contains("data-dependent", e.Message);
-        Assert.False(File.Exists(tmp.File("nz.slm")));
+        ModelPackage.Save(tmp.File("nz.slm"), def, []);
+
+        using var f = new PackageFile(tmp.File("nz.slm"));
+        var graph = f.Definition.Graph("nz");
+        Assert.Equal(def.Graph("nz").DynamicSymbols, graph.DynamicSymbols);
+        var node = graph.Nodes.Single(n => n.Op.Name == "If");
+        var then = node.Attributes.Get<ComputeGraph>("then_branch");
+        Assert.Equal(branch.Build().DynamicSymbols, then.DynamicSymbols);
+        Assert.Equal(["NonZero"], then.Nodes.Select(n => n.Op.Name));
+        Assert.Equal(["Neg", "NonZero"], node.Attributes.Get<ComputeGraph>("else_branch").Nodes.Select(n => n.Op.Name));
+        Assert.Equal(def.Graph("nz").Outputs["z"].Shape.ToString(), graph.Outputs["z"].Shape.ToString());
     }
 
     [Fact]

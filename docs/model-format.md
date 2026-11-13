@@ -1,8 +1,9 @@
 # Model format v2: portable graphs with tiered, optional precompiled artifacts
 
-Status: container v2, artifact tiers, inspection API, device profiles, `sharplight-convert` (convert, info, profile,
-precompile --device/--profile, strip, compact), the graph optimization phase (run by `convert` unless `--no-optimize`) and the
-package viewer (`Sharplight.PackageViewer`) are implemented; a separate `optimize` command is not yet (2026-11-13).
+Status: container v3 (v2 plus control-flow subgraphs and data-dependent symbols in the IR), artifact tiers, inspection API,
+device profiles, `sharplight-convert` (convert, info, profile, precompile --device/--profile, strip, compact), the graph
+optimization phase (run by `convert` unless `--no-optimize`) and the package viewer (`Sharplight.PackageViewer`) are
+implemented; a separate `optimize` command is not yet (2026-11-13).
 
 ## Goals
 
@@ -40,17 +41,30 @@ data-dependent symbols or run subgraphs are never removed or merged; graph input
 or `SHARPLIGHT_NO_GRAPH_OPT=1` skips the phase. A converter calls `GraphOptimizer.Default.Optimize(definition)` and gets per-pass
 node counts (`ModelOptimizationResult.Statistics`).
 
-## Container (version 2)
+## Container (version 3)
 
-Unchanged header and section table (v1 files stay readable; any write, including `AddArtifacts` and `Strip`, stores version 2).
-Sections:
+Unchanged header and section table (v1 and v2 files stay readable; any write, including `AddArtifacts` and `Strip`, stores the
+current version). Sections:
 
 | kind | name | content |
 |---|---|---|
-| DEFN | | IR graphs, states, properties, metadata (optimized) |
+| DEFN | `ir.2` (empty in v1/v2) | IR graphs, states, properties, metadata (optimized) |
 | WIDX / WDAT | | weight index / weight bytes, 64 KiB aligned |
 | ARTS (5) | artifact-set id | one artifact set (new in v2) |
 | KSET (4) | v1 target | v1 kernel set; read as an artifact set of tier `mixed` |
+
+The DEFN section name selects its layout, so a file whose header `AddArtifacts` raised to version 3 keeps reading its older
+definition correctly:
+
+- **Layout 1** (empty name, written by v1 and v2): per graph the inputs, the node records (op, group, attributes, operand
+  references, output names), outputs and runtime scalars.
+- **Layout 2** (`ir.2`, written since v3) adds what runtime control flow and data-dependent shapes need. Each node record is
+  followed by its **subgraph attributes** (`i32 n`, then n × (attribute name, nested graph record in the same layout)): the
+  `then_branch` / `else_branch` of `If` and the `body` of `Loop` are complete graphs, rebuilt and type-checked like the top-level
+  ones (their weights are package weights referenced by name, so `Save` also stores the weights only a subgraph reads). Each
+  graph record ends with its **dynamic symbols** (`i32 n`, then n × (name, bound expression text)), declared under their exact
+  names on load because node attributes (`count_symbol`, `output_symbols`) refer to them. Packages can therefore store models
+  with runtime `If`, `Loop` and `Scan` and with data-dependent ops (`NonZero`, `NonMaxSuppression`, `Unique`, ...).
 
 An **artifact set** is: descriptor (string → string, at least `provider`, `tier`, `kind`), then entries (key → bytes). ARTS
 layout: `i32 format (1)`, `i32 n` + n key/value strings (keys sorted), `i32 m` + m × (key, `i64` offset relative to the section,

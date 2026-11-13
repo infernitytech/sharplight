@@ -10,10 +10,11 @@ internal sealed record TestTensor(int ElemType, long[] Dims, double[] Values)
 
     public bool IsFloat => OnnxType.IsFloat(ElemType);
 
-    /// <summary>Reads a serialized TensorProto; throws <see cref="NotSupportedException"/> for sequences, maps, optionals and strings.</summary>
-    public static TestTensor Load(string path)
+    /// <summary>Parses a serialized TensorProto; throws <see cref="NotSupportedException"/> for strings and non-tensors.</summary>
+    /// <param name="bytes">The TensorProto.</param>
+    /// <param name="what">The file or element it was read from (for error messages).</param>
+    public static TestTensor Parse(byte[] bytes, string what)
     {
-        var bytes = File.ReadAllBytes(path);
         OnnxTensor tensor;
         try
         {
@@ -21,17 +22,17 @@ internal sealed record TestTensor(int ElemType, long[] Dims, double[] Values)
         }
         catch (Exception e) when (e is InvalidDataException or NotSupportedException)
         {
-            throw new NotSupportedException($"{Path.GetFileName(path)} is not a plain tensor (sequence, map or optional?): {e.Message}", e);
+            throw new NotSupportedException($"{what} is not a plain tensor (sequence, map or optional?): {e.Message}", e);
         }
 
         if (tensor.ElemType == OnnxType.String)
         {
-            throw new NotSupportedException($"{Path.GetFileName(path)}: string tensors are not supported by the harness");
+            throw new NotSupportedException($"{what}: string tensors are not supported by the harness");
         }
 
         if (tensor.ElemType == 0)
         {
-            throw new NotSupportedException($"{Path.GetFileName(path)} is not a plain tensor (sequence, map or optional)");
+            throw new NotSupportedException($"{what} is not a plain tensor (sequence, map or optional)");
         }
 
         var values = OnnxConst.FromTensor(tensor).Floats();

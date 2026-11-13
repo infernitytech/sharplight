@@ -29,6 +29,23 @@ internal sealed class TranslatedTensor
     /// </summary>
     public bool TransposedNonZero { get; set; }
 
+    /// <summary>
+    /// A sequence whose structure is known at import time: its elements (tensors or constants). Null for every other kind of value.
+    /// </summary>
+    public IReadOnlyList<TranslatedTensor>? Sequence { get; init; }
+
+    /// <summary>
+    /// A sequence whose length is only known at run time: <see cref="V"/> holds its same-shaped elements stacked along the outermost axis
+    /// (the length is that axis' extent, usually a dynamic symbol).
+    /// </summary>
+    public bool Stacked { get; init; }
+
+    /// <summary>An empty optional (an optional that holds a value is represented by the value itself).</summary>
+    public bool IsNone { get; init; }
+
+    /// <summary>A plain tensor (dynamic or constant), not a sequence or an empty optional.</summary>
+    public bool IsTensor => Sequence is null && !Stacked && !IsNone;
+
     /// <summary>True when the value is known at import time.</summary>
     public bool IsConst => C is not null;
 
@@ -37,4 +54,10 @@ internal sealed class TranslatedTensor
 
     /// <summary>Wraps a compile-time constant.</summary>
     public static TranslatedTensor Const(OnnxConst c) => new() { C = c };
+
+    /// <summary>A sequence with the given elements.</summary>
+    public static TranslatedTensor Seq(IReadOnlyList<TranslatedTensor> elements) => new() { Sequence = elements };
+
+    /// <summary>An empty optional.</summary>
+    public static TranslatedTensor None() => new() { IsNone = true };
 }

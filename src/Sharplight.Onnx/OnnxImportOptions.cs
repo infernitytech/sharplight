@@ -18,6 +18,16 @@ public sealed class OnnxImportOptions
     /// </summary>
     public Dictionary<string, double[]> ConstantInputs { get; init; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Number of elements of sequence-typed graph inputs. Every element becomes a graph input of its own named
+    /// <see cref="OnnxGraphAdapter.SequenceElementName"/>, whose shape <see cref="InputShapes"/> gives under that name (and which
+    /// <see cref="ConstantInputs"/> can pin).
+    /// </summary>
+    public Dictionary<string, int> SequenceInputLengths { get; init; } = new(StringComparer.Ordinal);
+
+    /// <summary>Optional-typed graph inputs that are empty; every other optional input holds a value (a tensor or a sequence).</summary>
+    public HashSet<string> AbsentInputs { get; init; } = new(StringComparer.Ordinal);
+
     /// <summary>Makes the outermost dimension of every input symbolic ("N") even if it is fixed in the file.</summary>
     public bool ForceSymbolicBatch { get; init; }
 
@@ -29,6 +39,12 @@ public sealed class OnnxImportOptions
 
     /// <summary>Upper limit on the iterations of a <c>Loop</c> evaluated or unrolled at import time.</summary>
     public int MaxLoopIterations { get; init; } = 100_000;
+
+    /// <summary>
+    /// Upper bound on the iterations of a runtime <c>Loop</c> whose iteration count is not known at import time (a runtime trip count or
+    /// condition) and that has scan outputs: their buffers are sized for it, and a run that needs more iterations fails.
+    /// </summary>
+    public int RuntimeLoopScanBound { get; init; } = 4096;
 
     /// <summary>Placement group size: number of compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group; values below 1 act as 1.</summary>
     public int GroupSize { get; init; } = 8;

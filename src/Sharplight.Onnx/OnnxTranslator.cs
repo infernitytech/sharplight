@@ -19,6 +19,7 @@ internal sealed partial class OnnxTranslator
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
     private readonly HashSet<OnnxNode> _skip = [];
+    private readonly Dictionary<OnnxNode, IReadOnlyList<string>> _reads = [];
     private readonly HashSet<string> _graphOutputs;
     private GraphBuilder _b = null!;
     private IDisposable? _groupScope;
@@ -44,7 +45,7 @@ internal sealed partial class OnnxTranslator
         _b = new GraphBuilder(graphName, n => _weights.GetValueOrDefault(n));
 
         var initializerNames = RegisterInitializers();
-        var order = Order(_graph.Nodes, initializerNames);
+        var order = Order(_graph.Nodes, initializerNames, Reads);
         var live = Liveness(order);
         CheckSupport(live);
         IndexConsumers(live);
@@ -98,7 +99,7 @@ internal sealed partial class OnnxTranslator
     {
         foreach (var node in live)
         {
-            foreach (var input in node.Inputs)
+            foreach (var input in Reads(node))
             {
                 if (input == "")
                 {
@@ -119,14 +120,50 @@ internal sealed partial class OnnxTranslator
 
     private void DeclareInput(OnnxValueInfo info)
     {
+        if (info.Kind == OnnxValueKind.Optional)
+        {
+            if (_opts.AbsentInputs.Contains(info.Name))
+            {
+                _env[info.Name] = TranslatedTensor.None();
+                return;
+            }
+
+            info = NamedType(info.Element, info.Name);
+        }
+
+        if (info.Kind == OnnxValueKind.Sequence)
+        {
+            int length = _opts.SequenceInputLengths.TryGetValue(info.Name, out var l) ? l : throw new NotSupportedException(
+                $"Graph input '{info.Name}' is a sequence; give its length through OnnxImportOptions.SequenceInputLengths.");
+            var element = info.Element is { Kind: OnnxValueKind.Tensor } e ? e : throw new NotSupportedException($"Graph input '{info.Name}' is a sequence of non-tensors.");
+            var elements = Enumerable.Range(0, length).Select(k => DeclareTensorInput(NamedType(element, OnnxGraphAdapter.SequenceElementName(info.Name, k)))).ToList();
+            _env[info.Name] = TranslatedTensor.Seq(elements);
+            return;
+        }
+
+        _env[info.Name] = DeclareTensorInput(info);
+    }
+
+    /// <summary>A copy of a sequence's or optional's element type under the given name.</summary>
+    private static OnnxValueInfo NamedType(OnnxValueInfo? type, string name)
+        => type is null
+            ? throw new NotSupportedException($"Graph input '{name}' has no element type.")
+            : new OnnxValueInfo { Name = name, Kind = type.Kind, ElemType = type.ElemType, Shape = type.Shape, Element = type.Element };
+
+    private TranslatedTensor DeclareTensorInput(OnnxValueInfo info)
+    {
+        if (info.Kind != OnnxValueKind.Tensor)
+        {
+            throw new NotSupportedException($"Graph input '{info.Name}' is a {info.Kind.ToString().ToLowerInvariant()} value.");
+        }
+
         if (_opts.ConstantInputs.TryGetValue(info.Name, out var pinned))
         {
             long[] dims = _opts.InputShapes.GetValueOrDefault(info.Name) ?? info.Shape!.Select(d => d.Value ?? 1).ToArray();
             var constant = OnnxType.IsFloat(info.ElemType)
                 ? OnnxConst.FromFloats(info.ElemType, dims, pinned, info.Name)
                 : OnnxConst.FromInts(info.ElemType, dims, pinned.Select(v => (long)v).ToArray(), info.Name);
-            _env[info.Name] = TranslatedTensor.Const(constant);
-            return;
+            return TranslatedTensor.Const(constant);
         }
 
         var shape = InputShape(info);
@@ -141,11 +178,12 @@ internal sealed partial class OnnxTranslator
         var role = image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other;
         var value = _b.Input(info.Name, role, isInt ? DataType.I32 : DataType.F32, shape);
         var tensor = TranslatedTensor.Dyn(value);
-        _env[info.Name] = tensor;
         if ((_opts.InputShapes.GetValueOrDefault(info.Name)?.Length ?? info.Shape?.Count) == 0)
         {
             tensor.Scalar = true;
         }
+
+        return tensor;
     }
 
     /// <summary>Translates one node, adding the node identity to errors that do not carry it yet.</summary>
@@ -172,11 +210,27 @@ internal sealed partial class OnnxTranslator
             throw new InvalidDataException($"Graph output '{output.Name}' is never produced.");
         }
 
-        // A constant-folded output (Shape, Size, ConstantOfShape of pinned shapes, ...) is materialized as a constant and copied out.
-        var source = tensor.V ?? (OnnxType.IsInteger(tensor.C!.ElemType) ? Idx(tensor) : ConstValue(tensor.C, output.Name + ".constant"));
-        var value = OutputCopy(source, output.Name);
+        if (tensor.Sequence is { } elements)
+        {
+            for (int k = 0; k < elements.Count; k++)
+            {
+                DeclareTensorOutput(OnnxGraphAdapter.SequenceElementName(output.Name, k), elements[k]);
+            }
 
-        _b.Output(output.Name, value);
+            return;
+        }
+
+        if (!tensor.IsNone)
+        {
+            DeclareTensorOutput(output.Name, tensor);
+        }
+    }
+
+    private void DeclareTensorOutput(string name, TranslatedTensor tensor)
+    {
+        // A constant-folded output (Shape, Size, ConstantOfShape of pinned shapes, ...) is materialized as a constant and copied out.
+        var source = tensor.V ?? (OnnxType.IsInteger(tensor.C!.ElemType) ? Idx(tensor) : ConstValue(tensor.C, name + ".constant"));
+        _b.Output(name, OutputCopy(source, name));
     }
 
     // ---- inputs ------------------------------------------------------------------------------------
@@ -210,7 +264,7 @@ internal sealed partial class OnnxTranslator
     }
 
     // ---- scheduling / analysis -----------------------------------------------------------------------
-    private static List<OnnxNode> Order(IReadOnlyList<OnnxNode> nodes, HashSet<string> initNames)
+    private static List<OnnxNode> Order(IReadOnlyList<OnnxNode> nodes, HashSet<string> initNames, Func<OnnxNode, IReadOnlyList<string>> reads)
     {
         // ONNX requires topological order, but be tolerant: Kahn's algorithm keeping the original order stable.
         var produced = new HashSet<string>(initNames, StringComparer.Ordinal);
@@ -228,7 +282,7 @@ internal sealed partial class OnnxTranslator
         bool ok = true;
         foreach (var n in nodes)
         {
-            if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+            if (reads(n).Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
             {
                 ok = false;
                 break;
@@ -250,7 +304,7 @@ internal sealed partial class OnnxTranslator
             for (int k = 0; k < pending.Count; k++)
             {
                 var n = pending[k];
-                if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+                if (reads(n).Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
                 {
                     continue;
                 }
@@ -301,7 +355,7 @@ internal sealed partial class OnnxTranslator
                 continue;
             }
 
-            foreach (var i in n.Inputs)
+            foreach (var i in Reads(n))
             {
                 if (i != "")
                 {
@@ -310,6 +364,18 @@ internal sealed partial class OnnxTranslator
             }
         }
         return order.Where(live.Contains).ToList();
+    }
+
+    /// <summary>The values a node reads: its inputs and the enclosing-scope values its subgraphs capture (cached per node).</summary>
+    private IReadOnlyList<string> Reads(OnnxNode n)
+    {
+        if (!_reads.TryGetValue(n, out var reads))
+        {
+            var captured = n.Attributes.Values.Where(a => a.G is not null).SelectMany(a => FreeVariables(a.G!)).Except(n.Inputs, StringComparer.Ordinal);
+            _reads[n] = reads = [.. n.Inputs, .. captured.OrderBy(name => name, StringComparer.Ordinal)];
+        }
+
+        return reads;
     }
 
     private void CheckSupport(List<OnnxNode> live)
@@ -457,6 +523,11 @@ internal sealed partial class OnnxTranslator
         for (int i = 0; i < ins.Length; i++)
         {
             ins[i] = n.Inputs[i] == "" ? null : Get(n.Inputs[i]);
+        }
+
+        if (TrySequenceOp(n, ins))
+        {
+            return;
         }
 
         bool allConst = ins.All(t => t is null || t.IsConst);

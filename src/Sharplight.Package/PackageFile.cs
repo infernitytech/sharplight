@@ -54,7 +54,7 @@ internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         var idx = sections.Single(s => s.Kind == PackageSectionKind.WeightIndex);
         Weights = ReadIndex(Reader(idx));
         var def = sections.Single(s => s.Kind == PackageSectionKind.Definition);
-        Definition = DefinitionCodec.Read(Reader(def), Weights, [this]);
+        Definition = DefinitionCodec.Read(Reader(def), Weights, [this], def.Name);
         var sets = new List<StoredArtifactSet>();
         foreach (var s in sections.Where(s => s.IsArtifactSet).Reverse())
         {

@@ -49,9 +49,12 @@ public sealed class CompiledModel : IDisposable
         {
             foreach (var seg in plan.Segments)
             {
-                compiled.Add(seg.Nodes is [{ Op.Category: OpCategory.ControlFlow }]
-                    ? new IfSegment(seg, placement)
-                    : plan.Slots[seg.DeviceSlot].Device.Compile(seg, placement.Compile));
+                compiled.Add(seg.Nodes switch
+                {
+                    [{ Op.Name: "Loop", Op.Category: OpCategory.ControlFlow }] => new LoopSegment(seg, placement),
+                    [{ Op.Category: OpCategory.ControlFlow }] => new IfSegment(seg, placement),
+                    _ => plan.Slots[seg.DeviceSlot].Device.Compile(seg, placement.Compile),
+                });
             }
         }
         catch

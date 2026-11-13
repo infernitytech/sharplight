@@ -19,6 +19,8 @@ internal sealed partial class OnnxTranslator
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
         "GlobalLpPool", "MaxUnpool", "MaxRoiPool", "DeformConv", "Col2Im", "AffineGrid", "CenterCropPad",
+        "SequenceEmpty", "SequenceConstruct", "SequenceInsert", "SequenceErase", "SequenceAt", "SequenceLength", "SplitToSequence",
+        "ConcatFromSequence", "SequenceMap", "Optional", "OptionalHasElement", "OptionalGetElement",
     ];
 
     private static readonly HashSet<string> s_contribOps =
