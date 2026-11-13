@@ -64,6 +64,7 @@ internal static partial class CpuOpSupport
             "RoiAlign" => node.Inputs[0].Type == DataType.F32 && node.Inputs[1].Type == DataType.F32 && node.Inputs[2].Type == DataType.I32
                 ? OpSupport.Yes : OpSupport.No("RoiAlign expects f32 x and rois and i32 batch indices"),
             "Sample" => OpSupport.Yes,
+            "Dft" => AllF32(node),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
         };
     }

@@ -18,6 +18,7 @@ internal sealed partial class OnnxTranslator
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
+        "DFT", "STFT",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -291,6 +292,14 @@ internal sealed partial class OnnxTranslator
                 break;
             case "LSTM" or "GRU" or "RNN":
                 Rnn(n, ins);
+                break;
+
+            // Signal processing.
+            case "DFT":
+                Dft(n, ins);
+                break;
+            case "STFT":
+                Stft(n, ins);
                 break;
 
             case "EyeLike":

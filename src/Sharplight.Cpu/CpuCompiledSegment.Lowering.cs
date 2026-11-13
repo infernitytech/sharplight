@@ -183,6 +183,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Unique":
                 LowerUnique(n);
                 return;
+            case "Dft":
+                LowerDft(n);
+                return;
         }
 
         if (s_unaryKinds.TryGetValue(op, out var unaryKind))
