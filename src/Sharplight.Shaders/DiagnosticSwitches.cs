@@ -23,10 +23,12 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
 /// <item><c>SHARPLIGHT_MMQ=0|all|fmt,fmt</c>: weight formats whose prefill matmuls use the int8 tensor-core GEMM (q8_1
 /// activations, <c>mmq.slang</c>) instead of the f16 one: none, every supported format (q8_0, q4_k, q5_k, q6_k, iq4_nl, iq4_xs),
-/// or a list (default: iq4_nl, iq4_xs). Disabling <c>matrix_int8</c> turns it off as well.</item>
+/// or a list (default: iq4_nl, iq4_xs, and q8_0 for matmuls with N and K of at least 4096; an explicit list drops that size
+/// limit). Disabling <c>matrix_int8</c> turns it off as well.</item>
 /// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 65).</item>
 /// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
-/// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.</item>
+/// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.
+/// <c>SHARPLIGHT_MMQ_BK=32|64|128</c>: preferred K step of the int8 GEMM (default 128, 64 for Q6_K).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
@@ -94,6 +96,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced layout of the 64-token int8 GEMM tile, or null.</summary>
     public static int[]? MmqLayout64 { get; } = Read("SHARPLIGHT_MMQ_CFG64")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Forced preferred K step of the int8 GEMM, or null for the per-format default.</summary>
+    public static int? MmqBlockK { get; } = Read("SHARPLIGHT_MMQ_BK") is { } v ? int.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>True when the int8 GEMM always scales its accumulators per element.</summary>
     public static bool MmqGenericLayout { get; } = IsSet("SHARPLIGHT_MMQ_GENERIC");

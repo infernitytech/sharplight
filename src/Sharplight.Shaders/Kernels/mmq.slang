@@ -53,11 +53,19 @@ using namespace linalg;
 #define MQ_BLOCKS (MQ_BK / 32)
 // Shared int8 rows are padded by 16 bytes (rows 80 or 144 bytes apart: conflict-free fragment loads); sizes in uint4.
 #define MQ_RS (MQ_BK / 16 + 1)
-// Prefetch items per thread: activation uint4s, activation block scales, weight units (one 32-value block of one row).
+// Load items per thread: activation uint4s, activation block scales, weight units (MQ_UB 32-value blocks of one row).
 #define MQ_A_ITEMS ((MQ_BM * MQ_BK / 16 + MQ_THREADS - 1) / MQ_THREADS)
 #define MQ_AS_ITEMS ((MQ_BM * MQ_BLOCKS + MQ_THREADS - 1) / MQ_THREADS)
-#define MQ_B_ITEMS ((MQ_BN * MQ_BLOCKS + MQ_THREADS - 1) / MQ_THREADS)
+#define MQ_B_ITEMS ((MQ_BN * (MQ_BLOCKS / MQ_UB) + MQ_THREADS - 1) / MQ_THREADS)
+#define MQ_A_SIZE (MQ_BM * MQ_RS)
+#define MQ_B_SIZE (MQ_BN * MQ_RS)
 
+#if (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K) && MQ_BK >= 64
+// The two 32-value blocks of a K-quant pair share their code bytes (low and high nibbles): one unit loads both.
+#define MQ_UB 2
+#else
+#define MQ_UB 1
+#endif
 #if WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
 #define MQ_MIN 1
 #else
@@ -81,15 +89,15 @@ typealias MatA8 = CoopMat<int8_t, MemoryScope.Subgroup, 16, 32, CoopMatMatrixUse
 typealias MatB8 = CoopMat<int8_t, MemoryScope.Subgroup, 32, 16, CoopMatMatrixUse.MatrixB>;
 typealias AccI = CoopMat<int, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
 
-groupshared uint4 sA[MQ_BM * MQ_RS];
-groupshared uint4 sB[MQ_BN * MQ_RS];
+groupshared uint4 sA[MQ_A_SIZE];
+groupshared uint4 sB[MQ_B_SIZE];
 #if MQ_SPLIT16
-groupshared uint4 sBh[MQ_BN * MQ_RS];
+groupshared uint4 sBh[MQ_B_SIZE];
 #endif
-// Block scales, block-major: [MQ_BLOCKS][rows] float2. Activations (d, d * sum q); weights (d, min) or Q6_K (d_lo, d_hi - d_lo).
+// Block scales, block-major per buffer: [MQ_BLOCKS][rows] pairs. Activations (d, d * sum q); weights (d, min) or Q6_K
+// (d_lo, d_hi - d_lo).
 groupshared float2 sAS[MQ_BLOCKS * MQ_BM];
 groupshared float2 sBS[MQ_BLOCKS * MQ_BN];
-groupshared int sIndex[256];
 
 // 16 bytes from a 2-byte aligned address.
 uint4 load16_a2(uint8_t* p)
@@ -117,16 +125,17 @@ uint iq4_bytes(uint u)
 uint4 iq4_bytes4(uint4 u) { return uint4(iq4_bytes(u.x), iq4_bytes(u.y), iq4_bytes(u.z), iq4_bytes(u.w)); }
 #endif
 
-// The 32 int8 codes (K order) of the 32-value block `b` (K offset 32b) of weight row `row`, and its scale pair.
-void load_unit(uint8_t* w, uint row, uint b, out uint4 q0, out uint4 q1, out float2 s)
+// The int8 codes (K order) of the MQ_UB 32-value blocks from block `b` (K offset 32b) of weight row `row`, and their
+// scale pairs: block u is q[2u], q[2u + 1] with scales s[u].
+void load_unit(uint8_t* w, uint row, uint b, out uint4 q[2 * MQ_UB], out float2 s[MQ_UB])
 {
     uint8_t* r = rowStart(w, ROW_BYTES, row);
 #if WFMT == FMT_Q8_0R
     // Repacked Q8_0 row: [K/32 f16 scales][K int8].
-    s = float2(h2f(*(uint16_t*)(r + b * 2)), 0);
-    uint4* q = (uint4*)(r + (ROW_BYTES / 17 + b * 32));
-    q0 = q[0];
-    q1 = q[1];
+    s[0] = float2(h2f(*(uint16_t*)(r + b * 2)), 0);
+    uint4* codes = (uint4*)(r + (ROW_BYTES / 17 + b * 32));
+    q[0] = codes[0];
+    q[1] = codes[1];
 #elif WFMT == FMT_Q4_K || WFMT == FMT_Q5_K
 #if WFMT == FMT_Q4_K
 #define KQ_BYTES 144
@@ -137,22 +146,30 @@ void load_unit(uint8_t* w, uint row, uint b, out uint4 q0, out uint4 q1, out flo
 #endif
     // Sub-block j of a super-block: the low (j even) or high nibbles of the 32 qs bytes of pair j / 2.
     uint8_t* blk = r + uint64_t(b >> 3) * KQ_BYTES;
-    uint j = b & 7;
-    uint4* qs = (uint4*)(blk + (KQ_QS + 32 * (j >> 1)));
-    uint shift = 4 * (j & 1);
-    q0 = (qs[0] >> shift) & 0x0F0F0F0Fu;
-    q1 = (qs[1] >> shift) & 0x0F0F0F0Fu;
+    uint dm = *(uint*)blk;
+    uint4* qs = (uint4*)(blk + (KQ_QS + 32 * ((b & 7) >> 1)));
+    uint4 c0 = qs[0], c1 = qs[1];
 #if WFMT == FMT_Q5_K
     uint4* qh = (uint4*)(blk + 16);
-    q0 |= ((qh[0] >> j) & 0x01010101u) << 4;
-    q1 |= ((qh[1] >> j) & 0x01010101u) << 4;
+    uint4 h0 = qh[0], h1 = qh[1];
 #endif
+    [ForceUnroll]
+    for (uint u = 0; u < MQ_UB; u++)
+    {
+        uint j = (b & 7) + u;
+        uint shift = 4 * (j & 1);
+        q[2 * u] = (c0 >> shift) & 0x0F0F0F0Fu;
+        q[2 * u + 1] = (c1 >> shift) & 0x0F0F0F0Fu;
+#if WFMT == FMT_Q5_K
+        q[2 * u] |= ((h0 >> j) & 0x01010101u) << 4;
+        q[2 * u + 1] |= ((h1 >> j) & 0x01010101u) << 4;
+#endif
+        float sc, mn;
+        scale_min_k4(blk + 4, j, sc, mn);
+        s[u] = float2(f16tof32(dm & 0xFFFF) * sc, f16tof32(dm >> 16) * mn);
+    }
 #undef KQ_BYTES
 #undef KQ_QS
-    uint dm = *(uint*)blk;
-    float sc, mn;
-    scale_min_k4(blk + 4, j, sc, mn);
-    s = float2(f16tof32(dm & 0xFFFF) * sc, f16tof32(dm >> 16) * mn);
 #elif WFMT == FMT_Q6_K
     // Super-block of 256 = { ql[128]; qh[64]; int8 scales[16]; f16 d } (210 bytes, 2-byte aligned): sub-block b & 7 is
     // quadrant qd of half n; its two 16-value halves have their own scales.
@@ -165,20 +182,20 @@ void load_unit(uint8_t* w, uint row, uint b, out uint4 q0, out uint4 q1, out flo
     uint4 c0 = ((load16_a2(ql) >> lshift) & 0x0F0F0F0Fu) | (((load16_a2(qh) >> hshift) & 0x03030303u) << 4);
     uint4 c1 = ((load16_a2(ql + 16) >> lshift) & 0x0F0F0F0Fu) | (((load16_a2(qh + 16) >> hshift) & 0x03030303u) << 4);
     // Codes 0..63 minus 32 per byte, without borrows between bytes: (c + 96) ^ 0x80.
-    q0 = (c0 + 0x60606060u) ^ 0x80808080u;
-    q1 = (c1 + 0x60606060u) ^ 0x80808080u;
+    q[0] = (c0 + 0x60606060u) ^ 0x80808080u;
+    q[1] = (c1 + 0x60606060u) ^ 0x80808080u;
     float d = h2f(*(uint16_t*)(blk + 208));
     uint sc = uint(*(uint16_t*)(blk + (192 + n * 8 + 2 * qd)));
     float lo = d * float(int(sc << 24) >> 24);
     float hi = d * float(int(sc << 16) >> 24);
-    s = float2(lo, hi - lo);
+    s[0] = float2(lo, hi - lo);
 #elif WFMT == FMT_IQ4_NL
     // Blocks of 32 = { f16 d; u8 qs[16] } (18 bytes): values 0..15 are the low nibbles, 16..31 the high nibbles.
     uint8_t* blk = r + uint64_t(b) * 18;
     uint4 qs = load16_a2(blk + 2);
-    q0 = iq4_bytes4(qs & 0x0F0F0F0Fu);
-    q1 = iq4_bytes4((qs >> 4) & 0x0F0F0F0Fu);
-    s = float2(h2f(*(uint16_t*)blk), 0);
+    q[0] = iq4_bytes4(qs & 0x0F0F0F0Fu);
+    q[1] = iq4_bytes4((qs >> 4) & 0x0F0F0F0Fu);
+    s[0] = float2(h2f(*(uint16_t*)blk), 0);
 #elif WFMT == FMT_IQ4_XS
     // Super-block of 256 = { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] } (136 bytes); sub-block ib like IQ4_NL
     // with the 6-bit scale ls - 32.
@@ -190,9 +207,9 @@ void load_unit(uint8_t* w, uint row, uint b, out uint4 q0, out uint4 q1, out flo
     // 136-byte blocks are 8-byte aligned.
     uint2* q8 = (uint2*)(blk + (8 + 16 * ib));
     uint4 qs = uint4(q8[0], q8[1]);
-    q0 = iq4_bytes4(qs & 0x0F0F0F0Fu);
-    q1 = iq4_bytes4((qs >> 4) & 0x0F0F0F0Fu);
-    s = float2(f16tof32(head & 0xFFFF) * float(int(ls) - 32), 0);
+    q[0] = iq4_bytes4(qs & 0x0F0F0F0Fu);
+    q[1] = iq4_bytes4((qs >> 4) & 0x0F0F0F0Fu);
+    s[0] = float2(f16tof32(head & 0xFFFF) * float(int(ls) - 32), 0);
 #else
 #error "gemm_mmq: unsupported weight format"
 #endif
@@ -214,6 +231,12 @@ void accumulate(inout float acc, int c, int ch, float2 x, float2 w)
     acc += i2f(c) * (x.x * w.x);
 #endif
 }
+
+#if MQ_SPLIT16
+#define LOAD_HI(o) MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, o, MQ_RS)
+#else
+#define LOAD_HI(o) b[j]
+#endif
 
 // The tile loop and the stores. PAIR: the accumulator layout is the pair layout (element e is row r0 + 8 * (e >> 2),
 // column c0 + (e & 1) + 8 * ((e >> 1) & 1)), so a lane needs the scales of 2 rows and 4 columns per fragment; otherwise
@@ -240,125 +263,125 @@ void mmq_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
 
     uint4 xa[MQ_A_ITEMS];
     float2 xsc[MQ_AS_ITEMS];
-    uint4 wq[MQ_B_ITEMS][2];
-    float2 wsc[MQ_B_ITEMS];
+    uint4 wq[MQ_B_ITEMS][2 * MQ_UB];
+    float2 wsc[MQ_B_ITEMS][MQ_UB];
 
     // Rows past T or N are clamped for loading (their results are never stored).
     #define FETCH(k0)                                                                                   \
     [ForceUnroll] for (uint it = 0; it < MQ_A_ITEMS; it++)                                              \
     {                                                                                                   \
-        uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BK / 16), q = idx % (MQ_BK / 16);               \
+        uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BK / 16), q = idx % (MQ_BK / 16);                \
         uint t = min(t0 + r, p.T - 1);                                                                  \
         if (idx < MQ_BM * MQ_BK / 16) xa[it] = *(uint4*)byteAt(p.x, uint64_t(t) * QROW + (k0) + q * 16); \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < MQ_AS_ITEMS; it++)                                             \
     {                                                                                                   \
-        uint idx = tid + it * MQ_THREADS, r = idx % MQ_BM, bl = idx / MQ_BM;                            \
+        uint idx = tid + it * MQ_THREADS, r = idx % MQ_BM, bl = idx / MQ_BM;                             \
         uint t = min(t0 + r, p.T - 1);                                                                  \
         if (idx < MQ_BM * MQ_BLOCKS) xsc[it] = *(float2*)byteAt(p.x, uint64_t(t) * QROW + K + ((k0) / 32 + bl) * 8); \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < MQ_B_ITEMS; it++)                                              \
     {                                                                                                   \
-        uint idx = tid + it * MQ_THREADS, r = idx / MQ_BLOCKS, bl = idx % MQ_BLOCKS;                    \
-        if (idx < MQ_BN * MQ_BLOCKS) load_unit(p.w, min(n0 + r, uint(N) - 1), (k0) / 32 + bl, wq[it][0], wq[it][1], wsc[it]); \
+        uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BLOCKS / MQ_UB), bl = idx % (MQ_BLOCKS / MQ_UB) * MQ_UB; \
+        if (idx < MQ_BN * (MQ_BLOCKS / MQ_UB)) load_unit(p.w, min(n0 + r, uint(N) - 1), (k0) / 32 + bl, wq[it], wsc[it]); \
     }
 #if MQ_SPLIT16
     #define STAGE_HI(o) sBh[o] = uint4(0); sBh[(o) + 1] = wq[it][1];
 #else
     #define STAGE_HI(o)
 #endif
-    #define STAGE()                                                                                     \
+    #define STAGE()                                                                                       \
     [ForceUnroll] for (uint it = 0; it < MQ_A_ITEMS; it++)                                              \
     {                                                                                                   \
-        uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BK / 16), q = idx % (MQ_BK / 16);               \
-        if (idx < MQ_BM * MQ_BK / 16) sA[r * MQ_RS + q] = xa[it];                                       \
+        uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BK / 16), q = idx % (MQ_BK / 16);                \
+        if (idx < MQ_BM * MQ_BK / 16) sA[r * MQ_RS + q] = xa[it];                   \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < MQ_AS_ITEMS; it++)                                             \
     {                                                                                                   \
         uint idx = tid + it * MQ_THREADS;                                                               \
-        if (idx < MQ_BM * MQ_BLOCKS) sAS[idx] = xsc[it];                                                \
+        if (idx < MQ_BM * MQ_BLOCKS) sAS[idx] = xsc[it];                    \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < MQ_B_ITEMS; it++)                                              \
     {                                                                                                   \
-        uint idx = tid + it * MQ_THREADS, r = idx / MQ_BLOCKS, bl = idx % MQ_BLOCKS;                    \
-        if (idx < MQ_BN * MQ_BLOCKS)                                                                    \
+        uint idx = tid + it * MQ_THREADS, r = idx / (MQ_BLOCKS / MQ_UB), bl = idx % (MQ_BLOCKS / MQ_UB) * MQ_UB; \
+        if (idx < MQ_BN * (MQ_BLOCKS / MQ_UB))                                                          \
         {                                                                                               \
-            uint o = r * MQ_RS + bl * 2;                                                                \
-            sB[o] = wq[it][0]; sB[o + 1] = wq[it][1];                                                   \
+            uint o = r * MQ_RS + bl * 2;                                            \
+            [ForceUnroll] for (uint u = 0; u < 2 * MQ_UB; u++) sB[o + u] = wq[it][u];                   \
             STAGE_HI(o)                                                                                 \
-            sBS[bl * MQ_BN + r] = wsc[it];                                                              \
+            [ForceUnroll] for (uint u = 0; u < MQ_UB; u++) sBS[(bl + u) * MQ_BN + r] = wsc[it][u]; \
         }                                                                                               \
     }
 
+    // The MMAs and the scaling of one staged K step (consumer warps).
+    #define COMPUTE()                                                                                     \
+    [MaxIters(MQ_BLOCKS)] [loop]                                                                        \
+    for (uint bl = 0; bl < MQ_BLOCKS; bl++)                                                             \
+    {                                                                                                   \
+        uint sa = bl * 2, sb = bl * 2, as = bl * MQ_BM, bs = bl * MQ_BN;                                \
+        MatB8 b[MQ_FN];                                                                                 \
+        MatB8 bh[MQ_FN];                                                                                \
+        float2 ws[MQ_FN][4];                                                                            \
+        [ForceUnroll]                                                                                   \
+        for (int j = 0; j < MQ_FN; j++)                                                                 \
+        {                                                                                               \
+            b[j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, sb + (wn + j * 16) * MQ_RS, MQ_RS);  \
+            bh[j] = LOAD_HI(sb + (wn + j * 16) * MQ_RS);                                                \
+            if (PAIR)                                                                                   \
+            {                                                                                           \
+                uint base = bs + wn + j * 16 + c0;                                                      \
+                ws[j][0] = sBS[base]; ws[j][1] = sBS[base + 1]; ws[j][2] = sBS[base + 8]; ws[j][3] = sBS[base + 9]; \
+            }                                                                                           \
+        }                                                                                               \
+        [ForceUnroll]                                                                                   \
+        for (int i = 0; i < MQ_FM; i++)                                                                 \
+        {                                                                                               \
+            MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, sa + (wm + i * 16) * MQ_RS, MQ_RS);  \
+            float2 xs[2];                                                                               \
+            if (PAIR)                                                                                   \
+            {                                                                                           \
+                xs[0] = sAS[as + wm + i * 16 + r0];                                               \
+                xs[1] = sAS[as + wm + i * 16 + r0 + 8];                                           \
+            }                                                                                           \
+            [ForceUnroll]                                                                               \
+            for (int j = 0; j < MQ_FN; j++)                                                             \
+            {                                                                                           \
+                AccI c = coopMatMulAdd<int, false>(a, b[j], AccI(I2F_BIAS));                            \
+                AccI ch = MQ_SPLIT16 ? coopMatMulAdd<int, false>(a, bh[j], AccI(I2F_BIAS)) : c;         \
+                [ForceUnroll]                                                                           \
+                for (uint e = 0; e < 8; e++)                                                            \
+                {                                                                                       \
+                    if (PAIR)                                                                           \
+                    {                                                                                   \
+                        accumulate(acc[i][j][e], c[e], ch[e], xs[e >> 2], ws[j][e & 3]);                \
+                    }                                                                                   \
+                    else                                                                                \
+                    {                                                                                   \
+                        accumulate(acc[i][j][e], c[e], ch[e], sAS[as + wm + i * 16 + (uint(index[e]) >> 4)], \
+                                   sBS[bs + wn + j * 16 + (uint(index[e]) & 15)]);                      \
+                    }                                                                                   \
+                }                                                                                       \
+            }                                                                                           \
+        }                                                                                               \
+    }
+
+    // The next K step is prefetched into registers during the MMAs and staged once every subgroup is done with the current one.
     // A split-K slice may be empty (K steps not divisible by SPLITK): never prefetch at or past K.
-    if (kBeg < kEnd)
+    uint steps = (kEnd - kBeg) / MQ_BK;
+    if (steps > 0)
     {
         FETCH(kBeg)
         STAGE()
     }
     GroupMemoryBarrierWithGroupSync();
-
-    for (uint k0 = kBeg; k0 < kEnd; k0 += MQ_BK)
+    for (uint s = 0; s < steps; s++)
     {
-        bool more = k0 + MQ_BK < kEnd;
-        if (more) { FETCH(k0 + MQ_BK) }
-
-        [ForceUnroll]
-        for (uint bl = 0; bl < MQ_BLOCKS; bl++)
+        bool more = s + 1 < steps;
+        if (more)
         {
-            MatB8 b[MQ_FN];
-#if MQ_SPLIT16
-            MatB8 bh[MQ_FN];
-#endif
-            float2 ws[MQ_FN][4];
-            [ForceUnroll]
-            for (int j = 0; j < MQ_FN; j++)
-            {
-                b[j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * MQ_RS + bl * 2, MQ_RS);
-#if MQ_SPLIT16
-                bh[j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, (wn + j * 16) * MQ_RS + bl * 2, MQ_RS);
-#endif
-                if (PAIR)
-                {
-                    uint base = bl * MQ_BN + wn + j * 16 + c0;
-                    ws[j][0] = sBS[base]; ws[j][1] = sBS[base + 1]; ws[j][2] = sBS[base + 8]; ws[j][3] = sBS[base + 9];
-                }
-            }
-            [ForceUnroll]
-            for (int i = 0; i < MQ_FM; i++)
-            {
-                MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * MQ_RS + bl * 2, MQ_RS);
-                float2 xs[2];
-                if (PAIR)
-                {
-                    uint base = bl * MQ_BM + wm + i * 16 + r0;
-                    xs[0] = sAS[base]; xs[1] = sAS[base + 8];
-                }
-                [ForceUnroll]
-                for (int j = 0; j < MQ_FN; j++)
-                {
-                    AccI c = coopMatMulAdd<int, false>(a, b[j], AccI(I2F_BIAS));
-#if MQ_SPLIT16
-                    AccI ch = coopMatMulAdd<int, false>(a, bh[j], AccI(I2F_BIAS));
-#else
-                    AccI ch = c;
-#endif
-                    [ForceUnroll]
-                    for (uint e = 0; e < 8; e++)
-                    {
-                        if (PAIR)
-                        {
-                            accumulate(acc[i][j][e], c[e], ch[e], xs[e >> 2], ws[j][e & 3]);
-                        }
-                        else
-                        {
-                            accumulate(acc[i][j][e], c[e], ch[e], sAS[bl * MQ_BM + wm + i * 16 + (uint(index[e]) >> 4)],
-                                       sBS[bl * MQ_BN + wn + j * 16 + (uint(index[e]) & 15)]);
-                        }
-                    }
-                }
-            }
+            FETCH(kBeg + (s + 1) * MQ_BK)
         }
+        COMPUTE()
         GroupMemoryBarrierWithGroupSync();
         if (more)
         {
@@ -369,6 +392,8 @@ void mmq_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     #undef FETCH
     #undef STAGE
     #undef STAGE_HI
+    #undef COMPUTE
+
 
     [ForceUnroll]
     for (int i = 0; i < MQ_FM; i++)
@@ -393,11 +418,13 @@ void gemm_mmq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 {
     uint tid = ltid.x;
     // Element layout of the int32 accumulator: load the matrix whose element (r, c) is r * 16 + c.
-    for (uint i = tid; i < 256; i += MQ_THREADS) sIndex[i] = int(i);
+    for (uint i = tid; i < 64; i += MQ_THREADS) sB[i] = uint4(4 * i, 4 * i + 1, 4 * i + 2, 4 * i + 3);
     GroupMemoryBarrierWithGroupSync();
-    AccI probe = AccI.Load<CoopMatMatrixLayout.RowMajor>(sIndex, 0, 16);
+    AccI probe = AccI.Load<CoopMatMatrixLayout.RowMajor>(sB, 0, 4);
     int index[8];
     [ForceUnroll] for (uint e = 0; e < 8; e++) index[e] = probe[e];
+    // The tile loop overwrites the probe in its first stage.
+    GroupMemoryBarrierWithGroupSync();
     uint r0 = uint(index[0]) >> 4, c0 = uint(index[0]) & 15;
     bool pairLane = (c0 & 1) == 0 && r0 < 8 && c0 < 8;
     [ForceUnroll]

@@ -226,7 +226,7 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);
         }
 
-        if (UseMmq(plan.W.Type, plan.K))
+        if (UseMmq(plan.W.Type, plan.N, plan.K))
         {
             // Emitted under the outer condition only, so that matmuls reading the same rows share the q8 activations.
             var beforeMmq = _launchCondition;

@@ -31,7 +31,9 @@ public sealed class MmqTests
     {
         Gpu.Require();
         var old = GraphLowerer.MmqFormats;
+        var oldLargeOnly = GraphLowerer.MmqLargeOnlyFormats;
         GraphLowerer.MmqFormats = GraphLowerer.MmqSupportedFormats;
+        GraphLowerer.MmqLargeOnlyFormats = new HashSet<DataType>();
         try
         {
             var tg = new TG();
@@ -44,6 +46,7 @@ public sealed class MmqTests
         finally
         {
             GraphLowerer.MmqFormats = old;
+            GraphLowerer.MmqLargeOnlyFormats = oldLargeOnly;
         }
     }
 

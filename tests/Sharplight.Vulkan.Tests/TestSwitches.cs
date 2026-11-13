@@ -9,6 +9,8 @@ namespace Sharplight.Vulkan.Tests;
 /// <item><c>SHARPLIGHT_BENCH=1</c>: enable the GPU micro-benchmarks of <c>BenchTests</c>.</item>
 /// <item><c>SHARPLIGHT_BENCH_TYPES=q4_k,q8_0</c>: run the matmul benchmarks only for these weight types.</item>
 /// <item><c>SHARPLIGHT_BENCH_REPORT=1</c>: print the per-kernel profile of every matmul benchmark.</item>
+/// <item><c>SHARPLIGHT_BENCH_SHAPES=K,N;K,N</c>: matmul benchmark shapes instead of the default 27B / Mistral set.</item>
+/// <item><c>SHARPLIGHT_BENCH_ROWS=n</c>: activation rows of the matmul benchmarks (default 512).</item>
 /// </list>
 /// </summary>
 internal static class TestSwitches
@@ -21,6 +23,13 @@ internal static class TestSwitches
 
     /// <summary>Weight types the matmul benchmarks are limited to, or null for all.</summary>
     public static IReadOnlySet<string>? BenchmarkTypes { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_TYPES")?.Split(',').ToHashSet();
+
+    /// <summary>Matmul benchmark shapes (K, N), or null for the default set.</summary>
+    public static (int K, int N)[]? BenchmarkShapes { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_SHAPES")?
+        .Split(';').Select(shape => shape.Split(',')).Select(kn => (int.Parse(kn[0]), int.Parse(kn[1]))).ToArray();
+
+    /// <summary>Activation rows of the matmul benchmarks.</summary>
+    public static int BenchmarkRows { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_ROWS"), out int rows) ? rows : 512;
 
     /// <summary>True when the matmul benchmarks print their per-kernel profiles.</summary>
     public static bool BenchmarkReports { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_REPORT") == "1";

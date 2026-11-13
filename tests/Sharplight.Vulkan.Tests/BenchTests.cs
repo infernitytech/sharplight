@@ -80,21 +80,23 @@ public sealed class BenchTests
             return;
         }
 
-        foreach (var (K, N) in new[] { (5120, 17408), (17408, 5120), (5120, 6144), (4096, 14336), (14336, 4096), (4096, 4096) })
+        int rows = TestSwitches.BenchmarkRows;
+        var shapes = TestSwitches.BenchmarkShapes ?? [(5120, 17408), (17408, 5120), (5120, 6144), (4096, 14336), (14336, 4096), (4096, 4096)];
+        foreach (var (K, N) in shapes)
         {
             var tg = new TG();
             var x = tg.InF("x", TG.T, K);
             var w = tg.RandW("w", DataType.Get(type), 0.05f, N, K);
             tg.B.Output("y", tg.B.MatMul(x, w));
-            using var m = Compile(tg.B.Build(), 512);
-            Feed(m, x, 512L * K);
-            var (ms, rep) = Profile(m, 512, iters: 50);
+            using var m = Compile(tg.B.Build(), rows);
+            Feed(m, x, (long)rows * K);
+            var (ms, rep) = Profile(m, rows, iters: 50);
             if (TestSwitches.BenchmarkReports)
             {
                 Console.WriteLine(rep);
             }
-            double gflop = 2.0 * 512 * K * N * 1e-9;
-            Console.WriteLine($"BENCH matmul {type} T=512 {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s");
+            double gflop = 2.0 * rows * K * N * 1e-9;
+            Console.WriteLine($"BENCH matmul {type} T={rows} {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s");
         }
     }
 
