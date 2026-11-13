@@ -19,6 +19,7 @@ internal sealed partial class OnnxTranslator
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
     private readonly HashSet<OnnxNode> _skip = [];
+    private readonly Dictionary<OnnxNode, IReadOnlyList<string>> _reads = [];
     private readonly HashSet<string> _graphOutputs;
     private GraphBuilder _b = null!;
     private IDisposable? _groupScope;
@@ -44,7 +45,7 @@ internal sealed partial class OnnxTranslator
         _b = new GraphBuilder(graphName, n => _weights.GetValueOrDefault(n));
 
         var initializerNames = RegisterInitializers();
-        var order = Order(_graph.Nodes, initializerNames);
+        var order = Order(_graph.Nodes, initializerNames, Reads);
         var live = Liveness(order);
         CheckSupport(live);
         IndexConsumers(live);
@@ -103,7 +104,7 @@ internal sealed partial class OnnxTranslator
     {
         foreach (var node in live)
         {
-            foreach (var input in node.Inputs)
+            foreach (var input in Reads(node))
             {
                 if (input == "")
                 {
@@ -218,7 +219,7 @@ internal sealed partial class OnnxTranslator
     }
 
     // ---- scheduling / analysis -----------------------------------------------------------------------
-    private static List<OnnxNode> Order(IReadOnlyList<OnnxNode> nodes, HashSet<string> initNames)
+    private static List<OnnxNode> Order(IReadOnlyList<OnnxNode> nodes, HashSet<string> initNames, Func<OnnxNode, IReadOnlyList<string>> reads)
     {
         // ONNX requires topological order, but be tolerant: Kahn's algorithm keeping the original order stable.
         var produced = new HashSet<string>(initNames, StringComparer.Ordinal);
@@ -236,7 +237,7 @@ internal sealed partial class OnnxTranslator
         bool ok = true;
         foreach (var n in nodes)
         {
-            if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+            if (reads(n).Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
             {
                 ok = false;
                 break;
@@ -258,7 +259,7 @@ internal sealed partial class OnnxTranslator
             for (int k = 0; k < pending.Count; k++)
             {
                 var n = pending[k];
-                if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+                if (reads(n).Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
                 {
                     continue;
                 }
@@ -309,7 +310,7 @@ internal sealed partial class OnnxTranslator
                 continue;
             }
 
-            foreach (var i in n.Inputs)
+            foreach (var i in Reads(n))
             {
                 if (i != "")
                 {
@@ -318,6 +319,18 @@ internal sealed partial class OnnxTranslator
             }
         }
         return order.Where(live.Contains).ToList();
+    }
+
+    /// <summary>The values a node reads: its inputs and the enclosing-scope values its subgraphs capture (cached per node).</summary>
+    private IReadOnlyList<string> Reads(OnnxNode n)
+    {
+        if (!_reads.TryGetValue(n, out var reads))
+        {
+            var captured = n.Attributes.Values.Where(a => a.G is not null).SelectMany(a => FreeVariables(a.G!)).Except(n.Inputs, StringComparer.Ordinal);
+            _reads[n] = reads = [.. n.Inputs, .. captured.OrderBy(name => name, StringComparer.Ordinal)];
+        }
+
+        return reads;
     }
 
     private void CheckSupport(List<OnnxNode> live)
