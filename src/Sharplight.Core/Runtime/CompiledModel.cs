@@ -11,6 +11,7 @@ public sealed class CompiledModel : IDisposable
 {
     private readonly ICompiledSegment[] _segments;
     private readonly Dictionary<Value, byte[]> _hostValues = [];
+    private RunParameters? _lastRun;
 
     /// <summary>The graph that was compiled.</summary>
     public ComputeGraph Graph { get; }
@@ -87,6 +88,7 @@ public sealed class CompiledModel : IDisposable
     /// <param name="parameters">Bindings for symbolic dimensions and runtime scalars; must cover every symbol and scalar the graph uses.</param>
     public void Run(RunParameters parameters)
     {
+        _lastRun = parameters;
         for (int i = 0; i < _segments.Length; i++)
         {
             var seg = _segments[i];
@@ -129,6 +131,28 @@ public sealed class CompiledModel : IDisposable
         var v = Graph.Outputs[name];
         var seg = _segments.Last(s => s.Segment.Outputs.Contains(v));
         seg.GetOutput(v, destination);
+    }
+
+    /// <summary>
+    /// Reads <c>destination.Length</c> bytes of a graph output starting at <paramref name="byteOffset"/> (dense logical layout)
+    /// after <see cref="Run"/>. Several threads may read disjoint ranges at once when the producing segment supports partial
+    /// reads (<see cref="IPartialOutputSegment"/>); otherwise the output is read whole and sliced.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Called before <see cref="Run"/>.</exception>
+    public void GetOutput(string name, long byteOffset, Span<byte> destination)
+    {
+        var v = Graph.Outputs[name];
+        var seg = _segments.Last(s => s.Segment.Outputs.Contains(v));
+        if (seg is IPartialOutputSegment partial)
+        {
+            partial.GetOutput(v, byteOffset, destination);
+            return;
+        }
+
+        var run = _lastRun ?? throw new InvalidOperationException("GetOutput called before Run.");
+        var whole = new byte[ByteCount(v, run)];
+        seg.GetOutput(v, whole);
+        whole.AsSpan(checked((int)byteOffset), destination.Length).CopyTo(destination);
     }
 
     /// <summary>Typed overload of <see cref="GetOutput(string, Span{byte})"/>.</summary>

@@ -25,6 +25,7 @@ namespace Sharplight.Shaders;
 /// block of the delta-rule and selective-scan kernels.</item>
 /// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
 /// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>).</item>
+/// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
 /// </summary>
 internal static class DiagnosticSwitches
@@ -100,6 +101,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");
+
+    /// <summary>Disables the cooperative-matrix convolution (conv_cm).</summary>
+    public static bool ConvNoMatrix { get; } = IsSet("SHARPLIGHT_CONV_NO_MATRIX");
 
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name);
 

@@ -31,10 +31,6 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
             case "flint":
                 return new(new DefaultRegexStages([@"\p{N}{1,3}", @"[一-龥぀-ゟ゠-ヿ]+", @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"]), false, false);
 
-            // DBRX / Granite 4: the Llama 3 word splitter, but ordinary merge application.
-            case "dbrx":
-                return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), false, true);
-
             case "lfm2":
                 return new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), true, true);
 

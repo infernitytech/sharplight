@@ -4,5 +4,7 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Cpu" />
+    <InternalsVisibleTo Include="Sharplight.Shaders" />
   </ItemGroup>
 </Project>

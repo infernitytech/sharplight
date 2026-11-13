@@ -13,7 +13,7 @@ namespace Sharplight.Vulkan;
 /// decode). Per-step values (n_past) live in a small host-visible runtime buffer, so the decode
 /// command buffer is recorded once and re-submitted for every token.
 /// </summary>
-public sealed unsafe class VulkanSegment : ICompiledSegment
+public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment
 {
     private readonly VulkanDevice _dev;
     private readonly KernelProgram _program;
@@ -361,11 +361,14 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     }
 
     /// <inheritdoc />
-    public void GetOutput(Value value, Span<byte> destination)
+    public void GetOutput(Value value, Span<byte> destination) => GetOutput(value, 0, destination);
+
+    /// <inheritdoc />
+    public void GetOutput(Value value, long byteOffset, Span<byte> destination)
     {
         var r = _program.OutputRefs[value];
         var a = _staging[r.Buffer];
-        new ReadOnlySpan<byte>(a.Mapped + r.ByteOffset, destination.Length).CopyTo(destination);
+        new ReadOnlySpan<byte>(a.Mapped + r.ByteOffset + byteOffset, destination.Length).CopyTo(destination);
     }
 
     // ---- execution ---------------------------------------------------------------------------

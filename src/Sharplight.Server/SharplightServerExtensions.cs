@@ -110,11 +110,21 @@ public static class SharplightServerExtensions
             return routes;
         }
 
-        /// <summary><c>GET /health</c> and (if enabled) <c>GET /metrics</c>.</summary>
+        /// <summary>
+        /// <c>GET /health</c> (status summary), <c>GET /health/live</c> (liveness: the process serves HTTP),
+        /// <c>GET /health/ready</c> (readiness: not draining and a model is loaded or loadable; 503 otherwise) and
+        /// (if enabled) <c>GET /metrics</c>.
+        /// </summary>
         internal IEndpointRouteBuilder MapOperations()
         {
             var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
             routes.MapGet("/health", http => WriteHealthAsync(ctx, http));
+            routes.MapGet("/health/live", http =>
+            {
+                http.Response.ContentType = "application/json";
+                return http.Response.WriteAsync("{\"status\":\"alive\"}");
+            });
+            routes.MapGet("/health/ready", http => WriteReadinessAsync(ctx, http));
             if (ctx.Options.Metrics)
             {
                 routes.MapGet("/metrics", async http =>
@@ -173,7 +183,7 @@ public static class SharplightServerExtensions
         }
 
         var path = http.Request.Path.Value ?? "";
-        bool open = path is "/health" or "/metrics" || HttpMethods.IsOptions(http.Request.Method);
+        bool open = path is "/health" or "/health/live" or "/health/ready" or "/metrics" || HttpMethods.IsOptions(http.Request.Method);
         if (options.ApiKeys.Count > 0 && !open && !KeyIsValid(http, options.ApiKeys))
         {
             await ApiErrors.WriteAsync(http, 401, "authentication_error", "Invalid or missing API key.", code: "invalid_api_key");
@@ -235,16 +245,7 @@ public static class SharplightServerExtensions
 
     private static bool KeyIsValid(HttpContext http, List<string> keys)
     {
-        string? presented = null;
-        string auth = http.Request.Headers.Authorization.ToString();
-        if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            presented = auth[7..].Trim();
-        }
-        else if (http.Request.Headers.TryGetValue("x-api-key", out var k))
-        {
-            presented = k.ToString();
-        }
+        string? presented = Tenants.PresentedKey(http);
 
         if (presented is null)
         {
@@ -260,6 +261,19 @@ public static class SharplightServerExtensions
         }
 
         return ok;
+    }
+
+    private static async Task WriteReadinessAsync(SharplightServerContext ctx, HttpContext http)
+    {
+        var chats = ctx.LoadedChatModels();
+        bool draining = chats.Count > 0 && chats.All(c => c.Instance.Engine.IsDraining);
+        var models = ctx.Host.List();
+        // Lazily loaded models count as ready: the first request loads them. A model still loading at startup does not.
+        bool servable = models.Any(m => m.State is Llm.Serving.Hosting.ModelState.Loaded or Llm.Serving.Hosting.ModelState.Unloaded);
+        string status = draining ? "draining" : servable ? "ready" : "loading";
+        http.Response.StatusCode = status == "ready" ? 200 : 503;
+        http.Response.ContentType = "application/json";
+        await http.Response.WriteAsync(JsonSerializer.Serialize(new { status }));
     }
 
     private static async Task WriteHealthAsync(SharplightServerContext ctx, HttpContext http)

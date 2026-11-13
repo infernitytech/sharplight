@@ -1,6 +1,6 @@
 // Throwaway survey harness: imports an ONNX model described by a reference manifest (same format as the ZooTests fixtures),
 // runs it on cpu|vulkan, compares with the onnxruntime reference outputs and times it.
-//   SurveyRunner <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--device D] [--batch B]
+//   SurveyRunner <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--device D] [--batch B] [--profile] [--reduced-precision]
 // Prints exactly one line starting with "RESULT " followed by a JSON object.
 using System.Diagnostics;
 using System.Text.Json;
@@ -67,7 +67,7 @@ try
             compiled = CompiledModel.Compile(graph, new PlacementOptions
             {
                 Devices = [new DeviceSlot { Device = device }],
-                Compile = new CompileOptions { SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch } },
+                Compile = new CompileOptions { SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch }, AllowReducedPrecision = argv.Contains("--reduced-precision") },
                 ReservePerDevice = 256L << 20,
             });
             res["compileMs"] = Math.Round(sw.Elapsed.TotalMilliseconds); res["segments"] = compiled.Plan.Segments.Count;

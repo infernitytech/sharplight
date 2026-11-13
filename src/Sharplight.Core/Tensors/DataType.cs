@@ -124,6 +124,26 @@ public sealed class DataType : IEquatable<DataType>
     public static readonly DataType IQ4_XS = Register("iq4_xs", DataTypeKind.Quantized, 256, 136);
     /// <summary>Microscaling FP4 blocks of 32 with a shared 8-bit exponent (17 bytes).</summary>
     public static readonly DataType MXFP4 = Register("mxfp4", DataTypeKind.Quantized, 32, 17);
+    /// <summary>ggml 2.06-bit super-blocks of 256: f16 scale, E8 lattice grid indices and sign/scale words (66 bytes).</summary>
+    public static readonly DataType IQ2_XXS = Register("iq2_xxs", DataTypeKind.Quantized, 256, 66);
+    /// <summary>ggml 2.31-bit super-blocks of 256: f16 scale, 9-bit grid indices with 7-bit signs, 4-bit scales (74 bytes).</summary>
+    public static readonly DataType IQ2_XS = Register("iq2_xs", DataTypeKind.Quantized, 256, 74);
+    /// <summary>ggml 2.56-bit super-blocks of 256: f16 scale, 10-bit grid indices, explicit sign bytes, 4-bit scales (82 bytes).</summary>
+    public static readonly DataType IQ2_S = Register("iq2_s", DataTypeKind.Quantized, 256, 82);
+    /// <summary>ggml 3.06-bit super-blocks of 256: f16 scale, 8-bit grid indices (four values each), sign/scale words (98 bytes).</summary>
+    public static readonly DataType IQ3_XXS = Register("iq3_xxs", DataTypeKind.Quantized, 256, 98);
+    /// <summary>ggml 3.44-bit super-blocks of 256: f16 scale, 9-bit grid indices (four values each), explicit signs, 4-bit scales (110 bytes).</summary>
+    public static readonly DataType IQ3_S = Register("iq3_s", DataTypeKind.Quantized, 256, 110);
+    /// <summary>ggml 1.56-bit super-blocks of 256: f16 scale, 11-bit grid indices (eight values each) with a 3-bit scale and delta sign per 32 (50 bytes).</summary>
+    public static readonly DataType IQ1_S = Register("iq1_s", DataTypeKind.Quantized, 256, 50);
+    /// <summary>ggml 1.75-bit super-blocks of 256: like <see cref="IQ1_S"/> with per-16 delta signs and a scale split over the 3-bit block scales (56 bytes).</summary>
+    public static readonly DataType IQ1_M = Register("iq1_m", DataTypeKind.Quantized, 256, 56);
+    /// <summary>ggml ternary (BitNet) super-blocks of 256 packing five base-3 digits per byte, f16 scale (54 bytes).</summary>
+    public static readonly DataType TQ1_0 = Register("tq1_0", DataTypeKind.Quantized, 256, 54);
+    /// <summary>ggml ternary (BitNet) super-blocks of 256 with 2-bit codes, f16 scale (66 bytes).</summary>
+    public static readonly DataType TQ2_0 = Register("tq2_0", DataTypeKind.Quantized, 256, 66);
+    /// <summary>NVIDIA FP4 blocks of 64: four UE4M3 sub-block scales and 4-bit E2M1 values (36 bytes).</summary>
+    public static readonly DataType NVFP4 = Register("nvfp4", DataTypeKind.Quantized, 64, 36);
 
     // Group-wise 1-bit / ternary formats (Bonsai): one f16 scale per group, w = scale * code.
     /// <summary>1 bit per weight, group 128: { f16 d; u8 bits[16] }, bit j (LSB first) set = +d, clear = -d (18 bytes).</summary>

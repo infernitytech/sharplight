@@ -288,17 +288,17 @@ public unsafe class QuantTests
     public void UnsupportedWeightTypesAreReported()
     {
         var tg = new TestGraph();
-        var w = tg.W("w", DataType.Q2_K, new Shape(4, 256), new byte[4 * 84]);
+        var w = tg.W("w", DataType.Q8_K, new Shape(4, 256), new byte[4 * 292]);
         var x = tg.InF("x", TestGraph.T, 256);
         tg.B.MatMul(x, w);
         var g2 = new TestGraph();
-        var w2 = g2.W("w", DataType.Q2_K, new Shape(4, 256), new byte[4 * 84]);
+        var w2 = g2.W("w", DataType.Q8_K, new Shape(4, 256), new byte[4 * 292]);
         var x2 = g2.InF("x", TestGraph.T, 256);
         var y = g2.B.MatMul(x2, w2);
         g2.B.Output("y", y);
         var graph = g2.B.Build();
         var sup = Kit.Device.Supports(graph.Nodes[0]);
         Assert.False(sup.IsSupported);
-        Assert.Contains("q2_k", sup.Reason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("q8_k", sup.Reason!, StringComparison.OrdinalIgnoreCase);
     }
 }

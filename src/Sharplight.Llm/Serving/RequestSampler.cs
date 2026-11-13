@@ -257,34 +257,12 @@ internal sealed class RequestSampler
         count = c;
     }
 
-    public static int ArgMax(ReadOnlySpan<float> logits)
-    {
-        int best = 0;
-        float bv = logits[0];
-        for (int i = 1; i < logits.Length; i++)
-        {
-            if (logits[i] > bv)
-            {
-                bv = logits[i];
-                best = i;
-            }
-        }
-
-        return best;
-    }
+    public static int ArgMax(ReadOnlySpan<float> logits) => LogitsMath.ArgMax(logits);
 
     /// <summary>Log-softmax of the raw logits at <paramref name="token"/> plus the <paramref name="topN"/> most likely tokens.</summary>
     public static (float Logprob, (int Id, float Logprob)[] Top) Logprobs(ReadOnlySpan<float> logits, int token, int topN)
     {
-        float max = float.NegativeInfinity;
-        foreach (var v in logits)
-        {
-            if (v > max)
-            {
-                max = v;
-            }
-        }
-
+        float max = LogitsMath.Max(logits);
         double sum = 0;
         foreach (var v in logits)
         {

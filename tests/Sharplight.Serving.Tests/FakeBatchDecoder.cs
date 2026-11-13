@@ -11,9 +11,9 @@ public sealed class FakeBatchDecoder : IBatchDecoder
 {
     public const int Marker = 1;   // prompts end with this token; scripted replies are indexed relative to it
     private readonly List<int>[] _ctx;
-    private readonly float[][] _logits;
+    private readonly float[] _logits;
 
-    public FakeBatchDecoder(int slots, int contextLength = 4096, int maxBatchTokens = 64, bool batches = true, bool canTruncate = true)
+    public FakeBatchDecoder(int slots, int contextLength = 4096, int maxBatchTokens = 64, bool batches = true, bool canTruncate = true, int maxLogitsRows = 0)
     {
         SlotCount = slots;
         ContextLength = contextLength;
@@ -21,20 +21,25 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         BatchesSequences = batches;
         CanTruncate = canTruncate;
         _ctx = [.. Enumerable.Range(0, slots).Select(_ => new List<int>())];
-        _logits = [.. Enumerable.Range(0, 64).Select(_ => new float[VocabSize])];
+        MaxLogitsRows = Math.Max(slots, maxLogitsRows);
+        _logits = new float[MaxLogitsRows * VocabSize];
         Next = ctx => (ctx[^1] + 1) % 256;
     }
 
     public int SlotCount { get; }
     public int ContextLength { get; }
     public int MaxBatchTokens { get; }
+    public int MaxLogitsRows { get; }
     public int VocabSize => 260;
     public bool BatchesSequences { get; }
     public bool CanTruncate { get; }
     public Func<IReadOnlyList<int>, int> Next { get; set; }
+    /// <summary>Logits of the tokens other than the scripted one (default: all -10); decides what a token mask falls back to.</summary>
+    public float[]? Bias { get; set; }
     public TimeSpan StepDelay { get; set; }
     public int FailAfterSteps { get; set; } = -1;
     public List<(int Slot, int Rows, bool Logits)[]> Steps { get; } = [];
+    public List<int[]> LogitsRowsPerStep { get; } = [];
     public List<(int Slot, int Length)> Truncations { get; } = [];
     public List<int> Resets { get; } = [];
 
@@ -85,7 +90,7 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     }
     public IReadOnlyList<int> Context(int slot) => _ctx[slot];
 
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs)
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs)
     {
         if (inputs.Select(i => i.Slot).Distinct().Count() != inputs.Count)
         {
@@ -110,31 +115,54 @@ public sealed class FakeBatchDecoder : IBatchDecoder
             }
 
             Steps.Add([.. inputs.Select(i => (i.Slot, i.Tokens.Length, i.WantLogits))]);
+            LogitsRowsPerStep.Add([.. inputs.Select(i => i.OutputRows)]);
         }
         if (StepDelay > TimeSpan.Zero)
         {
             Thread.Sleep(StepDelay);
         }
 
-        var res = new float[inputs.Count][];
+        if (inputs.Sum(i => i.OutputRows) > MaxLogitsRows)
+        {
+            throw new InvalidOperationException("too many logits rows");
+        }
+
+        var res = new Memory<float>[inputs.Count];
+        int r = 0;
         for (int i = 0; i < inputs.Count; i++)
         {
             var c = _ctx[inputs[i].Slot];
-            if (c.Count + inputs[i].Tokens.Length > ContextLength)
+            var toks = inputs[i].Tokens.ToArray();
+            if (c.Count + toks.Length > ContextLength)
             {
                 throw new InvalidOperationException("context overflow");
             }
 
-            c.AddRange(inputs[i].Tokens.ToArray());
-            if (!inputs[i].WantLogits)
+            int rows = inputs[i].OutputRows;
+            res[i] = _logits.AsMemory(r * VocabSize, rows * VocabSize);
+            for (int k = 0; k < toks.Length; k++)
             {
-                continue;
+                c.Add(toks[k]);
+                int row = k - (toks.Length - rows);
+                if (row < 0)
+                {
+                    continue;
+                }
+
+                var l = _logits.AsSpan((r + row) * VocabSize, VocabSize);
+                if (Bias is { } bias)
+                {
+                    bias.CopyTo(l);
+                }
+                else
+                {
+                    l.Fill(-10f);
+                }
+
+                l[Next(c)] = 10f;
             }
 
-            var l = _logits[i];
-            Array.Fill(l, -10f);
-            l[Next(c)] = 10f;
-            res[i] = l;
+            r += rows;
         }
         return res;
     }

@@ -29,6 +29,11 @@ public sealed partial class GraphLowerer
                     return OpSupport.No($"weight format {node.Inputs[1].Type} not supported");
                 }
 
+                if (UsesGrid(node.Inputs[1].Type))
+                {
+                    return OpSupport.No($"Conv weight format {node.Inputs[1].Type} (lookup-grid formats are not supported by the convolution kernels)");
+                }
+
                 if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16 && node.Inputs[1].Type != DataType.BF16 && !node.Inputs[1].Type.IsQuantized)
                 {
                     return OpSupport.No($"Conv weight type {node.Inputs[1].Type}");
@@ -260,6 +265,11 @@ public sealed partial class GraphLowerer
                 [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y),
                  CountArg(x, O * HW)],
                 bias is null ? [x, w] : [x, w, bias], [y]);
+            return;
+        }
+
+        if (TryLowerConvMatrix(n, x, w, bias, y, common, name))
+        {
             return;
         }
 
@@ -501,6 +511,11 @@ public sealed partial class GraphLowerer
     {
         var x = RowsInput(n.Inputs[0], "softmax", out long r1, out long s0, out long s1);
         var y = Produce(n.Output);
+        if (TryLowerSoftmaxSplit(n, x, y, r1, s0, s1))
+        {
+            return;
+        }
+
         var k = Lib("rows.slang", "softmax", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("SCALE", n.Attributes.Get("scale", 1f)), ("LOG_SOFTMAX", n.Attributes.Get("log", false))));
         var tx = x;
         Emit($"softmax {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 4)))],

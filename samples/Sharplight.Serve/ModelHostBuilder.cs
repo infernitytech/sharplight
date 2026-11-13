@@ -2,6 +2,7 @@ using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
+using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Runtime;
 using Sharplight.Samples;
 
@@ -99,7 +100,8 @@ internal sealed class ModelHostBuilder
         return new ChatModelOptions
         {
             Slots = spec.Slots ?? _settings.Slots,
-            Engine = new EngineOptions { MaxQueue = _settings.MaxQueue, PrefillChunk = _settings.PrefillChunk },
+            Engine = new EngineOptions { MaxQueue = _settings.MaxQueue, PrefillChunk = _settings.PrefillChunk, MaxBatchTokens = _settings.StepTokens ?? 0 },
+            Speculator = _settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(_settings.NgramDraftTokens) : null,
             Service = new ModelServiceOptions { ChatTemplate = templatePath is not null ? ReadTemplate(templatePath) : null },
         };
     }
