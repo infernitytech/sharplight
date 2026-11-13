@@ -3,15 +3,12 @@ using System.Text;
 
 namespace Sharplight.Onnx;
 
-/// <summary>Protobuf wire types.</summary>
-public enum WireType { Varint = 0, Fixed64 = 1, LengthDelimited = 2, StartGroup = 3, EndGroup = 4, Fixed32 = 5 }
-
 /// <summary>
 /// Minimal protobuf wire-format decoder over a byte span (a whole file or one embedded message).
 /// Offsets reported by <see cref="ReadBytes"/> are absolute within the span, so callers can refer to
 /// large payloads (tensor raw_data) without copying them.
 /// </summary>
-public ref struct ProtoReader
+internal ref struct ProtoReader
 {
     private readonly ReadOnlySpan<byte> _data;
     private readonly int _end;
@@ -37,7 +34,12 @@ public ref struct ProtoReader
     /// <summary>Reads the next field key. Returns false at the end of the message.</summary>
     public bool Next(out int field, out WireType wire)
     {
-        if (_pos >= _end) { field = 0; wire = 0; return false; }
+        if (_pos >= _end)
+        {
+            field = 0;
+            wire = 0;
+            return false;
+        }
         ulong key = ReadVarint();
         field = checked((int)(key >> 3));
         wire = (WireType)(key & 7);
@@ -141,11 +143,20 @@ public ref struct ProtoReader
     {
         switch (wire)
         {
-            case WireType.Varint: ReadVarint(); break;
-            case WireType.Fixed64: ReadFixed64(); break;
-            case WireType.Fixed32: ReadFixed32(); break;
-            case WireType.LengthDelimited: ReadBytes(out _); break;
-            default: throw new InvalidDataException($"Unsupported protobuf wire type {wire}.");
+            case WireType.Varint:
+                ReadVarint();
+                break;
+            case WireType.Fixed64:
+                ReadFixed64();
+                break;
+            case WireType.Fixed32:
+                ReadFixed32();
+                break;
+            case WireType.LengthDelimited:
+                ReadBytes(out _);
+                break;
+            default:
+                throw new InvalidDataException($"Unsupported protobuf wire type {wire}.");
         }
     }
 
@@ -154,7 +165,8 @@ public ref struct ProtoReader
     {
         if (wire == WireType.LengthDelimited)
         {
-            var m = ReadMessage(); while (!m.AtEnd)
+            var m = ReadMessage();
+            while (!m.AtEnd)
             {
                 into.Add(m.ReadInt64());
             }

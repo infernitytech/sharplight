@@ -2,10 +2,132 @@ using Sharplight.Graph;
 
 namespace Sharplight.Onnx;
 
-// Separable resampling expressed with existing ops: Resize modes without a dedicated kernel (cubic) become two constant-matrix
-// multiplications (rows = output positions, columns = input positions), one per spatial axis.
+// Resize/Upsample. Modes without a dedicated kernel (cubic) are expressed with existing ops as two constant-matrix multiplications
+// (rows = output positions, columns = input positions), one per spatial axis.
 internal sealed partial class OnnxTranslator
 {
+    private void Resize(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        var x = X(ins, 0);
+        if (x.Rank != 4)
+        {
+            throw new NotSupportedException("only 4-D (NCHW) Resize is supported");
+        }
+
+        bool upsample = n.OpType == "Upsample";
+        bool legacyInputs = upsample || ins.Length == 2;   // opset < 11 Resize and Upsample carry scales as the second input
+        var (scales, sizes) = ResizeScalesAndSizes(n, ins, legacyInputs);
+        long h = x.Shape[2].Fixed;
+        long w = x.Shape[3].Fixed;
+        long[] size = ResizeOutputSize(x, scales, sizes);
+
+        string mode = ResizeMode(n);
+        string coord = n.Str("coordinate_transformation_mode", legacyInputs ? "asymmetric" : "half_pixel");
+        if (coord is not ("half_pixel" or "align_corners" or "asymmetric" or "pytorch_half_pixel"))
+        {
+            throw new NotSupportedException($"Resize coordinate_transformation_mode '{coord}'");
+        }
+
+        if (n.Int("antialias", 0) != 0)
+        {
+            throw new NotSupportedException("antialiased Resize");
+        }
+
+        if (n.Int("exclude_outside", 0) != 0)
+        {
+            throw new NotSupportedException("Resize exclude_outside");
+        }
+
+        string nearest = n.Str("nearest_mode", upsample ? "floor" : "round_prefer_floor");
+        if (mode == "cubic")
+        {
+            double[]? scaleHW = scales is not null && sizes is null ? [scales.Floats()[2], scales.Floats()[3]] : null;
+            SetDyn(n, 0, ResizeCubic(n, x, size, scaleHW, coord));
+            return;
+        }
+
+        if (size[0] == h && size[1] == w && mode == "nearest")
+        {
+            SetDyn(n, 0, x);
+            return;
+        }
+
+        var attributes = Attributes.From(("size", size), ("mode", mode), ("coord", coord), ("nearest_mode", nearest));
+        SetDyn(n, 0, Emit("Resize", [x], attributes, Nm(n)));
+    }
+
+    private (OnnxConst? Scales, OnnxConst? Sizes) ResizeScalesAndSizes(OnnxNode n, TranslatedTensor?[] ins, bool legacyInputs)
+    {
+        OnnxConst? scales;
+        OnnxConst? sizes = null;
+        if (legacyInputs)
+        {
+            var scaleAttribute = n.Floats("scales");
+            scales = n.Has("scales")
+                ? OnnxConst.FromFloats(OnnxType.Float, [scaleAttribute!.Length], scaleAttribute.Select(v => (double)v).ToArray())
+                : OptConst(ins, 1, "Resize scales");
+        }
+        else
+        {
+            scales = OptConst(ins, 2, "Resize scales");
+            sizes = OptConst(ins, 3, "Resize sizes");
+        }
+
+        if (scales is { Count: 0 })
+        {
+            scales = null;
+        }
+
+        return (scales, sizes);
+    }
+
+    /// <summary>Output [height, width]; only the spatial dimensions may change.</summary>
+    private static long[] ResizeOutputSize(Value x, OnnxConst? scales, OnnxConst? sizes)
+    {
+        if (sizes is not null)
+        {
+            var s = sizes.Ints();
+            if (s.Length != 4 || s[1] != x.Shape[1].Fixed || (!Sym(x) && s[0] != x.Shape[0].Fixed))
+            {
+                throw new NotSupportedException("Resize may only change the spatial dimensions");
+            }
+
+            return [s[2], s[3]];
+        }
+
+        if (scales is not null)
+        {
+            var s = scales.Floats();
+            if (s.Length != 4 || s[0] != 1 || s[1] != 1)
+            {
+                throw new NotSupportedException("Resize may only scale the spatial dimensions");
+            }
+
+            float h = x.Shape[2].Fixed;
+            float w = x.Shape[3].Fixed;
+            return [(long)MathF.Floor(h * (float)s[2]), (long)MathF.Floor(w * (float)s[3])];
+        }
+
+        throw new NotSupportedException("Resize needs constant scales or sizes");
+    }
+
+    private static string ResizeMode(OnnxNode n)
+    {
+        string mode = n.Str("mode", "nearest");
+        mode = mode switch
+        {
+            "bilinear" => "linear",
+            "bicubic" => "cubic",
+            _ => mode,
+        };
+        if (mode is not ("nearest" or "linear" or "cubic"))
+        {
+            throw new NotSupportedException($"Resize mode '{mode}'");
+        }
+
+        return mode;
+    }
+
     /// <summary>Interpolation matrix [outLen, inLen] of ONNX Resize mode "cubic" (border indices are clamped, optionally excluded).</summary>
     private static double[] CubicMatrix(int inLen, int outLen, double scale, string coord, double a, bool excludeOutside)
     {
@@ -20,7 +142,8 @@ internal sealed partial class OnnxTranslator
                 "asymmetric" => o / scale,
                 _ => throw new NotSupportedException($"Resize coordinate_transformation_mode '{coord}' for cubic"),
             };
-            double fl = Math.Floor(x), s = x - fl;
+            double fl = Math.Floor(x);
+            double s = x - fl;
             double[] w =
             [
                 ((a * (s + 1) - 5 * a) * (s + 1) + 8 * a) * (s + 1) - 4 * a,
@@ -31,7 +154,11 @@ internal sealed partial class OnnxTranslator
             if (excludeOutside)
             {
                 double sum = 0;
-                for (int k = 0; k < 4; k++) { long i = (long)fl - 1 + k; if (i < 0 || i >= inLen) { w[k] = 0; } sum += w[k]; }
+                for (int k = 0; k < 4; k++)
+                {
+                    long i = (long)fl - 1 + k;
+                    if (i < 0 || i >= inLen) { w[k] = 0; } sum += w[k];
+                }
                 if (sum != 0)
                 {
                     for (int k = 0; k < 4; k++)
@@ -51,11 +178,13 @@ internal sealed partial class OnnxTranslator
 
     private Value ResizeCubic(OnnxNode n, Value x, long[] size, double[]? scaleHW, string coord)
     {
-        int h = (int)x.Shape[2].Fixed, w = (int)x.Shape[3].Fixed;
+        int h = (int)x.Shape[2].Fixed;
+        int w = (int)x.Shape[3].Fixed;
         double a = n.Float("cubic_coeff_a", -0.75f);
         bool excl = n.Int("exclude_outside", 0) != 0;
         string name = Nm(n);
-        double sh = scaleHW?[0] ?? (double)size[0] / h, sw = scaleHW?[1] ?? (double)size[1] / w;
+        double sh = scaleHW?[0] ?? (double)size[0] / h;
+        double sw = scaleHW?[1] ?? (double)size[1] / w;
         // out[..., o] = sum_i x[..., i] * M[o, i]  ==  x @ M^T ; the weight cache wants [K, N] = M^T.
         OnnxConst Mt(double[] m, int outLen, int inLen)
         {

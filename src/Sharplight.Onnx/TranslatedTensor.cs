@@ -1,0 +1,28 @@
+using Sharplight.Graph;
+
+namespace Sharplight.Onnx;
+
+/// <summary>An ONNX value during translation: either known at import time (<see cref="C"/>) or a dynamic IR value (<see cref="V"/>).</summary>
+internal sealed class TranslatedTensor
+{
+    /// <summary>The IR value of a dynamic tensor; null for constants.</summary>
+    public Value? V { get; init; }
+
+    /// <summary>The compile-time constant; null for dynamic tensors.</summary>
+    public OnnxConst? C { get; init; }
+
+    /// <summary>The f32 view of a dynamic non-f32 tensor or of a constant, created on first use.</summary>
+    public Value? CachedValue { get; set; }
+
+    /// <summary>Logically rank-0 (an ONNX scalar graph input); physically a one-element vector.</summary>
+    public bool Scalar { get; set; }
+
+    /// <summary>True when the value is known at import time.</summary>
+    public bool IsConst => C is not null;
+
+    /// <summary>Wraps a runtime value.</summary>
+    public static TranslatedTensor Dyn(Value v) => new() { V = v };
+
+    /// <summary>Wraps a compile-time constant.</summary>
+    public static TranslatedTensor Const(OnnxConst c) => new() { C = c };
+}

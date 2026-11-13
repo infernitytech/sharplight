@@ -29,7 +29,8 @@ internal sealed class OnnxConst
     {
         ElemType = elemType;
         Dims = dims;
-        long n = 1; foreach (var d in dims)
+        long n = 1;
+        foreach (var d in dims)
         {
             n *= d;
         }
@@ -88,7 +89,8 @@ internal sealed class OnnxConst
     // ---- views (no data movement) ---------------------------------------------------------------
     public OnnxConst Reshaped(long[] dims, string? name = null)
     {
-        long n = 1; foreach (var d in dims)
+        long n = 1;
+        foreach (var d in dims)
         {
             n *= d;
         }
@@ -99,7 +101,11 @@ internal sealed class OnnxConst
         }
 
         var c = new OnnxConst(ElemType, dims) { Name = name ?? Name, _source = _source, _bytes = _bytes, _ints = _ints, _floats = _floats };
-        if (_produce is not null) { var me = this; c._produce = () => me.Bytes(); }
+        if (_produce is not null)
+        {
+            var me = this;
+            c._produce = () => me.Bytes();
+        }
         return c;
     }
 
@@ -137,11 +143,21 @@ internal sealed class OnnxConst
                 double v = _floats[i];
                 switch (ElemType)
                 {
-                    case OnnxType.Float: BinaryPrimitives.WriteSingleLittleEndian(s, (float)v); break;
-                    case OnnxType.Double: BinaryPrimitives.WriteDoubleLittleEndian(s, v); break;
-                    case OnnxType.Float16: BinaryPrimitives.WriteHalfLittleEndian(s, (Half)v); break;
-                    case OnnxType.BFloat16: BinaryPrimitives.WriteUInt16LittleEndian(s, (ushort)(BitConverter.SingleToUInt32Bits((float)v) >> 16)); break;
-                    default: WriteInt(s, es, (long)v); break;
+                    case OnnxType.Float:
+                        BinaryPrimitives.WriteSingleLittleEndian(s, (float)v);
+                        break;
+                    case OnnxType.Double:
+                        BinaryPrimitives.WriteDoubleLittleEndian(s, v);
+                        break;
+                    case OnnxType.Float16:
+                        BinaryPrimitives.WriteHalfLittleEndian(s, (Half)v);
+                        break;
+                    case OnnxType.BFloat16:
+                        BinaryPrimitives.WriteUInt16LittleEndian(s, (ushort)(BitConverter.SingleToUInt32Bits((float)v) >> 16));
+                        break;
+                    default:
+                        WriteInt(s, es, (long)v);
+                        break;
                 }
             }
             else
@@ -156,10 +172,18 @@ internal sealed class OnnxConst
     {
         switch (es)
         {
-            case 1: s[0] = (byte)v; break;
-            case 2: BinaryPrimitives.WriteInt16LittleEndian(s, (short)v); break;
-            case 4: BinaryPrimitives.WriteInt32LittleEndian(s, (int)v); break;
-            default: BinaryPrimitives.WriteInt64LittleEndian(s, v); break;
+            case 1:
+                s[0] = (byte)v;
+                break;
+            case 2:
+                BinaryPrimitives.WriteInt16LittleEndian(s, (short)v);
+                break;
+            case 4:
+                BinaryPrimitives.WriteInt32LittleEndian(s, (int)v);
+                break;
+            default:
+                BinaryPrimitives.WriteInt64LittleEndian(s, v);
+                break;
         }
     }
 
@@ -306,7 +330,8 @@ internal sealed class OnnxConst
             var outB = new byte[inB.Length];
             int r = perm.Length;
             var inStr = new long[r];
-            long s = 1; for (int d = r - 1; d >= 0; d--) { inStr[d] = s; s *= src.Dims[d]; }
+            long s = 1;
+            for (int d = r - 1; d >= 0; d--) { inStr[d] = s; s *= src.Dims[d]; }
             var pStr = perm.Select(p => inStr[p]).ToArray();
             long total = src.Count;
             if (total == 0)
@@ -321,13 +346,15 @@ internal sealed class OnnxConst
                 Buffer.BlockCopy(inB, (int)(inPos * es), outB, (int)(o * es), es);
                 for (int d = r - 1; d >= 0; d--)
                 {
-                    idx[d]++; inPos += pStr[d];
+                    idx[d]++;
+                    inPos += pStr[d];
                     if (idx[d] < newDims[d])
                     {
                         break;
                     }
 
-                    inPos -= pStr[d] * newDims[d]; idx[d] = 0;
+                    inPos -= pStr[d] * newDims[d];
+                    idx[d] = 0;
                 }
             }
             return outB;

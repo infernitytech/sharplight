@@ -4,52 +4,17 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
-/// <summary>An ONNX value during translation: either known at import time or a dynamic IR value.</summary>
-internal sealed class Tn
-{
-    public Value? V;
-    public OnnxConst? C;
-    public Value? CachedValue;
-    /// <summary>Logically rank-0 (an ONNX scalar graph input); physically a one-element vector.</summary>
-    public bool Scalar;
-    public bool IsConst => C is not null;
-    public static Tn Dyn(Value v) => new() { V = v };
-    public static Tn Const(OnnxConst c) => new() { C = c };
-}
-
 /// <summary>Translates a parsed ONNX graph into a Sharplight <see cref="ComputeGraph"/>.</summary>
 internal sealed partial class OnnxTranslator
 {
+    /// <summary>Name of the symbolic outermost (batch) dimension.</summary>
     public const string BatchSymbol = "N";
-
-    private static readonly HashSet<string> s_dynamicOps =
-    [
-        "Conv", "BatchNormalization", "MaxPool", "AveragePool", "GlobalAveragePool", "GlobalMaxPool", "ReduceMean", "ReduceSum", "ReduceMax", "ReduceMin",
-        "ReduceL2", "ReduceSumSquare", "Gemm", "MatMul", "Relu", "Sigmoid", "Tanh", "Exp", "Log", "Sqrt", "Neg", "Abs", "Erf", "Reciprocal", "HardSigmoid",
-        "HardSwish", "Clip", "LeakyRelu", "Gelu", "Softplus", "Mish", "PRelu", "Add", "Sub", "Mul", "Div", "Pow", "Max", "Min", "Sum", "Mean", "Flatten",
-        "Reshape", "Squeeze", "Unsqueeze", "Transpose", "Concat", "Slice", "Softmax", "LogSoftmax", "LayerNormalization", "InstanceNormalization", "Pad",
-        "Resize", "Upsample", "Identity", "Dropout", "Split", "Gather", "Expand", "Shape", "Size", "Cast",
-        "Elu", "Celu", "Selu", "ThresholdedRelu", "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh", "Floor", "Ceil", "Round",
-        "Sign", "Softsign", "Not", "IsNaN", "IsInf", "Swish", "Silu", "Mod", "Equal", "Less", "Greater", "LessOrEqual", "GreaterOrEqual", "And", "Or", "Xor", "Where",
-        "ReduceL1", "ReduceProd", "ReduceLogSum", "ReduceLogSumExp", "ArgMax", "ArgMin", "TopK", "Hardmax", "GroupNormalization", "LpNormalization", "LRN",
-        "MeanVarianceNormalization", "ConvTranspose", "LpPool", "Einsum", "Tile", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "Scatter", "CumSum",
-        "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
-        "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
-    ];
-
-    private static readonly HashSet<string> s_contribOps =
-    [
-        "Gelu", "BiasGelu", "FastGelu", "QuickGelu", "FusedConv", "FusedMatMul", "SkipLayerNormalization", "SkipSimplifiedLayerNormalization",
-        "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits",
-    ];
-
-    public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType);
 
     private readonly OnnxModel _model;
     private readonly OnnxGraph _graph;
     private readonly OnnxImportOptions _opts;
     private readonly Dictionary<string, WeightInfo> _weights = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Tn> _env = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TranslatedTensor> _env = new(StringComparer.Ordinal);
     private readonly Dictionary<(OnnxConst, string), Value> _constValues = new();
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
@@ -57,7 +22,8 @@ internal sealed partial class OnnxTranslator
     private readonly HashSet<string> _graphOutputs;
     private GraphBuilder _b = null!;
     private IDisposable? _groupScope;
-    private int _groupIndex, _heavyInGroup;
+    private int _groupIndex;
+    private int _heavyInGroup;
     private Value? _batchZero;
     private Value? _firstInput;
     private int _anon;
@@ -74,112 +40,161 @@ internal sealed partial class OnnxTranslator
     public ComputeGraph Graph { get; private set; } = null!;
     public long Opset => _model.Opset();
 
+    /// <summary>Translates the graph; call once per translator instance.</summary>
     public ComputeGraph Translate(string graphName)
     {
         _b = new GraphBuilder(graphName, n => _weights.GetValueOrDefault(n));
 
-        var initNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var t in _graph.Initializers)
-        {
-            if (t.Source is null)
-            {
-                continue;
-            }
-
-            initNames.Add(t.Name);
-            _env[t.Name] = Tn.Const(OnnxConst.FromTensor(t));
-        }
-
-        var order = Order(_graph.Nodes, initNames);
+        var initializerNames = RegisterInitializers();
+        var order = Order(_graph.Nodes, initializerNames);
         var live = Liveness(order);
         CheckSupport(live);
-        foreach (var n in live)
-        {
-            foreach (var i in n.Inputs)
-            {
-                if (i != "") { _usedNames.Add(i); if (!_consumers.TryGetValue(i, out var l)) { _consumers[i] = l = []; } l.Add(n); }
-            }
-        }
+        IndexConsumers(live);
 
         NextGroup();
-        foreach (var vi in _graph.Inputs)
+        foreach (var input in _graph.Inputs)
         {
-            if (initNames.Contains(vi.Name))
+            if (!initializerNames.Contains(input.Name))
             {
-                continue;
-            }
-
-            if (_opts.ConstantInputs.TryGetValue(vi.Name, out var pinned))
-            {
-                long[] cd = _opts.InputShapes.GetValueOrDefault(vi.Name) ?? vi.Shape!.Select(d => d.Value ?? 1).ToArray();
-                _env[vi.Name] = Tn.Const(OnnxType.IsFloat(vi.ElemType) ? OnnxConst.FromFloats(vi.ElemType, cd, pinned, vi.Name) : OnnxConst.FromInts(vi.ElemType, cd, pinned.Select(v => (long)v).ToArray(), vi.Name));
-                continue;
-            }
-            var shape = InputShape(vi);
-            bool isInt = vi.ElemType is OnnxType.Int64 or OnnxType.Int32;
-            if (!OnnxType.IsFloat(vi.ElemType) && !isInt && vi.ElemType != OnnxType.Bool)
-            {
-                throw new NotSupportedException($"Graph input '{vi.Name}' has type {OnnxType.Name(vi.ElemType)}; only float, int32/int64 and bool inputs are supported.");
-            }
-
-            bool image = !isInt && shape.Rank == 4 && shape[1].Fixed is 1 or 3 or 4;
-            var v = _b.Input(vi.Name, image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other, isInt ? DataType.I32 : DataType.F32, shape);
-            if (!isInt)
-            {
-                _firstInput ??= v;
-            }
-
-            _env[vi.Name] = Tn.Dyn(v);
-            if ((_opts.InputShapes.GetValueOrDefault(vi.Name)?.Length ?? vi.Shape?.Count) == 0)
-            {
-                _env[vi.Name].Scalar = true;
+                DeclareInput(input);
             }
         }
-        if (_graph.Inputs.All(i => initNames.Contains(i.Name) || _opts.ConstantInputs.ContainsKey(i.Name)))
+
+        if (_graph.Inputs.All(i => initializerNames.Contains(i.Name) || _opts.ConstantInputs.ContainsKey(i.Name)))
         {
             throw new NotSupportedException("The ONNX graph has no dynamic inputs.");
         }
 
-        foreach (var n in live)
+        foreach (var node in live)
         {
-            if (_skip.Contains(n))
+            if (!_skip.Contains(node))
+            {
+                TranslateNode(node);
+            }
+        }
+
+        foreach (var output in _graph.Outputs)
+        {
+            DeclareOutput(output);
+        }
+
+        _groupScope?.Dispose();
+        return Graph = _b.Build();
+    }
+
+    /// <summary>Makes every initializer with data available as a constant; returns the names of all initializers.</summary>
+    private HashSet<string> RegisterInitializers()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tensor in _graph.Initializers)
+        {
+            if (tensor.Source is null)
             {
                 continue;
             }
 
-            try { HandleNode(n); }
-            catch (Exception e) when (e is not NotSupportedException && e is not InvalidDataException)
-            {
-                throw new InvalidDataException($"Translating {n.OpType} node '{n.Name}' ({string.Join(", ", n.Outputs)}): {e.Message}", e);
-            }
-            catch (NotSupportedException e) when (!e.Message.Contains("node '"))
-            {
-                throw new NotSupportedException($"{n.OpType} node '{n.Name}' ({string.Join(", ", n.Outputs)}): {e.Message}", e);
-            }
+            names.Add(tensor.Name);
+            _env[tensor.Name] = TranslatedTensor.Const(OnnxConst.FromTensor(tensor));
         }
 
-        foreach (var o in _graph.Outputs)
+        return names;
+    }
+
+    /// <summary>Records which live nodes read each value (used to fuse Conv + BatchNormalization and to detect unsupported optional outputs).</summary>
+    private void IndexConsumers(List<OnnxNode> live)
+    {
+        foreach (var node in live)
         {
-            if (!_env.TryGetValue(o.Name, out var t))
+            foreach (var input in node.Inputs)
             {
-                throw new InvalidDataException($"Graph output '{o.Name}' is never produced.");
-            }
+                if (input == "")
+                {
+                    continue;
+                }
 
-            if (t.C is not null)
-            {
-                throw new NotSupportedException($"Graph output '{o.Name}' is a compile-time constant; outputs must depend on an input.");
-            }
+                _usedNames.Add(input);
+                if (!_consumers.TryGetValue(input, out var consumers))
+                {
+                    consumers = [];
+                    _consumers[input] = consumers;
+                }
 
-            var ov = t.V!;
-            if (ov.Kind != ValueKind.Intermediate)
-            {
-                ov = _b.Scale(ov, 1f, 0f, o.Name);   // outputs must be produced by a node
+                consumers.Add(node);
             }
-
-            _b.Output(o.Name, ov);
         }
-        _groupScope?.Dispose();
-        return Graph = _b.Build();
+    }
+
+    private void DeclareInput(OnnxValueInfo info)
+    {
+        if (_opts.ConstantInputs.TryGetValue(info.Name, out var pinned))
+        {
+            long[] dims = _opts.InputShapes.GetValueOrDefault(info.Name) ?? info.Shape!.Select(d => d.Value ?? 1).ToArray();
+            var constant = OnnxType.IsFloat(info.ElemType)
+                ? OnnxConst.FromFloats(info.ElemType, dims, pinned, info.Name)
+                : OnnxConst.FromInts(info.ElemType, dims, pinned.Select(v => (long)v).ToArray(), info.Name);
+            _env[info.Name] = TranslatedTensor.Const(constant);
+            return;
+        }
+
+        var shape = InputShape(info);
+        bool isInt = info.ElemType is OnnxType.Int64 or OnnxType.Int32;
+        if (!OnnxType.IsFloat(info.ElemType) && !isInt && info.ElemType != OnnxType.Bool)
+        {
+            throw new NotSupportedException($"Graph input '{info.Name}' has type {OnnxType.Name(info.ElemType)}; only float, int32/int64 and bool inputs are supported.");
+        }
+
+        bool image = !isInt && shape.Rank == 4 && shape[1].Fixed is 1 or 3 or 4;
+        var role = image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other;
+        var value = _b.Input(info.Name, role, isInt ? DataType.I32 : DataType.F32, shape);
+        if (!isInt)
+        {
+            _firstInput ??= value;
+        }
+
+        var tensor = TranslatedTensor.Dyn(value);
+        _env[info.Name] = tensor;
+        if ((_opts.InputShapes.GetValueOrDefault(info.Name)?.Length ?? info.Shape?.Count) == 0)
+        {
+            tensor.Scalar = true;
+        }
+    }
+
+    /// <summary>Translates one node, adding the node identity to errors that do not carry it yet.</summary>
+    private void TranslateNode(OnnxNode node)
+    {
+        try
+        {
+            HandleNode(node);
+        }
+        catch (Exception e) when (e is not NotSupportedException && e is not InvalidDataException)
+        {
+            throw new InvalidDataException($"Translating {node.OpType} node '{node.Name}' ({string.Join(", ", node.Outputs)}): {e.Message}", e);
+        }
+        catch (NotSupportedException e) when (!e.Message.Contains("node '"))
+        {
+            throw new NotSupportedException($"{node.OpType} node '{node.Name}' ({string.Join(", ", node.Outputs)}): {e.Message}", e);
+        }
+    }
+
+    private void DeclareOutput(OnnxValueInfo output)
+    {
+        if (!_env.TryGetValue(output.Name, out var tensor))
+        {
+            throw new InvalidDataException($"Graph output '{output.Name}' is never produced.");
+        }
+
+        if (tensor.C is not null)
+        {
+            throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
+        }
+
+        var value = tensor.V!;
+        if (value.Kind != ValueKind.Intermediate)
+        {
+            value = _b.Scale(value, 1f, 0f, output.Name);   // outputs must be produced by a node
+        }
+
+        _b.Output(output.Name, value);
     }
 
     // ---- inputs ------------------------------------------------------------------------------------
@@ -231,7 +246,11 @@ internal sealed partial class OnnxTranslator
         bool ok = true;
         foreach (var n in nodes)
         {
-            if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i))) { ok = false; break; }
+            if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+            {
+                ok = false;
+                break;
+            }
             foreach (var o in n.Outputs)
             {
                 produced.Add(o);
@@ -254,7 +273,8 @@ internal sealed partial class OnnxTranslator
                     continue;
                 }
 
-                result.Add(n); foreach (var o in n.Outputs)
+                result.Add(n);
+                foreach (var o in n.Outputs)
                 {
                     produced.Add(o);
                 }
@@ -342,7 +362,7 @@ internal sealed partial class OnnxTranslator
     // ---- constants -> IR ---------------------------------------------------------------------------------
     internal const int MaxInlineConstElements = 4096;
 
-    private Value AsValue(Tn t, string? hint = null)
+    private Value AsValue(TranslatedTensor t, string? hint = null)
     {
         if (t.V is not null)
         {
@@ -441,12 +461,12 @@ internal sealed partial class OnnxTranslator
     }
 
     // ---- node dispatch -------------------------------------------------------------------------------------
-    private Tn Get(string name)
+    private TranslatedTensor Get(string name)
         => _env.TryGetValue(name, out var t) ? t : throw new InvalidDataException($"ONNX value '{name}' is used before it is defined.");
 
     private void HandleNode(OnnxNode n)
     {
-        var ins = new Tn?[n.Inputs.Count];
+        var ins = new TranslatedTensor?[n.Inputs.Count];
         for (int i = 0; i < ins.Length; i++)
         {
             ins[i] = n.Inputs[i] == "" ? null : Get(n.Inputs[i]);
@@ -455,13 +475,13 @@ internal sealed partial class OnnxTranslator
         bool allConst = ins.All(t => t is null || t.IsConst);
         if (allConst && OnnxFold.Ops.Contains(n.OpType) && !(n.OpType == "Expand" && ins[1]!.C!.Ints().Any(v => v == OnnxConst.SymBatch)))
         {
-            var res = OnnxFold.Eval(n, ins.Select(t => t?.C).ToList(), Opset);
+            var res = OnnxFold.Eval(n, ins.Select(t => t?.C).ToList());
             for (int i = 0; i < n.Outputs.Count && i < res.Count; i++)
             {
                 if (n.Outputs[i] != "")
                 {
                     var c = res[i];
-                    _env[n.Outputs[i]] = Tn.Const(c.Name == "" ? c.Reshaped(c.Dims, n.Outputs[i]) : c);
+                    _env[n.Outputs[i]] = TranslatedTensor.Const(c.Name == "" ? c.Reshaped(c.Dims, n.Outputs[i]) : c);
                 }
             }
 
@@ -483,7 +503,7 @@ internal sealed partial class OnnxTranslator
     private static readonly HashSet<string> s_scalarPreserving =
         ["Cast", "Add", "Sub", "Mul", "Div", "Neg", "Abs", "Sqrt", "Exp", "Log", "Sin", "Cos", "Tanh", "Sigmoid", "Relu", "Identity", "Pow", "Floor", "Ceil", "Round"];
 
-    private void SetDyn(OnnxNode n, int idx, Value v) => _env[n.Outputs[idx]] = Tn.Dyn(v);
+    private void SetDyn(OnnxNode n, int idx, Value v) => _env[n.Outputs[idx]] = TranslatedTensor.Dyn(v);
 
     private void CheckUnusedOutputs(OnnxNode n, int from)
     {
