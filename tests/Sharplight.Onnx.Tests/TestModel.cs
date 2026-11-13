@@ -1,55 +1,40 @@
-using System.Buffers.Binary;
-using System.Text;
-
 namespace Sharplight.Onnx.Tests;
 
-/// <summary>Protobuf writer used to hand-assemble ONNX files (independent of the decoder under test).</summary>
-public sealed class ProtoWriter
-{
-    private readonly MemoryStream _ms = new();
-    public byte[] ToArray() => _ms.ToArray();
-    public int Length => (int)_ms.Length;
-
-    public ProtoWriter Varint(ulong v)
-    {
-        while (v >= 0x80) { _ms.WriteByte((byte)(v | 0x80)); v >>= 7; }
-        _ms.WriteByte((byte)v);
-        return this;
-    }
-    private ProtoWriter Key(int field, int wire) => Varint((ulong)((field << 3) | wire));
-    public ProtoWriter Int(int field, long v) => Key(field, 0).Varint((ulong)v);
-    public ProtoWriter Float(int field, float v) { Key(field, 5); Span<byte> b = stackalloc byte[4]; BinaryPrimitives.WriteSingleLittleEndian(b, v); _ms.Write(b); return this; }
-    public ProtoWriter Bytes(int field, ReadOnlySpan<byte> b) { Key(field, 2).Varint((ulong)b.Length); _ms.Write(b); return this; }
-    public ProtoWriter Str(int field, string s) => Bytes(field, Encoding.UTF8.GetBytes(s));
-    public ProtoWriter Msg(int field, ProtoWriter m) => Bytes(field, m.ToArray());
-    public ProtoWriter PackedInts(int field, IEnumerable<long> v) { var w = new ProtoWriter(); foreach (var x in v) { w.Varint((ulong)x); } return Bytes(field, w.ToArray()); }
-    public ProtoWriter PackedFloats(int field, IEnumerable<float> v)
-    {
-        var l = v.ToArray(); var b = new byte[l.Length * 4];
-        for (int i = 0; i < l.Length; i++)
-        {
-            BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(i * 4), l[i]);
-        }
-
-        return Bytes(field, b);
-    }
-}
-
 /// <summary>Assembles ModelProto bytes for graph-level tests.</summary>
-public sealed class TestModel
+internal sealed class TestModel
 {
-    private readonly List<byte[]> _nodes = [], _inits = [], _inputs = [], _outputs = [];
+    private readonly List<byte[]> _nodes = [];
+    private readonly List<byte[]> _inits = [];
+    private readonly List<byte[]> _inputs = [];
+    private readonly List<byte[]> _outputs = [];
     private readonly List<(string, long)> _opsets = [("", 17)];
     private readonly List<(string, string)> _meta = [];
     public string GraphName = "test";
 
-    public TestModel Opset(long v, string domain = "") { _opsets.Clear(); _opsets.Add((domain, v)); return this; }
-    public TestModel Meta(string k, string v) { _meta.Add((k, v)); return this; }
+    public TestModel Opset(long v, string domain = "")
+    {
+        _opsets.Clear();
+        _opsets.Add((domain, v));
+        return this;
+    }
+    public TestModel Meta(string k, string v)
+    {
+        _meta.Add((k, v));
+        return this;
+    }
 
     public static ProtoWriter Attr(string name, long i) => new ProtoWriter().Str(1, name).Int(3, i).Int(20, 2);
     public static ProtoWriter AttrF(string name, float f) => new ProtoWriter().Str(1, name).Float(2, f).Int(20, 1);
     public static ProtoWriter AttrS(string name, string s) => new ProtoWriter().Str(1, name).Str(4, s).Int(20, 3);
-    public static ProtoWriter AttrInts(string name, params long[] v) { var w = new ProtoWriter().Str(1, name); foreach (var x in v) { w.Int(8, x); } return w.Int(20, 7); }
+    public static ProtoWriter AttrInts(string name, params long[] v)
+    {
+        var w = new ProtoWriter().Str(1, name);
+        foreach (var x in v)
+        {
+            w.Int(8, x);
+        }
+        return w.Int(20, 7);
+    }
     public static ProtoWriter AttrTensor(string name, ProtoWriter t) => new ProtoWriter().Str(1, name).Msg(5, t).Int(20, 4);
 
     public TestModel Node(string op, string[] ins, string[] outs, params ProtoWriter[] attrs)
@@ -75,7 +60,7 @@ public sealed class TestModel
         return this;
     }
 
-    public static ProtoWriter TensorProto(string name, int type, long[] dims, byte[]? raw = null, ProtoWriter? extra = null)
+    public static ProtoWriter TensorProto(string name, int type, long[] dims, byte[]? raw = null)
     {
         var w = new ProtoWriter();
         foreach (var d in dims)
@@ -99,7 +84,8 @@ public sealed class TestModel
 
     public TestModel InitF32(string name, long[] dims, float[] data)
     {
-        var raw = new byte[data.Length * 4]; Buffer.BlockCopy(data, 0, raw, 0, raw.Length);
+        var raw = new byte[data.Length * 4];
+        Buffer.BlockCopy(data, 0, raw, 0, raw.Length);
         _inits.Add(TensorProto(name, 1, dims, raw).ToArray());
         return this;
     }
@@ -113,12 +99,17 @@ public sealed class TestModel
 
     public TestModel InitI64(string name, long[] dims, params long[] data)
     {
-        var raw = new byte[data.Length * 8]; Buffer.BlockCopy(data, 0, raw, 0, raw.Length);
+        var raw = new byte[data.Length * 8];
+        Buffer.BlockCopy(data, 0, raw, 0, raw.Length);
         _inits.Add(TensorProto(name, 7, dims, raw).ToArray());
         return this;
     }
 
-    public TestModel InitRaw(ProtoWriter tensor) { _inits.Add(tensor.ToArray()); return this; }
+    public TestModel InitRaw(ProtoWriter tensor)
+    {
+        _inits.Add(tensor.ToArray());
+        return this;
+    }
 
     public static ProtoWriter ValueInfo(string name, int type, params object[] dims)
     {
@@ -132,8 +123,16 @@ public sealed class TestModel
         return new ProtoWriter().Str(1, name).Msg(2, new ProtoWriter().Msg(1, tt));
     }
 
-    public TestModel Input(string name, params object[] dims) { _inputs.Add(ValueInfo(name, 1, dims).ToArray()); return this; }
-    public TestModel Output(string name, params object[] dims) { _outputs.Add(ValueInfo(name, 1, dims).ToArray()); return this; }
+    public TestModel Input(string name, params object[] dims)
+    {
+        _inputs.Add(ValueInfo(name, 1, dims).ToArray());
+        return this;
+    }
+    public TestModel Output(string name, params object[] dims)
+    {
+        _outputs.Add(ValueInfo(name, 1, dims).ToArray());
+        return this;
+    }
 
     public byte[] ToBytes()
     {

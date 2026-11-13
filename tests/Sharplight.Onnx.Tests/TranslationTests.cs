@@ -7,7 +7,11 @@ namespace Sharplight.Onnx.Tests;
 /// <summary>Graph-level checks of the ONNX → IR translation (no execution).</summary>
 public class TranslationTests
 {
-    private static float[] Rnd(int n, int seed = 1) { var r = new Random(seed); return Enumerable.Range(0, n).Select(_ => (float)(r.NextDouble() - 0.5)).ToArray(); }
+    private static float[] Rnd(int n, int seed = 1)
+    {
+        var r = new Random(seed);
+        return Enumerable.Range(0, n).Select(_ => (float)(r.NextDouble() - 0.5)).ToArray();
+    }
     private static IEnumerable<string> Ops(ModelDefinition d) => d.Graph("main").Nodes.Select(n => n.Op.Name);
 
     [Fact]
@@ -56,7 +60,9 @@ public class TranslationTests
         var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4)
             .Node("Loop", ["x"], ["a"]).Node("NonMaxSuppression", ["a"], ["b"]).Node("Unique", ["b"], ["c"]).Node("Relu", ["c"], ["y"]);
         var e = Assert.Throws<NotSupportedException>(() => m.Build());
-        Assert.Contains("Loop", e.Message); Assert.Contains("NonMaxSuppression", e.Message); Assert.Contains("Unique", e.Message);
+        Assert.Contains("Loop", e.Message);
+        Assert.Contains("NonMaxSuppression", e.Message);
+        Assert.Contains("Unique", e.Message);
         Assert.DoesNotContain("Relu", e.Message);
     }
 
@@ -194,7 +200,12 @@ public class TranslationTests
     {
         var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4);
         string prev = "x";
-        for (int i = 0; i < 6; i++) { m.InitF32($"w{i}", [4, 4], Rnd(16, i)); m.Node("Gemm", [prev, $"w{i}"], [$"t{i}"], TestModel.Attr("transB", 1)); prev = $"t{i}"; }
+        for (int i = 0; i < 6; i++)
+        {
+            m.InitF32($"w{i}", [4, 4], Rnd(16, i));
+            m.Node("Gemm", [prev, $"w{i}"], [$"t{i}"], TestModel.Attr("transB", 1));
+            prev = $"t{i}";
+        }
         m.Node("Relu", [prev], ["y"]);
         var def = m.Build(new OnnxImportOptions { GroupSize = 2 });
         var groups = def.Graph("main").Nodes.Select(n => n.Group).Distinct().ToList();

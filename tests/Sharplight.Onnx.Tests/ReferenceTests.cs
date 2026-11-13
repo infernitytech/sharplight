@@ -29,8 +29,11 @@ public class ReferenceTests(ITestOutputHelper output)
         foreach (int batch in c.Batches)
         {
             var inputs = Enumerable.Range(0, c.Inputs.Length).Select(k => c.ReadInput(batch, k)).ToList();
-            OnnxExec.Result res;
-            try { res = OnnxExec.Run(c.ModelPath, OnnxExec.OptionsFor(c, batch), dev, batch, inputs); }
+            OnnxExecResult res;
+            try
+            {
+                res = OnnxExec.Run(c.ModelPath, OnnxExec.OptionsFor(c, batch), dev, batch, inputs);
+            }
             catch (NotSupportedException e) when (provider != "cpu")
             {
                 Assert.Skip($"{provider}: {e.Message}");
@@ -50,7 +53,11 @@ public class ReferenceTests(ITestOutputHelper output)
     public void Synthetic_Cpu(string name)
     {
         var c = RefCase.Synthetic(name);
-        if (c is null) { Assert.Skip("reference data missing; run .work/onnx_ref/make_synthetic.py"); return; }
+        if (c is null)
+        {
+            Assert.Skip("reference data missing; run .work/onnx_ref/make_synthetic.py");
+            return;
+        }
         RunCase(c, "cpu");
     }
 
@@ -58,7 +65,11 @@ public class ReferenceTests(ITestOutputHelper output)
     public void Synthetic_Vulkan(string name)
     {
         var c = RefCase.Synthetic(name);
-        if (c is null) { Assert.Skip("reference data missing; run .work/onnx_ref/make_synthetic.py"); return; }
+        if (c is null)
+        {
+            Assert.Skip("reference data missing; run .work/onnx_ref/make_synthetic.py");
+            return;
+        }
         RunCase(c, "vulkan");
     }
 
@@ -66,8 +77,16 @@ public class ReferenceTests(ITestOutputHelper output)
     private void RunModel(string refName, string onnxFile, string provider, bool top1 = true)
     {
         var c = RefCase.Model(refName, onnxFile);
-        if (c is null) { Assert.Skip($"{onnxFile}.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)"); return; }
-        if (refName == "yolov10n") { YoloScores(c, provider); return; }
+        if (c is null)
+        {
+            Assert.Skip($"{onnxFile}.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)");
+            return;
+        }
+        if (refName == "yolov10n")
+        {
+            YoloScores(c, provider);
+            return;
+        }
         RunCase(c, provider);
         if (!top1)
         {
@@ -95,15 +114,26 @@ public class ReferenceTests(ITestOutputHelper output)
     {
         var dev = Providers.Get(provider);
         var inputs = new List<float[]> { c.ReadInput(1, 0) };
-        OnnxExec.Result res;
-        try { res = OnnxExec.Run(c.ModelPath, OnnxExec.OptionsFor(c, 1), dev, 1, inputs); }
-        catch (NotSupportedException e) when (provider != "cpu") { Assert.Skip($"{provider}: {e.Message}"); return; }
-        var exp = c.ReadOutput(1, 0); var act = res.Outputs[0];
-        int rows = exp.Length / 6, same = 0; double maxScore = 0;
+        OnnxExecResult res;
+        try
+        {
+            res = OnnxExec.Run(c.ModelPath, OnnxExec.OptionsFor(c, 1), dev, 1, inputs);
+        }
+        catch (NotSupportedException e) when (provider != "cpu")
+        {
+            Assert.Skip($"{provider}: {e.Message}");
+            return;
+        }
+        var exp = c.ReadOutput(1, 0);
+        var act = res.Outputs[0];
+        int rows = exp.Length / 6;
+        int same = 0;
+        double maxScore = 0;
         for (int r = 0; r < rows; r++)
         {
             maxScore = Math.Max(maxScore, Math.Abs(exp[r * 6 + 4] - act[r * 6 + 4]));
-            bool eq = true; for (int k = 0; k < 6; k++)
+            bool eq = true;
+            for (int k = 0; k < 6; k++)
             {
                 eq &= Math.Abs(exp[r * 6 + k] - act[r * 6 + k]) <= 1e-3 * Math.Max(1, Math.Abs(exp[r * 6 + k]));
             }

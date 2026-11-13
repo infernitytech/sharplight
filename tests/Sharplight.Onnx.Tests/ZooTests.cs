@@ -29,9 +29,17 @@ public class ZooTests(ITestOutputHelper output)
     private void RunZoo(string name, string provider)
     {
         var c = RefCase.Zoo(name);
-        if (c is null) { Assert.Skip($"zoo reference or model missing for '{name}' (scripts/make_zoo_refs.py)"); return; }
+        if (c is null)
+        {
+            Assert.Skip($"zoo reference or model missing for '{name}' (scripts/make_zoo_refs.py)");
+            return;
+        }
         var only = Environment.GetEnvironmentVariable("SHARPLIGHT_ZOO");
-        if (!string.IsNullOrEmpty(only) && !only.Split(',').Contains(name)) { Assert.Skip("not selected by SHARPLIGHT_ZOO"); return; }
+        if (!string.IsNullOrEmpty(only) && !only.Split(',').Contains(name))
+        {
+            Assert.Skip("not selected by SHARPLIGHT_ZOO");
+            return;
+        }
         var dev = Providers.Get(provider);
         foreach (int batch in c.Batches)
         {
@@ -42,10 +50,12 @@ public class ZooTests(ITestOutputHelper output)
             {
                 if (Environment.GetEnvironmentVariable("SHARPLIGHT_ZOO_DUMP") is { Length: > 0 } dump)
                 {
-                    var bytes = new byte[res.Outputs[k].Length * 4]; Buffer.BlockCopy(res.Outputs[k], 0, bytes, 0, bytes.Length);
+                    var bytes = new byte[res.Outputs[k].Length * 4];
+                    Buffer.BlockCopy(res.Outputs[k], 0, bytes, 0, bytes.Length);
                     File.WriteAllBytes(Path.Combine(dump, $"{name}.{provider}.b{batch}.out{k}.bin"), bytes);
                 }
-                var actual = res.Outputs[k]; var expected = c.ReadOutput(batch, k);
+                var actual = res.Outputs[k];
+                var expected = c.ReadOutput(batch, k);
                 if (c.Mode == "scores6" && expected.Length % 6 == 0)
                 {
                     actual = Enumerable.Range(0, actual.Length / 6).Select(r => actual[r * 6 + 4]).ToArray();

@@ -83,18 +83,26 @@ internal static class TestData
     {
         var tokens = new List<string>();
         var types = new List<int>();
-        for (int b = 0; b < 256; b++) { tokens.Add(Sharplight.Tokenizers.Bpe.ByteEncoding.ByteToChar[b].ToString()); types.Add(1); }
+        for (int b = 0; b < 256; b++)
+        {
+            tokens.Add(Sharplight.Tokenizers.Bpe.ByteEncoding.ByteToChar[b].ToString());
+            types.Add(1);
+        }
         string G = Sharplight.Tokenizers.Bpe.ByteEncoding.ByteToChar[32].ToString();
         string[] merges = ["h e", "l l", "he ll", "hell o", G + " w", "o r", G + "w or", "l d", G + "wor ld"];
         foreach (var m in merges)
         {
             var parts = m.Split(' ', 2);
             // note: merge strings for tokens that start with the space marker use that marker as first char
-            tokens.Add(parts[0] + parts[1]); types.Add(1);
+            tokens.Add(parts[0] + parts[1]);
+            types.Add(1);
         }
-        tokens.Add("<s>"); types.Add(3);
-        tokens.Add("</s>"); types.Add(3);
-        tokens.Add("<usr>"); types.Add(4);
+        tokens.Add("<s>");
+        types.Add(3);
+        tokens.Add("</s>");
+        types.Add(3);
+        tokens.Add("<usr>");
+        types.Add(4);
         // fix up: merges must reference existing symbols; add intermediate tokens as needed (done by virtual symbols otherwise)
         return new TokenizerData
         {
