@@ -45,11 +45,6 @@ internal sealed partial class FalconH1HfMapping : IHfArchitectureMapping
             [a + "ssm.head_dim"] = inner / ssmHeads,
             [a + "mlp.activation"] = c.GetString("hidden_act") ?? "silu",
         };
-        if (c.GetBool("mamba_rms_norm") ?? false)
-        {
-            throw new NotSupportedException("falcon_h1: mamba_rms_norm=true (gated norm with weights) is not supported yet.");
-        }
-
         HfMappingHelpers.AddContextLength(md, a, c);
         return md;
     }
