@@ -20,6 +20,11 @@ internal sealed partial class OnnxTranslator
     /// </summary>
     private void OnnxAttention(OnnxNode n, TranslatedTensor?[] ins)
     {
+        if (TryFusedAttention(n, ins))
+        {
+            return;
+        }
+
         var q = X(ins, 0);
         var k = X(ins, 1);
         var v = X(ins, 2);
@@ -119,6 +124,67 @@ internal sealed partial class OnnxTranslator
         }
 
         SetDyn(n, 0, threeD ? Emit("Reshape", [Permute(y, [0, 2, 1, 3])], Attributes.From(("shape", L(0, s, hq * dv))), Nm(n)) : y);
+    }
+
+    /// <summary>
+    /// The plain case (batch 1, no mask, cache or window, causal only as self-attention, head sizes the kernels vectorize) maps onto the
+    /// fused IR Attention op, which providers run as flash attention.
+    /// </summary>
+    private bool TryFusedAttention(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        if (ins.Skip(3).Any(t => t is not null) || n.Outputs.Skip(1).Any(o => o != "") || n.Int("left_window_size", -1) >= 0 || n.Int("right_window_size", -1) >= 0)
+        {
+            return false;
+        }
+
+        var q = X(ins, 0);
+        var k = X(ins, 1);
+        var v = X(ins, 2);
+        if (q.Shape[0].IsSymbolic || q.Shape[0].Fixed != 1 || q.Rank is not (3 or 4))
+        {
+            return false;
+        }
+
+        bool threeD = q.Rank == 3;
+        long hq = threeD ? n.Int("q_num_heads", 0) : q.Shape[1].Fixed;
+        long hkv = threeD ? n.Int("kv_num_heads", 0) : k.Shape[1].Fixed;
+        if (hq <= 0 || hkv <= 0 || hq % hkv != 0)
+        {
+            return false;
+        }
+
+        // [1, S, H·D] → [S, H, D]; [1, H, S, D] → [S, H, D] (a view).
+        Value Rows(Value x, long heads) => threeD
+            ? Rs(x, x.Shape[1].Fixed, heads, x.Shape[2].Fixed / heads)
+            : Permute(Rs(x, heads, x.Shape[2].Fixed, x.Shape[3].Fixed), [1, 0, 2]);
+        var qh = Rows(q, hq);
+        var kh = Rows(k, hkv);
+        var vh = Rows(v, hkv);
+        long s = qh.Shape[0].Fixed;
+        long t = kh.Shape[0].Fixed;
+        long d = qh.Shape[2].Fixed;
+        long dv = vh.Shape[2].Fixed;
+        bool causal = n.Int("is_causal", 0) != 0;
+        if (d % 8 != 0 || dv % 8 != 0 || (causal && s != t))
+        {
+            return false;
+        }
+
+        float scale = n.Has("scale") ? n.Float("scale", 1f) : 1f / MathF.Sqrt(d);
+        var attributes = Attributes.From(("scale", scale), ("causal", causal), ("softcap", Math.Max(0f, n.Float("softcap", 0f))));
+        Value[] operands = [qh, kh, vh];
+        if (causal)
+        {
+            // One span over all keys; "causal" limits row i to keys ≤ i.
+            operands = [.. operands, Rs(IndexConstant(Nm(n) + ".spans", [.. Enumerable.Range(0, (int)s).SelectMany(_ => new[] { 0, (int)t })]), s, 2)];
+        }
+
+        var y = Emit("Attention", operands, attributes);
+        Heavy();
+        SetDyn(n, 0, threeD
+            ? Emit("Reshape", [y], Attributes.From(("shape", L(1, s, hq * dv))), Nm(n))
+            : Emit("Reshape", [Permute(y, [1, 0, 2])], Attributes.From(("shape", L(1, hq, s, dv))), Nm(n)));
+        return true;
     }
 
     /// <summary>[B, S, H·D] → [B, H, S, D].</summary>
