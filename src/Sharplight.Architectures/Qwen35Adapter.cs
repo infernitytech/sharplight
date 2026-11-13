@@ -47,7 +47,16 @@ public sealed class Qwen35Adapter : IModelAdapter
         int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps,
         int RopeDims, float RopeBase, int[] RopeSections,
         int ConvKernel, int SsmState, int SsmGroups, int SsmDtRank, int SsmInner, int FullAttnInterval,
-        int Vocab, int ContextLength);
+        int Vocab, int ContextLength, bool MRope, bool GroupedValueHeads, MoeOptions Moe);
+
+    private const int MRopeAxes = 4;
+
+    // [T, heads, dim] → [T, heads·repeats, dim] with each head repeated <repeats> times consecutively.
+    private static Value RepeatHeadsInPlace(GraphBuilder b, Value x, int heads, int repeats, int dim)
+    {
+        var tiled = b.Emit1("Tile", [b.Reshape(x, 0, heads, 1, dim)], Attributes.From(("repeats", new long[] { 1, 1, repeats, 1 })));
+        return b.Reshape(tiled, 0, (long)heads * repeats, dim);
+    }
 
     /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
@@ -65,7 +74,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             Eps: src.Arch<float>("norm_eps"),
             RopeDims: src.Arch<int>("rope.dim"),
             RopeBase: src.Arch("rope.base", 10000f),
-            RopeSections: src.Arch<int[]>("rope.sections", [0, 0, 0, 0]),
+            RopeSections: src.Arch("rope.sections", Array.Empty<int>()),
             ConvKernel: src.Arch<int>("linear_attention.conv_kernel"),
             SsmState: src.Arch<int>("linear_attention.key_head_dim"),
             SsmGroups: src.Arch<int>("linear_attention.key_head_count"),
@@ -73,9 +82,13 @@ public sealed class Qwen35Adapter : IModelAdapter
             SsmInner: src.Arch<int>("linear_attention.value_head_dim") * valueHeads,
             FullAttnInterval: src.Arch("full_attention_interval", 4),
             Vocab: src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed,
-            ContextLength: src.Arch("context_length", 32768));
+            ContextLength: src.Arch("context_length", 32768),
+            MRope: src.Has($"{src.Architecture}.rope.sections"),
+            GroupedValueHeads: src.Arch("linear_attention.grouped_value_heads", false),
+            Moe: MoeOptions.Read(src, normalizeDefault: true));
 
         bool IsRecurrent(int il) => (il + 1) % hp.FullAttnInterval != 0;
+        int positionAxes = hp.MRope ? MRopeAxes : 1;
 
         // ---- persistent state ---------------------------------------------------------------
         var states = new List<StateDefinition>();
@@ -151,7 +164,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             [WellKnown.VocabSize] = hp.Vocab,
             [WellKnown.ContextLength] = hp.ContextLength,
             [WellKnown.EmbeddingLength] = hp.NEmbd,
-            [WellKnown.PositionAxes] = 4,
+            [WellKnown.PositionAxes] = positionAxes,
             [WellKnown.EosTokenIds] = eos.ToArray(),
             ["n_layer"] = hp.NLayer,
             ["mtp_layers"] = nextn,
@@ -209,7 +222,7 @@ public sealed class Qwen35Adapter : IModelAdapter
                     x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
                 }
             }
-            var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 4));
+            var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, positionAxes));
             var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
 
             for (int il = 0; il < hp.NLayer; il++)
@@ -226,10 +239,7 @@ public sealed class Qwen35Adapter : IModelAdapter
                 x = b.Add(attnOut, residual, $"{p}attn_residual");
                 var ffnResidual = x;
                 h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
-                var gate = b.Linear(h, p + "mlp.gate.weight");
-                var up = b.Linear(h, p + "mlp.up.weight");
-                var ffn = b.Linear(b.Mul(b.Silu(gate), up), p + "mlp.down.weight", name: $"{p}ffn_out");
-                x = b.Add(ffn, ffnResidual, $"{p}l_out");
+                x = b.Add(FeedForward(b, h, p), ffnResidual, $"{p}l_out");
             }
 
             using (b.Group("output"))
@@ -255,9 +265,9 @@ public sealed class Qwen35Adapter : IModelAdapter
             k = b.RmsNorm(k, b.Weight(p + "attention.k_norm.weight"), hp.Eps);
             var v = b.Reshape(b.Linear(h, p + "attention.v.weight"), 0, hp.NHeadKv, D);
 
-            var rope = Attributes.From(
-                ("dims", hp.RopeDims), ("base", hp.RopeBase), ("style", "neox"),
-                ("sections", hp.RopeSections), ("interleaved", true));
+            var rope = hp.MRope
+                ? Attributes.From(("dims", hp.RopeDims), ("base", hp.RopeBase), ("style", "neox"), ("sections", hp.RopeSections), ("interleaved", true))
+                : Attributes.From(("dims", hp.RopeDims), ("base", hp.RopeBase), ("style", "neox"));
             q = b.Emit1("Rope", [q, positions], rope);
             k = b.Emit1("Rope", [k, positions], rope);
 
@@ -266,6 +276,19 @@ public sealed class Qwen35Adapter : IModelAdapter
             var attn = b.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D), name: $"{p}attn");
             attn = b.Mul(attn, b.Sigmoid(gate), $"{p}attn_gated");
             return b.Linear(b.Reshape(attn, 0, hp.NHead * D), p + "attention.o.weight", name: $"{p}attn_out");
+        }
+
+        // Routed experts (+ shared expert) when the layer has a router, the dense SwiGLU MLP otherwise.
+        Value FeedForward(GraphBuilder b, Value h, string p)
+        {
+            if (MoeBlock.IsPresent(b, p + "mlp."))
+            {
+                return MoeBlock.Build(b, h, p + "mlp.", hp.Moe, hp.NEmbd, t => b.Silu(t));
+            }
+
+            var gate = b.Linear(h, p + "mlp.gate.weight");
+            var up = b.Linear(h, p + "mlp.up.weight");
+            return b.Linear(b.Mul(b.Silu(gate), up), p + "mlp.down.weight", name: $"{p}ffn_out");
         }
 
         Value LinearAttention(GraphBuilder b, Value h, string p, Value convSt, Value ssmSt)
@@ -288,6 +311,13 @@ public sealed class Qwen35Adapter : IModelAdapter
             var v = b.Reshape(b.Slice(conv, 1, 2 * hk * dk, hv * dv), 0, hv, dv);
             q = b.L2Norm(q, hp.Eps);
             k = b.L2Norm(k, hp.Eps);
+            if (hp.GroupedValueHeads && hv != hk)
+            {
+                // Value heads grouped by key head (head h reads key head h / (hv/hk)): repeat each q/k head in place so the
+                // recurrence sees one q/k head per value head.
+                q = RepeatHeadsInPlace(b, q, hk, hv / hk, dk);
+                k = RepeatHeadsInPlace(b, k, hk, hv / hk, dk);
+            }
 
             var o = b.Emit("GatedDeltaRule", [q, k, v, g, beta, ssmSt], Attributes.From(("scale", 1f / MathF.Sqrt(dk))), $"{p}delta", writes: [ssmSt])[0];
             var on = b.RmsNorm(o, b.Weight(p + "linear_attention.norm.weight"), hp.Eps);

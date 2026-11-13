@@ -99,6 +99,43 @@ public sealed class WeightInfo
         return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]) };
     }
 
+    /// <summary>
+    /// Concatenates tensors along their outermost axis (e.g. row blocks gathered from an interleaved fused projection). The parts
+    /// must agree in type and in every dimension but the first; the result reads them lazily, nothing is copied up front.
+    /// </summary>
+    /// <param name="name">Name of the result.</param>
+    /// <param name="parts">Tensors to concatenate, in order.</param>
+    /// <exception cref="ArgumentException">The parts differ in type or row shape.</exception>
+    public static WeightInfo ConcatRows(string name, IReadOnlyList<WeightInfo> parts)
+    {
+        var first = parts[0];
+        long rows = 0;
+        foreach (var w in parts)
+        {
+            bool sameRows = w.Shape.Rank == first.Shape.Rank && Enumerable.Range(1, first.Shape.Rank - 1).All(d => w.Shape[d].Equals(first.Shape[d]));
+            if (w.Type != first.Type || !sameRows)
+            {
+                throw new ArgumentException($"{name}: cannot concatenate {w} with {first}.");
+            }
+
+            rows += w.Shape[0].Fixed;
+        }
+
+        var dims = new List<Dim> { rows };
+        for (int d = 1; d < first.Shape.Rank; d++)
+        {
+            dims.Add(first.Shape[d]);
+        }
+
+        return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new ConcatenatedWeightSource([.. parts.Select(w => w.Source)]) };
+    }
+
+    /// <summary>Gathers row blocks (first row, row count) of this tensor, in order, into one lazily read tensor.</summary>
+    /// <param name="name">Name of the result.</param>
+    /// <param name="blocks">The row ranges to take.</param>
+    public WeightInfo GatherRows(string name, IEnumerable<(long FirstRow, long Rows)> blocks)
+        => ConcatRows(name, [.. blocks.Select(block => RowSlice(name, block.FirstRow, block.Rows))]);
+
     /// <summary>Reads the whole tensor.</summary>
     public byte[] ReadAll()
     {

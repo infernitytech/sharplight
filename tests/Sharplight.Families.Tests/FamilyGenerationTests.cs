@@ -61,6 +61,18 @@ public class FamilyGenerationTests
         // Flint: attention sinks, sigmoid-routed experts + shared expert, NoPE full layers (tiny random model from tools/mk_tiny_flint.py; the MoE runs on the CPU when the GPU lacks MatMulId).
         new("tiny-random-flint HF (transformers)", "hf/tiny-random-flint", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
             [140756, 125813, 22985, 123010, 143067, 136720, 86988, 72881, 88183, 83127, 61195, 133527, 129060, 110388, 65465, 7319, 86512, 79741, 81427, 118452, 20753, 25666, 5229, 81385], "", NeedsCpuFallbackForMoe: true),
+        // Qwen3.5/3.6/3.8 MoE hybrids: gated delta + gated attention layers, softmax top-k experts plus a sigmoid-gated shared expert
+        // (per-expert tensors stacked, or fused 3-D gate_up tensors for 3.8). References: tools/hf_greedy_reference.py; the 3.6
+        // checkpoint nests its text model three times, which the tool collapses (transformers alone would initialize it randomly).
+        new("tiny-random-qwen3.5-moe HF (transformers)", "hf/tiny-random-qwen3.5-moe", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
+            [132029, 22595, 212119, 133773, 4415, 198543, 219592, 20547, 220921, 172932, 151129, 212119, 133773, 239941, 239941], ""),
+        new("tiny-random-qwen3.6-moe HF (transformers)", "hf/tiny-random-qwen3.6-moe", "The capital of France is", "ids",
+            [171219, 28127, 89241, 147994, 147994, 194404, 115056, 51300, 108175, 25743, 24907, 133054, 2637, 51409, 225298, 94434], ""),
+        new("tiny-random-qwen3.8-moe HF (transformers)", "hf/tiny-random-qwen3.8-moe", "The capital of France is", "ids",
+            [102419, 116372, 131665, 29461, 41257, 39053, 42030, 35046, 3484, 115260, 59741, 160416, 28413, 208877, 186922, 189616], ""),
+        // Qwen3-Next: fused in_proj_qkvz / in_proj_ba, value heads grouped by key head, plain partial RoPE.
+        new("tiny-random-qwen3-next-moe HF (transformers)", "hf/tiny-random-qwen3-next-moe", "The capital of France is", "ids",
+            [32652, 49041, 83843, 51624, 109256, 116828, 29463, 49041, 22433, 245, 143247, 28709, 49988, 109256, 51255, 117540], ""),
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
