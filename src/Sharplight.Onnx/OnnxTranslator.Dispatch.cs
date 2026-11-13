@@ -23,7 +23,7 @@ internal sealed partial class OnnxTranslator
     private static readonly HashSet<string> s_contribOps =
     [
         "Gelu", "BiasGelu", "FastGelu", "QuickGelu", "FusedConv", "FusedMatMul", "SkipLayerNormalization", "SkipSimplifiedLayerNormalization",
-        "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits",
+        "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits", "GroupQueryAttention", "RotaryEmbedding",
     ];
 
     // Contrib ops that onnxruntime also registers in the default domain (onnxruntime-genai exports use it).
