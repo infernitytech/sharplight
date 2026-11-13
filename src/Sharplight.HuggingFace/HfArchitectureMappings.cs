@@ -43,6 +43,7 @@ internal static class HfArchitectureMappings
         yield return new GptOssHfMapping();
         yield return new Llama4HfMapping();
         yield return new Dots1HfMapping();
+        yield return new HyV3HfMapping();
         yield return new ExaoneMoeHfMapping();
         yield return new BitnetHfMapping();
         yield return new Ministral3HfMapping();

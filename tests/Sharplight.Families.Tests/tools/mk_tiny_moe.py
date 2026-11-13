@@ -34,6 +34,7 @@ configs = {
     "dots1-llamacpp": transformers.Dots1Config(**{**common, "num_key_value_heads": 4}, **moe, intermediate_size=96, n_routed_experts=16,
                                                n_shared_experts=1, n_group=4, topk_group=2, first_k_dense_replace=1, norm_topk_prob=True,
                                                routed_scaling_factor=2.5),
+    "hy-v3": transformers.HYV3Config(**common, **moe, intermediate_size=96, num_experts=8, num_shared_experts=1, router_scaling_factor=2.5),
     "bitnet": transformers.BitNetConfig(**common, intermediate_size=96),
     "ministral3": transformers.Ministral3Config(**common, intermediate_size=96,
                                                 rope_parameters={"rope_type": "yarn", "rope_theta": 1000000.0, "factor": 16.0,

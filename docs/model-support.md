@@ -161,7 +161,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `qwen` | Qwen (v1) | MHA, RMS, SwiGLU, fused qkv | **mapped, untested (no model)**| -| qwen | - |
+| `qwen` | Qwen (v1) | MHA, RMS, SwiGLU, fused qkv | **supported (GGUF, tiny random vs llama.cpp)**| -| qwen | gguf/tiny-random-qwen1-f32 |
 | `qwen2` | Qwen2/2.5, DeepSeek-R1-Distill-Qwen | GQA, qkv bias, RMS, SwiGLU | **supported** | - | qwen2 | - |
 | `qwen2moe` | Qwen1.5-MoE, Qwen2-57B-A14B | MoE softmax + sigmoid-gated shared expert | **partial** | `SGATE`, `MAP` | qwen2_moe | hf/tiny-random-Qwen2MoeForCausalLM |
 | `qwen2vl` | Qwen2-VL / Qwen2.5-VL (LLM part) | GQA, M-RoPE, qkv bias | **partial** | `MROPE`, `MAP`, `MMPROJ` | qwen2_vl, qwen2_5_vl | - |
@@ -284,7 +284,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `laguna` | Laguna (poolside) | MoE sigmoid + bias + shared, softplus out gate, yarn/SWA | **partial** | `RBIAS`, `MAP` | - | - |
 | `ernie4_5-moe` | ERNIE-4.5-21B-A3B, 300B-A47B | MoE softmax + bias + shared, dense lead | **supported** | - | ernie4_5_moe | gguf/ERNIE-4.5-21B-A3B-PT, hf/tiny-random-ernie-4.5-moe |
 | `hunyuan-moe` | Hunyuan-A13B | QK-norm, MoE + shared, dynamic NTK | **supported** | - (GGUF mapping not verified on a real file) | hunyuan_v1_moe | hf/tiny-random-hunyuan-v1-moe |
-| `hy_v3` | Hunyuan v3 | MoE sigmoid + bias + shared, MTP | **partial** | `RBIAS`, `MAP` | - | - |
+| `hy_v3` | Hunyuan v3 | MoE sigmoid + bias + shared, MTP | **supported** (MTP layers ignored; not run on a real model) | - | hy_v3 | hf/tiny-random-hy-v3, gguf/tiny-random-hy-v3-f32 |
 | `hy_v4` | Hunyuan v4 | MLA-like + indexer + HC | **missing** | `IDX`, `HC` | - | - |
 | `gpt-oss` | gpt-oss-20b/120b | MoE top-4 softmax + expert biases, clamped SwiGLU-OAI, sinks, alternating SWA, yarn, MXFP4 weights | **supported** | - | gpt_oss | gguf/gpt-oss-20b (MXFP4), hf/tiny-random-gpt-oss, hf/tiny-random-gpt-oss-mxfp4 |
 | `smallthinker` | SmallThinker 4B-A0.6B/21B-A3B | MoE (sigmoid gating), SWA+NoPE | **supported** | - (HF remote code not mapped) | smallthinker | gguf/SmallThinker-4BA0.6B-Instruct |

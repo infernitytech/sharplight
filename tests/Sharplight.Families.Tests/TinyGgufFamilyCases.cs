@@ -34,6 +34,8 @@ internal static class TinyGgufFamilyCases
             [906, 479, 659, 442, 304, 481], ""),
         new("tiny-random-exaone-moe f32 GGUF (exaone-moe, llama.cpp)", "gguf/tiny-random-exaone-moe-f32.gguf", Prompt, "ids",
             [77, 583, 803, 940, 458, 9, 236, 236, 676, 834, 236, 989, 3, 768, 338, 656, 619, 426, 846, 521, 656, 819, 140, 820], ""),
+        new("tiny-random-hy-v3 f32 GGUF (hy-v3, llama.cpp)", "gguf/tiny-random-hy-v3-f32.gguf", Prompt, "ids",
+            [854, 894, 320, 513, 349, 520, 904, 932, 894, 304, 338, 195, 711, 656, 338, 803, 338, 414, 803, 1016, 101, 321, 555, 203], ""),
         new("tiny-random-falcon f32 GGUF (falcon, falcon pre-tokenizer, llama.cpp)", "gguf/tiny-random-falcon-f32.gguf", Prompt, "ids",
             [314, 975, 500, 741, 285, 500, 741, 500, 741, 285, 500, 856, 809, 975, 500, 741, 500, 741, 500, 500, 741, 56, 856, 56], ""),
     ];
