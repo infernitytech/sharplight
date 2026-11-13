@@ -107,9 +107,9 @@ void store(RowParams p, uint t, uint h, uint i, float v)
     uint64_t di = (uint64_t(p.rt[RT_N_PAST] + t) * H + h) * D + i;
 #endif
 #if CACHE_F16
-    ((uint16_t*)p.y)[di] = f2h(v);
+    *(uint16_t*)byteAt((uint8_t*)p.y, di * 2) = f2h(v);
 #else
-    ((float*)p.y)[di] = v;
+    *(float*)byteAt((uint8_t*)p.y, di * 4) = v;
 #endif
 #else
     ((float*)p.y)[(uint64_t(t) * H + h) * D + i] = v;

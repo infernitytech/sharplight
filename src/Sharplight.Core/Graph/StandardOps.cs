@@ -180,6 +180,9 @@ public static partial class StandardOps
     /// sliding-window attention), <c>chunk</c> (int &gt; 0: a query at position p only sees keys [p − p mod chunk, p], chunked
     /// attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
     /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
+    /// Attribute <c>v_dims</c> (int &gt; 0): the values are the first <c>v_dims</c> entries of each vcache row, so Dv = v_dims and
+    /// vcache may be the very same state as kcache (multi-head latent attention: one latent row per token serves as key and,
+    /// through its prefix, as value).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
@@ -188,7 +191,13 @@ public static partial class StandardOps
     {
         var q = i[0].Shape;
         var v = i[2].Shape;
-        return [new(DataType.F32, new Shape(q[0], q[1], v[2]))];
+        long valueDims = a.Get("v_dims", 0L);
+        if (valueDims > 0 && !v[2].IsSymbolic && valueDims > v[2].Fixed)
+        {
+            throw new ArgumentException($"CachedAttention v_dims {valueDims} exceeds the value cache rows {v}.");
+        }
+
+        return [new(DataType.F32, new Shape(q[0], q[1], valueDims > 0 ? Dim.Of(valueDims) : v[2]))];
     });
 
     /// <summary>

@@ -28,5 +28,6 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new HybridAdapter());
         ModelAdapterRegistry.Register(new Rwkv7Adapter());
         ModelAdapterRegistry.Register(new Rwkv6Adapter());
+        ModelAdapterRegistry.Register(new LatentDecoderAdapter());
     }
 }

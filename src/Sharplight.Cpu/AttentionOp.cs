@@ -39,7 +39,7 @@ internal sealed unsafe class AttentionOp : CpuOp
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
-        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int chunk = 0)
+        TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0)
     {
         _chunk = chunk;
         _spans = spans;
@@ -59,7 +59,7 @@ internal sealed unsafe class AttentionOp : CpuOp
         _hq = (int)q.Dims[1];
         _d = (int)q.Dims[2];
         _hkv = (int)k.Dims[1];
-        _dv = (int)v.Dims[2];
+        _dv = valueDims > 0 ? valueDims : (int)v.Dims[2];   // v_dims: values are a prefix of the cache rows (latent attention)
         _kHalf = k.Type == DataType.F16;
         _vHalf = v.Type == DataType.F16;
         if (_hq % _hkv != 0)
