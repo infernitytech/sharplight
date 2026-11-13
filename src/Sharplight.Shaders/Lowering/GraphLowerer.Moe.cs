@@ -59,9 +59,10 @@ public sealed partial class GraphLowerer
         return OpSupport.Yes;
     }
 
-    // Routing (expert tiles + sorted items) is shared by the MatMulIds of one expert block (same ids, same E).
+    // Routing (expert tiles + sorted items) is shared by the MatMulIds of one expert block (same ids, same E). The routing launch
+    // only runs when its node takes the grouped path, so nodes may share it only when they switch paths at the same item count.
     private BufferDecl? _moeScratch;
-    private (Value Ids, long E, long MaxTiles)? _moeRouted;
+    private (Value Ids, long E, long MaxTiles, long MatvecMaxItems, bool Coop)? _moeRouted;
 
     private void LowerMatMulId(Node n)
     {
@@ -113,7 +114,7 @@ public sealed partial class GraphLowerer
         Func<Bindings, uint> tiles = b => (uint)Math.Max(1, Math.Min(items(b), items(b) / tile(b) + E));
         var scratchArg = new PointerArg(_moeScratch, 0);
 
-        if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles)
+        if (_moeRouted is not { } r || r.Ids != n.Inputs[2] || r.E != E || r.MaxTiles != maxTiles || r.MatvecMaxItems != mv || r.Coop != coop)
         {
             var tiling = coop ? new[] { 32, 64 } : new[] { 64 };
             Emit($"moe-route {n.Inputs[2].Name} [{E} experts]", [n],
@@ -122,7 +123,7 @@ public sealed partial class GraphLowerer
                     _ => new Grid(1)))],
                 [Pointer(ids), scratchArg, TokenArg(ids)],
                 [ids], [scratch]);
-            _moeRouted = (n.Inputs[2], E, maxTiles);
+            _moeRouted = (n.Inputs[2], E, maxTiles, mv, coop);
         }
 
         var gm = new Dictionary<string, string>(m) { ["MAXTILES"] = maxTiles.ToString(CultureInfo.InvariantCulture) };
