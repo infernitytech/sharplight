@@ -1,6 +1,7 @@
 using System.Text;
 using Sharplight.Graph;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Onnx.Conformance;
 
@@ -59,11 +60,6 @@ internal static class NodeTestRunner
             return new(NodeTestStatus.HarnessUnsupported, $"'{nonTensor.Name}' is a sequence, map or optional value");
         }
 
-        if (inputInfos.Concat(outputInfos).FirstOrDefault(i => i.ElemType == OnnxType.String) is { } stringValue)
-        {
-            return new(NodeTestStatus.HarnessUnsupported, $"'{stringValue.Name}' is a string tensor");
-        }
-
         var inputs = new Dictionary<string, TestTensor>(StringComparer.Ordinal);
         var expected = new List<TestTensor>();
         try
@@ -86,13 +82,13 @@ internal static class NodeTestRunner
         // Sharplight compiles static shapes: inputs that define shapes, axes or other import-time parameters (Reshape targets, reduction
         // axes, pads, ...) are passed as tensors by the node tests but are initializers in real models. When the importer needs them as
         // constants, the test is retried with them pinned (OnnxImportOptions.ConstantInputs), first the integer inputs, then every input
-        // but the first (float scales, bounds and weights).
+        // but the first (float scales, bounds and weights). String inputs are never pinned.
         ComputeGraph? graph = null;
         string importError = "";
         int pinLevel = 0;
         for (; pinLevel <= 2 && graph is null; pinLevel++)
         {
-            var pinned = inputs.Where(p => pinLevel switch
+            var pinned = inputs.Where(p => p.Value.Strings is null && pinLevel switch
             {
                 0 => false,
                 1 => !p.Value.IsFloat,
@@ -160,7 +156,7 @@ internal static class NodeTestRunner
         {
             var run = new RunParameters();
             run.Symbols[OnnxGraphAdapter.BatchSymbol] = 1;
-            var actual = new List<(long[] Shape, double[] Values)>();
+            var actual = new List<(long[] Shape, double[] Values, string[]? Strings)>();
             try
             {
                 foreach (var input in graph.Inputs)
@@ -170,7 +166,14 @@ internal static class NodeTestRunner
                         return new(NodeTestStatus.RunFail, $"no test data for graph input '{input.Name}'");
                     }
 
-                    compiled.SetInput(input, ElementCodec.Encode(input.Type, tensor.Values));
+                    if (tensor.Strings is { } strings)
+                    {
+                        compiled.SetInput(input, strings);
+                    }
+                    else
+                    {
+                        compiled.SetInput(input, ElementCodec.Encode(input.Type, tensor.Values));
+                    }
                 }
 
                 compiled.Run(run);
@@ -178,9 +181,18 @@ internal static class NodeTestRunner
                 {
                     var shape = compiled.OutputShape(info.Name, run);
                     var type = graph.Outputs[info.Name].Type;
-                    var buffer = new byte[type.ByteSize(shape.Aggregate(1L, (a, b) => a * b))];
+                    long elements = shape.Aggregate(1L, (a, b) => a * b);
+                    if (type == DataType.Str)
+                    {
+                        var strings = new string[elements];
+                        compiled.GetOutput(info.Name, strings.AsSpan());
+                        actual.Add((shape, [], strings));
+                        continue;
+                    }
+
+                    var buffer = new byte[type.ByteSize(elements)];
                     compiled.GetOutput(info.Name, buffer);
-                    actual.Add((shape, ElementCodec.Decode(type, buffer)));
+                    actual.Add((shape, ElementCodec.Decode(type, buffer), null));
                 }
             }
             catch (Exception e)
@@ -190,7 +202,7 @@ internal static class NodeTestRunner
 
             for (int k = 0; k < expected.Count; k++)
             {
-                if (Compare(outputInfos[k].Name, expected[k], actual[k].Shape, actual[k].Values) is { } mismatch)
+                if (Compare(outputInfos[k].Name, expected[k], actual[k].Shape, actual[k].Values, actual[k].Strings) is { } mismatch)
                 {
                     return new(NodeTestStatus.Wrong, mismatch);
                 }
@@ -207,11 +219,21 @@ internal static class NodeTestRunner
             || message.Contains("runtime-dependent", StringComparison.Ordinal)
             || message.Contains("runtime tensor", StringComparison.Ordinal);
 
-    private static string? Compare(string name, TestTensor expected, long[] shape, double[] values)
+    private static string? Compare(string name, TestTensor expected, long[] shape, double[] values, string[]? strings)
     {
         if (!SameShape(expected.Dims, shape))
         {
             return $"output '{name}': shape [{string.Join(", ", shape)}], expected [{string.Join(", ", expected.Dims)}]";
+        }
+
+        if (expected.Strings is not null || strings is not null)
+        {
+            // Strings compare exactly (ordinal).
+            var want = expected.Strings ?? [];
+            var got = strings ?? [];
+            int first = Enumerable.Range(0, Math.Max(want.Length, got.Length)).FirstOrDefault(i => i >= want.Length || i >= got.Length || want[i] != got[i], -1);
+            return first < 0 ? null
+                : $"output '{name}' [{first}] = \"{(first < got.Length ? got[first] : "")}\", expected \"{(first < want.Length ? want[first] : "")}\"";
         }
 
         for (int i = 0; i < values.Length; i++)
