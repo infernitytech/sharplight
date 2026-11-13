@@ -148,6 +148,10 @@ internal sealed unsafe class PhysicalDeviceInfo
     public VkVersion ApiVersion { get; }
     public HashSet<string> Extensions { get; } = [];
     public long DeviceLocalBytes { get; }
+    /// <summary>Index of the largest device-local heap (the VRAM heap the budget is read from).</summary>
+    public int DeviceLocalHeap { get; }
+    /// <summary>VK_EXT_memory_budget is available.</summary>
+    public bool MemoryBudgetExt { get; }
     public uint SubgroupSize { get; }
     public uint MinSubgroupSize { get; }
     public uint MaxSubgroupSize { get; }
@@ -273,9 +277,12 @@ internal sealed unsafe class PhysicalDeviceInfo
         var mp = new VkPhysicalDeviceMemoryProperties();
         api.vkGetPhysicalDeviceMemoryProperties(pd, &mp);
         long local = 0;
+        int heap = 0;
         for (int i = 0; i < mp.memoryHeapCount; i++)
-            if ((mp.memoryHeaps[i].flags & VkMemoryHeapFlags.DeviceLocal) != 0) local = Math.Max(local, (long)mp.memoryHeaps[i].size);
+            if ((mp.memoryHeaps[i].flags & VkMemoryHeapFlags.DeviceLocal) != 0 && (long)mp.memoryHeaps[i].size > local) { local = (long)mp.memoryHeaps[i].size; heap = i; }
         DeviceLocalBytes = local;
+        DeviceLocalHeap = heap;
+        MemoryBudgetExt = Extensions.Contains("VK_EXT_memory_budget");
     }
 
     public DeviceInfo ToDeviceInfo(int index) => new()
@@ -311,6 +318,7 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["integer_dot_product"] = IntegerDotProduct.ToString(),
             ["max_shared_memory"] = MaxSharedMemory.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),
+            ["memory_budget"] = MemoryBudgetExt.ToString(),
         },
     };
 }

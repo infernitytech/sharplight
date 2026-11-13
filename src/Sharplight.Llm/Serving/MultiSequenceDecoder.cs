@@ -32,6 +32,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
     public bool BatchesSequences => true;
     public bool CanTruncate { get; }
     public CompiledModel Compiled => _compiled;
+    public long DeviceMemoryBytes => _compiled.AcceleratorMemoryBytes;
 
     /// <param name="compiled">A model compiled from <see cref="MultiSequence.Transform"/>'s graph with context length
     /// <paramref name="slots"/> · <paramref name="contextLength"/> and symbol bounds U = slots, R ≥ slots.</param>
@@ -76,6 +77,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         {
             Devices = placement.Devices,
             Fallback = placement.Fallback,
+            ReservePerDevice = placement.ReservePerDevice,
             Compile = new CompileOptions
             {
                 MaxTokens = maxBatchTokens,

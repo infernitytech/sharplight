@@ -40,6 +40,13 @@ public sealed class PlacementOptions
     public required CompileOptions Compile { get; init; }
 }
 
+/// <summary>Estimated device memory of a compiled model, in bytes.</summary>
+public readonly record struct ModelFootprint(long WeightBytes, long StateBytes, long ActivationBytes)
+{
+    public long Total => WeightBytes + StateBytes + ActivationBytes;
+    public override string ToString() => $"{Total / 1048576.0:F0} MiB (weights {WeightBytes / 1048576.0:F0}, state {StateBytes / 1048576.0:F0}, activations ~{ActivationBytes / 1048576.0:F0})";
+}
+
 /// <summary>Result of placement: which device each group/node goes to and the resulting segments.</summary>
 public sealed class PlacementPlan
 {
@@ -165,6 +172,53 @@ public static class PlacementPlanner
         if (n.Id < g.Nodes.Count && g.Nodes[n.Id] == n) return n.Id;
         for (int i = 0; i < g.Nodes.Count; i++) if (g.Nodes[i] == n) return i;
         throw new InvalidOperationException("Node not in graph.");
+    }
+
+    /// <summary>
+    /// Device memory a graph needs when compiled with <paramref name="options"/>, before any device is touched: weights, persistent
+    /// state (KV caches / recurrent state) and a rough bound for activations and scratch. <paramref name="slots"/> &gt; 1 sizes
+    /// the state of a multi-sequence compilation of the single-sequence <paramref name="graph"/> (KV rows for slots · context,
+    /// recurrent state per slot). Use it to decide whether a model fits before compiling it.
+    /// </summary>
+    public static ModelFootprint Estimate(ComputeGraph graph, CompileOptions options, int slots = 1)
+    {
+        long weights = 0, states = 0, maxOut = 0, maxNode = 0;
+        var seenW = new HashSet<WeightInfo>();
+        var seenS = new HashSet<StateDefinition>();
+        foreach (var n in graph.Nodes)
+        {
+            long nodeBytes = 0;
+            foreach (var v in n.Inputs)
+            {
+                if (v.Weight is { } w && seenW.Add(w)) weights += w.ByteSize;
+                if (v.State is { } st && seenS.Add(st))
+                {
+                    if (slots > 1 && MultiSequence.IsKvState(st))
+                        states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = options.ContextLength * slots, SymbolBounds = options.SymbolBounds });
+                    else states += StateBytes(st, options) * Math.Max(1, slots);
+                }
+            }
+            if (n.Op.Category == OpCategory.View) continue;
+            foreach (var o in n.Outputs)
+            {
+                long b = ValueBytes(o, options);
+                nodeBytes += b;
+                maxOut = Math.Max(maxOut, b);
+            }
+            maxNode = Math.Max(maxNode, nodeBytes);
+        }
+        // Activations live in a liveness-packed arena plus staging copies of the inputs/outputs; a few times the largest node
+        // output (matmul in/out, residual, norm) covers the arena. Device memory is sub-allocated from 256 MiB blocks (the last one
+        // is partly empty) and big models need a little extra scratch, hence the granule and a few percent of the resident size.
+        long act = 4 * maxOut + (256L << 20) + (weights + states) / 25;
+        return new ModelFootprint(weights, states, act);
+    }
+
+    static long ValueBytes(Value v, CompileOptions o)
+    {
+        long elems = 1;
+        foreach (var d in v.Shape.Dims) elems *= d.IsSymbolic ? Math.Max(1, d.Symbol is WellKnown.TokenSymbol or WellKnown.ContextSymbol || o.SymbolBounds.ContainsKey(d.Symbol!) ? o.Bound(d.Symbol!) : o.MaxTokens) : d.Fixed;
+        return v.Type.ByteSize(elems);
     }
 
     public static long StateBytes(StateDefinition s, CompileOptions o)

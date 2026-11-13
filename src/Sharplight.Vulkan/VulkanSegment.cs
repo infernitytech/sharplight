@@ -24,6 +24,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     readonly Dictionary<string, VkCommandBuffer> _recorded = [];
     readonly CompileOptions _options;
     readonly VkFence _fence;
+    /// <summary>This segment's own command pool (pools are externally synchronized; segments of different models run on different threads).</summary>
+    readonly VkCommandPool _pool;
     readonly VkQueryPool _stepPool;
     bool _disposed;
 
@@ -62,6 +64,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         _options = options;
         Segment = segment;
 
+        _pool = dev.CreateCommandPool();
         var fci = new VkFenceCreateInfo();
         VkFence f;
         dev.Api.vkCreateFence(&fci, null, &f).CheckResult();
@@ -95,6 +98,16 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
     }
 
+    VkCommandBuffer AllocCb()
+    {
+        var ai = new VkCommandBufferAllocateInfo { commandPool = _pool, level = VkCommandBufferLevel.Primary, commandBufferCount = 1 };
+        VkCommandBuffer cb;
+        _dev.Api.vkAllocateCommandBuffers(&ai, &cb).CheckResult();
+        return cb;
+    }
+
+    void FreeCb(VkCommandBuffer cb) => _dev.Api.vkFreeCommandBuffers(_pool, 1, &cb);
+
     // ---- weights ---------------------------------------------------------------------------
     void UploadWeights()
     {
@@ -102,7 +115,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         if (weights.Count == 0) return;
         const ulong StagingSize = 128UL << 20;
         var staging = new[] { _dev.Memory.Allocate(StagingSize, MemoryUsage.Upload), _dev.Memory.Allocate(StagingSize, MemoryUsage.Upload) };
-        var cbs = new[] { _dev.AllocateCommandBuffer(), _dev.AllocateCommandBuffer() };
+        var cbs = new[] { AllocCb(), AllocCb() };
         var fences = new VkFence[2];
         for (int i = 0; i < 2; i++)
         {
@@ -131,8 +144,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 _dev.Api.vkEndCommandBuffer(cb).CheckResult();
                 var f = fences[slot];
                 _dev.Api.vkResetFences(1, &f).CheckResult();
-                var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
-                _dev.Api.vkQueueSubmit(_dev.Queue, 1, &si, f).CheckResult();
+                _dev.Submit(cb, f);
                 pending.Clear();
                 slot ^= 1;
                 fill = 0;
@@ -186,7 +198,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             for (int i = 0; i < 2; i++)
             {
                 _dev.Api.vkDestroyFence(fences[i], null);
-                _dev.FreeCommandBuffer(cbs[i]);
+                FreeCb(cbs[i]);
                 _dev.Memory.Free(staging[i]);
             }
         }
@@ -278,7 +290,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                     throw new ArgumentException($"Symbol {s}={bindings[s]} exceeds the compiled bound.");
             var swRec = Stopwatch.StartNew();
             long pt0 = _dev.PipelineTicks; int pc0 = _dev.PipelinesCreated;
-            cb = _dev.AllocateCommandBuffer();
+            cb = AllocCb();
             var bi = new VkCommandBufferBeginInfo();
             _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
             _dev.Api.vkCmdResetQueryPool(cb, _stepPool, 0, 2);
@@ -293,8 +305,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
         var fence = _fence;
         _dev.Api.vkResetFences(1, &fence).CheckResult();
-        var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
-        _dev.Api.vkQueueSubmit(_dev.Queue, 1, &si, fence).CheckResult();
+        _dev.Submit(cb, fence);
         _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
         ulong* ts = stackalloc ulong[2];
         if (_dev.Api.vkGetQueryPoolResults(_stepPool, 0, 2, 16, ts, 8, VkQueryResultFlags.Bit64) == VkResult.Success)
@@ -408,9 +419,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             var fence = _fence;
             _dev.Api.vkResetFences(1, &fence).CheckResult();
             var cb = c.Cb;
-            var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
             long t0 = Stopwatch.GetTimestamp();
-            _dev.Api.vkQueueSubmit(_dev.Queue, 1, &si, fence).CheckResult();
+            _dev.Submit(cb, fence);
             _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
             double ms = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
             total += ms;
@@ -424,7 +434,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         LastGpuMs = total;
         if (replan)
         {
-            foreach (var c in plan.Chunks) _dev.FreeCommandBuffer(c.Cb);
+            foreach (var c in plan.Chunks) FreeCb(c.Cb);
             _plans[key] = BuildPlan(plan.Est, bindings);
         }
     }
@@ -449,7 +459,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         for (int ci = 0; ci < plan.Chunks.Count; ci++)
         {
             var c = plan.Chunks[ci];
-            var cb = _dev.AllocateCommandBuffer();
+            var cb = AllocCb();
             var bi = new VkCommandBufferBeginInfo();
             _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
             if (ci == 0) RecordInputCopies(cb, bindings);
@@ -611,10 +621,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     {
         if (_disposed) return;
         _disposed = true;
-        _dev.Api.vkDeviceWaitIdle();
-        foreach (var cb in _recorded.Values) _dev.FreeCommandBuffer(cb);
+        // Every Execute waits for its fence, so no work of this segment is in flight; no device-wide wait (it would
+        // stall, and need the queue lock against, the other models sharing the device).
+        foreach (var cb in _recorded.Values) FreeCb(cb);
         _recorded.Clear();
-        foreach (var p in _plans.Values) foreach (var c in p.Chunks) _dev.FreeCommandBuffer(c.Cb);
+        foreach (var p in _plans.Values) foreach (var c in p.Chunks) FreeCb(c.Cb);
         _plans.Clear();
         foreach (var a in _alloc.Values) _dev.Memory.Free(a);
         _alloc.Clear();
@@ -622,5 +633,6 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         _staging.Clear();
         _dev.Api.vkDestroyFence(_fence, null);
         _dev.Api.vkDestroyQueryPool(_stepPool, null);
+        _dev.Api.vkDestroyCommandPool(_pool, null);
     }
 }

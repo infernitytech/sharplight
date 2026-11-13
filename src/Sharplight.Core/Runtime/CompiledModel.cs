@@ -43,6 +43,10 @@ public sealed class CompiledModel : IDisposable
         return new CompiledModel(graph, plan, placement.Compile, [.. compiled]);
     }
 
+    /// <summary>Device memory held on accelerators (segments placed on non-CPU devices): what counts against GPU memory budgets.</summary>
+    public long AcceleratorMemoryBytes
+        => _segments.Where(s => Plan.Slots[s.Segment.DeviceSlot].Device.Info.Kind != DeviceKind.Cpu).Sum(s => s.DeviceMemoryBytes);
+
     /// <summary>Supplies a graph input for the next <see cref="Run"/> (dense logical layout).</summary>
     public void SetInput(Value input, ReadOnlySpan<byte> data)
     {
