@@ -304,17 +304,17 @@ public sealed partial class GraphLowerer
             headsPerGroup--;
         }
 
-        long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)(plan.D / 8)), sg);
-        long valueLanes = (long)BitOperations.RoundUpToPowerOf2((ulong)(plan.DV / 8));
-
-        // Keys per chunk: every key and value row of a chunk is loaded into registers up front (about 16 + 16 16-byte
-        // loads per thread at most), so a chunk costs one memory latency.
+        // KLANES lanes own one key row and the matching value row (8 dims per lane and 16-byte load); each lane group
+        // takes DEC_R rows per batch, about 8 loads per lane in flight.
+        long keyLanes = Math.Min((long)BitOperations.RoundUpToPowerOf2((ulong)Math.Max(plan.D, plan.DV) / 8), sg);
+        long keySlices = (plan.D / 8 + keyLanes - 1) / keyLanes;
+        long valueSlices = (plan.DV / 8 + keyLanes - 1) / keyLanes;
         int[] cfg = DiagnosticSwitches.AttentionDecodeConfig;
-        long rowLoads = Math.Max(keyLanes * ((plan.D / 8 + keyLanes - 1) / keyLanes), valueLanes * ((plan.DV / 8 + valueLanes - 1) / valueLanes));
-        long chunk = cfg.Length > 3 ? cfg[3] : 1L << BitOperations.Log2((ulong)Math.Max(1, 16 * threads / rowLoads));
-        chunk = Math.Max(chunk, Math.Max(32, Math.Max(threads / keyLanes, threads / valueLanes)));
-        long minKeys = Math.Max(chunk, (cfg[1] + chunk - 1) / chunk * chunk);
-        long sharedBytes = 4 * (2 * headsPerGroup * chunk + 3 * headsPerGroup + threads / valueLanes * plan.DV);
+        long rowsPerBatch = cfg.Length > 3 ? cfg[3] : Math.Max(1, 8 / (keySlices + valueSlices));
+        long batch = rowsPerBatch * threads / keyLanes;
+        long minKeys = Math.Max(batch, (cfg[1] + batch - 1) / batch * batch);
+        long subgroups = threads / sg;
+        long sharedBytes = 4 * subgroups * headsPerGroup * (2 + valueSlices * keyLanes * 8);
         if (sharedBytes > _opt.MaxSharedMemory)
         {
             return null;
@@ -326,7 +326,7 @@ public sealed partial class GraphLowerer
         var macros = new Dictionary<string, string>(plan.Macros);
         (string Name, long Value)[] decodeMacros =
         [
-            ("HPW", headsPerGroup), ("KLANES", keyLanes), ("VLANES", valueLanes), ("DEC_WG", threads), ("DEC_BC", chunk),
+            ("HPW", headsPerGroup), ("KLANES", keyLanes), ("DEC_WG", threads), ("DEC_R", rowsPerBatch), ("DEC_BC", batch),
             ("DEC_MAX_SPLITS", cfg[2]), ("DEC_MIN_KEYS", minKeys), ("DEC_TARGET_WG", cfg[0]),
         ];
         foreach (var (name, value) in decodeMacros)
@@ -358,7 +358,7 @@ public sealed partial class GraphLowerer
             }
         }
 
-        long bytes = partials * plan.HQ * (plan.DV + 2) * 4;
+        long bytes = partials * plan.HQ * (plan.DV + 4) * 4;   // DEC_PS floats per partial
         _attnScratch ??= NewBuffer(BufferKind.Activations, "attn-split", 0);
         _attnScratch.Bytes = Math.Max(_attnScratch.Bytes, bytes);
         return new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
