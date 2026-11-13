@@ -276,8 +276,8 @@ internal static class OnnxFold
         var r = new double[f.Length];
         for (long i = 0; i < f.Length; i++)
         {
-            long c = s.Length == 1 ? 0 : (i / inner) % ax;
-            r[i] = (float)((f[i] - (z is null ? 0 : z[z.Length == 1 ? 0 : c])) * s[c]);
+            long c = (i / inner) % ax;
+            r[i] = (float)((f[i] - (z is null ? 0 : z[z.Length == 1 ? 0 : c])) * s[s.Length == 1 ? 0 : c]);
         }
         return OnnxConst.FromFloats(sc.IsFloat ? sc.ElemType : OnnxType.Float, x.Dims, r);
     }
@@ -518,29 +518,32 @@ internal static class OnnxFold
             steps = ins.Count > 4 ? ins[4]?.Ints() : null;
         }
         axes ??= Enumerable.Range(0, starts.Length).Select(i => (long)i).ToArray();
-        var lo = new long[x.Rank]; var len = (long[])x.Dims.Clone();
+        var pos = new long[x.Rank][];   // per axis: the source indices that are kept
+        for (int d = 0; d < x.Rank; d++) pos[d] = Enumerable.Range(0, (int)x.Dims[d]).Select(v => (long)v).ToArray();
         for (int i = 0; i < axes.Length; i++)
         {
             int ax = (int)(axes[i] < 0 ? axes[i] + x.Rank : axes[i]);
-            if (steps is not null && steps[i] != 1) throw new NotSupportedException($"Slice '{n.Name}': step {steps[i]} is not supported (only 1).");
-            var (s, l) = SliceRange(starts[i], ends[i], x.Dims[ax]);
-            lo[ax] = s; len[ax] = l;
+            long step = steps is null ? 1 : steps[i], dim = x.Dims[ax];
+            if (step == 0) throw new InvalidDataException($"Slice '{n.Name}': step 0");
+            long s0 = starts[i], e0 = ends[i];
+            if (s0 < 0) s0 += dim;
+            if (e0 < 0) e0 += dim;
+            var list = new List<long>();
+            if (step > 0) { s0 = Math.Clamp(s0, 0, dim); e0 = Math.Clamp(e0, 0, dim); for (long k = s0; k < e0; k += step) list.Add(k); }
+            else { s0 = Math.Clamp(s0, 0, dim - 1); e0 = Math.Clamp(e0, -1, dim - 1); for (long k = s0; k > e0; k += step) list.Add(k); }
+            pos[ax] = [.. list];
         }
+        var len = pos.Select(p => (long)p.Length).ToArray();
         long total = 1; foreach (var d in len) total *= d;
         var srcStr = new long[x.Rank]; long st = 1;
         for (int d = x.Rank - 1; d >= 0; d--) { srcStr[d] = st; st *= x.Dims[d]; }
-        long baseOff = 0; for (int d = 0; d < x.Rank; d++) baseOff += lo[d] * srcStr[d];
         var map = new long[total];
-        var idx = new long[x.Rank]; long pos = baseOff;
+        var idx = new long[x.Rank];
         for (long o = 0; o < total; o++)
         {
-            map[o] = pos;
-            for (int d = x.Rank - 1; d >= 0; d--)
-            {
-                idx[d]++; pos += srcStr[d];
-                if (idx[d] < len[d]) break;
-                pos -= srcStr[d] * len[d]; idx[d] = 0;
-            }
+            long off = 0; for (int d = 0; d < x.Rank; d++) off += pos[d][idx[d]] * srcStr[d];
+            map[o] = off;
+            for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < len[d]) break; idx[d] = 0; }
         }
         return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, len, map.Select(p => x.Floats()[p]).ToArray())
                          : OnnxConst.FromInts(x.ElemType, len, map.Select(p => x.Ints()[p]).ToArray());

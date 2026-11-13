@@ -38,6 +38,7 @@ internal sealed partial class OnnxTranslator
 
     bool More(OnnxNode n, Tn?[] ins)
     {
+        if (QuantExtra(n, ins)) return true;
         if (n.Domain == "com.microsoft") { Contrib(n, ins); return true; }
         string name = Nm(n);
         switch (n.OpType)
@@ -392,6 +393,12 @@ internal sealed partial class OnnxTranslator
     /// <summary>Dequantizes a constant (per-tensor/per-axis zero point and scale) to f32.</summary>
     static OnnxConst DequantConst(OnnxConst x, OnnxConst scale, OnnxConst? zp, int axis = 0) => OnnxFold.Dequantize(x, scale, zp, axis);
 
+    Value ShiftZp(Tn a, Tn? zpT, string nm)
+    {
+        if (zpT is { IsConst: false }) return _b.Sub(AsValue(a), zpT.V!);   // runtime zero point (DynamicQuantizeLinear)
+        return ShiftZp(a, zpT?.C, nm);
+    }
+
     Value ShiftZp(Tn a, OnnxConst? zp, string nm)
     {
         var v = AsValue(a);
@@ -406,10 +413,10 @@ internal sealed partial class OnnxTranslator
         {
             case "MatMulInteger":
             {
-                var a = ShiftZp(ins[0]!, OptConst(ins, 2, "a zero point"), name);
+                var a = ShiftZp(ins[0]!, Opt(ins, 2), name);
                 var bC = ConstIn(ins, 1, "MatMulInteger B");
                 var bz = OptConst(ins, 3, "b zero point");
-                var bf = DequantConst(bC, OnnxConst.Scalar(1f), bz is null ? null : bz.Count == 1 ? bz : null);
+                var bf = DequantConst(bC, OnnxConst.Scalar(1f), bz, bC.Rank - 1);   // per-column zero points when bz is a vector
                 SetDyn(n, 0, MatMulWeightOrBatch(a, bf, name));
                 break;
             }
@@ -427,8 +434,9 @@ internal sealed partial class OnnxTranslator
                 bool q = n.OpType == "QLinearConv";
                 Tn xin = ins[0]!;
                 float aScale = q ? ConstIn(ins, 1, "x_scale").ScalarF32() : 1f;
-                var xzp = OptConst(ins, q ? 2 : 2, "x_zp");
-                var xv = ShiftZp(xin, xzp, name);
+                var xzp = q ? OptConst(ins, 2, "x_zp") : null;
+                var xv = ShiftZp(xin, q ? xzp : null, name);
+                if (!q) xv = ShiftZp(xin, Opt(ins, 2), name);
                 if (q) xv = _b.Scale(xv, aScale);
                 var wC = ConstIn(ins, q ? 3 : 1, "W");
                 var wscale = q ? ConstIn(ins, 4, "w_scale") : OnnxConst.Scalar(1f);

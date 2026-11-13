@@ -32,7 +32,7 @@ internal sealed partial class OnnxTranslator
         "ReduceL1", "ReduceProd", "ReduceLogSum", "ReduceLogSumExp", "ArgMax", "ArgMin", "TopK", "Hardmax", "GroupNormalization", "LpNormalization", "LRN",
         "MeanVarianceNormalization", "ConvTranspose", "LpPool", "Einsum", "Tile", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "Scatter", "CumSum",
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
-        "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike",
+        "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
     ];
 
     static readonly HashSet<string> s_contribOps =
@@ -206,7 +206,7 @@ internal sealed partial class OnnxTranslator
     }
 
     static bool IsSupportedNode(OnnxNode n)
-        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && s_contribOps.Contains(n.OpType);
+        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
 
     // ---- group handling --------------------------------------------------------------------------------
     void NextGroup()

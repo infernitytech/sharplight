@@ -32,7 +32,7 @@ public class ReferenceTests(ITestOutputHelper output)
             Assert.Equal(c.Outputs.Length, res.Outputs.Length);
             for (int k = 0; k < c.Outputs.Length; k++)
             {
-                var cmp = Compare.Check(res.Outputs[k], c.ReadOutput(batch, k), c.Rtol);
+                var cmp = Compare.Check(res.Outputs[k], c.ReadOutput(batch, k), c.Rtol, c.Atol);
                 output.WriteLine($"{provider} {c.Name} b={batch} out{k} ({c.Outputs[k]}): maxAbs={cmp.MaxAbs:E2} maxRel={cmp.MaxRel:E2} scale={cmp.Scale:F2} compile={res.CompileMs:F0}ms");
                 Assert.True(cmp.Ok, $"{provider} {c.Name} batch {batch} output '{c.Outputs[k]}': maxAbs={cmp.MaxAbs:E3} maxRel={cmp.MaxRel:E3} at {cmp.Worst}");
             }
