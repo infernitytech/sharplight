@@ -96,7 +96,8 @@ public sealed partial class GraphLowerer
 
     static int? WeightFormat(DataType t) =>
         t == DataType.F32 ? 0 : t == DataType.F16 ? 1 : t == DataType.BF16 ? 2 : t == DataType.Q8_0 ? 8 : t == ShaderTypes.Q8_0R ? 108 :
-        t == DataType.Q4_0 ? 2001 : t == DataType.Q4_K ? 12 : t == DataType.Q5_K ? 13 : t == DataType.Q6_K ? 14 : null;
+        t == DataType.Q4_0 ? 2001 : t == DataType.Q4_K ? 12 : t == DataType.Q5_K ? 13 : t == DataType.Q6_K ? 14 :
+        t == DataType.Q1_0 ? 41 : t == DataType.Q2_0 ? 42 : t == DataType.Q2_0_G128 ? 142 : t == DataType.Tern1_G128 ? 143 : null;
 
     // ---- main --------------------------------------------------------------------------------
     KernelProgram Run()

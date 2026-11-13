@@ -82,6 +82,20 @@ public sealed class DataType : IEquatable<DataType>
     public static readonly DataType IQ4_XS = Register("iq4_xs", DataTypeKind.Quantized, 256, 136);
     public static readonly DataType MXFP4 = Register("mxfp4", DataTypeKind.Quantized, 32, 17);
 
+    // Group-wise 1-bit / ternary formats (Bonsai): one f16 scale per group, w = scale * code.
+    /// <summary>1 bit per weight, group 128: { f16 d; u8 bits[16] }, bit j (LSB first) set = +d, clear = -d (18 bytes).</summary>
+    public static readonly DataType Q1_0 = Register("q1_0", DataTypeKind.Quantized, 128, 18);
+    /// <summary>2-bit codes, group 64: { f16 d; u8 qs[16] }, code j in bits 2(j%4) of byte j/4, w = (code-1)*d (code 3 = +2d; ternary uses 0..2) (18 bytes).</summary>
+    public static readonly DataType Q2_0 = Register("q2_0", DataTypeKind.Quantized, 64, 18);
+    /// <summary>Same 2-bit code as <see cref="Q2_0"/> with a scale per 128 weights: { f16 d; u8 qs[32] } (34 bytes).</summary>
+    public static readonly DataType Q2_0_G128 = Register("q2_0_g128", DataTypeKind.Quantized, 128, 34);
+    /// <summary>
+    /// Dense base-3 ternary, group 128: { u8 qs[24]; u8 qh[2]; f16 d } (28 bytes). qs bytes pack 5 trits each (digit n of byte
+    /// b is ((b*3^n mod 256)*3)>>8), in stages: bytes 0..15 give values n*16+m, bytes 16..23 give 80+n*8+m; the two qh bytes give 4 trits
+    /// each, values 120+n*2+h. w = (trit-1)*d.
+    /// </summary>
+    public static readonly DataType Tern1_G128 = Register("tern1_g128", DataTypeKind.Quantized, 128, 28);
+
     public bool Equals(DataType? other) => ReferenceEquals(this, other);
     public override bool Equals(object? obj) => ReferenceEquals(this, obj);
     public override int GetHashCode() => Name.GetHashCode(StringComparison.OrdinalIgnoreCase);

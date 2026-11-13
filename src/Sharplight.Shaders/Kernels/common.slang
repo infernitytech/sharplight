@@ -47,6 +47,10 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_Q4_K 12
 #define FMT_Q5_K 13
 #define FMT_Q6_K 14
+#define FMT_Q1_0 41
+#define FMT_Q2_0 42
+#define FMT_Q2_0_G128 142
+#define FMT_TERN1_G128 143
 
 void load8_f32(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -193,6 +197,52 @@ void load8_q6_k(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[
     }
 }
 
+// Q1_0: 128 values = { f16 d; u8 bits[16] } (18 bytes); bit j (LSB first) set = +d, clear = -d.
+void load8_q1_0(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(g >> 4) * 18;
+    float d = h2f(*(uint16_t*)blk);
+    uint b = uint(blk[2 + (g & 15)]);
+    [ForceUnroll]
+    for (int i = 0; i < 8; i++)
+        v[i] = ((b >> i) & 1) != 0 ? d : -d;
+}
+
+// Two-bit codes (Q2_0 group 64 and Q2_0_G128): { f16 d; u8 qs[GROUP/4] }; value j = ((qs[j/4] >> 2(j%4)) & 3) - 1, times d.
+void load8_q2(uint8_t* base, uint64_t rowBytes, uint row, uint blockIdx, uint sub, uint blockBytes, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(blockIdx) * blockBytes;
+    float d = h2f(*(uint16_t*)blk);
+    uint w = uint(blk[2 + 2 * sub]) | (uint(blk[3 + 2 * sub]) << 8);
+    [ForceUnroll]
+    for (int i = 0; i < 8; i++)
+        v[i] = d * float(int((w >> (2 * i)) & 3) - 1);
+}
+
+// Dense ternary, group 128: { u8 qs[24]; u8 qh[2]; f16 d } (28 bytes), see DataType.Tern1_G128.
+float tern_digit(uint b, uint n)
+{
+    uint pw = 1;
+    for (uint i = 0; i < n; i++) pw *= 3;
+    return float(int((((b * pw) & 255u) * 3u) >> 8) - 1);
+}
+
+void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
+{
+    uint8_t* blk = base + rowBytes * row + uint64_t(g >> 4) * 28;
+    float d = h2f(*(uint16_t*)(blk + 26));
+    uint sub = g & 15;
+    [ForceUnroll]
+    for (int i = 0; i < 8; i++)
+    {
+        uint n, bi;
+        if (sub < 10) { n = sub >> 1; bi = (sub & 1) * 8 + i; }
+        else if (sub < 15) { n = sub - 10; bi = 16 + i; }
+        else { n = uint(i) >> 1; bi = 24 + (uint(i) & 1); }
+        v[i] = d * tern_digit(uint(blk[bi]), n);
+    }
+}
+
 #ifdef WFMT
 void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -214,6 +264,14 @@ void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
     load8_q5_k(base, rowBytes, row, g, v);
 #elif WFMT == FMT_Q6_K
     load8_q6_k(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q1_0
+    load8_q1_0(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q2_0
+    load8_q2(base, rowBytes, row, g >> 3, g & 7, 18, v);
+#elif WFMT == FMT_Q2_0_G128
+    load8_q2(base, rowBytes, row, g >> 4, g & 15, 34, v);
+#elif WFMT == FMT_TERN1_G128
+    load8_tern1(base, rowBytes, row, g, v);
 #else
 #error "unsupported WFMT"
 #endif

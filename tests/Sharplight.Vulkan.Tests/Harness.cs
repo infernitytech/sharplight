@@ -100,6 +100,8 @@ static class Rnd
             if (t == DataType.Q8_0 || t == DataType.Q4_0) PutHalf(bytes, o, d());
             else if (t == DataType.Q4_K || t == DataType.Q5_K) { PutHalf(bytes, o, d()); PutHalf(bytes, o + 2, d()); }
             else if (t == DataType.Q6_K) PutHalf(bytes, o + 208, d());
+            else if (t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128) PutHalf(bytes, o, d());
+            else if (t == DataType.Tern1_G128) PutHalf(bytes, o + 26, d());
             else throw new NotSupportedException(t.Name);
         }
         return bytes;
