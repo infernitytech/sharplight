@@ -467,7 +467,7 @@ internal sealed partial class OnnxTranslator
         }
 
         bool allConst = ins.All(t => t is null || t.IsConst);
-        if (allConst && OnnxFold.Ops.Contains(n.OpType) && !BuildsSymbolicExtent(n, ins))
+        if (allConst && !BuildsSymbolicExtent(n, ins) && OnnxFold.ShouldFold(n, ins.Select(t => t?.C).ToList()))
         {
             var res = OnnxFold.Eval(n, ins.Select(t => t?.C).ToList());
             for (int i = 0; i < n.Outputs.Count && i < res.Count; i++)

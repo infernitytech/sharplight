@@ -14,7 +14,52 @@ internal static class OnnxFold
         "ReduceProd", "ReduceSum", "ReduceMean", "ReduceMax", "ReduceMin", "Clip",
         "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh", "Round", "Sign", "Softplus", "Softsign", "Mod", "IsNaN", "IsInf",
         "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin", "BatchNormalization",
+        "MatMul",
     ];
+
+    /// <summary>
+    /// Most multiply-adds of a MatMul evaluated on the host. Small constant matmuls (Swin V2's continuous position bias MLP over its
+    /// fixed coordinate table) fold into one constant, together with the Gather and activations behind them; a matmul of two large
+    /// constant weights is left to the device.
+    /// </summary>
+    private const long MaxFoldedMatMulWork = 1L << 26;
+
+    /// <summary>Whether <paramref name="n"/> should be evaluated on the host given that all its inputs are constants.</summary>
+    public static bool ShouldFold(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
+    {
+        if (!Ops.Contains(n.OpType))
+        {
+            return false;
+        }
+
+        if (n.OpType != "MatMul")
+        {
+            return true;
+        }
+
+        if (ins.Count < 2 || ins[0] is not { } a || ins[1] is not { } b || a.HasSymbols || b.HasSymbols || !a.IsFloat || !b.IsFloat)
+        {
+            return false;
+        }
+
+        // Work = output elements x K; the output count is bounded by the larger operand's batch times M x N.
+        long k = a.Rank == 0 ? 1 : a.Dims[^1];
+        long m = a.Rank >= 2 ? a.Dims[^2] : 1;
+        long nCols = b.Rank >= 2 ? b.Dims[^1] : 1;
+        long batch = Math.Max(BatchCount(a), BatchCount(b));
+        return (double)batch * m * nCols * k <= MaxFoldedMatMulWork;
+    }
+
+    private static long BatchCount(OnnxConst c)
+    {
+        long batch = 1;
+        for (int i = 0; i < c.Rank - 2; i++)
+        {
+            batch *= c.Dims[i];
+        }
+
+        return batch;
+    }
 
     private static readonly Dictionary<string, Func<double, double>> s_math = new()
     {
@@ -199,6 +244,8 @@ internal static class OnnxFold
             case "ReduceMax":
             case "ReduceMin":
                 return [Reduce(n, Input(n, ins, 0), Optional(ins, 1))];
+            case "MatMul":
+                return [MatMul(n, Input(n, ins, 0), Input(n, ins, 1))];
         }
         throw new NotSupportedException($"Constant folding of {n.OpType} is not implemented.");
     }
@@ -247,6 +294,64 @@ internal static class OnnxFold
     private static SymbolicExpression SymbolicDivide(SymbolicExpression a, SymbolicExpression b)
         => b.IsConstant ? a.FloorDiv(b.ConstantValue) : (a - b).IsConstant && (a - b).ConstantValue == 0 ? SymbolicExpression.Constant(1)
             : throw new NotSupportedException($"Dividing {a} by the symbolic value {b}.");
+
+    /// <summary>
+    /// numpy-style MatMul: 1-D operands are promoted (and the added axis removed again), batch dims broadcast; accumulates in
+    /// double and rounds f32 results to f32.
+    /// </summary>
+    private static OnnxConst MatMul(OnnxNode n, OnnxConst a, OnnxConst b)
+    {
+        if (a.Rank == 0 || b.Rank == 0)
+        {
+            throw new InvalidDataException($"MatMul '{n.Name}': scalar operand.");
+        }
+
+        long[] ad = a.Rank == 1 ? [1, a.Dims[0]] : a.Dims;
+        long[] bd = b.Rank == 1 ? [b.Dims[0], 1] : b.Dims;
+        long m = ad[^2];
+        long k = ad[^1];
+        long cols = bd[^1];
+        if (bd[^2] != k)
+        {
+            throw new InvalidDataException($"MatMul '{n.Name}': inner dimensions {k} and {bd[^2]} differ.");
+        }
+
+        long[] aBatch = ad[..^2];
+        long[] bBatch = bd[..^2];
+        long[] batch = Broadcast(aBatch, bBatch);
+        long batchCount = 1;
+        foreach (var d in batch)
+        {
+            batchCount *= d;
+        }
+
+        var av = a.Floats();
+        var bv = b.Floats();
+        var r = new double[batchCount * m * cols];
+        bool roundToF32 = a.ElemType == OnnxType.Float || b.ElemType == OnnxType.Float;
+        ForEachBroadcast(aBatch, bBatch, batch, (o, ia, ib) =>
+        {
+            long aBase = ia * m * k;
+            long bBase = ib * k * cols;
+            long rBase = o * m * cols;
+            for (long i = 0; i < m; i++)
+            {
+                for (long j = 0; j < cols; j++)
+                {
+                    double sum = 0;
+                    for (long p = 0; p < k; p++)
+                    {
+                        sum += av[aBase + (i * k) + p] * bv[bBase + (p * cols) + j];
+                    }
+
+                    r[rBase + (i * cols) + j] = roundToF32 ? (float)sum : sum;
+                }
+            }
+        });
+
+        var dims = batch.Concat(a.Rank == 1 ? [] : [m]).Concat(b.Rank == 1 ? [] : [cols]).ToArray();
+        return OnnxConst.FromFloats(a.ElemType, dims, r);
+    }
 
     private static IReadOnlyList<OnnxConst> FoldTile(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {

@@ -100,6 +100,32 @@ public class TranslationTests
     }
 
     [Fact]
+    public void ConstantFolding_MatMulOfConstants_IsEvaluatedOnHost()
+    {
+        // [1, 2] (1-D) x [[1, 0], [1, 2]] = [3, 4]: becomes the Reshape target [2, 3, 4] once cast to int64.
+        var def = new TestModel().Input("x", 2, 12).Output("y", 2, 3, 4)
+            .InitF32("a", [2], [1, 2]).InitF32("b", [2, 2], [1, 0, 1, 2]).InitI64("lead", [1], 2)
+            .Node("MatMul", ["a", "b"], ["ab"]).Node("Cast", ["ab"], ["abi"], TestModel.Attr("to", 7))
+            .Node("Concat", ["lead", "abi"], ["tgt"], TestModel.Attr("axis", 0))
+            .Node("Reshape", ["x", "tgt"], ["y"]).Build();
+        Assert.Equal([2L, 3, 4], Assert.Single(def.Graph("main").Nodes).Attributes.Get<long[]>("shape"));
+    }
+
+    [Fact]
+    public void ConstantFolding_ConstantMlpAndGather_LeaveOnlyTheConsumer()
+    {
+        // Swin V2 continuous position bias: an MLP over a constant coordinate table, gathered by a constant index.
+        var def = new TestModel().Input("x", "N", 4, 2).Output("y", "N", 4, 2)
+            .InitF32("coords", [1, 3, 3, 2], Rnd(18, 1)).InitF32("w1", [2, 8], Rnd(16, 2)).InitF32("b1", [8], Rnd(8, 3))
+            .InitF32("w2", [8, 2], Rnd(16, 4)).InitI64("flat", [2], -1, 2).InitI64("idx", [4], 7, 0, 5, 2)
+            .Node("MatMul", ["coords", "w1"], ["h"]).Node("Add", ["h", "b1"], ["hb"]).Node("Relu", ["hb"], ["hr"])
+            .Node("MatMul", ["hr", "w2"], ["t"]).Node("Reshape", ["t", "flat"], ["table"])
+            .Node("Gather", ["table", "idx"], ["bias"], TestModel.Attr("axis", 0))
+            .Node("Add", ["x", "bias"], ["y"]).Build();
+        Assert.Equal(["Add"], Ops(def));
+    }
+
+    [Fact]
     public void BatchSizeArithmetic_FoldsToSymbolicExpression()
     {
         var m = new TestModel().Input("x", "N", 2, 4).Output("y", "M", 4)
