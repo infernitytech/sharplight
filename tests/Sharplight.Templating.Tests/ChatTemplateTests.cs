@@ -2,7 +2,7 @@ using Xunit;
 
 namespace Sharplight.Templating.Tests;
 
-public class ChatTemplateTests
+public sealed class ChatTemplateTests
 {
     private static ChatTemplate Qwen() =>
         new(TestData.ReadTemplate("Qwen3.8-27B"), "", "<|im_end|>", TestData.ChatEnv());

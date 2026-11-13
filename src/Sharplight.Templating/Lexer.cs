@@ -3,41 +3,6 @@ using System.Text;
 
 namespace Sharplight.Templating;
 
-internal enum TokenKind
-{
-    Data,
-    VarBegin,
-    VarEnd,
-    BlockBegin,
-    BlockEnd,
-    Name,
-    String,
-    Int,
-    Float,
-    Op,
-    Eof,
-}
-
-internal sealed class Token
-{
-    public TokenKind Kind;
-    public string Text = "";
-    public object? Value;
-    public int Line, Col;
-
-    public override string ToString() => Kind switch
-    {
-        TokenKind.Eof => "end of template",
-        TokenKind.Data => "text",
-        TokenKind.VarBegin => "'{{'",
-        TokenKind.VarEnd => "'}}'",
-        TokenKind.BlockBegin => "'{%'",
-        TokenKind.BlockEnd => "'%}'",
-        TokenKind.String => "string",
-        _ => $"'{Text}'",
-    };
-}
-
 /// <summary>Turns template source into tokens, applying whitespace control, trim_blocks and lstrip_blocks.</summary>
 internal sealed class Lexer
 {
@@ -75,7 +40,8 @@ internal sealed class Lexer
 
     private (int Line, int Col) Pos(int index)
     {
-        int lo = 0, hi = _lineStarts.Count - 1;
+        int lo = 0;
+        int hi = _lineStarts.Count - 1;
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
@@ -177,7 +143,8 @@ internal sealed class Lexer
             }
             char kind = _s[t + 1];
             int p = t + 2;
-            bool rstripPrev = false, noLstrip = false;
+            bool rstripPrev = false;
+            bool noLstrip = false;
             if (p < _s.Length && _s[p] == '-')
             {
                 rstripPrev = true;
