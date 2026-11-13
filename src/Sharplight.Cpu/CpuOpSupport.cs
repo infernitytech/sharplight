@@ -65,6 +65,8 @@ internal static partial class CpuOpSupport
                 ? OpSupport.Yes : OpSupport.No("RoiAlign expects f32 x and rois and i32 batch indices"),
             "Sample" => OpSupport.Yes,
             "Dft" => AllF32(node),
+            "Random" => OpSupport.Yes,
+            "Multinomial" => node.Inputs[0].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("Multinomial expects f32 logits"),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
         };
     }

@@ -488,7 +488,7 @@ internal sealed partial class OnnxTranslator
             return;
         }
 
-        int leadingUnits = ins.Max(t => t?.LeadingUnits ?? 0);
+        int leadingUnits = ins.Select(t => t?.LeadingUnits ?? 0).DefaultIfEmpty().Max();   // generators (RandomNormal) have no inputs
         bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
         if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
         {

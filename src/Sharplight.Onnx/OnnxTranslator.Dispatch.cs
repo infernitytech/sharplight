@@ -19,6 +19,7 @@ internal sealed partial class OnnxTranslator
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
         "DFT", "STFT",
+        "RandomNormal", "RandomUniform", "RandomNormalLike", "RandomUniformLike", "Bernoulli", "Multinomial",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -300,6 +301,17 @@ internal sealed partial class OnnxTranslator
                 break;
             case "STFT":
                 Stft(n, ins);
+                break;
+
+            // Random number generation.
+            case "RandomNormal" or "RandomUniform" or "RandomNormalLike" or "RandomUniformLike":
+                RandomTensor(n, ins);
+                break;
+            case "Bernoulli":
+                Bernoulli(n, ins);
+                break;
+            case "Multinomial":
+                Multinomial(n, ins);
                 break;
 
             case "EyeLike":
