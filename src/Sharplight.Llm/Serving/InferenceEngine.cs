@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Threading.Channels;
+using Sharplight.Graph;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Serving;
@@ -64,6 +65,10 @@ public sealed class InferenceEngine : IDisposable
     }
 
     private readonly IBatchDecoder _decoder;
+    /// <summary>The decoder when it can sample on the device, else null.</summary>
+    private readonly IDeviceSamplingDecoder? _deviceSampler;
+    private int[] _sampledTokens = [];
+    private float[] _sampledLogprobs = [];
     private readonly ITokenizer _tokenizer;
     private readonly EngineOptions _opt;
     private readonly Slot[] _slots;
@@ -96,6 +101,7 @@ public sealed class InferenceEngine : IDisposable
     public InferenceEngine(IBatchDecoder decoder, ITokenizer tokenizer, EngineOptions? options = null)
     {
         _decoder = decoder;
+        _deviceSampler = decoder is IDeviceSamplingDecoder { SamplesOnDevice: true } d ? d : null;
         _tokenizer = tokenizer;
         _opt = options ?? new();
         _slots = Enumerable.Range(0, decoder.SlotCount).Select(i => new Slot { Index = i }).ToArray();
@@ -546,7 +552,8 @@ public sealed class InferenceEngine : IDisposable
         }
 
         var sw = Stopwatch.StartNew();
-        var results = _decoder.Step(inputs);
+        var sampling = DeviceSampling(inputs, seqs);
+        var results = sampling is null ? _decoder.Step(inputs) : _deviceSampler!.Step(inputs, sampling, _sampledTokens, _sampledLogprobs);
         Metrics.Step(_budget - budget, sw.Elapsed);
 
         for (int i = 0; i < inputs.Count; i++)
@@ -576,7 +583,14 @@ public sealed class InferenceEngine : IDisposable
 
             try
             {
-                OnLogits(s, results[i]!);
+                if (results[i] is { } logits)
+                {
+                    OnLogits(s, logits);
+                }
+                else
+                {
+                    OnSampled(s, _sampledTokens[i], _sampledLogprobs[i]);
+                }
             }
             catch (Exception ex)
             {
@@ -585,9 +599,41 @@ public sealed class InferenceEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Device sampling rows for the inputs (null entries for inputs sampled on the CPU), or null when the decoder cannot sample on the
+    /// device or no input is sampled there.
+    /// </summary>
+    private SamplingRow?[]? DeviceSampling(List<SequenceInput> inputs, List<Seq> seqs)
+    {
+        if (_deviceSampler is null)
+        {
+            return null;
+        }
+
+        SamplingRow?[]? rows = null;
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            var s = seqs[i];
+            if (!inputs[i].WantLogits || s.Sampler.DeviceRow(s.Generated, s.Req.Logprobs, s.Req.TopLogprobs) is not { } row)
+            {
+                continue;
+            }
+
+            rows ??= new SamplingRow?[inputs.Count];
+            rows[i] = row;
+        }
+
+        if (rows is not null && _sampledTokens.Length < inputs.Count)
+        {
+            _sampledTokens = new int[Math.Max(inputs.Count, _slots.Length)];
+            _sampledLogprobs = new float[Math.Max(inputs.Count, _slots.Length)];
+        }
+
+        return rows;
+    }
+
     private void OnLogits(Seq s, float[] logits)
     {
-        long now = Stopwatch.GetTimestamp();
         int tok = s.Sampler.Sample(logits);
         List<TokenLogprob>? lps = null;
         if (s.Req.Logprobs)
@@ -595,6 +641,17 @@ public sealed class InferenceEngine : IDisposable
             var (lp, top) = RequestSampler.Logprobs(logits, tok, s.Req.TopLogprobs);
             lps = [new TokenLogprob(tok, TokenText(tok), lp, [.. top.Select(t => new TokenAlternative(t.Id, TokenText(t.Id), t.Logprob))])];
         }
+
+        OnToken(s, tok, lps);
+    }
+
+    /// <summary>A token chosen on the device (with its log-probability when the request reports logprobs, no alternatives).</summary>
+    private void OnSampled(Seq s, int tok, float logprob)
+        => OnToken(s, tok, s.Req.Logprobs ? [new TokenLogprob(tok, TokenText(tok), logprob, [])] : null);
+
+    private void OnToken(Seq s, int tok, List<TokenLogprob>? lps)
+    {
+        long now = Stopwatch.GetTimestamp();
         s.Sampler.Accept(tok);
         s.Generated++;
         if (s.Generated == 1)

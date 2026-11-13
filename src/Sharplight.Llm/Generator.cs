@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Graph;
 using Sharplight.Tokenizers;
 using Sharplight.Vision;
 
@@ -23,7 +24,7 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
 
     /// <summary>Continues the session's context with already tokenized <paramref name="promptTokens"/> and streams generated text.</summary>
     public IEnumerable<GeneratedToken> Generate(int[] promptTokens, GenerationOptions options)
-        => Generate(promptTokens, () => session.Process(promptTokens), options);
+        => Generate(promptTokens, () => session.Process(promptTokens), row => session.ProcessSampled(promptTokens, row).Token, options);
 
     /// <summary>Time spent preprocessing and encoding the images of the last multimodal generation.</summary>
     public TimeSpan LastImageTime { get; private set; }
@@ -50,7 +51,7 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
         var embeddings = pre.Select(enc.Encode).ToList();
         LastImageTime = sw.Elapsed;
         var textTokens = tokens;
-        return Generate(textTokens, () => session.Process(mm, embeddings), options, mm.Length);
+        return Generate(textTokens, () => session.Process(mm, embeddings), row => session.ProcessSampled(mm, embeddings, row).Token, options, mm.Length);
     }
 
     private int? LookupToken(string text)
@@ -59,7 +60,15 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
         return ids.Length == 1 ? ids[0] : null;
     }
 
-    private IEnumerable<GeneratedToken> Generate(int[] promptTokens, Func<float[]> prefillStep, GenerationOptions options, int? promptRows = null)
+    /// <summary>
+    /// Runs one forward pass and chooses the next token: on the device when the session has a sampling head and the options allow
+    /// it (only the token id is downloaded), otherwise from the downloaded logits.
+    /// </summary>
+    private int NextToken(Sampler sampler, int index, Func<float[]> logitsStep, Func<SamplingRow, int> deviceStep)
+        => session.SamplesOnDevice && sampler.DeviceRow(index) is { } row ? deviceStep(row) : sampler.Sample(logitsStep());
+
+    private IEnumerable<GeneratedToken> Generate(int[] promptTokens, Func<float[]> prefillStep, Func<SamplingRow, int> sampledPrefillStep,
+        GenerationOptions options, int? promptRows = null)
     {
         var sampler = new Sampler(options.Sampling);
         foreach (var t in promptTokens)
@@ -71,7 +80,7 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
         var text = new System.Text.StringBuilder();
 
         var sw = Stopwatch.StartNew();
-        var logits = prefillStep();
+        int id = NextToken(sampler, 0, prefillStep, sampledPrefillStep);
         var prefill = sw.Elapsed;
         sw.Restart();
         int generated = 0;
@@ -79,7 +88,6 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
         {
             for (int i = 0; i < options.MaxNewTokens; i++)
             {
-                int id = sampler.Sample(logits);
                 sampler.Accept(id);
                 generated++;
                 if (options.StopAtEog && tokenizer.IsEndOfGeneration(id))
@@ -97,7 +105,8 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
 
                 if (i + 1 < options.MaxNewTokens)
                 {
-                    logits = session.Process([id]);
+                    int[] next = [id];
+                    id = NextToken(sampler, i + 1, () => session.Process(next), row => session.ProcessSampled(next, row).Token);
                 }
             }
             var tail = decoder.Flush();

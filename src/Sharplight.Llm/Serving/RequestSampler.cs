@@ -1,3 +1,5 @@
+using Sharplight.Graph;
+
 namespace Sharplight.Llm.Serving;
 
 /// <summary>Stateful sampler of one request: applies penalties/bias over the request's history, then samples. Not thread-safe.</summary>
@@ -6,6 +8,7 @@ internal sealed class RequestSampler
     private readonly SamplingParams _p;
     private readonly Random _rng;
     private readonly bool _hasPenalties;
+    private readonly uint _deviceSeed;
     private float[] _work = [];
     private float[] _tv = [];
     private int[] _ti = [];
@@ -17,6 +20,7 @@ internal sealed class RequestSampler
     {
         _p = p;
         _rng = p.Seed is int s ? new Random(s) : new Random();
+        _deviceSeed = unchecked((uint)(p.Seed ?? Random.Shared.Next()));
         _hasPenalties = p.RepetitionPenalty != 1f || p.PresencePenalty != 0 || p.FrequencyPenalty != 0;
         if (p.RepetitionPenalty != 1f)
         {
@@ -54,6 +58,44 @@ internal sealed class RequestSampler
         {
             Push(token);
         }
+    }
+
+    /// <summary>
+    /// The device sampling row for the <paramref name="counter"/>-th sampled token, or null when the request needs the CPU path:
+    /// penalties, logit bias, alternatives for logprobs, or a top-p cut over more than <see cref="SamplingHead.MaxNucleusCandidates"/>
+    /// candidates (the CPU sampler then uses the full top-k set).
+    /// </summary>
+    /// <param name="counter">Number of tokens the request sampled before.</param>
+    /// <param name="logprob">Whether the chosen token's log-probability is reported.</param>
+    /// <param name="topLogprobs">Number of alternatives reported with it.</param>
+    public SamplingRow? DeviceRow(int counter, bool logprob, int topLogprobs)
+    {
+        if (_hasPenalties || _p.LogitBias is not null || (logprob && topLogprobs > 0))
+        {
+            return null;
+        }
+
+        if (_p.IsGreedy)
+        {
+            return SamplingRow.Greedy(logprob);
+        }
+
+        bool nucleus = _p.TopP < 1f;
+        if (nucleus && (_p.TopP <= 0 || _p.TopK > SamplingHead.MaxNucleusCandidates))
+        {
+            return null;
+        }
+
+        return new SamplingRow
+        {
+            Temperature = _p.Temperature,
+            TopK = _p.TopK,
+            TopP = _p.TopP,
+            MinP = _p.MinP,
+            Seed = _deviceSeed,
+            Counter = unchecked((uint)counter),
+            WantLogprob = logprob,
+        };
     }
 
     public int Sample(ReadOnlySpan<float> logits)
