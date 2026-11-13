@@ -32,6 +32,7 @@ internal static class HfArchitectureMappings
         yield return new MixtralHfMapping();
         yield return new AfmoeHfMapping();
         yield return new MiMoV2FlashHfMapping();
+        yield return new LagunaHfMapping();
         yield return new SmolLm3HfMapping();
         yield return new Olmo2HfMapping();
         yield return new Glm4HfMapping();

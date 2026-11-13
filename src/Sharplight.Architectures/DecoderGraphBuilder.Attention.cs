@@ -76,6 +76,11 @@ internal sealed partial class DecoderGraphBuilder
         int ropeDims = sliding ? _hp.RopeLocalDims : _hp.RopeDims;
         var rope = Attributes.From(("dims", ropeDims), ("base", sliding ? _hp.RopeLocalBase : _hp.RopeBase), ("style", _hp.RopeStyle));
         bool scaled = !sliding || _hp.RopeLocalFreqFactors;
+        if (scaled && _hp.RopeAttentionScale != 1f)
+        {
+            rope = rope.With("attn_factor", _hp.RopeAttentionScale);
+        }
+
         return t => b.Emit1("Rope", freqFactors is { } ff && scaled ? [t, positions, ff] : [t, positions], rope);
     }
 
@@ -160,20 +165,22 @@ internal sealed partial class DecoderGraphBuilder
         return b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");
     }
 
-    /// <summary>Flattens the heads, applies the optional value scale and sigmoid output gate, and the output projection.</summary>
+    /// <summary>
+    /// Applies the optional value scale and output gate to the attention output and projects it. The gate is a projection of the layer input
+    /// through the sigmoid (default) or softplus; a gate as wide as the head count has one scalar per head, a wider one a scalar per channel.
+    /// </summary>
     private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int heads, int valueDim)
     {
-        var flat = b.Reshape(attention, 0, heads * valueDim);
-        if (_hp.ValueScale != 1f)
-        {
-            flat = b.Scale(flat, _hp.ValueScale, 0f);
-        }
-
+        var scaled = _hp.ValueScale != 1f ? b.Scale(attention, _hp.ValueScale, 0f) : attention;
         if (b.HasWeight(p + "attention.gate.weight"))
         {
-            flat = b.Mul(flat, b.Sigmoid(b.Linear(layerInput, p + "attention.gate.weight")));
+            var projection = b.Linear(layerInput, p + "attention.gate.weight");
+            var gate = _hp.GateActivation == "softplus" ? b.Softplus(projection) : b.Sigmoid(projection);
+            bool perHead = b.Weight(p + "attention.gate.weight").Shape[0].Fixed == heads;
+            scaled = b.Mul(scaled, perHead ? b.Reshape(gate, 0, heads, 1) : b.Reshape(gate, 0, heads, valueDim));
         }
 
+        var flat = b.Reshape(scaled, 0, heads * valueDim);
         return b.Linear(SubNorm(b, flat, p + "attention.sub_norm.weight"), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
     }
 }

@@ -120,7 +120,7 @@ public sealed partial class GraphLowerer
         [
             ("HAS_FF", hasFrequencyFactors),
             ("H", H), ("D", D), ("S0", x.Strides[0]), ("S1", x.Strides[1]), ("A", axes), ("ROT", rotaryDims),
-            ("THETA_SCALE", (float)Math.Pow(theta, -2.0 / rotaryDims)), ("FREQ_SCALE", a.Get("freq_scale", 1f)),
+            ("THETA_SCALE", (float)Math.Pow(theta, -2.0 / rotaryDims)), ("FREQ_SCALE", a.Get("freq_scale", 1f)), ("ATTN_FACTOR", a.Get("attn_factor", 1f)),
             ("NEOX", a.Get("style", "neox") == "neox"), ("MROPE", mrope), ("INTERLEAVED", a.Get("interleaved", false)),
             ("SEC0", sec[0]), ("SEC1", sec[1]), ("SEC2", sec[2]), ("SEC3", sec[3]),
         ];

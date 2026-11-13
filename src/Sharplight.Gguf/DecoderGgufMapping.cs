@@ -346,7 +346,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     /// <summary>The rotary dimension the metadata implies (RoPE dimension count, else head size).</summary>
     private static int RopeDimension(GgufMetadataView g)
     {
-        int headCount = g.Int("attention.head_count");
+        int headCount = GgufDecoderHyperParameters.LargestOf(g, "attention.head_count");
         return g.Int("rope.dimension_count", g.Int("attention.key_length", g.Int("embedding_length") / headCount));
     }
 

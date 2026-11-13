@@ -56,6 +56,8 @@ internal static class RoutedMoeFamilyCases
         new("tiny-random-exaone-moe HF (exaone_moe, transformers)", "hf/tiny-random-exaone-moe", HfPrompt, "ids", [77,583,803,940,458,9,236,236,676,834,236,989,3,768,338,656], ""),
         new("tiny-random-afmoe HF (afmoe sandwich norms, gated attention, NoPE global layers, transformers)", "hf/tiny-random-afmoe", HfPrompt, "ids", [620,299,927,288,634,914,477,299,348,383,694,202,908,346,788,646,46,985,729,518,547,647,138,907], ""),
         new("tiny-random-mimo-v2-flash HF (mimo_v2_flash sinks, value head size, transformers)", "hf/tiny-random-mimo-v2-flash", HfPrompt, "ids", [748,536,269,51,1012,256,296,742,88,651,634,15,1011,608,325,887,767,409,82,481,419,423,103,794], ""),
+        new("tiny-random-laguna HF (laguna softplus gate, per-layer heads, yarn on the global layer, transformers)", "hf/tiny-random-laguna", HfPrompt, "ids", [205,477,751,529,39,815,272,132,536,79,204,358,633,881,828,977,35,7,956,607,956,235,903,765], ""),
+        new("tiny-random-laguna-full HF (laguna per-channel gate, full attention, transformers)", "hf/tiny-random-laguna-full", HfPrompt, "ids", [796,432,761,575,665,350,12,945,211,44,434,180,996,117,477,796,842,163,928,403,952,727,896,210], ""),
         // The same weights with the flat rope keys of the published config (the file the llama.cpp converter reads).
         new("tiny-random-mimo-v2-flash-llamacpp HF (flat rope keys, transformers)", "hf/tiny-random-mimo-v2-flash-llamacpp", HfPrompt, "ids", [748,536,269,51,1012,256,296,742,88,651,634,15,1011,608,325,887,767,409,82,481,419,423,103,794], ""),
         new("tiny-random-bitnet HF (bitnet, transformers)", "hf/tiny-random-bitnet", HfPrompt, "ids", [508,432,843,582,109,60,109,130,15,102,655,601,453,281,474,1009], ""),

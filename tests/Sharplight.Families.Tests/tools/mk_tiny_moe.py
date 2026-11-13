@@ -1,7 +1,7 @@
 """
 Builds tiny random Hugging Face checkpoints for the routed-MoE / wave-6 families that have no tiny-random model in ~/models/hf:
 Hunyuan MoE (hunyuan_v1_moe), dots.llm1 (dots1, with group-limited routing), EXAONE MoE (exaone_moe), BitNet (bitnet),
-Ministral 3 (ministral3), Arcee Trinity (afmoe) and MiMo-V2-Flash (mimo_v2_flash), all with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024), plus
+Ministral 3 (ministral3), Arcee Trinity (afmoe), MiMo-V2-Flash (mimo_v2_flash) and Laguna (laguna), all with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024), plus
 tiny-random-bailing-moe-v2-llamacpp: Ling 2.0 re-sized from tiny-random-bailing-moe-v2 so that llama.cpp can convert and run it
 (hidden size = heads x head_dim); convert it with convert_hf_to_gguf.py --outtype f32 for the GGUF case.
 
@@ -49,6 +49,18 @@ configs = {
                                                     hybrid_layer_pattern=[0, 1, 1, 1, 1, 0], topk_method="noaux_tc", layernorm_epsilon=1e-5,
                                                     rope_parameters={"full_attention": {"rope_type": "default", "rope_theta": 500000.0, "partial_rotary_factor": 0.5},
                                                                      "sliding_attention": {"rope_type": "default", "rope_theta": 10000.0, "partial_rotary_factor": 0.5}}),
+    # Per-head softplus gate, per-layer head counts, one global layer in front of three sliding ones (own rope base and width), YaRN on the global layer.
+    "laguna": transformers.LagunaConfig(**{**common, "num_hidden_layers": 4}, moe_intermediate_size=32, shared_expert_intermediate_size=48,
+                                        num_experts_per_tok=2, intermediate_size=96, num_experts=8, moe_routed_scaling_factor=2.5,
+                                        sliding_window=16, num_attention_heads_per_layer=[4, 6, 6, 6], gating="per-head",
+                                        layer_types=["full_attention", "sliding_attention", "sliding_attention", "sliding_attention"],
+                                        rope_parameters={"full_attention": {"rope_type": "yarn", "rope_theta": 500000.0, "partial_rotary_factor": 0.5,
+                                                                            "factor": 4.0, "original_max_position_embeddings": 64},
+                                                         "sliding_attention": {"rope_type": "default", "rope_theta": 10000.0, "partial_rotary_factor": 1.0}}),
+    # Full attention only with a per-channel gate (the Laguna M.1 layout).
+    "laguna-full": transformers.LagunaConfig(**{**common, "num_hidden_layers": 3}, moe_intermediate_size=32, shared_expert_intermediate_size=48,
+                                             num_experts_per_tok=2, intermediate_size=96, num_experts=8, moe_routed_scaling_factor=2.5,
+                                             sliding_window=0, gating="per-element"),
     "bitnet": transformers.BitNetConfig(**common, intermediate_size=96),
     "ministral3": transformers.Ministral3Config(**common, intermediate_size=96,
                                                 rope_parameters={"rope_type": "yarn", "rope_theta": 1000000.0, "factor": 16.0,

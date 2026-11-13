@@ -167,7 +167,7 @@ public static partial class StandardOps
     /// plain RoPE, &gt;1 for multi-axis / M-RoPE). Attributes:
     /// <c>dims</c> (rotated dims, ≤ D), <c>base</c>, <c>style</c> ("neox" pairs (i, i+dims/2), "gptj" pairs (2i, 2i+1)),
     /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style),
-    /// <c>freq_scale</c> (float, default 1). Optional third input: f32 [dims/2] per-frequency divisors
+    /// <c>freq_scale</c> (float, default 1), <c>attn_factor</c> (float, default 1: cos and sin of the rotated dimensions are multiplied by it, the YaRN magnitude; dimensions beyond <c>dims</c> stay unscaled). Optional third input: f32 [dims/2] per-frequency divisors
     /// (θᵢ = position · base^(-2i/dims) · freq_scale / factorᵢ; llama3 / yarn / longrope scaling, see <c>RopeScaling</c>).
     /// </summary>
     public static readonly OpSchema Rope = new("Rope", OpCategory.Composite, 2, 3, SameF32);

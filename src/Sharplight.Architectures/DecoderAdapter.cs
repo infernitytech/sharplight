@@ -18,7 +18,7 @@ namespace Sharplight.Architectures;
 /// output projection input follow it, MiMo-V2) and <c>attention.value_scale</c> (constant factor on the attention output before the output projection, default 1).</item>
 /// <item><c>rope.dim</c> (rotated dims, partial rotary when less than head_dim), <c>rope.base</c>, <c>rope.style</c>
 /// ("neox" = rotate-half pairs (i, i+dim/2), the default; "gptj" = interleaved pairs), <c>rope.local_base</c> (base of sliding layers,
-/// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor, e.g. yarn; folded into the score scale as its square).
+/// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor of the rotated dimensions, e.g. yarn; like the frequency factors it applies to the layers that are not sliding).
 /// Frequency scaling (llama3 / yarn / linear) is expressed as the optional weight <c>rope.freq_factors</c> (f32 [rope.dim/2], θ is divided by it)
 /// which applies to the layers that are not sliding. Longrope (Phi-3) additionally carries <c>rope.freq_factors_long</c> and
 /// <c>rope.original_context_length</c>: the long factors are used instead of the short ones when the configured context

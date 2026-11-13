@@ -52,6 +52,22 @@ public sealed class RopeTests
         Diff.Check("Rope.ff", tg.B.Build(), new Step(T, 0, (x, Rnd.F(T * H * D, 1)), (pos, Enumerable.Range(100, T).ToArray()), (ff, factors)), atol: 1e-4, rtol: 1e-4);
     }
 
+    [Theory]
+    [InlineData("neox")]
+    [InlineData("gptj")]
+    public void AttentionFactor(string style)
+    {
+        Gpu.Require();
+        int T = 5;
+        int H = 2;
+        int D = 16;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, H, D);
+        var pos = tg.In("pos", DataType.I32, TG.T, 1);
+        tg.B.Output("y", tg.B.Emit1("Rope", [x, pos], Attributes.From(("dims", 8), ("base", 10000f), ("style", style), ("attn_factor", 1.25f))));
+        Diff.Check("Rope.attn_factor", tg.B.Build(), new Step(T, 0, (x, Rnd.F(T * H * D, 1)), (pos, Enumerable.Range(7, T).ToArray())), atol: 1e-4, rtol: 1e-4, what: style);
+    }
+
     [Fact]
     public void OnStridedSlice()
     {

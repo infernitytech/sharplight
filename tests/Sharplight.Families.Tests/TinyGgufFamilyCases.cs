@@ -41,6 +41,10 @@ internal static class TinyGgufFamilyCases
             [620, 299, 927, 288, 634, 914, 477, 299, 348, 383, 694, 202, 908, 346, 788, 646, 46, 985, 729, 518, 547, 647, 138, 907], ""),
         new("tiny-random-mimo-v2-flash f32 GGUF (mimo2, llama.cpp)", "gguf/tiny-random-mimo-v2-flash-f32.gguf", Prompt, "ids",
             [182, 574, 741, 147, 266, 182, 574, 182, 574, 639, 172, 1010, 66, 906, 225, 116, 353, 671, 791, 166, 100, 7, 921, 51], ""),
+        new("tiny-random-laguna f32 GGUF (laguna, llama.cpp)", "gguf/tiny-random-laguna-f32.gguf", Prompt, "ids",
+            [205, 477, 751, 529, 39, 815, 272, 132, 536, 79, 204, 358, 633, 881, 828, 977, 35, 7, 956, 607, 956, 235, 903, 765], ""),
+        new("tiny-random-laguna-full f32 GGUF (laguna per-channel gate, llama.cpp)", "gguf/tiny-random-laguna-full-f32.gguf", Prompt, "ids",
+            [796, 432, 761, 575, 665, 350, 12, 945, 211, 44, 434, 180, 996, 117, 477, 796, 842, 163, 928, 403, 952, 727, 896, 210], ""),
         new("tiny-random-falcon f32 GGUF (falcon, falcon pre-tokenizer, llama.cpp)", "gguf/tiny-random-falcon-f32.gguf", Prompt, "ids",
             [314, 975, 500, 741, 285, 500, 741, 500, 741, 285, 500, 856, 809, 975, 500, 741, 500, 741, 500, 500, 741, 56, 856, 56], ""),
     ];

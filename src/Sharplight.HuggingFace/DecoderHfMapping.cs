@@ -91,15 +91,16 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         return new LongRopeInfo(Factors("short_factor"), Factors("long_factor"), attentionScale);
     }
 
-    private static RopeScaling.Result? ComputeScaling(HfConfig c)
+    private static RopeScaling.Result? ComputeScaling(HfConfig c) => ScalingOf(c) is null ? null : ComputeScaling(c, RopeDim(c, HeadDim(c)), RopeBase(c));
+
+    /// <summary>The frequency scaling of the (global-attention) <c>rope_parameters</c> for a rotary embedding of <paramref name="dim"/> dimensions and <paramref name="ropeBase"/>; null without scaling.</summary>
+    internal static RopeScaling.Result? ComputeScaling(HfConfig c, int dim, float ropeBase)
     {
         if (ScalingOf(c) is not { } scaling || scaling.Type is "longrope" or "su")
         {
             return null;
         }
 
-        int dim = RopeDim(c, HeadDim(c));
-        float ropeBase = RopeBase(c);
         var json = scaling.Json;
         float factor = (float)HfMappingHelpers.NumberOr(json, "factor", 1.0);
         int originalContext = (int)HfMappingHelpers.NumberOr(json, "original_max_position_embeddings",

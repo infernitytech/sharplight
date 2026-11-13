@@ -17,7 +17,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         var rope = new RopeOp(
             x, positions, frequencyFactors, y, a.Get("dims", 0), a.Get("base", 10000f), a.Get("style", "neox"),
-            IntArray(a, "sections"), a.Get("interleaved", false), a.Get("freq_scale", 1f));
+            IntArray(a, "sections"), a.Get("interleaved", false), a.Get("freq_scale", 1f), a.Get("attn_factor", 1f));
         AddStep(rope, Touched(x, positions, frequencyFactors, y));
         _refs[n.Output] = y;
     }

@@ -75,6 +75,41 @@ public class RopeTests
         Kit.AssertClose(Ref.Rope(x, T, H, D, pos, 1, D, @base, "neox", null, false, 1f, ff), Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
 
+    /// <summary>The YaRN magnitude (<c>attn_factor</c>) multiplies cos and sin, so it scales the rotated dimensions and leaves the others alone.</summary>
+    [Theory]
+    [InlineData("neox")]
+    [InlineData("gptj")]
+    public void AttentionFactorScalesTheRotatedDimensions(string style)
+    {
+        int T = 5;
+        int H = 2;
+        int D = 16;
+        int dims = 8;
+        float factor = 1.25f;
+        float @base = 10000f;
+        var x = Kit.Rand(T * H * D, 1);
+        var pos = Enumerable.Range(7, T).ToArray();
+        var tg = new TestGraph();
+        var xin = tg.InF("x", TestGraph.T, H, D);
+        var pin = tg.In("pos", DataType.I32, TestGraph.T, 1);
+        tg.B.Output("y", tg.B.Emit1("Rope", [xin, pin], Attributes.From(("dims", dims), ("base", @base), ("style", style), ("attn_factor", factor))));
+        using var m = Kit.Compile(tg.B.Build());
+        Kit.Set(m, xin, x);
+        Kit.Set(m, pin, pos);
+        var p = Kit.P(T);
+        m.Run(p);
+        var expected = Ref.Rope(x, T, H, D, pos, 1, dims, @base, style, null, false, 1f);
+        for (int row = 0; row < T * H; row++)
+        {
+            for (int i = 0; i < dims; i++)
+            {
+                expected[row * D + i] *= factor;
+            }
+        }
+
+        Kit.AssertClose(expected, Kit.Out(m, "y", p), 1e-4, 1e-4);
+    }
+
     /// <summary>Rope applied to a strided Slice view (as in Qwen3.5 q after the joint q/gate projection).</summary>
     [Fact]
     public void RopeOnStridedInput()

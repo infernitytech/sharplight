@@ -1,6 +1,6 @@
 // Rotary embedding. x: [T, H, D] with strides (S0, S1), inner contiguous; positions: i32 [T, A];
 // y: dense [T, H, D]. One thread per (t, h, pair).
-// Macros: H, D, S0, S1, A, ROT (rotated dims), THETA_SCALE (= base^(-2/ROT)), FREQ_SCALE,
+// Macros: H, D, S0, S1, A, ROT (rotated dims), THETA_SCALE (= base^(-2/ROT)), FREQ_SCALE, ATTN_FACTOR (cos/sin multiplier, YaRN magnitude),
 //         NEOX (1 = pairs (i, i+ROT/2), 0 = pairs (2i, 2i+1)),
 //         MROPE (0/1), INTERLEAVED (0/1), SEC0..SEC3 (multi-axis sections),
 //         HAS_FF (0/1): per-frequency divisors ff[ROT/2] (theta_i /= ff[i]; llama3 / yarn / longrope scaling)
@@ -66,7 +66,7 @@ void main(uint3 dtid : SV_DispatchThreadID, uniform Params p)
 #if HAS_FF
         theta /= p.ff[pairIndex];
 #endif
-        float c = cos(theta), s = sin(theta);
+        float c = cos(theta) * ATTN_FACTOR, s = sin(theta) * ATTN_FACTOR;
         yr[i0] = x0 * c - x1 * s;
         yr[i1] = x0 * s + x1 * c;
     }
@@ -157,7 +157,7 @@ void rope_row(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Row
 #if HAS_FF
             theta /= p.ff[i];
 #endif
-            float c = cos(theta), s = sin(theta);
+            float c = cos(theta) * ATTN_FACTOR, s = sin(theta) * ATTN_FACTOR;
             store(p, t, h, i0, x0 * c - x1 * s);
             store(p, t, h, i1, x0 * s + x1 * c);
         }

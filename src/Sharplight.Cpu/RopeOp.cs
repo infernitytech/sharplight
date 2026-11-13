@@ -17,6 +17,7 @@ internal sealed unsafe class RopeOp : CpuOp
     private readonly bool _interleaved;
     private readonly int[] _sections;
     private readonly float _freqScale;
+    private readonly float _attnFactor;
     private readonly double[] _invFreq;   // base^(-2i/dims) * freq_scale
     private readonly int[] _axisOfPair;
     private readonly Action<int> _body;
@@ -24,7 +25,7 @@ internal sealed unsafe class RopeOp : CpuOp
     private long _per;
     public override string Name => "Rope";
 
-    public RopeOp(TRef x, TRef pos, TRef? ff, TRef y, int dims, float @base, string style, int[] sections, bool interleaved, float freqScale)
+    public RopeOp(TRef x, TRef pos, TRef? ff, TRef y, int dims, float @base, string style, int[] sections, bool interleaved, float freqScale, float attnFactor)
     {
         _x = x;
         _pos = pos;
@@ -42,6 +43,7 @@ internal sealed unsafe class RopeOp : CpuOp
         _interleaved = interleaved;
         _sections = sections;
         _freqScale = freqScale;
+        _attnFactor = attnFactor;
         _axes = pos.Rank >= 2 ? (int)pos.Dims[1] : 1;
         int half = _dims / 2;
         _invFreq = new double[half];
@@ -137,8 +139,8 @@ internal sealed unsafe class RopeOp : CpuOp
                     theta /= ((float*)_ff.P)[i];
                 }
 
-                cs[2 * i] = (float)Math.Cos(theta);
-                cs[2 * i + 1] = (float)Math.Sin(theta);
+                cs[2 * i] = (float)Math.Cos(theta) * _attnFactor;
+                cs[2 * i + 1] = (float)Math.Sin(theta) * _attnFactor;
             }
             for (int h = 0; h < _h; h++)
             {
