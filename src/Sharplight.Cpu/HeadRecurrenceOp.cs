@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -38,6 +39,10 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
 
     /// <summary>Head size N.</summary>
     protected int Size => _size;
+
+    /// <summary>Start of head <paramref name="head"/>'s row of token <paramref name="t"/> in a token-major input [T, H, N] (honors the input's strides).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    protected static float* Row(TRef x, long t, int head) => (float*)x.P + t * x.Strides[0] + head * x.Strides[1];
 
     /// <summary>Advances rows [row0, row1) of head <paramref name="head"/>'s state matrix <paramref name="state"/> (N×N, row major) over tokens [t0, t1).</summary>
     protected abstract void RunRows(float* state, long t0, long t1, int head, int row0, int row1);

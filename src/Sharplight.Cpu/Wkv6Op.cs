@@ -44,8 +44,6 @@ internal sealed unsafe class Wkv6Op : HeadRecurrenceOp
         }
     }
 
-    private static float* Row(TRef x, long t, int head) => (float*)x.P + t * x.Strides[0] + head * x.Strides[1];
-
     /// <summary>Returns Σⱼ r[j]·(u[j]·k[j]·vi + row[j]) and sets row = row·w + k·vi.</summary>
     private static float UpdateDot(float* row, float* r, float* k, float* w, float* u, float vi, long n)
     {

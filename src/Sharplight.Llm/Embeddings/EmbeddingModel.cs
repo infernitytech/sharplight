@@ -89,7 +89,7 @@ public sealed class EmbeddingModel : ITextEmbedder, IDisposable
             EmbeddingPooling = options.Pooling ?? options.Adapter.EmbeddingPooling,
             EmbeddingNormalize = options.Normalize ?? options.Adapter.EmbeddingNormalize,
         };
-        var (def, _, tok) = PackedModelLoadOptions.Open(path, options, adapter);
+        var (def, _, tok) = PackedModelLoader.Open(path, options, adapter);
         try
         {
             if (!def.Graphs.ContainsKey(WellKnown.EmbedGraph))

@@ -658,96 +658,35 @@ public sealed class InferenceEngine : IDisposable
         slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
     }
 
+    /// <summary>What is left of a step's capacity while its batch is being assembled.</summary>
+    private struct StepBudget
+    {
+        /// <summary>Tokens the batch may still hold.</summary>
+        public int Tokens;
+
+        /// <summary>Logits rows the decoder may still return.</summary>
+        public int LogitsRows;
+
+        /// <summary>Free KV blocks (only meaningful with a paged cache).</summary>
+        public int KvBlocks;
+    }
+
     private void StepOnce()
     {
         _inputs.Clear();
         _stepSeqs.Clear();
         _stepBaseLength.Clear();
         _stepReplay.Clear();
-        int budget = _budget;
-        int logitsBudget = _decoder.MaxLogitsRows;
         if (_speculator is not null)
         {
             ProposeDrafts();
         }
 
-        int freeBlocks = EnsureKvBlocksForDecode();
-
-        // Decode first: the pending token (plus drafts) of every running sequence, rotating the start when the budget cannot
-        // cover all of them.
-        int count = _active.Count;
-        _rr = (_rr + 1) % Math.Max(1, count);
-        for (int k = 0; k < count && budget > 0 && logitsBudget > 0; k++)
-        {
-            var s = _active[(k + _rr) % count];
-            if (s.Prefilling || s.Replay is not null)
-            {
-                continue;
-            }
-
-            int n = Math.Min(Math.Min(s.InputLength, budget), logitsBudget);
-            int blocks = _decoder.KvBlocksNeeded(s.Slot!.Index, n);
-            if (blocks > freeBlocks)
-            {
-                continue;
-            }
-
-            freeBlocks -= blocks;
-            AddInput(s, new SequenceInput(s.Slot!.Index, s.Input.AsMemory(0, n), true, n));
-            budget -= n;
-            logitsBudget -= n;
-        }
-
-        // Preempted sequences recompute their context (no logits) before new prompts.
-        foreach (var s in _active)
-        {
-            if (s.Replay is not { } replay || budget <= 0)
-            {
-                continue;
-            }
-
-            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, replay.Length - s.ReplayPos), budget), KvRoom(s.Slot!, freeBlocks));
-            if (chunk <= 0)
-            {
-                continue;
-            }
-
-            freeBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
-            AddInput(s, new SequenceInput(s.Slot!.Index, replay.AsMemory(s.ReplayPos, chunk), false), replay: true);
-            budget -= chunk;
-        }
-
-        // Then chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.
-        foreach (var s in _active)
-        {
-            if (!s.Prefilling || s.Replay is not null || budget <= 0)
-            {
-                continue;
-            }
-
-            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget), KvRoom(s.Slot!, freeBlocks));
-            if (chunk <= 0)
-            {
-                continue;
-            }
-
-            bool last = s.PromptPos + chunk == s.Prompt.Length;
-            if (last && logitsBudget <= 0)
-            {
-                // The final chunk needs a logits row; stop one token short and finish next step.
-                chunk--;
-                last = false;
-                if (chunk == 0)
-                {
-                    continue;
-                }
-            }
-
-            freeBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
-            AddInput(s, new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
-            budget -= chunk;
-            logitsBudget -= last ? 1 : 0;
-        }
+        var budget = new StepBudget { Tokens = _budget, LogitsRows = _decoder.MaxLogitsRows };
+        budget.KvBlocks = EnsureKvBlocksForDecode();
+        ScheduleDecode(ref budget);
+        ScheduleReplay(ref budget);
+        ScheduleChunkedPrefill(ref budget);
 
         if (_inputs.Count == 0)
         {
@@ -764,9 +703,96 @@ public sealed class InferenceEngine : IDisposable
         var results = PrepareDeviceSampling()
             ? _deviceSampler!.Step(_inputs, _deviceRows, _sampledTokens, _sampledLogprobs)
             : _decoder.Step(_inputs);
-        Metrics.Step(_budget - budget, _inputs.Count, Stopwatch.GetElapsedTime(t0));
+        Metrics.Step(_budget - budget.Tokens, _inputs.Count, Stopwatch.GetElapsedTime(t0));
         ProcessResults(results);
         UpdateKvGauges();
+    }
+
+    /// <summary>
+    /// Decode first: the pending token (plus drafts) of every running sequence, rotating the start when the budget cannot cover
+    /// all of them.
+    /// </summary>
+    private void ScheduleDecode(ref StepBudget budget)
+    {
+        int count = _active.Count;
+        _rr = (_rr + 1) % Math.Max(1, count);
+        for (int k = 0; k < count && budget.Tokens > 0 && budget.LogitsRows > 0; k++)
+        {
+            var s = _active[(k + _rr) % count];
+            if (s.Prefilling || s.Replay is not null)
+            {
+                continue;
+            }
+
+            int n = Math.Min(Math.Min(s.InputLength, budget.Tokens), budget.LogitsRows);
+            int blocks = _decoder.KvBlocksNeeded(s.Slot!.Index, n);
+            if (blocks > budget.KvBlocks)
+            {
+                continue;
+            }
+
+            budget.KvBlocks -= blocks;
+            AddInput(s, new SequenceInput(s.Slot!.Index, s.Input.AsMemory(0, n), true, n));
+            budget.Tokens -= n;
+            budget.LogitsRows -= n;
+        }
+    }
+
+    /// <summary>Preempted sequences recompute their context (no logits) before new prompts.</summary>
+    private void ScheduleReplay(ref StepBudget budget)
+    {
+        foreach (var s in _active)
+        {
+            if (s.Replay is not { } replay || budget.Tokens <= 0)
+            {
+                continue;
+            }
+
+            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, replay.Length - s.ReplayPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
+            if (chunk <= 0)
+            {
+                continue;
+            }
+
+            budget.KvBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
+            AddInput(s, new SequenceInput(s.Slot!.Index, replay.AsMemory(s.ReplayPos, chunk), false), replay: true);
+            budget.Tokens -= chunk;
+        }
+    }
+
+    /// <summary>Chunked prefill of admitted prompts, oldest admission first, with what is left of the token budget.</summary>
+    private void ScheduleChunkedPrefill(ref StepBudget budget)
+    {
+        foreach (var s in _active)
+        {
+            if (!s.Prefilling || s.Replay is not null || budget.Tokens <= 0)
+            {
+                continue;
+            }
+
+            int chunk = Math.Min(Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget.Tokens), KvRoom(s.Slot!, budget.KvBlocks));
+            if (chunk <= 0)
+            {
+                continue;
+            }
+
+            bool last = s.PromptPos + chunk == s.Prompt.Length;
+            if (last && budget.LogitsRows <= 0)
+            {
+                // The final chunk needs a logits row; stop one token short and finish next step.
+                chunk--;
+                last = false;
+                if (chunk == 0)
+                {
+                    continue;
+                }
+            }
+
+            budget.KvBlocks -= _decoder.KvBlocksNeeded(s.Slot!.Index, chunk);
+            AddInput(s, new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
+            budget.Tokens -= chunk;
+            budget.LogitsRows -= last ? 1 : 0;
+        }
     }
 
     /// <summary>
@@ -781,8 +807,27 @@ public sealed class InferenceEngine : IDisposable
             _outcomes = new Outcome[Math.Max(count, _slots.Length)];
         }
 
+        int withLogits = RecordFedTokens();
+        if (withLogits >= ParallelSamplingThreshold)
+        {
+            Parallel.For(0, count, i => SampleStep(i, results[i]));
+        }
+        else
+        {
+            for (int i = 0; i < count; i++)
+            {
+                SampleStep(i, results[i]);
+            }
+        }
+
+        ApplyOutcomes();
+    }
+
+    /// <summary>Appends the fed tokens to their slots, advances replay and prefill positions and returns how many inputs want logits.</summary>
+    private int RecordFedTokens()
+    {
         int withLogits = 0;
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < _inputs.Count; i++)
         {
             var s = _stepSeqs[i];
             _outcomes[i] = default;
@@ -820,19 +865,13 @@ public sealed class InferenceEngine : IDisposable
             withLogits += input.WantLogits ? 1 : 0;
         }
 
-        if (withLogits >= ParallelSamplingThreshold)
-        {
-            Parallel.For(0, count, i => SampleStep(i, results[i]));
-        }
-        else
-        {
-            for (int i = 0; i < count; i++)
-            {
-                SampleStep(i, results[i]);
-            }
-        }
+        return withLogits;
+    }
 
-        for (int i = 0; i < count; i++)
+    /// <summary>Applies sampling errors, speculation rollbacks and completions on the scheduler thread.</summary>
+    private void ApplyOutcomes()
+    {
+        for (int i = 0; i < _inputs.Count; i++)
         {
             var s = _stepSeqs[i];
             var input = _inputs[i];

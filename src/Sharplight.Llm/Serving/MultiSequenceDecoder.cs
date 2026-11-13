@@ -312,91 +312,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             throw new ArgumentException("More inputs than slots.");
         }
 
-        int T = 0;
-        int R = 0;
-        Span<bool> seen = stackalloc bool[SlotCount];
-        for (int u = 0; u < count; u++)
-        {
-            var inp = inputs[u];
-            Check(inp.Slot);
-            if (seen[inp.Slot])
-            {
-                throw new ArgumentException($"Slot {inp.Slot} appears twice in one step.");
-            }
-
-            seen[inp.Slot] = true;
-            int n = inp.Tokens.Length;
-            if (n == 0)
-            {
-                throw new ArgumentException($"Empty input for slot {inp.Slot}.");
-            }
-
-            if (T + n > MaxBatchTokens)
-            {
-                throw new ArgumentException($"Step has more than {MaxBatchTokens} rows.");
-            }
-
-            int pos0 = _length[inp.Slot];
-            if (pos0 + n > ContextLength)
-            {
-                throw new InvalidOperationException($"Context of slot {inp.Slot} full ({pos0} + {n} > {ContextLength}).");
-            }
-
-            int rows = inp.OutputRows;
-            if (R + rows > MaxLogitsRows)
-            {
-                throw new ArgumentException($"Step asks for more than {MaxLogitsRows} logits rows.");
-            }
-
-            inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
-            for (int i = 0; i < n; i++)
-            {
-                int row = T + i;
-                int pos = pos0 + i;
-                _rowBuf[row * 4] = inp.Slot;
-                _rowBuf[row * 4 + 1] = pos;
-                _rowBuf[row * 4 + 2] = n;
-                _rowBuf[row * 4 + 3] = u;
-                // Text rows use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
-                for (int a = 0; a < _posAxes; a++)
-                {
-                    _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
-                }
-            }
-            _runBuf[u * 4] = inp.Slot;
-            _runBuf[u * 4 + 1] = T;
-            _runBuf[u * 4 + 2] = n;
-            _runBuf[u * 4 + 3] = pos0;
-            for (int i = n - rows; i < n; i++)
-            {
-                _outBuf[R++] = T + i;
-            }
-
-            T += n;
-        }
+        var (T, R) = PackInputs(inputs);
         if (_pool is not null)
         {
-            int need = 0;
-            for (int u = 0; u < count; u++)
-            {
-                need += KvBlocksNeeded(inputs[u].Slot, inputs[u].Tokens.Length);
-            }
-
-            if (need > _pool.Free)
-            {
-                throw new InvalidOperationException($"The step needs {need} KV blocks, {_pool.Free} are free.");
-            }
-
-            for (int u = 0; u < count; u++)
-            {
-                GrowBlocks(inputs[u].Slot, _length[inputs[u].Slot] + inputs[u].Tokens.Length);
-            }
-
-            if (_tableDirty)
-            {
-                _compiled.SetInput<int>(_blockTable!, _tableBuf);
-                _tableDirty = false;
-            }
+            GrowBlocksForStep(inputs);
         }
 
         bool anyLogits = R > 0;
@@ -464,6 +383,107 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             r += rows;
         }
         return new ArraySegment<Memory<float>>(_results, 0, count);
+    }
+
+    /// <summary>
+    /// Validates the inputs and fills the per-step host buffers (tokens, row table, positions, runs, output rows). Returns the
+    /// number of token rows and logits rows.
+    /// </summary>
+    private (int Tokens, int LogitsRows) PackInputs(IReadOnlyList<SequenceInput> inputs)
+    {
+        int count = inputs.Count;
+        int T = 0;
+        int R = 0;
+        Span<bool> seen = stackalloc bool[SlotCount];
+        for (int u = 0; u < count; u++)
+        {
+            var inp = inputs[u];
+            Check(inp.Slot);
+            if (seen[inp.Slot])
+            {
+                throw new ArgumentException($"Slot {inp.Slot} appears twice in one step.");
+            }
+
+            seen[inp.Slot] = true;
+            int n = inp.Tokens.Length;
+            if (n == 0)
+            {
+                throw new ArgumentException($"Empty input for slot {inp.Slot}.");
+            }
+
+            if (T + n > MaxBatchTokens)
+            {
+                throw new ArgumentException($"Step has more than {MaxBatchTokens} rows.");
+            }
+
+            int pos0 = _length[inp.Slot];
+            if (pos0 + n > ContextLength)
+            {
+                throw new InvalidOperationException($"Context of slot {inp.Slot} full ({pos0} + {n} > {ContextLength}).");
+            }
+
+            int rows = inp.OutputRows;
+            if (R + rows > MaxLogitsRows)
+            {
+                throw new ArgumentException($"Step asks for more than {MaxLogitsRows} logits rows.");
+            }
+
+            inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
+            for (int i = 0; i < n; i++)
+            {
+                int row = T + i;
+                int pos = pos0 + i;
+                _rowBuf[row * 4] = inp.Slot;
+                _rowBuf[row * 4 + 1] = pos;
+                _rowBuf[row * 4 + 2] = n;
+                _rowBuf[row * 4 + 3] = u;
+                // Text rows use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
+                for (int a = 0; a < _posAxes; a++)
+                {
+                    _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
+                }
+            }
+            _runBuf[u * 4] = inp.Slot;
+            _runBuf[u * 4 + 1] = T;
+            _runBuf[u * 4 + 2] = n;
+            _runBuf[u * 4 + 3] = pos0;
+            for (int i = n - rows; i < n; i++)
+            {
+                _outBuf[R++] = T + i;
+            }
+
+            T += n;
+        }
+
+        return (T, R);
+    }
+
+    /// <summary>Allocates the KV blocks every input of the step needs and uploads the block table when it changed.</summary>
+    private void GrowBlocksForStep(IReadOnlyList<SequenceInput> inputs)
+    {
+        var pool = _pool!;
+        int count = inputs.Count;
+        int need = 0;
+        for (int u = 0; u < count; u++)
+        {
+            need += KvBlocksNeeded(inputs[u].Slot, inputs[u].Tokens.Length);
+        }
+
+        if (need > pool.Free)
+        {
+            throw new InvalidOperationException($"The step needs {need} KV blocks, {pool.Free} are free.");
+        }
+
+        for (int u = 0; u < count; u++)
+        {
+            GrowBlocks(inputs[u].Slot, _length[inputs[u].Slot] + inputs[u].Tokens.Length);
+        }
+
+        if (_tableDirty)
+        {
+            _compiled.SetInput<int>(_blockTable!, _tableBuf);
+            _tableDirty = false;
+        }
     }
 
     /// <summary>Downloads <paramref name="rows"/> logits rows; large batches are read by several threads (memory-bandwidth bound).</summary>
