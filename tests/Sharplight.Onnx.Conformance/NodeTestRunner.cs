@@ -123,10 +123,7 @@ internal static class NodeTestRunner
             }
             catch (Exception e)
             {
-                if (pinLevel == 0)
-                {
-                    importError = Describe(e);
-                }
+                importError = pinLevel == 0 ? Describe(e) : $"{Describe(e)} (with pinned inputs)";
 
                 if (!NeedsConstant(e.Message))
                 {
