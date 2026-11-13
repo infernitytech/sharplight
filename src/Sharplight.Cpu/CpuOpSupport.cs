@@ -19,6 +19,11 @@ internal static partial class CpuOpSupport
     public static OpSupport Check(Node node)
     {
         string op = node.Op.Name;
+        if (IsIntegerElementwise(node))
+        {
+            return OpSupport.Yes;
+        }
+
         if (s_unaryOps.Contains(op) || s_binaryOps.Contains(op) || s_rowOps.Contains(op))
         {
             return AllF32(node);
@@ -44,6 +49,8 @@ internal static partial class CpuOpSupport
             "Contiguous" or "Transfer" => node.Inputs[0].Type.IsQuantized ? OpSupport.No($"{op} of quantized data") : OpSupport.Yes,
             "Concat" => CheckConcat(node),
             "Cast" => CheckCast(node),
+            "Narrow" => CheckNarrow(node),
+            "Reinterpret" => OpSupport.Yes,
             "MatMul" => CheckMatMul(node),
             "MatMulId" => CheckMatMulId(node),
             "Gather" => CheckGather(node),

@@ -7,6 +7,12 @@ internal sealed unsafe partial class CpuCompiledSegment
 {
     private void LowerUnary(Node n, UnaryKind kind)
     {
+        if (CpuOpSupport.IsIntegerElementwise(n))
+        {
+            LowerInteger(n);
+            return;
+        }
+
         var a = n.Attributes;
         var x = RowContig(RefF32(n.Inputs[0]));
         var y = NewDense(n.Output);
@@ -42,6 +48,12 @@ internal sealed unsafe partial class CpuCompiledSegment
 
     private void LowerBinary(Node n, BinaryKind kind)
     {
+        if (CpuOpSupport.IsIntegerElementwise(n))
+        {
+            LowerInteger(n);
+            return;
+        }
+
         var x = RefF32(n.Inputs[0]);
         var z = RefF32(n.Inputs[1]);
         var y = NewDense(n.Output);
