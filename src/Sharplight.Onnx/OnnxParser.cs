@@ -287,8 +287,7 @@ internal static class OnnxParser
     private static OnnxValueInfo ParseValueInfo(ProtoReader r)
     {
         string name = "";
-        int elem = 0;
-        List<OnnxDim>? shape = null;
+        var type = new OnnxValueInfo { Name = "", Kind = OnnxValueKind.Unknown };
         while (r.Next(out int f, out var w))
         {
             if (f == 1 && w == WireType.LengthDelimited)
@@ -297,68 +296,111 @@ internal static class OnnxParser
             }
             else if (f == 2 && w == WireType.LengthDelimited)
             {
-                var type = r.ReadMessage();
-                while (type.Next(out int tf, out var tw))
-                {
-                    if (tf == 1 && tw == WireType.LengthDelimited) // tensor_type
-                    {
-                        var tt = type.ReadMessage();
-                        while (tt.Next(out int ef, out var ew))
-                        {
-                            if (ef == 1 && ew == WireType.Varint)
-                            {
-                                elem = (int)tt.ReadInt64();
-                            }
-                            else if (ef == 2 && ew == WireType.LengthDelimited)
-                            {
-                                shape = [];
-                                var sh = tt.ReadMessage();
-                                while (sh.Next(out int sf, out var sw))
-                                {
-                                    if (sf != 1 || sw != WireType.LengthDelimited)
-                                    {
-                                        sh.Skip(sw);
-                                        continue;
-                                    }
-                                    var dm = sh.ReadMessage();
-                                    long? val = null;
-                                    string? param = null;
-                                    while (dm.Next(out int df, out var dw))
-                                    {
-                                        if (df == 1 && dw == WireType.Varint)
-                                        {
-                                            val = dm.ReadInt64();
-                                        }
-                                        else if (df == 2 && dw == WireType.LengthDelimited)
-                                        {
-                                            param = dm.ReadString();
-                                        }
-                                        else
-                                        {
-                                            dm.Skip(dw);
-                                        }
-                                    }
-                                    shape.Add(new OnnxDim(val, string.IsNullOrEmpty(param) ? null : param));
-                                }
-                            }
-                            else
-                            {
-                                tt.Skip(ew);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        type.Skip(tw);
-                    }
-                }
+                type = ParseType(r.ReadMessage());
             }
             else
             {
                 r.Skip(w);
             }
         }
-        return new OnnxValueInfo { Name = name, ElemType = elem, Shape = shape };
+
+        return new OnnxValueInfo { Name = name, Kind = type.Kind, ElemType = type.ElemType, Shape = type.Shape, Element = type.Element };
+    }
+
+    /// <summary>Parses a TypeProto: tensor_type = 1, sequence_type = 4, map_type = 5, optional_type = 9 (sequence and optional nest a TypeProto).</summary>
+    private static OnnxValueInfo ParseType(ProtoReader type)
+    {
+        var result = new OnnxValueInfo { Name = "", Kind = OnnxValueKind.Unknown };
+        while (type.Next(out int tf, out var tw))
+        {
+            if (tf == 1 && tw == WireType.LengthDelimited)
+            {
+                var (elem, shape) = ParseTensorType(type.ReadMessage());
+                result = new OnnxValueInfo { Name = "", Kind = OnnxValueKind.Tensor, ElemType = elem, Shape = shape };
+            }
+            else if (tf is 4 or 9 && tw == WireType.LengthDelimited)
+            {
+                OnnxValueInfo? element = null;
+                var wrapper = type.ReadMessage();
+                while (wrapper.Next(out int wf, out var ww))
+                {
+                    if (wf == 1 && ww == WireType.LengthDelimited)
+                    {
+                        element = ParseType(wrapper.ReadMessage());
+                    }
+                    else
+                    {
+                        wrapper.Skip(ww);
+                    }
+                }
+
+                result = new OnnxValueInfo { Name = "", Kind = tf == 4 ? OnnxValueKind.Sequence : OnnxValueKind.Optional, Element = element };
+            }
+            else if (tf == 5 && tw == WireType.LengthDelimited)
+            {
+                type.Skip(tw);
+                result = new OnnxValueInfo { Name = "", Kind = OnnxValueKind.Map };
+            }
+            else
+            {
+                type.Skip(tw);
+            }
+        }
+
+        return result;
+    }
+
+    private static (int Elem, List<OnnxDim>? Shape) ParseTensorType(ProtoReader tt)
+    {
+        int elem = 0;
+        List<OnnxDim>? shape = null;
+        while (tt.Next(out int ef, out var ew))
+        {
+            if (ef == 1 && ew == WireType.Varint)
+            {
+                elem = (int)tt.ReadInt64();
+            }
+            else if (ef == 2 && ew == WireType.LengthDelimited)
+            {
+                shape = [];
+                var sh = tt.ReadMessage();
+                while (sh.Next(out int sf, out var sw))
+                {
+                    if (sf != 1 || sw != WireType.LengthDelimited)
+                    {
+                        sh.Skip(sw);
+                        continue;
+                    }
+
+                    var dm = sh.ReadMessage();
+                    long? val = null;
+                    string? param = null;
+                    while (dm.Next(out int df, out var dw))
+                    {
+                        if (df == 1 && dw == WireType.Varint)
+                        {
+                            val = dm.ReadInt64();
+                        }
+                        else if (df == 2 && dw == WireType.LengthDelimited)
+                        {
+                            param = dm.ReadString();
+                        }
+                        else
+                        {
+                            dm.Skip(dw);
+                        }
+                    }
+
+                    shape.Add(new OnnxDim(val, string.IsNullOrEmpty(param) ? null : param));
+                }
+            }
+            else
+            {
+                tt.Skip(ew);
+            }
+        }
+
+        return (elem, shape);
     }
 
     private static OnnxTensor ParseTensor(ProtoReader r, Ctx ctx)

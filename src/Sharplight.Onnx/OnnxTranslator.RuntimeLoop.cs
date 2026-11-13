@@ -12,7 +12,7 @@ internal sealed partial class OnnxTranslator
     private int _loopCount;
 
     /// <summary>Whether a value is only known at run time.</summary>
-    private static bool IsRuntime(TranslatedTensor t) => !t.IsConst;
+    private static bool IsRuntime(TranslatedTensor t) => t.Sequence?.Any(IsRuntime) ?? (t.Stacked || (!t.IsNone && !t.IsConst));
 
     /// <summary>
     /// The names in <paramref name="body"/> whose values depend on runtime tensors: enclosing values that are runtime, body inputs whose
@@ -74,17 +74,55 @@ internal sealed partial class OnnxTranslator
 
         bool startsTrue = condition is null || (condition.IsConst && condition.C!.Floats()[0] != 0);
         var condValue = condition is { IsConst: false } ? condition.V! : LoopConstant(startsTrue ? 1 : 0);
-        int scanCount = body.Outputs.Count - 1 - carried.Length;
+
+        // Sequences that start empty and get one tensor appended per iteration become scan outputs (stacked runtime sequences).
+        var appended = Enumerable.Range(0, carried.Length).Where(k => !carried[k].IsTensor).ToArray();
+        if (appended.FirstOrDefault(k => !AppendsOnly(body, k, carried[k]), -1) is var bad and >= 0)
+        {
+            throw new NotSupportedException(
+                $"loop-carried value '{body.Inputs[2 + bad].Name}' is a sequence or optional and the loop depends on runtime tensors; only appending to an initially empty sequence is supported");
+        }
+
+        var stateIndices = Enumerable.Range(0, carried.Length).Except(appended).ToArray();
+        string[] scanOutputs = [.. body.Outputs.Skip(1 + carried.Length).Select(o => o.Name), .. appended.Select(k => body.Outputs[1 + k].Name)];
         bool fixedCount = knownTrip is not null && startsTrue && KeepsCondition(body) && !runtime.Contains(body.Outputs[0].Name);
         string prefix = $"loop{_loopCount++}.";
-        string countSymbol = fixedCount || scanCount == 0 ? "" : NewDynamicSymbol(prefix + "count", knownTrip ?? _opts.RuntimeLoopScanBound);
+        string countSymbol = fixedCount || scanOutputs.Length == 0 ? "" : NewDynamicSymbol(prefix + "count", knownTrip ?? _opts.RuntimeLoopScanBound);
         var built = BuildLoopBody(
-            body, prefix, body.Inputs[0].Name, body.Inputs[1].Name, [.. carried.Select((t, k) => (body.Inputs[2 + k].Name, t))], [], body.Outputs[0].Name,
-            [.. body.Outputs.Skip(1).Take(carried.Length).Select(o => o.Name)], [.. body.Outputs.Skip(1 + carried.Length).Select(o => o.Name)]);
-        var spec = new ScanSpec([], [], new long[scanCount], new long[scanCount]);
+            body, prefix, body.Inputs[0].Name, body.Inputs[1].Name, [.. stateIndices.Select(k => (body.Inputs[2 + k].Name, carried[k]))], [], body.Outputs[0].Name,
+            [.. stateIndices.Select(k => body.Outputs[1 + k].Name)], scanOutputs, [.. appended.Select(k => body.Inputs[2 + k].Name)]);
+        var spec = new ScanSpec([], [], new long[scanOutputs.Length], new long[scanOutputs.Length]);
         var extent = countSymbol.Length > 0 ? countSymbol : knownTrip?.ToString() ?? "0";
-        var (states, outputs) = EmitLoop(n, built, tripValue, condValue, carried, [], spec, tripSymbol, extent, countSymbol);
-        SetOutputs(n, states, outputs);
+        var (states, outputs) = EmitLoop(n, built, tripValue, condValue, [.. stateIndices.Select(k => carried[k])], [], spec, tripSymbol, extent, countSymbol);
+        var results = new TranslatedTensor[carried.Length];
+        for (int i = 0; i < stateIndices.Length; i++)
+        {
+            results[stateIndices[i]] = states[i];
+        }
+
+        int scans = scanOutputs.Length - appended.Length;
+        for (int i = 0; i < appended.Length; i++)
+        {
+            results[appended[i]] = new TranslatedTensor { V = outputs[scans + i].V, Stacked = true };
+        }
+
+        SetOutputs(n, results, outputs[..scans]);
+    }
+
+    /// <summary>
+    /// Whether loop-carried value <paramref name="k"/> is an initially empty sequence that the body only extends by one SequenceInsert at
+    /// the end, whose result is the carried value of the next iteration and is read by nothing else.
+    /// </summary>
+    private static bool AppendsOnly(OnnxGraph body, int k, TranslatedTensor initial)
+    {
+        string input = body.Inputs[2 + k].Name;
+        string output = body.Outputs[1 + k].Name;
+        var readers = body.Nodes.Where(node => node.Inputs.Contains(input) || node.Attributes.Values.Any(a => a.G is not null && FreeVariables(a.G).Contains(input))).ToList();
+        var outputReaders = body.Nodes.Count(node => node.Inputs.Contains(output) || node.Attributes.Values.Any(a => a.G is not null && FreeVariables(a.G).Contains(output)));
+        return initial.Sequence is { Count: 0 }
+            && readers is [{ OpType: "SequenceInsert" } insert]
+            && insert.Inputs[0] == input && (insert.Inputs.Count == 2 || insert.Inputs[2] == "") && insert.Outputs[0] == output
+            && outputReaders == 0 && body.Outputs.Count(o => o.Name == output) == 1;
     }
 
     /// <summary>Whether the body passes its condition input through unchanged, so the loop runs exactly the trip count.</summary>
@@ -129,13 +167,16 @@ internal sealed partial class OnnxTranslator
     /// Translates a loop body into its own graph. Inputs: the iteration number and condition (when named), the loop-carried values (typed
     /// and shaped like their initial values), one slice of each scan input (the input shape without its outermost axis) and the captured
     /// enclosing values. Outputs: the condition (when named), the carried values (checked against their inputs) and the scan outputs.
+    /// <paramref name="emptySequences"/> are body inputs bound to an empty sequence in every iteration: sequences the loop appends to, whose
+    /// one-element result is a scan output.
     /// </summary>
     private LoopBody BuildLoopBody(
         OnnxGraph body, string prefix, string? iteration, string? condition, (string Name, TranslatedTensor Initial)[] states,
-        (string Name, DataType Type, Shape Shape)[] slices, string? conditionOutput, string[] stateOutputs, string[] scanOutputs)
+        (string Name, DataType Type, Shape Shape)[] slices, string? conditionOutput, string[] stateOutputs, string[] scanOutputs,
+        string[]? emptySequences = null)
     {
         var free = FreeVariables(body).Where(_env.ContainsKey).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
-        var captured = free.Where(name => !_env[name].IsConst).ToList();
+        var captured = free.Where(name => IsRuntime(_env[name])).ToList();
         foreach (var name in captured)
         {
             LoopValue(_env[name], $"captured value '{name}'");
@@ -168,6 +209,11 @@ internal sealed partial class OnnxTranslator
                 _env[name] = new TranslatedTensor { V = _b.Input(name, InputRole.Other, type, sliceShape), Scalar = scalar };
             }
 
+            foreach (var name in emptySequences ?? [])
+            {
+                _env[name] = TranslatedTensor.Seq([]);
+            }
+
             RunSubgraph(body, "Loop body");
             if (conditionOutput is not null)
             {
@@ -193,6 +239,7 @@ internal sealed partial class OnnxTranslator
             for (int j = 0; j < scanOutputs.Length; j++)
             {
                 var t = Get(scanOutputs[j]);
+                t = t.Sequence is [var appended] ? appended : t;   // the element appended to a sequence that starts empty in every iteration
                 var v = LoopValue(t, "a scan output");
                 if (v.Shape.Dims.Any(d => d.IsSymbolic))
                 {
@@ -251,6 +298,11 @@ internal sealed partial class OnnxTranslator
     /// <summary>The IR value a loop reads or produces for a tensor (constants are materialized with their integer or float type).</summary>
     private Value LoopValue(TranslatedTensor t, string what)
     {
+        if (!t.IsTensor)
+        {
+            throw new NotSupportedException($"{what} of a runtime loop is a sequence or optional");
+        }
+
         if (t.LeadingUnits > 0 || t.TransposedNonZero)
         {
             throw new NotSupportedException($"{what} of a runtime loop is a tensor with leading unit dims or a NonZero result");

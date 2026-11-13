@@ -18,6 +18,18 @@ public sealed class OnnxGraphAdapter : IModelAdapter
     /// <summary>Model definition property that records the batch symbol name.</summary>
     public const string BatchSymbolProperty = "onnx.batch_symbol";
 
+    /// <summary>
+    /// The name of the graph input or output that carries element <paramref name="index"/> of an ONNX sequence value: a sequence graph
+    /// input becomes one input per element (its length is given by <see cref="OnnxImportOptions.SequenceInputLengths"/>, the element
+    /// shapes by <see cref="OnnxImportOptions.InputShapes"/> under these names), and a sequence graph output whose length is known at
+    /// import one output per element. A sequence output whose length is only known at run time is one output under the sequence's own
+    /// name holding the elements stacked along a new outermost axis. An empty optional output has no graph output.
+    /// </summary>
+    /// <param name="sequence">The ONNX name of the sequence value.</param>
+    /// <param name="index">The element index.</param>
+    /// <returns><c>sequence[index]</c>.</returns>
+    public static string SequenceElementName(string sequence, int index) => $"{sequence}[{index}]";
+
     /// <inheritdoc />
     public string Name => "onnx";
 

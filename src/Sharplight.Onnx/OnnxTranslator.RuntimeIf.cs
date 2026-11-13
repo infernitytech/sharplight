@@ -20,10 +20,10 @@ internal sealed partial class OnnxTranslator
         var thenBranch = n.Attributes["then_branch"].G!;
         var elseBranch = n.Attributes["else_branch"].G!;
         var free = FreeVariables(thenBranch).Union(FreeVariables(elseBranch)).Where(_env.ContainsKey).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
-        var captured = free.Where(name => !_env[name].IsConst).ToList();
-        if (captured.Any(name => _env[name] is { LeadingUnits: > 0 } or { TransposedNonZero: true }))
+        var captured = free.Where(name => IsRuntime(_env[name])).ToList();
+        if (captured.Any(name => _env[name] is { LeadingUnits: > 0 } or { TransposedNonZero: true } or { IsTensor: false }))
         {
-            throw new NotSupportedException("If branches reading a tensor with leading unit dims or a NonZero result");
+            throw new NotSupportedException("If branches reading a tensor with leading unit dims, a NonZero result, a sequence or an optional");
         }
 
         string prefix = $"if{_ifCount++}.";
@@ -84,6 +84,11 @@ internal sealed partial class OnnxTranslator
         for (int k = 0; k < g.Outputs.Count; k++)
         {
             var t = Get(g.Outputs[k].Name);
+            if (!t.IsTensor)
+            {
+                throw new NotSupportedException("an If branch returns a sequence or optional and the condition depends on runtime tensors");
+            }
+
             bool integer = !OnnxType.IsFloat(g.Outputs[k].ElemType);
             var v = t.IsConst ? (integer ? Idx(t) : AsValue(t)) : t.V!;
             if (t.LeadingUnits > 0 || t.TransposedNonZero)
@@ -120,9 +125,10 @@ internal sealed partial class OnnxTranslator
             foreach (var name in free)
             {
                 var t = saved[name];
-                _env[name] = t.IsConst
-                    ? new TranslatedTensor { C = t.C, Scalar = t.Scalar }
-                    : new TranslatedTensor { V = _b.Input(name, InputRole.Other, t.V!.Type, t.V.Shape), Scalar = t.Scalar };
+                _env[name] = t.IsConst ? new TranslatedTensor { C = t.C, Scalar = t.Scalar }
+                    : !IsRuntime(t) ? t
+                    : t.IsTensor ? new TranslatedTensor { V = _b.Input(name, InputRole.Other, t.V!.Type, t.V.Shape), Scalar = t.Scalar }
+                    : throw new NotSupportedException($"a subgraph reads the runtime sequence or optional '{name}' of the enclosing graph");
             }
 
             build();

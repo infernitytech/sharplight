@@ -18,6 +18,16 @@ public sealed class OnnxImportOptions
     /// </summary>
     public Dictionary<string, double[]> ConstantInputs { get; init; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Number of elements of sequence-typed graph inputs. Every element becomes a graph input of its own named
+    /// <see cref="OnnxGraphAdapter.SequenceElementName"/>, whose shape <see cref="InputShapes"/> gives under that name (and which
+    /// <see cref="ConstantInputs"/> can pin).
+    /// </summary>
+    public Dictionary<string, int> SequenceInputLengths { get; init; } = new(StringComparer.Ordinal);
+
+    /// <summary>Optional-typed graph inputs that are empty; every other optional input holds a value (a tensor or a sequence).</summary>
+    public HashSet<string> AbsentInputs { get; init; } = new(StringComparer.Ordinal);
+
     /// <summary>Makes the outermost dimension of every input symbolic ("N") even if it is fixed in the file.</summary>
     public bool ForceSymbolicBatch { get; init; }
 

@@ -125,14 +125,50 @@ internal sealed partial class OnnxTranslator
 
     private void DeclareInput(OnnxValueInfo info)
     {
+        if (info.Kind == OnnxValueKind.Optional)
+        {
+            if (_opts.AbsentInputs.Contains(info.Name))
+            {
+                _env[info.Name] = TranslatedTensor.None();
+                return;
+            }
+
+            info = NamedType(info.Element, info.Name);
+        }
+
+        if (info.Kind == OnnxValueKind.Sequence)
+        {
+            int length = _opts.SequenceInputLengths.TryGetValue(info.Name, out var l) ? l : throw new NotSupportedException(
+                $"Graph input '{info.Name}' is a sequence; give its length through OnnxImportOptions.SequenceInputLengths.");
+            var element = info.Element is { Kind: OnnxValueKind.Tensor } e ? e : throw new NotSupportedException($"Graph input '{info.Name}' is a sequence of non-tensors.");
+            var elements = Enumerable.Range(0, length).Select(k => DeclareTensorInput(NamedType(element, OnnxGraphAdapter.SequenceElementName(info.Name, k)))).ToList();
+            _env[info.Name] = TranslatedTensor.Seq(elements);
+            return;
+        }
+
+        _env[info.Name] = DeclareTensorInput(info);
+    }
+
+    /// <summary>A copy of a sequence's or optional's element type under the given name.</summary>
+    private static OnnxValueInfo NamedType(OnnxValueInfo? type, string name)
+        => type is null
+            ? throw new NotSupportedException($"Graph input '{name}' has no element type.")
+            : new OnnxValueInfo { Name = name, Kind = type.Kind, ElemType = type.ElemType, Shape = type.Shape, Element = type.Element };
+
+    private TranslatedTensor DeclareTensorInput(OnnxValueInfo info)
+    {
+        if (info.Kind != OnnxValueKind.Tensor)
+        {
+            throw new NotSupportedException($"Graph input '{info.Name}' is a {info.Kind.ToString().ToLowerInvariant()} value.");
+        }
+
         if (_opts.ConstantInputs.TryGetValue(info.Name, out var pinned))
         {
             long[] dims = _opts.InputShapes.GetValueOrDefault(info.Name) ?? info.Shape!.Select(d => d.Value ?? 1).ToArray();
             var constant = OnnxType.IsFloat(info.ElemType)
                 ? OnnxConst.FromFloats(info.ElemType, dims, pinned, info.Name)
                 : OnnxConst.FromInts(info.ElemType, dims, pinned.Select(v => (long)v).ToArray(), info.Name);
-            _env[info.Name] = TranslatedTensor.Const(constant);
-            return;
+            return TranslatedTensor.Const(constant);
         }
 
         var shape = InputShape(info);
@@ -147,11 +183,12 @@ internal sealed partial class OnnxTranslator
         var role = image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other;
         var value = _b.Input(info.Name, role, isInt ? DataType.I32 : DataType.F32, shape);
         var tensor = TranslatedTensor.Dyn(value);
-        _env[info.Name] = tensor;
         if ((_opts.InputShapes.GetValueOrDefault(info.Name)?.Length ?? info.Shape?.Count) == 0)
         {
             tensor.Scalar = true;
         }
+
+        return tensor;
     }
 
     /// <summary>Translates one node, adding the node identity to errors that do not carry it yet.</summary>
@@ -178,14 +215,30 @@ internal sealed partial class OnnxTranslator
             throw new InvalidDataException($"Graph output '{output.Name}' is never produced.");
         }
 
-        if (tensor.C is not null)
+        if (tensor.Sequence is { } elements)
         {
-            throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
+            for (int k = 0; k < elements.Count; k++)
+            {
+                DeclareTensorOutput(OnnxGraphAdapter.SequenceElementName(output.Name, k), elements[k]);
+            }
+
+            return;
         }
 
-        var value = OutputCopy(tensor.V!, output.Name);
+        if (!tensor.IsNone)
+        {
+            DeclareTensorOutput(output.Name, tensor);
+        }
+    }
 
-        _b.Output(output.Name, value);
+    private void DeclareTensorOutput(string name, TranslatedTensor tensor)
+    {
+        if (tensor.C is not null)
+        {
+            throw new NotSupportedException($"Graph output '{name}' is a compile-time constant; outputs must depend on an input.");
+        }
+
+        _b.Output(name, OutputCopy(tensor.V!, name));
     }
 
     // ---- inputs ------------------------------------------------------------------------------------
@@ -478,6 +531,11 @@ internal sealed partial class OnnxTranslator
         for (int i = 0; i < ins.Length; i++)
         {
             ins[i] = n.Inputs[i] == "" ? null : Get(n.Inputs[i]);
+        }
+
+        if (TrySequenceOp(n, ins))
+        {
+            return;
         }
 
         bool allConst = ins.All(t => t is null || t.IsConst);

@@ -134,6 +134,40 @@ public class ControlFlowTests
         Assert.Equal(acc, outputs["acc"]);
     }
 
+    [Theory]
+    [InlineData("cpu")]
+    [InlineData("vulkan")]
+    public void Loop_AppendingToASequence_GivesARuntimeLengthSequence(string provider)
+    {
+        // seq = []; for i < trip: seq.append(x * i); outputs: the sequence (stacked) and ConcatFromSequence(seq, axis 0).
+        var body = Graph(
+            "body",
+            [TestModel.ValueInfo("i", Int64), TestModel.ValueInfo("c", Bool), SequenceInfo("seq_in")],
+            [TestModel.ValueInfo("c_out", Bool), SequenceInfo("seq_out")],
+            ("Identity", ["c"], ["c_out"], []),
+            ("Cast", ["i"], ["fi"], [TestModel.Attr("to", Float)]),
+            ("Mul", ["x", "fi"], ["row"], []),
+            ("SequenceInsert", ["seq_in", "row"], ["seq_out"], []));
+        var model = new TestModel()
+            .Input(TestModel.ValueInfo("trip", Int64)).Input("x", 1, 3)
+            .Output(SequenceInfo("rows")).Output("joined", "K", 3)
+            .Node("SequenceEmpty", [], ["empty"])
+            .Node("Loop", ["trip", "", "empty"], ["rows"], GraphAttr("body", body))
+            .Node("ConcatFromSequence", ["rows"], ["joined"], TestModel.Attr("axis", 0));
+        using var run = new Runner(model, provider);
+        Assert.Contains("rows", run.Graph.Outputs.Keys);
+        var outputs = run.Run([4], [1f, 2f, 3f]);
+        float[] expected = [.. Enumerable.Range(0, 4).SelectMany(i => new[] { 1f * i, 2f * i, 3f * i })];
+        Assert.Equal(expected, outputs["rows"]);
+        Assert.Equal(expected, outputs["joined"]);
+    }
+
+    private static ProtoWriter SequenceInfo(string name)
+    {
+        var element = new ProtoWriter().Msg(1, new ProtoWriter().Int(1, Float));
+        return new ProtoWriter().Str(1, name).Msg(2, new ProtoWriter().Msg(4, new ProtoWriter().Msg(1, element)));
+    }
+
     private static ProtoWriter GraphAttr(string name, ProtoWriter graph) => new ProtoWriter().Str(1, name).Msg(6, graph).Int(20, 5);
 
     private static ProtoWriter Graph(string name, ProtoWriter[] inputs, ProtoWriter[] outputs, params (string Op, string[] In, string[] Out, ProtoWriter[] Attrs)[] nodes)

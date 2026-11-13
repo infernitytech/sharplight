@@ -18,6 +18,8 @@ internal sealed partial class OnnxTranslator
         "DepthToSpace", "SpaceToDepth", "Trilu", "OneHot", "GridSample", "CastLike", "QuantizeLinear", "DequantizeLinear", "MatMulInteger", "ConvInteger",
         "QLinearMatMul", "QLinearConv", "If", "LSTM", "GRU", "RNN", "RMSNormalization", "NonZero", "EyeLike", "DynamicQuantizeLinear",
         "Range", "ConstantOfShape", "NonMaxSuppression", "Loop", "Scan", "Unique", "Compress", "RoiAlign",
+        "SequenceEmpty", "SequenceConstruct", "SequenceInsert", "SequenceErase", "SequenceAt", "SequenceLength", "SplitToSequence",
+        "ConcatFromSequence", "SequenceMap", "Optional", "OptionalHasElement", "OptionalGetElement",
     ];
 
     private static readonly HashSet<string> s_contribOps =
