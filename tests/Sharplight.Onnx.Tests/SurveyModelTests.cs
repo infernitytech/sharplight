@@ -17,12 +17,16 @@ public class SurveyModelTests(ITestOutputHelper output)
     /// <param name="FixBatch">Import with the concrete batch size.</param>
     /// <param name="Pins">Inputs pinned to their reference values at import (they decide output shapes).</param>
     /// <param name="Unpins">Inputs the manifest pins that are fed at run time instead (they select a runtime If branch).</param>
-    private sealed record Spec(string Name, string[] Providers, double? RmsTol = null, bool FixBatch = false, string[]? Pins = null, string[]? Unpins = null);
+    /// <param name="Detections">Indices of the box output (4 values per row) and the score output of score-sorted detections:
+    /// the reference order is aligned to the actual one within groups of tied scores (<see cref="DetectionOrder"/>).</param>
+    private sealed record Spec(string Name, string[] Providers, double? RmsTol = null, bool FixBatch = false, string[]? Pins = null, string[]? Unpins = null,
+        (int Boxes, int Scores)? Detections = null);
 
     private static readonly Spec[] s_specs =
     [
-        // NonMaxSuppression + TopK over a data-dependent count; two boxes with scores 5e-8 apart swap on CPU.
-        new("ssd-10", ["cpu", "vulkan"], RmsTol: 5e-2),
+        // NonMaxSuppression + TopK over a data-dependent count; detections whose scores differ by float noise swap places
+        // (5e-8 apart on CPU, 1e-6 on Vulkan), so the order is compared modulo tied scores.
+        new("ssd-10", ["cpu", "vulkan"], Detections: (0, 2)),
         // NonMaxSuppression + constant-folded TF "arange" Loops; concatenates along the batch axis.
         new("yolov3-12", ["cpu", "vulkan"], FixBatch: true),
         // GroupQueryAttention (rotary, local window) and default-domain SimplifiedLayerNormalization.
@@ -69,9 +73,19 @@ public class SurveyModelTests(ITestOutputHelper output)
             var inputs = c.RuntimeInputs.Select(k => c.ReadInput(batch, k)).ToList();
             var res = OnnxExec.Run(c.ModelPath, OnnxExec.OptionsFor(c, batch), dev, batch, inputs);
             Assert.Equal(c.Outputs.Length, res.Outputs.Length);
+            int[]? order = spec.Detections is { } det
+                ? DetectionOrder.AlignNearTies(res.Outputs[det.Boxes], c.ReadOutput(batch, det.Boxes), c.ReadOutput(batch, det.Scores), width: 4, boxTolerance: 1e-3)
+                : null;
             for (int k = 0; k < c.Outputs.Length; k++)
             {
-                var expected = c.ReadOutput(batch, k);
+                var expected = order is null ? c.ReadOutput(batch, k) : DetectionOrder.Reorder(c.ReadOutput(batch, k), order);
+                if (Environment.GetEnvironmentVariable("SHARPLIGHT_ZOO_DUMP") is { Length: > 0 } dump)
+                {
+                    var bytes = new byte[res.Outputs[k].Length * 4];
+                    Buffer.BlockCopy(res.Outputs[k], 0, bytes, 0, bytes.Length);
+                    File.WriteAllBytes(Path.Combine(dump, $"{Path.GetFileName(name)}.{provider}.b{batch}.out{k}.bin"), bytes);
+                }
+
                 var cmp = c.RmsTol is { } rt ? Compare.CheckRms(res.Outputs[k], expected, rt) : Compare.Check(res.Outputs[k], expected, c.Rtol, c.Atol);
                 output.WriteLine($"{provider} {name} b={batch} out{k} ({c.Outputs[k]}): maxAbs={cmp.MaxAbs:E2} rms={cmp.RmsRel:E2} scale={cmp.Scale:F2} compile={res.CompileMs:F0}ms");
                 Assert.True(cmp.Ok, $"{provider} {name} batch {batch} output '{c.Outputs[k]}': maxAbs={cmp.MaxAbs:E3} maxRel={cmp.MaxRel:E3} rms={cmp.RmsRel:E3} at {cmp.Worst}");
