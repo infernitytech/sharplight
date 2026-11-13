@@ -124,7 +124,7 @@ public sealed class CompiledModel : IDisposable
         }
     }
 
-    public static long ByteCount(Value v, RunParameters p) => v.Type.ByteSize(v.Shape.Elements(p.Symbols));
+    internal static long ByteCount(Value v, RunParameters p) => v.Type.ByteSize(v.Shape.Elements(p.Symbols));
 
     public void Dispose()
     {

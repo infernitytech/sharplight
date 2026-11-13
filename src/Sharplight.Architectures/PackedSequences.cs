@@ -11,7 +11,7 @@ namespace Sharplight.Architectures;
 /// <see cref="InputRole.SequenceSpans"/>. Packing (instead of padding to a common length) wastes no compute on padding and lets
 /// one compiled graph serve any mix of lengths up to the token budget.
 /// </summary>
-public static class PackedSequences
+internal static class PackedSequences
 {
     /// <summary>Name of the token-id input [T].</summary>
     public const string TokensInput = "tokens";
@@ -23,9 +23,6 @@ public static class PackedSequences
     public const string RowSpansInput = "row_spans";
     /// <summary>Name of the sequence-span input [B, 2]: first row and length of each sequence.</summary>
     public const string SequenceSpansInput = "sequence_spans";
-
-    /// <summary>Pooling modes of <see cref="WellKnown.EmbeddingPooling"/>.</summary>
-    public static readonly string[] PoolingModes = ["mean", "cls", "last", "none"];
 
     /// <summary>Declares the packed-sequence inputs: tokens [T], positions [T, 1], row spans [T, 2], sequence spans [B, 2], optional token types [T].</summary>
     public static PackedSequenceInputs Declare(GraphBuilder b, bool tokenTypes)

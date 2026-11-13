@@ -13,7 +13,7 @@ namespace Sharplight.Architectures;
 /// → patch merger (LayerNorm, m×m merge, 2-layer MLP) producing embeddings of the language model's hidden size.
 /// Shared by every architecture that uses such a tower; it does not know which file the weights came from.
 /// </summary>
-public static class VisionTowerGraph
+internal static class VisionTowerGraph
 {
     public static ComputeGraph Build(VisionParameters p, Func<string, WeightInfo?> weights)
     {

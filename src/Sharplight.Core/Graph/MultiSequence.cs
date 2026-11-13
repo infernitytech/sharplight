@@ -19,7 +19,7 @@ namespace Sharplight.Graph;
 public static class MultiSequence
 {
     public const string RowsInput = "sequence_rows";
-    public const string RunsInput = "sequence_runs";
+    private const string RunsInput = "sequence_runs";
 
     /// <summary>The rewritten graph and, per original state, its multi-sequence definition.</summary>
     public sealed record Result(ComputeGraph Graph, IReadOnlyDictionary<StateDefinition, StateDefinition> States, int Slots);

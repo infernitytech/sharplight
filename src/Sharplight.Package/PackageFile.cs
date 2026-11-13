@@ -8,7 +8,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Package;
 
 /// <summary>An open, memory-mapped package.</summary>
-public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
+internal sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
 {
     private readonly MemoryMappedFile _mmf;
     private readonly MemoryMappedViewAccessor _view;

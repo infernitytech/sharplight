@@ -241,7 +241,7 @@ public static partial class StandardOps
     private static IReadOnlyList<TensorType> Same(IReadOnlyList<Value> i, Attributes a) => [new(i[0].Type, i[0].Shape)];
     private static IReadOnlyList<TensorType> SameF32(IReadOnlyList<Value> i, Attributes a) => [new(DataType.F32, i[0].Shape)];
 
-    public static Shape BroadcastShapes(Shape a, Shape b)
+    internal static Shape BroadcastShapes(Shape a, Shape b)
     {
         int rank = Math.Max(a.Rank, b.Rank);
         var dims = new Dim[rank];

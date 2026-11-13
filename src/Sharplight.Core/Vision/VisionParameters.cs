@@ -38,7 +38,7 @@ namespace Sharplight.Vision;
 /// </remarks>
 public sealed record VisionParameters
 {
-    public const string PropertyPrefix = "vision.";
+    internal const string PropertyPrefix = "vision.";
     public const string PatchesInput = "patches";
     public const string PositionsInput = "positions";
     public const string EmbeddingIndexInput = "position_embedding_index";

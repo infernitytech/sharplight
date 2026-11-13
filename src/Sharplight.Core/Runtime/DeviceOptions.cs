@@ -5,8 +5,6 @@ public sealed class DeviceOptions
 {
     /// <summary>Max bytes of device memory the runtime may use (null = most of the free memory).</summary>
     public long? MemoryBudget { get; set; }
-    /// <summary>Enable API validation / debug checks (slow).</summary>
-    public bool Debug { get; set; }
     /// <summary>Directory for compiled kernel caches (null = default per-user cache dir).</summary>
     public string? KernelCacheDirectory { get; set; }
     /// <summary>

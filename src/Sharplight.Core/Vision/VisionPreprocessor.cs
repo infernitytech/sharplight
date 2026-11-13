@@ -12,7 +12,7 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     public VisionParameters Parameters => p;
 
     /// <summary>Target size in pixels for an input size (smart resize).</summary>
-    public (int Width, int Height) TargetSize(int width, int height)
+    internal (int Width, int Height) TargetSize(int width, int height)
     {
         int factor = p.PatchSize * p.SpatialMergeSize;
         long unit = (long)factor * factor;
@@ -67,7 +67,7 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     /// Patchifies an already normalized image (interleaved RGB floats, width and height multiples of patch_size·merge_size)
     /// into the encoder inputs; what <see cref="Process"/> does after resizing and normalizing.
     /// </summary>
-    public PreprocessedImage Patchify(float[] rgb, int tw, int th)
+    internal PreprocessedImage Patchify(float[] rgb, int tw, int th)
     {
         int ps = p.PatchSize, m = p.SpatialMergeSize, tp = p.TemporalPatchSize;
         int gh = th / ps, gw = tw / ps, n = gh * gw, k = p.PatchDim;
@@ -191,7 +191,7 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     }
 
     /// <summary>Antialiased bicubic resize of interleaved 8-bit RGB (rounded and clamped to 8 bits like the reference).</summary>
-    public static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh)
+    internal static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh)
     {
         var (hs, hc, hw, hm) = Coefficients(sw, dw);
         var (vs, vc, vw, vm) = Coefficients(sh, dh);

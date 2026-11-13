@@ -9,7 +9,7 @@ public sealed class OpSchema
 {
     public string Name { get; }
     public OpCategory Category { get; }
-    public int MinInputs { get; }
+    internal int MinInputs { get; }
     public int MaxInputs { get; }
     public string Description { get; }
     private readonly Func<IReadOnlyList<Value>, Attributes, IReadOnlyList<TensorType>> _infer;
@@ -25,7 +25,7 @@ public sealed class OpSchema
         Description = description;
     }
 
-    public IReadOnlyList<TensorType> Infer(IReadOnlyList<Value> inputs, Attributes attrs)
+    internal IReadOnlyList<TensorType> Infer(IReadOnlyList<Value> inputs, Attributes attrs)
     {
         if (inputs.Count < MinInputs || inputs.Count > MaxInputs)
         {

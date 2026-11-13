@@ -2,4 +2,7 @@
   <PropertyGroup>
     <Description>Format-agnostic tensor graph IR, model definition and execution-provider abstractions.</Description>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Vision.Tests" />
+  </ItemGroup>
 </Project>

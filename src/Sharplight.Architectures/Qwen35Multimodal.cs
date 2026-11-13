@@ -12,7 +12,7 @@ namespace Sharplight.Architectures;
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
-    public const string ImageToken = "<|image_pad|>";
+    private const string ImageToken = "<|image_pad|>";
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
     private const int Axes = 4;

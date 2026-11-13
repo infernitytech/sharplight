@@ -28,7 +28,7 @@ public sealed class GraphBuilder
         _weightLookup = weightLookup;
     }
 
-    public string CurrentGroup => _groups.Count > 0 ? _groups.Peek() : "";
+    private string CurrentGroup => _groups.Count > 0 ? _groups.Peek() : "";
 
     /// <summary>Opens a placement group scope (e.g. one transformer block).</summary>
     public IDisposable Group(string name)
