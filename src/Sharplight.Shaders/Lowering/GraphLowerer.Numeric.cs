@@ -18,6 +18,11 @@ public sealed partial class GraphLowerer
     /// <summary>Element types the generated elementwise kernels read and write.</summary>
     private static OpSupport SupportsElementwise(Node node)
     {
+        if (node.Op.Name is "Cast" or "Where")
+        {
+            return OpSupport.Yes;   // typed outputs use LowerCastTyped / LowerWhereTyped, which handle every element type
+        }
+
         foreach (var input in node.Inputs)
         {
             var t = input.Type;
