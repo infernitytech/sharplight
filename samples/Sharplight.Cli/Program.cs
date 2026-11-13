@@ -64,7 +64,7 @@ using var model = LlmModel.Load(modelPath, new LlmLoadOptions
     Devices = slots,
     Fallback = fallback,
     ContextLength = int.Parse(Opt("--ctx", "4096")!),
-    MaxBatchTokens = int.Parse(Opt("--batch", "256")!),
+    MaxBatchTokens = int.Parse(Opt("--batch", "512")!),
     Log = Console.Error.WriteLine,
 });
 var session = model.CreateSession(imagePaths.Count > 0 ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph);
