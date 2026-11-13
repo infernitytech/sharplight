@@ -27,13 +27,15 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
 
     private static bool IsGemma(string? modelType) => modelType is "gemma2" or "gemma3_text" or "gemma3";
 
-    private static string Activation(HfConfig c)
+    internal static string Activation(HfConfig c)
         => (c.GetString("hidden_activation", "hidden_act", "activation_function") ?? "silu") switch
         {
             "silu" or "swish" => "silu",
             "gelu_pytorch_tanh" or "gelu_new" or "gelu_fast" or "gelu_tanh" => "gelu_tanh",
             "gelu" => "gelu",
             "relu" => "relu",
+            "relu2" => "relu2",
+            "xielu" => "xielu",
             var other => throw new NotSupportedException($"Hugging Face activation '{other}' is not supported."),
         };
 
@@ -61,13 +63,13 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     private static string? StringProperty(JsonElement element, string key)
         => element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private static int RopeDim(HfConfig c, int headDim)
+    internal static int RopeDim(HfConfig c, int headDim)
         => (int)(headDim * (c.RopeDouble("partial_rotary_factor", "partial_rotary_factor") ?? 1.0));
 
-    private static int HeadDim(HfConfig c)
+    internal static int HeadDim(HfConfig c)
         => c.GetInt("head_dim") ?? c.Int("hidden_size") / c.Int("num_attention_heads");
 
-    private static float RopeBase(HfConfig c) => (float)(c.RopeDouble("rope_theta", "rope_theta") ?? DefaultRopeBase);
+    internal static float RopeBase(HfConfig c) => (float)(c.RopeDouble("rope_theta", "rope_theta") ?? DefaultRopeBase);
 
     /// <summary>Phi-3 "longrope": short/long per-frequency factors and the cos/sin magnitude from the context extension ratio.</summary>
     private sealed record LongRopeInfo(float[] Short, float[] Long, float AttentionScale);
@@ -80,7 +82,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         }
 
         float[] Factors(string key) => scaling.Json.GetProperty(key).EnumerateArray().Select(e => (float)e.GetDouble()).ToArray();
-        int originalContext = c.GetInt("original_max_position_embeddings") ?? 4096;
+        int originalContext = c.GetInt("original_max_position_embeddings") ?? (int?)HfMappingHelpers.OptionalNumber(scaling.Json, "original_max_position_embeddings") ?? 4096;
         int maxContext = c.GetInt("max_position_embeddings") ?? originalContext;
         double scale = (double)maxContext / originalContext;
         float attentionScale = HfMappingHelpers.OptionalNumber(scaling.Json, "attention_factor") is { } explicitFactor
@@ -193,12 +195,12 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? false;
     }
 
-    private static void AddRopeAttentionScale(Dictionary<string, object> md, string a, HfConfig c)
+    internal static void AddRopeAttentionScale(Dictionary<string, object> md, string a, HfConfig c)
     {
         if (c.Get("rope_scaling") is { ValueKind: JsonValueKind.Object } && LongRope(c) is { } longRope)
         {
             md[a + "rope.attention_scale"] = longRope.AttentionScale;
-            md[a + "rope.original_context_length"] = c.GetInt("original_max_position_embeddings") ?? c.GetInt("max_position_embeddings") ?? 4096;
+            md[a + "rope.original_context_length"] = c.GetInt("original_max_position_embeddings") ?? (int?)HfMappingHelpers.OptionalNumber(c.RopeParameters, "original_max_position_embeddings") ?? c.GetInt("max_position_embeddings") ?? 4096;
         }
         else if (ComputeScaling(c) is { } scaling && scaling.AttentionScale != 1f)
         {
@@ -482,7 +484,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     }
 
     /// <summary>Rope frequency factors, which HF derives from the config but the canonical form stores as weights.</summary>
-    private static void AddRopeFactors(HfConfig c, bool extended, HfWeightCollector collector)
+    internal static void AddRopeFactors(HfConfig c, bool extended, HfWeightCollector collector)
     {
         if (extended)
         {

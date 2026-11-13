@@ -52,18 +52,11 @@ public sealed class NemotronHAdapter : IModelAdapter
         int nHead = src.Arch("attention.head_count", 0);
         int nKv = src.Arch("attention.kv_head_count", 0);
         int headDim = src.Arch("attention.head_dim", 0);
-        int convK = src.Arch("ssm.conv_kernel", 4);
-        int N = src.Arch("ssm.state_size", 0);
-        int G = src.Arch("ssm.group_count", 1);
-        int H = src.Arch("ssm.head_count", 0);
-        int P = src.Arch("ssm.head_dim", 0);
-        float dtMin = src.Arch("ssm.time_step_min", 0f);
+        var mamba = new Mamba2Layer(src, eps);
         int experts = src.Arch("moe.expert_count", 0);
         int expertsUsed = src.Arch("moe.expert_used_count", 0);
         bool normWeights = src.Arch("moe.normalize_weights", true);
         float weightsScale = src.Arch("moe.weights_scale", 1f);
-        int inner = H * P;
-        int convDim = inner + 2 * G * N;
         int vocab = src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed;
 
         var states = new List<StateDefinition>();
@@ -77,8 +70,9 @@ public sealed class NemotronHAdapter : IModelAdapter
             switch (kinds[il])
             {
                 case "ssm":
-                    states.Add(convState[il] = new StateDefinition { Name = $"{g}.conv_state", Type = DataType.F32, Shape = new Shape(convK - 1, convDim), Kind = StateKind.Recurrent, Group = g });
-                    states.Add(ssmState[il] = new StateDefinition { Name = $"{g}.ssm_state", Type = DataType.F32, Shape = new Shape(H, P, N), Kind = StateKind.Recurrent, Group = g });
+                    (convState[il], ssmState[il]) = mamba.DefineStates(g);
+                    states.Add(convState[il]);
+                    states.Add(ssmState[il]);
                     break;
                 case "attention":
                     var shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), nKv, headDim);
@@ -154,7 +148,7 @@ public sealed class NemotronHAdapter : IModelAdapter
                 var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), eps, $"{p}norm");
                 var y = kinds[il] switch
                 {
-                    "ssm" => Ssm(b, h, p, il),
+                    "ssm" => mamba.Build(b, h, p, convState[il], ssmState[il]),
                     "attention" => Attention(b, h, p, il),
                     "moe" => Moe(b, h, p),
                     _ => Mlp(b, h, p),
@@ -171,28 +165,6 @@ public sealed class NemotronHAdapter : IModelAdapter
                 b.Output("hidden", hidden);
             }
             return b.Build();
-        }
-
-        Value Ssm(GraphBuilder b, Value h, string p, int il)
-        {
-            var proj = b.Linear(h, p + "ssm.in.weight");                                   // [T, inner + conv_dim + H]
-            var z = b.Slice(proj, 1, 0, inner);
-            var xbc = b.Slice(proj, 1, inner, convDim);
-            var dt = b.Slice(proj, 1, inner + convDim, H);
-            var cs = b.State(convState[il]);
-            var ss = b.State(ssmState[il]);
-            var conv = b.Emit("CausalConv1d", [xbc, b.Weight(p + "ssm.conv1d.weight"), cs, b.Weight(p + "ssm.conv1d.bias")],
-                Attributes.From(("activation", "silu"), ("bias", true)), writes: [cs])[0];
-            var xs = b.Reshape(b.Slice(conv, 1, 0, inner), 0, H, P);
-            var bs = b.Reshape(b.Slice(conv, 1, inner, G * N), 0, G, N);
-            var cc = b.Reshape(b.Slice(conv, 1, inner + G * N, G * N), 0, G, N);
-            var scan = b.Emit("SelectiveScan", [xs, dt, b.Weight(p + "ssm.dt_bias"), b.Weight(p + "ssm.a"), bs, cc, b.Weight(p + "ssm.d"), ss],
-                Attributes.From(("dt_min", dtMin)), $"{p}scan", writes: [ss])[0];                // [T, H, P]
-            // gated group RMS norm: norm_G(y · silu(z)) · weight
-            var gated = b.Mul(b.Reshape(scan, 0, inner), b.Silu(z));
-            var normed = b.Reshape(b.RmsNorm(b.Reshape(gated, 0, G, inner / G), null, eps), 0, inner);
-            normed = b.Mul(normed, b.Weight(p + "ssm.norm.weight"), $"{p}gated_norm");
-            return b.Linear(normed, p + "ssm.out.weight", name: $"{p}ssm_out");
         }
 
         Value Attention(GraphBuilder b, Value h, string p, int il)

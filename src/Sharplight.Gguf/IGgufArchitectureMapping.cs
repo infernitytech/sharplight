@@ -32,6 +32,14 @@ internal interface IGgufArchitectureMapping
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights) => [];
 
     /// <summary>
+    /// Last chance to adjust the canonical hyper-parameters once the canonical weights are known, for architectures whose layout is only
+    /// visible from the tensors present (e.g. a missing MLP norm means attention and MLP run in parallel). Default: no change.
+    /// </summary>
+    public void RefineHyperParameters(Dictionary<string, object> hyperParameters, GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights)
+    {
+    }
+
+    /// <summary>
     /// The canonical architecture id for this particular file. Mappings whose GGUF architecture covers several
     /// layouts (e.g. <c>clip</c> projector types) override it; default: <see cref="Architecture"/>.
     /// </summary>

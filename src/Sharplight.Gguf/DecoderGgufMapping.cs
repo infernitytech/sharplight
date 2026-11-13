@@ -44,25 +44,15 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         int embeddingLength = g.Int("embedding_length");
         int headCount = g.Int("attention.head_count");
         int headDim = g.Int("attention.key_length", embeddingLength / headCount);
-        var md = new Dictionary<string, object>(StringComparer.Ordinal)
-        {
-            [a + "layer_count"] = g.Int("block_count"),
-            [a + "hidden_size"] = embeddingLength,
-            [a + "ffn_hidden_size"] = g.Int("feed_forward_length", g.Int("expert_feed_forward_length", 0)),
-            [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
-            [a + "attention.head_count"] = headCount,
-            [a + "attention.kv_head_count"] = g.Int("attention.head_count_kv", headCount),
-            [a + "attention.head_dim"] = headDim,
-            [a + "rope.dim"] = g.Int("rope.dimension_count", headDim),
-            [a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase),
-            [a + "rope.style"] = "neox",
-            [a + "mlp.activation"] = IsGemma(architecture) ? "gelu_tanh" : "silu",
-        };
-        GgufMappingHelpers.AddContextLength(md, a, g);
+        var md = GgufDecoderHyperParameters.Common(g, IsGemma(architecture) ? "gelu_tanh" : "silu", "neox", layerNorm: false);
 
         if (architecture is "olmoe" or "qwen3moe")
         {
             AddMixtureOfExperts(md, a, g, normalizeWeights: architecture == "qwen3moe");
+        }
+        else if (architecture == "llama" && g.Int("expert_count", 0) > 0)
+        {
+            AddMixtureOfExperts(md, a, g, normalizeWeights: true);   // Mixtral: experts live under the llama architecture
         }
 
         if (IsGemma(architecture))
@@ -78,7 +68,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         return md;
     }
 
-    private static void AddMixtureOfExperts(Dictionary<string, object> md, string a, GgufMetadataView g, bool normalizeWeights)
+    internal static void AddMixtureOfExperts(Dictionary<string, object> md, string a, GgufMetadataView g, bool normalizeWeights)
     {
         md[a + "moe.expert_count"] = g.Int("expert_count");
         md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
@@ -120,10 +110,10 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         }
     }
 
-    private static void AddRopeScaling(Dictionary<string, object> md, string a, GgufMetadataView g)
+    internal static void AddRopeScaling(Dictionary<string, object> md, string a, GgufMetadataView g)
     {
         string? scaling = g.Raw("rope.scaling.type") as string;
-        if (g.GgufArchitecture == "phi3")
+        if (g.GgufArchitecture == "phi3" || scaling == "longrope")
         {
             // longrope: per-frequency factors come as tensors, the cos/sin magnitude as attn_factor.
             if (g.Has("rope.scaling.attn_factor") && g.Float("rope.scaling.attn_factor") is var attentionFactor && attentionFactor != 1f)
@@ -147,7 +137,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     }
 
     /// <summary>Per-layer tensors, GGUF suffix to canonical suffix.</summary>
-    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    internal static readonly Dictionary<string, string> LayerTensors = new(StringComparer.Ordinal)
     {
         ["attn_norm.weight"] = "input_norm.weight",
         ["ffn_norm.weight"] = "post_attention_norm.weight",
@@ -164,6 +154,12 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         ["ffn_gate.weight"] = "mlp.gate.weight",
         ["ffn_up.weight"] = "mlp.up.weight",
         ["ffn_down.weight"] = "mlp.down.weight",
+        // Layer-norm models and biased MLPs.
+        ["attn_norm.bias"] = "input_norm.bias",
+        ["ffn_norm.bias"] = "post_attention_norm.bias",
+        ["ffn_gate.bias"] = "mlp.gate.bias",
+        ["ffn_up.bias"] = "mlp.up.bias",
+        ["ffn_down.bias"] = "mlp.down.bias",
         ["ffn_gate_inp.weight"] = "mlp.router.weight",
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
@@ -179,7 +175,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     };
 
     /// <summary>Rope frequency tensors that sit outside the layers.</summary>
-    private static readonly Dictionary<string, string> s_ropeFactors = new(StringComparer.Ordinal)
+    internal static readonly Dictionary<string, string> RopeFactorTensors = new(StringComparer.Ordinal)
     {
         ["rope_freqs.weight"] = "rope.freq_factors",
         ["rope_factors_short.weight"] = "rope.freq_factors",
@@ -194,7 +190,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
             return globalName;
         }
 
-        if (s_ropeFactors.TryGetValue(name, out var ropeName))
+        if (RopeFactorTensors.TryGetValue(name, out var ropeName))
         {
             return ropeName;
         }
@@ -218,7 +214,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
             return $"layers.{layer}.{extendedName}";
         }
 
-        return s_layer.TryGetValue(suffix, out var canonical) ? $"layers.{layer}.{canonical}" : null;
+        return LayerTensors.TryGetValue(suffix, out var canonical) ? $"layers.{layer}.{canonical}" : null;
     }
 
     /// <summary>Phi-3 stores q/k/v as one tensor and gate/up as one tensor (gate rows first).</summary>
@@ -287,7 +283,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     /// Inverts llama.cpp's convert-time permutation (per head: rows [a₀ b₀ a₁ b₁ …] back to [a₀ a₁ … b₀ b₁ …]).
     /// Rows are independent, so this is a byte-level row reorder for every weight type including quantized ones.
     /// </summary>
-    private static WeightInfo UnpermuteRows(WeightInfo w, int headCount)
+    internal static WeightInfo UnpermuteRows(WeightInfo w, int headCount)
     {
         long rows = w.Shape[0].Fixed;
         int headRows = checked((int)(rows / headCount));
@@ -325,7 +321,10 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
             g.Int("rope.scaling.original_context_length"));
 
     /// <inheritdoc/>
-    public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
+    public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights) => RopeFrequencyFactors(g, weights);
+
+    /// <summary>The <c>rope.freq_factors</c> weight that linear / YaRN scaling metadata describes (none when the file stores the factors or scales nothing).</summary>
+    internal static IEnumerable<WeightInfo> RopeFrequencyFactors(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
     {
         // Linear / YaRN scaling are described by metadata (llama3 scaling arrives as the stored rope_freqs.weight tensor).
         if (weights.ContainsKey("rope.freq_factors"))

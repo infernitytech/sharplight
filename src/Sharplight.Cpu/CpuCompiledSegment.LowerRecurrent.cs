@@ -41,7 +41,8 @@ internal sealed unsafe partial class CpuCompiledSegment
         var d = Dense(RefF32(ins[6]));
         var state = Ref(ins[7]);
         var y = NewDense(n.Output);
-        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f)), x, dt, dtBias, a, b, c, d, state, y);
+        TRef? runs = ins.Length > 8 ? Dense(Ref(ins[8])) : null;
+        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f), runs), Touched(x, dt, dtBias, a, b, c, d, state, runs, y));
         _refs[n.Output] = y;
     }
 
@@ -57,6 +58,37 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
         AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), runs), Touched(q, k, v, g, beta, state, runs, y));
+        _refs[n.Output] = y;
+    }
+
+    private void LowerWkv7(Node n)
+    {
+        var ins = n.Inputs;
+        var r = RowContig(Ref(ins[0]));
+        var w = RowContig(Ref(ins[1]));
+        var k = RowContig(Ref(ins[2]));
+        var v = RowContig(Ref(ins[3]));
+        var a = RowContig(Ref(ins[4]));
+        var b = RowContig(Ref(ins[5]));
+        var state = Ref(ins[6]);
+        var y = NewDense(n.Output);
+        TRef? runs = ins.Length > 7 ? Dense(Ref(ins[7])) : null;
+        AddStep(new Wkv7Op(r, w, k, v, a, b, state, y, runs), Touched(r, w, k, v, a, b, state, runs, y));
+        _refs[n.Output] = y;
+    }
+
+    private void LowerWkv6(Node n)
+    {
+        var ins = n.Inputs;
+        var r = RowContig(Ref(ins[0]));
+        var k = RowContig(Ref(ins[1]));
+        var v = RowContig(Ref(ins[2]));
+        var w = RowContig(Ref(ins[3]));
+        var u = Dense(RefF32(ins[4]));
+        var state = Ref(ins[5]);
+        var y = NewDense(n.Output);
+        TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
+        AddStep(new Wkv6Op(r, k, v, w, u, state, y, runs), Touched(r, k, v, w, u, state, runs, y));
         _refs[n.Output] = y;
     }
 }
