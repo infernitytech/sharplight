@@ -63,7 +63,7 @@ public sealed class InferenceEngine : IDisposable
     readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
     readonly int _budget;
     long _nextId, _tick;
-    int _rr;
+    int _rr, _transit;
     bool _stop, _draining;
 
     public EngineMetrics Metrics { get; } = new();
@@ -152,7 +152,7 @@ public sealed class InferenceEngine : IDisposable
         lock (_gate)
         {
             _draining = true;
-            if (_queue.Count == 0 && _active.Count == 0) return true;
+            if (_queue.Count == 0 && _active.Count == 0 && _transit == 0) return true;
             Monitor.PulseAll(_gate);
         }
         var done = await Task.WhenAny(_idle.Task, Task.Delay(timeout)).ConfigureAwait(false) == _idle.Task;
@@ -247,8 +247,10 @@ public sealed class InferenceEngine : IDisposable
                     if (_queue[i].Req.Priority > _queue[best].Req.Priority) best = i;   // stable: earliest wins ties
                 seq = _queue[best];
                 _queue.RemoveAt(best);
+                _transit++;
             }
-            AssignSlot(seq);
+            try { AssignSlot(seq); }
+            finally { lock (_gate) _transit--; }
         }
     }
 
@@ -348,8 +350,6 @@ public sealed class InferenceEngine : IDisposable
         s.Sampler.Accept(tok);
         s.Generated++;
         if (s.Generated == 1) Metrics.FirstToken(TimeSpan.FromSeconds((now - s.SubmitTicks) / (double)Stopwatch.Frequency));
-        Metrics.Token(s.Generated == 1 ? null : TimeSpan.FromSeconds((now - s.LastTokenTicks) / (double)Stopwatch.Frequency));
-        s.LastTokenTicks = now;
 
         if (s.StopIds.Contains(tok) || (s.Req.StopAtEog && _eog.Contains(tok)))
         {
@@ -357,6 +357,8 @@ public sealed class InferenceEngine : IDisposable
             Complete(s, FinishReason.Stop, null, null, flush: true);
             return;
         }
+        Metrics.Token(s.Generated == 1 ? null : TimeSpan.FromSeconds((now - s.LastTokenTicks) / (double)Stopwatch.Frequency));
+        s.LastTokenTicks = now;
         string text = s.Filter.Push(s.Decoder.Push(tok));
         if (text.Length > 0 || lps is not null) s.Writer.TryWrite(new GenerationChunk(text, lps));
         if (s.Filter.Stopped) { Complete(s, FinishReason.Stop, null, s.Filter.Matched); return; }

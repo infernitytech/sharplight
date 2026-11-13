@@ -86,7 +86,8 @@ public sealed class ChatOutputParser
                         continue;
                     }
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, markers);
-                    if (HasTools && !final) hold = Math.Max(hold, s.Length - s.TrimEnd().Length);
+                    // With tools, whitespace in front of a (possible) tool-call marker is held back so it can be trimmed.
+                    if (HasTools && !final) hold += s.AsSpan(0, s.Length - hold).Length - s.AsSpan(0, s.Length - hold).TrimEnd().Length;
                     EmitContent(s[..(s.Length - hold)], o);
                     _buf.Clear().Append(s, s.Length - hold, hold);
                     return;
