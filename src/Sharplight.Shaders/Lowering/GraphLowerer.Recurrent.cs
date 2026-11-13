@@ -40,59 +40,42 @@ public sealed partial class GraphLowerer
     private void LowerDeltaRule(Node n)
     {
         // q/k may come straight from an absorbed L2Norm: read its input and normalize in the kernel.
-        Node? nq = _absorbedNorms.GetValueOrDefault(n.Inputs[0]), nk = _absorbedNorms.GetValueOrDefault(n.Inputs[1]);
-        var q = Ref(nq?.Inputs[0] ?? n.Inputs[0]);
-        var k = Ref(nk?.Inputs[0] ?? n.Inputs[1]);
+        Node? normQ = _absorbedNorms.GetValueOrDefault(n.Inputs[0]);
+        Node? normK = _absorbedNorms.GetValueOrDefault(n.Inputs[1]);
+        var q = Ref(normQ?.Inputs[0] ?? n.Inputs[0]);
+        var k = Ref(normK?.Inputs[0] ?? n.Inputs[1]);
         var v = Ref(n.Inputs[2]);
         var g = Ref(n.Inputs[3]);
         var beta = Ref(n.Inputs[4]);
         var st = Ref(n.Inputs[5]);
         var runs = n.Inputs.Length > 6 ? DenseInput(n.Inputs[6], "seq-runs") : null;
-        if (q.Strides[2] != 1)
-        {
-            q = DenseTemp(q, "delta-q");
-        }
-
-        if (k.Strides[2] != 1)
-        {
-            k = DenseTemp(k, "delta-k");
-        }
-
-        if (v.Strides[2] != 1)
-        {
-            v = DenseTemp(v, "delta-v");
-        }
-
-        if (!g.IsDense)
-        {
-            g = DenseTemp(g, "delta-g");
-        }
-
-        if (!beta.IsDense)
-        {
-            beta = DenseTemp(beta, "delta-beta");
-        }
+        q = EnsureUnitInnerStride(q, 2, "delta-q");
+        k = EnsureUnitInnerStride(k, 2, "delta-k");
+        v = EnsureUnitInnerStride(v, 2, "delta-v");
+        g = EnsureDense(g, "delta-g");
+        beta = EnsureDense(beta, "delta-beta");
 
         var o = Produce(n.Output);
         long HK = q.Shape[1];
         long DK = q.Shape[2];
         long HV = v.Shape[1];
         long DV = v.Shape[2];
-        int lpr = DiagnosticSwitches.DeltaLanesPerRow;
-        lpr = Math.Min(lpr, _opt.SubgroupSize);
-        while ((DV * lpr > 1024 || DK % lpr != 0) && lpr > 1)
+        int lanesPerRow = Math.Min(DiagnosticSwitches.DeltaLanesPerRow, _opt.SubgroupSize);
+        while ((DV * lanesPerRow > 1024 || DK % lanesPerRow != 0) && lanesPerRow > 1)
         {
-            lpr /= 2;
+            lanesPerRow /= 2;
         }
+
         // Split each head's DV state rows over several workgroups (rows are independent) for occupancy.
-        long dvbWant = DiagnosticSwitches.DeltaRowsPerBlock;
-        long dvb = DV % dvbWant == 0 ? dvbWant : DV;
+        long wantedRowsPerBlock = DiagnosticSwitches.DeltaRowsPerBlock;
+        long dvb = DV % wantedRowsPerBlock == 0 ? wantedRowsPerBlock : DV;
         var kern = Lib("recurrent.slang", "delta_rule", Macros(("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("KS0", k.Strides[0]), ("KS1", k.Strides[1]), ("VS0", v.Strides[0]), ("VS1", v.Strides[1]),
-            ("SCALE", n.Attributes.Get<float>("scale")), ("LPR", lpr), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
-            ("NORM_Q", nq is not null), ("EPS_Q", nq?.Attributes.Get<float>("eps") ?? 0f), ("NORM_K", nk is not null), ("EPS_K", nk?.Attributes.Get<float>("eps") ?? 0f),
+            ("SCALE", n.Attributes.Get<float>("scale")), ("LPR", lanesPerRow), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
+            ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
+            ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
             ("MULTI_SEQ", runs is not null)));
-        Emit($"delta_rule {n.Output.Name}", [.. new[] { nq, nk }.OfType<Node>(), n],
+        Emit($"delta_rule {n.Output.Name}", [.. new[] { normQ, normK }.OfType<Node>(), n],
             [Always(kern, b => new Grid((uint)HV, (uint)(DV / dvb), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(q), Pointer(k), Pointer(v),
              Pointer(g), Pointer(beta), Pointer(st),

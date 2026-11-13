@@ -54,11 +54,11 @@ public sealed partial class GraphLowerer
     /// Makes x readable by the weight kernels: rows of 16-byte aligned f32 with a stride divisible by four, copying to a
     /// dense temporary otherwise. Reports the row stride and the rows per leading index.
     /// </summary>
-    private TensorRef PrepareMatMulInput(TensorRef x, out long rowStride, out long rowsPerLead)
+    private TensorRef PrepareMatMulInput(TensorRef x, string why, out long rowStride, out long rowsPerLead)
     {
         if (!TryRows(x, out rowStride, out rowsPerLead) || rowStride % 4 != 0 || x.ByteOffset % 16 != 0 || x.Type != DataType.F32)
         {
-            x = DenseTemp(x, "matmul");
+            x = DenseTemp(x, why);
             TryRows(x, out rowStride, out rowsPerLead);
         }
 
@@ -77,7 +77,7 @@ public sealed partial class GraphLowerer
         var weightB = Ref(bNode.Inputs[1]);
         long N = weightA.Shape[0];
         long K = weightA.Shape[1];
-        x = PrepareMatMulInput(x, out long xStride, out long rowsPerLead);
+        x = PrepareMatMulInput(x, "matmul", out long xStride, out long rowsPerLead);
         var y = Produce(output);
         int format = WeightFormat(weightA.Type) ?? throw new NotSupportedException($"MatMul weight type {weightA.Type}");
         var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", weightA.Type.ByteSize(K) + "ull"), ("DUAL", 1));
@@ -191,7 +191,7 @@ public sealed partial class GraphLowerer
     {
         long N = w.Shape[0];
         long K = w.Shape[1];
-        x = PrepareMatMulInput(x, out long xStride, out long rowsPerLead);
+        x = PrepareMatMulInput(x, "matmul", out long xStride, out long rowsPerLead);
         var y = Produce(n.Output);
         int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
         var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"));
@@ -278,10 +278,7 @@ public sealed partial class GraphLowerer
             [x, p.W], [p.Y]);
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        var tempKey = new object();
-        long offset = _alloc.Allocate(tempKey, Math.Max(16, rowsMax * K * 2));
-        _temps.Add(tempKey);
-        var half = new TensorRef(_arena, offset, DataType.F16, [rowsMax, K], [K, 1], x.Symbol);
+        var half = Temp(DataType.F16, [rowsMax, K], x.Symbol);
         Emit($"matmul {p.Node.Output.Name} x→f16", [p.Node],
             [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
                 b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],

@@ -114,42 +114,6 @@ public sealed partial class GraphLowerer
     }
 
     // ---- helpers -----------------------------------------------------------------------------
-    /// <summary>Scratch tensor in the arena, released after the current node is lowered.</summary>
-    private TensorRef Temp(DataType type, long[] shape, string? symbol)
-    {
-        var key = new object();
-        long bytes = type.ByteSize(shape.Aggregate(1L, (a, b) => a * b));
-        long off = _alloc.Allocate(key, Math.Max(16, bytes));
-        _temps.Add(key);
-        return new TensorRef(_arena, off, type, shape, TensorRef.DenseStrides(shape), symbol);
-    }
-
-    /// <summary>Returns <paramref name="r"/> if it is f32 (strides preserved), else a dense f32 copy.</summary>
-    private TensorRef AsF32(TensorRef r, string why)
-    {
-        if (r.Type == DataType.F32)
-        {
-            return r;
-        }
-
-        var dst = Temp(DataType.F32, r.Shape, r.Symbol);
-        EmitCopy(r, dst, "to_f32:" + why);
-        return dst;
-    }
-
-    /// <summary>Dense f32 tensor (copying/converting when needed).</summary>
-    private TensorRef AsDenseF32(TensorRef r, string why)
-    {
-        if (r.Type == DataType.F32 && r.IsDense)
-        {
-            return r;
-        }
-
-        var dst = Temp(DataType.F32, r.Shape, r.Symbol);
-        EmitCopy(r, dst, "dense_f32:" + why);
-        return dst;
-    }
-
     private static string IntList(IEnumerable<long> v)
     {
         var s = string.Join(",", v);

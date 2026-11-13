@@ -30,10 +30,18 @@ public sealed partial class GraphLowerer
     private readonly BufferDecl _arena;
     private readonly BufferDecl _runtime;
     private readonly ActivationAllocator _alloc = new();
+
+    /// <summary>Norm output → norm node computed inside its consumer's kernel (delta rule, rope).</summary>
     private readonly Dictionary<Value, Node> _absorbedNorms = [];
-    private readonly Dictionary<Value, Node> _absorbedRope = [];   // rope output → rope node computed inside its CacheWrite  // value → norm node computed inside its consumer
-    private readonly Dictionary<Value, Value> _root = [];        // view → materialized root value
-    private readonly Dictionary<Value, int> _lastUse = [];       // root → last unit index using it
+
+    /// <summary>Rope output → rope node computed inside its CacheWrite.</summary>
+    private readonly Dictionary<Value, Node> _absorbedRope = [];
+
+    /// <summary>View → materialized root value.</summary>
+    private readonly Dictionary<Value, Value> _root = [];
+
+    /// <summary>Root → index of the last unit using it.</summary>
+    private readonly Dictionary<Value, int> _lastUse = [];
 
     private GraphLowerer(GraphSegment seg, SlangCompiler compiler, LoweringOptions opt)
     {
@@ -50,160 +58,23 @@ public sealed partial class GraphLowerer
         }
     }
 
+    /// <summary>Lowers a graph segment into kernel launches with their buffers and hazard information.</summary>
+    /// <param name="segment">The segment to lower; every node must satisfy <see cref="Supports"/>.</param>
+    /// <param name="compiler">Compiler for the library and generated kernels (thread-safe).</param>
+    /// <param name="options">Target, device limits and features the generated code may rely on.</param>
+    /// <returns>The backend-neutral program; the lowerer is single-use and not thread-safe, but separate calls are independent.</returns>
+    /// <exception cref="NotSupportedException">A node has no lowering for its shapes or types.</exception>
+    /// <exception cref="KernelCompilationException">A kernel failed to compile.</exception>
     public static KernelProgram Lower(GraphSegment segment, SlangCompiler compiler, LoweringOptions options)
         => new GraphLowerer(segment, compiler, options).Run();
-
-    // ---- op support --------------------------------------------------------------------------
-    private static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
-    private static readonly HashSet<string> s_supported =
-        [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
-
-    public static OpSupport Supports(Node node)
-    {
-        if (!s_supported.Contains(node.Op.Name))
-        {
-            return OpSupport.No($"no kernel for {node.Op.Name}");
-        }
-
-        if (s_spatialOps.Contains(node.Op.Name))
-        {
-            return SupportsSpatial(node);
-        }
-
-        if (s_generalOps.Contains(node.Op.Name))
-        {
-            return SupportsGeneral(node);
-        }
-
-        if (node.Op.Name == "SelectiveScan")
-        {
-            return SupportsSelectiveScan(node);
-        }
-
-        if (node.Op.Name == "MatMulId")
-        {
-            return SupportsMoe(node);
-        }
-
-        if (node.Op.Name == "CachedAttention" && node.Attributes.Get("sinks", false) && node.Inputs[3].Type != DataType.F32)
-        {
-            return OpSupport.No("attention sinks must be f32");
-        }
-
-        if (node.Op.Name == "Attention")
-        {
-            var ins = node.Inputs;
-            bool spans = ins.Length == 4 && ins[3].Type == DataType.I32 && ins[3].Rank == 2 && ins[3].Shape[1] == 2;
-            bool causal = node.Attributes.Get("causal", false);
-            if (ins.Length != 3 && !spans)
-            {
-                return OpSupport.No("Attention: an f32 mask input is not implemented (i32 spans are)");
-            }
-
-            if (ins[1].Shape[1] != ins[2].Shape[1] || ins[0].Shape[2].Fixed % 8 != 0 || ins[1].Shape[2].Fixed % 8 != 0 || ins[2].Shape[2].Fixed % 8 != 0)
-            {
-                return OpSupport.No("Attention: k/v head counts must match and head sizes be multiples of 8");
-            }
-
-            if (ins[0].Shape[1].Fixed % ins[1].Shape[1].Fixed != 0)
-            {
-                return OpSupport.No("Attention: query heads must be a multiple of key heads");
-            }
-
-            if (!spans && (causal || ins[0].Shape[0] != ins[1].Shape[0]))
-            {
-                return OpSupport.No("Attention: causal or cross attention needs i32 spans");
-            }
-
-            if (spans && causal && ins[0].Shape[0] != ins[1].Shape[0])
-            {
-                return OpSupport.No("Attention: causal attention must be self-attention");
-            }
-        }
-        if (node.Op.Name == "SequencePool" && (node.Inputs[1].Type != DataType.I32 || node.Inputs[0].Type.IsQuantized
-            || node.Attributes.Get("mode", "mean") is not ("mean" or "sum" or "max" or "first" or "last")))
-        {
-            return OpSupport.No("SequencePool: i32 spans and mode mean | sum | max | first | last");
-        }
-
-        if (node.Op.Name == "MatMul" && node.Inputs[1].Type.IsQuantized && node.Inputs[1].Shape[-1] is { IsSymbolic: false } kd && kd.Fixed % 8 != 0)
-        {
-            return OpSupport.No($"quantized MatMul K={kd.Fixed} is not a multiple of 8");
-        }
-
-        if (node.Op.Name == "Rope" && node.Inputs.Length > 2 && (node.Inputs[2].Type != DataType.F32 || node.Inputs[2].Shape.Rank != 1))
-        {
-            return OpSupport.No("Rope frequency factors must be a rank-1 f32 tensor");
-        }
-
-        foreach (var v in node.Inputs)
-        {
-            if (v.Type.IsQuantized && node.Op.Name is not ("MatMul" or "Gather"))
-            {
-                return OpSupport.No($"{node.Op.Name} cannot read quantized {v.Type}");
-            }
-
-            if (v.Type.IsQuantized && WeightFormat(v.Type) is null)
-            {
-                return OpSupport.No($"weight format {v.Type} not supported");
-            }
-        }
-        return OpSupport.Yes;
-    }
-
-    private static int? WeightFormat(DataType t) =>
-        t == DataType.F32 ? 0 : t == DataType.F16 ? 1 : t == DataType.BF16 ? 2 : t == DataType.Q8_0 ? 8 : t == ShaderTypes.Q8_0R ? 108 :
-        t == DataType.Q4_0 ? 2001 : t == DataType.Q4_K ? 12 : t == DataType.Q5_K ? 13 : t == DataType.Q6_K ? 14 :
-        t == DataType.Q4_1 ? 3 : t == DataType.Q5_0 ? 6 : t == DataType.Q5_1 ? 7 : t == DataType.IQ4_NL ? 20 : t == DataType.IQ4_XS ? 23 : t == DataType.Q1_0 ? 41 : t == DataType.Q2_0 ? 42 : t == DataType.Q2_0_G128 ? 142 : t == DataType.Tern1_G128 ? 143 : null;
 
     // ---- main --------------------------------------------------------------------------------
     private KernelProgram Run()
     {
         var units = Schedule(FormUnits());
         ComputeLiveness(units);
-
-        // Memory of dead values is only recycled once a later dependency level starts: reusing it within the
-        // same level would add a write-after-read hazard (and a barrier) between otherwise independent launches.
-        var deferred = new List<(Value Root, int Level)>();
-        for (int u = 0; u < units.Count; u++)
-        {
-            var unit = units[u];
-            deferred.RemoveAll(d => { if (d.Level >= unit.Level) { return false; } _alloc.Free(d.Root); return true; });
-            if (unit.Dual is { } d)
-            {
-                LowerDualMatMul(d.A, d.B, unit.Fused!, unit.FusedOutputs![0]);
-            }
-            else if (unit.Fused is not null)
-            {
-                LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
-            }
-            else
-            {
-                LowerNode(unit.Node!);
-            }
-
-            foreach (var (root, last) in _lastUse)
-            {
-                if (last == u)
-                {
-                    deferred.Add((root, unit.Level));
-                }
-            }
-        }
-
-        // Segment outputs that are views (or inputs) need a dense copy in an output buffer.
-        foreach (var o in _seg.Outputs)
-        {
-            if (!_outputRefs.ContainsKey(o))
-            {
-                var src = Ref(o);
-                var dst = Dense(NewBuffer(BufferKind.Output, "out:" + o.Name, 0), o);
-                dst.Buffer.Bytes = dst.MaxBytes;
-                EmitCopy(src, dst, $"copy {o.Name}");
-                _outputRefs[o] = dst;
-            }
-        }
+        LowerUnits(units);
+        CopyNonMaterializedOutputs();
 
         _arena.Bytes = Math.Max(256, _alloc.HighWater);
         return new KernelProgram
@@ -215,9 +86,83 @@ public sealed partial class GraphLowerer
             OutputRefs = _outputRefs,
             RuntimeBuffer = _runtime,
             ScalarSlots = _scalarSlots,
-            Symbols = [.. _seg.Nodes.SelectMany(n => n.Outputs.Concat(n.Inputs)).Select(v => v.Shape.Symbol).Where(s => s is not null && s != WellKnown.ContextSymbol).Distinct()!],
+            Symbols = CollectSymbols(),
         };
     }
+
+    private void LowerUnits(List<LoweringUnit> units)
+    {
+        // Memory of dead values is only recycled once a later dependency level starts: reusing it within the
+        // same level would add a write-after-read hazard (and a barrier) between otherwise independent launches.
+        var deferred = new List<(Value Root, int Level)>();
+        for (int index = 0; index < units.Count; index++)
+        {
+            var unit = units[index];
+            FreeDeadValues(deferred, unit.Level);
+            LowerUnit(unit);
+
+            foreach (var (root, lastUse) in _lastUse)
+            {
+                if (lastUse == index)
+                {
+                    deferred.Add((root, unit.Level));
+                }
+            }
+        }
+    }
+
+    /// <summary>Releases the memory of values whose last use was in an earlier dependency level than <paramref name="level"/>.</summary>
+    private void FreeDeadValues(List<(Value Root, int Level)> deferred, int level)
+    {
+        deferred.RemoveAll(entry =>
+        {
+            if (entry.Level >= level)
+            {
+                return false;
+            }
+
+            _alloc.Free(entry.Root);
+            return true;
+        });
+    }
+
+    private void LowerUnit(LoweringUnit unit)
+    {
+        if (unit.Dual is { } dual)
+        {
+            LowerDualMatMul(dual.A, dual.B, unit.Fused!, unit.FusedOutputs![0]);
+        }
+        else if (unit.Fused is not null)
+        {
+            LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
+        }
+        else
+        {
+            LowerNode(unit.Node!);
+        }
+    }
+
+    /// <summary>Segment outputs that are views (or inputs) need a dense copy in an output buffer.</summary>
+    private void CopyNonMaterializedOutputs()
+    {
+        foreach (var output in _seg.Outputs)
+        {
+            if (_outputRefs.ContainsKey(output))
+            {
+                continue;
+            }
+
+            var src = Ref(output);
+            var dst = Dense(NewBuffer(BufferKind.Output, "out:" + output.Name, 0), output);
+            dst.Buffer.Bytes = dst.MaxBytes;
+            EmitCopy(src, dst, $"copy {output.Name}");
+            _outputRefs[output] = dst;
+        }
+    }
+
+    /// <summary>Symbolic dimensions (other than the context length) the segment's tensors depend on.</summary>
+    private List<string> CollectSymbols()
+        => [.. _seg.Nodes.SelectMany(n => n.Outputs.Concat(n.Inputs)).Select(v => v.Shape.Symbol).OfType<string>().Where(s => s != WellKnown.ContextSymbol).Distinct()];
 
     private Value RootOf(Value v) => _root.TryGetValue(v, out var r) ? r : v;
 

@@ -48,10 +48,7 @@ public sealed partial class GraphLowerer
             x = DenseTemp(x, "rope");
         }
 
-        if (!pos.IsDense)
-        {
-            pos = DenseTemp(pos, "rope-pos");
-        }
+        pos = EnsureDense(pos, "rope-pos");
 
         TensorRef? normWeight = norm is not null && norm.Inputs.Length > 1 ? Ref(norm.Inputs[1]) : null;
         var y = cacheWrite is null ? Produce(n.Output) : Ref(cacheWrite.Inputs[0]);
@@ -134,10 +131,7 @@ public sealed partial class GraphLowerer
     {
         var table = Ref(n.Inputs[0]);
         var idx = Ref(n.Inputs[1]);
-        if (!idx.IsDense)
-        {
-            idx = DenseTemp(idx, "gather-idx");
-        }
+        idx = EnsureDense(idx, "gather-idx");
 
         long D = table.Shape[^1];
         long rowBytes;

@@ -28,11 +28,7 @@ public sealed partial class GraphLowerer
         return cache.Shape[0] / slots;
     }
 
-    private TensorRef DenseInput(Value v, string name)
-    {
-        var r = Ref(v);
-        return r.IsDense ? r : DenseTemp(r, name);
-    }
+    private TensorRef DenseInput(Value v, string name) => EnsureDense(Ref(v), name);
 
     private static KernelArg[] SeqArgs(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>().Select(t => (KernelArg)Pointer(t))];
 

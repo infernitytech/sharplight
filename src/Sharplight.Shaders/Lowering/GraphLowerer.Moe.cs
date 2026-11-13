@@ -78,11 +78,7 @@ public sealed partial class GraphLowerer
             ids = DenseTemp(ids, "matmul-id ids");
         }
 
-        if (!TryRows(x, out long xs, out long mid) || xs % 4 != 0 || x.ByteOffset % 16 != 0 || x.Type != DataType.F32)
-        {
-            x = DenseTemp(x, "matmul-id");
-            TryRows(x, out xs, out mid);
-        }
+        x = PrepareMatMulInput(x, "matmul-id", out long xs, out _);
         var y = Produce(n.Output);
         int fmt = WeightFormat(w.Type)!.Value;
         long rowBytes = w.Type.ByteSize(K);

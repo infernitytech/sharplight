@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
@@ -167,13 +168,52 @@ public sealed partial class GraphLowerer
         return x;
     }
 
+    /// <summary>Returns <paramref name="r"/> if it is dense, otherwise a dense copy.</summary>
+    private TensorRef EnsureDense(TensorRef r, string why) => r.IsDense ? r : DenseTemp(r, why);
+
+    /// <summary>Returns <paramref name="r"/> if its stride along <paramref name="axis"/> is one, otherwise a dense copy.</summary>
+    private TensorRef EnsureUnitInnerStride(TensorRef r, int axis, string why) => r.Strides[axis] == 1 ? r : DenseTemp(r, why);
+
+    /// <summary>Scratch tensor in the arena, released after the current node is lowered.</summary>
+    private TensorRef Temp(DataType type, long[] shape, string? symbol)
+    {
+        var key = new object();
+        long bytes = type.ByteSize(ElementwiseCodegen.ElementCount(shape));
+        long off = _alloc.Allocate(key, Math.Max(16, bytes));
+        _temps.Add(key);
+        return new TensorRef(_arena, off, type, shape, TensorRef.DenseStrides(shape), symbol);
+    }
+
+    /// <summary>Returns <paramref name="r"/> if it is f32 (strides preserved), else a dense f32 copy.</summary>
+    private TensorRef AsF32(TensorRef r, string why)
+    {
+        if (r.Type == DataType.F32)
+        {
+            return r;
+        }
+
+        var dst = Temp(DataType.F32, r.Shape, r.Symbol);
+        EmitCopy(r, dst, "to_f32:" + why);
+        return dst;
+    }
+
+    /// <summary>Dense f32 tensor (copying/converting when needed).</summary>
+    private TensorRef AsDenseF32(TensorRef r, string why)
+    {
+        if (r.Type == DataType.F32 && r.IsDense)
+        {
+            return r;
+        }
+
+        var dst = Temp(DataType.F32, r.Shape, r.Symbol);
+        EmitCopy(r, dst, "dense_f32:" + why);
+        return dst;
+    }
+
     /// <summary>Copies a strided tensor into a fresh dense temporary in the arena.</summary>
     private TensorRef DenseTemp(TensorRef src, string why)
     {
-        var key = new object();
-        long off = _alloc.Allocate(key, Math.Max(16, src.Type.ByteSize(src.MaxElements)));
-        _temps.Add(key);
-        var dst = new TensorRef(_arena, off, src.Type, src.Shape, TensorRef.DenseStrides(src.Shape), src.Symbol);
+        var dst = Temp(src.Type, src.Shape, src.Symbol);
         EmitCopy(src, dst, "densify:" + why);
         return dst;
     }

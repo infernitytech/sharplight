@@ -523,10 +523,7 @@ public sealed partial class GraphLowerer
     {
         var x = AsF32(Ref(n.Inputs[0]), "convt");
         var w = Ref(n.Inputs[1]);
-        if (!w.IsDense)
-        {
-            w = DenseTemp(w, "convt-w");
-        }
+        w = EnsureDense(w, "convt-w");
 
         var bias = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "convt-bias") : null;
         var a = n.Attributes;
