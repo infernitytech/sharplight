@@ -107,6 +107,11 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_TQ2_0 35
 #define FMT_MXFP4 39
 #define FMT_NVFP4 40
+// FP8 formats decoded in quant_fp8.slang.
+#define FMT_F8E4M3 50
+#define FMT_F8E5M2 51
+#define FMT_F8E4M3_B32 52
+#define FMT_F8E4M3_B128 53
 
 // IQ formats decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
 // of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
@@ -465,6 +470,7 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
 #ifdef WFMT
 #include "quant_k.slang"
 #include "quant_iq.slang"
+#include "quant_fp8.slang"
 
 void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v[8])
 {
@@ -533,6 +539,14 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_mxfp4(base, rowBytes, row, g, v);
 #elif WFMT == FMT_NVFP4
     load8_nvfp4(base, rowBytes, row, g, v);
+#elif WFMT == FMT_F8E4M3
+    load8_fp8(base, rowBytes, row, g, 0, false, v);
+#elif WFMT == FMT_F8E5M2
+    load8_fp8(base, rowBytes, row, g, 0, true, v);
+#elif WFMT == FMT_F8E4M3_B32
+    load8_fp8(base, rowBytes, row, g, 32, false, v);
+#elif WFMT == FMT_F8E4M3_B128
+    load8_fp8(base, rowBytes, row, g, 128, false, v);
 #else
 #error "unsupported WFMT"
 #endif

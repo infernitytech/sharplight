@@ -122,9 +122,10 @@ internal sealed partial class Gpt2HfMapping : HfDecoderFamilyMapping
         return true;
     }
 
-    /// <summary>The lazily transposed copy of a rank-2 weight stored as [in, out].</summary>
+    /// <summary>The lazily transposed copy of a rank-2 weight stored as [in, out] (block-quantized weights are decoded to BF16 first).</summary>
     private static WeightInfo Transpose(WeightInfo w, string name)
     {
+        w = HfTransforms.Elementwise(w);
         long rows = w.Shape[0].Fixed;
         long columns = w.Shape[1].Fixed;
         int elementBytes = checked((int)w.Type.ByteSize(1));

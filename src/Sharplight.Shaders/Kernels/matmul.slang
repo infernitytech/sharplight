@@ -554,6 +554,8 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 s2 = half2(half(max(s / 32768.0, 1.0)));
     lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
     hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
+#elif defined(WFMT_FP8)
+    load16h_fp8(w, ROW_BYTES, row, g16, lo, hi);
 #else
     lo = load8h(w, row, g16 * 2);
     hi = load8h(w, row, g16 * 2 + 1);
@@ -578,6 +580,8 @@ uint4 load8h(uint8_t* w, uint row, uint g)
     o.z = bit_cast<uint>((bit_cast<half2>((u & 0xFFu) | ((u << 8) & 0xFF0000u) | 0x64006400u) - off) * d);
     o.w = bit_cast<uint>((bit_cast<half2>(((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u) | 0x64006400u) - off) * d);
     return o;
+#elif defined(WFMT_FP8)
+    return load8h_fp8(w, ROW_BYTES, row, g);
 #else
     float v[8];
     load8(w, ROW_BYTES, row, g, v);

@@ -90,6 +90,11 @@ internal static class Rnd
 
         var bytes = new byte[t.ByteSize(elements)];
         new Random(seed).NextBytes(bytes);
+        if (t == DataType.F8E4M3 || t == DataType.F8E5M2 || t == DataType.F8E4M3_B32 || t == DataType.F8E4M3_B128)
+        {
+            return Fp8WeightBytes(t, bytes, seed, scale);
+        }
+
         long blocks = elements / t.BlockSize;
         var rng = new Random(seed + 7);
         for (long i = 0; i < blocks; i++)
@@ -157,6 +162,40 @@ internal static class Rnd
                 throw new NotSupportedException(t.Name);
             }
         }
+        return bytes;
+    }
+    /// <summary>
+    /// FP8 test weights without NaN / infinity. Unscaled codes lose their top exponent bit (|value| &lt; 2, so the GEMM tolerances
+    /// apply); block formats keep the full code range (codes with all exponent bits set move one exponent down) and get f32
+    /// scales of about 0.002 * <paramref name="scale"/>.
+    /// </summary>
+    private static byte[] Fp8WeightBytes(DataType t, byte[] bytes, int seed, float scale)
+    {
+        if (t.BlockSize == 1)
+        {
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                bytes[i] &= 0xBF;
+            }
+
+            return bytes;
+        }
+
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            if ((bytes[i] & 0x78) == 0x78)
+            {
+                bytes[i] -= 0x08;
+            }
+        }
+
+        var rng = new Random(seed + 7);
+        for (int o = 0; o < bytes.Length; o += t.BlockBytes)
+        {
+            float d = (0.001f + (float)rng.NextDouble() * 0.002f) * scale;
+            BitConverter.TryWriteBytes(bytes.AsSpan(o, 4), d);
+        }
+
         return bytes;
     }
 }

@@ -9,6 +9,11 @@ internal static unsafe partial class Quant
 {
     public static WeightFormat? FormatOf(DataType t)
     {
+        if (Fp8FormatOf(t) is { } fp8)
+        {
+            return fp8;
+        }
+
         if (t == DataType.F32)
         {
             return WeightFormat.F32;
@@ -171,6 +176,8 @@ internal static unsafe partial class Quant
         WeightFormat.MXFP4 => 32,
         WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
         WeightFormat.Q2_0 => 64,
+        WeightFormat.F8E4M3_B32 => 32,
+        WeightFormat.F8E4M3_B128 => 128,
         WeightFormat.Q4_0 or WeightFormat.Q4_1 or WeightFormat.Q5_0 or WeightFormat.Q5_1 or WeightFormat.Q8_0 or WeightFormat.IQ4_NL => 32,
         _ => 1,
     };
@@ -203,6 +210,9 @@ internal static unsafe partial class Quant
         WeightFormat.TQ1_0 => 54,
         WeightFormat.MXFP4 => 17,
         WeightFormat.NVFP4 => 36,
+        WeightFormat.F8E4M3 or WeightFormat.F8E5M2 => 1,
+        WeightFormat.F8E4M3_B32 => 36,
+        WeightFormat.F8E4M3_B128 => 132,
         _ => throw new ArgumentOutOfRangeException(nameof(f)),
     };
 
@@ -305,6 +315,9 @@ internal static unsafe partial class Quant
                 break;
             case WeightFormat.TQ2_0:
                 TQ2_0(src, nb, dst);
+                break;
+            case WeightFormat.F8E4M3 or WeightFormat.F8E5M2 or WeightFormat.F8E4M3_B32 or WeightFormat.F8E4M3_B128:
+                DequantizeFp8(f, src, count, dst);
                 break;
             default:
                 throw new NotSupportedException(f.ToString());

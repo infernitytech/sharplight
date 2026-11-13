@@ -256,6 +256,8 @@ uint4 load8h(uint8_t* w, uint row, uint g)
 {
 #if WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K
     return load8h_kquant(w, ROW_BYTES, row, g);
+#elif defined(WFMT_FP8)
+    return load8h_fp8(w, ROW_BYTES, row, g);
 #else
     float v[8];
     load8(w, ROW_BYTES, row, g, v);

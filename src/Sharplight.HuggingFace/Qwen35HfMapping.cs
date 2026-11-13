@@ -388,7 +388,10 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 
     // ---- V-head reordering (grouped → tiled; identity when num_k_heads == num_v_heads) --------------
 
-    /// <summary>Reorders rows [firstRow, end) of a 2-D weight as V heads of <paramref name="headDim"/> rows each.</summary>
+    /// <summary>
+    /// Reorders rows [firstRow, end) of a 2-D weight as V heads of <paramref name="headDim"/> rows each: a lazy gather of row blocks,
+    /// so it works for every storage type (block-quantized rows included) and copies nothing up front.
+    /// </summary>
     private static WeightInfo ReorderRows(WeightInfo w, string name, LinearAttentionShape x, int firstRow, int headDim)
     {
         if (!x.NeedsReorder)
@@ -396,20 +399,28 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
             return HfTransforms.Plain(w, name);
         }
 
-        long cols = w.Shape[1].Fixed;
-        return WeightInfo.Derived(name, w.Type, w.Shape, () =>
+        var blocks = new List<(long FirstRow, long Rows)>();
+        if (firstRow > 0)
         {
-            int elementBytes = w.Type.ElementSize;
-            var src = w.ReadAll();
-            long rowBytes = cols * elementBytes;
-            long offset = firstRow * rowBytes;
-            var tail = HfTransforms.ReorderVHeads(src.AsSpan((int)offset).ToArray(), elementBytes, 1, x.KeyHeads, x.ValueHeadsPerKeyHead, headDim * cols);
-            Buffer.BlockCopy(tail, 0, src, (int)offset, tail.Length);
-            return src;
-        });
+            blocks.Add((0, firstRow));
+        }
+
+        // Grouped order [numK][vPerK] → tiled order [vPerK][numK] (HfTransforms.ReorderVHeads on whole rows).
+        for (int v = 0; v < x.ValueHeadsPerKeyHead; v++)
+        {
+            for (int k = 0; k < x.KeyHeads; k++)
+            {
+                blocks.Add((firstRow + (long)(k * x.ValueHeadsPerKeyHead + v) * headDim, headDim));
+            }
+        }
+
+        return w.GatherRows(name, blocks);
     }
 
-    /// <summary>out_proj: reorder input columns (V channels) in groups of head_v_dim.</summary>
+    /// <summary>
+    /// out_proj: reorder input columns (V channels) in groups of head_v_dim, computed while the weight is read. Block-quantized
+    /// weights whose blocks tile the groups move whole blocks; other block layouts are decoded to BF16 first.
+    /// </summary>
     private static WeightInfo ReorderCols(WeightInfo w, string name, LinearAttentionShape x)
     {
         if (!x.NeedsReorder)
@@ -417,9 +428,16 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
             return HfTransforms.Plain(w, name);
         }
 
-        long rows = w.Shape[0].Fixed;
-        return WeightInfo.Derived(name, w.Type, w.Shape,
-            () => HfTransforms.ReorderVHeads(w.ReadAll(), w.Type.ElementSize, rows, x.KeyHeads, x.ValueHeadsPerKeyHead, x.ValueHeadDim));
+        if (x.ValueHeadDim % w.Type.BlockSize != 0)
+        {
+            w = HfTransforms.Elementwise(w);
+        }
+
+        // Output group v * numK + k takes source group k * vPerK + v (grouped → tiled, as ReorderVHeads).
+        int[] order = [.. Enumerable.Range(0, x.ValueHeads).Select(g => g % x.KeyHeads * x.ValueHeadsPerKeyHead + g / x.KeyHeads)];
+        long rowBytes = w.Type.ByteSize(w.Shape[1].Fixed);
+        var source = new HfColumnGroupPermutationSource(w.Source, rowBytes, w.Type.ByteSize(x.ValueHeadDim), order);
+        return new WeightInfo { Name = name, Type = w.Type, Shape = w.Shape, Source = source };
     }
 
     /// <summary>1-D per-V-head parameter (A_log, dt_bias): F32, optional element map, V heads reordered.</summary>

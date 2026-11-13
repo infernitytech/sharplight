@@ -159,6 +159,27 @@ public sealed class DataType : IEquatable<DataType>
     /// </summary>
     public static readonly DataType Tern1_G128 = Register("tern1_g128", DataTypeKind.Quantized, 128, 28);
 
+    // 8-bit floating point (OCP FP8). The scalar types are storage formats read like weights (decoded on load), so they are
+    // registered as Quantized with a block size of 1: only the ops that decode weight formats accept them.
+    /// <summary>
+    /// OCP FP8 E4M3FN, one byte per value: sign bit, 4 exponent bits (bias 7), 3 mantissa bits; exponent 0 is subnormal
+    /// (m * 2^-9), there is no infinity, 0x7F / 0xFF are NaN, the largest finite magnitude is 448.
+    /// </summary>
+    public static readonly DataType F8E4M3 = Register("f8e4m3", DataTypeKind.Quantized, 1, 1);
+    /// <summary>OCP FP8 E5M2, one byte per value: the upper byte of an IEEE half (sign, 5 exponent bits with bias 15, 2 mantissa bits; inf and NaN as in half).</summary>
+    public static readonly DataType F8E5M2 = Register("f8e5m2", DataTypeKind.Quantized, 1, 1);
+    /// <summary>
+    /// Block-scaled FP8, 32 values along the row (the contiguous K dimension): { f32 d; u8 q[32] } (36 bytes, 4-byte aligned when
+    /// rows are), value i = d * e4m3(q[i]) with <see cref="F8E4M3"/> codes. Carries per-tensor, per-channel or block scales of any
+    /// granularity that is a multiple of 32 along K.
+    /// </summary>
+    public static readonly DataType F8E4M3_B32 = Register("f8e4m3_b32", DataTypeKind.Quantized, 32, 36);
+    /// <summary>
+    /// Block-scaled FP8, 128 values along the row: { f32 d; u8 q[128] } (132 bytes), value i = d * e4m3(q[i]). The layout of
+    /// 128x128 block-quantized checkpoints (one scale per 128 x 128 tile, repeated in each of the tile's 128 rows).
+    /// </summary>
+    public static readonly DataType F8E4M3_B128 = Register("f8e4m3_b128", DataTypeKind.Quantized, 128, 132);
+
     /// <inheritdoc/>
     public bool Equals(DataType? other) => ReferenceEquals(this, other);
     /// <inheritdoc/>

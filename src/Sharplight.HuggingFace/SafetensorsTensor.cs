@@ -27,10 +27,21 @@ internal sealed class SafetensorsTensor
     /// <summary>The shard this tensor lives in.</summary>
     public required SafetensorsFile File { get; init; }
 
+    /// <summary>
+    /// The weight this entry stands for when an import step replaced the stored bytes (an FP8 weight with its scale folded in,
+    /// see <see cref="HfFp8Weights"/>); null for a plain view of the stored data.
+    /// </summary>
+    public WeightInfo? Converted { get; init; }
+
     /// <summary>A zero-copy weight view over the memory map.</summary>
     /// <exception cref="NotSupportedException">The dtype has no Sharplight equivalent.</exception>
     public WeightInfo ToWeightInfo()
     {
+        if (Converted is not null)
+        {
+            return Converted;
+        }
+
         var type = Type ?? throw new NotSupportedException(
             $"{File.Path}: tensor '{Name}' has unsupported safetensors dtype '{DType}'.");
         return new WeightInfo
@@ -56,7 +67,9 @@ internal sealed class SafetensorsTensor
         "U32" => DataType.U32,
         "I64" => DataType.I64,
         "BOOL" => DataType.Bool,
-        _ => null, // F8_*, U16, U64, F4, ... : parsed but not readable
+        "F8_E4M3" => DataType.F8E4M3,
+        "F8_E5M2" => DataType.F8E5M2,
+        _ => null, // F8_E8M0, U16, U64, F4, ... : parsed but not readable
     };
 
     /// <summary>Bytes per element of a safetensors dtype, or 0 for unknown / sub-byte types (their size is not validated).</summary>

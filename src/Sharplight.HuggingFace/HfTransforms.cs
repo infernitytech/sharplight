@@ -28,6 +28,31 @@ internal static class HfTransforms
     }
 
     /// <summary>
+    /// The weight in a storage type whose elements can be moved individually: block-quantized weights (FP8 blocks) are decoded to
+    /// BF16 on first read, element types are returned as they are. For transforms that move single values across blocks
+    /// (transposes, column permutations that do not align with the blocks).
+    /// </summary>
+    public static WeightInfo Elementwise(WeightInfo w)
+    {
+        if (w.Type.BlockSize == 1 && !HfFp8Codec.IsFp8(w.Type))
+        {
+            return w;
+        }
+
+        return WeightInfo.Derived(w.Name, DataType.BF16, w.Shape, () =>
+        {
+            var values = DecodeF32(w);
+            var bytes = new byte[values.LongLength * 2];
+            for (long i = 0; i < values.LongLength; i++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(checked((int)(i * 2))), HfFp8Codec.ToBFloat16(values[i]));
+            }
+
+            return bytes;
+        });
+    }
+
+    /// <summary>
     /// RMSNorm weights: HF's Qwen3-Next family computes <c>x * (1 + w)</c>; the canonical form folds the
     /// 1 into the stored weight (llama.cpp: <c>data + 1</c> after converting to f32). Result is F32.
     /// </summary>
@@ -68,7 +93,7 @@ internal static class HfTransforms
         return dst;
     }
 
-    /// <summary>Decodes a weight to F32 values (F32/F16/BF16/F64 and integer types), optionally mapping each element.</summary>
+    /// <summary>Decodes a weight to F32 values (F32/F16/BF16/F64, integer and FP8 types), optionally mapping each element.</summary>
     public static float[] DecodeF32(WeightInfo w, Func<float, float>? map = null)
     {
         var bytes = w.ReadAll();
@@ -141,6 +166,10 @@ internal static class HfTransforms
             {
                 f[i] = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(i * 8));
             }
+        }
+        else if (HfFp8Codec.IsFp8(t))
+        {
+            f = HfFp8Codec.Decode(t, bytes);
         }
         else
         {

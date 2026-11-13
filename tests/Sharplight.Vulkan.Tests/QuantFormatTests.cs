@@ -3,13 +3,14 @@ using Sharplight.Tensors;
 namespace Sharplight.Vulkan.Tests;
 
 /// <summary>
-/// The Q2_K/Q3_K, IQ1/IQ2/IQ3, TQ1_0/TQ2_0, MXFP4 and NVFP4 weight formats on the GPU against the CPU oracle, whose dequantizers
-/// match ggml bit for bit (Sharplight.Cpu.Tests.GgmlDequantTests): matvec (decode), GEMM (prefill), gather and MatMulId (MoE experts).
+/// The Q2_K/Q3_K, IQ1/IQ2/IQ3, TQ1_0/TQ2_0, MXFP4, NVFP4 and FP8 weight formats on the GPU against the CPU oracle, whose dequantizers
+/// match ggml bit for bit (Sharplight.Cpu.Tests.GgmlDequantTests; FP8: Sharplight.Cpu.Tests.Fp8DequantTests): matvec (decode), GEMM
+/// (prefill), gather and MatMulId (MoE experts).
 /// </summary>
 public sealed class QuantFormatTests
 {
     public static IEnumerable<object[]> Formats() =>
-        new[] { "q2_k", "q3_k", "iq2_xxs", "iq2_xs", "iq2_s", "iq3_xxs", "iq3_s", "iq1_s", "iq1_m", "tq1_0", "tq2_0", "mxfp4", "nvfp4" }
+        new[] { "q2_k", "q3_k", "iq2_xxs", "iq2_xs", "iq2_s", "iq3_xxs", "iq3_s", "iq1_s", "iq1_m", "tq1_0", "tq2_0", "mxfp4", "nvfp4", "f8e4m3", "f8e5m2", "f8e4m3_b32", "f8e4m3_b128" }
             .Select(f => new object[] { f });
 
     [Theory, MemberData(nameof(Formats))]
@@ -26,6 +27,13 @@ public sealed class QuantFormatTests
     [InlineData(64f)]
     [InlineData(1f / 4096)]
     public void GemmMxfp4Scales(float scale) => MatMul("mxfp4", 40, scale);
+
+    /// <summary>Block-scaled FP8 with scales whose product with 256 leaves half's normal range: the f16 GEMM decode multiplies in f32.</summary>
+    [Theory]
+    [InlineData("f8e4m3_b32", 1f / 65536)]
+    [InlineData("f8e4m3_b128", 1f / 65536)]
+    [InlineData("f8e4m3_b128", 4096f)]
+    public void GemmFp8Scales(string type, float scale) => MatMul(type, 40, scale);
 
     private static void MatMul(string type, int tokens, float scale = 1f)
     {

@@ -15,10 +15,11 @@ internal static class HfExpertLayouts
 
     /// <summary>
     /// The canonical [E, out, in] weight of an expert tensor stored as [E, in, out], optionally keeping only the output rows in
-    /// <paramref name="rowOrder"/> (in that order). Dense float storage types only.
+    /// <paramref name="rowOrder"/> (in that order). Block-quantized (FP8) weights are decoded to BF16 first.
     /// </summary>
     public static WeightInfo Transposed(WeightInfo w, string name, int[]? rowOrder = null)
     {
+        w = HfTransforms.Elementwise(w);
         long experts = w.Shape[0].Fixed;
         long inner = w.Shape[1].Fixed;
         long outer = w.Shape[2].Fixed;

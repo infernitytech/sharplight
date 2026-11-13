@@ -98,7 +98,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 Format = "hf",
                 Architecture = mapping.Architecture,
                 Metadata = md,
-                Weights = mapping.MapWeights(config, checkpoint.Tensors, options),
+                Weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options),
                 OwnedResources = [checkpoint],
                 Path = path,
             };
