@@ -24,7 +24,15 @@ namespace Sharplight.Architectures;
 /// rule; HF switches on the current sequence length, which would leave already cached keys rotated with the other set, so a
 /// KV-cached runtime picks once per model instance. Use a context &lt;= the original one for the short factors.
 /// When <c>attention.sliding_window</c> is given without <c>attention.sliding_layers</c> (Mistral v0.1), every layer uses the window.</item>
-/// <item><c>mlp.activation</c> ("silu" (default), "gelu", "gelu_tanh", "relu"), <c>mlp.gated</c> (default true: act(gate)·up).</item>
+/// <item><c>mlp.activation</c> ("silu" (default), "gelu" (erf), "gelu_tanh", "relu", "relu2" (squared ReLU), "xielu", "swiglu_oai"), <c>mlp.gated</c> (default true: act(gate)·up).
+/// xIELU reads <c>mlp.xielu_beta</c> / <c>mlp.xielu_eps</c> and the per-layer scalar weights <c>layers.{i}.mlp.act.alpha_p</c> / <c>alpha_n</c> (effective values, already softplus-transformed);
+/// SwiGLU-OAI (clamped, gpt-oss) reads <c>mlp.swiglu_alpha</c> (1.702) and <c>mlp.swiglu_limit</c> (7).</item>
+/// <item>Building blocks of the generic layer: <c>norm.type</c> ("rms" (default) or "layer": mean-centred layer norm that also adds the sibling <c>*.bias</c> weights when present
+/// and is non-parametric when the weight is absent, OLMo 1); <c>pre_norm</c> (default true; false = no norm in front of the sub-layers, OLMo 2 / EXAONE 4 normalize their outputs instead);
+/// <c>residual.parallel</c> (default false: attention and MLP both read the layer input, x + attn(norm(x)) + mlp(norm'(x)); the MLP uses <c>post_attention_norm</c> when the layer has one and shares the attention norm otherwise);
+/// <c>residual.scale</c> (factor on every sub-layer output before the residual add, muP); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
+/// <c>attention.clip_qkv</c> (clamp of the q/k/v projections, OLMo 1); <c>attention.layer_head_counts</c> (per-layer query heads, OpenELM).
+/// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>): <c>moe.expert_count</c>, <c>moe.expert_used_count</c>
 /// (top-k per token), <c>moe.normalize_weights</c> (renormalize the k selected router probabilities to sum 1; default false),
 /// <c>moe.router_activation</c> ("softmax" (default) or "sigmoid" scores), <c>moe.weights_scale</c> (factor on the selected weights, default 1).
