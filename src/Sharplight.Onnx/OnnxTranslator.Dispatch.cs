@@ -23,6 +23,7 @@ internal sealed partial class OnnxTranslator
         "Det",
         "CausalConvWithState",
         "LinearAttention",
+        "TensorScatter",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -345,6 +346,9 @@ internal sealed partial class OnnxTranslator
                 break;
             case "LinearAttention":
                 OnnxLinearAttention(n, ins);
+                break;
+            case "TensorScatter":
+                TensorScatter(n, ins);
                 break;
             case "EyeLike":
                 EyeLike(n, ins);
