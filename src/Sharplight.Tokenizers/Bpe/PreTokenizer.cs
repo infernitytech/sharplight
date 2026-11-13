@@ -35,6 +35,10 @@ internal sealed record PreTokenizerPreset(PreTokenizer Splitter, bool IgnoreMerg
             case "llama3" or "llama-v3" or "llama-bpe" or "falcon3" or "falcon-h1" or "midm-2.0" or "jina-v5-nano":
                 return new(new RegexFamilySplitter(RegexFamilySplitter.Kind.Llama, true, 3, false), true, true);
 
+            // Mistral "Tekken" (Pixtral, Nemotron): case-aware word pieces, single digits, ignore_merges.
+            case "pixtral" or "tekken":
+                return new(new DefaultRegexStages([@"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"]), true, false);
+
             case "lfm2":
                 return new(new RegexFamilySplitter(RegexFamilySplitter.Kind.Llama, true, 3, false), true, false);
 

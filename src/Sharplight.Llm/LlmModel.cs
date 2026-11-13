@@ -150,5 +150,6 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new Qwen35Adapter());
         Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
         ModelAdapterRegistry.Register(new DecoderAdapter());
+        ModelAdapterRegistry.Register(new NemotronHAdapter());
     }
 }
