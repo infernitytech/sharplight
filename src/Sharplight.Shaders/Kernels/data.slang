@@ -68,9 +68,9 @@ void cache_write(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
     uint64_t di = uint64_t(p.rt[RT_N_PAST] + t) * ROW + r;
 #endif
 #if DST_F16
-    *(uint16_t*)atByte(p.dst, di * 2) = f2h(v);
+    *(uint16_t*)byteAt((uint8_t*)p.dst, di * 2) = f2h(v);
 #else
-    *(float*)atByte(p.dst, di * 4) = v;
+    *(float*)byteAt((uint8_t*)p.dst, di * 4) = v;
 #endif
 }
 

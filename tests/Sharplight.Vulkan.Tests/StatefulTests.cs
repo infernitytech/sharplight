@@ -104,6 +104,40 @@ public sealed class StatefulTests
         Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap}");
     }
 
+    /// <summary>
+    /// One cache for keys and values (multi-head latent attention): <c>v_dims</c> values are the prefix of each D-wide row. The
+    /// single-row steps take the split-K decode kernel, the long chunk the flash kernel.
+    /// </summary>
+    [Theory]
+    [InlineData("f16", 96, 64, 4, 4)]
+    [InlineData("f32", 96, 64, 8, 2)]
+    public void CachedAttentionValuePrefix(string cacheType, int D, int valueDims, int Hq, int Hkv)
+    {
+        Gpu.Require();
+        int ctx = 256;
+        int[] chunks = [6, 3, 1, 1, 180, 1];
+        int total = chunks.Sum();
+        var tg = new TG();
+        var T = TG.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var kc = tg.State("kc", DataType.Get(cacheType), StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki);
+        tg.B.RuntimeScalar("n_past");
+        var attrs = Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("offset", "n_past"), ("v_dims", (long)valueDims));
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, kc], attrs));
+        var q = Rnd.F(total * Hq * D, 1);
+        var k = Rnd.F(total * Hkv * D, 2);
+        var steps = new List<Step>();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)])));
+            past += c;
+        }
+        Diff.Check("CachedAttention.vprefix", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"{cacheType} D={D} v_dims={valueDims}");
+    }
+
     // Attention sinks: decode (split-K + combine), short chunks, and long prefill chunks (flash kernel), full and windowed.
     [Theory]
     [InlineData("f16", 0)]

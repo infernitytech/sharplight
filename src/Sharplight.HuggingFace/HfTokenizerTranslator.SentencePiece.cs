@@ -54,7 +54,24 @@ internal static partial class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerTokens] = tokens;
         md[CanonicalKeys.TokenizerScores] = scores;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
-        md[CanonicalKeys.TokenizerAddSpacePrefix] = model.AddDummyPrefix;
+        md[CanonicalKeys.TokenizerAddSpacePrefix] = model.AddDummyPrefix || NormalizerPrependsSpace(tok);
         HfSpecialVocab.AddTo(md, dir, config, tok, ReadTokenizerConfig(dir), addedTokens);
+    }
+
+    /// <summary>
+    /// Whether tokenizer.json's normalizer prepends ▁ (transformers' legacy Llama tokenizer): it then applies even when
+    /// <c>tokenizer.model</c> turns its dummy prefix off (MiniCPM3).
+    /// </summary>
+    private static bool NormalizerPrependsSpace(JsonElement tok)
+    {
+        if (!tok.TryGetProperty("normalizer", out var normalizer) || normalizer.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var steps = normalizer.TypeName() == "Sequence" && normalizer.TryGetProperty("normalizers", out var children)
+            ? [.. children.EnumerateArray()]
+            : new[] { normalizer };
+        return steps.Any(step => step.TypeName() == "Prepend" && step.TryGetProperty("prepend", out var text) && text.GetString() == "▁");
     }
 }

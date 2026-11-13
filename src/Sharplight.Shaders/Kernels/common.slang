@@ -33,6 +33,10 @@ float erf_approx(float x)
 }
 float gelu_erf(float x) { return 0.5 * x * (1.0 + erf_approx(x * 0.7071067811865476)); }
 
+// Address `bytes` past `base`, computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index to 32 bits, so
+// element or byte offsets into a tensor of 4 GiB or more (large KV caches, embedding tables) must not go through pointer indexing.
+uint8_t* byteAt(uint8_t* base, uint64_t bytes) { return (uint8_t*)(uint64_t(base) + bytes); }
+
 // ---- 16-bit float helpers ----------------------------------------------------------------
 float h2f(uint16_t h) { return f16tof32(uint(h)); }
 float bf2f(uint16_t b) { return asfloat(uint(b) << 16); }
@@ -351,12 +355,6 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
 uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
 {
     return (uint8_t*)(uint64_t(base) + rowBytes * row);
-}
-
-// base + offset bytes, computed on integers like rowStart (for offsets that can reach 4 GiB, e.g. into a large KV cache).
-uint8_t* atByte(uint8_t* base, uint64_t offset)
-{
-    return (uint8_t*)(uint64_t(base) + offset);
 }
 
 #if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K)

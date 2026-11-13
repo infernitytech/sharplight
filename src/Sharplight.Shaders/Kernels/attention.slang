@@ -1,7 +1,8 @@
 // Causal attention of T queries against a KV cache (online softmax, one workgroup per (head, query)).
 // q: [T, HQ, D] with strides (QS0, QS1); caches: [ctx, HKV, D]/[ctx, HKV, DV] of type KV_F16 ? f16 : f32;
 // out: dense [T, HQ, DV]. Query t sees cache rows [0, n_past + t].
-// Macros: HQ, HKV, D, DV, QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
+// Macros: HQ, HKV, D, DV, VRS (value cache row stride in elements, >= DV: the values are the first DV entries of each row,
+//         e.g. the latent prefix of a multi-head latent attention cache whose K and V are one buffer), QS0, QS1, SCALE, KV_F16, WG (threads, = chunk of keys),
 //         WINDOW (> 0: a query sees only its last WINDOW keys; sliding-window layers), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
@@ -13,6 +14,9 @@
 
 #ifndef SPLITS
 #define SPLITS 1
+#endif
+#ifndef VRS
+#define VRS DV
 #endif
 // SPANS (FULL_ATTN only): spans [T, 2] (first key row, count) per query row — packed independent sequences; with CAUSAL a
 // query row t additionally sees only key rows <= t.
@@ -298,9 +302,9 @@ float reduce_sum(float v, uint tid)
 float load_kv(uint8_t* base, uint64_t elem)
 {
 #if KV_F16
-    return h2f(*(uint16_t*)atByte(base, elem * 2));
+    return h2f(*(uint16_t*)byteAt(base, elem * 2));
 #else
-    return *(float*)atByte(base, elem * 4);
+    return *(float*)byteAt(base, elem * 4);
 #endif
 }
 
@@ -308,7 +312,7 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
 {
     float s = 0;
 #if KV_F16
-    uint4* kp = (uint4*)atByte(kc, rowElem * 2);
+    uint4* kp = (uint4*)byteAt(kc, rowElem * 2);
     [ForceUnroll]
     for (uint i = 0; i < D / 8; i++)
     {
@@ -319,7 +323,7 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
            + sQ[8 * i + 6] * f16tof32(u.w & 0xFFFF) + sQ[8 * i + 7] * f16tof32(u.w >> 16);
     }
 #else
-    float4* kp = (float4*)atByte(kc, rowElem * 4);
+    float4* kp = (float4*)byteAt(kc, rowElem * 4);
     [ForceUnroll]
     for (uint i = 0; i < D / 4; i++)
     {
@@ -401,7 +405,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             float a = acc[di] * corr;
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
-                    a += sP[jj] * load_kv(p.vc, (kvRow + uint64_t(c0 + jj) * HKV + hk) * DV + d);
+                    a += sP[jj] * load_kv(p.vc, (kvRow + uint64_t(c0 + jj) * HKV + hk) * VRS + d);
             acc[di] = a;
         }
         GroupMemoryBarrierWithGroupSync();
@@ -468,8 +472,8 @@ groupshared float faS[FA_BR * FA_SS];
 groupshared half faP[FA_BR * FA_PS];
 groupshared float faO[FA_BR * FA_DC];
 
-// Rows j0.. of K or V (dim columns, zero-padded to dimP) into faKV as f16; rows >= L are zero.
-void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint dim, uint dimP, uint tid)
+// Rows j0.. of K or V (dim columns of rows rowStride wide, zero-padded to dimP) into faKV as f16; rows >= L are zero.
+void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint dim, uint rowStride, uint dimP, uint tid)
 {
     uint per = dimP / 8;
     for (uint i = tid; i < FA_BC * per; i += FA_T)
@@ -480,13 +484,13 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         if (j < L && c < dim)
         {
 #if KV_F16
-            uint4 u = *(uint4*)atByte(cache, ((kvRow + uint64_t(j) * HKV + hk) * dim + c) * 2);
+            uint4 u = *(uint4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 2);
             faKV[o + 0] = half(f16tof32(u.x & 0xFFFF)); faKV[o + 1] = half(f16tof32(u.x >> 16));
             faKV[o + 2] = half(f16tof32(u.y & 0xFFFF)); faKV[o + 3] = half(f16tof32(u.y >> 16));
             faKV[o + 4] = half(f16tof32(u.z & 0xFFFF)); faKV[o + 5] = half(f16tof32(u.z >> 16));
             faKV[o + 6] = half(f16tof32(u.w & 0xFFFF)); faKV[o + 7] = half(f16tof32(u.w >> 16));
 #else
-            float4* f = (float4*)atByte(cache, ((kvRow + uint64_t(j) * HKV + hk) * dim + c) * 4);
+            float4* f = (float4*)byteAt(cache, ((kvRow + uint64_t(j) * HKV + hk) * rowStride + c) * 4);
             float4 a = f[0], b = f[1];
             faKV[o + 0] = half(a.x); faKV[o + 1] = half(a.y); faKV[o + 2] = half(a.z); faKV[o + 3] = half(a.w);
             faKV[o + 4] = half(b.x); faKV[o + 5] = half(b.y); faKV[o + 6] = half(b.z); faKV[o + 7] = half(b.w);
@@ -569,7 +573,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 
     for (uint j0 = jFirst; j0 < L; j0 += FA_BC)
     {
-        fa_load_kv(p.kc, kvRow, j0, L, hk, D, FA_DP, tid);
+        fa_load_kv(p.kc, kvRow, j0, L, hk, D, D, FA_DP, tid);
         GroupMemoryBarrierWithGroupSync();
 
         // S: subgroup sg computes rows (sg / 2) * 16, keys (sg % 2) * 16.
@@ -587,7 +591,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         }
         GroupMemoryBarrierWithGroupSync();   // S visible; K no longer needed
 
-        fa_load_kv(p.vc, kvRow, j0, L, hk, DV, FA_DVP, tid);
+        fa_load_kv(p.vc, kvRow, j0, L, hk, DV, VRS, FA_DVP, tid);
 
         // Online softmax of row `row`, columns sub * 8 .. + 8 (the row's 4 threads are adjacent lanes).
         float sv[8];
@@ -695,9 +699,9 @@ Kv8 load_kv8(uint8_t* cache, uint64_t elem)
 {
     Kv8 r;
 #if KV_F16
-    r.u = *(uint4*)atByte(cache, elem * 2);
+    r.u = *(uint4*)byteAt(cache, elem * 2);
 #else
-    float4* f = (float4*)atByte(cache, elem * 4);
+    float4* f = (float4*)byteAt(cache, elem * 4);
     r.a = f[0];
     r.b = f[1];
 #endif
@@ -803,7 +807,7 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
             for (uint c = 0; c < DEC_VC; c++)
             {
                 uint d0 = (c * KLANES + kl) * 8;
-                vb[i][c] = j < jEnd && d0 < DV ? load_kv8(p.vc, row * DV + d0) : zero_kv8();
+                vb[i][c] = j < jEnd && d0 < DV ? load_kv8(p.vc, row * VRS + d0) : zero_kv8();
             }
         }
 

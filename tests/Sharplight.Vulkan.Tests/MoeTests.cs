@@ -105,6 +105,55 @@ public sealed class MoeTests
     [InlineData(4, 200, 288)]
     public void ShapeVariants(int E, int N, int K) => Run(K % 256 == 0 ? "q4_k" : "q8_0", 70, 3, false, "random", E, N, K);
 
+    /// <summary>
+    /// Multi-head latent attention's absorbed projections: one "expert" per head, every head selected once per row (ids = head index),
+    /// f16 per-head matrices with small output sizes.
+    /// </summary>
+    [Theory]
+    [InlineData(16, 512, 128, 1)]
+    [InlineData(16, 128, 512, 1)]
+    [InlineData(16, 512, 128, 40)]
+    [InlineData(16, 128, 512, 40)]
+    [InlineData(4, 384, 64, 27)]
+    [InlineData(4, 64, 384, 27)]
+    public void LatentHeadProjections(int heads, int N, int K, int t)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, heads, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, heads);
+        var w = tg.RandW("w", DataType.F16, 1f, heads, N, K);
+        tg.B.Output("y", tg.B.Emit1("MatMulId", [x, w, ids]));
+        int[] headIds = [.. Enumerable.Range(0, t * heads).Select(i => i % heads)];
+        int items = t * heads;
+        Diff.Check("MatMulId.heads", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)items * K, 3)), (ids, headIds)),
+            atol: Atol(items), rtol: Rtol(items), maxTokens: 128, what: $"H={heads} N={N} K={K} T={t}");
+    }
+
+    /// <summary>
+    /// One ids tensor shared by a product that stays on the per-item matvec (K not a multiple of 32, no tensor-core path) and one that
+    /// takes the grouped GEMM at the same item count: the GEMM must get its own routing launch.
+    /// </summary>
+    [Fact]
+    public void SharedIdsWithDifferentPaths()
+    {
+        Gpu.Require();
+        int E = 8;
+        int K = 48;
+        int H = 256;
+        int S = 2;
+        int t = 40;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var up = tg.RandW("up", DataType.F16, 0.1f, E, H, K);
+        var down = tg.RandW("down", DataType.F16, 0.1f, E, K, H);
+        var h = tg.B.Emit1("MatMulId", [x, up, ids]);
+        tg.B.Output("d", tg.B.Emit1("MatMulId", [h, down, ids]));
+        Diff.Check("MatMulId.paths", tg.B.Build(), new Step(t, 0, (x, Rnd.F(t * K, 3)), (ids, Ids("random", t, S, E))),
+            atol: Atol(t * S), rtol: Rtol(t * S), maxTokens: 128);
+    }
+
     /// <summary>Two expert products on one ids tensor followed by a second block with other ids (routing is recomputed).</summary>
     [Fact]
     public void ChainedBlocks()

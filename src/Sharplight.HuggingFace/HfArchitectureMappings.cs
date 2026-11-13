@@ -17,6 +17,7 @@ internal static class HfArchitectureMappings
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
         Register(new MambaHfMapping());
+        Register(new LatentDecoderHfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
         foreach (var family in DecoderFamilies())
