@@ -54,33 +54,47 @@ internal static class NodeTestRunner
         var initializers = model.Graph.Initializers.Select(t => t.Name).ToHashSet(StringComparer.Ordinal);
         var inputInfos = model.Graph.Inputs.Where(i => !initializers.Contains(i.Name)).ToList();
         var outputInfos = model.Graph.Outputs;
-        if (inputInfos.Concat(outputInfos).FirstOrDefault(i => i.ElemType == 0) is { } nonTensor)
+        if (inputInfos.Concat(outputInfos).FirstOrDefault(i => i.Kind == OnnxValueKind.Map || (i.Kind != OnnxValueKind.Tensor && i.Innermost is null)) is { } map)
         {
-            return new(NodeTestStatus.HarnessUnsupported, $"'{nonTensor.Name}' is a sequence, map or optional value");
+            return new(NodeTestStatus.HarnessUnsupported, $"'{map.Name}' is a map or a sequence/optional without a tensor element type");
         }
 
-        if (inputInfos.Concat(outputInfos).FirstOrDefault(i => i.ElemType == OnnxType.String) is { } stringValue)
+        if (inputInfos.Concat(outputInfos).FirstOrDefault(i => i.Innermost?.ElemType == OnnxType.String) is { } stringValue)
         {
             return new(NodeTestStatus.HarnessUnsupported, $"'{stringValue.Name}' is a string tensor");
         }
 
-        var inputs = new Dictionary<string, TestTensor>(StringComparer.Ordinal);
-        var expected = new List<TestTensor>();
+        var values = new Dictionary<string, TestValue>(StringComparer.Ordinal);
+        var expected = new List<TestValue>();
         try
         {
             for (int k = 0; File.Exists(Path.Combine(setDirectory, $"input_{k}.pb")); k++)
             {
-                inputs[inputInfos[k].Name] = TestTensor.Load(Path.Combine(setDirectory, $"input_{k}.pb"));
+                values[inputInfos[k].Name] = TestValue.Load(Path.Combine(setDirectory, $"input_{k}.pb"), inputInfos[k]);
             }
 
             for (int k = 0; File.Exists(Path.Combine(setDirectory, $"output_{k}.pb")); k++)
             {
-                expected.Add(TestTensor.Load(Path.Combine(setDirectory, $"output_{k}.pb")));
+                expected.Add(TestValue.Load(Path.Combine(setDirectory, $"output_{k}.pb"), outputInfos[k]));
             }
         }
         catch (Exception e) when (e is NotSupportedException or InvalidDataException)
         {
             return new(NodeTestStatus.HarnessUnsupported, e.Message);
+        }
+
+        // Sequence inputs are fed element by element (OnnxGraphAdapter.SequenceElementName); empty optional inputs are absent.
+        var inputs = new Dictionary<string, TestTensor>(StringComparer.Ordinal);
+        var owner = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, value) in values)
+        {
+            var tensors = value.Elements?.Select((e, k) => (OnnxGraphAdapter.SequenceElementName(name, k), e))
+                ?? (value.Tensor is { } t ? [(name, t)] : []);
+            foreach (var (tensorName, tensor) in tensors)
+            {
+                inputs[tensorName] = tensor;
+                owner[tensorName] = name;
+            }
         }
 
         // Sharplight compiles static shapes: inputs that define shapes, axes or other import-time parameters (Reshape targets, reduction
@@ -96,7 +110,7 @@ internal static class NodeTestRunner
             {
                 0 => false,
                 1 => !p.Value.IsFloat,
-                _ => p.Key != inputInfos[0].Name,
+                _ => owner[p.Key] != inputInfos[0].Name,
             }).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
             if (pinLevel > 0 && (pinned.Count == 0 || pinned.Count == inputs.Count))
             {
@@ -104,6 +118,18 @@ internal static class NodeTestRunner
             }
 
             var options = new OnnxImportOptions();
+            foreach (var (name, value) in values)
+            {
+                if (value.IsNone)
+                {
+                    options.AbsentInputs.Add(name);
+                }
+                else if (value.Elements is { } elements)
+                {
+                    options.SequenceInputLengths[name] = elements.Count;
+                }
+            }
+
             foreach (var (name, tensor) in inputs)
             {
                 options.InputShapes[name] = tensor.Dims;
@@ -160,7 +186,7 @@ internal static class NodeTestRunner
         {
             var run = new RunParameters();
             run.Symbols[OnnxGraphAdapter.BatchSymbol] = 1;
-            var actual = new List<(long[] Shape, double[] Values)>();
+            var actual = new Dictionary<string, (long[] Shape, double[] Values)>(StringComparer.Ordinal);
             try
             {
                 foreach (var input in graph.Inputs)
@@ -174,13 +200,12 @@ internal static class NodeTestRunner
                 }
 
                 compiled.Run(run);
-                foreach (var info in outputInfos)
+                foreach (var (name, value) in graph.Outputs)
                 {
-                    var shape = compiled.OutputShape(info.Name, run);
-                    var type = graph.Outputs[info.Name].Type;
-                    var buffer = new byte[type.ByteSize(shape.Aggregate(1L, (a, b) => a * b))];
-                    compiled.GetOutput(info.Name, buffer);
-                    actual.Add((shape, ElementCodec.Decode(type, buffer)));
+                    var shape = compiled.OutputShape(name, run);
+                    var buffer = new byte[value.Type.ByteSize(shape.Aggregate(1L, (a, b) => a * b))];
+                    compiled.GetOutput(name, buffer);
+                    actual[name] = (shape, ElementCodec.Decode(value.Type, buffer));
                 }
             }
             catch (Exception e)
@@ -190,7 +215,7 @@ internal static class NodeTestRunner
 
             for (int k = 0; k < expected.Count; k++)
             {
-                if (Compare(outputInfos[k].Name, expected[k], actual[k].Shape, actual[k].Values) is { } mismatch)
+                if (CompareValue(outputInfos[k].Name, expected[k], actual) is { } mismatch)
                 {
                     return new(NodeTestStatus.Wrong, mismatch);
                 }
@@ -206,6 +231,56 @@ internal static class NodeTestRunner
             || message.Contains("data-dependent", StringComparison.Ordinal)
             || message.Contains("runtime-dependent", StringComparison.Ordinal)
             || message.Contains("runtime tensor", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Compares an expected output with the graph outputs: a tensor by its name, a sequence either element by element
+    /// (<see cref="OnnxGraphAdapter.SequenceElementName"/>) or as one output stacking the elements, an empty optional by its absence.
+    /// </summary>
+    private static string? CompareValue(string name, TestValue expected, Dictionary<string, (long[] Shape, double[] Values)> actual)
+    {
+        if (expected.Tensor is { } tensor)
+        {
+            return actual.TryGetValue(name, out var a) ? Compare(name, tensor, a.Shape, a.Values) : $"output '{name}' is missing";
+        }
+
+        if (expected.Elements is not { } elements)
+        {
+            return actual.ContainsKey(name) || actual.ContainsKey(OnnxGraphAdapter.SequenceElementName(name, 0)) ? $"output '{name}' should be an empty optional" : null;
+        }
+
+        var produced = new List<(long[] Shape, double[] Values)>();
+        if (actual.TryGetValue(name, out var stacked))
+        {
+            long count = stacked.Shape.Length == 0 ? 1 : stacked.Shape[0];
+            int size = count == 0 ? 0 : stacked.Values.Length / (int)count;
+            for (int k = 0; k < count; k++)
+            {
+                produced.Add(([.. stacked.Shape.Skip(1)], stacked.Values[(k * size)..((k + 1) * size)]));
+            }
+        }
+        else
+        {
+            for (int k = 0; actual.TryGetValue(OnnxGraphAdapter.SequenceElementName(name, k), out var element); k++)
+            {
+                produced.Add(element);
+            }
+        }
+
+        if (produced.Count != elements.Count)
+        {
+            return $"output '{name}': sequence of {produced.Count} elements, expected {elements.Count}";
+        }
+
+        for (int k = 0; k < elements.Count; k++)
+        {
+            if (Compare(OnnxGraphAdapter.SequenceElementName(name, k), elements[k], produced[k].Shape, produced[k].Values) is { } mismatch)
+            {
+                return mismatch;
+            }
+        }
+
+        return null;
+    }
 
     private static string? Compare(string name, TestTensor expected, long[] shape, double[] values)
     {
