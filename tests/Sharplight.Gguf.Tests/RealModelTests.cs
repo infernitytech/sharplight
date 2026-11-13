@@ -5,9 +5,12 @@ namespace Sharplight.Gguf.Tests;
 
 public class RealModelTests
 {
-    private const string Q8 = "~/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q8_0.gguf";
-    private const string Q4KM = "~/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf";
-    private const string Nvfp4 = "~/.lmstudio/models/esatapedico/Qwen3.8-27B-NVFP4-MTP-GGUF/Qwen3.8-27B-NVFP4-MTP-ORIG.gguf";
+    // Optional local models (the tests return early when a file is absent), relative to the user's home directory.
+    private static readonly string Q8 = Home("models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q8_0.gguf");
+    private const string Q4KM = ".lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf";
+    private const string Nvfp4 = ".lmstudio/models/esatapedico/Qwen3.8-27B-NVFP4-MTP-GGUF/Qwen3.8-27B-NVFP4-MTP-ORIG.gguf";
+
+    private static string Home(string relative) => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), relative);
 
     [Fact]
     public void Qwen_Q8_0()
@@ -39,8 +42,9 @@ public class RealModelTests
     [Theory]
     [InlineData(Q4KM)]
     [InlineData(Nvfp4)]
-    public void Other_Models_Parse(string path)
+    public void Other_Models_Parse(string relative)
     {
+        string path = Home(relative);
         if (!File.Exists(path))
         {
             return;
