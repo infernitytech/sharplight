@@ -15,6 +15,12 @@ namespace Sharplight.Graph;
 public static partial class StandardOps
 {
     // ---- elementwise ----------------------------------------------------------------------
+
+    /// <summary>
+    /// Names of the registered one-operand elementwise ops. Each takes x (any shape) and returns f32 of the same shape;
+    /// the attributes some of them read (alpha, beta, gamma) are listed next to the name. Mask-valued ops
+    /// (<c>Not</c>, <c>IsNaN</c>, <c>IsInf</c>) produce and consume f32 0/1 masks.
+    /// </summary>
     public static readonly string[] UnaryNames =
         ["Neg", "Exp", "Log", "Sqrt", "Rsqrt", "Sigmoid", "Silu", "Gelu", "GeluTanh", "Tanh", "Softplus", "Relu", "Abs", "Square", "Recip",
          "Erf", "HardSwish", "HardSigmoid" /* attrs alpha (0.2), beta (0.5) */,
@@ -24,6 +30,10 @@ public static partial class StandardOps
          "LeakyRelu" /* alpha (0.01) */, "ThresholdedRelu" /* alpha (1) */,
          // Mask-producing / mask-consuming (masks are f32 0/1; non-zero means true):
          "Not", "IsNaN", "IsInf"];
+    /// <summary>
+    /// Names of the registered two-operand elementwise ops. Each takes a and b with numpy-style broadcasting and returns
+    /// f32 of the broadcast shape; comparison and logic ops return f32 0/1 masks.
+    /// </summary>
     public static readonly string[] BinaryNames =
         ["Add", "Sub", "Mul", "Div", "Max", "Min", "Pow",
          "Mod" /* attr fmod (bool): C fmod vs. Python-style sign of divisor */,
@@ -31,10 +41,10 @@ public static partial class StandardOps
          // Comparisons and logic produce f32 masks (1 = true, 0 = false):
          "Equal", "NotEqual", "Less", "LessEqual", "Greater", "GreaterEqual", "And", "Or", "Xor"];
 
-    /// <summary>y = x * scale + bias. Attributes: scale (float), bias (float).</summary>
+    /// <summary>y = x * scale + bias. Input: x (any shape). Attributes: scale (float), bias (float). Output: f32, shape of x.</summary>
     public static readonly OpSchema Scale = new("Scale", OpCategory.Elementwise, 1, 1, Same, "y = x*scale + bias");
 
-    /// <summary>Element type conversion. Attribute: type (string data type name).</summary>
+    /// <summary>Element type conversion. Input: x. Attribute: type (string, a <see cref="DataType"/> name). Output: the given type, shape of x.</summary>
     public static readonly OpSchema Cast = new("Cast", OpCategory.Elementwise, 1, 1,
         (i, a) => [new TensorType(DataType.Get(a.Get<string>("type")), i[0].Shape)]);
 
@@ -46,7 +56,10 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema Reshape = new("Reshape", OpCategory.View, 1, 1, InferReshape);
 
-    /// <summary>Strided slice along one axis. Attributes: axis, start, length.</summary>
+    /// <summary>
+    /// Zero-copy slice along one axis. Input: x. Attributes: axis (int, negative counts from the end; must not be the symbolic
+    /// outer axis), start (long), length (long). Output: x with <c>length</c> entries on that axis.
+    /// </summary>
     public static readonly OpSchema Slice = new("Slice", OpCategory.View, 1, 1, (i, a) =>
     {
         int axis = a.Get<int>("axis");
@@ -64,17 +77,20 @@ public static partial class StandardOps
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, len))];
     });
 
-    /// <summary>Axis permutation (lazy view). Attribute: perm (int[]).</summary>
+    /// <summary>Axis permutation as a lazy view. Input: x. Attribute: perm (int[], output axis i is input axis perm[i]). Output: permuted shape.</summary>
     public static readonly OpSchema Permute = new("Permute", OpCategory.View, 1, 1, (i, a) =>
     {
         var perm = a.Get<int[]>("perm");
         return [new TensorType(i[0].Type, new Shape(perm.Select(p => i[0].Shape[p])))];
     });
 
-    /// <summary>Materializes a (possibly strided) view into a dense tensor.</summary>
+    /// <summary>Materializes a (possibly strided) view into a dense row-major tensor. Input: x. Output: same type and shape.</summary>
     public static readonly OpSchema Contiguous = new("Contiguous", OpCategory.Data, 1, 1, Same);
 
-    /// <summary>Concatenate along an axis. Attribute: axis.</summary>
+    /// <summary>
+    /// Concatenates 2 to 64 operands along an axis. Inputs: tensors with equal type and equal shape except on that axis.
+    /// Attribute: axis (int, negative counts from the end). Output: the summed extent on that axis.
+    /// </summary>
     public static readonly OpSchema Concat = new("Concat", OpCategory.Data, 2, 64, (i, a) =>
     {
         int axis = a.Get<int>("axis");
@@ -107,7 +123,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema MatMul = new("MatMul", OpCategory.MatMul, 2, 2, (i, a) =>
     {
-        var x = i[0].Shape; var w = i[1].Shape;
+        var x = i[0].Shape;
+        var w = i[1].Shape;
         if (w.Rank != 2)
         {
             throw new ArgumentException("MatMul weight must be rank 2 [N, K].");
@@ -130,8 +147,9 @@ public static partial class StandardOps
     public static readonly OpSchema LayerNorm = new("LayerNorm", OpCategory.Reduction, 1, 3, SameF32);
     /// <summary>Softmax over the last axis. Attributes: scale (applied before exp, default 1), log (bool: LogSoftmax).</summary>
     public static readonly OpSchema Softmax = new("Softmax", OpCategory.Reduction, 1, 1, SameF32);
-    /// <summary>Sum over the last axis (keeps a dimension of size 1).</summary>
+    /// <summary>Sum over the last axis. Input: x. Output: f32, last dimension 1.</summary>
     public static readonly OpSchema ReduceSum = new("ReduceSum", OpCategory.Reduction, 1, 1, (i, a) => [new(DataType.F32, i[0].Shape.WithLast(1))]);
+    /// <summary>Maximum over the last axis. Input: x. Output: f32, last dimension 1.</summary>
     public static readonly OpSchema ReduceMax = new("ReduceMax", OpCategory.Reduction, 1, 1, (i, a) => [new(DataType.F32, i[0].Shape.WithLast(1))]);
     /// <summary>Index of the maximum along the last axis → i32 [..., 1].</summary>
     public static readonly OpSchema ArgMax = new("ArgMax", OpCategory.Reduction, 1, 1, (i, a) => [new(DataType.I32, i[0].Shape.WithLast(1))]);
@@ -160,7 +178,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 6, (i, a) =>
     {
-        var q = i[0].Shape; var v = i[2].Shape;
+        var q = i[0].Shape;
+        var v = i[2].Shape;
         return [new(DataType.F32, new Shape(q[0], q[1], v[2]))];
     });
 
@@ -177,7 +196,8 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema Attention = new("Attention", OpCategory.Composite, 3, 4, (i, a) =>
     {
-        var q = i[0].Shape; var v = i[2].Shape;
+        var q = i[0].Shape;
+        var v = i[2].Shape;
         return [new(DataType.F32, new Shape(q[0], q[1], v[2]))];
     });
 
@@ -241,13 +261,14 @@ public static partial class StandardOps
     private static IReadOnlyList<TensorType> Same(IReadOnlyList<Value> i, Attributes a) => [new(i[0].Type, i[0].Shape)];
     private static IReadOnlyList<TensorType> SameF32(IReadOnlyList<Value> i, Attributes a) => [new(DataType.F32, i[0].Shape)];
 
-    public static Shape BroadcastShapes(Shape a, Shape b)
+    internal static Shape BroadcastShapes(Shape a, Shape b)
     {
         int rank = Math.Max(a.Rank, b.Rank);
         var dims = new Dim[rank];
         for (int k = 0; k < rank; k++)
         {
-            int ia = a.Rank - rank + k, ib = b.Rank - rank + k;
+            int ia = a.Rank - rank + k;
+            int ib = b.Rank - rank + k;
             Dim da = ia >= 0 ? a.Dims[ia] : 1;
             Dim db = ib >= 0 ? b.Dims[ib] : 1;
             if (da == db)
@@ -267,6 +288,7 @@ public static partial class StandardOps
                 throw new ArgumentException($"Shapes {a} and {b} are not broadcast-compatible.");
             }
         }
+
         return new Shape(dims);
     }
 
@@ -293,12 +315,29 @@ public static partial class StandardOps
 
             return [new(i[0].Type, new Shape(dims))];
         }
-        long known = 1; int infer = -1;
+
+        long known = 1;
+        int infer = -1;
         bool srcSym = src.Rank > 0 && src[0].IsSymbolic;
         for (int k = 0; k < req.Length; k++)
         {
-            if (req[k] == 0 && k == 0 && srcSym) { dims[k] = src[0]; continue; }
-            if (req[k] == -1) { if (infer >= 0) { throw new ArgumentException("Only one -1 allowed in reshape."); } infer = k; continue; }
+            if (req[k] == 0 && k == 0 && srcSym)
+            {
+                dims[k] = src[0];
+                continue;
+            }
+
+            if (req[k] == -1)
+            {
+                if (infer >= 0)
+                {
+                    throw new ArgumentException("Only one -1 allowed in reshape.");
+                }
+
+                infer = k;
+                continue;
+            }
+
             dims[k] = req[k];
             known *= req[k];
         }

@@ -1,79 +1,4 @@
-using System.Collections.Concurrent;
-
 namespace Sharplight.Models;
-
-/// <summary>
-/// Reads a model container format (GGUF, Hugging Face safetensors checkpoints, ONNX, ...) and
-/// translates it into the canonical <see cref="ModelSource"/> description defined by
-/// <see cref="CanonicalKeys"/>. Importers live in their own assemblies and only reference Core;
-/// nothing else in Sharplight depends on a particular importer.
-/// </summary>
-/// <remarks>
-/// The canonical description fixes: architecture ids, hyper-parameter keys, tokenizer keys,
-/// weight names and weight <em>semantics</em> (layout, sign conventions, folded constants).
-/// An importer is responsible for every translation needed to reach it, typically with
-/// lazily-derived weights (<see cref="WeightInfo.Derived"/>).
-/// </remarks>
-public interface IModelImporter
-{
-    /// <summary>Short format id, e.g. "gguf", "hf".</summary>
-    public string Format { get; }
-
-    /// <summary>Cheap check (extension, magic bytes, directory layout) whether this importer handles <paramref name="path"/>.</summary>
-    public bool CanOpen(string path);
-
-    /// <summary>Opens <paramref name="path"/> (a file or a directory) as a canonical model source.</summary>
-    public ModelSource Open(string path);
-}
-
-/// <summary>Global importer registry. Hosts register the formats they want to support.</summary>
-public static class ModelImporterRegistry
-{
-    private static readonly ConcurrentDictionary<string, IModelImporter> s_importers = new(StringComparer.OrdinalIgnoreCase);
-
-    public static void Register(IModelImporter importer) => s_importers[importer.Format] = importer;
-
-    public static IEnumerable<IModelImporter> All => s_importers.Values;
-
-    public static IModelImporter? Find(string path) => s_importers.Values.FirstOrDefault(i => i.CanOpen(path));
-
-    public static ModelSource Open(string path)
-        => (Find(path) ?? throw new NotSupportedException(
-               $"No registered importer can open '{path}'. Registered formats: {(s_importers.IsEmpty ? "(none)" : string.Join(", ", s_importers.Keys))}"))
-           .Open(path);
-
-    /// <summary>Opens a primary model plus auxiliary sources (e.g. ("mmproj", path) for a vision projector).</summary>
-    public static ModelSourceSet OpenSet(string path, params (string Role, string Path)[] auxiliary)
-    {
-        var primary = Open(path);
-        var aux = new Dictionary<string, ModelSource>();
-        try
-        {
-            foreach (var (role, p) in auxiliary)
-            {
-                aux[role] = Open(p);
-            }
-        }
-        catch
-        {
-            foreach (var r in primary.OwnedResources)
-            {
-                r.Dispose();
-            }
-
-            foreach (var s in aux.Values)
-            {
-                foreach (var r in s.OwnedResources)
-                {
-                    r.Dispose();
-                }
-            }
-
-            throw;
-        }
-        return new ModelSourceSet { Primary = primary, Auxiliary = aux };
-    }
-}
 
 /// <summary>
 /// Canonical metadata vocabulary of a <see cref="ModelSource"/>. Importers translate their format
@@ -98,26 +23,42 @@ public static class ModelImporterRegistry
 /// </remarks>
 public static class CanonicalKeys
 {
+    /// <summary>Model display name (string).</summary>
     public const string Name = "general.name";
+    /// <summary>Canonical architecture id (string).</summary>
     public const string Architecture = "general.architecture";
 
+    /// <summary>Tokenizer family (string), for example "bpe", "spm" or "wordpiece".</summary>
     public const string TokenizerModel = "tokenizer.model";
+    /// <summary>Pre-tokenizer variant of a BPE tokenizer (string).</summary>
     public const string TokenizerPre = "tokenizer.pre";
+    /// <summary>Vocabulary: token text by id (string[]).</summary>
     public const string TokenizerTokens = "tokenizer.tokens";
+    /// <summary>Token type by id (int[]; normal, control, byte, ...).</summary>
     public const string TokenizerTokenTypes = "tokenizer.token_type";
+    /// <summary>BPE merge rules in priority order (string[], "left right").</summary>
     public const string TokenizerMerges = "tokenizer.merges";
     /// <summary>Per-token scores (float[]) of a SentencePiece-style tokenizer (<c>tokenizer.model</c> = "spm").</summary>
     public const string TokenizerScores = "tokenizer.scores";
     /// <summary>Whether SentencePiece-style tokenizers prepend a space to the text (bool).</summary>
     public const string TokenizerAddSpacePrefix = "tokenizer.add_space_prefix";
+    /// <summary>Beginning-of-sequence token id (int).</summary>
     public const string TokenizerBosId = "tokenizer.bos_token_id";
+    /// <summary>End-of-sequence token id (int).</summary>
     public const string TokenizerEosId = "tokenizer.eos_token_id";
+    /// <summary>End-of-turn token id (int).</summary>
     public const string TokenizerEotId = "tokenizer.eot_token_id";
+    /// <summary>End-of-message token id (int).</summary>
     public const string TokenizerEomId = "tokenizer.eom_token_id";
+    /// <summary>Padding token id (int).</summary>
     public const string TokenizerPadId = "tokenizer.padding_token_id";
+    /// <summary>Unknown-token id (int).</summary>
     public const string TokenizerUnkId = "tokenizer.unknown_token_id";
+    /// <summary>Whether the tokenizer prepends the beginning-of-sequence token (bool).</summary>
     public const string TokenizerAddBos = "tokenizer.add_bos_token";
+    /// <summary>Whether the tokenizer appends the end-of-sequence token (bool).</summary>
     public const string TokenizerAddEos = "tokenizer.add_eos_token";
+    /// <summary>Jinja chat template (string).</summary>
     public const string ChatTemplate = "tokenizer.chat_template";
     /// <summary>Separator token id (BERT [SEP], RoBERTa &lt;/s&gt;) used between the two texts of a pair.</summary>
     public const string TokenizerSeparatorId = "tokenizer.separator_token_id";

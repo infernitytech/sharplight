@@ -12,9 +12,13 @@ public sealed class CompiledModel : IDisposable
     private readonly ICompiledSegment[] _segments;
     private readonly Dictionary<Value, byte[]> _hostValues = [];
 
+    /// <summary>The graph that was compiled.</summary>
     public ComputeGraph Graph { get; }
+    /// <summary>How the graph was distributed over devices.</summary>
     public PlacementPlan Plan { get; }
+    /// <summary>The options the graph was compiled with.</summary>
     public CompileOptions Options { get; }
+    /// <summary>The compiled segments in execution order.</summary>
     public IReadOnlyList<ICompiledSegment> Segments => _segments;
 
     private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments)
@@ -25,6 +29,15 @@ public sealed class CompiledModel : IDisposable
         _segments = segments;
     }
 
+    /// <summary>
+    /// Places the graph and compiles every segment on its device.
+    /// </summary>
+    /// <param name="graph">The graph to compile.</param>
+    /// <param name="placement">Devices, fallback, memory reserve and compile options.</param>
+    /// <returns>The compiled model; the caller disposes it.</returns>
+    /// <exception cref="ArgumentException">No device was given.</exception>
+    /// <exception cref="InsufficientMemoryException">A placement group fits on no device and no fallback device is configured.</exception>
+    /// <exception cref="NotSupportedException">A node is supported neither by its device nor by the fallback device.</exception>
     public static CompiledModel Compile(ComputeGraph graph, PlacementOptions placement)
     {
         var plan = PlacementPlanner.Plan(graph, placement);
@@ -64,9 +77,14 @@ public sealed class CompiledModel : IDisposable
         }
     }
 
+    /// <summary>Typed overload of <see cref="SetInput(Value, ReadOnlySpan{byte})"/>.</summary>
     public void SetInput<T>(Value input, ReadOnlySpan<T> data) where T : unmanaged
         => SetInput(input, MemoryMarshal.AsBytes(data));
 
+    /// <summary>
+    /// Executes all segments in order, forwarding boundary activations through host memory. Not thread-safe: one run at a time per instance.
+    /// </summary>
+    /// <param name="parameters">Bindings for symbolic dimensions and runtime scalars; must cover every symbol and scalar the graph uses.</param>
     public void Run(RunParameters parameters)
     {
         for (int i = 0; i < _segments.Length; i++)
@@ -113,9 +131,11 @@ public sealed class CompiledModel : IDisposable
         seg.GetOutput(v, destination);
     }
 
+    /// <summary>Typed overload of <see cref="GetOutput(string, Span{byte})"/>.</summary>
     public void GetOutput<T>(string name, Span<T> destination) where T : unmanaged
         => GetOutput(name, MemoryMarshal.AsBytes(destination));
 
+    /// <summary>Clears the persistent state (KV caches, recurrent state) of every segment, starting a new sequence.</summary>
     public void ResetState()
     {
         foreach (var s in _segments)
@@ -124,60 +144,14 @@ public sealed class CompiledModel : IDisposable
         }
     }
 
-    public static long ByteCount(Value v, RunParameters p) => v.Type.ByteSize(v.Shape.Elements(p.Symbols));
+    internal static long ByteCount(Value v, RunParameters p) => v.Type.ByteSize(v.Shape.Elements(p.Symbols));
 
+    /// <summary>Releases the compiled segments and their device memory.</summary>
     public void Dispose()
     {
         foreach (var s in _segments)
         {
             s.Dispose();
         }
-    }
-}
-
-/// <summary>Registry of available execution providers (Vulkan, CUDA, CPU, ...).</summary>
-public static class ProviderRegistry
-{
-    private static readonly List<Func<IExecutionProvider>> s_factories = [];
-    private static readonly Lock s_lock = new();
-
-    public static void Register(Func<IExecutionProvider> factory)
-    {
-        lock (s_lock)
-        {
-            s_factories.Add(factory);
-        }
-    }
-
-    /// <summary>Instantiates all registered providers and reports their availability.</summary>
-    public static IReadOnlyList<(IExecutionProvider Provider, ProviderAvailability Availability)> Discover()
-    {
-        List<Func<IExecutionProvider>> f;
-        lock (s_lock)
-        {
-            f = [.. s_factories];
-        }
-
-        var result = new List<(IExecutionProvider, ProviderAvailability)>();
-        foreach (var factory in f)
-        {
-            IExecutionProvider p;
-            try { p = factory(); }
-            catch (Exception e) { result.Add((new UnavailableProvider(factory.Method.DeclaringType?.Name ?? "?", e.Message), ProviderAvailability.Unavailable(e.Message))); continue; }
-            ProviderAvailability a;
-            try { a = p.CheckAvailability(); }
-            catch (Exception e) { a = ProviderAvailability.Unavailable(e.Message); }
-            result.Add((p, a));
-        }
-        return result;
-    }
-
-    private sealed class UnavailableProvider(string name, string reason) : IExecutionProvider
-    {
-        public string Name => name;
-        public ProviderAvailability CheckAvailability() => ProviderAvailability.Unavailable(reason);
-        public IReadOnlyList<DeviceInfo> GetDevices() => [];
-        public IComputeDevice OpenDevice(DeviceInfo device, DeviceOptions? options = null) => throw new NotSupportedException(reason);
-        public void Dispose() { }
     }
 }

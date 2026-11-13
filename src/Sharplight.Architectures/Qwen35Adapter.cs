@@ -38,7 +38,9 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class Qwen35Adapter : IModelAdapter
 {
+    /// <inheritdoc/>
     public string Name => "Qwen3.5 hybrid (Gated DeltaNet + gated attention)";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
     private sealed record HParams(
@@ -47,6 +49,7 @@ public sealed class Qwen35Adapter : IModelAdapter
         int ConvKernel, int SsmState, int SsmGroups, int SsmDtRank, int SsmInner, int FullAttnInterval,
         int Vocab, int ContextLength);
 
+    /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
@@ -267,7 +270,10 @@ public sealed class Qwen35Adapter : IModelAdapter
 
         Value LinearAttention(GraphBuilder b, Value h, string p, Value convSt, Value ssmSt)
         {
-            int dk = hp.SsmState, hk = hp.SsmGroups, hv = hp.SsmDtRank, dv = headVDim;
+            int dk = hp.SsmState;
+            int hk = hp.SsmGroups;
+            int hv = hp.SsmDtRank;
+            int dv = headVDim;
             var qkv = b.Linear(h, p + "linear_attention.qkv.weight");                // [T, 2*hk*dk + hv*dv]
             var z = b.Linear(h, p + "linear_attention.z.weight");                 // [T, hv*dv]
             var beta = b.Sigmoid(b.Linear(h, p + "linear_attention.beta.weight"));    // [T, hv]

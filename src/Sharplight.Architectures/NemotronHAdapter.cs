@@ -30,13 +30,17 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class NemotronHAdapter : IModelAdapter
 {
+    /// <inheritdoc/>
     public string Name => "Nemotron-H (Mamba-2 / attention / MLP hybrid)";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["nemotron_h"];
 
+    /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
-        int nLayer = src.Arch<int>("layer_count"), nEmbd = src.Arch<int>("hidden_size");
+        int nLayer = src.Arch<int>("layer_count");
+        int nEmbd = src.Arch<int>("hidden_size");
         float eps = src.Arch("norm_eps", 1e-5f);
         var kinds = src.Arch<string[]>("block_kinds");
         if (kinds.Length != nLayer)
@@ -45,19 +49,28 @@ public sealed class NemotronHAdapter : IModelAdapter
         }
 
         string act = src.Arch("mlp.activation", "relu2");
-        int nHead = src.Arch("attention.head_count", 0), nKv = src.Arch("attention.kv_head_count", 0), headDim = src.Arch("attention.head_dim", 0);
-        int convK = src.Arch("ssm.conv_kernel", 4), N = src.Arch("ssm.state_size", 0), G = src.Arch("ssm.group_count", 1);
-        int H = src.Arch("ssm.head_count", 0), P = src.Arch("ssm.head_dim", 0);
+        int nHead = src.Arch("attention.head_count", 0);
+        int nKv = src.Arch("attention.kv_head_count", 0);
+        int headDim = src.Arch("attention.head_dim", 0);
+        int convK = src.Arch("ssm.conv_kernel", 4);
+        int N = src.Arch("ssm.state_size", 0);
+        int G = src.Arch("ssm.group_count", 1);
+        int H = src.Arch("ssm.head_count", 0);
+        int P = src.Arch("ssm.head_dim", 0);
         float dtMin = src.Arch("ssm.time_step_min", 0f);
-        int experts = src.Arch("moe.expert_count", 0), expertsUsed = src.Arch("moe.expert_used_count", 0);
+        int experts = src.Arch("moe.expert_count", 0);
+        int expertsUsed = src.Arch("moe.expert_used_count", 0);
         bool normWeights = src.Arch("moe.normalize_weights", true);
         float weightsScale = src.Arch("moe.weights_scale", 1f);
-        int inner = H * P, convDim = inner + 2 * G * N;
+        int inner = H * P;
+        int convDim = inner + 2 * G * N;
         int vocab = src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed;
 
         var states = new List<StateDefinition>();
-        var kCache = new Dictionary<int, StateDefinition>(); var vCache = new Dictionary<int, StateDefinition>();
-        var convState = new Dictionary<int, StateDefinition>(); var ssmState = new Dictionary<int, StateDefinition>();
+        var kCache = new Dictionary<int, StateDefinition>();
+        var vCache = new Dictionary<int, StateDefinition>();
+        var convState = new Dictionary<int, StateDefinition>();
+        var ssmState = new Dictionary<int, StateDefinition>();
         for (int il = 0; il < nLayer; il++)
         {
             string g = $"layers.{il}";
@@ -166,7 +179,8 @@ public sealed class NemotronHAdapter : IModelAdapter
             var z = b.Slice(proj, 1, 0, inner);
             var xbc = b.Slice(proj, 1, inner, convDim);
             var dt = b.Slice(proj, 1, inner + convDim, H);
-            var cs = b.State(convState[il]); var ss = b.State(ssmState[il]);
+            var cs = b.State(convState[il]);
+            var ss = b.State(ssmState[il]);
             var conv = b.Emit("CausalConv1d", [xbc, b.Weight(p + "ssm.conv1d.weight"), cs, b.Weight(p + "ssm.conv1d.bias")],
                 Attributes.From(("activation", "silu"), ("bias", true)), writes: [cs])[0];
             var xs = b.Reshape(b.Slice(conv, 1, 0, inner), 0, H, P);

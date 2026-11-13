@@ -11,12 +11,17 @@ public static class RopeScaling
     public sealed record Result(float[] Factors, float AttentionScale);
 
     /// <summary>Linear scaling: positions are divided by <paramref name="factor"/> for every frequency.</summary>
+    /// <param name="dim">Rotated dimensions (the head dimension).</param>
+    /// <param name="factor">Position divisor.</param>
     public static Result Linear(int dim, float factor) => new(Enumerable.Repeat(factor, dim / 2).ToArray(), 1f);
 
     /// <summary>
     /// "Proportional" partial rotary (Gemma 4 global layers): the whole head (<paramref name="dim"/> dims) is the frequency basis
     /// (θᵢ = base^(-2i/dim)) but only the first <paramref name="rotatedAngles"/> frequencies rotate; the rest get a huge divisor (no rotation).
     /// </summary>
+    /// <param name="rotatedAngles">Number of leading frequencies that rotate.</param>
+    /// <param name="dim">Head dimension; the frequency basis.</param>
+    /// <param name="factor">Divisor of the rotating frequencies.</param>
     public static Result Proportional(int dim, int rotatedAngles, float factor = 1f)
     {
         var f = new float[dim / 2];
@@ -29,10 +34,17 @@ public static class RopeScaling
     }
 
     /// <summary>Llama 3.x scaling (long wavelengths divided by <paramref name="factor"/>, smooth blend in between).</summary>
+    /// <param name="base">RoPE base frequency.</param>
+    /// <param name="lowFreqFactor">Frequencies with wavelengths longer than <c>originalContext / lowFreqFactor</c> are fully scaled.</param>
+    /// <param name="highFreqFactor">Frequencies with wavelengths shorter than <c>originalContext / highFreqFactor</c> are unscaled.</param>
+    /// <param name="originalContext">Context length the model was trained with before scaling.</param>
+    /// <param name="dim">Rotated dimensions (the head dimension).</param>
+    /// <param name="factor">Context extension factor.</param>
     public static Result Llama3(int dim, float @base, float factor, float lowFreqFactor, float highFreqFactor, int originalContext)
     {
         var f = new float[dim / 2];
-        double lowWave = originalContext / (double)lowFreqFactor, highWave = originalContext / (double)highFreqFactor;
+        double lowWave = originalContext / (double)lowFreqFactor;
+        double highWave = originalContext / (double)highFreqFactor;
         for (int i = 0; i < f.Length; i++)
         {
             double wavelen = 2 * Math.PI * Math.Pow(@base, 2.0 * i / dim);
@@ -54,14 +66,27 @@ public static class RopeScaling
     }
 
     /// <summary>YaRN scaling (NTK-by-parts blend between interpolation and extrapolation, plus magnitude scale).</summary>
+    /// <param name="dim">Rotated dimensions (the head dimension).</param>
+    /// <param name="base">RoPE base frequency.</param>
+    /// <param name="factor">Context extension factor.</param>
+    /// <param name="originalContext">Context length the model was trained with before scaling.</param>
+    /// <param name="betaFast">Rotation count over the original context that bounds the high-frequency (extrapolated) range.</param>
+    /// <param name="betaSlow">Rotation count over the original context that bounds the low-frequency (interpolated) range.</param>
     /// <param name="attentionFactor">cos/sin multiplier; null = 0.1·ln(factor)+1.</param>
+    /// <param name="truncate">Round the correction range to whole dimensions, as the reference implementation does.</param>
     public static Result Yarn(int dim, float @base, float factor, int originalContext, float betaFast = 32f, float betaSlow = 1f,
                               float? attentionFactor = null, bool truncate = true)
     {
         double CorrDim(double rot) => dim * Math.Log(originalContext / (rot * 2 * Math.PI)) / (2 * Math.Log(@base));
-        double low = CorrDim(betaFast), high = CorrDim(betaSlow);
-        if (truncate) { low = Math.Floor(low); high = Math.Ceiling(high); }
-        low = Math.Max(low, 0); high = Math.Min(high, dim - 1);
+        double low = CorrDim(betaFast);
+        double high = CorrDim(betaSlow);
+        if (truncate)
+        {
+            low = Math.Floor(low);
+            high = Math.Ceiling(high);
+        }
+        low = Math.Max(low, 0);
+        high = Math.Min(high, dim - 1);
         if (low == high)
         {
             high += 0.001;

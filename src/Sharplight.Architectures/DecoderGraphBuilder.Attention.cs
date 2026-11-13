@@ -1,0 +1,141 @@
+using Sharplight.Graph;
+using Sharplight.Models;
+
+namespace Sharplight.Architectures;
+
+internal sealed partial class DecoderGraphBuilder
+{
+    /// <summary>
+    /// Emits the attention block of one layer. With <paramref name="rowSpans"/> the layer attends within packed sequences
+    /// (keys and values stay in <paramref name="packedKv"/>); otherwise it reads and writes the KV cache.
+    /// </summary>
+    private Value Attention(GraphBuilder b, Value h, string p, int il, Value positions, Value? freqFactors, Value? rowSpans,
+        Dictionary<int, (Value K, Value V)> packedKv)
+    {
+        int headDim = _hp.HeadDimOf(il);
+        var rotate = RotationOf(b, il, positions, freqFactors);
+
+        var q = b.Linear(h, p + "attention.q.weight", p + "attention.q.bias");
+        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), _hp.NHead, headDim);
+        q = rotate(q);
+
+        if (_hp.KvSourceOf(il) == il)
+        {
+            var (k, v) = ProjectKeyValue(b, h, p, il, rotate);
+            if (rowSpans is not null)
+            {
+                packedKv[il] = (k, v);
+            }
+            else
+            {
+                b.CacheWrite(b.State(_kCache[il]), k);
+                b.CacheWrite(b.State(_vCache[il]), v);
+            }
+        }
+
+        if (rowSpans is not null)
+        {
+            // Packed sequences: causal within each sequence; sliding windows are not applied (inputs are short).
+            var (packedK, packedV) = packedKv[_hp.KvSourceOf(il)];
+            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, causal: true, _hp.SoftCap, $"{p}attn");
+            return AttentionOutput(b, packed, h, p, headDim);
+        }
+
+        return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, headDim);
+    }
+
+    /// <summary>Returns the rotary embedding to apply to q and k of a layer (identity for NoPE layers).</summary>
+    private Func<Value, Value> RotationOf(GraphBuilder b, int il, Value positions, Value? freqFactors)
+    {
+        bool sliding = _hp.Sliding(il);
+        if (!_hp.RopeOn(il))
+        {
+            return t => t;
+        }
+
+        int ropeDims = sliding ? _hp.RopeLocalDims : _hp.RopeDims;
+        var rope = Attributes.From(("dims", ropeDims), ("base", sliding ? _hp.RopeLocalBase : _hp.RopeBase), ("style", _hp.RopeStyle));
+        return t => b.Emit1("Rope", freqFactors is { } ff && !sliding ? [t, positions, ff] : [t, positions], rope);
+    }
+
+    /// <summary>
+    /// Splits a projection into heads and applies the q/k norm. The norm weight covers either the whole projection (heads · head
+    /// dimension entries, applied before the split) or one head (head dimension entries, applied after it); without a weight an
+    /// unweighted norm is applied when the model asks for one.
+    /// </summary>
+    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, int heads, int headDim)
+    {
+        var x = projection;
+        if (normWeight is { } wholeNorm && wholeNorm.Shape[0].Fixed != headDim)
+        {
+            x = b.RmsNorm(x, wholeNorm, _hp.Eps);
+        }
+
+        x = b.Reshape(x, 0, heads, headDim);
+        if (normWeight is { } headNorm && headNorm.Shape[0].Fixed == headDim)
+        {
+            x = b.RmsNorm(x, headNorm, _hp.Eps);
+        }
+        else if (normWeight is null && _hp.QkNormUnweighted)
+        {
+            x = b.RmsNorm(x, null, _hp.Eps);
+        }
+
+        return x;
+    }
+
+    /// <summary>Projects the layer input to rotated keys and values (k = v layers reuse the key projection for values).</summary>
+    private (Value K, Value V) ProjectKeyValue(GraphBuilder b, Value h, string p, int il, Func<Value, Value> rotate)
+    {
+        int headDim = _hp.HeadDimOf(il);
+        int kvHeads = _hp.KvHeadsOf(il);
+        var keyProjection = b.Linear(h, p + "attention.k.weight", p + "attention.k.bias");
+        var valueProjection = b.HasWeight(p + "attention.v.weight") ? b.Linear(h, p + "attention.v.weight", p + "attention.v.bias") : keyProjection;
+        var v = b.Reshape(valueProjection, 0, kvHeads, headDim);
+        if (_hp.VNorm)
+        {
+            v = b.RmsNorm(v, null, _hp.Eps);
+        }
+
+        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), kvHeads, headDim);
+        return (rotate(k), v);
+    }
+
+    /// <summary>Attention of the queries against the layer's KV cache, honouring window, soft cap and sinks.</summary>
+    private Value CachedAttention(GraphBuilder b, Value q, string p, int il)
+    {
+        var attrs = new List<(string, object)> { ("scale", _hp.AttnScale), ("offset", WellKnown.PastScalar) };
+        if (_hp.Windowed(il))
+        {
+            attrs.Add(("window", _hp.Window));
+        }
+
+        if (_hp.SoftCap > 0)
+        {
+            attrs.Add(("softcap", _hp.SoftCap));
+        }
+
+        b.RuntimeScalar(WellKnown.PastScalar);
+        Value[] attnIn = b.TryWeight(p + "attention.sinks") is { } sinks
+            ? [q, b.State(_kCache[il]), b.State(_vCache[il]), sinks]
+            : [q, b.State(_kCache[il]), b.State(_vCache[il])];
+        if (attnIn.Length > 3)
+        {
+            attrs.Add(("sinks", true));
+        }
+
+        return b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");
+    }
+
+    /// <summary>Flattens the heads, applies the optional sigmoid output gate and the output projection.</summary>
+    private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int headDim)
+    {
+        var flat = b.Reshape(attention, 0, _hp.NHead * headDim);
+        if (b.HasWeight(p + "attention.gate.weight"))
+        {
+            flat = b.Mul(flat, b.Sigmoid(b.Linear(layerInput, p + "attention.gate.weight")));
+        }
+
+        return b.Linear(flat, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+    }
+}

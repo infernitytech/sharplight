@@ -53,12 +53,34 @@ public sealed class DevicePool : IDisposable
         throw new InvalidOperationException($"No available execution provider named '{providerName}'.");
     }
 
-    public IReadOnlyList<IComputeDevice> Devices { get { lock (_lock) { return [.. _devices.Values]; } } }
+    /// <summary>Snapshot of the devices opened so far.</summary>
+    public IReadOnlyList<IComputeDevice> Devices
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return [.. _devices.Values];
+            }
+        }
+    }
 
+    /// <summary>Disposes every device that was opened through the pool.</summary>
     public void Dispose()
     {
         List<IComputeDevice> all;
-        lock (_lock) { if (_disposed) { return; } _disposed = true; all = [.. _devices.Values]; _devices.Clear(); }
+        lock (_lock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            all = [.. _devices.Values];
+            _devices.Clear();
+        }
+
         foreach (var d in all)
         {
             d.Dispose();

@@ -1,10 +1,8 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using System.IO.MemoryMappedFiles;
 using System.Text;
 using Sharplight.Models;
 using Sharplight.Runtime;
-using Sharplight.Tensors;
 
 namespace Sharplight.Package;
 
@@ -28,7 +26,9 @@ namespace Sharplight.Package;
 /// </remarks>
 public static class ModelPackage
 {
+    /// <summary>File extension of model packages, including the dot.</summary>
     public const string Extension = ".slm";
+    /// <summary>Format version written by <see cref="Save"/>; packages with another version are rejected when opened.</summary>
     public const int Version = 1;
     internal static ReadOnlySpan<byte> Magic => "SHARPLM\0"u8;
     internal const int HeaderSize = 64;
@@ -44,6 +44,12 @@ public static class ModelPackage
     /// <c>LlmModel.ExportCompilation()</c>) to a new package file. Works for any source format (GGUF, Hugging Face,
     /// ONNX, ...): loading a package needs neither the original importer nor an architecture adapter.
     /// </summary>
+    /// <param name="path">Destination file; written through a temporary file, so an existing file is replaced atomically.</param>
+    /// <param name="definition">The built model; its weights are read and copied into the package.</param>
+    /// <param name="targets">Compilation caches to store, one per device target; may be empty.</param>
+    /// <param name="log">Receives progress messages, or <see langword="null"/>.</param>
+    /// <exception cref="IOException">The destination is the package the definition's weights are read from.</exception>
+    /// <exception cref="InvalidDataException">Two weights share a name, or a weight has a symbolic shape or a source of the wrong size.</exception>
     public static void Save(string path, ModelDefinition definition, IEnumerable<CompilationCache> targets, Action<string>? log = null)
     {
         if (definition.OwnedResources.OfType<PackageFile>().Any(f => Path.GetFullPath(f.Path) == Path.GetFullPath(path)))
@@ -101,7 +107,9 @@ public static class ModelPackage
                     sections.Add(new Section(SectionKind.WeightIndex, "", indexOffset, index.Length));
                 }
 
-                long total = weights.Sum(w => w.ByteSize), written = 0, nextLog = 0;
+                long total = weights.Sum(w => w.ByteSize);
+                long written = 0;
+                long nextLog = 0;
                 var buf = ArrayPool<byte>.Shared.Rent(16 << 20);
                 try
                 {
@@ -110,10 +118,17 @@ public static class ModelPackage
                         Pad(fs, offsets[i]);
                         CopyWeight(weights[i], fs, buf);
                         written += weights[i].ByteSize;
-                        if (log is not null && written >= nextLog) { log($"  weights {written / 1e9:F1}/{total / 1e9:F1} GB"); nextLog += 4L << 30; }
+                        if (log is not null && written >= nextLog)
+                        {
+                            log($"  weights {written / 1e9:F1}/{total / 1e9:F1} GB");
+                            nextLog += 4L << 30;
+                        }
                     }
                 }
-                finally { ArrayPool<byte>.Shared.Return(buf); }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(buf);
+                }
                 long dataEnd = fs.Position;
                 sections.Add(new Section(SectionKind.WeightData, "", dataStart, dataEnd - dataStart));
 
@@ -131,7 +146,15 @@ public static class ModelPackage
         }
         catch
         {
-            try { File.Delete(tmp); } catch { }
+            try
+            {
+                File.Delete(tmp);
+            }
+            catch (Exception)
+            {
+                // Best effort: the original failure is the one worth reporting.
+            }
+
             throw;
         }
     }
@@ -141,6 +164,9 @@ public static class ModelPackage
     /// the package is open for reading in this or another process: existing bytes are never modified except the
     /// header's table pointer, which is switched last.
     /// </summary>
+    /// <param name="path">The existing package.</param>
+    /// <param name="targets">Caches to store; a stored cache of the same target is replaced.</param>
+    /// <exception cref="InvalidDataException">The file is not a supported package.</exception>
     public static void AddTargets(string path, IEnumerable<CompilationCache> targets)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete);
@@ -219,14 +245,28 @@ public static class ModelPackage
             var dir = new MemoryStream();
             var dw = new BinaryWriter(dir, Encoding.UTF8, leaveOpen: true);
             dw.Write(entries.Count);
-            foreach (var e in entries) { MetadataCodec.WriteString(dw, e.Key); dw.Write(0L); dw.Write(0L); }
+            foreach (var e in entries)
+            {
+                MetadataCodec.WriteString(dw, e.Key);
+                dw.Write(0L);
+                dw.Write(0L);
+            }
             dw.Flush();
             long pos = Align(dir.Length, 16);
             var offs = new long[entries.Count];
-            for (int i = 0; i < entries.Count; i++) { offs[i] = pos; pos = Align(pos + entries[i].Value.Length, 16); }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                offs[i] = pos;
+                pos = Align(pos + entries[i].Value.Length, 16);
+            }
             dir.SetLength(0);
             dw.Write(entries.Count);
-            for (int i = 0; i < entries.Count; i++) { MetadataCodec.WriteString(dw, entries[i].Key); dw.Write(offs[i]); dw.Write((long)entries[i].Value.Length); }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                MetadataCodec.WriteString(dw, entries[i].Key);
+                dw.Write(offs[i]);
+                dw.Write((long)entries[i].Value.Length);
+            }
             dw.Flush();
             w.Write(dir.GetBuffer(), 0, (int)dir.Length);
             long written = dir.Length;
@@ -243,7 +283,11 @@ public static class ModelPackage
     {
         long start = Align(fs.Position, 16);
         Pad(fs, start);
-        using (var w = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true)) { body(w); w.Flush(); }
+        using (var w = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
+        {
+            body(w);
+            w.Flush();
+        }
         return new Section(kind, name, start, fs.Position - start);
     }
 
@@ -318,7 +362,8 @@ public static class ModelPackage
         {
             var kind = (SectionKind)r.ReadUInt32();
             int nameLen = r.ReadInt32();
-            long off = r.ReadInt64(), len = r.ReadInt64();
+            long off = r.ReadInt64();
+            long len = r.ReadInt64();
             sections.Add(new Section(kind, Encoding.UTF8.GetString(r.ReadBytes(nameLen)), off, len));
         }
         return (version, sections);
@@ -338,212 +383,13 @@ public static class ModelPackage
             Span<byte> m = stackalloc byte[8];
             return fs.Read(m) == 8 && m.SequenceEqual(Magic);
         }
-        catch (IOException) { return false; }
-        catch (UnauthorizedAccessException) { return false; }
-    }
-}
-
-/// <summary>An open, memory-mapped package.</summary>
-public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
-{
-    private readonly MemoryMappedFile _mmf;
-    private readonly MemoryMappedViewAccessor _view;
-    private readonly byte* _base;
-    private readonly long _length;
-    private readonly Dictionary<string, KernelSet> _targets = new(StringComparer.Ordinal);
-    private bool _disposed;
-
-    public string Path { get; }
-    public IReadOnlyDictionary<string, WeightInfo> Weights { get; }
-    /// <summary>The stored model; owns this file (disposing the definition's resources closes it).</summary>
-    public ModelDefinition Definition { get; }
-    public IEnumerable<string> Targets => _targets.Keys;
-
-    public PackageFile(string path)
-    {
-        Path = path;
-        var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        IReadOnlyList<ModelPackage.Section> sections;
-        try
+        catch (IOException)
         {
-            (_, sections) = ModelPackage.ReadHeader(fs);
-            _length = fs.Length;
-            _mmf = MemoryMappedFile.CreateFromFile(fs, null, 0, MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+            return false;
         }
-        catch
+        catch (UnauthorizedAccessException)
         {
-            fs.Dispose();
-            throw;
-        }
-        _view = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-        byte* p = null;
-        _view.SafeMemoryMappedViewHandle.AcquirePointer(ref p);
-        _base = p + _view.PointerOffset;
-
-        foreach (var s in sections)
-        {
-            if (s.Offset < 0 || s.Length < 0 || s.Offset + s.Length > _length)
-            {
-                throw new InvalidDataException($"Package section {s.Kind} '{s.Name}' lies outside the file.");
-            }
-        }
-
-        var idx = sections.Single(s => s.Kind == ModelPackage.SectionKind.WeightIndex);
-        Weights = ReadIndex(Reader(idx));
-        var def = sections.Single(s => s.Kind == ModelPackage.SectionKind.Definition);
-        Definition = DefinitionCodec.Read(Reader(def), Weights, [this]);
-        foreach (var s in sections.Where(s => s.Kind == ModelPackage.SectionKind.KernelSet))
-        {
-            _targets[s.Name] = new KernelSet(this, s);
-        }
-    }
-
-    private BinaryReader Reader(ModelPackage.Section s)
-        => new(new UnmanagedMemoryStream(_base + s.Offset, s.Length), Encoding.UTF8);
-
-    private Dictionary<string, WeightInfo> ReadIndex(BinaryReader r)
-    {
-        int n = r.ReadInt32();
-        var d = new Dictionary<string, WeightInfo>(n, StringComparer.Ordinal);
-        for (int i = 0; i < n; i++)
-        {
-            string name = MetadataCodec.ReadString(r);
-            var type = DataType.Get(MetadataCodec.ReadString(r));
-            int rank = r.ReadInt32();
-            var dims = new Dim[rank];
-            for (int j = 0; j < rank; j++)
-            {
-                dims[j] = Dim.Of(r.ReadInt64());
-            }
-
-            long off = r.ReadInt64(), len = r.ReadInt64();
-            if (off < 0 || off + len > _length)
-            {
-                throw new InvalidDataException($"Weight {name} lies outside the package.");
-            }
-
-            var shape = new Shape(dims);
-            if (type.ByteSize(shape.Elements()) != len)
-            {
-                throw new InvalidDataException($"Weight {name}: {len} bytes do not match {type}{shape}.");
-            }
-
-            d[name] = new WeightInfo { Name = name, Type = type, Shape = shape, Source = new MappedSource(this, off, len) };
-        }
-        return d;
-    }
-
-    public ICompilationCache? Find(string target) => _targets.GetValueOrDefault(target);
-
-    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
-
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        _view.SafeMemoryMappedViewHandle.ReleasePointer();
-        _view.Dispose();
-        _mmf.Dispose();
-    }
-
-    private sealed class MappedSource(PackageFile file, long offset, long length) : IWeightSource
-    {
-        public long ByteLength => length;
-        public void Read(long o, Span<byte> destination)
-        {
-            file.ThrowIfDisposed();
-            if (o < 0 || o + destination.Length > length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(o));
-            }
-
-            new ReadOnlySpan<byte>(file._base + offset + o, destination.Length).CopyTo(destination);
-        }
-        public nint TryGetPointer()
-        {
-            file.ThrowIfDisposed();
-            return (nint)(file._base + offset);
-        }
-    }
-
-    /// <summary>A stored target's entries, served from the mapping without copying.</summary>
-    private sealed class KernelSet : ICompilationCache
-    {
-        private readonly PackageFile _file;
-        private readonly Dictionary<string, (long Offset, int Length)> _entries = new(StringComparer.Ordinal);
-
-        public KernelSet(PackageFile file, ModelPackage.Section s)
-        {
-            _file = file;
-            var r = file.Reader(s);
-            int n = r.ReadInt32();
-            for (int i = 0; i < n; i++)
-            {
-                string key = MetadataCodec.ReadString(r);
-                long off = r.ReadInt64(), len = r.ReadInt64();
-                if (off < 0 || len < 0 || len > int.MaxValue || off + len > s.Length)
-                {
-                    throw new InvalidDataException($"Package entry {key} lies outside its section.");
-                }
-
-                _entries[key] = (s.Offset + off, (int)len);
-            }
-        }
-
-        public bool TryGet(string key, out ReadOnlyMemory<byte> data)
-        {
-            _file.ThrowIfDisposed();
-            if (!_entries.TryGetValue(key, out var e)) { data = default; return false; }
-            data = new MappedMemory(_file._base + e.Offset, e.Length).Memory;
-            return true;
-        }
-
-        public void Put(string key, ReadOnlyMemory<byte> data) => throw new NotSupportedException("Stored package targets are read-only.");
-    }
-
-    private sealed class MappedMemory(byte* ptr, int length) : MemoryManager<byte>
-    {
-        public override Span<byte> GetSpan() => new(ptr, length);
-        public override MemoryHandle Pin(int elementIndex = 0) => new(ptr + elementIndex);
-        public override void Unpin() { }
-        protected override void Dispose(bool disposing) { }
-    }
-}
-
-/// <summary>Opens <c>.slm</c> packages through <see cref="ModelImporterRegistry"/>.</summary>
-public sealed class ModelPackageImporter : IModelImporter
-{
-    public string Format => "sharplight";
-
-    public static void Register() => ModelImporterRegistry.Register(new ModelPackageImporter());
-
-    public bool CanOpen(string path) => ModelPackage.IsPackage(path);
-
-    public ModelSource Open(string path)
-    {
-        var file = new PackageFile(path);
-        try
-        {
-            return new ModelSource
-            {
-                Format = Format,
-                Architecture = file.Definition.Architecture,
-                Metadata = file.Definition.SourceMetadata,
-                Weights = file.Weights,
-                Definition = file.Definition,
-                OwnedResources = [file],
-                Path = path,
-                CompilationCaches = file,
-            };
-        }
-        catch
-        {
-            file.Dispose();
-            throw;
+            return false;
         }
     }
 }

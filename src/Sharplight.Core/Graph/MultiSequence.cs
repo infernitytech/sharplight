@@ -18,8 +18,9 @@ namespace Sharplight.Graph;
 /// </summary>
 public static class MultiSequence
 {
+    /// <summary>Name of the <see cref="InputRole.SequenceRows"/> input added by <see cref="Transform"/>.</summary>
     public const string RowsInput = "sequence_rows";
-    public const string RunsInput = "sequence_runs";
+    private const string RunsInput = "sequence_runs";
 
     /// <summary>The rewritten graph and, per original state, its multi-sequence definition.</summary>
     public sealed record Result(ComputeGraph Graph, IReadOnlyDictionary<StateDefinition, StateDefinition> States, int Slots);
@@ -42,8 +43,17 @@ public static class MultiSequence
         return true;
     }
 
+    /// <summary>Whether the state is a KV cache (symbolic outermost dimension) rather than a fixed-size recurrent state.</summary>
     public static bool IsKvState(StateDefinition s) => s.Shape.Rank > 0 && s.Shape[0].IsSymbolic;
 
+    /// <summary>
+    /// Rewrites a single-sequence graph so it advances several independent sequences in one pass.
+    /// </summary>
+    /// <param name="g">The single-sequence graph.</param>
+    /// <param name="slots">Number of sequences ("slots") the rewritten graph serves.</param>
+    /// <returns>The rewritten graph and the state definitions to allocate.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1.</exception>
+    /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
     public static Result Transform(ComputeGraph g, int slots)
     {
         if (slots < 1)
@@ -120,7 +130,8 @@ public static class MultiSequence
                     attrs = attrs.With("slots", (long)slots);
                     break;
                 case "CachedAttention":
-                    ins.Add(rows); ins.Add(runs);
+                    ins.Add(rows);
+                    ins.Add(runs);
                     attrs = attrs.With("slots", (long)slots);
                     break;
                 case "CausalConv1d" or "GatedDeltaRule":

@@ -1,27 +1,4 @@
-using System.Collections.Concurrent;
-using Sharplight.Tensors;
-
 namespace Sharplight.Graph;
-
-/// <summary>Broad classification used by optimization passes (e.g. elementwise fusion) and planners.</summary>
-public enum OpCategory
-{
-    /// <summary>Pointwise op with numpy-style broadcasting; freely fusable.</summary>
-    Elementwise,
-    /// <summary>Re-interprets the input buffer (reshape, slice, permute): no computation, aliases its input.</summary>
-    View,
-    /// <summary>Reduction / normalization over the innermost axis.</summary>
-    Reduction,
-    /// <summary>Matrix multiplication family.</summary>
-    MatMul,
-    /// <summary>Data movement (gather, concat, copy, cache writes).</summary>
-    Data,
-    /// <summary>Higher-level fused operator (attention, rope, recurrent rules, ...).</summary>
-    Composite,
-}
-
-/// <summary>Output type of an op as computed by shape inference.</summary>
-public readonly record struct TensorType(DataType Type, Shape Shape);
 
 /// <summary>
 /// Describes an operator: its name, category and shape/type inference.
@@ -30,13 +7,26 @@ public readonly record struct TensorType(DataType Type, Shape Shape);
 /// </summary>
 public sealed class OpSchema
 {
+    /// <summary>Unique op name, used in the registry, in saved packages and by backends to select kernels.</summary>
     public string Name { get; }
+    /// <summary>Broad classification used by fusion and placement.</summary>
     public OpCategory Category { get; }
-    public int MinInputs { get; }
+    internal int MinInputs { get; }
+    /// <summary>Largest number of inputs the op accepts (optional trailing inputs make this larger than the minimum).</summary>
     public int MaxInputs { get; }
+    /// <summary>Human-readable description of the op's inputs, attributes and outputs.</summary>
     public string Description { get; }
     private readonly Func<IReadOnlyList<Value>, Attributes, IReadOnlyList<TensorType>> _infer;
 
+    /// <summary>
+    /// Creates an op description.
+    /// </summary>
+    /// <param name="name">Unique op name.</param>
+    /// <param name="category">Broad classification of the op.</param>
+    /// <param name="minInputs">Fewest inputs the op accepts.</param>
+    /// <param name="maxInputs">Most inputs the op accepts.</param>
+    /// <param name="infer">Computes the output types and shapes from the inputs and attributes; may throw for invalid operands.</param>
+    /// <param name="description">Documentation of inputs, attributes and outputs.</param>
     public OpSchema(string name, OpCategory category, int minInputs, int maxInputs,
         Func<IReadOnlyList<Value>, Attributes, IReadOnlyList<TensorType>> infer, string description = "")
     {
@@ -48,7 +38,7 @@ public sealed class OpSchema
         Description = description;
     }
 
-    public IReadOnlyList<TensorType> Infer(IReadOnlyList<Value> inputs, Attributes attrs)
+    internal IReadOnlyList<TensorType> Infer(IReadOnlyList<Value> inputs, Attributes attrs)
     {
         if (inputs.Count < MinInputs || inputs.Count > MaxInputs)
         {
@@ -59,29 +49,4 @@ public sealed class OpSchema
     }
 
     public override string ToString() => Name;
-}
-
-/// <summary>Global, thread-safe registry of operator schemas.</summary>
-public static class OpRegistry
-{
-    private static readonly ConcurrentDictionary<string, OpSchema> s_ops = new(StringComparer.Ordinal);
-
-    static OpRegistry() => StandardOps.RegisterAll();
-
-    public static OpSchema Register(OpSchema schema)
-    {
-        if (!s_ops.TryAdd(schema.Name, schema) && !ReferenceEquals(s_ops[schema.Name], schema))
-        {
-            throw new InvalidOperationException($"Op '{schema.Name}' is already registered.");
-        }
-
-        return schema;
-    }
-
-    public static OpSchema Get(string name) =>
-        s_ops.TryGetValue(name, out var s) ? s : throw new KeyNotFoundException($"Unknown op '{name}'.");
-
-    public static bool TryGet(string name, out OpSchema schema) => s_ops.TryGetValue(name, out schema!);
-
-    public static IEnumerable<OpSchema> All => s_ops.Values;
 }

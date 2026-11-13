@@ -8,17 +8,9 @@ using Xunit;
 
 namespace Sharplight.Package.Tests;
 
-public sealed class TempDir : IDisposable
-{
-    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sharplight-pkg-" + Guid.NewGuid().ToString("N")[..8]);
-    public TempDir() => Directory.CreateDirectory(Path);
-    public string File(string name) => System.IO.Path.Combine(Path, name);
-    public void Dispose() { try { Directory.Delete(Path, true); } catch { } }
-}
-
 public class PackageTests
 {
-    private static readonly Lazy<IComputeDevice> s_cpu = new(() => { var p = new CpuExecutionProvider(); return p.OpenDevice(p.GetDevices()[0]); });
+    private static readonly Lazy<IComputeDevice> s_cpu = new(OpenCpuDevice);
     private static string OnnxDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "onnx");
 
     /// <summary>A model built from ONNX survives save/load: same graph structure, bit-identical outputs.</summary>
@@ -65,28 +57,38 @@ public class PackageTests
                 Assert.Equal(g.Outputs.Keys.Order(), g2.Outputs.Keys.Order());
                 Assert.Equal(def.Properties.Keys.Order(), def2.Properties.Keys.Order());
 
-                var a = Run(g, def);
-                var b = Run(g2, def2);
+                var a = Run(g);
+                var b = Run(g2);
                 Assert.Equal(a.Count, b.Count);
                 for (int i = 0; i < a.Count; i++)
                 {
                     Assert.True(a[i].AsSpan().SequenceEqual(b[i]), $"output {i} differs after round trip");
                 }
             }
-            finally { foreach (var r in def2.OwnedResources)
+            finally
+            {
+                foreach (var r in def2.OwnedResources)
                 {
                     r.Dispose();
                 }
             }
         }
-        finally { foreach (var r in def.OwnedResources)
+        finally
+        {
+            foreach (var r in def.OwnedResources)
             {
                 r.Dispose();
             }
         }
     }
 
-    private static List<byte[]> Run(ComputeGraph g, ModelDefinition def)
+    private static IComputeDevice OpenCpuDevice()
+    {
+        var provider = new CpuExecutionProvider();
+        return provider.OpenDevice(provider.GetDevices()[0]);
+    }
+
+    private static List<byte[]> Run(ComputeGraph g)
     {
         var bounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = 1 };
         using var cm = CompiledModel.Compile(g, new PlacementOptions

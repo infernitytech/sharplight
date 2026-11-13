@@ -12,11 +12,13 @@ namespace Sharplight.Architectures;
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
-    public const string ImageToken = "<|image_pad|>";
+    private const string ImageToken = "<|image_pad|>";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
     private const int Axes = 4;
 
+    /// <inheritdoc/>
     public MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition)
     {
         int imagePad = context.RequireToken(ImageToken);
@@ -40,14 +42,21 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
             rows += im.TokenCount;
         }
 
-        var toks = new int[rows]; var imageIndex = new int[rows]; var imageRow = new int[rows]; var pos = new int[rows * Axes];
+        var toks = new int[rows];
+        var imageIndex = new int[rows];
+        var imageRow = new int[rows];
+        var pos = new int[rows * Axes];
 
-        int r = 0, next = startPosition, img = 0;
+        int r = 0;
+        int next = startPosition;
+        int img = 0;
         foreach (var t in tokens)
         {
             if (t != imagePad)
             {
-                toks[r] = t; imageIndex[r] = -1; imageRow[r] = -1;
+                toks[r] = t;
+                imageIndex[r] = -1;
+                imageRow[r] = -1;
                 pos[r * Axes] = pos[r * Axes + 1] = pos[r * Axes + 2] = next++;
                 r++;
                 continue;
@@ -55,7 +64,8 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
             var im = images[img];
             for (int i = 0; i < im.TokenCount; i++, r++)
             {
-                imageIndex[r] = img; imageRow[r] = i;
+                imageIndex[r] = img;
+                imageRow[r] = i;
                 pos[r * Axes] = next;
                 pos[r * Axes + 1] = next + i / im.MergedWidth;
                 pos[r * Axes + 2] = next + i % im.MergedWidth;

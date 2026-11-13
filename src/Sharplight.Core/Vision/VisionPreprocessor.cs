@@ -1,50 +1,5 @@
 namespace Sharplight.Vision;
 
-/// <summary>A decoded image: 8-bit interleaved RGB (row-major, 3 bytes per pixel). File decoding is the host's job.</summary>
-public sealed record ImageInput(int Width, int Height, byte[] Rgb)
-{
-    public void Validate()
-    {
-        if (Width <= 0 || Height <= 0)
-        {
-            throw new ArgumentException("Image has no pixels.");
-        }
-
-        if (Rgb.LongLength != 3L * Width * Height)
-        {
-            throw new ArgumentException($"Expected {3L * Width * Height} RGB bytes for {Width}x{Height}, got {Rgb.Length}.");
-        }
-    }
-}
-
-/// <summary>Optional limits on the visual token budget per image (output tokens after merging), overriding the model's pixel bounds.</summary>
-public sealed record ImageTokenLimits(int? MinTokens = null, int? MaxTokens = null);
-
-/// <summary>An image converted to the inputs of the vision-encode graph (see <see cref="VisionParameters"/>).</summary>
-public sealed class PreprocessedImage
-{
-    /// <summary>Size of the resized image in pixels.</summary>
-    public required int Width { get; init; }
-    public required int Height { get; init; }
-    /// <summary>Patch grid (rows × columns of patches).</summary>
-    public required int GridHeight { get; init; }
-    public required int GridWidth { get; init; }
-    /// <summary>Output token grid after spatial merging.</summary>
-    public required int MergedHeight { get; init; }
-    public required int MergedWidth { get; init; }
-    /// <summary>Normalized patch values [N, PatchDim], merge-window order, each patch flattened in (channel, frame, row, col) order.</summary>
-    public required float[] Patches { get; init; }
-    /// <summary>(row, col) of each patch in the patch grid [N, 2].</summary>
-    public required int[] Positions { get; init; }
-    /// <summary>Bilinear taps into the learned position grid [N, 4] (row-major grid index) and their weights [N, 4].</summary>
-    public required int[] EmbeddingIndex { get; init; }
-    public required float[] EmbeddingWeight { get; init; }
-
-    public int PatchCount => GridHeight * GridWidth;
-    /// <summary>Number of embeddings the encoder produces (and language-model positions the image occupies as rows).</summary>
-    public int TokenCount => MergedHeight * MergedWidth;
-}
-
 /// <summary>
 /// Turns raw RGB pixels into the inputs of a model's vision encoder, driven only by the canonical
 /// <see cref="VisionParameters"/>: aspect-preserving "smart" resize to a multiple of patch_size·merge_size within the
@@ -54,16 +9,18 @@ public sealed class PreprocessedImage
 /// </summary>
 public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? limits = null)
 {
+    /// <summary>The vision tower parameters this preprocessor follows.</summary>
     public VisionParameters Parameters => p;
 
     /// <summary>Target size in pixels for an input size (smart resize).</summary>
-    public (int Width, int Height) TargetSize(int width, int height)
+    internal (int Width, int Height) TargetSize(int width, int height)
     {
         int factor = p.PatchSize * p.SpatialMergeSize;
         long unit = (long)factor * factor;
         long minPixels = limits?.MinTokens is int mt ? mt * unit : p.MinPixels;
         long maxPixels = limits?.MaxTokens is int xt ? xt * unit : p.MaxPixels;
-        double h = height, w = width;
+        double h = height;
+        double w = width;
         // Python round() semantics (half to even), as the reference processors.
         int hBar = Math.Max(factor, (int)Math.Round(h / factor, MidpointRounding.ToEven) * factor);
         int wBar = Math.Max(factor, (int)Math.Round(w / factor, MidpointRounding.ToEven) * factor);
@@ -82,6 +39,12 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         return (wBar, hBar);
     }
 
+    /// <summary>
+    /// Converts an image into encoder inputs. The input image is not modified.
+    /// </summary>
+    /// <param name="image">The decoded image.</param>
+    /// <exception cref="ArgumentException">The image has no pixels or its byte count does not match its size.</exception>
+    /// <exception cref="NotSupportedException">The tower does not take 3-channel input.</exception>
     public PreprocessedImage Process(ImageInput image)
     {
         image.Validate();
@@ -94,8 +57,13 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         byte[] px = image.Width == tw && image.Height == th ? image.Rgb : ResizeBicubic(image.Rgb, image.Width, image.Height, tw, th);
 
         // Normalization: (x/255 - mean) / std  ==  x * a + b.
-        Span<float> a = stackalloc float[3], b = stackalloc float[3];
-        for (int c = 0; c < 3; c++) { a[c] = 1f / (255f * p.ImageStd[c]); b[c] = -p.ImageMean[c] / p.ImageStd[c]; }
+        Span<float> a = stackalloc float[3];
+        Span<float> b = stackalloc float[3];
+        for (int c = 0; c < 3; c++)
+        {
+            a[c] = 1f / (255f * p.ImageStd[c]);
+            b[c] = -p.ImageMean[c] / p.ImageStd[c];
+        }
         var values = new float[px.Length];
         for (int i = 0; i < px.Length; i += 3)
         {
@@ -112,10 +80,15 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     /// Patchifies an already normalized image (interleaved RGB floats, width and height multiples of patch_size·merge_size)
     /// into the encoder inputs; what <see cref="Process"/> does after resizing and normalizing.
     /// </summary>
-    public PreprocessedImage Patchify(float[] rgb, int tw, int th)
+    internal PreprocessedImage Patchify(float[] rgb, int tw, int th)
     {
-        int ps = p.PatchSize, m = p.SpatialMergeSize, tp = p.TemporalPatchSize;
-        int gh = th / ps, gw = tw / ps, n = gh * gw, k = p.PatchDim;
+        int ps = p.PatchSize;
+        int m = p.SpatialMergeSize;
+        int tp = p.TemporalPatchSize;
+        int gh = th / ps;
+        int gw = tw / ps;
+        int n = gh * gw;
+        int k = p.PatchDim;
         if (th % (ps * m) != 0 || tw % (ps * m) != 0 || rgb.Length != 3 * tw * th)
         {
             throw new ArgumentException($"Image {tw}x{th} does not fit patch_size {ps} x spatial_merge_size {m}.");
@@ -132,7 +105,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
                 {
                     for (int ic = 0; ic < m; ic++, idx++)
                     {
-                        int row = br * m + ir, col = bc * m + ic;
+                        int row = br * m + ir;
+                        int col = bc * m + ic;
                         positions[idx * 2] = row; positions[idx * 2 + 1] = col;
                         var dst = patches.AsSpan(checked(idx * k), k);
                         int o = 0;
@@ -166,7 +140,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     /// <summary>Bilinear taps (align_corners) resampling the learned g×g position grid to the image grid, per patch.</summary>
     private (int[] Index, float[] Weight) PositionTaps(int[] positions, int gh, int gw)
     {
-        int n = positions.Length / 2, side = Math.Max(1, p.PositionGridSide);
+        int n = positions.Length / 2;
+        int side = Math.Max(1, p.PositionGridSide);
         var index = new int[n * 4];
         var weight = new float[n * 4];
         if (p.PositionEmbeddingCount == 0)
@@ -179,7 +154,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             double f = count > 1 ? pos * (side - 1.0) / (count - 1) : 0;
             i0 = Math.Min((int)Math.Floor(f), side - 1);
             i1 = Math.Min(i0 + 1, side - 1);
-            w1 = (float)(f - i0); w0 = 1f - w1;
+            w1 = (float)(f - i0);
+            w0 = 1f - w1;
         }
         for (int i = 0; i < n; i++)
         {
@@ -217,7 +193,9 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         double filterScale = Math.Max(scale, 1.0);
         double support = 2.0 * filterScale;
         int max = (int)Math.Ceiling(support) * 2 + 1;
-        var start = new int[outSize]; var count = new int[outSize]; var w = new float[outSize * max];
+        var start = new int[outSize];
+        var count = new int[outSize];
+        var w = new float[outSize * max];
         for (int x = 0; x < outSize; x++)
         {
             double center = (x + 0.5) * scale;
@@ -225,8 +203,13 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             int xmax = Math.Min((int)(center + support + 0.5), inSize);
             double sum = 0;
             var tmp = new double[xmax - xmin];
-            for (int i = 0; i < tmp.Length; i++) { tmp[i] = Cubic((xmin + i - center + 0.5) / filterScale); sum += tmp[i]; }
-            start[x] = xmin; count[x] = tmp.Length;
+            for (int i = 0; i < tmp.Length; i++)
+            {
+                tmp[i] = Cubic((xmin + i - center + 0.5) / filterScale);
+                sum += tmp[i];
+            }
+            start[x] = xmin;
+            count[x] = tmp.Length;
             for (int i = 0; i < tmp.Length; i++)
             {
                 w[x * max + i] = (float)(tmp[i] / sum);
@@ -236,7 +219,7 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     }
 
     /// <summary>Antialiased bicubic resize of interleaved 8-bit RGB (rounded and clamped to 8 bits like the reference).</summary>
-    public static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh)
+    internal static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh)
     {
         var (hs, hc, hw, hm) = Coefficients(sw, dw);
         var (vs, vc, vw, vm) = Coefficients(sh, dh);
@@ -246,15 +229,21 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         {
             for (int x = 0; x < dw; x++)
             {
-                float r = 0, g = 0, b = 0;
+                float r = 0;
+                float g = 0;
+                float b = 0;
                 for (int i = 0; i < hc[x]; i++)
                 {
                     float w = hw[x * hm + i];
                     int s = (y * sw + hs[x] + i) * 3;
-                    r += src[s] * w; g += src[s + 1] * w; b += src[s + 2] * w;
+                    r += src[s] * w;
+                    g += src[s + 1] * w;
+                    b += src[s + 2] * w;
                 }
                 int o = (y * dw + x) * 3;
-                tmp[o] = r; tmp[o + 1] = g; tmp[o + 2] = b;
+                tmp[o] = r;
+                tmp[o + 1] = g;
+                tmp[o + 2] = b;
             }
         });
         var dst = new byte[(long)dw * dh * 3];
@@ -262,15 +251,21 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         {
             for (int x = 0; x < dw; x++)
             {
-                float r = 0, g = 0, b = 0;
+                float r = 0;
+                float g = 0;
+                float b = 0;
                 for (int i = 0; i < vc[y]; i++)
                 {
                     float w = vw[y * vm + i];
                     int s = ((vs[y] + i) * dw + x) * 3;
-                    r += tmp[s] * w; g += tmp[s + 1] * w; b += tmp[s + 2] * w;
+                    r += tmp[s] * w;
+                    g += tmp[s + 1] * w;
+                    b += tmp[s + 2] * w;
                 }
                 int o = (y * dw + x) * 3;
-                dst[o] = Clamp8(r); dst[o + 1] = Clamp8(g); dst[o + 2] = Clamp8(b);
+                dst[o] = Clamp8(r);
+                dst[o + 1] = Clamp8(g);
+                dst[o + 2] = Clamp8(b);
             }
         });
         return dst;

@@ -13,7 +13,9 @@ public static partial class StandardOps
     /// </summary>
     public static readonly OpSchema MatMulId = new("MatMulId", OpCategory.MatMul, 3, 3, (i, a) =>
     {
-        var x = i[0].Shape; var w = i[1].Shape; var ids = i[2].Shape;
+        var x = i[0].Shape;
+        var w = i[1].Shape;
+        var ids = i[2].Shape;
         if (w.Rank != 3)
         {
             throw new ArgumentException("MatMulId weight must be rank 3 [E, N, K].");

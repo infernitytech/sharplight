@@ -15,10 +15,15 @@ public sealed class DataType : IEquatable<DataType>
 {
     private static readonly ConcurrentDictionary<string, DataType> s_byName = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Lower-case name, as used in saved packages and op attributes (for example "f32" or "q4_k").</summary>
     public string Name { get; }
+    /// <summary>Logical elements per storage block (1 for plain scalar types).</summary>
     public int BlockSize { get; }
+    /// <summary>Bytes per storage block.</summary>
     public int BlockBytes { get; }
+    /// <summary>Whether the type is a block-quantized format.</summary>
     public bool IsQuantized => BlockSize > 1 || Kind == DataTypeKind.Quantized;
+    /// <summary>Class of the type.</summary>
     public DataTypeKind Kind { get; }
 
     private DataType(string name, DataTypeKind kind, int blockSize, int blockBytes)
@@ -41,8 +46,15 @@ public sealed class DataType : IEquatable<DataType>
         return dt;
     }
 
+    /// <summary>Looks up a type by case-insensitive name; <see langword="null"/> when unknown.</summary>
     public static DataType? TryGet(string name) => s_byName.TryGetValue(name, out var dt) ? dt : null;
+    /// <summary>
+    /// Looks up a type by case-insensitive name.
+    /// </summary>
+    /// <param name="name">Type name.</param>
+    /// <exception cref="KeyNotFoundException">No such type is registered.</exception>
     public static DataType Get(string name) => TryGet(name) ?? throw new KeyNotFoundException($"Unknown data type '{name}'.");
+    /// <summary>All registered types.</summary>
     public static IEnumerable<DataType> All => s_byName.Values;
 
     /// <summary>Bytes needed to store <paramref name="elements"/> elements (must be a multiple of the block size).</summary>
@@ -60,32 +72,57 @@ public sealed class DataType : IEquatable<DataType>
     public int ElementSize => BlockSize == 1 ? BlockBytes : throw new InvalidOperationException($"{Name} is a block format.");
 
     // ---- well-known types ------------------------------------------------------------------
+    /// <summary>32-bit IEEE float.</summary>
     public static readonly DataType F32 = Register("f32", DataTypeKind.Float, 1, 4);
+    /// <summary>16-bit IEEE half-precision float.</summary>
     public static readonly DataType F16 = Register("f16", DataTypeKind.Float, 1, 2);
+    /// <summary>bfloat16 (the upper 16 bits of an f32).</summary>
     public static readonly DataType BF16 = Register("bf16", DataTypeKind.Float, 1, 2);
+    /// <summary>64-bit IEEE float.</summary>
     public static readonly DataType F64 = Register("f64", DataTypeKind.Float, 1, 8);
+    /// <summary>Signed 8-bit integer.</summary>
     public static readonly DataType I8 = Register("i8", DataTypeKind.Int, 1, 1);
+    /// <summary>Unsigned 8-bit integer.</summary>
     public static readonly DataType U8 = Register("u8", DataTypeKind.Int, 1, 1);
+    /// <summary>Signed 16-bit integer.</summary>
     public static readonly DataType I16 = Register("i16", DataTypeKind.Int, 1, 2);
+    /// <summary>Signed 32-bit integer (index and id tensors).</summary>
     public static readonly DataType I32 = Register("i32", DataTypeKind.Int, 1, 4);
+    /// <summary>Unsigned 32-bit integer.</summary>
     public static readonly DataType U32 = Register("u32", DataTypeKind.Int, 1, 4);
+    /// <summary>Signed 64-bit integer.</summary>
     public static readonly DataType I64 = Register("i64", DataTypeKind.Int, 1, 8);
+    /// <summary>Boolean stored as one byte.</summary>
     public static readonly DataType Bool = Register("bool", DataTypeKind.Bool, 1, 1);
 
     // ggml-style block quantization formats (layouts are identical across backends).
+    /// <summary>ggml 4-bit blocks of 32 with an f16 scale (18 bytes).</summary>
     public static readonly DataType Q4_0 = Register("q4_0", DataTypeKind.Quantized, 32, 18);
+    /// <summary>ggml 4-bit blocks of 32 with f16 scale and minimum (20 bytes).</summary>
     public static readonly DataType Q4_1 = Register("q4_1", DataTypeKind.Quantized, 32, 20);
+    /// <summary>ggml 5-bit blocks of 32 with an f16 scale (22 bytes).</summary>
     public static readonly DataType Q5_0 = Register("q5_0", DataTypeKind.Quantized, 32, 22);
+    /// <summary>ggml 5-bit blocks of 32 with f16 scale and minimum (24 bytes).</summary>
     public static readonly DataType Q5_1 = Register("q5_1", DataTypeKind.Quantized, 32, 24);
+    /// <summary>ggml 8-bit blocks of 32 with an f16 scale (34 bytes).</summary>
     public static readonly DataType Q8_0 = Register("q8_0", DataTypeKind.Quantized, 32, 34);
+    /// <summary>ggml 2-bit k-quant super-blocks of 256 (84 bytes).</summary>
     public static readonly DataType Q2_K = Register("q2_k", DataTypeKind.Quantized, 256, 84);
+    /// <summary>ggml 3-bit k-quant super-blocks of 256 (110 bytes).</summary>
     public static readonly DataType Q3_K = Register("q3_k", DataTypeKind.Quantized, 256, 110);
+    /// <summary>ggml 4-bit k-quant super-blocks of 256 (144 bytes).</summary>
     public static readonly DataType Q4_K = Register("q4_k", DataTypeKind.Quantized, 256, 144);
+    /// <summary>ggml 5-bit k-quant super-blocks of 256 (176 bytes).</summary>
     public static readonly DataType Q5_K = Register("q5_k", DataTypeKind.Quantized, 256, 176);
+    /// <summary>ggml 6-bit k-quant super-blocks of 256 (210 bytes).</summary>
     public static readonly DataType Q6_K = Register("q6_k", DataTypeKind.Quantized, 256, 210);
+    /// <summary>ggml 8-bit k-quant super-blocks of 256 (292 bytes).</summary>
     public static readonly DataType Q8_K = Register("q8_k", DataTypeKind.Quantized, 256, 292);
+    /// <summary>ggml non-linear 4-bit blocks of 32 (18 bytes).</summary>
     public static readonly DataType IQ4_NL = Register("iq4_nl", DataTypeKind.Quantized, 32, 18);
+    /// <summary>ggml non-linear 4-bit super-blocks of 256 (136 bytes).</summary>
     public static readonly DataType IQ4_XS = Register("iq4_xs", DataTypeKind.Quantized, 256, 136);
+    /// <summary>Microscaling FP4 blocks of 32 with a shared 8-bit exponent (17 bytes).</summary>
     public static readonly DataType MXFP4 = Register("mxfp4", DataTypeKind.Quantized, 32, 17);
 
     // Group-wise 1-bit / ternary formats (Bonsai): one f16 scale per group, w = scale * code.
@@ -107,5 +144,3 @@ public sealed class DataType : IEquatable<DataType>
     public override int GetHashCode() => Name.GetHashCode(StringComparison.OrdinalIgnoreCase);
     public override string ToString() => Name;
 }
-
-public enum DataTypeKind { Float, Int, Bool, Quantized }

@@ -1,0 +1,21 @@
+namespace Sharplight.Vision;
+
+/// <summary>A decoded image: 8-bit interleaved RGB (row-major, 3 bytes per pixel). File decoding is the host's job.</summary>
+/// <param name="Width">Width in pixels (positive).</param>
+/// <param name="Height">Height in pixels (positive).</param>
+/// <param name="Rgb">Pixel bytes, exactly <c>3 · Width · Height</c> long; the array is not copied or modified.</param>
+public sealed record ImageInput(int Width, int Height, byte[] Rgb)
+{
+    internal void Validate()
+    {
+        if (Width <= 0 || Height <= 0)
+        {
+            throw new ArgumentException("Image has no pixels.");
+        }
+
+        if (Rgb.LongLength != 3L * Width * Height)
+        {
+            throw new ArgumentException($"Expected {3L * Width * Height} RGB bytes for {Width}x{Height}, got {Rgb.Length}.");
+        }
+    }
+}
