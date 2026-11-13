@@ -331,6 +331,7 @@ public sealed partial class GraphLowerer
     BufferDecl? _splitScratch;
     BufferDecl? _attnScratch;
     static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
+    static readonly bool s_attnFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_FA") != "0";
     static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
 
     /// <summary>
@@ -498,11 +499,15 @@ public sealed partial class GraphLowerer
             part = new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
         }
         var sm = new Dictionary<string, string>(m) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
+        // Many queries (prefill): tensor-core flash attention when the device and shapes allow it.
+        bool fa = s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
+                  && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0;
+        var variants = new List<KernelVariant>();
+        if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
+        if (fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));
+        variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
         Emit($"attention {n.Output.Name}", [n],
-            split
-                ? [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)),
-                   Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq)))]
-                : [Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
+            variants,
             [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
              new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
             [q, kc, vc], split ? [o, part] : [o]);

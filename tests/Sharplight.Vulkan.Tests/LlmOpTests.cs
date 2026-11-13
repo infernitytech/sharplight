@@ -161,10 +161,18 @@ public class StatefulTests
     [Theory]
     [InlineData("f16", 16, 16, 6, 2)] [InlineData("f32", 16, 16, 6, 2)] [InlineData("f16", 24, 32, 4, 4)] [InlineData("f32", 64, 64, 8, 1)] [InlineData("f16", 128, 128, 4, 2)]
     public void CachedAttentionAcrossSteps(string cacheType, int D, int Dv, int Hq, int Hkv)
+        => CachedAttention(cacheType, D, Dv, Hq, Hkv, [5, 3, 1, 1, 7, 1], 40);
+
+    // Long prefill chunks: several key blocks, partial query blocks, GQA (the tensor-core flash-attention path when available).
+    [Theory]
+    [InlineData("f16", 128, 128, 8, 2)] [InlineData("f16", 256, 256, 4, 1)] [InlineData("f16", 64, 128, 6, 3)] [InlineData("f32", 128, 128, 4, 2)]
+    public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
+        => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
+
+    static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
     {
         Gpu.Require();
-        int ctx = 40; float scale = 1f / MathF.Sqrt(D);
-        int[] chunks = [5, 3, 1, 1, 7, 1];
+        float scale = 1f / MathF.Sqrt(D);
         int total = chunks.Sum();
         var tg = new TG(); var T = TG.T;
         var qi = tg.InF("q", T, Hq, D); var ki = tg.InF("k", T, Hkv, D); var vi = tg.InF("v", T, Hkv, Dv);
@@ -179,7 +187,9 @@ public class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * Dv)..((past + c) * Hkv * Dv)])));
             past += c;
         }
-        Diff.Check("CachedAttention", tg.B.Build(), steps, atol: 3e-5, rtol: 2e-4, maxTokens: 8, ctx: ctx, what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv}");
+        // f16 caches may run on tensor cores with f16 queries and probabilities: allow for their rounding.
+        bool f16 = cacheType == "f16";
+        Diff.Check("CachedAttention", tg.B.Build(), steps, atol: f16 ? 3e-4 : 3e-5, rtol: f16 ? 3e-3 : 2e-4, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv}");
     }
 
     [Fact]
