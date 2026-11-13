@@ -215,7 +215,7 @@ public sealed partial class GraphLowerer
         var kernel = _compiler.Compile("elementwise.slang", sb.ToString(), "main", _opt.Target, Macros(), _opt.Cache);
         KernelArg count = symbol is null ? new UIntArg((uint)ElementwiseCodegen.ElementCount(shape)) : new SymbolArg(symbol, inner);
         Emit(name, nodes,
-            [Always(kernel, b => new Grid(Grid.Div((symbol is null ? shape[0] : b[symbol]) * inner, 256)))],
+            [Always(kernel, b => new Grid(Grid.Div((symbol is not null ? b[symbol] : shape.Length == 0 ? 1 : shape[0]) * inner, 256)))],
             [.. inputs.Select(r => (KernelArg)Pointer(r)), .. outputs.Select(o => (KernelArg)Pointer(o.Ref)), count],
             inputs, outputs.Select(o => o.Ref));
     }
