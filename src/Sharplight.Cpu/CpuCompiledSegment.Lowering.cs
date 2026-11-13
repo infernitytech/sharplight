@@ -195,6 +195,15 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "TfIdf":
                 LowerTfIdf(n);
                 return;
+            case "TreeEnsemble":
+                LowerTreeEnsemble(n);
+                return;
+            case "OneVsOne":
+                LowerOneVsOne(n);
+                return;
+            case "LabelEncode":
+                LowerLabelEncode(n);
+                return;
         }
 
         if (s_unaryKinds.TryGetValue(op, out var unaryKind))

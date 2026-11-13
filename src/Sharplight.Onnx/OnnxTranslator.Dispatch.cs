@@ -36,6 +36,7 @@ internal sealed partial class OnnxTranslator
     public static IEnumerable<string> SupportedOperators
         => s_dynamicOps.Concat(OnnxFold.Ops).Concat(s_contribInDefaultDomain)
             .Concat(s_contribOps.Concat(s_quantContrib).Select(op => "com.microsoft." + op))
+            .Concat(s_mlOps.Select(op => "ai.onnx.ml." + op))
             .Distinct().Order(StringComparer.Ordinal);
 
     public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
@@ -46,6 +47,12 @@ internal sealed partial class OnnxTranslator
         if (n.Domain == "com.microsoft" || s_contribInDefaultDomain.Contains(n.OpType))
         {
             TranslateContrib(n, ins);
+            return;
+        }
+
+        if (n.Domain == "ai.onnx.ml")
+        {
+            TranslateMl(n, ins);
             return;
         }
 

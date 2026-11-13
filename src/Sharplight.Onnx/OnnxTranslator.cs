@@ -331,7 +331,9 @@ internal sealed partial class OnnxTranslator
     }
 
     private static bool IsSupportedNode(OnnxNode n)
-        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
+        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType)
+            : n.Domain == "ai.onnx.ml" ? s_mlOps.Contains(n.OpType)
+            : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
 
     // ---- group handling --------------------------------------------------------------------------------
     private void NextGroup()
