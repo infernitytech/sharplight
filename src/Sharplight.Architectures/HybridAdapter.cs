@@ -7,11 +7,11 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// Layer-pattern hybrid decoder (canonical arch <c>hybrid</c>): a stack of residual layers whose token mixer is a Mamba-2 state-space layer, grouped-query
 /// attention, or both in parallel (their outputs are summed), optionally followed by a gated feed-forward block (dense and/or routed experts).
-/// Covers Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer), LFM2 (gated short convolutions interleaved with attention),
+/// Covers Jamba (Mamba-1 / attention / MLP), Granite-4.0-H (interleaved Mamba-2 / attention, dense or shared-expert MoE feed-forward), Falcon-H1 (attention and Mamba-2 in every layer), LFM2 (gated short convolutions interleaved with attention),
 /// and pure Mamba-2 stacks (no feed-forward).
 /// </summary>
 /// <remarks>
-/// The layer pattern is read from the weights: a layer with <c>ssm.in.weight</c> has the Mamba-2 mixer, one with <c>shortconv.in.weight</c> the short-convolution mixer (<see cref="ShortConvLayer"/>), one with <c>attention.q.weight</c> has attention;
+/// The layer pattern is read from the weights: a layer with <c>ssm.in.weight</c> has a state-space mixer (Mamba-1, <see cref="Mamba1Layer"/>, when it also has <c>ssm.x.weight</c>, else Mamba-2), one with <c>shortconv.in.weight</c> the short-convolution mixer (<see cref="ShortConvLayer"/>), one with <c>attention.q.weight</c> has attention;
 /// a layer with <c>mlp.*</c> weights has the feed-forward block (see <see cref="Mamba2Layer"/>, <see cref="HybridAttention"/>,
 /// <see cref="HybridFeedForward"/> for their weight vocabulary).
 /// Layer: <c>x += residual_scale · mixers(norm(x))</c>, then (with a feed-forward) <c>x += residual_scale · ffn(post_attention_norm(x))</c>.
@@ -40,6 +40,7 @@ public sealed class HybridAdapter : IModelAdapter
         float logitScale = src.Arch("logit_scale", 1f);
         float residualScale = src.Arch("residual_scale", 1f);
         var mamba = new Mamba2Layer(src, eps);
+        var mamba1 = new Mamba1Layer(src, eps);
         var attention = new HybridAttention(src);
         var shortConv = new ShortConvLayer(src);
         var feedForward = new HybridFeedForward(src, hidden);
@@ -49,7 +50,8 @@ public sealed class HybridAdapter : IModelAdapter
         for (int il = 0; il < layerCount; il++)
         {
             string p = $"layers.{il}.";
-            var ssm = src.Weight(p + "ssm.in.weight") is not null ? mamba.DefineStates($"layers.{il}") : default;
+            var ssm = src.Weight(p + "ssm.in.weight") is null ? default
+                : Mamba1Layer.Is(src, p) ? mamba1.DefineStates(src, $"layers.{il}", p) : mamba.DefineStates($"layers.{il}");
             var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType) : default;
             var conv = src.Weight(p + "shortconv.in.weight") is { } convIn ? shortConv.DefineState($"layers.{il}", (int)(convIn.Shape[0].Fixed / 3)) : null;
             layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv);
@@ -114,7 +116,7 @@ public sealed class HybridAdapter : IModelAdapter
             Value? mixed = null;
             if (layer.Scan is not null)
             {
-                mixed = mamba.Build(b, h, p, layer.Conv!, layer.Scan);
+                mixed = Mamba1Layer.Is(src, p) ? mamba1.Build(b, h, p, layer.Conv!, layer.Scan) : mamba.Build(b, h, p, layer.Conv!, layer.Scan);
             }
 
             if (layer.ShortConv is not null)

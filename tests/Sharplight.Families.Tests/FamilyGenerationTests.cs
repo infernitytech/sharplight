@@ -80,6 +80,11 @@ public class FamilyGenerationTests
             [521, 12688, 521, 810, 11458, 523, 941, 3771, 856, 1236, 779, 6584, 3771, 797, 779, 3374], ""),
         new("LFM2.5-1.2B-Instruct Q4_K_M GGUF (llama.cpp)", "gguf/LFM2.5-1.2B-Instruct/LFM2.5-1.2B-Instruct-Q4_K_M.gguf", "The capital of France is", "text", [],
             " the city of Paris. It is the most populous city in the country and", Tokens: 16),
+        // Mamba-1 (per-channel decay, low-rank dt) and Jamba (Mamba-1 + attention + dt/B/C norms).
+        new("mamba-130m-hf HF (transformers)", "hf/mamba-130m-hf", "The capital of France is", "ids",
+            [275, 253, 2846, 273, 7785, 15, 187, 187, 510, 2846, 273, 7785, 310, 275, 253, 2846], ""),
+        new("AI21-Jamba-Reasoning-3B Q4_K_M GGUF (llama.cpp)", "gguf/AI21-Jamba-Reasoning-3B/jamba-reasoning-3b-Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris.\n\nThe capital of Germany is", Tokens: 9),
         new("mamba2-130m-hf HF (transformers)", "hf/mamba2-130m-hf", "The capital of France is", "ids",
             [247, 2846, 273, 253, 5112, 952, 13, 285, 253, 5347, 273, 253, 5112, 4687, 15, 733], ""),
         new("granite-4.0-h-350m Q4_K_M GGUF (llama.cpp)", "gguf/granite-4.0-h-350m/granite-4.0-h-350m-Q4_K_M.gguf", "The capital of France is", "text", [], " Paris.", Tokens: 16),

@@ -4,14 +4,14 @@ using Sharplight.Tensors;
 namespace Sharplight.Gguf;
 
 /// <summary>
-/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c> and <c>lfm2</c> (gated short convolutions + attention) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
+/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), and <c>lfm2</c> (gated short convolutions + attention) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
 /// A layer has attention when its GGUF key/value head count is positive; every layer of these models has the Mamba-2 mixer except the attention-only
 /// layers of Granite-4.0-H (Falcon-H1 has both mixers in every layer, recognised by the SSM weights being present).
 /// </summary>
 internal sealed class HybridGgufMapping : IGgufArchitectureMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "mamba", "jamba"];
     /// <inheritdoc/>
     public string Architecture => "hybrid";
 
@@ -33,14 +33,24 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
             [a + "hidden_size"] = hidden,
             [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
         };
-        if (g.Has("ssm.inner_size"))
+        if (g.Has("ssm.conv_kernel"))
         {
-            int ssmHeads = g.Int("ssm.time_step_rank");
             md[a + "ssm.conv_kernel"] = g.Int("ssm.conv_kernel");
+        }
+
+        if (g.Has("ssm.group_count"))
+        {
+            // Mamba-2 sizes; Mamba-1 layers take theirs from the weight shapes.
+            int ssmHeads = g.Int("ssm.time_step_rank");
             md[a + "ssm.state_size"] = g.Int("ssm.state_size");
             md[a + "ssm.group_count"] = g.Int("ssm.group_count");
             md[a + "ssm.head_count"] = ssmHeads;
             md[a + "ssm.head_dim"] = g.Int("ssm.inner_size") / ssmHeads;
+        }
+
+        if (g.Bool("ssm.dt_b_c_rms", false))
+        {
+            throw new NotSupportedException("mamba: weight-less RMS norms of dt, B and C (Falcon-Mamba) are not supported yet.");
         }
 
         if (g.Has("shortconv.l_cache"))
@@ -79,10 +89,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
             md[a + "logit_scale"] = 1f / g.Float("logit_scale");   // llama.cpp divides the logits by this value
         }
 
-        if (g.Int("expert_count", 0) > 0)
+        if (g.Int("expert_count", 0) > 1)
         {
             md[a + "moe.expert_count"] = g.Int("expert_count");
             md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
+            md[a + "moe.normalize_weights"] = g.GgufArchitecture != "jamba";   // Jamba uses the raw softmax probabilities of the selected experts
         }
 
         return md;
@@ -102,6 +113,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         ["ssm_a"] = "ssm.a",
         ["ssm_d"] = "ssm.d",
         ["ssm_norm.weight"] = "ssm.norm.weight",
+        ["ssm_x.weight"] = "ssm.x.weight",
+        ["ssm_dt.weight"] = "ssm.dt.weight",
+        ["ssm_dt_norm.weight"] = "ssm.dt_norm.weight",
+        ["ssm_b_norm.weight"] = "ssm.b_norm.weight",
+        ["ssm_c_norm.weight"] = "ssm.c_norm.weight",
         ["shortconv.in_proj.weight"] = "shortconv.in.weight",
         ["shortconv.conv.weight"] = "shortconv.conv.weight",
         ["shortconv.out_proj.weight"] = "shortconv.out.weight",
@@ -140,10 +156,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping
         return m.Success && s_layer.TryGetValue(m.Groups[2].Value, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
     }
 
-    /// <summary>A, D are stored [H, 1] and the gated norm [G, inner/G]; canonical weights are flat.</summary>
+    /// <summary>Mamba-2 A, D are stored [H, 1] and the gated norm [G, inner/G]; canonical weights are flat (Mamba-1 A stays [inner, N]).</summary>
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
     {
-        if (w.Name.EndsWith(".ssm.a", StringComparison.Ordinal) || w.Name.EndsWith(".ssm.d", StringComparison.Ordinal) || w.Name.EndsWith(".ssm.norm.weight", StringComparison.Ordinal))
+        bool isScalarPerHead = w.Name.EndsWith(".ssm.a", StringComparison.Ordinal) && w.Shape.Rank == 2 && w.Shape[1].Fixed == 1;
+        if (isScalarPerHead || w.Name.EndsWith(".ssm.d", StringComparison.Ordinal) || w.Name.EndsWith(".ssm.norm.weight", StringComparison.Ordinal))
         {
             return w.As(w.Name, new Shape(w.Shape.Elements()));
         }

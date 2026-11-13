@@ -61,7 +61,7 @@ public sealed partial class GraphLowerer
         long timeBlock = Math.Clamp(2048 / N, 1, 16);
         var k = Lib("ssm.slang", "ssm_scan", Macros(("H", H), ("P", P), ("G", G), ("N", N),
             ("XS0", x.Strides[0]), ("XS1", x.Strides[1]), ("DTS0", dt.Strides[0]), ("BS0", b.Strides[0]), ("BS1", b.Strides[1]), ("CS0", c.Strides[0]), ("CS1", c.Strides[1]),
-            ("LPR", lanesPerRow), ("PB", rowsPerBlock), ("TB", timeBlock), ("DT_MIN", n.Attributes.Get("dt_min", 0f)), ("MULTI_SEQ", runs is not null)));
+            ("LPR", lanesPerRow), ("PB", rowsPerBlock), ("TB", timeBlock), ("DT_MIN", n.Attributes.Get("dt_min", 0f)), ("MULTI_SEQ", runs is not null), ("A_STATE", a.Rank == 2)));
         Emit($"ssm_scan {n.Output.Name}", [n],
             [Always(k, b => new Grid((uint)H, (uint)(P / rowsPerBlock), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(x), Pointer(dt), Pointer(dtb), Pointer(a),

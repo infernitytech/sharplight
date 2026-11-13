@@ -4,7 +4,7 @@
 //   dt' = max(softplus(dt + bias), DT_MIN);  S = exp(dt' A) S + dt' x B;  y = S . C + D x
 // x [T, H, P] strides (XS0, XS1); dt [T, H] row stride DTS0; B, C [T, G, N] strides (BS0, BS1)/(CS0, CS1); state [H, P, N] f32 (MULTI_SEQ: [S, H, P, N], grid z = run of the
 // [U, 4] runs table, a run at position 0 starts from zero state); y dense.
-// Macros: H, P, G, N, XS0, XS1, DTS0, BS0, BS1, CS0, CS1, LPR, PB (P % PB == 0), TB (tokens staged per block), DT_MIN, MULTI_SEQ
+// Macros: H, P, G, N, XS0, XS1, DTS0, BS0, BS1, CS0, CS1, LPR, PB (P % PB == 0), TB (tokens staged per block), DT_MIN, MULTI_SEQ, A_STATE (A is [H, N]: a decay per state element, Mamba-1 with P = 1)
 #include "common.slang"
 
 #ifdef KERNEL_SSM_SCAN
@@ -51,7 +51,11 @@ void ssm_scan(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Ssm
     uint pl = ltid.x / LPR;
     uint row = gid.y * PB + pl;
     uint part = ltid.x % LPR;
+#if A_STATE
+    float bias = p.dtb[h], A = 0.0, Dh = p.d[h];
+#else
     float bias = p.dtb[h], A = p.a[h], Dh = p.d[h];
+#endif
 
 #if MULTI_SEQ
     int4 run = int4(p.runs[gid.z * 4], p.runs[gid.z * 4 + 1], p.runs[gid.z * 4 + 2], p.runs[gid.z * 4 + 3]);
@@ -92,14 +96,22 @@ void ssm_scan(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Ssm
         GroupMemoryBarrierWithGroupSync();
         for (uint tt = 0; tt < nt; tt++)
         {
+#if A_STATE
+            float dtt = sdt[tt];
+#else
             float decay = sdec[tt];
+#endif
             float xp = sx[tt * PB + pl];
             float coef = sdt[tt] * xp;
             uint base = tt * N + part;
             float ya[4] = { 0, 0, 0, 0 };
             [ForceUnroll] for (int e = 0; e < EPL; e++)
             {
+#if A_STATE
+                M[e] = M[e] * exp(dtt * p.a[uint64_t(h) * N + part + e * LPR]) + sB[base + e * LPR] * coef;
+#else
                 M[e] = M[e] * decay + sB[base + e * LPR] * coef;
+#endif
                 ya[e % 4] += M[e] * sC[base + e * LPR];
             }
             float yd = row_sum((ya[0] + ya[1]) + (ya[2] + ya[3]));

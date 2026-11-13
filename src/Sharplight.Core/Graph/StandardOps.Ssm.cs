@@ -8,7 +8,7 @@ public static partial class StandardOps
     /// <summary>
     /// Mamba-2 selective scan (the recurrent form of the state-space duality), one call per layer.
     /// Inputs, in order: <c>x</c> [T, H, P] (post-conv, post-activation, split into H heads of P channels);
-    /// <c>dt</c> [T, H] (raw time step, before bias and softplus); <c>dt_bias</c> [H]; <c>A</c> [H] (already negative, A = -exp(A_log));
+    /// <c>dt</c> [T, H] (raw time step, before bias and softplus); <c>dt_bias</c> [H]; <c>A</c> [H] (already negative, A = -exp(A_log)) or [H, N] (Mamba-1: a decay per state element, used with P = 1, H = d_inner, G = 1; the update is then <c>S[p,n] = exp(dt'·A[h,n])·S[p,n] + ...</c>);
     /// <c>B</c> [T, G, N]; <c>C</c> [T, G, N] (G groups, head h uses group h / (H/G)); <c>D</c> [H] (skip); <c>state</c> State [H, P, N] f32
     /// (the op reads it, advances it by the T tokens and writes it back: declare it in the node's writes). All f32.
     /// Per token t and head h: <c>dt' = max(softplus(dt[t,h] + dt_bias[h]), dt_min)</c>, <c>S[p,n] = exp(dt'·A[h])·S[p,n] + dt'·x[t,h,p]·B[t,g,n]</c>,

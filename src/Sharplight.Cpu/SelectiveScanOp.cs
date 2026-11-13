@@ -4,7 +4,7 @@ using Sharplight.Runtime;
 namespace Sharplight.Cpu;
 
 /// <summary>
-/// Mamba-2 selective scan (see <c>StandardOps.SelectiveScan</c>): per head sequential over tokens; the P rows of a head's
+/// Selective scan (see <c>StandardOps.SelectiveScan</c>; Mamba-2, or Mamba-1 when A is [H, N]): per head sequential over tokens; the P rows of a head's
 /// state matrix S[p, :N] are independent, so (head, row-chunk) tasks run in parallel and N is vectorized.
 /// </summary>
 internal sealed unsafe class SelectiveScanOp : CpuOp
@@ -23,6 +23,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     private readonly int _g;
     private readonly int _n;
     private readonly float _dtMin;
+    private readonly bool _aPerState;   // A is [H, N] (Mamba-1) instead of [H]
     private readonly Action<int> _body;
     private readonly TRef? _runs;   // multi-sequence: [U, 4] (slot, firstRow, count, firstPos); state [S, H, P, N]
     private long _t;
@@ -44,6 +45,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         _y = y;
         _dtMin = dtMin;
         _runs = runs;
+        _aPerState = a.Rank == 2;
         int o = runs is null ? 0 : 1;
         _h = (int)x.Dims[1];
         _p = (int)x.Dims[2];
@@ -118,7 +120,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
 
         int g = h / (_h / _g);
         float bias = ((float*)_dtBias.P)[h];
-        float A = ((float*)_a.P)[h];
+        float A = _aPerState ? 0f : ((float*)_a.P)[h];
         float D = ((float*)_d.P)[h];
         for (long u = 0; u < _u; u++)
         {
@@ -143,7 +145,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         for (long t = t0; t < t1; t++)
         {
             float dt = MathF.Max(Softplus(((float*)_dt.P)[t * _dt.Strides[0] + h * _dt.Strides[1]] + bias), _dtMin);
-            float decay = MathF.Exp(dt * A);
+            float decay = _aPerState ? 0f : MathF.Exp(dt * A);
             float* B = (float*)_b.P + t * _b.Strides[0] + g * _b.Strides[1];
             float* C = (float*)_c.P + t * _c.Strides[0] + g * _c.Strides[1];
             float* x = (float*)_x.P + t * _x.Strides[0] + h * _x.Strides[1];
@@ -151,9 +153,25 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             for (int p = p0; p < p1; p++)
             {
                 float xp = x[p];
-                y[p] = DecayUpdateDot(S + (long)p * _n, B, C, decay, dt * xp, _n) + D * xp;
+                float* row = S + (long)p * _n;
+                float dot = _aPerState ? DecayUpdateDotPerState(row, B, C, (float*)_a.P + (long)h * _n, dt, dt * xp, _n) : DecayUpdateDot(row, B, C, decay, dt * xp, _n);
+                y[p] = dot + D * xp;
             }
         }
+    }
+
+    /// <summary>row[i] = row[i]·exp(dt·a[i]) + b[i]·coef (a decay per state element, Mamba-1); returns dot(row, c).</summary>
+    private static float DecayUpdateDotPerState(float* row, float* b, float* c, float* a, float dt, float coef, long n)
+    {
+        float sum = 0;
+        for (long i = 0; i < n; i++)
+        {
+            float r = row[i] * MathF.Exp(dt * a[i]) + b[i] * coef;
+            row[i] = r;
+            sum += r * c[i];
+        }
+
+        return sum;
     }
 
     /// <summary>row = row*decay + b*coef; returns dot(row, c).</summary>
