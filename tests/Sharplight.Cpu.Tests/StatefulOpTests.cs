@@ -249,6 +249,58 @@ public class StatefulOpTests
         }
     }
 
+    /// <summary>ALiBi: every score gets slope · (key position − query position) added, with and without a sliding window, f16/f32 caches.</summary>
+    [Theory]
+    [InlineData("f32", 0), InlineData("f16", 0), InlineData("f32", 5)]
+    public void CachedAttentionAlibi(string cacheType, int window)
+    {
+        int Hq = 4;
+        int Hkv = 2;
+        int D = 16;
+        int ctx = 40;
+        float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [6, 3, 1, 1];
+        int total = chunks.Sum();
+        var q = Kit.Rand(total * Hq * D, 1);
+        var k = Kit.Rand(total * Hkv * D, 2);
+        var v = Kit.Rand(total * Hkv * D, 3);
+        var slopes = new[] { 0.5f, 0.25f, 0.125f, 0.0625f };
+        var ct = DataType.Get(cacheType);
+        var tg = new TestGraph();
+        var T = TestGraph.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, D);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
+        tg.B.CacheWrite(kc, ki);
+        tg.B.CacheWrite(vc, vi);
+        var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past"), ("alibi_slopes", slopes) };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        tg.B.RuntimeScalar("n_past");
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 8, ctx: ctx);
+        Func<float, float> rnd = cacheType == "f16" ? (x => (float)(Half)x) : (x => x);
+        var kr = k.Select(rnd).ToArray();
+        var vr = v.Select(rnd).ToArray();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            Kit.Set(m, qi, q[(past * Hq * D)..((past + c) * Hq * D)]);
+            Kit.Set(m, ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            Kit.Set(m, vi, v[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            var p = Kit.P(c, past);
+            m.Run(p);
+            var exp = Ref.Attention(q[(past * Hq * D)..((past + c) * Hq * D)], c, Hq, D, kr, vr, past + c, Hkv, D, scale, past, true, null, window, 0f, null, slopes);
+            Kit.AssertClose(exp, Kit.Out(m, "o", p), 2e-5, 2e-4, $"alibi window {window} past {past} T {c}");
+            past += c;
+        }
+    }
+
     [Fact]
     public void CacheOverflowThrowsAndResetStateClears()
     {

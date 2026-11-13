@@ -17,7 +17,7 @@ internal sealed record DecoderHyperParameters(
     string NormType, bool PreNorm, bool ParallelResidual, float ResidualScale, float SwigluAlpha, float SwigluLimit,
     float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts,
     int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
-    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation)
+    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias)
 {
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
@@ -83,7 +83,8 @@ internal sealed record DecoderHyperParameters(
             ValueDim: src.Arch("attention.value_dim", 0),
             ValueScale: src.Arch("attention.value_scale", 1f),
             RopeAttentionScale: ropeAttn,
-            GateActivation: src.Arch("attention.gate_activation", "sigmoid"));
+            GateActivation: src.Arch("attention.gate_activation", "sigmoid"),
+            AlibiMaxBias: src.Arch("attention.alibi_max_bias", 0f));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {
@@ -116,6 +117,29 @@ internal sealed record DecoderHyperParameters(
 
     /// <summary>Value head dimension of layer <paramref name="il"/> (the key head dimension unless <c>attention.value_dim</c> is set).</summary>
     public int ValueDimOf(int il) => ValueDim > 0 ? ValueDim : HeadDimOf(il);
+
+    /// <summary>
+    /// ALiBi slopes of <paramref name="heads"/> query heads (the geometric sequence of the ALiBi paper, as BLOOM and llama.cpp compute it for the
+    /// largest power of two of heads and the interleaved halves beyond it), or null when <c>attention.alibi_max_bias</c> is 0.
+    /// </summary>
+    public float[]? AlibiSlopes(int heads)
+    {
+        if (AlibiMaxBias <= 0f)
+        {
+            return null;
+        }
+
+        int powerOfTwo = 1 << (int)Math.Floor(Math.Log2(heads));
+        float first = MathF.Pow(2f, -AlibiMaxBias / powerOfTwo);
+        float second = MathF.Pow(2f, -AlibiMaxBias / 2f / powerOfTwo);
+        var slopes = new float[heads];
+        for (int head = 0; head < heads; head++)
+        {
+            slopes[head] = head < powerOfTwo ? MathF.Pow(first, head + 1) : MathF.Pow(second, 2 * (head - powerOfTwo) + 1);
+        }
+
+        return slopes;
+    }
 
     /// <summary>Number of query heads of layer <paramref name="il"/>.</summary>
     public int HeadsOf(int il) => LayerHeadCounts.Length > 0 ? LayerHeadCounts[il] : NHead;

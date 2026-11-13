@@ -5,7 +5,7 @@ namespace Sharplight.Families.Tests;
 /// <summary>
 /// GGUF mappings checked on tiny random f32 files, with the greedy token ids of llama.cpp b11177 (CPU, llama-server with <c>return_tokens</c>) as the reference:
 /// Qwen v1, XVERSE, ChatGLM, ARWKV7 and QRWKV6 (written by <c>tools/mk_tiny_gguf.py</c>, no Hugging Face class exists for them) and the
-/// dots.llm1, MiniMax-M2, Hunyuan (dense and MoE), EXAONE-MoE, Falcon, Arcee Trinity, MiMo-V2-Flash and Laguna files converted with llama.cpp's convert_hf_to_gguf.py
+/// dots.llm1, MiniMax-M2, Hunyuan (dense and MoE), EXAONE-MoE, Falcon, Arcee Trinity, MiMo-V2-Flash, Laguna, BLOOM and MPT (config architecture renamed MPTForCausalLM) files converted with llama.cpp's convert_hf_to_gguf.py
 /// from the tiny-random checkpoints (<c>tools/mk_tiny_moe.py</c> writes the llama.cpp-compatible variants; the converter needs the unknown tiny-tokenizer hash mapped
 /// (<c>get_vocab_base_pre</c> returning "gpt-2"), the dots1 and EXAONE-MoE gating function set to sigmoid, Hunyuan's rope-dimension assertion relaxed, and
 /// <c>--no-mtp</c> for MiMo-V2). The Falcon file uses the <c>falcon</c> pre-tokenizer.
@@ -51,6 +51,10 @@ internal static class TinyGgufFamilyCases
             [136, 655, 658, 528, 612, 386, 818, 611, 922, 875, 11, 521, 727, 956, 698, 439, 175, 167, 106, 459, 947, 129, 923, 894], ""),
         new("tiny-random-rwkv6qwen2 f32 GGUF (rwkv6qwen2, llama.cpp)", "gguf/tiny-random-rwkv6qwen2-f32.gguf", Prompt, "ids",
             [956, 986, 40, 1012, 577, 103, 551, 740, 822, 188, 41, 445, 748, 317, 232, 159, 810, 383, 559, 250, 372, 372, 840, 343], ""),
+        new("tiny-random-bloom f32 GGUF (bloom ALiBi, llama.cpp)", "gguf/tiny-random-bloom-f32.gguf", Prompt, "ids",
+            [1003, 999, 779, 764, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143], "", NeedsCpuFallback: true),
+        new("tiny-random-mpt f32 GGUF (mpt ALiBi, llama.cpp)", "gguf/tiny-random-mpt-f32.gguf", Prompt, "ids",
+            [321, 140, 433, 90, 186, 79, 231, 465, 665, 592, 476, 684, 883, 119, 214, 540, 200, 870, 681, 214, 540, 887, 816, 899], "", NeedsCpuFallback: true),
         new("tiny-random-falcon f32 GGUF (falcon, falcon pre-tokenizer, llama.cpp)", "gguf/tiny-random-falcon-f32.gguf", Prompt, "ids",
             [314, 975, 500, 741, 285, 500, 741, 500, 741, 285, 500, 856, 809, 975, 500, 741, 500, 741, 500, 500, 741, 56, 856, 56], ""),
     ];

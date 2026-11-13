@@ -38,12 +38,17 @@ internal static class PackedSequences
     }
 
     /// <summary>Self-attention confined to each packed sequence (optionally causal within it).</summary>
-    public static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value rowSpans, float scale, bool causal, float softcap = 0, string? name = null)
+    public static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value rowSpans, float scale, bool causal, float softcap = 0, string? name = null, float[]? alibiSlopes = null)
     {
         var attrs = new List<(string, object)> { ("scale", scale), ("causal", causal) };
         if (softcap > 0)
         {
             attrs.Add(("softcap", softcap));
+        }
+
+        if (alibiSlopes is not null)
+        {
+            attrs.Add(("alibi_slopes", alibiSlopes));
         }
 
         return b.Emit1("Attention", [q, k, v, rowSpans], Attributes.From([.. attrs]), name);

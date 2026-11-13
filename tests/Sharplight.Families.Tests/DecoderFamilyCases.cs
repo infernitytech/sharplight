@@ -67,6 +67,14 @@ internal static class DecoderFamilyCases
         new("Nemotron-Mini-4B-Instruct Q4_K_M GGUF (llama.cpp)", "gguf/Nemotron-Mini-4B-Instruct/Nemotron-Mini-4B-Instruct-Q4_K_M.gguf", "The capital of France is", "text", [], " Paris, which is also the country's largest city.\n\n- The", Tokens: 16),
         new("Apertus-8B-Instruct-2509 Q4_K_M GGUF (llama.cpp, first 11 tokens)", "gguf/Apertus-8B-Instruct-2509/Apertus-8B-Instruct-2509-Q4_K_M.gguf", "The capital of France is", "text", [], " Paris, which is also the country's largest city.", Tokens: 11, Large: true),
         new("AFM-4.5B Q4_K_M GGUF (llama.cpp)", "gguf/AFM-4.5B/AFM-4.5B-Q4_K_M.gguf", "The capital of France is", "text", [], " Paris,\" is a true statement.\n\nTrue.\n\nThe Eiffel Tower is", Tokens: 16),
+        // ALiBi (attention.alibi_max_bias): the attention kernels of the Vulkan provider do not implement the score bias, so those layers run on the CPU provider.
+        new("tiny-random-bloom HF (bloom ALiBi, transformers)", "hf/tiny-random-bloom", HfPrompt, "ids",
+            [1003, 999, 779, 764, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143, 951, 143], "", NeedsCpuFallback: true),
+        new("tiny-random-mpt HF (mpt ALiBi, transformers)", "hf/tiny-random-mpt", HfPrompt, "ids",
+            [321, 140, 433, 90, 186, 79, 231, 465, 665, 592, 476, 684, 883, 119, 214, 540, 200, 870, 681, 214, 540, 887, 816, 899], "", NeedsCpuFallback: true),
+        // llama.cpp's own CPU and Vulkan builds disagree on this Q4_K_M file at the fourth token (a near-tie); the reference is its Vulkan build.
+        new("bloom-560m Q4_K_M GGUF (llama.cpp Vulkan)", "gguf/bloom-560m/bloom-560m.Q4_K_M.gguf", "The capital of France is", "text", [],
+            " Paris. The city is located in the south-east of France. The capital is Paris. The city", Tokens: 20, NeedsCpuFallback: true),
     ];
 
     private const string HfPrompt = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";

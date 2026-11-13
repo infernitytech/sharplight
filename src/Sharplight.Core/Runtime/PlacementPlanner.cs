@@ -126,6 +126,11 @@ public static class PlacementPlanner
             }
             nodeSlot[i] = s;
         }
+        if (fallbackSlot >= 0)
+        {
+            KeepStatesOnOneDevice(graph, slots, nodeSlot, fallbackSlot);
+        }
+
         // View ops follow their input's device to avoid needless transfers.
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
@@ -144,6 +149,61 @@ public static class PlacementPlanner
             GroupDevice = groupDevice,
             BytesPerSlot = Enumerable.Range(0, slots.Count).ToDictionary(i => i, i => used[i]),
         };
+    }
+
+    /// <summary>
+    /// A persistent state (KV cache, recurrent state) lives in exactly one compiled segment, so every node that reads or writes it must run on
+    /// the same device: when op support put some of them on the fallback device (attention with ALiBi on a GPU whose kernels lack it, say), the others
+    /// that touch the same state follow, as long as the fallback device runs them. A move can split another state, hence the repetition.
+    /// </summary>
+    private static void KeepStatesOnOneDevice(ComputeGraph graph, List<DeviceSlot> slots, int[] nodeSlot, int fallbackSlot)
+    {
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            var statesOfNode = new Dictionary<StateDefinition, List<int>>();
+            for (int i = 0; i < graph.Nodes.Count; i++)
+            {
+                if (graph.Nodes[i].Op.Category is OpCategory.View or OpCategory.ControlFlow)
+                {
+                    continue;   // views follow their input's device
+                }
+
+                foreach (var input in graph.Nodes[i].Inputs)
+                {
+                    if (input.State is { } state)
+                    {
+                        if (!statesOfNode.TryGetValue(state, out var users))
+                        {
+                            statesOfNode[state] = users = [];
+                        }
+
+                        users.Add(i);
+                    }
+                }
+            }
+
+            foreach (var users in statesOfNode.Values)
+            {
+                if (users.Select(i => nodeSlot[i]).Distinct().Count() < 2)
+                {
+                    continue;
+                }
+
+                foreach (int i in users.Where(i => nodeSlot[i] != fallbackSlot))
+                {
+                    var node = graph.Nodes[i];
+                    if (!slots[fallbackSlot].Device.Supports(node).IsSupported)
+                    {
+                        throw new NotSupportedException($"Op {node.Op.Name} (node {node.Id}) shares a state with nodes that only run on {slots[fallbackSlot].Device.Info.Name}, which does not support it: {slots[fallbackSlot].Device.Supports(node).Reason}");
+                    }
+
+                    nodeSlot[i] = fallbackSlot;
+                    changed = true;
+                }
+            }
+        }
     }
 
     private static int IndexOf(ComputeGraph g, Node n)

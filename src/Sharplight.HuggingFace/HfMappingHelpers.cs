@@ -34,6 +34,10 @@ internal static class HfMappingHelpers
     public static double? OptionalNumber(JsonElement? element, string key)
         => element is { } e && e.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : null;
 
+    /// <summary>A boolean property of an optional JSON object, or null when the object or property is missing or not a boolean.</summary>
+    public static bool? OptionalBool(JsonElement? element, string key)
+        => element is { } e && e.TryGetProperty(key, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.ValueKind == JsonValueKind.True : null;
+
     /// <summary>A lazily encoded F32 weight over <paramref name="values"/> (e.g. rope frequency factors).</summary>
     public static WeightInfo F32Weight(string name, float[] values)
         => WeightInfo.Derived(name, DataType.F32, new Shape(values.Length), () => HfTransforms.EncodeF32(values));

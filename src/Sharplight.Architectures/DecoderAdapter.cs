@@ -16,6 +16,9 @@ namespace Sharplight.Architectures;
 /// <c>attention.sliding_window</c> (tokens) with <c>attention.sliding_layers</c> (int[layer_count], 1 = layer uses the window).</item>
 /// <item><c>attention.value_dim</c> (value head size when it differs from the key head size, default <c>attention.head_dim</c>; the value cache and the
 /// output projection input follow it, MiMo-V2) and <c>attention.value_scale</c> (constant factor on the attention output before the output projection, default 1).</item>
+/// <item><c>attention.alibi_max_bias</c> (default 0 = off): ALiBi, every score gets the slope of its head times the key-minus-query distance added (BLOOM, MPT use 8; the
+/// slopes are the ALiBi geometric sequence). Models with ALiBi have no rotary embedding (<c>rope.layers</c> all 0). The attention kernels of the Vulkan provider do not implement
+/// it: those layers run on the CPU provider (the model needs a CPU fallback device).</item>
 /// <item><c>rope.dim</c> (rotated dims, partial rotary when less than head_dim), <c>rope.base</c>, <c>rope.style</c>
 /// ("neox" = rotate-half pairs (i, i+dim/2), the default; "gptj" = interleaved pairs), <c>rope.local_base</c> (base of sliding layers,
 /// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor of the rotated dimensions, e.g. yarn; like the frequency factors it applies to the layers that are not sliding).
@@ -34,7 +37,7 @@ namespace Sharplight.Architectures;
 /// <c>residual.parallel</c> (default false: attention and MLP both read the layer input, x + attn(norm(x)) + mlp(norm'(x)); the MLP uses <c>post_attention_norm</c> when the layer has one and shares the attention norm otherwise);
 /// <c>residual.scale</c> (factor on every sub-layer output before the residual add, muP); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
 /// <c>attention.clip_qkv</c> (clamp of the q/k/v projections, OLMo 1); <c>attention.layer_head_counts</c> (per-layer query heads, OpenELM).
-/// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
+/// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>embedding_norm.weight</c> (+ <c>.bias</c>: the model's norm of the token embeddings, BLOOM), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>; routing and expert weights are those of <see cref="MoeBlock"/>):
 /// <c>moe.expert_count</c>, <c>moe.expert_used_count</c> (top-k per token), <c>moe.ffn_hidden_size</c> (the experts' inner size;
 /// <c>ffn_hidden_size</c> then only describes dense layers) and the routing keys of <see cref="MoeOptions"/>: <c>moe.router_activation</c>

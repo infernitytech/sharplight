@@ -41,7 +41,7 @@ internal sealed partial class DecoderGraphBuilder
         {
             // Packed sequences: causal within each sequence; sliding windows are not applied (inputs are short).
             var (packedK, packedV) = packedKv[_hp.KvSourceOf(il)];
-            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, causal: true, _hp.SoftCap, $"{p}attn");
+            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, causal: true, _hp.SoftCap, $"{p}attn", _hp.AlibiSlopes(heads));
             return AttentionOutput(b, packed, h, p, heads, _hp.ValueDimOf(il));
         }
 
@@ -151,6 +151,11 @@ internal sealed partial class DecoderGraphBuilder
         if (_hp.SoftCap > 0)
         {
             attrs.Add(("softcap", _hp.SoftCap));
+        }
+
+        if (_hp.AlibiSlopes(_hp.HeadsOf(il)) is { } slopes)
+        {
+            attrs.Add(("alibi_slopes", slopes));
         }
 
         b.RuntimeScalar(WellKnown.PastScalar);

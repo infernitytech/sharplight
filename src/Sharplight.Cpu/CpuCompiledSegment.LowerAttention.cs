@@ -53,7 +53,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         TRef? rows = ins.Length > 3 + sinksOffset ? Dense(Ref(ins[3 + sinksOffset])) : null;
         var attention = new AttentionOp(
             q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
-            rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0));
+            rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0), alibiSlopes: a.Get<float[]?>("alibi_slopes", null));
         AddStep(attention, Touched(q, k, v, sinks, rows, y));
         _refs[n.Output] = y;
     }
@@ -71,7 +71,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         var attention = new AttentionOp(
             q, k, v, hasSpans ? null : extra, y, a.Get("scale", 1f), null, a.Get("causal", false), a.Get("window", 0), a.Get("softcap", 0f),
-            spans: hasSpans ? extra : null);
+            spans: hasSpans ? extra : null, alibiSlopes: a.Get<float[]?>("alibi_slopes", null));
         AddStep(attention, Touched(q, k, v, extra, y));
         _refs[n.Output] = y;
     }

@@ -214,7 +214,7 @@ public class FamilyGenerationTests
             using var session = model.CreateSession(WellKnown.DecodeGraph);
             var gen = new Generator(session, model.Tokenizer);
             var toks = gen.Generate(prompt, new GenerationOptions { MaxNewTokens = n, Sampling = SamplingOptions.Greedy }).ToList();
-            return ([.. toks.Select(t => t.Id)], string.Concat(toks.Select(t => t.Text)));
+            return ([.. toks.Where(t => t.Id >= 0).Select(t => t.Id)], string.Concat(toks.Select(t => t.Text)));   // an id of -1 is the flush of trailing partial UTF-8 bytes
         }
         finally
         {

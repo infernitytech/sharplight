@@ -119,6 +119,11 @@ public sealed partial class GraphLowerer
 
     private static OpSupport SupportsCachedAttention(Node node)
     {
+        if (node.Attributes.Has("alibi_slopes"))
+        {
+            return OpSupport.No("CachedAttention: ALiBi score bias is not implemented in the attention kernels");
+        }
+
         if (node.Attributes.Get("sinks", false) && node.Inputs[3].Type != DataType.F32)
         {
             return OpSupport.No("attention sinks must be f32");
@@ -136,6 +141,11 @@ public sealed partial class GraphLowerer
     /// <summary>Bidirectional attention over plain K/V tensors, optionally with i32 [rows, 2] key spans.</summary>
     private static OpSupport SupportsAttention(Node node)
     {
+        if (node.Attributes.Has("alibi_slopes"))
+        {
+            return OpSupport.No("Attention: ALiBi score bias is not implemented in the attention kernels");
+        }
+
         var inputs = node.Inputs;
         bool spans = inputs.Length == 4 && inputs[3].Type == DataType.I32 && inputs[3].Rank == 2 && inputs[3].Shape[1] == 2;
         bool causal = node.Attributes.Get("causal", false);

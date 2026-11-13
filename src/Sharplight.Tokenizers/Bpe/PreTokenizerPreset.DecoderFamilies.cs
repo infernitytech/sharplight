@@ -11,6 +11,8 @@ internal sealed partial record PreTokenizerPreset
     {
         "refact" or "command-r" or "starcoder" => SingleDigitGpt2(),
         "falcon" => Falcon(),
+        // BLOOM / Poro / GPT-3 Finnish (llama.cpp LLAMA_VOCAB_PRE_TYPE_BLOOM): runs of anything but whitespace and the punctuation of the character class, with an optional leading space.
+        "bloom" or "poro" or "gpt3-finnish" => new(new DefaultRegexStages([$@" ?[^(|.,!?…。，、।۔،){DefaultRegexStages.Ws}]+"]), false, false),
         // DBRX / Smaug / OLMo-2 / Granite 4: the Llama-3 expression with ordinary merge application and no default BOS
         // (Granite 4 GGUFs set add_bos_token explicitly; OLMo-2 relies on this default).
         "dbrx" or "smaug-bpe" => new(new RegexFamilySplitter(RegexFamily.Llama, true, 3, false), false, false),

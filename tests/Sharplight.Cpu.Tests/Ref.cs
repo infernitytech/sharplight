@@ -136,7 +136,7 @@ internal static class Ref
     }
 
     /// <summary>q [T,Hq,D]; k [S,Hkv,D]; v [S,Hkv,Dv]. Query t sees keys [0, past+t] (causal) or all S keys.</summary>
-    public static float[] Attention(float[] q, int T, int Hq, int D, float[] k, float[] v, int S, int Hkv, int Dv, float scale, int past, bool causal, float[]? mask = null, int window = 0, float softcap = 0f, float[]? sinks = null)
+    public static float[] Attention(float[] q, int T, int Hq, int D, float[] k, float[] v, int S, int Hkv, int Dv, float scale, int past, bool causal, float[]? mask = null, int window = 0, float softcap = 0f, float[]? sinks = null, float[]? alibiSlopes = null)
     {
         var o = new float[T * Hq * Dv];
         for (int t = 0; t < T; t++)
@@ -156,6 +156,11 @@ internal static class Ref
                     }
 
                     sc[j] = d * scale + (mask is null ? 0 : mask[t * S + j]);
+                    if (alibiSlopes is not null)
+                    {
+                        sc[j] += alibiSlopes[h] * (j - (n - 1));
+                    }
+
                     if (softcap > 0)
                     {
                         sc[j] = softcap * Math.Tanh(sc[j] / softcap);

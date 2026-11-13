@@ -187,6 +187,11 @@ internal sealed partial class DecoderGraphBuilder
             x = b.RmsNorm(x, null, _hp.Eps);
         }
 
+        if (b.HasWeight("embedding_norm.weight"))
+        {
+            x = _norm.Apply(b, x, "embedding_norm.weight", _hp.Eps);
+        }
+
         return x;
     }
 

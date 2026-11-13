@@ -15,6 +15,8 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
         ["output_norm.bias"] = "output_norm.bias",
         ["output.bias"] = "lm_head.bias",
         ["position_embd.weight"] = "position_embedding.weight",
+        ["token_embd_norm.weight"] = "embedding_norm.weight",
+        ["token_embd_norm.bias"] = "embedding_norm.bias",
     };
 
     /// <inheritdoc/>

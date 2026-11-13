@@ -1,14 +1,16 @@
 """
 Builds tiny random Hugging Face checkpoints for decoder families that have no tiny-random model in ~/models/hf:
-GPT-2, GPT-J, Nemotron (dense), Gemma 1 and Falcon with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024).
+GPT-2, GPT-J, Nemotron (dense), Gemma 1, Falcon, BLOOM and MPT (both with ALiBi) with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024).
 
-    python mk_tiny_decoders.py <models/hf directory>
+    python mk_tiny_decoders.py <models/hf directory> [family ...]
+
+With family names only those models are written (so that a later addition does not rewrite checkpoints existing references were taken from).
 
 Every model is written to <dir>/tiny-random-<family>/ in fp32 safetensors; the tests skip a family whose directory is missing.
 Norm weights and biases are randomized so that every parameter matters.
 """
 import os, sys, shutil, torch
-from transformers import (AutoModelForCausalLM, GPT2Config, GPTJConfig, NemotronConfig, GemmaConfig, FalconConfig)
+from transformers import (AutoModelForCausalLM, BloomConfig, GPT2Config, GPTJConfig, NemotronConfig, GemmaConfig, FalconConfig, MptConfig)
 
 root = os.path.expanduser(sys.argv[1])
 tokenizer_dir = os.path.join(root, "tiny-random-GPTNeoXForCausalLM")
@@ -23,17 +25,29 @@ configs = {
                          num_key_value_heads=1, head_dim=16, max_position_embeddings=256, bos_token_id=0, eos_token_id=0, pad_token_id=0),
     "falcon": FalconConfig(vocab_size=VOCAB, hidden_size=64, num_hidden_layers=3, num_attention_heads=4, num_kv_heads=2,
                            new_decoder_architecture=True, parallel_attn=True, bias=False, max_position_embeddings=256, bos_token_id=0, eos_token_id=0),
+    "bloom": BloomConfig(vocab_size=VOCAB, hidden_size=64, n_layer=3, n_head=4, bos_token_id=0, eos_token_id=0, pad_token_id=0),
+    # llama.cpp's converter reads attn_config.alibi_bias_max and clip_qkv; no q/k layer norms.
+    "mpt": MptConfig(vocab_size=VOCAB, d_model=64, n_heads=4, n_layers=3, expansion_ratio=2, max_seq_len=256, no_bias=True,
+                     attn_config={"attn_type": "multihead_attention", "alibi": True, "alibi_bias_max": 8, "clip_qkv": None, "qk_ln": False,
+                                  "softmax_scale": None, "attn_uses_sequence_id": False, "attn_pdrop": 0, "prefix_lm": False},
+                     bos_token_id=0, eos_token_id=0, pad_token_id=0),
 }
+# Most families use seed 0 and weights of scale 0.15; the ALiBi models tend to repeat one token or tie their logits at it with those, so BLOOM and MPT pick their own.
+seeds = {"bloom": 3, "mpt": 2}
+scales = {"bloom": 0.5, "mpt": 0.5}
+only = sys.argv[2:]
 
 for name, config in configs.items():
-    torch.manual_seed(0)
+    if only and name not in only:
+        continue
+    torch.manual_seed(seeds.get(name, 0))
     model = AutoModelForCausalLM.from_config(config)
     with torch.no_grad():
         for n, p in model.named_parameters():
             if p.dim() == 1:
                 p.copy_(1.0 + 0.3 * torch.randn_like(p) if n.endswith("weight") else 0.3 * torch.randn_like(p))
             else:
-                p.copy_(torch.randn_like(p) * 0.15)
+                p.copy_(torch.randn_like(p) * scales.get(name, 0.15))
     out = os.path.join(root, f"tiny-random-{name}")
     model.save_pretrained(out, safe_serialization=True)
     for f in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "generation_config.json"]:
