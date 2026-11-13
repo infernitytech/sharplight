@@ -21,7 +21,11 @@ namespace Sharplight.Architectures;
 /// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor, e.g. yarn; folded into the score scale as its square).
 /// Frequency scaling (llama3 / yarn / linear) is expressed as the optional weight <c>rope.freq_factors</c> (f32 [rope.dim/2], θ is divided by it)
 /// which applies to the layers that are not sliding. Longrope (Phi-3) additionally carries <c>rope.freq_factors_long</c> and
-/// <c>rope.original_context_length</c>: the short factors are used (valid up to the original context), the long ones are not applied yet.</item>
+/// <c>rope.original_context_length</c>: the long factors are used instead of the short ones when the configured context
+/// (<see cref="AdapterOptions.ContextLength"/>, the model's <c>context_length</c> when unset) exceeds the original one. This is llama.cpp's
+/// rule; HF switches on the current sequence length, which would leave already cached keys rotated with the other set, so a
+/// KV-cached runtime picks once per model instance. Use a context &lt;= the original one for the short factors.
+/// When <c>attention.sliding_window</c> is given without <c>attention.sliding_layers</c> (Mistral v0.1), every layer uses the window.</item>
 /// <item><c>mlp.activation</c> ("silu" (default), "gelu", "gelu_tanh", "relu"), <c>mlp.gated</c> (default true: act(gate)·up).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>): <c>moe.expert_count</c>, <c>moe.expert_used_count</c>
 /// (top-k per token), <c>moe.normalize_weights</c> (renormalize the k selected router probabilities to sum 1; default false).
@@ -49,6 +53,9 @@ public sealed class DecoderAdapter : IModelAdapter
         int RopeDims, float RopeBase, float RopeLocalBase, string RopeStyle, int Window, int[] SlidingLayers,
         string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength,
         int Experts, int ExpertsUsed, bool NormalizeExpertWeights);
+
+    // Longrope: the long factors replace the short ones when the configured context exceeds the original training context.
+    static bool UseLongRope(int originalContext, int configuredContext) => originalContext > 0 && configuredContext > originalContext;
 
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
@@ -83,7 +90,14 @@ public sealed class DecoderAdapter : IModelAdapter
             NormalizeExpertWeights: src.Arch("moe.normalize_weights", false));
         if (hp.NHead % hp.NHeadKv != 0) throw new InvalidDataException("decoder: attention.head_count must be a multiple of attention.kv_head_count.");
         if (hp.SlidingLayers.Length != 0 && hp.SlidingLayers.Length != hp.NLayer) throw new InvalidDataException("decoder: attention.sliding_layers must have layer_count entries.");
+        // Local rope (base / no frequency scaling) belongs to the interleaved sliding layers only; a model that declares a window
+        // without a layer list (Mistral v0.1: sliding_window) applies it to every layer and keeps the ordinary rope.
         bool Sliding(int il) => hp.Window > 0 && hp.SlidingLayers.Length > 0 && hp.SlidingLayers[il] != 0;
+        bool Windowed(int il) => hp.Window > 0 && (hp.SlidingLayers.Length == 0 || hp.SlidingLayers[il] != 0);
+
+        int origCtx = src.Arch("rope.original_context_length", 0);
+        int runtimeCtx = options.ContextLength > 0 ? options.ContextLength : hp.ContextLength;
+        bool longRope = UseLongRope(origCtx, runtimeCtx);
 
         var states = new List<StateDefinition>();
         var kCache = new StateDefinition[hp.NLayer];
@@ -142,6 +156,7 @@ public sealed class DecoderAdapter : IModelAdapter
             var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
             var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
             var freqFactors = b.TryWeight("rope.freq_factors");
+            if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors) freqFactors = longFactors;
 
             for (int il = 0; il < hp.NLayer; il++)
             {
@@ -198,7 +213,7 @@ public sealed class DecoderAdapter : IModelAdapter
             b.CacheWrite(b.State(kCache[il]), k);
             b.CacheWrite(b.State(vCache[il]), v);
             var attrs = new List<(string, object)> { ("scale", hp.AttnScale), ("offset", WellKnown.PastScalar) };
-            if (sliding) attrs.Add(("window", hp.Window));
+            if (Windowed(il)) attrs.Add(("window", hp.Window));
             if (hp.SoftCap > 0) attrs.Add(("softcap", hp.SoftCap));
             b.RuntimeScalar(WellKnown.PastScalar);
             var attn = b.Emit1("CachedAttention", [q, b.State(kCache[il]), b.State(vCache[il])], Attributes.From([.. attrs]), $"{p}attn");

@@ -26,6 +26,15 @@ public sealed record DeviceInfo
     /// otherwise they fall back to portable code paths.
     /// </summary>
     public IReadOnlySet<string> Features { get; init; } = new HashSet<string>();
+    /// <summary>
+    /// Longest stretch of GPU work (ms) the runtime should hand to the device without letting it go idle and be
+    /// scheduled again; 0 = no limit. Devices that also drive a display or share memory with the host (integrated GPUs)
+    /// can stall, be reset by a watchdog or lose the device when one submission runs for seconds, so a provider splits
+    /// long executions (large prefill batches, big vision encodes) into submissions of about this duration.
+    /// Overridable per device with <see cref="DeviceOptions.Settings"/> key <c>submission_budget_ms</c>
+    /// and process-wide with the environment variable <c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c> (0 turns it off).
+    /// </summary>
+    public double SubmissionBudgetMs { get; init; }
     /// <summary>Provider-specific informational details (API version, raw extension info, limits, ...).</summary>
     public IReadOnlyDictionary<string, string> Capabilities { get; init; } = new Dictionary<string, string>();
 

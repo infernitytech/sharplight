@@ -75,6 +75,16 @@ public sealed class AdapterOptions
     public Tensors.DataType KvCacheType { get; init; } = Tensors.DataType.F16;
     /// <summary>Emit auxiliary graphs (multi-token prediction heads, embedding-input decode, ...).</summary>
     public bool IncludeAuxiliaryGraphs { get; init; } = true;
+    /// <summary>
+    /// Context length the model will run with (0 = unknown, use the model's maximum). Lets an adapter make context-dependent
+    /// choices, e.g. longrope's short vs. long frequency factors.
+    /// </summary>
+    public int ContextLength { get; init; }
+
+    public AdapterOptions WithContext(int contextLength) => new()
+    {
+        KvCacheType = KvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = contextLength,
+    };
 }
 
 /// <summary>

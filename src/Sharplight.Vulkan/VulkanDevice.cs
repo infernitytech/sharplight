@@ -40,6 +40,8 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     bool Has(string feature) => EnabledFeatures.Contains(feature);
     public long AvailableMemory => _budget - Interlocked.Read(ref _used);
     public int SubgroupSize => (int)Phys.SubgroupSize;
+    /// <summary>Effective submission budget in ms (0 = unlimited): <see cref="DeviceInfo.SubmissionBudgetMs"/> unless overridden.</summary>
+    public double SubmissionBudgetMs { get; }
 
     internal VulkanDevice(VulkanInstance inst, PhysicalDeviceInfo phys, DeviceInfo info, DeviceOptions options)
     {
@@ -48,6 +50,10 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         Info = info;
         Options = options;
         EnabledFeatures = DeviceFeatures.Effective(info.Features, options.DisabledFeatures);
+        SubmissionBudgetMs = info.SubmissionBudgetMs;
+        if ((options.Settings.TryGetValue("submission_budget_ms", out var sb) ? sb : Environment.GetEnvironmentVariable("SHARPLIGHT_SUBMISSION_BUDGET_MS")) is { } sbv
+            && double.TryParse(sbv, System.Globalization.CultureInfo.InvariantCulture, out var sbm))
+            SubmissionBudgetMs = Math.Max(0, sbm);
         var iapi = inst.Api;
 
         // ---- queue ------------------------------------------------------------------------------
@@ -151,6 +157,7 @@ public sealed unsafe class VulkanDevice : IComputeDevice
             MaxSharedMemory = Phys.MaxSharedMemory,
             Features = options.FeaturesFor(this),
             Compile = options,
+            SubmissionBudgetMs = SubmissionBudgetMs,
             Cache = cache,
         });
         foreach (var l in program.Launches.Concat(program.ResetLaunches))

@@ -270,6 +270,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         var bindings = new Bindings(parameters.Symbols);
         if (Profile) { ExecuteProfiled(bindings); return; }
         var key = string.Join(",", _program.Symbols.Select(s => $"{s}={bindings[s]}"));
+        if (_dev.SubmissionBudgetMs > 0) { ExecuteBudgeted(key, bindings); return; }
         if (!_recorded.TryGetValue(key, out var cb))
         {
             foreach (var s in _program.Symbols)
@@ -302,43 +303,164 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
     void ExecuteProfiled(Bindings bindings)
     {
-        var api = _dev.Api;
-        uint n = (uint)_program.Launches.Count + 1;
-        var qci = new VkQueryPoolCreateInfo { queryType = VkQueryType.Timestamp, queryCount = n };
-        VkQueryPool created;
-        api.vkCreateQueryPool(&qci, null, &created).CheckResult();
-        var pool = created;
-        try
+        var names = new string[_program.Launches.Count];
+        var ms = MeasureLaunches(bindings, _dev.SubmissionBudgetMs > 0 ? CalibrationChunk : int.MaxValue, (i, l, v) =>
         {
-            var names = new string[_program.Launches.Count];
-            _dev.Immediate(cb =>
+            var parts = l.Name.Split(' ');
+            names[i] = s_profileDetail
+                ? $"{l.Name} {v.Kernel.EntryPoint}"
+                : $"{parts[0]}{(parts.Length > 2 ? " " + string.Join(" ", parts[2..]) : "")} {v.Kernel.EntryPoint} T={string.Join(",", _program.Symbols.Select(s => bindings[s]))}";
+        });
+        for (int i = 0; i < names.Length; i++)
+        {
+            if (names[i] is null) continue;
+            ProfileData[names[i]] = ProfileData.TryGetValue(names[i], out var e) ? (e.Ms + ms[i], e.Count + 1, Math.Min(e.MinMs, ms[i])) : (ms[i], 1, ms[i]);
+        }
+    }
+
+    /// <summary>
+    /// Runs the whole program (input copies, every launch, output copies) with a GPU timestamp after each dispatch, in submissions
+    /// of at most <paramref name="chunk"/> launches, and returns the GPU time of each launch in ms (0 for skipped ones).
+    /// </summary>
+    double[] MeasureLaunches(Bindings bindings, int chunk, Action<int, KernelLaunch, KernelVariant>? onLaunch = null)
+    {
+        var api = _dev.Api;
+        var launches = _program.Launches;
+        var result = new double[launches.Count];
+        double tick = _dev.Phys.TimestampPeriod * 1e-6;
+        _dev.Immediate(cb => RecordInputCopies(cb, bindings));
+        for (int start = 0; start < launches.Count; start += chunk)
+        {
+            int count = Math.Min(chunk, launches.Count - start);
+            var slice = launches.Skip(start).Take(count).ToList();
+            if (s_trace) Console.Error.WriteLine($"[vk] launches {start}..{start + count - 1}: {string.Join(" | ", slice.Select(l => l.Name))}");
+            uint n = (uint)count + 1;
+            var qci = new VkQueryPoolCreateInfo { queryType = VkQueryType.Timestamp, queryCount = n };
+            VkQueryPool created;
+            api.vkCreateQueryPool(&qci, null, &created).CheckResult();
+            var pool = created;
+            try
             {
-                api.vkCmdResetQueryPool(cb, pool, 0, n);
-                RecordInputCopies(cb, bindings);
-                Record(cb, _program.Launches, bindings, (i, l, v) =>
+                int s0 = start;
+                _dev.Immediate(cb =>
                 {
-                    if (i < 0) { api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, 0); return; }
-                    api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, (uint)i + 1);
-                    if (v is null) return;
-                    var parts = l.Name.Split(' ');
-                    names[i] = s_profileDetail
-                        ? $"{l.Name} {v.Kernel.EntryPoint}"
-                        : $"{parts[0]}{(parts.Length > 2 ? " " + string.Join(" ", parts[2..]) : "")} {v.Kernel.EntryPoint} T={string.Join(",", _program.Symbols.Select(s => bindings[s]))}";
+                    api.vkCmdResetQueryPool(cb, pool, 0, n);
+                    Record(cb, slice, bindings, (i, l, v) =>
+                    {
+                        if (i < 0) { api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, 0); return; }
+                        api.vkCmdWriteTimestamp(cb, VkPipelineStageFlags.ComputeShader, pool, (uint)i + 1);
+                        if (v is not null) onLaunch?.Invoke(s0 + i, l, v);
+                    });
                 });
-                RecordOutputCopies(cb, bindings);
-            });
-            var ts = new ulong[n];
-            fixed (ulong* t = ts)
-                api.vkGetQueryPoolResults(pool, 0, n, (nuint)(n * 8), t, 8, VkQueryResultFlags.Bit64 | VkQueryResultFlags.Wait).CheckResult();
-            double tick = _dev.Phys.TimestampPeriod * 1e-6;
-            for (int i = 0; i < names.Length; i++)
+                var ts = new ulong[n];
+                fixed (ulong* t = ts)
+                    api.vkGetQueryPoolResults(pool, 0, n, (nuint)(n * 8), t, 8, VkQueryResultFlags.Bit64 | VkQueryResultFlags.Wait).CheckResult();
+                for (int i = 0; i < count; i++) result[start + i] = (ts[i + 1] - ts[i]) * tick;
+                if (s_trace) for (int i = 0; i < count; i++) if (result[start + i] > 50) Console.Error.WriteLine($"[vk]   {slice[i].Name}: {result[start + i]:F0} ms");
+            }
+            finally { api.vkDestroyQueryPool(pool, null); }
+        }
+        _dev.Immediate(cb => RecordOutputCopies(cb, bindings));
+        return result;
+    }
+
+    // ---- budgeted execution (devices where one long submission is unsafe, see DeviceInfo.SubmissionBudgetMs) ----------------
+    const int CalibrationChunk = 1;   // one launch per measured submission: a single launch is the only unit whose cost is not yet known
+    static readonly bool s_trace = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_TRACE") == "1";
+
+    sealed class Chunk
+    {
+        public int Start, End;
+        public double EstMs;
+        public VkCommandBuffer Cb;
+    }
+
+    sealed class Plan
+    {
+        public double[] Est = [];
+        public List<Chunk> Chunks = [];
+    }
+
+    readonly Dictionary<string, Plan> _plans = [];
+
+    /// <summary>
+    /// First execution of a binding set: run it in small measured submissions and derive the plan. Later executions replay the
+    /// plan, one submission (waited on) per chunk of roughly <see cref="VulkanDevice.SubmissionBudgetMs"/>. A chunk that turns
+    /// out to run much longer than estimated (e.g. attention over a longer past) is re-estimated and split further.
+    /// </summary>
+    void ExecuteBudgeted(string key, Bindings bindings)
+    {
+        foreach (var s in _program.Symbols)
+            if (bindings[s] > _options.Bound(s))
+                throw new ArgumentException($"Symbol {s}={bindings[s]} exceeds the compiled bound.");
+        var sw = Stopwatch.StartNew();
+        if (!_plans.TryGetValue(key, out var plan))
+        {
+            var est = MeasureLaunches(bindings, CalibrationChunk);
+            _plans[key] = BuildPlan(est, bindings);
+            LastGpuMs = est.Sum();
+            return;
+        }
+        double total = 0;
+        bool replan = false;
+        foreach (var c in plan.Chunks)
+        {
+            var fence = _fence;
+            _dev.Api.vkResetFences(1, &fence).CheckResult();
+            var cb = c.Cb;
+            var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
+            long t0 = Stopwatch.GetTimestamp();
+            _dev.Api.vkQueueSubmit(_dev.Queue, 1, &si, fence).CheckResult();
+            _dev.Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
+            double ms = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+            total += ms;
+            if (ms > 2 * _dev.SubmissionBudgetMs && c.End - c.Start > 1)
             {
-                if (names[i] is null) continue;
-                double ms = (ts[i + 1] - ts[i]) * tick;
-                ProfileData[names[i]] = ProfileData.TryGetValue(names[i], out var e) ? (e.Ms + ms, e.Count + 1, Math.Min(e.MinMs, ms)) : (ms, 1, ms);
+                double f = ms / Math.Max(c.EstMs, 1e-3);
+                for (int i = c.Start; i < c.End; i++) plan.Est[i] = plan.Est[i] > 0 ? plan.Est[i] * f : ms / (c.End - c.Start);
+                replan = true;
             }
         }
-        finally { api.vkDestroyQueryPool(pool, null); }
+        LastGpuMs = total;
+        if (replan)
+        {
+            foreach (var c in plan.Chunks) _dev.FreeCommandBuffer(c.Cb);
+            _plans[key] = BuildPlan(plan.Est, bindings);
+        }
+    }
+
+    Plan BuildPlan(double[] est, Bindings bindings)
+    {
+        var launches = _program.Launches;
+        var plan = new Plan { Est = est };
+        double budget = _dev.SubmissionBudgetMs;
+        int start = 0; double sum = 0;
+        for (int i = 0; i <= launches.Count; i++)
+        {
+            bool end = i == launches.Count;
+            if (end || (i > start && sum + est[i] > budget))
+            {
+                if (i > start) plan.Chunks.Add(new Chunk { Start = start, End = i, EstMs = sum });
+                start = i; sum = 0;
+            }
+            if (!end) sum += est[i];
+        }
+        if (plan.Chunks.Count == 0) plan.Chunks.Add(new Chunk { Start = 0, End = 0 });
+        for (int ci = 0; ci < plan.Chunks.Count; ci++)
+        {
+            var c = plan.Chunks[ci];
+            var cb = _dev.AllocateCommandBuffer();
+            var bi = new VkCommandBufferBeginInfo();
+            _dev.Api.vkBeginCommandBuffer(cb, &bi).CheckResult();
+            if (ci == 0) RecordInputCopies(cb, bindings);
+            else Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite,
+                VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderRead | VkAccessFlags.ShaderWrite);
+            Record(cb, launches.Skip(c.Start).Take(c.End - c.Start).ToList(), bindings);
+            if (ci == plan.Chunks.Count - 1) RecordOutputCopies(cb, bindings);
+            _dev.Api.vkEndCommandBuffer(cb).CheckResult();
+            c.Cb = cb;
+        }
+        return plan;
     }
 
     public void ResetState() => RunLaunches(_program.ResetLaunches);
@@ -492,6 +614,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         _dev.Api.vkDeviceWaitIdle();
         foreach (var cb in _recorded.Values) _dev.FreeCommandBuffer(cb);
         _recorded.Clear();
+        foreach (var p in _plans.Values) foreach (var c in p.Chunks) _dev.FreeCommandBuffer(c.Cb);
+        _plans.Clear();
         foreach (var a in _alloc.Values) _dev.Memory.Free(a);
         _alloc.Clear();
         foreach (var a in _staging.Values) _dev.Memory.Free(a);

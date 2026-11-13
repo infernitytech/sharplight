@@ -64,7 +64,7 @@ public sealed class LlmModel : IDisposable
     {
         var sw = Stopwatch.StartNew();
         var sources = ModelImporterRegistry.OpenSet(path, [.. options.Auxiliary]);
-        var def = ModelAdapterRegistry.Build(sources, options.Adapter);
+        var def = ModelAdapterRegistry.Build(sources, options.Adapter.ContextLength > 0 ? options.Adapter : options.Adapter.WithContext(options.ContextLength));
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
         return new LlmModel(def, sources.Primary, tok, options);

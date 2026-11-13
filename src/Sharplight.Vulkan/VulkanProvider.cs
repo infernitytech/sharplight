@@ -296,6 +296,8 @@ internal sealed unsafe class PhysicalDeviceInfo
         Driver = DriverVersion.ToString(),
         Uuid = Uuid,
         Features = Features,
+        // Display-driving / host-memory-sharing GPUs get a watchdog-friendly submission size; discrete GPUs run flat out.
+        SubmissionBudgetMs = Type == VkPhysicalDeviceType.IntegratedGpu ? 250 : 0,
         Capabilities = new Dictionary<string, string>
         {
             ["api_version"] = ApiVersion.ToString(),

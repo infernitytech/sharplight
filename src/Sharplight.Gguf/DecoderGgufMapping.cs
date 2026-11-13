@@ -66,6 +66,8 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
                 if (arch == "gemma3") md[a + "rope.local_base"] = g.Has("rope.freq_base_swa") ? g.Float("rope.freq_base_swa") : 10000f;
             }
         }
+        else if (arch is "llama" or "phi3" && g.Int("attention.sliding_window", 0) is > 0 and var swa)
+            md[a + "attention.sliding_window"] = swa;   // every layer (Mistral v0.1); absent / 0 = full attention
         string? scaling = g.Raw("rope.scaling.type") as string;
         if (arch == "phi3")
         {
