@@ -30,6 +30,43 @@ public sealed partial class DecoderGgufMapping
         return Enumerable.Repeat(g.Has(key) && g.Raw(key) is not Array ? g.Int(key) : fallback, nLayer).ToArray();
     }
 
+    /// <summary>
+    /// Muse Glimmer: sandwich norms, per-head q/k RMS norms whose weights carry the q scale (the GGUF stores 3.87 for q), a sigmoid attention gate,
+    /// sliding-window layers with rope alternating with full-attention NoPE layers (every <c>sliding_window_pattern</c>-th layer), weight-less norm of the
+    /// embeddings, logits scaled before the soft cap. llama.cpp does not store the post-norm epsilon (1e-8 in the reference implementation).
+    /// </summary>
+    IReadOnlyDictionary<string, object> MuseHyper(GgufMetadataView g)
+    {
+        string a = Architecture + ".";
+        int nLayer = g.Int("block_count"), nHead = g.Int("attention.head_count"), nEmbd = g.Int("embedding_length");
+        int headDim = g.Int("attention.key_length", nEmbd / nHead);
+        int pattern = g.Int("attention.sliding_window_pattern", 4);
+        var sliding = Enumerable.Range(0, nLayer).Select(il => il % pattern < pattern - 1 ? 1 : 0).ToArray();
+        var md = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [a + "layer_count"] = nLayer,
+            [a + "hidden_size"] = nEmbd,
+            [a + "ffn_hidden_size"] = g.Int("feed_forward_length"),
+            [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
+            [a + "post_norm_eps"] = Environment.GetEnvironmentVariable("MU_PNE") is { } pne ? float.Parse(pne) : 1e-8f,
+            [a + "attention.head_count"] = nHead,
+            [a + "attention.kv_head_count"] = g.Int("attention.head_count_kv", nHead),
+            [a + "attention.head_dim"] = headDim,
+            [a + "attention.sliding_window"] = g.Int("attention.sliding_window", 0),
+            [a + "attention.sliding_layers"] = sliding,
+            [a + "rope.dim"] = headDim,
+            [a + "rope.base"] = g.Has("rope.freq_base") ? g.Float("rope.freq_base") : 10000f,
+            [a + "rope.layers"] = Environment.GetEnvironmentVariable("MU_ROPE") == "all" ? sliding.Select(_ => 1).ToArray() : Environment.GetEnvironmentVariable("MU_ROPE") == "inv" ? sliding.Select(s => 1 - s).ToArray() : sliding,
+            [a + "rope.style"] = "neox",
+            [a + "mlp.activation"] = "silu",
+            [a + "embedding_norm"] = Environment.GetEnvironmentVariable("MU_EN") != "0",
+        };
+        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        if (g.Has("logit_scale")) md[a + "logit_scale"] = g.Float("logit_scale");
+        if (g.Has("final_logit_softcapping")) md[a + "final_logit_softcap"] = g.Float("final_logit_softcapping");
+        return md;
+    }
+
     IReadOnlyDictionary<string, object> Gemma4Hyper(GgufMetadataView g)
     {
         string a = Architecture + ".";

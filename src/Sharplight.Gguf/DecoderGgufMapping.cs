@@ -12,7 +12,7 @@ namespace Sharplight.Gguf;
 /// </summary>
 public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4", "muse-glimmer"];
     public string Architecture => "decoder";
 
     static bool IsGemma(string a) => a is "gemma2" or "gemma3";
@@ -22,6 +22,7 @@ public sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGguf
     {
         string arch = g.GgufArchitecture;
         if (arch == "gemma4") return Gemma4Hyper(g);
+        if (arch == "muse-glimmer") return MuseHyper(g);
         string a = Architecture + ".";
         int nEmbd = g.Int("embedding_length");
         int nHead = g.Int("attention.head_count");

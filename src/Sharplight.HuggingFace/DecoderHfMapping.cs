@@ -260,6 +260,8 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         {
             if (ExtendedRopeFactors(c) is { } ef)
                 Add(WeightInfo.Derived("rope.freq_factors", DataType.F32, new Shape(ef.Length), () => HfTransforms.EncodeF32(ef)));
+            if (c.ModelType == "muse_glimmer")
+                foreach (var (nm, v) in MuseQkNorms(c)) Add(nm);
         }
         else if (LongRope(c) is { } lr)
         {

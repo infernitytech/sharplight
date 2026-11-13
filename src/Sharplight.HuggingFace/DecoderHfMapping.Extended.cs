@@ -43,6 +43,20 @@ public sealed partial class DecoderHfMapping
         return Sharplight.Models.RopeScaling.Proportional(dim, angles, (float)RopeNumber(f, "factor", 1.0)).Factors;
     }
 
+    /// <summary>Muse Glimmer's q/k norms have no weights; canonical weights make them explicit (k: 1, q: qk_scale_factor, the scale applied to q after its norm).</summary>
+    static IEnumerable<(WeightInfo, int)> MuseQkNorms(HfConfig c)
+    {
+        int nLayer = c.Int("num_hidden_layers"), headDim = c.GetInt("head_dim") ?? c.Int("hidden_size") / c.Int("num_attention_heads");
+        float qScale = (float)(c.GetDouble("qk_scale_factor") ?? 1.0);
+        for (int il = 0; il < nLayer; il++)
+        {
+            var q = new float[headDim]; Array.Fill(q, qScale);
+            var k = new float[headDim]; Array.Fill(k, 1f);
+            yield return (WeightInfo.Derived($"layers.{il}.attention.q_norm.weight", Tensors.DataType.F32, new Tensors.Shape(headDim), () => HfTransforms.EncodeF32(q)), il);
+            yield return (WeightInfo.Derived($"layers.{il}.attention.k_norm.weight", Tensors.DataType.F32, new Tensors.Shape(headDim), () => HfTransforms.EncodeF32(k)), il);
+        }
+    }
+
     IReadOnlyDictionary<string, object> Gemma4Hyper(HfConfig c)
     {
         if (c.GetBool("enable_moe_block") == true) throw new NotSupportedException("Gemma 4 mixture-of-experts blocks are not supported yet.");
@@ -109,8 +123,6 @@ public sealed partial class DecoderHfMapping
             [a + "attention.head_count"] = nHead,
             [a + "attention.kv_head_count"] = c.GetInt("num_key_value_heads") ?? nHead,
             [a + "attention.head_dim"] = headDim,
-            [a + "attention.scale"] = (float)((c.GetDouble("qk_scale_factor") ?? 1.0) / Math.Sqrt(headDim)),   // q is scaled by qk_scale_factor after its norm
-            [a + "attention.qk_norm_unweighted"] = true,
             [a + "attention.sliding_window"] = c.GetInt("sliding_window") ?? 0,
             [a + "attention.sliding_layers"] = types.Select(t => t == "sliding_attention" ? 1 : 0).ToArray(),
             [a + "rope.dim"] = headDim,
