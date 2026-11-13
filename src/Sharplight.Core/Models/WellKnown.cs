@@ -36,6 +36,21 @@ public static class WellKnown
     public const string EmbeddingsOutput = "embeddings";
     /// <summary>Name of the logits output of the decoder and classifier graphs.</summary>
     public const string LogitsOutput = "logits";
+    /// <summary>
+    /// Name of the hidden-state output [T, H] of the decoder graphs: what the language model head reads (after the final norm),
+    /// and what a draft head (<see cref="DraftGraph"/>) takes as its <see cref="InputRole.HiddenStates"/> input.
+    /// </summary>
+    public const string HiddenOutput = "hidden";
+    /// <summary>
+    /// Multi-token-prediction draft head (MTP / NextN layers) of a decoder, for speculative decoding: inputs token ids [T] (the
+    /// token following each row's position), <see cref="InputRole.HiddenStates"/> [T, H] (the target decoder's
+    /// <see cref="HiddenOutput"/> at that position, or for chained drafts this graph's own <see cref="HiddenOutput"/>), positions
+    /// (the target positions of the hidden states) and output rows; outputs <see cref="LogitsOutput"/> [R, V] (the token two
+    /// positions ahead) and <see cref="HiddenOutput"/> [T, H] (fed back for the next draft). Attention-only state (its own KV cache).
+    /// </summary>
+    public const string DraftGraph = "mtp_draft";
+    /// <summary>Number of draft (MTP / NextN) layers a model ships (int; 0 or absent: no <see cref="DraftGraph"/>).</summary>
+    public const string DraftLayers = "draft_layers";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 

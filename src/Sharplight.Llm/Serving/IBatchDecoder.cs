@@ -35,6 +35,29 @@ public interface IBatchDecoder : IDisposable
     /// </summary>
     public void Truncate(int slot, int length);
     /// <summary>
+    /// Most rows of one <see cref="SequenceInput.Speculative"/> input (pending token plus drafts) that <see cref="Truncate"/> can
+    /// roll back until the slot's next step: unbounded when <see cref="CanTruncate"/>; for models with recurrent state the rollback
+    /// rows the decoder was compiled with (0: speculative decoding is not possible).
+    /// </summary>
+    public int MaxSpeculativeRows => CanTruncate ? int.MaxValue : 0;
+    /// <summary>Width H of the hidden states <see cref="HiddenStates"/> returns (0: the decoder does not expose them).</summary>
+    public int HiddenSize => 0;
+    /// <summary>
+    /// Whether <see cref="Step"/> downloads the hidden states of every row (what a draft head needs; costs H floats per row).
+    /// </summary>
+    /// <exception cref="NotSupportedException">Setting it on a decoder without hidden states (<see cref="HiddenSize"/> 0).</exception>
+    public bool CaptureHiddenStates
+    {
+        get => false;
+        set => throw new NotSupportedException("This decoder does not expose hidden states.");
+    }
+    /// <summary>
+    /// Hidden states [rows, <see cref="HiddenSize"/>] of the first <paramref name="rows"/> rows of input <paramref name="input"/>
+    /// of the last <see cref="Step"/>, captured with <see cref="CaptureHiddenStates"/>. Valid until the next step.
+    /// </summary>
+    /// <exception cref="NotSupportedException">The decoder does not expose hidden states.</exception>
+    public ReadOnlyMemory<float> HiddenStates(int input, int rows) => throw new NotSupportedException("This decoder does not expose hidden states.");
+    /// <summary>
     /// Most logits rows one <see cref="Step"/> can return in total (the sum of <see cref="SequenceInput.OutputRows"/>); at least
     /// <see cref="SlotCount"/>. Larger values allow speculative verification (several rows of one sequence).
     /// </summary>

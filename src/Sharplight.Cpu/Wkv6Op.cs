@@ -14,8 +14,8 @@ internal sealed unsafe class Wkv6Op : HeadRecurrenceOp
 
     public override string Name => "Wkv6";
 
-    public Wkv6Op(TRef r, TRef k, TRef v, TRef w, TRef u, TRef state, TRef y, TRef? runs)
-        : base(r, state, runs)
+    public Wkv6Op(TRef r, TRef k, TRef v, TRef w, TRef u, TRef state, TRef y, TRef? runs, RollbackTables? rollback = null)
+        : base(r, state, runs, rollback)
     {
         _r = r;
         _k = k;
@@ -41,6 +41,37 @@ internal sealed unsafe class Wkv6Op : HeadRecurrenceOp
             {
                 y[i] = UpdateDot(state + (long)i * n, r, k, w, u, v[i], n);
             }
+        }
+    }
+
+    // Record row per head: k, v, w (N each).
+    protected override void ReplayRow(float* state, float* record, int head, int row0, int row1)
+    {
+        int n = Size;
+        float* k = record + (long)head * 3 * n;
+        float* v = k + n;
+        float* w = v + n;
+        float* u = (float*)_u.P + (long)head * n;
+        for (int i = row0; i < row1; i++)
+        {
+            UpdateDot(state + (long)i * n, k, k, w, u, v[i], n);
+        }
+    }
+
+    protected override void RecordRow(float* record, long t, int head, int row0, int row1, bool first)
+    {
+        int n = Size;
+        float* rec = record + (long)head * 3 * n;
+        if (first)
+        {
+            Buffer.MemoryCopy(Row(_k, t, head), rec, n * 4L, n * 4L);
+            Buffer.MemoryCopy(Row(_w, t, head), rec + 2 * n, n * 4L, n * 4L);
+        }
+
+        float* v = Row(_v, t, head);
+        for (int i = row0; i < row1; i++)
+        {
+            rec[n + i] = v[i];
         }
     }
 

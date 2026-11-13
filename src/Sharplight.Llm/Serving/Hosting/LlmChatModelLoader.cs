@@ -55,7 +55,8 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
             IBatchDecoder decoder;
             try
             {
-                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows, owner._chat.KvCacheTokens);
+                decoder = model.CreateBatchDecoder(owner._chat.Slots, owner.Load.ContextLength, limit, logitsRows, owner._chat.KvCacheTokens,
+                    options.Speculator?.MaxDraftTokens ?? 0);
             }
             catch
             {

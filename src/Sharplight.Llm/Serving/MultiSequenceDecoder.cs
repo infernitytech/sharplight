@@ -14,6 +14,9 @@ namespace Sharplight.Llm.Serving;
 /// Paged (created with a KV block count): the caches are one pool of <see cref="KvBlockSize"/>-token blocks; a slot takes blocks
 /// as its context grows and returns them on <see cref="Reset"/> / <see cref="Truncate"/>, and full blocks can be shared
 /// between slots (<see cref="ShareKvPrefix"/>). The caller keeps steps within <see cref="KvBlocksFree"/>.
+/// Recurrent models compiled with rollback rows (<see cref="MaxSpeculativeRows"/>): a <see cref="SequenceInput.Speculative"/>
+/// input leaves the slot's recurrent state at its start and records its rows (see <see cref="RecurrentRollback"/>);
+/// <see cref="Truncate"/> then keeps any prefix of it, and the slot's next step replays the kept rows before its own.
 /// Create with <see cref="LlmModel.CreateBatchDecoder"/>. Not thread-safe.
 /// </summary>
 public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
@@ -21,7 +24,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private static readonly SamplingRow?[] s_noSampling = [];
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _rows, _runs;
-    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable;
+    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput;
     private readonly KvBlockPool? _pool;
     private readonly List<int>[] _blocks = [];   // paged: physical blocks of each slot, in position order
     private readonly int[] _tableBuf = [];       // paged: [slots, blocks per slot], -1 = unused
@@ -36,6 +39,14 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly int[] _paramBuf, _sampledBuf;
     private readonly float[] _logprobBuf;
     private readonly Memory<float>[] _results;
+    // Recurrent-state rollback (rollback rows > 0): per slot the rows of the last speculative input still recorded, the context
+    // length before it, the rows of it to replay at the slot's next step and the record bank they are in.
+    private readonly int[] _commitBuf = [];
+    private readonly int[] _pendingRows = [], _pendingBase = [], _pendingKeep = [], _readBank = [];
+    // Hidden states: the "hidden" output [T, H] read after a step when captured; the draft-head input [T, H] when the graph has one.
+    private readonly int _hiddenSize, _hiddenInputSize;
+    private float[] _hiddenBuf = [];
+    private int[] _inputRows = [];
 
     /// <inheritdoc/>
     public int SlotCount { get; }
@@ -51,6 +62,14 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     public bool BatchesSequences => true;
     /// <inheritdoc/>
     public bool CanTruncate { get; }
+    /// <inheritdoc/>
+    public int MaxSpeculativeRows { get; }
+    /// <inheritdoc/>
+    public int HiddenSize => _hiddenSize;
+    /// <inheritdoc/>
+    public bool CaptureHiddenStates { get; set; }
+    /// <summary>Width of the graph's <see cref="InputRole.HiddenStates"/> input (a draft head's), 0 when it has none.</summary>
+    internal int HiddenInputSize => _hiddenInputSize;
     internal CompiledModel Compiled => _compiled;
     /// <inheritdoc/>
     bool IDeviceSamplingDecoder.SamplesOnDevice => _samplingParams is not null;
@@ -74,7 +93,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <param name="maxLogitsRows">Bound of the <c>R</c> symbol the model was compiled with (logits rows per step).</param>
     /// <param name="kvBlockSize">Paged cache: tokens per block (0: each slot owns <paramref name="contextLength"/> rows).</param>
     /// <param name="kvBlocks">Paged cache: blocks in the pool (the compiled cache rows / <paramref name="kvBlockSize"/>).</param>
-    internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0)
+    /// <param name="rollbackRows">Rollback rows the recurrent ops were compiled with (<see cref="MultiSequence.Result.RollbackRows"/>).</param>
+    internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0,
+        int rollbackRows = 0)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -85,6 +106,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _outputRows = g.TryInput(InputRole.OutputRows);
         _samplingParams = g.TryInput(InputRole.SamplingParameters);
         _blockTable = g.TryInput(InputRole.KvBlockTable);
+        _commits = g.TryInput(InputRole.SequenceCommits);
+        _hiddenInput = g.TryInput(InputRole.HiddenStates);
+        _hiddenInputSize = _hiddenInput is null ? 0 : (int)_hiddenInput.Shape[-1].Fixed;
+        _hiddenSize = g.Outputs.TryGetValue(WellKnown.HiddenOutput, out var hidden) ? (int)hidden.Shape[-1].Fixed : 0;
         if (_blockTable is not null)
         {
             KvBlockSize = kvBlockSize;
@@ -107,6 +132,16 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         MaxBatchTokens = (int)compiled.Options.MaxTokens;
         VocabSize = (int)g.Outputs["logits"].Shape[-1].Fixed;
         CanTruncate = !hasRecurrentState;
+        MaxSpeculativeRows = CanTruncate ? int.MaxValue : _commits is null ? 0 : rollbackRows;
+        if (_commits is not null)
+        {
+            _commitBuf = new int[slots * RecurrentRollback.CommitColumns];
+            _pendingRows = new int[slots];
+            _pendingBase = new int[slots];
+            _pendingKeep = new int[slots];
+            _readBank = new int[slots];
+        }
+
         _length = new int[slots];
         _tokBuf = new int[MaxBatchTokens];
         _posBuf = new int[MaxBatchTokens * Math.Max(1, _posAxes)];
@@ -135,13 +170,17 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// Paged KV cache of this many tokens shared by all slots (rounded up to whole blocks), or 0 for a cache of
     /// <paramref name="slots"/> · <paramref name="contextLength"/> rows in fixed per-slot ranges.
     /// </param>
+    /// <param name="rollbackRows">
+    /// Most rows of one speculative input whose recurrent state can be rolled back (pending token plus drafts); 0 for none.
+    /// Only used by models with recurrent state (attention-only models roll back any number of rows).
+    /// </param>
     internal static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement, bool deviceSampling,
-        long kvCacheTokens = 0)
+        long kvCacheTokens = 0, int rollbackRows = 0)
     {
         int blockSize = kvCacheTokens > 0 ? DefaultKvBlockSize : 0;
         int blocksPerSlot = blockSize > 0 ? (contextLength + blockSize - 1) / blockSize : 0;
         int kvBlocks = blockSize > 0 ? (int)Math.Min(int.MaxValue / blockSize, (kvCacheTokens + blockSize - 1) / blockSize) : 0;
-        var ms = MultiSequence.Transform(graph, slots, blockSize, blocksPerSlot);
+        var ms = MultiSequence.Transform(graph, slots, blockSize, blocksPerSlot, rollbackRows);
         var decoderGraph = deviceSampling && SamplingHead.CanAppend(ms.Graph) ? SamplingHead.Append(ms.Graph) : ms.Graph;
         var c = placement.Compile;
         int maxLogitsRows = (int)Math.Min(maxBatchTokens, Math.Max(slots, c.SymbolBounds.GetValueOrDefault("R", 1)));
@@ -166,7 +205,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             },
         });
         bool recurrent = ms.States.Keys.Any(s => !MultiSequence.IsKvState(s));
-        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows, blockSize, kvBlocks);
+        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows);
     }
 
     /// <inheritdoc/>
@@ -181,7 +220,36 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     {
         Check(slot);
         _length[slot] = 0;
+        ClearPending(slot);
         ReleaseBlocks(slot, 0);
+    }
+
+    /// <summary>Forgets a slot's speculative rows (nothing to replay).</summary>
+    private void ClearPending(int slot)
+    {
+        if (_commits is null)
+        {
+            return;
+        }
+
+        _pendingRows[slot] = 0;
+        _pendingKeep[slot] = 0;
+    }
+
+    /// <summary>
+    /// Sets an attention-only slot's length without computing anything: rows up to <paramref name="length"/> keep whatever the
+    /// cache holds. For draft heads, whose cache only affects draft quality (a gap after a reused prefix), never on recurrent
+    /// models or paged caches.
+    /// </summary>
+    internal void SetLength(int slot, int length)
+    {
+        Check(slot);
+        if (!CanTruncate || _pool is not null || length < 0 || length > ContextLength)
+        {
+            throw new InvalidOperationException("SetLength needs an attention-only decoder with a contiguous cache.");
+        }
+
+        _length[slot] = length;
     }
 
     /// <inheritdoc/>
@@ -273,7 +341,17 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         if (length != _length[slot] && length != 0 && !CanTruncate)
         {
-            throw new NotSupportedException("This model's recurrent state cannot be truncated.");
+            // Recurrent state: only rows of the last speculative input can be dropped; the next step replays the kept ones.
+            if (_commits is null || _pendingRows[slot] == 0 || length < _pendingBase[slot])
+            {
+                throw new NotSupportedException("This model's recurrent state cannot be truncated (only the rows of its last speculative input).");
+            }
+
+            _pendingKeep[slot] = length - _pendingBase[slot];
+        }
+        else if (length == 0)
+        {
+            ClearPending(slot);
         }
 
         if (_pool is not null)
@@ -334,6 +412,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         _compiled.SetInput<int>(_rows, _rowBuf.AsSpan(0, T * 4));
         _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, count * 4));
+        if (_commits is not null)
+        {
+            _compiled.SetInput<int>(_commits, _commitBuf.AsSpan(0, count * RecurrentRollback.CommitColumns));
+        }
+
         if (_outputRows is not null)
         {
             _compiled.SetInput<int>(_outputRows, _outBuf.AsSpan(0, R));
@@ -351,7 +434,18 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _compiled.Run(_run);
         for (int u = 0; u < count; u++)
         {
-            _length[inputs[u].Slot] += inputs[u].Tokens.Length;
+            var input = inputs[u];
+            if (_commits is not null)
+            {
+                UpdatePending(input, u);
+            }
+
+            _length[input.Slot] += input.Tokens.Length;
+        }
+
+        if (CaptureHiddenStates && _hiddenSize > 0)
+        {
+            ReadHiddenStates(inputs, T);
         }
 
         if (needLogits)
@@ -384,6 +478,65 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
         return new ArraySegment<Memory<float>>(_results, 0, count);
     }
+
+    /// <summary>
+    /// After a step: a speculative input's rows are now recorded (all kept unless <see cref="Truncate"/> says otherwise, in the
+    /// bank the step did not read); any other input consumed the slot's replay.
+    /// </summary>
+    private void UpdatePending(SequenceInput input, int u)
+    {
+        int slot = input.Slot;
+        if (_commitBuf[u * RecurrentRollback.CommitColumns + 2] != 0)
+        {
+            _pendingBase[slot] = _length[slot];
+            _pendingRows[slot] = input.Tokens.Length;
+            _pendingKeep[slot] = input.Tokens.Length;
+            _readBank[slot] = 1 - _readBank[slot];
+        }
+        else
+        {
+            ClearPending(slot);
+        }
+    }
+
+    /// <summary>Downloads the hidden states of the step's <paramref name="rows"/> rows (see <see cref="HiddenStates"/>).</summary>
+    private void ReadHiddenStates(IReadOnlyList<SequenceInput> inputs, int rows)
+    {
+        if (_hiddenBuf.Length < rows * _hiddenSize)
+        {
+            _hiddenBuf = new float[(long)MaxBatchTokens * _hiddenSize];
+        }
+
+        if (_inputRows.Length < SlotCount)
+        {
+            _inputRows = new int[SlotCount];
+        }
+
+        for (int u = 0; u < inputs.Count; u++)
+        {
+            _inputRows[u] = _runBuf[u * 4 + 1];
+        }
+
+        _compiled.GetOutput<float>(WellKnown.HiddenOutput, _hiddenBuf.AsSpan(0, rows * _hiddenSize));
+    }
+
+    /// <inheritdoc/>
+    /// <exception cref="InvalidOperationException">Hidden states were not captured in the last step.</exception>
+    public ReadOnlyMemory<float> HiddenStates(int input, int rows)
+    {
+        if (!CaptureHiddenStates || _hiddenSize == 0)
+        {
+            throw new InvalidOperationException("Hidden states are not captured (set CaptureHiddenStates before the step).");
+        }
+
+        return _hiddenBuf.AsMemory(_inputRows[input] * _hiddenSize, rows * _hiddenSize);
+    }
+
+    /// <summary>
+    /// Sets the draft-head input (<see cref="InputRole.HiddenStates"/>, [T, <see cref="HiddenInputSize"/>]) for the next
+    /// <see cref="Step(IReadOnlyList{SequenceInput})"/>: one row per token of the step's inputs, in input order.
+    /// </summary>
+    internal void SetHiddenInput(ReadOnlySpan<float> rows) => _compiled.SetInput<float>(_hiddenInput!, rows);
 
     /// <summary>
     /// Validates the inputs and fills the per-step host buffers (tokens, row table, positions, runs, output rows). Returns the
@@ -447,6 +600,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _runBuf[u * 4 + 1] = T;
             _runBuf[u * 4 + 2] = n;
             _runBuf[u * 4 + 3] = pos0;
+            if (_commits is not null)
+            {
+                FillCommit(inp, u, pos0);
+            }
+
             for (int i = n - rows; i < n; i++)
             {
                 _outBuf[R++] = T + i;
@@ -456,6 +614,23 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         return (T, R);
+    }
+
+    /// <summary>The commits row of input <paramref name="u"/>: replay the slot's kept speculative rows, record this input if speculative.</summary>
+    private void FillCommit(SequenceInput input, int u, int position)
+    {
+        int slot = input.Slot;
+        bool tentative = input.Speculative && input.Tokens.Length > 1;
+        if (tentative && input.Tokens.Length > MaxSpeculativeRows)
+        {
+            throw new ArgumentException($"A speculative input of slot {slot} has {input.Tokens.Length} rows; at most {MaxSpeculativeRows} can be rolled back.");
+        }
+
+        var row = _commitBuf.AsSpan(u * RecurrentRollback.CommitColumns, RecurrentRollback.CommitColumns);
+        row[0] = position == 0 ? 0 : _pendingKeep[slot];
+        row[1] = _readBank[slot];
+        row[2] = tentative ? 1 : 0;
+        row[3] = 0;
     }
 
     /// <summary>Allocates the KV blocks every input of the step needs and uploads the block table when it changed.</summary>

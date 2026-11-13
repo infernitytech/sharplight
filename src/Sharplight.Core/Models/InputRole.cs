@@ -45,4 +45,14 @@ public enum InputRole
     /// (s, j) is the physical cache block holding positions [j · block size, (j + 1) · block size) of slot s.
     /// </summary>
     KvBlockTable,
+    /// <summary>
+    /// Multi-sequence graphs with recurrent-state rollback (<see cref="Graph.MultiSequence"/> with rollback rows, see
+    /// <see cref="Graph.RecurrentRollback"/>): per-run table [U, 4] i32 of (rows to replay from the slot's rollback records,
+    /// record bank to replay from, tentative flag, 0).
+    /// </summary>
+    SequenceCommits,
+    /// <summary>
+    /// Hidden states [T, H] f32 of a target decoder fed to a draft head (<see cref="WellKnown.DraftGraph"/>), one row per token.
+    /// </summary>
+    HiddenStates,
 }

@@ -6,6 +6,8 @@ namespace Sharplight.Cpu;
 /// <summary>
 /// Base of the per-head recurrences over square state matrices (RWKV-6/7): the rows of a head's state S[i, :] are independent, so (head, row-chunk) tasks
 /// run in parallel; sequence runs (multi-sequence form) select the slot's state and a run starting at position 0 clears it first.
+/// Rollback form: recorded rows are replayed before a run (<see cref="ReplayRow"/>); a tentative run records its rows
+/// (<see cref="RecordRow"/>) and advances a task-local copy of its state rows.
 /// </summary>
 internal abstract unsafe class HeadRecurrenceOp : CpuOp
 {
@@ -19,10 +21,14 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
     private long _u;
     private int _rowChunks;
     private int _rowsPer;
+    private readonly RollbackTables? _rollback;
+    private float* _scratch;        // tentative runs: per task, a copy of its state rows
+    private long _scratchFloats;
 
     /// <summary>Creates the base for state [(S,) H, N, N] and a token-major input of rows [T, H, N].</summary>
-    protected HeadRecurrenceOp(TRef tokens, TRef state, TRef? runs)
+    protected HeadRecurrenceOp(TRef tokens, TRef state, TRef? runs, RollbackTables? rollback)
     {
+        _rollback = rollback;
         _tokens = tokens;
         _state = state;
         _runs = runs;
@@ -46,6 +52,18 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
 
     /// <summary>Advances rows [row0, row1) of head <paramref name="head"/>'s state matrix <paramref name="state"/> (N×N, row major) over tokens [t0, t1).</summary>
     protected abstract void RunRows(float* state, long t0, long t1, int head, int row0, int row1);
+
+    /// <summary>Applies one record row (<paramref name="record"/>, the whole row) to rows [row0, row1) of the head's state, without outputs.</summary>
+    protected abstract void ReplayRow(float* state, float* record, int head, int row0, int row1);
+
+    /// <summary>
+    /// Writes token <paramref name="t"/>'s part of a record row: the per-row inputs of rows [row0, row1) and, when
+    /// <paramref name="first"/> (the head's first task), the inputs shared by all rows.
+    /// </summary>
+    protected abstract void RecordRow(float* record, long t, int head, int row0, int row1, bool first);
+
+    /// <inheritdoc/>
+    public override void Dispose() => Mem.Free((byte*)_scratch);
 
     /// <inheritdoc/>
     public override void Run(RunParameters p)
@@ -76,6 +94,13 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
 
         _rowChunks = Math.Max(1, Math.Min(_size / 8, (CpuParallel.Threads * 2 + _heads - 1) / _heads));
         _rowsPer = (_size + _rowChunks - 1) / _rowChunks;
+        if (_rollback is not null && _scratchFloats < (long)_heads * _rowChunks * _rowsPer * _size)
+        {
+            Mem.Free((byte*)_scratch);
+            _scratchFloats = (long)_heads * _rowChunks * _rowsPer * _size;
+            _scratch = (float*)Mem.Alloc(_scratchFloats * sizeof(float), false);
+        }
+
         CpuParallel.For(_heads * _rowChunks, _body);
     }
 
@@ -94,15 +119,36 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
             long slot = 0;
             long t0 = 0;
             long t1 = _t;
+            long position = 0;
             if (_runs is not null)
             {
                 int* r = (int*)_runs.P + u * 4;
                 slot = r[0];
                 t0 = r[1];
                 t1 = t0 + r[2];
+                position = r[3];
             }
 
-            RunRows((float*)_state.P + (slot * _heads + head) * _size * _size, t0, t1, head, row0, row1);
+            float* state = (float*)_state.P + (slot * _heads + head) * _size * _size;
+            var plan = _rollback?.Plan(u, slot, t1 - t0, position) ?? default;
+            for (int i = 0; i < plan.Replay; i++)
+            {
+                ReplayRow(state, plan.ReadRecords + i * _rollback!.Width, head, row0, row1);
+            }
+
+            if (plan.Tentative)
+            {
+                // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
+                float* copy = _scratch + (long)task * _rowsPer * _size;
+                Buffer.MemoryCopy(state + (long)row0 * _size, copy, (long)(row1 - row0) * _size * 4, (long)(row1 - row0) * _size * 4);
+                state = copy - (long)row0 * _size;
+                for (long t = t0; t < t1; t++)
+                {
+                    RecordRow(plan.WriteRecords + (t - t0) * _rollback!.Width, t, head, row0, row1, row0 == 0);
+                }
+            }
+
+            RunRows(state, t0, t1, head, row0, row1);
         }
     }
 }

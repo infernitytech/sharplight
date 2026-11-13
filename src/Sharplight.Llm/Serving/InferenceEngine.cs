@@ -132,7 +132,7 @@ public sealed class InferenceEngine : IDisposable
         _specViews = new ContextView[decoder.SlotCount];
         if (_opt.Speculator is { } spec)
         {
-            if (decoder.CanTruncate && decoder.MaxLogitsRows > 1)
+            if (decoder.MaxSpeculativeRows > 1 && decoder.MaxLogitsRows > 1)
             {
                 _speculator = spec;
                 for (int i = 0; i < _specRequests.Length; i++)
@@ -143,7 +143,8 @@ public sealed class InferenceEngine : IDisposable
             }
             else
             {
-                // Recurrent state cannot be rolled back over rejected drafts, and without spare logits rows nothing can be verified.
+                // Without rollback of rejected drafts (recurrent state compiled without rollback rows) or spare logits rows nothing
+                // can be verified.
                 spec.Dispose();
             }
         }
@@ -732,7 +733,7 @@ public sealed class InferenceEngine : IDisposable
             }
 
             budget.KvBlocks -= blocks;
-            AddInput(s, new SequenceInput(s.Slot!.Index, s.Input.AsMemory(0, n), true, n));
+            AddInput(s, new SequenceInput(s.Slot!.Index, s.Input.AsMemory(0, n), true, n, Speculative: n > 1));
             budget.Tokens -= n;
             budget.LogitsRows -= n;
         }
@@ -1132,7 +1133,7 @@ public sealed class InferenceEngine : IDisposable
             return;
         }
 
-        int perSequence = Math.Min(_speculator!.MaxDraftTokens, (_decoder.MaxLogitsRows / decoding) - 1);
+        int perSequence = Math.Min(Math.Min(_speculator!.MaxDraftTokens, (_decoder.MaxLogitsRows / decoding) - 1), _decoder.MaxSpeculativeRows - 1);
         foreach (var s in _active)
         {
             var slot = s.Slot!;

@@ -16,6 +16,9 @@ namespace Sharplight.Graph;
 /// input [S, blocks per slot] maps each slot's positions to blocks; CacheWrite and CachedAttention get it as their last input
 /// and attribute <c>block_size</c>.</item>
 /// <item>Other states (recurrent, conv) get a leading [S] dimension; CausalConv1d / GatedDeltaRule / SelectiveScan / Wkv6 / Wkv7 get the runs table.</item>
+/// <item>With rollback rows (<see cref="Transform(ComputeGraph, int, int, int, int)"/>): the recurrent ops take their rollback form
+/// (<see cref="RecurrentRollback"/>): the <see cref="InputRole.SequenceCommits"/> input and one record state per op, so a slot's
+/// tentative (speculative) rows can be rolled back.</item>
 /// </list>
 /// The <c>n_past</c> scalar is no longer used by the rewritten ops. A slot is cleared by zeroing its recurrent state rows
 /// (KV rows need no clearing: attention only reads rows up to each query's position).
@@ -35,6 +38,8 @@ public static class MultiSequence
         public int BlockSize { get; init; }
         /// <summary>Columns of the block table (blocks per slot) of a paged graph.</summary>
         public int BlocksPerSlot { get; init; }
+        /// <summary>Rows of one tentative run the recurrent ops can roll back (0: no rollback form, or no recurrent op).</summary>
+        public int RollbackRows { get; init; }
     }
 
     private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6"];
@@ -79,7 +84,24 @@ public static class MultiSequence
     /// <returns>The rewritten graph and the state definitions to allocate.</returns>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1, or a paged layout without blocks per slot.</exception>
     /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
-    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot)
+    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot) => Transform(g, slots, blockSize, blocksPerSlot, 0);
+
+    /// <summary>
+    /// Rewrites a single-sequence graph so it advances several independent sequences in one pass, with paged KV caches when
+    /// <paramref name="blockSize"/> is positive and recurrent ops in their rollback form when <paramref name="rollbackRows"/> is.
+    /// </summary>
+    /// <param name="g">The single-sequence graph.</param>
+    /// <param name="slots">Number of sequences ("slots") the rewritten graph serves.</param>
+    /// <param name="blockSize">Rows per KV block (0: each slot owns a contiguous range of the caches).</param>
+    /// <param name="blocksPerSlot">Block table columns: the most blocks one slot can hold (its context / <paramref name="blockSize"/>).</param>
+    /// <param name="rollbackRows">
+    /// Most rows of one tentative run whose recurrent state can be rolled back (speculative verification: pending token plus
+    /// drafts); 0 for none. Ignored when the graph has no recurrent op.
+    /// </param>
+    /// <returns>The rewritten graph and the state definitions to allocate.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="slots"/> is below 1, a paged layout without blocks per slot, or negative rollback rows.</exception>
+    /// <exception cref="NotSupportedException">A stateful op of the graph has no multi-sequence form (see <see cref="IsSupported"/>).</exception>
+    public static Result Transform(ComputeGraph g, int slots, int blockSize, int blocksPerSlot, int rollbackRows)
     {
         if (slots < 1)
         {
@@ -89,6 +111,11 @@ public static class MultiSequence
         if (blockSize < 0 || (blockSize > 0 && blocksPerSlot < 1))
         {
             throw new ArgumentOutOfRangeException(nameof(blocksPerSlot));
+        }
+
+        if (rollbackRows < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rollbackRows));
         }
 
         if (!IsSupported(g, out var why))
@@ -110,6 +137,10 @@ public static class MultiSequence
         var rows = b.Input(RowsInput, InputRole.SequenceRows, DataType.I32, new Shape(T, Dim.Of(4)));
         var runs = b.Input(RunsInput, InputRole.SequenceRuns, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(4)));
         var pages = blockSize > 0 ? b.Input(BlockTableInput, InputRole.KvBlockTable, DataType.I32, new Shape(Dim.Of(slots), Dim.Of(blocksPerSlot))) : null;
+        bool rollback = rollbackRows > 0 && g.Nodes.Any(n => RecurrentRollback.Ops.Contains(n.Op.Name));
+        var commits = rollback
+            ? b.Input(RecurrentRollback.CommitsInput, InputRole.SequenceCommits, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(RecurrentRollback.CommitColumns)))
+            : null;
         foreach (var s in g.RuntimeScalars)
         {
             if (s != WellKnown.PastScalar)
@@ -154,6 +185,7 @@ public static class MultiSequence
         {
             var ins = n.Inputs.Select(Map).ToList();
             var attrs = n.Attributes;
+            var writes = n.Writes.Select(Map).ToList();
             switch (n.Op.Name)
             {
                 case "CacheWrite":
@@ -167,6 +199,15 @@ public static class MultiSequence
                     break;
                 case "CausalConv1d" or "GatedDeltaRule" or "SelectiveScan" or "Wkv7" or "Wkv6":
                     ins.Add(runs);
+                    if (commits is not null)
+                    {
+                        var records = b.State(RecordState(n, ins, slots, rollbackRows));
+                        ins.Add(commits);
+                        ins.Add(records);
+                        writes.Add(records);
+                        attrs = attrs.With(RecurrentRollback.RowsAttribute, (long)rollbackRows);
+                    }
+
                     break;
             }
 
@@ -179,7 +220,7 @@ public static class MultiSequence
             IReadOnlyList<Value> outs;
             using (b.Group(n.Group))
             {
-                outs = b.Emit(n.Op, ins, attrs, n.Outputs.Length == 1 ? n.Outputs[0].Name : null, n.Writes.Select(Map).ToList());
+                outs = b.Emit(n.Op, ins, attrs, n.Outputs.Length == 1 ? n.Outputs[0].Name : null, writes);
             }
 
             for (int k = 0; k < outs.Count; k++)
@@ -192,6 +233,26 @@ public static class MultiSequence
             b.Output(name, Map(v));
         }
 
-        return new Result(b.Build(), states, slots) { BlockSize = blockSize, BlocksPerSlot = blockSize > 0 ? blocksPerSlot : 0 };
+        return new Result(b.Build(), states, slots)
+        {
+            BlockSize = blockSize,
+            BlocksPerSlot = blockSize > 0 ? blocksPerSlot : 0,
+            RollbackRows = rollback ? rollbackRows : 0,
+        };
+    }
+
+    /// <summary>The record state [S, banks, K, W] of a recurrent op in rollback form, named after the op's state.</summary>
+    private static StateDefinition RecordState(Node n, IReadOnlyList<Value> inputs, int slots, int rollbackRows)
+    {
+        var state = n.Inputs.First(v => v.Kind == ValueKind.State).State!;
+        long width = RecurrentRollback.RecordWidth(n.Op.Name, inputs);
+        return new StateDefinition
+        {
+            Name = state.Name + RecurrentRollback.RecordStateSuffix,
+            Type = DataType.F32,
+            Kind = StateKind.Recurrent,
+            Group = state.Group,
+            Shape = new Shape(Dim.Of(slots), Dim.Of(RecurrentRollback.Banks), Dim.Of(rollbackRows), Dim.Of(width)),
+        };
     }
 }

@@ -235,8 +235,9 @@ public static partial class StandardOps
     /// K-1 inputs. Optional 4th input: bias [C] (added before the activation), flagged by attribute <c>bias</c> (bool) or by a non-i32 type.
     /// Attribute: activation ("none" | "silu").
     /// Multi-sequence form: trailing i32 input = sequence runs [U, 4], state [S, K-1, C]; each run continues its slot's state.
+    /// Rollback form (<see cref="RecurrentRollback"/>): then the commits table and the record state.
     /// </summary>
-    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 5, (i, a) => [new(DataType.F32, i[0].Shape)]);
+    public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 7, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
     /// Gated delta rule recurrence (Gated DeltaNet linear attention).
@@ -244,8 +245,9 @@ public static partial class StandardOps
     /// Head h uses q/k head (h mod Hk). Per token: S = exp(g)·S; S += k ⊗ (v − Sᵀk)·beta; o = Sᵀq·scale.
     /// Attribute: scale. Output [T, Hv, Dv].
     /// Multi-sequence form: seventh input = sequence runs [U, 4], state [S, Hv, Dv, Dk]; each run continues its slot's state.
+    /// Rollback form (<see cref="RecurrentRollback"/>): then the commits table and the record state.
     /// </summary>
-    public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 7, (i, a) => [new(DataType.F32, i[2].Shape)]);
+    public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 9, (i, a) => [new(DataType.F32, i[2].Shape)]);
 
     /// <summary>
     /// Pools consecutive row ranges of x [T, D] (packed sequences): spans i32 [B, 2] of (first row, row count) → [B, D] f32.

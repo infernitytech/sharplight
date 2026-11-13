@@ -9,7 +9,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     private void LowerCausalConv1d(Node n)
     {
         var a = n.Attributes;
-        var ins = n.Inputs;
+        var ins = BaseInputs(n);
         var x = RowContig(RefF32(ins[0]));
         var weight = RefF32(ins[1]);
         var state = Ref(ins[2]);
@@ -24,14 +24,15 @@ internal sealed unsafe partial class CpuCompiledSegment
         bool hasBias = a.Get("bias", false) || (ins.Length > 3 && ins[3].Type != DataType.I32);
         TRef? bias = hasBias ? Dense(RefF32(ins[3])) : null;
         TRef? runs = ins.Length > (hasBias ? 4 : 3) ? Dense(Ref(ins[^1])) : null;
-        var conv = new CausalConv1dOp(x, weight, state, y, a.Get("activation", "none") == "silu", weightIsStatic, bias, runs);
-        AddStep(conv, Touched(x, weight, state, y, bias, runs));
+        var (rollback, commits, records) = LowerRollback(n);
+        var conv = new CausalConv1dOp(x, weight, state, y, a.Get("activation", "none") == "silu", weightIsStatic, bias, runs, rollback);
+        AddStep(conv, Touched(x, weight, state, y, bias, runs, commits, records));
         _refs[n.Output] = y;
     }
 
     private void LowerSelectiveScan(Node n)
     {
-        var ins = n.Inputs;
+        var ins = BaseInputs(n);
         var x = RowContig(Ref(ins[0]));
         var dt = RowContig(Ref(ins[1]));
         var dtBias = Dense(RefF32(ins[2]));
@@ -42,13 +43,15 @@ internal sealed unsafe partial class CpuCompiledSegment
         var state = Ref(ins[7]);
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 8 ? Dense(Ref(ins[8])) : null;
-        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f), runs), Touched(x, dt, dtBias, a, b, c, d, state, runs, y));
+        var (rollback, commits, records) = LowerRollback(n);
+        AddStep(new SelectiveScanOp(x, dt, dtBias, a, b, c, d, state, y, n.Attributes.Get("dt_min", 0f), runs, rollback),
+            Touched(x, dt, dtBias, a, b, c, d, state, runs, y, commits, records));
         _refs[n.Output] = y;
     }
 
     private void LowerGatedDeltaRule(Node n)
     {
-        var ins = n.Inputs;
+        var ins = BaseInputs(n);
         var q = RowContig(Ref(ins[0]));
         var k = RowContig(Ref(ins[1]));
         var v = RowContig(Ref(ins[2]));
@@ -57,13 +60,15 @@ internal sealed unsafe partial class CpuCompiledSegment
         var state = Ref(ins[5]);
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
-        AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), runs), Touched(q, k, v, g, beta, state, runs, y));
+        var (rollback, commits, records) = LowerRollback(n);
+        AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), runs, rollback),
+            Touched(q, k, v, g, beta, state, runs, y, commits, records));
         _refs[n.Output] = y;
     }
 
     private void LowerWkv7(Node n)
     {
-        var ins = n.Inputs;
+        var ins = BaseInputs(n);
         var r = RowContig(Ref(ins[0]));
         var w = RowContig(Ref(ins[1]));
         var k = RowContig(Ref(ins[2]));
@@ -73,13 +78,14 @@ internal sealed unsafe partial class CpuCompiledSegment
         var state = Ref(ins[6]);
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 7 ? Dense(Ref(ins[7])) : null;
-        AddStep(new Wkv7Op(r, w, k, v, a, b, state, y, runs), Touched(r, w, k, v, a, b, state, runs, y));
+        var (rollback, commits, records) = LowerRollback(n);
+        AddStep(new Wkv7Op(r, w, k, v, a, b, state, y, runs, rollback), Touched(r, w, k, v, a, b, state, runs, y, commits, records));
         _refs[n.Output] = y;
     }
 
     private void LowerWkv6(Node n)
     {
-        var ins = n.Inputs;
+        var ins = BaseInputs(n);
         var r = RowContig(Ref(ins[0]));
         var k = RowContig(Ref(ins[1]));
         var v = RowContig(Ref(ins[2]));
@@ -88,7 +94,24 @@ internal sealed unsafe partial class CpuCompiledSegment
         var state = Ref(ins[5]);
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
-        AddStep(new Wkv6Op(r, k, v, w, u, state, y, runs), Touched(r, k, v, w, u, state, runs, y));
+        var (rollback, commits, records) = LowerRollback(n);
+        AddStep(new Wkv6Op(r, k, v, w, u, state, y, runs, rollback), Touched(r, k, v, w, u, state, runs, y, commits, records));
         _refs[n.Output] = y;
+    }
+
+    /// <summary>The inputs of a recurrent op without the trailing rollback inputs (see <see cref="RecurrentRollback"/>).</summary>
+    private static Value[] BaseInputs(Node n) => [.. n.Inputs.Take(RecurrentRollback.BaseInputCount(n))];
+
+    /// <summary>The rollback tables of a recurrent op in rollback form (commits table and record state), or nulls.</summary>
+    private (RollbackTables? Tables, TRef? Commits, TRef? Records) LowerRollback(Node n)
+    {
+        if (!RecurrentRollback.IsRollbackForm(n))
+        {
+            return (null, null, null);
+        }
+
+        var commits = Dense(Ref(n.Inputs[^2]));
+        var records = Ref(n.Inputs[^1]);
+        return (new RollbackTables(commits, records), commits, records);
     }
 }

@@ -116,14 +116,20 @@ public sealed class LlmModel : IDisposable
     /// shared by all slots, each slot growing up to <paramref name="contextLength"/> as its sequence needs, so many short
     /// sequences fit in the memory of a few long ones. Null: every slot owns <paramref name="contextLength"/> cache rows.
     /// </param>
+    /// <param name="draftTokens">
+    /// Speculative decoding: the most draft tokens per sequence and step the decoder must verify and roll back (0: none). Models
+    /// with recurrent state get their recurrent ops compiled in rollback form for <c>draftTokens + 1</c> rows (see
+    /// <see cref="Graph.RecurrentRollback"/>; <see cref="Serving.IBatchDecoder.MaxSpeculativeRows"/>), and a single slot still
+    /// gets a multi-sequence decoder. Size <paramref name="maxLogitsRows"/> for the verification rows as well.
+    /// </param>
     public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
-        long? kvCacheTokens = null)
+        long? kvCacheTokens = null, int draftTokens = 0)
     {
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
-        if (slots <= 1 || !Graph.MultiSequence.IsSupported(graph, out why))
+        if ((slots <= 1 && draftTokens <= 0) || !Graph.MultiSequence.IsSupported(graph, out why))
         {
-            if (slots > 1)
+            if (slots > 1 || draftTokens > 0)
             {
                 _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
             }
@@ -134,7 +140,8 @@ public sealed class LlmModel : IDisposable
         var sw = Stopwatch.StartNew();
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged);
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged,
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;

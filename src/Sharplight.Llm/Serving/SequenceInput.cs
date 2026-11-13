@@ -8,7 +8,11 @@ namespace Sharplight.Llm.Serving;
 /// How many trailing rows of <paramref name="Tokens"/> return logits when <paramref name="WantLogits"/> (1 = the last row only;
 /// more for speculative verification, at most <see cref="IBatchDecoder.MaxLogitsRows"/> summed over a step).
 /// </param>
-public readonly record struct SequenceInput(int Slot, ReadOnlyMemory<int> Tokens, bool WantLogits = true, int LogitsRows = 1)
+/// <param name="Speculative">
+/// The rows after the first are draft tokens: right after the step, <see cref="IBatchDecoder.Truncate"/> may drop any of the
+/// input's rows (at most <see cref="IBatchDecoder.MaxSpeculativeRows"/> rows), also on models with recurrent state.
+/// </param>
+public readonly record struct SequenceInput(int Slot, ReadOnlyMemory<int> Tokens, bool WantLogits = true, int LogitsRows = 1, bool Speculative = false)
 {
     /// <summary>Rows of logits this input produces: <see cref="LogitsRows"/> clamped to [1, token count], or 0 without logits.</summary>
     public int OutputRows => WantLogits ? Math.Clamp(LogitsRows, 1, Math.Max(1, Tokens.Length)) : 0;

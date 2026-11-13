@@ -5,7 +5,8 @@ namespace Sharplight.Cpu;
 
 /// <summary>
 /// Selective scan (see <c>StandardOps.SelectiveScan</c>; Mamba-2, or Mamba-1 when A is [H, N]): per head sequential over tokens; the P rows of a head's
-/// state matrix S[p, :N] are independent, so (head, row-chunk) tasks run in parallel and N is vectorized.
+/// state matrix S[p, :N] are independent, so (head, row-chunk) tasks run in parallel and N is vectorized. Rollback form: a record
+/// row holds x (P) and the raw dt per head, then B [G, N]; a tentative run advances a task-local copy of its state rows.
 /// </summary>
 internal sealed unsafe class SelectiveScanOp : CpuOp
 {
@@ -30,10 +31,15 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     private long _u;
     private int _pChunks;
     private int _pPer;
+    private readonly RollbackTables? _rollback;
+    private float* _scratch;        // tentative runs: per task, a copy of its state rows
+    private long _scratchFloats;
     public override string Name => "SelectiveScan";
 
-    public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin, TRef? runs = null)
+    public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin, TRef? runs = null,
+        RollbackTables? rollback = null)
     {
+        _rollback = rollback;
         _x = x;
         _dt = dt;
         _dtBias = dtBias;
@@ -102,8 +108,17 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
 
         _pChunks = Math.Max(1, Math.Min(_p / 4, (CpuParallel.Threads * 2 + _h - 1) / _h));
         _pPer = (_p + _pChunks - 1) / _pChunks;
+        if (_rollback is not null && _scratchFloats < (long)_h * _pChunks * _pPer * _n)
+        {
+            Mem.Free((byte*)_scratch);
+            _scratchFloats = (long)_h * _pChunks * _pPer * _n;
+            _scratch = (float*)Mem.Alloc(_scratchFloats * sizeof(float), false);
+        }
+
         CpuParallel.For(_h * _pChunks, _body);
     }
+
+    public override void Dispose() => Mem.Free((byte*)_scratch);
 
     private static float Softplus(float v) => v > 20f ? v : (float)Math.Log(1.0 + Math.Exp(v));
 
@@ -122,39 +137,79 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         float bias = ((float*)_dtBias.P)[h];
         float A = _aPerState ? 0f : ((float*)_a.P)[h];
         float D = ((float*)_d.P)[h];
+        long xAt = (long)h * (_p + 1);
+        long bAt = (long)_h * (_p + 1) + (long)g * _n;
+        long width = _rollback?.Width ?? 0;
+        bool recordsB = pc == 0 && h % (_h / _g) == 0;
         for (long u = 0; u < _u; u++)
         {
             long slot = 0;
             long t0 = 0;
             long t1 = _t;
+            long position = 0;
             if (_runs is not null)
             {
                 int* r = (int*)_runs.P + u * 4;
                 slot = r[0];
                 t0 = r[1];
                 t1 = t0 + r[2];
+                position = r[3];
             }
 
             float* S = (float*)_state.P + (slot * _h + h) * (long)_p * _n;
-            ScanRun(S, t0, t1, g, h, p0, p1, bias, A, D);
+            var plan = _rollback?.Plan(u, slot, t1 - t0, position) ?? default;
+            for (int i = 0; i < plan.Replay; i++)
+            {
+                float* rec = plan.ReadRecords + i * width;
+                StepRow(S, rec[xAt + _p], rec + bAt, rec + bAt, rec + xAt, null, h, p0, p1, bias, A, D);
+            }
+
+            if (plan.Tentative)
+            {
+                // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
+                float* copy = _scratch + (long)task * _pPer * _n;
+                Buffer.MemoryCopy(S + (long)p0 * _n, copy, (long)(p1 - p0) * _n * 4, (long)(p1 - p0) * _n * 4);
+                S = copy - (long)p0 * _n;
+            }
+
+            for (long t = t0; t < t1; t++)
+            {
+                float dtRaw = ((float*)_dt.P)[t * _dt.Strides[0] + h * _dt.Strides[1]];
+                float* B = (float*)_b.P + t * _b.Strides[0] + g * _b.Strides[1];
+                float* C = (float*)_c.P + t * _c.Strides[0] + g * _c.Strides[1];
+                float* x = (float*)_x.P + t * _x.Strides[0] + h * _x.Strides[1];
+                if (plan.Tentative)
+                {
+                    float* rec = plan.WriteRecords + (t - t0) * width;
+                    Buffer.MemoryCopy(x + p0, rec + xAt + p0, (long)(p1 - p0) * 4, (long)(p1 - p0) * 4);
+                    if (pc == 0)
+                    {
+                        rec[xAt + _p] = dtRaw;
+                    }
+
+                    if (recordsB)
+                    {
+                        Buffer.MemoryCopy(B, rec + bAt, _n * 4L, _n * 4L);
+                    }
+                }
+
+                StepRow(S, dtRaw, B, C, x, (float*)_y.P + (t * _h + h) * _p, h, p0, p1, bias, A, D);
+            }
         }
     }
 
-    private void ScanRun(float* S, long t0, long t1, int g, int h, int p0, int p1, float bias, float A, float D)
+    /// <summary>Advances rows [p0, p1) of head <paramref name="h"/> by one token; writes y unless <paramref name="y"/> is null (replay).</summary>
+    private void StepRow(float* S, float dtRaw, float* B, float* C, float* x, float* y, int h, int p0, int p1, float bias, float A, float D)
     {
-        for (long t = t0; t < t1; t++)
+        float dt = MathF.Max(Softplus(dtRaw + bias), _dtMin);
+        float decay = _aPerState ? 0f : MathF.Exp(dt * A);
+        for (int p = p0; p < p1; p++)
         {
-            float dt = MathF.Max(Softplus(((float*)_dt.P)[t * _dt.Strides[0] + h * _dt.Strides[1]] + bias), _dtMin);
-            float decay = _aPerState ? 0f : MathF.Exp(dt * A);
-            float* B = (float*)_b.P + t * _b.Strides[0] + g * _b.Strides[1];
-            float* C = (float*)_c.P + t * _c.Strides[0] + g * _c.Strides[1];
-            float* x = (float*)_x.P + t * _x.Strides[0] + h * _x.Strides[1];
-            float* y = (float*)_y.P + (t * _h + h) * _p;
-            for (int p = p0; p < p1; p++)
+            float xp = x[p];
+            float* row = S + (long)p * _n;
+            float dot = _aPerState ? DecayUpdateDotPerState(row, B, C, (float*)_a.P + (long)h * _n, dt, dt * xp, _n) : DecayUpdateDot(row, B, C, decay, dt * xp, _n);
+            if (y != null)
             {
-                float xp = x[p];
-                float* row = S + (long)p * _n;
-                float dot = _aPerState ? DecayUpdateDotPerState(row, B, C, (float*)_a.P + (long)h * _n, dt, dt * xp, _n) : DecayUpdateDot(row, B, C, decay, dt * xp, _n);
                 y[p] = dot + D * xp;
             }
         }
