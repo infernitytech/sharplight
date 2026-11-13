@@ -9,26 +9,50 @@ namespace Sharplight.Cpu;
 /// </summary>
 internal sealed unsafe class BatchMatMulOp : CpuOp
 {
-    private readonly TRef _a, _b, _y;
-    private readonly bool _ta, _tb; private readonly float _alpha;
+    private readonly TRef _a;
+    private readonly TRef _b;
+    private readonly TRef _y;
+    private readonly bool _ta;
+    private readonly bool _tb;
+    private readonly float _alpha;
     private readonly Action<int> _body;
     [ThreadStatic] private static float[]? s_scratch;
 
     // per-run state
-    private int _batchRank; private long[] _bdims = [], _sa = [], _sb = [];
-    private long _m, _n, _k, _batch, _asm, _ask, _bsk, _bsn;
-    private int _mpt, _ntt, _mBlocks, _nBlocks;
+    private int _batchRank;
+    private long[] _bdims = [];
+    private long[] _sa = [];
+    private long[] _sb = [];
+    private long _m;
+    private long _n;
+    private long _k;
+    private long _batch;
+    private long _asm;
+    private long _ask;
+    private long _bsk;
+    private long _bsn;
+    private int _mpt;
+    private int _ntt;
+    private int _mBlocks;
+    private int _nBlocks;
 
     public override string Name => "BatchMatMul";
 
     public BatchMatMulOp(TRef a, TRef b, TRef y, bool transA, bool transB, float alpha)
     {
-        _a = a; _b = b; _y = y; _ta = transA; _tb = transB; _alpha = alpha; _body = Body;
+        _a = a;
+        _b = b;
+        _y = y;
+        _ta = transA;
+        _tb = transB;
+        _alpha = alpha;
+        _body = Body;
     }
 
     private static long[] AlignedBatchStrides(TRef t, long[] od, RunParameters p)
     {
-        int br = od.Length, tr = t.Rank - 2;
+        int br = od.Length;
+        int tr = t.Rank - 2;
         var s = new long[br];
         for (int k = 0; k < br; k++)
         {
@@ -46,23 +70,37 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
 
     public override void Run(RunParameters p)
     {
-        int ra = _a.Rank, rb = _b.Rank;
+        int ra = _a.Rank;
+        int rb = _b.Rank;
         _batchRank = Math.Max(ra, rb) - 2;
         _bdims = new long[_batchRank];
         for (int k = 0; k < _batchRank; k++)
         {
-            int ia = k - (_batchRank - (ra - 2)), ib = k - (_batchRank - (rb - 2));
-            long da = ia >= 0 ? _a.Dim(ia, p) : 1, db = ib >= 0 ? _b.Dim(ib, p) : 1;
+            int ia = k - (_batchRank - (ra - 2));
+            int ib = k - (_batchRank - (rb - 2));
+            long da = ia >= 0 ? _a.Dim(ia, p) : 1;
+            long db = ib >= 0 ? _b.Dim(ib, p) : 1;
             _bdims[k] = Math.Max(da, db);
         }
-        _sa = AlignedBatchStrides(_a, _bdims, p); _sb = AlignedBatchStrides(_b, _bdims, p);
-        long ar = _a.Dim(ra - 2, p), ac = _a.Dim(ra - 1, p), br2 = _b.Dim(rb - 2, p), bc = _b.Dim(rb - 1, p);
-        _m = _ta ? ac : ar; _k = _ta ? ar : ac; _n = _tb ? br2 : bc;
-        long ssm = _a.Strides[ra - 2], ssk = _a.Strides[ra - 1];
-        _asm = _ta ? ssk : ssm; _ask = _ta ? ssm : ssk;
-        long bs0 = _b.Strides[rb - 2], bs1 = _b.Strides[rb - 1];
-        _bsk = _tb ? bs1 : bs0; _bsn = _tb ? bs0 : bs1;
-        _batch = 1; foreach (var d in _bdims)
+        _sa = AlignedBatchStrides(_a, _bdims, p);
+        _sb = AlignedBatchStrides(_b, _bdims, p);
+        long ar = _a.Dim(ra - 2, p);
+        long ac = _a.Dim(ra - 1, p);
+        long br2 = _b.Dim(rb - 2, p);
+        long bc = _b.Dim(rb - 1, p);
+        _m = _ta ? ac : ar;
+        _k = _ta ? ar : ac;
+        _n = _tb ? br2 : bc;
+        long ssm = _a.Strides[ra - 2];
+        long ssk = _a.Strides[ra - 1];
+        _asm = _ta ? ssk : ssm;
+        _ask = _ta ? ssm : ssk;
+        long bs0 = _b.Strides[rb - 2];
+        long bs1 = _b.Strides[rb - 1];
+        _bsk = _tb ? bs1 : bs0;
+        _bsn = _tb ? bs0 : bs1;
+        _batch = 1;
+        foreach (var d in _bdims)
         {
             _batch *= d;
         }
@@ -72,12 +110,19 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
             return;
         }
 
-        if (_k == 0) { new Span<float>(_y.P, (int)(_batch * _m * _n)).Clear(); return; }
+        if (_k == 0)
+        {
+            new Span<float>(_y.P, (int)(_batch * _m * _n)).Clear();
+            return;
+        }
 
-        int MR = Gemm.MR, NR = Gemm.NR;
-        int mp = (int)((_m + MR - 1) / MR), nt = (int)((_n + NR - 1) / NR);
-        int mpt = Math.Min(mp, 8), ntt = Math.Min(nt, 4);
-        long target = 2L * Par.Threads;
+        int MR = Gemm.MR;
+        int NR = Gemm.NR;
+        int mp = (int)((_m + MR - 1) / MR);
+        int nt = (int)((_n + NR - 1) / NR);
+        int mpt = Math.Min(mp, 8);
+        int ntt = Math.Min(nt, 4);
+        long target = 2L * CpuParallel.Threads;
         while (_batch * ((mp + mpt - 1) / mpt) * (long)((nt + ntt - 1) / ntt) < target && (mpt > 1 || ntt > 1))
         {
             if (mpt >= ntt && mpt > 1)
@@ -89,25 +134,37 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
                 ntt = (ntt + 1) / 2;
             }
         }
-        _mpt = mpt; _ntt = ntt;
-        _mBlocks = (mp + mpt - 1) / mpt; _nBlocks = (nt + ntt - 1) / ntt;
+        _mpt = mpt;
+        _ntt = ntt;
+        _mBlocks = (mp + mpt - 1) / mpt;
+        _nBlocks = (nt + ntt - 1) / ntt;
         long tasks = _batch * _mBlocks * _nBlocks;
-        Par.For((int)tasks, _body);
+        CpuParallel.For((int)tasks, _body);
     }
 
     private void Body(int task)
     {
-        int MR = Gemm.MR, NR = Gemm.NR, KC = Gemm.KC;
-        int nb = task % _nBlocks; int rest = task / _nBlocks;
-        int mb = rest % _mBlocks; long bi = rest / _mBlocks;
+        int MR = Gemm.MR;
+        int NR = Gemm.NR;
+        int KC = Gemm.KC;
+        int nb = task % _nBlocks;
+        int rest = task / _nBlocks;
+        int mb = rest % _mBlocks;
+        long bi = rest / _mBlocks;
         // batch offsets
-        long ao = 0, bo = 0, rem = bi;
+        long ao = 0;
+        long bo = 0;
+        long rem = bi;
         for (int k = _batchRank - 1; k >= 0; k--)
         {
-            long d = _bdims[k]; long ix = rem % d; rem /= d;
-            ao += ix * _sa[k]; bo += ix * _sb[k];
+            long d = _bdims[k];
+            long ix = rem % d;
+            rem /= d;
+            ao += ix * _sa[k];
+            bo += ix * _sb[k];
         }
-        float* a = (float*)_a.P + ao; float* b = (float*)_b.P + bo;
+        float* a = (float*)_a.P + ao;
+        float* b = (float*)_b.P + bo;
         float* c = (float*)_y.P + bi * _m * _n;
 
         int need = _mpt * MR * KC + _ntt * NR * KC;
@@ -119,10 +176,14 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
 
         fixed (float* scp = sc)
         {
-            float* apack = scp; float* bpack = scp + _mpt * MR * KC;
-            long m0 = (long)mb * _mpt * MR, m1 = Math.Min(_m, m0 + (long)_mpt * MR);
-            long n0 = (long)nb * _ntt * NR, n1 = Math.Min(_n, n0 + (long)_ntt * NR);
-            int np = (int)((m1 - m0 + MR - 1) / MR), ntl = (int)((n1 - n0 + NR - 1) / NR);
+            float* apack = scp;
+            float* bpack = scp + _mpt * MR * KC;
+            long m0 = (long)mb * _mpt * MR;
+            long m1 = Math.Min(_m, m0 + (long)_mpt * MR);
+            long n0 = (long)nb * _ntt * NR;
+            long n1 = Math.Min(_n, n0 + (long)_ntt * NR);
+            int np = (int)((m1 - m0 + MR - 1) / MR);
+            int ntl = (int)((n1 - n0 + NR - 1) / NR);
             for (long kb = 0; kb < _k; kb += KC)
             {
                 int kc = (int)Math.Min(KC, _k - kb);
@@ -138,11 +199,14 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
                 }
                 for (int ti = 0; ti < ntl; ti++)
                 {
-                    long c0 = n0 + (long)ti * NR; int cols = (int)Math.Min(NR, n1 - c0);
+                    long c0 = n0 + (long)ti * NR;
+                    int cols = (int)Math.Min(NR, n1 - c0);
                     for (int pi = 0; pi < np; pi++)
                     {
-                        long r0 = m0 + (long)pi * MR; int rows = (int)Math.Min(MR, m1 - r0);
-                        float* ap = apack + (long)pi * MR * KC, bp = bpack + (long)ti * NR * KC;
+                        long r0 = m0 + (long)pi * MR;
+                        int rows = (int)Math.Min(MR, m1 - r0);
+                        float* ap = apack + (long)pi * MR * KC;
+                        float* bp = bpack + (long)ti * NR * KC;
                         float* cp = c + r0 * _n + c0;
                         if (rows == MR && cols == NR)
                         {

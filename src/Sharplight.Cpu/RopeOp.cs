@@ -5,21 +5,33 @@ namespace Sharplight.Cpu;
 /// <summary>Rotary embedding (plain, neox, gptj, multi-axis and interleaved multi-axis).</summary>
 internal sealed unsafe class RopeOp : CpuOp
 {
-    private readonly TRef _x, _pos, _y; private readonly TRef? _ff;
-    private readonly int _dims, _d, _h, _axes;
-    private readonly bool _neox, _interleaved;
+    private readonly TRef _x;
+    private readonly TRef _pos;
+    private readonly TRef _y;
+    private readonly TRef? _ff;
+    private readonly int _dims;
+    private readonly int _d;
+    private readonly int _h;
+    private readonly int _axes;
+    private readonly bool _neox;
+    private readonly bool _interleaved;
     private readonly int[] _sections;
     private readonly float _freqScale;
     private readonly double[] _invFreq;   // base^(-2i/dims) * freq_scale
     private readonly int[] _axisOfPair;
     private readonly Action<int> _body;
-    private long _t, _per;
+    private long _t;
+    private long _per;
     public override string Name => "Rope";
 
     public RopeOp(TRef x, TRef pos, TRef? ff, TRef y, int dims, float @base, string style, int[] sections, bool interleaved, float freqScale)
     {
-        _x = x; _pos = pos; _ff = ff; _y = y;
-        _d = (int)x.Dims[2]; _h = (int)x.Dims[1];
+        _x = x;
+        _pos = pos;
+        _ff = ff;
+        _y = y;
+        _d = (int)x.Dims[2];
+        _h = (int)x.Dims[1];
         _dims = dims <= 0 ? _d : dims;
         if (_dims > _d || (_dims & 1) != 0)
         {
@@ -96,14 +108,15 @@ internal sealed unsafe class RopeOp : CpuOp
             return;
         }
 
-        int chunks = (int)Math.Min(_t, Par.Chunks(_t * _h * _d, 16384));
+        int chunks = (int)Math.Min(_t, CpuParallel.Chunks(_t * _h * _d, 16384));
         _per = (_t + chunks - 1) / chunks;
-        Par.For(chunks, _body);
+        CpuParallel.For(chunks, _body);
     }
 
     private void Body(int c)
     {
-        long s = c * _per, e = Math.Min(_t, s + _per);
+        long s = c * _per;
+        long e = Math.Min(_t, s + _per);
         int half = _dims / 2;
         float* cs = stackalloc float[half * 2];
         double* pp = stackalloc double[4];
@@ -135,7 +148,8 @@ internal sealed unsafe class RopeOp : CpuOp
                 {
                     for (int i = 0; i < half; i++)
                     {
-                        float x0 = x[i], x1 = x[i + half];
+                        float x0 = x[i];
+                        float x1 = x[i + half];
                         y[i] = x0 * cs[2 * i] - x1 * cs[2 * i + 1];
                         y[i + half] = x0 * cs[2 * i + 1] + x1 * cs[2 * i];
                     }
@@ -144,7 +158,8 @@ internal sealed unsafe class RopeOp : CpuOp
                 {
                     for (int i = 0; i < half; i++)
                     {
-                        float x0 = x[2 * i], x1 = x[2 * i + 1];
+                        float x0 = x[2 * i];
+                        float x1 = x[2 * i + 1];
                         y[2 * i] = x0 * cs[2 * i] - x1 * cs[2 * i + 1];
                         y[2 * i + 1] = x0 * cs[2 * i + 1] + x1 * cs[2 * i];
                     }

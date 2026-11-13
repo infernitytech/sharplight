@@ -10,14 +10,27 @@ namespace Sharplight.Cpu;
 /// </summary>
 internal static unsafe class Gemm
 {
-    public static readonly int MR, NR;
+    public static readonly int MR;
+    public static readonly int NR;
     public const int KC = 256;
 
     static Gemm()
     {
-        if (Vector512.IsHardwareAccelerated) { MR = 8; NR = 32; }
-        else if (Vector256.IsHardwareAccelerated) { MR = 6; NR = 16; }
-        else { MR = 4; NR = 8; }
+        if (Vector512.IsHardwareAccelerated)
+        {
+            MR = 8;
+            NR = 32;
+        }
+        else if (Vector256.IsHardwareAccelerated)
+        {
+            MR = 6;
+            NR = 16;
+        }
+        else
+        {
+            MR = 4;
+            NR = 8;
+        }
     }
 
     /// <summary>Full MR x NR tile.</summary>
@@ -64,7 +77,8 @@ internal static unsafe class Gemm
 
     private static void KScalar(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
-        const int mr = 4, nr = 8;
+        const int mr = 4;
+        const int nr = 8;
         float* t = stackalloc float[mr * nr];
         for (int i = 0; i < mr; i++)
         {
@@ -125,7 +139,11 @@ internal static unsafe class Gemm
             float* s = src + k * sk;
             if (sn == 1 && cols == nr)
             {
-                if (nr == 32) { Vector512.Load(s).Store(d); Vector512.Load(s + 16).Store(d + 16); }
+                if (nr == 32)
+                {
+                    Vector512.Load(s).Store(d);
+                    Vector512.Load(s + 16).Store(d + 16);
+                }
                 else
                 {
                     for (int j = 0; j < nr; j++)
@@ -152,7 +170,22 @@ internal static unsafe class Gemm
 
     private static void K8x32(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
-        Vector512<float> c00, c01, c10, c11, c20, c21, c30, c31, c40, c41, c50, c51, c60, c61, c70, c71;
+        Vector512<float> c00;
+        Vector512<float> c01;
+        Vector512<float> c10;
+        Vector512<float> c11;
+        Vector512<float> c20;
+        Vector512<float> c21;
+        Vector512<float> c30;
+        Vector512<float> c31;
+        Vector512<float> c40;
+        Vector512<float> c41;
+        Vector512<float> c50;
+        Vector512<float> c51;
+        Vector512<float> c60;
+        Vector512<float> c61;
+        Vector512<float> c70;
+        Vector512<float> c71;
         if (acc)
         {
             c00 = Vector512.Load(c + 0 * ldc + 0);
@@ -174,14 +207,22 @@ internal static unsafe class Gemm
         }
         else if (bias != null)
         {
-            c00 = Vector512.Create(bias[0]); c01 = c00;
-            c10 = Vector512.Create(bias[1]); c11 = c10;
-            c20 = Vector512.Create(bias[2]); c21 = c20;
-            c30 = Vector512.Create(bias[3]); c31 = c30;
-            c40 = Vector512.Create(bias[4]); c41 = c40;
-            c50 = Vector512.Create(bias[5]); c51 = c50;
-            c60 = Vector512.Create(bias[6]); c61 = c60;
-            c70 = Vector512.Create(bias[7]); c71 = c70;
+            c00 = Vector512.Create(bias[0]);
+            c01 = c00;
+            c10 = Vector512.Create(bias[1]);
+            c11 = c10;
+            c20 = Vector512.Create(bias[2]);
+            c21 = c20;
+            c30 = Vector512.Create(bias[3]);
+            c31 = c30;
+            c40 = Vector512.Create(bias[4]);
+            c41 = c40;
+            c50 = Vector512.Create(bias[5]);
+            c51 = c50;
+            c60 = Vector512.Create(bias[6]);
+            c61 = c60;
+            c70 = Vector512.Create(bias[7]);
+            c71 = c70;
         }
         else
         {
@@ -230,7 +271,8 @@ internal static unsafe class Gemm
             var a7 = Vector512.Create(a[7]);
             c70 = Vector512.FusedMultiplyAdd(a7, b0, c70);
             c71 = Vector512.FusedMultiplyAdd(a7, b1, c71);
-            a += 8; b += ldb;
+            a += 8;
+            b += ldb;
         }
         c00.Store(c + 0 * ldc + 0);
         c01.Store(c + 0 * ldc + 16);
@@ -252,7 +294,18 @@ internal static unsafe class Gemm
 
     private static void K6x16(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
-        Vector256<float> c00, c01, c10, c11, c20, c21, c30, c31, c40, c41, c50, c51;
+        Vector256<float> c00;
+        Vector256<float> c01;
+        Vector256<float> c10;
+        Vector256<float> c11;
+        Vector256<float> c20;
+        Vector256<float> c21;
+        Vector256<float> c30;
+        Vector256<float> c31;
+        Vector256<float> c40;
+        Vector256<float> c41;
+        Vector256<float> c50;
+        Vector256<float> c51;
         if (acc)
         {
             c00 = Vector256.Load(c + 0 * ldc + 0);
@@ -270,12 +323,18 @@ internal static unsafe class Gemm
         }
         else if (bias != null)
         {
-            c00 = Vector256.Create(bias[0]); c01 = c00;
-            c10 = Vector256.Create(bias[1]); c11 = c10;
-            c20 = Vector256.Create(bias[2]); c21 = c20;
-            c30 = Vector256.Create(bias[3]); c31 = c30;
-            c40 = Vector256.Create(bias[4]); c41 = c40;
-            c50 = Vector256.Create(bias[5]); c51 = c50;
+            c00 = Vector256.Create(bias[0]);
+            c01 = c00;
+            c10 = Vector256.Create(bias[1]);
+            c11 = c10;
+            c20 = Vector256.Create(bias[2]);
+            c21 = c20;
+            c30 = Vector256.Create(bias[3]);
+            c31 = c30;
+            c40 = Vector256.Create(bias[4]);
+            c41 = c40;
+            c50 = Vector256.Create(bias[5]);
+            c51 = c50;
         }
         else
         {
@@ -314,7 +373,8 @@ internal static unsafe class Gemm
             var a5 = Vector256.Create(a[5]);
             c50 = Vector256.FusedMultiplyAdd(a5, b0, c50);
             c51 = Vector256.FusedMultiplyAdd(a5, b1, c51);
-            a += 6; b += ldb;
+            a += 6;
+            b += ldb;
         }
         c00.Store(c + 0 * ldc + 0);
         c01.Store(c + 0 * ldc + 8);

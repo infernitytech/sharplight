@@ -7,19 +7,32 @@ namespace Sharplight.Cpu;
 /// <summary>Scaled dot-product attention. Covers CachedAttention (K/V are state tensors) and plain Attention.</summary>
 internal sealed unsafe class AttentionOp : CpuOp
 {
-    private readonly TRef _q, _k, _v, _y; private readonly TRef? _mask, _sinks;
+    private readonly TRef _q;
+    private readonly TRef _k;
+    private readonly TRef _v;
+    private readonly TRef _y;
+    private readonly TRef? _mask;
+    private readonly TRef? _sinks;
     private readonly float _scale;
     private readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
     private readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
     private readonly string? _offsetScalar;   // non-null => cached attention
     private readonly bool _causal;
-    private readonly int _hq, _hkv, _d, _dv;
-    private readonly bool _kHalf, _vHalf;
+    private readonly int _hq;
+    private readonly int _hkv;
+    private readonly int _d;
+    private readonly int _dv;
+    private readonly bool _kHalf;
+    private readonly bool _vHalf;
     private readonly Action<int> _body;
     private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
     private readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
     private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
-    private long _t, _past, _s, _tasks, _per;
+    private long _t;
+    private long _past;
+    private long _s;
+    private long _tasks;
+    private long _per;
     [ThreadStatic] private static float[]? s_scores;
 
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
@@ -28,12 +41,25 @@ internal sealed unsafe class AttentionOp : CpuOp
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null)
     {
         _spans = spans;
-        _rows = rows; _slotCtx = k.Dims[0] / Math.Max(1, slots);
-        _window = window; _softcap = softcap; _sinks = sinks;
-        _q = q; _k = k; _v = v; _y = y; _mask = mask; _scale = scale; _offsetScalar = offsetScalar; _causal = causal;
-        _hq = (int)q.Dims[1]; _d = (int)q.Dims[2];
-        _hkv = (int)k.Dims[1]; _dv = (int)v.Dims[2];
-        _kHalf = k.Type == DataType.F16; _vHalf = v.Type == DataType.F16;
+        _rows = rows;
+        _slotCtx = k.Dims[0] / Math.Max(1, slots);
+        _window = window;
+        _softcap = softcap;
+        _sinks = sinks;
+        _q = q;
+        _k = k;
+        _v = v;
+        _y = y;
+        _mask = mask;
+        _scale = scale;
+        _offsetScalar = offsetScalar;
+        _causal = causal;
+        _hq = (int)q.Dims[1];
+        _d = (int)q.Dims[2];
+        _hkv = (int)k.Dims[1];
+        _dv = (int)v.Dims[2];
+        _kHalf = k.Type == DataType.F16;
+        _vHalf = v.Type == DataType.F16;
         if (_hq % _hkv != 0)
         {
             throw new ArgumentException("Hq must be a multiple of Hkv.");
@@ -92,14 +118,15 @@ internal sealed unsafe class AttentionOp : CpuOp
             }
         }
         _tasks = _t * _hq;
-        int chunks = (int)Math.Min(_tasks, Par.Threads * 4L);
+        int chunks = (int)Math.Min(_tasks, CpuParallel.Threads * 4L);
         _per = (_tasks + chunks - 1) / chunks;
-        Par.For(chunks, _body);
+        CpuParallel.For(chunks, _body);
     }
 
     private void Body(int c)
     {
-        long s = c * _per, e = Math.Min(_tasks, s + _per);
+        long s = c * _per;
+        long e = Math.Min(_tasks, s + _per);
         long maxKv = _offsetScalar is not null ? _k.Dims[0] : Math.Max(_s, _k.Dims[0]);
         var scores = s_scores;
         if (scores is null || scores.Length < maxKv)
@@ -108,18 +135,25 @@ internal sealed unsafe class AttentionOp : CpuOp
         }
 
         int group = _hq / _hkv;
-        long ks0 = _k.Strides[0], ks1 = _k.Strides[1], vs0 = _v.Strides[0], vs1 = _v.Strides[1];
+        long ks0 = _k.Strides[0];
+        long ks1 = _k.Strides[1];
+        long vs0 = _v.Strides[0];
+        long vs1 = _v.Strides[1];
         fixed (float* sc = scores)
         {
             for (long task = s; task < e; task++)
             {
-                long t = task / _hq; int h = (int)(task - t * _hq);
+                long t = task / _hq;
+                int h = (int)(task - t * _hq);
                 int hk = h / group;
-                long n, kvBase = 0, j0 = 0;
+                long n;
+                long kvBase = 0;
+                long j0 = 0;
                 if (_spans is not null)
                 {
                     int* sp = (int*)_spans.P + t * 2;
-                    j0 = sp[0]; n = sp[0] + (long)sp[1];
+                    j0 = sp[0];
+                    n = sp[0] + (long)sp[1];
                     if (_causal)
                     {
                         n = Math.Min(n, t + 1);
@@ -128,7 +162,8 @@ internal sealed unsafe class AttentionOp : CpuOp
                 else if (_rows is not null)
                 {
                     int* rw = (int*)_rows.P + t * 4;
-                    kvBase = rw[0] * _slotCtx; n = rw[1] + 1;
+                    kvBase = rw[0] * _slotCtx;
+                    n = rw[1] + 1;
                 }
                 else
                 {
@@ -178,11 +213,22 @@ internal sealed unsafe class AttentionOp : CpuOp
                 long i = j0;
                 if (Vector256.IsHardwareAccelerated)
                 {
-                    var mv = Vector256.Create(max); var acc = Vector256<float>.Zero;
-                    for (; i + 8 <= n; i += 8) { var ev = Vector256.Exp(Vector256.Load(sc + i) - mv); ev.Store(sc + i); acc += ev; }
+                    var mv = Vector256.Create(max);
+                    var acc = Vector256<float>.Zero;
+                    for (; i + 8 <= n; i += 8)
+                    {
+                        var ev = Vector256.Exp(Vector256.Load(sc + i) - mv);
+                        ev.Store(sc + i);
+                        acc += ev;
+                    }
                     sum += Vector256.Sum(acc);
                 }
-                for (; i < n; i++) { float ev = MathF.Exp(sc[i] - max); sc[i] = ev; sum += ev; }
+                for (; i < n; i++)
+                {
+                    float ev = MathF.Exp(sc[i] - max);
+                    sc[i] = ev;
+                    sum += ev;
+                }
                 for (long j = j0; j < n; j++)
                 {
                     long off = (kvBase + j) * vs0 + hk * vs1;
@@ -196,120 +242,6 @@ internal sealed unsafe class AttentionOp : CpuOp
                     }
                 }
                 Simd.Scale(o, o, 1f / sum, _dv);
-            }
-        }
-    }
-}
-
-/// <summary>Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type).</summary>
-internal sealed unsafe class CacheWriteOp : CpuOp
-{
-    private readonly TRef _state, _x; private readonly string _offset;
-    private readonly long _inner, _rowLen;
-    private readonly Action<int> _body;
-    private readonly TRef? _seqRows; private readonly long _slotCtx, _rowsPerToken;
-    private long _past, _rows, _per;
-    public override string Name => "CacheWrite";
-
-    public CacheWriteOp(TRef state, TRef x, string offset, TRef? seqRows = null, int slots = 1)
-    {
-        _state = state; _x = x; _offset = offset; _seqRows = seqRows;
-        _slotCtx = state.Dims[0] / Math.Max(1, slots);
-        _rowsPerToken = 1; for (int i = 1; i < x.Rank - 1; i++)
-        {
-            _rowsPerToken *= x.Dims[i];
-        }
-
-        _inner = 1; for (int i = 1; i < state.Rank; i++)
-        {
-            _inner *= state.Dims[i];
-        }
-
-        _rowLen = x.Dims[^1];
-        long xi = 1; for (int i = 1; i < x.Rank; i++)
-        {
-            xi *= x.Dims[i];
-        }
-
-        if (xi != _inner)
-        {
-            throw new ArgumentException("CacheWrite: x inner size does not match state inner size.");
-        }
-
-        _body = Body;
-    }
-
-    public override void Run(RunParameters p)
-    {
-        long t = _x.Dim(0, p);
-        if (t == 0)
-        {
-            return;
-        }
-
-        if (_seqRows is not null)
-        {
-            int* rw = (int*)_seqRows.P;
-            long slots = _state.Dims[0] / _slotCtx;
-            for (long i = 0; i < t; i++)
-            {
-                if ((uint)rw[i * 4] >= slots || (uint)rw[i * 4 + 1] >= _slotCtx)
-                {
-                    throw new InvalidOperationException($"KV cache overflow: sequence row {i} slot {rw[i * 4]} position {rw[i * 4 + 1]} (slot context {_slotCtx}).");
-                }
-            }
-        }
-        else if (!p.Scalars.TryGetValue(_offset, out _past))
-        {
-            throw new InvalidOperationException($"Runtime scalar '{_offset}' was not provided.");
-        }
-        else if (_past < 0 || _past + t > _state.Dims[0])
-        {
-            throw new InvalidOperationException($"KV cache overflow: n_past {_past} + T {t} > context {_state.Dims[0]}.");
-        }
-
-        _rows = _x.Rows(p);
-        int chunks = (int)Math.Min(_rows, Par.Chunks(_rows * _rowLen, 8192));
-        _per = (_rows + chunks - 1) / chunks;
-        Par.For(chunks, _body);
-    }
-
-    private void Body(int c)
-    {
-        long s = c * _per, e = Math.Min(_rows, s + _per);
-        var type = _state.Type;
-        for (long r = s; r < e; r++)
-        {
-            float* src = _x.F(r);
-            long dstElem;
-            if (_seqRows is not null)
-            {
-                long tok = r / _rowsPerToken;
-                int* rw = (int*)_seqRows.P + tok * 4;
-                dstElem = (rw[0] * _slotCtx + rw[1]) * _inner + (r - tok * _rowsPerToken) * _rowLen;
-            }
-            else
-            {
-                dstElem = _past * _inner + r * _rowLen;
-            }
-
-            if (type == DataType.F32)
-            {
-                Buffer.MemoryCopy(src, (float*)_state.P + dstElem, _rowLen * 4, _rowLen * 4);
-            }
-            else if (type == DataType.F16) { ushort* d = (ushort*)_state.P + dstElem; for (long i = 0; i < _rowLen; i++)
-                {
-                    d[i] = Simd.FloatToHalf(src[i]);
-                }
-            }
-            else if (type == DataType.BF16) { ushort* d = (ushort*)_state.P + dstElem; for (long i = 0; i < _rowLen; i++)
-                {
-                    d[i] = Simd.FloatToBFloat(src[i]);
-                }
-            }
-            else
-            {
-                throw new NotSupportedException($"CacheWrite into {type}");
             }
         }
     }

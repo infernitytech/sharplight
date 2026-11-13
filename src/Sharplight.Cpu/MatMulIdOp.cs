@@ -9,24 +9,43 @@ namespace Sharplight.Cpu;
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
     private const int KB = 1024;
-    private readonly TRef _x, _w, _ids, _y;
+    private readonly TRef _x;
+    private readonly TRef _w;
+    private readonly TRef _ids;
+    private readonly TRef _y;
     private readonly WeightFormat _fmt;
-    private readonly long _n, _k, _rowBytes, _expertBytes;
-    private readonly int _experts, _slots;
-    private readonly bool _perSlot, _fused;
+    private readonly long _n;
+    private readonly long _k;
+    private readonly long _rowBytes;
+    private readonly long _expertBytes;
+    private readonly int _experts;
+    private readonly int _slots;
+    private readonly bool _perSlot;
+    private readonly bool _fused;
     private readonly Action<int> _body;
     // Scratch sized for the largest item count: per-expert counts/offsets, sorted x and y row pointers, active experts.
-    private readonly int* _cnt, _start, _active, _cursor;
+    private readonly int* _cnt;
+    private readonly int* _start;
+    private readonly int* _active;
+    private readonly int* _cursor;
     private readonly float** _xrows;
     private readonly float** _yrows;
-    private long _units, _per, _groups;
+    private long _units;
+    private long _per;
+    private long _groups;
     [ThreadStatic] private static float[]? s_acc;
     public override string Name => $"MatMulId.{_fmt}";
 
     public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt)
     {
-        _x = x; _w = w; _ids = ids; _y = y; _fmt = fmt;
-        _experts = (int)w.Dims[0]; _n = w.Dims[1]; _k = w.Dims[2];
+        _x = x;
+        _w = w;
+        _ids = ids;
+        _y = y;
+        _fmt = fmt;
+        _experts = (int)w.Dims[0];
+        _n = w.Dims[1];
+        _k = w.Dims[2];
         _slots = (int)ids.Dims[1];
         _perSlot = x.Rank == 3;
         if (_k % Quant.BlockSize(fmt) != 0)
@@ -49,7 +68,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
 
     public override void Dispose()
     {
-        Mem.Free((byte*)_cnt); Mem.Free((byte*)_start); Mem.Free((byte*)_active); Mem.Free((byte*)_cursor); Mem.Free((byte*)_xrows); Mem.Free((byte*)_yrows);
+        Mem.Free((byte*)_cnt);
+        Mem.Free((byte*)_start);
+        Mem.Free((byte*)_active);
+        Mem.Free((byte*)_cursor);
+        Mem.Free((byte*)_xrows);
+        Mem.Free((byte*)_yrows);
     }
 
     public override void Run(RunParameters p)
@@ -72,7 +96,8 @@ internal sealed unsafe class MatMulIdOp : CpuOp
 
             _cnt[e]++;
         }
-        int off = 0, na = 0;
+        int off = 0;
+        int na = 0;
         for (int e = 0; e < _experts; e++)
         {
             _start[e] = off;
@@ -93,24 +118,27 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         }
         _groups = (_n + 3) / 4;
         _units = na * _groups;
-        int chunks = (int)Math.Min(_units, Par.Threads * 8L);
+        int chunks = (int)Math.Min(_units, CpuParallel.Threads * 8L);
         _per = (_units + chunks - 1) / chunks;
-        Par.For(chunks, _body);
+        CpuParallel.For(chunks, _body);
     }
 
     private void Body(int c)
     {
-        long u0 = c * _per, u1 = Math.Min(_units, u0 + _per);
+        long u0 = c * _per;
+        long u1 = Math.Min(_units, u0 + _per);
         float* wbuf = stackalloc float[4 * KB];
         float* res = stackalloc float[8];
         float** wp = stackalloc float*[4];
         byte** rows = stackalloc byte*[4];
-        int bs = Quant.BlockSize(_fmt), bb = Quant.BlockBytes(_fmt);
+        int bs = Quant.BlockSize(_fmt);
+        int bb = Quant.BlockBytes(_fmt);
         for (long u = u0; u < u1; u++)
         {
             int e = _active[u / _groups];
             long g = u % _groups;
-            long m = _cnt[e], m0 = _start[e];
+            long m = _cnt[e];
+            long m0 = _start[e];
             float** xr = _xrows + m0;
             float** yr = _yrows + m0;
             var accArr = s_acc;
@@ -159,15 +187,25 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                     for (; t + 2 <= m; t += 2)
                     {
                         Simd.Dot4x2(xr[t] + kb, xr[t + 1] + kb, wp[0], wp[1], wp[2], wp[3], len, res);
-                        float* a0 = acc + t * 4, a1 = a0 + 4;
-                        a0[0] += res[0]; a0[1] += res[1]; a0[2] += res[2]; a0[3] += res[3];
-                        a1[0] += res[4]; a1[1] += res[5]; a1[2] += res[6]; a1[3] += res[7];
+                        float* a0 = acc + t * 4;
+                        float* a1 = a0 + 4;
+                        a0[0] += res[0];
+                        a0[1] += res[1];
+                        a0[2] += res[2];
+                        a0[3] += res[3];
+                        a1[0] += res[4];
+                        a1[1] += res[5];
+                        a1[2] += res[6];
+                        a1[3] += res[7];
                     }
                     if (t < m)
                     {
                         Simd.Dot4(xr[t] + kb, wp[0], wp[1], wp[2], wp[3], len, res);
                         float* a0 = acc + t * 4;
-                        a0[0] += res[0]; a0[1] += res[1]; a0[2] += res[2]; a0[3] += res[3];
+                        a0[0] += res[0];
+                        a0[1] += res[1];
+                        a0[2] += res[2];
+                        a0[3] += res[3];
                     }
                 }
                 for (long t = 0; t < m; t++)

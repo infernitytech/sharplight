@@ -1,5 +1,4 @@
 using Sharplight.Runtime;
-using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -7,20 +6,30 @@ namespace Sharplight.Cpu;
 internal sealed unsafe class MatMulOp : CpuOp
 {
     private const int KB = 1024;
-    private readonly TRef _x, _w, _y;
+    private readonly TRef _x;
+    private readonly TRef _w;
+    private readonly TRef _y;
     private readonly WeightFormat _fmt;
-    private readonly long _n, _k, _rowBytes;
+    private readonly long _n;
+    private readonly long _k;
+    private readonly long _rowBytes;
     private readonly bool _fused;
     private readonly float** _xrows;
     private readonly Action<int> _body;
     [ThreadStatic] private static float[]? s_acc;
-    private long _m, _groups, _perChunk;
+    private long _m;
+    private long _groups;
+    private long _perChunk;
     public override string Name => $"MatMul.{_fmt}";
 
     public MatMulOp(TRef x, TRef w, TRef y, WeightFormat fmt)
     {
-        _x = x; _w = w; _y = y; _fmt = fmt;
-        _n = w.Dims[0]; _k = w.Dims[1];
+        _x = x;
+        _w = w;
+        _y = y;
+        _fmt = fmt;
+        _n = w.Dims[0];
+        _k = w.Dims[1];
         _rowBytes = _k / Quant.BlockSize(fmt) * Quant.BlockBytes(fmt);
         if (_k % Quant.BlockSize(fmt) != 0)
         {
@@ -49,14 +58,15 @@ internal sealed unsafe class MatMulOp : CpuOp
         }
 
         _groups = (_n + 3) / 4;
-        int chunks = (int)Math.Min(_groups, Par.Threads * 8L);
+        int chunks = (int)Math.Min(_groups, CpuParallel.Threads * 8L);
         _perChunk = (_groups + chunks - 1) / chunks;
-        Par.For(chunks, _body);
+        CpuParallel.For(chunks, _body);
     }
 
     private void Body(int c)
     {
-        long g0 = c * _perChunk, g1 = Math.Min(_groups, g0 + _perChunk);
+        long g0 = c * _perChunk;
+        long g1 = Math.Min(_groups, g0 + _perChunk);
         long m = _m;
         var accArr = s_acc;
         if (accArr is null || accArr.Length < m * 4)
@@ -68,7 +78,8 @@ internal sealed unsafe class MatMulOp : CpuOp
         float* res = stackalloc float[8];
         float** wp = stackalloc float*[4];
         byte** rows = stackalloc byte*[4];
-        int bs = Quant.BlockSize(_fmt), bb = Quant.BlockBytes(_fmt);
+        int bs = Quant.BlockSize(_fmt);
+        int bb = Quant.BlockBytes(_fmt);
         fixed (float* acc = accArr)
         {
             for (long g = g0; g < g1; g++)
@@ -111,15 +122,25 @@ internal sealed unsafe class MatMulOp : CpuOp
                     for (; t + 2 <= m; t += 2)
                     {
                         Simd.Dot4x2(_xrows[t] + kb, _xrows[t + 1] + kb, wp[0], wp[1], wp[2], wp[3], len, res);
-                        float* a0 = acc + t * 4, a1 = a0 + 4;
-                        a0[0] += res[0]; a0[1] += res[1]; a0[2] += res[2]; a0[3] += res[3];
-                        a1[0] += res[4]; a1[1] += res[5]; a1[2] += res[6]; a1[3] += res[7];
+                        float* a0 = acc + t * 4;
+                        float* a1 = a0 + 4;
+                        a0[0] += res[0];
+                        a0[1] += res[1];
+                        a0[2] += res[2];
+                        a0[3] += res[3];
+                        a1[0] += res[4];
+                        a1[1] += res[5];
+                        a1[2] += res[6];
+                        a1[3] += res[7];
                     }
                     if (t < m)
                     {
                         Simd.Dot4(_xrows[t] + kb, wp[0], wp[1], wp[2], wp[3], len, res);
                         float* a0 = acc + t * 4;
-                        a0[0] += res[0]; a0[1] += res[1]; a0[2] += res[2]; a0[3] += res[3];
+                        a0[0] += res[0];
+                        a0[1] += res[1];
+                        a0[2] += res[2];
+                        a0[3] += res[3];
                     }
                 }
                 for (long t = 0; t < m; t++)
@@ -131,91 +152,6 @@ internal sealed unsafe class MatMulOp : CpuOp
                     }
                 }
             }
-        }
-    }
-}
-
-/// <summary>Row gather from a (possibly quantized) table; indices are i32.</summary>
-internal sealed unsafe class GatherOp : CpuOp
-{
-    private readonly TRef _table, _idx, _y; private readonly WeightFormat _fmt;
-    private readonly long _v, _d, _rowBytes;
-    private readonly Action<int> _body;
-    private long _n, _per;
-    public override string Name => "Gather";
-
-    public GatherOp(TRef table, TRef idx, TRef y, WeightFormat fmt)
-    {
-        _table = table; _idx = idx; _y = y; _fmt = fmt;
-        _v = table.Dims[0];
-        _d = 1; for (int i = 1; i < table.Rank; i++)
-        {
-            _d *= table.Dims[i];
-        }
-
-        _rowBytes = _d / Quant.BlockSize(fmt) * Quant.BlockBytes(fmt);
-        _body = Body;
-    }
-
-    public override void Run(RunParameters p)
-    {
-        _n = _idx.Dim(0, p);
-        if (_n == 0)
-        {
-            return;
-        }
-
-        int chunks = (int)Math.Min(_n, Par.Chunks(_n * _d, 8192));
-        _per = (_n + chunks - 1) / chunks;
-        Par.For(chunks, _body);
-    }
-
-    private void Body(int c)
-    {
-        long s = c * _per, e = Math.Min(_n, s + _per);
-        for (long i = s; i < e; i++)
-        {
-            long id = ((int*)_idx.P)[i * _idx.Strides[0]];
-            if ((ulong)id >= (ulong)_v)
-            {
-                throw new ArgumentOutOfRangeException("indices", $"Gather index {id} out of range [0,{_v}).");
-            }
-
-            byte* src = _table.P + id * _rowBytes;
-            if (_y.Type == DataType.F32)
-            {
-                Quant.Dequantize(_fmt, src, _d, (float*)_y.P + i * _d);
-            }
-            else
-            {
-                Buffer.MemoryCopy(src, _y.P + i * _d * _y.ElemSize, _d * _y.ElemSize, _d * _y.ElemSize);
-            }
-        }
-    }
-}
-
-internal sealed unsafe class ConcatOp : CpuOp
-{
-    private readonly TRef[] _xs; private readonly TRef _y; private readonly int _axis;
-    private readonly long[] _dstStrides; private readonly long[] _offsets;
-    public override string Name => "Concat";
-
-    public ConcatOp(TRef[] xs, TRef y, int axis)
-    {
-        _xs = xs; _y = y; _axis = axis;
-        _dstStrides = TRef.RowMajor(y.Dims);
-        _offsets = new long[xs.Length];
-        long o = 0;
-        for (int i = 0; i < xs.Length; i++) { _offsets[i] = o; o += xs[i].Dims[axis]; }
-    }
-
-    public override void Run(RunParameters p)
-    {
-        int es = _y.ElemSize;
-        for (int i = 0; i < _xs.Length; i++)
-        {
-            var x = _xs[i];
-            Mem.CopyStrided(x.P, x.Strides, _y.P + _offsets[i] * _dstStrides[_axis] * es, _dstStrides, x.Dims, x.Dim(0, p), es);
         }
     }
 }
