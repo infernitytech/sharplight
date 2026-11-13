@@ -45,6 +45,7 @@ public sealed partial class GraphLowerer
         [DataType.TQ1_0] = 34,
         [DataType.TQ2_0] = 35,
         [DataType.MXFP4] = 39,
+        [ShaderTypes.MXFP4R] = 139,
         [DataType.NVFP4] = 40,
         [DataType.F8E4M3] = 50,
         [DataType.F8E5M2] = 51,

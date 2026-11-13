@@ -35,6 +35,20 @@ public sealed partial class GraphLowerer
         var inputIndex = new Dictionary<Value, int>();
         var statements = new List<string>();
         var names = new Dictionary<Value, string>();
+        var shape = BoundShape(shapeValue);
+        var loads = new Dictionary<int, string?>();
+
+        int Input(Value v)
+        {
+            if (!inputIndex.TryGetValue(v, out int index))
+            {
+                index = inputs.Count;
+                inputs.Add(Ref(v));
+                inputIndex[v] = index;
+            }
+
+            return index;
+        }
 
         string Operand(Value v)
         {
@@ -43,14 +57,18 @@ public sealed partial class GraphLowerer
                 return existing;
             }
 
-            if (!inputIndex.TryGetValue(v, out int index))
+            if (_foldedGathers.TryGetValue(v, out var gather))
             {
-                index = inputs.Count;
-                inputs.Add(Ref(v));
-                inputIndex[v] = index;
+                // Row gather read in place: table[index(d0..dq-1), dq]; the index input itself is only addressed.
+                int table = Input(gather.Inputs[0]);
+                int indices = Input(gather.Inputs[1]);
+                loads.TryAdd(indices, null);
+                var local = "g" + table + "_" + indices;
+                statements.Add($"float {local} = {RowGatherLoad(inputs[table], table, inputs[indices], indices)};");
+                return names[v] = local;
             }
 
-            return names[v] = "a" + index;
+            return names[v] = "a" + Input(v);
         }
 
         string? headInput = null;
@@ -70,7 +88,6 @@ public sealed partial class GraphLowerer
         }
 
         var outs = outputs.Select(o => (Produce(o), names[o])).ToList();
-        var shape = BoundShape(shapeValue);
         var label = string.Join(",", group.Select(g => g.Op.Name));
         if (normTail is not null)
         {
@@ -90,7 +107,21 @@ public sealed partial class GraphLowerer
             return;
         }
 
-        EmitElementwiseKernel($"fused[{label}]", group, shape, shapeValue.Symbol, inputs, outs, statements);
+        EmitElementwiseKernel($"fused[{label}]", group, shape, shapeValue.Symbol, inputs, outs, statements, loads);
+    }
+
+    /// <summary>
+    /// Slang expression of a row gather's element at coordinates d0..dq of its output: row index(d0..dq-1) of the [rows, N]
+    /// table (negative indices wrap, out-of-range ones clamp, as in <c>gather_axis</c>), column dq.
+    /// </summary>
+    private static string RowGatherLoad(TensorRef table, int tableInput, TensorRef indices, int indicesInput)
+    {
+        int q = indices.Rank;
+        string raw = $"int(p.in{indicesInput}[{Lin(indices, [.. Enumerable.Range(0, q).Select(Dn)])}])";
+        long rows = table.Shape[0];
+        string row = $"uint(clamp({raw} < 0 ? {raw} + {rows} : {raw}, 0, {rows - 1}))";
+        string element = $"p.in{tableInput}[{Lin(table, [row, Dn(q)])}]";
+        return table.Type == DataType.F16 ? $"h2f({element})" : table.Type == DataType.BF16 ? $"bf2f({element})" : element;
     }
 
     /// <summary>
@@ -128,8 +159,10 @@ public sealed partial class GraphLowerer
             w is null ? inputs : [.. inputs, w], outputs.Select(o => o.Ref));
     }
 
+    // loads: optional per-input load expressions replacing the elementwise load; a null expression means the input is only
+    // addressed by other expressions (no load of its own).
     private void EmitElementwiseKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol,
-        List<TensorRef> inputs, List<(TensorRef Ref, string Expr)> outputs, List<string> stmts)
+        List<TensorRef> inputs, List<(TensorRef Ref, string Expr)> outputs, List<string> stmts, IReadOnlyDictionary<int, string?>? loads = null)
     {
         if (shape.Any(d => d == 0))
         {
@@ -160,7 +193,11 @@ public sealed partial class GraphLowerer
         ElementwiseCodegen.AppendCoordinates(sb, "  ", shape, pitches);
         for (int i = 0; i < inputs.Count; i++)
         {
-            sb.AppendLine($"  float a{i} = {ElementwiseCodegen.Load(inputs[i], i, shape)};");
+            string? load = loads is not null && loads.TryGetValue(i, out var custom) ? custom : ElementwiseCodegen.Load(inputs[i], i, shape);
+            if (load is not null)
+            {
+                sb.AppendLine($"  float a{i} = {load};");
+            }
         }
 
         foreach (var statement in stmts)

@@ -221,7 +221,7 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
     float4 i = float4(float(dot16(w.q0, x.q0)), float(dot16(w.q1, x.q1)), float(dot16(w.q2, x.q2)), float(dot16(w.q3, x.q3)));
     return dot(w.s * x.d, i);
 }
-#elif WFMT == FMT_Q8_0 || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0 || WFMT == FMT_IQ4_NL || WFMT == FMT_MXFP4
+#elif WFMT == FMT_Q8_0 || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0 || WFMT == FMT_IQ4_NL || WFMT == FMT_MXFP4 || WFMT == FMT_MXFP4R
 // One 32-value block per chunk: Q8_0 { f16 d; i8 qs[32] } (34 bytes), Q4_0 { f16 d; u8 qs[16] } (18), Q5_0 { f16 d; u32 qh;
 // u8 qs[16] } (22), IQ4_NL like Q4_0 through the codebook, MXFP4 { u8 e; u8 qs[16] } (17). Nibble formats hold values 0..15
 // in the low nibbles and 16..31 in the high ones. Q4_0 / Q5_0 codes stay unsigned: their offset (8 / 16) is applied through
@@ -230,7 +230,7 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
 struct WChunk { uint4 lo; uint4 hi; float d; float off; };
 struct XChunk { uint4 lo; uint4 hi; float2 d; };
 
-#if WFMT == FMT_MXFP4
+#if WFMT == FMT_MXFP4 || WFMT == FMT_MXFP4R
 // Four E2M1 codes (one per byte of u, low 4 bits) as the doubled int8 values: magnitude code m (0..7) maps to
 // m + max(0, m - 4) + 2 max(0, m - 6) = {0, 1, 2, 3, 4, 6, 8, 12}, computed bytewise without carries; then the sign
 // (bit 3) negates as (v ^ 0xFF) + 1, skipping zero bytes so no carry crosses a byte.
@@ -262,6 +262,17 @@ uint codebook_bytes(uint u, uint4 kv)
 
 WChunk load_chunk(uint8_t* w, uint row, uint ch)
 {
+#if WFMT == FMT_MXFP4R
+    // The aligned split layout (common.slang): one 16-byte load of the codes, the scale from the row's scale bytes.
+    WChunk c;
+    c.off = 0.0;
+    c.d = e8m0_half(uint(*(uint8_t*)(mxfp4r_scales(w, ROW_BYTES, row) + ch)));
+    uint4 qs = *(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(ch) * 16);
+    uint4 h = qs >> 4;
+    c.lo = uint4(fp4_bytes(qs.x), fp4_bytes(qs.y), fp4_bytes(qs.z), fp4_bytes(qs.w));
+    c.hi = uint4(fp4_bytes(h.x), fp4_bytes(h.y), fp4_bytes(h.z), fp4_bytes(h.w));
+    return c;
+#else
 #if WFMT == FMT_Q8_0
     const uint blockBytes = 34;
 #elif WFMT == FMT_Q5_0
@@ -305,6 +316,7 @@ WChunk load_chunk(uint8_t* w, uint row, uint ch)
 #endif
 #endif
     return c;
+#endif
 }
 XChunk load_xchunk(uint8_t* x, uint ch)
 {

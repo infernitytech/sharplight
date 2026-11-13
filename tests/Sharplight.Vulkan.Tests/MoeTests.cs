@@ -1,3 +1,4 @@
+using Sharplight.Graph;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -183,5 +184,78 @@ public sealed class MoeTests
         // comes on top of the first's.
         Diff.Check("MatMulId.chain", tg.B.Build(), new Step(t, 0, (x, Rnd.F(t * K, 3)), (ids, Ids("random", t, S, E)), (ids2, Ids("few", t, S, E))),
             atol: 1.0, rtol: 5e-2, maxTokens: 128);
+    }
+
+    /// <summary>
+    /// A gated expert block (gate and up share x and the routing, so the grouped GEMMs share one expert-sorted f16 copy of x; down
+    /// reads the per-slot activations, gathered again) with an odd expert count, an output width that is no multiple of the
+    /// column tile (except for K-quants), token counts that are no multiple of the expert tiles, and experts without tokens. A second product on other
+    /// ids re-reads x.
+    /// </summary>
+    [Theory]
+    [InlineData("q4_k", 7, 256, 97, "random")]
+    [InlineData("q4_k", 7, 256, 61, "few")]
+    [InlineData("mxfp4", 5, 96, 97, "random")]
+    [InlineData("mxfp4", 9, 160, 45, "few")]
+    [InlineData("f16", 3, 80, 130, "one")]
+    [InlineData("q8_0", 11, 96, 200, "random")]
+    public void GatedBlockSortedActivations(string fmt, int E, int N, int t, string pattern)
+    {
+        Gpu.Require();
+        const int K = 256;
+        const int S = 3;
+        var tg = new TG();
+        var type = DataType.Get(fmt);
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var ids2 = tg.In("ids2", DataType.I32, TG.T, S);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.RandW("gate", type, 0.1f, E, N, K), ids]);
+        var up = tg.B.Emit1("MatMulId", [x, tg.RandW("up", type, 0.1f, E, N, K), ids]);
+        var act = tg.B.Mul(tg.B.Silu(gate), up);                                                       // [T, S, N]
+        var down = tg.B.Emit1("MatMulId", [act, tg.RandW("down", type, 0.1f, E, K, N), ids]);         // [T, S, K]
+        var again = tg.B.Emit1("MatMulId", [x, tg.RandW("again", type, 0.1f, E, N, K), ids2]);
+        tg.B.Output("down", down);
+        tg.B.Output("again", again);
+        Diff.Check("MatMulId.block." + fmt, tg.B.Build(),
+            new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids(pattern, t, S, E)), (ids2, Ids("random", t + 1, S, E))),
+            atol: 1.0, rtol: 5e-2, maxTokens: 256, what: $"E={E} N={N} T={t} ids={pattern}");
+    }
+
+    /// <summary>
+    /// MXFP4 experts in the aligned split layout (output rows a multiple of 16 per expert) and in the file layout (not a multiple of
+    /// 16), on the per-item matvec, the integer-dot matvec and the grouped GEMM.
+    /// </summary>
+    [Theory]
+    [InlineData(5, 48, 1)]
+    [InlineData(5, 48, 20)]
+    [InlineData(5, 48, 90)]
+    [InlineData(3, 40, 1)]
+    [InlineData(3, 40, 90)]
+    [InlineData(32, 288, 64)]
+    public void Mxfp4ExpertLayouts(int E, int N, int t) => Run("mxfp4", t, 4, false, "random", E, N, 320);
+
+    /// <summary>
+    /// Per-expert biases (gpt-oss): Add(MatMulId, GatherAxis(bias, ids)) inside an elementwise group, which reads the gathered
+    /// rows in place.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(70)]
+    public void ExpertBiasInElementwiseGroup(int t)
+    {
+        Gpu.Require();
+        const int E = 6;
+        const int N = 64;
+        const int K = 128;
+        const int S = 2;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var y = tg.B.Emit1("MatMulId", [x, tg.RandW("w", DataType.F16, 0.1f, E, N, K), ids]);
+        var bias = tg.B.Emit1("GatherAxis", [tg.RandW("b", DataType.F32, 1f, E, N), ids], Attributes.From(("axis", 0L)));
+        tg.B.Output("y", tg.B.Silu(tg.B.Add(y, bias)));
+        Diff.Check("MatMulId.bias", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, S, E))),
+            atol: Atol(t * S), rtol: Rtol(t * S), maxTokens: 128, what: $"T={t}");
     }
 }

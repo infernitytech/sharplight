@@ -12,8 +12,12 @@ namespace Sharplight.Shaders;
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
+/// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
+/// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
 /// <item><c>SHARPLIGHT_NO_SCHEDULE=1</c>: keep graph order instead of grouping launches by dependency level.</item>
-/// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 weights in the file layout (no aligned-quants repack).</item>
+/// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 and MXFP4 weights in the file layout (no aligned-quants repack).</item>
+/// <item><c>SHARPLIGHT_REPACK_MXFP4=0</c>: keep MXFP4 expert tensors in the file layout (no 16-row-group split into aligned codes
+/// and scales, <c>WeightRepack.Mxfp4Split</c>).</item>
 /// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
 /// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
@@ -52,6 +56,8 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_MMVQ_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
 /// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>). <c>SHARPLIGHT_MOE_GEMM2=0</c>: run
 /// grouped expert matmuls on moe_gemm_cm instead of the expert-grouped gemm_cm2.</item>
+/// <item><c>SHARPLIGHT_MOE_X16=0</c>: the expert-grouped gemm_cm2 gathers and converts the f32 activation rows itself (in every
+/// column tile) instead of reading the expert-sorted f16 rows written once per routing by <c>moe_gather_x16</c>.</item>
 /// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
 /// </summary>
@@ -72,11 +78,17 @@ internal static class DiagnosticSwitches
     /// <summary>Disables merging elementwise groups along data flow.</summary>
     public static bool NoGroupMerge { get; } = IsSet("SHARPLIGHT_NO_GROUP_MERGE");
 
+    /// <summary>Disables reading row gathers (e.g. selected experts' biases) in place inside their fused consumer group.</summary>
+    public static bool NoGatherFold { get; } = IsSet("SHARPLIGHT_NO_GATHER_FOLD");
+
     /// <summary>Disables level scheduling of units.</summary>
     public static bool NoSchedule { get; } = IsSet("SHARPLIGHT_NO_SCHEDULE");
 
     /// <summary>Disables the Q8_0 aligned-quants repack.</summary>
     public static bool NoWeightRepack { get; } = IsSet("SHARPLIGHT_NO_REPACK");
+
+    /// <summary>False keeps MXFP4 expert tensors in the file layout (no aligned 16-row-group repack).</summary>
+    public static bool Mxfp4Repack { get; } = IsNotZero("SHARPLIGHT_REPACK_MXFP4");
 
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
@@ -185,6 +197,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>False selects moe_gemm_cm instead of the expert-grouped gemm_cm2 for tensor-core expert matmuls.</summary>
     public static bool MoeGemm2 { get; } = IsNotZero("SHARPLIGHT_MOE_GEMM2");
+
+    /// <summary>
+    /// True when the expert-grouped gemm_cm2 reads the routed activation rows as expert-sorted f16 rows gathered once per routing
+    /// (shared by the projections reading the same x) instead of gathering and converting f32 rows in every column tile.
+    /// </summary>
+    public static bool MoeSortedHalfActivations { get; } = IsNotZero("SHARPLIGHT_MOE_X16");
 
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");

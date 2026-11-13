@@ -3,15 +3,19 @@ namespace Sharplight.Shaders.Lowering;
 /// <summary>Host-side weight layout transforms, applied row by row during upload (backend-neutral).</summary>
 public static class WeightRepacker
 {
-    /// <summary>Bytes per row of <paramref name="k"/> logical elements in the repacked layout.</summary>
+    /// <summary>Rows repacked together by <see cref="WeightRepack.Mxfp4Split"/>.</summary>
+    public const int Mxfp4GroupRows = 16;
+
+    /// <summary>Bytes of one repacked unit (a row, or a row group for <see cref="WeightRepack.Mxfp4Split"/>) of rows with <paramref name="k"/> logical elements.</summary>
     /// <exception cref="ArgumentOutOfRangeException">Unknown layout.</exception>
     public static long RowBytes(WeightRepack r, long k) => r switch
     {
         WeightRepack.Q8_0Split => k / 32 * 34,
+        WeightRepack.Mxfp4Split => Mxfp4GroupRows * (k / 32 * 17),
         _ => throw new ArgumentOutOfRangeException(nameof(r)),
     };
 
-    /// <summary>Transforms whole rows from <paramref name="src"/> into <paramref name="dst"/> (same length).</summary>
+    /// <summary>Transforms whole units (see <see cref="RowBytes"/>) from <paramref name="src"/> into <paramref name="dst"/> (same length).</summary>
     /// <param name="r">The layout to produce.</param>
     /// <param name="k">Logical elements per row.</param>
     /// <param name="src">Source rows in the file layout.</param>
@@ -26,6 +30,16 @@ public static class WeightRepacker
         }
 
         int blocks = (int)(k / 32);
+        if (r == WeightRepack.Mxfp4Split)
+        {
+            for (int group = 0; group < src.Length / rowBytes; group++)
+            {
+                SplitMxfp4Group(src.Slice((int)(group * rowBytes), (int)rowBytes), dst.Slice((int)(group * rowBytes), (int)rowBytes), blocks);
+            }
+
+            return;
+        }
+
         for (int row = 0; row < src.Length / rowBytes; row++)
         {
             var s = src.Slice((int)(row * rowBytes), (int)rowBytes);
@@ -38,6 +52,22 @@ public static class WeightRepacker
                 scales[b * 2] = blk[0];
                 scales[b * 2 + 1] = blk[1];
                 blk[2..].CopyTo(quants.Slice(b * 32, 32));
+            }
+        }
+    }
+
+    // One 16-row group of 17-byte blocks { u8 e; u8 qs[16] } → codes of every row (16 bytes per block), then scales.
+    private static void SplitMxfp4Group(ReadOnlySpan<byte> src, Span<byte> dst, int blocks)
+    {
+        var codes = dst[..(Mxfp4GroupRows * blocks * 16)];
+        var scales = dst[(Mxfp4GroupRows * blocks * 16)..];
+        for (int row = 0; row < Mxfp4GroupRows; row++)
+        {
+            for (int b = 0; b < blocks; b++)
+            {
+                var blk = src.Slice((row * blocks + b) * 17, 17);
+                scales[row * blocks + b] = blk[0];
+                blk[1..].CopyTo(codes.Slice((row * blocks + b) * 16, 16));
             }
         }
     }

@@ -33,6 +33,9 @@ public sealed partial class GraphLowerer
     /// <summary>Norm output → norm node computed inside its consumer's kernel (delta rule, rope).</summary>
     private readonly Dictionary<Value, Node> _absorbedNorms = [];
 
+    /// <summary>Outputs of row gathers read in place by their fused consumer group (see <c>FoldRowGathers</c>).</summary>
+    private readonly Dictionary<Value, Node> _foldedGathers = [];
+
     /// <summary>Rope output → rope node computed inside its CacheWrite.</summary>
     private readonly Dictionary<Value, Node> _absorbedRope = [];
 
@@ -185,6 +188,14 @@ public sealed partial class GraphLowerer
         return new TensorRef(buf, byteOffset, v.Type, shape, TensorRef.DenseStrides(shape), v.Shape.Symbol);
     }
 
+    /// <summary>
+    /// True for expert tensors in MXFP4 ([E, N, K], N % 16 == 0) whose consumers (the MatMulId kernels) read the aligned
+    /// <see cref="WeightRepack.Mxfp4Split"/> layout.
+    /// </summary>
+    private static bool UseMxfp4Repack(WeightInfo w)
+        => !DiagnosticSwitches.NoWeightRepack && DiagnosticSwitches.Mxfp4Repack && w.Type == DataType.MXFP4 && w.Shape.Rank == 3
+           && w.Shape.Dims.All(d => !d.IsSymbolic) && w.Shape[1].Fixed % WeightRepacker.Mxfp4GroupRows == 0 && w.Shape[2].Fixed % 32 == 0;
+
     /// <summary>Returns the tensor reference of a value, materializing leaves (weights, states, inputs) on demand.</summary>
 
     private TensorRef Ref(Value v)
@@ -207,11 +218,20 @@ public sealed partial class GraphLowerer
                         wb.Repack = WeightRepack.Q8_0Split;
                         wb.RepackRowElements = w.Shape[-1].Fixed;
                     }
+                    else if (UseMxfp4Repack(w))
+                    {
+                        wb.Repack = WeightRepack.Mxfp4Split;
+                        wb.RepackRowElements = w.Shape[-1].Fixed;
+                    }
                 }
                 r = Dense(wb, v);
                 if (wb.Repack == WeightRepack.Q8_0Split)
                 {
                     r = r with { Type = ShaderTypes.Q8_0R };
+                }
+                else if (wb.Repack == WeightRepack.Mxfp4Split)
+                {
+                    r = r with { Type = ShaderTypes.MXFP4R };
                 }
 
                 break;

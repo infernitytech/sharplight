@@ -64,6 +64,37 @@ public sealed partial class GraphLowerer
     private BufferDecl? _moeScratch;
     private (Value Ids, long E, long MaxTiles, bool Coop)? _moeRouted;
 
+    // Expert-sorted f16 copy of the activations of the grouped GEMMs, shared by the MatMulIds that read the same x with the same
+    // routing (gate and up of an expert block).
+    private BufferDecl? _moeHalfActivations;
+    private (Value X, Value Ids, long MaxTiles)? _moeGathered;
+
+    /// <summary>
+    /// Emits (once per activations and routing) the gather of the routed rows of x into expert-sorted f16 rows and returns them
+    /// ([items, K], row o = sorted position o of the routing).
+    /// </summary>
+    private TensorRef EmitSortedHalfActivations(Node n, TensorRef x, long xStride, bool perSlot, long S, long maxItems, long maxTiles, long K, int[] tileSizes,
+        long matvecMaxItems, Func<Bindings, long> items, Func<Bindings, int> tile, Func<Bindings, uint> tiles, TensorRef scratch,
+        PointerArg scratchArg, TensorRef ids)
+    {
+        _moeHalfActivations ??= NewBuffer(BufferKind.Activations, "moe-x16", 0);
+        _moeHalfActivations.Bytes = Math.Max(_moeHalfActivations.Bytes, maxItems * K * 2);
+        var half = new TensorRef(_moeHalfActivations, 0, DataType.F16, [maxItems, K], [K, 1], null);
+        if (_moeGathered is { } g && g.X == n.Inputs[0] && g.Ids == n.Inputs[2] && g.MaxTiles == maxTiles)
+        {
+            return half;
+        }
+
+        Emit($"moe-gather {n.Inputs[0].Name} x→f16", [n],
+            [.. tileSizes.Select(t => new KernelVariant(b => items(b) > matvecMaxItems && tile(b) == t,
+                Lib("moe.slang", "moe_gather_x16", Macros(("K", K), ("S", S), ("PER_SLOT", perSlot), ("X_STRIDE", xStride), ("MAXTILES", maxTiles), ("TILE_M", t))),
+                b => new Grid(Grid.Div(t * K / 8, 256), tiles(b))))],
+            [Pointer(x), scratchArg, Pointer(half), TokenArg(ids)],
+            [x, scratch], [half]);
+        _moeGathered = (n.Inputs[0], n.Inputs[2], maxTiles);
+        return half;
+    }
+
     private void LowerMatMulId(Node n)
     {
         var x = Ref(n.Inputs[0]);
@@ -146,11 +177,21 @@ public sealed partial class GraphLowerer
         {
             // The dense tensor-core GEMM in its expert-grouped form: one routing tile per workgroup row.
             var groupedMacros = new Dictionary<string, string>(gm) { ["MOE"] = "1", ["Y_STRIDE"] = N.ToString(CultureInfo.InvariantCulture) };
+            var gemmX = x;
+            if (DiagnosticSwitches.MoeSortedHalfActivations)
+            {
+                gemmX = EmitSortedHalfActivations(n, x, xs, perSlot, S, maxItems, maxTiles, K, coopTiles, mv, items, tile, tiles, scratch, scratchArg, ids);
+                gargs = [Pointer(gemmX), Pointer(w), scratchArg, Pointer(y), TokenArg(ids)];
+                groupedMacros["X_F16"] = "1";
+                groupedMacros["X_SORTED"] = "1";
+                groupedMacros["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture);
+            }
+
             Emit(label + " gemm-cm2", [n],
                 [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
                     Lib("matmul.slang", "gemm_cm2", Gemm2Macros(groupedMacros, t, large: false)),
                     b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
-                gargs, [x, w, scratch], [y]);
+                gargs, [gemmX, w, scratch], [y]);
         }
         else if (coop)
         {

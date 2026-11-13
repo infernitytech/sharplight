@@ -26,6 +26,12 @@ internal sealed class LoweringUnit
     /// <summary>Two matmuls (sharing x) whose outputs only feed this group: lowered as one dual matvec for small batches.</summary>
     public (Node A, Node B)? Dual;
 
+    /// <summary>
+    /// GatherAxis nodes (rows of a table selected by indices, e.g. the per-expert biases of the selected experts) whose
+    /// rows this fused group reads in place instead of from a materialized gather.
+    /// </summary>
+    public List<Node>? Gathers;
+
     /// <summary>Nodes computed inside this unit's kernel (e.g. L2Norm of delta-rule q/k).</summary>
     public List<Node>? Absorbed;
 
@@ -48,7 +54,7 @@ internal sealed class LoweringUnit
             Node[] dual = Dual is { } pair ? [pair.A, pair.B] : [];
             Node[] head = NormHead is null ? [] : [NormHead];
             Node[] tail = NormTail is null ? [] : [NormTail];
-            return [.. dual, .. head, .. Fused, .. tail];
+            return [.. Gathers ?? [], .. dual, .. head, .. Fused, .. tail];
         }
     }
 }

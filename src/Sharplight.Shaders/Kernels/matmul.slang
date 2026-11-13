@@ -14,6 +14,11 @@
 #ifndef MOE
 #define MOE 0
 #endif
+// X_SORTED (with MOE and X_F16): x holds the routed rows in expert-sorted order (moe_gather_x16 in moe.slang, X_STRIDE = K), so
+// the rows of a tile are the dense rows rowOffset .. rowOffset + rows - 1.
+#ifndef X_SORTED
+#define X_SORTED 0
+#endif
 
 struct Params
 {
@@ -543,6 +548,14 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 z = half2(0.0h, 0.0h);
     lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
     hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_MXFP4R
+    // As MXFP4 below, from the aligned split layout (common.slang): one aligned 16-byte load holds both nibble halves of the block.
+    uint4 q = (*(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(g16 >> 1) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+    float s = e8m0_half(uint(*(uint8_t*)(mxfp4r_scales(w, ROW_BYTES, row) + (g16 >> 1)))) * 32768.0;
+    half2 s1 = half2(half(min(s, 32768.0)));
+    half2 s2 = half2(half(max(s / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #elif WFMT == FMT_MXFP4
     // 16 E2M1 codes (the low or high nibbles of one 17-byte block). A code's
     // 3 magnitude bits at half bits 9..11 and its sign at bit 15 make the half code * 2^-14 (subnormals included), so
@@ -612,7 +625,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     for (uint r = tid; r < GBM; r += GTHREADS) gItem[r] = r < tileRows ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0xFFFFFFFFu;
     GroupMemoryBarrierWithGroupSync();
     uint t0 = 0;
+#if X_SORTED
+    #define ROW_OF(t) (rowOff + (t))
+#else
     #define ROW_OF(t) (PER_SLOT ? gItem[t] : gItem[t] / S)
+#endif
     #define ROWS_LIVE tileRows
 #else
     uint t0 = gid.y * GBM;

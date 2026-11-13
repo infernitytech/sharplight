@@ -31,6 +31,11 @@ public sealed partial class GraphLowerer
         }
 
         AbsorbIntoConsumers(units, consumers);
+        if (!DiagnosticSwitches.NoGatherFold)
+        {
+            FoldRowGathers(units, consumers);
+        }
+
         FoldScatterChains(units, consumers);
         FindFusedOutputs(units, consumers);
         return units;
@@ -375,6 +380,52 @@ public sealed partial class GraphLowerer
         }
 
         units.RemoveAll(u => u.Node is not null && absorbed.Contains(u.Node));
+    }
+
+    /// <summary>
+    /// Moves row gathers (GatherAxis on axis 0 of a [rows, N] table, output [indices..., N]) into the one plain fused group that
+    /// reads them with the gather's own shape: the group loads table[index] in place, which saves the gather launch and its
+    /// output (e.g. the per-expert biases added to MatMulId projections).
+    /// </summary>
+    private void FoldRowGathers(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOfNode = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units.Where(u => u.Fused is not null))
+        {
+            foreach (var node in unit.Fused!)
+            {
+                unitOfNode[node] = unit;
+            }
+        }
+
+        var folded = new HashSet<Node>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not { Op.Name: "GatherAxis" } gather || !IsFoldableRowGather(gather) || _segmentOutputs.Contains(gather.Output)
+                || !consumers.TryGetValue(gather.Output, out var readers) || readers.Count == 0
+                || !unitOfNode.TryGetValue(readers[0], out var group) || readers.Any(r => !unitOfNode.TryGetValue(r, out var g) || g != group)
+                || group.Dual is not null || group.NormHead is not null || group.NormTail is not null
+                || !group.Fused![0].Output.Shape.Equals(gather.Output.Shape))
+            {
+                continue;
+            }
+
+            (group.Gathers ??= []).Add(gather);
+            _foldedGathers[gather.Output] = gather;
+            folded.Add(gather);
+        }
+
+        units.RemoveAll(u => u.Node is not null && folded.Contains(u.Node));
+    }
+
+    /// <summary>True for a GatherAxis on axis 0 of a static [rows, N] float table with integer indices.</summary>
+    private static bool IsFoldableRowGather(Node gather)
+    {
+        var table = gather.Inputs[0];
+        var indices = gather.Inputs[1];
+        return table.Shape.Rank == 2 && table.Shape.Dims.All(d => !d.IsSymbolic) && NormAxis(gather.Attributes.Get("axis", 0L), 2) == 0
+               && (table.Type == DataType.F32 || table.Type == DataType.F16 || table.Type == DataType.BF16)
+               && (indices.Type == DataType.I32 || indices.Type == DataType.I64) && indices.Shape.Rank >= 1;
     }
 
     /// <summary>

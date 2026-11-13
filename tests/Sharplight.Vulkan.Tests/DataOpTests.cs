@@ -211,4 +211,30 @@ public sealed class DataOpTests
         tg.B.Output("y", tg.B.Emit1("OneHot", [x], Attributes.From(("depth", 6L), ("axis", (long)axis), ("on", 2f), ("off", -1f))));
         Diff.Check("OneHot", tg.B.Build(), new Step(3, 0, (x, new[] { 0, 5, -1, 3, 2, 2, 4, 1, 0, 0, 5, 3 })), atol: 0, what: $"axis {axis}");
     }
+
+    /// <summary>
+    /// Rows of a weight table selected by indices (negative ones wrap) and consumed only by one elementwise group: the group reads
+    /// the rows in place (no gather launch). The second output keeps a materialized gather next to the folded one.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RowGatherReadInElementwiseGroup(bool alsoOutput)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var table = tg.RandW("table", DataType.F32, 1f, 5, 24);
+        var x = tg.InF("x", TG.T, 2, 24);
+        var idx = tg.In("idx", DataType.I32, TG.T, 2);
+        var rows = tg.B.Emit1("GatherAxis", [table, idx], Attributes.From(("axis", 0L)));
+        tg.B.Output("y", tg.B.Mul(tg.B.Add(rows, x), x));
+        if (alsoOutput)
+        {
+            tg.B.Output("rows", rows);
+        }
+
+        int t = 7;
+        var ids = Enumerable.Range(0, t * 2).Select(i => i % 7 - 2).ToArray();   // -2 .. 4
+        Diff.Check("GatherAxis.fold", tg.B.Build(), new Step(t, 0, (x, Rnd.F(t * 2 * 24, 5)), (idx, ids)), atol: 1e-6, rtol: 1e-6);
+    }
 }

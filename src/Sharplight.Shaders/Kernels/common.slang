@@ -106,6 +106,7 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_TQ1_0 34
 #define FMT_TQ2_0 35
 #define FMT_MXFP4 39
+#define FMT_MXFP4R 139
 #define FMT_NVFP4 40
 // FP8 formats decoded in quant_fp8.slang.
 #define FMT_F8E4M3 50
@@ -397,6 +398,19 @@ uint4 load16_any(uint64_t at)
     return q;
 }
 
+// MXFP4R (WeightRepack.Mxfp4Split): rows in groups of 16, each group [16 rows x K/2 code bytes][16 rows x K/32 E8M0 scales],
+// rowBytes = 17 K / 32 as in MXFP4. Block b of row `row` has its 16 code bytes (16-byte aligned) at
+// mxfp4r_codes(..) + 16 b and its scale at mxfp4r_scales(..) + b. `table` is the start of the matrix (a multiple of 16 rows).
+uint64_t mxfp4r_codes(uint8_t* table, uint64_t rowBytes, uint row)
+{
+    return uint64_t(table) + uint64_t(row >> 4) * 16 * rowBytes + uint64_t(row & 15) * (rowBytes / 17 * 16);
+}
+
+uint64_t mxfp4r_scales(uint8_t* table, uint64_t rowBytes, uint row)
+{
+    return uint64_t(table) + uint64_t(row >> 4) * 16 * rowBytes + 256 * (rowBytes / 17) + uint64_t(row & 15) * (rowBytes / 17);
+}
+
 // Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
 // pointer to 32 bits, which breaks rows that start 4 GiB or more into a table.
 uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
@@ -537,6 +551,13 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_tq2_0(base, rowBytes, row, g, v);
 #elif WFMT == FMT_MXFP4
     load8_mxfp4(base, rowBytes, row, g, v);
+#elif WFMT == FMT_MXFP4R
+    // Group g: codes 8 (g & 1) .. + 8 of block g / 4, low nibbles for g & 2 == 0, else high.
+    uint2 q = *(uint2*)(mxfp4r_codes(table, rowBytes, tableRow) + uint64_t(g >> 2) * 16 + (g & 1) * 8) >> ((g & 2) * 2);
+    float d = e8m0_half(uint(*(uint8_t*)(mxfp4r_scales(table, rowBytes, tableRow) + (g >> 2))));
+    [ForceUnroll]
+    for (int i = 0; i < 8; i++)
+        v[i] = fp4_value(((i < 4 ? q.x : q.y) >> (8 * (i & 3))) & 0xF) * d;
 #elif WFMT == FMT_NVFP4
     load8_nvfp4(base, rowBytes, row, g, v);
 #elif WFMT == FMT_F8E4M3

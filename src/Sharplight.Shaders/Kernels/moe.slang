@@ -138,6 +138,36 @@ void moe_route(uint3 ltid : SV_GroupThreadID, uniform RouteParams p)
 }
 #endif
 
+#ifdef KERNEL_MOE_GATHER_X16
+struct GatherParams
+{
+    float* x;
+    uint* scratch;
+    uint16_t* xs;
+    uint T;
+};
+
+// Gathers the activation rows of the routed items in expert-sorted order as f16: xs[o, :] = half(x[row(item_o), :]) for every
+// sorted position o of every expert tile (grid: y = tile, x = TILE_M * K / 8 threads of 8 values). The grouped GEMMs then read
+// dense f16 rows (rowOffset + r) instead of gathering and converting f32 rows in every column tile.
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void moe_gather_x16(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform GatherParams p)
+{
+    uint tile = gid.y;
+    if (tile >= p.scratch[0]) return;
+    uint g = gid.x * 256 + ltid.x;
+    uint r = g / (K / 8), c = (g % (K / 8)) * 8;
+    if (r >= p.scratch[3 + 3 * tile]) return;
+    uint o = p.scratch[2 + 3 * tile] + r;
+    uint item = p.scratch[ROW_BASE + o];
+    float4* xp = (float4*)(p.x + uint64_t(PER_SLOT ? item : item / S) * X_STRIDE + c);
+    float4 a = xp[0], b = xp[1];
+    ((uint4*)(p.xs + uint64_t(o) * K + c))[0] = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
+                                                       f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
+}
+#endif
+
 struct GemmParams
 {
 #if HAS_GRID
