@@ -60,7 +60,7 @@ public sealed class SlangCompiler : IDisposable
         var source = KernelLibrary.ReadSource(file);
         // Files with several entry points guard each one with #ifdef KERNEL_<entry>.
         var m = new Dictionary<string, string>(macros) { ["KERNEL_" + entryPoint.ToUpperInvariant()] = "1" };
-        return Compile(file, source, entryPoint, target, m, cache);
+        return Compile(file, source, KernelLibrary.FileDigest(file), entryPoint, target, m, cache);
     }
 
     /// <summary>Compiles generated source (may #include library files).</summary>
@@ -76,8 +76,12 @@ public sealed class SlangCompiler : IDisposable
     /// <see cref="KernelCompilationException"/> from <see cref="CompiledKernel.Code"/>.</returns>
     public CompiledKernel Compile(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
+        => Compile(name, source, KernelLibrary.Digest(source), entryPoint, target, macros, cache);
+
+    private CompiledKernel Compile(string name, string source, string sourceDigest, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
+        Runtime.ICompilationCache? cache)
     {
-        var key = CacheKey(source, entryPoint, target, macros);
+        var key = CacheKey(sourceDigest, entryPoint, target, macros);
         string ckey = "kernel/" + key;
         if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpDirectory)
         {
@@ -214,16 +218,15 @@ public sealed class SlangCompiler : IDisposable
         _ => ".bin",
     };
 
-    private string CacheKey(string source, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
+    private static string CacheKey(string sourceDigest, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
     {
         var sb = new StringBuilder();
-        sb.Append(Version).Append('\n').Append(KernelLibrary.IncludeHash(source)).Append('\n').Append(target).Append('\n').Append(entry).Append('\n');
+        sb.Append(Version).Append('\n').Append(sourceDigest).Append('\n').Append(target).Append('\n').Append(entry).Append('\n');
         foreach (var kv in macros.OrderBy(k => k.Key, StringComparer.Ordinal))
         {
             sb.Append(kv.Key).Append('=').Append(kv.Value).Append(';');
         }
 
-        sb.Append('\n').Append(source);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..32].ToLowerInvariant();
     }
 

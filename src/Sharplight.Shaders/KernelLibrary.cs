@@ -20,11 +20,11 @@ internal static partial class KernelLibrary
         => s_extracted.Value.Sources.TryGetValue(file, out var text) ? text : File.ReadAllText(Path.Combine(Extract(), file));
 
     /// <summary>
-    /// Content hash of every library file that <paramref name="source"/> includes, directly or transitively, so that a kernel's
-    /// cache key changes exactly when something it compiles against changes.
+    /// Content hash of a source text together with every library file it includes, directly or transitively, so that a
+    /// kernel's cache key changes exactly when something it compiles against changes.
     /// </summary>
     /// <remarks>Only <c>#include "file"</c> directives pull library files in; the macros do not select other files.</remarks>
-    public static string IncludeHash(string source)
+    public static string Digest(string source)
     {
         var names = new SortedSet<string>(StringComparer.Ordinal);
         foreach (Match match in IncludeDirective().Matches(source))
@@ -32,8 +32,14 @@ internal static partial class KernelLibrary
             names.Add(match.Groups[1].Value);
         }
 
-        return string.Join(',', names.Select(ClosureHash));
+        var parts = names.Select(ClosureHash).Prepend(HashText(source));
+        return string.Join(',', parts);
     }
+
+    /// <summary><see cref="Digest"/> of a library file, computed once per process.</summary>
+    public static string FileDigest(string file) => ClosureHash(file);
+
+    private static string HashText(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16].ToLowerInvariant();
 
     [GeneratedRegex(@"^\s*#\s*include\s+""([^""]+)""", RegexOptions.Multiline)]
     private static partial Regex IncludeDirective();
@@ -57,8 +63,7 @@ internal static partial class KernelLibrary
             sb.Append('\n').Append(ClosureHash(match.Groups[1].Value));
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..16].ToLowerInvariant();
-        return s_closureHashes[file] = hash;
+        return s_closureHashes[file] = HashText(sb.ToString());
     }
 
     private static Extracted DoExtract()
