@@ -264,6 +264,12 @@ internal sealed partial class OnnxTranslator
 
     private void Conv(OnnxNode n, TranslatedTensor?[] ins)
     {
+        if (ins[1] is { IsConst: false } || (ins.Length > 2 && ins[2] is { IsConst: false }))
+        {
+            ConvRuntimeWeight(n, ins);
+            return;
+        }
+
         var x0 = X(ins, 0);
         var weightIn = ConstIn(ins, 1, "Conv weight");
         var biasIn = ins.Length > 2 && ins[2] is not null ? ConstIn(ins, 2, "Conv bias") : null;
