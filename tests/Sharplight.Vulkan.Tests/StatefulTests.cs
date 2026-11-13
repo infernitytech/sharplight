@@ -112,10 +112,25 @@ public sealed class StatefulTests
     [InlineData("f16", 96, 64, 4, 4)]
     [InlineData("f32", 96, 64, 8, 2)]
     public void CachedAttentionValuePrefix(string cacheType, int D, int valueDims, int Hq, int Hkv)
+        => ValuePrefixAttention(cacheType, D, valueDims, Hq, Hkv, [6, 3, 1, 1, 180, 1], 256, 1f);
+
+    /// <summary>
+    /// Absorbed multi-head latent attention shapes (DeepSeek-V2: 576-wide rows, 512 values, 16 heads; MiniCPM3: 288 / 256,
+    /// 40 heads, so a query's heads span three 16-row tiles): the tensor-core <c>fa_mqa</c> kernel for prefill chunks and, for
+    /// the single rows at a few hundred keys, its split-key form with the combine. f32 caches keep the exact kernels.
+    /// </summary>
+    [Theory]
+    [InlineData("f16", 576, 512, 16, 1)]
+    [InlineData("f16", 288, 256, 40, 1)]
+    [InlineData("f16", 576, 512, 32, 2)]
+    [InlineData("f32", 576, 512, 16, 1)]
+    public void CachedAttentionLatentShapes(string cacheType, int D, int valueDims, int Hq, int Hkv)
+        => ValuePrefixAttention(cacheType, D, valueDims, Hq, Hkv, [70, 3, 1, 250, 1, 1, 40], 384, 8f);
+
+    // queryScale > 1 spreads the scores, so running maxima grow during the key loop (the lazy rescale of fa_mqa).
+    private static void ValuePrefixAttention(string cacheType, int D, int valueDims, int Hq, int Hkv, int[] chunks, int ctx, float queryScale)
     {
         Gpu.Require();
-        int ctx = 256;
-        int[] chunks = [6, 3, 1, 1, 180, 1];
         int total = chunks.Sum();
         var tg = new TG();
         var T = TG.T;
@@ -126,7 +141,7 @@ public sealed class StatefulTests
         tg.B.RuntimeScalar("n_past");
         var attrs = Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("offset", "n_past"), ("v_dims", (long)valueDims));
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, kc], attrs));
-        var q = Rnd.F(total * Hq * D, 1);
+        var q = Rnd.F(total * Hq * D, 1, queryScale);
         var k = Rnd.F(total * Hkv * D, 2);
         var steps = new List<Step>();
         int past = 0;
@@ -135,7 +150,7 @@ public sealed class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        Diff.Check("CachedAttention.vprefix", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"{cacheType} D={D} v_dims={valueDims}");
+        Diff.Check("CachedAttention.vprefix", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} v_dims={valueDims}");
     }
 
     // Attention sinks: decode (split-K + combine), short chunks, and long prefill chunks (flash kernel), full and windowed.

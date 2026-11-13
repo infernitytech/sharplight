@@ -67,6 +67,12 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
+        if (MqaAttention(plan) is { } mqa)
+        {
+            EmitMqaAttention(plan, mqa);
+            return;
+        }
+
         var q = plan.Q;
         var o = plan.Output;
 

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -80,6 +81,63 @@ public sealed class BenchTests
             var (ms, rep) = Profile(m, 512);
             double gflop = 2.0 * 512 * K * N * 1e-9;
             Console.WriteLine($"BENCH matmul {type} T=512 {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s\n{rep}");
+        }
+    }
+
+    /// <summary>
+    /// Absorbed multi-head latent attention (one [latent | rope] cache row per token, values = the latent prefix): decode rows and
+    /// prefill chunks at several context depths, for DeepSeek-V2-Lite (16 heads, 576 / 512) and MiniCPM3-4B (40 heads, 288 / 256).
+    /// </summary>
+    [Theory]
+    [InlineData(16, 576, 512, "f16")]
+    [InlineData(40, 288, 256, "f16")]
+    public void LatentAttention(int heads, int D, int valueDims, string cacheType)
+    {
+        RequireBench();
+        const long ctx = 8192;
+        var tg = new TG();
+        var q = tg.InF("q", TG.T, heads, D);
+        var k = tg.InF("k", TG.T, 1, D);
+        var cache = tg.State("kc", DataType.Get(cacheType), StateKind.KeyCache, Dim.Sym("ctx"), 1, D);
+        tg.B.CacheWrite(cache, k);
+        tg.B.RuntimeScalar("n_past");
+        var attrs = Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("offset", "n_past"), ("v_dims", (long)valueDims));
+        tg.B.Output("o", tg.B.Emit1("CachedAttention", [q, cache, cache], attrs));
+        using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
+        {
+            Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+            Compile = new CompileOptions { MaxTokens = 512, ContextLength = ctx },
+            ReservePerDevice = 0,
+        });
+        Feed(m, q, 512L * heads * D);
+        Feed(m, k, 512L * D);
+        // Fill the whole cache with written rows (realistic score ranges instead of uninitialized memory).
+        for (long past = 0; past < ctx; past += 512)
+        {
+            var fill = new RunParameters();
+            fill.Symbols["T"] = 512;
+            fill.Scalars["n_past"] = past;
+            m.Run(fill);
+        }
+
+        var seg = (VulkanSegment)m.Segments[0];
+        foreach (var (rows, past) in new[] { (1, 0), (1, 512), (1, 4096), (4, 4096), (512, 0), (512, 1536), (512, 3584) })
+        {
+            var p = new RunParameters();
+            p.Symbols["T"] = rows;
+            p.Scalars["n_past"] = past;
+            m.Run(p);
+            seg.Profile = true;
+            seg.ResetProfile();
+            for (int i = 0; i < 20; i++)
+            {
+                m.Run(p);
+            }
+
+            seg.Profile = false;
+            var attention = seg.ProfileData.Where(e => e.Key.StartsWith("attention", StringComparison.Ordinal)).ToList();
+            double minUs = attention.Sum(e => e.Value.MinMs) * 1e3;
+            Console.WriteLine($"BENCH latent attention H={heads} D={D}/{valueDims} T={rows} past={past}: {minUs,8:F1} us (sum of kernel minima)\n{seg.ProfileReport(4)}");
         }
     }
 

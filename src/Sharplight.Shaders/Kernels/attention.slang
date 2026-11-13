@@ -37,12 +37,20 @@
 // Macros: HPW (divisor of HQ/HKV), KLANES (lanes sharing a key/value row, power of two <= SG), DEC_WG (threads), DEC_R
 // (rows per lane group and batch), DEC_BC (keys per batch = DEC_R * DEC_WG / KLANES), DEC_MAX_SPLITS, DEC_MIN_KEYS
 // (multiple of DEC_BC), DEC_TARGET_WG (workgroups the split count aims for).
-#if defined(KERNEL_DECODE) || defined(KERNEL_DECODE_COMBINE)
+#if defined(KERNEL_DECODE) || defined(KERNEL_DECODE_COMBINE) || defined(KERNEL_FA_MQA)
+#ifndef DEC_GROUPS
 #define DEC_GROUPS (HKV * (HQ / HKV / HPW))   // workgroups per (row, split)
+#endif
 #define DEC_PS (DV + 4)                        // floats per partial: acc[DV], m, l, padding (16-byte rows)
 
 uint decode_max_splits(uint T)
 {
+#ifdef DEC_SPLIT_ROWS
+    if (T > DEC_SPLIT_ROWS)
+    {
+        return 1;
+    }
+#endif
     return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));
 }
 
@@ -664,6 +672,313 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         [ForceUnroll]
         for (uint c = 0; c < FA_NC; c++)
             [ForceUnroll] for (uint e = 0; e < 16; e++) if (c * FA_DC + sub * 16 + e < DV) orow[c * FA_DC + sub * 16 + e] = o[c * 16 + e] * inv;
+    }
+}
+#endif
+
+#ifdef KERNEL_FA_MQA
+// ---------------------------------------------------------------------------------------------
+// Flash attention on tensor cores for many query heads per key head whose values are the first DV entries of the key rows
+// (VRS == D): the absorbed multi-head latent attention cache (D = latent + rope = 576 / 288, DV = latent = 512 / 256,
+// HKV = 1). A workgroup handles FM_BR heads of one query row (a tile of its key head's group, FM_TILES tiles per group)
+// and one key range, so each cache row is loaded once per tile and serves as key and value. Prefill and decode use the
+// same kernel: a row's keys are split at run time like `decode` (decode_split_keys: long batches run one range per row and
+// write the output directly, few rows spread their keys over up to decode_max_splits(T) workgroups and leave partials for
+// `decode_combine`).
+// Per FM_BC-key tile: cache rows (fetched into registers during the previous tile) into shared memory (f16), S = Q·Kᵀ split along D over the subgroups (the query fragments
+// stay in registers), online softmax in scalar code, then O += P·V with the output tiles in cooperative-matrix
+// accumulators, rescaled per row by an element-wise product with a matrix of the row corrections.
+using namespace linalg;
+#define FM_BR 16
+#define FM_BC 32
+#define FM_T 128
+#define FM_NSG (FM_T / 32)
+#define FM_G (HQ / HKV)
+#define FM_TILES ((FM_G + FM_BR - 1) / FM_BR)
+#define FM_DP ((D + 15) / 16 * 16)
+#define FM_KS (FM_DP + 8)
+#define FM_KCH (FM_DP / 16)
+#define FM_KPS ((FM_KCH + FM_NSG - 1) / FM_NSG)   // 16-wide D chunks of the scores per subgroup
+#define FM_OT ((DV + 15) / 16)                      // 16-wide output tiles
+#define FM_OPS ((FM_OT + FM_NSG - 1) / FM_NSG)      // output tiles per subgroup
+#define FM_PS (FM_BC + 8)
+#define FM_SS (FM_BR * FM_BC)                       // floats of one subgroup's partial scores (and staging slice)
+typealias FmA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
+typealias FmB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
+typealias FmC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+
+groupshared uint4 fmKV[FM_BC * FM_KS / 8];   // key/value tile as packed f16 x 8; holds the query tile before the key loop
+groupshared float fmS[FM_NSG * FM_SS];   // per-subgroup partial scores, then per-subgroup staging of output tiles
+groupshared half fmP[FM_BR * FM_PS];
+groupshared float fmCorr[FM_BR];
+groupshared float fmCorrM[FM_BR * 16];   // per-tile correction factor of row r in every column of row r
+
+#define FM_CPR (FM_DP / 8)                              // 8-value chunks per tile row
+#define FM_LPT ((FM_BC * FM_CPR + FM_T - 1) / FM_T)      // chunks per thread and tile
+#define FM_QPT ((FM_BR * FM_CPR + FM_T - 1) / FM_T)      // 8-value query chunks per thread
+
+// 8 consecutive cache values in registers (the next tile is fetched while the current one is processed).
+struct FmChunk
+{
+#if KV_F16
+    uint4 u;
+#else
+    float4 a;
+    float4 b;
+#endif
+};
+
+// Issues the loads of cache rows j0 .. j0 + FM_BC (all D columns, zero-padded to FM_DP); rows >= jEnd are zero.
+void fm_fetch(out FmChunk buf[FM_LPT], uint8_t* cache, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+{
+    [ForceUnroll]
+    for (uint k = 0; k < FM_LPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        uint r = i / FM_CPR, c = (i % FM_CPR) * 8;
+        uint j = j0 + r;
+        bool valid = i < FM_BC * FM_CPR && j < jEnd && c < D;
+        uint64_t elem = (kvRow + uint64_t(j) * HKV + hk) * D + c;
+#if KV_F16
+        buf[k].u = valid ? *(uint4*)byteAt(cache, elem * 2) : uint4(0);
+#else
+        buf[k].a = valid ? *(float4*)byteAt(cache, elem * 4) : float4(0);
+        buf[k].b = valid ? *(float4*)byteAt(cache, elem * 4 + 16) : float4(0);
+#endif
+    }
+}
+
+uint4 fm_pack8(float4 a, float4 b)
+{
+    return uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),
+                 f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16));
+}
+
+// Stores fetched rows into fmKV as f16 (one 16-byte store per chunk).
+void fm_store(FmChunk buf[FM_LPT], uint tid)
+{
+    [ForceUnroll]
+    for (uint k = 0; k < FM_LPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        if (i < FM_BC * FM_CPR)
+        {
+#if KV_F16
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = buf[k].u;
+#else
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = fm_pack8(buf[k].a, buf[k].b);
+#endif
+        }
+    }
+}
+
+[shader("compute")]
+[numthreads(FM_T, 1, 1)]
+void fa_mqa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    uint hk = gid.x / FM_TILES;
+    uint g0 = gid.x % FM_TILES * FM_BR;   // first head of the tile within the group
+    uint t = gid.y + p.row0;
+    uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
+
+    uint jLo, L;
+    uint64_t kvRow;
+#if MULTI_SEQ
+    decode_range(t, p.rt, p.seq, jLo, L, kvRow);
+#else
+    decode_range(t, p.rt, nullptr, jLo, L, kvRow);
+#endif
+    uint span = L - jLo;
+    uint per = decode_split_keys(span, p.T);
+    uint ns = (span + per - 1) / per;
+    uint split = gid.z;
+    if (split >= ns)
+    {
+        return;
+    }
+
+    uint jBeg = jLo + split * per;
+    uint jEnd = min(L, jBeg + per);
+
+    // Query tile (scaled, f16) through fmKV into register fragments: subgroup sg owns the D chunks sg * FM_KPS ...
+    // All loads are issued before the first store (one memory round trip).
+    FmChunk next[FM_LPT];
+    fm_fetch(next, p.kc, kvRow, jBeg, jEnd, hk, tid);
+    float qv[FM_QPT][8];
+    [ForceUnroll]
+    for (uint k = 0; k < FM_QPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        uint r = i / FM_CPR, d0 = (i % FM_CPR) * 8, g = g0 + r;
+        float* qr = p.q + uint64_t(t) * QS0 + uint64_t(hk * FM_G + g) * QS1;
+        [ForceUnroll] for (uint e = 0; e < 8; e++) qv[k][e] = i < FM_BR * FM_CPR && g < FM_G && d0 + e < D ? qr[d0 + e] * SCALE : 0.0;
+    }
+    [ForceUnroll]
+    for (uint k = 0; k < FM_QPT; k++)
+    {
+        uint i = tid + k * FM_T;
+        if (i < FM_BR * FM_CPR)
+        {
+            fmKV[i / FM_CPR * (FM_KS / 8) + i % FM_CPR] = fm_pack8(float4(qv[k][0], qv[k][1], qv[k][2], qv[k][3]), float4(qv[k][4], qv[k][5], qv[k][6], qv[k][7]));
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    FmA qa[FM_KPS];
+    [ForceUnroll]
+    for (uint c = 0; c < FM_KPS; c++)
+    {
+        uint k = min(sg * FM_KPS + c, uint(FM_KCH) - 1);   // chunks past D are loaded but not used
+        qa[c] = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmKV, k * 2, FM_KS / 8);
+    }
+    FmC o[FM_OPS];
+    [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = FmC(0.0);
+    GroupMemoryBarrierWithGroupSync();
+
+    // Softmax layout: 8 adjacent lanes per row, 4 key columns each.
+    uint row = tid / 8, sub = tid % 8;
+    bool rowValid = g0 + row < FM_G;
+    float m = -1e30, l = 0;
+
+    for (uint j0 = jBeg; j0 < jEnd; j0 += FM_BC)
+    {
+        fm_store(next, tid);
+        GroupMemoryBarrierWithGroupSync();
+        if (j0 + FM_BC < jEnd)
+        {
+            fm_fetch(next, p.kc, kvRow, j0 + FM_BC, jEnd, hk, tid);   // in flight during this tile's products
+        }
+
+        // Partial scores of this subgroup's D chunks for both 16-key halves.
+        {
+            FmC s0 = FmC(0.0), s1 = FmC(0.0);
+            [ForceUnroll]
+            for (uint c = 0; c < FM_KPS; c++)
+            {
+                uint k = sg * FM_KPS + c;
+                if (k < FM_KCH)
+                {
+                    FmB b0 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, k * 2, FM_KS / 8);
+                    FmB b1 = FmB.Load<CoopMatMatrixLayout.ColumnMajor>(fmKV, 2 * FM_KS + k * 2, FM_KS / 8);
+                    s0 = coopMatMulAdd<float, false>(qa[c], b0, s0);
+                    s1 = coopMatMulAdd<float, false>(qa[c], b1, s1);
+                }
+            }
+            s0.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS, FM_BC);
+            s1.Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS + 16, FM_BC);
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        float sv[4];
+        float mx = -1e30;
+        [ForceUnroll]
+        for (uint e = 0; e < 4; e++)
+        {
+            uint c = sub * 4 + e;
+            float sc = 0;
+            [ForceUnroll] for (uint w = 0; w < FM_NSG; w++) sc += fmS[w * FM_SS + row * FM_BC + c];
+#if HAS_SOFTCAP
+            sc = SOFTCAP * tanh(sc / SOFTCAP);
+#endif
+            sv[e] = rowValid && j0 + c < jEnd ? sc : -1e30;
+            mx = max(mx, sv[e]);
+        }
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 1));
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 2));
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 4));
+        float mNew = max(m, mx);
+        float corr = exp(m - mNew);
+        m = mNew;
+        float ps = 0;
+        [ForceUnroll]
+        for (uint e = 0; e < 4; e++)
+        {
+            float pe = sv[e] > -1e29 ? exp(sv[e] - m) : 0.0;
+            ps += pe;
+            fmP[row * FM_PS + sub * 4 + e] = half(pe);
+        }
+        ps += WaveReadLaneAt(ps, lane ^ 1);
+        ps += WaveReadLaneAt(ps, lane ^ 2);
+        ps += WaveReadLaneAt(ps, lane ^ 4);
+        l = l * corr + ps;
+        fmCorrM[row * 16 + sub * 2] = corr;
+        fmCorrM[row * 16 + sub * 2 + 1] = corr;
+        GroupMemoryBarrierWithGroupSync();   // P and corrections visible; partial scores consumed
+
+        // Rescale the accumulators row by row: element-wise product with the matrix whose row r is corr[r] (same
+        // accumulator type, so both share the implementation's element layout).
+        FmC cm = FmC.Load<CoopMatMatrixLayout.RowMajor>(fmCorrM, 0, 16);
+        [ForceUnroll] for (uint i = 0; i < FM_OPS; i++) o[i] = o[i] * cm;
+
+        FmA p0 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 0, FM_PS);
+        FmA p1 = FmA.Load<CoopMatMatrixLayout.RowMajor>(fmP, 16, FM_PS);
+        [ForceUnroll]
+        for (uint i = 0; i < FM_OPS; i++)
+        {
+            uint ot = sg * FM_OPS + i;
+            if (ot < FM_OT)
+            {
+                FmB v0 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, ot * 2, FM_KS / 8);
+                FmB v1 = FmB.Load<CoopMatMatrixLayout.RowMajor>(fmKV, 2 * FM_KS + ot * 2, FM_KS / 8);
+                o[i] = coopMatMulAdd<float, false>(p0, v0, o[i]);
+                o[i] = coopMatMulAdd<float, false>(p1, v1, o[i]);
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();   // tile, P and staging free for the next keys
+    }
+
+    // Row factors: 1/l for a direct output (sinks join the denominator), 1 for partials (decode_combine normalizes).
+    bool direct = ns == 1;
+    float f = 1.0;
+    if (direct)
+    {
+#if HAS_SINKS
+        if (rowValid)
+        {
+            float sk = p.sinks[hk * FM_G + g0 + row], mf = max(m, sk), cf = exp(m - mf);
+            l = l * cf + exp(sk - mf);
+            f = cf;
+        }
+#endif
+        f = l > 0 ? f / l : 0.0;
+    }
+    else if (rowValid && sub == 0)
+    {
+        float* dst = p.part + ((uint64_t(split) * p.T + t) * HQ + hk * FM_G + g0 + row) * DEC_PS;
+        dst[DV] = m;
+        dst[DV + 1] = l;
+    }
+    fmCorrM[row * 16 + sub * 2] = f;
+    fmCorrM[row * 16 + sub * 2 + 1] = f;
+    GroupMemoryBarrierWithGroupSync();
+    FmC fm = FmC.Load<CoopMatMatrixLayout.RowMajor>(fmCorrM, 0, 16);
+    // Output rows are consecutive heads: [t][h][DV] (direct) or [split][t][h][DEC_PS] (partials).
+    uint64_t rowBytes = direct ? DV * 4 : DEC_PS * 4;
+    uint64_t first = direct ? (uint64_t(t) * HQ + hk * FM_G + g0) * DV * 4 : ((uint64_t(split) * p.T + t) * HQ + hk * FM_G + g0) * DEC_PS * 4;
+    uint8_t* base = byteAt((uint8_t*)(direct ? p.o : p.part), first);
+    [ForceUnroll]
+    for (uint i = 0; i < FM_OPS; i++)
+    {
+        uint ot = sg * FM_OPS + i;
+#if FM_G % FM_BR == 0 && DV % 16 == 0
+        if (ot < FM_OT)
+        {
+            (o[i] * fm).Store<CoopMatMatrixLayout.RowMajor>((float*)byteAt(base, ot * 64), 0, uint(rowBytes / 4));
+        }
+#else
+        // Partial head tiles or value widths: stage and write the valid elements.
+        (o[i] * fm).Store<CoopMatMatrixLayout.RowMajor>(fmS, sg * FM_SS, 16);
+        GroupMemoryBarrierWithGroupSync();
+        [ForceUnroll]
+        for (uint e = 0; e < 8; e++)
+        {
+            uint idx = lane * 8 + e, r = idx / 16, d = ot * 16 + idx % 16;
+            if (ot < FM_OT && g0 + r < FM_G && d < DV)
+            {
+                *(float*)byteAt(base, r * rowBytes + d * 4) = fmS[sg * FM_SS + idx];
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+#endif
     }
 }
 #endif
