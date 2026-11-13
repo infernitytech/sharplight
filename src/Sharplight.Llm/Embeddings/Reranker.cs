@@ -3,43 +3,6 @@ using Sharplight.Tokenizers;
 
 namespace Sharplight.Llm.Embeddings;
 
-/// <summary>How a reranker turns a (query, document) pair into a score.</summary>
-public enum RerankerKind
-{
-    /// <summary>Pick from the model: a classifier head → <see cref="CrossEncoder"/>, otherwise a decoder → <see cref="YesNo"/>.</summary>
-    Auto,
-    /// <summary>Encoder with a classification head over "query + document" (bge-reranker, ms-marco cross-encoders).</summary>
-    CrossEncoder,
-    /// <summary>
-    /// Decoder judging relevance in a chat prompt; the score is P("yes") from the "yes" / "no" logits of the last token
-    /// (Qwen3-Reranker).
-    /// </summary>
-    YesNo,
-}
-
-/// <summary>Options for <see cref="Reranker.Load"/>.</summary>
-public sealed class RerankerLoadOptions : PackedModelLoadOptions
-{
-    public RerankerKind Kind { get; init; } = RerankerKind.Auto;
-    /// <summary>Task instruction of <see cref="RerankerKind.YesNo"/> rerankers (default: the model's, else a web-search instruction).</summary>
-    public string? Instruction { get; init; }
-}
-
-/// <summary>Per-call options of <see cref="Reranker.Score"/>.</summary>
-public sealed record RerankOptions
-{
-    /// <summary>Task instruction for <see cref="RerankerKind.YesNo"/> rerankers; null = the load option / model default.</summary>
-    public string? Instruction { get; init; }
-    /// <summary>Cut pairs longer than <see cref="Reranker.MaxSequenceLength"/> (default); false = reject them.</summary>
-    public bool Truncate { get; init; } = true;
-}
-
-/// <summary>Scores of the documents in input order: <see cref="Scores"/> after the model's activation (sigmoid → [0, 1]), the raw <see cref="Logits"/>.</summary>
-public sealed record RerankResult(IReadOnlyList<float> Scores, IReadOnlyList<float> Logits, IReadOnlyList<int> TokenCounts)
-{
-    public int TotalTokens => TokenCounts.Sum();
-}
-
 /// <summary>
 /// Scores how relevant documents are to a query. Cross-encoders (BERT / XLM-RoBERTa classifiers) read "query, document" as one
 /// pair through the model's <see cref="WellKnown.ClassifyGraph"/>; decoder rerankers (Qwen3-Reranker) get a judging prompt and
@@ -47,24 +10,30 @@ public sealed record RerankResult(IReadOnlyList<float> Scores, IReadOnlyList<flo
 /// </summary>
 public sealed class Reranker : ITextReranker, IDisposable
 {
-    const string DefaultInstruction = "Given a web search query, retrieve relevant passages that answer the query";
-    const string YesNoPrefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
-    const string YesNoSuffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+    private const string DefaultInstruction = "Given a web search query, retrieve relevant passages that answer the query";
+    private const string YesNoPrefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
+    private const string YesNoSuffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
 
-    readonly PackedBatchRunner _runner;
-    readonly Lock _lock = new();
-    readonly string _activation, _pairStyle, _instruction;
-    readonly int _yes, _no;
-    readonly int[] _prefixTokens = [], _suffixTokens = [];
+    private readonly PackedBatchRunner _runner;
+    private readonly Lock _lock = new();
+    private readonly string _activation, _pairStyle, _instruction;
+    private readonly int _yes, _no;
+    private readonly int[] _prefixTokens = [], _suffixTokens = [];
 
+    /// <summary>The model's definition (graphs, weights, metadata).</summary>
     public ModelDefinition Definition { get; }
+    /// <summary>The model's tokenizer.</summary>
     public ITokenizer Tokenizer { get; }
+    /// <summary>Model name from the file metadata.</summary>
     public string Name { get; }
+    /// <summary>How pairs are scored.</summary>
     public RerankerKind Kind { get; }
+    /// <summary>Longest (query, document) input in tokens.</summary>
     public int MaxSequenceLength { get; }
+    /// <summary>The compiled packed-sequence graph.</summary>
     public PackedBatchRunner Runner => _runner;
 
-    Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, RerankerKind kind, int maxLength, string? instruction)
+    private Reranker(ModelDefinition def, ITokenizer tok, PackedBatchRunner runner, RerankerKind kind, int maxLength, string? instruction)
     {
         Definition = def; Tokenizer = tok; _runner = runner; Kind = kind; MaxSequenceLength = maxLength; Name = def.Name;
         var md = def.SourceMetadata;
@@ -81,6 +50,7 @@ public sealed class Reranker : ITextReranker, IDisposable
         }
     }
 
+    /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the registered importers and compiles its classify graph.</summary>
     public static Reranker Load(string path, RerankerLoadOptions options)
     {
         var (def, _, tok) = PackedModelLoadOptions.Open(path, options, new AdapterOptions
@@ -90,16 +60,27 @@ public sealed class Reranker : ITextReranker, IDisposable
         try
         {
             if (!def.Graphs.ContainsKey(WellKnown.ClassifyGraph))
+            {
                 throw new NotSupportedException($"Model '{def.Name}' ({def.Architecture}) has no '{WellKnown.ClassifyGraph}' graph (no classifier head) and cannot rerank.");
+            }
+
             var kind = options.Kind;
-            if (kind == RerankerKind.Auto) kind = def.Property(WellKnown.CausalAttention, false) ? RerankerKind.YesNo : RerankerKind.CrossEncoder;
+            if (kind == RerankerKind.Auto)
+            {
+                kind = def.Property(WellKnown.CausalAttention, false) ? RerankerKind.YesNo : RerankerKind.CrossEncoder;
+            }
+
             var runner = PackedBatchRunner.Compile(def, WellKnown.ClassifyGraph, WellKnown.LogitsOutput, options.Devices, options.Fallback,
                 options.MaxBatchTokens, options.MaxBatchSequences, options.DisabledFeatures, null, options.Log);
             return new Reranker(def, tok, runner, kind, options.ResolveMaxLength(def), options.Instruction);
         }
         catch
         {
-            foreach (var r in def.OwnedResources) r.Dispose();
+            foreach (var r in def.OwnedResources)
+            {
+                r.Dispose();
+            }
+
             throw;
         }
     }
@@ -114,7 +95,11 @@ public sealed class Reranker : ITextReranker, IDisposable
             int room = MaxSequenceLength - _prefixTokens.Length - _suffixTokens.Length;
             if (body.Length > room)
             {
-                if (!options.Truncate) throw new ArgumentException($"The pair has {body.Length + _prefixTokens.Length + _suffixTokens.Length} tokens; the model accepts at most {MaxSequenceLength}.");
+                if (!options.Truncate)
+                {
+                    throw new ArgumentException($"The pair has {body.Length + _prefixTokens.Length + _suffixTokens.Length} tokens; the model accepts at most {MaxSequenceLength}.");
+                }
+
                 body = body[..Math.Max(0, room)];
             }
             return new PackedSequence([.. _prefixTokens, .. body, .. _suffixTokens]);
@@ -131,18 +116,41 @@ public sealed class Reranker : ITextReranker, IDisposable
         int over = a.Length + b.Length + specials - MaxSequenceLength;
         if (over > 0)
         {
-            if (!options.Truncate) throw new ArgumentException($"The pair has {a.Length + b.Length + specials} tokens; the model accepts at most {MaxSequenceLength}.");
+            if (!options.Truncate)
+            {
+                throw new ArgumentException($"The pair has {a.Length + b.Length + specials} tokens; the model accepts at most {MaxSequenceLength}.");
+            }
+
             int la = a.Length, lb = b.Length;
-            while (over-- > 0) { if (la > lb) la--; else lb--; }
+            while (over-- > 0) { if (la > lb)
+                {
+                    la--;
+                }
+                else
+                {
+                    lb--;
+                }
+            }
             a = a[..Math.Max(0, la)]; b = b[..Math.Max(0, lb)];
         }
         var tokens = new List<int>(a.Length + b.Length + specials) { cls };
         tokens.AddRange(a); tokens.Add(sep);
-        if (!bert) tokens.Add(sep);
+        if (!bert)
+        {
+            tokens.Add(sep);
+        }
+
         int second = tokens.Count;
         tokens.AddRange(b); tokens.Add(sep);
         var types = new int[tokens.Count];
-        if (bert) for (int i = second; i < types.Length; i++) types[i] = 1;
+        if (bert)
+        {
+            for (int i = second; i < types.Length; i++)
+            {
+                types[i] = 1;
+            }
+        }
+
         return new PackedSequence([.. tokens], types);
     }
 
@@ -152,7 +160,11 @@ public sealed class Reranker : ITextReranker, IDisposable
         ArgumentNullException.ThrowIfNull(query);
         var seqs = documents.Select(d => Encode(query, d ?? throw new ArgumentNullException(nameof(documents)), options)).ToList();
         float[][] rows;
-        lock (_lock) rows = _runner.Run(seqs);
+        lock (_lock)
+        {
+            rows = _runner.Run(seqs);
+        }
+
         var scores = new float[rows.Length];
         var logits = new float[rows.Length];
         for (int i = 0; i < rows.Length; i++)
@@ -177,9 +189,9 @@ public sealed class Reranker : ITextReranker, IDisposable
         return new RerankResult(scores, logits, [.. seqs.Select(s => s.Tokens.Length)]);
     }
 
-    static float Sigmoid(float x) => 1f / (1f + MathF.Exp(-x));
+    private static float Sigmoid(float x) => 1f / (1f + MathF.Exp(-x));
 
-    static float[] Softmax(float[] x)
+    private static float[] Softmax(float[] x)
     {
         float m = x.Max();
         var e = x.Select(v => MathF.Exp(v - m)).ToArray();
@@ -187,9 +199,13 @@ public sealed class Reranker : ITextReranker, IDisposable
         return [.. e.Select(v => v / s)];
     }
 
+    /// <summary>Releases the compiled graph and the model files.</summary>
     public void Dispose()
     {
         _runner.Dispose();
-        foreach (var r in Definition.OwnedResources) r.Dispose();
+        foreach (var r in Definition.OwnedResources)
+        {
+            r.Dispose();
+        }
     }
 }

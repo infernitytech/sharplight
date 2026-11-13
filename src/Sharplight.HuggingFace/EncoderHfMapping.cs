@@ -12,12 +12,15 @@ namespace Sharplight.HuggingFace;
 /// </summary>
 public sealed partial class EncoderHfMapping : IHfArchitectureMapping
 {
+    /// <inheritdoc/>
     public string Architecture => "encoder";
+    /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["bert", "roberta", "xlm-roberta", "nomic_bert"];
 
-    static bool IsRoberta(HfConfig c) => c.ModelType is "roberta" or "xlm-roberta";
-    static bool IsNomic(HfConfig c) => c.ModelType == "nomic_bert";
+    private static bool IsRoberta(HfConfig c) => c.ModelType is "roberta" or "xlm-roberta";
+    private static bool IsNomic(HfConfig c) => c.ModelType == "nomic_bert";
 
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
     {
         string a = Architecture + ".";
@@ -30,9 +33,17 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
             md[a + "attention.head_count"] = c.Int("n_head", "num_attention_heads");
             md[a + "norm_eps"] = (float)(c.GetDouble("layer_norm_epsilon", "layer_norm_eps") ?? 1e-12);
             md[a + "context_length"] = c.GetInt("max_trained_positions", "n_positions") ?? 2048;
-            if (c.GetBool("prenorm") == true) throw new NotSupportedException("nomic_bert: pre-norm checkpoints are not supported.");
+            if (c.GetBool("prenorm") == true)
+            {
+                throw new NotSupportedException("nomic_bert: pre-norm checkpoints are not supported.");
+            }
+
             string act = c.GetString("activation_function") ?? "swiglu";
-            if (act is not ("swiglu" or "gelu")) throw new NotSupportedException($"nomic_bert: activation '{act}' is not supported.");
+            if (act is not ("swiglu" or "gelu"))
+            {
+                throw new NotSupportedException($"nomic_bert: activation '{act}' is not supported.");
+            }
+
             md[a + "mlp.activation"] = act == "swiglu" ? "silu" : "gelu";
             md[a + "mlp.gated"] = act == "swiglu";
             int headDim = c.Int("n_embd", "hidden_size") / c.Int("n_head", "num_attention_heads");
@@ -57,14 +68,17 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
             var other => throw new NotSupportedException($"{c.ModelType}: activation '{other}' is not supported."),
         };
         if ((c.GetString("position_embedding_type") ?? "absolute") != "absolute")
+        {
             throw new NotSupportedException($"{c.ModelType}: position_embedding_type '{c.GetString("position_embedding_type")}' is not supported.");
+        }
+
         return md;
     }
 
     [GeneratedRegex(@"^(?:encoder\.layers?)\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
-    static readonly Dictionary<string, string> s_bertLayer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_bertLayer = new(StringComparer.Ordinal)
     {
         ["attention.self.query"] = "attention.q",
         ["attention.self.key"] = "attention.k",
@@ -76,7 +90,7 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
         ["output.LayerNorm"] = "mlp_norm",
     };
 
-    static readonly Dictionary<string, string> s_nomicLayer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_nomicLayer = new(StringComparer.Ordinal)
     {
         ["attn.out_proj"] = "attention.o",
         ["norm1"] = "attention_norm",
@@ -87,26 +101,39 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
         ["norm2"] = "mlp_norm",
     };
 
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
         var w = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         int posOffset = IsRoberta(c) ? (c.GetInt("pad_token_id") ?? 1) + 1 : 0;
         int nEmbd = c.Int("n_embd", "hidden_size");
-        void Add(string name, WeightInfo info) { if (!w.TryAdd(name, info)) throw new InvalidDataException($"Two tensors map to '{name}'."); }
+        void Add(string name, WeightInfo info) { if (!w.TryAdd(name, info)) { throw new InvalidDataException($"Two tensors map to '{name}'."); } }
 
         foreach (var (raw, t) in tensors)
         {
             string name = raw;
             foreach (var prefix in new[] { "bert.", "roberta.", "model." })
+            {
                 if (name.StartsWith(prefix, StringComparison.Ordinal)) { name = name[prefix.Length..]; break; }
+            }
             // Old checkpoints call LayerNorm parameters gamma / beta.
-            if (name.EndsWith(".gamma", StringComparison.Ordinal)) name = name[..^6] + ".weight";
-            else if (name.EndsWith(".beta", StringComparison.Ordinal)) name = name[..^5] + ".bias";
+            if (name.EndsWith(".gamma", StringComparison.Ordinal))
+            {
+                name = name[..^6] + ".weight";
+            }
+            else if (name.EndsWith(".beta", StringComparison.Ordinal))
+            {
+                name = name[..^5] + ".bias";
+            }
+
             var info = t.ToWeightInfo();
 
             if (name.EndsWith("position_ids", StringComparison.Ordinal) || name.StartsWith("lm_head.", StringComparison.Ordinal)
                 || name.StartsWith("cls.", StringComparison.Ordinal) || name.StartsWith("pooler.", StringComparison.Ordinal) && !c.Architectures.Any(x => x.Contains("SequenceClassification")))
+            {
                 continue;   // buffers, masked-LM heads and the unused pooler of base models
+            }
+
             switch (name)
             {
                 case "embeddings.word_embeddings.weight": Add("token_embedding.weight", info.As("token_embedding.weight")); continue;
@@ -124,7 +151,11 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
                 case "classifier.bias" or "classifier.out_proj.bias": Add("classifier.out.bias", info.As("classifier.out.bias")); continue;
             }
             var m = LayerName().Match(name);
-            if (!m.Success) throw new NotSupportedException($"{c.ModelType}: tensor '{raw}' has no canonical mapping.");
+            if (!m.Success)
+            {
+                throw new NotSupportedException($"{c.ModelType}: tensor '{raw}' has no canonical mapping.");
+            }
+
             string p = $"layers.{m.Groups[1].Value}.", rest = m.Groups[2].Value;
             if (rest == "attn.Wqkv.weight")
             {
@@ -143,7 +174,11 @@ public sealed partial class EncoderHfMapping : IHfArchitectureMapping
             int dot = rest.LastIndexOf('.');
             string module = rest[..dot], param = rest[(dot + 1)..];
             var table = IsNomic(c) ? s_nomicLayer : s_bertLayer;
-            if (!table.TryGetValue(module, out var canon)) throw new NotSupportedException($"{c.ModelType}: tensor '{raw}' has no canonical mapping.");
+            if (!table.TryGetValue(module, out var canon))
+            {
+                throw new NotSupportedException($"{c.ModelType}: tensor '{raw}' has no canonical mapping.");
+            }
+
             Add(p + canon + "." + param, info.As(p + canon + "." + param));
         }
         return w;

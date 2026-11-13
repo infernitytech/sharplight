@@ -1,6 +1,5 @@
 using Sharplight.Graph;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -30,9 +29,12 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class EncoderAdapter : IModelAdapter
 {
+    /// <inheritdoc/>
     public string Name => "Bidirectional transformer encoder";
+    /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["encoder"];
 
+    /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
@@ -48,7 +50,11 @@ public sealed class EncoderAdapter : IModelAdapter
         float ropeBase = src.Arch("rope.base", 10000f);
         string ropeStyle = src.Arch("rope.style", "neox");
         int ctx = src.Arch("context_length", posTable is null ? 2048 : (int)posTable.Shape[0].Fixed);
-        if (posTable is not null) ctx = (int)Math.Min(ctx, posTable.Shape[0].Fixed);
+        if (posTable is not null)
+        {
+            ctx = (int)Math.Min(ctx, posTable.Shape[0].Fixed);
+        }
+
         string pooling = PackedSequences.NormalizePooling(options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(src.Get<string?>(CanonicalKeys.EmbeddingPooling, null)) ?? "cls";
         bool normalize = options.EmbeddingNormalize ?? src.Get(CanonicalKeys.EmbeddingNormalize, true);
         bool hasTypes = src.Weight("token_type_embedding.weight") is not null;
@@ -56,7 +62,10 @@ public sealed class EncoderAdapter : IModelAdapter
         int labels = hasClassifier ? (int)src.Weight("classifier.out.weight")!.Shape[0].Fixed : 0;
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.EmbedGraph] = BuildGraph(WellKnown.EmbedGraph, classify: false) };
-        if (hasClassifier) graphs[WellKnown.ClassifyGraph] = BuildGraph(WellKnown.ClassifyGraph, classify: true);
+        if (hasClassifier)
+        {
+            graphs[WellKnown.ClassifyGraph] = BuildGraph(WellKnown.ClassifyGraph, classify: true);
+        }
 
         var props = new Dictionary<string, object>
         {
@@ -69,7 +78,11 @@ public sealed class EncoderAdapter : IModelAdapter
             [WellKnown.CausalAttention] = false,
             ["n_layer"] = nLayer,
         };
-        if (hasClassifier) props[WellKnown.ClassifierLabels] = labels;
+        if (hasClassifier)
+        {
+            props[WellKnown.ClassifierLabels] = labels;
+        }
+
         return new ModelDefinition
         {
             Architecture = src.Architecture,
@@ -89,8 +102,16 @@ public sealed class EncoderAdapter : IModelAdapter
             using (b.Group("input"))
             {
                 x = b.Gather(b.Weight("token_embedding.weight"), inp.Tokens, "inp_embd");
-                if (posTable is not null) x = b.Add(x, b.Gather(b.Weight("position_embedding.weight"), b.Reshape(inp.Positions, 0), "pos_embd"));
-                if (hasTypes) x = b.Add(x, b.Gather(b.Weight("token_type_embedding.weight"), inp.TokenTypes!, "type_embd"));
+                if (posTable is not null)
+                {
+                    x = b.Add(x, b.Gather(b.Weight("position_embedding.weight"), b.Reshape(inp.Positions, 0), "pos_embd"));
+                }
+
+                if (hasTypes)
+                {
+                    x = b.Add(x, b.Gather(b.Weight("token_type_embedding.weight"), inp.TokenTypes!, "type_embd"));
+                }
+
                 x = LayerNorm(b, x, "embedding_norm");
             }
             for (int il = 0; il < nLayer; il++)
@@ -117,11 +138,18 @@ public sealed class EncoderAdapter : IModelAdapter
             }
             using (b.Group("output"))
             {
-                if (!classify) PackedSequences.EmbeddingsOutput(b, x, inp.SequenceSpans, pooling, normalize);
+                if (!classify)
+                {
+                    PackedSequences.EmbeddingsOutput(b, x, inp.SequenceSpans, pooling, normalize);
+                }
                 else
                 {
                     var cls = PackedSequences.Pool(b, x, inp.SequenceSpans, "cls", "cls_rows");
-                    if (b.HasWeight("classifier.pre.weight")) cls = b.Unary("Tanh", b.Linear(cls, "classifier.pre.weight", "classifier.pre.bias"));
+                    if (b.HasWeight("classifier.pre.weight"))
+                    {
+                        cls = b.Unary("Tanh", b.Linear(cls, "classifier.pre.weight", "classifier.pre.bias"));
+                    }
+
                     b.Output(WellKnown.LogitsOutput, b.Linear(cls, "classifier.out.weight", "classifier.out.bias", "logits"));
                 }
             }

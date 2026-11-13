@@ -62,7 +62,10 @@ public sealed partial class GraphLowerer
         _runtime = NewBuffer(BufferKind.Runtime, "runtime", 256);
         _arena = NewBuffer(BufferKind.Activations, "activations", 0);
         var scalars = seg.Graph.RuntimeScalars.OrderBy(s => s == WellKnown.PastScalar ? "" : s, StringComparer.Ordinal).ToList();
-        for (int i = 0; i < scalars.Count; i++) _scalarSlots[scalars[i]] = i;
+        for (int i = 0; i < scalars.Count; i++)
+        {
+            _scalarSlots[scalars[i]] = i;
+        }
     }
 
     public static KernelProgram Lower(GraphSegment segment, SlangCompiler compiler, LoweringOptions options)
@@ -76,35 +79,83 @@ public sealed partial class GraphLowerer
 
     public static OpSupport Supports(Node node)
     {
-        if (!s_supported.Contains(node.Op.Name)) return OpSupport.No($"no kernel for {node.Op.Name}");
-        if (s_spatialOps.Contains(node.Op.Name)) return SupportsSpatial(node);
-        if (s_generalOps.Contains(node.Op.Name)) return SupportsGeneral(node);
-        if (node.Op.Name == "MatMulId") return SupportsMoe(node);
+        if (!s_supported.Contains(node.Op.Name))
+        {
+            return OpSupport.No($"no kernel for {node.Op.Name}");
+        }
+
+        if (s_spatialOps.Contains(node.Op.Name))
+        {
+            return SupportsSpatial(node);
+        }
+
+        if (s_generalOps.Contains(node.Op.Name))
+        {
+            return SupportsGeneral(node);
+        }
+
+        if (node.Op.Name == "MatMulId")
+        {
+            return SupportsMoe(node);
+        }
+
         if (node.Op.Name == "Attention")
         {
             var ins = node.Inputs;
             bool spans = ins.Length == 4 && ins[3].Type == DataType.I32 && ins[3].Rank == 2 && ins[3].Shape[1] == 2;
             bool causal = node.Attributes.Get("causal", false);
-            if (ins.Length != 3 && !spans) return OpSupport.No("Attention: an f32 mask input is not implemented (i32 spans are)");
+            if (ins.Length != 3 && !spans)
+            {
+                return OpSupport.No("Attention: an f32 mask input is not implemented (i32 spans are)");
+            }
+
             if (ins[1].Shape[1] != ins[2].Shape[1] || ins[0].Shape[2].Fixed % 8 != 0 || ins[1].Shape[2].Fixed % 8 != 0 || ins[2].Shape[2].Fixed % 8 != 0)
+            {
                 return OpSupport.No("Attention: k/v head counts must match and head sizes be multiples of 8");
-            if (ins[0].Shape[1].Fixed % ins[1].Shape[1].Fixed != 0) return OpSupport.No("Attention: query heads must be a multiple of key heads");
-            if (!spans && (causal || ins[0].Shape[0] != ins[1].Shape[0])) return OpSupport.No("Attention: causal or cross attention needs i32 spans");
-            if (spans && causal && ins[0].Shape[0] != ins[1].Shape[0]) return OpSupport.No("Attention: causal attention must be self-attention");
+            }
+
+            if (ins[0].Shape[1].Fixed % ins[1].Shape[1].Fixed != 0)
+            {
+                return OpSupport.No("Attention: query heads must be a multiple of key heads");
+            }
+
+            if (!spans && (causal || ins[0].Shape[0] != ins[1].Shape[0]))
+            {
+                return OpSupport.No("Attention: causal or cross attention needs i32 spans");
+            }
+
+            if (spans && causal && ins[0].Shape[0] != ins[1].Shape[0])
+            {
+                return OpSupport.No("Attention: causal attention must be self-attention");
+            }
         }
         if (node.Op.Name == "SequencePool" && (node.Inputs[1].Type != DataType.I32 || node.Inputs[0].Type.IsQuantized
             || node.Attributes.Get("mode", "mean") is not ("mean" or "sum" or "max" or "first" or "last")))
+        {
             return OpSupport.No("SequencePool: i32 spans and mode mean | sum | max | first | last");
+        }
+
         if (node.Op.Name == "MatMul" && node.Inputs[1].Type.IsQuantized && node.Inputs[1].Shape[-1] is { IsSymbolic: false } kd && kd.Fixed % 8 != 0)
+        {
             return OpSupport.No($"quantized MatMul K={kd.Fixed} is not a multiple of 8");
+        }
+
         if (node.Op.Name == "Rope" && node.Inputs.Length > 2 && (node.Inputs[2].Type != DataType.F32 || node.Inputs[2].Shape.Rank != 1))
+        {
             return OpSupport.No("Rope frequency factors must be a rank-1 f32 tensor");
+        }
+
         foreach (var v in node.Inputs)
         {
             if (v.Type.IsQuantized && node.Op.Name is not ("MatMul" or "Gather"))
+            {
                 return OpSupport.No($"{node.Op.Name} cannot read quantized {v.Type}");
+            }
+
             if (v.Type.IsQuantized && WeightFormat(v.Type) is null)
+            {
                 return OpSupport.No($"weight format {v.Type} not supported");
+            }
         }
         return OpSupport.Yes;
     }
@@ -125,16 +176,32 @@ public sealed partial class GraphLowerer
         for (int u = 0; u < units.Count; u++)
         {
             var unit = units[u];
-            deferred.RemoveAll(d => { if (d.Level >= unit.Level) return false; _alloc.Free(d.Root); return true; });
-            if (unit.Dual is { } d) LowerDualMatMul(d.A, d.B, unit.Fused!, unit.FusedOutputs![0]);
-            else if (unit.Fused is not null) LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
-            else LowerNode(unit.Node!);
+            deferred.RemoveAll(d => { if (d.Level >= unit.Level) { return false; } _alloc.Free(d.Root); return true; });
+            if (unit.Dual is { } d)
+            {
+                LowerDualMatMul(d.A, d.B, unit.Fused!, unit.FusedOutputs![0]);
+            }
+            else if (unit.Fused is not null)
+            {
+                LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
+            }
+            else
+            {
+                LowerNode(unit.Node!);
+            }
+
             foreach (var (root, last) in _lastUse)
-                if (last == u) deferred.Add((root, unit.Level));
+            {
+                if (last == u)
+                {
+                    deferred.Add((root, unit.Level));
+                }
+            }
         }
 
         // Segment outputs that are views (or inputs) need a dense copy in an output buffer.
         foreach (var o in _seg.Outputs)
+        {
             if (!_outputRefs.ContainsKey(o))
             {
                 var src = Ref(o);
@@ -143,6 +210,7 @@ public sealed partial class GraphLowerer
                 EmitCopy(src, dst, $"copy {o.Name}");
                 _outputRefs[o] = dst;
             }
+        }
 
         _arena.Bytes = Math.Max(256, _alloc.HighWater);
         return new KernelProgram
@@ -191,7 +259,11 @@ public sealed partial class GraphLowerer
 
         void Close()
         {
-            if (open is null) return;
+            if (open is null)
+            {
+                return;
+            }
+
             units.Add(new Unit { Fused = open });
             open = null;
             openValues = null;
@@ -201,7 +273,11 @@ public sealed partial class GraphLowerer
         {
             if (n.Op.Category == OpCategory.View)
             {
-                if (openValues is not null && openValues.Contains(n.Inputs[0])) Close();
+                if (openValues is not null && openValues.Contains(n.Inputs[0]))
+                {
+                    Close();
+                }
+
                 units.Add(new Unit { Node = n });
                 continue;
             }
@@ -222,10 +298,22 @@ public sealed partial class GraphLowerer
         // (e.g. residual Add + RmsNorm): saves a dispatch and a barrier.
         for (int i = 0; i + 1 < units.Count; i++)
         {
-            if (units[i].Fused is not { } g || units[i + 1].Node is not { } nn || nn.Op.Name is not ("RmsNorm" or "L2Norm")) continue;
+            if (units[i].Fused is not { } g || units[i + 1].Node is not { } nn || nn.Op.Name is not ("RmsNorm" or "L2Norm"))
+            {
+                continue;
+            }
+
             var x = nn.Inputs[0];
-            if (!g.Any(f => f.Output == x) || !x.Shape.Equals(g[0].Output.Shape) || x.Shape.Rank < 1 || x.Shape[-1].IsSymbolic) continue;
-            if (nn.Inputs.Length > 1 && (nn.Inputs[1].Type != DataType.F32 || nn.Inputs[1].Shape.Rank != 1)) continue;
+            if (!g.Any(f => f.Output == x) || !x.Shape.Equals(g[0].Output.Shape) || x.Shape.Rank < 1 || x.Shape[-1].IsSymbolic)
+            {
+                continue;
+            }
+
+            if (nn.Inputs.Length > 1 && (nn.Inputs[1].Type != DataType.F32 || nn.Inputs[1].Shape.Rank != 1))
+            {
+                continue;
+            }
+
             units[i].NormTail = nn;
             units.RemoveAt(i + 1);
         }
@@ -234,17 +322,48 @@ public sealed partial class GraphLowerer
         // between) is computed in that group's kernel.
         {
             var uses = new Dictionary<Value, List<Node>>();
-            foreach (var n in _seg.Nodes) foreach (var i in n.Inputs) (uses.TryGetValue(i, out var l) ? l : uses[i] = []).Add(n);
+            foreach (var n in _seg.Nodes)
+            {
+                foreach (var i in n.Inputs)
+                {
+                    (uses.TryGetValue(i, out var l) ? l : uses[i] = []).Add(n);
+                }
+            }
+
             for (int i = 0; i < units.Count; i++)
             {
-                if (units[i].Node is not { Op.Name: "RmsNorm" or "L2Norm" } nn) continue;
+                if (units[i].Node is not { Op.Name: "RmsNorm" or "L2Norm" } nn)
+                {
+                    continue;
+                }
+
                 int j = i + 1;
-                while (j < units.Count && units[j].IsView && !units[j].Node!.Inputs.Contains(nn.Output)) j++;
-                if (j >= units.Count || units[j].Fused is not { } g || units[j].NormTail is not null) continue;
+                while (j < units.Count && units[j].IsView && !units[j].Node!.Inputs.Contains(nn.Output))
+                {
+                    j++;
+                }
+
+                if (j >= units.Count || units[j].Fused is not { } g || units[j].NormTail is not null)
+                {
+                    continue;
+                }
+
                 var y = nn.Output;
-                if (_segmentOutputs.Contains(y) || !y.Shape.Equals(g[0].Output.Shape) || y.Shape.Rank < 1 || y.Shape[-1].IsSymbolic) continue;
-                if (!uses.TryGetValue(y, out var us) || us.Any(c => !g.Contains(c))) continue;
-                if (nn.Inputs.Length > 1 && (nn.Inputs[1].Type != DataType.F32 || nn.Inputs[1].Shape.Rank != 1)) continue;
+                if (_segmentOutputs.Contains(y) || !y.Shape.Equals(g[0].Output.Shape) || y.Shape.Rank < 1 || y.Shape[-1].IsSymbolic)
+                {
+                    continue;
+                }
+
+                if (!uses.TryGetValue(y, out var us) || us.Any(c => !g.Contains(c)))
+                {
+                    continue;
+                }
+
+                if (nn.Inputs.Length > 1 && (nn.Inputs[1].Type != DataType.F32 || nn.Inputs[1].Shape.Rank != 1))
+                {
+                    continue;
+                }
+
                 units[j].NormHead = nn;
                 units.RemoveAt(i);
                 i--;
@@ -255,23 +374,69 @@ public sealed partial class GraphLowerer
         if (!s_noDual)
         {
             var uses = new Dictionary<Value, List<Node>>();
-            foreach (var n in _seg.Nodes) foreach (var i in n.Inputs) (uses.TryGetValue(i, out var l) ? l : uses[i] = []).Add(n);
+            foreach (var n in _seg.Nodes)
+            {
+                foreach (var i in n.Inputs)
+                {
+                    (uses.TryGetValue(i, out var l) ? l : uses[i] = []).Add(n);
+                }
+            }
+
             var unitOf = new Dictionary<Node, Unit>();
-            foreach (var u in units) if (u.Node is not null) unitOf[u.Node] = u;
+            foreach (var u in units)
+            {
+                if (u.Node is not null)
+                {
+                    unitOf[u.Node] = u;
+                }
+            }
+
             var removed = new HashSet<Unit>();
             foreach (var u in units)
             {
-                if (u.Fused is not { } g || u.NormHead is not null || u.NormTail is not null) continue;
+                if (u.Fused is not { } g || u.NormHead is not null || u.NormTail is not null)
+                {
+                    continue;
+                }
+
                 var inGroup = g.ToHashSet();
                 var ext = g.SelectMany(n => n.Inputs).Where(v => !inGroup.Contains(v.Producer!)).Distinct().ToList();
-                if (ext.Count != 2 || ext[0].Producer is not { Op.Name: "MatMul" } a || ext[1].Producer is not { Op.Name: "MatMul" } b) continue;
-                if (a.Inputs[0] != b.Inputs[0] || a.Inputs[1].Type != b.Inputs[1].Type || !a.Inputs[1].Shape.Equals(b.Inputs[1].Shape)) continue;
-                if (a.Inputs[1].Kind != ValueKind.Weight || b.Inputs[1].Kind != ValueKind.Weight || a.Inputs[1].Shape.Rank != 2) continue;
-                if (a.Inputs[1].Shape[1] is not { IsSymbolic: false } kd || kd.Fixed % 8 != 0 || WeightFormat(a.Inputs[1].Type) is null) continue;
-                if (!unitOf.TryGetValue(a, out var ua) || !unitOf.TryGetValue(b, out var ub)) continue;
-                if (ext.Any(v => _segmentOutputs.Contains(v) || uses[v].Any(c => !inGroup.Contains(c)))) continue;
+                if (ext.Count != 2 || ext[0].Producer is not { Op.Name: "MatMul" } a || ext[1].Producer is not { Op.Name: "MatMul" } b)
+                {
+                    continue;
+                }
+
+                if (a.Inputs[0] != b.Inputs[0] || a.Inputs[1].Type != b.Inputs[1].Type || !a.Inputs[1].Shape.Equals(b.Inputs[1].Shape))
+                {
+                    continue;
+                }
+
+                if (a.Inputs[1].Kind != ValueKind.Weight || b.Inputs[1].Kind != ValueKind.Weight || a.Inputs[1].Shape.Rank != 2)
+                {
+                    continue;
+                }
+
+                if (a.Inputs[1].Shape[1] is not { IsSymbolic: false } kd || kd.Fixed % 8 != 0 || WeightFormat(a.Inputs[1].Type) is null)
+                {
+                    continue;
+                }
+
+                if (!unitOf.TryGetValue(a, out var ua) || !unitOf.TryGetValue(b, out var ub))
+                {
+                    continue;
+                }
+
+                if (ext.Any(v => _segmentOutputs.Contains(v) || uses[v].Any(c => !inGroup.Contains(c))))
+                {
+                    continue;
+                }
+
                 var outs = g.Select(n => n.Output).Where(v => _segmentOutputs.Contains(v) || (uses.TryGetValue(v, out var cs) && cs.Any(c => !inGroup.Contains(c)))).ToList();
-                if (outs.Count != 1 || !outs[0].Shape.Equals(a.Output.Shape) || g[0].Output.Shape.Equals(a.Output.Shape) is false) continue;
+                if (outs.Count != 1 || !outs[0].Shape.Equals(a.Output.Shape) || g[0].Output.Shape.Equals(a.Output.Shape) is false)
+                {
+                    continue;
+                }
+
                 u.Dual = (a, b);
                 removed.Add(ua); removed.Add(ub);
             }
@@ -280,15 +445,30 @@ public sealed partial class GraphLowerer
 
         // L2-normalized q/k consumed only by a delta rule are normalized inside the delta-rule kernel.
         var users = new Dictionary<Value, int>();
-        foreach (var n in _seg.Nodes) foreach (var i in n.Inputs) users[i] = users.GetValueOrDefault(i) + 1;
+        foreach (var n in _seg.Nodes)
+        {
+            foreach (var i in n.Inputs)
+            {
+                users[i] = users.GetValueOrDefault(i) + 1;
+            }
+        }
+
         var absorbed = new HashSet<Node>();
         foreach (var u in units)
         {
-            if (u.Node is not { Op.Name: "GatedDeltaRule" } dn) continue;
+            if (u.Node is not { Op.Name: "GatedDeltaRule" } dn)
+            {
+                continue;
+            }
+
             for (int idx = 0; idx < 2; idx++)
             {
                 var v = dn.Inputs[idx];
-                if (v.Producer is not { Op.Name: "L2Norm" } ln || users.GetValueOrDefault(v) != 1 || _segmentOutputs.Contains(v) || ln.Inputs.Length != 1) continue;
+                if (v.Producer is not { Op.Name: "L2Norm" } ln || users.GetValueOrDefault(v) != 1 || _segmentOutputs.Contains(v) || ln.Inputs.Length != 1)
+                {
+                    continue;
+                }
+
                 (u.Absorbed ??= []).Add(ln);
                 absorbed.Add(ln);
                 _absorbedNorms[v] = ln;
@@ -325,8 +505,13 @@ public sealed partial class GraphLowerer
         // Determine materialized outputs of each fused group.
         var consumers = new Dictionary<Value, List<Node>>();
         foreach (var n in _seg.Nodes)
+        {
             foreach (var i in n.Inputs)
+            {
                 (consumers.TryGetValue(i, out var l) ? l : consumers[i] = []).Add(n);
+            }
+        }
+
         foreach (var u in units.Where(u => u.Fused is not null))
         {
             var inGroup = u.Nodes.ToHashSet();
@@ -347,8 +532,16 @@ public sealed partial class GraphLowerer
     {
         var producer = new Dictionary<Value, int>();
         for (int i = 0; i < units.Count; i++)
+        {
             foreach (var n in units[i].Nodes)
-                foreach (var o in n.Outputs) producer[o] = i;
+            {
+                foreach (var o in n.Outputs)
+                {
+                    producer[o] = i;
+                }
+            }
+        }
+
         var lastState = new Dictionary<object, int>();
         var finish = new int[units.Count];
         for (int i = 0; i < units.Count; i++)
@@ -356,20 +549,39 @@ public sealed partial class GraphLowerer
             int lv = 0;
             var states = new List<object>();
             foreach (var n in units[i].Nodes)
+            {
                 foreach (var v in n.Inputs.Concat(n.Writes))
                 {
-                    if (producer.TryGetValue(v, out int p) && p != i) lv = Math.Max(lv, finish[p]);
+                    if (producer.TryGetValue(v, out int p) && p != i)
+                    {
+                        lv = Math.Max(lv, finish[p]);
+                    }
+
                     if (v.Kind == ValueKind.State)
                     {
-                        if (lastState.TryGetValue(v.State!, out int q) && q != i) lv = Math.Max(lv, finish[q]);
+                        if (lastState.TryGetValue(v.State!, out int q) && q != i)
+                        {
+                            lv = Math.Max(lv, finish[q]);
+                        }
+
                         states.Add(v.State!);
                     }
                 }
-            foreach (var st in states) lastState[st] = i;
+            }
+
+            foreach (var st in states)
+            {
+                lastState[st] = i;
+            }
+
             units[i].Level = lv;
             finish[i] = lv + (units[i].IsView ? 0 : 1);
         }
-        if (s_noSchedule) return units;
+        if (s_noSchedule)
+        {
+            return units;
+        }
+
         return [.. units.Select((u, i) => (u, i)).OrderBy(x => x.u.Level).ThenBy(x => x.i).Select(x => x.u)];
     }
 
@@ -377,17 +589,36 @@ public sealed partial class GraphLowerer
     {
         // Root of each value: views map to the root of their input; everything else is its own root.
         foreach (var u in units)
+        {
             foreach (var n in u.Nodes)
+            {
                 foreach (var o in n.Outputs)
+                {
                     _root[o] = n.Op.Category == OpCategory.View ? RootOf(n.Inputs[0]) : o;
+                }
+            }
+        }
 
         for (int u = 0; u < units.Count; u++)
+        {
             foreach (var n in units[u].Nodes)
             {
-                foreach (var o in n.Outputs) _lastUse.TryAdd(RootOf(o), u);
-                foreach (var i in n.Inputs) _lastUse[RootOf(i)] = u;
+                foreach (var o in n.Outputs)
+                {
+                    _lastUse.TryAdd(RootOf(o), u);
+                }
+
+                foreach (var i in n.Inputs)
+                {
+                    _lastUse[RootOf(i)] = u;
+                }
             }
-        foreach (var o in _seg.Outputs) _lastUse[RootOf(o)] = int.MaxValue;
+        }
+
+        foreach (var o in _seg.Outputs)
+        {
+            _lastUse[RootOf(o)] = int.MaxValue;
+        }
     }
 
     Value RootOf(Value v) => _root.TryGetValue(v, out var r) ? r : v;
@@ -415,7 +646,11 @@ public sealed partial class GraphLowerer
 
     TensorRef Ref(Value v)
     {
-        if (_refs.TryGetValue(v, out var r)) return r;
+        if (_refs.TryGetValue(v, out var r))
+        {
+            return r;
+        }
+
         switch (v.Kind)
         {
             case ValueKind.Weight:
@@ -431,12 +666,19 @@ public sealed partial class GraphLowerer
                     }
                 }
                 r = Dense(wb, v);
-                if (wb.Repack == WeightRepack.Q8_0Split) r = r with { Type = ShaderTypes.Q8_0R };
+                if (wb.Repack == WeightRepack.Q8_0Split)
+                {
+                    r = r with { Type = ShaderTypes.Q8_0R };
+                }
+
                 break;
             case ValueKind.State:
                 var s = v.State!;
                 if (!_stateBuffers.TryGetValue(s, out var sb))
+                {
                     _stateBuffers[s] = sb = NewBuffer(BufferKind.State, s.Name, PlacementPlanner.StateBytes(s, _opt.Compile), s: s);
+                }
+
                 r = Dense(sb, v);
                 break;
             case ValueKind.Constant:
@@ -457,7 +699,11 @@ public sealed partial class GraphLowerer
     /// <summary>Allocates a dense result tensor for a node output (activation arena or output buffer).</summary>
     TensorRef Produce(Value v)
     {
-        if (_refs.TryGetValue(v, out var existing)) return existing; // fused launch + its unfused fallback launches
+        if (_refs.TryGetValue(v, out var existing))
+        {
+            return existing; // fused launch + its unfused fallback launches
+        }
+
         TensorRef r;
         if (_segmentOutputs.Contains(v))
         {
@@ -482,9 +728,17 @@ public sealed partial class GraphLowerer
     static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
     static string F(float v)
     {
-        if (float.IsPositiveInfinity(v)) return "(1.0/0.0)";
+        if (float.IsPositiveInfinity(v))
+        {
+            return "(1.0/0.0)";
+        }
+
         var s = v.ToString("R", CultureInfo.InvariantCulture);
-        if (!s.Contains('.') && !s.Contains('E') && !s.Contains('e')) s += ".0";
+        if (!s.Contains('.') && !s.Contains('E') && !s.Contains('e'))
+        {
+            s += ".0";
+        }
+
         return s;
     }
 
@@ -497,6 +751,7 @@ public sealed partial class GraphLowerer
     {
         var d = new Dictionary<string, string>(StringComparer.Ordinal) { ["SG"] = _opt.SubgroupSize.ToString(CultureInfo.InvariantCulture) };
         foreach (var (k, v) in items)
+        {
             d[k] = v switch
             {
                 bool b => b ? "1" : "0",
@@ -504,6 +759,8 @@ public sealed partial class GraphLowerer
                 double x => Num(x),
                 _ => Convert.ToString(v, CultureInfo.InvariantCulture)!,
             };
+        }
+
         return d;
     }
 
@@ -517,7 +774,10 @@ public sealed partial class GraphLowerer
         IEnumerable<TensorRef> reads, IEnumerable<TensorRef> writes)
     {
         if (_launchCondition is { } cond)
+        {
             variants = [.. variants.Select(v => v with { When = b => cond(b) && v.When(b) })];
+        }
+
         _launches.Add(new KernelLaunch
         {
             Name = name,
@@ -545,9 +805,17 @@ sealed class ActivationAllocator
         bytes = (bytes + 255) & ~255L;
         foreach (var (off, size) in _free)
         {
-            if (size < bytes) continue;
+            if (size < bytes)
+            {
+                continue;
+            }
+
             _free.Remove(off);
-            if (size > bytes) _free.Add(off + bytes, size - bytes);
+            if (size > bytes)
+            {
+                _free.Add(off + bytes, size - bytes);
+            }
+
             _live[v] = (off, bytes);
             return off;
         }
@@ -560,7 +828,11 @@ sealed class ActivationAllocator
 
     public void Free(object v)
     {
-        if (!_live.Remove(v, out var a)) return;
+        if (!_live.Remove(v, out var a))
+        {
+            return;
+        }
+
         _free.Add(a.Off, a.Size);
         // coalesce neighbours
         bool merged = true;

@@ -10,6 +10,7 @@ namespace Sharplight.HuggingFace;
 /// </summary>
 public static class HfSentenceTransformers
 {
+    /// <summary>Adds the canonical embedding / classifier keys found in the sentence-transformers files of the model directory to <paramref name="md"/> (<paramref name="dir"/>: the model directory).</summary>
     public static void AddTo(IDictionary<string, object> md, string dir, HfConfig config)
     {
         string modules = Path.Combine(dir, "modules.json");
@@ -21,12 +22,22 @@ public static class HfSentenceTransformers
                 string type = m.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
                 string path = m.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
                 if (type.EndsWith(".Pooling", StringComparison.Ordinal) && Pooling(Path.Combine(dir, path, "config.json")) is { } pooling)
+                {
                     md[CanonicalKeys.EmbeddingPooling] = pooling;
-                else if (type.EndsWith(".Normalize", StringComparison.Ordinal)) md[CanonicalKeys.EmbeddingNormalize] = true;
+                }
+                else if (type.EndsWith(".Normalize", StringComparison.Ordinal))
+                {
+                    md[CanonicalKeys.EmbeddingNormalize] = true;
+                }
                 else if (type.EndsWith(".Dense", StringComparison.Ordinal))
+                {
                     throw new NotSupportedException($"{dir}: sentence-transformers Dense modules after pooling are not supported.");
+                }
             }
-            if (!md.ContainsKey(CanonicalKeys.EmbeddingNormalize)) md[CanonicalKeys.EmbeddingNormalize] = false;
+            if (!md.ContainsKey(CanonicalKeys.EmbeddingNormalize))
+            {
+                md[CanonicalKeys.EmbeddingNormalize] = false;
+            }
         }
 
         string stConfig = Path.Combine(dir, "config_sentence_transformers.json");
@@ -37,16 +48,25 @@ public static class HfSentenceTransformers
             if (root.TryGetProperty("prompts", out var prompts) && prompts.ValueKind == JsonValueKind.Object)
             {
                 var list = prompts.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.String).Select(p => $"{p.Name}={p.Value.GetString()}").ToArray();
-                if (list.Length > 0) md[CanonicalKeys.EmbeddingPrompts] = list;
+                if (list.Length > 0)
+                {
+                    md[CanonicalKeys.EmbeddingPrompts] = list;
+                }
             }
-            if (root.TryGetProperty("default_prompt_name", out var dp) && dp.ValueKind == JsonValueKind.String) md[CanonicalKeys.EmbeddingDefaultPrompt] = dp.GetString()!;
+            if (root.TryGetProperty("default_prompt_name", out var dp) && dp.ValueKind == JsonValueKind.String)
+            {
+                md[CanonicalKeys.EmbeddingDefaultPrompt] = dp.GetString()!;
+            }
         }
 
         string sbert = Path.Combine(dir, "sentence_bert_config.json");
         if (File.Exists(sbert))
         {
             using var doc = JsonDocument.Parse(File.ReadAllBytes(sbert));
-            if (doc.RootElement.TryGetProperty("max_seq_length", out var ml) && ml.ValueKind == JsonValueKind.Number) md[CanonicalKeys.TokenizerMaxLength] = ml.GetInt32();
+            if (doc.RootElement.TryGetProperty("max_seq_length", out var ml) && ml.ValueKind == JsonValueKind.Number)
+            {
+                md[CanonicalKeys.TokenizerMaxLength] = ml.GetInt32();
+            }
         }
 
         // Cross-encoders: sentence-transformers applies a sigmoid to single-label outputs unless the model says otherwise.
@@ -62,20 +82,42 @@ public static class HfSentenceTransformers
                 _ => "none",
             };
             if (config.Get("id2label") is { ValueKind: JsonValueKind.Object } id2)
+            {
                 md[CanonicalKeys.ClassifierLabels] = id2.EnumerateObject().OrderBy(p => int.Parse(p.Name)).Select(p => p.Value.GetString() ?? "").ToArray();
+            }
         }
     }
 
-    static string? Pooling(string path)
+    private static string? Pooling(string path)
     {
-        if (!File.Exists(path)) return null;
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
         using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
         var r = doc.RootElement;
         bool On(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
-        if (On("pooling_mode_cls_token")) return "cls";
-        if (On("pooling_mode_lasttoken")) return "last";
-        if (On("pooling_mode_mean_tokens")) return "mean";
-        if (r.TryGetProperty("pooling_mode", out var pm) && pm.ValueKind == JsonValueKind.String) return pm.GetString();
+        if (On("pooling_mode_cls_token"))
+        {
+            return "cls";
+        }
+
+        if (On("pooling_mode_lasttoken"))
+        {
+            return "last";
+        }
+
+        if (On("pooling_mode_mean_tokens"))
+        {
+            return "mean";
+        }
+
+        if (r.TryGetProperty("pooling_mode", out var pm) && pm.ValueKind == JsonValueKind.String)
+        {
+            return pm.GetString();
+        }
+
         throw new NotSupportedException($"{path}: only cls, mean and last-token pooling are supported.");
     }
 }

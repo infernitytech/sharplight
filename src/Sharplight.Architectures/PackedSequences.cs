@@ -13,19 +13,22 @@ namespace Sharplight.Architectures;
 /// </summary>
 public static class PackedSequences
 {
+    /// <summary>Name of the token-id input [T].</summary>
     public const string TokensInput = "tokens";
+    /// <summary>Name of the position input [T, 1] (positions restart at 0 in every sequence).</summary>
     public const string PositionsInput = "positions";
+    /// <summary>Name of the optional token-type input [T].</summary>
     public const string TokenTypesInput = "token_types";
+    /// <summary>Name of the row-span input [T, 2]: first row and row count each token attends to.</summary>
     public const string RowSpansInput = "row_spans";
+    /// <summary>Name of the sequence-span input [B, 2]: first row and length of each sequence.</summary>
     public const string SequenceSpansInput = "sequence_spans";
 
     /// <summary>Pooling modes of <see cref="WellKnown.EmbeddingPooling"/>.</summary>
     public static readonly string[] PoolingModes = ["mean", "cls", "last", "none"];
 
-    public sealed record Inputs(Value Tokens, Value Positions, Value RowSpans, Value SequenceSpans, Value? TokenTypes);
-
     /// <summary>Declares the packed-sequence inputs: tokens [T], positions [T, 1], row spans [T, 2], sequence spans [B, 2], optional token types [T].</summary>
-    public static Inputs Declare(GraphBuilder b, bool tokenTypes)
+    public static PackedSequenceInputs Declare(GraphBuilder b, bool tokenTypes)
     {
         var T = Dim.Sym(WellKnown.TokenSymbol);
         var B = Dim.Sym(WellKnown.SequenceSymbol);
@@ -34,14 +37,18 @@ public static class PackedSequences
         var types = tokenTypes ? b.Input(TokenTypesInput, InputRole.TokenTypes, DataType.I32, new Shape(T)) : null;
         var rows = b.Input(RowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(T, 2));
         var seqs = b.Input(SequenceSpansInput, InputRole.SequenceSpans, DataType.I32, new Shape(B, 2));
-        return new Inputs(tokens, positions, rows, seqs, types);
+        return new PackedSequenceInputs(tokens, positions, rows, seqs, types);
     }
 
     /// <summary>Self-attention confined to each packed sequence (optionally causal within it).</summary>
     public static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value rowSpans, float scale, bool causal, float softcap = 0, string? name = null)
     {
         var attrs = new List<(string, object)> { ("scale", scale), ("causal", causal) };
-        if (softcap > 0) attrs.Add(("softcap", softcap));
+        if (softcap > 0)
+        {
+            attrs.Add(("softcap", softcap));
+        }
+
         return b.Emit1("Attention", [q, k, v, rowSpans], Attributes.From([.. attrs]), name);
     }
 
@@ -58,7 +65,11 @@ public static class PackedSequences
     public static void EmbeddingsOutput(GraphBuilder b, Value hidden, Value sequenceSpans, string pooling, bool normalize)
     {
         var e = pooling == "none" ? hidden : Pool(b, hidden, sequenceSpans, pooling, "pooled");
-        if (normalize) e = b.L2Norm(e, 1e-24f, "normalized");
+        if (normalize)
+        {
+            e = b.L2Norm(e, 1e-24f, "normalized");
+        }
+
         b.Output(WellKnown.EmbeddingsOutput, e);
     }
 

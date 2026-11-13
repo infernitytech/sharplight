@@ -9,29 +9,10 @@ namespace Sharplight.Extensions.AI.Tests;
 
 public class EmbeddingGeneratorTests
 {
-    sealed class Fake : ITextEmbedder, IDisposable
-    {
-        public string Name => "fake";
-        public int Dimensions => 4;
-        public int MaxSequenceLength => 100;
-        public IReadOnlyDictionary<string, string> Prompts { get; } = new Dictionary<string, string> { ["query"] = "q: " };
-        public EmbedOptions? Last;
-        public bool Disposed;
-
-        public EmbeddingResult Embed(IReadOnlyList<string> texts, EmbedOptions? options = null)
-        {
-            Last = options;
-            return new([.. texts.Select(t => new float[] { t.Length, 1, 2, 3 }.Take(options?.Dimensions ?? 4).ToArray())], [.. texts.Select(t => t.Length)]);
-        }
-
-        public EmbeddingResult EmbedTokens(IReadOnlyList<IReadOnlyList<int>> tokens, EmbedOptions? options = null) => throw new NotSupportedException();
-        public void Dispose() => Disposed = true;
-    }
-
     [Fact]
     public async Task GeneratesInOrderWithUsageAndOptions()
     {
-        var fake = new Fake();
+        var fake = new FakeTextEmbedder();
         using var gen = new SharplightEmbeddingGenerator(fake);
         var r = await gen.GenerateAsync(["ab", "abcd"], new EmbeddingGenerationOptions { Dimensions = 2, AdditionalProperties = new() { ["input_type"] = "query" } });
         Assert.Equal(2, r.Count);
@@ -54,7 +35,7 @@ public class EmbeddingGeneratorTests
     [Fact]
     public async Task DependencyInjectionRegistration()
     {
-        var fake = new Fake();
+        var fake = new FakeTextEmbedder();
         var services = new ServiceCollection();
         services.AddSharplightEmbeddingGenerator(fake);
         await using var sp = services.BuildServiceProvider();
@@ -76,7 +57,7 @@ public class EmbeddingGeneratorTests
         var gen = sp.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
         var r = await gen.GenerateAsync(["The cat sits on the mat.", "A cat is sitting on a mat.", "Stock markets fell sharply today."]);
         Assert.Equal(384, r[0].Vector.Length);
-        float Dot(int a, int b) { float s = 0; for (int i = 0; i < 384; i++) s += r[a].Vector.Span[i] * r[b].Vector.Span[i]; return s; }
+        float Dot(int a, int b) { float s = 0; for (int i = 0; i < 384; i++) { s += r[a].Vector.Span[i] * r[b].Vector.Span[i]; } return s; }
         Assert.Equal(1f, Dot(0, 0), 3);
         Assert.True(Dot(0, 1) > Dot(0, 2) + 0.3f, $"similar {Dot(0, 1)} vs unrelated {Dot(0, 2)}");
     }

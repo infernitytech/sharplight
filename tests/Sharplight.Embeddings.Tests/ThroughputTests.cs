@@ -9,10 +9,10 @@ namespace Sharplight.Embeddings.Tests;
 /// </summary>
 public class ThroughputTests
 {
-    static readonly string[] Words = ["search", "vector", "model", "query", "document", "fast", "local", "inference", "text", "embedding",
+    private static readonly string[] Words = ["search", "vector", "model", "query", "document", "fast", "local", "inference", "text", "embedding",
         "rank", "the", "a", "of", "with", "graph", "token", "batch", "shader", "memory"];
 
-    static List<string> Texts()
+    private static List<string> Texts()
     {
         var rng = new Random(42);
         // 64 texts of 8-24 words (~10-30 tokens each).

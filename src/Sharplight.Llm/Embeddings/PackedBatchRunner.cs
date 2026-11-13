@@ -5,9 +5,6 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Llm.Embeddings;
 
-/// <summary>One input sequence of a packed-sequence graph: token ids and (for encoders with token types) their type ids.</summary>
-public readonly record struct PackedSequence(int[] Tokens, int[]? TokenTypes = null);
-
 /// <summary>
 /// Runs a packed-sequence graph (<see cref="WellKnown.EmbedGraph"/> / <see cref="WellKnown.ClassifyGraph"/>): sequences are
 /// concatenated into batches of at most <see cref="MaxBatchTokens"/> rows and <see cref="MaxBatchSequences"/> sequences, each
@@ -15,22 +12,26 @@ public readonly record struct PackedSequence(int[] Tokens, int[]? TokenTypes = n
 /// </summary>
 public sealed class PackedBatchRunner : IDisposable
 {
-    readonly CompiledModel _compiled;
-    readonly Value _tokens, _positions, _rowSpans, _seqSpans;
-    readonly Value? _types;
-    readonly string _output;
-    readonly bool _perToken;
-    readonly RunParameters _run = new();
-    int[] _tokBuf, _posBuf, _typeBuf, _rowBuf, _seqBuf;
+    private readonly CompiledModel _compiled;
+    private readonly Value _tokens, _positions, _rowSpans, _seqSpans;
+    private readonly Value? _types;
+    private readonly string _output;
+    private readonly bool _perToken;
+    private readonly RunParameters _run = new();
+    private int[] _tokBuf, _posBuf, _typeBuf, _rowBuf, _seqBuf;
 
+    /// <summary>Most tokens per forward pass.</summary>
     public int MaxBatchTokens { get; }
+    /// <summary>Most sequences per forward pass.</summary>
     public int MaxBatchSequences { get; }
     /// <summary>Width of an output row (hidden size or label count).</summary>
     public int OutputWidth { get; }
+    /// <summary>The compiled graph.</summary>
     public CompiledModel Compiled => _compiled;
     /// <summary>Whether the graph emits one row per token (pooling "none") instead of one per sequence.</summary>
     public bool PerToken => _perToken;
 
+    /// <summary>Compiles graph <paramref name="graph"/> of <paramref name="def"/> for batches of up to <paramref name="maxBatchTokens"/> tokens and <paramref name="maxBatchSequences"/> sequences, reading output <paramref name="output"/>.</summary>
     public static PackedBatchRunner Compile(ModelDefinition def, string graph, string output, IReadOnlyList<DeviceSlot> devices, DeviceSlot? fallback,
         int maxBatchTokens, int maxBatchSequences, IReadOnlySet<string>? disabledFeatures, Func<IComputeDevice, ICompilationCache?>? cacheFor, Action<string>? log)
     {
@@ -52,7 +53,7 @@ public sealed class PackedBatchRunner : IDisposable
         return new PackedBatchRunner(compiled, output, maxBatchTokens, maxBatchSequences);
     }
 
-    PackedBatchRunner(CompiledModel compiled, string output, int maxTokens, int maxSequences)
+    private PackedBatchRunner(CompiledModel compiled, string output, int maxTokens, int maxSequences)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -85,9 +86,21 @@ public sealed class PackedBatchRunner : IDisposable
             while (i < sequences.Count && i - start < MaxBatchSequences)
             {
                 int len = sequences[i].Tokens.Length;
-                if (len == 0) throw new ArgumentException($"Sequence {i} is empty.");
-                if (len > MaxBatchTokens) throw new ArgumentException($"Sequence {i} has {len} tokens; at most {MaxBatchTokens} fit one batch.");
-                if (rows + len > MaxBatchTokens) break;
+                if (len == 0)
+                {
+                    throw new ArgumentException($"Sequence {i} is empty.");
+                }
+
+                if (len > MaxBatchTokens)
+                {
+                    throw new ArgumentException($"Sequence {i} has {len} tokens; at most {MaxBatchTokens} fit one batch.");
+                }
+
+                if (rows + len > MaxBatchTokens)
+                {
+                    break;
+                }
+
                 rows += len;
                 i++;
             }
@@ -96,7 +109,7 @@ public sealed class PackedBatchRunner : IDisposable
         return results;
     }
 
-    void RunBatch(IReadOnlyList<PackedSequence> seqs, int first, int count, int rows, float[][] results)
+    private void RunBatch(IReadOnlyList<PackedSequence> seqs, int first, int count, int rows, float[][] results)
     {
         int r = 0;
         for (int s = 0; s < count; s++)
@@ -115,7 +128,11 @@ public sealed class PackedBatchRunner : IDisposable
         }
         _compiled.SetInput<int>(_tokens, _tokBuf.AsSpan(0, rows));
         _compiled.SetInput<int>(_positions, _posBuf.AsSpan(0, rows));
-        if (_types is not null) _compiled.SetInput<int>(_types, _typeBuf.AsSpan(0, rows));
+        if (_types is not null)
+        {
+            _compiled.SetInput<int>(_types, _typeBuf.AsSpan(0, rows));
+        }
+
         _compiled.SetInput<int>(_rowSpans, _rowBuf.AsSpan(0, rows * 2));
         _compiled.SetInput<int>(_seqSpans, _seqBuf.AsSpan(0, count * 2));
         _run.Symbols[WellKnown.TokenSymbol] = rows;
@@ -130,5 +147,6 @@ public sealed class PackedBatchRunner : IDisposable
         }
     }
 
+    /// <summary>Releases the compiled graph.</summary>
     public void Dispose() => _compiled.Dispose();
 }

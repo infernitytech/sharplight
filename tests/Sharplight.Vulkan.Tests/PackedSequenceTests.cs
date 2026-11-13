@@ -6,7 +6,7 @@ namespace Sharplight.Vulkan.Tests;
 /// <summary>Packed-sequence ops of embedding graphs (Attention with i32 spans, SequencePool): Vulkan vs. the CPU oracle.</summary>
 public class PackedSequenceTests
 {
-    static int[] RowSpans(int[] lengths)
+    private static int[] RowSpans(int[] lengths)
     {
         var spans = new int[lengths.Sum() * 2];
         int first = 0;

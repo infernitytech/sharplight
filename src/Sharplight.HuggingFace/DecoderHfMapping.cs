@@ -33,9 +33,16 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     /// <summary>The rope scaling description of the full-attention layers, or null.</summary>
     static Scaling? ScalingOf(HfConfig c)
     {
-        if (c.RopeParameters is not { } rp) return null;
+        if (c.RopeParameters is not { } rp)
+        {
+            return null;
+        }
         // Newer configs may nest one rope_parameters object per layer type; the global attention one scales.
-        if (rp.TryGetProperty("full_attention", out var fa) && fa.ValueKind == JsonValueKind.Object) rp = fa;
+        if (rp.TryGetProperty("full_attention", out var fa) && fa.ValueKind == JsonValueKind.Object)
+        {
+            rp = fa;
+        }
+
         string type = rp.TryGetProperty("rope_type", out var rt) && rt.ValueKind == JsonValueKind.String ? rt.GetString()!
                     : rp.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString()! : "default";
         return type == "default" ? null : new Scaling(type, rp);
@@ -57,7 +64,11 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 
     static LongRopeInfo? LongRope(HfConfig c)
     {
-        if (ScalingOf(c) is not { Type: "longrope" or "su" } s) return null;
+        if (ScalingOf(c) is not { Type: "longrope" or "su" } s)
+        {
+            return null;
+        }
+
         float[] Arr(string key) => s.Json.GetProperty(key).EnumerateArray().Select(e => (float)e.GetDouble()).ToArray();
         int orig = c.GetInt("original_max_position_embeddings") ?? 4096, max = c.GetInt("max_position_embeddings") ?? orig;
         double scale = (double)max / orig;
@@ -68,8 +79,16 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
 
     static RopeScaling.Result? ComputeScaling(HfConfig c)
     {
-        if (ScalingOf(c) is not { } s) return null;
-        if (s.Type is "longrope" or "su") return null;
+        if (ScalingOf(c) is not { } s)
+        {
+            return null;
+        }
+
+        if (s.Type is "longrope" or "su")
+        {
+            return null;
+        }
+
         int dim = RopeDim(c, HeadDim(c));
         float @base = RopeBase(c);
         var j = s.Json;
@@ -108,10 +127,18 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             [a + "rope.style"] = "neox",
             [a + "mlp.activation"] = Activation(c),
         };
-        if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
+        if (c.GetInt("max_position_embeddings") is { } ctx)
+        {
+            md[a + "context_length"] = ctx;
+        }
+
         if (type is "olmoe" or "qwen3_moe")
         {
-            if (c.GetDouble("clip_qkv") is { } clip && clip > 0) throw new NotSupportedException("clip_qkv (qkv clamping) is not supported.");
+            if (c.GetDouble("clip_qkv") is { } clip && clip > 0)
+            {
+                throw new NotSupportedException("clip_qkv (qkv clamping) is not supported.");
+            }
+
             md[a + "moe.expert_count"] = c.Int("num_experts");
             md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
             md[a + "moe.ffn_hidden_size"] = c.GetInt("moe_intermediate_size") ?? c.Int("intermediate_size");
@@ -122,19 +149,37 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             md[a + "rope.attention_scale"] = lr.AttentionScale;
             md[a + "rope.original_context_length"] = c.GetInt("original_max_position_embeddings") ?? c.GetInt("max_position_embeddings") ?? 4096;
         }
-        else if (ComputeScaling(c) is { } sc && sc.AttentionScale != 1f) md[a + "rope.attention_scale"] = sc.AttentionScale;
+        else if (ComputeScaling(c) is { } sc && sc.AttentionScale != 1f)
+        {
+            md[a + "rope.attention_scale"] = sc.AttentionScale;
+        }
 
         if (IsGemma(type))
         {
             md[a + "embedding_scale"] = MathF.Sqrt(hidden);
-            if (c.GetDouble("query_pre_attn_scalar") is { } qpas) md[a + "attention.scale"] = (float)(1.0 / Math.Sqrt(qpas));
-            if (c.GetDouble("attn_logit_softcapping") is { } asc && asc > 0) md[a + "attention.logit_softcap"] = (float)asc;
-            if (c.GetDouble("final_logit_softcapping") is { } fsc && fsc > 0) md[a + "final_logit_softcap"] = (float)fsc;
+            if (c.GetDouble("query_pre_attn_scalar") is { } qpas)
+            {
+                md[a + "attention.scale"] = (float)(1.0 / Math.Sqrt(qpas));
+            }
+
+            if (c.GetDouble("attn_logit_softcapping") is { } asc && asc > 0)
+            {
+                md[a + "attention.logit_softcap"] = (float)asc;
+            }
+
+            if (c.GetDouble("final_logit_softcapping") is { } fsc && fsc > 0)
+            {
+                md[a + "final_logit_softcap"] = (float)fsc;
+            }
+
             if (c.GetInt("sliding_window") is { } window && window > 0)
             {
                 md[a + "attention.sliding_window"] = window;
                 int[] sliding;
-                if (c.GetStringArray("layer_types") is { } lt) sliding = lt.Select(t => t == "sliding_attention" ? 1 : 0).ToArray();
+                if (c.GetStringArray("layer_types") is { } lt)
+                {
+                    sliding = lt.Select(t => t == "sliding_attention" ? 1 : 0).ToArray();
+                }
                 else
                 {
                     // gemma2: even layers slide; gemma3: every sliding_window_pattern-th layer is global.
@@ -142,13 +187,22 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
                     sliding = Enumerable.Range(0, nLayer).Select(il => il % pattern < pattern - 1 ? 1 : 0).ToArray();
                 }
                 md[a + "attention.sliding_layers"] = sliding;
-                if (c.GetDouble("rope_local_base_freq") is { } local) md[a + "rope.local_base"] = (float)local;
-                else if (type == "gemma3_text") md[a + "rope.local_base"] = 10000f;
+                if (c.GetDouble("rope_local_base_freq") is { } local)
+                {
+                    md[a + "rope.local_base"] = (float)local;
+                }
+                else if (type == "gemma3_text")
+                {
+                    md[a + "rope.local_base"] = 10000f;
+                }
             }
         }
         else if (type is not null && !type.StartsWith("qwen", StringComparison.Ordinal) && c.GetBool("use_sliding_window") != false
                  && c.GetInt("sliding_window") is { } swa && swa > 0)
+        {
             md[a + "attention.sliding_window"] = swa;   // every layer (Mistral v0.1, Phi-3-mini-4k); null / absent = full attention
+        }
+
         return md;
     }
 
@@ -192,7 +246,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         var result = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var unmapped = new List<string>();
         var experts = new SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>>();
-        void Add(WeightInfo w) { if (!result.TryAdd(w.Name, w)) throw new InvalidDataException($"Two HF tensors map to '{w.Name}'."); }
+        void Add(WeightInfo w) { if (!result.TryAdd(w.Name, w)) { throw new InvalidDataException($"Two HF tensors map to '{w.Name}'."); } }
         WeightInfo Norm(WeightInfo w, string name) => gemma ? HfTransforms.NormPlusOne(w, name) : HfTransforms.Plain(w, name);
 
         // Base-model checkpoints (e.g. Qwen3-Embedding saved as Qwen3Model) store the trunk without the "model." prefix.
@@ -200,14 +254,22 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         foreach (var (raw, t) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             string name = bare && !raw.StartsWith("lm_head.", StringComparison.Ordinal) ? "model." + raw : raw;
-            if (name.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal)) continue;
+            if (name.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             var w = t.ToWeightInfo();
             switch (name)
             {
                 case "model.embed_tokens.weight": Add(HfTransforms.Plain(w, "token_embedding.weight")); continue;
                 case "model.norm.weight": Add(Norm(w, "output_norm.weight")); continue;
                 case "lm_head.weight":
-                    if (!(c.GetBool("tie_word_embeddings") ?? false)) Add(HfTransforms.Plain(w, "lm_head.weight"));
+                    if (!(c.GetBool("tie_word_embeddings") ?? false))
+                    {
+                        Add(HfTransforms.Plain(w, "lm_head.weight"));
+                    }
+
                     continue;
             }
             var m = LayerName().Match(name);
@@ -216,14 +278,33 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             if (ExpertName().Match(suffix) is { Success: true } em)
             {
                 var key = (int.Parse(m.Groups[1].Value), em.Groups[2].Value);
-                if (!experts.TryGetValue(key, out var list)) experts[key] = list = [];
+                if (!experts.TryGetValue(key, out var list))
+                {
+                    experts[key] = list = [];
+                }
+
                 list[int.Parse(em.Groups[1].Value)] = w;
             }
-            else if (suffix == "mlp.gate.weight" && c.Has("num_experts")) Add(HfTransforms.Plain(w, p + "mlp.router.weight"));
-            else if (s_layer.TryGetValue(suffix, out var cn)) Add(HfTransforms.Plain(w, p + cn));
-            else if (s_norms.TryGetValue(suffix, out var nn)) Add(Norm(w, p + nn));
-            else if (suffix == "post_attention_layernorm.weight") Add(Norm(w, p + postAttn));
-            else if (gemma && suffix == "pre_feedforward_layernorm.weight") Add(Norm(w, p + "post_attention_norm.weight"));
+            else if (suffix == "mlp.gate.weight" && c.Has("num_experts"))
+            {
+                Add(HfTransforms.Plain(w, p + "mlp.router.weight"));
+            }
+            else if (s_layer.TryGetValue(suffix, out var cn))
+            {
+                Add(HfTransforms.Plain(w, p + cn));
+            }
+            else if (s_norms.TryGetValue(suffix, out var nn))
+            {
+                Add(Norm(w, p + nn));
+            }
+            else if (suffix == "post_attention_layernorm.weight")
+            {
+                Add(Norm(w, p + postAttn));
+            }
+            else if (gemma && suffix == "pre_feedforward_layernorm.weight")
+            {
+                Add(Norm(w, p + "post_attention_norm.weight"));
+            }
             else if (suffix == "self_attn.qkv_proj.weight")
             {
                 int nHead = c.Int("num_attention_heads"), nKv = c.GetInt("num_key_value_heads") ?? nHead, hd = HeadDim(c);
@@ -237,16 +318,28 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
                 Add(HfTransforms.Plain(w.RowSlice("", 0, ff), p + "mlp.gate.weight"));
                 Add(HfTransforms.Plain(w.RowSlice("", ff, ff), p + "mlp.up.weight"));
             }
-            else if (gemma && suffix == "post_feedforward_layernorm.weight") Add(Norm(w, p + "mlp.out_norm.weight"));
-            else unmapped.Add(name);
+            else if (gemma && suffix == "post_feedforward_layernorm.weight")
+            {
+                Add(Norm(w, p + "mlp.out_norm.weight"));
+            }
+            else
+            {
+                unmapped.Add(name);
+            }
         }
         foreach (var ((layer, kind), list) in experts)
         {
-            if (list.Count != c.Int("num_experts") || list.Keys.Max() != list.Count - 1) throw new InvalidDataException($"layer {layer}: expected {c.Int("num_experts")} {kind} experts, found {list.Count}.");
+            if (list.Count != c.Int("num_experts") || list.Keys.Max() != list.Count - 1)
+            {
+                throw new InvalidDataException($"layer {layer}: expected {c.Int("num_experts")} {kind} experts, found {list.Count}.");
+            }
+
             Add(WeightInfo.Stack($"layers.{layer}.mlp.experts.{kind}.weight", [.. list.Values]));
         }
         if (unmapped.Count > 0)
+        {
             throw new NotSupportedException($"{c.ModelType}: {unmapped.Count} tensor(s) have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
+        }
 
         if (LongRope(c) is { } lr)
         {

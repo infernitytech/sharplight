@@ -6,7 +6,7 @@ namespace Sharplight.Cpu.Tests;
 /// <summary>Packed-sequence ops (embedding graphs): Attention with i32 row spans and SequencePool, against naive references.</summary>
 public class PackedSequenceTests
 {
-    static (int[] Spans, int Total) RowSpans(int[] lengths)
+    private static (int[] Spans, int Total) RowSpans(int[] lengths)
     {
         int total = lengths.Sum(), first = 0;
         var spans = new int[total * 2];
@@ -18,7 +18,7 @@ public class PackedSequenceTests
         return (spans, total);
     }
 
-    static float[] Slice(float[] a, int row0, int rows, int rowLen) => a.AsSpan(row0 * rowLen, rows * rowLen).ToArray();
+    private static float[] Slice(float[] a, int row0, int rows, int rowLen) => a.AsSpan(row0 * rowLen, rows * rowLen).ToArray();
 
     [Theory]
     [InlineData(false, 4, 2), InlineData(true, 4, 2), InlineData(false, 3, 3), InlineData(true, 2, 1)]
@@ -83,7 +83,11 @@ public class PackedSequenceTests
             int first = spans[b * 2], cnt = spans[b * 2 + 1];
             for (int d = 0; d < D; d++)
             {
-                if (cnt == 0) continue;
+                if (cnt == 0)
+                {
+                    continue;
+                }
+
                 var col = Enumerable.Range(first, cnt).Select(r => x[r * D + d]).ToArray();
                 exp[b * D + d] = mode switch { "mean" => col.Average(), "sum" => col.Sum(), "max" => col.Max(), "first" => col[0], _ => col[^1] };
             }

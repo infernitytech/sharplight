@@ -35,21 +35,24 @@ public class ReferenceTests
         { "Qwen3-Reranker-0.6B", "hf", "cpu" }, { "Qwen3-Reranker-0.6B", "hf", "vulkan" },
     };
 
-    static string PathOf(string model, string format)
+    private static string PathOf(string model, string format)
         => format == "hf" ? Env.Hf(model) : Env.Gguf(format[5..].Split('/')[0], format[5..].Split('/')[1]);
 
     /// <summary>8-bit weights: the reference is the unquantized model, so tolerances are wider.</summary>
-    static bool Quantized(string format) => format.Contains("q8_0", StringComparison.OrdinalIgnoreCase);
+    private static bool Quantized(string format) => format.Contains("q8_0", StringComparison.OrdinalIgnoreCase);
 
-    static readonly Dictionary<(string, string), EmbeddingModel> s_embedders = [];
-    static readonly Dictionary<(string, string), Reranker> s_rerankers = [];
+    private static readonly Dictionary<(string, string), EmbeddingModel> s_embedders = [];
+    private static readonly Dictionary<(string, string), Reranker> s_rerankers = [];
 
     internal static EmbeddingModel LoadEmbedder(string path, string device)
     {
         lock (s_embedders)
         {
             if (!s_embedders.TryGetValue((path, device), out var m))
+            {
                 s_embedders[(path, device)] = m = EmbeddingModel.Load(path, new EmbeddingLoadOptions { Devices = [Env.Device(device)], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
+            }
+
             return m;
         }
     }
@@ -68,12 +71,20 @@ public class ReferenceTests
         var refTokens = reference.GetProperty("tokens").EnumerateArray().Select(Env.Ints).ToList();
         int tokenMismatches = 0;
         for (int i = 0; i < texts.Count; i++)
-            if (!m.Tokenize(texts[i]).SequenceEqual(refTokens[i])) tokenMismatches++;
+        {
+            if (!m.Tokenize(texts[i]).SequenceEqual(refTokens[i]))
+            {
+                tokenMismatches++;
+            }
+        }
 
         var result = m.Embed(texts);
         var refEmb = reference.GetProperty("embeddings").EnumerateArray().Select(Env.Floats).ToList();
         double minCos = 1;
-        for (int i = 0; i < texts.Count; i++) minCos = Math.Min(minCos, Env.Cosine(result.Vectors[i], refEmb[i]));
+        for (int i = 0; i < texts.Count; i++)
+        {
+            minCos = Math.Min(minCos, Env.Cosine(result.Vectors[i], refEmb[i]));
+        }
 
         double minPromptCos = 1;
         if (reference.TryGetProperty("prompt_name", out var pn))
@@ -81,10 +92,20 @@ public class ReferenceTests
             // GGUF files carry no prompts: pass the prompt text itself.
             var o = m.Prompts.ContainsKey(pn.GetString()!) ? new EmbedOptions { Prompt = pn.GetString() } : new EmbedOptions { Prefix = reference.GetProperty("prompt").GetString() };
             var pt = reference.GetProperty("prompt_tokens").EnumerateArray().Select(Env.Ints).ToList();
-            for (int i = 0; i < pt.Count; i++) if (!m.Tokenize(texts[i], o).SequenceEqual(pt[i])) tokenMismatches++;
+            for (int i = 0; i < pt.Count; i++)
+            {
+                if (!m.Tokenize(texts[i], o).SequenceEqual(pt[i]))
+                {
+                    tokenMismatches++;
+                }
+            }
+
             var pe = reference.GetProperty("prompt_embeddings").EnumerateArray().Select(Env.Floats).ToList();
             var r2 = m.Embed(texts.Take(pe.Count).ToList(), o);
-            for (int i = 0; i < pe.Count; i++) minPromptCos = Math.Min(minPromptCos, Env.Cosine(r2.Vectors[i], pe[i]));
+            for (int i = 0; i < pe.Count; i++)
+            {
+                minPromptCos = Math.Min(minPromptCos, Env.Cosine(r2.Vectors[i], pe[i]));
+            }
         }
         Env.Summary[$"embed {model} {format.Split('/')[^1]} {device}"] = $"tokens-mismatch={tokenMismatches} minCos={minCos:F6} promptMinCos={minPromptCos:F6}";
         Assert.True(tokenMismatches == 0, $"{tokenMismatches} inputs tokenize differently from the reference.");
@@ -105,15 +126,23 @@ public class ReferenceTests
         var docs = reference.GetProperty("documents").EnumerateArray().Select(t => t.GetString()!).ToList();
         Reranker r;
         lock (s_rerankers)
+        {
             if (!s_rerankers.TryGetValue((path, device), out r!))
+            {
                 s_rerankers[(path, device)] = r = Reranker.Load(path, new RerankerLoadOptions { Devices = [dev], MaxBatchTokens = 2048, MaxBatchSequences = 64 });
+            }
+        }
 
         var refTokens = reference.GetProperty("tokens").EnumerateArray().Select(Env.Ints).ToList();
         int tokenMismatches = docs.Select((d, i) => r.Encode(query, d).Tokens.SequenceEqual(refTokens[i]) ? 0 : 1).Sum();
         var result = r.Score(query, docs);
         var refLogits = Env.Floats(reference.GetProperty("logits"));
         double maxErr = 0;
-        for (int i = 0; i < docs.Count; i++) maxErr = Math.Max(maxErr, Math.Abs(result.Logits[i] - refLogits[i]));
+        for (int i = 0; i < docs.Count; i++)
+        {
+            maxErr = Math.Max(maxErr, Math.Abs(result.Logits[i] - refLogits[i]));
+        }
+
         Env.Summary[$"rerank {model} {format.Split('/')[^1]} {device}"] = $"tokens-mismatch={tokenMismatches} maxLogitErr={maxErr:E2} logits=[{string.Join(", ", result.Logits.Select(l => l.ToString("F3")))}]";
         Assert.True(tokenMismatches == 0, $"{tokenMismatches} pairs tokenize differently from the reference.");
         Assert.True(maxErr < (Quantized(format) ? 0.25 : 2e-2), $"max |logit - reference| = {maxErr:E2}");

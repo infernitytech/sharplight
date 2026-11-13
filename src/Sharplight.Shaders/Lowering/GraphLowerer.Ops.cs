@@ -32,12 +32,24 @@ public sealed partial class GraphLowerer
             case "SequencePool": LowerSequencePool(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
             default:
-                if (LowerGeneral(n)) break;
+                if (LowerGeneral(n))
+                {
+                    break;
+                }
+
                 if (s_elementwise.Contains(n.Op.Name)) { LowerElementwise([n], [n.Output]); break; }
-                if (LowerSpatial(n)) break;
+                if (LowerSpatial(n))
+                {
+                    break;
+                }
+
                 throw new NotSupportedException($"No lowering for op {n.Op.Name}.");
         }
-        foreach (var t in _temps) _alloc.Free(t);
+        foreach (var t in _temps)
+        {
+            _alloc.Free(t);
+        }
+
         _temps.Clear();
     }
 
@@ -59,7 +71,11 @@ public sealed partial class GraphLowerer
     static TensorRef ViewSlice(TensorRef r, Attributes a)
     {
         int axis = a.Get<int>("axis");
-        if (axis < 0) axis += r.Rank;
+        if (axis < 0)
+        {
+            axis += r.Rank;
+        }
+
         long start = a.Get<long>("start"), len = a.Get<long>("length");
         var shape = (long[])r.Shape.Clone();
         shape[axis] = len;
@@ -68,7 +84,11 @@ public sealed partial class GraphLowerer
 
     static TensorRef ViewPermute(TensorRef r, int[] perm)
     {
-        if (r.Symbol is not null && perm[0] != 0) throw new NotSupportedException("Permute must keep the symbolic axis outermost.");
+        if (r.Symbol is not null && perm[0] != 0)
+        {
+            throw new NotSupportedException("Permute must keep the symbolic axis outermost.");
+        }
+
         return r with { Shape = [.. perm.Select(p => r.Shape[p])], Strides = [.. perm.Select(p => r.Strides[p])] };
     }
 
@@ -91,11 +111,18 @@ public sealed partial class GraphLowerer
                     viewD--;
                 }
                 if (viewNumel != tensorNumel)
+                {
                     throw new NotSupportedException($"Reshape [{string.Join(",", oldShape)}] → [{string.Join(",", newShape)}] is not expressible as a view of strides [{string.Join(",", oldStride)}].");
+                }
+
                 if (td > 0) { chunkBase = oldStride[td - 1]; tensorNumel = 1; viewNumel = 1; }
             }
         }
-        if (viewD != -1) throw new NotSupportedException("Reshape: incompatible shapes.");
+        if (viewD != -1)
+        {
+            throw new NotSupportedException("Reshape: incompatible shapes.");
+        }
+
         return r with { Shape = newShape, Strides = newStride, Symbol = symbol };
     }
 
@@ -103,10 +130,18 @@ public sealed partial class GraphLowerer
     static bool TryRows(TensorRef r, out long rowStride, out long rowsPerOuter)
     {
         rowStride = 0; rowsPerOuter = 1;
-        if (r.Rank < 2 || r.Strides[^1] != 1) return false;
+        if (r.Rank < 2 || r.Strides[^1] != 1)
+        {
+            return false;
+        }
+
         for (int k = 1; k <= r.Rank - 2; k++)
         {
-            if (r.Strides[k - 1] != r.Strides[k] * r.Shape[k]) return false;
+            if (r.Strides[k - 1] != r.Strides[k] * r.Shape[k])
+            {
+                return false;
+            }
+
             rowsPerOuter *= r.Shape[k];
         }
         rowStride = r.Strides[r.Rank - 2];
@@ -117,12 +152,26 @@ public sealed partial class GraphLowerer
     static bool TryRows3(TensorRef r, out long r1, out long s0, out long s1)
     {
         r1 = 1; s0 = 0; s1 = 0;
-        if (r.Strides[^1] != 1) return false;
+        if (r.Strides[^1] != 1)
+        {
+            return false;
+        }
+
         if (r.Rank == 1) { s0 = r.Shape[0]; return true; }
         if (r.Rank == 2) { s0 = r.Strides[0]; s1 = r.Shape[1]; return true; }
         for (int k = 2; k <= r.Rank - 2; k++)
-            if (r.Shape[k] != 1 && r.Strides[k - 1] != r.Strides[k] * r.Shape[k]) return false;
-        for (int k = 1; k <= r.Rank - 2; k++) r1 *= r.Shape[k];
+        {
+            if (r.Shape[k] != 1 && r.Strides[k - 1] != r.Strides[k] * r.Shape[k])
+            {
+                return false;
+            }
+        }
+
+        for (int k = 1; k <= r.Rank - 2; k++)
+        {
+            r1 *= r.Shape[k];
+        }
+
         s0 = r.Strides[0];
         s1 = r.Strides[r.Rank - 2];
         return true;
@@ -219,7 +268,11 @@ public sealed partial class GraphLowerer
     static Dictionary<string, string> G2Macros(Dictionary<string, string> m, bool large)
     {
         int[] c = s_g2Force ?? (large ? [2, 4, 4, 2] : [2, 2, 4, 4]);
-        if (c[0] * c[2] * 16 != G2BM || c[1] * c[3] * 16 != G2BN) throw new NotSupportedException("GEMM layout must give 128x128 tiles.");
+        if (c[0] * c[2] * 16 != G2BM || c[1] * c[3] * 16 != G2BN)
+        {
+            throw new NotSupportedException("GEMM layout must give 128x128 tiles.");
+        }
+
         return new(m)
         {
             ["WARPS_M"] = c[0].ToString(CultureInfo.InvariantCulture), ["WARPS_N"] = c[1].ToString(CultureInfo.InvariantCulture),
@@ -270,12 +323,14 @@ public sealed partial class GraphLowerer
         // since a launch's variants share one argument list; the ones not applicable to a binding are skipped.
         bool x16 = coop && s_gemm2 && s_gemmX16;
         if (!x16)
+        {
             Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
                 [.. MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul), big,
                  .. coop && s_gemm2 ? new[] { new KernelVariant(b => split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: false)),
                      b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))) } : []],
                 [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
                 [x, w], [y]);
+        }
         else
         {
             Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
@@ -293,7 +348,11 @@ public sealed partial class GraphLowerer
                 [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(xh.Buffer, xh.ByteOffset), TokenArg(x, mid)],
                 [x], [xh]);
             var mh = new Dictionary<string, string>(m) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
-            if (nv2) mh = new Dictionary<string, string>(mh.Concat(nvm));
+            if (nv2)
+            {
+                mh = new Dictionary<string, string>(mh.Concat(nvm));
+            }
+
             Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
                 nv2 ? [new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1, Lib("matmul.slang", "gemm_nv2", mh),
                     b => new Grid(Grid.Div(N, NvBN), Grid.Div(Rows(b, tx) * rowsMul, NvBT)))] :
@@ -366,12 +425,28 @@ public sealed partial class GraphLowerer
     /// </summary>
     static int ChooseSplit(long N, long K, long rows, long bm = G2BM, long bn = G2BN, long bk = 32)
     {
-        if (rows <= 8) return 1;
+        if (rows <= 8)
+        {
+            return 1;
+        }
+
         long tiles = (N + bn - 1) / bn * ((rows + bm - 1) / bm), steps = K / bk;
-        if (tiles >= 192) return 1;
+        if (tiles >= 192)
+        {
+            return 1;
+        }
+
         int sp = 1;
-        while (sp < 32 && tiles * sp < 256 && steps / (sp * 2) >= 4) sp *= 2;
-        while (sp > 1 && (sp - 1) * ((steps + sp - 1) / sp) >= steps) sp /= 2;
+        while (sp < 32 && tiles * sp < 256 && steps / (sp * 2) >= 4)
+        {
+            sp *= 2;
+        }
+
+        while (sp > 1 && (sp - 1) * ((steps + sp - 1) / sp) >= steps)
+        {
+            sp /= 2;
+        }
+
         return sp;
     }
 
@@ -382,7 +457,11 @@ public sealed partial class GraphLowerer
         if (!TryRows3(x, out long r1, out long s0, out long s1)) { x = DenseTemp(x, "norm"); TryRows3(x, out r1, out s0, out s1); }
         long D = x.Shape[^1];
         TensorRef? w = n.Inputs.Length > 1 ? Ref(n.Inputs[1]) : null;
-        if (w is not null && (w.Type != DataType.F32 || !w.IsDense)) throw new NotSupportedException("Norm weight must be dense f32.");
+        if (w is not null && (w.Type != DataType.F32 || !w.IsDense))
+        {
+            throw new NotSupportedException("Norm weight must be dense f32.");
+        }
+
         var y = Produce(n.Output);
         float eps = n.Attributes.Get<float>("eps");
         if (D >= 1024)
@@ -407,8 +486,16 @@ public sealed partial class GraphLowerer
         var norm = _absorbedNorms.GetValueOrDefault(n.Inputs[0]);
         var x = Ref(norm?.Inputs[0] ?? n.Inputs[0]);
         var pos = Ref(n.Inputs[1]);
-        if (x.Rank != 3 || x.Strides[2] != 1) x = DenseTemp(x, "rope");
-        if (!pos.IsDense) pos = DenseTemp(pos, "rope-pos");
+        if (x.Rank != 3 || x.Strides[2] != 1)
+        {
+            x = DenseTemp(x, "rope");
+        }
+
+        if (!pos.IsDense)
+        {
+            pos = DenseTemp(pos, "rope-pos");
+        }
+
         TensorRef? nw = norm is not null && norm.Inputs.Length > 1 ? Ref(norm.Inputs[1]) : null;
         var y = cacheWrite is null ? Produce(n.Output) : Ref(cacheWrite.Inputs[0]);
         var a = n.Attributes;
@@ -418,7 +505,11 @@ public sealed partial class GraphLowerer
         var sections = a.Get<int[]>("sections", []);
         bool mrope = sections.Length > 0 && sections.Any(s => s > 0);
         var sec = new int[4];
-        for (int i = 0; i < Math.Min(4, sections.Length); i++) sec[i] = sections[i];
+        for (int i = 0; i < Math.Min(4, sections.Length); i++)
+        {
+            sec[i] = sections[i];
+        }
+
         long axes = pos.Rank > 1 ? pos.Shape[1] : 1;
         var ff = n.Inputs.Length > 2 ? Ref(n.Inputs[2]) : null;   // optional per-frequency divisors (f32 [rot/2])
         var ffArg = new PointerArg((ff ?? x).Buffer, (ff ?? x).ByteOffset);
@@ -431,8 +522,16 @@ public sealed partial class GraphLowerer
         var seq = cacheWrite is not null && cacheWrite.Inputs.Length > 2 ? DenseInput(cacheWrite.Inputs[2], "seq-rows") : null;
         if (norm is not null || cacheWrite is not null)
         {
-            if (norm is not null && nw is null) throw new NotSupportedException("Fused rope norm expects a weight.");
-            if (cacheWrite is not null && y.Type != DataType.F16 && y.Type != DataType.F32) throw new NotSupportedException($"Cache type {y.Type}");
+            if (norm is not null && nw is null)
+            {
+                throw new NotSupportedException("Fused rope norm expects a weight.");
+            }
+
+            if (cacheWrite is not null && y.Type != DataType.F16 && y.Type != DataType.F32)
+            {
+                throw new NotSupportedException($"Cache type {y.Type}");
+            }
+
             var rm = Macros(("HAS_FF", ff is not null),
                 ("H", H), ("D", D), ("S0", x.Strides[0]), ("S1", x.Strides[1]), ("A", axes), ("ROT", rot),
                 ("THETA_SCALE", (float)Math.Pow(@base, -2.0 / rot)), ("FREQ_SCALE", a.Get("freq_scale", 1f)),
@@ -461,16 +560,27 @@ public sealed partial class GraphLowerer
     {
         var table = Ref(n.Inputs[0]);
         var idx = Ref(n.Inputs[1]);
-        if (!idx.IsDense) idx = DenseTemp(idx, "gather-idx");
+        if (!idx.IsDense)
+        {
+            idx = DenseTemp(idx, "gather-idx");
+        }
+
         long D = table.Shape[^1];
         long rowBytes;
-        if (table.Type.IsQuantized || table.IsDense) rowBytes = table.Type.ByteSize(D);
+        if (table.Type.IsQuantized || table.IsDense)
+        {
+            rowBytes = table.Type.ByteSize(D);
+        }
         else
         {
             if (!TryRows(table, out long rs, out _) || (rs * 4) % 16 != 0 || table.ByteOffset % 16 != 0) { table = DenseTemp(table, "gather"); rs = D; }
             rowBytes = rs * table.Type.ElementSize;
         }
-        if (n.Output.Type != DataType.F32) throw new NotSupportedException($"Gather to {n.Output.Type} (only f32 output is implemented).");
+        if (n.Output.Type != DataType.F32)
+        {
+            throw new NotSupportedException($"Gather to {n.Output.Type} (only f32 output is implemented).");
+        }
+
         var y = Produce(n.Output);
         int fmt = WeightFormat(table.Type) ?? throw new NotSupportedException($"Gather table type {table.Type}");
         var k = Lib("data.slang", "gather", Macros(("D", D), ("WFMT", fmt), ("ROW_BYTES", rowBytes + "ull")));
@@ -488,7 +598,11 @@ public sealed partial class GraphLowerer
     static long SlotContext(Node n, TensorRef cache)
     {
         long slots = n.Attributes.Get("slots", 1L);
-        if (slots < 1 || cache.Shape[0] % slots != 0) throw new NotSupportedException($"{n.Op.Name}: cache rows {cache.Shape[0]} not divisible by {slots} slots.");
+        if (slots < 1 || cache.Shape[0] % slots != 0)
+        {
+            throw new NotSupportedException($"{n.Op.Name}: cache rows {cache.Shape[0]} not divisible by {slots} slots.");
+        }
+
         return cache.Shape[0] / slots;
     }
 
@@ -504,7 +618,11 @@ public sealed partial class GraphLowerer
         if (!TryRows3(x, out long r1, out long s0, out long s1)) { x = DenseTemp(x, "cache"); TryRows3(x, out r1, out s0, out s1); }
         long inner = x.Shape[^1];
         bool f16 = state.Type == DataType.F16;
-        if (!f16 && state.Type != DataType.F32) throw new NotSupportedException($"Cache type {state.Type}");
+        if (!f16 && state.Type != DataType.F32)
+        {
+            throw new NotSupportedException($"Cache type {state.Type}");
+        }
+
         var seq = n.Inputs.Length > 2 ? DenseInput(n.Inputs[2], "seq-rows") : null;
         var k = Lib("data.slang", "cache_write", Macros(("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
             ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state))));
@@ -522,7 +640,11 @@ public sealed partial class GraphLowerer
         var q = Ref(n.Inputs[0]);
         var kc = Ref(n.Inputs[1]);
         var vc = Ref(n.Inputs[2]);
-        if (q.Rank != 3 || q.Strides[2] != 1) q = DenseTemp(q, "attn-q");
+        if (q.Rank != 3 || q.Strides[2] != 1)
+        {
+            q = DenseTemp(q, "attn-q");
+        }
+
         if (full)
         {
             kc = AsDenseF32(kc, "attn-k");
@@ -530,12 +652,20 @@ public sealed partial class GraphLowerer
         }
         var o = Produce(n.Output);
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
-        if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
+        if (kc.Type != vc.Type)
+        {
+            throw new NotSupportedException("K and V caches must have the same type.");
+        }
+
         int window = n.Attributes.Get("window", 0);
         float softcap = n.Attributes.Get("softcap", 0f);
         TensorRef? seq = null, runs = null, spans = null;
         bool causal = full && n.Attributes.Get("causal", false);
-        if (full && n.Inputs.Length > 3) spans = DenseInput(n.Inputs[3], "attn-spans");
+        if (full && n.Inputs.Length > 3)
+        {
+            spans = DenseInput(n.Inputs[3], "attn-spans");
+        }
+
         if (!full && n.Inputs.Length > 3)
         {
             seq = DenseInput(n.Inputs[3], "seq-rows");
@@ -587,13 +717,28 @@ public sealed partial class GraphLowerer
         {
             long row0 = si * sliceRows;
             var variants = new List<KernelVariant>();
-            if (si == 0 && split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
-            if (si == 0 && fa) variants.Add(tr is null
+            if (si == 0 && split)
+            {
+                variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
+            }
+
+            if (si == 0 && fa)
+            {
+                variants.Add(tr is null
                 ? new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32)))
                 : new KernelVariant(b => s_seqFa && Rows(b, tq) > SplitMaxRows && Rows(b, tq) >= 8 * Rows(b, tr), Lib("attention.slang", "fa", m),
                     b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32), (uint)Rows(b, tr))));
-            if (slices == 1) variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
-            else variants.Add(new KernelVariant(b => Rows(b, tq) > row0, k, b => new Grid((uint)HQ, (uint)Math.Min(sliceRows, Rows(b, tq) - row0))));
+            }
+
+            if (slices == 1)
+            {
+                variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
+            }
+            else
+            {
+                variants.Add(new KernelVariant(b => Rows(b, tq) > row0, k, b => new Grid((uint)HQ, (uint)Math.Min(sliceRows, Rows(b, tq) - row0))));
+            }
+
             Emit($"attention {n.Output.Name}", [n],
                 variants,
                 [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
@@ -602,17 +747,23 @@ public sealed partial class GraphLowerer
                 [q, kc, vc, .. seq is null ? [] : (TensorRef[])[seq, runs!], .. spans is null ? [] : (TensorRef[])[spans]], split ? [o, part] : [o]);
         }
         if (split)
+        {
             Emit($"attention {n.Output.Name} combine", [n],
                 [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
                 [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), TokenArg(q)],
                 [part], [o]);
+        }
     }
 
     /// <summary>SequencePool: one thread per (sequence, column) loops over the sequence's rows.</summary>
     void LowerSequencePool(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "seqpool");
-        if (x.Rank != 2 || x.Strides[1] != 1) x = DenseTemp(x, "seqpool");
+        if (x.Rank != 2 || x.Strides[1] != 1)
+        {
+            x = DenseTemp(x, "seqpool");
+        }
+
         var sp = DenseInput(n.Inputs[1], "seqpool-spans");
         var y = Produce(n.Output);
         string mode = n.Attributes.Get("mode", "mean");
@@ -634,8 +785,16 @@ public sealed partial class GraphLowerer
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
         var st = Ref(n.Inputs[2]);
-        if (x.Rank != 2 || x.Strides[1] != 1) x = DenseTemp(x, "conv");
-        if (w.Type != DataType.F32) throw new NotSupportedException("conv weight must be f32");
+        if (x.Rank != 2 || x.Strides[1] != 1)
+        {
+            x = DenseTemp(x, "conv");
+        }
+
+        if (w.Type != DataType.F32)
+        {
+            throw new NotSupportedException("conv weight must be f32");
+        }
+
         var y = Produce(n.Output);
         long C = x.Shape[1], KS = w.Shape[1];
         var runs = n.Inputs.Length > 3 ? DenseInput(n.Inputs[3], "seq-runs") : null;
@@ -654,16 +813,39 @@ public sealed partial class GraphLowerer
         var q = Ref(nq?.Inputs[0] ?? n.Inputs[0]); var k = Ref(nk?.Inputs[0] ?? n.Inputs[1]); var v = Ref(n.Inputs[2]);
         var g = Ref(n.Inputs[3]); var beta = Ref(n.Inputs[4]); var st = Ref(n.Inputs[5]);
         var runs = n.Inputs.Length > 6 ? DenseInput(n.Inputs[6], "seq-runs") : null;
-        if (q.Strides[2] != 1) q = DenseTemp(q, "delta-q");
-        if (k.Strides[2] != 1) k = DenseTemp(k, "delta-k");
-        if (v.Strides[2] != 1) v = DenseTemp(v, "delta-v");
-        if (!g.IsDense) g = DenseTemp(g, "delta-g");
-        if (!beta.IsDense) beta = DenseTemp(beta, "delta-beta");
+        if (q.Strides[2] != 1)
+        {
+            q = DenseTemp(q, "delta-q");
+        }
+
+        if (k.Strides[2] != 1)
+        {
+            k = DenseTemp(k, "delta-k");
+        }
+
+        if (v.Strides[2] != 1)
+        {
+            v = DenseTemp(v, "delta-v");
+        }
+
+        if (!g.IsDense)
+        {
+            g = DenseTemp(g, "delta-g");
+        }
+
+        if (!beta.IsDense)
+        {
+            beta = DenseTemp(beta, "delta-beta");
+        }
+
         var o = Produce(n.Output);
         long HK = q.Shape[1], DK = q.Shape[2], HV = v.Shape[1], DV = v.Shape[2];
         int lpr = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_DELTA_LPR") ?? "8");
         lpr = Math.Min(lpr, _opt.SubgroupSize);
-        while ((DV * lpr > 1024 || DK % lpr != 0) && lpr > 1) lpr /= 2;
+        while ((DV * lpr > 1024 || DK % lpr != 0) && lpr > 1)
+        {
+            lpr /= 2;
+        }
         // Split each head's DV state rows over several workgroups (rows are independent) for occupancy.
         long dvbWant = long.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_DELTA_DVB") ?? "16");
         long dvb = DV % dvbWant == 0 ? dvbWant : DV;
@@ -685,7 +867,11 @@ public sealed partial class GraphLowerer
     {
         var y = Produce(n.Output);
         int axis = n.Attributes.Get<int>("axis");
-        if (axis < 0) axis += y.Rank;
+        if (axis < 0)
+        {
+            axis += y.Rank;
+        }
+
         long start = 0;
         foreach (var i in n.Inputs)
         {
@@ -702,7 +888,11 @@ public sealed partial class GraphLowerer
     List<KernelLaunch> BuildResetLaunches()
     {
         var list = new List<KernelLaunch>();
-        if (_stateBuffers.Count == 0) return list;
+        if (_stateBuffers.Count == 0)
+        {
+            return list;
+        }
+
         var k = Lib("data.slang", "fill", Macros());
         foreach (var b in _stateBuffers.Values)
         {
@@ -724,7 +914,11 @@ public sealed partial class GraphLowerer
     void EmitCopy(TensorRef src, TensorRef dst, string name, IEnumerable<Node>? nodes = null)
     {
         if (src.Type == dst.Type && src.Type != DataType.F32) { EmitRawCopy(src, dst, name, nodes ?? []); return; }
-        if (dst.Type != DataType.F32) throw new NotSupportedException($"copy {src.Type} → {dst.Type}");
+        if (dst.Type != DataType.F32)
+        {
+            throw new NotSupportedException($"copy {src.Type} → {dst.Type}");
+        }
+
         EmitElementwiseKernel(name, nodes ?? [], dst.Shape, dst.Symbol, [src], [(dst, "a0")], []);
     }
 
@@ -739,7 +933,11 @@ public sealed partial class GraphLowerer
 
         string Operand(Value v)
         {
-            if (name.TryGetValue(v, out var s)) return s;
+            if (name.TryGetValue(v, out var s))
+            {
+                return s;
+            }
+
             if (!inputIndex.TryGetValue(v, out int idx))
             {
                 idx = inputs.Count;
@@ -808,9 +1006,17 @@ public sealed partial class GraphLowerer
         var sb = new StringBuilder();
         sb.AppendLine("#include \"math_ext.slang\"");
         sb.AppendLine("struct Params {");
-        for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"  {ElemPtrType(inputs[i].Type)}* in{i};");
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            sb.AppendLine($"  {ElemPtrType(inputs[i].Type)}* in{i};");
+        }
+
         sb.AppendLine("  float* w;");
-        for (int i = 0; i < outputs.Count; i++) sb.AppendLine($"  float* out{i};");
+        for (int i = 0; i < outputs.Count; i++)
+        {
+            sb.AppendLine($"  float* out{i};");
+        }
+
         sb.AppendLine("  uint rows;");
         sb.AppendLine("};");
         sb.AppendLine($"groupshared float red[{threads}];");
@@ -827,15 +1033,25 @@ public sealed partial class GraphLowerer
         {
             sb.AppendLine($"{indent}uint idx = row * {D}u + i;");
             for (int k = 0; k < rank; k++)
+            {
                 sb.AppendLine(k == 0 ? $"{indent}uint d0 = idx / {P[0]}u;" : $"{indent}uint d{k} = (idx / {P[k]}u) % {shape[k]}u;");
+            }
         }
         void Loop(string body)
         {
             sb.AppendLine($"  [ForceUnroll] for (uint j = 0; j < {iters}u; j++) {{");
             sb.AppendLine($"    uint i = lt.x + j * {threads}u;");
-            if (D % threads != 0) sb.AppendLine($"    if (i < {D}u) {{");
+            if (D % threads != 0)
+            {
+                sb.AppendLine($"    if (i < {D}u) {{");
+            }
+
             sb.Append(body);
-            if (D % threads != 0) sb.AppendLine("    }");
+            if (D % threads != 0)
+            {
+                sb.AppendLine("    }");
+            }
+
             sb.AppendLine("  }");
         }
         void Body(bool second)
@@ -845,32 +1061,65 @@ public sealed partial class GraphLowerer
                 var inner = new StringBuilder();
                 var save = sb; sb = inner;
                 Indices("    ");
-                for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"    float a{i} = ar{i}[j];");
-                foreach (var st in preStmts) sb.AppendLine("    " + st);
+                for (int i = 0; i < inputs.Count; i++)
+                {
+                    sb.AppendLine($"    float a{i} = ar{i}[j];");
+                }
+
+                foreach (var st in preStmts)
+                {
+                    sb.AppendLine("    " + st);
+                }
+
                 if (!second)
                 {
                     for (int i = 0; i < pass1Outputs.Count; i++)
+                    {
                         sb.AppendLine($"    p.out{i}[{ElemOffset(pass1Outputs[i].Ref, shape)}] = {pass1Outputs[i].Expr};");
+                    }
+
                     sb.AppendLine($"    ss += {normExpr} * {normExpr};");
                 }
                 else
                 {
                     sb.AppendLine($"    float nrm = {normExpr} * scale{(w is null ? "" : " * wr[j]")};");
-                    foreach (var st in postStmts) sb.AppendLine("    " + st);
+                    foreach (var st in postStmts)
+                    {
+                        sb.AppendLine("    " + st);
+                    }
+
                     for (int i = 0; i < pass2Outputs.Count; i++)
+                    {
                         sb.AppendLine($"    p.out{pass1Outputs.Count + i}[{ElemOffset(pass2Outputs[i].Ref, shape)}] = {pass2Outputs[i].Expr};");
+                    }
                 }
                 sb = save;
                 if (!second)
                 {
-                    for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"  float ar{i}[{iters}];");
+                    for (int i = 0; i < inputs.Count; i++)
+                    {
+                        sb.AppendLine($"  float ar{i}[{iters}];");
+                    }
+
                     var loads = new StringBuilder();
                     var save2 = sb; sb = loads;
                     Indices("    ");
-                    for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"    ar{i}[j] = {ElemLoad(inputs[i], i, shape)};");
-                    if (w is not null) sb.AppendLine("    wr[j] = p.w[i];");
+                    for (int i = 0; i < inputs.Count; i++)
+                    {
+                        sb.AppendLine($"    ar{i}[j] = {ElemLoad(inputs[i], i, shape)};");
+                    }
+
+                    if (w is not null)
+                    {
+                        sb.AppendLine("    wr[j] = p.w[i];");
+                    }
+
                     sb = save2;
-                    if (w is not null) sb.AppendLine($"  float wr[{iters}];");
+                    if (w is not null)
+                    {
+                        sb.AppendLine($"  float wr[{iters}];");
+                    }
+
                     Loop(loads.ToString());
                 }
                 Loop(inner.ToString());
@@ -879,20 +1128,36 @@ public sealed partial class GraphLowerer
             sb.AppendLine($"  for (uint i = lt.x; i < {D}u; i += {threads}u) {{");
             Indices("    ");
             for (int i = 0; i < inputs.Count; i++)
+            {
                 sb.AppendLine($"    float a{i} = {ElemLoad(inputs[i], i, shape)};");
-            foreach (var st in preStmts) sb.AppendLine("    " + st);
+            }
+
+            foreach (var st in preStmts)
+            {
+                sb.AppendLine("    " + st);
+            }
+
             if (!second)
             {
                 for (int i = 0; i < pass1Outputs.Count; i++)
+                {
                     sb.AppendLine($"    p.out{i}[{ElemOffset(pass1Outputs[i].Ref, shape)}] = {pass1Outputs[i].Expr};");
+                }
+
                 sb.AppendLine($"    ss += {normExpr} * {normExpr};");
             }
             else
             {
                 sb.AppendLine($"    float nrm = {normExpr} * scale{(w is null ? "" : " * p.w[i]")};");
-                foreach (var st in postStmts) sb.AppendLine("    " + st);
+                foreach (var st in postStmts)
+                {
+                    sb.AppendLine("    " + st);
+                }
+
                 for (int i = 0; i < pass2Outputs.Count; i++)
+                {
                     sb.AppendLine($"    p.out{pass1Outputs.Count + i}[{ElemOffset(pass2Outputs[i].Ref, shape)}] = {pass2Outputs[i].Expr};");
+                }
             }
             sb.AppendLine("  }");
         }
@@ -936,9 +1201,17 @@ public sealed partial class GraphLowerer
         for (int k = 0; k < rank; k++)
         {
             int rk = r.Rank - rank + k;
-            if (rk < 0) continue;
+            if (rk < 0)
+            {
+                continue;
+            }
+
             long st = r.Shape[rk] == 1 && shape[k] != 1 ? 0 : r.Strides[rk];
-            if (st == 0 || (shape[k] == 1)) continue;
+            if (st == 0 || (shape[k] == 1))
+            {
+                continue;
+            }
+
             terms.Add(st == 1 ? $"d{k}" : $"d{k} * {st}u");
         }
         return terms.Count == 0 ? "0" : string.Join(" + ", terms);
@@ -1017,8 +1290,16 @@ public sealed partial class GraphLowerer
     static string ClipExpr(string x, float lo, float hi)
     {
         var e = x;
-        if (!float.IsNegativeInfinity(lo)) e = $"max({e}, {F(lo)})";
-        if (!float.IsPositiveInfinity(hi)) e = $"min({e}, {F(hi)})";
+        if (!float.IsNegativeInfinity(lo))
+        {
+            e = $"max({e}, {F(lo)})";
+        }
+
+        if (!float.IsPositiveInfinity(hi))
+        {
+            e = $"min({e}, {F(hi)})";
+        }
+
         return $"({e})";
     }
 
@@ -1034,20 +1315,41 @@ public sealed partial class GraphLowerer
         var sb = new StringBuilder();
         sb.AppendLine("#include \"math_ext.slang\"");
         sb.AppendLine("struct Params {");
-        for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"  {PtrType(inputs[i].Type)}* in{i};");
-        for (int i = 0; i < outputs.Count; i++) sb.AppendLine($"  float* out{i};");
+        for (int i = 0; i < inputs.Count; i++)
+        {
+            sb.AppendLine($"  {PtrType(inputs[i].Type)}* in{i};");
+        }
+
+        for (int i = 0; i < outputs.Count; i++)
+        {
+            sb.AppendLine($"  float* out{i};");
+        }
+
         sb.AppendLine("  uint n;");
         sb.AppendLine("};");
         sb.AppendLine("[shader(\"compute\")] [numthreads(256, 1, 1)]");
         sb.AppendLine("void main(uint3 dtid : SV_DispatchThreadID, uniform Params p) {");
         sb.AppendLine("  uint idx = dtid.x; if (idx >= p.n) return;");
         for (int k = 0; k < rank; k++)
+        {
             sb.AppendLine(k == 0 ? $"  uint d0 = idx / {P[0]}u;" : $"  uint d{k} = (idx / {P[k]}u) % {shape[k]}u;");
+        }
+
         for (int i = 0; i < inputs.Count; i++)
+        {
             sb.AppendLine($"  float a{i} = {Load(inputs[i], i)};");
-        foreach (var s in stmts) sb.AppendLine("  " + s);
+        }
+
+        foreach (var s in stmts)
+        {
+            sb.AppendLine("  " + s);
+        }
+
         for (int i = 0; i < outputs.Count; i++)
+        {
             sb.AppendLine($"  p.out{i}[{Offset(outputs[i].Ref)}] = {outputs[i].Expr};");
+        }
+
         sb.AppendLine("}");
 
         var kernel = _compiler.Compile("elementwise.slang", sb.ToString(), "main", _opt.Target, Macros(), _opt.Cache);
@@ -1064,9 +1366,17 @@ public sealed partial class GraphLowerer
             for (int k = 0; k < rank; k++)
             {
                 int rk = r.Rank - rank + k;
-                if (rk < 0) continue;
+                if (rk < 0)
+                {
+                    continue;
+                }
+
                 long st = r.Shape[rk] == 1 && shape[k] != 1 ? 0 : r.Strides[rk];
-                if (st == 0 || (shape[k] == 1)) continue;
+                if (st == 0 || (shape[k] == 1))
+                {
+                    continue;
+                }
+
                 terms.Add(st == 1 ? $"d{k}" : $"d{k} * {st}u");
             }
             return terms.Count == 0 ? "0" : string.Join(" + ", terms);

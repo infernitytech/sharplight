@@ -14,34 +14,36 @@ namespace Sharplight.Tokenizers.Unigram;
 /// control characters, which agrees for ordinary text.</remarks>
 public sealed partial class UnigramTokenizer : ITokenizer
 {
-    const char Space = '▁';
-    const float UnkPenalty = 10f;
+    private const char Space = '▁';
+    private const float UnkPenalty = 10f;
 
-    readonly string[] _tokens;
-    readonly float[] _scores;
-    readonly TokenType[] _types;
-    readonly Dictionary<string, int> _toId = new(StringComparer.Ordinal);
-    readonly TrieNode _root = new();
-    readonly SpecialTokens _specials;
-    readonly int _unk;
-    readonly float _unkScore;
-    readonly bool _addSpacePrefix;
-    readonly int[] _eog;
+    private readonly string[] _tokens;
+    private readonly float[] _scores;
+    private readonly TokenType[] _types;
+    private readonly Dictionary<string, int> _toId = new(StringComparer.Ordinal);
+    private readonly UnigramTrieNode _root = new();
+    private readonly SpecialTokens _specials;
+    private readonly int _unk;
+    private readonly float _unkScore;
+    private readonly bool _addSpacePrefix;
+    private readonly int[] _eog;
 
-    sealed class TrieNode
-    {
-        public Dictionary<char, TrieNode>? Next;
-        public int Id = -1;
-    }
-
+    /// <inheritdoc/>
     public int VocabSize => _tokens.Length;
+    /// <inheritdoc/>
     public int? BosId { get; }
+    /// <inheritdoc/>
     public int? EosId { get; }
+    /// <inheritdoc/>
     public int? PadId { get; }
+    /// <inheritdoc/>
     public bool AddBos { get; }
+    /// <inheritdoc/>
     public bool AddEos { get; }
+    /// <inheritdoc/>
     public IReadOnlyList<int> EndOfGenerationIds => _eog;
 
+    /// <summary>Creates the tokenizer from a "unigram" description (pieces with scores).</summary>
     public UnigramTokenizer(TokenizerData data)
     {
         ArgumentNullException.ThrowIfNull(data);
@@ -73,82 +75,124 @@ public sealed partial class UnigramTokenizer : ITokenizer
         _specials = new SpecialTokens(_tokens, i => _types[i]);
     }
 
-    void Insert(string piece, int id)
+    private void Insert(string piece, int id)
     {
         var node = _root;
         foreach (char c in piece)
         {
             node.Next ??= [];
-            if (!node.Next.TryGetValue(c, out var nx)) node.Next[c] = nx = new TrieNode();
+            if (!node.Next.TryGetValue(c, out var nx))
+            {
+                node.Next[c] = nx = new UnigramTrieNode();
+            }
+
             node = nx;
         }
-        if (node.Id < 0) node.Id = id;
+        if (node.Id < 0)
+        {
+            node.Id = id;
+        }
     }
 
+    /// <inheritdoc/>
     public string? TokenString(int id) => (uint)id < (uint)_tokens.Length ? _tokens[id] : null;
+    /// <inheritdoc/>
     public TokenType GetTokenType(int id) => (uint)id < (uint)_types.Length ? _types[id] : TokenType.Undefined;
+    /// <inheritdoc/>
     public bool IsSpecial(int id) => GetTokenType(id) is TokenType.Control or TokenType.Unknown;
+    /// <inheritdoc/>
     public bool IsEndOfGeneration(int id) => Array.IndexOf(_eog, id) >= 0;
+    /// <inheritdoc/>
     public int? TokenId(string piece) => _toId.TryGetValue(piece, out int id) ? id : null;
 
+    /// <inheritdoc/>
     public byte[] TokenBytes(int id)
         => (uint)id >= (uint)_tokens.Length ? [] : Encoding.UTF8.GetBytes(_types[id] == TokenType.Normal ? _tokens[id].Replace(Space, ' ') : _tokens[id]);
 
+    /// <inheritdoc/>
     public byte[] DecodeBytes(ReadOnlySpan<int> ids, bool skipSpecial = false) => Encoding.UTF8.GetBytes(Decode(ids, skipSpecial));
 
+    /// <inheritdoc/>
     public string Decode(ReadOnlySpan<int> ids, bool skipSpecial = false)
     {
         var sb = new StringBuilder();
         foreach (int id in ids)
         {
-            if ((uint)id >= (uint)_tokens.Length || skipSpecial && IsSpecial(id)) continue;
+            if ((uint)id >= (uint)_tokens.Length || skipSpecial && IsSpecial(id))
+            {
+                continue;
+            }
+
             sb.Append(_types[id] == TokenType.Normal ? _tokens[id].Replace(Space, ' ') : _tokens[id]);
         }
         string s = sb.ToString();
         return _addSpacePrefix && s.StartsWith(' ') ? s[1..] : s;
     }
 
+    /// <inheritdoc/>
     public int[] Encode(string text, bool addSpecial = true, bool parseSpecial = true)
     {
         ArgumentNullException.ThrowIfNull(text);
         var output = new List<int>(text.Length / 3 + 4);
-        if (addSpecial && AddBos && BosId is int bos) output.Add(bos);
+        if (addSpecial && AddBos && BosId is int bos)
+        {
+            output.Add(bos);
+        }
+
         foreach (var (frag, id) in _specials.Split(text, parseSpecial))
         {
             if (id >= 0) { output.Add(id); continue; }
             string s = Normalize(frag);
-            if (s.Length == 0) continue;
+            if (s.Length == 0)
+            {
+                continue;
+            }
+
             s = s.Replace(' ', Space);
-            if (_addSpacePrefix && s[0] != Space) s = Space + s;
+            if (_addSpacePrefix && s[0] != Space)
+            {
+                s = Space + s;
+            }
+
             int start = 0;
             for (int i = 1; i <= s.Length; i++)
+            {
                 if (i == s.Length || s[i] == Space)
                 {
                     EncodeWord(s.AsSpan(start, i - start), output);
                     start = i;
                 }
+            }
         }
-        if (addSpecial && AddEos && EosId is int eos) output.Add(eos);
+        if (addSpecial && AddEos && EosId is int eos)
+        {
+            output.Add(eos);
+        }
+
         return [.. output];
     }
 
     [GeneratedRegex(" {2,}")]
     private static partial Regex MultiSpace();
 
-    static string Normalize(string text)
+    private static string Normalize(string text)
     {
         var sb = new StringBuilder(text.Length);
         foreach (var r in text.Normalize(NormalizationForm.FormKC).EnumerateRunes())
         {
             if (r.Value is '\t' or '\n' or '\r' || Rune.IsWhiteSpace(r)) { sb.Append(' '); continue; }
-            if (Rune.IsControl(r)) continue;
+            if (Rune.IsControl(r))
+            {
+                continue;
+            }
+
             sb.Append(r.ToString());
         }
         return MultiSpace().Replace(sb.ToString(), " ");
     }
 
     /// <summary>Viterbi segmentation of one word (best total score; uncovered characters become a fused unknown token).</summary>
-    void EncodeWord(ReadOnlySpan<char> w, List<int> output)
+    private void EncodeWord(ReadOnlySpan<char> w, List<int> output)
     {
         int n = w.Length;
         var best = new float[n + 1];
@@ -158,15 +202,31 @@ public sealed partial class UnigramTokenizer : ITokenizer
         best[0] = 0;
         for (int i = 0; i < n; i++)
         {
-            if (float.IsNegativeInfinity(best[i])) continue;
-            if (char.IsLowSurrogate(w[i])) continue;
+            if (float.IsNegativeInfinity(best[i]))
+            {
+                continue;
+            }
+
+            if (char.IsLowSurrogate(w[i]))
+            {
+                continue;
+            }
+
             int charLen = char.IsHighSurrogate(w[i]) && i + 1 < n ? 2 : 1;
             bool single = false;
             var node = _root;
             for (int j = i; j < n && node.Next is not null && node.Next.TryGetValue(w[j], out node); j++)
             {
-                if (node.Id < 0) continue;
-                if (j + 1 == i + charLen) single = true;
+                if (node.Id < 0)
+                {
+                    continue;
+                }
+
+                if (j + 1 == i + charLen)
+                {
+                    single = true;
+                }
+
                 float s = best[i] + _scores[node.Id];
                 if (s > best[j + 1]) { best[j + 1] = s; from[j + 1] = i; piece[j + 1] = node.Id; }
             }
@@ -177,12 +237,16 @@ public sealed partial class UnigramTokenizer : ITokenizer
             }
         }
         var ids = new List<int>();
-        for (int e = n; e > 0; e = from[e]) ids.Add(piece[e]);
+        for (int e = n; e > 0; e = from[e])
+        {
+            ids.Add(piece[e]);
+        }
+
         ids.Reverse();
         bool prevUnk = false;
         foreach (int id in ids)
         {
-            if (id < 0) { if (!prevUnk) output.Add(_unk); prevUnk = true; continue; }
+            if (id < 0) { if (!prevUnk) { output.Add(_unk); } prevUnk = true; continue; }
             output.Add(id);
             prevUnk = false;
         }

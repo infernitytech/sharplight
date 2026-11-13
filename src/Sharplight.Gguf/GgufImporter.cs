@@ -17,7 +17,11 @@ public sealed class GgufImporter : IModelImporter
 
     public bool CanOpen(string path)
     {
-        if (!File.Exists(path)) return false;
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
         try
         {
             using var f = File.OpenRead(path);
@@ -47,24 +51,53 @@ public sealed class GgufImporter : IModelImporter
                 if (mapping is IGgufSplitMapping splitter && splitter.Split(t.Name, t.ToWeightInfo(), view) is { } parts)
                 {
                     foreach (var part in parts)
-                        if (!weights.TryAdd(part.Name, mapping.MapWeight(part, view))) throw new InvalidDataException($"{path}: two tensors map to '{part.Name}'.");
+                    {
+                        if (!weights.TryAdd(part.Name, mapping.MapWeight(part, view)))
+                        {
+                            throw new InvalidDataException($"{path}: two tensors map to '{part.Name}'.");
+                        }
+                    }
+
                     continue;
                 }
                 if (mapping.MapWeightName(t.Name, view) is not { } name) { unmapped.Add(t.Name); continue; }
-                if (!weights.TryAdd(name, mapping.MapWeight(t.ToWeightInfo().As(name), view))) throw new InvalidDataException($"{path}: two tensors map to '{name}'.");
+                if (!weights.TryAdd(name, mapping.MapWeight(t.ToWeightInfo().As(name), view)))
+                {
+                    throw new InvalidDataException($"{path}: two tensors map to '{name}'.");
+                }
             }
             foreach (var w in mapping.SyntheticWeights(view, weights).ToList())
-                if (!weights.TryAdd(w.Name, w)) throw new InvalidDataException($"{path}: synthetic weight '{w.Name}' collides with a tensor.");
-            if (unmapped.Count > 0)
-                throw new NotSupportedException($"{path}: {unmapped.Count} tensor(s) of '{ggufArch}' have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
+            {
+                if (!weights.TryAdd(w.Name, w))
+                {
+                    throw new InvalidDataException($"{path}: synthetic weight '{w.Name}' collides with a tensor.");
+                }
+            }
 
-            if (mapping is IGgufWeightTransformer transformer) transformer.Transform(weights, view);
+            if (unmapped.Count > 0)
+            {
+                throw new NotSupportedException($"{path}: {unmapped.Count} tensor(s) of '{ggufArch}' have no canonical mapping: {string.Join(", ", unmapped.Take(10))}{(unmapped.Count > 10 ? ", ..." : "")}");
+            }
+
+            if (mapping is IGgufWeightTransformer transformer)
+            {
+                transformer.Transform(weights, view);
+            }
+
             string architecture = mapping.ResolveArchitecture(view);
 
             var metadata = new Dictionary<string, object>(ToCanonical(files.Metadata), StringComparer.Ordinal);
             // Drop llama.cpp's per-architecture keys; the mapping provides the canonical ones.
-            foreach (var k in metadata.Keys.Where(k => k.StartsWith(ggufArch + ".", StringComparison.Ordinal)).ToList()) metadata.Remove(k);
-            foreach (var (k, v) in mapping.MapHyperParameters(view)) metadata[k] = v;
+            foreach (var k in metadata.Keys.Where(k => k.StartsWith(ggufArch + ".", StringComparison.Ordinal)).ToList())
+            {
+                metadata.Remove(k);
+            }
+
+            foreach (var (k, v) in mapping.MapHyperParameters(view))
+            {
+                metadata[k] = v;
+            }
+
             metadata[CanonicalKeys.Architecture] = architecture;
             return new ModelSource
             {
@@ -90,19 +123,36 @@ public sealed class GgufImporter : IModelImporter
     {
         var md = new Dictionary<string, object>(gguf.Count, StringComparer.Ordinal);
         foreach (var (k, v) in gguf)
+        {
             md[k.StartsWith(GgmlTokenizerPrefix, StringComparison.Ordinal) ? "tokenizer." + k[GgmlTokenizerPrefix.Length..] : k] = v;
+        }
         // llama.cpp calls SentencePiece-style tokenizers "llama"; the canonical name is "spm".
-        if (md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm) && tm is "llama") md[CanonicalKeys.TokenizerModel] = "spm";
+        if (md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm) && tm is "llama")
+        {
+            md[CanonicalKeys.TokenizerModel] = "spm";
+        }
         // llama.cpp's spelling and names of the pair / classifier tokens.
-        if (md.Remove("tokenizer.seperator_token_id", out var sep)) md[CanonicalKeys.TokenizerSeparatorId] = sep;
-        if (md.Remove("tokenizer.cls_token_id", out var cls)) md[CanonicalKeys.TokenizerClassifierId] = cls;
+        if (md.Remove("tokenizer.seperator_token_id", out var sep))
+        {
+            md[CanonicalKeys.TokenizerSeparatorId] = sep;
+        }
+
+        if (md.Remove("tokenizer.cls_token_id", out var cls))
+        {
+            md[CanonicalKeys.TokenizerClassifierId] = cls;
+        }
+
         switch (tm)
         {
             // SentencePiece unigram models (T5, XLM-RoBERTa) are "t5" in llama.cpp.
             case "t5": md[CanonicalKeys.TokenizerModel] = "unigram"; break;
             case "bert":
                 md[CanonicalKeys.TokenizerModel] = "wordpiece";
-                if (md.TryGetValue(CanonicalKeys.TokenizerTokens, out var t) && t is string[] tokens) md[CanonicalKeys.TokenizerTokens] = FromPhantomSpace(tokens);
+                if (md.TryGetValue(CanonicalKeys.TokenizerTokens, out var t) && t is string[] tokens)
+                {
+                    md[CanonicalKeys.TokenizerTokens] = FromPhantomSpace(tokens);
+                }
+
                 md.TryAdd(CanonicalKeys.TokenizerLowercase, true);
                 break;
         }

@@ -88,8 +88,15 @@ public sealed class DecoderAdapter : IModelAdapter
             Experts: src.Arch("moe.expert_count", 0),
             ExpertsUsed: src.Arch("moe.expert_used_count", 0),
             NormalizeExpertWeights: src.Arch("moe.normalize_weights", false));
-        if (hp.NHead % hp.NHeadKv != 0) throw new InvalidDataException("decoder: attention.head_count must be a multiple of attention.kv_head_count.");
-        if (hp.SlidingLayers.Length != 0 && hp.SlidingLayers.Length != hp.NLayer) throw new InvalidDataException("decoder: attention.sliding_layers must have layer_count entries.");
+        if (hp.NHead % hp.NHeadKv != 0)
+        {
+            throw new InvalidDataException("decoder: attention.head_count must be a multiple of attention.kv_head_count.");
+        }
+
+        if (hp.SlidingLayers.Length != 0 && hp.SlidingLayers.Length != hp.NLayer)
+        {
+            throw new InvalidDataException("decoder: attention.sliding_layers must have layer_count entries.");
+        }
         // Local rope (base / no frequency scaling) belongs to the interleaved sliding layers only; a model that declares a window
         // without a layer list (Mistral v0.1: sliding_window) applies it to every layer and keeps the ordinary rope.
         bool Sliding(int il) => hp.Window > 0 && hp.SlidingLayers.Length > 0 && hp.SlidingLayers[il] != 0;
@@ -111,7 +118,10 @@ public sealed class DecoderAdapter : IModelAdapter
         }
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false) };
-        if (options.IncludeAuxiliaryGraphs) graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
+        if (options.IncludeAuxiliaryGraphs)
+        {
+            graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
+        }
         // Packed-sequence graphs (embedding models such as Qwen3-Embedding, yes/no rerankers such as Qwen3-Reranker): causal attention
         // within each sequence, no KV cache. Last-token pooling unless the model declares otherwise.
         string pooling = PackedSequences.NormalizePooling(options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(src.Get<string?>(CanonicalKeys.EmbeddingPooling, null)) ?? "last";
@@ -123,8 +133,15 @@ public sealed class DecoderAdapter : IModelAdapter
         }
 
         var eos = new List<int>();
-        if (src.Has(CanonicalKeys.TokenizerEosId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
-        if (src.Has(CanonicalKeys.TokenizerEotId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
+        if (src.Has(CanonicalKeys.TokenizerEosId))
+        {
+            eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
+        }
+
+        if (src.Has(CanonicalKeys.TokenizerEotId))
+        {
+            eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
+        }
 
         return new ModelDefinition
         {
@@ -158,10 +175,17 @@ public sealed class DecoderAdapter : IModelAdapter
             using (b.Group("input"))
             {
                 x = b.Gather(b.Weight("token_embedding.weight"), inp.Tokens, "inp_embd");
-                if (hp.EmbeddingScale != 1f) x = b.Scale(x, hp.EmbeddingScale);
+                if (hp.EmbeddingScale != 1f)
+                {
+                    x = b.Scale(x, hp.EmbeddingScale);
+                }
             }
             var freqFactors = b.TryWeight("rope.freq_factors");
-            if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors) freqFactors = longFactors;
+            if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors)
+            {
+                freqFactors = longFactors;
+            }
+
             x = Layers(b, x, inp.Positions, freqFactors, inp.RowSpans);
             using (b.Group("output"))
             {
@@ -177,7 +201,11 @@ public sealed class DecoderAdapter : IModelAdapter
                     var hidden = b.RmsNorm(last, b.Weight("output_norm.weight"), hp.Eps, "result_norm");
                     var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
                     var logits = b.MatMul(hidden, head, "logits");
-                    if (hp.FinalSoftCap > 0) logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / hp.FinalSoftCap)), hp.FinalSoftCap, 0, "logits_capped");
+                    if (hp.FinalSoftCap > 0)
+                    {
+                        logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / hp.FinalSoftCap)), hp.FinalSoftCap, 0, "logits_capped");
+                    }
+
                     b.Output(WellKnown.LogitsOutput, logits);
                 }
             }
@@ -193,13 +221,21 @@ public sealed class DecoderAdapter : IModelAdapter
                 var residual = x;
                 var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), hp.Eps, $"{p}attn_norm");
                 var attnOut = Attention(b, h, p, il, positions, freqFactors, rowSpans);
-                if (b.TryWeight(p + "attention.out_norm.weight") is { } on1) attnOut = b.RmsNorm(attnOut, on1, hp.Eps);
+                if (b.TryWeight(p + "attention.out_norm.weight") is { } on1)
+                {
+                    attnOut = b.RmsNorm(attnOut, on1, hp.Eps);
+                }
+
                 x = b.Add(attnOut, residual, $"{p}attn_residual");
 
                 var ffnResidual = x;
                 h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
                 var ffn = b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p) : Mlp(b, h, p);
-                if (b.TryWeight(p + "mlp.out_norm.weight") is { } on2) ffn = b.RmsNorm(ffn, on2, hp.Eps);
+                if (b.TryWeight(p + "mlp.out_norm.weight") is { } on2)
+                {
+                    ffn = b.RmsNorm(ffn, on2, hp.Eps);
+                }
+
                 x = b.Add(ffn, ffnResidual, $"{p}l_out");
             }
             return x;
@@ -213,18 +249,26 @@ public sealed class DecoderAdapter : IModelAdapter
             using (b.Group("input"))
             {
                 if (embeddingsInput)
+                {
                     x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hp.NEmbd));
+                }
                 else
                 {
                     var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                     x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
-                    if (hp.EmbeddingScale != 1f) x = b.Scale(x, hp.EmbeddingScale);
+                    if (hp.EmbeddingScale != 1f)
+                    {
+                        x = b.Scale(x, hp.EmbeddingScale);
+                    }
                 }
             }
             var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
             var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
             var freqFactors = b.TryWeight("rope.freq_factors");
-            if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors) freqFactors = longFactors;
+            if (longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors)
+            {
+                freqFactors = longFactors;
+            }
 
             x = Layers(b, x, positions, freqFactors, rowSpans: null);
 
@@ -235,7 +279,10 @@ public sealed class DecoderAdapter : IModelAdapter
                 var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
                 var logits = b.MatMul(rows, head, "logits");
                 if (hp.FinalSoftCap > 0)
+                {
                     logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / hp.FinalSoftCap)), hp.FinalSoftCap, 0, "logits_capped");
+                }
+
                 b.Output("logits", logits);
                 b.Output("hidden", hidden);
             }
@@ -249,12 +296,27 @@ public sealed class DecoderAdapter : IModelAdapter
             var k = b.Linear(h, p + "attention.k.weight", p + "attention.k.bias");
             var v = b.Reshape(b.Linear(h, p + "attention.v.weight", p + "attention.v.bias"), 0, hp.NHeadKv, D);
             // q/k norms: over the whole projection (weight has heads*D entries) or per head (D entries), before the head split.
-            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn && qn.Shape[0].Fixed != D) q = b.RmsNorm(q, qn, hp.Eps);
-            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn && kn.Shape[0].Fixed != D) k = b.RmsNorm(k, kn, hp.Eps);
+            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn && qn.Shape[0].Fixed != D)
+            {
+                q = b.RmsNorm(q, qn, hp.Eps);
+            }
+
+            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn && kn.Shape[0].Fixed != D)
+            {
+                k = b.RmsNorm(k, kn, hp.Eps);
+            }
+
             q = b.Reshape(q, 0, hp.NHead, D);
             k = b.Reshape(k, 0, hp.NHeadKv, D);
-            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn2 && qn2.Shape[0].Fixed == D) q = b.RmsNorm(q, qn2, hp.Eps);
-            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn2 && kn2.Shape[0].Fixed == D) k = b.RmsNorm(k, kn2, hp.Eps);
+            if (b.TryWeight(p + "attention.q_norm.weight") is { } qn2 && qn2.Shape[0].Fixed == D)
+            {
+                q = b.RmsNorm(q, qn2, hp.Eps);
+            }
+
+            if (b.TryWeight(p + "attention.k_norm.weight") is { } kn2 && kn2.Shape[0].Fixed == D)
+            {
+                k = b.RmsNorm(k, kn2, hp.Eps);
+            }
 
             bool sliding = Sliding(il);
             var rope = Attributes.From(("dims", hp.RopeDims), ("base", sliding ? hp.RopeLocalBase : hp.RopeBase), ("style", hp.RopeStyle));
@@ -272,8 +334,16 @@ public sealed class DecoderAdapter : IModelAdapter
             b.CacheWrite(b.State(kCache[il]), k);
             b.CacheWrite(b.State(vCache[il]), v);
             var attrs = new List<(string, object)> { ("scale", hp.AttnScale), ("offset", WellKnown.PastScalar) };
-            if (Windowed(il)) attrs.Add(("window", hp.Window));
-            if (hp.SoftCap > 0) attrs.Add(("softcap", hp.SoftCap));
+            if (Windowed(il))
+            {
+                attrs.Add(("window", hp.Window));
+            }
+
+            if (hp.SoftCap > 0)
+            {
+                attrs.Add(("softcap", hp.SoftCap));
+            }
+
             b.RuntimeScalar(WellKnown.PastScalar);
             var attn = b.Emit1("CachedAttention", [q, b.State(kCache[il]), b.State(vCache[il])], Attributes.From([.. attrs]), $"{p}attn");
             return b.Linear(b.Reshape(attn, 0, hp.NHead * D), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
@@ -291,11 +361,19 @@ public sealed class DecoderAdapter : IModelAdapter
         // Softmax router, top-k experts per token, expert-indexed gate/up/down products, weighted sum over the k slots.
         Value MoeMlp(GraphBuilder b, Value h, string p)
         {
-            if (hp.Experts <= 0 || hp.ExpertsUsed <= 0) throw new InvalidDataException("decoder: MoE weights present but moe.expert_count / moe.expert_used_count are missing.");
+            if (hp.Experts <= 0 || hp.ExpertsUsed <= 0)
+            {
+                throw new InvalidDataException("decoder: MoE weights present but moe.expert_count / moe.expert_used_count are missing.");
+            }
+
             var probs = b.Emit1("Softmax", [b.Linear(h, p + "mlp.router.weight")], null, $"{p}router_probs");
             var top = b.Emit("TopK", [probs], Attributes.From(("k", (long)hp.ExpertsUsed)), $"{p}router_topk");
             Value weights = top[0], ids = top[1];
-            if (hp.NormalizeExpertWeights) weights = b.Binary("Div", weights, b.Emit1("ReduceSum", [weights]));
+            if (hp.NormalizeExpertWeights)
+            {
+                weights = b.Binary("Div", weights, b.Emit1("ReduceSum", [weights]));
+            }
+
             var up = b.Emit1("MatMulId", [h, b.Weight(p + "mlp.experts.up.weight"), ids], null, $"{p}experts_up");
             var gate = b.Emit1("MatMulId", [h, b.Weight(p + "mlp.experts.gate.weight"), ids], null, $"{p}experts_gate");
             var act = b.Mul(ActOf(b, gate), up);

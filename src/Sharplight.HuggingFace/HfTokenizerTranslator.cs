@@ -28,7 +28,10 @@ public static class HfTokenizerTranslator
     {
         string tokPath = Path.Combine(dir, "tokenizer.json");
         if (!File.Exists(tokPath))
+        {
             throw new NotSupportedException($"{dir}: no tokenizer.json (SentencePiece-only tokenizers are not supported yet).");
+        }
+
         using var tokDoc = JsonDocument.Parse(File.ReadAllBytes(tokPath));
         var tok = tokDoc.RootElement;
 
@@ -46,18 +49,28 @@ public static class HfTokenizerTranslator
             AddVocabularyModel(md, dir, config, tok, model, modelType);
             return;
         }
-        if (modelType != "BPE") throw new NotSupportedException($"tokenizer.json model type '{modelType}' is not supported (BPE, WordPiece, Unigram).");
+        if (modelType != "BPE")
+        {
+            throw new NotSupportedException($"tokenizer.json model type '{modelType}' is not supported (BPE, WordPiece, Unigram).");
+        }
 
         JsonElement? tcRoot = null;
         using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
-        if (tcDoc != null) tcRoot = tcDoc.RootElement;
+        if (tcDoc != null)
+        {
+            tcRoot = tcDoc.RootElement;
+        }
 
         var addedTokens = tok.TryGetProperty("added_tokens", out var at) && at.ValueKind == JsonValueKind.Array
             ? at.EnumerateArray().ToArray() : [];
 
         // ---- tokens + types (llama.cpp get_vocab_base) ---------------------------------------
         var vocab = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var p in model.GetProperty("vocab").EnumerateObject()) vocab[p.Name] = p.Value.GetInt32();
+        foreach (var p in model.GetProperty("vocab").EnumerateObject())
+        {
+            vocab[p.Name] = p.Value.GetInt32();
+        }
+
         var addedById = new Dictionary<int, JsonElement>();
         foreach (var a in addedTokens)
         {
@@ -66,23 +79,39 @@ public static class HfTokenizerTranslator
         }
         // transformers also merges tokenizer_config.json's added_tokens_decoder (it may list tokens tokenizer.json lacks).
         if (tcRoot is { ValueKind: JsonValueKind.Object } tcr && tcr.TryGetProperty("added_tokens_decoder", out var atd) && atd.ValueKind == JsonValueKind.Object)
+        {
             foreach (var e in atd.EnumerateObject())
             {
-                if (!int.TryParse(e.Name, NumberStyles.None, CultureInfo.InvariantCulture, out int id) || addedById.ContainsKey(id)) continue;
+                if (!int.TryParse(e.Name, NumberStyles.None, CultureInfo.InvariantCulture, out int id) || addedById.ContainsKey(id))
+                {
+                    continue;
+                }
+
                 if (e.Value.TryGetProperty("content", out var content) && content.GetString() is { } cs)
                 {
                     vocab[cs] = id;
                     addedById[id] = e.Value;
                 }
             }
+        }
+
         int maxId = vocab.Count == 0 ? -1 : vocab.Values.Max();
         int vocabSize = config.GetInt("vocab_size") ?? vocab.Count;
         // Tokens beyond the model's embedding table cannot be produced or fed (e.g. Gemma 3's extra added token): drop them.
         if (maxId >= vocabSize)
-            foreach (var id in vocab.Where(kv => kv.Value >= vocabSize).Select(kv => kv.Key).ToList()) vocab.Remove(id);
+        {
+            foreach (var id in vocab.Where(kv => kv.Value >= vocabSize).Select(kv => kv.Key).ToList())
+            {
+                vocab.Remove(id);
+            }
+        }
 
         var reverse = new Dictionary<int, string>(vocab.Count);
-        foreach (var (t, id) in vocab) reverse[id] = t;
+        foreach (var (t, id) in vocab)
+        {
+            reverse[id] = t;
+        }
+
         var tokens = new string[vocabSize];
         var types = new int[vocabSize];
         var addedContents = new HashSet<string>(addedById.Values.Select(a => a.GetProperty("content").GetString()!), StringComparer.Ordinal);
@@ -93,10 +122,17 @@ public static class HfTokenizerTranslator
             {
                 // TODO: llama.cpp re-normalizes non-"normalized" added tokens via decode(encode(tok)); identity for common vocabularies.
                 bool special = a.TryGetProperty("special", out var sp) && sp.ValueKind == JsonValueKind.True;
-                if (special || LooksSpecial(token)) types[i] = TypeControl;
+                if (special || LooksSpecial(token))
+                {
+                    types[i] = TypeControl;
+                }
                 else { token = token.Replace("▁", " "); types[i] = TypeUserDefined; }
             }
-            else types[i] = TypeNormal;
+            else
+            {
+                types[i] = TypeNormal;
+            }
+
             tokens[i] = token;
         }
 
@@ -104,7 +140,10 @@ public static class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerPre] = DetectPreTokenizer(tok);
         md[CanonicalKeys.TokenizerTokens] = tokens;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
-        if (ReadMerges(model) is { Length: > 0 } merges) md[CanonicalKeys.TokenizerMerges] = merges;
+        if (ReadMerges(model) is { Length: > 0 } merges)
+        {
+            md[CanonicalKeys.TokenizerMerges] = merges;
+        }
 
         AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
     }
@@ -129,7 +168,11 @@ public static class HfTokenizerTranslator
         {
             int id = a.GetProperty("id").GetInt32();
             string content = a.GetProperty("content").GetString()!;
-            if (id >= vocabSize || existing.Contains(content) || types[id] != TypeUnused) continue;   // only fills unused slots
+            if (id >= vocabSize || existing.Contains(content) || types[id] != TypeUnused)
+            {
+                continue;   // only fills unused slots
+            }
+
             tokens[id] = content; scores[id] = -1000f;
             types[id] = a.TryGetProperty("special", out var spc) && spc.ValueKind == JsonValueKind.True ? TypeControl : TypeUserDefined;
         }
@@ -141,7 +184,11 @@ public static class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerAddSpacePrefix] = sp.AddDummyPrefix;
         JsonElement? tcRoot = null;
         using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
-        if (tcDoc != null) tcRoot = tcDoc.RootElement.Clone();
+        if (tcDoc != null)
+        {
+            tcRoot = tcDoc.RootElement.Clone();
+        }
+
         AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
     }
 
@@ -160,12 +207,18 @@ public static class HfTokenizerTranslator
             var vocab = model.GetProperty("vocab").EnumerateObject().Select(p => (p.Name, Id: p.Value.GetInt32())).ToList();
             int n = vocab.Count == 0 ? 0 : vocab.Max(v => v.Id) + 1;
             pieces.AddRange(Enumerable.Repeat("", n));
-            foreach (var (name, id) in vocab) pieces[id] = name;
+            foreach (var (name, id) in vocab)
+            {
+                pieces[id] = name;
+            }
         }
         else
         {
             foreach (var e in model.GetProperty("vocab").EnumerateArray()) { pieces.Add(e[0].GetString()!); scores.Add(e[1].GetSingle()); }
-            if (model.TryGetProperty("unk_id", out var uid) && uid.ValueKind == JsonValueKind.Number) md[CanonicalKeys.TokenizerUnkId] = (uint)uid.GetInt32();
+            if (model.TryGetProperty("unk_id", out var uid) && uid.ValueKind == JsonValueKind.Number)
+            {
+                md[CanonicalKeys.TokenizerUnkId] = (uint)uid.GetInt32();
+            }
         }
         int vocabSize = Math.Max(config.GetInt("vocab_size") ?? pieces.Count, pieces.Count);
         var tokens = new string[vocabSize];
@@ -179,7 +232,11 @@ public static class HfTokenizerTranslator
         foreach (var a in addedTokens)
         {
             int id = a.GetProperty("id").GetInt32();
-            if (id >= vocabSize) continue;
+            if (id >= vocabSize)
+            {
+                continue;
+            }
+
             tokens[id] = a.GetProperty("content").GetString()!;
             bool special = a.TryGetProperty("special", out var sp) && sp.ValueKind == JsonValueKind.True;
             types[id] = special ? TypeControl : TypeUserDefined;
@@ -188,34 +245,62 @@ public static class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerPre] = "default";
         md[CanonicalKeys.TokenizerTokens] = tokens;
         md[CanonicalKeys.TokenizerTokenTypes] = types;
-        if (modelType == "Unigram") md[CanonicalKeys.TokenizerScores] = sc;
+        if (modelType == "Unigram")
+        {
+            md[CanonicalKeys.TokenizerScores] = sc;
+        }
 
         // Normalizer flags (BertNormalizer: lowercase / strip_accents; a Lowercase step in a sequence).
         bool lower = false; bool? strip = null;
-        if (tok.TryGetProperty("normalizer", out var norm) && norm.ValueKind == JsonValueKind.Object) Visit(norm);
+        if (tok.TryGetProperty("normalizer", out var norm) && norm.ValueKind == JsonValueKind.Object)
+        {
+            Visit(norm);
+        }
+
         void Visit(JsonElement n)
         {
             string type = n.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
-            if (type == "Sequence" && n.TryGetProperty("normalizers", out var arr)) foreach (var e in arr.EnumerateArray()) Visit(e);
+            if (type == "Sequence" && n.TryGetProperty("normalizers", out var arr))
+            {
+                foreach (var e in arr.EnumerateArray())
+                {
+                    Visit(e);
+                }
+            }
             else if (type == "BertNormalizer")
             {
                 lower |= n.TryGetProperty("lowercase", out var lc) && lc.ValueKind == JsonValueKind.True;
-                if (n.TryGetProperty("strip_accents", out var sa) && sa.ValueKind is JsonValueKind.True or JsonValueKind.False) strip = sa.ValueKind == JsonValueKind.True;
+                if (n.TryGetProperty("strip_accents", out var sa) && sa.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    strip = sa.ValueKind == JsonValueKind.True;
+                }
             }
-            else if (type == "Lowercase") lower = true;
-            else if (type == "StripAccents") strip = true;
+            else if (type == "Lowercase")
+            {
+                lower = true;
+            }
+            else if (type == "StripAccents")
+            {
+                strip = true;
+            }
         }
         if (modelType == "WordPiece")
         {
             md[CanonicalKeys.TokenizerLowercase] = lower;
-            if (strip is bool st) md[CanonicalKeys.TokenizerStripAccents] = st;
+            if (strip is bool st)
+            {
+                md[CanonicalKeys.TokenizerStripAccents] = st;
+            }
         }
         else
         {
             bool prefix = true;
             if (tok.TryGetProperty("pre_tokenizer", out var pre) && pre.ValueKind == JsonValueKind.Object && FindMetaspace(pre) is { } ms)
+            {
                 prefix = ms.TryGetProperty("prepend_scheme", out var ps) ? ps.GetString() != "never"
                        : !ms.TryGetProperty("add_prefix_space", out var aps) || aps.ValueKind != JsonValueKind.False;
+            }
+
             md[CanonicalKeys.TokenizerAddSpacePrefix] = prefix;
         }
 
@@ -223,29 +308,55 @@ public static class HfTokenizerTranslator
         if (tok.TryGetProperty("post_processor", out var pp) && pp.ValueKind == JsonValueKind.Object)
         {
             string ptype = pp.TryGetProperty("type", out var ptt) ? ptt.GetString() ?? "" : "";
-            if (ptype == "RobertaProcessing") md[CanonicalKeys.TokenizerPairStyle] = "roberta";
+            if (ptype == "RobertaProcessing")
+            {
+                md[CanonicalKeys.TokenizerPairStyle] = "roberta";
+            }
             else if (ptype == "TemplateProcessing" && pp.TryGetProperty("pair", out var pair) && pair.ValueKind == JsonValueKind.Array)
             {
                 var items = pair.EnumerateArray().ToList();
                 int a = items.FindIndex(e => e.TryGetProperty("Sequence", out var sq) && sq.GetProperty("id").GetString() == "A");
                 int b = items.FindIndex(e => e.TryGetProperty("Sequence", out var sq) && sq.GetProperty("id").GetString() == "B");
-                if (a >= 0 && b > a) md[CanonicalKeys.TokenizerPairStyle] = b - a - 1 >= 2 ? "roberta" : "bert";
+                if (a >= 0 && b > a)
+                {
+                    md[CanonicalKeys.TokenizerPairStyle] = b - a - 1 >= 2 ? "roberta" : "bert";
+                }
             }
         }
         JsonElement? tcRoot = null;
         using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
-        if (tcDoc != null) tcRoot = tcDoc.RootElement.Clone();
+        if (tcDoc != null)
+        {
+            tcRoot = tcDoc.RootElement.Clone();
+        }
+
         if (tcRoot is { ValueKind: JsonValueKind.Object } r && r.TryGetProperty("model_max_length", out var mml) && mml.ValueKind == JsonValueKind.Number
             && mml.TryGetInt64(out long ml) && ml is > 0 and < 1_000_000)
+        {
             md[CanonicalKeys.TokenizerMaxLength] = (int)ml;
+        }
+
         AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
 
         static JsonElement? FindMetaspace(JsonElement p)
         {
             string type = p.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
-            if (type == "Metaspace") return p;
+            if (type == "Metaspace")
+            {
+                return p;
+            }
+
             if (type == "Sequence" && p.TryGetProperty("pretokenizers", out var arr))
-                foreach (var e in arr.EnumerateArray()) if (FindMetaspace(e) is { } m) return m;
+            {
+                foreach (var e in arr.EnumerateArray())
+                {
+                    if (FindMetaspace(e) is { } m)
+                    {
+                        return m;
+                    }
+                }
+            }
+
             return null;
         }
     }
@@ -261,23 +372,47 @@ public static class HfTokenizerTranslator
     {
         var regexes = new List<string>();
         bool byteLevelRegex = false;
-        if (tok.TryGetProperty("pre_tokenizer", out var pre) && pre.ValueKind == JsonValueKind.Object) Collect(pre);
+        if (tok.TryGetProperty("pre_tokenizer", out var pre) && pre.ValueKind == JsonValueKind.Object)
+        {
+            Collect(pre);
+        }
 
         void Collect(JsonElement p)
         {
             string type = p.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
             if (type == "Sequence" && p.TryGetProperty("pretokenizers", out var arr))
-                foreach (var e in arr.EnumerateArray()) Collect(e);
+            {
+                foreach (var e in arr.EnumerateArray())
+                {
+                    Collect(e);
+                }
+            }
             else if (type == "Split" && p.TryGetProperty("pattern", out var pat) && pat.TryGetProperty("Regex", out var rx))
+            {
                 regexes.Add(rx.GetString() ?? "");
+            }
             else if (type == "ByteLevel" && (!p.TryGetProperty("use_regex", out var ur) || ur.ValueKind != JsonValueKind.False))
+            {
                 byteLevelRegex = true;
+            }
         }
 
-        if (byteLevelRegex && regexes.Count == 0) return "gpt-2";
+        if (byteLevelRegex && regexes.Count == 0)
+        {
+            return "gpt-2";
+        }
+
         foreach (var r in regexes)
+        {
             foreach (var (preset, known) in KnownRegexes)
-                if (r == known) return preset;
+            {
+                if (r == known)
+                {
+                    return preset;
+                }
+            }
+        }
+
         throw new NotSupportedException(
             "Unknown BPE pre-tokenizer; add its split regex to HfTokenizerTranslator.KnownRegexes. Regexes found: " +
             (regexes.Count == 0 ? "(none)" : string.Join(" || ", regexes)));
@@ -286,18 +421,28 @@ public static class HfTokenizerTranslator
     // ---- merges ---------------------------------------------------------------------------------
     static string[]? ReadMerges(JsonElement model)
     {
-        if (!model.TryGetProperty("merges", out var m) || m.ValueKind != JsonValueKind.Array) return null;
+        if (!model.TryGetProperty("merges", out var m) || m.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
         var list = new string[m.GetArrayLength()];
         int i = 0;
         foreach (var e in m.EnumerateArray())
         {
-            if (e.ValueKind == JsonValueKind.String) list[i++] = e.GetString()!;
+            if (e.ValueKind == JsonValueKind.String)
+            {
+                list[i++] = e.GetString()!;
+            }
             else if (e.ValueKind == JsonValueKind.Array && e.GetArrayLength() == 2)
             {
                 // transformers >= 4.45 pair format; spaces inside a part are encoded as U+0120 (chr(ord(' ') + 256))
                 list[i++] = Fix(e[0].GetString()!) + " " + Fix(e[1].GetString()!);
             }
-            else throw new InvalidDataException("Unknown tokenizer merges format.");
+            else
+            {
+                throw new InvalidDataException("Unknown tokenizer merges format.");
+            }
         }
         return list;
 
@@ -315,8 +460,16 @@ public static class HfTokenizerTranslator
 
         string? Tc(string key)
         {
-            if (overrides.TryGetValue(key, out var o)) return o;
-            if (tcRoot is not { ValueKind: JsonValueKind.Object } root || !root.TryGetProperty(key, out var e)) return null;
+            if (overrides.TryGetValue(key, out var o))
+            {
+                return o;
+            }
+
+            if (tcRoot is not { ValueKind: JsonValueKind.Object } root || !root.TryGetProperty(key, out var e))
+            {
+                return null;
+            }
+
             return e.ValueKind switch
             {
                 JsonValueKind.String => e.GetString(),
@@ -327,8 +480,15 @@ public static class HfTokenizerTranslator
         static bool Has(string? s) => !string.IsNullOrEmpty(s);
 
         string? bos = Tc("bos_token"), cls = Tc("cls_token"), eos = Tc("eos_token"), sep = Tc("sep_token");
-        if (!Has(bos) && Has(cls) && hasTc) overrides["bos_token"] = bos = cls;
-        if (!Has(eos) && Has(sep) && hasTc) overrides["eos_token"] = eos = sep;
+        if (!Has(bos) && Has(cls) && hasTc)
+        {
+            overrides["bos_token"] = bos = cls;
+        }
+
+        if (!Has(eos) && Has(sep) && hasTc)
+        {
+            overrides["eos_token"] = eos = sep;
+        }
 
         if (tok.TryGetProperty("post_processor", out var pp) && pp.ValueKind == JsonValueKind.Object)
         {
@@ -345,29 +505,51 @@ public static class HfTokenizerTranslator
                 {
                     add["bos"] = add["eos"] = add["sep"] = true;
                     if (!Has(cls) && hasTc && proc.TryGetProperty("cls", out var c) && c.ValueKind == JsonValueKind.Array)
+                    {
                         overrides["cls_token"] = cls = c[0].GetString();
+                    }
+
                     if (!Has(sep) && hasTc && proc.TryGetProperty("sep", out var s) && s.ValueKind == JsonValueKind.Array)
+                    {
                         overrides["sep_token"] = sep = s[0].GetString();
+                    }
                 }
                 else if (ptype == "TemplateProcessing")
                 {
                     // Crude parsing of the single-sequence template to decide whether BOS/EOS are added.
                     // TODO: the pair template (separator tokens) is not interpreted.
-                    if (!proc.TryGetProperty("single", out var single) || single.ValueKind != JsonValueKind.Array || single.GetArrayLength() <= 1) continue;
+                    if (!proc.TryGetProperty("single", out var single) || single.ValueKind != JsonValueKind.Array || single.GetArrayLength() <= 1)
+                    {
+                        continue;
+                    }
+
                     string? first = SpecialId(single[0]), last = SpecialId(single[single.GetArrayLength() - 1]);
                     if (Has(first))
                     {
-                        if (!hasTc) bos = first;
+                        if (!hasTc)
+                        {
+                            bos = first;
+                        }
                         else if (first != bos && first != cls)
                         {
-                            if (!Has(bos)) overrides["bos_token"] = bos = first;
-                            if (!Has(cls)) overrides["cls_token"] = cls = first;
+                            if (!Has(bos))
+                            {
+                                overrides["bos_token"] = bos = first;
+                            }
+
+                            if (!Has(cls))
+                            {
+                                overrides["cls_token"] = cls = first;
+                            }
                         }
                         add["bos"] = first == bos || first == cls;
                     }
                     if (Has(last))
                     {
-                        if (!hasTc) eos = last;
+                        if (!hasTc)
+                        {
+                            eos = last;
+                        }
                         else if (last != eos)
                         {
                             if (!types.Contains("eot")) { types.Add("eot"); overrides["eot_token"] = eos ?? ""; }
@@ -385,24 +567,39 @@ public static class HfTokenizerTranslator
 
         void SetId(string typ, int id)
         {
-            if (id < 0) throw new InvalidDataException($"invalid value for special token type {typ}: {id}");
+            if (id < 0)
+            {
+                throw new InvalidDataException($"invalid value for special token type {typ}: {id}");
+            }
+
             ids.TryAdd(typ, id);
         }
 
         if (hasTc)
         {
             string? template = ReadChatTemplate(dir, tcRoot!.Value);
-            if (template != null) md[CanonicalKeys.ChatTemplate] = template;
+            if (template != null)
+            {
+                md[CanonicalKeys.ChatTemplate] = template;
+            }
 
             foreach (var typ in types.ToArray())
             {
                 if (tcRoot!.Value.TryGetProperty($"add_{typ}_token", out var ab) && ab.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
                     add.TryAdd(typ, ab.ValueKind == JsonValueKind.True);
+                }
+
                 string? content = Tc($"{typ}_token");
-                if (!Has(content)) continue;
+                if (!Has(content))
+                {
+                    continue;
+                }
                 // like llama.cpp: only the added_tokens list is searched
                 foreach (var a in addedTokens)
+                {
                     if (a.GetProperty("content").GetString() == content) { SetId(typ, a.GetProperty("id").GetInt32()); break; }
+                }
             }
         }
 
@@ -411,9 +608,19 @@ public static class HfTokenizerTranslator
         {
             string key = $"{typ}_token_id";
             int? id = null;
-            if (config.Root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number) id = v.GetInt32();
-            else if (config.Root.TryGetProperty("text_config", out var tc2) && tc2.TryGetProperty(key, out var v2) && v2.ValueKind == JsonValueKind.Number) id = v2.GetInt32();
-            if (id is { } i) SetId(typ, i);
+            if (config.Root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number)
+            {
+                id = v.GetInt32();
+            }
+            else if (config.Root.TryGetProperty("text_config", out var tc2) && tc2.TryGetProperty(key, out var v2) && v2.ValueKind == JsonValueKind.Number)
+            {
+                id = v2.GetInt32();
+            }
+
+            if (id is { } i)
+            {
+                SetId(typ, i);
+            }
         }
 
         // Only the kinds that have a canonical key.
@@ -427,12 +634,18 @@ public static class HfTokenizerTranslator
                 "sep" => CanonicalKeys.TokenizerSeparatorId, "mask" => CanonicalKeys.TokenizerMaskId, "cls" => CanonicalKeys.TokenizerClassifierId,
                 _ => null,
             };
-            if (key != null) md[key] = (uint)id;
+            if (key != null)
+            {
+                md[key] = (uint)id;
+            }
         }
         foreach (var (typ, v) in add)
         {
             string? key = typ switch { "bos" => CanonicalKeys.TokenizerAddBos, "eos" => CanonicalKeys.TokenizerAddEos, "sep" => "tokenizer.add_sep_token", _ => null };
-            if (key != null) md[key] = v;
+            if (key != null)
+            {
+                md[key] = v;
+            }
         }
         // TODO: normalizer flags (NFC/lowercase/strip_accents), clean_up_tokenization_spaces and metaspace prepend scheme
         // are not part of the canonical vocabulary yet, so they are not emitted.
@@ -441,27 +654,52 @@ public static class HfTokenizerTranslator
     static string? ReadChatTemplate(string dir, JsonElement tcRoot)
     {
         string? template = null;
-        if (tcRoot.TryGetProperty("chat_template", out var ct)) template = TemplateFrom(ct);
+        if (tcRoot.TryGetProperty("chat_template", out var ct))
+        {
+            template = TemplateFrom(ct);
+        }
+
         string jinja = Path.Combine(dir, "chat_template.jinja"), json = Path.Combine(dir, "chat_template.json");
-        if (File.Exists(jinja)) template = File.ReadAllText(jinja, Encoding.UTF8);
+        if (File.Exists(jinja))
+        {
+            template = File.ReadAllText(jinja, Encoding.UTF8);
+        }
         else if (File.Exists(json))
         {
             using var d = JsonDocument.Parse(File.ReadAllBytes(json));
-            if (d.RootElement.TryGetProperty("chat_template", out var c2)) template = TemplateFrom(c2);
+            if (d.RootElement.TryGetProperty("chat_template", out var c2))
+            {
+                template = TemplateFrom(c2);
+            }
         }
         return template;
 
         // A list of named templates collapses to the "default" (else first) one.
         static string? TemplateFrom(JsonElement e)
         {
-            if (e.ValueKind == JsonValueKind.String) return e.GetString();
-            if (e.ValueKind != JsonValueKind.Array) return null;
+            if (e.ValueKind == JsonValueKind.String)
+            {
+                return e.GetString();
+            }
+
+            if (e.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
             string? first = null;
             foreach (var item in e.EnumerateArray())
             {
-                if (!item.TryGetProperty("template", out var t) || t.ValueKind != JsonValueKind.String) continue;
+                if (!item.TryGetProperty("template", out var t) || t.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
                 first ??= t.GetString();
-                if (item.TryGetProperty("name", out var n) && n.GetString() == "default") return t.GetString();
+                if (item.TryGetProperty("name", out var n) && n.GetString() == "default")
+                {
+                    return t.GetString();
+                }
             }
             return first;
         }

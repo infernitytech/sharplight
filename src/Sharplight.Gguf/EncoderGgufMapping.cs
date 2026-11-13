@@ -13,11 +13,14 @@ namespace Sharplight.Gguf;
 /// </summary>
 public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
+    /// <inheritdoc/>
     public IReadOnlyList<string> GgufArchitectures { get; } = ["bert", "nomic-bert"];
+    /// <inheritdoc/>
     public string Architecture => "encoder";
 
-    static bool IsNomic(GgufMetadataView g) => g.GgufArchitecture == "nomic-bert";
+    private static bool IsNomic(GgufMetadataView g) => g.GgufArchitecture == "nomic-bert";
 
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";
@@ -38,19 +41,29 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
             md[a + "rope.dim"] = g.Int("rope.dimension_count", nEmbd / nHead);
             md[a + "rope.style"] = "neox";
         }
-        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        if (g.Has("context_length"))
+        {
+            md[a + "context_length"] = g.Int("context_length");
+        }
+
         if (g.Has("attention.causal") && Convert.ToBoolean(g.Raw("attention.causal")))
+        {
             throw new NotSupportedException($"GGUF {g.GgufArchitecture}: causal encoders are not supported.");
+        }
         // llama.cpp pooling_type: 0 none, 1 mean, 2 cls, 3 last, 4 rank (classifier on the cls row).
         string? pooling = g.Int("pooling_type", -1) switch { 0 => "none", 1 => "mean", 2 or 4 => "cls", 3 => "last", _ => null };
-        if (pooling is not null) md[CanonicalKeys.EmbeddingPooling] = pooling;
+        if (pooling is not null)
+        {
+            md[CanonicalKeys.EmbeddingPooling] = pooling;
+        }
+
         return md;
     }
 
     [GeneratedRegex(@"^blk\.(\d+)\.(.+)$")]
     private static partial Regex BlockName();
 
-    static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["attn_q"] = "attention.q",
         ["attn_k"] = "attention.k",
@@ -63,6 +76,7 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
         ["layer_output_norm"] = "mlp_norm",
     };
 
+    /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
         switch (name)
@@ -78,10 +92,18 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
             case "cls.output.bias": return "classifier.out.bias";
         }
         var m = BlockName().Match(name);
-        if (!m.Success) return null;
+        if (!m.Success)
+        {
+            return null;
+        }
+
         string rest = m.Groups[2].Value;
         int dot = rest.LastIndexOf('.');
-        if (dot < 0 || !s_layer.TryGetValue(rest[..dot], out var c)) return null;
+        if (dot < 0 || !s_layer.TryGetValue(rest[..dot], out var c))
+        {
+            return null;
+        }
+
         return $"layers.{m.Groups[1].Value}.{c}{rest[dot..]}";
     }
 
@@ -93,7 +115,11 @@ public sealed partial class EncoderGgufMapping : IGgufArchitectureMapping, IGguf
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
         var m = BlockName().Match(name);
-        if (!m.Success || !m.Groups[2].Value.StartsWith("attn_qkv.", StringComparison.Ordinal)) return null;
+        if (!m.Success || !m.Groups[2].Value.StartsWith("attn_qkv.", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         string p = $"layers.{m.Groups[1].Value}.attention.", param = m.Groups[2].Value["attn_qkv".Length..];
         int n = g.Int("embedding_length");
         return [t.RowSlice(p + "q" + param, 0, n), t.RowSlice(p + "k" + param, n, n), t.RowSlice(p + "v" + param, 2 * n, n)];

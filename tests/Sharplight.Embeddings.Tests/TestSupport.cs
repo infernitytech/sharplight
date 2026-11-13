@@ -10,9 +10,9 @@ using Sharplight.Vulkan;
 
 namespace Sharplight.Embeddings.Tests;
 
-static class Env
+internal static class Env
 {
-    static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     public static string Hf(string name) => Path.Combine(Home, "models/hf", name);
     public static string Gguf(string dir, string file) => Path.Combine(Home, "models/gguf", dir, file);
 
@@ -20,6 +20,19 @@ static class Env
     {
         GgufImporter.Register();
         HuggingFaceImporter.Register();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => WriteSummary();
+    }
+
+    private static void WriteSummary()
+    {
+        try
+        {
+            File.WriteAllLines(Path.Combine(AppContext.BaseDirectory, "accuracy-summary.txt"), Summary.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key,-60} {kv.Value}"));
+        }
+        catch (IOException)
+        {
+            // Best effort: the summary is informational.
+        }
     }
 
     public static void Init() { }
@@ -27,13 +40,17 @@ static class Env
     public static JsonElement Reference(string name)
         => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name + ".json"))).RootElement;
 
-    static readonly Lazy<DeviceSlot> s_cpu = new(() => { var p = new CpuExecutionProvider(); return new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) }; });
-    static readonly Lazy<DeviceSlot?> s_vk = new(() =>
+    private static readonly Lazy<DeviceSlot> s_cpu = new(() => { var p = new CpuExecutionProvider(); return new DeviceSlot { Device = p.OpenDevice(p.GetDevices()[0]) }; });
+    private static readonly Lazy<DeviceSlot?> s_vk = new(() =>
     {
         try
         {
             var p = new VulkanProvider();
-            if (!p.CheckAvailability().IsAvailable) return null;
+            if (!p.CheckAvailability().IsAvailable)
+            {
+                return null;
+            }
+
             var devs = p.GetDevices();
             var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
                 : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
@@ -45,7 +62,11 @@ static class Env
     /// <summary>"cpu" or "vulkan" (skips the test when no Vulkan device is available).</summary>
     public static DeviceSlot Device(string kind)
     {
-        if (kind == "cpu") return s_cpu.Value;
+        if (kind == "cpu")
+        {
+            return s_cpu.Value;
+        }
+
         Assert.SkipWhen(s_vk.Value is null, "No Vulkan device.");
         return s_vk.Value!;
     }
@@ -64,14 +85,4 @@ static class Env
 
     /// <summary>Accuracy results of the run, written to accuracy-summary.txt next to the test binary at exit.</summary>
     public static readonly ConcurrentDictionary<string, string> Summary = new();
-
-    static Env2 s_exit = new();
-    sealed class Env2
-    {
-        public Env2() => AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-        {
-            try { File.WriteAllLines(Path.Combine(AppContext.BaseDirectory, "accuracy-summary.txt"), Summary.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key,-60} {kv.Value}")); }
-            catch { }
-        };
-    }
 }

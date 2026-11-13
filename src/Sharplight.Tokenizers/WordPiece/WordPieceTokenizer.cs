@@ -13,24 +13,32 @@ namespace Sharplight.Tokenizers.WordPiece;
 /// </summary>
 public sealed class WordPieceTokenizer : ITokenizer
 {
-    const string Prefix = "##";
-    const int MaxWordChars = 100;
+    private const string Prefix = "##";
+    private const int MaxWordChars = 100;
 
-    readonly string[] _tokens;
-    readonly TokenType[] _types;
-    readonly Dictionary<string, int> _toId = new(StringComparer.Ordinal);
-    readonly SpecialTokens _specials;
-    readonly bool _lowercase, _stripAccents;
-    readonly int _unk;
+    private readonly string[] _tokens;
+    private readonly TokenType[] _types;
+    private readonly Dictionary<string, int> _toId = new(StringComparer.Ordinal);
+    private readonly SpecialTokens _specials;
+    private readonly bool _lowercase, _stripAccents;
+    private readonly int _unk;
 
+    /// <inheritdoc/>
     public int VocabSize => _tokens.Length;
+    /// <inheritdoc/>
     public int? BosId { get; }
+    /// <inheritdoc/>
     public int? EosId { get; }
+    /// <inheritdoc/>
     public int? PadId { get; }
+    /// <inheritdoc/>
     public bool AddBos { get; }
+    /// <inheritdoc/>
     public bool AddEos { get; }
+    /// <inheritdoc/>
     public IReadOnlyList<int> EndOfGenerationIds { get; }
 
+    /// <summary>Creates the tokenizer from a "wordpiece" description (Hugging Face vocabulary form, ## continuations).</summary>
     public WordPieceTokenizer(TokenizerData data)
     {
         ArgumentNullException.ThrowIfNull(data);
@@ -44,12 +52,22 @@ public sealed class WordPieceTokenizer : ITokenizer
         int? Valid(int? id) => id is int v && v >= 0 && v < _tokens.Length ? v : null;
         int? Named(string s) => _toId.TryGetValue(s, out int id) ? id : null;
         _unk = Valid(data.UnkId) ?? Named("[UNK]") ?? 0;
-        if (_types[_unk] == TokenType.Normal) _types[_unk] = TokenType.Unknown;
+        if (_types[_unk] == TokenType.Normal)
+        {
+            _types[_unk] = TokenType.Unknown;
+        }
+
         BosId = Valid(data.BosId) ?? Named("[CLS]");
         EosId = Valid(data.EosId) ?? Named("[SEP]");
         PadId = Valid(data.PadId) ?? Named("[PAD]");
         foreach (var s in new[] { "[CLS]", "[SEP]", "[PAD]", "[MASK]" })
-            if (Named(s) is int id && _types[id] == TokenType.Normal) _types[id] = TokenType.Control;
+        {
+            if (Named(s) is int id && _types[id] == TokenType.Normal)
+            {
+                _types[id] = TokenType.Control;
+            }
+        }
+
         AddBos = data.AddBos ?? true;
         AddEos = data.AddEos ?? true;
         _lowercase = data.Lowercase ?? true;
@@ -58,56 +76,91 @@ public sealed class WordPieceTokenizer : ITokenizer
         _specials = new SpecialTokens(_tokens, i => _types[i]);
     }
 
+    /// <inheritdoc/>
     public string? TokenString(int id) => (uint)id < (uint)_tokens.Length ? _tokens[id] : null;
+    /// <inheritdoc/>
     public TokenType GetTokenType(int id) => (uint)id < (uint)_types.Length ? _types[id] : TokenType.Undefined;
+    /// <inheritdoc/>
     public bool IsSpecial(int id) => GetTokenType(id) is TokenType.Control or TokenType.Unknown;
+    /// <inheritdoc/>
     public bool IsEndOfGeneration(int id) => EosId == id;
+    /// <inheritdoc/>
     public int? TokenId(string piece) => _toId.TryGetValue(piece, out int id) ? id : null;
 
+    /// <inheritdoc/>
     public byte[] TokenBytes(int id)
     {
-        if ((uint)id >= (uint)_tokens.Length) return [];
+        if ((uint)id >= (uint)_tokens.Length)
+        {
+            return [];
+        }
+
         string t = _tokens[id];
         return Encoding.UTF8.GetBytes(_types[id] == TokenType.Normal && t.StartsWith(Prefix, StringComparison.Ordinal) ? t[Prefix.Length..] : " " + t);
     }
 
+    /// <inheritdoc/>
     public byte[] DecodeBytes(ReadOnlySpan<int> ids, bool skipSpecial = false) => Encoding.UTF8.GetBytes(Decode(ids, skipSpecial));
 
+    /// <inheritdoc/>
     public string Decode(ReadOnlySpan<int> ids, bool skipSpecial = false)
     {
         var sb = new StringBuilder();
         foreach (int id in ids)
         {
-            if ((uint)id >= (uint)_tokens.Length || skipSpecial && IsSpecial(id)) continue;
+            if ((uint)id >= (uint)_tokens.Length || skipSpecial && IsSpecial(id))
+            {
+                continue;
+            }
+
             string t = _tokens[id];
-            if (_types[id] == TokenType.Normal && t.StartsWith(Prefix, StringComparison.Ordinal)) sb.Append(t, Prefix.Length, t.Length - Prefix.Length);
-            else { if (sb.Length > 0) sb.Append(' '); sb.Append(t); }
+            if (_types[id] == TokenType.Normal && t.StartsWith(Prefix, StringComparison.Ordinal))
+            {
+                sb.Append(t, Prefix.Length, t.Length - Prefix.Length);
+            }
+            else { if (sb.Length > 0) { sb.Append(' '); } sb.Append(t); }
         }
         return sb.ToString();
     }
 
+    /// <inheritdoc/>
     public int[] Encode(string text, bool addSpecial = true, bool parseSpecial = true)
     {
         ArgumentNullException.ThrowIfNull(text);
         var output = new List<int>(text.Length / 4 + 4);
-        if (addSpecial && AddBos && BosId is int bos) output.Add(bos);
+        if (addSpecial && AddBos && BosId is int bos)
+        {
+            output.Add(bos);
+        }
+
         foreach (var (frag, id) in _specials.Split(text, parseSpecial))
         {
             if (id >= 0) { output.Add(id); continue; }
-            foreach (var word in PreTokenize(Normalize(frag))) EncodeWord(word, output);
+            foreach (var word in PreTokenize(Normalize(frag)))
+            {
+                EncodeWord(word, output);
+            }
         }
-        if (addSpecial && AddEos && EosId is int eos) output.Add(eos);
+        if (addSpecial && AddEos && EosId is int eos)
+        {
+            output.Add(eos);
+        }
+
         return [.. output];
     }
 
     // ---- normalization (BertNormalizer) --------------------------------------------------------
-    string Normalize(string text)
+    private string Normalize(string text)
     {
         var sb = new StringBuilder(text.Length + 8);
         foreach (var rune in text.EnumerateRunes())
         {
             int c = rune.Value;
-            if (c == 0 || c == 0xFFFD || IsControl(rune)) continue;
+            if (c == 0 || c == 0xFFFD || IsControl(rune))
+            {
+                continue;
+            }
+
             if (IsWhitespace(rune)) { sb.Append(' '); continue; }
             if (IsChinese(c)) { sb.Append(' ').Append(rune.ToString()).Append(' '); continue; }
             sb.Append(rune.ToString());
@@ -118,36 +171,54 @@ public sealed class WordPieceTokenizer : ITokenizer
             s = s.Normalize(NormalizationForm.FormD);
             var nb = new StringBuilder(s.Length);
             foreach (var r in s.EnumerateRunes())
-                if (Rune.GetUnicodeCategory(r) != UnicodeCategory.NonSpacingMark) nb.Append(r.ToString());
+            {
+                if (Rune.GetUnicodeCategory(r) != UnicodeCategory.NonSpacingMark)
+                {
+                    nb.Append(r.ToString());
+                }
+            }
+
             s = nb.ToString();
         }
-        if (_lowercase) s = s.ToLowerInvariant();
+        if (_lowercase)
+        {
+            s = s.ToLowerInvariant();
+        }
+
         return s;
     }
 
-    static bool IsWhitespace(Rune r) => r.Value is '\t' or '\n' or '\r' || Rune.IsWhiteSpace(r);
+    private static bool IsWhitespace(Rune r) => r.Value is '\t' or '\n' or '\r' || Rune.IsWhiteSpace(r);
 
-    static bool IsControl(Rune r)
+    private static bool IsControl(Rune r)
     {
-        if (r.Value is '\t' or '\n' or '\r') return false;
+        if (r.Value is '\t' or '\n' or '\r')
+        {
+            return false;
+        }
+
         return Rune.GetUnicodeCategory(r) is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate
             or UnicodeCategory.PrivateUse or UnicodeCategory.OtherNotAssigned;
     }
 
-    static bool IsChinese(int c) =>
+    private static bool IsChinese(int c) =>
         c is >= 0x4E00 and <= 0x9FFF or >= 0x3400 and <= 0x4DBF or >= 0x20000 and <= 0x2A6DF or >= 0x2A700 and <= 0x2B73F
           or >= 0x2B740 and <= 0x2B81F or >= 0x2B820 and <= 0x2CEAF or >= 0xF900 and <= 0xFAFF or >= 0x2F800 and <= 0x2FA1F;
 
-    static bool IsPunctuation(Rune r)
+    private static bool IsPunctuation(Rune r)
     {
         int c = r.Value;
-        if (c is >= 33 and <= 47 or >= 58 and <= 64 or >= 91 and <= 96 or >= 123 and <= 126) return true;
+        if (c is >= 33 and <= 47 or >= 58 and <= 64 or >= 91 and <= 96 or >= 123 and <= 126)
+        {
+            return true;
+        }
+
         return Rune.GetUnicodeCategory(r) is UnicodeCategory.ConnectorPunctuation or UnicodeCategory.DashPunctuation or UnicodeCategory.OpenPunctuation
             or UnicodeCategory.ClosePunctuation or UnicodeCategory.InitialQuotePunctuation or UnicodeCategory.FinalQuotePunctuation or UnicodeCategory.OtherPunctuation;
     }
 
     // ---- pre-tokenization (BertPreTokenizer): whitespace splits, punctuation is isolated -------------
-    static List<string> PreTokenize(string s)
+    private static List<string> PreTokenize(string s)
     {
         var words = new List<string>();
         var cur = new StringBuilder();
@@ -163,7 +234,7 @@ public sealed class WordPieceTokenizer : ITokenizer
     }
 
     // ---- WordPiece model: greedy longest match ---------------------------------------------------------
-    void EncodeWord(string word, List<int> output)
+    private void EncodeWord(string word, List<int> output)
     {
         var runes = word.EnumerateRunes().Select(r => r.ToString()).ToArray();
         if (runes.Length > MaxWordChars) { output.Add(_unk); return; }
@@ -176,8 +247,16 @@ public sealed class WordPieceTokenizer : ITokenizer
             while (start < end)
             {
                 sb.Clear();
-                if (start > 0) sb.Append(Prefix);
-                for (int i = start; i < end; i++) sb.Append(runes[i]);
+                if (start > 0)
+                {
+                    sb.Append(Prefix);
+                }
+
+                for (int i = start; i < end; i++)
+                {
+                    sb.Append(runes[i]);
+                }
+
                 if (_toId.TryGetValue(sb.ToString(), out int id)) { found = id; break; }
                 end--;
             }

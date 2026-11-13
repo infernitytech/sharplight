@@ -3,7 +3,7 @@ namespace Sharplight.Tokenizers;
 /// <summary>Splits text around special (control / user-defined) token strings, longest first.</summary>
 internal sealed class SpecialTokens
 {
-    readonly (string Text, int Id, bool Control)[] _specials;
+    private readonly (string Text, int Id, bool Control)[] _specials;
 
     public SpecialTokens(string[] tokens, Func<int, TokenType> type)
     {
@@ -17,10 +17,18 @@ internal sealed class SpecialTokens
     public List<(string Text, int Id)> Split(string text, bool parseSpecial)
     {
         var buffer = new List<(string, int)>();
-        if (text.Length > 0) buffer.Add((text, -1));
+        if (text.Length > 0)
+        {
+            buffer.Add((text, -1));
+        }
+
         foreach (var (stext, sid, control) in _specials)
         {
-            if (!parseSpecial && control) continue;
+            if (!parseSpecial && control)
+            {
+                continue;
+            }
+
             var next = new List<(string, int)>(buffer.Count + 2);
             foreach (var frag in buffer)
             {
@@ -29,8 +37,12 @@ internal sealed class SpecialTokens
                 while (true)
                 {
                     int at = rest.IndexOf(stext, StringComparison.Ordinal);
-                    if (at < 0) { if (rest.Length > 0) next.Add((rest, -1)); break; }
-                    if (at > 0) next.Add((rest[..at], -1));
+                    if (at < 0) { if (rest.Length > 0) { next.Add((rest, -1)); } break; }
+                    if (at > 0)
+                    {
+                        next.Add((rest[..at], -1));
+                    }
+
                     next.Add(("", sid));
                     rest = rest[(at + stext.Length)..];
                 }
