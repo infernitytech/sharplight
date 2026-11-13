@@ -61,6 +61,20 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_Q2_0 42
 #define FMT_Q2_0_G128 142
 #define FMT_TERN1_G128 143
+// ggml type ids of the formats decoded in quant_k.slang / quant_iq.slang.
+#define FMT_Q2_K 10
+#define FMT_Q3_K 11
+#define FMT_IQ2_XXS 16
+#define FMT_IQ2_XS 17
+#define FMT_IQ3_XXS 18
+#define FMT_IQ1_S 19
+#define FMT_IQ3_S 21
+#define FMT_IQ2_S 22
+#define FMT_IQ1_M 29
+#define FMT_TQ1_0 34
+#define FMT_TQ2_0 35
+#define FMT_MXFP4 39
+#define FMT_NVFP4 40
 
 void load8_f32(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
@@ -321,6 +335,9 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
 }
 
 #ifdef WFMT
+#include "quant_k.slang"
+#include "quant_iq.slang"
+
 void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {
 #if WFMT == FMT_F32
@@ -359,6 +376,32 @@ void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
     load8_q2(base, rowBytes, row, g >> 4, g & 15, 34, v);
 #elif WFMT == FMT_TERN1_G128
     load8_tern1(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q2_K
+    load8_q2_k(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q3_K
+    load8_q3_k(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ2_XXS
+    load8_iq2_xxs(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ2_XS
+    load8_iq2_xs(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ2_S
+    load8_iq2_s(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ3_XXS
+    load8_iq3_xxs(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ3_S
+    load8_iq3_s(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ1_S
+    load8_iq1_s(base, rowBytes, row, g, v);
+#elif WFMT == FMT_IQ1_M
+    load8_iq1_m(base, rowBytes, row, g, v);
+#elif WFMT == FMT_TQ1_0
+    load8_tq1_0(base, rowBytes, row, g, v);
+#elif WFMT == FMT_TQ2_0
+    load8_tq2_0(base, rowBytes, row, g, v);
+#elif WFMT == FMT_MXFP4
+    load8_mxfp4(base, rowBytes, row, g, v);
+#elif WFMT == FMT_NVFP4
+    load8_nvfp4(base, rowBytes, row, g, v);
 #else
 #error "unsupported WFMT"
 #endif
