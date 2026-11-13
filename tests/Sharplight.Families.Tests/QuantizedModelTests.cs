@@ -32,8 +32,18 @@ public class QuantizedModelTests
     private static Dictionary<string, Reference> LoadReferences()
     {
         string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "quant_next_token.json");
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        return JsonSerializer.Deserialize<Dictionary<string, Reference>>(File.ReadAllText(path), options) ?? throw new InvalidDataException(path);
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+        var references = new Dictionary<string, Reference>();
+        foreach (var entry in document.RootElement.EnumerateObject())
+        {
+            var value = entry.Value;
+            references[entry.Name] = new Reference(
+                value.GetProperty("prompt").GetString()!,
+                [.. value.GetProperty("ids").EnumerateArray().Select(e => e.GetInt32())],
+                [.. value.GetProperty("probs").EnumerateArray().Select(e => e.GetDouble())]);
+        }
+
+        return references;
     }
 
     public static IEnumerable<TheoryDataRow<string>> Files() => LoadReferences().Keys.Select(name => new TheoryDataRow<string>(name));
