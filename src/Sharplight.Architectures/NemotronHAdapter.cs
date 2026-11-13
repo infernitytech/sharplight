@@ -48,7 +48,7 @@ public sealed class NemotronHAdapter : IModelAdapter
             throw new InvalidDataException("nemotron_h: block_kinds must have layer_count entries.");
         }
 
-        string act = src.Arch("mlp.activation", "relu2");
+        var act = MlpActivations.Create(src.Arch("mlp.activation", "relu2"));
         int nHead = src.Arch("attention.head_count", 0);
         int nKv = src.Arch("attention.kv_head_count", 0);
         int headDim = src.Arch("attention.head_dim", 0);
@@ -176,19 +176,10 @@ public sealed class NemotronHAdapter : IModelAdapter
             return b.Linear(b.Reshape(attn, 0, nHead * headDim), p + "attention.o.weight", name: $"{p}attn_out");
         }
 
-        Value Act(GraphBuilder b, Value up) => act switch
-        {
-            "relu2" => b.Unary("Square", b.Unary("Relu", up)),
-            "silu" => b.Silu(up),
-            "gelu" => b.Unary("Gelu", up),
-            "relu" => b.Unary("Relu", up),
-            _ => throw new NotSupportedException($"nemotron_h: unknown mlp.activation '{act}'."),
-        };
-
         Value Mlp(GraphBuilder b, Value h, string p, string prefix = "mlp.")
-            => b.Linear(Act(b, b.Linear(h, p + prefix + "up.weight")), p + prefix + "down.weight", name: $"{p}ffn_out");
+            => b.Linear(act.Activate(b, b.Linear(h, p + prefix + "up.weight"), p), p + prefix + "down.weight", name: $"{p}ffn_out");
 
         // k experts per token (non-gated MLPs) plus the shared MLP.
-        Value Moe(GraphBuilder b, Value h, string p) => MoeBlock.Build(b, h, p + "moe.", moe, nEmbd, t => Act(b, t));
+        Value Moe(GraphBuilder b, Value h, string p) => MoeBlock.Build(b, h, p, "moe.", moe, nEmbd, act);
     }
 }

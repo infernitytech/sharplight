@@ -10,7 +10,7 @@ namespace Sharplight.Architectures;
 /// </summary>
 internal sealed class HybridFeedForward
 {
-    private readonly string _activation;
+    private readonly IMlpActivation _activation;
     private readonly MoeOptions _moe;
     private readonly int _hidden;
 
@@ -18,7 +18,7 @@ internal sealed class HybridFeedForward
     public HybridFeedForward(ModelSource src, int hidden)
     {
         _hidden = hidden;
-        _activation = src.Arch("mlp.activation", "silu");
+        _activation = MlpActivations.Create(src.Arch("mlp.activation", "silu"));
         _moe = MoeOptions.Read(src, normalizeDefault: true);
     }
 
@@ -34,20 +34,12 @@ internal sealed class HybridFeedForward
             return Dense(b, h, p + "mlp.", p);
         }
 
-        return MoeBlock.Build(b, h, p + "mlp.", _moe, _hidden, t => Act(b, t));
+        return MoeBlock.Build(b, h, p, "mlp.", _moe, _hidden, _activation);
     }
-
-    private Value Act(GraphBuilder b, Value t) => _activation switch
-    {
-        "silu" => b.Silu(t),
-        "gelu" => b.Unary("Gelu", t),
-        "relu" => b.Unary("Relu", t),
-        _ => throw new NotSupportedException($"hybrid: unknown mlp.activation '{_activation}'."),
-    };
 
     private Value Dense(GraphBuilder b, Value h, string prefix, string layerPrefix)
     {
-        var act = b.Mul(Act(b, b.Linear(h, prefix + "gate.weight")), b.Linear(h, prefix + "up.weight"));
+        var act = _activation.ActivateGated(b, b.Linear(h, prefix + "gate.weight"), b.Linear(h, prefix + "up.weight"), layerPrefix);
         return b.Linear(act, prefix + "down.weight", name: $"{layerPrefix}ffn_out");
     }
 }

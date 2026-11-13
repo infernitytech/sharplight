@@ -51,6 +51,8 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class Qwen35Adapter : IModelAdapter
 {
+    private static readonly IMlpActivation s_silu = MlpActivations.Create("silu");
+
     /// <inheritdoc/>
     public string Name => "Qwen3.5 hybrid (Gated DeltaNet + gated attention)";
     /// <inheritdoc/>
@@ -378,7 +380,7 @@ public sealed class Qwen35Adapter : IModelAdapter
         {
             if (MoeBlock.IsPresent(b, p + "mlp."))
             {
-                return MoeBlock.Build(b, h, p + "mlp.", hp.Moe, hp.NEmbd, t => b.Silu(t));
+                return MoeBlock.Build(b, h, p, "mlp.", hp.Moe, hp.NEmbd, s_silu);
             }
 
             var gate = b.Linear(h, p + "mlp.gate.weight");

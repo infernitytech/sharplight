@@ -13,7 +13,9 @@ internal sealed record DecoderHyperParameters(
     string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength,
     int Experts, int ExpertsUsed, bool NormalizeExpertWeights, bool SigmoidRouter, float ExpertWeightsScale,
     int[] LayerHeadDims, int[] LayerKvHeads, int[] KvSource, int[] RopeLayers, int RopeLocalDims, bool QkNormUnweighted, bool VNorm,
-    float PostNormEps, bool EmbeddingNorm, float LogitScale, int PerLayerSize)
+    float PostNormEps, bool EmbeddingNorm, float LogitScale, int PerLayerSize,
+    string NormType, bool PreNorm, bool ParallelResidual, float ResidualScale, float SwigluAlpha, float SwigluLimit,
+    float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts)
 {
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
@@ -59,7 +61,18 @@ internal sealed record DecoderHyperParameters(
             PostNormEps: src.Arch("post_norm_eps", src.Arch("norm_eps", 1e-5f)),
             EmbeddingNorm: src.Arch("embedding_norm", false),
             LogitScale: src.Arch("logit_scale", 1f),
-            PerLayerSize: src.Arch("per_layer.size", 0));
+            PerLayerSize: src.Arch("per_layer.size", 0),
+            NormType: src.Arch("norm.type", "rms"),
+            PreNorm: src.Arch("pre_norm", true),
+            ParallelResidual: src.Arch("residual.parallel", false),
+            ResidualScale: src.Arch("residual.scale", 1f),
+            SwigluAlpha: src.Arch("mlp.swiglu_alpha", 1.702f),
+            SwigluLimit: src.Arch("mlp.swiglu_limit", 7f),
+            XieluBeta: src.Arch("mlp.xielu_beta", 0.5f),
+            XieluEps: src.Arch("mlp.xielu_eps", -1e-6f),
+            ClipQkv: src.Arch("attention.clip_qkv", 0f),
+            QkNormAfterRope: src.Arch("attention.qk_norm_after_rope", false),
+            LayerHeadCounts: src.Arch("attention.layer_head_counts", Array.Empty<int>()));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {
@@ -71,7 +84,7 @@ internal sealed record DecoderHyperParameters(
             throw new InvalidDataException("decoder: attention.sliding_layers must have layer_count entries.");
         }
 
-        foreach (var (arr, nm) in new[] { (hp.LayerHeadDims, "attention.layer_head_dims"), (hp.LayerKvHeads, "attention.layer_kv_head_counts"), (hp.KvSource, "attention.kv_source_layers"), (hp.RopeLayers, "rope.layers") })
+        foreach (var (arr, nm) in new[] { (hp.LayerHeadDims, "attention.layer_head_dims"), (hp.LayerHeadCounts, "attention.layer_head_counts"), (hp.LayerKvHeads, "attention.layer_kv_head_counts"), (hp.KvSource, "attention.kv_source_layers"), (hp.RopeLayers, "rope.layers") })
         {
             if (arr.Length != 0 && arr.Length != hp.NLayer)
             {
@@ -84,6 +97,9 @@ internal sealed record DecoderHyperParameters(
 
     /// <summary>Head dimension of layer <paramref name="il"/>.</summary>
     public int HeadDimOf(int il) => LayerHeadDims.Length > 0 ? LayerHeadDims[il] : HeadDim;
+
+    /// <summary>Number of query heads of layer <paramref name="il"/>.</summary>
+    public int HeadsOf(int il) => LayerHeadCounts.Length > 0 ? LayerHeadCounts[il] : NHead;
 
     /// <summary>Number of key/value heads of layer <paramref name="il"/>.</summary>
     public int KvHeadsOf(int il) => LayerKvHeads.Length > 0 ? LayerKvHeads[il] : NHeadKv;

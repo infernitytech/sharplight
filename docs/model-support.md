@@ -33,7 +33,7 @@ Headline findings:
 
 | Canonical arch | Adapter | GGUF `general.architecture` | HF `model_type` |
 |---|---|---|---|
-| `decoder` | DecoderAdapter | llama, qwen2, qwen3, gemma2, gemma3, gemma4, phi3, olmoe, qwen3moe, muse-glimmer, flint | llama, mistral, qwen2, qwen3, gemma2, gemma3_text, gemma4(_text/_unified(_text)), phi3, olmoe, qwen3_moe, muse_glimmer, flint |
+| `decoder` | DecoderAdapter | llama (incl. Mixtral), qwen2, qwen3, gemma, gemma2, gemma3, gemma4, phi2, phi3, olmoe, qwen3moe, muse-glimmer, flint, smollm3, olmo, olmo2, glm4, chatglm, ernie4_5, hunyuan-dense, exaone, exaone4, seed_oss, internlm2, qwen, xverse, openelm, granite, granitemoe, minicpm, starcoder2, command-r, cohere2, falcon, gptneox, gpt2, nemotron, stablelm, apertus, arcee | llama, mistral, mixtral, qwen2, qwen3, gemma, gemma2, gemma3_text, gemma4(_text/_unified(_text)), phi, phi3, olmoe, qwen3_moe, muse_glimmer, flint, smollm3, olmo, olmo2, olmo3, glm4, ernie4_5, hunyuan_v1_dense, exaone, exaone4, seed_oss, internlm2, granite, granitemoe, minicpm, starcoder2, cohere, cohere2, falcon, gpt_neox, gptj, gpt2, nemotron, stablelm, apertus, arcee |
 | `qwen3_5` | Qwen35Adapter (+ Qwen35Multimodal, VisionTowerGraph) | qwen35 (+ `clip` projector `qwen3vl_merger`) | qwen3_5, qwen3_5_text |
 | `nemotron_h` | NemotronHAdapter | nemotron_h, nemotron_h_moe | nemotron_h |
 | vision tower | VisionTowerGraph | clip (only `qwen3vl_merger`; DeepStack towers are rejected) | embedded in Qwen3.5 HF checkpoints |
@@ -42,7 +42,7 @@ Format-specific code lives only in Sharplight.Gguf / Sharplight.HuggingFace / Sh
 
 ### 2.2 What DecoderAdapter expresses (documented in its XML remarks)
 
-GQA/MQA; per-head QK RMS norm (weighted or unweighted), value norm; partial rotary, neox/gptj pairing, local rope base, yarn/llama3/longrope frequency factors, attention scale; sliding window with per-layer pattern; logit soft-capping and final soft-capping; attention sinks; sigmoid attention output gate; per-layer head dim / kv heads / KV sharing / NoPE layers; k = v layers; sandwich norms (`attention.out_norm`, `mlp.out_norm`); embedding scale, embedding norm, logit scale; gated or ungated MLP (silu/gelu/gelu_tanh/relu) with optional biases; MoE (softmax or sigmoid scores, renormalisation, weight scale, rank-3 expert weights through MatMulId, ungated shared expert, leading dense layers); Gemma 3n/4 per-layer embeddings. RMS norm only (no LayerNorm), residual always sequential, no residual scale, no routing bias, no routing groups, no absolute positions, no ALiBi.
+GQA/MQA; per-head QK RMS norm (weighted or unweighted), value norm; partial rotary, neox/gptj pairing, local rope base, yarn/llama3/longrope frequency factors, attention scale; sliding window with per-layer pattern; logit soft-capping and final soft-capping; attention sinks; sigmoid attention output gate; per-layer head dim / kv heads / KV sharing / NoPE layers; k = v layers; sandwich norms (`attention.out_norm`, `mlp.out_norm`); embedding scale, embedding norm, logit scale; gated or ungated MLP (silu/gelu/gelu_tanh/relu) with optional biases; MoE (softmax or sigmoid scores, renormalisation, weight scale, rank-3 expert weights through MatMulId, ungated shared expert, leading dense layers); Gemma 3n/4 per-layer embeddings. Waves 0 and 2 added: layer norm (with bias, or non-parametric), parallel residual, residual-branch scale, ReLU^2 / xIELU / SwiGLU-OAI activations, learned absolute positions, q/k norm after rope, per-layer head counts, q/k/v clamping, biased output head (`DecoderNorm`, `IMlpActivation` and the `Sequential`/`Parallel` layer topology in Sharplight.Architectures). Still absent: routing bias, routing groups, ALiBi.
 
 ### 2.3 Graph ops available (Sharplight.Core StandardOps)
 
@@ -63,7 +63,7 @@ CPU (Quant.cs) and Vulkan (Sharplight.Shaders/Lowering): F32, F16, BF16, Q4_0, Q
 | Sharplight.Vulkan.Tests / Cpu.Tests | op-level: SSM (Nemotron-H shapes), MoE, LLM ops, IQ4, Bonsai quant, fusion, submission budget |
 | Sharplight.Onnx.Tests | ONNX model zoo |
 
-Not covered by any model test: Mistral-7B-Instruct-v0.3 (present in ~/models/gguf but no case), Mixtral, any Phi-2/Falcon/Cohere/Granite/GLM/DeepSeek/Mamba/RWKV model.
+Waves 0 and 2 (tests/Sharplight.Families.Tests/DecoderFamilyCases.cs): Mistral-7B-Instruct-v0.3, SmolLM3, OLMo 1/2, GLM-4, ERNIE-4.5, Hunyuan, EXAONE 3.5/4, Seed-OSS, InternLM2.5, OpenELM, Granite 3.x dense and MoE, MiniCPM4.1, Mixtral (tiny), Phi-2, StarCoder2, Command-R/Aya, Cohere2, Falcon (tiny), Pythia, GPT-J (tiny), GPT-2, Nemotron-Mini, StableLM 2, Apertus, AFM-4.5B, Gemma 1 (tiny). Not covered by any model test: DeepSeek/Mamba/RWKV models.
 
 ## 3. Building blocks ranked by unlock value
 
@@ -161,7 +161,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `qwen` | Qwen (v1) | MHA, RMS, SwiGLU, fused qkv | **partial** | `MAP` | qwen | - |
+| `qwen` | Qwen (v1) | MHA, RMS, SwiGLU, fused qkv | **mapped, untested (no model)**| -| qwen | - |
 | `qwen2` | Qwen2/2.5, DeepSeek-R1-Distill-Qwen | GQA, qkv bias, RMS, SwiGLU | **supported** | - | qwen2 | - |
 | `qwen2moe` | Qwen1.5-MoE, Qwen2-57B-A14B | MoE softmax + sigmoid-gated shared expert | **partial** | `SGATE`, `MAP` | qwen2_moe | hf/tiny-random-Qwen2MoeForCausalLM |
 | `qwen2vl` | Qwen2-VL / Qwen2.5-VL (LLM part) | GQA, M-RoPE, qkv bias | **partial** | `MROPE`, `MAP`, `MMPROJ` | qwen2_vl, qwen2_5_vl | - |
@@ -185,7 +185,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `gemma` | Gemma 1 | MQA/MHA, RMS(1+w), GeGLU, escale | **partial** | `MAP` | gemma | - |
+| `gemma` | Gemma 1 | MQA/MHA, RMS(1+w), GeGLU, escale | **supported**| -| gemma | - |
 | `gemma2` | Gemma 2 | GQA, SWA alt, attn+final softcap, sandwich norms, GeGLU | **supported** | - | gemma2 | - |
 | `gemma3` | Gemma 3 (+ SigLIP mmproj) | GQA, QK-norm, SWA 5:1 local rope base, sandwich norms | **supported** | - | gemma3_text | hf/tiny-random-gemma-3 |
 | `gemma3n` | Gemma 3n E2B/E4B | AltUp, LAuReL, PLE, KV sharing, sparse FFN activation | **missing** | `ALTUP`, `LAUREL`, `PLE` | gemma3n | gguf/gemma-3n-E2B-it, hf/tiny-random-gemma-3n |
@@ -198,7 +198,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `phi2` | Phi-1/1.5/2 | LN, parallel residual, partial rope, biased GELU MLP | **partial** | `LN`, `PAR` | phi | gguf/phi-2, hf/tiny-random-PhiForCausalLM |
+| `phi2` | Phi-1/1.5/2 | LN, parallel residual, partial rope, biased GELU MLP | **supported**| -| phi | gguf/phi-2, hf/tiny-random-PhiForCausalLM |
 | `phi3` | Phi-3/3.5/4-mini (longrope), Phi-4 | fused qkv/gate-up, RMS, SwiGLU, longrope, SWA opt | **supported** | - | phi3 | gguf/Phi-4-mini-instruct, hf/tiny-random-phi3 |
 | `phimoe` | Phi-3.5-MoE | LN, MoE with sparsemixer routing, longrope | **missing** | `LN`, `SPARSEMIXER` | phimoe | hf/tiny-random-phi-moe |
 
@@ -213,7 +213,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `nemotron` | Nemotron-4 / Minitron / Nemotron-Mini | LN(1+w), ReLU2 ungated MLP, partial rope | **partial** | `LN`, `ACT` | nemotron | gguf/Nemotron-Mini-4B-Instruct |
+| `nemotron` | Nemotron-4 / Minitron / Nemotron-Mini | LN(1+w), ReLU2 ungated MLP, partial rope | **supported**| -| nemotron | gguf/Nemotron-Mini-4B-Instruct |
 | `nemotron_h` | Nemotron-H, Nemotron-3-Nano | Mamba2 + attention + MLP hybrid, ReLU2 | **supported** | - | nemotron_h | - |
 | `nemotron_h_moe` | Nemotron-3-Nano-30B-A3B | Mamba2 + attn + MoE sigmoid bias shared latent | **supported** | - | - | - |
 
@@ -221,23 +221,23 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `command-r` | Command-R, Command-R+, Aya-23, Aya-Expanse | LN(no bias), parallel residual, logit scale, QK-norm (R+) | **partial** | `LN`, `PAR`, `RES`, `MAP` | cohere | gguf/aya-expanse-8b, hf/tiny-CohereForCausalLM |
-| `cohere2` | Command-R7B, Command-A | LN, parallel residual, SWA 3:1 + NoPE, logit scale | **partial** | `LN`, `PAR`, `RES`, `MAP` | cohere2 | gguf/c4ai-command-r7b-12-2024, hf/tiny-Cohere2ForCausalLM |
+| `command-r` | Command-R, Command-R+, Aya-23, Aya-Expanse | LN(no bias), parallel residual, logit scale, QK-norm (R+) | **supported**| -| cohere | gguf/aya-expanse-8b, hf/tiny-CohereForCausalLM |
+| `cohere2` | Command-R7B, Command-A | LN, parallel residual, SWA 3:1 + NoPE, logit scale | **supported**| -| cohere2 | gguf/c4ai-command-r7b-12-2024, hf/tiny-Cohere2ForCausalLM |
 
 ### OLMo
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `olmo` | OLMo 1/1-0724 | non-parametric LN, SwiGLU, clip_qkv | **partial** | `LN`, `MAP` | olmo | hf/tiny-random-OlmoForCausalLM |
-| `olmo2` | OLMo-2, OLMo-3 (SWA) | post-norm only, full-width QK-norm, SWA (OLMo3) | **partial** | `MAP` | olmo2, olmo3 | gguf/OLMo-2-0425-1B-Instruct, hf/OLMo-2-0425-1B-Instruct, hf/tiny-random-Olmo2ForCausalLM |
+| `olmo` | OLMo 1/1-0724 | non-parametric LN, SwiGLU, clip_qkv | **supported**| -| olmo | hf/tiny-random-OlmoForCausalLM |
+| `olmo2` | OLMo-2, OLMo-3 (SWA) | post-norm only, full-width QK-norm, SWA (OLMo3) | **supported**| -| olmo2, olmo3 | gguf/OLMo-2-0425-1B-Instruct, hf/OLMo-2-0425-1B-Instruct, hf/tiny-random-Olmo2ForCausalLM |
 | `olmoe` | OLMoE-1B-7B | QK-norm full-width, MoE softmax top-8 | **supported** | - | olmoe | - |
 
 ### Granite
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `granite` | Granite 3.x dense, 4.0 dense | GQA, mup scalings (embed/residual/attn/logit) | **partial** | `RES`, `MAP` | granite | gguf/granite-3.3-2b-instruct, hf/tiny-random-granite |
-| `granitemoe` | Granite 3.x MoE (1B-A400M, 3B-A800M) | granite + fused-expert MoE softmax | **partial** | `RES`, `MAP` | granitemoe | gguf/granite-3.1-1b-a400m-instruct, hf/granite-3.1-1b-a400m-instruct, hf/tiny-random-granite-moe |
+| `granite` | Granite 3.x dense, 4.0 dense | GQA, mup scalings (embed/residual/attn/logit) | **supported**| -| granite | gguf/granite-3.3-2b-instruct, hf/tiny-random-granite |
+| `granitemoe` | Granite 3.x MoE (1B-A400M, 3B-A800M) | granite + fused-expert MoE softmax | **supported**| -| granitemoe | gguf/granite-3.1-1b-a400m-instruct, hf/granite-3.1-1b-a400m-instruct, hf/tiny-random-granite-moe |
 | `graniteswitch` | granite-switch | granite + MTP/switch heads | **partial** | `RES`, `MAP` | - | - |
 | `granite_swa` | granite SWA | granite + SWA + sinks | **partial** | `RES`, `MAP` | - | - |
 
@@ -245,8 +245,8 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
-| `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **partial** | `MAP` | chatglm | - |
-| `glm4` | GLM-4-0414 (9B/32B), GLM-Z1 | GQA, sandwich norms, partial rope, fused gate-up | **partial** | `MAP` | glm4 | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4 |
+| `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **mapped, untested (no model)**| -| chatglm | - |
+| `glm4` | GLM-4-0414 (9B/32B), GLM-Z1 | GQA, sandwich norms, partial rope, fused gate-up | **supported**| -| glm4 | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4 |
 | `glm4moe` | GLM-4.5/4.6/4.7, GLM-4.5-Air | QK-norm, partial rope, MoE sigmoid + bias + groups + shared, dense lead, MTP | **partial** | `RBIAS`, `RGRP`, `MAP` | glm4_moe | hf/tiny-random-glm-4-moe, hf/tiny-random-glm-4.5 |
 | `glm-dsa` | GLM-5 / DSA models | MLA + DSA indexer, MoE | **missing** | `MLA`, `IDX`, `RGRP` | glm_moe_dsa | - |
 | `glm5-next` | GLM-5-Next | MLA + indexer + HC + linear-attn layers | **missing** | `MLA`, `IDX`, `HC`, `KDA` | - | - |
@@ -306,20 +306,20 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `plamo` | PLaMo 1 | parallel residual style, RMS | **partial** | `PAR`, `MAP` | - | - |
 | `plamo3` | PLaMo 3 | SWA, QK-norm, sandwich | **partial** | `MAP` | - | - |
-| `internlm2` | InternLM2/2.5, InternLM3 | GQA, fused wqkv, RMS | **partial** | `MAP` | internlm2 | gguf/internlm2_5-1_8b-chat, hf/tiny-random-internlm2 |
-| `minicpm` | MiniCPM 2B, MiniCPM4/4.1 | RMS, muP scalings (embed/residual/logit), rope longrope | **partial** | `RES`, `MAP` | minicpm, minicpm4 | gguf/MiniCPM4.1-8B, hf/tiny-random-minicpm4 |
-| `openelm` | OpenELM | per-layer heads/ffn mult, QK-norm | **partial** | `MAP` | openelm | gguf/OpenELM-270M-Instruct |
+| `internlm2` | InternLM2/2.5, InternLM3 | GQA, fused wqkv, RMS | **supported**| -| internlm2 | gguf/internlm2_5-1_8b-chat, hf/tiny-random-internlm2 |
+| `minicpm` | MiniCPM 2B, MiniCPM4/4.1 | RMS, muP scalings (embed/residual/logit), rope longrope | **supported**| -| minicpm, minicpm4 | gguf/MiniCPM4.1-8B, hf/tiny-random-minicpm4 |
+| `openelm` | OpenELM | per-layer heads/ffn mult, QK-norm | **supported**| -| openelm | gguf/OpenELM-270M-Instruct |
 | `bitnet` | BitNet b1.58 2B/3B | ternary weights, sub-norms (attn/ffn), ReLU2 | **partial** | `TQ`, `SUBNORM` | bitnet | gguf/bitnet-b1.58-2B-4T |
-| `exaone` | EXAONE 3.0/3.5 | GQA, RMS, SwiGLU | **partial** | `MAP` | exaone | gguf/EXAONE-3.5-2.4B-Instruct, hf/tiny-random-exaone |
-| `exaone4` | EXAONE 4.0 | QK-norm, SWA 3:1 + NoPE globals, post-norms | **partial** | `MAP` | exaone4 | gguf/EXAONE-4.0-1.2B, hf/EXAONE-4.0-1.2B |
+| `exaone` | EXAONE 3.0/3.5 | GQA, RMS, SwiGLU | **supported**| -| exaone | gguf/EXAONE-3.5-2.4B-Instruct, hf/tiny-random-exaone |
+| `exaone4` | EXAONE 4.0 | QK-norm, SWA 3:1 + NoPE globals, post-norms | **supported**| -| exaone4 | gguf/EXAONE-4.0-1.2B, hf/EXAONE-4.0-1.2B |
 | `chameleon` | Chameleon | QK-LN, swin norm, VQ image tokens | **missing** | `VQ`, `LN` | - | - |
-| `arcee` | Arcee AFM-4.5B | ReLU2 ungated MLP, yarn | **partial** | `ACT`, `MAP` | arcee | gguf/AFM-4.5B |
-| `ernie4_5` | ERNIE-4.5 0.3B-VL, dense | GQA, interleaved rope, RMS | **partial** | `MAP` | ernie4_5 | gguf/ERNIE-4.5-0.3B-PT, hf/ERNIE-4.5-0.3B-PT, hf/tiny-random-ernie-4.5 |
-| `hunyuan-dense` | Hunyuan 0.5B-7B | QK-norm, GQA, NTK-alpha rope | **partial** | `MAP` | hunyuan_v1_dense | gguf/Hunyuan-0.5B-Instruct, hf/Hunyuan-0.5B-Instruct, hf/tiny-random-hunyuan-dense-v1 |
+| `arcee` | Arcee AFM-4.5B | ReLU2 ungated MLP, yarn | **supported**| -| arcee | gguf/AFM-4.5B |
+| `ernie4_5` | ERNIE-4.5 0.3B-VL, dense | GQA, interleaved rope, RMS | **supported**| -| ernie4_5 | gguf/ERNIE-4.5-0.3B-PT, hf/ERNIE-4.5-0.3B-PT, hf/tiny-random-ernie-4.5 |
+| `hunyuan-dense` | Hunyuan 0.5B-7B | QK-norm, GQA, NTK-alpha rope | **supported**| -| hunyuan_v1_dense | gguf/Hunyuan-0.5B-Instruct, hf/Hunyuan-0.5B-Instruct, hf/tiny-random-hunyuan-dense-v1 |
 | `hunyuan_vl` | HunyuanOCR / VL | xdrope M-RoPE + mmproj | **partial** | `MROPE`, `MAP`, `MMPROJ` | - | - |
-| `smollm3` | SmolLM3-3B | NoPE every 4th layer, GQA | **partial** | `MAP` | smollm3 | gguf/SmolLM3-3B, hf/SmolLM3-3B, hf/tiny-random-smollm3 |
-| `seed_oss` | Seed-OSS-36B | GQA, qkv bias, RMS | **partial** | `MAP` | seed_oss | hf/tiny-random-seed-oss |
-| `apertus` | Apertus 8B/70B | xIELU activation, QK-norm | **partial** | `ACT`, `MAP` | apertus | gguf/Apertus-8B-Instruct-2509, hf/tiny-random-apertus |
+| `smollm3` | SmolLM3-3B | NoPE every 4th layer, GQA | **supported**| -| smollm3 | gguf/SmolLM3-3B, hf/SmolLM3-3B, hf/tiny-random-smollm3 |
+| `seed_oss` | Seed-OSS-36B | GQA, qkv bias, RMS | **supported**| -| seed_oss | hf/tiny-random-seed-oss |
+| `apertus` | Apertus 8B/70B | xIELU activation, QK-norm | **supported**| -| apertus | gguf/Apertus-8B-Instruct-2509, hf/tiny-random-apertus |
 | `cogvlm` | CogVLM | visual-expert qkv/ffn | **missing** | `VEXPERT`, `MMPROJ` | - | - |
 | `pangu-embedded` | openPangu-Embedded | GQA, RMS | **partial** | `MAP` | - | - |
 | `paddleocr` | PaddleOCR-VL | ernie-like + M-RoPE | **partial** | `MROPE`, `MMPROJ` | - | - |
@@ -335,19 +335,19 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `starcoder` | StarCoder 1, SantaCoder | MQA, LN, learned abs pos, biased GELU | **partial** | `LN`, `APOS` | - | - |
-| `starcoder2` | StarCoder2 3B/7B/15B | GQA, SWA, LN, biased GELU MLP, rope | **partial** | `LN` | starcoder2 | gguf/starcoder2-3b, hf/tiny-random-Starcoder2ForCausalLM |
-| `gpt2` | GPT-2 | MHA, LN, learned abs pos, biased GELU, fused qkv | **partial** | `LN`, `APOS` | gpt2 | gguf/gpt2 |
-| `gptj` | GPT-J | parallel residual, interleaved partial rope, LN | **partial** | `LN`, `PAR` | gptj | hf/tiny-random-GPTJForCausalLM |
-| `gptneox` | Pythia, StableLM-alpha, RedPajama | parallel residual (opt), LN, partial rope, fused qkv | **partial** | `LN`, `PAR` | gpt_neox | gguf/pythia-160m, hf/tiny-random-GPTNeoXForCausalLM |
-| `falcon` | Falcon 7B/40B/180B | MQA/GQA, LN, parallel residual, GELU, rope | **partial** | `LN`, `PAR` | falcon | hf/tiny-random-FalconForCausalLM |
+| `starcoder2` | StarCoder2 3B/7B/15B | GQA, SWA, LN, biased GELU MLP, rope | **supported**| -| starcoder2 | gguf/starcoder2-3b, hf/tiny-random-Starcoder2ForCausalLM |
+| `gpt2` | GPT-2 | MHA, LN, learned abs pos, biased GELU, fused qkv | **supported**| -| gpt2 | gguf/gpt2 |
+| `gptj` | GPT-J | parallel residual, interleaved partial rope, LN | **supported**| -| gptj | hf/tiny-random-GPTJForCausalLM |
+| `gptneox` | Pythia, StableLM-alpha, RedPajama | parallel residual (opt), LN, partial rope, fused qkv | **supported**| -| gpt_neox | gguf/pythia-160m, hf/tiny-random-GPTNeoXForCausalLM |
+| `falcon` | Falcon 7B/40B/180B | MQA/GQA, LN, parallel residual, GELU, rope | **supported**| -| falcon | hf/tiny-random-FalconForCausalLM |
 | `mpt` | MPT-7B/30B | ALiBi, LN, QK-clip, GELU | **missing** | `ALIBI`, `LN` | mpt | hf/tiny-random-MptForCausalLM |
 | `bloom` | BLOOM | ALiBi, LN, GELU | **missing** | `ALIBI`, `LN` | bloom | gguf/bloom-560m, hf/tiny-random-BloomForCausalLM |
 | `refact` | Refact | ALiBi, RMS | **missing** | `ALIBI` | - | - |
 | `baichuan` | Baichuan 1/2 (13B: ALiBi) | RMS, SwiGLU, rope (7B) or ALiBi (13B) | **partial** | `MAP` | baichuan | - |
-| `stablelm` | StableLM 2 / 3B | LN, QK-norm (per head), partial rope, SwiGLU | **partial** | `LN`, `MAP` | stablelm | gguf/stablelm-2-1_6b, hf/tiny-random-StableLmForCausalLM |
+| `stablelm` | StableLM 2 / 3B | LN, QK-norm (per head), partial rope, SwiGLU | **supported**| -| stablelm | gguf/stablelm-2-1_6b, hf/tiny-random-StableLmForCausalLM |
 | `codeshell` | CodeShell | LN, rope, GELU | **partial** | `LN` | - | - |
 | `orion` | Orion-14B | LN, SwiGLU, rope | **partial** | `LN` | - | - |
-| `xverse` | XVERSE | RMS, SwiGLU, rope | **partial** | `MAP` | - | - |
+| `xverse` | XVERSE | RMS, SwiGLU, rope | **mapped, untested (no model)**| -| - | - |
 | `jais` | Jais | ALiBi, LN, SwiGLU | **missing** | `ALIBI`, `LN` | jais | - |
 | `jais2` | Jais 2 | LN, ReLU2, rope | **partial** | `LN`, `ACT` | - | - |
 
@@ -578,6 +578,7 @@ Reference = llama.cpp b11177 CUDA build, `llama-completion`, greedy (`--temp 0 -
 | Qwen3-VL-2B-Instruct | Qwen3VL-2B-Instruct-Q4_K_M.gguf | 1.11 GB | qwen3vl | Q4_K_M | 0 | ` Paris, and the capital of Germany is Berlin. If the capital of France is\n\n` |
 | Qwen3-VL-2B-Instruct | mmproj-Qwen3VL-2B-Instruct-F16.gguf | 0.82 GB | clip | mmproj | - | (projector, no text generation) |
 | Phi-4-mini-instruct | Phi-4-mini-instruct-Q4_K_M.gguf | 2.49 GB | phi3 | Q4_K_M | 0 | ` Paris. Paris is the capital of France. Paris is located in France. Paris\n\n` |
+| Mistral-7B-Instruct-v0.3 | Mistral-7B-Instruct-v0.3-Q4_K_M.gguf | 4.37 GB | llama | Q4_K_M | 0 | ` Paris, but the largest city is Marseille.\n\nMarseille\n\n` |
 | bitnet-b1.58-2B-4T | bitnet-2b4t-tq2_0.gguf | 1.20 GB | bitnet | TQ2_0 | 0 | ` the capital of France. The capital of France is the capital of France.The\n\n` |
 | LFM2-VL-450M | LFM2-VL-450M-Q8_0.gguf | 0.38 GB | lfm2 | Q8_0 | 0 | ` Paris. The capital of France is Paris. [end of text]\n\n\n` |
 | LFM2-VL-450M | mmproj-LFM2-VL-450M-F16.gguf | 0.19 GB | clip | mmproj | - | (projector, no text generation) |

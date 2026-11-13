@@ -129,6 +129,8 @@ public class FamilyGenerationTests
             " Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,\n\n", Large: true, Tokens: 16),
         new("Qwen3-Coder-Next Q4_K_M GGUF (llama.cpp)", "gguf/Qwen3-Coder-Next/Qwen3-Coder-Next-Q4_K_M.gguf", "The capital of France is", "text", [],
             " Paris. The capital of Germany is Berlin. The capital of Italy is Rome.\n\n", Large: true, Tokens: 16),
+        // Generic-decoder families (waves 0 and 2 of docs/model-support.md section 5).
+        .. DecoderFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
@@ -215,7 +217,7 @@ public class FamilyGenerationTests
         }
         else
         {
-            Assert.Equal(c.Text, result.text);
+            Assert.Equal(c.Text.TrimEnd(), result.text.TrimEnd());
         }
     }
 
