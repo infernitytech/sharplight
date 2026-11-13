@@ -58,8 +58,9 @@ public static partial class StandardOps
     public static readonly OpSchema Reshape = new("Reshape", OpCategory.View, 1, 1, InferReshape);
 
     /// <summary>
-    /// Zero-copy slice along one axis. Input: x. Attributes: axis (int, negative counts from the end; must not be the symbolic
-    /// outer axis), start (long), length (long). Output: x with <c>length</c> entries on that axis.
+    /// Zero-copy slice along one axis. Input: x. Attributes: axis (int, negative counts from the end), start (long), length (long).
+    /// Output: x with <c>length</c> entries on that axis. On the symbolic outer axis only a prefix (start 0) is allowed; its extent is
+    /// <c>min(n, length)</c>.
     /// </summary>
     public static readonly OpSchema Slice = new("Slice", OpCategory.View, 1, 1, (i, a) =>
     {
@@ -93,7 +94,8 @@ public static partial class StandardOps
 
     /// <summary>
     /// Concatenates 2 to 64 operands along an axis. Inputs: tensors with equal type and equal shape except on that axis.
-    /// Attribute: axis (int, negative counts from the end). Output: the summed extent on that axis.
+    /// Attribute: axis (int, negative counts from the end). Output: the summed extent on that axis; along the outer axis the operands may
+    /// be symbolic and the extent is the sum expression (operands are placed at their run-time offsets).
     /// </summary>
     public static readonly OpSchema Concat = new("Concat", OpCategory.Data, 2, 64, (i, a) =>
     {
