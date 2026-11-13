@@ -2,4 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Tokenizers.Tests" />
+  </ItemGroup>
 </Project>

@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>ONNX importer for Sharplight: a hand-rolled protobuf decoder plus an ONNX-to-IR graph adapter.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <InternalsVisibleTo Include="Sharplight.Onnx.Tests" />
+  </ItemGroup>
+</Project>

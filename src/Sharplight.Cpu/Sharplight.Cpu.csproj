@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Multithreaded SIMD CPU execution provider for Sharplight (dequantize-on-the-fly quantized matmul, fused LLM ops).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <InternalsVisibleTo Include="Sharplight.Cpu.Tests" />
+  </ItemGroup>
+</Project>

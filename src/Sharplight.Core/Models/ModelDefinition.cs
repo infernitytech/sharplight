@@ -29,6 +29,42 @@ public sealed class WeightInfo
     public required IWeightSource Source { get; init; }
     public long ByteSize => Type.ByteSize(Shape.Elements());
     public override string ToString() => $"{Name} {Type}{Shape}";
+
+    /// <summary>
+    /// A weight whose bytes are computed on first access (e.g. an importer converting a sign
+    /// convention, folding a constant or re-laying out data). The producer must return exactly
+    /// <c>type.ByteSize(shape.Elements())</c> bytes.
+    /// </summary>
+    public static WeightInfo Derived(string name, DataType type, Shape shape, Func<byte[]> produce)
+        => new() { Name = name, Type = type, Shape = shape, Source = new DerivedWeightSource(type.ByteSize(shape.Elements()), produce) };
+
+    /// <summary>Same bytes under a different name and/or shape (element count must match).</summary>
+    public WeightInfo As(string name, Shape? shape = null)
+    {
+        var s = shape ?? Shape;
+        if (s.Elements() != Shape.Elements()) throw new ArgumentException($"{Name}: cannot view {Shape} as {s}.");
+        return new() { Name = name, Type = Type, Shape = s, Source = Source };
+    }
+
+    /// <summary>Reads the whole tensor.</summary>
+    public byte[] ReadAll()
+    {
+        var b = new byte[Source.ByteLength];
+        Source.Read(0, b);
+        return b;
+    }
+}
+
+sealed class DerivedWeightSource(long length, Func<byte[]> produce) : IWeightSource
+{
+    readonly Lazy<byte[]> _data = new(() =>
+    {
+        var d = produce();
+        if (d.LongLength != length) throw new InvalidDataException($"Derived weight produced {d.LongLength} bytes, expected {length}.");
+        return d;
+    });
+    public long ByteLength => length;
+    public void Read(long offset, Span<byte> destination) => _data.Value.AsSpan(checked((int)offset), destination.Length).CopyTo(destination);
 }
 
 /// <summary>Kind of persistent state; lets runtimes manage e.g. context shifting or snapshots per kind.</summary>
@@ -86,7 +122,7 @@ public sealed class ModelDefinition
     /// <summary>Architecture-level facts runtimes may need (vocab size, context length, eos ids, ...).</summary>
     public IReadOnlyDictionary<string, object> Properties { get; init; } = new Dictionary<string, object>();
 
-    /// <summary>Raw source metadata (e.g. all GGUF key/values) for consumers such as tokenizers.</summary>
+    /// <summary>Canonical source metadata (<see cref="CanonicalKeys"/>) for consumers such as tokenizers.</summary>
     public IReadOnlyDictionary<string, object> SourceMetadata { get; init; } = new Dictionary<string, object>();
 
     /// <summary>Resources that must be disposed with the definition (memory maps, file handles).</summary>

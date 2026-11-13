@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
+  </ItemGroup>
+</Project>

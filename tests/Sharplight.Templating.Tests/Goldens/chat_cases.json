@@ -1,0 +1,378 @@
+{
+ "sys_user": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are helpful."
+   },
+   {
+    "role": "user",
+    "content": "Hi"
+   }
+  ]
+ },
+ "user_only": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Hello there"
+   }
+  ]
+ },
+ "multi_turn": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are helpful."
+   },
+   {
+    "role": "user",
+    "content": "Hi"
+   },
+   {
+    "role": "assistant",
+    "content": "Hello! How can I help?"
+   },
+   {
+    "role": "user",
+    "content": "What is 2+2?"
+   },
+   {
+    "role": "assistant",
+    "content": "4"
+   },
+   {
+    "role": "user",
+    "content": "Thanks"
+   }
+  ]
+ },
+ "unicode": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Grüße 😀 日本語 \"quoted\" \\ back"
+   }
+  ]
+ },
+ "reasoning": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are helpful."
+   },
+   {
+    "role": "user",
+    "content": "Solve 1+1"
+   },
+   {
+    "role": "assistant",
+    "content": "2",
+    "reasoning_content": "Let me think. 1+1=2."
+   },
+   {
+    "role": "user",
+    "content": "And 2+2?"
+   }
+  ]
+ },
+ "tools_user": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are helpful."
+   },
+   {
+    "role": "user",
+    "content": "Weather in Paris?"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "get_weather",
+     "description": "Get the current weather for a city.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "city": {
+        "type": "string",
+        "description": "City name"
+       },
+       "unit": {
+        "type": "string",
+        "enum": [
+         "c",
+         "f"
+        ]
+       }
+      },
+      "required": [
+       "city"
+      ]
+     }
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "calc",
+     "description": "Evaluate an expression.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "expr": {
+        "type": "string"
+       },
+       "precision": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "expr"
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "tool_roundtrip": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "Weather in Zürich?"
+   },
+   {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_1",
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "arguments": {
+        "city": "Zürich",
+        "unit": "c",
+        "n": 3,
+        "x": 1.5,
+        "flag": true,
+        "items": [
+         1,
+         2
+        ],
+        "o": null
+       }
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "call_1",
+    "name": "get_weather",
+    "content": "{\"temp\": 20}"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "get_weather",
+     "description": "Get the current weather for a city.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "city": {
+        "type": "string",
+        "description": "City name"
+       },
+       "unit": {
+        "type": "string",
+        "enum": [
+         "c",
+         "f"
+        ]
+       }
+      },
+      "required": [
+       "city"
+      ]
+     }
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "calc",
+     "description": "Evaluate an expression.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "expr": {
+        "type": "string"
+       },
+       "precision": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "expr"
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "tool_parallel": {
+  "messages": [
+   {
+    "role": "system",
+    "content": "You are helpful."
+   },
+   {
+    "role": "user",
+    "content": "Weather in Zürich and 2+2?"
+   },
+   {
+    "role": "assistant",
+    "content": "Checking both.",
+    "tool_calls": [
+     {
+      "id": "call_1",
+      "type": "function",
+      "function": {
+       "name": "get_weather",
+       "arguments": {
+        "city": "Zürich",
+        "unit": "c",
+        "n": 3,
+        "x": 1.5,
+        "flag": true,
+        "items": [
+         1,
+         2
+        ],
+        "o": null
+       }
+      }
+     },
+     {
+      "id": "call_2",
+      "type": "function",
+      "function": {
+       "name": "calc",
+       "arguments": {
+        "expr": "2+2",
+        "precision": 2
+       }
+      }
+     }
+    ]
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "call_1",
+    "name": "get_weather",
+    "content": "{\"temp\": 20}"
+   },
+   {
+    "role": "tool",
+    "tool_call_id": "call_2",
+    "name": "calc",
+    "content": "4"
+   },
+   {
+    "role": "assistant",
+    "content": "It is 20 degrees and 4."
+   },
+   {
+    "role": "user",
+    "content": "ok"
+   }
+  ],
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "get_weather",
+     "description": "Get the current weather for a city.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "city": {
+        "type": "string",
+        "description": "City name"
+       },
+       "unit": {
+        "type": "string",
+        "enum": [
+         "c",
+         "f"
+        ]
+       }
+      },
+      "required": [
+       "city"
+      ]
+     }
+    }
+   },
+   {
+    "type": "function",
+    "function": {
+     "name": "calc",
+     "description": "Evaluate an expression.",
+     "parameters": {
+      "type": "object",
+      "properties": {
+       "expr": {
+        "type": "string"
+       },
+       "precision": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "expr"
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "image": {
+  "messages": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "image"
+     },
+     {
+      "type": "text",
+      "text": "What is this?"
+     }
+    ]
+   }
+  ]
+ },
+ "system_parts": {
+  "messages": [
+   {
+    "role": "system",
+    "content": [
+     {
+      "type": "text",
+      "text": "Be brief."
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "content": "Hi"
+   }
+  ]
+ }
+}

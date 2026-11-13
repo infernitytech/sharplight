@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Hugging Face checkpoint importer (safetensors + config.json + tokenizer files) producing the canonical model source.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+  </ItemGroup>
+</Project>

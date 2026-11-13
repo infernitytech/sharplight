@@ -12,7 +12,7 @@ public sealed class Node
     public Attributes Attributes { get; }
 
     /// <summary>
-    /// Placement group (e.g. <c>"blk.12"</c>). Nodes in the same group are kept on the same device by
+    /// Placement group (e.g. <c>"layers.12"</c>). Nodes in the same group are kept on the same device by
     /// the partitioner; groups are assigned to devices in graph order (pipeline split).
     /// </summary>
     public string Group { get; }

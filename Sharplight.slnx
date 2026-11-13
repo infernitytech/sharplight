@@ -3,11 +3,30 @@
     <Project Path="src/Sharplight.Core/Sharplight.Core.csproj" />
     <Project Path="src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
     <Project Path="src/Sharplight.Tokenizers/Sharplight.Tokenizers.csproj" />
+    <Project Path="src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <Project Path="src/Sharplight.Llm/Sharplight.Llm.csproj" />
     <Project Path="src/Sharplight.Templating/Sharplight.Templating.csproj" />
+    <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
+    <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <Project Path="src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
+    <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
   </Folder>
-  <Folder Name="/samples/" />
-  <Folder Name="/tests/" />
+  <Folder Name="/samples/">
+    <Project Path="samples/Sharplight.Cli/Sharplight.Cli.csproj" />
+    <Project Path="samples/Sharplight.Inspect/Sharplight.Inspect.csproj" />
+    <Project Path="samples/Sharplight.GgufDump/Sharplight.GgufDump.csproj" />
+    <Project Path="samples/Sharplight.OnnxRun/Sharplight.OnnxRun.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
+    <Project Path="tests/Sharplight.Gguf.Tests/Sharplight.Gguf.Tests.csproj" />
+    <Project Path="tests/Sharplight.HuggingFace.Tests/Sharplight.HuggingFace.Tests.csproj" />
+    <Project Path="tests/Sharplight.Onnx.Tests/Sharplight.Onnx.Tests.csproj" />
+    <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
+    <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
+    <Project Path="tests/Sharplight.Tokenizers.Tests/Sharplight.Tokenizers.Tests.csproj" />
+    <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
+  </Folder>
 </Solution>

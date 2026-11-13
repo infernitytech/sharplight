@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>LLM inference: sessions, generation loop, sampling, chat formatting.</Description>
+    <Description>LLM inference: model loading, sessions, generation loop, sampling, chat formatting.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
+    <ProjectReference Include="../Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../Sharplight.Tokenizers/Sharplight.Tokenizers.csproj" />
+    <ProjectReference Include="../Sharplight.Templating/Sharplight.Templating.csproj" />
   </ItemGroup>
 </Project>

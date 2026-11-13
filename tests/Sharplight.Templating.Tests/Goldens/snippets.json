@@ -1,0 +1,1916 @@
+[
+ {
+  "name": "int",
+  "template": "{{ 42 }}",
+  "context": {},
+  "options": {},
+  "output": "42"
+ },
+ {
+  "name": "float",
+  "template": "{{ 1.5 }} {{ 1.0 }} {{ 0.1 + 0.2 }} {{ 1/3 }} {{ 2 ** 0.5 }}",
+  "context": {},
+  "options": {},
+  "output": "1.5 1.0 0.30000000000000004 0.3333333333333333 1.4142135623730951"
+ },
+ {
+  "name": "float_exp",
+  "template": "{{ 1e16 }} {{ 1.5e-7 }} {{ 123456789012345678.0 }} {{ 0.0001 }} {{ 0.00001 }} {{ 1e15 }}",
+  "context": {},
+  "options": {},
+  "output": "1e+16 1.5e-07 1.2345678901234568e+17 0.0001 1e-05 1000000000000000.0"
+ },
+ {
+  "name": "bool_none",
+  "template": "{{ true }} {{ false }} {{ none }} {{ True }} {{ False }} {{ None }}",
+  "context": {},
+  "options": {},
+  "output": "True False None True False None"
+ },
+ {
+  "name": "string_escapes",
+  "template": "{{ 'a\\nb\\t\"q\" \\\\ \\'s\\'' }}|{{ \"xéy\\x41\" }}",
+  "context": {},
+  "options": {},
+  "output": "a\nb\t\"q\" \\ 's'|xéyA"
+ },
+ {
+  "name": "string_adjacent",
+  "template": "{{ 'a' 'b' }}",
+  "context": {},
+  "options": {},
+  "output": "ab"
+ },
+ {
+  "name": "list_repr",
+  "template": "{{ ['a', \"b'c\", 1, none, true, 1.5, {'k': [1, 'x']}] }}",
+  "context": {},
+  "options": {},
+  "output": "['a', \"b'c\", 1, None, True, 1.5, {'k': [1, 'x']}]"
+ },
+ {
+  "name": "tuple_repr",
+  "template": "{{ (1, 2) }} {{ [] }} {{ {} }}",
+  "context": {},
+  "options": {},
+  "output": "(1, 2) [] {}"
+ },
+ {
+  "name": "dict_literal",
+  "template": "{{ {'a': 1, 'b': 2}.b }} {{ {'a': {'b': 3}}.a.b }} {{ {1: 'x'}[1] }}",
+  "context": {},
+  "options": {},
+  "output": "2 3 x"
+ },
+ {
+  "name": "undefined_prints_empty",
+  "template": "[{{ nope }}][{{ nope|default('d') }}]",
+  "context": {},
+  "options": {},
+  "output": "[][d]"
+ },
+ {
+  "name": "long_int",
+  "template": "{{ 9007199254740993 }} {{ 2 ** 62 }}",
+  "context": {},
+  "options": {},
+  "output": "9007199254740993 4611686018427387904"
+ },
+ {
+  "name": "arith",
+  "template": "{{ 1 + 2 }} {{ 5 - 7 }} {{ 3 * 4 }} {{ 10 / 4 }} {{ 10 / 5 }} {{ 7 // 2 }} {{ -7 // 2 }} {{ 7 % 3 }} {{ -7 % 3 }} {{ 2 ** 10 }} {{ 2 ** -1 }}",
+  "context": {},
+  "options": {},
+  "output": "3 -2 12 2.5 2.0 3 -4 1 2 1024 0.5"
+ },
+ {
+  "name": "arith_float",
+  "template": "{{ 7.5 // 2 }} {{ 7.5 % 2 }} {{ 1.5 * 2 }} {{ 3 - 0.5 }} {{ -7.5 % 2 }}",
+  "context": {},
+  "options": {},
+  "output": "3.0 1.5 3.0 2.5 0.5"
+ },
+ {
+  "name": "precedence",
+  "template": "{{ 1 + 2 * 3 }} {{ (1 + 2) * 3 }} {{ 2 ** 3 ** 2 }} {{ -2 ** 2 }} {{ 10 - 4 - 3 }}",
+  "context": {},
+  "options": {},
+  "output": "7 9 64 4 3"
+ },
+ {
+  "name": "concat",
+  "template": "{{ 'a' ~ 1 ~ none ~ true ~ 1.5 ~ [1] }}",
+  "context": {},
+  "options": {},
+  "output": "a1NoneTrue1.5[1]"
+ },
+ {
+  "name": "str_ops",
+  "template": "{{ 'ab' * 3 }} {{ 'a' + 'b' }} {{ [1] + [2] }} {{ [0] * 3 }}",
+  "context": {},
+  "options": {},
+  "output": "ababab ab [1, 2] [0, 0, 0]"
+ },
+ {
+  "name": "compare",
+  "template": "{{ 1 < 2 }} {{ 2 <= 2 }} {{ 'a' < 'b' }} {{ 1 == 1.0 }} {{ 'a' != 'b' }} {{ 1 < 2 < 3 }} {{ 1 < 3 < 2 }} {{ [1,2] == [1,2] }} {{ {'a':1} == {'a':1} }}",
+  "context": {},
+  "options": {},
+  "output": "True True True True True True False True True"
+ },
+ {
+  "name": "compare_bool",
+  "template": "{{ true == 1 }} {{ true + true }} {{ false < true }}",
+  "context": {},
+  "options": {},
+  "output": "True 2 True"
+ },
+ {
+  "name": "in_ops",
+  "template": "{{ 1 in [1,2] }} {{ 3 not in [1,2] }} {{ 'a' in 'cat' }} {{ 'k' in {'k': 1} }} {{ 'z' in {'k': 1} }} {{ 'x' in none_var }}",
+  "context": {},
+  "options": {},
+  "output": "True True True True False False"
+ },
+ {
+  "name": "bool_ops",
+  "template": "{{ 1 and 2 }} {{ 0 or 'x' }} {{ '' or none }} {{ not 0 }} {{ [] and 1 }} {{ none or [] }}",
+  "context": {},
+  "options": {},
+  "output": "2 x None True [] []"
+ },
+ {
+  "name": "ternary",
+  "template": "{{ 'a' if true else 'b' }} {{ 'a' if false else 'b' }} [{{ 'a' if false }}] {{ 1 if false else 2 if false else 3 }}",
+  "context": {},
+  "options": {},
+  "output": "a b [] 3"
+ },
+ {
+  "name": "truthiness",
+  "template": "{% for v in [0, 1, '', 'a', [], [0], {}, {'a':1}, none, 0.0, 0.5] %}{{ 'T' if v else 'F' }}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "FTFTFTFTFFT"
+ },
+ {
+  "name": "not_precedence",
+  "template": "{{ not 1 == 2 }} {{ not 'a' in 'abc' }} {{ not x is defined }}",
+  "context": {},
+  "options": {},
+  "output": "True False True"
+ },
+ {
+  "name": "getitem",
+  "template": "{{ [10,20,30][0] }} {{ [10,20,30][-1] }} {{ 'abc'[1] }} [{{ [1][5] }}] {{ d['a'] }} {{ d.a }} {{ d['b'][0] }} {{ d.b.0 }}",
+  "context": {
+   "d": {
+    "a": 1,
+    "b": [
+     7,
+     8
+    ]
+   }
+  },
+  "options": {},
+  "output": "10 30 b [] 1 1 7 7"
+ },
+ {
+  "name": "slices",
+  "template": "{{ l[1:] }} {{ l[:2] }} {{ l[::-1] }} {{ l[-2:] }} {{ l[:-1] }} {{ l[::2] }} {{ l[1:3] }} {{ l[10:] }} {{ l[::-2] }} {{ l[3:0:-1] }} {{ l[-1:-4:-1] }}",
+  "context": {
+   "l": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ]
+  },
+  "options": {},
+  "output": "[2, 3, 4, 5] [1, 2] [5, 4, 3, 2, 1] [4, 5] [1, 2, 3, 4] [1, 3, 5] [2, 3] [] [5, 3, 1] [4, 3, 2] [5, 4, 3]"
+ },
+ {
+  "name": "string_slices",
+  "template": "{{ s[::-1] }} {{ s[1:4] }} {{ s[-3:] }} {{ s[:0] }}",
+  "context": {
+   "s": "abcdef"
+  },
+  "options": {},
+  "output": "fedcba bcd def "
+ },
+ {
+  "name": "dict_attr_vs_key",
+  "template": "{{ d.get('k') }} {{ d['items'] }} {{ d.k }}",
+  "context": {
+   "d": {
+    "k": "v",
+    "items": [
+     1
+    ]
+   }
+  },
+  "options": {},
+  "output": "v [1] v"
+ },
+ {
+  "name": "if_elif_else",
+  "template": "{% if x == 1 %}one{% elif x == 2 %}two{% else %}many{% endif %}",
+  "context": {
+   "x": 2
+  },
+  "options": {},
+  "output": "two"
+ },
+ {
+  "name": "if_nested",
+  "template": "{% if a %}{% if b %}ab{% else %}a{% endif %}{% else %}none{% endif %}",
+  "context": {
+   "a": true,
+   "b": false
+  },
+  "options": {},
+  "output": "a"
+ },
+ {
+  "name": "for_basic",
+  "template": "{% for i in [1,2,3] %}{{ i }},{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "1,2,3,"
+ },
+ {
+  "name": "for_loop_vars",
+  "template": "{% for i in ['a','b','c'] %}{{ loop.index }}/{{ loop.index0 }}/{{ loop.revindex }}/{{ loop.revindex0 }}/{{ loop.first }}/{{ loop.last }}/{{ loop.length }} {% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "1/0/3/2/True/False/3 2/1/2/1/False/False/3 3/2/1/0/False/True/3 "
+ },
+ {
+  "name": "for_prev_next",
+  "template": "{% for i in [1,2,3] %}[{{ loop.previtem }}|{{ i }}|{{ loop.nextitem }}]{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "[|1|2][1|2|3][2|3|]"
+ },
+ {
+  "name": "for_prev_next_defined",
+  "template": "{% for i in [1,2,3] %}{% if loop.previtem is defined %}p{{ loop.previtem }}{% endif %}{% if loop.nextitem is defined %}n{{ loop.nextitem }}{% endif %};{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "n2;p1n3;p2;"
+ },
+ {
+  "name": "for_else",
+  "template": "{% for i in [] %}x{% else %}empty{% endfor %}|{% for i in [1] %}x{% else %}empty{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "empty|x"
+ },
+ {
+  "name": "for_else_undefined",
+  "template": "{% for i in nothing %}x{% else %}none{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "none"
+ },
+ {
+  "name": "for_filter",
+  "template": "{% for i in range(10) if i is even %}{{ i }}{{ loop.length }} {% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "05 25 45 65 85 "
+ },
+ {
+  "name": "for_unpack",
+  "template": "{% for k, v in d.items() %}{{ k }}={{ v }};{% endfor %}",
+  "context": {
+   "d": {
+    "a": 1,
+    "b": 2
+   }
+  },
+  "options": {},
+  "output": "a=1;b=2;"
+ },
+ {
+  "name": "for_unpack_nested",
+  "template": "{% for a, (b, c) in [[1, [2, 3]], [4, [5, 6]]] %}{{ a }}{{ b }}{{ c }} {% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "123 456 "
+ },
+ {
+  "name": "for_dict_keys",
+  "template": "{% for k in d %}{{ k }}{% endfor %}",
+  "context": {
+   "d": {
+    "x": 1,
+    "y": 2
+   }
+  },
+  "options": {},
+  "output": "xy"
+ },
+ {
+  "name": "for_string",
+  "template": "{% for c in 'abc' %}{{ c }}-{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "a-b-c-"
+ },
+ {
+  "name": "for_cycle",
+  "template": "{% for i in range(5) %}{{ loop.cycle('a', 'b', 'c') }}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "abcab"
+ },
+ {
+  "name": "for_nested_loop_scope",
+  "template": "{% for i in [1,2] %}{% for j in [3,4] %}{{ i }}{{ j }}{{ loop.index }} {% endfor %}{{ loop.index }}|{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "131 142 1|231 242 2|"
+ },
+ {
+  "name": "for_depth",
+  "template": "{% for i in [1] %}{{ loop.depth }}{% for j in [1] %}{{ loop.depth }}{{ loop.depth0 }}{% endfor %}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "110"
+ },
+ {
+  "name": "for_reverse_range",
+  "template": "{% for i in range(3, 0, -1) %}{{ i }}{% endfor %}{% for i in range(2, 5) %}{{ i }}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "321234"
+ },
+ {
+  "name": "for_break_continue",
+  "template": "{% for i in range(10) %}{% if i == 2 %}{% continue %}{% endif %}{% if i == 5 %}{% break %}{% endif %}{{ i }}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "0134"
+ },
+ {
+  "name": "for_break_nested",
+  "template": "{% for i in range(3) %}{% for j in range(3) %}{% if j == 1 %}{% break %}{% endif %}{{ i }}{{ j }} {% endfor %}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "00 10 20 "
+ },
+ {
+  "name": "for_slice_reverse",
+  "template": "{% for m in ms[::-1] %}{{ m }}{{ loop.index0 }}{% endfor %}",
+  "context": {
+   "ms": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  "options": {},
+  "output": "c0b1a2"
+ },
+ {
+  "name": "set_basic",
+  "template": "{% set x = 1 %}{% set y = x + 1 %}{{ x }}{{ y }}",
+  "context": {},
+  "options": {},
+  "output": "12"
+ },
+ {
+  "name": "set_tuple",
+  "template": "{% set a, b = 1, 2 %}{{ a }}{{ b }}{% set c, d = [3, 4] %}{{ c }}{{ d }}",
+  "context": {},
+  "options": {},
+  "output": "1234"
+ },
+ {
+  "name": "set_list_dict",
+  "template": "{% set l = [1, 2] %}{% set d = {'a': l} %}{{ d.a[1] }}",
+  "context": {},
+  "options": {},
+  "output": "2"
+ },
+ {
+  "name": "set_scope_loop",
+  "template": "{% set x = 1 %}{% for i in range(3) %}{% set x = x + 1 %}{% endfor %}{{ x }}",
+  "context": {},
+  "options": {},
+  "output": "1"
+ },
+ {
+  "name": "set_scope_if",
+  "template": "{% if true %}{% set x = 5 %}{% endif %}{{ x }}",
+  "context": {},
+  "options": {},
+  "output": "5"
+ },
+ {
+  "name": "namespace",
+  "template": "{% set ns = namespace(n=0, s='') %}{% for i in range(4) %}{% set ns.n = ns.n + i %}{% set ns.s = ns.s ~ i %}{% endfor %}{{ ns.n }} {{ ns.s }}",
+  "context": {},
+  "options": {},
+  "output": "6 0123"
+ },
+ {
+  "name": "namespace_flag",
+  "template": "{% set ns = namespace(found=false) %}{% for i in [1,2,3] %}{% if i == 2 %}{% set ns.found = true %}{% endif %}{% endfor %}{{ ns.found }}",
+  "context": {},
+  "options": {},
+  "output": "True"
+ },
+ {
+  "name": "set_block",
+  "template": "{% set x %}hello {{ 1 + 1 }}{% endset %}[{{ x }}]",
+  "context": {},
+  "options": {},
+  "output": "[hello 2]"
+ },
+ {
+  "name": "set_block_filter",
+  "template": "{% set x | upper %}hello{% endset %}[{{ x }}]",
+  "context": {},
+  "options": {},
+  "output": "[HELLO]"
+ },
+ {
+  "name": "filter_block",
+  "template": "{% filter upper %}hello {{ 'w' }}{% endfilter %}",
+  "context": {},
+  "options": {},
+  "output": "HELLO W"
+ },
+ {
+  "name": "filter_block_chain",
+  "template": "{% filter trim | upper %}  hi  {% endfilter %}",
+  "context": {},
+  "options": {},
+  "output": "HI"
+ },
+ {
+  "name": "do_ext",
+  "template": "{% set l = [] %}{% do l.append(1) %}{% do l.append(2) %}{{ l }}",
+  "context": {},
+  "options": {
+   "sandbox": false
+  },
+  "output": "[1, 2]"
+ },
+ {
+  "name": "list_mutation",
+  "template": "{% set l = [1] %}{% set _ = l.append(2) %}{{ l }}{{ l.pop() }}{{ l }}",
+  "context": {},
+  "options": {
+   "sandbox": false
+  },
+  "output": "[1, 2]2[1]"
+ },
+ {
+  "name": "dict_mutation",
+  "template": "{% set d = {'a': 1} %}{% set _ = d.update({'b': 2}) %}{{ d }}{{ d.pop('a') }}{{ d }}{{ d.setdefault('c', 3) }}{{ d }}",
+  "context": {},
+  "options": {
+   "sandbox": false
+  },
+  "output": "{'a': 1, 'b': 2}1{'b': 2}3{'b': 2, 'c': 3}"
+ },
+ {
+  "name": "macro_basic",
+  "template": "{% macro m(a, b=2) %}{{ a }}-{{ b }}{% endmacro %}{{ m(1) }} {{ m(1, 3) }} {{ m(b=5, a=0) }}",
+  "context": {},
+  "options": {},
+  "output": "1-2 1-3 0-5"
+ },
+ {
+  "name": "macro_default_expr",
+  "template": "{% macro m(a, b=a * 2) %}{{ a }}{{ b }}{% endmacro %}{{ m(2) }}",
+  "context": {},
+  "options": {},
+  "output": "24"
+ },
+ {
+  "name": "macro_global_access",
+  "template": "{% set g = 'G' %}{% macro m() %}{{ g }}{{ x }}{% endmacro %}{{ m() }}",
+  "context": {
+   "x": "X"
+  },
+  "options": {},
+  "output": "GX"
+ },
+ {
+  "name": "macro_recursive",
+  "template": "{% macro fact(n) %}{% if n <= 1 %}1{% else %}{{ n * fact(n - 1)|int }}{% endif %}{% endmacro %}{{ fact(5) }}",
+  "context": {},
+  "options": {},
+  "output": "120"
+ },
+ {
+  "name": "macro_varargs",
+  "template": "{% macro m() %}{{ varargs }}{{ kwargs }}{% endmacro %}{{ m(1, 2, a=3) }}",
+  "context": {},
+  "options": {
+   "sandbox": false
+  },
+  "output": "(1, 2){'a': 3}"
+ },
+ {
+  "name": "macro_caller",
+  "template": "{% macro wrap(x) %}<{{ caller(x) }}>{% endmacro %}{% call(v) wrap(1) %}[{{ v }}]{% endcall %}",
+  "context": {},
+  "options": {},
+  "output": "<[1]>"
+ },
+ {
+  "name": "macro_no_caller_args",
+  "template": "{% macro wrap() %}<{{ caller() }}>{% endmacro %}{% call wrap() %}body{% endcall %}",
+  "context": {},
+  "options": {},
+  "output": "<body>"
+ },
+ {
+  "name": "macro_in_loop",
+  "template": "{% for i in [1,2] %}{% macro m(x) %}{{ x }}{{ i }}{% endmacro %}{{ m('a') }}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "a1a2"
+ },
+ {
+  "name": "macro_whitespace",
+  "template": "{%- macro m(x) -%}\n  [{{ x }}]\n{%- endmacro -%}\n{{ m(1) }}|{{ m(2) }}",
+  "context": {},
+  "options": {},
+  "output": "[1]|[2]"
+ },
+ {
+  "name": "macro_returns_string",
+  "template": "{% macro m() %}x{% endmacro %}{{ m() ~ m() }}{{ m() is string }}",
+  "context": {},
+  "options": {},
+  "output": "xxTrue"
+ },
+ {
+  "name": "macro_calls_macro",
+  "template": "{% macro a(x) %}a{{ x }}{% endmacro %}{% macro b(x) %}{{ a(x) }}b{% endmacro %}{{ b(1) }}",
+  "context": {},
+  "options": {},
+  "output": "a1b"
+ },
+ {
+  "name": "macro_args_scope",
+  "template": "{% set x = 'outer' %}{% macro m(x) %}{{ x }}{% endmacro %}{{ m('inner') }}{{ x }}",
+  "context": {},
+  "options": {},
+  "output": "innerouter"
+ },
+ {
+  "name": "tests_basic",
+  "template": "{{ x is defined }} {{ y is defined }} {{ y is undefined }} {{ n is none }} {{ s is string }} {{ d is mapping }} {{ l is iterable }} {{ s is iterable }} {{ l is sequence }} {{ i is number }} {{ i is integer }} {{ f is float }} {{ f is integer }} {{ b is boolean }} {{ b is true }} {{ b is false }} {{ i is not none }}",
+  "context": {
+   "x": 1,
+   "n": null,
+   "s": "s",
+   "d": {},
+   "l": [],
+   "i": 3,
+   "f": 1.5,
+   "b": true
+  },
+  "options": {},
+  "output": "True False True True True True True True True True True True False True True False True"
+ },
+ {
+  "name": "tests_misc",
+  "template": "{{ 3 is odd }} {{ 4 is even }} {{ 9 is divisibleby 3 }} {{ 9 is divisibleby(2) }} {{ 1 is eq 1 }} {{ 1 is equalto 2 }} {{ 1 is ne 2 }} {{ 1 is lt 2 }} {{ 2 is le 2 }} {{ 3 is gt 2 }} {{ 3 is ge 4 }} {{ 'a' is in ['a'] }} {{ none is sameas none }} {{ true is sameas true }}",
+  "context": {},
+  "options": {},
+  "output": "True True True False True False True True True True False True True True"
+ },
+ {
+  "name": "tests_mapping_not",
+  "template": "{{ 1 is not mapping }} {{ [] is not iterable }} {{ x is not defined }} {{ d is not string }}",
+  "context": {
+   "d": {}
+  },
+  "options": {},
+  "output": "True False True True"
+ },
+ {
+  "name": "tests_in_if",
+  "template": "{% if x is defined and x is not none %}ok{% endif %}{% if x is not defined or x is none %}no{% endif %}",
+  "context": {
+   "x": 5
+  },
+  "options": {},
+  "output": "ok"
+ },
+ {
+  "name": "tests_lower_upper",
+  "template": "{{ 'abc' is lower }} {{ 'ABC' is upper }} {{ 'aBc' is lower }}",
+  "context": {},
+  "options": {},
+  "output": "True True False"
+ },
+ {
+  "name": "tests_callable",
+  "template": "{% macro m() %}{% endmacro %}{{ m is callable }} {{ 1 is callable }}",
+  "context": {},
+  "options": {},
+  "output": "True False"
+ },
+ {
+  "name": "tests_with_filter",
+  "template": "{{ l|length is odd }} {{ s|trim is string }}",
+  "context": {
+   "l": [
+    1,
+    2,
+    3
+   ],
+   "s": " a "
+  },
+  "options": {},
+  "output": "True True"
+ },
+ {
+  "name": "tests_ternary",
+  "template": "{{ 'y' if x is defined else 'n' }} {{ 'y' if z is defined else 'n' }}",
+  "context": {
+   "x": 1
+  },
+  "options": {},
+  "output": "y n"
+ },
+ {
+  "name": "tests_bool_number",
+  "template": "{{ true is number }} {{ true is integer }} {{ none is number }}",
+  "context": {},
+  "options": {},
+  "output": "True False False"
+ },
+ {
+  "name": "f_len",
+  "template": "{{ [1,2]|length }} {{ 'abc'|length }} {{ {'a':1}|length }} {{ [1]|count }}",
+  "context": {},
+  "options": {},
+  "output": "2 3 1 1"
+ },
+ {
+  "name": "f_case",
+  "template": "{{ 'hello World'|upper }} {{ 'HeLLo'|lower }} {{ 'hELLO wORLD'|capitalize }} {{ 'hello big-world (x) [y]'|title }} {{ \"it's a test\"|title }}",
+  "context": {},
+  "options": {},
+  "output": "HELLO WORLD hello Hello world Hello Big-World (X) [Y] It's A Test"
+ },
+ {
+  "name": "f_trim",
+  "template": "[{{ '  a b  '|trim }}] [{{ 'xxaxx'|trim('x') }}] [{{ '\\n a\\n'|trim }}]",
+  "context": {},
+  "options": {},
+  "output": "[a b] [a] [a]"
+ },
+ {
+  "name": "f_first_last",
+  "template": "{{ [1,2,3]|first }} {{ [1,2,3]|last }} {{ 'abc'|first }} {{ 'abc'|last }} [{{ []|first }}]",
+  "context": {},
+  "options": {},
+  "output": "1 3 a c []"
+ },
+ {
+  "name": "f_join",
+  "template": "{{ [1,2,3]|join(', ') }} {{ ['a','b']|join }} {{ ms|join('-', attribute='n') }}",
+  "context": {
+   "ms": [
+    {
+     "n": "x"
+    },
+    {
+     "n": "y"
+    }
+   ]
+  },
+  "options": {},
+  "output": "1, 2, 3 ab x-y"
+ },
+ {
+  "name": "f_default",
+  "template": "{{ u|default('d') }} {{ u|d('e') }} {{ 0|default('z') }} {{ 0|default('z', true) }} {{ ''|default('z', true) }} {{ none|default('z') }} {{ none|default('z', boolean=true) }} {{ u|default }}|",
+  "context": {},
+  "options": {},
+  "output": "d e 0 z z None z |"
+ },
+ {
+  "name": "f_replace",
+  "template": "{{ 'aaa'|replace('a', 'b') }} {{ 'aaa'|replace('a', 'b', 2) }} {{ 'abc'|replace('', '-') }} {{ 'x.y'|replace('.', '') }}",
+  "context": {},
+  "options": {},
+  "output": "bbb bba -a-b-c- xy"
+ },
+ {
+  "name": "f_string",
+  "template": "{{ 1|string }} {{ [1,'a']|string }} {{ none|string }} {{ true|string }} {{ 1.0|string }} {{ {'a': 1}|string }}",
+  "context": {},
+  "options": {},
+  "output": "1 [1, 'a'] None True 1.0 {'a': 1}"
+ },
+ {
+  "name": "f_int_float",
+  "template": "{{ '5'|int }} {{ '5.7'|int }} {{ 'x'|int }} {{ 'x'|int(9) }} {{ 3.9|int }} {{ -3.9|int }} {{ '2.5'|float }} {{ 'z'|float }} {{ 3|float }} {{ true|int }} {{ '  7 '|int }} {{ none|int }}",
+  "context": {},
+  "options": {},
+  "output": "5 5 0 9 3 -3 2.5 0.0 3.0 1 7 0"
+ },
+ {
+  "name": "f_list",
+  "template": "{{ 'abc'|list }} {{ {'a':1}|list }} {{ range(3)|list }}",
+  "context": {},
+  "options": {},
+  "output": "['a', 'b', 'c'] ['a'] [0, 1, 2]"
+ },
+ {
+  "name": "f_items_keys_values",
+  "template": "{{ d|items|list }} {{ d|dictsort }} {{ d.keys()|list }} {{ d.values()|list }} {{ d.items()|list }}",
+  "context": {
+   "d": {
+    "b": 2,
+    "a": 1
+   }
+  },
+  "options": {},
+  "output": "[('b', 2), ('a', 1)] [('a', 1), ('b', 2)] ['b', 'a'] [2, 1] [('b', 2), ('a', 1)]"
+ },
+ {
+  "name": "f_sort",
+  "template": "{{ [3,1,2]|sort }} {{ [3,1,2]|sort(reverse=true) }} {{ ['b','A','c']|sort }} {{ ['b','A','c']|sort(case_sensitive=true) }} {{ ms|sort(attribute='n')|map(attribute='n')|list }} {{ ms|sort(attribute='n', reverse=true)|map(attribute='n')|join }}",
+  "context": {
+   "ms": [
+    {
+     "n": 3
+    },
+    {
+     "n": 1
+    },
+    {
+     "n": 2
+    }
+   ]
+  },
+  "options": {},
+  "output": "[1, 2, 3] [3, 2, 1] ['A', 'b', 'c'] ['A', 'b', 'c'] [1, 2, 3] 321"
+ },
+ {
+  "name": "f_unique",
+  "template": "{{ [1,2,1,3,2]|unique|list }} {{ ['a','A','b']|unique|list }} {{ ['a','A','b']|unique(case_sensitive=true)|list }}",
+  "context": {},
+  "options": {},
+  "output": "[1, 2, 3] ['a', 'b'] ['a', 'A', 'b']"
+ },
+ {
+  "name": "f_reverse",
+  "template": "{{ [1,2,3]|reverse|list }} {{ 'abc'|reverse }}",
+  "context": {},
+  "options": {},
+  "output": "[3, 2, 1] cba"
+ },
+ {
+  "name": "f_sum_min_max",
+  "template": "{{ [1,2,3]|sum }} {{ [1,2,3]|sum(start=10) }} {{ [1.5,2]|sum }} {{ [3,1,2]|min }} {{ [3,1,2]|max }} {{ ['b','a']|min }} {{ ms|sum(attribute='n') }} {{ ms|max(attribute='n') }}",
+  "context": {
+   "ms": [
+    {
+     "n": 3
+    },
+    {
+     "n": 1
+    }
+   ]
+  },
+  "options": {},
+  "output": "6 16 3.5 1 3 a 4 {'n': 3}"
+ },
+ {
+  "name": "f_abs_round",
+  "template": "{{ -3|abs }} {{ -3.5|abs }} {{ 3.14159|round(2) }} {{ 2.5|round }} {{ 3.5|round }} {{ 3.7|round|int }} {{ 3.14159|round(1, 'ceil') }} {{ 3.14159|round(1, 'floor') }} {{ 1234|round(-2) }}",
+  "context": {},
+  "options": {},
+  "output": "3 3.5 3.14 2.0 4.0 4 3.2 3.1 1200"
+ },
+ {
+  "name": "f_indent",
+  "template": "{{ 'a\\nb\\n\\nc'|indent(2) }}|{{ 'a\\nb'|indent(2, true) }}|{{ 'a\\n\\nb'|indent(2, false, true) }}|{{ 'a\\nb'|indent('--') }}",
+  "context": {},
+  "options": {},
+  "output": "a\n  b\n\n  c|  a\n  b|a\n  \n  b|a\n--b"
+ },
+ {
+  "name": "f_safe_escape",
+  "template": "{{ '<a href=\"x\">&\\'</a>'|e }} {{ '<b>'|safe }} {{ '<b>'|escape }}",
+  "context": {},
+  "options": {},
+  "output": "&lt;a href=&#34;x&#34;&gt;&amp;&#39;&lt;/a&gt; <b> &lt;b&gt;"
+ },
+ {
+  "name": "f_center_wordcount",
+  "template": "[{{ 'ab'|center(7) }}] [{{ 'abc'|center(8) }}] [{{ 'a'|center(2) }}] {{ 'hello big  world_x 1'|wordcount }}",
+  "context": {},
+  "options": {},
+  "output": "[   ab  ] [  abc   ] [a ] 4"
+ },
+ {
+  "name": "f_batch_slice",
+  "template": "{{ [1,2,3,4,5]|batch(2)|list }} {{ [1,2,3]|batch(2, 0)|list }} {{ [1,2,3,4,5]|slice(2)|list }}",
+  "context": {},
+  "options": {},
+  "output": "[[1, 2], [3, 4], [5]] [[1, 2], [3, 0]] [[1, 2, 3], [4, 5]]"
+ },
+ {
+  "name": "f_map",
+  "template": "{{ [1,2]|map('string')|list }} {{ ['a','b']|map('upper')|join }} {{ ms|map(attribute='n')|list }} {{ ms|map(attribute='z', default='-')|list }} {{ ['a b']|map('replace', ' ', '_')|list }} {{ ms|map(attribute='n')|map('int')|sum }}",
+  "context": {
+   "ms": [
+    {
+     "n": "1"
+    },
+    {
+     "n": "2"
+    }
+   ]
+  },
+  "options": {},
+  "output": "['1', '2'] AB ['1', '2'] ['-', '-'] ['a_b'] 3"
+ },
+ {
+  "name": "f_select_reject",
+  "template": "{{ range(6)|select('even')|list }} {{ range(6)|reject('even')|list }} {{ [0,1,'',None,'a']|select|list }} {{ [0,1,'']|reject|list }} {{ [1,5,10]|select('gt', 3)|list }} {{ ['a','b']|select('in', ['b'])|list }}",
+  "context": {},
+  "options": {},
+  "output": "[0, 2, 4] [1, 3, 5] [1, 'a'] [0, ''] [5, 10] ['b']"
+ },
+ {
+  "name": "f_selectattr",
+  "template": "{{ ms|selectattr('a')|map(attribute='n')|list }} {{ ms|rejectattr('a')|map(attribute='n')|list }} {{ ms|selectattr('n', 'gt', 1)|map(attribute='n')|list }} {{ ms|selectattr('n', 'equalto', 2)|list }} {{ ms|rejectattr('n', 'in', [1, 2])|map(attribute='n')|list }}",
+  "context": {
+   "ms": [
+    {
+     "n": 1,
+     "a": true
+    },
+    {
+     "n": 2,
+     "a": false
+    },
+    {
+     "n": 3,
+     "a": true,
+     "o": {
+      "p": 1
+     }
+    }
+   ]
+  },
+  "options": {},
+  "output": "[1, 3] [2] [2, 3] [{'n': 2, 'a': False}] [3]"
+ },
+ {
+  "name": "f_selectattr_string",
+  "template": "{{ ms|selectattr('role', 'equalto', 'user')|list|length }}{{ ms|rejectattr('role', 'equalto', 'user')|list|length }}{{ ms|selectattr('role', 'in', ['system', 'user'])|list|length }}",
+  "context": {
+   "ms": [
+    {
+     "role": "system"
+    },
+    {
+     "role": "user"
+    },
+    {
+     "role": "assistant"
+    },
+    {
+     "role": "user"
+    }
+   ]
+  },
+  "options": {},
+  "output": "223"
+ },
+ {
+  "name": "f_attr",
+  "template": "{{ d|attr('a') }} {{ ms|map(attribute='n.m')|list }}",
+  "context": {
+   "d": {
+    "a": 1
+   },
+   "ms": [
+    {
+     "n": {
+      "m": 5
+     }
+    }
+   ]
+  },
+  "options": {},
+  "output": " [5]"
+ },
+ {
+  "name": "f_dictsort",
+  "template": "{% for k, v in d|dictsort %}{{ k }}{{ v }}{% endfor %} {% for k, v in d|dictsort(by='value') %}{{ k }}{% endfor %} {% for k, v in d|dictsort(reverse=true) %}{{ k }}{% endfor %}",
+  "context": {
+   "d": {
+    "b": 1,
+    "A": 3,
+    "c": 2
+   }
+  },
+  "options": {},
+  "output": "A3b1c2 bcA cbA"
+ },
+ {
+  "name": "f_truncate",
+  "template": "{{ 'hello world foo'|truncate(10) }} {{ 'hello world foo bar baz qux'|truncate(12, true) }} {{ 'short'|truncate(10) }} {{ 'hello world foo bar baz qux'|truncate(15, false, '!') }}",
+  "context": {},
+  "options": {},
+  "output": "hello world foo hello wor... short hello world!"
+ },
+ {
+  "name": "f_urlencode",
+  "template": "{{ 'a b&c/d~é'|urlencode }}",
+  "context": {},
+  "options": {},
+  "output": "a%20b%26c/d~%C3%A9"
+ },
+ {
+  "name": "f_format",
+  "template": "{{ '%s-%d'|format('a', 3) }} {{ '%05.1f|%x|%5s|%-5s|' | format(3.14159, 255, 'a', 'b') }} {{ '%s' % 'x' }} {{ '%s=%s' % ('a', 1) }} {{ '%r' % 'q' }} {{ '100%%' % () }}",
+  "context": {},
+  "options": {},
+  "output": "a-3 003.1|ff|    a|b    | x a=1 'q' 100%"
+ },
+ {
+  "name": "f_groupby",
+  "template": "{% for g, items in ms|groupby('k') %}{{ g }}:{{ items|map(attribute='v')|join }};{% endfor %}",
+  "context": {
+   "ms": [
+    {
+     "k": "a",
+     "v": 1
+    },
+    {
+     "k": "b",
+     "v": 2
+    },
+    {
+     "k": "a",
+     "v": 3
+    }
+   ]
+  },
+  "options": {},
+  "output": "a:13;b:2;"
+ },
+ {
+  "name": "f_chain",
+  "template": "{{ ' Hello World '|trim|lower|replace(' ', '_')|upper }}",
+  "context": {},
+  "options": {},
+  "output": "HELLO_WORLD"
+ },
+ {
+  "name": "f_filter_on_expr",
+  "template": "{{ (1 + 2)|string ~ 'x' }} {{ -1|abs }} {{ 'a' ~ 'b'|upper }}",
+  "context": {},
+  "options": {},
+  "output": "3x 1 aB"
+ },
+ {
+  "name": "f_xmlattr",
+  "template": "<a{{ ' ' ~ {'x': 1, 'y': 'a\"b'}|xmlattr }}>",
+  "context": {},
+  "options": {},
+  "output": "<a  x=\"1\" y=\"a&#34;b\">"
+ },
+ {
+  "name": "f_list_of_dict_len",
+  "template": "{{ ms|length }}{{ ms|first|length }}",
+  "context": {
+   "ms": [
+    {
+     "a": 1,
+     "b": 2
+    }
+   ]
+  },
+  "options": {},
+  "output": "12"
+ },
+ {
+  "name": "tojson_basic",
+  "template": "{{ j|tojson }}",
+  "context": {
+   "j": {
+    "s": "héllo \"q\" \\ \n\t  \u001f  é 😀",
+    "n": 3,
+    "f": 1.5,
+    "t": true,
+    "z": null,
+    "l": [
+     1,
+     [
+      2,
+      []
+     ],
+     {}
+    ],
+    "d": {
+     "a": {
+      "b": [
+       1,
+       2
+      ]
+     },
+     "c": {}
+    },
+    "u": "ü",
+    "big": 1e+20,
+    "neg": -0.0,
+    "small": 1e-07
+   }
+  },
+  "options": {},
+  "output": "{\"s\": \"héllo \\\"q\\\" \\\\ \\n\\t  \\u001f  é 😀\", \"n\": 3, \"f\": 1.5, \"t\": true, \"z\": null, \"l\": [1, [2, []], {}], \"d\": {\"a\": {\"b\": [1, 2]}, \"c\": {}}, \"u\": \"ü\", \"big\": 1e+20, \"neg\": -0.0, \"small\": 1e-07}"
+ },
+ {
+  "name": "tojson_indent",
+  "template": "{{ j|tojson(indent=2) }}|{{ j|tojson(indent=4) }}",
+  "context": {
+   "j": {
+    "s": "héllo \"q\" \\ \n\t  \u001f  é 😀",
+    "n": 3,
+    "f": 1.5,
+    "t": true,
+    "z": null,
+    "l": [
+     1,
+     [
+      2,
+      []
+     ],
+     {}
+    ],
+    "d": {
+     "a": {
+      "b": [
+       1,
+       2
+      ]
+     },
+     "c": {}
+    },
+    "u": "ü",
+    "big": 1e+20,
+    "neg": -0.0,
+    "small": 1e-07
+   }
+  },
+  "options": {},
+  "output": "{\n  \"s\": \"héllo \\\"q\\\" \\\\ \\n\\t  \\u001f  é 😀\",\n  \"n\": 3,\n  \"f\": 1.5,\n  \"t\": true,\n  \"z\": null,\n  \"l\": [\n    1,\n    [\n      2,\n      []\n    ],\n    {}\n  ],\n  \"d\": {\n    \"a\": {\n      \"b\": [\n        1,\n        2\n      ]\n    },\n    \"c\": {}\n  },\n  \"u\": \"ü\",\n  \"big\": 1e+20,\n  \"neg\": -0.0,\n  \"small\": 1e-07\n}|{\n    \"s\": \"héllo \\\"q\\\" \\\\ \\n\\t  \\u001f  é 😀\",\n    \"n\": 3,\n    \"f\": 1.5,\n    \"t\": true,\n    \"z\": null,\n    \"l\": [\n        1,\n        [\n            2,\n            []\n        ],\n        {}\n    ],\n    \"d\": {\n        \"a\": {\n            \"b\": [\n                1,\n                2\n            ]\n        },\n        \"c\": {}\n    },\n    \"u\": \"ü\",\n    \"big\": 1e+20,\n    \"neg\": -0.0,\n    \"small\": 1e-07\n}"
+ },
+ {
+  "name": "tojson_ascii",
+  "template": "{{ j|tojson(ensure_ascii=true) }}",
+  "context": {
+   "j": {
+    "s": "héllo \"q\" \\ \n\t  \u001f  é 😀",
+    "n": 3,
+    "f": 1.5,
+    "t": true,
+    "z": null,
+    "l": [
+     1,
+     [
+      2,
+      []
+     ],
+     {}
+    ],
+    "d": {
+     "a": {
+      "b": [
+       1,
+       2
+      ]
+     },
+     "c": {}
+    },
+    "u": "ü",
+    "big": 1e+20,
+    "neg": -0.0,
+    "small": 1e-07
+   }
+  },
+  "options": {},
+  "output": "{\"s\": \"h\\u00e9llo \\\"q\\\" \\\\ \\n\\t\\u2028 \\u001f \\u007f \\u00e9 \\ud83d\\ude00\", \"n\": 3, \"f\": 1.5, \"t\": true, \"z\": null, \"l\": [1, [2, []], {}], \"d\": {\"a\": {\"b\": [1, 2]}, \"c\": {}}, \"u\": \"\\u00fc\", \"big\": 1e+20, \"neg\": -0.0, \"small\": 1e-07}"
+ },
+ {
+  "name": "tojson_sep",
+  "template": "{{ j|tojson(separators=(',', ':')) }}|{{ j|tojson(indent=1, separators=(',', ': ')) }}",
+  "context": {
+   "j": {
+    "s": "héllo \"q\" \\ \n\t  \u001f  é 😀",
+    "n": 3,
+    "f": 1.5,
+    "t": true,
+    "z": null,
+    "l": [
+     1,
+     [
+      2,
+      []
+     ],
+     {}
+    ],
+    "d": {
+     "a": {
+      "b": [
+       1,
+       2
+      ]
+     },
+     "c": {}
+    },
+    "u": "ü",
+    "big": 1e+20,
+    "neg": -0.0,
+    "small": 1e-07
+   }
+  },
+  "options": {},
+  "output": "{\"s\":\"héllo \\\"q\\\" \\\\ \\n\\t  \\u001f  é 😀\",\"n\":3,\"f\":1.5,\"t\":true,\"z\":null,\"l\":[1,[2,[]],{}],\"d\":{\"a\":{\"b\":[1,2]},\"c\":{}},\"u\":\"ü\",\"big\":1e+20,\"neg\":-0.0,\"small\":1e-07}|{\n \"s\": \"héllo \\\"q\\\" \\\\ \\n\\t  \\u001f  é 😀\",\n \"n\": 3,\n \"f\": 1.5,\n \"t\": true,\n \"z\": null,\n \"l\": [\n  1,\n  [\n   2,\n   []\n  ],\n  {}\n ],\n \"d\": {\n  \"a\": {\n   \"b\": [\n    1,\n    2\n   ]\n  },\n  \"c\": {}\n },\n \"u\": \"ü\",\n \"big\": 1e+20,\n \"neg\": -0.0,\n \"small\": 1e-07\n}"
+ },
+ {
+  "name": "tojson_sort",
+  "template": "{{ {'b': 1, 'a': {'z': 1, 'y': 2}}|tojson(sort_keys=true) }}",
+  "context": {},
+  "options": {},
+  "output": "{\"a\": {\"y\": 2, \"z\": 1}, \"b\": 1}"
+ },
+ {
+  "name": "tojson_scalars",
+  "template": "{{ 'x'|tojson }} {{ 1|tojson }} {{ none|tojson }} {{ true|tojson }} {{ 1.0|tojson }} {{ []|tojson }} {{ {}|tojson }} {{ [1,2]|tojson(indent=2) }} {{ {}|tojson(indent=2) }}",
+  "context": {},
+  "options": {},
+  "output": "\"x\" 1 null true 1.0 [] {} [\n  1,\n  2\n] {}"
+ },
+ {
+  "name": "tojson_nonstring_keys",
+  "template": "{{ {1: 'a', 'k': 'b', 2.5: 'c'}|tojson }}",
+  "context": {},
+  "options": {},
+  "output": "{\"1\": \"a\", \"k\": \"b\", \"2.5\": \"c\"}"
+ },
+ {
+  "name": "tojson_ensure_positional",
+  "template": "{{ 'é'|tojson(true) }}|{{ [1]|tojson(false, 2) }}",
+  "context": {},
+  "options": {},
+  "output": "\"\\u00e9\"|[\n  1\n]"
+ },
+ {
+  "name": "tojson_in_string",
+  "template": "{{ 'x=' ~ ({'a': 1}|tojson) }} {{ {'a': 1}|tojson|safe }} {{ ('<' ~ (['é']|tojson))|trim }}",
+  "context": {},
+  "options": {},
+  "output": "x={\"a\": 1} {\"a\": 1} <[\"é\"]"
+ },
+ {
+  "name": "markup",
+  "template": "{{ 'a'|safe + '<' }}|{{ '<'|e }}|{{ '<'|safe }}|{{ 'x' ~ ('<'|safe) }}|{{ '<' + 'x'|safe }}|{{ ('<'|e)|length }}|{{ '&'|e|e }}|{{ 'q\"'|safe|tojson }}|{{ 'a'|safe is string }}",
+  "context": {},
+  "options": {},
+  "output": "a&lt;|&lt;|<|x<|&lt;x|4|&amp;|\"q\\\"\"|True"
+ },
+ {
+  "name": "unicode_codepoints",
+  "template": "{{ s|length }}{{ s[0] }}{{ s[::-1] }}{{ s|reverse }}{{ s[1:] }}{{ s|first }}{{ s|last }}{{ s|list|length }}",
+  "context": {
+   "s": "😀a😀"
+  },
+  "options": {},
+  "output": "3😀😀a😀😀a😀a😀😀😀3"
+ },
+ {
+  "name": "filters_on_none",
+  "template": "{{ none|select|list }}{{ none|map(attribute='a')|list }}{{ none|selectattr('a')|list }}{{ []|rejectattr('a')|list }}",
+  "context": {},
+  "options": {},
+  "output": "[][][][]"
+ },
+ {
+  "name": "m_strip",
+  "template": "[{{ '  a '.strip() }}] [{{ '  a '.lstrip() }}] [{{ '  a '.rstrip() }}] [{{ 'xxaxx'.strip('x') }}] [{{ 'xxaxx'.lstrip('x') }}] [{{ 'xxaxx'.rstrip('x') }}] [{{ '\\n\\t a \\n'.strip() }}]",
+  "context": {},
+  "options": {},
+  "output": "[a] [a ] [  a] [a] [axx] [xxa] [a]"
+ },
+ {
+  "name": "m_split",
+  "template": "{{ 'a b  c'.split() }} {{ 'a,b,,c'.split(',') }} {{ 'a,b,c'.split(',', 1) }} {{ ' a b '.split() }} {{ ''.split(',') }} {{ ''.split() }} {{ 'a--b'.split('--') }} {{ 'a b c d'.split(None, 2) }}",
+  "context": {},
+  "options": {},
+  "output": "['a', 'b', 'c'] ['a', 'b', '', 'c'] ['a', 'b,c'] ['a', 'b'] [''] [] ['a', 'b'] ['a', 'b', 'c d']"
+ },
+ {
+  "name": "m_rsplit",
+  "template": "{{ 'a,b,c'.rsplit(',', 1) }} {{ 'a b c'.rsplit() }} {{ 'a.b.c.d'.rsplit('.', 2) }}",
+  "context": {},
+  "options": {},
+  "output": "['a,b', 'c'] ['a', 'b', 'c'] ['a.b', 'c', 'd']"
+ },
+ {
+  "name": "m_startswith",
+  "template": "{{ 'abc'.startswith('ab') }} {{ 'abc'.startswith('bc') }} {{ 'abc'.endswith('bc') }} {{ 'abc'.startswith(('x', 'a')) }} {{ 'abc'.endswith(('x', 'y')) }} {{ 'abc'.startswith('') }} {{ 'abc'.startswith('b', 1) }}",
+  "context": {},
+  "options": {},
+  "output": "True False True True False True True"
+ },
+ {
+  "name": "m_case",
+  "template": "{{ 'ab c'.upper() }} {{ 'AB C'.lower() }} {{ 'ab cD-ef'.title() }} {{ 'hELLO'.capitalize() }} {{ 'aBc'.swapcase() }}",
+  "context": {},
+  "options": {},
+  "output": "AB C ab c Ab Cd-Ef Hello AbC"
+ },
+ {
+  "name": "m_replace_find",
+  "template": "{{ 'aXa'.replace('a', 'b') }} {{ 'aaa'.replace('a', 'b', 1) }} {{ 'abcabc'.find('c') }} {{ 'abc'.find('z') }} {{ 'abcabc'.rfind('b') }} {{ 'abcabc'.find('b', 2) }} {{ 'abcabc'.index('c') }} {{ 'abab'.count('ab') }}",
+  "context": {},
+  "options": {},
+  "output": "bXb baa 2 -1 4 4 2 2"
+ },
+ {
+  "name": "m_join_format",
+  "template": "{{ ', '.join(['a', 'b']) }} {{ '-'.join('abc') }} {{ '{}-{}'.format(1, 'a') }} {{ '{0}{1}{0}'.format('x', 'y') }} {{ '{a}:{b}'.format(a=1, b=2) }} {{ '{{x}}'.format() }} {{ '{:>5}|{:<5}|{:^5}|{:05d}|{:.2f}'.format('a', 'b', 'c', 42, 3.14159) }} {{ '{!r}'.format('s') }}",
+  "context": {},
+  "options": {},
+  "output": "a, b a-b-c 1-a xyx 1:2 {x}     a|b    |  c  |00042|3.14 's'"
+ },
+ {
+  "name": "m_is",
+  "template": "{{ '12'.isdigit() }} {{ 'a1'.isalnum() }} {{ 'ab'.isalpha() }} {{ ' '.isspace() }} {{ 'ab'.islower() }} {{ 'AB'.isupper() }} {{ ''.isdigit() }}",
+  "context": {},
+  "options": {},
+  "output": "True True True True True True False"
+ },
+ {
+  "name": "m_misc",
+  "template": "{{ '5'.zfill(3) }} {{ '-5'.zfill(4) }} {{ 'a'.ljust(3) }}| {{ 'a'.rjust(3) }}| {{ 'ab'.center(6) }}| {{ 'prefix_x'.removeprefix('prefix_') }} {{ 'x.txt'.removesuffix('.txt') }} {{ 'a=b=c'.partition('=') }} {{ 'a=b=c'.rpartition('=') }} {{ 'a\\nb\\r\\nc'.splitlines() }}",
+  "context": {},
+  "options": {},
+  "output": "005 -005 a  |   a|   ab  | x x ('a', '=', 'b=c') ('a=b', '=', 'c') ['a', 'b', 'c']"
+ },
+ {
+  "name": "m_chain",
+  "template": "{{ ' a,b '.strip().split(',')|join('+') }} {{ 'abc'.upper().lower().title() }}",
+  "context": {},
+  "options": {},
+  "output": "a+b Abc"
+ },
+ {
+  "name": "m_on_expr",
+  "template": "{{ (a ~ b).upper() }} {{ x.name.lower() }} {{ x['name'].split('-')[1] }}",
+  "context": {
+   "a": "q",
+   "b": "r",
+   "x": {
+    "name": "AB-CD"
+   }
+  },
+  "options": {},
+  "output": "QR ab-cd CD"
+ },
+ {
+  "name": "m_dict",
+  "template": "{{ d.get('a') }} [{{ d.get('z') }}] {{ d.get('z', 'dflt') }} {{ d.items()|list }} {{ d.keys()|list }} {{ d.values()|list }} {{ d.get('n').get('m') }}",
+  "context": {
+   "d": {
+    "a": 1,
+    "n": {
+     "m": 2
+    }
+   }
+  },
+  "options": {},
+  "output": "1 [None] dflt [('a', 1), ('n', {'m': 2})] ['a', 'n'] [1, {'m': 2}] 2"
+ },
+ {
+  "name": "m_list",
+  "template": "{{ l.index(2) }} {{ l.count(1) }} {{ l.copy() }}",
+  "context": {
+   "l": [
+    1,
+    2,
+    1
+   ]
+  },
+  "options": {},
+  "output": "1 2 [1, 2, 1]"
+ },
+ {
+  "name": "m_list_mut",
+  "template": "{% set l = [3, 1] %}{% set _ = l.append(2) %}{% set _ = l.extend([7, 8]) %}{% set _ = l.insert(0, 9) %}{% set _ = l.reverse() %}{{ l }}{{ l.pop(0) }}{{ l.pop() }}{{ l }}",
+  "context": {},
+  "options": {
+   "sandbox": false
+  },
+  "output": "[8, 7, 2, 1, 3, 9]89[7, 2, 1, 3]"
+ },
+ {
+  "name": "g_range",
+  "template": "{{ range(3)|list }} {{ range(1, 4)|list }} {{ range(10, 0, -3)|list }} {{ range(0)|list }} {{ range(5)|length }}",
+  "context": {},
+  "options": {},
+  "output": "[0, 1, 2] [1, 2, 3] [10, 7, 4, 1] [] 5"
+ },
+ {
+  "name": "g_dict",
+  "template": "{{ dict(a=1, b=2) }} {{ dict([['x', 1]]) }} {{ dict({'q': 1}, r=2) }} {{ dict() }}",
+  "context": {},
+  "options": {},
+  "output": "{'a': 1, 'b': 2} {'x': 1} {'q': 1, 'r': 2} {}"
+ },
+ {
+  "name": "g_strftime",
+  "template": "{{ strftime_now('%Y-%m-%d') }} {{ strftime_now('%d %b %Y') }} {{ strftime_now('%A, %B %d, %Y') }} {{ strftime_now('%H:%M:%S %p %I %y %j') }}",
+  "context": {},
+  "options": {},
+  "output": "2026-01-15 15 Jan 2026 Thursday, January 15, 2026 10:30:45 AM 10 26 015"
+ },
+ {
+  "name": "g_namespace_print",
+  "template": "{{ namespace(a=1).a }}",
+  "context": {},
+  "options": {},
+  "output": "1"
+ },
+ {
+  "name": "g_raise_not_taken",
+  "template": "{% if false %}{{ raise_exception('bad') }}{% endif %}ok",
+  "context": {},
+  "options": {},
+  "output": "ok"
+ },
+ {
+  "name": "ws_default_trim",
+  "template": "a\n{% if true %}\nb\n{% endif %}\nc\n",
+  "context": {},
+  "options": {},
+  "output": "a\nb\nc"
+ },
+ {
+  "name": "ws_default_notrim",
+  "template": "a\n{% if true %}\nb\n{% endif %}\nc\n",
+  "context": {},
+  "options": {
+   "trim": false,
+   "lstrip": false
+  },
+  "output": "a\n\nb\n\nc"
+ },
+ {
+  "name": "ws_lstrip_only",
+  "template": "a\n  {% if true %}\nb\n  {% endif %}\nc",
+  "context": {},
+  "options": {
+   "trim": false,
+   "lstrip": true
+  },
+  "output": "a\n\nb\n\nc"
+ },
+ {
+  "name": "ws_trim_only",
+  "template": "a\n  {% if true %}\nb\n  {% endif %}\nc",
+  "context": {},
+  "options": {
+   "trim": true,
+   "lstrip": false
+  },
+  "output": "a\n  b\n  c"
+ },
+ {
+  "name": "ws_minus_both",
+  "template": "a  \n  {%- if true -%}  \n  b  \n  {%- endif -%}  \n  c",
+  "context": {},
+  "options": {},
+  "output": "abc"
+ },
+ {
+  "name": "ws_minus_var",
+  "template": "a  {{- 'b' -}}  c  {{ 'd' -}}  \n e  {{- 'f' }}  g",
+  "context": {},
+  "options": {},
+  "output": "abc  def  g"
+ },
+ {
+  "name": "ws_plus",
+  "template": "a\n  {%+ if true %}\nb{% endif %}",
+  "context": {},
+  "options": {
+   "trim": false,
+   "lstrip": true
+  },
+  "output": "a\n  \nb"
+ },
+ {
+  "name": "ws_comment",
+  "template": "a\n  {# comment #}\nb\n  {#- c -#}  \nd{# x #}e",
+  "context": {},
+  "options": {},
+  "output": "a\nbde"
+ },
+ {
+  "name": "ws_comment_multiline",
+  "template": "a{# line1\nline2 #}b\n{# c #}\nd",
+  "context": {},
+  "options": {},
+  "output": "ab\nd"
+ },
+ {
+  "name": "ws_var_not_stripped",
+  "template": "a\n  {{ 'x' }}\n  {{ 'y' }}\nb",
+  "context": {},
+  "options": {},
+  "output": "a\n  x\n  y\nb"
+ },
+ {
+  "name": "ws_text_before_tag_same_line",
+  "template": "x {% if true %}y{% endif %}\n  z {% if true %}\nw{% endif %}",
+  "context": {},
+  "options": {},
+  "output": "x y  z w"
+ },
+ {
+  "name": "ws_trailing_newline",
+  "template": "abc\n",
+  "context": {},
+  "options": {},
+  "output": "abc"
+ },
+ {
+  "name": "ws_trailing_newline_keep",
+  "template": "abc\n",
+  "context": {},
+  "options": {
+   "keep_nl": true
+  },
+  "output": "abc\n"
+ },
+ {
+  "name": "ws_trailing_two_newlines",
+  "template": "abc\n\n",
+  "context": {},
+  "options": {},
+  "output": "abc\n"
+ },
+ {
+  "name": "ws_tabs",
+  "template": "a\n\t{% if true %}\n\tb\n\t{% endif %}\nc",
+  "context": {},
+  "options": {},
+  "output": "a\n\tb\nc"
+ },
+ {
+  "name": "ws_crlf",
+  "template": "a\r\n{% if true %}\r\nb\r\n{% endif %}\r\nc",
+  "context": {},
+  "options": {},
+  "output": "a\nb\nc"
+ },
+ {
+  "name": "ws_for_lines",
+  "template": "{% for i in [1,2,3] %}\n{{ i }}\n{% endfor %}\nend",
+  "context": {},
+  "options": {},
+  "output": "1\n2\n3\nend"
+ },
+ {
+  "name": "ws_for_indented",
+  "template": "<\n    {% for i in [1,2] %}\n    item {{ i }}\n    {% endfor %}\n>",
+  "context": {},
+  "options": {},
+  "output": "<\n    item 1\n    item 2\n>"
+ },
+ {
+  "name": "ws_nested_indented",
+  "template": "{% for i in [1,2] %}\n  {% if i == 1 %}\n  one\n  {% else %}\n  other\n  {% endif %}\n{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "  one\n  other\n"
+ },
+ {
+  "name": "ws_set_lines",
+  "template": "{% set x = 1 %}\n{% set y = 2 %}\n{{ x }}{{ y }}\n",
+  "context": {},
+  "options": {},
+  "output": "12"
+ },
+ {
+  "name": "ws_first_line_block",
+  "template": "  {% if true %}x{% endif %}",
+  "context": {},
+  "options": {},
+  "output": "x"
+ },
+ {
+  "name": "ws_empty_block_lines",
+  "template": "a\n\n{% if true %}\n\nb\n{% endif %}\n\nc",
+  "context": {},
+  "options": {},
+  "output": "a\n\n\nb\n\nc"
+ },
+ {
+  "name": "ws_minus_newline_before_endfor",
+  "template": "{% for i in [1,2] -%}\n  {{ i }}\n{%- endfor %}\nx",
+  "context": {},
+  "options": {},
+  "output": "12x"
+ },
+ {
+  "name": "ws_inline_if",
+  "template": "{{ 'a' }}{% if true %} b{% endif %} c",
+  "context": {},
+  "options": {},
+  "output": "a b c"
+ },
+ {
+  "name": "raw_basic",
+  "template": "{% raw %}{{ x }} {% if %}{% endraw %}after",
+  "context": {},
+  "options": {},
+  "output": "{{ x }} {% if %}after"
+ },
+ {
+  "name": "raw_ws",
+  "template": "a\n  {%- raw -%}\n  {{ x }}\n  {%- endraw -%}\n  b",
+  "context": {},
+  "options": {},
+  "output": "a{{ x }}b"
+ },
+ {
+  "name": "raw_multi",
+  "template": "{% raw %}\n{{ a }}\n{% endraw %}\n{% raw %}{# c #}{% endraw %}",
+  "context": {},
+  "options": {},
+  "output": "\n{{ a }}\n{# c #}"
+ },
+ {
+  "name": "comment_in_block",
+  "template": "{# {% if %} #}a{# #}b",
+  "context": {},
+  "options": {},
+  "output": "ab"
+ },
+ {
+  "name": "dict_braces_close",
+  "template": "{{ {'a': {'b': 1}} }}|{{ {'a': 1}.a }}{{ {} }}",
+  "context": {},
+  "options": {},
+  "output": "{'a': {'b': 1}}|1{}"
+ },
+ {
+  "name": "string_with_delims",
+  "template": "{{ '}}' }}{{ '%}' }}{{ '{#' }}{% set x = '%}' %}{{ x }}",
+  "context": {},
+  "options": {},
+  "output": "}}%}{#%}"
+ },
+ {
+  "name": "block_in_expr_strings",
+  "template": "{% if 'a}}b' == 'a}}b' %}y{% endif %}",
+  "context": {},
+  "options": {},
+  "output": "y"
+ },
+ {
+  "name": "multiline_expr",
+  "template": "{{ [\n 1,\n 2\n] }}{% set x = {\n 'a': 1,\n} %}{{ x }}",
+  "context": {},
+  "options": {},
+  "output": "[1, 2]{'a': 1}"
+ },
+ {
+  "name": "trailing_commas",
+  "template": "{{ [1, 2,] }} {{ (1,) }} {{ {'a': 1,} }} {{ range(3,)|list }}",
+  "context": {},
+  "options": {},
+  "output": "[1, 2] (1,) {'a': 1} [0, 1, 2]"
+ },
+ {
+  "name": "kwargs_call",
+  "template": "{{ dict(a=1)|tojson }}",
+  "context": {},
+  "options": {},
+  "output": "{\"a\": 1}"
+ },
+ {
+  "name": "unicode_text",
+  "template": "héllo {{ 'wörld' }} 😀 {{ '日本語'|length }} {{ '😀'|length }}",
+  "context": {},
+  "options": {},
+  "output": "héllo wörld 😀 3 1"
+ },
+ {
+  "name": "name_with_digits_underscore",
+  "template": "{% set _a1 = 1 %}{% set b_2 = _a1 + 1 %}{{ b_2 }}",
+  "context": {},
+  "options": {},
+  "output": "2"
+ },
+ {
+  "name": "loop_var_after",
+  "template": "{% for i in [1] %}{% endfor %}[{{ loop }}][{{ i }}]",
+  "context": {},
+  "options": {},
+  "output": "[][]"
+ },
+ {
+  "name": "if_in_for_set",
+  "template": "{% set ns = namespace(out=[]) %}{% for m in ms %}{% if m.r == 'u' %}{% set ns.out = ns.out + [m.c] %}{% endif %}{% endfor %}{{ ns.out }}",
+  "context": {
+   "ms": [
+    {
+     "r": "u",
+     "c": "a"
+    },
+    {
+     "r": "s",
+     "c": "b"
+    },
+    {
+     "r": "u",
+     "c": "c"
+    }
+   ]
+  },
+  "options": {},
+  "output": "['a', 'c']"
+ },
+ {
+  "name": "complex_template",
+  "template": "{%- for m in ms -%}{{ '<' ~ m.r ~ '>' }}{{ m.c | trim }}{{ '</' ~ m.r ~ '>' }}{% if not loop.last %}\n{% endif %}{%- endfor -%}",
+  "context": {
+   "ms": [
+    {
+     "r": "u",
+     "c": " a "
+    },
+    {
+     "r": "s",
+     "c": "b"
+    }
+   ]
+  },
+  "options": {},
+  "output": "<u>a</u><s>b</s>"
+ },
+ {
+  "name": "messages_first",
+  "template": "{{ messages[0].role }}{{ messages[0]['content'] }}{{ messages|length }}{{ messages[1:]|length }}{{ messages[-1].role }}",
+  "context": {
+   "messages": [
+    {
+     "role": "system",
+     "content": "S"
+    },
+    {
+     "role": "user",
+     "content": "U"
+    }
+   ]
+  },
+  "options": {},
+  "output": "systemS21user"
+ },
+ {
+  "name": "not_in_dict_list",
+  "template": "{% if 'a' not in ['b'] and 'k' not in {'z': 1} %}ok{% endif %}",
+  "context": {},
+  "options": {},
+  "output": "ok"
+ },
+ {
+  "name": "in_string_undefined",
+  "template": "{{ 'a' in s }}",
+  "context": {
+   "s": "bab"
+  },
+  "options": {},
+  "output": "True"
+ },
+ {
+  "name": "cond_nested_parens",
+  "template": "{{ ('a' if x else 'b') ~ ('c' if not x else 'd') }}",
+  "context": {
+   "x": 0
+  },
+  "options": {},
+  "output": "bc"
+ },
+ {
+  "name": "is_in_filter_args",
+  "template": "{{ [1, 2, 3]|select('odd')|list }} {{ [1,2,3]|rejectattr('x', 'defined')|list|length if false else 'k' }}",
+  "context": {},
+  "options": {},
+  "output": "[1, 3] k"
+ },
+ {
+  "name": "loop_in_macro_call",
+  "template": "{% macro m(i) %}{{ i }}{% endmacro %}{% for i in range(3) %}{{ m(i) }}{{ loop.index }}{% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "011223"
+ },
+ {
+  "name": "int_float_division_formats",
+  "template": "{{ 6 / 3 }} {{ 7 / 2 }} {{ (6 / 3)|int }} {{ 2.0 * 3 }} {{ 10 // 3.0 }} {{ 1e3 }} {{ 5 % 3.0 }}",
+  "context": {},
+  "options": {},
+  "output": "2.0 3.5 2 6.0 3.0 1000.0 2.0"
+ },
+ {
+  "name": "string_mul_zero",
+  "template": "[{{ 'a' * 0 }}] [{{ 'a' * -1 }}]",
+  "context": {},
+  "options": {},
+  "output": "[] []"
+ },
+ {
+  "name": "nested_data",
+  "template": "{% for u in users %}{{ u.name }}:{% for r in u.roles %}{{ r }}{% if not loop.last %},{% endif %}{% endfor %};{% endfor %}",
+  "context": {
+   "users": [
+    {
+     "name": "a",
+     "roles": [
+      "x",
+      "y"
+     ]
+    },
+    {
+     "name": "b",
+     "roles": []
+    }
+   ]
+  },
+  "options": {},
+  "output": "a:x,y;b:;"
+ },
+ {
+  "name": "loop_changed",
+  "template": "{% for i in [1,1,2,2,3] %}{{ loop.changed(i) }} {% endfor %}",
+  "context": {},
+  "options": {},
+  "output": "True False True False True "
+ },
+ {
+  "name": "err_undefined_call",
+  "template": "{{ nope() }}",
+  "context": {},
+  "options": {},
+  "error": "UndefinedError"
+ },
+ {
+  "name": "err_add_str_int",
+  "template": "{{ 'a' + 1 }}",
+  "context": {},
+  "options": {},
+  "error": "TypeError"
+ },
+ {
+  "name": "err_unknown_filter",
+  "template": "{{ 1|nofilter }}",
+  "context": {},
+  "options": {},
+  "error": "TemplateAssertionError"
+ },
+ {
+  "name": "err_unknown_tag",
+  "template": "{% frobnicate %}",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_unclosed_if",
+  "template": "{% if true %}x",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_unclosed_var",
+  "template": "{{ 1 ",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_unclosed_string",
+  "template": "{{ 'a }}",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_unexpected_endfor",
+  "template": "{% endfor %}",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_raise",
+  "template": "{{ raise_exception('custom message') }}",
+  "context": {},
+  "options": {},
+  "error": "custom message"
+ },
+ {
+  "name": "err_compare_types",
+  "template": "{{ 1 < 'a' }}",
+  "context": {},
+  "options": {},
+  "error": "TypeError"
+ },
+ {
+  "name": "err_for_none",
+  "template": "{% for i in none %}{% endfor %}",
+  "context": {},
+  "options": {},
+  "error": "TypeError"
+ },
+ {
+  "name": "err_division_zero",
+  "template": "{{ 1 / 0 }}",
+  "context": {},
+  "options": {},
+  "error": "ZeroDivisionError"
+ },
+ {
+  "name": "err_unpack",
+  "template": "{% for a, b in [[1]] %}{% endfor %}",
+  "context": {},
+  "options": {},
+  "error": "ValueError"
+ },
+ {
+  "name": "err_set_attr_non_ns",
+  "template": "{% set d = {} %}{% set d.x = 1 %}",
+  "context": {},
+  "options": {},
+  "error": "TemplateRuntimeError"
+ },
+ {
+  "name": "err_bad_syntax",
+  "template": "{{ 1 + }}",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_missing_endblock_in_macro",
+  "template": "{% macro m() %}",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ },
+ {
+  "name": "err_call_nonmacro",
+  "template": "{{ 'abc'() }}",
+  "context": {},
+  "options": {},
+  "error": "TypeError"
+ },
+ {
+  "name": "err_int_sub_str",
+  "template": "{{ 1 - 'a' }}",
+  "context": {},
+  "options": {},
+  "error": "TypeError"
+ },
+ {
+  "name": "err_unknown_test",
+  "template": "{{ 1 is nosuchtest }}",
+  "context": {},
+  "options": {},
+  "error": "TemplateAssertionError"
+ },
+ {
+  "name": "err_elif_after_else",
+  "template": "{% if 1 %}{% else %}{% elif 2 %}{% endif %}",
+  "context": {},
+  "options": {},
+  "error": "TemplateSyntaxError"
+ }
+]

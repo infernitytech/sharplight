@@ -12,12 +12,24 @@ namespace Sharplight.Graph;
 /// Conventions: shapes are outermost-first. The token/batch axis is the (possibly symbolic) outermost
 /// axis. Reductions and normalizations operate on the innermost axis.
 /// </remarks>
-public static class StandardOps
+public static partial class StandardOps
 {
     // ---- elementwise ----------------------------------------------------------------------
     public static readonly string[] UnaryNames =
-        ["Neg", "Exp", "Log", "Sqrt", "Rsqrt", "Sigmoid", "Silu", "Gelu", "GeluTanh", "Tanh", "Softplus", "Relu", "Abs", "Square", "Recip"];
-    public static readonly string[] BinaryNames = ["Add", "Sub", "Mul", "Div", "Max", "Min"];
+        ["Neg", "Exp", "Log", "Sqrt", "Rsqrt", "Sigmoid", "Silu", "Gelu", "GeluTanh", "Tanh", "Softplus", "Relu", "Abs", "Square", "Recip",
+         "Erf", "HardSwish", "HardSigmoid" /* attrs alpha (0.2), beta (0.5) */,
+         "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh",
+         "Floor", "Ceil", "Round" /* half to even */, "Sign", "Softsign", "Mish",
+         "Elu" /* alpha (1) */, "Celu" /* alpha (1) */, "Selu" /* alpha (1.67326), gamma (1.0507) */,
+         "LeakyRelu" /* alpha (0.01) */, "ThresholdedRelu" /* alpha (1) */,
+         // Mask-producing / mask-consuming (masks are f32 0/1; non-zero means true):
+         "Not", "IsNaN", "IsInf"];
+    public static readonly string[] BinaryNames =
+        ["Add", "Sub", "Mul", "Div", "Max", "Min", "Pow",
+         "Mod" /* attr fmod (bool): C fmod vs. Python-style sign of divisor */,
+         "PRelu" /* x, slope */,
+         // Comparisons and logic produce f32 masks (1 = true, 0 = false):
+         "Equal", "NotEqual", "Less", "LessEqual", "Greater", "GreaterEqual", "And", "Or", "Xor"];
 
     /// <summary>y = x * scale + bias. Attributes: scale (float), bias (float).</summary>
     public static readonly OpSchema Scale = new("Scale", OpCategory.Elementwise, 1, 1, Same, "y = x*scale + bias");
@@ -65,7 +77,8 @@ public static class StandardOps
         var t = i[0].Shape;
         var dims = new List<Dim> { i[1].Shape[0] };
         for (int d = 1; d < t.Rank; d++) dims.Add(t[d]);
-        return [new TensorType(OutFloat(i[0].Type, a), new Shape(dims))];
+        // Rows are decoded into the activation type (f32 unless "out_type" says otherwise), whatever the table format.
+        return [new TensorType(a.Get("out_type", DataType.F32), new Shape(dims))];
     });
 
     // ---- linear algebra -------------------------------------------------------------------
@@ -88,7 +101,7 @@ public static class StandardOps
     public static readonly OpSchema L2Norm = new("L2Norm", OpCategory.Reduction, 1, 1, SameF32);
     /// <summary>Layer normalization over the last axis; optional weight and bias [D]. Attribute: eps.</summary>
     public static readonly OpSchema LayerNorm = new("LayerNorm", OpCategory.Reduction, 1, 3, SameF32);
-    /// <summary>Softmax over the last axis. Attribute: scale (applied before exp, default 1).</summary>
+    /// <summary>Softmax over the last axis. Attributes: scale (applied before exp, default 1), log (bool: LogSoftmax).</summary>
     public static readonly OpSchema Softmax = new("Softmax", OpCategory.Reduction, 1, 1, SameF32);
     /// <summary>Sum over the last axis (keeps a dimension of size 1).</summary>
     public static readonly OpSchema ReduceSum = new("ReduceSum", OpCategory.Reduction, 1, 1, (i, a) => [new(DataType.F32, i[0].Shape.WithLast(1))]);
@@ -98,7 +111,7 @@ public static class StandardOps
 
     // ---- composite ------------------------------------------------------------------------
     /// <summary>
-    /// Rotary position embedding on x [T, H, D] with positions i32 [A, T] (A position axes; A=1 for
+    /// Rotary position embedding on x [T, H, D] with positions i32 [T, A] (A position axes; A=1 for
     /// plain RoPE, &gt;1 for multi-axis / M-RoPE). Attributes:
     /// <c>dims</c> (rotated dims, ≤ D), <c>base</c>, <c>style</c> ("neox" pairs (i, i+dims/2), "gptj" pairs (2i, 2i+1)),
     /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style),
@@ -163,7 +176,6 @@ public static class StandardOps
     // ---- inference helpers ----------------------------------------------------------------
     static IReadOnlyList<TensorType> Same(IReadOnlyList<Value> i, Attributes a) => [new(i[0].Type, i[0].Shape)];
     static IReadOnlyList<TensorType> SameF32(IReadOnlyList<Value> i, Attributes a) => [new(DataType.F32, i[0].Shape)];
-    static DataType OutFloat(DataType t, Attributes a) => t.IsQuantized ? DataType.F32 : t;
 
     public static Shape BroadcastShapes(Shape a, Shape b)
     {

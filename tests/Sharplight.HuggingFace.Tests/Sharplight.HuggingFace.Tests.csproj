@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Tokenizers/Sharplight.Tokenizers.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
+  </ItemGroup>
+</Project>

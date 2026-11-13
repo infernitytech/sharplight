@@ -5,3 +5,5 @@ obj/
 .vs/
 .idea/
 TestResults/
+*.slm
+*.slm.tmp
