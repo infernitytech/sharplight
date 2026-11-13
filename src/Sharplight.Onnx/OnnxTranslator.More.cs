@@ -38,6 +38,7 @@ internal sealed partial class OnnxTranslator
 
     bool More(OnnxNode n, Tn?[] ins)
     {
+        if (QuantExtra(n, ins)) return true;
         if (n.Domain == "com.microsoft") { Contrib(n, ins); return true; }
         string name = Nm(n);
         switch (n.OpType)
@@ -392,6 +393,12 @@ internal sealed partial class OnnxTranslator
     /// <summary>Dequantizes a constant (per-tensor/per-axis zero point and scale) to f32.</summary>
     static OnnxConst DequantConst(OnnxConst x, OnnxConst scale, OnnxConst? zp, int axis = 0) => OnnxFold.Dequantize(x, scale, zp, axis);
 
+    Value ShiftZp(Tn a, Tn? zpT, string nm)
+    {
+        if (zpT is { IsConst: false }) return _b.Sub(AsValue(a), zpT.V!);   // runtime zero point (DynamicQuantizeLinear)
+        return ShiftZp(a, zpT?.C, nm);
+    }
+
     Value ShiftZp(Tn a, OnnxConst? zp, string nm)
     {
         var v = AsValue(a);
@@ -406,10 +413,10 @@ internal sealed partial class OnnxTranslator
         {
             case "MatMulInteger":
             {
-                var a = ShiftZp(ins[0]!, OptConst(ins, 2, "a zero point"), name);
+                var a = ShiftZp(ins[0]!, Opt(ins, 2), name);
                 var bC = ConstIn(ins, 1, "MatMulInteger B");
                 var bz = OptConst(ins, 3, "b zero point");
-                var bf = DequantConst(bC, OnnxConst.Scalar(1f), bz is null ? null : bz.Count == 1 ? bz : null);
+                var bf = DequantConst(bC, OnnxConst.Scalar(1f), bz, bC.Rank - 1);   // per-column zero points when bz is a vector
                 SetDyn(n, 0, MatMulWeightOrBatch(a, bf, name));
                 break;
             }
@@ -427,8 +434,9 @@ internal sealed partial class OnnxTranslator
                 bool q = n.OpType == "QLinearConv";
                 Tn xin = ins[0]!;
                 float aScale = q ? ConstIn(ins, 1, "x_scale").ScalarF32() : 1f;
-                var xzp = OptConst(ins, q ? 2 : 2, "x_zp");
-                var xv = ShiftZp(xin, xzp, name);
+                var xzp = q ? OptConst(ins, 2, "x_zp") : null;
+                var xv = ShiftZp(xin, q ? xzp : null, name);
+                if (!q) xv = ShiftZp(xin, Opt(ins, 2), name);
                 if (q) xv = _b.Scale(xv, aScale);
                 var wC = ConstIn(ins, q ? 3 : 1, "W");
                 var wscale = q ? ConstIn(ins, 4, "w_scale") : OnnxConst.Scalar(1f);
@@ -480,6 +488,14 @@ internal sealed partial class OnnxTranslator
             if (n.Outputs[i] != "") _env[n.Outputs[i]] = Get(g.Outputs[i].Name);
     }
 
+    /// <summary>Concat of any number of values (the IR op takes at most 64).</summary>
+    Value ConcatMany(int axis, Value[] vals)
+    {
+        var cur = vals;
+        while (cur.Length > 64) cur = [.. cur.Chunk(64).Select(c => c.Length == 1 ? c[0] : _b.Concat(axis, c))];
+        return cur.Length == 1 ? cur[0] : _b.Concat(axis, cur);
+    }
+
     // ---- RNN family ---------------------------------------------------------------------------------------------------
     static OnnxConst Slice0(OnnxConst c, long i)
     {
@@ -525,13 +541,11 @@ internal sealed partial class OnnxTranslator
             Value? h = null, c = null;
             if (ins.Length > 5 && ins[5] is { } h0)
             {
-                if (!h0.IsConst) throw new NotSupportedException("dynamic initial_h");
-                h = ConstValue(Slice0(h0.C!, d), null);
+                h = h0.IsConst ? ConstValue(Slice0(h0.C!, d), null) : layout == 0 ? Rs(_b.Slice(h0.V!, 0, d, 1), bsz, hs) : Rs(_b.Slice(h0.V!, 1, d, 1), 0, hs);
             }
             if (kind == "LSTM" && ins.Length > 6 && ins[6] is { } c0)
             {
-                if (!c0.IsConst) throw new NotSupportedException("dynamic initial_c");
-                c = ConstValue(Slice0(c0.C!, d), null);
+                c = c0.IsConst ? ConstValue(Slice0(c0.C!, d), null) : layout == 0 ? Rs(_b.Slice(c0.V!, 0, d, 1), bsz, hs) : Rs(_b.Slice(c0.V!, 1, d, 1), 0, hs);
             }
             for (int s = 0; s < seq; s++)
             {
@@ -592,10 +606,10 @@ internal sealed partial class OnnxTranslator
                 var hs_ = Ys[t].Select(v => layout == 0 ? Rs(v!, 1, 1, bsz, hs) : Rs(v!, 0, 1, 1, hs)).ToArray();
                 perTime.Add(D == 1 ? hs_[0] : _b.Concat(layout == 0 ? 1 : 2, hs_));
             }
-            SetDyn(n, 0, perTime.Count == 1 ? perTime[0] : _b.Concat(layout == 0 ? 0 : 1, perTime.ToArray()));
+            SetDyn(n, 0, perTime.Count == 1 ? perTime[0] : ConcatMany(layout == 0 ? 0 : 1, perTime.ToArray()));
         }
         Value Stack(Value[] v) => D == 1 ? (layout == 0 ? Rs(v[0], 1, bsz, hs) : Rs(v[0], 0, 1, hs))
-            : _b.Concat(layout == 0 ? 0 : 1, v.Select(x => layout == 0 ? Rs(x, 1, bsz, hs) : Rs(x, 0, 1, hs)).ToArray());
+            : ConcatMany(layout == 0 ? 0 : 1, v.Select(x => layout == 0 ? Rs(x, 1, bsz, hs) : Rs(x, 0, 1, hs)).ToArray());
         if (n.Outputs.Count > 1 && n.Outputs[1] != "") SetDyn(n, 1, Stack(lastH));
         if (n.Outputs.Count > 2 && n.Outputs[2] != "") SetDyn(n, 2, Stack(lastC.Select(c => c ?? throw new NotSupportedException("Y_c requested for a non-LSTM")).ToArray()));
     }
