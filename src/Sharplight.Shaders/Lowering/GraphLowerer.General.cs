@@ -93,6 +93,11 @@ public sealed partial class GraphLowerer
             return OpSupport.No("ConvTranspose weight type");
         }
 
+        if (op == "GridSample" && node.Inputs[0].Rank != 4)
+        {
+            return OpSupport.No("volumetric GridSample");
+        }
+
         if (op == "GridSample" && !(a.Get("mode", "linear") is "linear" or "nearest" or "cubic"))
         {
             return OpSupport.No("GridSample mode");

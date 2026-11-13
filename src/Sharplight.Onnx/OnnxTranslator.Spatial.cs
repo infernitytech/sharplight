@@ -288,8 +288,14 @@ internal sealed partial class OnnxTranslator
     {
         string mode = n.Str("mode", "bilinear");
         mode = mode == "bilinear" ? "linear" : mode == "bicubic" ? "cubic" : mode;
+        var x = X(ins, 0);
+        if (x.Rank is not (4 or 5) || (x.Rank == 5 && mode == "cubic"))
+        {
+            throw new NotSupportedException($"GridSample mode {mode} on a rank-{x.Rank} input (ONNX defines 2-D and volumetric non-cubic sampling)");
+        }
+
         var attributes = Attributes.From(("mode", mode), ("padding", n.Str("padding_mode", "zeros")), ("align_corners", n.Int("align_corners", 0) != 0));
-        SetDyn(n, 0, Emit("GridSample", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
+        SetDyn(n, 0, Emit("GridSample", [x, X(ins, 1)], attributes, Nm(n)));
     }
 
     private void RoiAlign(OnnxNode n, TranslatedTensor?[] ins)

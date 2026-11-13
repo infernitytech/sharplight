@@ -10,11 +10,7 @@ public static partial class StandardOps
     /// [N, C, HO, WO] flat indices into x: <c>((n·C + c)·H + h)·W + w</c>, or <c>((n·C + c)·W + w)·H + h</c> with <c>storage_order</c> 1.
     /// Ties resolve to the first maximum in row-major window order.
     /// </summary>
-    public static readonly OpSchema PoolArgMax = new("PoolArgMax", OpCategory.Reduction, 1, 1, (i, a) =>
-    {
-        var pooled = Pool.Infer(i, a)[0];
-        return [new(DataType.I32, pooled.Shape)];
-    });
+    public static readonly OpSchema PoolArgMax = new("PoolArgMax", OpCategory.Reduction, 1, 1, (i, a) => [new(DataType.I32, PooledShape(i[0].Shape, a))]);
 
     /// <summary>
     /// Region-of-interest max pooling (Fast R-CNN): x [N, C, H, W], rois [R, 5] rows (batch index, x1, y1, x2, y2) in input coordinates

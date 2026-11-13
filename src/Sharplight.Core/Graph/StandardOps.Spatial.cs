@@ -43,9 +43,11 @@ public static partial class StandardOps
     /// <c>ceil_mode</c> (bool), <c>count_include_pad</c> (bool, avg only). Padding never wins a max.
     /// Global pooling is <see cref="Reduce"/> over axes [2, 3].
     /// </summary>
-    public static readonly OpSchema Pool = new("Pool", OpCategory.Reduction, 1, 1, (i, a) =>
+    public static readonly OpSchema Pool = new("Pool", OpCategory.Reduction, 1, 1, (i, a) => [new(DataType.F32, PooledShape(i[0].Shape, a))]);
+
+    /// <summary>Output shape [N, C, HO, WO] of a 2-D pooling window (the <see cref="Pool"/> attributes) over x [N, C, H, W].</summary>
+    private static Shape PooledShape(Shape x, Attributes a)
     {
-        var x = i[0].Shape;
         if (x.Rank != 4)
         {
             throw new ArgumentException($"Pool expects x [N,C,H,W], got {x}.");
@@ -53,8 +55,8 @@ public static partial class StandardOps
 
         var k = a.Get<long[]>("kernel");
         var (ho, wo) = SpatialOut(x[2].Fixed, x[3].Fixed, k[0], k[1], a, a.Get("ceil_mode", false));
-        return [new(DataType.F32, new Shape(x[0], x[1], ho, wo))];
-    });
+        return new Shape(x[0], x[1], ho, wo);
+    }
 
     /// <summary>
     /// Reduction over arbitrary axes, including the symbolic outermost axis (whose output extent is then 1 or dropped).
