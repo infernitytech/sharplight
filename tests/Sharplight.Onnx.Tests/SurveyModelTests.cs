@@ -40,6 +40,8 @@ public class SurveyModelTests(ITestOutputHelper output)
         new("dpt-hybrid-midas", ["cpu", "vulkan"]),
         // RoiAlign, per-level NonMaxSuppression over data-dependent box counts concatenated along the outer axis, top-1000 prefix slices.
         new("fasterrcnn-12", ["cpu", "vulkan"]),
+        // QLinearConv chain feeding NonMaxSuppression: integer-exact requantization (any 1-LSB flip changes the selected boxes).
+        new("ssd-12-int8", ["cpu", "vulkan"]),
         new("maskrcnn-12", ["cpu", "vulkan"]),
         // Runtime If on the sample rate; the branch for the other rate does not translate for these frame sizes and is left out.
         new("zoo/silero-vad", ["cpu", "vulkan"], Unpins: ["sr"]),
