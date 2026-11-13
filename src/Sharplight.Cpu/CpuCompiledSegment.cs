@@ -577,7 +577,15 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var x = RowContig(RefF32(ins[0])); var w = RefF32(ins[1]); var st = Ref(ins[2]); var y = NewDense(n.Output);
                 bool stat = ins[1].Kind is ValueKind.Weight or ValueKind.Constant;
                 if (!stat) w = Dense(w);
-                AddStep(new CausalConv1dOp(x, w, st, y, a.Get("activation", "none") == "silu", stat), x, w, st, y);
+                var cb = ins.Length > 3 ? Dense(RefF32(ins[3])) : null;
+                AddStep(new CausalConv1dOp(x, w, st, y, a.Get("activation", "none") == "silu", stat, cb), cb is null ? [x, w, st, y] : [x, w, st, y, cb]);
+                _refs[n.Output] = y; return;
+            }
+            case "SelectiveScan":
+            {
+                var x = RowContig(Ref(ins[0])); var dt = RowContig(Ref(ins[1])); var bi = Dense(RefF32(ins[2])); var A = Dense(RefF32(ins[3]));
+                var Bm = RowContig(Ref(ins[4])); var Cm = RowContig(Ref(ins[5])); var D = Dense(RefF32(ins[6])); var st = Ref(ins[7]); var y = NewDense(n.Output);
+                AddStep(new SelectiveScanOp(x, dt, bi, A, Bm, Cm, D, st, y, a.Get("dt_min", 0f)), x, dt, bi, A, Bm, Cm, D, st, y);
                 _refs[n.Output] = y; return;
             }
             case "GatedDeltaRule":

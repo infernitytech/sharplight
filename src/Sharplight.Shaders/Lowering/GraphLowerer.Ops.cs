@@ -29,6 +29,7 @@ public sealed partial class GraphLowerer
             case "CachedAttention" or "Attention": LowerAttention(n); break;
             case "CausalConv1d": LowerConv(n); break;
             case "GatedDeltaRule": LowerDeltaRule(n); break;
+            case "SelectiveScan": LowerSelectiveScan(n); break;
             default:
                 if (LowerGeneral(n)) break;
                 if (s_elementwise.Contains(n.Op.Name)) { LowerElementwise([n], [n.Output]); break; }
@@ -568,11 +569,12 @@ public sealed partial class GraphLowerer
         if (w.Type != DataType.F32) throw new NotSupportedException("conv weight must be f32");
         var y = Produce(n.Output);
         long C = x.Shape[1], KS = w.Shape[1];
-        var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu")));
+        TensorRef? cb = n.Inputs.Length > 3 ? Ref(n.Inputs[3]) : null;
+        var k = Lib("recurrent.slang", "conv1d", Macros(("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"), ("HAS_BIAS", cb is not null)));
         Emit($"conv1d {n.Output.Name}", [n],
             [Always(k, _ => new Grid(Grid.Div(C, 128)))],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)],
-            [x, w, st], [y, st]);
+            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(st.Buffer, st.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), new PointerArg((cb ?? y).Buffer, (cb ?? y).ByteOffset), TokenArg(x)],
+            cb is null ? [x, w, st] : [x, w, st, cb], [y, st]);
     }
 
     void LowerDeltaRule(Node n)
