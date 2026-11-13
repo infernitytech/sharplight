@@ -5,8 +5,9 @@ namespace Sharplight.Vulkan.Tests;
 /// <summary>MatMulId (expert-indexed matmul): per-item matvec for few rows, grouped-by-expert GEMM for many.</summary>
 public sealed class MoeTests
 {
-    // Grouped (tensor-core / tiled) path above 16 (token, slot) items may round activations/weights to f16.
-    private static double Atol(int items) => items > 16 ? 1.5e-1 : 2e-3;
+    // Grouped (tensor-core / tiled) path above 16 (token, slot) items may round activations/weights to f16 (K-quant
+    // weights in two steps: the block scale, then the scaled code).
+    private static double Atol(int items) => items > 16 ? 2.5e-1 : 2e-3;
     private static double Rtol(int items) => items > 16 ? 1e-2 : 1e-3;
 
     // Up to 128 items, q8_0 and K-quant experts with K % 256 == 0 may run on the integer-dot matvec, which quantizes the

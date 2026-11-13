@@ -320,6 +320,66 @@ void load8_tern1(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v
     }
 }
 
+#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K)
+// Packed-half decoding of K-quant codes for the tensor-core GEMMs (needs Float16).
+
+// Bytes 0,1 (hi false) or 2,3 of u (codes 0..255) as half2 (code - offset) * scale + add.
+uint codes_h2(uint u, bool hi, half offset, half2 scale, half2 add)
+{
+    uint v = hi ? (((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u)) : ((u & 0xFFu) | ((u << 8) & 0xFF0000u));
+    return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(offset, offset)) * scale + add);
+}
+
+// 16 bytes from a 2-byte aligned address.
+uint4 load16_u16(uint8_t* p)
+{
+    uint16_t* h = (uint16_t*)p;
+    return uint4(uint(h[0]) | (uint(h[1]) << 16), uint(h[2]) | (uint(h[3]) << 16), uint(h[4]) | (uint(h[5]) << 16), uint(h[6]) | (uint(h[7]) << 16));
+}
+
+// 8 consecutive weights of row `row` from K offset 8g as packed halves: one 8-byte code load (Q6_K: u16 loads, its
+// 210-byte blocks are only 2-byte aligned) and half2 math, as load16h in matmul.slang. Offsets are summed before
+// they are added to the pointer.
+uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
+{
+    uint idx = (g & 31) * 8;
+#if WFMT == FMT_Q6_K
+    uint8_t* blk = w + rowBytes * row + uint64_t(g >> 5) * 210;
+    uint n = idx >> 7, qd = (idx & 127) >> 5, l0 = idx & 31;
+    uint16_t* pl = (uint16_t*)(blk + (n * 64 + (qd & 1) * 32 + l0));
+    uint16_t* ph = (uint16_t*)(blk + (128 + n * 32 + l0));
+    uint2 ql = uint2(uint(pl[0]) | (uint(pl[1]) << 16), uint(pl[2]) | (uint(pl[3]) << 16));
+    uint2 qh = uint2(uint(ph[0]) | (uint(ph[1]) << 16), uint(ph[2]) | (uint(ph[3]) << 16));
+    uint2 q = ((ql >> ((qd >> 1) * 4)) & 0x0F0F0F0Fu) | (((qh >> (2 * qd)) & 0x03030303u) << 4);
+    float d = h2f(*(uint16_t*)(blk + 208));
+    half2 a = half2(half(d * float(int(uint(blk[192 + n * 8 + (l0 >> 4) + 2 * qd]) << 24) >> 24)));
+    half2 add = half2(0.0h, 0.0h);
+    half offset = 1056.0h;
+#else
+#if WFMT == FMT_Q4_K
+    uint8_t* blk = w + rowBytes * row + uint64_t(g >> 5) * 144;
+    uint qsOffset = 16;
+#else
+    uint8_t* blk = w + rowBytes * row + uint64_t(g >> 5) * 176;
+    uint qsOffset = 48;
+#endif
+    uint j = idx >> 6, upper = (idx >> 5) & 1, l0 = idx & 31;
+    uint2 q = (*(uint2*)(blk + (qsOffset + 32 * j + l0)) >> (4 * upper)) & 0x0F0F0F0Fu;
+#if WFMT == FMT_Q5_K
+    q |= ((*(uint2*)(blk + (16 + l0)) >> (2 * j + upper)) & 0x01010101u) << 4;
+#endif
+    float sc, mn;
+    scale_min_k4(blk + 4, 2 * j + upper, sc, mn);
+    uint dm = *(uint*)blk;
+    half2 a = half2(half(f16tof32(dm & 0xFFFF) * sc));
+    half2 add = half2(half(-f16tof32(dm >> 16) * mn));
+    half offset = 1024.0h;
+#endif
+    return uint4(codes_h2(q.x, false, offset, a, add), codes_h2(q.x, true, offset, a, add),
+                 codes_h2(q.y, false, offset, a, add), codes_h2(q.y, true, offset, a, add));
+}
+#endif
+
 #ifdef WFMT
 void load8(uint8_t* base, uint64_t rowBytes, uint row, uint g, out float v[8])
 {

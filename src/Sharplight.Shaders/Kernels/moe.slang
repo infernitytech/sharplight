@@ -246,10 +246,14 @@ groupshared uint sItem[GBM];
 
 uint4 load8h(uint8_t* w, uint row, uint g)
 {
+#if WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K
+    return load8h_kquant(w, ROW_BYTES, row, g);
+#else
     float v[8];
     load8(w, ROW_BYTES, row, g, v);
     return uint4(f32tof16(v[0]) | (f32tof16(v[1]) << 16), f32tof16(v[2]) | (f32tof16(v[3]) << 16),
                  f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
+#endif
 }
 
 [shader("compute")]
