@@ -11,7 +11,7 @@ public interface IPartialOutputSegment
 {
     /// <summary>
     /// Copies <c>destination.Length</c> bytes of an output (dense logical layout) starting at <paramref name="byteOffset"/>, after
-    /// <see cref="ICompiledSegment.Execute"/>. Safe to call from several threads at once between executions.
+    /// <see cref="ICompiledSegment.Execute(RunParameters)"/>. Safe to call from several threads at once between executions.
     /// </summary>
     public void GetOutput(Value value, long byteOffset, Span<byte> destination);
 }

@@ -66,7 +66,7 @@ public sealed class Reranker : ITextReranker, IDisposable
     /// <summary>Loads a model (GGUF file, Hugging Face directory, ...) through the registered importers and compiles its classify graph.</summary>
     public static Reranker Load(string path, RerankerLoadOptions options)
     {
-        var (def, _, tok) = PackedModelLoadOptions.Open(path, options, new AdapterOptions
+        var (def, _, tok) = PackedModelLoader.Open(path, options, new AdapterOptions
         {
             KvCacheType = options.Adapter.KvCacheType, IncludeAuxiliaryGraphs = true, ContextLength = options.Adapter.ContextLength,
         });

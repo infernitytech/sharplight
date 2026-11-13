@@ -6,9 +6,9 @@ namespace Sharplight.Llm.Serving.Speculative;
 /// logits row per position, keeps the longest prefix of drafts that the target's own sampling reproduces, and rolls the target
 /// context back over the rest. Output is therefore distributed exactly as without speculation.
 /// <para>
-/// Implementations: <see cref="NgramSpeculator"/> (prompt lookup, no extra model) and <see cref="DraftModelSpeculator"/>
-/// (a small model of the same family). A multi-token-prediction head of the target model fits the same contract: it proposes
-/// from the target's hidden states, which a decoder exposing them could hand to such a speculator.
+/// The implementation is <see cref="NgramSpeculator"/> (prompt lookup, no extra model). A small draft model of the same family
+/// fits the same contract, and so does a multi-token-prediction head of the target model: it proposes from the target's
+/// hidden states, which a decoder exposing them could hand to such a speculator.
 /// </para>
 /// Called only from the engine's scheduler thread.
 /// </summary>
