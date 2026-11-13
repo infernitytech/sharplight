@@ -98,7 +98,7 @@ internal static class NodeTestRunner
                 1 => !p.Value.IsFloat,
                 _ => p.Key != inputInfos[0].Name,
             }).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
-            if (pinLevel > 0 && (pinned.Count == 0 || pinned.Count == inputs.Count))
+            if (pinLevel > 0 && pinned.Count == 0)
             {
                 continue;
             }

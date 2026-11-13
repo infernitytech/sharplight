@@ -58,11 +58,6 @@ internal sealed partial class OnnxTranslator
             }
         }
 
-        if (_graph.Inputs.All(i => initializerNames.Contains(i.Name) || _opts.ConstantInputs.ContainsKey(i.Name)))
-        {
-            throw new NotSupportedException("The ONNX graph has no dynamic inputs.");
-        }
-
         foreach (var node in live)
         {
             if (!_skip.Contains(node))
@@ -177,12 +172,9 @@ internal sealed partial class OnnxTranslator
             throw new InvalidDataException($"Graph output '{output.Name}' is never produced.");
         }
 
-        if (tensor.C is not null)
-        {
-            throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
-        }
-
-        var value = OutputCopy(tensor.V!, output.Name);
+        // A constant-folded output (Shape, Size, ConstantOfShape of pinned shapes, ...) is materialized as a constant and copied out.
+        var source = tensor.V ?? (OnnxType.IsInteger(tensor.C!.ElemType) ? Idx(tensor) : ConstValue(tensor.C, output.Name + ".constant"));
+        var value = OutputCopy(source, output.Name);
 
         _b.Output(output.Name, value);
     }
