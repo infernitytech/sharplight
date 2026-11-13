@@ -517,15 +517,32 @@ public sealed partial class GraphLowerer
         bool fa = !full && s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
                   && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0
                   && window == 0 && softcap == 0;   // the flash kernel has no sliding window / soft cap
-        var variants = new List<KernelVariant>();
-        if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
-        if (fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));
-        variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
-        Emit($"attention {n.Output.Name}", [n],
-            variants,
-            [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
-             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
-            [q, kc, vc], split ? [o, part] : [o]);
+        // Devices with a submission budget: the scalar kernel's cost grows with queries x keys, so a long batch is cut into row
+        // slices (launches that are skipped when the batch is shorter) of roughly budget milliseconds each (assuming ~3e9 key-dim
+        // multiply-adds per second, a slow integrated GPU; a faster device just gets a few extra cheap launches).
+        long maxRows = tq.Symbol is null ? tq.Shape[0] : Bound(Dim.Sym(tq.Symbol));
+        long sliceRows = maxRows;
+        if (!fa && _opt.SubmissionBudgetMs > 0)
+        {
+            long lMax = full ? maxRows : _opt.Compile.ContextLength;
+            long perRow = Math.Max(1, HQ * lMax * (D + DV));
+            sliceRows = Math.Clamp((long)(_opt.SubmissionBudgetMs * 3e6) / perRow, 8, maxRows);
+        }
+        int slices = (int)((maxRows + sliceRows - 1) / sliceRows);
+        for (int si = 0; si < slices; si++)
+        {
+            long row0 = si * sliceRows;
+            var variants = new List<KernelVariant>();
+            if (si == 0 && split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
+            if (si == 0 && fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));
+            if (slices == 1) variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
+            else variants.Add(new KernelVariant(b => Rows(b, tq) > row0, k, b => new Grid((uint)HQ, (uint)Math.Min(sliceRows, Rows(b, tq) - row0))));
+            Emit($"attention {n.Output.Name}", [n],
+                variants,
+                [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
+                 new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), TokenArg(q), new UIntArg((uint)row0)],
+                [q, kc, vc], split ? [o, part] : [o]);
+        }
         if (split)
             Emit($"attention {n.Output.Name} combine", [n],
                 [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],

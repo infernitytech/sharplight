@@ -16,6 +16,8 @@ public sealed class LoweringOptions
     /// </summary>
     public IReadOnlySet<string> Features { get; init; } = new HashSet<string>();
     public bool Has(string feature) => Features.Contains(feature);
+    /// <summary>See <see cref="DeviceInfo.SubmissionBudgetMs"/>: when > 0, single dispatches whose work grows with the batch (attention) are sliced to about this duration.</summary>
+    public double SubmissionBudgetMs { get; init; }
     public required CompileOptions Compile { get; init; }
     /// <summary>Model-level compilation cache for this device (see <see cref="CompileOptions.CacheFor"/>).</summary>
     public Runtime.ICompilationCache? Cache { get; init; }

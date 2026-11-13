@@ -64,6 +64,7 @@ struct Params
     float* part;
     uint* rt;
     uint T;
+    uint row0;   // first query row of this launch (long prefills are sliced into several launches)
 };
 
 #ifndef WG
@@ -137,7 +138,7 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
 void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 {
     uint h = gid.x;
-    uint t = gid.y;
+    uint t = gid.y + p.row0;
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
 #if FULL_ATTN
