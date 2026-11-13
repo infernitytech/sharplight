@@ -13,16 +13,6 @@ internal static class GgmlTypes
 
     // Types without a static in DataType are registered here (lowercase ggml names).
     internal static readonly DataType Q8_1 = DataType.Register("q8_1", DataTypeKind.Quantized, 32, 36);
-    internal static readonly DataType IQ2_XXS = DataType.Register("iq2_xxs", DataTypeKind.Quantized, 256, 66);
-    internal static readonly DataType IQ2_XS = DataType.Register("iq2_xs", DataTypeKind.Quantized, 256, 74);
-    internal static readonly DataType IQ2_S = DataType.Register("iq2_s", DataTypeKind.Quantized, 256, 82);
-    internal static readonly DataType IQ3_XXS = DataType.Register("iq3_xxs", DataTypeKind.Quantized, 256, 98);
-    internal static readonly DataType IQ3_S = DataType.Register("iq3_s", DataTypeKind.Quantized, 256, 110);
-    internal static readonly DataType IQ1_S = DataType.Register("iq1_s", DataTypeKind.Quantized, 256, 50);
-    internal static readonly DataType IQ1_M = DataType.Register("iq1_m", DataTypeKind.Quantized, 256, 56);
-    internal static readonly DataType TQ1_0 = DataType.Register("tq1_0", DataTypeKind.Quantized, 256, 54);
-    internal static readonly DataType TQ2_0 = DataType.Register("tq2_0", DataTypeKind.Quantized, 256, 66);
-    internal static readonly DataType NVFP4 = DataType.Register("nvfp4", DataTypeKind.Quantized, 64, 36);
     internal static readonly DataType F8_E4M3 = DataType.Register("f8_e4m3", DataTypeKind.Float, 1, 1);
 
     private static readonly DataType?[] s_byId = Build();
@@ -46,25 +36,25 @@ internal static class GgmlTypes
         types[13] = DataType.Q5_K;
         types[14] = DataType.Q6_K;
         types[15] = DataType.Q8_K;
-        types[16] = IQ2_XXS;
-        types[17] = IQ2_XS;
-        types[18] = IQ3_XXS;
-        types[19] = IQ1_S;
+        types[16] = DataType.IQ2_XXS;
+        types[17] = DataType.IQ2_XS;
+        types[18] = DataType.IQ3_XXS;
+        types[19] = DataType.IQ1_S;
         types[20] = DataType.IQ4_NL;
-        types[21] = IQ3_S;
-        types[22] = IQ2_S;
+        types[21] = DataType.IQ3_S;
+        types[22] = DataType.IQ2_S;
         types[23] = DataType.IQ4_XS;
         types[24] = DataType.I8;
         types[25] = DataType.I16;
         types[26] = DataType.I32;
         types[27] = DataType.I64;
         types[28] = DataType.F64;
-        types[29] = IQ1_M;
+        types[29] = DataType.IQ1_M;
         types[30] = DataType.BF16;
-        types[34] = TQ1_0;
-        types[35] = TQ2_0;
+        types[34] = DataType.TQ1_0;
+        types[35] = DataType.TQ2_0;
         types[39] = DataType.MXFP4;
-        types[40] = NVFP4;
+        types[40] = DataType.NVFP4;
         types[41] = DataType.Q1_0;
         types[42] = DataType.Q2_0;
         types[43] = F8_E4M3;
