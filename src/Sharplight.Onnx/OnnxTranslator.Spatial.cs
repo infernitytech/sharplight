@@ -339,7 +339,10 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, y);
     }
 
-    /// <summary>Pads of a transposed convolution; derived from output_shape or auto_pad when given.</summary>
+    /// <summary>
+    /// Pads of a transposed convolution; derived from output_shape or auto_pad when given. An output_shape larger than the full
+    /// transposed extent grows <paramref name="outputPadding"/> instead (negative pads are not representable).
+    /// </summary>
     private static long[] ConvTransposePads(OnnxNode n, Value x4D, long[] weightDims, long[] strides, long[] dilations, long[] outputPadding, bool oneD)
     {
         string autoPad = n.Str("auto_pad", "NOTSET");
@@ -356,6 +359,13 @@ internal sealed partial class OnnxTranslator
         for (int i = 0; i < 2; i++)
         {
             long total = strides[i] * (x4D.Shape[2 + i].Fixed - 1) + outputPadding[i] + (weightDims[2 + i] - 1) * dilations[i] + 1 - want[i];
+            if (total < 0)
+            {
+                // An output_shape beyond the full transposed extent appends zeros at the end, which is extra output padding.
+                outputPadding[i] -= total;
+                continue;
+            }
+
             bool upper = autoPad == "SAME_UPPER" || (outputShape is not null && autoPad != "SAME_LOWER");
             long small = total / 2;
             long big = total - small;
