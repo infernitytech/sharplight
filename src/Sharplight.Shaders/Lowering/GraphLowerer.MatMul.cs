@@ -89,7 +89,7 @@ public sealed partial class GraphLowerer
         if (UseIntDotMatvec(weightA.Type, K))
         {
             string intDotSource = DualEpilogueSource(a, bNode, group, output, "mmvq.slang");
-            EmitIntDotMatvec($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], x, xStride, rowsPerLead,
+            EmitIntDotMatvec($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead,
                 [weightA, weightB], y, N, K,
                 intDotMacros => _compiler.Compile("mmvq_dual.slang", intDotSource, "mmvq", _opt.Target, intDotMacros, _opt.Cache));
             var outsideIntDot = OutsideIntDotRange(x, rowsPerLead, weightA.Type);
@@ -169,7 +169,7 @@ public sealed partial class GraphLowerer
         var outer = _launchCondition;
         if (UseIntDotMatvec(plan.W.Type, plan.K))
         {
-            EmitIntDotMatvec(MatMulLabel(plan), [n], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
+            EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
                 macros => Lib("mmvq.slang", "mmvq", macros));
             var outsideIntDot = OutsideIntDotRange(plan.X, plan.RowsPerLead, plan.W.Type);
             _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);

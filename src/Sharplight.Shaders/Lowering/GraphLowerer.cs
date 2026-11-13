@@ -121,6 +121,7 @@ public sealed partial class GraphLowerer
             }
 
             _alloc.Free(entry.Root);
+            ReleaseRootScratch(entry.Root);
             return true;
         });
     }
