@@ -33,12 +33,19 @@ namespace Sharplight.Architectures;
 /// <c>residual.scale</c> (factor on every sub-layer output before the residual add, muP); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
 /// <c>attention.clip_qkv</c> (clamp of the q/k/v projections, OLMo 1); <c>attention.layer_head_counts</c> (per-layer query heads, OpenELM).
 /// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
-/// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>): <c>moe.expert_count</c>, <c>moe.expert_used_count</c>
-/// (top-k per token), <c>moe.normalize_weights</c> (renormalize the k selected router probabilities to sum 1; default false),
-/// <c>moe.router_activation</c> ("softmax" (default) or "sigmoid" scores), <c>moe.weights_scale</c> (factor on the selected weights, default 1).
-/// Router probabilities are softmax(router · h) (or sigmoid). Expert weights are rank-3 <c>mlp.experts.{gate,up,down}.weight</c> [E, N, K] and
-/// <c>moe.ffn_hidden_size</c> is the experts' inner size (<c>ffn_hidden_size</c> then only describes dense layers). A MoE layer may also carry a
-/// shared expert that sees every token (<c>mlp.shared.{gate,up,down}.weight</c>, added in full to the routed sum).</item>
+/// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>; routing and expert weights are those of <see cref="MoeBlock"/>):
+/// <c>moe.expert_count</c>, <c>moe.expert_used_count</c> (top-k per token), <c>moe.ffn_hidden_size</c> (the experts' inner size;
+/// <c>ffn_hidden_size</c> then only describes dense layers) and the routing keys of <see cref="MoeOptions"/>: <c>moe.router_activation</c>
+/// ("softmax" (default), "sigmoid", "softmax_topk", "sqrt_softplus"), <c>moe.normalize_weights</c> (default false), <c>moe.weights_scale</c>,
+/// <c>moe.group_count</c> / <c>moe.group_used_count</c> / <c>moe.group_score</c> (group-limited top-k), <c>moe.weights_before_experts</c>;
+/// optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
+/// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
+/// before the attention norm, SmallThinker).</item>
+/// <item>Attention temperature (Llama 4, Mistral 3): <c>attention.temperature_scale</c> (β, 0 = off), <c>attention.temperature_length</c> (L),
+/// <c>attention.temperature_offset</c> (o, default 0) and optional <c>attention.temperature_layers</c> (int[layer_count], default all): queries of
+/// those layers are multiplied by log(floor((pos + o) / L) + 1)·β + 1. <c>attention.qk_norm_layers</c> (int[layer_count]) limits the
+/// unweighted q/k norm to the flagged layers. Chunked attention <c>attention.chunk_size</c> with <c>attention.chunk_layers</c> (Llama 4)
+/// is accepted for contexts up to one chunk. <c>rope.local_freq_factors</c> (bool): sliding layers use <c>rope.freq_factors</c> too (gpt-oss).</item>
 /// <item><c>embedding_scale</c> (token embeddings are multiplied by it, default 1; Gemma sqrt(hidden_size)),
 /// <c>embedding_norm</c> (bool: a weight-less RMS norm is applied to the (scaled) token embeddings),
 /// <c>logit_scale</c> (logits are multiplied by it, default 1, before the soft cap),
@@ -61,7 +68,8 @@ namespace Sharplight.Architectures;
 /// <c>mlp.{gate,up,down}.weight</c> (+ optional <c>.bias</c>; no gate when not gated), optional <c>mlp.out_norm.weight</c>,
 /// optional <c>attention.sinks</c> (f32 [head_count]: a learned per-head logit that joins the softmax denominator without a value),
 /// optional <c>attention.gate.weight</c> (sigmoid output gate of the attention: a separate projection of the layer input),
-/// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it). A layer without <c>attention.v.weight</c> uses the
+/// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it), optional BitNet sub-norms <c>attention.sub_norm.weight</c> /
+/// <c>mlp.sub_norm.weight</c> (RMS norms of the inputs of the attention output and MLP down projections). A layer without <c>attention.v.weight</c> uses the
 /// key projection (before its norm) as value (Gemma 4 attention_k_eq_v).
 /// Semantics: RMS norm weights multiply directly (any "1 + w" convention is folded in by the importer); q/k rows are in
 /// rotate-half (neox) order per head, whatever <c>rope.style</c> says about the pairing the rope op uses on them is the

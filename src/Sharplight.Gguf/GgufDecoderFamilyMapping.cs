@@ -79,6 +79,7 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         var md = GgufDecoderHyperParameters.Common(g, Activation, RopeStyle, LayerNorm);
+        md[GgufDecoderHyperParameters.Prefix + "layer_count"] = TrunkLayerCount(g);
         if (!Gated)
         {
             md[GgufDecoderHyperParameters.Prefix + "mlp.gated"] = false;
@@ -114,13 +115,38 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
         }
 
         string suffix = m.Groups[2].Value;
-        if (LayerTensorOverrides is { } overrides && overrides.TryGetValue(suffix, out var overridden))
+        int layer = int.Parse(m.Groups[1].Value);
+        int trunkLayers = TrunkLayerCount(g);
+        string layerPrefix = layer < trunkLayers ? $"layers.{layer}." : $"mtp.layers.{layer - trunkLayers}.";
+        if (layer >= trunkLayers && s_nextn.TryGetValue(suffix, out var nextnName))
         {
-            return $"layers.{m.Groups[1].Value}.{overridden}";
+            return layerPrefix + nextnName;
         }
 
-        return DecoderGgufMapping.LayerTensors.TryGetValue(suffix, out var canonical) ? $"layers.{m.Groups[1].Value}.{canonical}" : null;
+        if (LayerTensorOverrides is { } overrides && overrides.TryGetValue(suffix, out var overridden))
+        {
+            return layerPrefix + overridden;
+        }
+
+        return DecoderGgufMapping.LayerTensors.TryGetValue(suffix, out var canonical) ? layerPrefix + canonical : null;
     }
+
+    /// <summary>
+    /// Decoder layers without the multi-token-prediction (NextN) blocks that some converters append after them (<c>nextn_predict_layers</c>).
+    /// The NextN tensors are kept under <c>mtp.layers.{j}.</c>; the decoder graph does not use them.
+    /// </summary>
+    protected static int TrunkLayerCount(GgufMetadataView g) => g.Int("block_count") - g.Int("nextn_predict_layers", 0);
+
+    /// <summary>NextN-only tensors of an MTP block, GGUF suffix to canonical suffix.</summary>
+    private static readonly Dictionary<string, string> s_nextn = new(StringComparer.Ordinal)
+    {
+        ["nextn.eh_proj.weight"] = "fc.weight",
+        ["nextn.enorm.weight"] = "embedding_norm.weight",
+        ["nextn.hnorm.weight"] = "hidden_norm.weight",
+        ["nextn.shared_head_norm.weight"] = "output_norm.weight",
+        ["nextn.shared_head_head.weight"] = "lm_head.weight",
+        ["nextn.embed_tokens.weight"] = "token_embedding.weight",
+    };
 
     /// <summary>Fused <c>attn_qkv</c> (q rows, then k, then v) and fused gate+up <c>ffn_up</c> (gate rows first) tensors are split.</summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
@@ -132,7 +158,8 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
         }
 
         int layer = int.Parse(m.Groups[1].Value);
-        string prefix = $"layers.{layer}.";
+        int trunkLayers = TrunkLayerCount(g);
+        string prefix = layer < trunkLayers ? $"layers.{layer}." : $"mtp.layers.{layer - trunkLayers}.";
         switch (m.Groups[2].Value)
         {
             case "attn_qkv.weight":

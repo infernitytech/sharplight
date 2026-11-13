@@ -53,6 +53,16 @@ internal static class GgufArchitectureMappings
         yield return new StableLmGgufMapping();
         yield return new ApertusGgufMapping();
         yield return new ArceeGgufMapping();
+        yield return new Glm4MoeGgufMapping();
+        yield return new Ernie45MoeGgufMapping();
+        yield return new RoutedMoeGgufMapping();
+        yield return new HunyuanMoeGgufMapping();
+        yield return new ExaoneMoeGgufMapping();
+        yield return new SmallThinkerGgufMapping();
+        yield return new GptOssGgufMapping();
+        yield return new Llama4GgufMapping();
+        yield return new Mistral3GgufMapping();
+        yield return new BitnetGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>

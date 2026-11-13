@@ -3,6 +3,9 @@ namespace Sharplight.Tokenizers.Bpe;
 /// <summary>A resolved <c>tokenizer.pre</c> value: splitter plus the BPE behaviours llama.cpp ties to it.</summary>
 internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool IgnoreMerges, bool DefaultAddBos)
 {
+    // Case-aware word pieces with optional contraction suffix and 1-3 digit groups (OpenAI o200k, Llama 4).
+    private const string Gpt4oPattern = @"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+
     public static PreTokenizerPreset Resolve(string? name)
     {
         switch (name)
@@ -25,7 +28,11 @@ internal sealed partial record PreTokenizerPreset(PreTokenizer Splitter, bool Ig
 
             // Llama 4 / Muse: the Tekken-style case-aware words with optional contraction suffix and 1-3 digit groups.
             case "llama4":
-                return new(new DefaultRegexStages([@"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"]), true, false);
+                return new(new DefaultRegexStages([Gpt4oPattern]), true, false);
+
+            // o200k (gpt-oss, MiniMax-M2, Kanana 2): the same word pattern as Llama 4, with the merges applied (llama.cpp GPT4O).
+            case "gpt-4o" or "minimax-m2" or "kanana2" or "talkie":
+                return new(new DefaultRegexStages([Gpt4oPattern]), false, false);
 
             // Flint: digit groups, CJK runs, then Llama-4-style case-aware words (no contraction after digits, punctuation/symbols grouped).
             case "flint":
