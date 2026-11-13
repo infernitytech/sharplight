@@ -8,6 +8,8 @@ namespace Sharplight.Shaders;
 /// selects a kernel that is also the portable fallback on devices lacking the feature.
 /// <list type="bullet">
 /// <item><c>SHARPLIGHT_DUMP_KERNELS=&lt;dir&gt;</c>: write the source and macros of every compiled kernel to the directory.</item>
+/// <item><c>SHARPLIGHT_COMPILE_THREADS=n</c>: number of kernels compiled with Slang at the same time (default: half the processor
+/// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
 /// <item><c>SHARPLIGHT_NO_SCHEDULE=1</c>: keep graph order instead of grouping launches by dependency level.</item>
 /// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 weights in the file layout (no aligned-quants repack).</item>
@@ -29,6 +31,9 @@ internal static class DiagnosticSwitches
 {
     /// <summary>Directory receiving every compiled kernel's source, or null.</summary>
     public static string? DumpKernelsDirectory { get; } = Read("SHARPLIGHT_DUMP_KERNELS");
+
+    /// <summary>Degree of parallelism of kernel compilation.</summary>
+    public static int CompileThreads { get; } = int.Parse(Read("SHARPLIGHT_COMPILE_THREADS") ?? Math.Clamp(Environment.ProcessorCount / 2, 2, 8).ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
 
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");

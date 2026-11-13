@@ -4,6 +4,14 @@ internal sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
 {
     private readonly long _each = parts[0].ByteLength;
     public long ByteLength => _each * parts.Length;
+    public void Materialize()
+    {
+        foreach (var part in parts)
+        {
+            part.Materialize();
+        }
+    }
+
     public void Read(long offset, Span<byte> destination)
     {
         while (destination.Length > 0)

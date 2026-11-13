@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using SlangShaderSharp;
@@ -12,15 +14,13 @@ namespace Sharplight.Shaders;
 /// </summary>
 public sealed class SlangCompiler : IDisposable
 {
-    private static readonly Lock s_globalLock = new();
-    private static IGlobalSession? s_global;
+    private static long s_compileTicks;
+    private static int s_compiled;
+    private static int s_diskHits;
 
     private readonly string _libraryDir;
     private readonly string? _cacheDir;
     private readonly ConcurrentDictionary<string, CompiledKernel> _memCache = new();
-    // Every instance shares the process-wide Slang global session, which is not thread-safe: compile serially
-    // across all instances (a per-instance lock let two devices compile concurrently).
-    private static readonly Lock _compileLock = new();
 
     /// <summary>Creates a compiler, extracting the embedded kernel library on first use.</summary>
     /// <param name="cacheDirectory">Directory for compiled binaries, shared by processes (null disables the disk cache).</param>
@@ -35,28 +35,13 @@ public sealed class SlangCompiler : IDisposable
         _libraryDir = KernelLibrary.Extract();
     }
 
-    private static IGlobalSession Global
-    {
-        get
-        {
-            lock (s_globalLock)
-            {
-                if (s_global is null)
-                {
-                    var r = Slang.CreateGlobalSession(Slang.ApiVersion, out var gs);
-                    if (r.Failed || gs is null)
-                    {
-                        throw new InvalidOperationException($"Failed to create Slang global session ({r}).");
-                    }
+    /// <summary>Process-wide totals of the kernels this process compiled with Slang or read from the disk cache (diagnostics).</summary>
+    public static CompileStatistics Statistics
+        => new(Volatile.Read(ref s_compiled), Volatile.Read(ref s_diskHits), TimeSpan.FromSeconds((double)Volatile.Read(ref s_compileTicks) / Stopwatch.Frequency));
 
-                    s_global = gs;
-                }
-                return s_global;
-            }
-        }
-    }
-
-    private static string Version => Global.GetBuildTagString();
+    /// <summary>Slang build tag, part of every cache key (the native library ships with the SlangShaderSharp package).</summary>
+    private static string Version { get; } = typeof(Slang).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? typeof(Slang).Assembly.GetName().Version?.ToString() ?? "";
 
     /// <summary>The per-user kernel cache directory.</summary>
     public static string DefaultCacheDirectory =>
@@ -68,15 +53,14 @@ public sealed class SlangCompiler : IDisposable
     /// <param name="target">Code generation target.</param>
     /// <param name="macros">Preprocessor macros specializing the kernel.</param>
     /// <param name="cache">Optional model-level cache, see <see cref="Compile"/>.</param>
-    /// <returns>The compiled kernel; identical requests return the same instance.</returns>
-    /// <exception cref="KernelCompilationException">Slang rejected the kernel.</exception>
+    /// <returns>The kernel; identical requests return the same instance. It may still be compiling in the background (see <see cref="CompiledKernel.Code"/>).</returns>
     public CompiledKernel CompileLibrary(string file, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
     {
-        var source = File.ReadAllText(Path.Combine(_libraryDir, file));
+        var source = KernelLibrary.ReadSource(file);
         // Files with several entry points guard each one with #ifdef KERNEL_<entry>.
         var m = new Dictionary<string, string>(macros) { ["KERNEL_" + entryPoint.ToUpperInvariant()] = "1" };
-        return Compile(file, source, entryPoint, target, m, cache);
+        return Compile(file, source, KernelLibrary.FileDigest(file), entryPoint, target, m, cache);
     }
 
     /// <summary>Compiles generated source (may #include library files).</summary>
@@ -87,12 +71,17 @@ public sealed class SlangCompiler : IDisposable
     /// <param name="macros">Preprocessor macros.</param>
     /// <param name="cache">Optional model-level cache (saved compiled models): consulted first, and given every
     /// kernel resolved so it can be exported.</param>
-    /// <returns>The compiled kernel; identical requests return the same instance.</returns>
-    /// <exception cref="KernelCompilationException">Slang rejected the kernel.</exception>
+    /// <returns>The kernel; identical requests return the same instance. Unless it was found in a cache it compiles on a
+    /// background thread (see <see cref="SlangWorkerPool"/>): a rejection by Slang surfaces as a
+    /// <see cref="KernelCompilationException"/> from <see cref="CompiledKernel.Code"/>.</returns>
     public CompiledKernel Compile(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
         Runtime.ICompilationCache? cache = null)
+        => Compile(name, source, KernelLibrary.Digest(source), entryPoint, target, macros, cache);
+
+    private CompiledKernel Compile(string name, string source, string sourceDigest, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros,
+        Runtime.ICompilationCache? cache)
     {
-        var key = CacheKey(source, entryPoint, target, macros);
+        var key = CacheKey(sourceDigest, entryPoint, target, macros);
         string ckey = "kernel/" + key;
         if (DiagnosticSwitches.DumpKernelsDirectory is { } dumpDirectory)
         {
@@ -100,53 +89,63 @@ public sealed class SlangCompiler : IDisposable
             File.WriteAllText(Path.Combine(dumpDirectory, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{key[..12]}.slang"),
                 $"// macros: {FormatMacros(macros)}\n{source}");
         }
-        if (_memCache.TryGetValue(key, out var hit))
-        {
-            if (cache is not null && !cache.TryGet(ckey, out _))
-            {
-                cache.Put(ckey, hit.Code);
-            }
 
-            return hit;
-        }
-        if (cache is not null && cache.TryGet(ckey, out var stored))
+        var fresh = new CompiledKernel(name, entryPoint, target, key);
+        var kernel = _memCache.GetOrAdd(key, fresh);
+        if (kernel == fresh)
         {
-            return _memCache[key] = new CompiledKernel(name, entryPoint, target, stored.ToArray(), key);
+            Resolve(fresh, source, ckey, macros, cache);
         }
 
-        var result = CompileNoModelCache(name, source, entryPoint, target, macros, key);
-        cache?.Put(ckey, result.Code);
-        return result;
+        if (cache is not null && !cache.TryGet(ckey, out _))
+        {
+            kernel.WhenReady(code => cache.Put(ckey, code));
+        }
+
+        return kernel;
     }
 
-    private CompiledKernel CompileNoModelCache(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros, string key)
+    /// <summary>Fills a new kernel from the model cache or the disk cache, or queues its compilation.</summary>
+    private void Resolve(CompiledKernel kernel, string source, string modelCacheKey, IReadOnlyDictionary<string, string> macros, Runtime.ICompilationCache? cache)
     {
+        if (cache is not null && cache.TryGet(modelCacheKey, out var stored))
+        {
+            kernel.Complete(stored.ToArray());
+            return;
+        }
 
-        string? cachePath = _cacheDir is null ? null : Path.Combine(_cacheDir, key + Extension(target));
+        string? cachePath = _cacheDir is null ? null : Path.Combine(_cacheDir, kernel.CacheKey + Extension(kernel.Target));
         // The disk cache is shared by processes; an entry may disappear between check and read (pruned by another
         // process), which is just a miss.
         if (cachePath is not null && TryRead(cachePath) is { } cached)
         {
-            var k = new CompiledKernel(name, entryPoint, target, cached, key);
-            _memCache[key] = k;
-            return k;
+            Interlocked.Increment(ref s_diskHits);
+            kernel.Complete(cached);
+            return;
         }
 
-        byte[] code;
-        lock (_compileLock) // Slang sessions are not thread-safe; compile serially.
-        {
-            code = CompileUncached(name, source, entryPoint, target, macros);
-        }
+        SlangWorkerPool.Shared.Enqueue(
+            session =>
+            {
+                long start = Stopwatch.GetTimestamp();
+                var code = CompileUncached(session, kernel.Name, source, kernel.EntryPoint, kernel.Target, macros);
+                Interlocked.Add(ref s_compileTicks, Stopwatch.GetTimestamp() - start);
+                Interlocked.Increment(ref s_compiled);
+                if (cachePath is not null)
+                {
+                    var tmp = cachePath + "." + Environment.ProcessId + "." + Environment.CurrentManagedThreadId + ".tmp";
+                    File.WriteAllBytes(tmp, code);
+                    File.Move(tmp, cachePath, overwrite: true);
+                }
 
-        if (cachePath is not null)
-        {
-            var tmp = cachePath + "." + Environment.ProcessId + ".tmp";
-            File.WriteAllBytes(tmp, code);
-            File.Move(tmp, cachePath, overwrite: true);
-        }
-        var compiled = new CompiledKernel(name, entryPoint, target, code, key);
-        _memCache[key] = compiled;
-        return compiled;
+                kernel.Complete(code);
+            },
+            error =>
+            {
+                // A failed kernel must not poison later requests.
+                _memCache.TryRemove(new KeyValuePair<string, CompiledKernel>(kernel.CacheKey, kernel));
+                kernel.Fail(error);
+            });
     }
 
     private static byte[]? TryRead(string path)
@@ -161,9 +160,8 @@ public sealed class SlangCompiler : IDisposable
         }
     }
 
-    private byte[] CompileUncached(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
+    private byte[] CompileUncached(IGlobalSession gs, string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
     {
-        var gs = Global;
         var desc = new SessionDesc
         {
             Targets = [new TargetDesc { Format = Format(target), Profile = gs.FindProfile(Profile(target)) }],
@@ -220,16 +218,15 @@ public sealed class SlangCompiler : IDisposable
         _ => ".bin",
     };
 
-    private string CacheKey(string source, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
+    private static string CacheKey(string sourceDigest, string entry, ShaderTarget target, IReadOnlyDictionary<string, string> macros)
     {
         var sb = new StringBuilder();
-        sb.Append(Version).Append('\n').Append(KernelLibrary.Hash).Append('\n').Append(target).Append('\n').Append(entry).Append('\n');
+        sb.Append(Version).Append('\n').Append(sourceDigest).Append('\n').Append(target).Append('\n').Append(entry).Append('\n');
         foreach (var kv in macros.OrderBy(k => k.Key, StringComparer.Ordinal))
         {
             sb.Append(kv.Key).Append('=').Append(kv.Value).Append(';');
         }
 
-        sb.Append('\n').Append(source);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())))[..32].ToLowerInvariant();
     }
 

@@ -14,4 +14,12 @@ public interface IWeightSource
     /// uploads; otherwise <see cref="IntPtr.Zero"/>.
     /// </summary>
     public nint TryGetPointer() => 0;
+
+    /// <summary>
+    /// Computes the data now if this source produces it lazily on first <see cref="Read"/> (default: nothing to do), so that a
+    /// consumer can produce several weights in parallel ahead of reading them. Thread-safe; concurrent reads wait for the result.
+    /// </summary>
+    public void Materialize()
+    {
+    }
 }
