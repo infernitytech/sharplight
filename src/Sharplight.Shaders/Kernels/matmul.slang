@@ -7,6 +7,13 @@
 #ifndef DUAL
 #define DUAL 0
 #endif
+// MOE (gemm_cm2 only): expert-grouped GEMM of a MatMulId. W holds E experts of N rows (EXPERT_BYTES apart); y gets one row per
+// (token, slot) item. Each workgroup row of the grid is one expert tile of the routing scratch built by moe_route (moe.slang):
+// [0] = tile count, [1 + 3i ..] = tile i {expert, row offset, rows}, [1 + 3 MAXTILES + o] = item at sorted position o. Item i
+// reads activation row PER_SLOT ? i : i / S.
+#ifndef MOE
+#define MOE 0
+#endif
 
 struct Params
 {
@@ -17,6 +24,9 @@ struct Params
     uint8_t* w;
 #if DUAL
     uint8_t* w2;
+#endif
+#if MOE
+    uint* scratch;
 #endif
     float* y;
     uint T;
@@ -451,6 +461,13 @@ uint q8x4_h2(uint u, half2 d, bool hi)
     return bit_cast<uint>((bit_cast<half2>(v | 0x64006400u) - half2(1152.0h, 1152.0h)) * d);
 }
 
+// 2 of the 4 E2M1 codes in u (bytes 0,1 or 2,3) -> half2 of value * s1 * s2.
+uint fp4_h2(uint u, bool hi, half2 s1, half2 s2)
+{
+    uint v = hi ? (((u >> 16) & 0xFFu) | ((u >> 8) & 0xFF0000u)) : ((u & 0xFFu) | ((u << 8) & 0xFF0000u));
+    return bit_cast<uint>(bit_cast<half2>(((v & 0x00070007u) << 9) | ((v & 0x00080008u) << 12)) * s1 * s2);
+}
+
 // 8 consecutive weights of row `row` from K offset 8g as packed halves.
 uint4 load8h(uint8_t* w, uint row, uint g);
 
@@ -500,6 +517,43 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 z = half2(0.0h, 0.0h);
     lo = uint4(codes_h2(q.x, false, 1056.0h, s, z), codes_h2(q.x, true, 1056.0h, s, z), codes_h2(q.y, false, 1056.0h, s, z), codes_h2(q.y, true, 1056.0h, s, z));
     hi = uint4(codes_h2(q.z, false, 1056.0h, s, z), codes_h2(q.z, true, 1056.0h, s, z), codes_h2(q.w, false, 1056.0h, s, z), codes_h2(q.w, true, 1056.0h, s, z));
+#elif WFMT == FMT_Q8_0
+    // 34-byte blocks { f16 d; i8 qs[32] }, 2-byte aligned: word loads, then the int8 -> half trick of Q8_0R.
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 34;
+    half2 d = bit_cast<half2>(uint(*(uint16_t*)at) * 0x10001u);
+    uint4 q = load16_any(at + (2 + 16 * (g16 & 1)));
+    lo = uint4(q8x4_h2(q.x, d, false), q8x4_h2(q.x, d, true), q8x4_h2(q.y, d, false), q8x4_h2(q.y, d, true));
+    hi = uint4(q8x4_h2(q.z, d, false), q8x4_h2(q.z, d, true), q8x4_h2(q.w, d, false), q8x4_h2(q.w, d, true));
+#elif WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0
+    // Q4_0 { f16 d; u8 qs[16] } (18 bytes), Q5_0 { f16 d; u32 qh; u8 qs[16] } (22 bytes): values 0..15 are the low nibbles
+    // of qs, 16..31 the high ones (Q5_0: bit 4 of value i is bit i of qh). (1024 + q) - offset is exact, * d rounds once.
+#if WFMT == FMT_Q4_0
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 18;
+    uint4 q = (load16_any(at + 2) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+    half offset = 1032.0h;
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 22;
+    uint4 q = (load16_any(at + 6) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+    uint qh = uint(*(uint16_t*)(at + (2 + 2 * (g16 & 1))));
+    // Bit j of each nibble group goes to bit 4 of byte j (the four shifted copies of the nibble do not overlap).
+    q |= ((uint4(qh, qh >> 4, qh >> 8, qh >> 12) & 0xFu) * 0x00204081u & 0x01010101u) << 4;
+    half offset = 1040.0h;
+#endif
+    half2 d = bit_cast<half2>(uint(*(uint16_t*)at) * 0x10001u);
+    half2 z = half2(0.0h, 0.0h);
+    lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
+    hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_MXFP4
+    // 16 E2M1 codes (the low or high nibbles of one 17-byte block). A code's
+    // 3 magnitude bits at half bits 9..11 and its sign at bit 15 make the half code * 2^-14 (subnormals included), so
+    // one multiply by 2^14 * the block scale (a power of two, split in two factors when it exceeds half's range) rounds once.
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 17;
+    uint4 q = (load16_any(at + 1) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+    float s = e8m0_half(uint(*(uint8_t*)at)) * 32768.0;   // e8m0_half pairs with the doubled codes 0..12
+    half2 s1 = half2(half(min(s, 32768.0)));
+    half2 s2 = half2(half(max(s / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #else
     lo = load8h(w, row, g16 * 2);
     hi = load8h(w, row, g16 * 2 + 1);
@@ -532,6 +586,9 @@ uint4 load8h(uint8_t* w, uint row, uint g)
 #endif
 }
 groupshared float gC[WARPS_M * WARPS_N * 256];
+#if MOE
+groupshared uint gItem[GBM];
+#endif
 
 [shader("compute")]
 [numthreads(GTHREADS, 1, 1)]
@@ -541,7 +598,24 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     uint tid = ltid.x;
     uint sg = tid / 32, lane = tid % 32;
     uint n0 = gid.x * GBN;
+#if MOE
+    // The tile's expert and items; t indexes the tile's rows (0 .. rows - 1) instead of tokens.
+    uint tile = gid.y;
+    if (tile >= p.scratch[0]) return;
+    uint expert = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile];
+    uint tileRows = p.scratch[3 + 3 * tile];
+    uint8_t* wbase = rowStart(p.w, EXPERT_BYTES, expert);
+    for (uint r = tid; r < GBM; r += GTHREADS) gItem[r] = r < tileRows ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0xFFFFFFFFu;
+    GroupMemoryBarrierWithGroupSync();
+    uint t0 = 0;
+    #define ROW_OF(t) (PER_SLOT ? gItem[t] : gItem[t] / S)
+    #define ROWS_LIVE tileRows
+#else
     uint t0 = gid.y * GBM;
+    uint8_t* wbase = p.w;
+    #define ROW_OF(t) (t)
+    #define ROWS_LIVE p.T
+#endif
     uint wm = (sg / WARPS_N) * (FRAG_M * 16);
     uint wn = (sg % WARPS_N) * (FRAG_N * 16);
 #ifndef SPLITK
@@ -566,11 +640,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if X_F16
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
-        { dst = 0; if ((t) < p.T) dst = ((uint4*)((uint16_t*)p.x + uint64_t(t) * X_STRIDE + (k)))[0]; }
+        { dst = 0; if ((t) < ROWS_LIVE) dst = ((uint4*)((uint16_t*)p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)))[0]; }
 #else
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
         { float4 a = 0, b = 0;                                                                          \
-          if ((t) < p.T) { float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
+          if ((t) < ROWS_LIVE) { float4* xp = (float4*)(p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
           dst = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),       \
                       f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16)); }
 #endif
@@ -585,7 +659,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / (GBK / 16), q = idx % (GBK / 16);                     \
         ws[it][0] = 0; ws[it][1] = 0;                                                                   \
-        if (N % GBN == 0 || n0 + r < N) load16h(p.w, n0 + r, (k0) / 16 + q, ws[it][0], ws[it][1]);      \
+        if (N % GBN == 0 || n0 + r < N) load16h(wbase, n0 + r, (k0) / 16 + q, ws[it][0], ws[it][1]);      \
     }
     #define STAGE(buf)                                                                                  \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
@@ -640,8 +714,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef FETCH
     #undef STAGE
     #undef GEMM_LOAD_X
+    #undef ROW_OF
+    #undef ROWS_LIVE
 
-    if (t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
+    if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
     {
         [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++)
             acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(yb + uint64_t(t0 + wm + i * 16) * Y_STRIDE + n0 + wn + j * 16, 0u, Y_STRIDE);
@@ -662,7 +738,11 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
                 uint w = lane + e * 32;
                 uint t = t0 + wm + i * 16 + w / 16;
                 uint n = n0 + wn + j * 16 + w % 16;
+#if MOE
+                if (t < tileRows && n < N) yb[uint64_t(gItem[t]) * N + n] = gC[sg * 256 + w];
+#else
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w];
+#endif
             }
             GroupMemoryBarrierWithGroupSync();
         }

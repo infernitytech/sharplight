@@ -41,7 +41,8 @@ public sealed class BenchTests
         }
 
         seg.Profile = false;
-        double total = seg.ProfileData.Values.Sum(v => v.Ms) / iters;
+        // Sum of the per-dispatch minimum times: the GPU is shared, so averages pick up other processes' work.
+        double total = seg.ProfileData.Values.Sum(v => v.MinMs * v.Count / iters);
         return (total, seg.ProfileReport(12));
     }
 
@@ -67,10 +68,19 @@ public sealed class BenchTests
     [Theory]
     [InlineData("f16")]
     [InlineData("q8_0")]
+    [InlineData("q4_k")]
+    [InlineData("q5_k")]
+    [InlineData("q6_k")]
+    [InlineData("iq4_xs")]
     public void MatMulPrefill(string type)
     {
         RequireBench();
-        foreach (var (K, N) in new[] { (5120, 17408), (17408, 5120), (5120, 6144) })
+        if (TestSwitches.BenchmarkTypes is { } only && !only.Contains(type))
+        {
+            return;
+        }
+
+        foreach (var (K, N) in new[] { (5120, 17408), (17408, 5120), (5120, 6144), (4096, 14336), (14336, 4096), (4096, 4096) })
         {
             var tg = new TG();
             var x = tg.InF("x", TG.T, K);
@@ -78,9 +88,13 @@ public sealed class BenchTests
             tg.B.Output("y", tg.B.MatMul(x, w));
             using var m = Compile(tg.B.Build(), 512);
             Feed(m, x, 512L * K);
-            var (ms, rep) = Profile(m, 512);
+            var (ms, rep) = Profile(m, 512, iters: 50);
+            if (TestSwitches.BenchmarkReports)
+            {
+                Console.WriteLine(rep);
+            }
             double gflop = 2.0 * 512 * K * N * 1e-9;
-            Console.WriteLine($"BENCH matmul {type} T=512 {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s\n{rep}");
+            Console.WriteLine($"BENCH matmul {type} T=512 {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s");
         }
     }
 

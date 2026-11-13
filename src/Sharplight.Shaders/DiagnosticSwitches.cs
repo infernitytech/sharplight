@@ -11,13 +11,22 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_COMPILE_THREADS=n</c>: number of kernels compiled with Slang at the same time (default: half the processor
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
+/// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_SCHEDULE=1</c>: keep graph order instead of grouping launches by dependency level.</item>
 /// <item><c>SHARPLIGHT_NO_REPACK=1</c>: keep Q8_0 weights in the file layout (no aligned-quants repack).</item>
 /// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
+/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
+/// matvecs instead of the integer-dot matvec.</item>
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 16 for
 /// Q8_0, 8 for the K-quants).</item>
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
+/// <item><c>SHARPLIGHT_MMQ=0|all|fmt,fmt</c>: weight formats whose prefill matmuls use the int8 tensor-core GEMM (q8_1
+/// activations, <c>mmq.slang</c>) instead of the f16 one: none, every supported format (q8_0, q4_k, q5_k, q6_k, iq4_nl, iq4_xs),
+/// or a list (default: iq4_nl, iq4_xs). Disabling <c>matrix_int8</c> turns it off as well.</item>
+/// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 65).</item>
+/// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
+/// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
@@ -37,7 +46,8 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
 /// block of the delta-rule and selective-scan kernels.</item>
 /// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_MMVQ_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
-/// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>).</item>
+/// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>). <c>SHARPLIGHT_MOE_GEMM2=0</c>: run
+/// grouped expert matmuls on moe_gemm_cm instead of the expert-grouped gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_CONV_NO_MATRIX=1</c>: run convolutions on the SIMT conv_gemm instead of the cooperative-matrix conv_cm.</item>
 /// </list>
 /// </summary>
@@ -51,6 +61,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
+
+    /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
+    public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
+
+    /// <summary>Disables merging elementwise groups along data flow.</summary>
+    public static bool NoGroupMerge { get; } = IsSet("SHARPLIGHT_NO_GROUP_MERGE");
 
     /// <summary>Disables level scheduling of units.</summary>
     public static bool NoSchedule { get; } = IsSet("SHARPLIGHT_NO_SCHEDULE");
@@ -66,6 +82,21 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced integer-dot matvec layout (weight rows per workgroup, subgroups per workgroup), or null.</summary>
     public static int[]? IntDotLayout { get; } = Read("SHARPLIGHT_MMVQ_LAYOUT")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Weight formats of the int8 tensor-core GEMM ("0", "all" or a comma-separated list), or null for the default.</summary>
+    public static string? MmqFormats { get; } = Read("SHARPLIGHT_MMQ");
+
+    /// <summary>Activation rows from which the int8 GEMM serves a matmul.</summary>
+    public static long MmqMinRows { get; } = long.Parse(Read("SHARPLIGHT_MMQ_MIN_ROWS") ?? "65", CultureInfo.InvariantCulture);
+
+    /// <summary>Forced layout of the 128-token int8 GEMM tile (warps M, warps N, fragments M, fragments N), or null.</summary>
+    public static int[]? MmqLayout { get; } = Read("SHARPLIGHT_MMQ_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Forced layout of the 64-token int8 GEMM tile, or null.</summary>
+    public static int[]? MmqLayout64 { get; } = Read("SHARPLIGHT_MMQ_CFG64")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>True when the int8 GEMM always scales its accumulators per element.</summary>
+    public static bool MmqGenericLayout { get; } = IsSet("SHARPLIGHT_MMQ_GENERIC");
 
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");
@@ -141,6 +172,9 @@ internal static class DiagnosticSwitches
     /// per-item matvec (which re-reads shared experts' weights from cache) is faster.
     /// </summary>
     public static int MoeScalarRows { get; } = int.Parse(Read("SHARPLIGHT_MOE_SCALAR_ROWS") ?? "12", CultureInfo.InvariantCulture);
+
+    /// <summary>False selects moe_gemm_cm instead of the expert-grouped gemm_cm2 for tensor-core expert matmuls.</summary>
+    public static bool MoeGemm2 { get; } = IsNotZero("SHARPLIGHT_MOE_GEMM2");
 
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");

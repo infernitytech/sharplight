@@ -143,7 +143,7 @@ internal static class Rnd
             }
             else if (t == DataType.MXFP4)
             {
-                bytes[o] = (byte)(122 + rng.Next(6));
+                bytes[o] = (byte)(122 + (int)MathF.Round(MathF.Log2(scale)) + rng.Next(6));
             }
             else if (t == DataType.NVFP4)
             {

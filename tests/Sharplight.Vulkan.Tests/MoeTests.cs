@@ -13,7 +13,8 @@ public sealed class MoeTests
     // Up to 128 items, q8_0 and K-quant experts with K % 256 == 0 may run on the integer-dot matvec, which quantizes the
     // activations to 8 bits per 32-value block: an absolute error proportional to the (large) norms of these random
     // weight rows. IntDotExactActivations checks its arithmetic tightly.
-    private static bool IntDot(string fmt, int items, int k) => items <= 128 && k % 256 == 0 && fmt is "q8_0" or "q4_k" or "q5_k" or "q6_k";
+    private static bool IntDot(string fmt, int items, int k)
+        => items <= 128 && (k % 256 == 0 && fmt is "q4_k" or "q5_k" or "q6_k" || k % 32 == 0 && fmt is "q8_0" or "q4_0" or "q5_0" or "iq4_nl" or "mxfp4");
 
     private static double Atol(string fmt, int items, int k) => IntDot(fmt, items, k) ? 3.0 : Atol(items);
 
@@ -54,11 +55,15 @@ public sealed class MoeTests
     [InlineData("q4_k", 3, 8, false)]
     [InlineData("q5_k", 2, 4, true)]
     [InlineData("q6_k", 4, 2, false)]
+    [InlineData("q4_0", 2, 4, false)]
+    [InlineData("q5_0", 3, 2, true)]
+    [InlineData("mxfp4", 1, 4, false)]
+    [InlineData("mxfp4", 5, 4, false)]
     public void IntDotExactActivations(string fmt, int t, int s, bool perSlot) => Run(fmt, t, s, perSlot, "random", exactInt8: true);
 
     public static IEnumerable<object[]> FormatCases()
     {
-        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k" })
+        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q5_0", "q4_k", "q5_k", "q6_k", "mxfp4" })
         {
             foreach (var t in new[] { 1, 3, 70 })
             {

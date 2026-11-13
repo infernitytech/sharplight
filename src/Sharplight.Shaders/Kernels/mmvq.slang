@@ -4,7 +4,8 @@
 // block is read once for all activation rows and the activation traffic is one byte per value.
 //
 // Quantized activation row (QROW bytes): [K int8 q][K/32 float2 (d, d * sum(q))], x ≈ d * q per 32-value block.
-// Specialization macros: WFMT (q8_0r, q4_k, q5_k, q6_k), K, N, Y_STRIDE, ROW_BYTES, SG;
+// Specialization macros: WFMT (q8_0r, q4_k, q5_k, q6_k and the 32-value block formats q8_0, q4_0, q5_0, iq4_nl, mxfp4), K, N,
+// Y_STRIDE, ROW_BYTES, SG;
 // MQ_COLS (activation rows handled per launch, >= T), MQ_ROWS (weight rows per workgroup), MQ_SG (subgroups per workgroup).
 #include "common.slang"
 
@@ -220,6 +221,100 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
     float4 i = float4(float(dot16(w.q0, x.q0)), float(dot16(w.q1, x.q1)), float(dot16(w.q2, x.q2)), float(dot16(w.q3, x.q3)));
     return dot(w.s * x.d, i);
 }
+#elif WFMT == FMT_Q8_0 || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0 || WFMT == FMT_IQ4_NL || WFMT == FMT_MXFP4
+// One 32-value block per chunk: Q8_0 { f16 d; i8 qs[32] } (34 bytes), Q4_0 { f16 d; u8 qs[16] } (18), Q5_0 { f16 d; u32 qh;
+// u8 qs[16] } (22), IQ4_NL like Q4_0 through the codebook, MXFP4 { u8 e; u8 qs[16] } (17). Nibble formats hold values 0..15
+// in the low nibbles and 16..31 in the high ones. Q4_0 / Q5_0 codes stay unsigned: their offset (8 / 16) is applied through
+// the activation block sum, sum((q - o) x) = sum(q x) - o sum(x).
+#define CHUNK_VALUES 32
+struct WChunk { uint4 lo; uint4 hi; float d; float off; };
+struct XChunk { uint4 lo; uint4 hi; float2 d; };
+
+#if WFMT == FMT_MXFP4
+// Four E2M1 codes (one per byte of u, low 4 bits) as the doubled int8 values: magnitude code m (0..7) maps to
+// m + max(0, m - 4) + 2 max(0, m - 6) = {0, 1, 2, 3, 4, 6, 8, 12}, computed bytewise without carries; then the sign
+// (bit 3) negates as (v ^ 0xFF) + 1, skipping zero bytes so no carry crosses a byte.
+uint fp4_bytes(uint u)
+{
+    uint m = u & 0x07070707u;
+    uint ge4 = (m >> 2) & 0x01010101u;
+    uint ge6 = ge4 & (m >> 1);
+    uint v = m + (m & 0x03030303u & (ge4 * 0xFFu)) + ((m & ge6) << 1);
+    uint neg = (u >> 3) & 0x01010101u & ((v + 0x7F7F7F7Fu) >> 7);
+    return (v ^ (neg * 0xFFu)) + neg;
+}
+#endif
+
+#if WFMT == FMT_IQ4_NL
+// Four nibbles (one per byte of u, low 4 bits) through a 16-entry int8 codebook packed four per word.
+uint codebook_bytes(uint u, uint4 kv)
+{
+    uint r = 0;
+    [ForceUnroll]
+    for (uint i = 0; i < 4; i++)
+    {
+        uint n = (u >> (8 * i)) & 0xF;
+        r |= ((kv[n >> 2] >> (8 * (n & 3))) & 0xFF) << (8 * i);
+    }
+    return r;
+}
+#endif
+
+WChunk load_chunk(uint8_t* w, uint row, uint ch)
+{
+#if WFMT == FMT_Q8_0
+    const uint blockBytes = 34;
+#elif WFMT == FMT_Q5_0
+    const uint blockBytes = 22;
+#elif WFMT == FMT_MXFP4
+    const uint blockBytes = 17;
+#else
+    const uint blockBytes = 18;
+#endif
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(ch) * blockBytes;
+    WChunk c;
+    c.off = 0.0;
+#if WFMT == FMT_Q8_0
+    c.d = h2f(*(uint16_t*)at);
+    c.lo = load16_any(at + 2);
+    c.hi = load16_any(at + 18);
+#elif WFMT == FMT_MXFP4
+    // E2M1 codes as the doubled int8 values {0, 1, 2, 3, 4, 6, 8, 12} (and negatives), with the halved E8M0 scale.
+    c.d = e8m0_half(uint(*(uint8_t*)at));
+    uint4 qs = load16_any(at + 1);
+    uint4 h = qs >> 4;
+    c.lo = uint4(fp4_bytes(qs.x), fp4_bytes(qs.y), fp4_bytes(qs.z), fp4_bytes(qs.w));
+    c.hi = uint4(fp4_bytes(h.x), fp4_bytes(h.y), fp4_bytes(h.z), fp4_bytes(h.w));
+#else
+    c.d = h2f(*(uint16_t*)at);
+    uint4 qs = load16_any(at + (WFMT == FMT_Q5_0 ? 6 : 2));
+    c.lo = qs & 0x0F0F0F0Fu;
+    c.hi = (qs >> 4) & 0x0F0F0F0Fu;
+#if WFMT == FMT_Q5_0
+    // Bit 4 of value i is bit i of qh: each nibble of qh spread to bit 4 of four bytes (shifted copies do not overlap).
+    uint qh = uint(*(uint16_t*)(at + 2)) | (uint(*(uint16_t*)(at + 4)) << 16);
+    c.lo |= ((uint4(qh, qh >> 4, qh >> 8, qh >> 12) & 0xFu) * 0x00204081u & 0x01010101u) << 4;
+    c.hi |= ((uint4(qh >> 16, qh >> 20, qh >> 24, qh >> 28) & 0xFu) * 0x00204081u & 0x01010101u) << 4;
+    c.off = 16.0;
+#elif WFMT == FMT_Q4_0
+    c.off = 8.0;
+#else
+    const uint4 kv = uint4(0xBFAD9881u, 0xF6EADDCFu, 0x26190D01u, 0x71594535u);
+    c.lo = uint4(codebook_bytes(c.lo.x, kv), codebook_bytes(c.lo.y, kv), codebook_bytes(c.lo.z, kv), codebook_bytes(c.lo.w, kv));
+    c.hi = uint4(codebook_bytes(c.hi.x, kv), codebook_bytes(c.hi.y, kv), codebook_bytes(c.hi.z, kv), codebook_bytes(c.hi.w, kv));
+#endif
+#endif
+    return c;
+}
+XChunk load_xchunk(uint8_t* x, uint ch)
+{
+    XChunk c;
+    c.lo = *(uint4*)(x + ch * 32);
+    c.hi = *(uint4*)(x + ch * 32 + 16);
+    c.d = *(float2*)(x + K + ch * 8);
+    return c;
+}
+float dot_chunk(WChunk w, XChunk x, uint ch) { return w.d * (x.d.x * float(dot16(w.lo, x.lo) + dot16(w.hi, x.hi)) - w.off * x.d.y); }
 #else
 #error "mmvq: unsupported WFMT"
 #endif
