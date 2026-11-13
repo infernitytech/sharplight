@@ -187,6 +187,52 @@ internal sealed partial class OnnxTranslator
         return true;
     }
 
+    /// <summary>
+    /// LinearAttention (opset 27): query/key/value [B, T, H·D], optional past_state [B, Hkv, Dk, Dv], decay and beta as the update rule
+    /// requires (linear, gated, delta, gated_delta); outputs the attention output and present_state. The IR LinearAttention op (CPU).
+    /// </summary>
+    private void OnnxLinearAttention(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        string rule = n.Str("update_rule", "gated_delta");
+        bool gated = rule is "gated" or "gated_delta";
+        bool delta = rule is "delta" or "gated_delta";
+        if (rule is not ("linear" or "gated" or "delta" or "gated_delta"))
+        {
+            throw new InvalidDataException($"LinearAttention update_rule '{rule}'");
+        }
+
+        long qHeads = n.Int("q_num_heads", 0);
+        long kvHeads = n.Int("kv_num_heads", 0);
+        var key = X(ins, 1);
+        long dk = key.Shape[2].Fixed / Math.Max(1, kvHeads);
+        float scale = n.Float("scale", 0f) is var s && s != 0 ? s : 1f / MathF.Sqrt(dk);
+        var operands = new List<Value> { X(ins, 0), key, X(ins, 2) };
+        bool hasState = Opt(ins, 3) is not null;
+        if (hasState)
+        {
+            operands.Add(X(ins, 3));
+        }
+
+        if (gated)
+        {
+            operands.Add(X(ins, 4));
+        }
+
+        if (delta)
+        {
+            operands.Add(X(ins, 5));
+        }
+
+        var attributes = Attributes.From(("q_heads", qHeads), ("kv_heads", kvHeads), ("scale", scale), ("state", hasState), ("gated", gated), ("delta", delta));
+        var outputs = _b.Emit("LinearAttention", operands, attributes, Nm(n));
+        Heavy();
+        SetDyn(n, 0, outputs[0]);
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            SetDyn(n, 1, outputs[1]);
+        }
+    }
+
     /// <summary>[B, S, H·D] → [B, H, S, D].</summary>
     private Value SplitHeads(Value x, long heads)
     {

@@ -22,6 +22,7 @@ internal sealed partial class OnnxTranslator
         "ReverseSequence",
         "Det",
         "CausalConvWithState",
+        "LinearAttention",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -331,6 +332,9 @@ internal sealed partial class OnnxTranslator
                 break;
             case "CausalConvWithState":
                 CausalConvWithState(n, ins);
+                break;
+            case "LinearAttention":
+                OnnxLinearAttention(n, ins);
                 break;
             case "EyeLike":
                 throw new NotSupportedException($"{op} of a runtime-dependent tensor has a data-dependent shape");
