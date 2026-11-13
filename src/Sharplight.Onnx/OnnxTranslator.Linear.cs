@@ -69,13 +69,35 @@ internal sealed partial class OnnxTranslator
             var b = AsValue(bT);
             if (a.Rank < 2 || b.Rank < 2)
             {
-                throw new NotSupportedException("MatMul with 1-D operands is not supported");
+                y = VectorMatMul(a, b, name);
             }
-
-            y = Emit("BatchMatMul", [a, b], null, name);
+            else
+            {
+                y = Emit("BatchMatMul", [a, b], null, name);
+            }
         }
         Heavy();
         SetDyn(n, 0, y);
+    }
+
+    /// <summary>MatMul with a 1-D operand (numpy semantics): the vector becomes a [1, K] row or [K, 1] column and that unit axis is dropped again.</summary>
+    private Value VectorMatMul(Value a, Value b, string name)
+    {
+        bool rowVector = a.Rank == 1;
+        bool columnVector = b.Rank == 1;
+        var product = Emit("BatchMatMul", [rowVector ? Rs(a, 1, a.Shape[0].Fixed) : a, columnVector ? Rs(b, b.Shape[0].Fixed, 1) : b]);
+        var dims = new List<long>();
+        for (int i = 0; i < product.Rank; i++)
+        {
+            if ((rowVector && i == product.Rank - 2) || (columnVector && i == product.Rank - 1))
+            {
+                continue;
+            }
+
+            dims.Add(i == 0 && Sym(product) ? 0 : product.Shape[i].Fixed);
+        }
+
+        return Emit("Reshape", [product], Attributes.From(("shape", dims.ToArray())), name);
     }
 
     private Value MatMulWeightOrBatch(Value a, OnnxConst bf, string name)

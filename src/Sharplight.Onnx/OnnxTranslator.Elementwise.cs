@@ -151,23 +151,73 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, Emit("Mod", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
     }
 
+    /// <summary>Clip with attribute or constant bounds (the IR Clip op); runtime bounds become Max / Min against the bound value.</summary>
     private void Clip(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
-        float? min = n.Has("min") ? n.Float("min", 0) : OptConst(ins, 1, "Clip min") is { } minConst ? minConst.ScalarF32() : null;
-        float? max = n.Has("max") ? n.Float("max", 0) : OptConst(ins, 2, "Clip max") is { } maxConst ? maxConst.ScalarF32() : null;
-        var bounds = new List<(string, object)>();
-        if (min is { } lower)
+        var (minConst, minValue) = ClipBound(n, ins, "min", 1);
+        var (maxConst, maxValue) = ClipBound(n, ins, "max", 2);
+        if (minValue is null && maxValue is null)
         {
-            bounds.Add(("min", lower));
+            var bounds = new List<(string, object)>();
+            if (minConst is { } lower)
+            {
+                bounds.Add(("min", lower));
+            }
+
+            if (maxConst is { } upper)
+            {
+                bounds.Add(("max", upper));
+            }
+
+            SetDyn(n, 0, Emit("Clip", [x], Attributes.From(bounds.ToArray()), Nm(n)));
+            return;
         }
 
-        if (max is { } upper)
+        // ONNX applies the lower bound first, then the upper one (min > max yields max everywhere). Integer tensors are
+        // clipped in f32 (exact for the ranges i32 carries here) because the CPU Max / Min kernels are f32-only.
+        bool integer = x.Type == DataType.I32;
+        Value ToF32(Value v) => v.Type == DataType.I32 ? Emit("Cast", [v], Attributes.From(("type", "f32"))) : v;
+        var y = ToF32(x);
+        minValue = minValue is null ? null : ToF32(minValue);
+        maxValue = maxValue is null ? null : ToF32(maxValue);
+        if (minConst is { } constLower)
         {
-            bounds.Add(("max", upper));
+            y = Emit("Clip", [y], Attributes.From(("min", constLower)));
         }
 
-        SetDyn(n, 0, Emit("Clip", [x], Attributes.From(bounds.ToArray()), Nm(n)));
+        if (minValue is not null)
+        {
+            y = Emit("Max", [y, minValue]);
+        }
+
+        if (maxConst is { } constUpper)
+        {
+            y = Emit("Clip", [y], Attributes.From(("max", constUpper)));
+        }
+
+        if (maxValue is not null)
+        {
+            y = Emit("Min", [y, maxValue]);
+        }
+
+        SetDyn(n, 0, integer ? Emit("Cast", [y], Attributes.From(("type", "i32")), Nm(n)) : y);
+    }
+
+    /// <summary>A Clip bound: an attribute or constant input, or a runtime value.</summary>
+    private static (float? Constant, Value? Runtime) ClipBound(OnnxNode n, TranslatedTensor?[] ins, string attribute, int input)
+    {
+        if (n.Has(attribute))
+        {
+            return (n.Float(attribute, 0), null);
+        }
+
+        if (ins.Length <= input || ins[input] is not { } bound)
+        {
+            return (null, null);
+        }
+
+        return bound.IsConst ? (bound.C!.ScalarF32(), null) : (null, bound.V!);
     }
 
     private void Gelu(OnnxNode n, TranslatedTensor?[] ins)
