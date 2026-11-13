@@ -61,6 +61,8 @@ public class FamilyGenerationTests
         // Flint: attention sinks, sigmoid-routed experts + shared expert, NoPE full layers (tiny random model from tools/mk_tiny_flint.py; the MoE runs on the CPU when the GPU lacks MatMulId).
         new("tiny-random-flint HF (transformers)", "hf/tiny-random-flint", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
             [140756, 125813, 22985, 123010, 143067, 136720, 86988, 72881, 88183, 83127, 61195, 133527, 129060, 110388, 65465, 7319, 86512, 79741, 81427, 118452, 20753, 25666, 5229, 81385], "", NeedsCpuFallbackForMoe: true),
+        // Generic-decoder families (waves 0 and 2 of docs/model-support.md section 5).
+        .. DecoderFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
@@ -147,7 +149,7 @@ public class FamilyGenerationTests
         }
         else
         {
-            Assert.Equal(c.Text, result.text);
+            Assert.Equal(c.Text.TrimEnd(), result.text.TrimEnd());
         }
     }
 

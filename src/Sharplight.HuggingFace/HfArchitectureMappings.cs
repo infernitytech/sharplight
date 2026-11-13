@@ -13,6 +13,40 @@ internal static class HfArchitectureMappings
         Register(new NemotronHHfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
+        foreach (var family in DecoderFamilies())
+        {
+            Register(family);
+        }
+    }
+
+    /// <summary>The decoder-only families that map onto the canonical decoder through <see cref="HfDecoderFamilyMapping"/>.</summary>
+    private static IEnumerable<IHfArchitectureMapping> DecoderFamilies()
+    {
+        yield return new MixtralHfMapping();
+        yield return new SmolLm3HfMapping();
+        yield return new Olmo2HfMapping();
+        yield return new Glm4HfMapping();
+        yield return new Ernie45HfMapping();
+        yield return new HunyuanDenseHfMapping();
+        yield return new ExaoneHfMapping();
+        yield return new Exaone4HfMapping();
+        yield return new SeedOssHfMapping();
+        yield return new InternLm2HfMapping();
+        yield return new GraniteHfMapping();
+        yield return new MiniCpmHfMapping();
+        yield return new PhiHfMapping();
+        yield return new Starcoder2HfMapping();
+        yield return new CohereHfMapping();
+        yield return new FalconHfMapping();
+        yield return new GptNeoXHfMapping();
+        yield return new GptJHfMapping();
+        yield return new Gpt2HfMapping();
+        yield return new OlmoHfMapping();
+        yield return new NemotronDenseHfMapping();
+        yield return new StableLmHfMapping();
+        yield return new ApertusHfMapping();
+        yield return new ArceeHfMapping();
+        yield return new Gemma1HfMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>
