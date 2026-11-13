@@ -268,7 +268,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         // Slang keeps compiling in the background while the weights upload; pipelines are created as the kernels complete.
         var kernels = program.Launches.Concat(program.ResetLaunches).SelectMany(l => l.Variants).Select(v => v.Kernel).DistinctBy(k => k.CacheKey).ToList();
-        var pipelines = Task.Run(() => Parallel.ForEach(kernels, kernel => Pipeline(kernel)));
+        var pipelines = Task.Run(() => CreatePipelines(kernels));
         VulkanSegment compiled;
         try
         {
@@ -289,6 +289,20 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         return compiled;
+    }
+
+    /// <summary>Creates the pipelines of <paramref name="kernels"/> in parallel, waiting for kernels that are still compiling.</summary>
+    /// <exception cref="KernelCompilationException">Slang rejected one of the kernels.</exception>
+    private void CreatePipelines(IEnumerable<CompiledKernel> kernels)
+    {
+        try
+        {
+            Parallel.ForEach(kernels, kernel => Pipeline(kernel));
+        }
+        catch (AggregateException e)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerExceptions[0]).Throw();
+        }
     }
 
     private static void WaitQuietly(Task task)
@@ -341,7 +355,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     public void ExportCompilationState(ICompilationCache cache)
     {
         EnsurePipelineCache(null);
-        Parallel.ForEach(_kernels.Values, kernel => Pipeline(kernel));
+        CreatePipelines(_kernels.Values);
         cache.Put(PipelineCacheKey, GetPipelineCacheData());
     }
 

@@ -135,6 +135,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         var staging = new[] { _dev.Memory.Allocate(StagingSize, MemoryUsage.Upload), _dev.Memory.Allocate(StagingSize, MemoryUsage.Upload) };
         var cbs = new[] { AllocCb(), AllocCb() };
         var fences = new VkFence[2];
+        var materialized = MaterializeInBackground(weights);
         for (int i = 0; i < 2; i++)
         {
             var fci = new VkFenceCreateInfo { flags = VkFenceCreateFlags.Signaled };
@@ -213,6 +214,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         }
         finally
         {
+            materialized.Wait();
             for (int i = 0; i < 2; i++)
             {
                 _dev.Api.vkDestroyFence(fences[i], null);
@@ -220,6 +222,27 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
                 _dev.Memory.Free(staging[i]);
             }
         }
+    }
+
+    /// <summary>
+    /// Produces the weights that are computed on first read (layout conversions, folded constants) on several threads while the
+    /// copy loop uploads the ones before them; mapped weights need no preparation.
+    /// </summary>
+    private static Task MaterializeInBackground(List<BufferDecl> weights)
+    {
+        const int Parallelism = 4;
+        var lazy = weights.Select(b => b.Weight?.Source).OfType<IWeightSource>().Where(source => source.TryGetPointer() == 0).ToList();
+        return Task.Run(() => Parallel.ForEach(lazy, new ParallelOptions { MaxDegreeOfParallelism = Parallelism }, source =>
+        {
+            try
+            {
+                source.Materialize();
+            }
+            catch (Exception)
+            {
+                // The producer's exception is cached and rethrown by the copy loop's read of this weight.
+            }
+        }));
     }
 
     /// <summary>

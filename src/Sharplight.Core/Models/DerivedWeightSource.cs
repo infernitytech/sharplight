@@ -13,5 +13,6 @@ internal sealed class DerivedWeightSource(long length, Func<byte[]> produce) : I
         return d;
     });
     public long ByteLength => length;
+    public void Materialize() => _ = _data.Value;
     public void Read(long offset, Span<byte> destination) => _data.Value.AsSpan(checked((int)offset), destination.Length).CopyTo(destination);
 }
