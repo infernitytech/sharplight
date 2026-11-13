@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sharplight.Tokenizers;
+using Sharplight.Vision;
 
 namespace Sharplight.Llm;
 
@@ -20,8 +21,11 @@ public sealed record GenerationStats(int PromptTokens, int GeneratedTokens, Time
     public double DecodeTokensPerSecond => Math.Max(0, GeneratedTokens - 1) / Math.Max(1e-9, DecodeTime.TotalSeconds);
 }
 
-/// <summary>Autoregressive text generation on top of an <see cref="InferenceSession"/>.</summary>
-public sealed class Generator(InferenceSession session, ITokenizer tokenizer)
+/// <summary>
+/// Autoregressive text generation on top of an <see cref="InferenceSession"/>. With a <see cref="VisionEncoder"/> (and a
+/// session created on the multimodal decoder graph) prompts may contain images.
+/// </summary>
+public sealed class Generator(InferenceSession session, ITokenizer tokenizer, VisionEncoder? vision = null)
 {
     public GenerationStats? LastStats { get; private set; }
 
@@ -30,6 +34,39 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer)
         => Generate(tokenizer.Encode(prompt, addSpecial: session.Position == 0, parseSpecial: parseSpecial), options);
 
     public IEnumerable<GeneratedToken> Generate(int[] promptTokens, GenerationOptions options)
+        => Generate(promptTokens, () => session.Process(promptTokens), options);
+
+    /// <summary>Time spent preprocessing and encoding the images of the last multimodal generation.</summary>
+    public TimeSpan LastImageTime { get; private set; }
+
+    /// <summary>
+    /// Continues the context with <paramref name="prompt"/> containing one image placeholder (the chat template's
+    /// <c>&lt;|image_pad|&gt;</c> token text) per entry of <paramref name="images"/>, in order, and streams generated text.
+    /// The architecture's multimodal support expands the placeholders (see <see cref="IMultimodalArchitecture"/>).
+    /// </summary>
+    public IEnumerable<GeneratedToken> Generate(string prompt, IReadOnlyList<ImageInput> images, GenerationOptions options, bool parseSpecial = true)
+    {
+        if (images.Count == 0) return Generate(prompt, options, parseSpecial);
+        var enc = vision ?? throw new InvalidOperationException("Images need a Generator created with a VisionEncoder (LlmModel.CreateVisionEncoder).");
+        var arch = MultimodalRegistry.Find(enc.Definition.Architecture)
+            ?? throw new NotSupportedException($"Architecture '{enc.Definition.Architecture}' has no multimodal prompt support.");
+        var tokens = tokenizer.Encode(prompt, addSpecial: session.Position == 0, parseSpecial: parseSpecial);
+        var sw = Stopwatch.StartNew();
+        var pre = images.Select(enc.Preprocess).ToList();
+        var mm = arch.Assemble(new MultimodalContext(enc.Definition, LookupToken), tokens, pre, session.RopePosition);
+        var embeddings = pre.Select(enc.Encode).ToList();
+        LastImageTime = sw.Elapsed;
+        var textTokens = tokens;
+        return Generate(textTokens, () => session.Process(mm, embeddings), options, mm.Length);
+    }
+
+    int? LookupToken(string text)
+    {
+        var ids = tokenizer.Encode(text, addSpecial: false, parseSpecial: true);
+        return ids.Length == 1 ? ids[0] : null;
+    }
+
+    IEnumerable<GeneratedToken> Generate(int[] promptTokens, Func<float[]> prefillStep, GenerationOptions options, int? promptRows = null)
     {
         var sampler = new Sampler(options.Sampling);
         foreach (var t in promptTokens) sampler.Accept(t);
@@ -37,7 +74,7 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer)
         var text = new System.Text.StringBuilder();
 
         var sw = Stopwatch.StartNew();
-        var logits = session.Process(promptTokens);
+        var logits = prefillStep();
         var prefill = sw.Elapsed;
         sw.Restart();
         int generated = 0;
@@ -60,7 +97,7 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer)
         }
         finally
         {
-            LastStats = new GenerationStats(promptTokens.Length, generated, prefill, sw.Elapsed);
+            LastStats = new GenerationStats(promptRows ?? promptTokens.Length, generated, prefill, sw.Elapsed);
         }
     }
 }

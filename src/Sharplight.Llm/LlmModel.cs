@@ -3,6 +3,7 @@ using Sharplight.Architectures;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tokenizers;
+using Sharplight.Vision;
 
 namespace Sharplight.Llm;
 
@@ -21,6 +22,11 @@ public sealed class LlmLoadOptions
     public IReadOnlySet<string> DisabledFeatures { get; init; } = new HashSet<string>();
     /// <summary>Auxiliary model files, e.g. ("mmproj", path) for a vision projector.</summary>
     public IReadOnlyList<(string Role, string Path)> Auxiliary { get; init; } = [];
+    /// <summary>
+    /// Image token budget (output tokens per image): the vision encoder is compiled for at most
+    /// <c>MaxTokens</c> (default 1024) tokens per image and images are resized to fit; <c>MinTokens</c> upsizes small images.
+    /// </summary>
+    public ImageTokenLimits? ImageTokens { get; init; }
     public Action<string>? Log { get; init; }
 }
 
@@ -85,6 +91,37 @@ public sealed class LlmModel : IDisposable
         return new InferenceSession(Definition, compiled);
     }
 
+    /// <summary>True when the model has a vision tower (loaded from a file containing one, or together with a "mmproj" auxiliary file).</summary>
+    public bool SupportsImages => Definition.Graphs.ContainsKey(WellKnown.VisionEncodeGraph);
+
+    /// <summary>
+    /// Compiles the vision encoder onto the configured devices. The returned encoder turns <see cref="ImageInput"/>s into
+    /// embeddings; pass it to a <see cref="Generator"/> (with a session created on <see cref="WellKnown.DecodeMultimodalGraph"/>).
+    /// </summary>
+    public VisionEncoder CreateVisionEncoder()
+    {
+        var p = VisionParameters.Of(Definition) ?? throw new NotSupportedException("This model has no vision tower (for GGUF models pass the projector file as the \"mmproj\" auxiliary file).");
+        var sw = Stopwatch.StartNew();
+        int maxTokens = _options.ImageTokens?.MaxTokens ?? 1024;
+        int maxPatches = maxTokens * p.MergeUnit;
+        var compiled = CompiledModel.Compile(Definition.Graph(WellKnown.VisionEncodeGraph), new PlacementOptions
+        {
+            Devices = _options.Devices,
+            Fallback = _options.Fallback,
+            Compile = new CompileOptions
+            {
+                MaxTokens = maxPatches,
+                ContextLength = 1,
+                SymbolBounds = new Dictionary<string, long> { [VisionParameters.PatchSymbol] = maxPatches, [VisionParameters.MergedSymbol] = maxTokens },
+                DisabledFeatures = _options.DisabledFeatures,
+                CacheFor = CacheFor,
+            },
+        });
+        _options.Log?.Invoke($"Compiled '{WellKnown.VisionEncodeGraph}' (up to {maxTokens} image tokens) in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
+        var pre = new VisionPreprocessor(p, new ImageTokenLimits(_options.ImageTokens?.MinTokens, maxTokens));
+        return new VisionEncoder(Definition, p, compiled, pre, maxPatches);
+    }
+
     /// <summary>One recording cache per device target, seeded from caches stored in the model file.</summary>
     ICompilationCache CacheFor(IComputeDevice device)
     {
@@ -127,5 +164,6 @@ public static class BuiltinAdapters
     {
         if (Interlocked.Exchange(ref s_done, 1) == 1) return;
         ModelAdapterRegistry.Register(new Qwen35Adapter());
+        Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
     }
 }

@@ -28,5 +28,6 @@
     <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
     <Project Path="tests/Sharplight.Tokenizers.Tests/Sharplight.Tokenizers.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
+    <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />
   </Folder>
 </Solution>
