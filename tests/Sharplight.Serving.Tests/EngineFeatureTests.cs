@@ -53,25 +53,26 @@ public class EngineFeatureTests
     public async Task FairQueuing_LightTenantOvertakesHeavyTenantsBacklog()
     {
         var d = new FakeBatchDecoder(1, batches: false) { StepDelay = TimeSpan.FromMilliseconds(2) };
-        d.Script("0123456789");
+        d.Script("0123456789", loop: true);
         using var e = Engine(d);
         var order = new List<string>();
         var ct = TestContext.Current.CancellationToken;
-        async Task Run(string name, string tenant)
+        async Task Run(string name, string tenant, int maxTokens)
         {
-            await e.Submit(Req(name) with { Tenant = tenant }).CompleteAsync(ct);
+            await e.Submit(Req(name, maxTokens) with { Tenant = tenant }).CompleteAsync(ct);
             lock (order)
             {
                 order.Add(name);
             }
         }
 
-        var a1 = Run("a1", "heavy");
+        // a1 runs long enough (>= 1 s) that the queue is complete before it frees the slot, even on a loaded machine.
+        var a1 = Run("a1", "heavy", 500);
         await T.WaitUntil(() => d.Steps.Count > 0);
-        var a2 = Run("a2", "heavy");
-        var a3 = Run("a3", "heavy");
+        var a2 = Run("a2", "heavy", 5);
+        var a3 = Run("a3", "heavy", 5);
         await T.WaitUntil(() => e.GetMetrics().QueueDepth == 2);
-        var b1 = Run("b1", "light");
+        var b1 = Run("b1", "light", 5);
         await Task.WhenAll(a1, a2, a3, b1);
         Assert.Equal(["a1", "b1", "a2", "a3"], order);
     }

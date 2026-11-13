@@ -1,3 +1,5 @@
+using Sharplight.Llm.Structured;
+
 namespace Sharplight.Llm.Serving.Chat;
 
 /// <summary>A plain text completion request (no chat template).</summary>
@@ -29,4 +31,6 @@ public sealed class CompletionRequest
     public bool Logprobs { get; init; }
     /// <summary>Alternatives reported per token (with <see cref="Logprobs"/>).</summary>
     public int TopLogprobs { get; init; }
+    /// <summary>Structure the completion must have, enforced with constrained decoding.</summary>
+    public OutputFormat? ResponseFormat { get; init; }
 }

@@ -26,6 +26,9 @@ public sealed class TokenMask
     /// <summary>The packed bits, <c>ceil(VocabSize / 32)</c> words; bits past <see cref="VocabSize"/> are always zero.</summary>
     public ReadOnlySpan<uint> Words => _words;
 
+    /// <summary>Writable bits for matchers that copy whole cached masks; callers keep bits past <see cref="VocabSize"/> zero.</summary>
+    internal Span<uint> WritableWords => _words;
+
     /// <summary>Disallows every token.</summary>
     public void Clear() => Array.Clear(_words);
 

@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
+using Sharplight.Llm.Structured;
 
 namespace Sharplight.Server;
 
@@ -130,6 +131,21 @@ internal static class AnthropicApi
         }
     }
 
+    /// <summary>Structured outputs: <c>output_format: {"type": "json_schema", "schema": {..}}</c>.</summary>
+    private static OutputFormat? ParseOutputFormat(JsonElement b)
+    {
+        if (b.Obj("output_format") is not { } of)
+        {
+            return null;
+        }
+
+        return of.Str("type") switch
+        {
+            "json_schema" => of.Obj("schema") is { } schema ? OutputFormat.JsonSchema(schema.GetRawText()) : OutputFormat.JsonObject,
+            var t => throw ApiException.BadRequest($"output_format.type: unsupported value '{t}'", "output_format"),
+        };
+    }
+
     private static ChatRequest ParseRequest(JsonElement b, SharplightServerContext ctx, bool requireMaxTokens)
     {
         int maxTokens = b.Int("max_tokens") ?? 0;
@@ -164,7 +180,7 @@ internal static class AnthropicApi
         }
 
         var tools = b.Arr("tools").Where(t => t.Str("type") is null or "custom")
-            .Select(t => new ToolSpec(t.Str("name") ?? throw ApiException.BadRequest("tools.name: Field required"), t.Str("description"), t.Obj("input_schema")?.GetRawText())).ToList();
+            .Select(t => new ToolSpec(t.Str("name") ?? throw ApiException.BadRequest("tools.name: Field required"), t.Str("description"), t.Obj("input_schema")?.GetRawText(), t.Bool("strict") ?? false)).ToList();
         var mode = ToolChoiceMode.Auto;
         string? fname = null;
         if (b.Obj("tool_choice") is { } tc)
@@ -195,6 +211,7 @@ internal static class AnthropicApi
         {
             Messages = turns, Tools = tools, ToolChoice = mode, ToolChoiceFunction = fname, Sampling = sampling, MaxTokens = maxTokens,
             StopStrings = [.. b.Arr("stop_sequences").Select(s => s.GetString() ?? "")], EnableThinking = thinking, Timeout = ctx.Options.RequestTimeout,
+            ResponseFormat = ParseOutputFormat(b),
         };
     }
 

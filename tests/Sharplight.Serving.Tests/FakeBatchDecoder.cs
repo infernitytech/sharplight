@@ -34,6 +34,8 @@ public sealed class FakeBatchDecoder : IBatchDecoder
     public bool BatchesSequences { get; }
     public bool CanTruncate { get; }
     public Func<IReadOnlyList<int>, int> Next { get; set; }
+    /// <summary>Logits of the tokens other than the scripted one (default: all -10); decides what a token mask falls back to.</summary>
+    public float[]? Bias { get; set; }
     public TimeSpan StepDelay { get; set; }
     public int FailAfterSteps { get; set; } = -1;
     public List<(int Slot, int Rows, bool Logits)[]> Steps { get; } = [];
@@ -148,7 +150,15 @@ public sealed class FakeBatchDecoder : IBatchDecoder
                 }
 
                 var l = _logits.AsSpan((r + row) * VocabSize, VocabSize);
-                l.Fill(-10f);
+                if (Bias is { } bias)
+                {
+                    bias.CopyTo(l);
+                }
+                else
+                {
+                    l.Fill(-10f);
+                }
+
                 l[Next(c)] = 10f;
             }
 

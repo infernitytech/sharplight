@@ -13,6 +13,7 @@ namespace Sharplight.Serving.Tests;
 /// Two real small models on one shared Vulkan device (skipped when the files or a GPU are missing): generating from both at the
 /// same time on two threads gives the same tokens as running each alone, memory is accounted, and unloading returns it.
 /// </summary>
+[Collection("RealModel")]
 public class MultiModelRealTests
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

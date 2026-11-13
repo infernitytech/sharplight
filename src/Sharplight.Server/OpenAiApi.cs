@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
 using Sharplight.Llm.Serving.Hosting;
+using Sharplight.Llm.Structured;
 
 namespace Sharplight.Server;
 
@@ -207,8 +208,60 @@ internal static class OpenAiApi
     {
         var fn = t.Obj("function") ?? t;
         return new ToolSpec(fn.Str("name") ?? throw ApiException.BadRequest("tools[].function.name is required.", "tools"),
-            fn.Str("description"), fn.Obj("parameters")?.GetRawText());
+            fn.Str("description"), fn.Obj("parameters")?.GetRawText(), fn.Bool("strict") ?? false);
     }
+
+    /// <summary>
+    /// The structured-output request: OpenAI <c>response_format</c> (<c>json_object</c>, <c>json_schema</c>) or the vLLM
+    /// extensions <c>structured_outputs</c> / <c>guided_json</c>, <c>guided_regex</c>, <c>guided_grammar</c>, <c>guided_choice</c>.
+    /// </summary>
+    internal static OutputFormat? ParseOutputFormat(JsonElement b)
+    {
+        if (b.Obj("response_format") is { } rf)
+        {
+            switch (rf.Str("type"))
+            {
+                case "json_object":
+                    return OutputFormat.JsonObject;
+                case "json_schema":
+                {
+                    var js = rf.Obj("json_schema") ?? throw ApiException.BadRequest("response_format.json_schema is required.", "response_format");
+                    return js.Get("schema") is { } schema ? OutputFormat.JsonSchema(SchemaText(schema)) : OutputFormat.JsonObject;
+                }
+
+                case null or "text":
+                    break;
+                case var t:
+                    throw ApiException.BadRequest($"Invalid response_format type '{t}'.", "response_format");
+            }
+        }
+
+        var so = b.Obj("structured_outputs");
+        if ((so?.Get("json") ?? b.Get("guided_json")) is { } json)
+        {
+            return OutputFormat.JsonSchema(SchemaText(json));
+        }
+
+        if ((so?.Str("regex") ?? b.Str("guided_regex")) is { } regex)
+        {
+            return OutputFormat.Regex(regex);
+        }
+
+        if ((so?.Str("grammar") ?? b.Str("guided_grammar")) is { } grammar)
+        {
+            return OutputFormat.Gbnf(grammar);
+        }
+
+        if ((so?.Get("choice") ?? b.Get("guided_choice")) is { ValueKind: JsonValueKind.Array } choice)
+        {
+            return OutputFormat.Choice([.. choice.EnumerateArray().Select(c => c.ValueKind == JsonValueKind.String ? c.GetString()! : c.GetRawText())]);
+        }
+
+        return null;
+    }
+
+    /// <summary>A schema given as an object or as a JSON string.</summary>
+    private static string SchemaText(JsonElement schema) => schema.ValueKind == JsonValueKind.String ? schema.GetString()! : schema.GetRawText();
 
     private static ChatRequest ParseChat(JsonElement b, SharplightServerContext ctx)
     {
@@ -254,7 +307,6 @@ internal static class OpenAiApi
             thinking = false;
         }
 
-        string? rf = b.Obj("response_format")?.Str("type");
         int top = b.Int("top_logprobs") ?? 0;
         return new ChatRequest
         {
@@ -264,7 +316,7 @@ internal static class OpenAiApi
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
-            EnableThinking = thinking, JsonMode = rf is "json_object" or "json_schema",
+            EnableThinking = thinking, ResponseFormat = ParseOutputFormat(b),
             Logprobs = b.Bool("logprobs") ?? false, TopLogprobs = Math.Clamp(top, 0, 20),
             TemplateContext = kwargs,
         };
@@ -510,7 +562,7 @@ internal static class OpenAiApi
             MaxTokens = b.Int("max_tokens") ?? 16, StopStrings = ParseStop(b), N = ParseN(b, ctx.Options),
             IgnoreEos = b.Bool("ignore_eos") ?? false, MinTokens = ParseMinTokens(b),
             Priority = b.Int("priority") ?? 0, Timeout = ctx.Options.RequestTimeout,
-            Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20),
+            Logprobs = lpCount is > 0, TopLogprobs = Math.Clamp(lpCount ?? 0, 0, 20), ResponseFormat = ParseOutputFormat(b),
         };
         bool stream = b.Bool("stream") ?? false;
         bool echo = (b.Bool("echo") ?? false) && prompt is not null;
