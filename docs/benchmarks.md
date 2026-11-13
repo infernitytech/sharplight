@@ -702,3 +702,77 @@ Remaining gaps: decode is DRAM-bound at ~30-40 GB/s per matvec (llama.cpp's leve
 epilogue (7 % of resnet50); the decomposed LayerNorm of convnext still runs as 5 elementwise passes; exp/sigmoid use
 .NET's `Vector512.Exp` (0.3 ns/value) rather than a cheaper polynomial (yolov8n's SiLU is ~20 % of its time); no ARM64
 (NEON / SDOT) integer-dot kernel and no 128-bit GEMM tile yet (the Vector128 tier is the portable fallback).
+
+## 13. FP8 checkpoints, the fp8 tensor-core GEMM and the int8 GEMM rework (2026-11-13)
+
+Conditions: the GPU was shared with a running game and with other benchmark agents for the whole session, so end-to-end
+`--bench` numbers fluctuate by up to 40 % between back-to-back runs. The tables therefore report kernel minima (min of 50,
+`BenchTests.MatMulPrefill`, T = 512) and `SHARPLIGHT_VK_PROFILE=1` prefill sums of per-kernel minimum × launch count
+(contention-free GPU time; host overhead excluded), with the best end-to-end runs as a cross-check.
+
+### Matmul kernels, T = 512 (TFLOPS, min of 50)
+
+| shape (K→N) | f8e4m3_b128: f16 GEMM | f8e4m3_b128: fp8 GEMM | f8e4m3_b32: fp8 GEMM | Q8_0: f16 GEMM | Q8_0: int8 MMQ | Q4_K: f16 GEMM | Q4_K: MMQ before → after |
+|---|---|---|---|---|---|---|---|
+| 5120→17408 | 158-162 | **258-259** | 217-221 | 170 | 211 | 187 | 158 → 184 |
+| 17408→5120 | 162 | **252** | 192-193 | - | - | - | - |
+| 4096→14336 | 148 | **232-234** | 216-218 | 158 | 187 | 149 | 124 → 150 |
+
+### Qwen3.8-27B prefill, 512 tokens
+
+| model / path | GPU time (Σ min × count) | ≙ tok/s | best `--bench` pp512 | pp2048 (best) |
+|---|---|---|---|---|
+| Qwen3.8-27B-FP8, f16 GEMM (`SHARPLIGHT_FP8_GEMM=0`) | 200.6 ms (matmuls 170.0) | 2552 | 2226 | 1745 |
+| Qwen3.8-27B-FP8, **fp8 GEMM** (default) | **144.1 ms (matmuls 111.9)** | **3554** | **3025** | **2626** |
+| Qwen3.8-27B Q8_0, f16 GEMM (`SHARPLIGHT_MMQ=0`) | 184.4 ms (matmuls 154.0) | 2777 | 2023 | 1280 |
+| Qwen3.8-27B Q8_0, int8 MMQ (default) | 185.2 ms (matmuls 154.6) | 2765 | 1973 | 2200 |
+| llama.cpp CUDA Q8_0 (section 2) | | | 3058 | 3030 |
+| vLLM FP8 (section 2) | | | 6348 | 7425 |
+
+Nemotron-3-Nano-30B-A3B-FP8 (dense projections on the fp8 GEMM, experts on the f16 MoE GEMM): 54.6 → 51.5 ms GPU time
+(9380 → 9935 tok/s), best `--bench` pp512 5779 → 7282. Decode is unchanged (matvecs; 27B FP8 ≈ 38-42 tok/s like Q8_0).
+
+The fp8 GEMM makes the FP8 checkpoint the fastest 27B prefill in Sharplight: about 1.4x the f16 path and, by GPU time, above
+llama.cpp CUDA's Q8_0 (3554 vs 3058 tok/s), but still about 0.56x of vLLM's FP8 (CUTLASS block-scaled FP8 GEMMs at a
+higher fraction of the 4th-gen tensor-core peak; Vulkan exposes only the 16x16x32 subgroup shape with an f32 accumulator).
+Of the remaining 144 ms, 112 ms are matmuls (≈ 250 TFLOPS), 31 ms the delta rule, conv1d and norms.
+
+### What changed
+
+* **FP8 weights** (merged from the FP8 track): `f8e4m3`, `f8e5m2`, block-scaled `f8e4m3_b32` / `f8e4m3_b128`; vLLM /
+  DeepSeek block `weight_scale_inv`, ModelOpt / compressed-tensors per-tensor, per-channel and per-block `weight_scale`
+  converted to block scales on import (model-support 2.4). Accuracy (Families `Fp8CheckpointTests`, teacher-forced,
+  `SHARPLIGHT_TEST_LARGE=1`, prefill chunk on the fp8 GEMM via `SHARPLIGHT_MMQ_MIN_ROWS=64`): Qwen3.8-27B-FP8 vs Q8_0 same
+  top-1 72/76, all 76 within 2 % of the logit spread (f16 path: 71/76); Nemotron FP8 vs Q4_K_M 70/77, 77/77.
+* **fp8 tensor-core GEMM** (`gemm_fp8.slang`, device feature `matrix_fp8` = VK_EXT_shader_float8 cooperative matrices
+  with the 16x16x32 f8E4m3 x f8E4m3 + f32 shape; `fp8` = shaderFloat8). Activations are quantized to E4M3 with one f32
+  scale (amax / 448) per 128 values (`quantize_fp8`, round to nearest even, one launch shared by all matmuls reading the
+  same rows). Each weight block (128 or 32 values) is multiplied into a fresh f32 fragment and added to the accumulator once
+  with `activation scale × weight scale`, so per-block scaling costs one FMA per accumulator element per block (vs 3-4 for
+  the int8 kernel). Same 64/128-token tiles, split-K and accumulator-layout probe as the int8 GEMM (the generic per-element
+  path when the probe does not find the paired layout). Used for prefill batches of 65+ rows of `f8e4m3_b128` /
+  `f8e4m3_b32` weights with K % 128 == 0; `SHARPLIGHT_FP8_GEMM=0` or `--disable-features matrix_fp8` use the f16 GEMM.
+  Tests: `Fp8GemmTests` (exact E4M3-representable activations match the f32 oracle to 2e-3; random activations within the
+  E4M3 rounding bound; large grid; feature disabled), also on RADV and llvmpipe (no `matrix_fp8`: f16/scalar fallback).
+* **int8 GEMM (MMQ) rework** (`mmq.slang`): 128-value K steps (64 for Q6_K) staged per barrier instead of 32, a rolled
+  block loop (`[MaxIters]`, smaller code, fewer registers), paired loads of two Q4_K / Q5_K 32-value units, shared-memory
+  scale arrays instead of an index table. Q4_K +20-25 % at kernel level, now at parity with the f16 GEMM (not faster: the
+  3-4 FP ops of per-32-block scaling per accumulator element cost about as much as the MMAs; ablation without scaling
+  and global loads ≈ 373-451 TFLOPS-equivalent). Q8_0 is 11-24 % faster than the f16 GEMM on 4096+ x 4096+ matrices and
+  is now on by default there (`MmqLargeOnlyFormats`; smaller Q8_0 matrices like Llama-1B's stay on the f16 GEMM, where MMQ
+  was slower). Q4_K / Q5_K / Q6_K stay opt-in (`SHARPLIGHT_MMQ=q4_k,...`); Mistral-7B Q4_K_M pp512 f16 ≈ 8000 vs MMQ ≈ 7860
+  (contended), so the 11229 tok/s llama.cpp CUDA target is not reached by MMQ. `SHARPLIGHT_MMQ_BK` overrides the K step.
+
+### What Vulkan exposes for FP8 / FP4 (NVIDIA 610.57.04, RTX PRO 6000 Blackwell)
+
+* `VK_KHR_cooperative_matrix` (subgroup scope): f16, bf16, i8/u8 and **f8E4m3 / f8E5m2** inputs, 16x16x32 for the 8-bit
+  types, f16 or f32 accumulators. This is what `matrix_int8` / `matrix_fp8` use.
+* `VK_NV_cooperative_matrix2` (workgroup scope, `matrix_workgroup`): f16 / bf16 / int8 / fp8 up to 32x32x32 with 256
+  invocations.
+* `VK_NV_cooperative_vector`: f16, int8 and fp8 E4M3 / E5M2 inputs (f16 results).
+* **No FP4 / E2M1** in any of them and no float4 extension: the Blackwell block-scaled FP4 (NVFP4 / MXFP4) tensor-core
+  instructions are not reachable from Vulkan. `--devices` prints the shape lists (`coopmat2_shapes`, `coopvec_types`).
+  NVFP4 and MXFP4 weights therefore keep the existing paths: E2M1 values decoded to packed halves for the f16 tensor-core
+  GEMM in prefill, the f32 matvec (NVFP4) or the int-dot matvec (MXFP4) in decode. An int8 or fp8 GEMM for NVFP4 would need
+  its 16-value scales applied per half of every 32-deep MMA, the same per-block scaling overhead that keeps the K-quant MMQ
+  at parity, so it was not added.

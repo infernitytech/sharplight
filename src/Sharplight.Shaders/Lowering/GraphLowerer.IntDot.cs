@@ -24,7 +24,7 @@ public sealed partial class GraphLowerer
     /// keyed by the activations' root value and layout, the row range the quantization runs for and the launch condition
     /// it was emitted under.
     /// </summary>
-    private readonly Dictionary<(Value Root, long ByteOffset, long XStride, long K, long MinRows, long MaxRows, object? Condition), TensorRef> _quantizedActivations = [];
+    private readonly Dictionary<(Value Root, long ByteOffset, long XStride, long K, long MinRows, long MaxRows, ActivationCode Code, object? Condition), TensorRef> _quantizedActivations = [];
 
     /// <summary>Arena allocations that live as long as a root value (released by <see cref="ReleaseRootScratch"/>).</summary>
     private readonly Dictionary<Value, List<object>> _rootScratch = [];
@@ -86,24 +86,24 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// The q8 copy of <paramref name="x"/> for the int-dot matvecs, made by a quantization launch that runs while x has
-    /// <paramref name="minRows"/> to <paramref name="maxRows"/> rows; reused when an earlier matvec over the same rows
-    /// (same root value, layout, row range and launch condition) already made one.
+    /// The quantized copy of <paramref name="x"/> (q8_1 for the int8 kernels, E4M3 for the fp8 GEMM), made by a
+    /// quantization launch that runs while x has <paramref name="minRows"/> to <paramref name="maxRows"/> rows; reused when
+    /// an earlier matmul over the same rows (same root value, layout, row range, encoding and launch condition) already made one.
     /// </summary>
     private TensorRef QuantizedActivations(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, long k, long minRows,
-        long maxRows)
+        long maxRows, ActivationCode code = ActivationCode.Q8_1)
     {
         var root = RootOf(source);
         // Shared only while x is the root's own arena memory: copies made for this matmul are temporaries.
         bool shareable = x.Buffer == _arena && ReferenceEquals(x, Ref(source)) && _refs.TryGetValue(root, out var rootRef) && rootRef.Buffer == _arena;
-        var cacheKey = (root, x.ByteOffset, xStride, k, minRows, maxRows, (object?)_launchCondition);
+        var cacheKey = (root, x.ByteOffset, xStride, k, minRows, maxRows, code, (object?)_launchCondition);
         if (shareable && _quantizedActivations.TryGetValue(cacheKey, out var cached))
         {
             return cached;
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, k + k / 4];
+        long[] shape = [rowsMax, code == ActivationCode.Fp8 ? k + k / 32 : k + k / 4];
         TensorRef quantized;
         if (shareable)
         {
@@ -124,9 +124,11 @@ public sealed partial class GraphLowerer
         }
 
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
-        Emit($"{label} x→q8", nodes,
-            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
-                b => new Grid(Grid.Div(rows(b) * (k / 4), 256)))],
+        var kernel = code == ActivationCode.Fp8
+            ? Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1)))
+            : Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1)));
+        Emit(code == ActivationCode.Fp8 ? $"{label} x→fp8" : $"{label} x→q8", nodes,
+            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, b => new Grid(Grid.Div(rows(b) * (k / 4), 256)))],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
         return quantized;

@@ -21,6 +21,11 @@ public static class DeviceFeatures
     /// <summary>Matrix multiply-accumulate on int8 inputs with int32 accumulation.</summary>
     public const string MatrixInt8 = "matrix_int8";
     /// <summary>
+    /// Matrix multiply-accumulate on 8-bit floats (OCP E4M3) with f32 accumulation (Vulkan: VK_EXT_shader_float8 cooperative
+    /// matrices with an f8E4m3 x f8E4m3 + f32 shape).
+    /// </summary>
+    public const string MatrixFp8 = "matrix_fp8";
+    /// <summary>
     /// Workgroup-wide f16 matrix multiply-accumulate on large tiles whose operands are loaded straight from memory
     /// by tensor addressing (bounds-clamped slices, transposed views) and decoded on load from block formats
     /// (Vulkan: VK_NV_cooperative_matrix2). Lets the device stage tiles itself instead of the kernel.
@@ -30,6 +35,8 @@ public static class DeviceFeatures
     public const string Float16 = "fp16";
     /// <summary>Native bfloat16 types in kernels.</summary>
     public const string BFloat16 = "bf16";
+    /// <summary>Native 8-bit float types (E4M3 / E5M2) in kernels.</summary>
+    public const string Float8 = "fp8";
     /// <summary>Packed int8 dot-product instructions (dp4a-style).</summary>
     public const string IntDot = "int_dot";
     /// <summary>Subgroup/warp collective operations (reductions, shuffles).</summary>
@@ -41,7 +48,7 @@ public static class DeviceFeatures
     public const string MemoryBudget = "memory_budget";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, MatrixF16, MatrixBF16, MatrixInt8, MatrixWorkgroup, Float16, BFloat16, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, MatrixF16, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>

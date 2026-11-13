@@ -37,6 +37,14 @@ internal sealed unsafe class PhysicalDeviceInfo
     public bool ShaderFloat16 { get; }
     public bool ShaderBFloat16 { get; }
     public bool BFloat16CooperativeMatrix { get; }
+    /// <summary>VK_EXT_shader_float8: 8-bit float types in shaders.</summary>
+    public bool ShaderFloat8 { get; }
+    /// <summary>VK_EXT_shader_float8: 8-bit float cooperative matrices.</summary>
+    public bool Float8CooperativeMatrix { get; }
+    /// <summary>Workgroup-scope (VK_NV_cooperative_matrix2 flexible-dimension) configurations, for diagnostics.</summary>
+    public IReadOnlyList<string> CoopMat2Shapes { get; } = [];
+    /// <summary>VK_NV_cooperative_vector matrix-vector type combinations, for diagnostics.</summary>
+    public IReadOnlyList<string> CoopVecTypes { get; } = [];
     public bool IntegerDotProduct { get; }
     /// <summary>Provider-neutral features (<see cref="DeviceFeatures"/>) this device supports.</summary>
     public IReadOnlySet<string> Features { get; }
@@ -97,9 +105,12 @@ internal sealed unsafe class PhysicalDeviceInfo
         var f13 = new VkPhysicalDeviceVulkan13Features { pNext = Extensions.Contains("VK_KHR_cooperative_matrix") ? &coop : null };
         var f12 = new VkPhysicalDeviceVulkan12Features { pNext = &f13 };
         var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12 };
+        bool f8Extension = Extensions.Contains("VK_EXT_shader_float8");
+        var f8 = new VkPhysicalDeviceShaderFloat8FeaturesEXT { pNext = &f11 };
+        void* tail = f8Extension ? &f8 : &f11;
         bool bf16Extension = Extensions.Contains("VK_KHR_shader_bfloat16");
-        var bf16 = new VkPhysicalDeviceShaderBfloat16FeaturesKHR { pNext = &f11 };
-        var f2 = new VkPhysicalDeviceFeatures2 { pNext = bf16Extension ? &bf16 : &f11 };
+        var bf16 = new VkPhysicalDeviceShaderBfloat16FeaturesKHR { pNext = tail };
+        var f2 = new VkPhysicalDeviceFeatures2 { pNext = bf16Extension ? &bf16 : tail };
         api.vkGetPhysicalDeviceFeatures2(pd, &f2);
         SubgroupSizeControl = f13.subgroupSizeControl;
         ComputeFullSubgroups = f13.computeFullSubgroups;
@@ -143,12 +154,34 @@ internal sealed unsafe class PhysicalDeviceInfo
                 api.vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV(pd, &fn, fp);
             }
 
+            CoopMat2Shapes = fps.Select(f => $"{f.MGranularity}x{f.NGranularity}x{f.KGranularity}:{f.AType}*{f.BType}+{f.CType}->{f.ResultType}@{f.scope}/{f.workgroupInvocations}")
+                .Distinct().ToArray();
             CooperativeMatrix2 = fps.Any(f => f.scope == VkScopeKHR.Workgroup && f.workgroupInvocations == 256
                 && f.AType == VkComponentTypeKHR.Float16 && f.BType == VkComponentTypeKHR.Float16
                 && f.CType == VkComponentTypeKHR.Float32 && f.ResultType == VkComponentTypeKHR.Float32
                 && f.MGranularity <= 32 && f.NGranularity <= 32 && f.KGranularity <= 16);
         }
         ShaderBFloat16 = bf16Extension && bf16.shaderBFloat16Type;
+        ShaderFloat8 = f8Extension && f8.shaderFloat8;
+        Float8CooperativeMatrix = ShaderFloat8 && f8.shaderFloat8CooperativeMatrix;
+        if (Extensions.Contains("VK_NV_cooperative_vector"))
+        {
+            uint vn = 0;
+            api.vkGetPhysicalDeviceCooperativeVectorPropertiesNV(pd, &vn, null);
+            var vps = new VkCooperativeVectorPropertiesNV[vn];
+            for (int i = 0; i < vn; i++)
+            {
+                vps[i] = new VkCooperativeVectorPropertiesNV();
+            }
+
+            fixed (VkCooperativeVectorPropertiesNV* vp = vps)
+            {
+                api.vkGetPhysicalDeviceCooperativeVectorPropertiesNV(pd, &vn, vp);
+            }
+
+            CoopVecTypes = vps.Select(v => $"{v.inputType}/{v.inputInterpretation}*{v.matrixInterpretation}+{v.biasInterpretation}->{v.resultType}")
+                .Distinct().ToArray();
+        }
         BFloat16CooperativeMatrix = ShaderBFloat16 && bf16.shaderBFloat16CooperativeMatrix;
         IntegerDotProduct = f13.shaderIntegerDotProduct;
 
@@ -189,6 +222,16 @@ internal sealed unsafe class PhysicalDeviceInfo
         if (CooperativeMatrix && Shape("16x16x32:i8*i8+i32->i32"))
         {
             feats.Add(DeviceFeatures.MatrixInt8);
+        }
+
+        if (ShaderFloat8)
+        {
+            feats.Add(DeviceFeatures.Float8);
+        }
+
+        if (CooperativeMatrix && Float8CooperativeMatrix && Shape("16x16x32:f8E4m3EXT*f8E4m3EXT+f32->f32"))
+        {
+            feats.Add(DeviceFeatures.MatrixFp8);
         }
 
         if (CooperativeMatrix2 && feats.Contains(DeviceFeatures.MatrixF16) && SubgroupSize == 32)
@@ -255,9 +298,12 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["subgroup_size_range"] = $"{MinSubgroupSize}-{MaxSubgroupSize}",
             ["fp16"] = ShaderFloat16.ToString(),
             ["bf16"] = ShaderBFloat16.ToString(),
+            ["fp8"] = ShaderFloat8.ToString(),
             ["cooperative_matrix"] = CooperativeMatrix.ToString(),
             ["cooperative_matrix2_nv"] = CooperativeMatrix2.ToString(),
             ["coopmat_shapes"] = string.Join(" ", CoopMatShapes.Select(c => c.ToString())),
+            ["coopmat2_shapes"] = string.Join(" ", CoopMat2Shapes),
+            ["coopvec_types"] = string.Join(" ", CoopVecTypes),
             ["integer_dot_product"] = IntegerDotProduct.ToString(),
             ["max_shared_memory"] = MaxSharedMemory.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),

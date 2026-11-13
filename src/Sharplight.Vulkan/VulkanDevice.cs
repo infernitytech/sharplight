@@ -148,7 +148,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         };
         var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12, storageBuffer16BitAccess = true, uniformAndStorageBuffer16BitAccess = true };
         var coop = new VkPhysicalDeviceCooperativeMatrixFeaturesKHR { pNext = f13.pNext, cooperativeMatrix = true };
-        bool coopMat = Has(DeviceFeatures.MatrixF16) || Has(DeviceFeatures.MatrixBF16) || Has(DeviceFeatures.MatrixInt8);
+        bool coopMat = Has(DeviceFeatures.MatrixF16) || Has(DeviceFeatures.MatrixBF16) || Has(DeviceFeatures.MatrixInt8) || Has(DeviceFeatures.MatrixFp8);
         bool coopMat2 = coopMat && Has(DeviceFeatures.MatrixWorkgroup);
         var coop2 = new VkPhysicalDeviceCooperativeMatrix2FeaturesNV
         {
@@ -169,17 +169,26 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         // bf16 arithmetic and bf16 cooperative matrices (VK_KHR_shader_bfloat16), e.g. the bf16x3 strict-precision conv.
+        // 8-bit floats and their cooperative matrices (VK_EXT_shader_float8), e.g. the fp8 tensor-core GEMM.
+        bool float8 = Has(DeviceFeatures.Float8) || Has(DeviceFeatures.MatrixFp8);
+        var f8 = new VkPhysicalDeviceShaderFloat8FeaturesEXT
+        {
+            pNext = &f11,
+            shaderFloat8 = true,
+            shaderFloat8CooperativeMatrix = Has(DeviceFeatures.MatrixFp8),
+        };
+        void* tail = float8 ? &f8 : &f11;
         bool bfloat16 = Has(DeviceFeatures.BFloat16);
         var bf16 = new VkPhysicalDeviceShaderBfloat16FeaturesKHR
         {
-            pNext = &f11,
+            pNext = tail,
             shaderBFloat16Type = true,
             shaderBFloat16CooperativeMatrix = Has(DeviceFeatures.MatrixBF16),
         };
         // Diagnostics: driver statistics of each pipeline (SHARPLIGHT_VK_PIPELINE_STATS).
         pipelineStats = DiagnosticSwitches.PipelineStats && Phys.Extensions.Contains("VK_KHR_pipeline_executable_properties");
-        var executableProperties = new VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR { pNext = bfloat16 ? &bf16 : &f11, pipelineExecutableInfo = true };
-        var f2 = new VkPhysicalDeviceFeatures2 { pNext = pipelineStats ? &executableProperties : bfloat16 ? &bf16 : &f11 };
+        var executableProperties = new VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR { pNext = bfloat16 ? &bf16 : tail, pipelineExecutableInfo = true };
+        var f2 = new VkPhysicalDeviceFeatures2 { pNext = pipelineStats ? &executableProperties : bfloat16 ? &bf16 : tail };
         f2.features.shaderInt64 = true;
         f2.features.shaderInt16 = true;
 
@@ -205,6 +214,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         if (bfloat16)
         {
             exts.Add("VK_KHR_shader_bfloat16");
+        }
+
+        if (float8)
+        {
+            exts.Add("VK_EXT_shader_float8");
         }
 
         if (pipelineStats)

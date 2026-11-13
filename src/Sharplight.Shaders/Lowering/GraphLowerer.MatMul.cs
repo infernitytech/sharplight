@@ -234,6 +234,13 @@ public sealed partial class GraphLowerer
             EmitMmq(plan);
             _launchCondition = b => (beforeMmq?.Invoke(b) ?? true) && plan.RowCount(b) < MmqMinRows;
         }
+        else if (UseFp8Gemm(plan.W.Type, plan.K))
+        {
+            var beforeFp8 = _launchCondition;
+            _launchCondition = outer;
+            EmitFp8Gemm(plan);
+            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < MmqMinRows;
+        }
 
         EmitMatMulLaunches(plan);
         _launchCondition = outer;

@@ -101,18 +101,30 @@ public sealed partial class GraphLowerer
             ("SPLITK", split), ("MQ_GENERIC_LAYOUT", DiagnosticSwitches.MmqGenericLayout));
     }
 
-    /// <summary>K split of the int8 GEMM for <paramref name="rows"/> activation rows (grids too small to fill the GPU).</summary>
-    private static int MmqSplit(DataType type, long n, long k, long rows)
+    /// <summary>
+    /// K split of an 8-bit GEMM (int8 or fp8) staging <paramref name="blockK"/> values per step for <paramref name="rows"/>
+    /// activation rows (grids too small to fill the GPU).
+    /// </summary>
+    private static int QuantizedGemmSplit(long n, long k, long rows, int blockK)
     {
         int tileRows = MmqTileRowsFor(rows);
-        return ChooseSplit(n, k, rows, tileRows, MmqColumns(tileRows), MmqBlockK(type, k));
+        return ChooseSplit(n, k, rows, tileRows, MmqColumns(tileRows), blockK);
     }
 
     /// <summary>
     /// Emits the activation quantization and the int8 GEMM launches (plus split-K reduction) of a planned matmul for
     /// batches of at least <see cref="MmqMinRows"/> rows. The caller keeps its f16 GEMM launches off that range.
     /// </summary>
-    private void EmitMmq(MatMulPlan p)
+    private void EmitMmq(MatMulPlan p) => EmitQuantizedGemm(p, "mmq", ActivationCode.Q8_1, MmqBlockK(p.W.Type, p.K),
+        (tileRows, split) => Lib("mmq.slang", "gemm_mmq", MmqMacros(p.W.Type, p.N, p.K, tileRows, split)));
+
+    /// <summary>
+    /// Emits an 8-bit tensor-core GEMM (activations quantized to <paramref name="code"/>, 64- or 128-token tiles of the
+    /// <see cref="MmqLayout"/> layouts, <paramref name="blockK"/> K values per staged step) with its split-K variants and
+    /// reduction for batches of at least <see cref="MmqMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
+    /// tile height and a K split.
+    /// </summary>
+    private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel)
     {
         long n = p.N;
         long k = p.K;
@@ -123,19 +135,20 @@ public sealed partial class GraphLowerer
         }
 
         string label = MatMulLabel(p);
-        var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, k, MmqMinRows, rowsMax);
+        var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, k, MmqMinRows, rowsMax, code);
         bool InRange(Bindings b) => p.RowCount(b) >= MmqMinRows;
+        int Split(Bindings b) => QuantizedGemmSplit(n, k, p.RowCount(b), blockK);
 
         var direct = new List<KernelVariant>();
         foreach (int tileRows in new[] { 64, 128 })
         {
             int columns = MmqColumns(tileRows);
-            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == tileRows && MmqSplit(p.W.Type, n, k, p.RowCount(b)) == 1,
-                Lib("mmq.slang", "gemm_mmq", MmqMacros(p.W.Type, n, k, tileRows, 1)),
+            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == tileRows && Split(b) == 1,
+                kernel(tileRows, 1),
                 b => new Grid(Grid.Div(n, columns), Grid.Div(p.RowCount(b), tileRows))));
         }
 
-        Emit($"{label} mmq", [p.Node], direct,
+        Emit($"{label} {name}", [p.Node], direct,
             [Pointer(quantized), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
             [quantized, p.W], [p.Y]);
 
@@ -144,7 +157,7 @@ public sealed partial class GraphLowerer
         long scratchBytes = 0;
         for (long rows = MmqMinRows; rows <= rowsMax; rows = NextSplitProbe(rows, rowsMax))
         {
-            int split = MmqSplit(p.W.Type, n, k, rows);
+            int split = QuantizedGemmSplit(n, k, rows, blockK);
             if (split > 1)
             {
                 tiledSplits.Add((MmqTileRowsFor(rows), split));
@@ -161,18 +174,18 @@ public sealed partial class GraphLowerer
         _splitScratch.Bytes = Math.Max(_splitScratch.Bytes, scratchBytes);
         var partial = new TensorRef(_splitScratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var partialVariants = tiledSplits.Select(ts => new KernelVariant(
-            b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == ts.TileRows && MmqSplit(p.W.Type, n, k, p.RowCount(b)) == ts.Split,
-            Lib("mmq.slang", "gemm_mmq", MmqMacros(p.W.Type, n, k, ts.TileRows, ts.Split)),
+            b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == ts.TileRows && Split(b) == ts.Split,
+            kernel(ts.TileRows, ts.Split),
             b => new Grid(Grid.Div(n, MmqColumns(ts.TileRows)), Grid.Div(p.RowCount(b), ts.TileRows), (uint)ts.Split)));
-        Emit($"{label} mmq split-k", [p.Node], [.. partialVariants],
+        Emit($"{label} {name} split-k", [p.Node], [.. partialVariants],
             [Pointer(quantized), Pointer(p.W), new PointerArg(_splitScratch, 0), TokenArg(p.X, p.RowsPerLead)],
             [quantized, p.W], [partial]);
 
         var reduceVariants = tiledSplits.Select(ts => ts.Split).Distinct().Select(split => new KernelVariant(
-            b => InRange(b) && MmqSplit(p.W.Type, n, k, p.RowCount(b)) == split,
+            b => InRange(b) && Split(b) == split,
             Lib("matmul.slang", "splitk_reduce", new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) }),
             b => new Grid(Grid.Div(p.RowCount(b) * n, 256))));
-        Emit($"matmul {p.Node.Output.Name} mmq split-k reduce", [p.Node], [.. reduceVariants],
+        Emit($"matmul {p.Node.Output.Name} {name} split-k reduce", [p.Node], [.. reduceVariants],
             [new PointerArg(_splitScratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
             [partial], [p.Y]);
     }

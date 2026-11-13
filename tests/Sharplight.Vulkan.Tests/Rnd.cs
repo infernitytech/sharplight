@@ -35,6 +35,24 @@ internal static class Rnd
         return a;
     }
 
+    /// <summary>
+    /// Activations that per-128 E4M3 quantization represents exactly: integers -7..7 times a power of two per group, with
+    /// a +-7 in every group (the scale amax / 448 is then a power of two and every value an E4M3 code).
+    /// </summary>
+    public static float[] ExactFp8(long n, int seed)
+    {
+        var rng = new Random(seed);
+        var a = new float[n];
+        for (long i = 0; i < n; i++)
+        {
+            float scale = MathF.ScaleB(1f, -3 - (int)(i / 128 % 5));
+            int k = i % 128 == (i / 128) % 128 ? (rng.Next(2) == 0 ? 7 : -7) : rng.Next(-7, 8);
+            a[i] = k * scale;
+        }
+
+        return a;
+    }
+
     public static float[] Pos(long n, int seed, float lo = 0.1f, float hi = 2f)
     {
         var rng = new Random(seed);
