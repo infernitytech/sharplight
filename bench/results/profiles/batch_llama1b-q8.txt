@@ -1,0 +1,26 @@
+decoder: MultiSequenceDecoder, slots 64, batches sequences: True, vocab 128256
+| batch | step ms min | step ms median | tok/s (median) | no-logits ms median |
+|---|---|---|---|---|
+| 1 | 1.36 | 1.37 | 727 | 1.35 |
+| 2 | 2.30 | 2.34 | 855 | 2.11 |
+| 4 | 3.68 | 3.71 | 1078 | 3.05 |
+--- profile batch 4
+GPU time 76.04 ms
+    19.651 ms  25.8%    320x  min     60.4 us  matmul2 [2048→8192]x2 q8_0r fused[Silu,Mul] matvec T=4,4,4
+    16.905 ms  22.2%    320x  min     49.5 us  matmul [8192→2048] q8_0r matvec_sk T=4,4,4
+    12.636 ms  16.6%     20x  min    630.8 us  matmul [2048→128256] q8_0r matvec T=4,4,4
+    11.979 ms  15.8%    640x  min     18.4 us  matmul [2048→2048] q8_0r matvec_sk T=4,4,4
+     5.300 ms   7.0%    640x  min      7.4 us  matmul [2048→512] q8_0r matvec_sk T=4,4,4
+     3.961 ms   5.2%    320x  min     12.3 us  attention main T=4,4,4
+     2.262 ms   3.0%    640x  min      2.4 us  fused[Add]+RmsNorm main T=4,4,4
+     1.121 ms   1.5%    320x  min      1.8 us  rope main T=4,4,4
+     0.662 ms   0.9%    320x  min      1.8 us  rope+cache_write rope_row T=4,4,4
+     0.658 ms   0.9%    320x  min      2.0 us  attention combine combine T=4,4,4
+     0.658 ms   0.9%    320x  min      2.0 us  cache_write cache_write T=4,4,4
+     0.165 ms   0.2%     40x  min      3.7 us  gather gather T=4,4,4
+     0.082 ms   0.1%     20x  min      4.1 us  RmsNorm main T=4,4,4
+
+| 8 | 7.07 | 7.15 | 1118 | 5.61 |
+| 16 | 5.25 | 5.83 | 2742 | 4.04 |
+| 32 | 7.65 | 8.90 | 3594 | 4.51 |
+| 64 | 11.69 | 12.13 | 5277 | 5.09 |

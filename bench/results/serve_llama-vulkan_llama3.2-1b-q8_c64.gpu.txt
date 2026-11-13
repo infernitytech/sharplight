@@ -1,0 +1,13 @@
+gpu util,memused,power,smclk: 40 %, 20938 MiB, 158.05 W, 2287 MHz
+2778, /usr/bin/kwin_wayland, 601 MiB
+9281, /app/extra/vscode/code --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/rende
+639257, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/
+617988, ~/Documents/work/restora/.venv/bin/python3, 550 MiB
+1465681, ~/.local/share/JetBrains/Toolbox/apps/rider/bin/rider, 133 MiB
+1720178, /tmp/.mount_BionicLGCBcJ/bionic --type=gpu-process --ozone-platform=wayland --render-node-override=/d
+1838425, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
+1839008, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
+1839300, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
+2172458, ~/.local/share/docdictator/models/runtime.llama-b11177-vulkan/llama-server, 2436 MiB
+2172992, dotnet, 12 MiB
+2173584, ~/Documents/work/sharplight/.claude/worktrees/agent-ab957ef699cef9e7c/tests/Sharplight.Fa

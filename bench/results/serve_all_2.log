@@ -1,0 +1,226 @@
+=== qwen27b-q8 sharplight
+ready=1 after 10.304631502 s
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 25.386924323043786, "agg_tok_s": 40.33572507523143, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "per_stream_tok_s": 41.592807365475956, "ttft_p50_ms": 118.40414494508877, "ttft_p95_ms": 125.54213354014793, "itl_mean_ms": 24.04261850403607, "itl_p50_ms": 23.656316509004682, "itl_p95_ms": 24.33825549087487, "latency_p50_s": 3.1405507675372064, "error_samples": []}
+{"concurrency": 4, "requests": 24, "errors": 0, "wall_s": 51.187561366008595, "agg_tok_s": 60.01458006632017, "out_tokens": 3072, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "per_stream_tok_s": 15.484369369975383, "ttft_p50_ms": 328.6560234846547, "ttft_p95_ms": 414.98173521249555, "itl_mean_ms": 64.58125456106902, "itl_p50_ms": 62.79204599559307, "itl_p95_ms": 64.76720893406309, "latency_p50_s": 8.477582218591124, "error_samples": []}
+{"concurrency": 16, "requests": 64, "errors": 0, "wall_s": 39.65830415196251, "agg_tok_s": 206.56455628082156, "out_tokens": 8192, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.03125, "per_stream_tok_s": 13.709024484353176, "ttft_p50_ms": 421.9505254877731, "ttft_p95_ms": 1496.4446088066325, "itl_mean_ms": 72.94465052136657, "itl_p50_ms": 59.49999100994319, "itl_p95_ms": 165.97366080386564, "latency_p50_s": 9.48633827996673, "error_samples": []}
+{"concurrency": 64, "requests": 192, "errors": 0, "wall_s": 51.275820508017205, "agg_tok_s": 479.2902338083002, "out_tokens": 24576, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250.015625, "per_stream_tok_s": 8.477809120272976, "ttft_p50_ms": 709.0926879900508, "ttft_p95_ms": 6433.5923728707685, "itl_mean_ms": 117.95500297461298, "itl_p50_ms": 86.58859954448417, "itl_p95_ms": 236.00915705319494, "latency_p50_s": 16.582580970483832, "error_samples": []}
+=== qwen27b-q8 llama-cuda13
+ready=1 after 8.310209989 s
+{"concurrency": 1, "requests": 8, "errors": 0, "wall_s": 23.656471612048335, "agg_tok_s": 43.286252353815634, "out_tokens": 1024, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "per_stream_tok_s": 46.39484435690284, "ttft_p50_ms": 207.0554115343839, "ttft_p95_ms": 266.51524305925705, "itl_mean_ms": 21.55411908071668, "itl_p50_ms": 20.763189473655075, "itl_p95_ms": 26.256621989887208, "latency_p50_s": 2.8615515239653178, "error_samples": []}
+{"concurrency": 4, "requests": 24, "errors": 0, "wall_s": 42.21918690006714, "agg_tok_s": 72.76312562038267, "out_tokens": 3072, "avg_out_tokens": 128.0, "avg_prompt_tokens": 250, "per_stream_tok_s": 20.31854379648735, "ttft_p50_ms": 708.5365559905767, "ttft_p95_ms": 1281.5687981026713, "itl_mean_ms": 49.21612542789011, "itl_p50_ms": 47.90700052399188, "itl_p95_ms": 49.372142617357895, "latency_p50_s": 7.037722286942881, "error_samples": []}
+Traceback (most recent call last):
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection.py", line 103, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 136, in handle_async_request
+    raise exc
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 231, in _receive_event
+    raise RemoteProtocolError(msg)
+httpcore.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 87, in <module>
+    asyncio.run(main())
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 69, in main
+    await asyncio.gather(*[worker(client, args, random.Random(args.seed * 1000 + i), res) for i in range(args.concurrency)])
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 52, in worker
+    out.append(await one(client, args, make_prompt(rng, args.prompt_words)))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 33, in one
+    async with client.stream("POST", args.url + "/v1/completions", json=body) as r:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1583, in stream
+    response = await self.send(
+               ^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.RemoteProtocolError: Server disconnected without sending a response.
+Traceback (most recent call last):
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 87, in <module>
+    asyncio.run(main())
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 66, in main
+    await asyncio.gather(*[one(client, args, make_prompt(rng, args.prompt_words)) for _ in range(min(args.concurrency, 4))])
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 33, in one
+    async with client.stream("POST", args.url + "/v1/completions", json=body) as r:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1583, in stream
+    response = await self.send(
+               ^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+=== qwen27b-q8 llama-vulkan
+ready=1 after 24.880169422 s
+Traceback (most recent call last):
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 271, in __aiter__
+    async for part in self._httpcore_stream:
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 407, in __aiter__
+    raise exc from None
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/connection_pool.py", line 403, in __aiter__
+    async for part in self._stream:
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 342, in __aiter__
+    raise exc
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 334, in __aiter__
+    async for chunk in self._connection._receive_response_body(**kwargs):
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 203, in _receive_response_body
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_async/http11.py", line 213, in _receive_event
+    with map_exceptions({h11.RemoteProtocolError: RemoteProtocolError}):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.RemoteProtocolError: peer closed connection without sending complete message body (incomplete chunked read)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 87, in <module>
+    asyncio.run(main())
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/asyncio/base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 69, in main
+    await asyncio.gather(*[worker(client, args, random.Random(args.seed * 1000 + i), res) for i in range(args.concurrency)])
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 52, in worker
+    out.append(await one(client, args, make_prompt(rng, args.prompt_words)))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/Documents/work/sharplight/bench/loadgen.py", line 36, in one
+    async for line in r.aiter_lines():
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_models.py", line 1031, in aiter_lines
+    async for text in self.aiter_text():
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_models.py", line 1018, in aiter_text
+    async for byte_content in self.aiter_bytes():
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_models.py", line 997, in aiter_bytes
+    async for raw_bytes in self.aiter_raw():
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_models.py", line 1055, in aiter_raw
+    async for raw_stream_bytes in self.stream:
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_client.py", line 176, in __aiter__
+    async for chunk in self._stream:
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 270, in __aiter__
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "~/.venvs/vllm/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.RemoteProtocolError: peer closed connection without sending complete message body (incomplete chunked read)

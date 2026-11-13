@@ -1,0 +1,14 @@
+== cuda13 qwen27b-q8
+== vulkan qwen27b-q8
+== cuda13 qwen3-0.6b-q8
+== vulkan qwen3-0.6b-q8
+== cuda13 llama3.2-1b-q8
+== vulkan llama3.2-1b-q8
+== cuda13 gemma3-1b-q8
+== vulkan gemma3-1b-q8
+== cuda13 mistral7b-q4km
+== vulkan mistral7b-q4km
+== cuda13 olmoe-q4km
+== vulkan olmoe-q4km
+== cuda13 nemotron30b-q4km
+== vulkan nemotron30b-q4km
