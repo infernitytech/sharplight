@@ -146,6 +146,9 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
                 else if (type == "gemma3_text") md[a + "rope.local_base"] = 10000f;
             }
         }
+        else if (type is not null && !type.StartsWith("qwen", StringComparison.Ordinal) && c.GetBool("use_sliding_window") != false
+                 && c.GetInt("sliding_window") is { } swa && swa > 0)
+            md[a + "attention.sliding_window"] = swa;   // every layer (Mistral v0.1, Phi-3-mini-4k); null / absent = full attention
         return md;
     }
 
