@@ -203,7 +203,8 @@ internal sealed unsafe class PhysicalDeviceInfo
         Uuid = Convert.ToHexString(new ReadOnlySpan<byte>(idp.deviceUUID, 16));
 
         // features
-        var coop = new VkPhysicalDeviceCooperativeMatrixFeaturesKHR();
+        var coop2 = new VkPhysicalDeviceCooperativeMatrix2FeaturesNV();
+        var coop = new VkPhysicalDeviceCooperativeMatrixFeaturesKHR { pNext = Extensions.Contains("VK_NV_cooperative_matrix2") ? &coop2 : null };
         var f13 = new VkPhysicalDeviceVulkan13Features { pNext = Extensions.Contains("VK_KHR_cooperative_matrix") ? &coop : null };
         var f12 = new VkPhysicalDeviceVulkan12Features { pNext = &f13 };
         var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12 };
@@ -214,7 +215,6 @@ internal sealed unsafe class PhysicalDeviceInfo
         ShaderFloat16 = f12.shaderFloat16;
         VulkanMemoryModel = f12.vulkanMemoryModel;
         CooperativeMatrix = coop.cooperativeMatrix;
-        CooperativeMatrix2 = Extensions.Contains("VK_NV_cooperative_matrix2");
         if (CooperativeMatrix)
         {
             uint cn = 0;
@@ -225,6 +225,21 @@ internal sealed unsafe class PhysicalDeviceInfo
             CoopMatShapes = cps.Where(c => c.scope == VkScopeKHR.Subgroup)
                 .Select(c => new CoopMatShape(c.MSize, c.NSize, c.KSize, c.AType.ToString(), c.BType.ToString(), c.CType.ToString(), c.ResultType.ToString()))
                 .ToArray();
+        }
+        // VK_NV_cooperative_matrix2: workgroup-scope matrices with tensor-addressed / decoded loads. Our kernels use
+        // 256-invocation workgroups with f16 inputs and f32 accumulation (the configuration llama.cpp also requires).
+        if (CooperativeMatrix && Extensions.Contains("VK_NV_cooperative_matrix2") && coop2.cooperativeMatrixWorkgroupScope
+            && coop2.cooperativeMatrixFlexibleDimensions && coop2.cooperativeMatrixTensorAddressing && coop2.cooperativeMatrixBlockLoads)
+        {
+            uint fn = 0;
+            api.vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV(pd, &fn, null);
+            var fps = new VkCooperativeMatrixFlexibleDimensionsPropertiesNV[fn];
+            for (int i = 0; i < fn; i++) fps[i] = new VkCooperativeMatrixFlexibleDimensionsPropertiesNV();
+            fixed (VkCooperativeMatrixFlexibleDimensionsPropertiesNV* fp = fps) api.vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV(pd, &fn, fp);
+            CooperativeMatrix2 = fps.Any(f => f.scope == VkScopeKHR.Workgroup && f.workgroupInvocations == 256
+                && f.AType == VkComponentTypeKHR.Float16 && f.BType == VkComponentTypeKHR.Float16
+                && f.CType == VkComponentTypeKHR.Float32 && f.ResultType == VkComponentTypeKHR.Float32
+                && f.MGranularity <= 32 && f.NGranularity <= 32 && f.KGranularity <= 16);
         }
         ShaderBFloat16 = Extensions.Contains("VK_KHR_shader_bfloat16");
         IntegerDotProduct = f13.shaderIntegerDotProduct;
@@ -240,6 +255,7 @@ internal sealed unsafe class PhysicalDeviceInfo
         if (CooperativeMatrix && ShaderFloat16 && Shape("16x16x16:f16*f16+f32->f32")) feats.Add(DeviceFeatures.MatrixF16);
         if (CooperativeMatrix && ShaderBFloat16 && Shape("16x16x16:bf16*bf16+f32->f32")) feats.Add(DeviceFeatures.MatrixBF16);
         if (CooperativeMatrix && Shape("16x16x32:i8*i8+i32->i32")) feats.Add(DeviceFeatures.MatrixInt8);
+        if (CooperativeMatrix2 && feats.Contains(DeviceFeatures.MatrixF16) && SubgroupSize == 32) feats.Add(DeviceFeatures.MatrixWorkgroup);
         Features = feats;
 
         void Need(bool ok, string what) { if (!ok) MissingFeatures.Add(what); }

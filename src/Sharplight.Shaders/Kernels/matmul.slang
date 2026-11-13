@@ -614,3 +614,82 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     p.y[(i / N) * Y_STRIDE + i % N] = s;
 }
 #endif
+
+#ifdef KERNEL_GEMM_NV2
+// ---------------------------------------------------------------------------------------------
+// Large GEMM on workgroup-scope cooperative matrices (DeviceFeatures.MatrixWorkgroup, VK_NV_cooperative_matrix2).
+// The device loads the operand tiles itself through tensor layouts: activations as f16 rows (X_F16, X_STRIDE),
+// weights with a transposed view and, for block formats, a decode function. Out-of-range rows/columns are
+// clamped to zero on load and dropped on store, so partial tiles need no special path.
+// Workgroup: 256 invocations computing NV_BT tokens x NV_BN rows of y. SPLITK as in gemm_cm2.
+// Weight formats: f16, q8_0, q8_0r. Requires K % NV_BK == 0.
+using namespace linalg;
+#ifndef NV_BT
+#define NV_BT 128
+#endif
+#ifndef NV_BN
+#define NV_BN 256
+#endif
+#ifndef NV_BK
+#define NV_BK 64
+#endif
+typealias NvA = CoopMat<half, MemoryScope.Workgroup, NV_BT, NV_BK, CoopMatMatrixUse.MatrixA>;
+typealias NvB = CoopMat<half, MemoryScope.Workgroup, NV_BK, NV_BN, CoopMatMatrixUse.MatrixB>;
+typealias NvC = CoopMat<float, MemoryScope.Workgroup, NV_BT, NV_BN, CoopMatMatrixUse.MatrixAccumulator>;
+
+#if WFMT == FMT_Q8_0R
+// One repacked row is one block: [K/32 f16 scales][K int8].
+struct NvWBlock { uint16_t d[K / 32]; int8_t q[K]; };
+half nv_decode(NvWBlock* b, uint32_t blockCoord[2], uint32_t c[2])
+{
+    return bit_cast<half>(b.d[c[1] >> 5]) * half(b.q[c[1]]);
+}
+#define NV_BLOCK K
+#elif WFMT == FMT_Q8_0
+struct NvWBlock { uint16_t d; int8_t q[32]; };
+half nv_decode(NvWBlock* b, uint32_t blockCoord[2], uint32_t c[2])
+{
+    return bit_cast<half>(b.d) * half(b.q[c[1]]);
+}
+#define NV_BLOCK 32
+#endif
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void gemm_nv2(uint3 gid : SV_GroupID, uniform Params p)
+{
+    uint n0 = gid.x * NV_BN, t0 = gid.y * NV_BT;
+#ifndef SPLITK
+#define SPLITK 1
+#endif
+#if SPLITK > 1
+    const uint KS = ((K / NV_BK + SPLITK - 1) / SPLITK) * NV_BK;
+    uint kBeg = gid.z * KS, kEnd = min(uint(K), kBeg + KS);
+    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+#else
+    uint kBeg = 0, kEnd = K;
+    float* yb = p.y;
+#endif
+    var lx = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(p.T, K).Stride(X_STRIDE, 1);
+#if WFMT == FMT_F16
+    var lw = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(N, K).Stride(K, 1);
+#else
+    // Strides count blocks: one block per row for q8_0r, K/32 per row for q8_0.
+    var lw = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(N, K).Stride(K / NV_BLOCK, 1).BlockSize(1, NV_BLOCK);
+#endif
+    var wT = TensorView<2, false, 1, 0>();   // W is [N, K]; the B operand is its transpose
+    NvC acc = NvC(0.0);
+    for (uint k0 = kBeg; k0 < kEnd; k0 += NV_BK)
+    {
+        NvA a = NvA.Load((half*)p.x, NvA(0.0), lx.Slice(t0, NV_BT, k0, NV_BK));
+#if WFMT == FMT_F16
+        NvB b = NvB.Load((half*)p.w, NvB(0.0), lw.Slice(n0, NV_BN, k0, NV_BK), wT);
+#else
+        NvB b = NvB.Load((NvWBlock*)p.w, NvB(0.0), lw.Slice(n0, NV_BN, k0, NV_BK), wT, nv_decode);
+#endif
+        acc = coopMatMulAdd<float, false>(a, b, acc);
+    }
+    var ly = TensorLayout<2, CoopMatClampMode.Constant>().Dimension(p.T, N).Stride(Y_STRIDE, 1);
+    acc.Store(yb, ly.Slice(t0, NV_BT, n0, NV_BN));
+}
+#endif

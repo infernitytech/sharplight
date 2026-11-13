@@ -57,6 +57,24 @@ public class BenchTests
         Console.WriteLine($"BENCH {label,-44} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s  ({gflop:F3} GFLOP)");
     }
 
+    [Theory]
+    [InlineData("f16")] [InlineData("q8_0")]
+    public void MatMulPrefill(string type)
+    {
+        RequireBench();
+        foreach (var (K, N) in new[] { (5120, 17408), (17408, 5120), (5120, 6144) })
+        {
+            var tg = new TG(); var x = tg.InF("x", TG.T, K);
+            var w = tg.RandW("w", DataType.Get(type), 0.05f, N, K);
+            tg.B.Output("y", tg.B.MatMul(x, w));
+            using var m = Compile(tg.B.Build(), 512);
+            Feed(m, x, 512L * K);
+            var (ms, rep) = Profile(m, 512);
+            double gflop = 2.0 * 512 * K * N * 1e-9;
+            Console.WriteLine($"BENCH matmul {type} T=512 {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s\n{rep}");
+        }
+    }
+
     [Fact]
     public void ConvLayers()
     {

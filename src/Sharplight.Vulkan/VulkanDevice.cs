@@ -84,6 +84,13 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         var f11 = new VkPhysicalDeviceVulkan11Features { pNext = &f12, storageBuffer16BitAccess = true, uniformAndStorageBuffer16BitAccess = true };
         var coop = new VkPhysicalDeviceCooperativeMatrixFeaturesKHR { pNext = f13.pNext, cooperativeMatrix = true };
         bool coopMat = Has(DeviceFeatures.MatrixF16) || Has(DeviceFeatures.MatrixBF16) || Has(DeviceFeatures.MatrixInt8);
+        bool coopMat2 = coopMat && Has(DeviceFeatures.MatrixWorkgroup);
+        var coop2 = new VkPhysicalDeviceCooperativeMatrix2FeaturesNV
+        {
+            pNext = coop.pNext, cooperativeMatrixWorkgroupScope = true, cooperativeMatrixFlexibleDimensions = true,
+            cooperativeMatrixTensorAddressing = true, cooperativeMatrixBlockLoads = true,
+        };
+        if (coopMat2) coop.pNext = &coop2;
         if (coopMat) f13.pNext = &coop;
         var f2 = new VkPhysicalDeviceFeatures2 { pNext = &f11 };
         f2.features.shaderInt64 = true;
@@ -93,6 +100,7 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         var qci = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &prio };
         var exts = new List<string>();
         if (coopMat) exts.Add("VK_KHR_cooperative_matrix");
+        if (coopMat2) exts.Add("VK_NV_cooperative_matrix2");
         var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();
         var dci = new VkDeviceCreateInfo { pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci };
         fixed (nint* en = extNames) { dci.enabledExtensionCount = (uint)extNames.Length; dci.ppEnabledExtensionNames = (byte**)en; }

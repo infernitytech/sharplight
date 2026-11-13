@@ -252,7 +252,12 @@ public sealed partial class GraphLowerer
         // Tensor-core path needs f16 matrix MMA (+ f16 arithmetic) and the 32-wide subgroups gemm_cm is written for.
         bool coop = _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
                     && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
-        Func<Bindings, int> split = b => ChooseSplit(N, K, Rows(b, tx) * rowsMul);
+        // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
+        bool nv2 = coop && s_gemm2 && s_gemmX16 && PreferWorkgroupMatrixGemm && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvBK == 0
+                   && fmt is 1 or 8 or 108;
+        var nvm = new Dictionary<string, string> { ["NV_BT"] = $"{NvBT}", ["NV_BN"] = $"{NvBN}", ["NV_BK"] = $"{NvBK}" };
+        Func<long, int> splitRows = nv2 ? r => ChooseSplit(N, K, r, NvBT, NvBN, NvBK) : r => ChooseSplit(N, K, r);
+        Func<Bindings, int> split = b => splitRows(Rows(b, tx) * rowsMul);
         var big = coop
             ? (s_gemm2 ? new KernelVariant(b => split(b) == 1 && Grid.Div(N, G2BN) * Grid.Div(Rows(b, tx) * rowsMul, G2BM) >= 384,
                              Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: true)), b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM)))
@@ -286,7 +291,10 @@ public sealed partial class GraphLowerer
                 [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(xh.Buffer, xh.ByteOffset), TokenArg(x, mid)],
                 [x], [xh]);
             var mh = new Dictionary<string, string>(m) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
+            if (nv2) mh = new Dictionary<string, string>(mh.Concat(nvm));
             Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                nv2 ? [new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1, Lib("matmul.slang", "gemm_nv2", mh),
+                    b => new Grid(Grid.Div(N, NvBN), Grid.Div(Rows(b, tx) * rowsMul, NvBT)))] :
                 [new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1 && Grid.Div(N, G2BN) * Grid.Div(Rows(b, tx) * rowsMul, G2BM) >= 384,
                     Lib("matmul.slang", "gemm_cm2", G2Macros(mh, large: true)), b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))),
                  new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(mh, large: false)),
@@ -306,7 +314,7 @@ public sealed partial class GraphLowerer
             // The split depends on rows only through the token tile count; the largest row count per tile count bounds scratch.
             for (long r = Math.Min(rowsMax, 9); r <= rowsMax; r = r < 128 && rowsMax > 128 ? 128 : r == rowsMax ? rowsMax + 1 : Math.Min(rowsMax, r + 128))
             {
-                int sp = ChooseSplit(N, K, r);
+                int sp = splitRows(r);
                 if (sp > 1) { splits.Add(sp); scratch = Math.Max(scratch, sp * r * N * 4); }
             }
             if (splits.Count > 0)
@@ -315,9 +323,13 @@ public sealed partial class GraphLowerer
                 _splitScratch.Bytes = Math.Max(_splitScratch.Bytes, scratch);
                 var part = new TensorRef(_splitScratch, 0, DataType.F32, [scratch / 4], [1], null);
                 Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type} split-k", [n],
-                    [.. splits.Select(sp => new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == sp,
-                        Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(G2Macros(m, large: false)) { ["SPLITK"] = sp.ToString(CultureInfo.InvariantCulture) }),
-                        b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM), (uint)sp)))],
+                    [.. splits.Select(sp => nv2
+                        ? new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == sp,
+                            Lib("matmul.slang", "gemm_nv2", new Dictionary<string, string>(m) { ["SPLITK"] = sp.ToString(CultureInfo.InvariantCulture) }),
+                            b => new Grid(Grid.Div(N, NvBN), Grid.Div(Rows(b, tx) * rowsMul, NvBT), (uint)sp))
+                        : new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == sp,
+                            Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(G2Macros(m, large: false)) { ["SPLITK"] = sp.ToString(CultureInfo.InvariantCulture) }),
+                            b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM), (uint)sp)))],
                     [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(_splitScratch, 0), TokenArg(x, mid)],
                     [x, w], [part]);
                 Emit($"matmul {n.Output.Name} split-k reduce", [n],
@@ -332,6 +344,15 @@ public sealed partial class GraphLowerer
 
     BufferDecl? _splitScratch;
     BufferDecl? _attnScratch;
+    /// <summary>
+    /// Use the workgroup-scope matrix GEMM (<see cref="DeviceFeatures.MatrixWorkgroup"/>) for prefill matmuls when the
+    /// device has it. Off by default: on the drivers measured so far (NVIDIA Blackwell, 2026) the kernel-staged
+    /// gemm_cm2 is as fast for f16 weights and ~1.5x faster for q8_0, whose decode-on-load is per element.
+    /// Default from SHARPLIGHT_GEMM_NV2=1.
+    /// </summary>
+    public static bool PreferWorkgroupMatrixGemm { get; set; } = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_NV2") == "1";
+    static readonly int[] s_nvTile = (Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_NV2_TILE") ?? "128,128,32").Split(',').Select(int.Parse).ToArray();
+    static readonly int NvBT = s_nvTile[0], NvBN = s_nvTile[1], NvBK = s_nvTile[2];
     static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
     static readonly bool s_attnFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_FA") != "0";
     static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
@@ -340,10 +361,10 @@ public sealed partial class GraphLowerer
     /// K split for the 128x128 tensor-core GEMM: aim for ~256 workgroups, keep at least 4 K blocks per split
     /// and no empty splits.
     /// </summary>
-    static int ChooseSplit(long N, long K, long rows)
+    static int ChooseSplit(long N, long K, long rows, long bm = G2BM, long bn = G2BN, long bk = 32)
     {
         if (rows <= 8) return 1;
-        long tiles = (N + G2BN - 1) / G2BN * ((rows + G2BM - 1) / G2BM), steps = K / 32;
+        long tiles = (N + bn - 1) / bn * ((rows + bm - 1) / bm), steps = K / bk;
         if (tiles >= 192) return 1;
         int sp = 1;
         while (sp < 32 && tiles * sp < 256 && steps / (sp * 2) >= 4) sp *= 2;

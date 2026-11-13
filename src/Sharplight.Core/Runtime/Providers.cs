@@ -69,6 +69,12 @@ public static class DeviceFeatures
     public const string MatrixBF16 = "matrix_bf16";
     /// <summary>Matrix multiply-accumulate on int8 inputs with int32 accumulation.</summary>
     public const string MatrixInt8 = "matrix_int8";
+    /// <summary>
+    /// Workgroup-wide f16 matrix multiply-accumulate on large tiles whose operands are loaded straight from memory
+    /// by tensor addressing (bounds-clamped slices, transposed views) and decoded on load from block formats
+    /// (Vulkan: VK_NV_cooperative_matrix2). Lets the device stage tiles itself instead of the kernel.
+    /// </summary>
+    public const string MatrixWorkgroup = "matrix_workgroup";
     /// <summary>Native 16-bit float arithmetic in kernels.</summary>
     public const string Float16 = "fp16";
     /// <summary>Native bfloat16 types in kernels.</summary>
@@ -80,7 +86,7 @@ public static class DeviceFeatures
     /// <summary>The kernel can pin the subgroup size.</summary>
     public const string SubgroupSizeControl = "subgroup_size_control";
 
-    public static IReadOnlyList<string> All { get; } = [MatrixF16, MatrixBF16, MatrixInt8, Float16, BFloat16, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MatrixF16, MatrixBF16, MatrixInt8, MatrixWorkgroup, Float16, BFloat16, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>
