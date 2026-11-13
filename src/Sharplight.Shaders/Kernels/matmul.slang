@@ -434,15 +434,28 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     half xs[GA_PER_T][8];
     half ws[GB_PER_T][8];
 
+    // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
+#if X_F16
+    #define GEMM_LOAD_X(t, k, dst)                                                                      \
+        { uint4 u = 0;                                                                                  \
+          if ((t) < p.T) u = ((uint4*)((uint16_t*)p.x + uint64_t(t) * X_STRIDE + (k)))[0];              \
+          dst[0] = half(f16tof32(u.x & 0xFFFF)); dst[1] = half(f16tof32(u.x >> 16));                    \
+          dst[2] = half(f16tof32(u.y & 0xFFFF)); dst[3] = half(f16tof32(u.y >> 16));                    \
+          dst[4] = half(f16tof32(u.z & 0xFFFF)); dst[5] = half(f16tof32(u.z >> 16));                    \
+          dst[6] = half(f16tof32(u.w & 0xFFFF)); dst[7] = half(f16tof32(u.w >> 16)); }
+#else
+    #define GEMM_LOAD_X(t, k, dst)                                                                      \
+        { float4 a = 0, b = 0;                                                                          \
+          if ((t) < p.T) { float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
+          dst[0] = half(a.x); dst[1] = half(a.y); dst[2] = half(a.z); dst[3] = half(a.w);               \
+          dst[4] = half(b.x); dst[5] = half(b.y); dst[6] = half(b.z); dst[7] = half(b.w); }
+#endif
     #define FETCH(k0)                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / 4, q = idx % 4;                                       \
         uint t = t0 + r;                                                                                \
-        float4 a = 0, b = 0;                                                                            \
-        if (t < p.T) { float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + (k0) + q * 8); a = xp[0]; b = xp[1]; } \
-        xs[it][0] = half(a.x); xs[it][1] = half(a.y); xs[it][2] = half(a.z); xs[it][3] = half(a.w);     \
-        xs[it][4] = half(b.x); xs[it][5] = half(b.y); xs[it][6] = half(b.z); xs[it][7] = half(b.w);     \
+        GEMM_LOAD_X(t, (k0) + q * 8, xs[it])                                                            \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
@@ -495,6 +508,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     }
     #undef FETCH
     #undef STAGE
+    #undef GEMM_LOAD_X
 
     if (t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
     {

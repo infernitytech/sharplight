@@ -30,6 +30,7 @@ public sealed record CompiledKernel(string Name, string EntryPoint, ShaderTarget
 public sealed class SlangCompiler : IDisposable
 {
     static readonly Lock s_globalLock = new();
+    static readonly string? s_dumpDir = Environment.GetEnvironmentVariable("SHARPLIGHT_DUMP_KERNELS");
     static IGlobalSession? s_global;
 
     readonly string _libraryDir;
@@ -87,6 +88,13 @@ public sealed class SlangCompiler : IDisposable
     {
         var key = CacheKey(source, entryPoint, target, macros);
         string ckey = "kernel/" + key;
+        if (s_dumpDir is not null)
+        {
+            // Diagnostics: SHARPLIGHT_DUMP_KERNELS=<dir> writes every kernel's source and macros.
+            Directory.CreateDirectory(s_dumpDir);
+            File.WriteAllText(Path.Combine(s_dumpDir, $"{Path.GetFileNameWithoutExtension(name)}_{entryPoint}_{key[..12]}.slang"),
+                $"// macros: {FormatMacros(macros)}\n{source}");
+        }
         if (_memCache.TryGetValue(key, out var hit))
         {
             if (cache is not null && !cache.TryGet(ckey, out _)) cache.Put(ckey, hit.Code);

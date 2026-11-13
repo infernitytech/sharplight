@@ -256,12 +256,44 @@ public sealed partial class GraphLowerer
                              Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: true)), b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM)))
                        : new KernelVariant(_ => true, Lib("matmul.slang", "gemm_cm", m), b => new Grid(Grid.Div(N, 128), Grid.Div(Rows(b, tx) * rowsMul, 64))))
             : new KernelVariant(_ => true, Lib("matmul.slang", "gemm", m), b => new Grid(Grid.Div(N, 64), Grid.Div(Rows(b, tx) * rowsMul, 64)));
-        Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
-            [.. MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul), big,
-             .. coop && s_gemm2 ? new[] { new KernelVariant(b => split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: false)),
-                 b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))) } : []],
-            [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
-            [x, w], [y]);
+        // Tensor-core GEMMs (more than 8 rows) read an f16 copy of x made by a small conversion kernel: half the
+        // bytes per tile load (x is re-read by every column tile). Matvecs keep reading f32 x. Separate launches,
+        // since a launch's variants share one argument list; the ones not applicable to a binding are skipped.
+        bool x16 = coop && s_gemm2 && s_gemmX16;
+        if (!x16)
+            Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                [.. MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul), big,
+                 .. coop && s_gemm2 ? new[] { new KernelVariant(b => split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(m, large: false)),
+                     b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))) } : []],
+                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
+                [x, w], [y]);
+        else
+        {
+            Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                MatvecVariants((e, mm) => Lib("matmul.slang", e, mm), m, N, K, b => Rows(b, tx) * rowsMul),
+                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
+                [x, w], [y]);
+            long rowsMax = tx.Shape[0] * rowsMul;
+            var key = new object();
+            long off = _alloc.Allocate(key, Math.Max(16, rowsMax * K * 2));
+            _temps.Add(key);
+            var xh = new TensorRef(_arena, off, DataType.F16, [rowsMax, K], [K, 1], tx.Symbol);
+            Emit($"matmul {n.Output.Name} x→f16", [n],
+                [new KernelVariant(b => Rows(b, tx) * rowsMul > 8, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", xs))),
+                    b => new Grid(Grid.Div(Rows(b, tx) * rowsMul * (K / 8), 256)))],
+                [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(xh.Buffer, xh.ByteOffset), TokenArg(x, mid)],
+                [x], [xh]);
+            var mh = new Dictionary<string, string>(m) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
+            Emit($"matmul {n.Output.Name} [{K}→{N}] {w.Type}", [n],
+                [new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1 && Grid.Div(N, G2BN) * Grid.Div(Rows(b, tx) * rowsMul, G2BM) >= 384,
+                    Lib("matmul.slang", "gemm_cm2", G2Macros(mh, large: true)), b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM))),
+                 new KernelVariant(b => Rows(b, tx) * rowsMul > 8 && split(b) == 1, Lib("matmul.slang", "gemm_cm2", G2Macros(mh, large: false)),
+                    b => new Grid(Grid.Div(N, G2BN), Grid.Div(Rows(b, tx) * rowsMul, G2BM)))],
+                [new PointerArg(xh.Buffer, xh.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x, mid)],
+                [xh, w], [y]);
+            x = xh;
+            m = mh;
+        }
 
         // Split-K for grids too small to fill the GPU (small N or few token tiles): partial sums into a shared
         // scratch buffer, then a reduction. Both launches only run when the chosen split is > 1.
@@ -297,6 +329,10 @@ public sealed partial class GraphLowerer
     }
 
     BufferDecl? _splitScratch;
+    BufferDecl? _attnScratch;
+    static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
+    static readonly bool s_attnFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_FA") != "0";
+    static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
 
     /// <summary>
     /// K split for the 128x128 tensor-core GEMM: aim for ~256 workgroups, keep at least 4 K blocks per split
@@ -323,6 +359,12 @@ public sealed partial class GraphLowerer
         if (w is not null && (w.Type != DataType.F32 || !w.IsDense)) throw new NotSupportedException("Norm weight must be dense f32.");
         var y = Produce(n.Output);
         float eps = n.Attributes.Get<float>("eps");
+        if (D >= 1024)
+        {
+            // Wide rows (hidden-size norms): a workgroup per row with all loads in flight beats one subgroup per row.
+            EmitRowNormKernel($"{n.Op.Name} {n.Output.Name}", [n], x.Shape, x.Symbol, [x], [], "a0", [], [], [(y, "nrm")], w, mode, eps);
+            return;
+        }
         var k = Lib("norm.slang", "main", Macros(("D", D), ("R1", r1), ("S0", s0), ("S1", s1), ("EPS", eps), ("MODE", mode), ("HAS_W", w is not null)));
         var tx = x;
         Emit($"{n.Op.Name} {n.Output.Name}", [n],
@@ -440,15 +482,46 @@ public sealed partial class GraphLowerer
         var o = Produce(n.Output);
         long HQ = q.Shape[1], D = q.Shape[2], HKV = kc.Shape[1], DV = vc.Shape[2];
         if (kc.Type != vc.Type) throw new NotSupportedException("K and V caches must have the same type.");
-        var k = Lib("attention.slang", "main", Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
+        int window = n.Attributes.Get("window", 0);
+        float softcap = n.Attributes.Get("softcap", 0f);
+        var m = Macros(("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("QS0", q.Strides[0]), ("QS1", q.Strides[1]),
             ("SCALE", n.Attributes.Get<float>("scale")), ("KV_F16", kc.Type == DataType.F16), ("RT_N_PAST", Slot(n)),
-            ("WINDOW", n.Attributes.Get("window", 0)), ("HAS_SOFTCAP", n.Attributes.Get("softcap", 0f) > 0), ("SOFTCAP", n.Attributes.Get("softcap", 0f) is var cap and > 0 ? cap : 1f)));
+            ("WINDOW", window), ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f));
+        var k = Lib("attention.slang", "main", m);
         var tq = q;
+        // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
+        // across SPLITS workgroups per head (flash decoding) and merged by a small combine kernel.
+        const long SplitMaxRows = 4;
+        int splits = (int)Math.Clamp((256 + HQ - 1) / HQ, 1, 32);
+        bool split = splits > 1 && s_attnSplit;
+        long rowsMax = tq.Shape[0];
+        var part = o;
+        if (split)
+        {
+            long bytes = splits * Math.Min(rowsMax, SplitMaxRows) * HQ * (DV + 2) * 4;
+            _attnScratch ??= NewBuffer(BufferKind.Activations, "attn-split", 0);
+            _attnScratch.Bytes = Math.Max(_attnScratch.Bytes, bytes);
+            part = new TensorRef(_attnScratch, 0, DataType.F32, [bytes / 4], [1], null);
+        }
+        var sm = new Dictionary<string, string>(m) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
+        // Many queries (prefill): tensor-core flash attention when the device and shapes allow it.
+        bool fa = s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
+                  && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0
+                  && window == 0 && softcap == 0;   // the flash kernel has no sliding window / soft cap
+        var variants = new List<KernelVariant>();
+        if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
+        if (fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));
+        variants.Add(Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq))));
         Emit($"attention {n.Output.Name}", [n],
-            [Always(k, b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
+            variants,
             [new PointerArg(q.Buffer, q.ByteOffset), new PointerArg(kc.Buffer, kc.ByteOffset), new PointerArg(vc.Buffer, vc.ByteOffset),
-             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
-            [q, kc, vc], [o]);
+             new PointerArg(o.Buffer, o.ByteOffset), new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(_runtime, 0), TokenArg(q)],
+            [q, kc, vc], split ? [o, part] : [o]);
+        if (split)
+            Emit($"attention {n.Output.Name} combine", [n],
+                [new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "combine", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq)))],
+                [new PointerArg(part.Buffer, part.ByteOffset), new PointerArg(o.Buffer, o.ByteOffset), TokenArg(q)],
+                [part], [o]);
     }
 
     // ---- recurrent ---------------------------------------------------------------------------
@@ -636,12 +709,67 @@ public sealed partial class GraphLowerer
         sb.AppendLine($"[shader(\"compute\")] [numthreads({threads}, 1, 1)]");
         sb.AppendLine("void main(uint3 gid : SV_GroupID, uint3 lt : SV_GroupThreadID, uniform Params p) {");
         sb.AppendLine("  uint row = gid.x; if (row >= p.rows) return;");
+        // Fixed trip count per thread. Short rows (decode: one workgroup per row, latency bound) are fully
+        // unrolled with every load issued before any store: inputs and outputs are plain pointers that may alias, so
+        // an interleaved load/store loop would serialize one memory round trip per element. The loaded values stay in
+        // registers for the second pass.
+        long iters = (D + threads - 1) / threads;
+        bool unroll = iters <= 32;
+        void Indices(string indent)
+        {
+            sb.AppendLine($"{indent}uint idx = row * {D}u + i;");
+            for (int k = 0; k < rank; k++)
+                sb.AppendLine(k == 0 ? $"{indent}uint d0 = idx / {P[0]}u;" : $"{indent}uint d{k} = (idx / {P[k]}u) % {shape[k]}u;");
+        }
+        void Loop(string body)
+        {
+            sb.AppendLine($"  [ForceUnroll] for (uint j = 0; j < {iters}u; j++) {{");
+            sb.AppendLine($"    uint i = lt.x + j * {threads}u;");
+            if (D % threads != 0) sb.AppendLine($"    if (i < {D}u) {{");
+            sb.Append(body);
+            if (D % threads != 0) sb.AppendLine("    }");
+            sb.AppendLine("  }");
+        }
         void Body(bool second)
         {
+            if (unroll)
+            {
+                var inner = new StringBuilder();
+                var save = sb; sb = inner;
+                Indices("    ");
+                for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"    float a{i} = ar{i}[j];");
+                foreach (var st in preStmts) sb.AppendLine("    " + st);
+                if (!second)
+                {
+                    for (int i = 0; i < pass1Outputs.Count; i++)
+                        sb.AppendLine($"    p.out{i}[{ElemOffset(pass1Outputs[i].Ref, shape)}] = {pass1Outputs[i].Expr};");
+                    sb.AppendLine($"    ss += {normExpr} * {normExpr};");
+                }
+                else
+                {
+                    sb.AppendLine($"    float nrm = {normExpr} * scale{(w is null ? "" : " * wr[j]")};");
+                    foreach (var st in postStmts) sb.AppendLine("    " + st);
+                    for (int i = 0; i < pass2Outputs.Count; i++)
+                        sb.AppendLine($"    p.out{pass1Outputs.Count + i}[{ElemOffset(pass2Outputs[i].Ref, shape)}] = {pass2Outputs[i].Expr};");
+                }
+                sb = save;
+                if (!second)
+                {
+                    for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"  float ar{i}[{iters}];");
+                    var loads = new StringBuilder();
+                    var save2 = sb; sb = loads;
+                    Indices("    ");
+                    for (int i = 0; i < inputs.Count; i++) sb.AppendLine($"    ar{i}[j] = {ElemLoad(inputs[i], i, shape)};");
+                    if (w is not null) sb.AppendLine("    wr[j] = p.w[i];");
+                    sb = save2;
+                    if (w is not null) sb.AppendLine($"  float wr[{iters}];");
+                    Loop(loads.ToString());
+                }
+                Loop(inner.ToString());
+                return;
+            }
             sb.AppendLine($"  for (uint i = lt.x; i < {D}u; i += {threads}u) {{");
-            sb.AppendLine($"    uint idx = row * {D}u + i;");
-            for (int k = 0; k < rank; k++)
-                sb.AppendLine(k == 0 ? $"    uint d0 = idx / {P[0]}u;" : $"    uint d{k} = (idx / {P[k]}u) % {shape[k]}u;");
+            Indices("    ");
             for (int i = 0; i < inputs.Count; i++)
                 sb.AppendLine($"    float a{i} = {ElemLoad(inputs[i], i, shape)};");
             foreach (var st in preStmts) sb.AppendLine("    " + st);
@@ -662,10 +790,23 @@ public sealed partial class GraphLowerer
         }
         sb.AppendLine("  float ss = 0;");
         Body(false);
-        sb.AppendLine("  red[lt.x] = ss;");
-        sb.AppendLine("  GroupMemoryBarrierWithGroupSync();");
-        sb.AppendLine($"  for (uint s = {threads / 2}u; s > 0; s >>= 1) {{ if (lt.x < s) red[lt.x] += red[lt.x + s]; GroupMemoryBarrierWithGroupSync(); }}");
-        sb.AppendLine(mode == 0 ? $"  float scale = rsqrt(red[0] / {F(D)} + {F(eps)});" : $"  float scale = rsqrt(red[0] + {F(eps)});");
+        if (_opt.Has(DeviceFeatures.SubgroupOps))
+        {
+            // Subgroup sums, then one barrier and a short serial sum over the subgroups.
+            sb.AppendLine("  float ws = WaveActiveSum(ss);");
+            sb.AppendLine("  uint lanes = WaveGetLaneCount();");
+            sb.AppendLine("  if (WaveIsFirstLane()) red[lt.x / lanes] = ws;");
+            sb.AppendLine("  GroupMemoryBarrierWithGroupSync();");
+            sb.AppendLine($"  float tot = 0; for (uint k = 0; k < {threads}u / lanes; k++) tot += red[k];");
+        }
+        else
+        {
+            sb.AppendLine("  red[lt.x] = ss;");
+            sb.AppendLine("  GroupMemoryBarrierWithGroupSync();");
+            sb.AppendLine($"  for (uint s = {threads / 2}u; s > 0; s >>= 1) {{ if (lt.x < s) red[lt.x] += red[lt.x + s]; GroupMemoryBarrierWithGroupSync(); }}");
+            sb.AppendLine("  float tot = red[0];");
+        }
+        sb.AppendLine(mode == 0 ? $"  float scale = rsqrt(tot / {F(D)} + {F(eps)});" : $"  float scale = rsqrt(tot + {F(eps)});");
         Body(true);
         sb.AppendLine("}");
 
