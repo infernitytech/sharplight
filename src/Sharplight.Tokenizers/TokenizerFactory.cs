@@ -1,4 +1,5 @@
 using Sharplight.Tokenizers.Bpe;
+using Sharplight.Tokenizers.Spm;
 
 namespace Sharplight.Tokenizers;
 
@@ -11,7 +12,8 @@ public static class TokenizerFactory
         return data.Model switch
         {
             "gpt2" => new ByteLevelBpeTokenizer(data),
-            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2)."),
+            "spm" or "llama" => new SentencePieceTokenizer(data),
+            _ => throw new NotSupportedException($"Tokenizer model '{data.Model}' is not supported (supported: gpt2, spm)."),
         };
     }
 }

@@ -86,6 +86,10 @@ public static class CanonicalKeys
     public const string TokenizerTokens = "tokenizer.tokens";
     public const string TokenizerTokenTypes = "tokenizer.token_type";
     public const string TokenizerMerges = "tokenizer.merges";
+    /// <summary>Per-token scores (float[]) of a SentencePiece-style tokenizer (<c>tokenizer.model</c> = "spm").</summary>
+    public const string TokenizerScores = "tokenizer.scores";
+    /// <summary>Whether SentencePiece-style tokenizers prepend a space to the text (bool).</summary>
+    public const string TokenizerAddSpacePrefix = "tokenizer.add_space_prefix";
     public const string TokenizerBosId = "tokenizer.bos_token_id";
     public const string TokenizerEosId = "tokenizer.eos_token_id";
     public const string TokenizerEotId = "tokenizer.eot_token_id";

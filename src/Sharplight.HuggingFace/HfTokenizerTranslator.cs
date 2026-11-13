@@ -34,6 +34,13 @@ public static class HfTokenizerTranslator
 
         var model = tok.GetProperty("model");
         string modelType = model.TryGetProperty("type", out var mt) ? mt.GetString() ?? "" : "";
+        // SentencePiece-style (Llama 2, Mistral, Gemma, Phi-3): BPE with byte fallback, scores come from tokenizer.model.
+        if (modelType == "BPE" && model.TryGetProperty("byte_fallback", out var bf) && bf.ValueKind == JsonValueKind.True
+            && File.Exists(Path.Combine(dir, "tokenizer.model")))
+        {
+            AddSentencePiece(md, dir, config, tok);
+            return;
+        }
         if (modelType != "BPE") throw new NotSupportedException($"tokenizer.json model type '{modelType}' is not supported (only BPE).");
 
         JsonElement? tcRoot = null;
@@ -94,6 +101,42 @@ public static class HfTokenizerTranslator
         md[CanonicalKeys.TokenizerTokenTypes] = types;
         if (ReadMerges(model) is { Length: > 0 } merges) md[CanonicalKeys.TokenizerMerges] = merges;
 
+        AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
+    }
+
+    /// <summary>
+    /// SentencePiece vocabulary (llama.cpp <c>_create_vocab_sentencepiece</c>): pieces, scores and types from
+    /// <c>tokenizer.model</c>, extra added tokens appended into unused slots, padded to the model's vocab_size.
+    /// </summary>
+    static void AddSentencePiece(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok)
+    {
+        var sp = SentencePieceModelFile.Read(Path.Combine(dir, "tokenizer.model"));
+        int vocabSize = config.GetInt("vocab_size") ?? sp.Pieces.Length;
+        var tokens = new string[vocabSize]; var scores = new float[vocabSize]; var types = new int[vocabSize];
+        for (int i = 0; i < vocabSize; i++)
+        {
+            if (i < sp.Pieces.Length) { tokens[i] = sp.Pieces[i]; scores[i] = sp.Scores[i]; types[i] = sp.Types[i]; }
+            else { tokens[i] = $"[PAD{i}]"; scores[i] = -1000f; types[i] = TypeUnused; }
+        }
+        var addedTokens = tok.TryGetProperty("added_tokens", out var at) && at.ValueKind == JsonValueKind.Array ? at.EnumerateArray().ToArray() : [];
+        var existing = new HashSet<string>(tokens, StringComparer.Ordinal);
+        foreach (var a in addedTokens)
+        {
+            int id = a.GetProperty("id").GetInt32();
+            string content = a.GetProperty("content").GetString()!;
+            if (id >= vocabSize || existing.Contains(content) || types[id] != TypeUnused) continue;   // only fills unused slots
+            tokens[id] = content; scores[id] = -1000f;
+            types[id] = a.TryGetProperty("special", out var spc) && spc.ValueKind == JsonValueKind.True ? TypeControl : TypeUserDefined;
+        }
+        md[CanonicalKeys.TokenizerModel] = "spm";
+        md[CanonicalKeys.TokenizerPre] = "default";
+        md[CanonicalKeys.TokenizerTokens] = tokens;
+        md[CanonicalKeys.TokenizerScores] = scores;
+        md[CanonicalKeys.TokenizerTokenTypes] = types;
+        md[CanonicalKeys.TokenizerAddSpacePrefix] = sp.AddDummyPrefix;
+        JsonElement? tcRoot = null;
+        using var tcDoc = ReadOptional(Path.Combine(dir, "tokenizer_config.json"));
+        if (tcDoc != null) tcRoot = tcDoc.RootElement.Clone();
         AddSpecialVocab(md, dir, config, tok, tcRoot, addedTokens);
     }
 

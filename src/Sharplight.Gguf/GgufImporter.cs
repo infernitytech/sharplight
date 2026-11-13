@@ -82,6 +82,8 @@ public sealed class GgufImporter : IModelImporter
         var md = new Dictionary<string, object>(gguf.Count, StringComparer.Ordinal);
         foreach (var (k, v) in gguf)
             md[k.StartsWith(GgmlTokenizerPrefix, StringComparison.Ordinal) ? "tokenizer." + k[GgmlTokenizerPrefix.Length..] : k] = v;
+        // llama.cpp calls SentencePiece-style tokenizers "llama"; the canonical name is "spm".
+        if (md.TryGetValue(CanonicalKeys.TokenizerModel, out var tm) && tm is "llama") md[CanonicalKeys.TokenizerModel] = "spm";
         return md;
     }
 }
