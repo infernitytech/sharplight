@@ -109,7 +109,18 @@ public unsafe class QuantTests
     {
         foreach (var t in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "q5_0", "q5_1", "q4_k", "q5_k", "q6_k" })
         {
-            foreach (var tokens in new[] { 1, 2, 5 })
+            foreach (var tokens in new[] { 1, 2, 5, 9, 37 })
+            {
+                yield return [t, tokens];
+            }
+        }
+    }
+
+    public static IEnumerable<object[]> IntDotMatMulCases()
+    {
+        foreach (var t in new[] { "q8_0", "q4_0", "q4_1", "q5_0", "q5_1", "q4_k", "q5_k", "q6_k" })
+        {
+            foreach (var tokens in new[] { 1, 3, 16, 40 })
             {
                 yield return [t, tokens];
             }
@@ -183,9 +194,21 @@ public unsafe class QuantTests
         }
     }
 
-    /// <summary>MatMul over all formats; N not a multiple of 4, several token counts; K spans several 1024-element blocks.</summary>
+    /// <summary>
+    /// MatMul over all formats; N not a multiple of 4, token counts for the row paths and the GEMM (partial M tiles); K spans
+    /// several 1024-element blocks and GEMM K chunks.
+    /// </summary>
     [Theory, MemberData(nameof(MatMulCases))]
-    public void MatMulMatchesReference(string type, int tokens)
+    public void MatMulMatchesReference(string type, int tokens) => MatMulCheck(type, tokens, intDot: false);
+
+    /// <summary>
+    /// With integer dots enabled the activations are quantized to 8 bits per 32 values: the result stays within the
+    /// quantization error (relative to the output norm) and the GEMM rows (40 tokens) remain exact.
+    /// </summary>
+    [Theory, MemberData(nameof(IntDotMatMulCases))]
+    public void MatMulWithIntDotMatchesReference(string type, int tokens) => MatMulCheck(type, tokens, intDot: true);
+
+    private static void MatMulCheck(string type, int tokens, bool intDot)
     {
         int n = 7;
         int k = type.EndsWith("_k") ? 2560 : 1536 + (type == "f32" ? 37 : 0);
@@ -205,7 +228,7 @@ public unsafe class QuantTests
         var w = tg.W("w", DataType.Get(type), new Shape(n, k), data);
         var xin = tg.InF("x", TestGraph.T, k);
         tg.B.Output("y", tg.B.MatMul(xin, w));
-        using var m = Kit.Compile(tg.B.Build());
+        using var m = Kit.Compile(tg.B.Build(), intDot: intDot);
         Kit.Set(m, xin, x);
         var p = Kit.P(tokens);
         m.Run(p);
@@ -225,7 +248,21 @@ public unsafe class QuantTests
             }
         }
 
-        Kit.AssertClose(exp, y, 2e-3, 1e-4, type);
+        if (!intDot || tokens >= MatMulOp.IntDotGemmMinRows)
+        {
+            Kit.AssertClose(exp, y, 2e-3, 1e-4, type);
+            return;
+        }
+
+        double err = 0;
+        double norm = 0;
+        for (int i = 0; i < exp.Length; i++)
+        {
+            err += Math.Pow(exp[i] - y[i], 2);
+            norm += Math.Pow(exp[i], 2);
+        }
+
+        Assert.True(Math.Sqrt(err / norm) < 1e-2, $"{type} T={tokens}: relative error {Math.Sqrt(err / norm)}");
     }
 
     /// <summary>x is a strided view (Slice of a wider tensor) and the output feeds further ops.</summary>

@@ -129,7 +129,7 @@ internal sealed unsafe class RowOp : CpuOp
                     }
                     long i2 = 0;
                     float sum = 0;
-                    if (Vector256.IsHardwareAccelerated)
+                    if (CpuIsa.Use256)
                     {
                         var sv = Vector256.Create(sc);
                         var mv = Vector256.Create(mz);

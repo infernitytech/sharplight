@@ -182,7 +182,7 @@ internal sealed unsafe class ReduceOp : CpuOp
             {
                 long i = 0;
                 float m = float.PositiveInfinity;
-                if (Vector256.IsHardwareAccelerated && n >= 8)
+                if (CpuIsa.Use256 && n >= 8)
                 {
                     var s = Vector256.Create(float.PositiveInfinity);
                     for (; i + 8 <= n; i += 8)
@@ -458,7 +458,7 @@ internal sealed unsafe class ReduceOp : CpuOp
     private static void VecCombine(ReduceKind k, float* o, float* s, long n)
     {
         long i = 0;
-        if (Vector256.IsHardwareAccelerated)
+        if (CpuIsa.Use256)
         {
             for (; i + 8 <= n; i += 8)
             {

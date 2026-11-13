@@ -134,7 +134,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     {
         long i = 0;
         float sum = 0;
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var dv = Vector512.Create(decay);
             var lv = Vector512.Create(delta);
@@ -147,7 +147,7 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
             }
             sum = Vector512.Sum(acc);
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var dv = Vector256.Create(decay);
             var lv = Vector256.Create(delta);

@@ -33,7 +33,7 @@ internal static unsafe partial class Quant
 
     /// <summary>The MXFP4 scale: 2^(e-127) / 2 (the stored E2M1 values are doubled), with the two smallest exponents as denormals.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static float E8M0Half(byte e)
+    internal static float E8M0Half(byte e)
     {
         uint bits = e < 2 ? 0x00200000u << e : (uint)(e - 1) << 23;
         return BitConverter.UInt32BitsToSingle(bits);

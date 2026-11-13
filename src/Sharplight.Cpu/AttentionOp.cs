@@ -5,7 +5,7 @@ using Sharplight.Runtime;
 namespace Sharplight.Cpu;
 
 /// <summary>Scaled dot-product attention. Covers CachedAttention (K/V are state tensors) and plain Attention.</summary>
-internal sealed unsafe class AttentionOp : CpuOp
+internal sealed unsafe partial class AttentionOp : CpuOp
 {
     private readonly TRef _q;
     private readonly TRef _k;
@@ -41,7 +41,7 @@ internal sealed unsafe class AttentionOp : CpuOp
     [ThreadStatic] private static float[]? s_scores;
     [ThreadStatic] private static float[]? s_row;
 
-    public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
+    public override string Name => (_offsetScalar is null ? "Attention" : "CachedAttention") + (_tiledLanes > 0 ? ".tiled" : "");
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
@@ -88,6 +88,7 @@ internal sealed unsafe class AttentionOp : CpuOp
         }
 
         _body = Body;
+        InitTiled();
     }
 
     /// <summary>The block format of a quantized KV cache (q8_0 / q4_0, rows of whole 32-value blocks), or null.</summary>
@@ -144,6 +145,12 @@ internal sealed unsafe class AttentionOp : CpuOp
                 throw new InvalidOperationException($"KV cache overflow: n_past {_past} + T {_t} > context {_k.Dims[0]}.");
             }
         }
+        if (_tiledLanes > 0)
+        {
+            RunTiled();
+            return;
+        }
+
         _tasks = _t * _hq;
         int chunks = (int)Math.Min(_tasks, CpuParallel.Threads * 4L);
         _per = (_tasks + chunks - 1) / chunks;
@@ -266,7 +273,7 @@ internal sealed unsafe class AttentionOp : CpuOp
                 }
                 float sum = _sinks is null ? 0f : MathF.Exp(sink - max);
                 long i = j0;
-                if (Vector256.IsHardwareAccelerated)
+                if (CpuIsa.Use256)
                 {
                     var mv = Vector256.Create(max);
                     var acc = Vector256<float>.Zero;

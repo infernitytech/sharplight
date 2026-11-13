@@ -9,9 +9,18 @@ internal static class Kit
     public static CpuExecutionProvider Provider = new();
     public static IComputeDevice Device = Provider.OpenDevice(Provider.GetDevices()[0]);
 
-    public static CompiledModel Compile(ComputeGraph g, long maxTokens = 64, long ctx = 64)
+    /// <summary>
+    /// Compiles for the CPU. The integer-dot matmul (<see cref="DeviceFeatures.IntDot"/>, 8-bit activations) is off unless
+    /// <paramref name="intDot"/> is set, so results compare against f32 references at f32 tolerances.
+    /// </summary>
+    public static CompiledModel Compile(ComputeGraph g, long maxTokens = 64, long ctx = 64, bool intDot = false)
     {
-        var opts = new CompileOptions { MaxTokens = maxTokens, ContextLength = ctx };
+        var opts = new CompileOptions
+        {
+            MaxTokens = maxTokens,
+            ContextLength = ctx,
+            DisabledFeatures = intDot ? new HashSet<string>() : new HashSet<string> { DeviceFeatures.IntDot },
+        };
         return CompiledModel.Compile(g, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = Device }],

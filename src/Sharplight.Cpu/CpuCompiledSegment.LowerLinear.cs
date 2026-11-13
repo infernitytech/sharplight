@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
@@ -35,7 +36,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var w = WeightOperand(ins[1]);
         var format = Quant.FormatOf(w.Type)!.Value;
         var y = NewDense(n.Output);
-        AddStep(new MatMulOp(x, w, y, format), x, w, y);
+        AddStep(new MatMulOp(x, w, y, format, _features.Contains(DeviceFeatures.IntDot)), x, w, y);
         _refs[n.Output] = y;
     }
 

@@ -18,6 +18,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
 {
     private readonly GraphSegment _segment;
     private readonly CompileOptions _options;
+    private readonly IReadOnlySet<string> _features;
     private readonly Dictionary<Value, TRef> _refs = [];
     private readonly Dictionary<Value, TRef> _inputs = [];
     private readonly Dictionary<Value, TRef> _f32Cache = [];
@@ -39,6 +40,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
     {
         _segment = segment;
         _options = options;
+        _features = options.FeaturesFor(device);
         try
         {
             foreach (var input in segment.Inputs)
@@ -106,6 +108,16 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
         }
 
         _last = parameters;
+        if (CpuProfiler.Enabled)
+        {
+            foreach (var (op, _) in _steps)
+            {
+                CpuProfiler.Run(op, parameters);
+            }
+
+            return;
+        }
+
         foreach (var (op, _) in _steps)
         {
             op.Run(parameters);

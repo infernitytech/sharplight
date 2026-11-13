@@ -17,6 +17,7 @@ internal sealed unsafe class BinaryOp : CpuOp
     private long _outer;
     private long _perChunk;
     private long _l;
+    private int _top; // highest dim index still walked per row; dims above it up to rank-1 are merged into the row
     public override string Name => "Binary." + _kind;
 
     public BinaryOp(BinaryKind kind, TRef a, TRef b, TRef y, bool fmod = false)
@@ -64,8 +65,28 @@ internal sealed unsafe class BinaryOp : CpuOp
         }
 
         _l = _y.Cols(p);
+        int rank = _y.Rank;
+        _top = rank - 2;
+        long sa = _sa[rank - 1];
+        long sb = _sb[rank - 1];
+
+        // Strided (transposed) operands run scalar gathers: use smaller chunks so more threads share them.
+        int chunks = CpuParallel.Chunks(total, sa is 0 or 1 && sb is 0 or 1 ? 32768 : 4096);
+
+        // Merge trailing dims into one long row while both operands stay linear over them and enough rows remain for the
+        // chunks (short rows like NCHW's W would otherwise pay the per-row index math for a handful of elements).
+        while (_top >= 1)
+        {
+            long d = _y.Dims[_top];
+            long merged = _l * d;
+            if (_sa[_top] != sa * _l || _sb[_top] != sb * _l || total / merged < chunks)
+            {
+                break;
+            }
+            _l = merged;
+            _top--;
+        }
         _outer = total / _l;
-        int chunks = CpuParallel.Chunks(total, 32768);
         chunks = (int)Math.Min(chunks, _outer);
         _perChunk = (_outer + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
@@ -84,7 +105,7 @@ internal sealed unsafe class BinaryOp : CpuOp
             long ao = 0;
             long bo = 0;
             long rr = r;
-            for (int k = rank - 2; k >= 1; k--)
+            for (int k = _top; k >= 1; k--)
             {
                 long d = _y.Dims[k];
                 long q = rr / d;
@@ -166,7 +187,33 @@ internal sealed unsafe class BinaryOp : CpuOp
 
             return;
         }
-        if (Vector256.IsHardwareAccelerated && (sa == 1 || sa == 0) && (sb == 1 || sb == 0))
+        if (CpuIsa.Use512 && (sa == 1 || sa == 0) && (sb == 1 || sb == 0) && (sa | sb) != 0)
+        {
+            if (sa == 1 && sb == 1)
+            {
+                for (; i + 16 <= n; i += 16)
+                {
+                    Op(k, Vector512.Load(a + i), Vector512.Load(b + i)).Store(y + i);
+                }
+            }
+            else if (sa == 1)
+            {
+                var bv = Vector512.Create(*b);
+                for (; i + 16 <= n; i += 16)
+                {
+                    Op(k, Vector512.Load(a + i), bv).Store(y + i);
+                }
+            }
+            else
+            {
+                var av = Vector512.Create(*a);
+                for (; i + 16 <= n; i += 16)
+                {
+                    Op(k, av, Vector512.Load(b + i)).Store(y + i);
+                }
+            }
+        }
+        if (CpuIsa.Use256 && (sa == 1 || sa == 0) && (sb == 1 || sb == 0))
         {
             if (sa == 1 && sb == 1)
             {
@@ -214,6 +261,16 @@ internal sealed unsafe class BinaryOp : CpuOp
         BinaryKind.Div => a / b,
         BinaryKind.Max => Vector256.Max(a, b),
         _ => Vector256.Min(a, b),
+    };
+
+    private static Vector512<float> Op(BinaryKind k, Vector512<float> a, Vector512<float> b) => k switch
+    {
+        BinaryKind.Add => a + b,
+        BinaryKind.Sub => a - b,
+        BinaryKind.Mul => a * b,
+        BinaryKind.Div => a / b,
+        BinaryKind.Max => Vector512.Max(a, b),
+        _ => Vector512.Min(a, b),
     };
 
     private static float OpS2(BinaryKind k, float a, float b, bool fmod)

@@ -438,7 +438,7 @@ internal static unsafe partial class Quant
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ScaleMin(int j, byte* q, out int sc, out int m)
+    internal static void ScaleMin(int j, byte* q, out int sc, out int m)
     {
         if (j < 4)
         {
@@ -649,7 +649,7 @@ internal static unsafe partial class Quant
     // ---- fused matrix-vector kernels (single token): dequantize in registers, no scratch buffer ------------
 
     public static bool HasFusedKernel(WeightFormat f) =>
-        System.Runtime.Intrinsics.X86.Avx512F.IsSupported && f is WeightFormat.Q8_0 or WeightFormat.Q4_0;
+        CpuIsa.Use512 && f is WeightFormat.Q8_0 or WeightFormat.Q4_0;
 
     /// <summary>Dot products of x[nb*32] with four Q8_0 / Q4_0 rows.</summary>
     public static void DotRows4(WeightFormat f, float* x, byte** rows, long nb, float* res)

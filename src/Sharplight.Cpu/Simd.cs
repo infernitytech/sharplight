@@ -12,7 +12,7 @@ internal static unsafe class Simd
     {
         long i = 0;
         float sum = 0;
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var s0 = Vector512<float>.Zero;
             var s1 = s0;
@@ -32,7 +32,7 @@ internal static unsafe class Simd
 
             sum = Vector512.Sum((s0 + s1) + (s2 + s3));
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var s0 = Vector256<float>.Zero;
             var s1 = s0;
@@ -68,7 +68,7 @@ internal static unsafe class Simd
         float r1 = 0;
         float r2 = 0;
         float r3 = 0;
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var a0 = Vector512<float>.Zero;
             var a1 = a0;
@@ -104,7 +104,7 @@ internal static unsafe class Simd
             r2 = Vector512.Sum(a2 + b2);
             r3 = Vector512.Sum(a3 + b3);
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var a0 = Vector256<float>.Zero;
             var a1 = a0;
@@ -143,7 +143,7 @@ internal static unsafe class Simd
         long i = 0;
         var r = new Span<float>(res, 8);
         r.Clear();
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var a0 = Vector512<float>.Zero;
             var a1 = a0;
@@ -179,7 +179,7 @@ internal static unsafe class Simd
             res[6] = Vector512.Sum(c2);
             res[7] = Vector512.Sum(c3);
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var a0 = Vector256<float>.Zero;
             var a1 = a0;
@@ -234,7 +234,7 @@ internal static unsafe class Simd
     {
         long i = 0;
         float sum = 0;
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var s0 = Vector512<float>.Zero;
             var s1 = s0;
@@ -252,7 +252,7 @@ internal static unsafe class Simd
             }
             sum = Vector512.Sum(s0 + s1);
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var s0 = Vector256<float>.Zero;
             for (; i + 8 <= n; i += 8)
@@ -274,7 +274,7 @@ internal static unsafe class Simd
     {
         long i = 0;
         float sum = 0;
-        if (Vector256.IsHardwareAccelerated)
+        if (CpuIsa.Use256)
         {
             var s = Vector256<float>.Zero;
             for (; i + 8 <= n; i += 8)
@@ -296,7 +296,7 @@ internal static unsafe class Simd
     {
         long i = 0;
         float m = float.NegativeInfinity;
-        if (Vector256.IsHardwareAccelerated && n >= 8)
+        if (CpuIsa.Use256 && n >= 8)
         {
             var s = Vector256.Create(float.NegativeInfinity);
             for (; i + 8 <= n; i += 8)
@@ -319,10 +319,68 @@ internal static unsafe class Simd
     }
 
     /// <summary>dst[i] = src[i] * s</summary>
+    /// <summary>Software prefetch of <paramref name="bytes"/> bytes at <paramref name="p"/> into the cache (x86 only, a no-op elsewhere).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Prefetch(void* p, long bytes)
+    {
+        if (!Sse.IsSupported)
+        {
+            return;
+        }
+
+        byte* b = (byte*)p;
+        for (long o = 0; o < bytes; o += 64)
+        {
+            Sse.Prefetch0(b + o);
+        }
+    }
+
+    /// <summary>x[i] = exp(x[i] - shift) in place; returns the sum of the results.</summary>
+    public static float ExpShifted(float* x, long n, float shift)
+    {
+        long i = 0;
+        float sum = 0f;
+        if (CpuIsa.Use512)
+        {
+            var sv = Vector512.Create(shift);
+            var acc = Vector512<float>.Zero;
+            for (; i + 16 <= n; i += 16)
+            {
+                var e = Vector512.Exp(Vector512.Load(x + i) - sv);
+                e.Store(x + i);
+                acc += e;
+            }
+
+            sum = Vector512.Sum(acc);
+        }
+        else if (CpuIsa.Use256)
+        {
+            var sv = Vector256.Create(shift);
+            var acc = Vector256<float>.Zero;
+            for (; i + 8 <= n; i += 8)
+            {
+                var e = Vector256.Exp(Vector256.Load(x + i) - sv);
+                e.Store(x + i);
+                acc += e;
+            }
+
+            sum = Vector256.Sum(acc);
+        }
+
+        for (; i < n; i++)
+        {
+            float e = MathF.Exp(x[i] - shift);
+            x[i] = e;
+            sum += e;
+        }
+
+        return sum;
+    }
+
     public static void Scale(float* src, float* dst, float s, long n)
     {
         long i = 0;
-        if (Vector256.IsHardwareAccelerated)
+        if (CpuIsa.Use256)
         {
             var sv = Vector256.Create(s);
             for (; i + 8 <= n; i += 8)
@@ -340,7 +398,7 @@ internal static unsafe class Simd
     public static void ScaleMul(float* src, float* w, float* dst, float s, long n)
     {
         long i = 0;
-        if (Vector256.IsHardwareAccelerated)
+        if (CpuIsa.Use256)
         {
             var sv = Vector256.Create(s);
             for (; i + 8 <= n; i += 8)
@@ -358,7 +416,7 @@ internal static unsafe class Simd
     public static void Axpy(float* acc, float* v, float p, long n)
     {
         long i = 0;
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var pv = Vector512.Create(p);
             for (; i + 16 <= n; i += 16)
@@ -366,7 +424,7 @@ internal static unsafe class Simd
                 Vector512.FusedMultiplyAdd(Vector512.Load(v + i), pv, Vector512.Load(acc + i)).Store(acc + i);
             }
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var pv = Vector256.Create(p);
             for (; i + 8 <= n; i += 8)
@@ -430,14 +488,14 @@ internal static unsafe class Simd
     public static void HalfToFloat(ushort* src, float* dst, long n)
     {
         long i = 0;
-        if (Avx512F.IsSupported)
+        if (CpuIsa.Use512)
         {
             for (; i + 16 <= n; i += 16)
             {
                 HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(src + i))).Store(dst + i);
             }
         }
-        else if (Avx2.IsSupported)
+        else if (CpuIsa.Use256)
         {
             for (; i + 8 <= n; i += 8)
             {
@@ -454,14 +512,14 @@ internal static unsafe class Simd
     public static void BFloatToFloat(ushort* src, float* dst, long n)
     {
         long i = 0;
-        if (Avx512F.IsSupported)
+        if (CpuIsa.Use512)
         {
             for (; i + 16 <= n; i += 16)
             {
                 Vector512.ShiftLeft(Avx512F.ConvertToVector512UInt32(Vector256.Load(src + i)), 16).AsSingle().Store(dst + i);
             }
         }
-        else if (Avx2.IsSupported)
+        else if (CpuIsa.Use256)
         {
             for (; i + 8 <= n; i += 8)
             {
@@ -480,7 +538,7 @@ internal static unsafe class Simd
     {
         long i = 0;
         float sum = 0;
-        if (Avx512F.IsSupported)
+        if (CpuIsa.Use512)
         {
             var s0 = Vector512<float>.Zero;
             var s1 = s0;
@@ -496,7 +554,7 @@ internal static unsafe class Simd
 
             sum = Vector512.Sum(s0 + s1);
         }
-        else if (Avx2.IsSupported)
+        else if (CpuIsa.Use256)
         {
             var s0 = Vector256<float>.Zero;
             for (; i + 8 <= n; i += 8)
@@ -518,7 +576,7 @@ internal static unsafe class Simd
     public static void AxpyHalf(float* acc, ushort* h, float p, long n)
     {
         long i = 0;
-        if (Avx512F.IsSupported)
+        if (CpuIsa.Use512)
         {
             var pv = Vector512.Create(p);
             for (; i + 16 <= n; i += 16)
@@ -526,7 +584,7 @@ internal static unsafe class Simd
                 Vector512.FusedMultiplyAdd(HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(h + i))), pv, Vector512.Load(acc + i)).Store(acc + i);
             }
         }
-        else if (Avx2.IsSupported)
+        else if (CpuIsa.Use256)
         {
             var pv = Vector256.Create(p);
             for (; i + 8 <= n; i += 8)
@@ -545,12 +603,12 @@ internal static unsafe class Simd
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void StoreU8x16(Vector128<byte> v, float scale, float offset, float* dst)
     {
-        if (Avx512F.IsSupported)
+        if (CpuIsa.Use512)
         {
             var f = Vector512.ConvertToSingle(Avx512F.ConvertToVector512Int32(v));
             Vector512.FusedMultiplyAdd(f, Vector512.Create(scale), Vector512.Create(offset)).Store(dst);
         }
-        else if (Avx2.IsSupported)
+        else if (CpuIsa.Use256)
         {
             var sv = Vector256.Create(scale);
             var ov = Vector256.Create(offset);
@@ -570,12 +628,12 @@ internal static unsafe class Simd
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void StoreI8x16(Vector128<sbyte> v, float scale, float offset, float* dst)
     {
-        if (Avx512F.IsSupported)
+        if (CpuIsa.Use512)
         {
             var f = Vector512.ConvertToSingle(Avx512F.ConvertToVector512Int32(v));
             Vector512.FusedMultiplyAdd(f, Vector512.Create(scale), Vector512.Create(offset)).Store(dst);
         }
-        else if (Avx2.IsSupported)
+        else if (CpuIsa.Use256)
         {
             var sv = Vector256.Create(scale);
             var ov = Vector256.Create(offset);

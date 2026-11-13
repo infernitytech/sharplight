@@ -586,3 +586,119 @@ logit difference 0.8-5.4 % of the spread (asserted: ≥ 95 % top-1 with near-tie
 Remaining gaps: gpt-oss prefill (0.68x: expert GEMM 392 µs × 72 at ~87 TFLOPS vs ~170 for the dense GEMM, the f16
 activation conversion and partial expert tiles), MoE decode (0.88-0.93x: expert biases still gathered by a separate
 `gather_axis` launch, and ~2 µs per small launch), and the int8 MMQ kernel's register pressure.
+
+## 12. CPU provider: instruction-set tiers, integer dots, GEMM and tiled attention (2026-11-13)
+
+Machine: Ryzen 9 9950X (Zen 5, 16 cores / 32 threads, AVX-512 F/BW/VL/DQ + VNNI + AVX-VNNI), 91 GB DDR5, Fedora 44,
+.NET 11. The machine was shared with other agents and the desktop session during every run (load average 17-37 on 32
+logical CPUs), so all numbers are noisy: medians move by ±20 %, the minimum / best values are the more stable ones. Every
+process (Sharplight before and after, llama.cpp) was pinned to the 16 physical cores with `taskset -c 0-15` and used 16
+threads. "before" is the master build at commit 13be2df (binaries copied before the work started).
+
+```
+# LLM, 3 process runs each (the CLI prints the best prefill and best / median of 64 decode steps after the prefill)
+taskset -c 0-15 [SHARPLIGHT_CPU_THREADS=16] sharplight MODEL.gguf --cpu --bench 512
+taskset -c 0-15 llama-bench -m MODEL.gguf -p 512 -n 64 -r 3 -t 16          # b11177 CPU build
+taskset -c 0-15 llama-bench -m MODEL.gguf -p 0 -n 64 -d 512 -r 3 -t 16
+# ONNX, 3 process runs of 30 timed runs each
+taskset -c 0-15 [SHARPLIGHT_CPU_THREADS=16] sharplight-onnxrun MODEL.onnx --provider cpu --runs 30 [--shape pixel_values=-1x3x224x224]
+# per tier: the same with SHARPLIGHT_CPU_ISA=scalar|v128|avx2|avxvnni|avx512|avx512vnni
+# kernels: SHARPLIGHT_BENCH=1 dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -method "*Throughput"
+```
+
+### LLM, before → after vs llama.cpp CPU (tok/s, 16 threads)
+
+| model | metric | before | after | llama.cpp CPU | after / llama.cpp |
+|---|---|---|---|---|---|
+| Qwen3-0.6B Q8_0 | prefill 512 (best of 3 runs) | 692 | 1912 | 1424 ± 101 | 1.34x |
+| Qwen3-0.6B Q8_0 | decode after 512 (median, runs 1-3) | 42 / 42 / 48 | 57 / 56 / 52 | 55 ± 5 (tg64 @ d512) | ~1.0x |
+| Qwen3-0.6B Q8_0 | decode (best step) | 53 | 65 | 69 ± 3 (tg64 @ d0) | |
+| Llama-3.2-1B Q4_K_M | prefill 512 | 553 | 1099 | 1156 ± 36 | 0.95x |
+| Llama-3.2-1B Q4_K_M | decode after 512 (median, runs 1-3) | 33 / 28 / 29 | 57 / 54 / 42 | 44 ± 3 (tg64 @ d512) | ~1.2x |
+| Llama-3.2-1B Q4_K_M | decode (best step) | 38 | 59 | 54 ± 3 (tg64 @ d0) | |
+
+The Sharplight decode is measured after the 512-token prefill (context 512), so it compares with llama.cpp's
+`tg64 @ d512`.
+
+### ONNX vision models, before → after (ms per image, batch 1, 16 threads; min and median of 30 runs, 3 process runs)
+
+| model | before min | before median | after min | after median | min speed-up |
+|---|---|---|---|---|---|
+| resnet50-v1-12 | 18.7-19.4 | 23-63 | 13.4-14.8 | 15.3-17.9 | 1.4x |
+| yolov8n (640x640) | 29.8-33.6 | 40-79 | 30.9-31.7 | 34-37 | 1.0x |
+| convnext-tiny (224x224) | 29.1-31.3 | 34-44 | 22.2-23.2 | 23-24 | 1.3x |
+
+The unpinned master build used all 32 logical CPUs through `Parallel.For` and was much slower on this loaded machine
+(resnet50 min 82 ms, decode 33-40 tok/s); the spinning pool with a cap of one thread per core removes most of that.
+
+### Per tier (`SHARPLIGHT_CPU_ISA`, this branch, 16 threads)
+
+Best of 2 process runs (prefill tok/s, decode best-step tok/s) and resnet50 min of 30 runs. The machine load was higher
+during this sweep (load average 26-37) than for the tables above, so compare the rows with each other, not with them.
+
+| tier | Qwen3-0.6B Q8_0 prefill 512 | Qwen3 decode | Llama-3.2-1B Q4_K_M prefill 512 | Llama decode | resnet50 min ms |
+|---|---|---|---|---|---|
+| scalar | 67 | 30 | 29 | 16 | 192 |
+| v128 | 61 | 28 | 29 | 14 | 159 |
+| avx2 (+FMA, `vpmaddubsw` int dots) | 1094 | 62 | 594 | 50 | 17.1 |
+| avxvnni (+ `vpdpbusd ymm`) | 1002 | 54 | 573 | 47 | 17.0 |
+| avx512 (8x32 GEMM tile, 512-bit `vpmaddubsw`) | 1569 | 60 | 905 | 52 | 13.6 |
+| avx512vnni (+ `vpdpbusd zmm`, default here) | 1682 | 61 | 916 | 52 | 16.8 |
+
+The scalar and v128 tiers share the scalar 4x8 GEMM tile (there is no 128-bit GEMM kernel), so their prefill is ~25x
+slower; their decode keeps half the speed because it is bound by memory. Decode differences between the vector tiers are
+within the noise; VNNI shows up in the kernel benchmark (single thread q4_k matvec 10.8 GB/s with zmm VNNI).
+
+### Kernels (single process, 16 threads unless noted, `BenchTests`)
+
+| kernel | before | after |
+|---|---|---|
+| matvec 17408x5120, 1 thread, q4_k / q5_k / q6_k | 5.0 / 5.3 / 4.8 GB/s (float dequant + f32 dot) | 10.8 / 10.0 / 15.3 GB/s (int8 dots, VNNI) |
+| matvec 17408x5120, 1 thread, q8_0 / q4_0 | 15.4 / 9.0 GB/s | 22 / 14.1 GB/s |
+| 17408x5120 T=16, q4_k / q8_0 | 0.54 TFLOP/s (GEMM) | 1.27 / 1.10 TFLOP/s (int8 dots) |
+| 17408x5120 T=128 / T=512 | 1.6-1.7 TFLOP/s | 2.1 / 2.8 TFLOP/s |
+| attention decode, 512 cached keys (Qwen3 shape) | ~135 µs (general path) | 44 µs |
+| attention decode, 4096 cached keys | | 160 µs |
+| attention prefill T=512 | 22.4 ms | 0.82 ms |
+
+### What changed
+
+* **Hot spots first** (`SHARPLIGHT_CPU_PROFILE=1` prints per-op times split into decode / prefill at exit). Before:
+  prefill = MatMul 63 % + attention 26 %, decode = MatMul 83 % + attention 15 %; resnet50 (once the pool was in) = conv
+  70 %, Relu + Add 28 % (scalar Relu, Add walking 7..56-element rows).
+* **Tiers** (`CpuIsa`, `CpuIsaLevel`): scalar, Vector128, AVX2+FMA, AVX-VNNI, AVX-512 (F/BW/VL/DQ), AVX-512 VNNI,
+  detected once; kernels test JIT-constant `Use*` properties, so every untaken path is removed at JIT time. The device
+  reports the tier (`isa` capability) and `int_dot` (the provider-neutral feature Vulkan also uses) from AVX2 up.
+* **Integer dots for small batches** (`IntDot`, `MatMulOp` below 32 rows): activations quantized to int8 per 32 values,
+  weights decoded per row to unsigned codes with a multiplier and an offset per 16 values (Q8_0, Q4_0/1, Q5_0/1,
+  Q4_K/Q5_K/Q6_K, IQ4_NL/XS, MXFP4), int32 sums by `vpdpbusd` (zmm/ymm) or `vpmaddubsw` + `vpmaddwd` (with a sign trick
+  for codes ≥ 128), each weight row decoded once for all activation rows. `int_dot` can be disabled per device or per
+  compile like on Vulkan (the exact-greedy family tests do).
+* **GEMM for ≥ 32 rows (≥ 8 without int dots)**: the quantized weight is dequantized panel by panel into the packed B
+  operand of the 8x32 (AVX-512) / 6x16 (AVX2) microkernel, K chunks of 256; M blocks keep all threads busy.
+* **Tiled flash attention**: GQA heads × tokens mapped to vector lanes (16 / 8), key blocks of 32 with an online softmax,
+  keys split across tasks and merged for decode, a dot-product path for 1-2 tokens with software prefetch of the K/V rows.
+* **Thread pool**: persistent spinning workers (200 µs spin, then blocking) instead of `Parallel.For` per op; per-job
+  counters so no straggler takes work of the next job; nested or concurrent calls fall back to `Parallel.For`.
+* **Elementwise**: 512-bit paths for binary ops, Relu/Neg/Square, exp/sigmoid/SiLU; binary ops merge trailing
+  dimensions into long rows and use finer chunks for transposed operands.
+
+### Diagnostic switches
+
+| variable | effect |
+|---|---|
+| `SHARPLIGHT_CPU_ISA` | cap the tier: `scalar`, `v128`, `avx2`, `avxvnni`, `avx512`, `avx512vnni` (an unsupported cap selects the next lower supported tier) |
+| `SHARPLIGHT_CPU_THREADS` | worker count (default: logical processor count; the `threads` device setting overrides it) |
+| `SHARPLIGHT_CPU_POOL=0` | use `Parallel.For` instead of the spinning pool |
+| `SHARPLIGHT_CPU_SPIN_US` | pool spin time after each job (default 200) |
+| `SHARPLIGHT_CPU_GEMM_MIN_ROWS` | rows from which MatMul uses the GEMM (default 8, 32 with integer dots) |
+| `SHARPLIGHT_CPU_PROFILE=1` | per-op timing table on stderr at exit |
+
+Correctness: `tests/Sharplight.Cpu.Tests` (1103 tests) passes under every `SHARPLIGHT_CPU_ISA` value; the integer-dot tiers
+are compared with the scalar kernel (and the scalar kernel with a double-precision product of the decoded operands), the
+decoders with ggml's dequantization, MatMul with int dots with a 1 % relative-error bound.
+
+Remaining gaps: decode is DRAM-bound at ~30-40 GB/s per matvec (llama.cpp's level); Relu is not fused into the conv
+epilogue (7 % of resnet50); the decomposed LayerNorm of convnext still runs as 5 elementwise passes; exp/sigmoid use
+.NET's `Vector512.Exp` (0.3 ns/value) rather than a cheaper polynomial (yolov8n's SiLU is ~20 % of its time); no ARM64
+(NEON / SDOT) integer-dot kernel and no 128-bit GEMM tile yet (the Vector128 tier is the portable fallback).

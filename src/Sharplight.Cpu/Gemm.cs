@@ -16,12 +16,12 @@ internal static unsafe class Gemm
 
     static Gemm()
     {
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             MR = 8;
             NR = 32;
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             MR = 6;
             NR = 16;

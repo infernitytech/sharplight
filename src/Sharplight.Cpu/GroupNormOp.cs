@@ -65,7 +65,7 @@ internal sealed unsafe class GroupNormOp : CpuOp
             float* xb = x + baseOff;
             float mean = Simd.Sum(xb, cnt) / cnt;
             double v = 0;
-            if (Vector256.IsHardwareAccelerated)
+            if (CpuIsa.Use256)
             {
                 var mv = Vector256.Create(mean);
                 var acc = Vector256<float>.Zero;
@@ -100,7 +100,7 @@ internal sealed unsafe class GroupNormOp : CpuOp
                 float* xr = xb + c * _s;
                 float* yr = y + baseOff + c * _s;
                 long i = 0;
-                if (Vector256.IsHardwareAccelerated)
+                if (CpuIsa.Use256)
                 {
                     var sv = Vector256.Create(sc);
                     var hv = Vector256.Create(sh);

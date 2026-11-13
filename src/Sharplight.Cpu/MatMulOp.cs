@@ -2,10 +2,34 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>y = x · Wᵀ with on-the-fly dequantization of W. x rows are f32; W is [N, K].</summary>
+/// <summary>
+/// y = x · Wᵀ for f32 activation rows x and a weight W [N, K] in any <see cref="WeightFormat"/>. Three paths:
+/// <list type="bullet">
+/// <item>GEMM (at least <see cref="GemmMinRows"/> rows, <see cref="IntDotGemmMinRows"/> with integer dots): the weight is dequantized panel by panel into the packed B operand
+/// of the register-blocked <see cref="Gemm"/> micro-kernel; the activations are packed once as the A operand.</item>
+/// <item>Integer dot (fewer rows, <see cref="DeviceFeatures.IntDot"/> enabled and the format supported): activations are
+/// quantized to 8 bits and multiplied with the decoded weight codes in int32 (<see cref="IntDot"/>).</item>
+/// <item>Float rows: on-the-fly dequantization with f32 dot products (fused in registers for Q8_0 / Q4_0 at one row).</item>
+/// </list>
+/// </summary>
 internal sealed unsafe class MatMulOp : CpuOp
 {
+    private static readonly int s_gemmMinRowsOverride =
+        int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_GEMM_MIN_ROWS"), out var v) && v > 0 ? v : 0;
+
+    /// <summary>Rows from which the GEMM path is used when the float row path is the alternative.</summary>
+    public static readonly int GemmMinRows = s_gemmMinRowsOverride > 0 ? s_gemmMinRowsOverride : 8;
+
+    /// <summary>
+    /// Rows from which the GEMM path is used when integer dots are the alternative: they decode each weight row once for
+    /// all activation rows and stay ahead of the GEMM up to about 32 rows (9950X, 17408x5120: 2x at 16 rows, even at 32).
+    /// </summary>
+    public static readonly int IntDotGemmMinRows = s_gemmMinRowsOverride > 0 ? s_gemmMinRowsOverride : 32;
+
     private const int KB = 1024;
+    private const int GemmMinTilesPerBlock = 4;
+    private const int IntDotMinRowsPerChunk = 16;
+    private const int PrefetchRows = 2;
     private readonly TRef _x;
     private readonly TRef _w;
     private readonly TRef _y;
@@ -14,15 +38,27 @@ internal sealed unsafe class MatMulOp : CpuOp
     private readonly long _k;
     private readonly long _rowBytes;
     private readonly bool _fused;
+    private readonly bool _intDot;
+    private readonly bool _smallCodes;
     private readonly float** _xrows;
     private readonly Action<int> _body;
+    private readonly Action<int> _intDotBody;
+    private readonly Action<int> _packBody;
+    private readonly Action<int> _gemmBody;
     [ThreadStatic] private static float[]? s_acc;
     private long _m;
     private long _groups;
     private long _perChunk;
-    public override string Name => $"MatMul.{_fmt}";
+    private byte* _activations;
+    private float* _apack;
+    private int _mTiles;
+    private int _panels;
+    private int _tilesPerBlock;
+    private int _mBlocks;
 
-    public MatMulOp(TRef x, TRef w, TRef y, WeightFormat fmt)
+    public override string Name => $"MatMul.{_fmt} {_n}x{_k}";
+
+    public MatMulOp(TRef x, TRef w, TRef y, WeightFormat fmt, bool intDot)
     {
         _x = x;
         _w = w;
@@ -38,8 +74,13 @@ internal sealed unsafe class MatMulOp : CpuOp
 
         long maxRows = Math.Max(1, x.MaxElements / Math.Max(1, _k));
         _fused = Quant.HasFusedKernel(fmt);
+        _intDot = intDot && IntDot.Supports(fmt) && _k % IntDot.BlockSize == 0 && _k <= int.MaxValue;
+        _smallCodes = IntDot.HasSmallCodes(fmt);
         _xrows = (float**)Mem.Alloc(maxRows * sizeof(float*), false);
         _body = Body;
+        _intDotBody = IntDotBody;
+        _packBody = PackBody;
+        _gemmBody = GemmBody;
     }
 
     public override void Dispose() => Mem.Free((byte*)_xrows);
@@ -57,11 +98,181 @@ internal sealed unsafe class MatMulOp : CpuOp
             _xrows[r] = _x.F(r);
         }
 
-        _groups = (_n + 3) / 4;
-        int chunks = (int)Math.Min(_groups, CpuParallel.Threads * 8L);
-        _perChunk = (_groups + chunks - 1) / chunks;
-        CpuParallel.For(chunks, _body);
+        if (_m >= (_intDot ? IntDotGemmMinRows : GemmMinRows))
+        {
+            RunGemm();
+        }
+        else if (_intDot)
+        {
+            RunIntDot();
+        }
+        else
+        {
+            _groups = (_n + 3) / 4;
+            int chunks = (int)Math.Min(_groups, CpuParallel.Threads * 8L);
+            _perChunk = (_groups + chunks - 1) / chunks;
+            CpuParallel.For(chunks, _body);
+        }
     }
+
+    // ---- integer dot (few rows) ------------------------------------------------------------------------------------
+
+    private void RunIntDot()
+    {
+        long rowBytes = IntDot.RowBytes(_k);
+        _activations = ThreadScratch.Get(ThreadScratch.Caller, _m * rowBytes);
+        for (long r = 0; r < _m; r++)
+        {
+            IntDot.Quantize(_xrows[r], _k, IntDot.RowAt(_activations + r * rowBytes, _k));
+        }
+
+        int chunks = (int)Math.Clamp(_n / IntDotMinRowsPerChunk, 1, CpuParallel.Threads * 4L);
+        _perChunk = (_n + chunks - 1) / chunks;
+        CpuParallel.For(chunks, _intDotBody);
+    }
+
+    private void IntDotBody(int c)
+    {
+        long n0 = c * _perChunk;
+        long n1 = Math.Min(_n, n0 + _perChunk);
+        int k = (int)_k;
+        long rowBytes = IntDot.RowBytes(_k);
+        var level = CpuIsa.Level;
+        byte* u = ThreadScratch.Get(ThreadScratch.Worker, IntDot.DecodedBytes(_k));
+        float* a = (float*)(u + ((_k + 63) & ~63L));
+        float* b = a + ((_k / IntDot.GroupSize + 15) & ~15L);
+        float* y = (float*)_y.P;
+        for (long n = n0; n < n1; n++)
+        {
+            if (n + PrefetchRows < n1)
+            {
+                Simd.Prefetch(_w.P + (n + PrefetchRows) * _rowBytes, _rowBytes);
+            }
+
+            IntDot.Decode(_fmt, _w.P + n * _rowBytes, _k, u, a, b);
+            for (long t = 0; t < _m; t++)
+            {
+                y[t * _n + n] = IntDot.Dot(level, u, a, b, _smallCodes, IntDot.RowAt(_activations + t * rowBytes, _k), k);
+            }
+        }
+    }
+
+    // ---- GEMM (many rows) ------------------------------------------------------------------------------------------
+
+    private void RunGemm()
+    {
+        int mr = Gemm.MR;
+        _mTiles = (int)((_m + mr - 1) / mr);
+        _apack = (float*)ThreadScratch.Get(ThreadScratch.Caller, (long)_mTiles * _k * mr * sizeof(float));
+        CpuParallel.For(_mTiles, _packBody);
+
+        // Split the rows into blocks only as far as needed to give every thread work: each block dequantizes the weights again.
+        _panels = (int)((_n + Gemm.NR - 1) / Gemm.NR);
+        int threads = CpuParallel.Threads;
+        _mBlocks = 1;
+        while ((long)_panels * _mBlocks < 2L * threads && _mTiles / (_mBlocks * 2) >= GemmMinTilesPerBlock)
+        {
+            _mBlocks *= 2;
+        }
+
+        _tilesPerBlock = (_mTiles + _mBlocks - 1) / _mBlocks;
+        CpuParallel.For(_panels * _mBlocks, _gemmBody);
+    }
+
+    /// <summary>Packs MR activation rows as [K][MR] (zero rows past the end).</summary>
+    private void PackBody(int tile)
+    {
+        int mr = Gemm.MR;
+        long r0 = (long)tile * mr;
+        int rows = (int)Math.Min(mr, _m - r0);
+        float* dst = _apack + (long)tile * _k * mr;
+        float** src = stackalloc float*[mr];
+        for (int i = 0; i < mr; i++)
+        {
+            src[i] = i < rows ? _xrows[r0 + i] : null;
+        }
+
+        for (long k = 0; k < _k; k++)
+        {
+            float* d = dst + k * mr;
+            for (int i = 0; i < mr; i++)
+            {
+                d[i] = i < rows ? src[i][k] : 0f;
+            }
+        }
+    }
+
+    private void GemmBody(int task)
+    {
+        int mr = Gemm.MR;
+        int nr = Gemm.NR;
+        int kcMax = Gemm.KC;
+        int panel = task % _panels;
+        int block = task / _panels;
+        int t0 = block * _tilesPerBlock;
+        int t1 = Math.Min(_mTiles, t0 + _tilesPerBlock);
+        if (t0 >= t1)
+        {
+            return;
+        }
+
+        long n0 = (long)panel * nr;
+        int cols = (int)Math.Min(nr, _n - n0);
+        float* bpack = (float*)ThreadScratch.Get(ThreadScratch.Worker, ((long)kcMax * nr + kcMax) * sizeof(float));
+        float* row = bpack + (long)kcMax * nr;
+        float* y = (float*)_y.P;
+        int bs = Quant.BlockSize(_fmt);
+        int bb = Quant.BlockBytes(_fmt);
+        for (long kb = 0; kb < _k; kb += kcMax)
+        {
+            int kc = (int)Math.Min(kcMax, _k - kb);
+            for (int j = 0; j < nr; j++)
+            {
+                if (j < cols)
+                {
+                    float* src = row;
+                    if (_fmt == WeightFormat.F32)
+                    {
+                        src = (float*)(_w.P + (n0 + j) * _rowBytes) + kb;
+                    }
+                    else
+                    {
+                        Quant.Dequantize(_fmt, _w.P + (n0 + j) * _rowBytes + kb / bs * bb, kc, row);
+                    }
+
+                    for (int k = 0; k < kc; k++)
+                    {
+                        bpack[k * nr + j] = src[k];
+                    }
+                }
+                else
+                {
+                    for (int k = 0; k < kc; k++)
+                    {
+                        bpack[k * nr + j] = 0f;
+                    }
+                }
+            }
+
+            bool accumulate = kb > 0;
+            for (int t = t0; t < t1; t++)
+            {
+                float* a = _apack + ((long)t * _k + kb) * mr;
+                float* c = y + (long)t * mr * _n + n0;
+                int rows = (int)Math.Min(mr, _m - (long)t * mr);
+                if (rows == mr && cols == nr)
+                {
+                    Gemm.Tile(a, bpack, nr, c, _n, kc, null, accumulate);
+                }
+                else
+                {
+                    Gemm.TileEdge(a, bpack, nr, c, _n, kc, null, accumulate, rows, cols);
+                }
+            }
+        }
+    }
+
+    // ---- float rows (few rows without integer dot) -----------------------------------------------------------------
 
     private void Body(int c)
     {

@@ -179,7 +179,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     {
         long i = 0;
         float sum = 0;
-        if (Vector512.IsHardwareAccelerated)
+        if (CpuIsa.Use512)
         {
             var dv = Vector512.Create(decay);
             var cv = Vector512.Create(coef);
@@ -192,7 +192,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
             }
             sum = Vector512.Sum(acc);
         }
-        else if (Vector256.IsHardwareAccelerated)
+        else if (CpuIsa.Use256)
         {
             var dv = Vector256.Create(decay);
             var cv = Vector256.Create(coef);

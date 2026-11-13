@@ -21,9 +21,9 @@ public unsafe class GgmlDequantTests
     /// <summary>Pre-existing formats whose dequantizers fuse multiply and add (and may differ in the sign of zero); compared with a tight tolerance instead of bit for bit.</summary>
     private static readonly HashSet<int> s_fusedTypes = [2, 3, 6, 7, 8, 12, 13, 14];
 
-    private sealed record Record(DataType Type, int Rows, int Cols, byte[] Blocks, float[] Expected);
+    internal sealed record Record(DataType Type, int Rows, int Cols, byte[] Blocks, float[] Expected);
 
-    private static List<Record> Load()
+    internal static List<Record> Load()
     {
         using var reader = new BinaryReader(File.OpenRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "ggml_quant_ext.bin")));
         int count = reader.ReadInt32();

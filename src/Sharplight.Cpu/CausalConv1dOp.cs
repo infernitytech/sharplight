@@ -163,7 +163,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
                 long i = c0;
                 if (j == 0)
                 {
-                    if (Vector256.IsHardwareAccelerated)
+                    if (CpuIsa.Use256)
                         {
                             for (; i + 8 <= c1; i += 8)
                             {
@@ -178,7 +178,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
                     }
                 else
                 {
-                    if (Vector256.IsHardwareAccelerated)
+                    if (CpuIsa.Use256)
                         {
                             for (; i + 8 <= c1; i += 8)
                             {

@@ -138,6 +138,53 @@ public class StatefulOpTests
         }
     }
 
+    /// <summary>
+    /// Long-context attention: a 300-token prefill (several key blocks, partial last block, GQA rows across lane groups),
+    /// then decode and short chunks against hundreds of cached keys, which split the keys across tasks and merge them.
+    /// </summary>
+    [Theory]
+    [InlineData("f16", 64, 64), InlineData("f32", 64, 64), InlineData("f16", 128, 128), InlineData("f32", 40, 24)]
+    public void CachedAttentionLongContext(string cacheType, int D, int Dv)
+    {
+        int Hq = 8;
+        int Hkv = 2;
+        int ctx = 512;
+        float scale = 1f / MathF.Sqrt(D);
+        int[] chunks = [300, 1, 2, 1, 37, 3];
+        int total = chunks.Sum();
+        var q = Kit.Rand(total * Hq * D, 4, 2f);
+        var k = Kit.Rand(total * Hkv * D, 5);
+        var v = Kit.Rand(total * Hkv * Dv, 6);
+        var ct = DataType.Get(cacheType);
+        var tg = new TestGraph();
+        var T = TestGraph.T;
+        var qi = tg.InF("q", T, Hq, D);
+        var ki = tg.InF("k", T, Hkv, D);
+        var vi = tg.InF("v", T, Hkv, Dv);
+        var kc = tg.State("kc", ct, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D);
+        var vc = tg.State("vc", ct, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, Dv);
+        tg.B.CacheWrite(kc, ki);
+        tg.B.CacheWrite(vc, vi);
+        tg.B.Output("o", tg.B.CachedAttention(qi, kc, vc, scale));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 300, ctx: ctx);
+        Func<float, float> rnd = cacheType == "f16" ? (x => (float)(Half)x) : (x => x);
+        var kr = k.Select(rnd).ToArray();
+        var vr = v.Select(rnd).ToArray();
+        int past = 0;
+        foreach (int c in chunks)
+        {
+            Kit.Set(m, qi, q[(past * Hq * D)..((past + c) * Hq * D)]);
+            Kit.Set(m, ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]);
+            Kit.Set(m, vi, v[(past * Hkv * Dv)..((past + c) * Hkv * Dv)]);
+            var p = Kit.P(c, past);
+            m.Run(p);
+            var got = Kit.Out(m, "o", p);
+            var exp = Ref.Attention(q[(past * Hq * D)..((past + c) * Hq * D)], c, Hq, D, kr, vr, past + c, Hkv, Dv, scale, past, true);
+            Kit.AssertClose(exp, got, 2e-5, 2e-4, $"past {past} T {c}");
+            past += c;
+        }
+    }
+
     /// <summary>Rounds values through q8_0 / q4_0 blocks of 32 (f16 scale), like a quantized KV cache stores them.</summary>
     private static float[] QuantRoundTrip(float[] x, string format)
     {
