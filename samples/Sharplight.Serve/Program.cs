@@ -8,7 +8,7 @@
 //   --model-name NAME           model id reported by the API (default: file/directory name)
 //   --device N | --cpu          GPU device index (default 0) / run on the CPU
 //   --ctx N --batch N           context length per sequence (4096) / rows per forward pass (512)
-//   --slots N                   concurrent sequences (needs a multi-slot decoder, see CreateDecoder; default 1)
+//   --slots N                   concurrent sequences batched per forward pass, each with --ctx context (default 4)
 //   --max-queue N               waiting requests before answering 429 (default 64)
 //   --prefill-chunk N           prompt rows per step and sequence, interleaved with decoding (default 512)
 //   --cpu-offload --disable-features a,b   as in the CLI
@@ -76,7 +76,7 @@ using var model = LlmModel.Load(modelPath, new LlmLoadOptions
     MaxBatchTokens = int.Parse(Opt("--batch", "512")!),
     Log = Console.Error.WriteLine,
 });
-int slots = int.Parse(Opt("--slots", "1")!);
+int slots = int.Parse(Opt("--slots", "4")!);
 var decoder = CreateDecoder(model, slots);
 var engine = new InferenceEngine(decoder, model.Tokenizer, new EngineOptions
 {
@@ -115,10 +115,6 @@ device.Dispose();
 fallback?.Device.Dispose();
 return 0;
 
-// One compiled session = one slot. A multi-slot decoder (rows of several sequences batched into one forward pass) plugs in here
-// as another IBatchDecoder; the engine then schedules continuous batching across its slots automatically.
-static IBatchDecoder CreateDecoder(LlmModel model, int slots)
-{
-    if (slots > 1) Console.Error.WriteLine($"warning: --slots {slots} requested, but only the single-slot decoder is available; running 1 slot (requests are queued).");
-    return new SessionBatchDecoder(model.CreateSession());
-}
+// --slots N > 1: rows of up to N sequences run in one forward pass (continuous batching), each with --ctx tokens of
+// context. Models whose stateful ops lack a multi-sequence form fall back to one slot (requests are queued).
+static IBatchDecoder CreateDecoder(LlmModel model, int slots) => model.CreateBatchDecoder(slots);
