@@ -10,6 +10,8 @@ public sealed class LoweringOptions
 {
     public ShaderTarget Target { get; init; } = ShaderTarget.SpirV;
     public int SubgroupSize { get; init; } = 32;
+    /// <summary>Shared (workgroup) memory per workgroup in bytes.</summary>
+    public long MaxSharedMemory { get; init; } = 32768;
     /// <summary>
     /// Effective device features (<see cref="DeviceFeatures"/>) the generated code may use. Every
     /// feature-specific kernel has a portable fallback used when its feature is absent.

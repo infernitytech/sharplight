@@ -227,7 +227,8 @@ public class StatefulTests
             steps.Add(new Step(c, past, (qi, q[(past * Hq * D)..((past + c) * Hq * D)]), (ki, k[(past * Hkv * D)..((past + c) * Hkv * D)]), (vi, v[(past * Hkv * D)..((past + c) * Hkv * D)])));
             past += c;
         }
-        Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 3e-5, rtol: 2e-4, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap}");
+        // f16 caches may run on the tensor-core flash kernel (f16 Q and P).
+        Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap}");
     }
 
     [Fact]

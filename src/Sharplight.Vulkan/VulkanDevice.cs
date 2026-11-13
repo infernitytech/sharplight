@@ -148,6 +148,7 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         {
             Target = ShaderTarget.SpirV,
             SubgroupSize = (int)Phys.SubgroupSize,
+            MaxSharedMemory = Phys.MaxSharedMemory,
             Features = options.FeaturesFor(this),
             Compile = options,
             Cache = cache,

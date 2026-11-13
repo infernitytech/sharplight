@@ -147,6 +147,7 @@ public class EndToEndTests
             return o;
         }
         var (abs, _, rms) = Env.Compare(Run(gpu!), Run(Env.Cpu()));
-        Assert.True(rms < 1e-4, $"rel RMS {rms}, max abs {abs}");
+        // GPUs with f16 matrix units run attention as tensor-core flash attention (f16 Q/K/V and probabilities).
+        Assert.True(rms < 1e-3, $"rel RMS {rms}, max abs {abs}");
     }
 }

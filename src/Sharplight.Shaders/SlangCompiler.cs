@@ -36,7 +36,9 @@ public sealed class SlangCompiler : IDisposable
     readonly string _libraryDir;
     readonly string? _cacheDir;
     readonly ConcurrentDictionary<string, CompiledKernel> _memCache = new();
-    readonly Lock _compileLock = new();
+    // Every instance shares the process-wide Slang global session, which is not thread-safe: compile serially
+    // across all instances (a per-instance lock let two devices compile concurrently).
+    static readonly Lock _compileLock = new();
 
     public string LibraryDirectory => _libraryDir;
 
@@ -111,9 +113,11 @@ public sealed class SlangCompiler : IDisposable
     {
 
         string? cachePath = _cacheDir is null ? null : Path.Combine(_cacheDir, key + Extension(target));
-        if (cachePath is not null && File.Exists(cachePath))
+        // The disk cache is shared by processes; an entry may disappear between check and read (pruned by another
+        // process), which is just a miss.
+        if (cachePath is not null && TryRead(cachePath) is { } cached)
         {
-            var k = new CompiledKernel(name, entryPoint, target, File.ReadAllBytes(cachePath), key);
+            var k = new CompiledKernel(name, entryPoint, target, cached, key);
             _memCache[key] = k;
             return k;
         }
@@ -131,6 +135,12 @@ public sealed class SlangCompiler : IDisposable
         var compiled = new CompiledKernel(name, entryPoint, target, code, key);
         _memCache[key] = compiled;
         return compiled;
+    }
+
+    static byte[]? TryRead(string path)
+    {
+        try { return File.Exists(path) ? File.ReadAllBytes(path) : null; }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException or IOException) { return null; }
     }
 
     byte[] CompileUncached(string name, string source, string entryPoint, ShaderTarget target, IReadOnlyDictionary<string, string> macros)

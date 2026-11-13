@@ -535,9 +535,13 @@ public sealed partial class GraphLowerer
         }
         var sm = new Dictionary<string, string>(m) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
         // Many queries (prefill): tensor-core flash attention when the device and shapes allow it.
-        bool fa = !full && s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
-                  && _opt.SubgroupSize == 32 && kc.Type == DataType.F16 && D % 16 == 0 && DV % 64 == 0 && D <= 256 && DV <= 256 && HQ % HKV == 0
-                  && window == 0 && softcap == 0;   // the flash kernel has no sliding window / soft cap
+        // Many queries (prefill, vision encoders): tensor-core flash attention (f16 Q/K/V/P). Head sizes are padded in the
+        // kernel; the padded tiles must fit shared memory. f32 caches keep the exact kernel unless reduced precision is allowed.
+        long dP = (D + 15) / 16 * 16, dvP = (DV + 63) / 64 * 64, kvd = Math.Max(dP, dvP);
+        long faShared = 32 * (dP + 8) * 2 + 32 * (kvd + 8) * 2 + 32 * 32 * 4 + 32 * 40 * 2 + 32 * 64 * 4;
+        bool fa = s_attnFa && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.Has(DeviceFeatures.SubgroupOps)
+                  && _opt.SubgroupSize == 32 && (kc.Type == DataType.F16 || kc.Type == DataType.F32 && (full || _opt.Compile.AllowReducedPrecision)) && D % 8 == 0 && DV % 8 == 0
+                  && dP <= 256 && dvP <= 256 && HQ % HKV == 0 && faShared <= _opt.MaxSharedMemory;
         var variants = new List<KernelVariant>();
         if (split) variants.Add(new KernelVariant(b => Rows(b, tq) <= SplitMaxRows, Lib("attention.slang", "main", sm), b => new Grid((uint)HQ, (uint)Rows(b, tq), (uint)splits)));
         if (fa) variants.Add(new KernelVariant(b => Rows(b, tq) > SplitMaxRows, Lib("attention.slang", "fa", m), b => new Grid((uint)HQ, Grid.Div(Rows(b, tq), 32))));
