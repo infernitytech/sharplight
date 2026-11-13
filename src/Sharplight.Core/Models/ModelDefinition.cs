@@ -158,6 +158,14 @@ public enum InputRole
     /// Declared last so the stored values of the other roles (saved packages) stay valid.
     /// </summary>
     EmbeddingMask,
+    /// <summary>
+    /// Multi-sequence graphs (<see cref="Graph.MultiSequence"/>): per-row table [T, 4] i32 of (slot, position in the slot's
+    /// context, row count of the row's run, run index).
+    /// </summary>
+    SequenceRows,
+    /// <summary>Multi-sequence graphs: per-run table [U, 4] i32 of (slot, first row, row count, first position); a run is a
+    /// slot's consecutive rows, in context order.</summary>
+    SequenceRuns,
 }
 
 public sealed class InputDefinition
@@ -206,6 +214,8 @@ public static class WellKnown
     public const string TokenSymbol = "T";
     public const string ContextSymbol = "ctx";
     public const string PastScalar = "n_past";
+    /// <summary>Symbol of the run count of a multi-sequence graph (rows of <see cref="InputRole.SequenceRuns"/>).</summary>
+    public const string RunSymbol = "U";
 
     public const string VocabSize = "vocab_size";
     public const string ContextLength = "context_length";

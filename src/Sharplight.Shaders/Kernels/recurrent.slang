@@ -12,6 +12,9 @@ struct ConvParams
     float* w;
     float* state;
     float* y;
+#if MULTI_SEQ
+    int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, KS-1, C]
+#endif
     uint T;
 };
 
@@ -21,12 +24,22 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 {
     uint c = dtid.x;
     if (c >= C) return;
+#if MULTI_SEQ
+    int4 run = int4(p.runs[(dtid.z) * 4], p.runs[(dtid.z) * 4 + 1], p.runs[(dtid.z) * 4 + 2], p.runs[(dtid.z) * 4 + 3]);
+    float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
+    uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
+    bool fresh = run.w == 0;   // a sequence starting at position 0 starts from zero state
+#else
+    float* state = p.state;
+    uint tBeg = 0, tEnd = p.T;
+    bool fresh = false;
+#endif
     float win[KS];
-    [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = p.state[uint64_t(j) * C + c];
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = fresh ? 0.0 : state[uint64_t(j) * C + c];
     float wk[KS];
     [ForceUnroll] for (int j = 0; j < KS; j++) wk[j] = p.w[uint64_t(c) * KS + j];
 
-    for (uint t = 0; t < p.T; t++)
+    for (uint t = tBeg; t < tEnd; t++)
     {
         win[KS - 1] = p.x[uint64_t(t) * XS + c];
         float s = 0;
@@ -37,7 +50,7 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
         p.y[uint64_t(t) * C + c] = s;
         [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
     }
-    [ForceUnroll] for (int j = 0; j < KS - 1; j++) p.state[uint64_t(j) * C + c] = win[j];
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) state[uint64_t(j) * C + c] = win[j];
 }
 
 #endif
@@ -60,6 +73,9 @@ struct DeltaParams
     float* beta;
     float* state;
     float* o;
+#if MULTI_SEQ
+    int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, HV, DV, DK]
+#endif
     uint T;
 };
 
@@ -112,13 +128,22 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
     uint j = gid.y * DVB + jl;              // state row (value dim)
     uint part = ltid.x % LPR;               // this lane owns DK elements part + e * LPR (interleaved: conflict-free shared reads)
 
+#if MULTI_SEQ
+    int4 run = int4(p.runs[(gid.z) * 4], p.runs[(gid.z) * 4 + 1], p.runs[(gid.z) * 4 + 2], p.runs[(gid.z) * 4 + 3]);
+    float* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j) * DK + part;
+    uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
+    bool fresh = run.w == 0;   // a sequence starting at position 0 starts from zero state
+#else
     float* st = p.state + (uint64_t(h) * DV + j) * DK + part;
+    uint tBeg = 0, tEnd = p.T;
+    bool fresh = false;
+#endif
     float M[EPL];
-    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = st[e * LPR];
+    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : st[e * LPR];
 
-    for (uint t0 = 0; t0 < p.T; t0 += TB)
+    for (uint t0 = tBeg; t0 < tEnd; t0 += TB)
     {
-        uint nt = min(uint(TB), p.T - t0);
+        uint nt = min(uint(TB), tEnd - t0);
         GroupMemoryBarrierWithGroupSync();
         for (uint i = ltid.x; i < nt * DK; i += NT)
         {

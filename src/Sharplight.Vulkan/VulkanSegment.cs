@@ -351,6 +351,10 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
     // Diagnostics only: SHARPLIGHT_VK_NO_BARRIERS=1 drops inter-dispatch barriers (wrong results) to measure their cost.
     static readonly bool s_noBarriers = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_NO_BARRIERS") == "1";
+    // Diagnostics only: SHARPLIGHT_VK_MAX_LAUNCHES=n records only the first n launches (bisecting a faulting kernel);
+    // SHARPLIGHT_VK_LIST_LAUNCHES=1 prints each recorded launch.
+    static readonly int s_maxLaunches = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_VK_MAX_LAUNCHES"), out var n) ? n : int.MaxValue;
+    static readonly bool s_listLaunches = Environment.GetEnvironmentVariable("SHARPLIGHT_VK_LIST_LAUNCHES") == "1";
 
     void Record(VkCommandBuffer cb, IReadOnlyList<KernelLaunch> launches, Bindings bindings,
         Action<int, KernelLaunch, KernelVariant>? afterDispatch = null)
@@ -365,6 +369,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
 
         foreach (var launch in launches)
         {
+            if (index >= s_maxLaunches) break;
             var variant = launch.Select(bindings);
             if (variant is null)
             {
@@ -409,6 +414,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
             if (off > _dev.PushConstantSize) throw new InvalidOperationException($"{launch.Name}: {off} bytes of arguments exceed push constant space.");
             api.vkCmdPushConstants(cb, _dev.PipelineLayout, VkShaderStageFlags.Compute, 0, (uint)((off + 3) & ~3), pc);
             var g = variant.Grid(bindings);
+            if (s_listLaunches) Console.Error.WriteLine($"[launch {index}] {launch.Name} {variant.Kernel.CacheKey} grid {g.X}x{g.Y}x{g.Z}");
             api.vkCmdDispatch(cb, g.X, g.Y, g.Z);
             afterDispatch?.Invoke(index, launch, variant);
             index++;

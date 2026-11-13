@@ -555,12 +555,19 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             case "CacheWrite":
             {
                 var st = Ref(ins[0]); var x = RowContig(RefF32(ins[1]));
+                if (ins.Length > 2)
+                {
+                    var rows = Dense(Ref(ins[2]));
+                    AddStep(new CacheWriteOp(st, x, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L)), st, x, rows); return;
+                }
                 AddStep(new CacheWriteOp(st, x, a.Get("offset", WellKnown.PastScalar)), st, x); return;
             }
             case "CachedAttention":
             {
                 var q = RowContig(Ref(ins[0])); var k = Ref(ins[1]); var v = Ref(ins[2]); var y = NewDense(n.Output);
-                AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f)), q, k, v, y);
+                var rows = ins.Length > 3 ? Dense(Ref(ins[3])) : null;
+                AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
+                    rows, (int)a.Get("slots", 1L)), rows is null ? [q, k, v, y] : [q, k, v, rows, y]);
                 _refs[n.Output] = y; return;
             }
             case "Attention":
@@ -577,14 +584,17 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var x = RowContig(RefF32(ins[0])); var w = RefF32(ins[1]); var st = Ref(ins[2]); var y = NewDense(n.Output);
                 bool stat = ins[1].Kind is ValueKind.Weight or ValueKind.Constant;
                 if (!stat) w = Dense(w);
-                AddStep(new CausalConv1dOp(x, w, st, y, a.Get("activation", "none") == "silu", stat), x, w, st, y);
+                var runs = ins.Length > 3 ? Dense(Ref(ins[3])) : null;
+                AddStep(new CausalConv1dOp(x, w, st, y, a.Get("activation", "none") == "silu", stat, runs), runs is null ? [x, w, st, y] : [x, w, st, runs, y]);
                 _refs[n.Output] = y; return;
             }
             case "GatedDeltaRule":
             {
                 var q = RowContig(Ref(ins[0])); var k = RowContig(Ref(ins[1])); var v = RowContig(Ref(ins[2]));
                 var g = Ref(ins[3]); var beta = Ref(ins[4]); var st = Ref(ins[5]); var y = NewDense(n.Output);
-                AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, st, y, a.Get("scale", 1f)), q, k, v, g, beta, st, y);
+                var runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
+                AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, st, y, a.Get("scale", 1f), runs),
+                    runs is null ? [q, k, v, g, beta, st, y] : [q, k, v, g, beta, st, runs, y]);
                 _refs[n.Output] = y; return;
             }
         }

@@ -333,7 +333,8 @@ public sealed class CpuDevice : IComputeDevice
                 if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32) return OpSupport.No("CausalConv1d needs f32 activations and state");
                 return F32Like(ins[1]) ? OpSupport.Yes : OpSupport.No("CausalConv1d weight must be f32-convertible");
             case "GatedDeltaRule":
-                foreach (var v in ins) if (v.Type != DataType.F32) return OpSupport.No($"GatedDeltaRule needs f32 inputs and state, got {v.Type}");
+                foreach (var v in ins.Take(6)) if (v.Type != DataType.F32) return OpSupport.No($"GatedDeltaRule needs f32 inputs and state, got {v.Type}");
+                if (ins.Length > 6 && ins[6].Type != DataType.I32) return OpSupport.No("GatedDeltaRule sequence runs must be i32");
                 return OpSupport.Yes;
         }
         return OpSupport.No($"op '{op}' is not implemented by the CPU provider");

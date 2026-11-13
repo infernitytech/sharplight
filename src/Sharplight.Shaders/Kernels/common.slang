@@ -17,6 +17,11 @@
 #define RT_N_PAST 0
 #endif
 
+// Multi-sequence (continuous batching) forms of the stateful kernels; SLOT_CTX = cache rows per sequence slot.
+#ifndef MULTI_SEQ
+#define MULTI_SEQ 0
+#endif
+
 float gelu_tanh(float x) { return 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x))); }
 float erf_approx(float x)
 {
