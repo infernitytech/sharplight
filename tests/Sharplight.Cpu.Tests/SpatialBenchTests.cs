@@ -1,28 +1,38 @@
 using System.Diagnostics;
 using Sharplight.Graph;
-using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
 
 /// <summary>Synthetic ResNet-50 (random weights, BN folded into conv bias) throughput; run with SHARPLIGHT_BENCH=1.</summary>
 public class SpatialBenchTests
 {
-    static void Report(string s)
+    private static void Report(string s)
     {
         Console.Error.WriteLine(s);
-        if (Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_OUT") is { Length: > 0 } f) File.AppendAllText(f, s + Environment.NewLine);
+        if (Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_OUT") is { Length: > 0 } f)
+        {
+            File.AppendAllText(f, s + Environment.NewLine);
+        }
     }
 
-    sealed class Net
+    private sealed class Net
     {
         public readonly TG Tg = new();
-        public double Flops; int _id; readonly Random _rng = new(7);
+        public double Flops; private int _id; private readonly Random _rng = new(7);
         public Value Conv(Value x, int cin, int cout, int k, int stride, int pad, int hw, bool relu, out int ohw, int groups = 1)
         {
             int n = cout * (cin / groups) * k * k;
             var w = new float[n]; float sc = MathF.Sqrt(2f / (cin / groups * k * k));
-            for (int i = 0; i < n; i++) w[i] = (float)(_rng.NextDouble() * 2 - 1) * sc;
-            var b = new float[cout]; for (int i = 0; i < cout; i++) b[i] = (float)(_rng.NextDouble() - 0.5) * 0.1f;
+            for (int i = 0; i < n; i++)
+            {
+                w[i] = (float)(_rng.NextDouble() * 2 - 1) * sc;
+            }
+
+            var b = new float[cout]; for (int i = 0; i < cout; i++)
+            {
+                b[i] = (float)(_rng.NextDouble() - 0.5) * 0.1f;
+            }
+
             int id = _id++;
             var wv = Tg.WF($"w{id}", w, cout, cin / groups, k, k); var bv = Tg.WF($"b{id}", b, cout);
             ohw = (hw + 2 * pad - k) / stride + 1;
@@ -46,7 +56,11 @@ public class SpatialBenchTests
     public void ResNet50(int batch)
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
-        if (int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_THREADS"), out var thr)) Par.Threads = thr;
+        if (int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_THREADS"), out var thr))
+        {
+            Par.Threads = thr;
+        }
+
         var net = new Net(); var tg = net.Tg;
         var x = tg.InF("x", TG.T, 3, 224, 224);
         var y = net.Conv(x, 3, 64, 7, 2, 3, 224, true, out int hw);
@@ -54,11 +68,14 @@ public class SpatialBenchTests
         hw = (hw + 2 - 3) / 2 + 1;
         int cin = 64;
         foreach (var (mid, blocks, stride) in new[] { (64, 3, 1), (128, 4, 2), (256, 6, 2), (512, 3, 2) })
+        {
             for (int b = 0; b < blocks; b++)
             {
                 y = net.Bottleneck(y, cin, mid, mid * 4, b == 0 ? stride : 1, hw, out hw);
                 cin = mid * 4;
             }
+        }
+
         y = tg.B.Emit1("Reduce", [y], Attributes.From(("mode", "mean"), ("axes", new long[] { 2, 3 }), ("keepdims", false)));
         var fw = tg.WF("fc", Kit.Rand(1000 * 2048, 3, 0.02f), 1000, 2048);
         tg.B.Output("logits", tg.B.MatMul(y, fw));
@@ -66,7 +83,11 @@ public class SpatialBenchTests
         using var m = Kit.Compile(tg.B.Build(), maxTokens: batch);
         Kit.Set(m, x, Kit.Rand(batch * 3 * 224 * 224, 5));
         var p = Kit.P(batch);
-        for (int i = 0; i < 5; i++) m.Run(p);
+        for (int i = 0; i < 5; i++)
+        {
+            m.Run(p);
+        }
+
         int iters = 30; var times = new double[iters];
         for (int i = 0; i < iters; i++) { long t0 = Stopwatch.GetTimestamp(); m.Run(p); times[i] = Stopwatch.GetElapsedTime(t0).TotalSeconds; }
         Array.Sort(times);

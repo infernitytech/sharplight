@@ -9,9 +9,9 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    readonly List<object> _temps = [];
+    private readonly List<object> _temps = [];
 
-    void LowerNode(Node n)
+    private void LowerNode(Node n)
     {
         switch (n.Op.Name)
         {
@@ -56,7 +56,7 @@ public sealed partial class GraphLowerer
 
     // ---- views -------------------------------------------------------------------------------
     /// <summary>A reshape of strided data that cannot be expressed as a view (e.g. after a permute) is materialized with a copy.</summary>
-    void LowerReshape(Node n)
+    private void LowerReshape(Node n)
     {
         var src = Ref(n.Inputs[0]);
         try { _refs[n.Output] = ViewReshape(src, BoundShape(n.Output.Shape), n.Output.Shape.Symbol); }
@@ -69,7 +69,7 @@ public sealed partial class GraphLowerer
         }
     }
 
-    static TensorRef ViewSlice(TensorRef r, Attributes a)
+    private static TensorRef ViewSlice(TensorRef r, Attributes a)
     {
         int axis = a.Get<int>("axis");
         if (axis < 0)
@@ -83,7 +83,7 @@ public sealed partial class GraphLowerer
         return r with { ByteOffset = r.ByteOffset + start * r.Strides[axis] * r.Type.ElementSize, Shape = shape };
     }
 
-    static TensorRef ViewPermute(TensorRef r, int[] perm)
+    private static TensorRef ViewPermute(TensorRef r, int[] perm)
     {
         if (r.Symbol is not null && perm[0] != 0)
         {
@@ -94,7 +94,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Stride-compatible reshape (PyTorch view semantics).</summary>
-    static TensorRef ViewReshape(TensorRef r, long[] newShape, string? symbol)
+    private static TensorRef ViewReshape(TensorRef r, long[] newShape, string? symbol)
     {
         var oldShape = r.Shape; var oldStride = r.Strides;
         var newStride = new long[newShape.Length];
@@ -128,7 +128,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Rows view of a tensor: [rows = outer*mid, inner] with uniform row stride, inner contiguous.</summary>
-    static bool TryRows(TensorRef r, out long rowStride, out long rowsPerOuter)
+    private static bool TryRows(TensorRef r, out long rowStride, out long rowsPerOuter)
     {
         rowStride = 0; rowsPerOuter = 1;
         if (r.Rank < 2 || r.Strides[^1] != 1)
@@ -150,7 +150,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>[T, R1, D] view with strides (S0, S1) for row kernels; middle dims must be collapsible.</summary>
-    static bool TryRows3(TensorRef r, out long r1, out long s0, out long s1)
+    private static bool TryRows3(TensorRef r, out long r1, out long s0, out long s1)
     {
         r1 = 1; s0 = 0; s1 = 0;
         if (r.Strides[^1] != 1)
@@ -179,7 +179,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Copies a strided tensor into a fresh dense temporary in the arena.</summary>
-    TensorRef DenseTemp(TensorRef src, string why)
+    private TensorRef DenseTemp(TensorRef src, string why)
     {
         var key = new object();
         long off = _alloc.Allocate(key, Math.Max(16, src.Type.ByteSize(src.MaxElements)));
@@ -191,7 +191,7 @@ public sealed partial class GraphLowerer
 
     // ---- matmul ------------------------------------------------------------------------------
     /// <summary>Matrix-vector variants for up to 8 rows of x (memory bound: decode, small batches).</summary>
-    static List<KernelVariant> MatvecVariants(Func<string, Dictionary<string, string>, CompiledKernel> lib, Dictionary<string, string> m,
+    private static List<KernelVariant> MatvecVariants(Func<string, Dictionary<string, string>, CompiledKernel> lib, Dictionary<string, string> m,
         long N, long K, Func<Bindings, long> rows)
     {
         // Decode (one token): split-K matvec, one workgroup per output row, K spread over enough threads that
@@ -215,7 +215,7 @@ public sealed partial class GraphLowerer
     /// for up to 8 rows one dual matvec computes both and applies the group per element. Larger batches run
     /// the regular launches (matmul, matmul, elementwise), which are skipped for small batches.
     /// </summary>
-    void LowerDualMatMul(Node a, Node bNode, List<Node> group, Value output)
+    private void LowerDualMatMul(Node a, Node bNode, List<Node> group, Value output)
     {
         var x = Ref(a.Inputs[0]);
         var wa = Ref(a.Inputs[1]); var wb = Ref(bNode.Inputs[1]);
@@ -260,13 +260,13 @@ public sealed partial class GraphLowerer
         _launchCondition = outer;
     }
 
-    static readonly bool s_gemm2 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM2") != "0";
+    private static readonly bool s_gemm2 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM2") != "0";
     // Tensor-core GEMM layout: warps (M x N) x fragments per warp (M x N); tile = 16*warps*frags.
     // Both layouts produce 128x128 tiles: 4 warps of 64x64 (more workgroups per SM, better for moderate grids) or
     // 8 warps of 64x32 (better when the grid is large). SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn forces one layout.
-    static readonly int[]? s_g2Force = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM2_CFG")?.Split(',').Select(int.Parse).ToArray();
-    const int G2BM = 128, G2BN = 128;
-    static Dictionary<string, string> G2Macros(Dictionary<string, string> m, bool large)
+    private static readonly int[]? s_g2Force = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM2_CFG")?.Split(',').Select(int.Parse).ToArray();
+    private const int G2BM = 128, G2BN = 128;
+    private static Dictionary<string, string> G2Macros(Dictionary<string, string> m, bool large)
     {
         int[] c = s_g2Force ?? (large ? [2, 4, 4, 2] : [2, 2, 4, 4]);
         if (c[0] * c[2] * 16 != G2BM || c[1] * c[3] * 16 != G2BN)
@@ -281,9 +281,9 @@ public sealed partial class GraphLowerer
             ["GBK"] = s_g2Bk == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0 ? "64" : "32",
         };
     }
-    static readonly int s_g2Bk = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
+    private static readonly int s_g2Bk = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
 
-    void LowerMatMul(Node n)
+    private void LowerMatMul(Node n)
     {
         var x = Ref(n.Inputs[0]);
         var wv = n.Inputs[1];
@@ -404,8 +404,8 @@ public sealed partial class GraphLowerer
         }
     }
 
-    BufferDecl? _splitScratch;
-    BufferDecl? _attnScratch;
+    private BufferDecl? _splitScratch;
+    private BufferDecl? _attnScratch;
     /// <summary>
     /// Use the workgroup-scope matrix GEMM (<see cref="DeviceFeatures.MatrixWorkgroup"/>) for prefill matmuls when the
     /// device has it. Off by default: on the drivers measured so far (NVIDIA Blackwell, 2026) the kernel-staged
@@ -413,18 +413,18 @@ public sealed partial class GraphLowerer
     /// Default from SHARPLIGHT_GEMM_NV2=1.
     /// </summary>
     public static bool PreferWorkgroupMatrixGemm { get; set; } = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_NV2") == "1";
-    static readonly int[] s_nvTile = (Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_NV2_TILE") ?? "128,128,32").Split(',').Select(int.Parse).ToArray();
-    static readonly int NvBT = s_nvTile[0], NvBN = s_nvTile[1], NvBK = s_nvTile[2];
-    static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
-    static readonly bool s_attnFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_FA") != "0";
-    static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
-    static readonly bool s_seqFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SEQ_FA") != "0";
+    private static readonly int[] s_nvTile = (Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_NV2_TILE") ?? "128,128,32").Split(',').Select(int.Parse).ToArray();
+    private static readonly int NvBT = s_nvTile[0], NvBN = s_nvTile[1], NvBK = s_nvTile[2];
+    private static readonly bool s_gemmX16 = Environment.GetEnvironmentVariable("SHARPLIGHT_GEMM_X16") != "0";
+    private static readonly bool s_attnFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_FA") != "0";
+    private static readonly bool s_attnSplit = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SPLIT") != "0";
+    private static readonly bool s_seqFa = Environment.GetEnvironmentVariable("SHARPLIGHT_ATTN_SEQ_FA") != "0";
 
     /// <summary>
     /// K split for the 128x128 tensor-core GEMM: aim for ~256 workgroups, keep at least 4 K blocks per split
     /// and no empty splits.
     /// </summary>
-    static int ChooseSplit(long N, long K, long rows, long bm = G2BM, long bn = G2BN, long bk = 32)
+    private static int ChooseSplit(long N, long K, long rows, long bm = G2BM, long bn = G2BN, long bk = 32)
     {
         if (rows <= 8)
         {
@@ -452,7 +452,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- normalization -----------------------------------------------------------------------
-    void LowerNorm(Node n, int mode)
+    private void LowerNorm(Node n, int mode)
     {
         var x = Ref(n.Inputs[0]);
         if (!TryRows3(x, out long r1, out long s0, out long s1)) { x = DenseTemp(x, "norm"); TryRows3(x, out r1, out s0, out s1); }
@@ -481,7 +481,7 @@ public sealed partial class GraphLowerer
 
     // ---- rope --------------------------------------------------------------------------------
     /// <param name="cacheWrite">When set, the rotated rows are stored straight into this CacheWrite's cache (no y).</param>
-    void LowerRope(Node n, Node? cacheWrite = null)
+    private void LowerRope(Node n, Node? cacheWrite = null)
     {
         // An absorbed RmsNorm of the input is computed in the kernel.
         var norm = _absorbedNorms.GetValueOrDefault(n.Inputs[0]);
@@ -557,7 +557,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- gather ------------------------------------------------------------------------------
-    void LowerGather(Node n)
+    private void LowerGather(Node n)
     {
         var table = Ref(n.Inputs[0]);
         var idx = Ref(n.Inputs[1]);
@@ -593,10 +593,10 @@ public sealed partial class GraphLowerer
     }
 
     // ---- caches & attention -------------------------------------------------------------------
-    int Slot(Node n) => _scalarSlots[n.Attributes.Get("offset", WellKnown.PastScalar)];
+    private int Slot(Node n) => _scalarSlots[n.Attributes.Get("offset", WellKnown.PastScalar)];
 
     /// <summary>Multi-sequence ops: cache rows per sequence slot (cache rows / attribute <c>slots</c>).</summary>
-    static long SlotContext(Node n, TensorRef cache)
+    private static long SlotContext(Node n, TensorRef cache)
     {
         long slots = n.Attributes.Get("slots", 1L);
         if (slots < 1 || cache.Shape[0] % slots != 0)
@@ -607,11 +607,11 @@ public sealed partial class GraphLowerer
         return cache.Shape[0] / slots;
     }
 
-    TensorRef DenseInput(Value v, string name) { var r = Ref(v); return r.IsDense ? r : DenseTemp(r, name); }
+    private TensorRef DenseInput(Value v, string name) { var r = Ref(v); return r.IsDense ? r : DenseTemp(r, name); }
 
-    static KernelArg[] SeqArgs(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>().Select(t => (KernelArg)new PointerArg(t.Buffer, t.ByteOffset))];
+    private static KernelArg[] SeqArgs(params TensorRef?[] tables) => [.. tables.OfType<TensorRef>().Select(t => (KernelArg)new PointerArg(t.Buffer, t.ByteOffset))];
 
-    void LowerCacheWrite(Node n)
+    private void LowerCacheWrite(Node n)
     {
         if (_absorbedRope.TryGetValue(n.Inputs[1], out var rope)) { LowerRope(rope, cacheWrite: n); return; }
         var state = Ref(n.Inputs[0]);
@@ -634,7 +634,7 @@ public sealed partial class GraphLowerer
             seq is null ? [x] : [x, seq], [state]);
     }
 
-    void LowerAttention(Node n)
+    private void LowerAttention(Node n)
     {
         // "Attention": bidirectional self-attention over K/V given as plain tensors (vision encoders), every query sees all T keys.
         bool full = n.Op.Name == "Attention";
@@ -763,7 +763,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>SequencePool: one thread per (sequence, column) loops over the sequence's rows.</summary>
-    void LowerSequencePool(Node n)
+    private void LowerSequencePool(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "seqpool");
         if (x.Rank != 2 || x.Strides[1] != 1)
@@ -787,7 +787,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- recurrent ---------------------------------------------------------------------------
-    void LowerConv(Node n)
+    private void LowerConv(Node n)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
@@ -817,7 +817,7 @@ public sealed partial class GraphLowerer
             [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. runs is null ? [] : (TensorRef[])[runs]], [y, st]);
     }
 
-    void LowerDeltaRule(Node n)
+    private void LowerDeltaRule(Node n)
     {
         // q/k may come straight from an absorbed L2Norm: read its input and normalize in the kernel.
         Node? nq = _absorbedNorms.GetValueOrDefault(n.Inputs[0]), nk = _absorbedNorms.GetValueOrDefault(n.Inputs[1]);
@@ -874,7 +874,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- concat ------------------------------------------------------------------------------
-    void LowerConcat(Node n)
+    private void LowerConcat(Node n)
     {
         var y = Produce(n.Output);
         int axis = n.Attributes.Get<int>("axis");
@@ -896,7 +896,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- reset -------------------------------------------------------------------------------
-    List<KernelLaunch> BuildResetLaunches()
+    private List<KernelLaunch> BuildResetLaunches()
     {
         var list = new List<KernelLaunch>();
         if (_stateBuffers.Count == 0)
@@ -922,7 +922,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- elementwise codegen -----------------------------------------------------------------
-    void EmitCopy(TensorRef src, TensorRef dst, string name, IEnumerable<Node>? nodes = null)
+    private void EmitCopy(TensorRef src, TensorRef dst, string name, IEnumerable<Node>? nodes = null)
     {
         if (src.Type == dst.Type && src.Type != DataType.F32) { EmitRawCopy(src, dst, name, nodes ?? []); return; }
         if (dst.Type != DataType.F32)
@@ -933,7 +933,7 @@ public sealed partial class GraphLowerer
         EmitElementwiseKernel(name, nodes ?? [], dst.Shape, dst.Symbol, [src], [(dst, "a0")], []);
     }
 
-    void LowerElementwise(List<Node> group, List<Value> outputs, Node? normTail = null, Node? normHead = null)
+    private void LowerElementwise(List<Node> group, List<Value> outputs, Node? normTail = null, Node? normHead = null)
     {
         var shapeV = group[0].Output.Shape;
         var inputs = new List<TensorRef>();
@@ -1002,7 +1002,7 @@ public sealed partial class GraphLowerer
     /// (cheaper than keeping a row in shared memory), forms <c>nrm</c>, runs the post statements and writes
     /// <paramref name="pass2Outputs"/>.
     /// </summary>
-    void EmitRowNormKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol, List<TensorRef> inputs,
+    private void EmitRowNormKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol, List<TensorRef> inputs,
         List<string> preStmts, string normExpr, List<(TensorRef Ref, string Expr)> pass1Outputs, List<string> postStmts,
         List<(TensorRef Ref, string Expr)> pass2Outputs, TensorRef? w, int mode, float eps)
     {
@@ -1205,7 +1205,7 @@ public sealed partial class GraphLowerer
             w is null ? inputs : [.. inputs, w], outputs.Select(o => o.Ref));
     }
 
-    static string ElemOffset(TensorRef r, long[] shape)
+    private static string ElemOffset(TensorRef r, long[] shape)
     {
         int rank = shape.Length;
         var terms = new List<string>();
@@ -1228,16 +1228,16 @@ public sealed partial class GraphLowerer
         return terms.Count == 0 ? "0" : string.Join(" + ", terms);
     }
 
-    static string ElemLoad(TensorRef r, int i, long[] shape) => r.Type == DataType.F32 ? $"p.in{i}[{ElemOffset(r, shape)}]"
+    private static string ElemLoad(TensorRef r, int i, long[] shape) => r.Type == DataType.F32 ? $"p.in{i}[{ElemOffset(r, shape)}]"
         : r.Type == DataType.F16 ? $"h2f(p.in{i}[{ElemOffset(r, shape)}])"
         : r.Type == DataType.BF16 ? $"bf2f(p.in{i}[{ElemOffset(r, shape)}])"
         : r.Type == DataType.I32 || r.Type == DataType.I64 || r.Type == DataType.U32 ? $"float(p.in{i}[{ElemOffset(r, shape)}])"
         : throw new NotSupportedException($"elementwise input type {r.Type}");
 
-    static string ElemPtrType(DataType t) => t == DataType.F32 ? "float" : t == DataType.I32 ? "int" : t == DataType.I64 ? "int64_t" : t == DataType.U32 ? "uint" : "uint16_t";
+    private static string ElemPtrType(DataType t) => t == DataType.F32 ? "float" : t == DataType.I32 ? "int" : t == DataType.I64 ? "int64_t" : t == DataType.U32 ? "uint" : "uint16_t";
 
     /// <summary>Slang expression of an elementwise node applied to operand expressions.</summary>
-    static string OpExpr(Node node, string[] args)
+    private static string OpExpr(Node node, string[] args)
     {
     return node.Op.Name switch
         {
@@ -1298,7 +1298,7 @@ public sealed partial class GraphLowerer
         };
     }
 
-    static string ClipExpr(string x, float lo, float hi)
+    private static string ClipExpr(string x, float lo, float hi)
     {
         var e = x;
         if (!float.IsNegativeInfinity(lo))
@@ -1314,7 +1314,7 @@ public sealed partial class GraphLowerer
         return $"({e})";
     }
 
-    void EmitElementwiseKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol,
+    private void EmitElementwiseKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol,
         List<TensorRef> inputs, List<(TensorRef Ref, string Expr)> outputs, List<string> stmts)
     {
         if (shape.Any(d => d == 0))

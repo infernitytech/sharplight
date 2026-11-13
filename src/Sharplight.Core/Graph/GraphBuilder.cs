@@ -10,17 +10,17 @@ namespace Sharplight.Graph;
 /// </summary>
 public sealed class GraphBuilder
 {
-    readonly string _name;
-    readonly List<Node> _nodes = [];
-    readonly List<Value> _inputs = [];
-    readonly Dictionary<string, Value> _outputs = [];
-    readonly Dictionary<string, Value> _weightValues = [];
-    readonly Dictionary<string, Value> _stateValues = [];
-    readonly HashSet<string> _scalars = [];
-    readonly Func<string, WeightInfo?> _weightLookup;
-    readonly Stack<string> _groups = new();
-    int _nextValueId;
-    int _nextNodeId;
+    private readonly string _name;
+    private readonly List<Node> _nodes = [];
+    private readonly List<Value> _inputs = [];
+    private readonly Dictionary<string, Value> _outputs = [];
+    private readonly Dictionary<string, Value> _weightValues = [];
+    private readonly Dictionary<string, Value> _stateValues = [];
+    private readonly HashSet<string> _scalars = [];
+    private readonly Func<string, WeightInfo?> _weightLookup;
+    private readonly Stack<string> _groups = new();
+    private int _nextValueId;
+    private int _nextNodeId;
 
     public GraphBuilder(string name, Func<string, WeightInfo?> weightLookup)
     {
@@ -50,9 +50,17 @@ public sealed class GraphBuilder
 
     public Value? TryWeight(string name)
     {
-        if (_weightValues.TryGetValue(name, out var v)) return v;
+        if (_weightValues.TryGetValue(name, out var v))
+        {
+            return v;
+        }
+
         var info = _weightLookup(name);
-        if (info is null) return null;
+        if (info is null)
+        {
+            return null;
+        }
+
         v = new Value(_nextValueId++, name, info.Type, info.Shape, ValueKind.Weight) { Weight = info };
         _weightValues[name] = v;
         return v;
@@ -62,7 +70,11 @@ public sealed class GraphBuilder
 
     public Value State(StateDefinition def)
     {
-        if (_stateValues.TryGetValue(def.Name, out var v)) return v;
+        if (_stateValues.TryGetValue(def.Name, out var v))
+        {
+            return v;
+        }
+
         v = new Value(_nextValueId++, def.Name, def.Type, def.Shape, ValueKind.State) { State = def };
         _stateValues[def.Name] = v;
         return v;
@@ -92,7 +104,11 @@ public sealed class GraphBuilder
             outs.Add(new Value(_nextValueId++, vname, types[i].Type, types[i].Shape, ValueKind.Intermediate) { });
         }
         node.Outputs = outs.MoveToImmutable();
-        foreach (var o in node.Outputs) o.Producer = node;
+        foreach (var o in node.Outputs)
+        {
+            o.Producer = node;
+        }
+
         _nodes.Add(node);
         return node.Outputs;
     }
@@ -118,7 +134,11 @@ public sealed class GraphBuilder
     public Value Linear(Value x, string weight, string? biasWeight = null, string? name = null)
     {
         var y = MatMul(x, Weight(weight), name);
-        if (biasWeight is not null && TryWeight(biasWeight) is { } b) y = Add(y, b);
+        if (biasWeight is not null && TryWeight(biasWeight) is { } b)
+        {
+            y = Add(y, b);
+        }
+
         return y;
     }
 
@@ -151,11 +171,15 @@ public sealed class GraphBuilder
 
     public ComputeGraph Build()
     {
-        if (_outputs.Count == 0) throw new InvalidOperationException("Graph has no outputs.");
+        if (_outputs.Count == 0)
+        {
+            throw new InvalidOperationException("Graph has no outputs.");
+        }
+
         return new ComputeGraph(_name, [.. _nodes], [.. _inputs], new Dictionary<string, Value>(_outputs), [.. _scalars]);
     }
 
-    sealed class Scope(Action onDispose) : IDisposable
+    private sealed class Scope(Action onDispose) : IDisposable
     {
         public void Dispose() => onDispose();
     }

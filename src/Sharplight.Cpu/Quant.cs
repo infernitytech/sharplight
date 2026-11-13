@@ -12,23 +12,91 @@ public static unsafe class Quant
 {
     public static WeightFormat? FormatOf(DataType t)
     {
-        if (t == DataType.F32) return WeightFormat.F32;
-        if (t == DataType.F16) return WeightFormat.F16;
-        if (t == DataType.BF16) return WeightFormat.BF16;
-        if (t == DataType.Q4_0) return WeightFormat.Q4_0;
-        if (t == DataType.Q4_1) return WeightFormat.Q4_1;
-        if (t == DataType.Q5_0) return WeightFormat.Q5_0;
-        if (t == DataType.Q5_1) return WeightFormat.Q5_1;
-        if (t == DataType.Q8_0) return WeightFormat.Q8_0;
-        if (t == DataType.Q4_K) return WeightFormat.Q4_K;
-        if (t == DataType.Q5_K) return WeightFormat.Q5_K;
-        if (t == DataType.Q6_K) return WeightFormat.Q6_K;
-        if (t == DataType.IQ4_NL) return WeightFormat.IQ4_NL;
-        if (t == DataType.IQ4_XS) return WeightFormat.IQ4_XS;
-        if (t == DataType.Q1_0) return WeightFormat.Q1_0;
-        if (t == DataType.Q2_0) return WeightFormat.Q2_0;
-        if (t == DataType.Q2_0_G128) return WeightFormat.Q2_0_G128;
-        if (t == DataType.Tern1_G128) return WeightFormat.Tern1_G128;
+        if (t == DataType.F32)
+        {
+            return WeightFormat.F32;
+        }
+
+        if (t == DataType.F16)
+        {
+            return WeightFormat.F16;
+        }
+
+        if (t == DataType.BF16)
+        {
+            return WeightFormat.BF16;
+        }
+
+        if (t == DataType.Q4_0)
+        {
+            return WeightFormat.Q4_0;
+        }
+
+        if (t == DataType.Q4_1)
+        {
+            return WeightFormat.Q4_1;
+        }
+
+        if (t == DataType.Q5_0)
+        {
+            return WeightFormat.Q5_0;
+        }
+
+        if (t == DataType.Q5_1)
+        {
+            return WeightFormat.Q5_1;
+        }
+
+        if (t == DataType.Q8_0)
+        {
+            return WeightFormat.Q8_0;
+        }
+
+        if (t == DataType.Q4_K)
+        {
+            return WeightFormat.Q4_K;
+        }
+
+        if (t == DataType.Q5_K)
+        {
+            return WeightFormat.Q5_K;
+        }
+
+        if (t == DataType.Q6_K)
+        {
+            return WeightFormat.Q6_K;
+        }
+
+        if (t == DataType.IQ4_NL)
+        {
+            return WeightFormat.IQ4_NL;
+        }
+
+        if (t == DataType.IQ4_XS)
+        {
+            return WeightFormat.IQ4_XS;
+        }
+
+        if (t == DataType.Q1_0)
+        {
+            return WeightFormat.Q1_0;
+        }
+
+        if (t == DataType.Q2_0)
+        {
+            return WeightFormat.Q2_0;
+        }
+
+        if (t == DataType.Q2_0_G128)
+        {
+            return WeightFormat.Q2_0_G128;
+        }
+
+        if (t == DataType.Tern1_G128)
+        {
+            return WeightFormat.Tern1_G128;
+        }
+
         return null;
     }
 
@@ -96,11 +164,15 @@ public static unsafe class Quant
     {
         uint h = Unsafe.ReadUnaligned<ushort>(p);
         uint e = h & 0x7C00;
-        if (e == 0 || e == 0x7C00) return Simd.HalfToFloat((ushort)h); // zero / subnormal / inf / nan
+        if (e == 0 || e == 0x7C00)
+        {
+            return Simd.HalfToFloat((ushort)h); // zero / subnormal / inf / nan
+        }
+
         return BitConverter.UInt32BitsToSingle(((h & 0x8000) << 16) | (((h & 0x7FFF) << 13) + 0x38000000));
     }
 
-    static void Q8_0(byte* p, long nb, float* dst)
+    private static void Q8_0(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 34, dst += 32)
         {
@@ -110,7 +182,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q4_0(byte* p, long nb, float* dst)
+    private static void Q4_0(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         for (long b = 0; b < nb; b++, p += 18, dst += 32)
@@ -124,10 +196,10 @@ public static unsafe class Quant
 
     // ---- non-linear 4-bit formats (ggml IQ4_NL / IQ4_XS): the nibble indexes a fixed 16-entry codebook ----------------------------
 
-    static readonly sbyte[] s_kvalues = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113];
+    private static readonly sbyte[] s_kvalues = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113];
 
     /// <summary>IQ4_NL: 32 values = { f16 d; u8 qs[16] }; value j&lt;16: d·kvalues[lo nibble of qs[j]], j&gt;=16: d·kvalues[hi nibble of qs[j-16]].</summary>
-    static void IQ4_NL(byte* p, long nb, float* dst)
+    private static void IQ4_NL(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 18, dst += 32)
         {
@@ -137,7 +209,7 @@ public static unsafe class Quant
     }
 
     /// <summary>IQ4_XS: 256 values = { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] }: eight 32-value sub-blocks with 6-bit scales (ls - 32), each laid out like IQ4_NL.</summary>
-    static void IQ4_XS(byte* p, long nb, float* dst)
+    private static void IQ4_XS(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 136, dst += 256)
         {
@@ -153,7 +225,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q4_1(byte* p, long nb, float* dst)
+    private static void Q4_1(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         for (long b = 0; b < nb; b++, p += 20, dst += 32)
@@ -165,7 +237,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q5_0(byte* p, long nb, float* dst)
+    private static void Q5_0(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         byte* hb = stackalloc byte[32];
@@ -180,7 +252,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q5_1(byte* p, long nb, float* dst)
+    private static void Q5_1(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         byte* hb = stackalloc byte[32];
@@ -196,7 +268,7 @@ public static unsafe class Quant
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static void ScaleMin(int j, byte* q, out int sc, out int m)
+    private static void ScaleMin(int j, byte* q, out int sc, out int m)
     {
         if (j < 4) { sc = q[j] & 63; m = q[j + 4] & 63; }
         else
@@ -206,7 +278,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q4_K(byte* p, long nb, float* dst)
+    private static void Q4_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         for (long b = 0; b < nb; b++, p += 144, dst += 256)
@@ -229,7 +301,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q5_K(byte* p, long nb, float* dst)
+    private static void Q5_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         var one = Vector128.Create((byte)1);
@@ -259,7 +331,7 @@ public static unsafe class Quant
         }
     }
 
-    static void Q6_K(byte* p, long nb, float* dst)
+    private static void Q6_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
         var m3 = Vector128.Create((byte)3);
@@ -293,57 +365,96 @@ public static unsafe class Quant
 
     // ---- group-wise 1-bit / ternary formats ------------------------------------------------------------------
 
-    static readonly float[] s_signLut = BuildSignLut();     // [256][8]: bit i of the byte -> +1 / -1
-    static readonly float[] s_codeLut = BuildCodeLut();     // [256][4]: 2-bit code i of the byte -> code-1
+    private static readonly float[] s_signLut = BuildSignLut();     // [256][8]: bit i of the byte -> +1 / -1
+    private static readonly float[] s_codeLut = BuildCodeLut();     // [256][4]: 2-bit code i of the byte -> code-1
 
-    static float[] BuildSignLut()
+    private static float[] BuildSignLut()
     {
         var t = new float[256 * 8];
-        for (int b = 0; b < 256; b++) for (int i = 0; i < 8; i++) t[b * 8 + i] = ((b >> i) & 1) != 0 ? 1f : -1f;
+        for (int b = 0; b < 256; b++)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                t[b * 8 + i] = ((b >> i) & 1) != 0 ? 1f : -1f;
+            }
+        }
+
         return t;
     }
 
-    static float[] BuildCodeLut()
+    private static float[] BuildCodeLut()
     {
         var t = new float[256 * 4];
-        for (int b = 0; b < 256; b++) for (int i = 0; i < 4; i++) t[b * 4 + i] = ((b >> (2 * i)) & 3) - 1;
+        for (int b = 0; b < 256; b++)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                t[b * 4 + i] = ((b >> (2 * i)) & 3) - 1;
+            }
+        }
+
         return t;
     }
 
-    static void Q1_0(byte* p, long nb, float* dst)
+    private static void Q1_0(byte* p, long nb, float* dst)
     {
         fixed (float* lut = s_signLut)
+        {
             for (long b = 0; b < nb; b++, p += 18, dst += 128)
             {
                 float d = H(p);
                 for (int j = 0; j < 16; j++)
+                {
                     (Vector256.Load(lut + p[2 + j] * 8) * d).Store(dst + j * 8);
+                }
             }
+        }
     }
 
     /// <summary>2-bit codes, <paramref name="qBytes"/> code bytes per block after the f16 scale.</summary>
-    static void Q2_0(byte* p, long nb, float* dst, int qBytes)
+    private static void Q2_0(byte* p, long nb, float* dst, int qBytes)
     {
         fixed (float* lut = s_codeLut)
+        {
             for (long b = 0; b < nb; b++, p += 2 + qBytes, dst += qBytes * 4)
             {
                 float d = H(p);
                 for (int j = 0; j < qBytes; j++)
+                {
                     (Vector128.Load(lut + p[2 + j] * 4) * d).Store(dst + j * 4);
+                }
             }
+        }
     }
 
-    static void Tern1(byte* p, long nb, float* dst)
+    private static void Tern1(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 28, dst += 128)
         {
             float d = H(p + 26);
             for (int m = 0; m < 16; m++)
-                for (int n = 0, pw = 1; n < 5; n++, pw *= 3) dst[n * 16 + m] = (((((p[m] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+            {
+                for (int n = 0, pw = 1; n < 5; n++, pw *= 3)
+                {
+                    dst[n * 16 + m] = (((((p[m] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+                }
+            }
+
             for (int m = 0; m < 8; m++)
-                for (int n = 0, pw = 1; n < 5; n++, pw *= 3) dst[80 + n * 8 + m] = (((((p[16 + m] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+            {
+                for (int n = 0, pw = 1; n < 5; n++, pw *= 3)
+                {
+                    dst[80 + n * 8 + m] = (((((p[16 + m] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+                }
+            }
+
             for (int h = 0; h < 2; h++)
-                for (int n = 0, pw = 1; n < 4; n++, pw *= 3) dst[120 + n * 2 + h] = (((((p[24 + h] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+            {
+                for (int n = 0, pw = 1; n < 4; n++, pw *= 3)
+                {
+                    dst[120 + n * 2 + h] = (((((p[24 + h] * pw) & 0xFF) * 3) >> 8) - 1) * d;
+                }
+            }
         }
     }
 
@@ -355,11 +466,17 @@ public static unsafe class Quant
     /// <summary>Dot products of x[nb*32] with four Q8_0 / Q4_0 rows.</summary>
     public static void DotRows4(WeightFormat f, float* x, byte** rows, long nb, float* res)
     {
-        if (f == WeightFormat.Q8_0) DotQ8_0x4(x, rows[0], rows[1], rows[2], rows[3], nb, res);
-        else DotQ4_0x4(x, rows[0], rows[1], rows[2], rows[3], nb, res);
+        if (f == WeightFormat.Q8_0)
+        {
+            DotQ8_0x4(x, rows[0], rows[1], rows[2], rows[3], nb, res);
+        }
+        else
+        {
+            DotQ4_0x4(x, rows[0], rows[1], rows[2], rows[3], nb, res);
+        }
     }
 
-    static void DotQ8_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
+    private static void DotQ8_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
     {
         var a0 = Vector512<float>.Zero; var a1 = a0; var a2 = a0; var a3 = a0;
         for (long b = 0; b < nb; b++)
@@ -372,7 +489,7 @@ public static unsafe class Quant
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static Vector512<float> Row8(byte* p, Vector512<float> x0, Vector512<float> x1, Vector512<float> acc)
+    private static Vector512<float> Row8(byte* p, Vector512<float> x0, Vector512<float> x1, Vector512<float> acc)
     {
         var q0 = Vector512.ConvertToSingle(System.Runtime.Intrinsics.X86.Avx512F.ConvertToVector512Int32(Vector128.Load((sbyte*)(p + 2))));
         var q1 = Vector512.ConvertToSingle(System.Runtime.Intrinsics.X86.Avx512F.ConvertToVector512Int32(Vector128.Load((sbyte*)(p + 18))));
@@ -380,7 +497,7 @@ public static unsafe class Quant
         return Vector512.FusedMultiplyAdd(s, Vector512.Create(H(p)), acc);
     }
 
-    static void DotQ4_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
+    private static void DotQ4_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
     {
         var a0 = Vector512<float>.Zero; var a1 = a0; var a2 = a0; var a3 = a0;
         var mask = Vector128.Create((byte)0x0F);
@@ -396,7 +513,7 @@ public static unsafe class Quant
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static Vector512<float> Row4(byte* p, Vector512<float> x0, Vector512<float> x1, Vector512<float> x8, Vector128<byte> mask, Vector512<float> acc)
+    private static Vector512<float> Row4(byte* p, Vector512<float> x0, Vector512<float> x1, Vector512<float> x8, Vector128<byte> mask, Vector512<float> acc)
     {
         var q = Vector128.Load(p + 2);
         var lo = Vector512.ConvertToSingle(System.Runtime.Intrinsics.X86.Avx512F.ConvertToVector512Int32(q & mask));

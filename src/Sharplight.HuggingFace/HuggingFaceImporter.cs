@@ -28,11 +28,18 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
 
     ModelSource IModelImporter.Open(string path) => Open(path, options);
 
-    static string? ResolveDirectory(string path)
+    private static string? ResolveDirectory(string path)
     {
-        if (Directory.Exists(path)) return Path.GetFullPath(path);
+        if (Directory.Exists(path))
+        {
+            return Path.GetFullPath(path);
+        }
+
         if (File.Exists(path) && path.EndsWith(".safetensors", StringComparison.OrdinalIgnoreCase))
+        {
             return Path.GetDirectoryName(Path.GetFullPath(path));
+        }
+
         return null;
     }
 
@@ -55,7 +62,11 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 [CanonicalKeys.Architecture] = mapping.Architecture,
                 [CanonicalKeys.Name] = new DirectoryInfo(dir).Name,
             };
-            foreach (var (k, v) in mapping.MapHyperParameters(config, options)) md[k] = v;
+            foreach (var (k, v) in mapping.MapHyperParameters(config, options))
+            {
+                md[k] = v;
+            }
+
             HfTokenizerTranslator.AddTo(md, dir, config);
             HfSentenceTransformers.AddTo(md, dir, config);
 

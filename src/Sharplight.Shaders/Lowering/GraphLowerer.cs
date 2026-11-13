@@ -33,27 +33,27 @@ public sealed class LoweringOptions
 /// </summary>
 public sealed partial class GraphLowerer
 {
-    readonly GraphSegment _seg;
-    readonly SlangCompiler _compiler;
-    readonly LoweringOptions _opt;
-    readonly List<BufferDecl> _buffers = [];
-    readonly List<KernelLaunch> _launches = [];
-    readonly Dictionary<Value, TensorRef> _refs = [];
-    readonly Dictionary<WeightInfo, BufferDecl> _weightBuffers = [];
-    readonly Dictionary<StateDefinition, BufferDecl> _stateBuffers = [];
-    readonly Dictionary<Value, TensorRef> _inputRefs = [];
-    readonly Dictionary<Value, TensorRef> _outputRefs = [];
-    readonly HashSet<Value> _segmentOutputs;
-    readonly Dictionary<string, int> _scalarSlots = new(StringComparer.Ordinal);
-    readonly BufferDecl _arena;
-    readonly BufferDecl _runtime;
-    readonly ActivationAllocator _alloc = new();
-    readonly Dictionary<Value, Node> _absorbedNorms = [];
-    readonly Dictionary<Value, Node> _absorbedRope = [];   // rope output → rope node computed inside its CacheWrite  // value → norm node computed inside its consumer
-    readonly Dictionary<Value, Value> _root = [];        // view → materialized root value
-    readonly Dictionary<Value, int> _lastUse = [];       // root → last unit index using it
+    private readonly GraphSegment _seg;
+    private readonly SlangCompiler _compiler;
+    private readonly LoweringOptions _opt;
+    private readonly List<BufferDecl> _buffers = [];
+    private readonly List<KernelLaunch> _launches = [];
+    private readonly Dictionary<Value, TensorRef> _refs = [];
+    private readonly Dictionary<WeightInfo, BufferDecl> _weightBuffers = [];
+    private readonly Dictionary<StateDefinition, BufferDecl> _stateBuffers = [];
+    private readonly Dictionary<Value, TensorRef> _inputRefs = [];
+    private readonly Dictionary<Value, TensorRef> _outputRefs = [];
+    private readonly HashSet<Value> _segmentOutputs;
+    private readonly Dictionary<string, int> _scalarSlots = new(StringComparer.Ordinal);
+    private readonly BufferDecl _arena;
+    private readonly BufferDecl _runtime;
+    private readonly ActivationAllocator _alloc = new();
+    private readonly Dictionary<Value, Node> _absorbedNorms = [];
+    private readonly Dictionary<Value, Node> _absorbedRope = [];   // rope output → rope node computed inside its CacheWrite  // value → norm node computed inside its consumer
+    private readonly Dictionary<Value, Value> _root = [];        // view → materialized root value
+    private readonly Dictionary<Value, int> _lastUse = [];       // root → last unit index using it
 
-    GraphLowerer(GraphSegment seg, SlangCompiler compiler, LoweringOptions opt)
+    private GraphLowerer(GraphSegment seg, SlangCompiler compiler, LoweringOptions opt)
     {
         _seg = seg;
         _compiler = compiler;
@@ -72,8 +72,8 @@ public sealed partial class GraphLowerer
         => new GraphLowerer(segment, compiler, options).Run();
 
     // ---- op support --------------------------------------------------------------------------
-    static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
-    static readonly HashSet<string> s_supported =
+    private static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
+    private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
          "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "MatMulId", "SequencePool", .. SpatialOpNames, .. GeneralOpNames];
 
@@ -170,13 +170,13 @@ public sealed partial class GraphLowerer
         return OpSupport.Yes;
     }
 
-    static int? WeightFormat(DataType t) =>
+    private static int? WeightFormat(DataType t) =>
         t == DataType.F32 ? 0 : t == DataType.F16 ? 1 : t == DataType.BF16 ? 2 : t == DataType.Q8_0 ? 8 : t == ShaderTypes.Q8_0R ? 108 :
         t == DataType.Q4_0 ? 2001 : t == DataType.Q4_K ? 12 : t == DataType.Q5_K ? 13 : t == DataType.Q6_K ? 14 :
         t == DataType.Q4_1 ? 3 : t == DataType.Q5_0 ? 6 : t == DataType.Q5_1 ? 7 : t == DataType.IQ4_NL ? 20 : t == DataType.IQ4_XS ? 23 : t == DataType.Q1_0 ? 41 : t == DataType.Q2_0 ? 42 : t == DataType.Q2_0_G128 ? 142 : t == DataType.Tern1_G128 ? 143 : null;
 
     // ---- main --------------------------------------------------------------------------------
-    KernelProgram Run()
+    private KernelProgram Run()
     {
         var units = Schedule(FormUnits());
         ComputeLiveness(units);
@@ -238,7 +238,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- units & fusion ----------------------------------------------------------------------
-    sealed class Unit
+    private sealed class Unit
     {
         public Node? Node;
         public List<Node>? Fused;
@@ -258,11 +258,11 @@ public sealed partial class GraphLowerer
             : [.. Dual is { } d ? new[] { d.A, d.B } : [], .. NormHead is null ? [] : new[] { NormHead }, .. Fused, .. NormTail is null ? [] : new[] { NormTail }];
     }
 
-    static bool IsFusable(Node n) =>
+    private static bool IsFusable(Node n) =>
         s_elementwise.Contains(n.Op.Name) && n.Outputs[0].Type == DataType.F32 &&
         n.Inputs.All(i => !i.Type.IsQuantized && (i.Type == DataType.F32 || i.Type == DataType.F16 || i.Type == DataType.BF16));
 
-    List<Unit> FormUnits()
+    private List<Unit> FormUnits()
     {
         var units = new List<Unit>();
         List<Node>? open = null;
@@ -532,14 +532,14 @@ public sealed partial class GraphLowerer
         return units;
     }
 
-    static readonly bool s_noDual = Environment.GetEnvironmentVariable("SHARPLIGHT_NO_DUAL") == "1";
-    static readonly bool s_noSchedule = Environment.GetEnvironmentVariable("SHARPLIGHT_NO_SCHEDULE") == "1";
+    private static readonly bool s_noDual = Environment.GetEnvironmentVariable("SHARPLIGHT_NO_DUAL") == "1";
+    private static readonly bool s_noSchedule = Environment.GetEnvironmentVariable("SHARPLIGHT_NO_SCHEDULE") == "1";
 
     /// <summary>
     /// Orders units by dependency level (stable within a level) so independent launches are recorded next to
     /// each other and share barriers. Units touching the same state keep their relative order.
     /// </summary>
-    static List<Unit> Schedule(List<Unit> units)
+    private static List<Unit> Schedule(List<Unit> units)
     {
         var producer = new Dictionary<Value, int>();
         for (int i = 0; i < units.Count; i++)
@@ -596,7 +596,7 @@ public sealed partial class GraphLowerer
         return [.. units.Select((u, i) => (u, i)).OrderBy(x => x.u.Level).ThenBy(x => x.i).Select(x => x.u)];
     }
 
-    void ComputeLiveness(List<Unit> units)
+    private void ComputeLiveness(List<Unit> units)
     {
         // Root of each value: views map to the root of their input; everything else is its own root.
         foreach (var u in units)
@@ -632,30 +632,30 @@ public sealed partial class GraphLowerer
         }
     }
 
-    Value RootOf(Value v) => _root.TryGetValue(v, out var r) ? r : v;
+    private Value RootOf(Value v) => _root.TryGetValue(v, out var r) ? r : v;
 
     // ---- buffers & refs ----------------------------------------------------------------------
-    BufferDecl NewBuffer(BufferKind kind, string name, long bytes, WeightInfo? w = null, StateDefinition? s = null, byte[]? init = null)
+    private BufferDecl NewBuffer(BufferKind kind, string name, long bytes, WeightInfo? w = null, StateDefinition? s = null, byte[]? init = null)
     {
         var b = new BufferDecl { Id = _buffers.Count, Kind = kind, Name = name, Bytes = bytes, Weight = w, State = s, InitialData = init };
         _buffers.Add(b);
         return b;
     }
 
-    long Bound(Dim d) => d.IsSymbolic ? _opt.Compile.Bound(d.Symbol!) : d.Fixed;
+    private long Bound(Dim d) => d.IsSymbolic ? _opt.Compile.Bound(d.Symbol!) : d.Fixed;
 
-    long[] BoundShape(Shape s) => [.. s.Dims.Select(Bound)];
+    private long[] BoundShape(Shape s) => [.. s.Dims.Select(Bound)];
 
-    TensorRef Dense(BufferDecl buf, Value v, long byteOffset = 0)
+    private TensorRef Dense(BufferDecl buf, Value v, long byteOffset = 0)
     {
         var shape = BoundShape(v.Shape);
         return new TensorRef(buf, byteOffset, v.Type, shape, TensorRef.DenseStrides(shape), v.Shape.Symbol);
     }
 
     /// <summary>Returns the tensor reference of a value, materializing leaves (weights, states, inputs) on demand.</summary>
-    static readonly bool s_repack = Environment.GetEnvironmentVariable("SHARPLIGHT_NO_REPACK") != "1";
+    private static readonly bool s_repack = Environment.GetEnvironmentVariable("SHARPLIGHT_NO_REPACK") != "1";
 
-    TensorRef Ref(Value v)
+    private TensorRef Ref(Value v)
     {
         if (_refs.TryGetValue(v, out var r))
         {
@@ -708,7 +708,7 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Allocates a dense result tensor for a node output (activation arena or output buffer).</summary>
-    TensorRef Produce(Value v)
+    private TensorRef Produce(Value v)
     {
         if (_refs.TryGetValue(v, out var existing))
         {
@@ -734,10 +734,10 @@ public sealed partial class GraphLowerer
         return r;
     }
 
-    static BufferRange Range(TensorRef r) => new(r.Buffer, r.ByteOffset, r.ByteOffset + r.MaxBytes);
+    private static BufferRange Range(TensorRef r) => new(r.Buffer, r.ByteOffset, r.ByteOffset + r.MaxBytes);
 
-    static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
-    static string F(float v)
+    private static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
+    private static string F(float v)
     {
         if (float.IsPositiveInfinity(v))
         {
@@ -753,12 +753,12 @@ public sealed partial class GraphLowerer
         return s;
     }
 
-    KernelArg TokenArg(TensorRef r, long multiplier = 1) =>
+    private KernelArg TokenArg(TensorRef r, long multiplier = 1) =>
         r.Symbol is null ? new UIntArg((uint)(r.Shape[0] * multiplier)) : new SymbolArg(r.Symbol, multiplier);
 
-    static long Rows(Bindings b, TensorRef r) => r.Symbol is null ? r.Shape[0] : b[r.Symbol];
+    private static long Rows(Bindings b, TensorRef r) => r.Symbol is null ? r.Shape[0] : b[r.Symbol];
 
-    Dictionary<string, string> Macros(params (string, object)[] items)
+    private Dictionary<string, string> Macros(params (string, object)[] items)
     {
         var d = new Dictionary<string, string>(StringComparer.Ordinal) { ["SG"] = _opt.SubgroupSize.ToString(CultureInfo.InvariantCulture) };
         foreach (var (k, v) in items)
@@ -775,13 +775,13 @@ public sealed partial class GraphLowerer
         return d;
     }
 
-    CompiledKernel Lib(string file, string entry, Dictionary<string, string> macros)
+    private CompiledKernel Lib(string file, string entry, Dictionary<string, string> macros)
         => _compiler.CompileLibrary(file, entry, _opt.Target, macros, _opt.Cache);
 
     /// <summary>Extra condition for launches emitted while set (conditional fallback launches).</summary>
-    Func<Bindings, bool>? _launchCondition;
+    private Func<Bindings, bool>? _launchCondition;
 
-    void Emit(string name, IEnumerable<Node> nodes, IReadOnlyList<KernelVariant> variants, IReadOnlyList<KernelArg> args,
+    private void Emit(string name, IEnumerable<Node> nodes, IReadOnlyList<KernelVariant> variants, IReadOnlyList<KernelArg> args,
         IEnumerable<TensorRef> reads, IEnumerable<TensorRef> writes)
     {
         if (_launchCondition is { } cond)
@@ -800,15 +800,15 @@ public sealed partial class GraphLowerer
         });
     }
 
-    static KernelVariant Always(CompiledKernel k, Func<Bindings, Grid> grid) => new(_ => true, k, grid);
+    private static KernelVariant Always(CompiledKernel k, Func<Bindings, Grid> grid) => new(_ => true, k, grid);
 }
 
 /// <summary>First-fit allocator for the activation arena (offsets aligned to 256 bytes).</summary>
-sealed class ActivationAllocator
+internal sealed class ActivationAllocator
 {
-    readonly SortedList<long, long> _free = [];   // offset → size
-    readonly Dictionary<object, (long Off, long Size)> _live = [];
-    long _top, _high;
+    private readonly SortedList<long, long> _free = [];   // offset → size
+    private readonly Dictionary<object, (long Off, long Size)> _live = [];
+    private long _top, _high;
     public long HighWater => _high;
 
     public long Allocate(object v, long bytes)

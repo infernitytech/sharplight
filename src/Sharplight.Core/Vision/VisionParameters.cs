@@ -76,7 +76,11 @@ public sealed record VisionParameters
     /// <summary>Reads <c>{prefix}{key}</c> entries; null when <c>layer_count</c> is absent (no vision tower).</summary>
     public static VisionParameters? FromMetadata(IReadOnlyDictionary<string, object> md, string prefix)
     {
-        if (!md.ContainsKey(prefix + "layer_count")) return null;
+        if (!md.ContainsKey(prefix + "layer_count"))
+        {
+            return null;
+        }
+
         T Get<T>(string k, T d) => md.TryGetValue(prefix + k, out var v) ? Convert<T>(v) : d;
         var p = new VisionParameters
         {
@@ -121,23 +125,50 @@ public sealed record VisionParameters
         Set("image_mean", ImageMean); Set("image_std", ImageStd); Set("min_pixels", MinPixels); Set("max_pixels", MaxPixels);
     }
 
-    void Validate()
+    private void Validate()
     {
-        if (HiddenSize <= 0 || HeadCount <= 0 || HiddenSize % HeadCount != 0) throw new InvalidDataException($"vision: hidden_size {HiddenSize} must be a multiple of head_count {HeadCount}.");
-        if (PatchSize <= 0 || SpatialMergeSize <= 0 || OutHiddenSize <= 0) throw new InvalidDataException("vision: patch_size, spatial_merge_size and out_hidden_size must be positive.");
-        if (RopeBase > 0 && HeadDim % 4 != 0) throw new InvalidDataException($"vision: 2-D rotary embedding needs head_dim % 4 == 0 (head_dim {HeadDim}).");
-        if (ImageMean.Length != InChannels || ImageStd.Length != InChannels) throw new InvalidDataException("vision: image_mean/std must have in_channels entries.");
-        if (PositionEmbeddingCount > 0 && PositionGridSide * PositionGridSide != PositionEmbeddingCount) throw new InvalidDataException("vision: position_embedding_count must be a square.");
+        if (HiddenSize <= 0 || HeadCount <= 0 || HiddenSize % HeadCount != 0)
+        {
+            throw new InvalidDataException($"vision: hidden_size {HiddenSize} must be a multiple of head_count {HeadCount}.");
+        }
+
+        if (PatchSize <= 0 || SpatialMergeSize <= 0 || OutHiddenSize <= 0)
+        {
+            throw new InvalidDataException("vision: patch_size, spatial_merge_size and out_hidden_size must be positive.");
+        }
+
+        if (RopeBase > 0 && HeadDim % 4 != 0)
+        {
+            throw new InvalidDataException($"vision: 2-D rotary embedding needs head_dim % 4 == 0 (head_dim {HeadDim}).");
+        }
+
+        if (ImageMean.Length != InChannels || ImageStd.Length != InChannels)
+        {
+            throw new InvalidDataException("vision: image_mean/std must have in_channels entries.");
+        }
+
+        if (PositionEmbeddingCount > 0 && PositionGridSide * PositionGridSide != PositionEmbeddingCount)
+        {
+            throw new InvalidDataException("vision: position_embedding_count must be a square.");
+        }
     }
 
-    static T Convert<T>(object v)
+    private static T Convert<T>(object v)
     {
-        if (v is T t) return t;
+        if (v is T t)
+        {
+            return t;
+        }
+
         if (typeof(T).IsArray && v is Array src)
         {
             var et = typeof(T).GetElementType()!;
             var dst = Array.CreateInstance(et, src.Length);
-            for (int i = 0; i < src.Length; i++) dst.SetValue(System.Convert.ChangeType(src.GetValue(i), et, CultureInfo.InvariantCulture), i);
+            for (int i = 0; i < src.Length; i++)
+            {
+                dst.SetValue(System.Convert.ChangeType(src.GetValue(i), et, CultureInfo.InvariantCulture), i);
+            }
+
             return (T)(object)dst;
         }
         return (T)System.Convert.ChangeType(v, typeof(T), CultureInfo.InvariantCulture);

@@ -39,7 +39,11 @@ public sealed class NemotronHAdapter : IModelAdapter
         int nLayer = src.Arch<int>("layer_count"), nEmbd = src.Arch<int>("hidden_size");
         float eps = src.Arch("norm_eps", 1e-5f);
         var kinds = src.Arch<string[]>("block_kinds");
-        if (kinds.Length != nLayer) throw new InvalidDataException("nemotron_h: block_kinds must have layer_count entries.");
+        if (kinds.Length != nLayer)
+        {
+            throw new InvalidDataException("nemotron_h: block_kinds must have layer_count entries.");
+        }
+
         string act = src.Arch("mlp.activation", "relu2");
         int nHead = src.Arch("attention.head_count", 0), nKv = src.Arch("attention.kv_head_count", 0), headDim = src.Arch("attention.head_dim", 0);
         int convK = src.Arch("ssm.conv_kernel", 4), N = src.Arch("ssm.state_size", 0), G = src.Arch("ssm.group_count", 1);
@@ -74,11 +78,22 @@ public sealed class NemotronHAdapter : IModelAdapter
         }
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, false) };
-        if (options.IncludeAuxiliaryGraphs) graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", true);
+        if (options.IncludeAuxiliaryGraphs)
+        {
+            graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", true);
+        }
 
         var eos = new List<int>();
-        if (src.Has(CanonicalKeys.TokenizerEosId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
-        if (src.Has(CanonicalKeys.TokenizerEotId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
+        if (src.Has(CanonicalKeys.TokenizerEosId))
+        {
+            eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
+        }
+
+        if (src.Has(CanonicalKeys.TokenizerEotId))
+        {
+            eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
+        }
+
         return new ModelDefinition
         {
             Architecture = src.Architecture,
@@ -106,8 +121,14 @@ public sealed class NemotronHAdapter : IModelAdapter
             Value x;
             using (b.Group("input"))
             {
-                if (embeddingsInput) x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, nEmbd));
-                else x = b.Gather(b.Weight("token_embedding.weight"), b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T)), "inp_embd");
+                if (embeddingsInput)
+                {
+                    x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, nEmbd));
+                }
+                else
+                {
+                    x = b.Gather(b.Weight("token_embedding.weight"), b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T)), "inp_embd");
+                }
             }
             // Positions are an input of every graph (the runtime always feeds them) although no layer here uses rotary embeddings.
             b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
@@ -186,7 +207,11 @@ public sealed class NemotronHAdapter : IModelAdapter
         // Sigmoid-scored routing with a selection-only bias, k experts per token (non-gated MLPs), plus the shared MLP.
         Value Moe(GraphBuilder b, Value h, string p)
         {
-            if (experts <= 0 || expertsUsed <= 0) throw new InvalidDataException("nemotron_h: moe layers need moe.expert_count and moe.expert_used_count.");
+            if (experts <= 0 || expertsUsed <= 0)
+            {
+                throw new InvalidDataException("nemotron_h: moe layers need moe.expert_count and moe.expert_used_count.");
+            }
+
             var scores = b.Sigmoid(b.Linear(h, p + "moe.router.weight"), $"{p}router_scores");                 // [T, E]
             var choice = b.TryWeight(p + "moe.router_bias") is { } bias ? b.Add(scores, bias) : scores;
             var top = b.Emit("TopK", [choice], Attributes.From(("k", (long)expertsUsed)), $"{p}router_topk");
@@ -196,8 +221,16 @@ public sealed class NemotronHAdapter : IModelAdapter
             var onehot = b.Binary("Equal", b.Reshape(b.Emit1("Cast", [ids], Attributes.From(("type", "f32"))), 0, expertsUsed, 1), iota);   // [T, k, E]
             var picked = b.Reshape(b.Emit1("ReduceSum", [b.Mul(onehot, b.Reshape(scores, 0, 1, experts))]), 0, expertsUsed);               // [T, k]
             var weights = picked;
-            if (normWeights) weights = b.Binary("Div", weights, b.Scale(b.Emit1("ReduceSum", [weights]), 1f, 1e-20f));
-            if (weightsScale != 1f) weights = b.Scale(weights, weightsScale);
+            if (normWeights)
+            {
+                weights = b.Binary("Div", weights, b.Scale(b.Emit1("ReduceSum", [weights]), 1f, 1e-20f));
+            }
+
+            if (weightsScale != 1f)
+            {
+                weights = b.Scale(weights, weightsScale);
+            }
+
             var up = b.Emit1("MatMulId", [h, b.Weight(p + "moe.experts.up.weight"), ids], null, $"{p}experts_up");                         // [T, k, I]
             var down = b.Emit1("MatMulId", [Act(b, up), b.Weight(p + "moe.experts.down.weight"), ids], null, $"{p}experts_down");         // [T, k, H]
             var summed = b.Emit1("ReduceSum", [b.Permute(b.Mul(down, b.Reshape(weights, 0, expertsUsed, 1)), 0, 2, 1)]);                    // [T, H, 1]
@@ -208,7 +241,11 @@ public sealed class NemotronHAdapter : IModelAdapter
         static byte[] IotaBytes(int n)
         {
             var bytes = new byte[n * 4];
-            for (int i = 0; i < n; i++) BitConverter.TryWriteBytes(bytes.AsSpan(i * 4, 4), (float)i);
+            for (int i = 0; i < n; i++)
+            {
+                BitConverter.TryWriteBytes(bytes.AsSpan(i * 4, 4), (float)i);
+            }
+
             return bytes;
         }
     }

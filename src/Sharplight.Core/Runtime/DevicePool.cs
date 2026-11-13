@@ -8,9 +8,9 @@ namespace Sharplight.Runtime;
 /// </summary>
 public sealed class DevicePool : IDisposable
 {
-    readonly Dictionary<string, IComputeDevice> _devices = [];
-    readonly Lock _lock = new();
-    bool _disposed;
+    private readonly Dictionary<string, IComputeDevice> _devices = [];
+    private readonly Lock _lock = new();
+    private bool _disposed;
 
     /// <summary>
     /// Opens <paramref name="device"/> on <paramref name="provider"/>, or returns the device already opened for it.
@@ -23,7 +23,11 @@ public sealed class DevicePool : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             var key = $"{device.Provider}:{device.Index}";
-            if (!_devices.TryGetValue(key, out var d)) _devices[key] = d = provider.OpenDevice(device, options);
+            if (!_devices.TryGetValue(key, out var d))
+            {
+                _devices[key] = d = provider.OpenDevice(device, options);
+            }
+
             return d;
         }
     }
@@ -33,20 +37,31 @@ public sealed class DevicePool : IDisposable
     {
         foreach (var (p, a) in ProviderRegistry.Discover())
         {
-            if (!a.IsAvailable || p.Name != providerName) continue;
+            if (!a.IsAvailable || p.Name != providerName)
+            {
+                continue;
+            }
+
             var devs = p.GetDevices();
-            if (index < 0 || index >= devs.Count) throw new ArgumentOutOfRangeException(nameof(index), $"Provider '{providerName}' has {devs.Count} device(s).");
+            if (index < 0 || index >= devs.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index), $"Provider '{providerName}' has {devs.Count} device(s).");
+            }
+
             return Open(p, devs[index], options);
         }
         throw new InvalidOperationException($"No available execution provider named '{providerName}'.");
     }
 
-    public IReadOnlyList<IComputeDevice> Devices { get { lock (_lock) return [.. _devices.Values]; } }
+    public IReadOnlyList<IComputeDevice> Devices { get { lock (_lock) { return [.. _devices.Values]; } } }
 
     public void Dispose()
     {
         List<IComputeDevice> all;
-        lock (_lock) { if (_disposed) return; _disposed = true; all = [.. _devices.Values]; _devices.Clear(); }
-        foreach (var d in all) d.Dispose();
+        lock (_lock) { if (_disposed) { return; } _disposed = true; all = [.. _devices.Values]; _devices.Clear(); }
+        foreach (var d in all)
+        {
+            d.Dispose();
+        }
     }
 }

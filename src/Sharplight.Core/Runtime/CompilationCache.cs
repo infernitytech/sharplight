@@ -10,16 +10,16 @@ namespace Sharplight.Runtime;
 /// </summary>
 public interface ICompilationCache
 {
-    bool TryGet(string key, out ReadOnlyMemory<byte> data);
-    void Put(string key, ReadOnlyMemory<byte> data);
+    public bool TryGet(string key, out ReadOnlyMemory<byte> data);
+    public void Put(string key, ReadOnlyMemory<byte> data);
 }
 
 /// <summary>Stored compilation caches, one per device target (<see cref="IComputeDevice.CompilationTarget"/>).</summary>
 public interface ICompilationCacheStore
 {
-    IEnumerable<string> Targets { get; }
+    public IEnumerable<string> Targets { get; }
     /// <summary>The read-only cache stored for <paramref name="target"/>, or null.</summary>
-    ICompilationCache? Find(string target);
+    public ICompilationCache? Find(string target);
 }
 
 /// <summary>
@@ -28,7 +28,7 @@ public interface ICompilationCacheStore
 /// </summary>
 public sealed class CompilationCache(string target, ICompilationCache? fallback = null) : ICompilationCache
 {
-    readonly ConcurrentDictionary<string, ReadOnlyMemory<byte>> _entries = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ReadOnlyMemory<byte>> _entries = new(StringComparer.Ordinal);
 
     public string Target => target;
     public ICompilationCache? Fallback => fallback;
@@ -36,7 +36,11 @@ public sealed class CompilationCache(string target, ICompilationCache? fallback 
 
     public bool TryGet(string key, out ReadOnlyMemory<byte> data)
     {
-        if (_entries.TryGetValue(key, out data)) return true;
+        if (_entries.TryGetValue(key, out data))
+        {
+            return true;
+        }
+
         if (fallback is not null && fallback.TryGet(key, out data))
         {
             _entries[key] = data;

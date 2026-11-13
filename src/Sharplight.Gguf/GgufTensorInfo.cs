@@ -6,7 +6,7 @@ namespace Sharplight.Gguf;
 /// <summary>Describes one tensor stored in a GGUF file.</summary>
 public sealed class GgufTensorInfo
 {
-    readonly GgufFile _file;
+    private readonly GgufFile _file;
 
     internal GgufTensorInfo(GgufFile file, string name, int ggmlType, DataType dataType, long[] ne, long relativeOffset, long absoluteOffset, long byteSize)
     {
@@ -41,14 +41,17 @@ public sealed class GgufTensorInfo
     public override string ToString() => $"{Name} {DataType}{Shape} @{Offset} ({ByteSize} B)";
 }
 
-sealed unsafe class GgufWeightSource(GgufFile file, long offset, long length) : IWeightSource
+internal sealed unsafe class GgufWeightSource(GgufFile file, long offset, long length) : IWeightSource
 {
     public long ByteLength => length;
 
     public void Read(long off, Span<byte> destination)
     {
         if (off < 0 || off + destination.Length > length)
+        {
             throw new ArgumentOutOfRangeException(nameof(off));
+        }
+
         file.ThrowIfDisposed();
         new ReadOnlySpan<byte>(file.BasePointer + offset + off, destination.Length).CopyTo(destination);
     }

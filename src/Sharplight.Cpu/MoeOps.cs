@@ -1,5 +1,4 @@
 using Sharplight.Runtime;
-using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -9,19 +8,19 @@ namespace Sharplight.Cpu;
 /// </summary>
 internal sealed unsafe class MatMulIdOp : CpuOp
 {
-    const int KB = 1024;
-    readonly TRef _x, _w, _ids, _y;
-    readonly WeightFormat _fmt;
-    readonly long _n, _k, _rowBytes, _expertBytes;
-    readonly int _experts, _slots;
-    readonly bool _perSlot, _fused;
-    readonly Action<int> _body;
+    private const int KB = 1024;
+    private readonly TRef _x, _w, _ids, _y;
+    private readonly WeightFormat _fmt;
+    private readonly long _n, _k, _rowBytes, _expertBytes;
+    private readonly int _experts, _slots;
+    private readonly bool _perSlot, _fused;
+    private readonly Action<int> _body;
     // Scratch sized for the largest item count: per-expert counts/offsets, sorted x and y row pointers, active experts.
-    readonly int* _cnt, _start, _active, _cursor;
-    readonly float** _xrows;
-    readonly float** _yrows;
-    long _units, _per, _groups;
-    [ThreadStatic] static float[]? s_acc;
+    private readonly int* _cnt, _start, _active, _cursor;
+    private readonly float** _xrows;
+    private readonly float** _yrows;
+    private long _units, _per, _groups;
+    [ThreadStatic] private static float[]? s_acc;
     public override string Name => $"MatMulId.{_fmt}";
 
     public MatMulIdOp(TRef x, TRef w, TRef ids, TRef y, WeightFormat fmt)
@@ -30,7 +29,11 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         _experts = (int)w.Dims[0]; _n = w.Dims[1]; _k = w.Dims[2];
         _slots = (int)ids.Dims[1];
         _perSlot = x.Rank == 3;
-        if (_k % Quant.BlockSize(fmt) != 0) throw new ArgumentException($"K={_k} is not a multiple of the {fmt} block size.");
+        if (_k % Quant.BlockSize(fmt) != 0)
+        {
+            throw new ArgumentException($"K={_k} is not a multiple of the {fmt} block size.");
+        }
+
         _rowBytes = _k / Quant.BlockSize(fmt) * Quant.BlockBytes(fmt);
         _expertBytes = _rowBytes * _n;
         _fused = Quant.HasFusedKernel(fmt);
@@ -52,20 +55,32 @@ internal sealed unsafe class MatMulIdOp : CpuOp
     public override void Run(RunParameters p)
     {
         long items = _ids.Dim(0, p) * _slots;
-        if (items == 0) return;
+        if (items == 0)
+        {
+            return;
+        }
+
         int* ids = (int*)_ids.P;
         new Span<int>(_cnt, _experts).Clear();
         for (long i = 0; i < items; i++)
         {
             int e = ids[i];
-            if ((uint)e >= (uint)_experts) throw new InvalidOperationException($"MatMulId: expert id {e} outside [0, {_experts}).");
+            if ((uint)e >= (uint)_experts)
+            {
+                throw new InvalidOperationException($"MatMulId: expert id {e} outside [0, {_experts}).");
+            }
+
             _cnt[e]++;
         }
         int off = 0, na = 0;
         for (int e = 0; e < _experts; e++)
         {
             _start[e] = off;
-            if (_cnt[e] > 0) _active[na++] = e;
+            if (_cnt[e] > 0)
+            {
+                _active[na++] = e;
+            }
+
             off += _cnt[e];
         }
         new Span<int>(_cursor, _experts).Clear();
@@ -83,7 +98,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         Par.For(chunks, _body);
     }
 
-    void Body(int c)
+    private void Body(int c)
     {
         long u0 = c * _per, u1 = Math.Min(_units, u0 + _per);
         float* wbuf = stackalloc float[4 * KB];
@@ -99,15 +114,27 @@ internal sealed unsafe class MatMulIdOp : CpuOp
             float** xr = _xrows + m0;
             float** yr = _yrows + m0;
             var accArr = s_acc;
-            if (accArr is null || accArr.Length < m * 4) s_acc = accArr = new float[Math.Max(m * 4, 4096)];
+            if (accArr is null || accArr.Length < m * 4)
+            {
+                s_acc = accArr = new float[Math.Max(m * 4, 4096)];
+            }
+
             byte* wbase = _w.P + e * _expertBytes;
             long n0 = g * 4;
             int nr = (int)Math.Min(4, _n - n0);
-            for (int r = 0; r < 4; r++) rows[r] = wbase + Math.Min(n0 + r, _n - 1) * _rowBytes;
+            for (int r = 0; r < 4; r++)
+            {
+                rows[r] = wbase + Math.Min(n0 + r, _n - 1) * _rowBytes;
+            }
+
             if (m == 1 && _fused)
             {
                 Quant.DotRows4(_fmt, xr[0], rows, _k / bs, res);
-                for (int r = 0; r < nr; r++) yr[0][n0 + r] = res[r];
+                for (int r = 0; r < nr; r++)
+                {
+                    yr[0][n0 + r] = res[r];
+                }
+
                 continue;
             }
             fixed (float* acc = accArr)
@@ -118,7 +145,10 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                     long len = Math.Min(KB, _k - kb);
                     for (int r = 0; r < 4; r++)
                     {
-                        if (_fmt == WeightFormat.F32) wp[r] = (float*)rows[r] + kb;
+                        if (_fmt == WeightFormat.F32)
+                        {
+                            wp[r] = (float*)rows[r] + kb;
+                        }
                         else
                         {
                             Quant.Dequantize(_fmt, rows[r] + kb / bs * bb, len, wbuf + r * KB);
@@ -141,7 +171,12 @@ internal sealed unsafe class MatMulIdOp : CpuOp
                     }
                 }
                 for (long t = 0; t < m; t++)
-                    for (int r = 0; r < nr; r++) yr[t][n0 + r] = acc[t * 4 + r];
+                {
+                    for (int r = 0; r < nr; r++)
+                    {
+                        yr[t][n0 + r] = acc[t * 4 + r];
+                    }
+                }
             }
         }
     }

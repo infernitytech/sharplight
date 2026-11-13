@@ -20,7 +20,14 @@ public sealed class FakeTokenizer : ITokenizer
     public byte[] DecodeBytes(ReadOnlySpan<int> ids, bool skipSpecial = false)
     {
         var l = new List<byte>();
-        foreach (var id in ids) if (!(skipSpecial && IsSpecial(id))) l.AddRange(TokenBytes(id));
+        foreach (var id in ids)
+        {
+            if (!(skipSpecial && IsSpecial(id)))
+            {
+                l.AddRange(TokenBytes(id));
+            }
+        }
+
         return [.. l];
     }
     public byte[] TokenBytes(int id) => id < 256 ? [(byte)id] : id == Bos ? "<s>"u8.ToArray() : id == Eos ? "</s>"u8.ToArray() : [];
@@ -39,8 +46,8 @@ public sealed class FakeTokenizer : ITokenizer
 public sealed class FakeBatchDecoder : IBatchDecoder
 {
     public const int Marker = 1;   // prompts end with this token; scripted replies are indexed relative to it
-    readonly List<int>[] _ctx;
-    readonly float[][] _logits;
+    private readonly List<int>[] _ctx;
+    private readonly float[][] _logits;
 
     public FakeBatchDecoder(int slots, int contextLength = 4096, int maxBatchTokens = 64, bool batches = true, bool canTruncate = true)
     {
@@ -70,41 +77,84 @@ public sealed class FakeBatchDecoder : IBatchDecoder
         Next = ctx =>
         {
             int m = -1;
-            for (int i = ctx.Count - 1; i >= 0; i--) if (ctx[i] == Marker) { m = i; break; }
+            for (int i = ctx.Count - 1; i >= 0; i--)
+            {
+                if (ctx[i] == Marker) { m = i; break; }
+            }
+
             int k = m < 0 ? 0 : ctx.Count - m - 1;
-            if (loop && bytes.Length > 0) k %= bytes.Length;
+            if (loop && bytes.Length > 0)
+            {
+                k %= bytes.Length;
+            }
+
             return k < bytes.Length ? bytes[k] : FakeTokenizer.Eos;
         };
     }
 
     public int Length(int slot) => _ctx[slot].Count;
-    public void Reset(int slot) { _ctx[slot].Clear(); lock (Resets) Resets.Add(slot); }
+    public void Reset(int slot) { _ctx[slot].Clear(); lock (Resets)
+        {
+            Resets.Add(slot);
+        }
+    }
     public void Truncate(int slot, int length)
     {
-        if (!CanTruncate) throw new NotSupportedException();
+        if (!CanTruncate)
+        {
+            throw new NotSupportedException();
+        }
+
         _ctx[slot].RemoveRange(length, _ctx[slot].Count - length);
-        lock (Truncations) Truncations.Add((slot, length));
+        lock (Truncations)
+        {
+            Truncations.Add((slot, length));
+        }
     }
     public IReadOnlyList<int> Context(int slot) => _ctx[slot];
 
     public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs)
     {
-        if (inputs.Select(i => i.Slot).Distinct().Count() != inputs.Count) throw new InvalidOperationException("two inputs for one slot");
-        if (inputs.Sum(i => i.Tokens.Length) > MaxBatchTokens) throw new InvalidOperationException("batch too large");
+        if (inputs.Select(i => i.Slot).Distinct().Count() != inputs.Count)
+        {
+            throw new InvalidOperationException("two inputs for one slot");
+        }
+
+        if (inputs.Sum(i => i.Tokens.Length) > MaxBatchTokens)
+        {
+            throw new InvalidOperationException("batch too large");
+        }
+
         if (!BatchesSequences && inputs.Count > 1) { /* executed one after another; still recorded as one step */ }
         lock (Steps)
         {
-            if (FailAfterSteps >= 0 && Steps.Count >= FailAfterSteps) throw new InvalidOperationException("injected failure");
+            if (FailAfterSteps >= 0 && Steps.Count >= FailAfterSteps)
+            {
+                throw new InvalidOperationException("injected failure");
+            }
+
             Steps.Add([.. inputs.Select(i => (i.Slot, i.Tokens.Length, i.WantLogits))]);
         }
-        if (StepDelay > TimeSpan.Zero) Thread.Sleep(StepDelay);
+        if (StepDelay > TimeSpan.Zero)
+        {
+            Thread.Sleep(StepDelay);
+        }
+
         var res = new float[inputs.Count][];
         for (int i = 0; i < inputs.Count; i++)
         {
             var c = _ctx[inputs[i].Slot];
-            if (c.Count + inputs[i].Tokens.Length > ContextLength) throw new InvalidOperationException("context overflow");
+            if (c.Count + inputs[i].Tokens.Length > ContextLength)
+            {
+                throw new InvalidOperationException("context overflow");
+            }
+
             c.AddRange(inputs[i].Tokens.ToArray());
-            if (!inputs[i].WantLogits) continue;
+            if (!inputs[i].WantLogits)
+            {
+                continue;
+            }
+
             var l = _logits[i];
             Array.Fill(l, -10f);
             l[Next(c)] = 10f;
@@ -122,7 +172,7 @@ public static class T
     public static async Task<bool> WaitUntil(Func<bool> cond, int timeoutMs = 5000)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        while (sw.ElapsedMilliseconds < timeoutMs) { if (cond()) return true; await Task.Delay(2); }
+        while (sw.ElapsedMilliseconds < timeoutMs) { if (cond()) { return true; } await Task.Delay(2); }
         return cond();
     }
 }

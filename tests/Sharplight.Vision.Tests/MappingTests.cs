@@ -1,16 +1,13 @@
 using Sharplight.Gguf;
 using Sharplight.HuggingFace;
-using Sharplight.Llm;
-using Sharplight.Models;
 using Sharplight.Tensors;
-using Sharplight.Vision;
 
 namespace Sharplight.Vision.Tests;
 
 /// <summary>The Hugging Face importer and the GGUF mmproj importer must produce the same canonical vision description.</summary>
 public class MappingTests(ITestOutputHelper output)
 {
-    static bool Have(string p) => File.Exists(p) || Directory.Exists(p);
+    private static bool Have(string p) => File.Exists(p) || Directory.Exists(p);
 
     [Fact]
     public void Hf_and_mmproj_give_the_same_canonical_tower()
@@ -38,7 +35,11 @@ public class MappingTests(ITestOutputHelper output)
             Assert.Equal(h.Shape.ToString(), g.Shape.ToString());
             var a = HfTransforms.DecodeF32(h); var b = HfTransforms.DecodeF32(g);
             double maxDiff = 0;
-            for (int i = 0; i < a.Length; i++) maxDiff = Math.Max(maxDiff, Math.Abs(a[i] - b[i]));
+            for (int i = 0; i < a.Length; i++)
+            {
+                maxDiff = Math.Max(maxDiff, Math.Abs(a[i] - b[i]));
+            }
+
             worst = Math.Max(worst, maxDiff);
             Assert.True(maxDiff == 0, $"{name}: max |hf - gguf| = {maxDiff}");
         }
@@ -61,10 +62,14 @@ public class MappingTests(ITestOutputHelper output)
     }
 }
 
-sealed class Disposer : IDisposable
+internal sealed class Disposer : IDisposable
 {
-    readonly List<IDisposable> _items;
+    private readonly List<IDisposable> _items;
     public Disposer(out List<IDisposable> items) { items = _items = []; }
     public Disposer(IEnumerable<IDisposable> items) { _items = [.. items]; }
-    public void Dispose() { foreach (var i in _items) i.Dispose(); }
+    public void Dispose() { foreach (var i in _items)
+        {
+            i.Dispose();
+        }
+    }
 }

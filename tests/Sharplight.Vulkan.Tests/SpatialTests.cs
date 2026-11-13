@@ -5,7 +5,7 @@ namespace Sharplight.Vulkan.Tests;
 
 public class ConvTests
 {
-    static void Run(string label, int[] batches, int C, int H, int W, int O, int KH, int KW, int[] stride, int[] pads, int[] dil, int groups,
+    private static void Run(string label, int[] batches, int C, int H, int W, int O, int KH, int KW, int[] stride, int[] pads, int[] dil, int groups,
         bool bias, string wtype = "f32", bool sliceInput = false, double atol = 2e-4, double rtol = 1e-4)
     {
         Gpu.Require();
@@ -16,7 +16,11 @@ public class ConvTests
         var wt = DataType.Get(wtype);
         var w = tg.RandW("w", wt, 0.3f, O, C / groups, KH, KW);
         var args = new List<Value> { xv, w };
-        if (bias) args.Add(tg.RandW("b", DataType.F32, 1f, O));
+        if (bias)
+        {
+            args.Add(tg.RandW("b", DataType.F32, 1f, O));
+        }
+
         var attrs = Attributes.From(("strides", stride.Select(v => (long)v).ToArray()), ("pads", pads.Select(v => (long)v).ToArray()),
             ("dilations", dil.Select(v => (long)v).ToArray()), ("groups", (long)groups));
         tg.B.Output("y", tg.B.Emit1("Conv", args, attrs));

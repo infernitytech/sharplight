@@ -11,7 +11,11 @@ public static class MarkerScanner
         int best = -1, bm = -1;
         for (int m = 0; m < markers.Count; m++)
         {
-            if (markers[m].Length == 0) continue;
+            if (markers[m].Length == 0)
+            {
+                continue;
+            }
+
             int i = text.IndexOf(markers[m], from, StringComparison.Ordinal);
             if (i >= 0 && (best < 0 || i < best)) { best = i; bm = m; }
         }
@@ -26,7 +30,9 @@ public static class MarkerScanner
         {
             int max = Math.Min(m.Length - 1, text.Length);
             for (int len = max; len > best; len--)
+            {
                 if (string.CompareOrdinal(text, text.Length - len, m, 0, len) == 0) { best = len; break; }
+            }
         }
         return best;
     }
@@ -38,8 +44,8 @@ public static class MarkerScanner
 /// </summary>
 public sealed class StopStringFilter(IReadOnlyList<string> stops)
 {
-    readonly StringBuilder _pending = new();
-    readonly string[] _stops = [.. stops.Where(s => s.Length > 0)];
+    private readonly StringBuilder _pending = new();
+    private readonly string[] _stops = [.. stops.Where(s => s.Length > 0)];
     public bool Stopped { get; private set; }
     /// <summary>The stop string that ended the stream.</summary>
     public string? Matched { get; private set; }
@@ -47,8 +53,16 @@ public sealed class StopStringFilter(IReadOnlyList<string> stops)
     /// <summary>Adds text; returns the part that is safe to emit.</summary>
     public string Push(string text)
     {
-        if (Stopped || text.Length == 0) return "";
-        if (_stops.Length == 0) return text;
+        if (Stopped || text.Length == 0)
+        {
+            return "";
+        }
+
+        if (_stops.Length == 0)
+        {
+            return text;
+        }
+
         _pending.Append(text);
         var s = _pending.ToString();
         var (idx, m) = MarkerScanner.FindFirst(s, _stops);

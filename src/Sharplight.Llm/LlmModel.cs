@@ -48,11 +48,11 @@ public sealed class LlmModel : IDisposable
     public ModelSource Source { get; }
     public ITokenizer Tokenizer { get; }
     public string? ChatTemplate { get; }
-    readonly LlmLoadOptions _options;
-    readonly Dictionary<string, (CompilationCache Cache, List<IComputeDevice> Devices)> _caches = [];
-    readonly Lock _cacheLock = new();
+    private readonly LlmLoadOptions _options;
+    private readonly Dictionary<string, (CompilationCache Cache, List<IComputeDevice> Devices)> _caches = [];
+    private readonly Lock _cacheLock = new();
 
-    LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options)
+    private LlmModel(ModelDefinition def, ModelSource source, ITokenizer tok, LlmLoadOptions options)
     {
         Definition = def;
         Source = source;
@@ -109,7 +109,11 @@ public sealed class LlmModel : IDisposable
         string? why = null;
         if (slots <= 1 || !Graph.MultiSequence.IsSupported(graph, out why))
         {
-            if (slots > 1) _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
+            if (slots > 1)
+            {
+                _options.Log?.Invoke($"Multi-sequence decoding unavailable ({why}); serving one sequence at a time.");
+            }
+
             return new Serving.SessionBatchDecoder(CreateSession(memoryLimit: memoryLimit));
         }
         int ctx = contextLength ?? _options.ContextLength;
@@ -132,15 +136,19 @@ public sealed class LlmModel : IDisposable
         return dec;
     }
 
-    const long DefaultReserve = 1L << 30;
+    private const long DefaultReserve = 1L << 30;
 
     /// <summary>
     /// Caps the first (primary) device's share of the model at <paramref name="memoryLimit"/> bytes (layers beyond it go to
     /// the fallback device or the load fails); other devices keep their own limits. Null = the devices as configured.
     /// </summary>
-    IReadOnlyList<DeviceSlot> DevicesWithLimit(long? memoryLimit)
+    private IReadOnlyList<DeviceSlot> DevicesWithLimit(long? memoryLimit)
     {
-        if (memoryLimit is not { } limit || _options.Devices.Count == 0) return _options.Devices;
+        if (memoryLimit is not { } limit || _options.Devices.Count == 0)
+        {
+            return _options.Devices;
+        }
+
         var d0 = _options.Devices[0];
         var first = new DeviceSlot { Device = d0.Device, Weight = d0.Weight, MemoryLimit = d0.MemoryLimit is { } m ? Math.Min(m, limit) : limit };
         return [first, .. _options.Devices.Skip(1)];
@@ -180,14 +188,21 @@ public sealed class LlmModel : IDisposable
     }
 
     /// <summary>One recording cache per device target, seeded from caches stored in the model file.</summary>
-    ICompilationCache CacheFor(IComputeDevice device)
+    private ICompilationCache CacheFor(IComputeDevice device)
     {
         var target = device.CompilationTarget;
         lock (_cacheLock)
         {
             if (!_caches.TryGetValue(target, out var e))
+            {
                 _caches[target] = e = (new CompilationCache(target, Source.CompilationCaches?.Find(target)), []);
-            if (!e.Devices.Contains(device)) e.Devices.Add(device);
+            }
+
+            if (!e.Devices.Contains(device))
+            {
+                e.Devices.Add(device);
+            }
+
             return e.Cache;
         }
     }
@@ -202,24 +217,37 @@ public sealed class LlmModel : IDisposable
         lock (_cacheLock)
         {
             foreach (var (cache, devices) in _caches.Values)
-                foreach (var d in devices) d.ExportCompilationState(cache);
+            {
+                foreach (var d in devices)
+                {
+                    d.ExportCompilationState(cache);
+                }
+            }
+
             return [.. _caches.Values.Select(e => e.Cache)];
         }
     }
 
     public void Dispose()
     {
-        foreach (var r in Definition.OwnedResources) r.Dispose();
+        foreach (var r in Definition.OwnedResources)
+        {
+            r.Dispose();
+        }
     }
 }
 
 /// <summary>Registers the architecture adapters shipped with Sharplight.</summary>
 public static class BuiltinAdapters
 {
-    static int s_done;
+    private static int s_done;
     public static void RegisterAll()
     {
-        if (Interlocked.Exchange(ref s_done, 1) == 1) return;
+        if (Interlocked.Exchange(ref s_done, 1) == 1)
+        {
+            return;
+        }
+
         ModelAdapterRegistry.Register(new Qwen35Adapter());
         Sharplight.Vision.MultimodalRegistry.Register(new Qwen35Multimodal());
         ModelAdapterRegistry.Register(new DecoderAdapter());

@@ -16,9 +16,9 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     public string Architecture => "decoder";
     public IReadOnlyList<string> ModelTypes { get; } = ["llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "muse_glimmer", "flint"];
 
-    static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
+    private static bool IsGemma(string? t) => t is "gemma2" or "gemma3_text" or "gemma3";
 
-    static string Activation(HfConfig c)
+    private static string Activation(HfConfig c)
         => (c.GetString("hidden_activation", "hidden_act", "activation_function") ?? "silu") switch
         {
             "silu" or "swish" => "silu",
@@ -28,10 +28,10 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
             var other => throw new NotSupportedException($"Hugging Face activation '{other}' is not supported."),
         };
 
-    sealed record Scaling(string Type, JsonElement Json);
+    private sealed record Scaling(string Type, JsonElement Json);
 
     /// <summary>The rope scaling description of the full-attention layers, or null.</summary>
-    static Scaling? ScalingOf(HfConfig c)
+    private static Scaling? ScalingOf(HfConfig c)
     {
         if (c.RopeParameters is not { } rp)
         {
@@ -48,21 +48,21 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         return type == "default" ? null : new Scaling(type, rp);
     }
 
-    static double D(JsonElement e, string key, double def)
+    private static double D(JsonElement e, string key, double def)
         => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : def;
 
-    static int RopeDim(HfConfig c, int headDim)
+    private static int RopeDim(HfConfig c, int headDim)
         => (int)(headDim * (c.RopeDouble("partial_rotary_factor", "partial_rotary_factor") ?? 1.0));
 
-    static int HeadDim(HfConfig c)
+    private static int HeadDim(HfConfig c)
         => c.GetInt("head_dim") ?? c.Int("hidden_size") / c.Int("num_attention_heads");
 
-    static float RopeBase(HfConfig c) => (float)(c.RopeDouble("rope_theta", "rope_theta") ?? 10000.0);
+    private static float RopeBase(HfConfig c) => (float)(c.RopeDouble("rope_theta", "rope_theta") ?? 10000.0);
 
     /// <summary>Phi-3 "longrope": short/long per-frequency factors and the cos/sin magnitude from the context extension ratio.</summary>
-    sealed record LongRopeInfo(float[] Short, float[] Long, float AttentionScale);
+    private sealed record LongRopeInfo(float[] Short, float[] Long, float AttentionScale);
 
-    static LongRopeInfo? LongRope(HfConfig c)
+    private static LongRopeInfo? LongRope(HfConfig c)
     {
         if (ScalingOf(c) is not { Type: "longrope" or "su" } s)
         {
@@ -77,7 +77,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
         return new LongRopeInfo(Arr("short_factor"), Arr("long_factor"), attn);
     }
 
-    static RopeScaling.Result? ComputeScaling(HfConfig c)
+    private static RopeScaling.Result? ComputeScaling(HfConfig c)
     {
         if (ScalingOf(c) is not { } s)
         {
@@ -227,7 +227,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     [GeneratedRegex(@"^mlp\.experts\.(\d+)\.(gate|up|down)_proj\.weight$")]
     private static partial Regex ExpertName();
 
-    static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["self_attn.q_proj.weight"] = "attention.q.weight",
         ["self_attn.k_proj.weight"] = "attention.k.weight",
@@ -252,7 +252,7 @@ public sealed partial class DecoderHfMapping : IHfArchitectureMapping
     };
 
     // Norm tensors by HF name; Gemma's four-norm layout is renamed to the canonical roles.
-    static readonly Dictionary<string, string> s_norms = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_norms = new(StringComparer.Ordinal)
     {
         ["input_layernorm.weight"] = "input_norm.weight",
         ["self_attn.q_norm.weight"] = "attention.q_norm.weight",

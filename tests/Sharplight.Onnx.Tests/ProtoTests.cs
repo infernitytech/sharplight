@@ -5,7 +5,7 @@ namespace Sharplight.Onnx.Tests;
 
 public class ProtoReaderTests
 {
-    static ulong Var(byte[] b) { var r = new ProtoReader(b); return r.ReadVarint(); }
+    private static ulong Var(byte[] b) { var r = new ProtoReader(b); return r.ReadVarint(); }
 
     [Theory]
     [InlineData(0UL)] [InlineData(1UL)] [InlineData(127UL)] [InlineData(128UL)] [InlineData(300UL)] [InlineData(16384UL)]
@@ -70,7 +70,17 @@ public class ProtoReaderTests
         var r = new ProtoReader(b);
         var ints = new List<long>(); var floats = new List<float>();
         while (r.Next(out int f, out var w))
-            if (f == 1) r.ReadRepeatedInt64(w, ints); else r.ReadRepeatedFloat(w, floats);
+        {
+            if (f == 1)
+            {
+                r.ReadRepeatedInt64(w, ints);
+            }
+            else
+            {
+                r.ReadRepeatedFloat(w, floats);
+            }
+        }
+
         Assert.Equal([1L, 2, -3, 1000, 77], ints);
         Assert.Equal([0.5f, 2f, 3f], floats);
     }
@@ -87,7 +97,7 @@ public class ProtoReaderTests
 
 public class OnnxParserTests : IDisposable
 {
-    readonly string _dir = Path.Combine(Path.GetTempPath(), "onnx-tests-" + Guid.NewGuid().ToString("N"));
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "onnx-tests-" + Guid.NewGuid().ToString("N"));
     public OnnxParserTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
@@ -138,7 +148,7 @@ public class OnnxParserTests : IDisposable
         Assert.Equal([1L, 0, 1], OnnxConstOf(by["b"]).Ints());
     }
 
-    static OnnxConst OnnxConstOf(OnnxTensor t) => OnnxConst.FromTensor(t);
+    private static OnnxConst OnnxConstOf(OnnxTensor t) => OnnxConst.FromTensor(t);
 
     [Fact]
     public void ByteCountMismatch_Throws()
@@ -151,7 +161,11 @@ public class OnnxParserTests : IDisposable
     [Fact]
     public void ExternalData_MappedZeroCopy_AndTraversalRejected()
     {
-        var data = new float[16]; for (int i = 0; i < 16; i++) data[i] = i;
+        var data = new float[16]; for (int i = 0; i < 16; i++)
+        {
+            data[i] = i;
+        }
+
         var dataBytes = new byte[64 + 32]; Buffer.BlockCopy(data, 0, dataBytes, 32, 64);
         File.WriteAllBytes(Path.Combine(_dir, "m.onnx.data"), dataBytes);
 
@@ -178,13 +192,17 @@ public class OnnxParserTests : IDisposable
         Assert.Throws<InvalidDataException>(() => OnnxImporter.Open(Path.Combine(_dir, "oob.onnx")));
     }
 
-    sealed class Owned(ModelSource s) : IDisposable
+    private sealed class Owned(ModelSource s) : IDisposable
     {
         public ModelSource S = s;
         public IReadOnlyDictionary<string, WeightInfo> Weights => S.Weights;
-        public void Dispose() { foreach (var r in S.OwnedResources) r.Dispose(); }
+        public void Dispose() { foreach (var r in S.OwnedResources)
+            {
+                r.Dispose();
+            }
+        }
     }
-    static Owned DisposeWith(ModelSource s) => new(s);
+    private static Owned DisposeWith(ModelSource s) => new(s);
 
     [Fact]
     public void Importer_MetadataAndZeroCopyRawWeights()
@@ -206,7 +224,11 @@ public class OnnxParserTests : IDisposable
             Assert.Equal("f32", w.Type.Name); Assert.Equal("[2, 2]", w.Shape.ToString());
             Assert.NotEqual(0, w.Source.TryGetPointer());   // memory-mapped, no copy
         }
-        finally { foreach (var r in src.OwnedResources) r.Dispose(); }
+        finally { foreach (var r in src.OwnedResources)
+            {
+                r.Dispose();
+            }
+        }
     }
 
     [Fact]
@@ -237,6 +259,10 @@ public class OnnxParserTests : IDisposable
             Assert.Single(def.Graphs);
             Assert.Equal("main", def.Graphs.Keys.Single());
         }
-        finally { foreach (var r in src.OwnedResources) r.Dispose(); }
+        finally { foreach (var r in src.OwnedResources)
+            {
+                r.Dispose();
+            }
+        }
     }
 }

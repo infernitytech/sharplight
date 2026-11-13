@@ -12,19 +12,19 @@ public sealed record ParsedPiece(PieceKind Kind, string Text = "", ToolCall? Cal
 /// </summary>
 public sealed class ChatOutputParser
 {
-    enum Mode { Content, Reasoning, Tool }
+    private enum Mode { Content, Reasoning, Tool }
 
-    readonly IReadOnlyList<IToolCallFormat> _formats;
-    readonly HashSet<string> _toolNames;
-    readonly string _thinkOpen, _thinkClose;
-    readonly List<string> _contentMarkers;
-    readonly IToolCallFormat? _bare;
-    readonly StringBuilder _buf = new();
-    Mode _mode;
-    IToolCallFormat? _cur;
-    bool _curBare;
-    bool _atStart = true;        // no non-whitespace content emitted yet
-    bool _trimLeading;           // drop leading whitespace of the next emitted text
+    private readonly IReadOnlyList<IToolCallFormat> _formats;
+    private readonly HashSet<string> _toolNames;
+    private readonly string _thinkOpen, _thinkClose;
+    private readonly List<string> _contentMarkers;
+    private readonly IToolCallFormat? _bare;
+    private readonly StringBuilder _buf = new();
+    private Mode _mode;
+    private IToolCallFormat? _cur;
+    private bool _curBare;
+    private bool _atStart = true;        // no non-whitespace content emitted yet
+    private bool _trimLeading;           // drop leading whitespace of the next emitted text
 
     public int ToolCallCount { get; private set; }
 
@@ -57,9 +57,9 @@ public sealed class ChatOutputParser
         return o;
     }
 
-    bool HasTools => _formats.Count > 0 && _toolNames.Count > 0;
+    private bool HasTools => _formats.Count > 0 && _toolNames.Count > 0;
 
-    void Drain(bool final, List<ParsedPiece> o)
+    private void Drain(bool final, List<ParsedPiece> o)
     {
         while (true)
         {
@@ -71,8 +71,12 @@ public sealed class ChatOutputParser
                     if (HasTools && _bare is not null && _atStart)
                     {
                         var t = s.TrimStart();
-                        if (t.Length == 0 && !final) return;
-                        if (t.StartsWith('{')) { _mode = Mode.Tool; _cur = _bare; _curBare = true; _buf.Clear().Append(t); continue; }
+                        if (t.Length == 0 && !final)
+                            {
+                                return;
+                            }
+
+                            if (t.StartsWith('{')) { _mode = Mode.Tool; _cur = _bare; _curBare = true; _buf.Clear().Append(t); continue; }
                     }
                     var markers = HasTools ? _contentMarkers : _contentMarkers.GetRange(0, 1);
                     var (idx, m) = MarkerScanner.FindFirst(s, markers);
@@ -87,8 +91,12 @@ public sealed class ChatOutputParser
                     }
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, markers);
                     // With tools, whitespace in front of a (possible) tool-call marker is held back so it can be trimmed.
-                    if (HasTools && !final) hold += s.AsSpan(0, s.Length - hold).Length - s.AsSpan(0, s.Length - hold).TrimEnd().Length;
-                    EmitContent(s[..(s.Length - hold)], o);
+                    if (HasTools && !final)
+                        {
+                            hold += s.AsSpan(0, s.Length - hold).Length - s.AsSpan(0, s.Length - hold).TrimEnd().Length;
+                        }
+
+                        EmitContent(s[..(s.Length - hold)], o);
                     _buf.Clear().Append(s, s.Length - hold, hold);
                     return;
                 }
@@ -105,8 +113,12 @@ public sealed class ChatOutputParser
                     int hold = final ? 0 : MarkerScanner.PartialSuffix(s, [_thinkClose]);
                     string emit = s[..(s.Length - hold)];
                     if (!final) { int ws = emit.Length - emit.TrimEnd().Length; hold += ws; emit = emit[..(emit.Length - ws)]; }
-                    else emit = emit.TrimEnd();
-                    EmitReasoning(emit, o);
+                    else
+                        {
+                            emit = emit.TrimEnd();
+                        }
+
+                        EmitReasoning(emit, o);
                     _buf.Clear().Append(s, s.Length - hold, hold);
                     return;
                 }
@@ -121,8 +133,12 @@ public sealed class ChatOutputParser
                         _buf.Clear().Append(s, idx + end.Length, s.Length - idx - end.Length);
                         continue;
                     }
-                    if (!final) return;
-                    Finish(s, "", o);
+                    if (!final)
+                        {
+                            return;
+                        }
+
+                        Finish(s, "", o);
                     _buf.Clear();
                     return;
                 }
@@ -131,7 +147,7 @@ public sealed class ChatOutputParser
     }
 
     /// <summary>Completes a tool block: parsed calls become pieces, anything else is returned as content.</summary>
-    void Finish(string block, string endMarker, List<ParsedPiece> o)
+    private void Finish(string block, string endMarker, List<ParsedPiece> o)
     {
         var fmt = _cur!;
         _mode = Mode.Content;
@@ -149,24 +165,46 @@ public sealed class ChatOutputParser
         {
             _atStart = false;
             string raw = (_curBare ? "" : fmt.StartMarker) + block + endMarker;
-            if (raw.Length > 0) o.Add(new ParsedPiece(PieceKind.Content, raw));
+            if (raw.Length > 0)
+            {
+                o.Add(new ParsedPiece(PieceKind.Content, raw));
+            }
         }
         _curBare = false;
     }
 
-    string NewId() => "call_" + Guid.NewGuid().ToString("N")[..24];
+    private string NewId() => "call_" + Guid.NewGuid().ToString("N")[..24];
 
-    void EmitContent(string text, List<ParsedPiece> o)
+    private void EmitContent(string text, List<ParsedPiece> o)
     {
-        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0) _trimLeading = false; }
-        if (text.Length == 0) return;
-        if (text.AsSpan().Trim().Length > 0) _atStart = false;
+        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0)
+            {
+                _trimLeading = false;
+            }
+        }
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        if (text.AsSpan().Trim().Length > 0)
+        {
+            _atStart = false;
+        }
+
         o.Add(new ParsedPiece(PieceKind.Content, text));
     }
 
-    void EmitReasoning(string text, List<ParsedPiece> o)
+    private void EmitReasoning(string text, List<ParsedPiece> o)
     {
-        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0) _trimLeading = false; }
-        if (text.Length > 0) o.Add(new ParsedPiece(PieceKind.Reasoning, text));
+        if (_trimLeading) { text = text.TrimStart(); if (text.Length > 0)
+            {
+                _trimLeading = false;
+            }
+        }
+        if (text.Length > 0)
+        {
+            o.Add(new ParsedPiece(PieceKind.Reasoning, text));
+        }
     }
 }

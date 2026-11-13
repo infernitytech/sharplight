@@ -5,9 +5,9 @@ namespace Sharplight.Serving.Tests;
 
 public class EngineTests
 {
-    static InferenceEngine Engine(FakeBatchDecoder d, EngineOptions? o = null) => new(d, new FakeTokenizer(), o);
+    private static InferenceEngine Engine(FakeBatchDecoder d, EngineOptions? o = null) => new(d, new FakeTokenizer(), o);
 
-    static GenerationRequest Req(string prompt, int max = 100, IReadOnlyList<string>? stops = null, int priority = 0, TimeSpan? timeout = null) => new()
+    private static GenerationRequest Req(string prompt, int max = 100, IReadOnlyList<string>? stops = null, int priority = 0, TimeSpan? timeout = null) => new()
     {
         PromptTokens = T.Prompt(prompt), MaxTokens = max, Sampling = SamplingParams.GreedyDefault,
         StopStrings = stops ?? [], Priority = priority, Timeout = timeout,
@@ -95,7 +95,10 @@ public class EngineTests
         await foreach (var c in h.ReadAllAsync())
         {
             chunks.Add(c);
-            if (chunks.Count == 3) cts.Cancel();
+            if (chunks.Count == 3)
+            {
+                cts.Cancel();
+            }
         }
         Assert.Equal(FinishReason.Cancelled, chunks[^1].Finish);
         var r2 = await e.Submit(Req("y", max: 2)).CompleteAsync();
@@ -186,8 +189,8 @@ public class EngineTests
         var order = new List<string>();
         var low = e.Submit(Req("low", priority: 0));
         var high = e.Submit(Req("high", priority: 5));
-        var tl = low.CompleteAsync().ContinueWith(_ => { lock (order) order.Add("low"); });
-        var th = high.CompleteAsync().ContinueWith(_ => { lock (order) order.Add("high"); });
+        var tl = low.CompleteAsync().ContinueWith(_ => { lock (order) { order.Add("low"); } });
+        var th = high.CompleteAsync().ContinueWith(_ => { lock (order) { order.Add("high"); } });
         await Task.WhenAll(tl, th);
         Assert.Equal(["high", "low"], order);
     }
@@ -201,7 +204,7 @@ public class EngineTests
         var blocker = e.Submit(Req("blocker", max: 3));
         await T.WaitUntil(() => e.GetMetrics().ActiveSequences == 1);
         var order = new List<int>();
-        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req("r" + i)).CompleteAsync().ContinueWith(_ => { lock (order) order.Add(i); })).ToArray();
+        var tasks = Enumerable.Range(0, 4).Select(i => e.Submit(Req("r" + i)).CompleteAsync().ContinueWith(_ => { lock (order) { order.Add(i); } })).ToArray();
         await Task.WhenAll(tasks);
         Assert.Equal([0, 1, 2, 3], order);
     }
@@ -225,7 +228,14 @@ public class EngineTests
         var d = new FakeBatchDecoder(1); d.Script("ab STO cd");
         using var e = Engine(d);
         var chunks = new List<string>();
-        await foreach (var c in e.Submit(Req("x", stops: ["STOP"])).ReadAllAsync()) if (c.Text.Length > 0) chunks.Add(c.Text);
+        await foreach (var c in e.Submit(Req("x", stops: ["STOP"])).ReadAllAsync())
+        {
+            if (c.Text.Length > 0)
+            {
+                chunks.Add(c.Text);
+            }
+        }
+
         Assert.Equal("ab STO cd", string.Concat(chunks));
         // The partial match "STO" is never emitted on its own: no intermediate text ends in a stop-string prefix.
         var acc = "";
@@ -259,7 +269,11 @@ public class EngineTests
         var d = new FakeBatchDecoder(1); d.Script(s);
         using var e = Engine(d);
         var chunks = new List<string>();
-        await foreach (var c in e.Submit(Req("x")).ReadAllAsync()) chunks.Add(c.Text);
+        await foreach (var c in e.Submit(Req("x")).ReadAllAsync())
+        {
+            chunks.Add(c.Text);
+        }
+
         Assert.Equal(s, string.Concat(chunks));
         Assert.DoesNotContain(chunks, c => c.Contains('�'));
         Assert.True(chunks.Count(c => c.Length > 0) < Encoding.UTF8.GetByteCount(s));   // multi-byte characters arrive whole
@@ -433,7 +447,11 @@ public class EngineTests
         d.Script("a", loop: true);
         using var e = Engine(d);
         int n = 0;
-        await foreach (var c in e.GenerateAsync(Req("x", max: 100000))) { if (++n == 3) break; }
+        await foreach (var c in e.GenerateAsync(Req("x", max: 100000))) { if (++n == 3)
+            {
+                break;
+            }
+        }
         Assert.True(await T.WaitUntil(() => e.GetMetrics().ActiveSequences == 0));
         Assert.Equal(1, e.GetMetrics().RequestsFinished[FinishReason.Cancelled]);
     }

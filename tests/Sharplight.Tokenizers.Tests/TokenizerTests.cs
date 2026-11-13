@@ -256,7 +256,11 @@ public class QwenTokenizerTests
             foreach (int id in c.Ids)
             {
                 string piece = dec.Push(id);
-                if (c.Text.Contains('�') == false) Assert.DoesNotContain('�', piece);
+                if (c.Text.Contains('�') == false)
+                {
+                    Assert.DoesNotContain('�', piece);
+                }
+
                 sb.Append(piece);
             }
             sb.Append(dec.Flush());
@@ -280,7 +284,10 @@ public class QwenTokenizerTests
         var dec2 = new StreamingDecoder(t);
         var sb = new StringBuilder();
         foreach (byte b in Encoding.UTF8.GetBytes(text))
+        {
             sb.Append(dec2.Push(t.TokenId(ByteEncoding.ByteToChar[b].ToString())!.Value));
+        }
+
         Assert.Equal(text, sb.ToString());
     }
 
@@ -307,7 +314,10 @@ public class QwenTokenizerTests
         var scan = new ByteLevelBpeTokenizer(data) { HeapThreshold = int.MaxValue };
         var heap = new ByteLevelBpeTokenizer(data) { HeapThreshold = 0 };
         foreach (var c in TestData.Fixture().Take(80))
+        {
             Assert.Equal(scan.Encode(c.Text, true, c.ParseSpecial), heap.Encode(c.Text, true, c.ParseSpecial));
+        }
+
         string wordy = string.Concat(Enumerable.Range(0, 4000).Select(i => (char)('a' + (i * 7 % 26))));
         Assert.Equal(scan.Encode(wordy), heap.Encode(wordy));
         Assert.Equal(wordy, scan.Decode(scan.Encode(wordy)));
@@ -324,7 +334,9 @@ public class QwenTokenizerTests
         Tok();
         var t = TokenizerFactory.Create(TestData.Qwen35()! with { PreTokenizer = pre });
         foreach (var c in TestData.Fixture())
+        {
             Assert.Equal(c.Text, t.Decode(t.Encode(c.Text, addSpecial: false, parseSpecial: c.ParseSpecial)));
+        }
     }
 
     [Fact]
@@ -356,7 +368,11 @@ public class QwenTokenizerTests
             if (!got.AsSpan().SequenceEqual(cases[i].Ids))
             {
                 int k = 0;
-                while (k < got.Length && k < cases[i].Ids.Length && got[k] == cases[i].Ids[k]) k++;
+                while (k < got.Length && k < cases[i].Ids.Length && got[k] == cases[i].Ids[k])
+                {
+                    k++;
+                }
+
                 bad.Add($"case {i}: first difference at token {k} (got {(k < got.Length ? got[k] : -1)}, expected {(k < cases[i].Ids.Length ? cases[i].Ids[k] : -1)}), context: {Context(t, cases[i].Ids, k)}");
             }
         }
@@ -379,10 +395,13 @@ public class QwenTokenizerTests
                 .Concat(Directory.EnumerateFiles(Path.Combine(root, "llama.cpp", "src"), "*.cpp")).OrderBy(x => x, StringComparer.Ordinal))
             {
                 sb.Append(File.ReadAllText(f));
-                if (sb.Length >= 1_000_000) break;
+                if (sb.Length >= 1_000_000)
+                {
+                    break;
+                }
             }
         }
-        foreach (var c in TestData.Fixture()) { if (sb.Length >= 1_100_000) break; sb.Append(c.Text).Append('\n'); }
+        foreach (var c in TestData.Fixture()) { if (sb.Length >= 1_100_000) { break; } sb.Append(c.Text).Append('\n'); }
         string text = sb.ToString();
         int bytes = Encoding.UTF8.GetByteCount(text);
 
@@ -404,7 +423,11 @@ public class QwenTokenizerTests
 
         string line = $"text={bytes / 1e6:F2} MB tokens={cold.Length} cold={bytes / 1e6 / coldS:F1} MB/s ({cold.Length / coldS / 1e3:F0}k tok/s) warm-cache={bytes / 1e6 / warmS:F1} MB/s";
         TestContext.Current.SendDiagnosticMessage(line);
-        if (TestData.FindWorkFile("qwen35.json") is { } q) File.WriteAllText(Path.Combine(Path.GetDirectoryName(q)!, "throughput.txt"), line + "\n");
+        if (TestData.FindWorkFile("qwen35.json") is { } q)
+        {
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(q)!, "throughput.txt"), line + "\n");
+        }
+
         Assert.True(bytes / 1e6 / coldS > 0.5, line);
     }
 }

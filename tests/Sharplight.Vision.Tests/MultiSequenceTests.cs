@@ -1,6 +1,5 @@
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
-using Sharplight.Runtime;
 
 namespace Sharplight.Vision.Tests;
 
@@ -10,7 +9,7 @@ namespace Sharplight.Vision.Tests;
 /// </summary>
 public class MultiSequenceTests
 {
-    static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     public static TheoryData<string, string> Cases => new()
     {
         { "qwen35-0.8b", "cpu" }, { "qwen35-0.8b", "vulkan" },
@@ -18,7 +17,7 @@ public class MultiSequenceTests
         { "gemma3-1b", "vulkan" }, { "gemma3-1b", "cpu" },
     };
 
-    static string ModelPath(string m) => m switch
+    private static string ModelPath(string m) => m switch
     {
         "qwen35-0.8b" => Env.Gguf08,
         "qwen2.5-0.5b" => Path.Combine(Home, "models/gguf/Qwen2.5-0.5B-Instruct/qwen2.5-0.5b-instruct-fp16.gguf"),
@@ -26,7 +25,7 @@ public class MultiSequenceTests
         _ => throw new ArgumentException(m),
     };
 
-    static int[] Tokens(int seed, int n)
+    private static int[] Tokens(int seed, int n)
     {
         var r = new Random(seed);
         return [.. Enumerable.Range(0, n).Select(_ => r.Next(100, 5000))];
@@ -68,13 +67,21 @@ public class MultiSequenceTests
             float worst = 0;
             for (int s = 0; s < steps.Count; s++)
             {
-                if (s == ResetStep) dec.Reset(ResetSlot);
+                if (s == ResetStep)
+                {
+                    dec.Reset(ResetSlot);
+                }
+
                 var inputs = steps[s].Select(i => new SequenceInput(i.Slot, i.Tokens)).ToList();
                 var got = dec.Step(inputs);
                 for (int u = 0; u < inputs.Count; u++)
                 {
                     var key = (steps[s][u].Slot, steps[s][u].Slot == ResetSlot && s >= ResetStep ? 1 : 0);
-                    if (!refs.TryGetValue(key, out var sess)) refs[key] = sess = llm.CreateSession();
+                    if (!refs.TryGetValue(key, out var sess))
+                    {
+                        refs[key] = sess = llm.CreateSession();
+                    }
+
                     var want = sess.Process(steps[s][u].Tokens);
                     var (maxAbs, _, rms) = Env.Compare(got[u]!, want);
                     worst = Math.Max(worst, (float)rms);
@@ -88,14 +95,24 @@ public class MultiSequenceTests
         }
         finally
         {
-            foreach (var r in refs.Values) r.Dispose();
+            foreach (var r in refs.Values)
+            {
+                r.Dispose();
+            }
         }
     }
 
-    static int ArgMax(float[] v)
+    private static int ArgMax(float[] v)
     {
         int b = 0;
-        for (int i = 1; i < v.Length; i++) if (v[i] > v[b]) b = i;
+        for (int i = 1; i < v.Length; i++)
+        {
+            if (v[i] > v[b])
+            {
+                b = i;
+            }
+        }
+
         return b;
     }
 }

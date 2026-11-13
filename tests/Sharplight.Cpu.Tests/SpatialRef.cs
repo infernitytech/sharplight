@@ -1,7 +1,7 @@
 namespace Sharplight.Cpu.Tests;
 
 /// <summary>Scalar (double precision) references for the spatial / reduction / batched-matmul ops (NCHW layout, ONNX semantics).</summary>
-static class SRef
+internal static class SRef
 {
     public static long Prod(IEnumerable<long> d) => d.Aggregate(1L, (a, b) => a * b);
 
@@ -9,7 +9,11 @@ static class SRef
     {
         long span = n + p0 + p1 - d * (k - 1) - 1;
         long o = (ceil ? (span + s - 1) / s : span / s) + 1;
-        if (ceil && (o - 1) * s >= n + p0) o--;
+        if (ceil && (o - 1) * s >= n + p0)
+        {
+            o--;
+        }
+
         return o;
     }
 
@@ -20,24 +24,38 @@ static class SRef
         int Cg = C / groups, Og = O / groups;
         var y = new float[N * O * HO * WO];
         for (int n = 0; n < N; n++)
+        {
             for (int o = 0; o < O; o++)
             {
                 int g = o / Og;
                 for (int oh = 0; oh < HO; oh++)
+                {
                     for (int ow = 0; ow < WO; ow++)
                     {
                         double s = bias?[o] ?? 0;
                         for (int c = 0; c < Cg; c++)
+                        {
                             for (int kh = 0; kh < KH; kh++)
+                            {
                                 for (int kw = 0; kw < KW; kw++)
                                 {
                                     int ih = oh * stride[0] - pad[0] + kh * dil[0], iw = ow * stride[1] - pad[1] + kw * dil[1];
-                                    if (ih < 0 || ih >= H || iw < 0 || iw >= W) continue;
+                                    if (ih < 0 || ih >= H || iw < 0 || iw >= W)
+                                    {
+                                        continue;
+                                    }
+
                                     s += (double)x[((n * C + g * Cg + c) * H + ih) * W + iw] * w[((o * Cg + c) * KH + kh) * KW + kw];
                                 }
+                            }
+                        }
+
                         y[((n * O + o) * HO + oh) * WO + ow] = (float)s;
                     }
+                }
             }
+        }
+
         return y;
     }
 
@@ -46,37 +64,60 @@ static class SRef
         HO = (int)OutDim(H, k[0], stride[0], pad[0], pad[2], dil[0], ceil); WO = (int)OutDim(W, k[1], stride[1], pad[1], pad[3], dil[1], ceil);
         var y = new float[N * C * HO * WO];
         for (int nc = 0; nc < N * C; nc++)
+        {
             for (int oh = 0; oh < HO; oh++)
+            {
                 for (int ow = 0; ow < WO; ow++)
                 {
                     int hs = oh * stride[0] - pad[0], ws = ow * stride[1] - pad[1];
                     double best = double.NegativeInfinity, sum = 0; int cnt = 0;
                     for (int kh = 0; kh < k[0]; kh++)
+                    {
                         for (int kw = 0; kw < k[1]; kw++)
                         {
                             int ih = hs + kh * dil[0], iw = ws + kw * dil[1];
-                            if (ih < 0 || ih >= H || iw < 0 || iw >= W) continue;
+                            if (ih < 0 || ih >= H || iw < 0 || iw >= W)
+                            {
+                                continue;
+                            }
+
                             double v = x[(nc * H + ih) * W + iw];
                             best = Math.Max(best, v); sum += v; cnt++;
                         }
+                    }
+
                     double r;
-                    if (max) r = best;
+                    if (max)
+                    {
+                        r = best;
+                    }
                     else if (includePad)
                     {
                         // padded-window area: clipped to [-pad_begin, size + pad_end)
                         int he = Math.Min(hs + k[0], H + pad[2]), we = Math.Min(ws + k[1], W + pad[3]);
                         r = sum / ((he - hs) * (we - ws));
                     }
-                    else r = sum / cnt;
+                    else
+                    {
+                        r = sum / cnt;
+                    }
+
                     y[(nc * HO + oh) * WO + ow] = (float)r;
                 }
+            }
+        }
+
         return y;
     }
 
     public static float[] Reduce(float[] x, long[] dims, long[] axes, string mode, bool keep, out long[] od)
     {
         int r = dims.Length;
-        var red = new bool[r]; foreach (var a in axes) red[a < 0 ? a + r : a] = true;
+        var red = new bool[r]; foreach (var a in axes)
+        {
+            red[a < 0 ? a + r : a] = true;
+        }
+
         od = Enumerable.Range(0, r).Where(i => keep || !red[i]).Select(i => red[i] ? 1L : dims[i]).ToArray();
         var keptDims = Enumerable.Range(0, r).Where(i => !red[i]).Select(i => dims[i]).ToArray();
         long nOut = Prod(keptDims);
@@ -89,7 +130,14 @@ static class SRef
         {
             long rem = lin; for (int d = r - 1; d >= 0; d--) { idx[d] = rem % dims[d]; rem /= dims[d]; }
             long o = 0;
-            for (int d = 0; d < r; d++) if (!red[d]) o = o * dims[d] + idx[d];
+            for (int d = 0; d < r; d++)
+            {
+                if (!red[d])
+                {
+                    o = o * dims[d] + idx[d];
+                }
+            }
+
             double v = x[lin];
             acc[o] = mode switch { "max" => Math.Max(acc[o], v), "min" => Math.Min(acc[o], v), _ => acc[o] + v };
         }
@@ -122,6 +170,7 @@ static class SRef
             }
             long abase = oa * ad[ra - 2] * ad[ra - 1], bbase = ob * bd[rb - 2] * bd[rb - 1];
             for (long m = 0; m < M; m++)
+            {
                 for (long n = 0; n < N; n++)
                 {
                     double s = 0;
@@ -133,19 +182,44 @@ static class SRef
                     }
                     y[(bi * M + m) * N + n] = (float)(alpha * s);
                 }
+            }
         }
         return y;
     }
 
-    static long PadMap(long o, long pb, long n, string mode)
+    private static long PadMap(long o, long pb, long n, string mode)
     {
         long i = o - pb;
-        if (i >= 0 && i < n) return i;
-        if (mode == "constant") return -1;
-        if (mode == "edge") return Math.Clamp(i, 0, n - 1);
+        if (i >= 0 && i < n)
+        {
+            return i;
+        }
+
+        if (mode == "constant")
+        {
+            return -1;
+        }
+
+        if (mode == "edge")
+        {
+            return Math.Clamp(i, 0, n - 1);
+        }
         // reflect (no edge repeat): bounce between 0 and n-1
-        if (n == 1) return 0;
-        while (i < 0 || i >= n) { if (i < 0) i = -i; if (i >= n) i = 2 * (n - 1) - i; }
+        if (n == 1)
+        {
+            return 0;
+        }
+
+        while (i < 0 || i >= n) { if (i < 0)
+            {
+                i = -i;
+            }
+
+            if (i >= n)
+            {
+                i = 2 * (n - 1) - i;
+            }
+        }
         return i;
     }
 
@@ -171,7 +245,7 @@ static class SRef
     }
 
     // ---- Resize (ONNX Runtime, float arithmetic) -------------------------------------------------
-    static float Coord(string coord, int xr, int lenIn, int lenOut)
+    private static float Coord(string coord, int xr, int lenIn, int lenOut)
     {
         float scale = (float)lenOut / lenIn;
         return coord switch
@@ -184,7 +258,7 @@ static class SRef
         };
     }
 
-    static int Nearest(string mode, float x)
+    private static int Nearest(string mode, float x)
     {
         switch (mode)
         {
@@ -201,7 +275,9 @@ static class SRef
     {
         var y = new float[N * C * OH * OW];
         for (int nc = 0; nc < N * C; nc++)
+        {
             for (int oy = 0; oy < OH; oy++)
+            {
                 for (int ox = 0; ox < OW; ox++)
                 {
                     float fy = Coord(coord, oy, H, OH), fx = Coord(coord, ox, W, OW);
@@ -222,6 +298,9 @@ static class SRef
                     }
                     y[(nc * OH + oy) * OW + ox] = v;
                 }
+            }
+        }
+
         return y;
     }
 }

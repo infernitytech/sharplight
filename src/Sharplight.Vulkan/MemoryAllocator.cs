@@ -48,12 +48,12 @@ internal sealed unsafe class MemoryBlock
 internal sealed unsafe class MemoryAllocator : IDisposable
 {
     /// <summary>Weights and state go in big device blocks; the small host-visible staging buffers of inputs/outputs in small ones (a 256 MiB mapped block per usage wastes memory on small models).</summary>
-    static ulong BlockSizeOf(MemoryUsage u) => u == MemoryUsage.Device ? 256UL << 20 : 16UL << 20;
-    const ulong Alignment = 256;
-    readonly VulkanDevice _dev;
-    readonly List<MemoryBlock> _blocks = [];
-    readonly Lock _lock = new();
-    readonly VkPhysicalDeviceMemoryProperties _props;
+    private static ulong BlockSizeOf(MemoryUsage u) => u == MemoryUsage.Device ? 256UL << 20 : 16UL << 20;
+    private const ulong Alignment = 256;
+    private readonly VulkanDevice _dev;
+    private readonly List<MemoryBlock> _blocks = [];
+    private readonly Lock _lock = new();
+    private readonly VkPhysicalDeviceMemoryProperties _props;
 
     public MemoryAllocator(VulkanDevice dev)
     {
@@ -73,11 +73,22 @@ internal sealed unsafe class MemoryAllocator : IDisposable
             {
                 foreach (var b in _blocks)
                 {
-                    if (b.Usage != usage || b.Dedicated) continue;
-                    if (TryCarve(b, size, out var a)) return a;
+                    if (b.Usage != usage || b.Dedicated)
+                    {
+                        continue;
+                    }
+
+                    if (TryCarve(b, size, out var a))
+                    {
+                        return a;
+                    }
                 }
                 var nb = NewBlock(BlockSize, usage, dedicated: false);
-                if (TryCarve(nb, size, out var a2)) return a2;
+                if (TryCarve(nb, size, out var a2))
+                {
+                    return a2;
+                }
+
                 throw new InvalidOperationException("allocator: block carve failed");
             }
             var db = NewBlock(size, usage, dedicated: true);
@@ -106,7 +117,10 @@ internal sealed unsafe class MemoryAllocator : IDisposable
                     b.Free.RemoveAt(i + 1);
                     b.Free[off] = sz;
                 }
-                else i++;
+                else
+                {
+                    i++;
+                }
             }
             // Give a fully free block back to the driver, so unloading a model really returns its memory to the device
             // (other models on the same device, and other applications, can use it).
@@ -118,13 +132,21 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         }
     }
 
-    static bool TryCarve(MemoryBlock b, ulong size, out Allocation a)
+    private static bool TryCarve(MemoryBlock b, ulong size, out Allocation a)
     {
         foreach (var (off, sz) in b.Free)
         {
-            if (sz < size) continue;
+            if (sz < size)
+            {
+                continue;
+            }
+
             b.Free.Remove(off);
-            if (sz > size) b.Free.Add(off + size, sz - size);
+            if (sz > size)
+            {
+                b.Free.Add(off + size, sz - size);
+            }
+
             a = new Allocation
             {
                 Buffer = b.Buffer, Offset = off, Size = size, Address = b.Address + off,
@@ -136,7 +158,7 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         return false;
     }
 
-    MemoryBlock NewBlock(ulong size, MemoryUsage usage, bool dedicated)
+    private MemoryBlock NewBlock(ulong size, MemoryUsage usage, bool dedicated)
     {
         var api = _dev.Api;
         var bci = new VkBufferCreateInfo
@@ -182,9 +204,9 @@ internal sealed unsafe class MemoryAllocator : IDisposable
         return block;
     }
 
-    const ulong VkWholeSize = ulong.MaxValue;
+    private const ulong VkWholeSize = ulong.MaxValue;
 
-    (uint, VkMemoryPropertyFlags) PickType(uint bits, MemoryUsage usage)
+    private (uint, VkMemoryPropertyFlags) PickType(uint bits, MemoryUsage usage)
     {
         VkMemoryPropertyFlags[][] prefs = usage switch
         {
@@ -201,33 +223,49 @@ internal sealed unsafe class MemoryAllocator : IDisposable
             ],
         };
         foreach (var want in prefs[0..])
+        {
             foreach (var w in want)
+            {
                 for (uint i = 0; i < _props.memoryTypeCount; i++)
                 {
                     var f = _props.memoryTypes[(int)i].propertyFlags;
                     if ((bits & (1u << (int)i)) != 0 && (f & w) == w)
                     {
                         // For pure device memory avoid host-visible types if a plain one exists.
-                        if (usage == MemoryUsage.Device && (f & VkMemoryPropertyFlags.HostVisible) != 0 && HasPlainDeviceLocal(bits)) continue;
+                        if (usage == MemoryUsage.Device && (f & VkMemoryPropertyFlags.HostVisible) != 0 && HasPlainDeviceLocal(bits))
+                        {
+                            continue;
+                        }
+
                         return (i, f);
                     }
                 }
+            }
+        }
+
         throw new NotSupportedException($"No memory type for {usage}.");
     }
 
-    bool HasPlainDeviceLocal(uint bits)
+    private bool HasPlainDeviceLocal(uint bits)
     {
         for (uint i = 0; i < _props.memoryTypeCount; i++)
         {
             var f = _props.memoryTypes[(int)i].propertyFlags;
-            if ((bits & (1u << (int)i)) != 0 && (f & VkMemoryPropertyFlags.DeviceLocal) != 0 && (f & VkMemoryPropertyFlags.HostVisible) == 0) return true;
+            if ((bits & (1u << (int)i)) != 0 && (f & VkMemoryPropertyFlags.DeviceLocal) != 0 && (f & VkMemoryPropertyFlags.HostVisible) == 0)
+            {
+                return true;
+            }
         }
         return false;
     }
 
-    void Destroy(MemoryBlock b)
+    private void Destroy(MemoryBlock b)
     {
-        if (b.Mapped != null) _dev.Api.vkUnmapMemory(b.Memory);
+        if (b.Mapped != null)
+        {
+            _dev.Api.vkUnmapMemory(b.Memory);
+        }
+
         _dev.Api.vkDestroyBuffer(b.Buffer, null);
         _dev.Api.vkFreeMemory(b.Memory, null);
         _dev.Track(-b.Tracked);
@@ -237,7 +275,11 @@ internal sealed unsafe class MemoryAllocator : IDisposable
     {
         lock (_lock)
         {
-            foreach (var b in _blocks) Destroy(b);
+            foreach (var b in _blocks)
+            {
+                Destroy(b);
+            }
+
             _blocks.Clear();
         }
     }

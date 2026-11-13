@@ -66,7 +66,7 @@ public sealed class DecoderAdapter : IModelAdapter
     public string Name => "Decoder-only transformer";
     public IReadOnlyList<string> Architectures => ["decoder"];
 
-    sealed record HParams(
+    private sealed record HParams(
         int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps, float AttnScale, float SoftCap,
         int RopeDims, float RopeBase, float RopeLocalBase, string RopeStyle, int Window, int[] SlidingLayers,
         string Activation, bool Gated, float EmbeddingScale, float FinalSoftCap, int Vocab, int ContextLength,
@@ -75,7 +75,7 @@ public sealed class DecoderAdapter : IModelAdapter
         float PostNormEps, bool EmbeddingNorm, float LogitScale, int PerLayerSize);
 
     // Longrope: the long factors replace the short ones when the configured context exceeds the original training context.
-    static bool UseLongRope(int originalContext, int configuredContext) => originalContext > 0 && configuredContext > originalContext;
+    private static bool UseLongRope(int originalContext, int configuredContext) => originalContext > 0 && configuredContext > originalContext;
 
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {

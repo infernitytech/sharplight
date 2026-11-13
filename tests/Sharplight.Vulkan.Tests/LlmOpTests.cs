@@ -9,13 +9,17 @@ public class MatMulTests
     public static IEnumerable<object[]> Cases()
     {
         foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k" })
+        {
             foreach (var t in new[] { 1, 2, 8, 9, 20, 64 })
+            {
                 yield return [fmt, t];
+            }
+        }
     }
 
     // The T > 8 path may use reduced-precision (tensor core) products; allow ~1% there, tight bounds for the matvec path.
-    static double Atol(int t) => t > 8 ? 1.5e-1 : 2e-3;
-    static double Rtol(int t) => t > 8 ? 1e-2 : 1e-3;
+    private static double Atol(int t) => t > 8 ? 1.5e-1 : 2e-3;
+    private static double Rtol(int t) => t > 8 ? 1e-2 : 1e-3;
 
     [Theory]
     [MemberData(nameof(Cases))]
@@ -68,7 +72,11 @@ public class NormTests
         Gpu.Require();
         var tg = new TG(); var x = tg.InF("x", TG.T, d);
         var args = new List<Value> { x };
-        if (weight) args.Add(tg.RandW("w", DataType.F32, 1f, d));
+        if (weight)
+        {
+            args.Add(tg.RandW("w", DataType.F32, 1f, d));
+        }
+
         tg.B.Output("y", tg.B.Emit1(op, args, Attributes.From(("eps", 1e-6f))));
         Diff.Check(op, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * d, 3))), atol: 2e-5, rtol: 1e-4);
     }
@@ -81,7 +89,11 @@ public class NormTests
         var tg = new TG(); var x = tg.InF("x", TG.T, 6, 48);
         var s = tg.B.Slice(x, 2, 8, 32);                        // [T,6,32], row stride 48
         var args = new List<Value> { s };
-        if (weight) args.Add(tg.RandW("w", DataType.F32, 1f, 32));
+        if (weight)
+        {
+            args.Add(tg.RandW("w", DataType.F32, 1f, 32));
+        }
+
         tg.B.Output("y", tg.B.Emit1(op, args, Attributes.From(("eps", 1e-5f))));
         var x4 = tg.InF("x4", TG.T, 3, 5, 24);
         tg.B.Output("y4", tg.B.Emit1(op, [x4], Attributes.From(("eps", 1e-5f))));
@@ -180,7 +192,7 @@ public class StatefulTests
     public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
 
-    static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
+    private static void CachedAttention(string cacheType, int D, int Dv, int Hq, int Hkv, int[] chunks, int ctx)
     {
         Gpu.Require();
         float scale = 1f / MathF.Sqrt(D);
@@ -216,8 +228,16 @@ public class StatefulTests
         var kc = tg.State("kc", DataType.F16, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", DataType.F16, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
         tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
-        if (window > 0) attrs.Add(("window", window));
-        if (softcap > 0) attrs.Add(("softcap", softcap));
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        if (softcap > 0)
+        {
+            attrs.Add(("softcap", softcap));
+        }
+
         tg.B.RuntimeScalar("n_past");
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
         var q = Rnd.F(total * Hq * D, 1).Select(x => x * 4).ToArray(); var k = Rnd.F(total * Hkv * D, 2); var v = Rnd.F(total * Hkv * D, 3);
@@ -247,7 +267,11 @@ public class StatefulTests
         var sinks = tg.RandW("sinks", DataType.F32, 4f, Hq);
         tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
-        if (window > 0) attrs.Add(("window", window));
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
         tg.B.RuntimeScalar("n_past");
         attrs.Add(("sinks", true));
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sinks], Attributes.From([.. attrs])));

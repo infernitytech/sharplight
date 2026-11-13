@@ -30,17 +30,17 @@ public sealed class TextGenerationResult
 /// </summary>
 public interface ITextGenerationBackend : IDisposable
 {
-    string ModelName { get; }
+    public string ModelName { get; }
     /// <summary>The Jinja chat template (the <c>tokenizer.chat_template</c> metadata), or null if the model has none.</summary>
-    string? ChatTemplate { get; }
-    string? BosToken { get; }
-    string? EosToken { get; }
-    bool SupportsImages { get; }
-    int ContextLength { get; }
+    public string? ChatTemplate { get; }
+    public string? BosToken { get; }
+    public string? EosToken { get; }
+    public bool SupportsImages { get; }
+    public int ContextLength { get; }
 
     /// <summary>
     /// Streams the generated text pieces. Stop strings in <see cref="GenerationOptions.StopStrings"/> may be included in the
     /// output (the client trims them). <paramref name="result"/> is complete after the enumeration finishes.
     /// </summary>
-    IAsyncEnumerable<string> GenerateAsync(TextGenerationRequest request, TextGenerationResult result, CancellationToken cancellationToken = default);
+    public IAsyncEnumerable<string> GenerateAsync(TextGenerationRequest request, TextGenerationResult result, CancellationToken cancellationToken = default);
 }

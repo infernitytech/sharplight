@@ -38,8 +38,12 @@ public class FusionTests
     public static IEnumerable<object[]> DualCases()
     {
         foreach (var fmt in new[] { "f32", "bf16", "q8_0", "q4_k" })
+        {
             foreach (var t in new[] { 1, 3, 8, 9, 20 })
+            {
                 yield return [fmt, t];
+            }
+        }
     }
 
     [Theory]

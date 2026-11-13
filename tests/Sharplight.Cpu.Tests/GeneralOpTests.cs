@@ -1,12 +1,11 @@
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
-using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
 
-static class GK
+internal static class GK
 {
     public static long[] Strides(long[] d) { var s = new long[d.Length]; long e = 1; for (int i = d.Length - 1; i >= 0; i--) { s[i] = e; e *= d[i]; } return s; }
     public static long[] Unravel(long l, long[] d) { var ix = new long[d.Length]; for (int i = d.Length - 1; i >= 0; i--) { ix[i] = l % d[i]; l /= d[i]; } return ix; }
@@ -28,7 +27,7 @@ static class GK
 
 public class UnaryGeneralTests
 {
-    static readonly Dictionary<string, Func<double, double>> Ref = new()
+    private static readonly Dictionary<string, Func<double, double>> Ref = new()
     {
         ["Sin"] = Math.Sin, ["Cos"] = Math.Cos, ["Tan"] = Math.Tan, ["Asin"] = Math.Asin, ["Acos"] = Math.Acos, ["Atan"] = Math.Atan,
         ["Sinh"] = Math.Sinh, ["Cosh"] = Math.Cosh, ["Asinh"] = Math.Asinh, ["Acosh"] = Math.Acosh, ["Atanh"] = Math.Atanh,
@@ -41,7 +40,7 @@ public class UnaryGeneralTests
 
     public static IEnumerable<object[]> Names() => Ref.Keys.Select(k => new object[] { k });
 
-    static float[] Run(string op, float[] x, Attributes? attrs = null)
+    private static float[] Run(string op, float[] x, Attributes? attrs = null)
     {
         var tg = new TG(); var xin = tg.InF("x", TG.T, x.Length / 3);
         tg.B.Output("y", tg.B.Emit1(op, [xin], attrs));
@@ -54,10 +53,21 @@ public class UnaryGeneralTests
     public void Unary(string op)
     {
         var x = Kit.Rand(3 * 41, 91, op is "Asin" or "Acos" or "Atanh" ? 0.95f : 4f);
-        if (op == "Acosh") for (int i = 0; i < x.Length; i++) x[i] = 1.01f + Math.Abs(x[i]) * 2;
+        if (op == "Acosh")
+        {
+            for (int i = 0; i < x.Length; i++)
+            {
+                x[i] = 1.01f + Math.Abs(x[i]) * 2;
+            }
+        }
+
         if (op == "Round") { x[0] = 0.5f; x[1] = 1.5f; x[2] = 2.5f; x[3] = -0.5f; x[4] = -1.5f; x[5] = -2.5f; x[6] = 2.4f; x[7] = 2.6f; }
         if (op == "Not") { x[0] = 0; x[1] = 2; x[2] = -3; }
-        if (op == "Sign") x[0] = 0;
+        if (op == "Sign")
+        {
+            x[0] = 0;
+        }
+
         Kit.AssertClose(x.Select(v => (float)Ref[op](v)).ToArray(), Run(op, x), 1e-5, 1e-5, op);
     }
 
@@ -87,7 +97,7 @@ public class UnaryGeneralTests
 
 public class BinaryGeneralTests
 {
-    static float Fmod(float a, float b, bool fmod) { float r = (float)Math.IEEERemainder(0, 1); r = a % b; if (!fmod && r != 0 && (r < 0) != (b < 0)) r += b; return r; }
+    private static float Fmod(float a, float b, bool fmod) { float r = (float)Math.IEEERemainder(0, 1); r = a % b; if (!fmod && r != 0 && (r < 0) != (b < 0)) { r += b; } return r; }
 
     [Theory]
     [InlineData("Mod", true), InlineData("Mod", false), InlineData("PRelu", false), InlineData("Equal", false), InlineData("NotEqual", false), InlineData("Less", false),
@@ -97,8 +107,32 @@ public class BinaryGeneralTests
         int T = 3, n = 20;
         var a = Kit.Rand(T * n, 93, 5f); var b = Kit.Rand(n, 94, 3f);
         // make some values equal / zero / integral so comparisons and masks have ties
-        for (int i = 0; i < b.Length; i += 3) b[i] = a[i]; for (int i = 0; i < a.Length; i += 4) a[i] = 0; for (int i = 1; i < b.Length; i += 5) b[i] = 0;
-        if (op == "Mod") for (int i = 0; i < b.Length; i++) if (b[i] == 0) b[i] = 1.7f;
+        for (int i = 0; i < b.Length; i += 3)
+        {
+            b[i] = a[i];
+        }
+
+        for (int i = 0; i < a.Length; i += 4)
+        {
+            a[i] = 0;
+        }
+
+        for (int i = 1; i < b.Length; i += 5)
+        {
+            b[i] = 0;
+        }
+
+        if (op == "Mod")
+        {
+            for (int i = 0; i < b.Length; i++)
+            {
+                if (b[i] == 0)
+                {
+                    b[i] = 1.7f;
+                }
+            }
+        }
+
         var tg = new TG(); var ain = tg.InF("a", TG.T, n); var bv = tg.WF("b", b, n);
         tg.B.Output("y", tg.B.Emit1(op, [ain, bv], op == "Mod" ? GK.A(("fmod", fmod)) : null));
         using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, ain, a);
@@ -180,12 +214,30 @@ public class DataMovementTests
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 3); Kit.Set(m, xin, x);
         var xtv = Kit.Rand(N * 6, 106); Kit.Set(m, xt, xtv);
         var p = Kit.P(N); m.Run(p);
-        var e = new float[N * C * W]; for (int i = 0; i < e.Length; i++) e[i] = x[i / W];
+        var e = new float[N * C * W]; for (int i = 0; i < e.Length; i++)
+        {
+            e[i] = x[i / W];
+        }
+
         Kit.AssertClose(e, Kit.Out(m, "e", p), 0, 0);
-        var e2 = new float[2 * 3 * C * W]; for (int i = 0; i < e2.Length; i++) e2[i] = small[i % (C * W)];
+        var e2 = new float[2 * 3 * C * W]; for (int i = 0; i < e2.Length; i++)
+        {
+            e2[i] = small[i % (C * W)];
+        }
+
         Kit.AssertClose(e2, Kit.Out(m, "e2", p), 0, 0);
         var t = new float[N * 6 * 6];
-        for (int n = 0; n < N; n++) for (int i = 0; i < 6; i++) for (int j = 0; j < 6; j++) t[(n * 6 + i) * 6 + j] = xtv[n * 6 + (i % 2) * 3 + j % 3];
+        for (int n = 0; n < N; n++)
+        {
+            for (int i = 0; i < 6; i++)
+            {
+                for (int j = 0; j < 6; j++)
+                {
+                    t[(n * 6 + i) * 6 + j] = xtv[n * 6 + (i % 2) * 3 + j % 3];
+                }
+            }
+        }
+
         Kit.AssertClose(t, Kit.Out(m, "t", p), 0, 0);
     }
 
@@ -199,7 +251,14 @@ public class DataMovementTests
         long[] x = [1, 2, 3, 40_000_000_000, 5, 6]; int[] y = [7, 8, 9];
         GK.SetI64(m, xi, x); Kit.Set(m, yi, y);
         var p = Kit.P(1); m.Run(p);
-        var t = new long[4 * 6]; for (int i = 0; i < 4; i++) for (int j = 0; j < 6; j++) t[i * 6 + j] = x[(i % 2) * 3 + j % 3];
+        var t = new long[4 * 6]; for (int i = 0; i < 4; i++)
+        {
+            for (int j = 0; j < 6; j++)
+            {
+                t[i * 6 + j] = x[(i % 2) * 3 + j % 3];
+            }
+        }
+
         Assert.Equal(t, GK.OutL(m, "t", p));
         Assert.Equal(Enumerable.Range(0, 12).Select(i => y[i % 3]).ToArray(), Kit.OutI(m, "e", p));
     }
@@ -207,8 +266,12 @@ public class DataMovementTests
     public static IEnumerable<object[]> GatherAxisCases()
     {
         foreach (var t in new[] { DataType.I32, DataType.I64 })
+        {
             foreach (var (axis, dims, idxDims) in new (int, long[], long[])[] { (0, [5, 4], [3]), (1, [3, 6], [2, 2]), (-1, [2, 3, 4], [5]), (1, [2, 5, 3], [4]), (0, [6], [2, 3]) })
+            {
                 yield return [t == DataType.I64, axis, dims, idxDims];
+            }
+        }
     }
 
     [Theory, MemberData(nameof(GatherAxisCases))]
@@ -221,11 +284,27 @@ public class DataMovementTests
         var iin = tg.In("i", idx64 ? DataType.I64 : DataType.I32, idxDims.Select(d => (Dim)d).ToArray());
         tg.B.Output("y", tg.B.Emit1("GatherAxis", [din, iin], GK.A(("axis", (long)axis))));
         using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, din, data);
-        if (idx64) GK.SetI64(m, iin, idx); else Kit.Set(m, iin, idx.Select(v => (int)v).ToArray());
+        if (idx64)
+        {
+            GK.SetI64(m, iin, idx);
+        }
+        else
+        {
+            Kit.Set(m, iin, idx.Select(v => (int)v).ToArray());
+        }
+
         var p = Kit.P(1); m.Run(p);
         long outer = GK.P(dims[..ax]), inner = GK.P(dims[(ax + 1)..]);
         var exp = new List<float>();
-        for (long o = 0; o < outer; o++) foreach (var id in idx) { long ii = id < 0 ? id + A : id; for (long i = 0; i < inner; i++) exp.Add(data[(o * A + ii) * inner + i]); }
+        for (long o = 0; o < outer; o++)
+        {
+            foreach (var id in idx) { long ii = id < 0 ? id + A : id; for (long i = 0; i < inner; i++)
+                {
+                    exp.Add(data[(o * A + ii) * inner + i]);
+                }
+            }
+        }
+
         Kit.AssertClose(exp.ToArray(), Kit.Out(m, "y", p), 0, 0);
     }
 
@@ -261,7 +340,11 @@ public class DataMovementTests
         long[] dd = [3, 4, 5]; long[] id = batchDims == 0 ? [2, 3, 2] : [3, 2, 2];   // batch_dims=1: idx [3, 2, q=2] indexes data dims 1..2
         var data = Kit.Rand((int)GK.P(dd), 109); var rng = new Random(6);
         var idx = new int[(int)GK.P(id)];
-        for (int l = 0; l < idx.Length; l++) idx[l] = rng.Next(-3, 3) switch { var v when v < 0 => v, var v => v };
+        for (int l = 0; l < idx.Length; l++)
+        {
+            idx[l] = rng.Next(-3, 3) switch { var v when v < 0 => v, var v => v };
+        }
+
         var tg = new TG(); var din = tg.InF("d", dd.Select(d => (Dim)d).ToArray()); var iin = tg.In("i", DataType.I32, id.Select(d => (Dim)d).ToArray());
         tg.B.Output("y", tg.B.Emit1("GatherND", [din, iin], GK.A(("batch_dims", (long)batchDims))));
         using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, din, data); Kit.Set(m, iin, idx);
@@ -272,20 +355,27 @@ public class DataMovementTests
         for (long t = 0; t < tuples; t++)
         {
             long off = t / tpb * perBatch;
-            for (int j = 0; j < q; j++) { long v = idx[t * q + j]; if (v < 0) v += dd[batchDims + j]; off += v * ds[batchDims + j]; }
-            for (long i = 0; i < slice; i++) exp.Add(data[off + i]);
+            for (int j = 0; j < q; j++) { long v = idx[t * q + j]; if (v < 0) { v += dd[batchDims + j]; } off += v * ds[batchDims + j]; }
+            for (long i = 0; i < slice; i++)
+            {
+                exp.Add(data[off + i]);
+            }
         }
         Kit.AssertClose(exp.ToArray(), Kit.Out(m, "y", p), 0, 0);
     }
 
-    static float Red(string r, float a, float b) => r switch { "add" => a + b, "mul" => a * b, "max" => Math.Max(a, b), "min" => Math.Min(a, b), _ => b };
+    private static float Red(string r, float a, float b) => r switch { "add" => a + b, "mul" => a * b, "max" => Math.Max(a, b), "min" => Math.Min(a, b), _ => b };
 
     [Theory, InlineData("none"), InlineData("add"), InlineData("mul"), InlineData("max"), InlineData("min")]
     public void ScatterElements(string red)
     {
         long[] dd = [4, 5], id = [3, 5]; int axis = 0;
         var data = Kit.Rand(20, 110); var upd = Kit.Rand(15, 111);
-        var idx = new int[15]; for (int i = 0; i < 15; i++) idx[i] = (i * 7 + 1) % 4 - (i % 5 == 0 ? 4 : 0); // duplicates and negatives
+        var idx = new int[15]; for (int i = 0; i < 15; i++)
+        {
+            idx[i] = (i * 7 + 1) % 4 - (i % 5 == 0 ? 4 : 0); // duplicates and negatives
+        }
+
         var tg = new TG(); var din = tg.InF("d", 4, 5); var iin = tg.In("i", DataType.I32, 3, 5); var uin = tg.InF("u", 3, 5);
         tg.B.Output("y", tg.B.Emit1("ScatterElements", [din, iin, uin], GK.A(("axis", (long)axis), ("reduction", red))));
         using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, din, data); Kit.Set(m, iin, idx); Kit.Set(m, uin, upd);
@@ -305,7 +395,11 @@ public class DataMovementTests
         using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, din, data); Kit.Set(m, iin, idx); Kit.Set(m, uin, upd.Take(6).ToArray());
         var p = Kit.P(1); m.Run(p);
         var exp = (float[])data.Clone();
-        for (int t = 0; t < 3; t++) for (int i = 0; i < 2; i++) { long o = (idx[t * 2] * 3 + idx[t * 2 + 1]) * 2 + i; exp[o] = Red(red, exp[o], upd[t * 2 + i]); }
+        for (int t = 0; t < 3; t++)
+        {
+            for (int i = 0; i < 2; i++) { long o = (idx[t * 2] * 3 + idx[t * 2 + 1]) * 2 + i; exp[o] = Red(red, exp[o], upd[t * 2 + i]); }
+        }
+
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 1e-6, 1e-6, red);
     }
 
@@ -327,8 +421,16 @@ public class DataMovementTests
                 for (long k = 0; k < n; k++)
                 {
                     bool inc = reverse ? k >= ix[axis] : k <= ix[axis];
-                    if (exclusive && k == ix[axis]) inc = false;
-                    if (!inc) continue;
+                    if (exclusive && k == ix[axis])
+                    {
+                        inc = false;
+                    }
+
+                    if (!inc)
+                    {
+                        continue;
+                    }
+
                     ix[axis] = GK.Unravel(l, dims)[axis]; var jx = (long[])ix.Clone(); jx[axis] = k;
                     s += x[jx.Zip(ds, (a, b) => a * b).Sum()];
                 }
@@ -351,7 +453,11 @@ public class DataMovementTests
         var od = dims.Where((_, i) => i != ax).ToArray(); var exp = new int[GK.P(od)];
         for (int l = 0; l < exp.Length; l++)
         {
-            var ix2 = GK.Unravel(l, od); var ix = new long[3]; for (int d = 0, k = 0; d < 3; d++) ix[d] = d == ax ? 0 : ix2[k++];
+            var ix2 = GK.Unravel(l, od); var ix = new long[3]; for (int d = 0, k = 0; d < 3; d++)
+            {
+                ix[d] = d == ax ? 0 : ix2[k++];
+            }
+
             int best = 0; float bv = 0;
             for (int a = 0; a < dims[ax]; a++)
             {
@@ -371,7 +477,11 @@ public class DataMovementTests
     {
         long[] dims = [5, 6, 7];
         var x = Kit.Rand((int)GK.P(dims), 116).Select(v => (float)Math.Round(v * 4)).ToArray();  // ties
-        int ax = axis < 0 ? axis + 3 : axis; if (k > dims[ax]) k = (int)dims[ax];
+        int ax = axis < 0 ? axis + 3 : axis; if (k > dims[ax])
+        {
+            k = (int)dims[ax];
+        }
+
         var tg = new TG(); var xin = tg.InF("x", dims.Select(d => (Dim)d).ToArray());
         var outs = tg.B.Emit("TopK", [xin], GK.A(("k", (long)k), ("axis", (long)axis), ("largest", largest)));
         tg.B.Output("v", outs[0]); tg.B.Output("i", outs[1]);
@@ -382,7 +492,11 @@ public class DataMovementTests
         var os = GK.Strides(od);
         for (long l = 0; l < GK.P(dims) / dims[ax]; l++)
         {
-            var rest = dims.Where((_, i) => i != ax).ToArray(); var r2 = GK.Unravel(l, rest); var ix = new long[3]; for (int d = 0, q = 0; d < 3; d++) ix[d] = d == ax ? 0 : r2[q++];
+            var rest = dims.Where((_, i) => i != ax).ToArray(); var r2 = GK.Unravel(l, rest); var ix = new long[3]; for (int d = 0, q = 0; d < 3; d++)
+            {
+                ix[d] = d == ax ? 0 : r2[q++];
+            }
+
             var order = Enumerable.Range(0, (int)dims[ax]).Select(a => { ix[ax] = a; return (a, v: x[ix.Zip(ds, (u, w) => u * w).Sum()]); })
                 .OrderBy(t => largest ? -t.v : t.v).ThenBy(t => t.a).Take(k).ToArray();
             for (int j = 0; j < k; j++) { ix[ax] = j; long o = ix.Zip(os, (u, w) => u * w).Sum(); ev[o] = order[j].v; ei[o] = order[j].a; }
@@ -415,7 +529,11 @@ public class DataMovementTests
         for (int l = 0; l < 24; l++)
         {
             var ix = GK.Unravel(l, od); int d = (int)ix[ax]; var rest = ix.Where((_, i) => i != ax).ToArray();
-            int v = idx[rest[0] * 3 + rest[1]]; if (v < 0) v += 4;
+            int v = idx[rest[0] * 3 + rest[1]]; if (v < 0)
+            {
+                v += 4;
+            }
+
             exp[l] = v == d ? 5f : -1f;
         }
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 0, 0);
@@ -431,22 +549,44 @@ public class NormReduceGeneralTests
         int N = 3, H = 5, W = 7;
         var x = Kit.Rand(N * C * H * W, 121, 2f); var sc = Kit.Rand(C, 122); var bi = Kit.Rand(C, 123);
         var tg = new TG(); var xin = tg.InF("x", SK.DSym(C, H, W));
-        var ins = new List<Value> { xin }; if (scale) ins.Add(tg.WF("s", sc, C)); if (bias) { if (!scale) ins.Add(tg.WF("s1", Enumerable.Repeat(1f, C).ToArray(), C)); ins.Add(tg.WF("b", bi, C)); }
+        var ins = new List<Value> { xin }; if (scale)
+        {
+            ins.Add(tg.WF("s", sc, C));
+        }
+
+        if (bias) { if (!scale) { ins.Add(tg.WF("s1", Enumerable.Repeat(1f, C).ToArray(), C)); } ins.Add(tg.WF("b", bi, C)); }
         tg.B.Output("y", tg.B.Emit1("GroupNorm", ins, GK.A(("groups", (long)groups), ("eps", 1e-5f))));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 3); Kit.Set(m, xin, x);
         var p = Kit.P(N); m.Run(p);
         var exp = new float[x.Length]; int cg = C / groups, S = H * W;
-        for (int n = 0; n < N; n++) for (int g = 0; g < groups; g++)
+        for (int n = 0; n < N; n++)
+        {
+            for (int g = 0; g < groups; g++)
         {
             double mean = 0, v = 0; long cnt = cg * S;
-            for (int i = 0; i < cnt; i++) mean += x[(n * C + g * cg) * S + i]; mean /= cnt;
-            for (int i = 0; i < cnt; i++) v += Math.Pow(x[(n * C + g * cg) * S + i] - mean, 2); v /= cnt;
-            for (int c = 0; c < cg; c++) for (int s = 0; s < S; s++)
+            for (int i = 0; i < cnt; i++)
+                {
+                    mean += x[(n * C + g * cg) * S + i];
+                }
+
+                mean /= cnt;
+            for (int i = 0; i < cnt; i++)
+                {
+                    v += Math.Pow(x[(n * C + g * cg) * S + i] - mean, 2);
+                }
+
+                v /= cnt;
+            for (int c = 0; c < cg; c++)
+                {
+                    for (int s = 0; s < S; s++)
             {
                 int ch = g * cg + c; long o = (n * C + ch) * S + s;
                 exp[o] = (float)((x[o] - mean) / Math.Sqrt(v + 1e-5) * (scale ? sc[ch] : 1) + (bias ? bi[ch] : 0));
             }
+                }
+            }
         }
+
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
 
@@ -459,15 +599,29 @@ public class NormReduceGeneralTests
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 2); Kit.Set(m, xin, x);
         var p = Kit.P(N); m.Run(p);
         var exp = new float[x.Length];
-        for (int n = 0; n < N; n++) for (int g = 0; g < 2; g++)
+        for (int n = 0; n < N; n++)
+        {
+            for (int g = 0; g < 2; g++)
         {
             int o0 = (n * C + g * 2) * L, cnt = 2 * L; double mean = x.Skip(o0).Take(cnt).Average(v => (double)v), var = x.Skip(o0).Take(cnt).Average(v => Math.Pow(v - mean, 2));
-            for (int i = 0; i < cnt; i++) exp[o0 + i] = (float)((x[o0 + i] - mean) / Math.Sqrt(var + 1e-5));
+            for (int i = 0; i < cnt; i++)
+                {
+                    exp[o0 + i] = (float)((x[o0 + i] - mean) / Math.Sqrt(var + 1e-5));
+                }
+            }
         }
+
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
 
-    public static IEnumerable<object[]> ReduceModes() { foreach (var mode in new[] { "prod", "l1", "l2", "sumsquare", "logsumexp" }) foreach (var (axes, keep, perm) in new (long[], bool, bool)[] { ([1], true, false), ([2, 3], false, false), ([0, 2], true, false), ([1, 2, 3], false, false), ([2, 3], true, true), ([1], false, true) }) yield return [mode, axes, keep, perm]; }
+    public static IEnumerable<object[]> ReduceModes() { foreach (var mode in new[] { "prod", "l1", "l2", "sumsquare", "logsumexp" })
+        {
+            foreach (var (axes, keep, perm) in new (long[], bool, bool)[] { ([1], true, false), ([2, 3], false, false), ([0, 2], true, false), ([1, 2, 3], false, false), ([2, 3], true, true), ([1], false, true) })
+            {
+                yield return [mode, axes, keep, perm];
+            }
+        }
+    }
 
     [Theory, MemberData(nameof(ReduceModes))]
     public void ReduceNewModes(string mode, long[] axes, bool keep, bool permuted)
@@ -479,22 +633,45 @@ public class NormReduceGeneralTests
         {
             xin = tg.InF("x", SK.D(3, 5, 6, 4)); src = tg.B.Permute(xin, 0, 3, 1, 2);
             logical = new float[total];
-            for (int n = 0; n < 3; n++) for (int h = 0; h < 5; h++) for (int w = 0; w < 6; w++) for (int c = 0; c < 4; c++) logical[((n * 4 + c) * 5 + h) * 6 + w] = x[((n * 5 + h) * 6 + w) * 4 + c];
+            for (int n = 0; n < 3; n++)
+            {
+                for (int h = 0; h < 5; h++)
+                {
+                    for (int w = 0; w < 6; w++)
+                    {
+                        for (int c = 0; c < 4; c++)
+                        {
+                            logical[((n * 4 + c) * 5 + h) * 6 + w] = x[((n * 5 + h) * 6 + w) * 4 + c];
+                        }
+                    }
+                }
+            }
         }
         else { xin = tg.InF("x", SK.D(dims)); src = xin; }
         tg.B.Output("y", tg.B.Emit1("Reduce", [src], GK.A(("mode", mode), ("axes", axes), ("keepdims", keep))));
         using var m = Kit.Compile(tg.B.Build()); Kit.Set(m, xin, x);
         var p = Kit.P(1); m.Run(p);
         // reference through per-mode accumulation using Sum/Max reference of transformed data
-        var red = new bool[4]; foreach (var a in axes) red[a] = true;
+        var red = new bool[4]; foreach (var a in axes)
+        {
+            red[a] = true;
+        }
+
         var keptDims = dims.Where((_, i) => !red[i]).ToArray(); var exp = new float[GK.P(keptDims)];
         for (int o = 0; o < exp.Length; o++)
         {
             var kix = GK.Unravel(o, keptDims); var vals = new List<double>();
             for (long l = 0; l < total; l++)
             {
-                var ix = GK.Unravel(l, dims); bool ok = true; for (int d = 0, q = 0; d < 4; d++) if (!red[d]) { if (ix[d] != kix[q++]) { ok = false; break; } }
-                if (ok) vals.Add(logical[l]);
+                var ix = GK.Unravel(l, dims); bool ok = true; for (int d = 0, q = 0; d < 4; d++)
+                {
+                    if (!red[d]) { if (ix[d] != kix[q++]) { ok = false; break; } }
+                }
+
+                if (ok)
+                {
+                    vals.Add(logical[l]);
+                }
             }
             exp[o] = (float)(mode switch
             {
@@ -524,7 +701,7 @@ public class NormReduceGeneralTests
 public class ConvTransposeTests
 {
     public record Case(string Name, int C, int H, int W, int O, int KH, int KW, int[] S, int[] P, int[] D, int[] OP, int G, bool Bias);
-    static readonly Case[] Cases =
+    private static readonly Case[] Cases =
     [
         new("k2s2", 4, 5, 6, 3, 2, 2, [2, 2], [0, 0, 0, 0], [1, 1], [0, 0], 1, true),
         new("k3s2p1op1", 5, 6, 7, 4, 3, 3, [2, 2], [1, 1, 1, 1], [1, 1], [1, 1], 1, true),
@@ -537,7 +714,14 @@ public class ConvTransposeTests
         new("longK", 300, 3, 4, 5, 3, 3, [2, 2], [1, 1, 1, 1], [1, 1], [1, 1], 1, true),
         new("rect-s3", 4, 4, 5, 3, 3, 3, [3, 3], [0, 0, 0, 0], [1, 1], [0, 0], 1, true),
     ];
-    public static IEnumerable<object[]> Params() { foreach (var c in Cases) foreach (var n in new[] { 1, 3 }) yield return [c.Name, n]; }
+    public static IEnumerable<object[]> Params() { foreach (var c in Cases)
+        {
+            foreach (var n in new[] { 1, 3 })
+            {
+                yield return [c.Name, n];
+            }
+        }
+    }
 
     [Theory, MemberData(nameof(Params))]
     public void ConvTranspose(string name, int N)
@@ -545,25 +729,61 @@ public class ConvTransposeTests
         var c = Cases.Single(k => k.Name == name); int Og = c.O / c.G, Cg = c.C / c.G;
         var x = Kit.Rand(N * c.C * c.H * c.W, 131); var w = Kit.Rand(c.C * Og * c.KH * c.KW, 132, 0.5f); var bias = c.Bias ? Kit.Rand(c.O, 133) : null;
         var tg = new TG(); var xin = tg.InF("x", SK.DSym(c.C, c.H, c.W));
-        var ins = new List<Value> { xin, tg.WF("w", w, c.C, Og, c.KH, c.KW) }; if (bias != null) ins.Add(tg.WF("b", bias, c.O));
+        var ins = new List<Value> { xin, tg.WF("w", w, c.C, Og, c.KH, c.KW) }; if (bias != null)
+        {
+            ins.Add(tg.WF("b", bias, c.O));
+        }
+
         long[] L(int[] v) => v.Select(q => (long)q).ToArray();
         tg.B.Output("y", tg.B.Emit1("ConvTranspose", ins, GK.A(("groups", (long)c.G), ("strides", L(c.S)), ("pads", L(c.P)), ("dilations", L(c.D)), ("output_padding", L(c.OP)))));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 3); Kit.Set(m, xin, x);
         var p = Kit.P(N); m.Run(p);
         int HO = (c.H - 1) * c.S[0] - c.P[0] - c.P[2] + c.D[0] * (c.KH - 1) + c.OP[0] + 1, WO = (c.W - 1) * c.S[1] - c.P[1] - c.P[3] + c.D[1] * (c.KW - 1) + c.OP[1] + 1;
         var exp = new double[N * c.O * HO * WO];
-        for (int n = 0; n < N; n++) for (int o = 0; o < c.O; o++) for (int i = 0; i < HO * WO; i++) exp[(n * c.O + o) * HO * WO + i] = bias?[o] ?? 0;
-        for (int n = 0; n < N; n++) for (int g = 0; g < c.G; g++) for (int cc = 0; cc < Cg; cc++) for (int o = 0; o < Og; o++)
-            for (int ih = 0; ih < c.H; ih++) for (int iw = 0; iw < c.W; iw++)
+        for (int n = 0; n < N; n++)
+        {
+            for (int o = 0; o < c.O; o++)
             {
-                double xv = x[((n * c.C + g * Cg + cc) * c.H + ih) * c.W + iw];
-                for (int kh = 0; kh < c.KH; kh++) for (int kw = 0; kw < c.KW; kw++)
+                for (int i = 0; i < HO * WO; i++)
                 {
-                    int oh = ih * c.S[0] - c.P[0] + kh * c.D[0], ow = iw * c.S[1] - c.P[1] + kw * c.D[1];
-                    if (oh < 0 || oh >= HO || ow < 0 || ow >= WO) continue;
-                    exp[((n * c.O + g * Og + o) * HO + oh) * WO + ow] += xv * w[(((g * Cg + cc) * Og + o) * c.KH + kh) * c.KW + kw];
+                    exp[(n * c.O + o) * HO * WO + i] = bias?[o] ?? 0;
                 }
             }
+        }
+
+        for (int n = 0; n < N; n++)
+        {
+            for (int g = 0; g < c.G; g++)
+            {
+                for (int cc = 0; cc < Cg; cc++)
+                {
+                    for (int o = 0; o < Og; o++)
+                    {
+                        for (int ih = 0; ih < c.H; ih++)
+                        {
+                            for (int iw = 0; iw < c.W; iw++)
+            {
+                double xv = x[((n * c.C + g * Cg + cc) * c.H + ih) * c.W + iw];
+                for (int kh = 0; kh < c.KH; kh++)
+                                {
+                                    for (int kw = 0; kw < c.KW; kw++)
+                {
+                    int oh = ih * c.S[0] - c.P[0] + kh * c.D[0], ow = iw * c.S[1] - c.P[1] + kw * c.D[1];
+                    if (oh < 0 || oh >= HO || ow < 0 || ow >= WO)
+                                        {
+                                            continue;
+                                        }
+
+                                        exp[((n * c.O + g * Og + o) * HO + oh) * WO + ow] += xv * w[(((g * Cg + cc) * Og + o) * c.KH + kh) * c.KW + kw];
+                }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         var shape = m.Graph.Outputs["y"].Shape; Assert.Equal(HO, (int)shape[2].Fixed); Assert.Equal(WO, (int)shape[3].Fixed);
         Kit.AssertClose(exp.Select(v => (float)v).ToArray(), Kit.Out(m, "y", p), 1e-4, 1e-4, name);
     }
@@ -578,8 +798,26 @@ public class ConvTransposeTests
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 1); Kit.Set(m, xin, x);
         var p = Kit.P(1); m.Run(p);
         var exp = new float[O * 10 * 10];
-        for (int c = 0; c < C; c++) for (int o = 0; o < O; o++) for (int ih = 0; ih < H; ih++) for (int iw = 0; iw < W; iw++) for (int kh = 0; kh < 2; kh++) for (int kw = 0; kw < 2; kw++)
-            exp[(o * 10 + ih * 2 + kh) * 10 + iw * 2 + kw] += x[(c * H + ih) * W + iw] * weff[((c * O + o) * 2 + kh) * 2 + kw];
+        for (int c = 0; c < C; c++)
+        {
+            for (int o = 0; o < O; o++)
+            {
+                for (int ih = 0; ih < H; ih++)
+                {
+                    for (int iw = 0; iw < W; iw++)
+                    {
+                        for (int kh = 0; kh < 2; kh++)
+                        {
+                            for (int kw = 0; kw < 2; kw++)
+                            {
+                                exp[(o * 10 + ih * 2 + kh) * 10 + iw * 2 + kw] += x[(c * H + ih) * W + iw] * weff[((c * O + o) * 2 + kh) * 2 + kw];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Kit.AssertClose(exp, Kit.Out(m, "y", p), 1e-4, 1e-4);
     }
 }
@@ -591,7 +829,11 @@ public class CastAndIntegerFlowTests
     {
         float[] x = [0f, 1f, -1f, 2.7f, -2.7f, 1000f, 65504f, 0.5f];
         var tg = new TG(); var xin = tg.InF("x", TG.T, 4);
-        foreach (var t in new[] { "f16", "i32", "i64", "bool" }) tg.B.Output(t, tg.B.Emit1("Cast", [xin], GK.A(("type", t))));
+        foreach (var t in new[] { "f16", "i32", "i64", "bool" })
+        {
+            tg.B.Output(t, tg.B.Emit1("Cast", [xin], GK.A(("type", t))));
+        }
+
         var f16 = tg.B.Emit1("Cast", [xin], GK.A(("type", "f16")));
         tg.B.Output("f16_back", tg.B.Emit1("Cast", [f16], GK.A(("type", "f32"))));
         tg.B.Output("i64_back", tg.B.Emit1("Cast", [tg.B.Emit1("Cast", [xin], GK.A(("type", "i64")))], GK.A(("type", "f32"))));
@@ -627,7 +869,14 @@ public class CastAndIntegerFlowTests
         var gexp = new long[8]; for (int j = 0; j < 4; j++) { gexp[j] = cat[2 * 4 + j]; gexp[4 + j] = cat[j]; }
         Assert.Equal(gexp, GK.OutL(m, "g", p));
         Assert.Equal(Enumerable.Range(0, 12).Select(i => gexp[i % 4]).ToArray(), GK.OutL(m, "e", p));
-        var perm = new long[12]; for (int i = 0; i < 3; i++) for (int j = 0; j < 4; j++) perm[j * 3 + i] = cat[i * 4 + j];
+        var perm = new long[12]; for (int i = 0; i < 3; i++)
+        {
+            for (int j = 0; j < 4; j++)
+            {
+                perm[j * 3 + i] = cat[i * 4 + j];
+            }
+        }
+
         Assert.Equal(perm, GK.OutL(m, "perm", p));
     }
 }
@@ -635,34 +884,73 @@ public class CastAndIntegerFlowTests
 /// <summary>Writes inputs/outputs of selected ops to $SHARPLIGHT_ORT_DUMP for the onnxruntime comparison script (no-op otherwise).</summary>
 public class OrtDumpGeneralTests
 {
-    static void Save(string dir, string name, string suffix, Array a) =>
+    private static void Save(string dir, string name, string suffix, Array a) =>
         File.WriteAllBytes(Path.Combine(dir, $"{name}.{suffix}.bin"), MemoryMarshal.AsBytes(a is float[] f ? f.AsSpan() : a is int[] i ? i.AsSpan().Cast() : Span<float>.Empty).ToArray());
 
     [Fact]
     public void Dump()
     {
         var dir = Environment.GetEnvironmentVariable("SHARPLIGHT_ORT_DUMP");
-        if (string.IsNullOrEmpty(dir)) return;
+        if (string.IsNullOrEmpty(dir))
+        {
+            return;
+        }
+
         dir = Path.Combine(dir, "general"); Directory.CreateDirectory(dir);
         void Run(string name, Func<TG, (Value[] ins, Value[] outs)> build, params Array[] inputs)
         {
             var tg = new TG(); var (ins, outs) = build(tg);
-            for (int i = 0; i < outs.Length; i++) tg.B.Output("o" + i, outs[i]);
+            for (int i = 0; i < outs.Length; i++)
+            {
+                tg.B.Output("o" + i, outs[i]);
+            }
+
             using var m = Kit.Compile(tg.B.Build());
             for (int i = 0; i < inputs.Length; i++)
             {
-                if (inputs[i] is float[] f) Kit.Set(m, ins[i], f); else Kit.Set(m, ins[i], (int[])inputs[i]);
+                if (inputs[i] is float[] f)
+                {
+                    Kit.Set(m, ins[i], f);
+                }
+                else
+                {
+                    Kit.Set(m, ins[i], (int[])inputs[i]);
+                }
+
                 Save(dir, name, "in" + i, inputs[i]);
             }
             var p = Kit.P(1); m.Run(p);
             for (int i = 0; i < outs.Length; i++)
-                if (outs[i].Type == DataType.I32) Save(dir, name, "out" + i, Kit.OutI(m, "o" + i, p)); else Save(dir, name, "out" + i, Kit.Out(m, "o" + i, p));
+            {
+                if (outs[i].Type == DataType.I32)
+                {
+                    Save(dir, name, "out" + i, Kit.OutI(m, "o" + i, p));
+                }
+                else
+                {
+                    Save(dir, name, "out" + i, Kit.Out(m, "o" + i, p));
+                }
+            }
         }
-        foreach (var mode in new[] { "linear", "nearest", "cubic" }) foreach (var pad in new[] { "zeros", "border", "reflection" }) foreach (var ac in new[] { false, true })
+        foreach (var mode in new[] { "linear", "nearest", "cubic" })
         {
-            var x = Kit.Rand(2 * 5 * 6, 201); var g = Kit.Rand(4 * 5 * 2, 202, 1.4f); if (mode == "nearest") for (int i = 0; i < 8; i++) g[i] = (i % 2 == 0 ? -1f : 1f) * (i / 2 * 0.25f); // exact ties
-            Run($"grid_{mode}_{pad}_{(ac ? 1 : 0)}", tg => { var xi = tg.InF("x", 1, 2, 5, 6); var gi = tg.InF("g", 1, 4, 5, 2); return ([xi, gi], [tg.B.Emit1("GridSample", [xi, gi], GK.A(("mode", mode), ("padding", pad), ("align_corners", ac)))]); }, x, g);
+            foreach (var pad in new[] { "zeros", "border", "reflection" })
+            {
+                foreach (var ac in new[] { false, true })
+        {
+            var x = Kit.Rand(2 * 5 * 6, 201); var g = Kit.Rand(4 * 5 * 2, 202, 1.4f); if (mode == "nearest")
+                    {
+                        for (int i = 0; i < 8; i++)
+                        {
+                            g[i] = (i % 2 == 0 ? -1f : 1f) * (i / 2 * 0.25f); // exact ties
+                        }
+                    }
+
+                    Run($"grid_{mode}_{pad}_{(ac ? 1 : 0)}", tg => { var xi = tg.InF("x", 1, 2, 5, 6); var gi = tg.InF("g", 1, 4, 5, 2); return ([xi, gi], [tg.B.Emit1("GridSample", [xi, gi], GK.A(("mode", mode), ("padding", pad), ("align_corners", ac)))]); }, x, g);
         }
+            }
+        }
+
         foreach (var largest in new[] { true, false })
         {
             var x = Kit.Rand(3 * 10, 203).Select(v => (float)Math.Round(v * 3)).ToArray();
@@ -684,7 +972,7 @@ public class OrtDumpGeneralTests
     }
 }
 
-static class SpanExt { public static Span<float> Cast(this Span<int> s) => MemoryMarshal.Cast<int, float>(s); }
+internal static class SpanExt { public static Span<float> Cast(this Span<int> s) => MemoryMarshal.Cast<int, float>(s); }
 
 public class GridSampleTests
 {
@@ -693,7 +981,14 @@ public class GridSampleTests
     {
         int N = 2, C = 3, H = 5, W = 6; var x = Kit.Rand(N * C * H * W, 141);
         var grid = new float[N * H * W * 2];
-        for (int n = 0; n < N; n++) for (int i = 0; i < H; i++) for (int j = 0; j < W; j++) { int o = ((n * H + i) * W + j) * 2; grid[o] = -1f + 2f * j / (W - 1); grid[o + 1] = -1f + 2f * i / (H - 1); }
+        for (int n = 0; n < N; n++)
+        {
+            for (int i = 0; i < H; i++)
+            {
+                for (int j = 0; j < W; j++) { int o = ((n * H + i) * W + j) * 2; grid[o] = -1f + 2f * j / (W - 1); grid[o + 1] = -1f + 2f * i / (H - 1); }
+            }
+        }
+
         var tg = new TG(); var xin = tg.InF("x", SK.DSym(C, H, W)); var gin = tg.InF("g", SK.DSym(H, W, 2));
         tg.B.Output("y", tg.B.Emit1("GridSample", [xin, gin], GK.A(("mode", mode), ("align_corners", true), ("padding", "border"))));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 2); Kit.Set(m, xin, x); Kit.Set(m, gin, grid);
@@ -722,7 +1017,10 @@ public class GridSampleTests
         tg.B.Output("b", tg.B.Emit1("CumSum", [xin], GK.A(("axis", 1L))));
         tg.B.Output("c", tg.B.Emit1("Where", [xin, xin, xin]));
         tg.B.Output("d", tg.B.Emit1("Mod", [xin, xin]));
-        foreach (var n in tg.B.Build().Nodes.Where(n => n.Op.Category != OpCategory.View)) Assert.True(Kit.Device.Supports(n).IsSupported, n.Op.Name);
+        foreach (var n in tg.B.Build().Nodes.Where(n => n.Op.Category != OpCategory.View))
+        {
+            Assert.True(Kit.Device.Supports(n).IsSupported, n.Op.Name);
+        }
 
         tg = new TG(); xin = tg.InF("x", SK.DSym(4, 8)); var bad = tg.InF("i", 3);
         tg.B.Output("a", tg.B.Emit1("GatherAxis", [xin, bad], GK.A(("axis", 1L))));

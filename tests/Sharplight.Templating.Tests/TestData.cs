@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Sharplight.Templating;
 
 namespace Sharplight.Templating.Tests;
 
@@ -24,7 +23,13 @@ internal static class TestData
     {
         var d = new Dictionary<string, object?>();
         if (JinjaJson.Parse(obj.GetRawText()) is JinjaDict jd)
-            foreach (var kv in jd) d[(string)kv.Key] = kv.Value;
+        {
+            foreach (var kv in jd)
+            {
+                d[(string)kv.Key] = kv.Value;
+            }
+        }
+
         return d;
     }
 
@@ -42,12 +47,17 @@ internal static class TestData
         List<ChatContentPart>? parts = null;
         if (m.TryGetProperty("content", out var c))
         {
-            if (c.ValueKind == JsonValueKind.String) content = c.GetString();
+            if (c.ValueKind == JsonValueKind.String)
+            {
+                content = c.GetString();
+            }
             else if (c.ValueKind == JsonValueKind.Array)
             {
                 parts = new();
                 foreach (var p in c.EnumerateArray())
+                {
                     parts.Add(new ChatContentPart(p.GetProperty("type").GetString()!, p.TryGetProperty("text", out var t) ? t.GetString() : null));
+                }
             }
         }
         string? reasoning = m.TryGetProperty("reasoning_content", out var r) ? r.GetString() : null;
@@ -72,7 +82,10 @@ internal static class TestData
         var msgs = caseDef.GetProperty("messages").EnumerateArray().Select(ToMessage).ToList();
         List<ToolDefinition>? tools = null;
         if (caseDef.TryGetProperty("tools", out var t) && t.ValueKind == JsonValueKind.Array)
+        {
             tools = t.EnumerateArray().Select(x => ToolDefinition.FromJson(x.GetRawText())).ToList();
+        }
+
         return (msgs, tools);
     }
 }

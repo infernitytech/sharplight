@@ -121,7 +121,7 @@ public sealed class GgufImporter : IModelImporter
         }
     }
 
-    const string GgmlTokenizerPrefix = "tokenizer.ggml.";
+    private const string GgmlTokenizerPrefix = "tokenizer.ggml.";
 
     /// <summary>Translates GGUF metadata keys to <see cref="CanonicalKeys"/>; other keys pass through.</summary>
     public static IReadOnlyDictionary<string, object> ToCanonical(IReadOnlyDictionary<string, object> gguf)
@@ -168,7 +168,7 @@ public sealed class GgufImporter : IModelImporter
     /// llama.cpp stores WordPiece vocabularies in "phantom space" form: word-initial pieces get a ▁ prefix, continuation pieces lose
     /// their ## and bracketed specials stay as they are. This restores the canonical (Hugging Face) form.
     /// </summary>
-    static string[] FromPhantomSpace(string[] tokens)
+    private static string[] FromPhantomSpace(string[] tokens)
     {
         var r = new string[tokens.Length];
         for (int i = 0; i < tokens.Length; i++)

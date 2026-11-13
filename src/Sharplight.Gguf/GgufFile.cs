@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.IO.MemoryMappedFiles;
 using System.Text;
-using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
@@ -21,13 +20,13 @@ public sealed unsafe class GgufFile : IDisposable
     public const uint Magic = 0x46554747; // "GGUF" little-endian
     public const int DefaultAlignment = 32;
 
-    MemoryMappedFile? _mmf;
-    MemoryMappedViewAccessor? _view;
-    byte* _base;
-    bool _pointerAcquired;
-    readonly Dictionary<string, object> _metadata;
-    readonly GgufTensorInfo[] _tensors;
-    readonly Dictionary<string, GgufTensorInfo> _byName;
+    private MemoryMappedFile? _mmf;
+    private MemoryMappedViewAccessor? _view;
+    private byte* _base;
+    private bool _pointerAcquired;
+    private readonly Dictionary<string, object> _metadata;
+    private readonly GgufTensorInfo[] _tensors;
+    private readonly Dictionary<string, GgufTensorInfo> _byName;
 
     public string Path { get; }
     public uint Version { get; }
@@ -41,12 +40,15 @@ public sealed unsafe class GgufFile : IDisposable
     internal byte* BasePointer => _base;
     internal void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_base == null, this);
 
-    GgufFile(string path)
+    private GgufFile(string path)
     {
         Path = path;
         var fi = new FileInfo(path);
         FileLength = fi.Length;
-        if (FileLength < 24) throw new InvalidDataException("File too small to be GGUF.");
+        if (FileLength < 24)
+        {
+            throw new InvalidDataException("File too small to be GGUF.");
+        }
 
         _mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         try
@@ -58,13 +60,23 @@ public sealed unsafe class GgufFile : IDisposable
             _base = p + _view.PointerOffset;
 
             var r = new Reader(_base, FileLength);
-            if (r.ReadU32() != Magic) throw new InvalidDataException("Not a GGUF file (bad magic).");
+            if (r.ReadU32() != Magic)
+            {
+                throw new InvalidDataException("Not a GGUF file (bad magic).");
+            }
+
             Version = r.ReadU32();
-            if (Version is not (2 or 3)) throw new NotSupportedException($"Unsupported GGUF version {Version}.");
+            if (Version is not (2 or 3))
+            {
+                throw new NotSupportedException($"Unsupported GGUF version {Version}.");
+            }
+
             long tensorCount = checked((long)r.ReadU64());
             long kvCount = checked((long)r.ReadU64());
             if (tensorCount < 0 || kvCount < 0 || tensorCount > FileLength || kvCount > FileLength)
+            {
                 throw new InvalidDataException("Implausible tensor/KV count.");
+            }
 
             _metadata = new Dictionary<string, object>((int)Math.Min(kvCount, 1 << 20), StringComparer.Ordinal);
             for (long i = 0; i < kvCount; i++)
@@ -78,7 +90,10 @@ public sealed unsafe class GgufFile : IDisposable
             if (_metadata.TryGetValue("general.alignment", out var al))
             {
                 int a = Convert.ToInt32(al, System.Globalization.CultureInfo.InvariantCulture);
-                if (a > 0) Alignment = a;
+                if (a > 0)
+                {
+                    Alignment = a;
+                }
             }
 
             var raw = new (string name, int type, long[] ne, long off)[tensorCount];
@@ -86,9 +101,17 @@ public sealed unsafe class GgufFile : IDisposable
             {
                 string name = r.ReadString();
                 uint nd = r.ReadU32();
-                if (nd > 8) throw new InvalidDataException($"Tensor '{name}' has {nd} dimensions.");
+                if (nd > 8)
+                {
+                    throw new InvalidDataException($"Tensor '{name}' has {nd} dimensions.");
+                }
+
                 var ne = new long[nd];
-                for (int d = 0; d < nd; d++) ne[d] = checked((long)r.ReadU64());
+                for (int d = 0; d < nd; d++)
+                {
+                    ne[d] = checked((long)r.ReadU64());
+                }
+
                 int type = (int)r.ReadU32();
                 long off = checked((long)r.ReadU64());
                 raw[i] = (name, type, ne, off);
@@ -105,7 +128,10 @@ public sealed unsafe class GgufFile : IDisposable
                 long size = ComputeByteSize(dt, ne, name);
                 long abs = DataOffset + off;
                 if (abs < 0 || abs + size > FileLength)
+                {
                     throw new InvalidDataException($"Tensor '{name}' extends beyond the end of the file (offset {abs}, size {size}, file {FileLength}).");
+                }
+
                 var info = new GgufTensorInfo(this, name, type, dt, ne, off, abs, size);
                 _tensors[i] = info;
                 _byName[name] = info;
@@ -121,11 +147,22 @@ public sealed unsafe class GgufFile : IDisposable
     internal static long ComputeByteSize(DataType dt, long[] ne, string name)
     {
         long elems = 1;
-        foreach (var n in ne) elems = checked(elems * n);
-        if (ne.Length == 0) elems = 1;
+        foreach (var n in ne)
+        {
+            elems = checked(elems * n);
+        }
+
+        if (ne.Length == 0)
+        {
+            elems = 1;
+        }
+
         long row = ne.Length > 0 ? ne[0] : 1;
         if (row % dt.BlockSize != 0)
+        {
             throw new InvalidDataException($"Tensor '{name}': row length {row} is not a multiple of {dt} block size {dt.BlockSize}.");
+        }
+
         return checked(elems / dt.BlockSize * dt.BlockBytes);
     }
 
@@ -162,7 +199,7 @@ public sealed unsafe class GgufFile : IDisposable
     public bool GetBool(string key, bool defaultValue) => TryGet<bool>(key, out var v) ? v : defaultValue;
     public T[] GetArray<T>(string key) => Get<T[]>(key);
 
-    string ArchKey(string suffix) => $"{Architecture ?? throw new InvalidOperationException("general.architecture missing")}.{suffix}";
+    private string ArchKey(string suffix) => $"{Architecture ?? throw new InvalidOperationException("general.architecture missing")}.{suffix}";
     /// <summary>Reads <c>{general.architecture}.{suffix}</c>.</summary>
     public T GetArch<T>(string suffix) => Get<T>(ArchKey(suffix));
     public T GetArch<T>(string suffix, T defaultValue) => TryGet<T>(ArchKey(suffix), out var v) ? v : defaultValue;
@@ -181,17 +218,21 @@ public sealed unsafe class GgufFile : IDisposable
     }
 
     // ---- parsing -------------------------------------------------------------------------
-    ref struct Reader
+    private ref struct Reader
     {
-        readonly byte* _p;
-        readonly long _len;
-        long _pos;
+        private readonly byte* _p;
+        private readonly long _len;
+        private long _pos;
         public Reader(byte* p, long len) { _p = p; _len = len; _pos = 0; }
         public readonly long Position => _pos;
 
-        byte* Take(long n)
+        private byte* Take(long n)
         {
-            if (n < 0 || _pos + n > _len) throw new InvalidDataException("Unexpected end of GGUF file.");
+            if (n < 0 || _pos + n > _len)
+            {
+                throw new InvalidDataException("Unexpected end of GGUF file.");
+            }
+
             var r = _p + _pos; _pos += n; return r;
         }
         public uint ReadU32() => Unsafe.ReadUnaligned<uint>(Take(4));
@@ -200,8 +241,16 @@ public sealed unsafe class GgufFile : IDisposable
         public string ReadString()
         {
             long n = checked((long)ReadU64());
-            if (n > int.MaxValue) throw new InvalidDataException("String too long.");
-            if (n == 0) return "";
+            if (n > int.MaxValue)
+            {
+                throw new InvalidDataException("String too long.");
+            }
+
+            if (n == 0)
+            {
+                return "";
+            }
+
             return Encoding.UTF8.GetString(Take(n), (int)n);
         }
 
@@ -226,18 +275,26 @@ public sealed unsafe class GgufFile : IDisposable
             }
         }
 
-        T[] ReadBlock<T>(long n) where T : unmanaged
+        private T[] ReadBlock<T>(long n) where T : unmanaged
         {
             var arr = new T[n];
-            if (n > 0) new ReadOnlySpan<byte>(Take(n * sizeof(T)), checked((int)(n * sizeof(T)))).CopyTo(System.Runtime.InteropServices.MemoryMarshal.AsBytes(arr.AsSpan()));
+            if (n > 0)
+            {
+                new ReadOnlySpan<byte>(Take(n * sizeof(T)), checked((int)(n * sizeof(T)))).CopyTo(System.Runtime.InteropServices.MemoryMarshal.AsBytes(arr.AsSpan()));
+            }
+
             return arr;
         }
 
-        object ReadArray()
+        private object ReadArray()
         {
             var et = (GgufValueType)ReadU32();
             long n = checked((long)ReadU64());
-            if (n < 0 || n > int.MaxValue) throw new InvalidDataException("Array too large.");
+            if (n < 0 || n > int.MaxValue)
+            {
+                throw new InvalidDataException("Array too large.");
+            }
+
             switch (et)
             {
                 case GgufValueType.UInt8: return ReadBlock<byte>(n);
@@ -254,23 +311,43 @@ public sealed unsafe class GgufFile : IDisposable
                 {
                     var b = new bool[n];
                     var src = new ReadOnlySpan<byte>(Take(n), (int)n);
-                    for (int i = 0; i < b.Length; i++) b[i] = src[i] != 0;
-                    return b;
+                    for (int i = 0; i < b.Length; i++)
+                        {
+                            b[i] = src[i] != 0;
+                        }
+
+                        return b;
                 }
                 case GgufValueType.String:
                 {
                     // each string needs at least 8 bytes; guards against absurd counts
-                    if (n * 8 > _len - _pos) throw new InvalidDataException("String array larger than file.");
-                    var s = new string[n];
-                    for (int i = 0; i < s.Length; i++) s[i] = ReadString();
-                    return s;
+                    if (n * 8 > _len - _pos)
+                        {
+                            throw new InvalidDataException("String array larger than file.");
+                        }
+
+                        var s = new string[n];
+                    for (int i = 0; i < s.Length; i++)
+                        {
+                            s[i] = ReadString();
+                        }
+
+                        return s;
                 }
                 case GgufValueType.Array:
                 {
-                    if (n * 12 > _len - _pos) throw new InvalidDataException("Array larger than file.");
-                    var o = new object[n];
-                    for (int i = 0; i < o.Length; i++) o[i] = ReadArray();
-                    return o;
+                    if (n * 12 > _len - _pos)
+                        {
+                            throw new InvalidDataException("Array larger than file.");
+                        }
+
+                        var o = new object[n];
+                    for (int i = 0; i < o.Length; i++)
+                        {
+                            o[i] = ReadArray();
+                        }
+
+                        return o;
                 }
                 default: throw new InvalidDataException($"Unknown GGUF array element type {(uint)et}.");
             }
@@ -278,7 +355,7 @@ public sealed unsafe class GgufFile : IDisposable
     }
 }
 
-static class GgufConvert
+internal static class GgufConvert
 {
     public static bool TryConvert<T>(object o, out T? value)
     {
@@ -308,12 +385,16 @@ static class GgufConvert
         value = default; return false;
     }
 
-    static bool TryConvertTo(Type target, object v, out object? result)
+    private static bool TryConvertTo(Type target, object v, out object? result)
     {
         result = null;
         if (target.IsInstanceOfType(v)) { result = v; return true; }
         if (target == typeof(object)) { result = v; return true; }
-        if (v is string || target == typeof(string) || v is Array) return false;
+        if (v is string || target == typeof(string) || v is Array)
+        {
+            return false;
+        }
+
         if (target.IsPrimitive || target == typeof(decimal))
         {
             try { result = Convert.ChangeType(v, target, System.Globalization.CultureInfo.InvariantCulture); return true; }

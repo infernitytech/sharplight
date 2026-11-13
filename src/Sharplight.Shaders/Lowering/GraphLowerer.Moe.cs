@@ -8,43 +8,79 @@ namespace Sharplight.Shaders.Lowering;
 /// <summary>Lowering of the expert-indexed matrix product (MatMulId, see kernels/moe.slang).</summary>
 public sealed partial class GraphLowerer
 {
-    const int MoeMatvecMaxItems = 16;   // (token, slot) items up to which a per-item matvec beats grouping by expert
-    const int MoeMaxExperts = 1024;
-    const int MoeMinTile = 32;
+    private const int MoeMatvecMaxItems = 16;   // (token, slot) items up to which a per-item matvec beats grouping by expert
+    private const int MoeMaxExperts = 1024;
+    private const int MoeMinTile = 32;
 
-    static readonly int s_moeMvMax = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_MV_MAX") ?? MoeMatvecMaxItems.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
-    static readonly int s_moeTile = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);
+    private static readonly int s_moeMvMax = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_MV_MAX") ?? MoeMatvecMaxItems.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+    private static readonly int s_moeTile = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_TILE") ?? "0", CultureInfo.InvariantCulture);
     // Without tensor cores the 64-row scalar tile only pays off when experts see many rows: below this average the
     // per-item matvec (which re-reads shared experts' weights from cache) is faster.
-    static readonly int s_moeScalarRows = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_SCALAR_ROWS") ?? "12", CultureInfo.InvariantCulture);
-    static readonly bool s_moeNoCoop = Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_NO_COOP") == "1";
+    private static readonly int s_moeScalarRows = int.Parse(Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_SCALAR_ROWS") ?? "12", CultureInfo.InvariantCulture);
+    private static readonly bool s_moeNoCoop = Environment.GetEnvironmentVariable("SHARPLIGHT_MOE_NO_COOP") == "1";
 
-    static OpSupport SupportsMoe(Node node)
+    private static OpSupport SupportsMoe(Node node)
     {
         var x = node.Inputs[0]; var w = node.Inputs[1]; var ids = node.Inputs[2];
-        if (x.Type != DataType.F32) return OpSupport.No($"MatMulId activations must be f32, got {x.Type}");
-        if (ids.Type != DataType.I32) return OpSupport.No("MatMulId expert indices must be i32");
-        if (w.Kind != ValueKind.Weight) return OpSupport.No("MatMulId weight must be a model parameter");
-        if (WeightFormat(w.Type) is null) return OpSupport.No($"MatMulId weight type {w.Type} not supported");
-        if (w.Shape.Rank != 3 || w.Shape.Dims.Any(d => d.IsSymbolic)) return OpSupport.No("MatMulId weight shape must be static [E, N, K]");
-        if (w.Shape[0].Fixed > MoeMaxExperts) return OpSupport.No($"MatMulId with more than {MoeMaxExperts} experts");
-        if (w.Shape[2].Fixed % 8 != 0) return OpSupport.No($"MatMulId K={w.Shape[2].Fixed} is not a multiple of 8");
-        if (ids.Shape[1].IsSymbolic) return OpSupport.No("MatMulId slot count must be static");
+        if (x.Type != DataType.F32)
+        {
+            return OpSupport.No($"MatMulId activations must be f32, got {x.Type}");
+        }
+
+        if (ids.Type != DataType.I32)
+        {
+            return OpSupport.No("MatMulId expert indices must be i32");
+        }
+
+        if (w.Kind != ValueKind.Weight)
+        {
+            return OpSupport.No("MatMulId weight must be a model parameter");
+        }
+
+        if (WeightFormat(w.Type) is null)
+        {
+            return OpSupport.No($"MatMulId weight type {w.Type} not supported");
+        }
+
+        if (w.Shape.Rank != 3 || w.Shape.Dims.Any(d => d.IsSymbolic))
+        {
+            return OpSupport.No("MatMulId weight shape must be static [E, N, K]");
+        }
+
+        if (w.Shape[0].Fixed > MoeMaxExperts)
+        {
+            return OpSupport.No($"MatMulId with more than {MoeMaxExperts} experts");
+        }
+
+        if (w.Shape[2].Fixed % 8 != 0)
+        {
+            return OpSupport.No($"MatMulId K={w.Shape[2].Fixed} is not a multiple of 8");
+        }
+
+        if (ids.Shape[1].IsSymbolic)
+        {
+            return OpSupport.No("MatMulId slot count must be static");
+        }
+
         return OpSupport.Yes;
     }
 
     // Routing (expert tiles + sorted items) is shared by the MatMulIds of one expert block (same ids, same E).
-    BufferDecl? _moeScratch;
-    (Value Ids, long E, long MaxTiles)? _moeRouted;
+    private BufferDecl? _moeScratch;
+    private (Value Ids, long E, long MaxTiles)? _moeRouted;
 
-    void LowerMatMulId(Node n)
+    private void LowerMatMulId(Node n)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
         var ids = Ref(n.Inputs[2]);
         long E = w.Shape[0], N = w.Shape[1], K = w.Shape[2], S = ids.Shape[1];
         bool perSlot = x.Rank == 3;
-        if (!ids.IsDense || ids.Type != DataType.I32) ids = DenseTemp(ids, "matmul-id ids");
+        if (!ids.IsDense || ids.Type != DataType.I32)
+        {
+            ids = DenseTemp(ids, "matmul-id ids");
+        }
+
         if (!TryRows(x, out long xs, out long mid) || xs % 4 != 0 || x.ByteOffset % 16 != 0 || x.Type != DataType.F32)
         {
             x = DenseTemp(x, "matmul-id");

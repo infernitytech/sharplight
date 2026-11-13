@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Sharplight.Templating;
 using Xunit;
 
 namespace Sharplight.Templating.Tests;
@@ -17,8 +16,16 @@ public class ChatGoldenTests
     {
         var d = new TheoryData<string, string>();
         foreach (var t in Goldens.EnumerateObject())
+        {
             foreach (var c in t.Value.EnumerateObject())
-                if (c.Name != "__compile_error__") d.Add(t.Name, c.Name);
+            {
+                if (c.Name != "__compile_error__")
+                {
+                    d.Add(t.Name, c.Name);
+                }
+            }
+        }
+
         return d;
     }
 
@@ -61,7 +68,11 @@ public class TemplateSmokeTests
     public static TheoryData<string> Templates()
     {
         var d = new TheoryData<string>();
-        foreach (var n in TestData.TemplateNames()) d.Add(n);
+        foreach (var n in TestData.TemplateNames())
+        {
+            d.Add(n);
+        }
+
         return d;
     }
 

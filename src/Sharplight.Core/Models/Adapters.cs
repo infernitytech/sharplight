@@ -45,15 +45,23 @@ public sealed class ModelSource
 
     public WeightInfo? Weight(string name) => Weights.TryGetValue(name, out var w) ? w : null;
 
-    static T ConvertValue<T>(object v, string key)
+    private static T ConvertValue<T>(object v, string key)
     {
-        if (v is T t) return t;
+        if (v is T t)
+        {
+            return t;
+        }
+
         var target = typeof(T);
         if (target.IsArray && v is Array src)
         {
             var et = target.GetElementType()!;
             var dst = Array.CreateInstance(et, src.Length);
-            for (int i = 0; i < src.Length; i++) dst.SetValue(Convert.ChangeType(src.GetValue(i), et, CultureInfo.InvariantCulture), i);
+            for (int i = 0; i < src.Length; i++)
+            {
+                dst.SetValue(Convert.ChangeType(src.GetValue(i), et, CultureInfo.InvariantCulture), i);
+            }
+
             return (T)(object)dst;
         }
         try { return (T)Convert.ChangeType(v, target, CultureInfo.InvariantCulture); }
@@ -98,21 +106,24 @@ public sealed class AdapterOptions
 /// </summary>
 public interface IModelAdapter
 {
-    string Name { get; }
+    public string Name { get; }
     /// <summary>Architecture ids handled (canonical ids, e.g. "qwen3_5").</summary>
-    IReadOnlyList<string> Architectures { get; }
-    bool CanLoad(ModelSource source) => Architectures.Contains(source.Architecture, StringComparer.OrdinalIgnoreCase);
-    ModelDefinition Build(ModelSourceSet sources, AdapterOptions options);
+    public IReadOnlyList<string> Architectures { get; }
+    public bool CanLoad(ModelSource source) => Architectures.Contains(source.Architecture, StringComparer.OrdinalIgnoreCase);
+    public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options);
 }
 
 /// <summary>Global adapter registry; adapters register themselves (or are registered by the host).</summary>
 public static class ModelAdapterRegistry
 {
-    static readonly ConcurrentDictionary<string, IModelAdapter> s_adapters = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IModelAdapter> s_adapters = new(StringComparer.OrdinalIgnoreCase);
 
     public static void Register(IModelAdapter adapter)
     {
-        foreach (var a in adapter.Architectures) s_adapters[a] = adapter;
+        foreach (var a in adapter.Architectures)
+        {
+            s_adapters[a] = adapter;
+        }
     }
 
     public static IModelAdapter? Find(ModelSource source)
@@ -126,7 +137,10 @@ public static class ModelAdapterRegistry
         if (sources.Primary.Definition is { } prebuilt)
         {
             if (sources.Auxiliary.Count > 0)
+            {
                 throw new NotSupportedException($"'{sources.Primary.Path}' already contains a built model; auxiliary files ({string.Join(", ", sources.Auxiliary.Keys)}) must be added before it is saved.");
+            }
+
             return prebuilt;
         }
         var adapter = Find(sources.Primary)

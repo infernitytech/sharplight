@@ -1,10 +1,9 @@
 using System.Runtime.CompilerServices;
-using Sharplight.Extensions.AI;
 
 namespace Sharplight.Extensions.AI.Tests;
 
 /// <summary>Scripted backend: records the request and streams the configured pieces.</summary>
-sealed class FakeBackend(params string[] pieces) : ITextGenerationBackend
+internal sealed class FakeBackend(params string[] pieces) : ITextGenerationBackend
 {
     public const string Template =
         "{%- if tools %}<|im_start|>system\n# Tools\n{% for t in tools %}{{ t | tojson }}\n{% endfor %}<|im_end|>\n{% endif -%}" +

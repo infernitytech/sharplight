@@ -33,15 +33,27 @@ public static class AnthropicApi
 
     // ---- request parsing --------------------------------------------------------------------------------------------
 
-    static string TextOf(JsonElement? e)
+    private static string TextOf(JsonElement? e)
     {
-        if (e is not { } v) return "";
-        if (v.ValueKind == JsonValueKind.String) return v.GetString()!;
-        if (v.ValueKind != JsonValueKind.Array) return "";
+        if (e is not { } v)
+        {
+            return "";
+        }
+
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            return v.GetString()!;
+        }
+
+        if (v.ValueKind != JsonValueKind.Array)
+        {
+            return "";
+        }
+
         return string.Concat(v.EnumerateArray().Where(x => x.Str("type") == "text").Select(x => x.Str("text")));
     }
 
-    static ImageData ParseImage(JsonElement block)
+    private static ImageData ParseImage(JsonElement block)
     {
         var src = block.Obj("source") ?? throw ApiException.BadRequest("image block needs 'source'.");
         return src.Str("type") switch
@@ -52,19 +64,26 @@ public static class AnthropicApi
         };
     }
 
-    static byte[] DecodeBase64(string? s)
+    private static byte[] DecodeBase64(string? s)
     {
         try { return Convert.FromBase64String(s ?? ""); }
         catch (FormatException) { throw ApiException.BadRequest("Invalid base64 image data."); }
     }
 
-    static void AddMessage(List<ChatTurn> turns, JsonElement m, int i)
+    private static void AddMessage(List<ChatTurn> turns, JsonElement m, int i)
     {
         string role = m.Str("role") ?? throw ApiException.BadRequest($"messages.{i}.role: Field required");
-        if (role is not ("user" or "assistant")) throw ApiException.BadRequest($"messages.{i}.role: Input should be 'user' or 'assistant'");
+        if (role is not ("user" or "assistant"))
+        {
+            throw ApiException.BadRequest($"messages.{i}.role: Input should be 'user' or 'assistant'");
+        }
+
         var content = m.Get("content") ?? throw ApiException.BadRequest($"messages.{i}.content: Field required");
         if (content.ValueKind == JsonValueKind.String) { turns.Add(new ChatTurn(role, content.GetString())); return; }
-        if (content.ValueKind != JsonValueKind.Array) throw ApiException.BadRequest($"messages.{i}.content: Input should be a string or an array");
+        if (content.ValueKind != JsonValueKind.Array)
+        {
+            throw ApiException.BadRequest($"messages.{i}.content: Input should be a string or an array");
+        }
 
         var parts = new List<ChatPart>();
         var calls = new List<ToolCall>();
@@ -83,7 +102,11 @@ public static class AnthropicApi
                     break;
                 case "tool_result":
                     string text = TextOf(blk.Get("content"));
-                    if (blk.Bool("is_error") == true) text = "Error: " + text;
+                    if (blk.Bool("is_error") == true)
+                    {
+                        text = "Error: " + text;
+                    }
+
                     toolResults.Add(new ChatTurn("tool", text, ToolCallId: blk.Str("tool_use_id")));
                     break;
                 case var t: throw ApiException.BadRequest($"messages.{i}.content: unsupported block type '{t}'");
@@ -92,33 +115,52 @@ public static class AnthropicApi
         // Tool results (always leading in a user turn) become tool messages, the remaining blocks one user/assistant message.
         turns.AddRange(toolResults);
         if (parts.Count > 0 || calls.Count > 0 || reasoning.Length > 0)
+        {
             turns.Add(new ChatTurn(role, null, parts.Count > 0 ? parts : null, reasoning.Length > 0 ? reasoning.ToString() : null, calls.Count > 0 ? calls : null));
+        }
     }
 
-    static ChatRequest ParseRequest(JsonElement b, SharplightServerContext ctx, bool requireMaxTokens)
+    private static ChatRequest ParseRequest(JsonElement b, SharplightServerContext ctx, bool requireMaxTokens)
     {
         int maxTokens = b.Int("max_tokens") ?? 0;
         if (requireMaxTokens)
         {
-            if (b.Get("max_tokens") is null) throw ApiException.BadRequest("max_tokens: Field required", "max_tokens");
-            if (maxTokens < 1) throw ApiException.BadRequest("max_tokens: Input should be greater than or equal to 1", "max_tokens");
+            if (b.Get("max_tokens") is null)
+            {
+                throw ApiException.BadRequest("max_tokens: Field required", "max_tokens");
+            }
+
+            if (maxTokens < 1)
+            {
+                throw ApiException.BadRequest("max_tokens: Input should be greater than or equal to 1", "max_tokens");
+            }
         }
         var turns = new List<ChatTurn>();
-        if (b.Get("system") is { } sys && TextOf(sys) is { Length: > 0 } sysText) turns.Add(new ChatTurn("system", sysText));
+        if (b.Get("system") is { } sys && TextOf(sys) is { Length: > 0 } sysText)
+        {
+            turns.Add(new ChatTurn("system", sysText));
+        }
+
         int i = 0, count = 0;
         foreach (var m in b.Arr("messages")) { AddMessage(turns, m, i++); count++; }
-        if (count == 0) throw ApiException.BadRequest("messages: Field required", "messages");
+        if (count == 0)
+        {
+            throw ApiException.BadRequest("messages: Field required", "messages");
+        }
 
         var tools = b.Arr("tools").Where(t => t.Str("type") is null or "custom")
             .Select(t => new ToolSpec(t.Str("name") ?? throw ApiException.BadRequest("tools.name: Field required"), t.Str("description"), t.Obj("input_schema")?.GetRawText())).ToList();
         var mode = ToolChoiceMode.Auto; string? fname = null;
         if (b.Obj("tool_choice") is { } tc)
+        {
             switch (tc.Str("type"))
             {
                 case "any": mode = ToolChoiceMode.Required; break;
                 case "none": mode = ToolChoiceMode.None; break;
                 case "tool": mode = ToolChoiceMode.Function; fname = tc.Str("name"); break;
             }
+        }
+
         bool? thinking = b.Obj("thinking")?.Str("type") switch { "enabled" => true, "disabled" => false, _ => null };
         var sampling = ctx.Options.DefaultSampling with
         {
@@ -135,25 +177,25 @@ public static class AnthropicApi
 
     // ---- responses --------------------------------------------------------------------------------------------------
 
-    static string ToolUseId(string id) => id.StartsWith("call_", StringComparison.Ordinal) ? "toolu_" + id[5..] : id;
+    private static string ToolUseId(string id) => id.StartsWith("call_", StringComparison.Ordinal) ? "toolu_" + id[5..] : id;
 
-    static string StopReason(ChatFinishReason r, string? stopSeq) => r switch
+    private static string StopReason(ChatFinishReason r, string? stopSeq) => r switch
     {
         ChatFinishReason.Length => "max_tokens", ChatFinishReason.ToolCalls => "tool_use",
         _ => stopSeq is not null ? "stop_sequence" : "end_turn",
     };
 
-    static JsonObject UsageJson(GenerationUsage u) => new()
+    private static JsonObject UsageJson(GenerationUsage u) => new()
     {
         ["input_tokens"] = u.PromptTokens, ["cache_creation_input_tokens"] = 0, ["cache_read_input_tokens"] = u.CachedTokens, ["output_tokens"] = u.CompletionTokens,
     };
 
-    static JsonNode ParseInput(string json)
+    private static JsonNode ParseInput(string json)
     {
         try { return JsonNode.Parse(json) ?? new JsonObject(); } catch (JsonException) { return new JsonObject(); }
     }
 
-    static async Task CountTokens(HttpContext http, SharplightServerContext ctx)
+    private static async Task CountTokens(HttpContext http, SharplightServerContext ctx)
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var req = ParseRequest(doc.RootElement, ctx, requireMaxTokens: false);
@@ -161,7 +203,7 @@ public static class AnthropicApi
         await HttpJson.WriteAsync(http, new JsonObject { ["input_tokens"] = SharplightServerContext.ChatOf(lease).CountTokens(req) });
     }
 
-    static async Task Messages(HttpContext http, SharplightServerContext ctx)
+    private static async Task Messages(HttpContext http, SharplightServerContext ctx)
     {
         using var doc = await HttpJson.ReadBodyAsync(http, ctx.Options.MaxRequestBodyBytes);
         var b = doc.RootElement;
@@ -180,10 +222,21 @@ public static class AnthropicApi
             if (c.Finish == ChatFinishReason.Error) { await ApiErrors.WriteAsync(http, 500, "api_error", c.Error ?? "Generation failed."); return; }
             if (c.Finish == ChatFinishReason.Cancelled) { await ApiErrors.WriteAsync(http, 529, "overloaded_error", "The request was cancelled because the server is shutting down."); return; }
             var content = new JsonArray();
-            if (c.Reasoning is not null) content.Add(new JsonObject { ["type"] = "thinking", ["thinking"] = c.Reasoning, ["signature"] = "" });
-            if (c.Content.Length > 0 || c.ToolCalls.Count == 0) content.Add(new JsonObject { ["type"] = "text", ["text"] = c.Content });
+            if (c.Reasoning is not null)
+            {
+                content.Add(new JsonObject { ["type"] = "thinking", ["thinking"] = c.Reasoning, ["signature"] = "" });
+            }
+
+            if (c.Content.Length > 0 || c.ToolCalls.Count == 0)
+            {
+                content.Add(new JsonObject { ["type"] = "text", ["text"] = c.Content });
+            }
+
             foreach (var t in c.ToolCalls)
+            {
                 content.Add(new JsonObject { ["type"] = "tool_use", ["id"] = ToolUseId(t.Id), ["name"] = t.Name, ["input"] = ParseInput(t.ArgumentsJson) });
+            }
+
             await HttpJson.WriteAsync(http, new JsonObject
             {
                 ["id"] = id, ["type"] = "message", ["role"] = "assistant", ["model"] = model, ["content"] = content,
@@ -208,9 +261,16 @@ public static class AnthropicApi
         int index = -1; string? open = null;   // open block type: text | thinking
         async Task Close()
         {
-            if (open is null) return;
+            if (open is null)
+            {
+                return;
+            }
+
             if (open == "thinking")
+            {
                 await sse.EventAsync("content_block_delta", new JsonObject { ["type"] = "content_block_delta", ["index"] = index, ["delta"] = new JsonObject { ["type"] = "signature_delta", ["signature"] = "" } });
+            }
+
             await sse.EventAsync("content_block_stop", new JsonObject { ["type"] = "content_block_stop", ["index"] = index });
             open = null;
         }
@@ -233,12 +293,20 @@ public static class AnthropicApi
         {
             if (e.Content is not null)
             {
-                if (open != "text") await Open("text");
+                if (open != "text")
+                {
+                    await Open("text");
+                }
+
                 await Delta("text_delta", "text", e.Content);
             }
             else if (e.Reasoning is not null)
             {
-                if (open != "thinking") await Open("thinking");
+                if (open != "thinking")
+                {
+                    await Open("thinking");
+                }
+
                 await Delta("thinking_delta", "thinking", e.Reasoning);
             }
             else if (e.ToolCall is { } t)
@@ -264,7 +332,11 @@ public static class AnthropicApi
                     });
                     return;
                 }
-                if (index < 0 && open is null) await Open("text");
+                if (index < 0 && open is null)
+                {
+                    await Open("text");
+                }
+
                 await Close();
                 var u = e.Usage ?? default;
                 await sse.EventAsync("message_delta", new JsonObject

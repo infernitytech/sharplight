@@ -1,13 +1,11 @@
 using Sharplight.Architectures;
-using Sharplight.Models;
-using Sharplight.Vision;
 
 namespace Sharplight.Vision.Tests;
 
 public class PreprocessorTests
 {
     /// <summary>Qwen3-VL family geometry: patch 16, merge 2 (factor 32), 48×48 learned positions, official pixel bounds.</summary>
-    static readonly VisionParameters Qwen = new()
+    private static readonly VisionParameters Qwen = new()
     {
         LayerCount = 1, HiddenSize = 64, FfnHiddenSize = 64, HeadCount = 1, PatchSize = 16, TemporalPatchSize = 2, SpatialMergeSize = 2,
         PositionEmbeddingCount = 2304, OutHiddenSize = 64, MinPixels = 65536, MaxPixels = 16777216,
@@ -38,7 +36,10 @@ public class PreprocessorTests
         int w = 64, h = 96;   // 4 × 6 patches
         var rgb = new byte[w * h * 3];
         for (int y = 0; y < h; y++)
+        {
             for (int x = 0; x < w; x++) { int o = (y * w + x) * 3; rgb[o] = (byte)x; rgb[o + 1] = (byte)y; rgb[o + 2] = 255; }
+        }
+
         var im = new VisionPreprocessor(p).Process(new ImageInput(w, h, rgb));
         Assert.Equal((6, 4, 3, 2), (im.GridHeight, im.GridWidth, im.MergedHeight, im.MergedWidth));
         Assert.Equal(24, im.PatchCount);
@@ -52,7 +53,9 @@ public class PreprocessorTests
         {
             int row = im.Positions[i * 2], col = im.Positions[i * 2 + 1];
             for (int c = 0; c < 3; c++)
+            {
                 for (int t = 0; t < 2; t++)
+                {
                     foreach (var (y, x) in new[] { (0, 0), (3, 5), (15, 15) })
                     {
                         int px = col * 16 + x, py = row * 16 + y;
@@ -61,6 +64,8 @@ public class PreprocessorTests
                         float got = im.Patches[i * K + ((c * 2 + t) * 16 + y) * 16 + x];
                         Assert.True(Math.Abs(got - expected) < 1e-5, $"patch {i} c{c} t{t} ({y},{x}): {got} vs {expected}");
                     }
+                }
+            }
         }
     }
 
@@ -96,13 +101,26 @@ public class PreprocessorTests
         {
             var r = VisionPreprocessor.ResizeBicubic(flat, 50, 30, w, h);
             Assert.Equal(w * h * 3, r.Length);
-            for (int i = 0; i < r.Length; i += 3) Assert.Equal((200, 100, 7), (r[i], r[i + 1], r[i + 2]));
+            for (int i = 0; i < r.Length; i += 3)
+            {
+                Assert.Equal((200, 100, 7), (r[i], r[i + 1], r[i + 2]));
+            }
         }
         var rnd = new byte[50 * 30 * 3]; new Random(1).NextBytes(rnd);
         Assert.Equal(rnd, VisionPreprocessor.ResizeBicubic(rnd, 50, 30, 50, 30));
         // 2× downscale of a 2-pixel checkerboard averages to mid-grey (antialiased filter).
         var chk = new byte[16 * 16 * 3];
-        for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) for (int c = 0; c < 3; c++) chk[(y * 16 + x) * 3 + c] = (byte)(((x + y) & 1) * 255);
+        for (int y = 0; y < 16; y++)
+        {
+            for (int x = 0; x < 16; x++)
+            {
+                for (int c = 0; c < 3; c++)
+                {
+                    chk[(y * 16 + x) * 3 + c] = (byte)(((x + y) & 1) * 255);
+                }
+            }
+        }
+
         var small = VisionPreprocessor.ResizeBicubic(chk, 16, 16, 4, 4);
         Assert.All(small, v => Assert.InRange((int)v, 120, 135));
     }
@@ -170,7 +188,14 @@ public class ReferencePreprocessingTests(ITestOutputHelper output)
         Assert.Equal(expected.Length, im.Patches.Length);
         var (abs, rel, rms) = Env.Compare(im.Patches, expected);
         // Values are in [-1, 1] steps of 2/255; our filter vs torch's antialiased bicubic differ by at most a rounding step.
-        long off = 0; for (int i = 0; i < expected.Length; i++) if (Math.Abs(im.Patches[i] - expected[i]) > 2.5f / 255) off++;
+        long off = 0; for (int i = 0; i < expected.Length; i++)
+        {
+            if (Math.Abs(im.Patches[i] - expected[i]) > 2.5f / 255)
+            {
+                off++;
+            }
+        }
+
         Console.Error.WriteLine($"preprocessing vs transformers (640x488 -> {im.Width}x{im.Height}): max abs {abs:E3}, relative RMS {rms:E3}, {off}/{expected.Length} values off by more than one 8-bit step");
         output.WriteLine($"max abs {abs}");
         Assert.True(abs < 0.05f);

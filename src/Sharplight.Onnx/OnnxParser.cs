@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.IO.MemoryMappedFiles;
-using System.Runtime.InteropServices;
 using Sharplight.Models;
 
 namespace Sharplight.Onnx;
@@ -8,22 +7,22 @@ namespace Sharplight.Onnx;
 /// <summary>Creates weight sources for byte ranges of the file being parsed.</summary>
 public interface IOnnxByteSliceProvider
 {
-    IWeightSource Slice(long offset, long length);
+    public IWeightSource Slice(long offset, long length);
 }
 
 /// <summary>Resolves <c>data_location = EXTERNAL</c> tensor data (usually a <c>.onnx.data</c> file next to the model).</summary>
 public interface IOnnxExternalDataResolver
 {
     /// <param name="length">Byte length, or -1 for "to the end of the file".</param>
-    IWeightSource Open(string location, long offset, long length);
+    public IWeightSource Open(string location, long offset, long length);
 }
 
 /// <summary>A read-only memory-mapped file whose address stays valid until disposed.</summary>
 public sealed unsafe class MappedFile : IDisposable
 {
-    readonly MemoryMappedFile _mmf;
-    readonly MemoryMappedViewAccessor _view;
-    byte* _base;
+    private readonly MemoryMappedFile _mmf;
+    private readonly MemoryMappedViewAccessor _view;
+    private byte* _base;
     public string Path { get; }
     public long Length { get; }
     public byte* Pointer => _base;
@@ -33,7 +32,11 @@ public sealed unsafe class MappedFile : IDisposable
         Path = path;
         var fi = new FileInfo(path);
         Length = fi.Length;
-        if (Length == 0) throw new InvalidDataException($"{path} is empty.");
+        if (Length == 0)
+        {
+            throw new InvalidDataException($"{path} is empty.");
+        }
+
         _mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
         _view = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
         _view.SafeMemoryMappedViewHandle.AcquirePointer(ref _base);
@@ -42,7 +45,11 @@ public sealed unsafe class MappedFile : IDisposable
 
     public ReadOnlySpan<byte> AsSpan(long offset = 0, long length = -1)
     {
-        if (length < 0) length = Length - offset;
+        if (length < 0)
+        {
+            length = Length - offset;
+        }
+
         return new ReadOnlySpan<byte>(_base + offset, checked((int)length));
     }
 
@@ -60,7 +67,11 @@ public sealed unsafe class MappedRegionSource(MappedFile file, long offset, long
     public long ByteLength => length;
     public void Read(long off, Span<byte> destination)
     {
-        if (off < 0 || off + destination.Length > length) throw new ArgumentOutOfRangeException(nameof(off));
+        if (off < 0 || off + destination.Length > length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(off));
+        }
+
         new ReadOnlySpan<byte>(file.Pointer + offset + off, destination.Length).CopyTo(destination);
     }
     public nint TryGetPointer() => (nint)(file.Pointer + offset);
@@ -69,21 +80,25 @@ public sealed unsafe class MappedRegionSource(MappedFile file, long offset, long
 /// <summary>An in-memory weight source (typed tensor data, tests).</summary>
 public sealed class ArrayWeightSource(byte[] data, int offset = 0, int length = -1) : IWeightSource
 {
-    readonly int _length = length < 0 ? data.Length - offset : length;
+    private readonly int _length = length < 0 ? data.Length - offset : length;
     public long ByteLength => _length;
     public void Read(long off, Span<byte> destination)
     {
-        if (off < 0 || off + destination.Length > _length) throw new ArgumentOutOfRangeException(nameof(off));
+        if (off < 0 || off + destination.Length > _length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(off));
+        }
+
         data.AsSpan(offset + (int)off, destination.Length).CopyTo(destination);
     }
 }
 
-sealed class ArraySliceProvider(byte[] data) : IOnnxByteSliceProvider
+internal sealed class ArraySliceProvider(byte[] data) : IOnnxByteSliceProvider
 {
     public IWeightSource Slice(long offset, long length) => new ArrayWeightSource(data, (int)offset, (int)length);
 }
 
-sealed class MappedSliceProvider(MappedFile file) : IOnnxByteSliceProvider
+internal sealed class MappedSliceProvider(MappedFile file) : IOnnxByteSliceProvider
 {
     public IWeightSource Slice(long offset, long length) => new MappedRegionSource(file, offset, length);
 }
@@ -120,10 +135,19 @@ public static class OnnxParser
                     var m = r.ReadMessage(); string d = ""; long v = 0;
                     while (m.Next(out int mf, out var mw))
                     {
-                        if (mf == 1 && mw == WireType.LengthDelimited) d = m.ReadString();
-                        else if (mf == 2 && mw == WireType.Varint) v = m.ReadInt64();
-                        else m.Skip(mw);
-                    }
+                        if (mf == 1 && mw == WireType.LengthDelimited)
+                            {
+                                d = m.ReadString();
+                            }
+                            else if (mf == 2 && mw == WireType.Varint)
+                            {
+                                v = m.ReadInt64();
+                            }
+                            else
+                            {
+                                m.Skip(mw);
+                            }
+                        }
                     opsets[d] = v;
                     break;
                 }
@@ -144,21 +168,30 @@ public static class OnnxParser
         };
     }
 
-    sealed record Ctx(long FileLength, IOnnxByteSliceProvider Slices, IOnnxExternalDataResolver? External);
+    private sealed record Ctx(long FileLength, IOnnxByteSliceProvider Slices, IOnnxExternalDataResolver? External);
 
-    static (string, string) ParseStringEntry(ProtoReader m)
+    private static (string, string) ParseStringEntry(ProtoReader m)
     {
         string k = "", v = "";
         while (m.Next(out int f, out var w))
         {
-            if (f == 1 && w == WireType.LengthDelimited) k = m.ReadString();
-            else if (f == 2 && w == WireType.LengthDelimited) v = m.ReadString();
-            else m.Skip(w);
+            if (f == 1 && w == WireType.LengthDelimited)
+            {
+                k = m.ReadString();
+            }
+            else if (f == 2 && w == WireType.LengthDelimited)
+            {
+                v = m.ReadString();
+            }
+            else
+            {
+                m.Skip(w);
+            }
         }
         return (k, v);
     }
 
-    static OnnxGraph ParseGraph(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
+    private static OnnxGraph ParseGraph(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
     {
         string name = "", doc = "";
         var nodes = new List<OnnxNode>();
@@ -184,7 +217,7 @@ public static class OnnxParser
         return new OnnxGraph { Name = name, DocString = doc, Nodes = nodes, Initializers = inits, Inputs = inputs, Outputs = outputs, ValueInfo = vi };
     }
 
-    static OnnxNode ParseNode(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
+    private static OnnxNode ParseNode(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
     {
         string name = "", op = "", domain = "";
         var ins = new List<string>(); var outs = new List<string>();
@@ -206,7 +239,7 @@ public static class OnnxParser
         return new OnnxNode { Name = name, OpType = op, Domain = domain, Inputs = ins, Outputs = outs, Attributes = attrs };
     }
 
-    static OnnxAttribute ParseAttribute(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
+    private static OnnxAttribute ParseAttribute(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
     {
         string name = ""; int type = 0; float fv = 0; long iv = 0; string? sv = null; OnnxTensor? t = null; OnnxGraph? g = null;
         var floats = new List<float>(); var ints = new List<long>(); var strs = new List<string>();
@@ -229,16 +262,22 @@ public static class OnnxParser
             }
         }
         if (type == 0)
+        {
             type = hasF ? 1 : hasI ? 2 : hasS ? 3 : hasT ? 4 : g is not null ? 5 : floats.Count > 0 ? 6 : ints.Count > 0 ? 7 : strs.Count > 0 ? 8 : 0;
+        }
+
         return new OnnxAttribute { Name = name, Type = (OnnxAttrType)type, F = fv, I = iv, S = sv, T = t, G = g, Floats = floats, Ints = ints, Strings = strs };
     }
 
-    static OnnxValueInfo ParseValueInfo(ProtoReader r)
+    private static OnnxValueInfo ParseValueInfo(ProtoReader r)
     {
         string name = ""; int elem = 0; List<OnnxDim>? shape = null;
         while (r.Next(out int f, out var w))
         {
-            if (f == 1 && w == WireType.LengthDelimited) name = r.ReadString();
+            if (f == 1 && w == WireType.LengthDelimited)
+            {
+                name = r.ReadString();
+            }
             else if (f == 2 && w == WireType.LengthDelimited)
             {
                 var type = r.ReadMessage();
@@ -249,7 +288,10 @@ public static class OnnxParser
                         var tt = type.ReadMessage();
                         while (tt.Next(out int ef, out var ew))
                         {
-                            if (ef == 1 && ew == WireType.Varint) elem = (int)tt.ReadInt64();
+                            if (ef == 1 && ew == WireType.Varint)
+                            {
+                                elem = (int)tt.ReadInt64();
+                            }
                             else if (ef == 2 && ew == WireType.LengthDelimited)
                             {
                                 shape = [];
@@ -261,25 +303,43 @@ public static class OnnxParser
                                     long? val = null; string? param = null;
                                     while (dm.Next(out int df, out var dw))
                                     {
-                                        if (df == 1 && dw == WireType.Varint) val = dm.ReadInt64();
-                                        else if (df == 2 && dw == WireType.LengthDelimited) param = dm.ReadString();
-                                        else dm.Skip(dw);
+                                        if (df == 1 && dw == WireType.Varint)
+                                        {
+                                            val = dm.ReadInt64();
+                                        }
+                                        else if (df == 2 && dw == WireType.LengthDelimited)
+                                        {
+                                            param = dm.ReadString();
+                                        }
+                                        else
+                                        {
+                                            dm.Skip(dw);
+                                        }
                                     }
                                     shape.Add(new OnnxDim(val, string.IsNullOrEmpty(param) ? null : param));
                                 }
                             }
-                            else tt.Skip(ew);
+                            else
+                            {
+                                tt.Skip(ew);
+                            }
                         }
                     }
-                    else type.Skip(tw);
+                    else
+                    {
+                        type.Skip(tw);
+                    }
                 }
             }
-            else r.Skip(w);
+            else
+            {
+                r.Skip(w);
+            }
         }
         return new OnnxValueInfo { Name = name, ElemType = elem, Shape = shape };
     }
 
-    static OnnxTensor ParseTensor(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
+    private static OnnxTensor ParseTensor(ProtoReader r, Ctx ctx, ReadOnlySpan<byte> data)
     {
         var dims = new List<long>();
         int dtype = 0; string name = "";
@@ -308,26 +368,54 @@ public static class OnnxParser
         }
         var dimsArr = dims.ToArray();
         long elems = 1;
-        foreach (var d in dimsArr) { if (d < 0) throw new InvalidDataException($"Tensor '{name}' has a negative dimension."); elems = checked(elems * d); }
+        foreach (var d in dimsArr) { if (d < 0) { throw new InvalidDataException($"Tensor '{name}' has a negative dimension."); } elems = checked(elems * d); }
 
         IWeightSource? src = null;
         if (dtype == OnnxType.String) { }
         else if (dataLocation == 1)
         {
-            if (!ext.TryGetValue("location", out var loc)) throw new InvalidDataException($"External tensor '{name}' has no location.");
+            if (!ext.TryGetValue("location", out var loc))
+            {
+                throw new InvalidDataException($"External tensor '{name}' has no location.");
+            }
+
             long off = ext.TryGetValue("offset", out var os) ? long.Parse(os) : 0;
             long len = ext.TryGetValue("length", out var ls) ? long.Parse(ls) : OnnxType.ElementSize(dtype) * elems;
-            if (ctx.External is null) throw new NotSupportedException($"Tensor '{name}' uses external data '{loc}' but no resolver is available.");
+            if (ctx.External is null)
+            {
+                throw new NotSupportedException($"Tensor '{name}' uses external data '{loc}' but no resolver is available.");
+            }
+
             src = ctx.External.Open(loc, off, len);
         }
-        else if (rawOff >= 0) src = ctx.Slices.Slice(rawOff, rawLen);
-        else if (dtype == OnnxType.Float && floatData.Count > 0) src = Bytes(floatData.Count * 4, s => { for (int i = 0; i < floatData.Count; i++) BinaryPrimitives.WriteSingleLittleEndian(s[(i * 4)..], floatData[i]); });
-        else if (dtype == OnnxType.Double && doubleData.Count > 0) src = Bytes(doubleData.Count * 8, s => { for (int i = 0; i < doubleData.Count; i++) BinaryPrimitives.WriteDoubleLittleEndian(s[(i * 8)..], doubleData[i]); });
-        else if (dtype == OnnxType.Int64 && int64Data.Count > 0) src = Bytes(int64Data.Count * 8, s => { for (int i = 0; i < int64Data.Count; i++) BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], int64Data[i]); });
+        else if (rawOff >= 0)
+        {
+            src = ctx.Slices.Slice(rawOff, rawLen);
+        }
+        else if (dtype == OnnxType.Float && floatData.Count > 0)
+        {
+            src = Bytes(floatData.Count * 4, s => { for (int i = 0; i < floatData.Count; i++) { BinaryPrimitives.WriteSingleLittleEndian(s[(i * 4)..], floatData[i]); } });
+        }
+        else if (dtype == OnnxType.Double && doubleData.Count > 0)
+        {
+            src = Bytes(doubleData.Count * 8, s => { for (int i = 0; i < doubleData.Count; i++) { BinaryPrimitives.WriteDoubleLittleEndian(s[(i * 8)..], doubleData[i]); } });
+        }
+        else if (dtype == OnnxType.Int64 && int64Data.Count > 0)
+        {
+            src = Bytes(int64Data.Count * 8, s => { for (int i = 0; i < int64Data.Count; i++) { BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], int64Data[i]); } });
+        }
         else if (dtype is OnnxType.UInt64 or OnnxType.UInt32 && uint64Data.Count > 0)
         {
             int es = OnnxType.ElementSize(dtype);
-            src = Bytes(uint64Data.Count * es, s => { for (int i = 0; i < uint64Data.Count; i++) { if (es == 8) BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], uint64Data[i]); else BinaryPrimitives.WriteUInt32LittleEndian(s[(i * 4)..], (uint)uint64Data[i]); } });
+            src = Bytes(uint64Data.Count * es, s => { for (int i = 0; i < uint64Data.Count; i++) { if (es == 8)
+                    {
+                        BinaryPrimitives.WriteInt64LittleEndian(s[(i * 8)..], uint64Data[i]);
+                    }
+                    else
+                    {
+                        BinaryPrimitives.WriteUInt32LittleEndian(s[(i * 4)..], (uint)uint64Data[i]);
+                    }
+                } });
         }
         else if (int32Data.Count > 0 && dtype is OnnxType.Int32 or OnnxType.Int16 or OnnxType.Int8 or OnnxType.UInt8 or OnnxType.UInt16 or OnnxType.Bool or OnnxType.Float16 or OnnxType.BFloat16)
         {
@@ -346,11 +434,20 @@ public static class OnnxParser
                 }
             });
         }
-        else if (elems == 0 && dtype != OnnxType.String) src = new ArrayWeightSource([]);
-        else if (dtype != OnnxType.String) throw new InvalidDataException($"Tensor '{name}' ({OnnxType.Name(dtype)}) carries no data.");
+        else if (elems == 0 && dtype != OnnxType.String)
+        {
+            src = new ArrayWeightSource([]);
+        }
+        else if (dtype != OnnxType.String)
+        {
+            throw new InvalidDataException($"Tensor '{name}' ({OnnxType.Name(dtype)}) carries no data.");
+        }
 
         if (src is not null && dtype != OnnxType.String && src.ByteLength != OnnxType.ElementSize(dtype) * elems)
+        {
             throw new InvalidDataException($"Tensor '{name}': {src.ByteLength} data bytes for {elems} {OnnxType.Name(dtype)} elements.");
+        }
+
         return new OnnxTensor { Name = name, ElemType = dtype, Dims = dimsArr, Source = src };
 
         static ArrayWeightSource Bytes(int n, Action<Span<byte>> fill) { var b = new byte[n]; fill(b); return new ArrayWeightSource(b); }

@@ -6,16 +6,15 @@ using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 using Sharplight.Templating;
-using Sharplight.Vision;
 
 namespace Sharplight.Vision.Tests;
 
 /// <summary>Image → text with real models (skipped when the model files are absent): greedy descriptions of the shapes test image.</summary>
 public class EndToEndTests
 {
-    const string Question = "Describe this image.";
+    private const string Question = "Describe this image.";
 
-    static string Describe(LlmModel model, ImageInput image, int maxTokens = 48, bool imageFirst = true)
+    private static string Describe(LlmModel model, ImageInput image, int maxTokens = 48, bool imageFirst = true)
     {
         using var vision = model.CreateVisionEncoder();
         using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
@@ -24,11 +23,15 @@ public class EndToEndTests
         var prompt = template.Render([new ChatMessage("user", Parts: [ChatContentPart.Image(), ChatContentPart.FromText(Question)])], addGenerationPrompt: true,
             new Dictionary<string, object?> { ["enable_thinking"] = false });
         var sb = new StringBuilder();
-        foreach (var t in gen.Generate(prompt, [image], new GenerationOptions { MaxNewTokens = maxTokens, Sampling = SamplingOptions.Greedy })) sb.Append(t.Text);
+        foreach (var t in gen.Generate(prompt, [image], new GenerationOptions { MaxNewTokens = maxTokens, Sampling = SamplingOptions.Greedy }))
+        {
+            sb.Append(t.Text);
+        }
+
         return sb.ToString();
     }
 
-    static void AssertShapes(string text)
+    private static void AssertShapes(string text)
     {
         Console.Error.WriteLine("  -> " + text.ReplaceLineEndings(" ")[..Math.Min(160, text.Length)]);
         Assert.Contains("red", text, StringComparison.OrdinalIgnoreCase);
@@ -37,7 +40,7 @@ public class EndToEndTests
         Assert.Contains("square", text, StringComparison.OrdinalIgnoreCase);
     }
 
-    static LlmLoadOptions Options(DeviceSlot slot, params (string, string)[] aux) => new() { Devices = [slot], ContextLength = 1024, MaxBatchTokens = 256, Auxiliary = aux, ImageTokens = new ImageTokenLimits(null, 256) };
+    private static LlmLoadOptions Options(DeviceSlot slot, params (string, string)[] aux) => new() { Devices = [slot], ContextLength = 1024, MaxBatchTokens = 256, Auxiliary = aux, ImageTokens = new ImageTokenLimits(null, 256) };
 
     [Fact]
     public void Hf_0_8b_on_cpu_describes_the_image_and_survives_a_package_round_trip()
@@ -110,7 +113,11 @@ public class EndToEndTests
         {
             using var session = model.CreateSession(graph);
             var sb = new StringBuilder();
-            foreach (var t in new Generator(session, model.Tokenizer).Generate("The capital of France is", new GenerationOptions { MaxNewTokens = 8, Sampling = SamplingOptions.Greedy })) sb.Append(t.Text);
+            foreach (var t in new Generator(session, model.Tokenizer).Generate("The capital of France is", new GenerationOptions { MaxNewTokens = 8, Sampling = SamplingOptions.Greedy }))
+            {
+                sb.Append(t.Text);
+            }
+
             return sb.ToString();
         }
         var plain = Run(WellKnown.DecodeGraph);

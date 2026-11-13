@@ -14,7 +14,7 @@ internal static class OnnxFold
         "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin",
     ];
 
-    static readonly Dictionary<string, Func<double, double>> s_math = new()
+    private static readonly Dictionary<string, Func<double, double>> s_math = new()
     {
         ["Sin"] = Math.Sin, ["Cos"] = Math.Cos, ["Tan"] = Math.Tan, ["Asin"] = Math.Asin, ["Acos"] = Math.Acos, ["Atan"] = Math.Atan,
         ["Sinh"] = Math.Sinh, ["Cosh"] = Math.Cosh, ["Asinh"] = Math.Asinh, ["Acosh"] = Math.Acosh, ["Atanh"] = Math.Atanh,
@@ -22,13 +22,17 @@ internal static class OnnxFold
         ["Softsign"] = v => v / (1 + Math.Abs(v)),
     };
 
-    static bool IsSym(long v) => v == OnnxConst.SymBatch;
+    private static bool IsSym(long v) => v == OnnxConst.SymBatch;
 
     public static IReadOnlyList<OnnxConst> Eval(OnnxNode n, IReadOnlyList<OnnxConst?> ins, long opset)
     {
         OnnxConst X(int i) => i < ins.Count && ins[i] is { } c ? c : throw new InvalidDataException($"{n.OpType} '{n.Name}': missing input {i}.");
         OnnxConst? Opt(int i) => i < ins.Count ? ins[i] : null;
-        if (s_math.TryGetValue(n.OpType, out var mf)) return [UnF(X(0), mf)];
+        if (s_math.TryGetValue(n.OpType, out var mf))
+        {
+            return [UnF(X(0), mf)];
+        }
+
         switch (n.OpType)
         {
             case "IsNaN": return [OnnxConst.FromInts(OnnxType.Bool, X(0).Dims, X(0).Floats().Select(v => double.IsNaN(v) ? 1L : 0L).ToArray())];
@@ -43,14 +47,22 @@ internal static class OnnxFold
             {
                 var x = X(0); var rep = X(1).Ints();
                 var dims = x.Dims.Select((d, i) => d * rep[i]).ToArray();
-                long total = 1; foreach (var d in dims) total *= d;
-                var map = new long[total]; var idx = new long[x.Rank];
+                long total = 1; foreach (var d in dims)
+                    {
+                        total *= d;
+                    }
+
+                    var map = new long[total]; var idx = new long[x.Rank];
                 var st = new long[x.Rank]; long q = 1; for (int d = x.Rank - 1; d >= 0; d--) { st[d] = q; q *= x.Dims[d]; }
                 for (long o = 0; o < total; o++)
                 {
-                    long p = 0; for (int d = 0; d < x.Rank; d++) p += (idx[d] % x.Dims[d]) * st[d];
-                    map[o] = p;
-                    for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < dims[d]) break; idx[d] = 0; }
+                    long p = 0; for (int d = 0; d < x.Rank; d++)
+                        {
+                            p += (idx[d] % x.Dims[d]) * st[d];
+                        }
+
+                        map[o] = p;
+                    for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < dims[d]) { break; } idx[d] = 0; }
                 }
                 return [x.IsFloat ? OnnxConst.FromFloats(x.ElemType, dims, map.Select(p => x.Floats()[p]).ToArray()) : OnnxConst.FromInts(x.ElemType, dims, map.Select(p => x.Ints()[p]).ToArray())];
             }
@@ -71,40 +83,80 @@ internal static class OnnxFold
                 var x = X(0); long k = n.Int("k", 0);
                 int et = n.Has("dtype") ? (int)n.Int("dtype", OnnxType.Float) : x.ElemType;
                 var v = new double[x.Count];
-                for (long r = 0; r < x.Dims[0]; r++) { long c = r + k; if (c >= 0 && c < x.Dims[1]) v[r * x.Dims[1] + c] = 1; }
+                for (long r = 0; r < x.Dims[0]; r++) { long c = r + k; if (c >= 0 && c < x.Dims[1])
+                        {
+                            v[r * x.Dims[1] + c] = 1;
+                        }
+                    }
                 return [OnnxConst.FromFloats(OnnxType.Float, x.Dims, v).CastTo(et)];
             }
             case "CastLike": return [X(0).CastTo(X(1).ElemType)];
             case "ArgMax": case "ArgMin":
             {
-                var x = X(0); int axis = (int)n.Int("axis", 0); if (axis < 0) axis += x.Rank;
-                bool keep = n.Int("keepdims", 1) != 0; bool last = n.Int("select_last_index", 0) != 0;
-                long outer = 1, inner = 1; for (int i = 0; i < axis; i++) outer *= x.Dims[i]; for (int i = axis + 1; i < x.Rank; i++) inner *= x.Dims[i];
-                long len = x.Dims[axis]; var f = x.Floats(); var r = new long[outer * inner];
-                for (long o = 0; o < outer; o++) for (long i = 0; i < inner; i++)
+                var x = X(0); int axis = (int)n.Int("axis", 0); if (axis < 0)
+                    {
+                        axis += x.Rank;
+                    }
+
+                    bool keep = n.Int("keepdims", 1) != 0; bool last = n.Int("select_last_index", 0) != 0;
+                long outer = 1, inner = 1; for (int i = 0; i < axis; i++)
+                    {
+                        outer *= x.Dims[i];
+                    }
+
+                    for (int i = axis + 1; i < x.Rank; i++)
+                    {
+                        inner *= x.Dims[i];
+                    }
+
+                    long len = x.Dims[axis]; var f = x.Floats(); var r = new long[outer * inner];
+                for (long o = 0; o < outer; o++)
+                    {
+                        for (long i = 0; i < inner; i++)
                 {
                     long best = 0;
                     for (long j = 1; j < len; j++)
                     {
                         double a = f[(o * len + j) * inner + i], b = f[(o * len + best) * inner + i];
                         bool better = n.OpType == "ArgMax" ? (last ? a >= b : a > b) : (last ? a <= b : a < b);
-                        if (better) best = j;
-                    }
+                        if (better)
+                                {
+                                    best = j;
+                                }
+                            }
                     r[o * inner + i] = best;
                 }
-                var dims = x.Dims.ToList(); if (keep) dims[axis] = 1; else dims.RemoveAt(axis);
-                return [OnnxConst.FromInts(OnnxType.Int64, [.. dims], r)];
+                    }
+
+                    var dims = x.Dims.ToList(); if (keep)
+                    {
+                        dims[axis] = 1;
+                    }
+                    else
+                    {
+                        dims.RemoveAt(axis);
+                    }
+
+                    return [OnnxConst.FromInts(OnnxType.Int64, [.. dims], r)];
             }
             case "DequantizeLinear": return [Dequantize(X(0), X(1), Opt(2), (int)n.Int("axis", 1))];
             case "QuantizeLinear":
             {
                 var x = X(0); var sc = X(1); var zp = Opt(2);
                 int et = zp?.ElemType ?? OnnxType.UInt8;
-                int axis = (int)n.Int("axis", 1); if (axis < 0) axis += x.Rank;
-                var (lo, hi) = Range(et);
+                int axis = (int)n.Int("axis", 1); if (axis < 0)
+                    {
+                        axis += x.Rank;
+                    }
+
+                    var (lo, hi) = Range(et);
                 var f = x.Floats(); var s = sc.Floats(); var z = zp?.Floats();
-                long inner = 1; for (int i = axis + 1; i < x.Rank; i++) inner *= x.Dims[i];
-                long ax = x.Rank == 0 ? 1 : x.Dims[axis];
+                long inner = 1; for (int i = axis + 1; i < x.Rank; i++)
+                    {
+                        inner *= x.Dims[i];
+                    }
+
+                    long ax = x.Rank == 0 ? 1 : x.Dims[axis];
                 var r = new long[f.Length];
                 for (long i = 0; i < f.Length; i++)
                 {
@@ -122,8 +174,17 @@ internal static class OnnxFold
             {
                 var d = X(0).Dims;
                 long s = n.Int("start", 0), e = n.Int("end", d.Length);
-                if (s < 0) s += d.Length; if (e < 0) e += d.Length;
-                s = Math.Clamp(s, 0, d.Length); e = Math.Clamp(e, s, d.Length);
+                if (s < 0)
+                    {
+                        s += d.Length;
+                    }
+
+                    if (e < 0)
+                    {
+                        e += d.Length;
+                    }
+
+                    s = Math.Clamp(s, 0, d.Length); e = Math.Clamp(e, s, d.Length);
                 return [OnnxConst.FromInts(OnnxType.Int64, [e - s], d[(int)s..(int)e])];
             }
             case "Size": return [OnnxConst.ScalarInt(X(0).Count)];
@@ -137,8 +198,12 @@ internal static class OnnxFold
                 Func<double, double, double> f = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
                 Func<long, long, long> g = n.OpType == "Max" ? Math.Max : n.OpType == "Min" ? Math.Min : (a, b) => a + b;
                 var r = X(0);
-                for (int i = 1; i < ins.Count; i++) r = Bin(r, X(i), f, g);
-                return [r];
+                for (int i = 1; i < ins.Count; i++)
+                    {
+                        r = Bin(r, X(i), f, g);
+                    }
+
+                    return [r];
             }
             case "Equal": return [Cmp(X(0), X(1), (a, b) => a == b)];
             case "Less": return [Cmp(X(0), X(1), (a, b) => a < b)];
@@ -205,20 +270,46 @@ internal static class OnnxFold
                 long known = 1; int infer = -1;
                 for (int i = 0; i < req.Length; i++)
                 {
-                    if (req[i] == 0 && !allowZero) dims[i] = x.Dims[i];
-                    else if (req[i] == -1) { infer = i; continue; }
-                    else dims[i] = req[i];
-                    known *= dims[i];
+                    if (req[i] == 0 && !allowZero)
+                        {
+                            dims[i] = x.Dims[i];
+                        }
+                        else if (req[i] == -1) { infer = i; continue; }
+                    else
+                        {
+                            dims[i] = req[i];
+                        }
+
+                        known *= dims[i];
                 }
-                if (infer >= 0) dims[infer] = known == 0 ? 0 : x.Count / known;
-                return [x.Reshaped(dims)];
+                if (infer >= 0)
+                    {
+                        dims[infer] = known == 0 ? 0 : x.Count / known;
+                    }
+
+                    return [x.Reshaped(dims)];
             }
             case "Flatten":
             {
-                var x = X(0); int axis = (int)n.Int("axis", 1); if (axis < 0) axis += x.Rank;
-                long a = 1, b = 1;
-                for (int i = 0; i < x.Rank; i++) if (i < axis) a *= x.Dims[i]; else b *= x.Dims[i];
-                return [x.Reshaped([a, b])];
+                var x = X(0); int axis = (int)n.Int("axis", 1); if (axis < 0)
+                    {
+                        axis += x.Rank;
+                    }
+
+                    long a = 1, b = 1;
+                for (int i = 0; i < x.Rank; i++)
+                    {
+                        if (i < axis)
+                        {
+                            a *= x.Dims[i];
+                        }
+                        else
+                        {
+                            b *= x.Dims[i];
+                        }
+                    }
+
+                    return [x.Reshaped([a, b])];
             }
             case "Transpose":
             {
@@ -239,18 +330,30 @@ internal static class OnnxFold
                 else
                 {
                     long a = s.Ints()[0], b = l.Ints()[0], st = d.Ints()[0];
-                    if (IsSym(a) || IsSym(b) || IsSym(st)) throw new NotSupportedException("Range over the symbolic batch size is not supported.");
-                    long cnt = Math.Max(0, (b - a + st - (st > 0 ? 1 : -1)) / st);
+                    if (IsSym(a) || IsSym(b) || IsSym(st))
+                        {
+                            throw new NotSupportedException("Range over the symbolic batch size is not supported.");
+                        }
+
+                        long cnt = Math.Max(0, (b - a + st - (st > 0 ? 1 : -1)) / st);
                     return [OnnxConst.FromInts(s.ElemType, [cnt], Enumerable.Range(0, (int)cnt).Select(i => a + i * st).ToArray())];
                 }
             }
             case "ConstantOfShape":
             {
                 var dims = X(0).Ints();
-                if (dims.Any(IsSym)) throw new NotSupportedException($"ConstantOfShape '{n.Name}' depends on the symbolic batch size.");
-                var v = n.Tensor("value") is { } t ? OnnxConst.FromTensor(t) : OnnxConst.Scalar(0);
-                long cnt = 1; foreach (var d in dims) cnt *= d;
-                return [v.IsFloat ? OnnxConst.FromFloats(v.ElemType, dims, Enumerable.Repeat(v.Floats()[0], (int)cnt).ToArray())
+                if (dims.Any(IsSym))
+                    {
+                        throw new NotSupportedException($"ConstantOfShape '{n.Name}' depends on the symbolic batch size.");
+                    }
+
+                    var v = n.Tensor("value") is { } t ? OnnxConst.FromTensor(t) : OnnxConst.Scalar(0);
+                long cnt = 1; foreach (var d in dims)
+                    {
+                        cnt *= d;
+                    }
+
+                    return [v.IsFloat ? OnnxConst.FromFloats(v.ElemType, dims, Enumerable.Repeat(v.Floats()[0], (int)cnt).ToArray())
                                   : OnnxConst.FromInts(v.ElemType, dims, Enumerable.Repeat(v.Ints()[0], (int)cnt).ToArray())];
             }
             case "Split": return Split(n, X(0), Opt(1));
@@ -269,9 +372,17 @@ internal static class OnnxFold
     /// <summary>(x - zero_point) * scale with per-tensor or per-axis scale.</summary>
     public static OnnxConst Dequantize(OnnxConst x, OnnxConst sc, OnnxConst? zp, int axis)
     {
-        if (axis < 0) axis += x.Rank;
+        if (axis < 0)
+        {
+            axis += x.Rank;
+        }
+
         var f = x.Floats(); var s = sc.Floats(); var z = zp?.Floats();
-        long inner = 1; for (int i = axis + 1; i < x.Rank; i++) inner *= x.Dims[i];
+        long inner = 1; for (int i = axis + 1; i < x.Rank; i++)
+        {
+            inner *= x.Dims[i];
+        }
+
         long ax = x.Rank == 0 ? 1 : x.Dims[axis];
         var r = new double[f.Length];
         for (long i = 0; i < f.Length; i++)
@@ -284,10 +395,22 @@ internal static class OnnxFold
 
     public static OnnxConst ConstantValue(OnnxNode n)
     {
-        if (n.Tensor("value") is { } t) return OnnxConst.FromTensor(t);
-        if (n.Has("value_float")) return OnnxConst.Scalar(n.Float("value_float", 0));
+        if (n.Tensor("value") is { } t)
+        {
+            return OnnxConst.FromTensor(t);
+        }
+
+        if (n.Has("value_float"))
+        {
+            return OnnxConst.Scalar(n.Float("value_float", 0));
+        }
+
         if (n.Has("value_floats")) { var f = n.Floats("value_floats")!; return OnnxConst.FromFloats(OnnxType.Float, [f.Length], f.Select(v => (double)v).ToArray()); }
-        if (n.Has("value_int")) return OnnxConst.ScalarInt(n.Int("value_int", 0));
+        if (n.Has("value_int"))
+        {
+            return OnnxConst.ScalarInt(n.Int("value_int", 0));
+        }
+
         if (n.Has("value_ints")) { var i = n.Ints("value_ints")!; return OnnxConst.FromInts(OnnxType.Int64, [i.Length], i); }
         throw new NotSupportedException($"Constant node '{n.Name}' has no supported value attribute.");
     }
@@ -301,13 +424,17 @@ internal static class OnnxFold
         {
             long da = k - (r - a.Length) >= 0 ? a[k - (r - a.Length)] : 1;
             long db = k - (r - b.Length) >= 0 ? b[k - (r - b.Length)] : 1;
-            if (IsSym(db)) db = da; // Expand target holding the symbolic batch: keep source extent logic elsewhere
+            if (IsSym(db))
+            {
+                db = da; // Expand target holding the symbolic batch: keep source extent logic elsewhere
+            }
+
             o[k] = da == db ? da : da == 1 ? db : db == 1 ? da : throw new ArgumentException($"Shapes [{string.Join(",", a)}] and [{string.Join(",", b)}] do not broadcast.");
         }
         return o;
     }
 
-    static long[] StridesFor(long[] dims, long[] outDims)
+    private static long[] StridesFor(long[] dims, long[] outDims)
     {
         int r = outDims.Length;
         var st = new long[r];
@@ -322,11 +449,15 @@ internal static class OnnxFold
     }
 
     /// <summary>Calls <paramref name="f"/>(outIndex, aIndex, bIndex) for every element of the broadcast result.</summary>
-    static void ForEachBroadcast(long[] da, long[] db, long[] outDims, Action<long, long, long> f)
+    private static void ForEachBroadcast(long[] da, long[] db, long[] outDims, Action<long, long, long> f)
     {
         int r = outDims.Length;
         var sa = StridesFor(da, outDims); var sb = StridesFor(db, outDims);
-        long total = 1; foreach (var d in outDims) total *= d;
+        long total = 1; foreach (var d in outDims)
+        {
+            total *= d;
+        }
+
         var idx = new long[r];
         long pa = 0, pb = 0;
         for (long o = 0; o < total; o++)
@@ -335,16 +466,28 @@ internal static class OnnxFold
             for (int d = r - 1; d >= 0; d--)
             {
                 idx[d]++; pa += sa[d]; pb += sb[d];
-                if (idx[d] < outDims[d]) break;
+                if (idx[d] < outDims[d])
+                {
+                    break;
+                }
+
                 pa -= sa[d] * outDims[d]; pb -= sb[d] * outDims[d]; idx[d] = 0;
             }
         }
     }
 
-    static OnnxConst ExpandTo(OnnxConst x, long[] dims)
+    private static OnnxConst ExpandTo(OnnxConst x, long[] dims)
     {
-        if (x.Dims.SequenceEqual(dims)) return x;
-        long total = 1; foreach (var d in dims) total *= d;
+        if (x.Dims.SequenceEqual(dims))
+        {
+            return x;
+        }
+
+        long total = 1; foreach (var d in dims)
+        {
+            total *= d;
+        }
+
         if (x.IsFloat)
         {
             var src = x.Floats(); var dst = new double[total];
@@ -359,16 +502,27 @@ internal static class OnnxFold
         }
     }
 
-    static OnnxConst Bin(OnnxConst a, OnnxConst b, Func<double, double, double> ff, Func<long, long, long> fi)
+    private static OnnxConst Bin(OnnxConst a, OnnxConst b, Func<double, double, double> ff, Func<long, long, long> fi)
     {
         var dims = Broadcast(a.Dims, b.Dims);
-        long total = 1; foreach (var d in dims) total *= d;
+        long total = 1; foreach (var d in dims)
+        {
+            total *= d;
+        }
+
         if (a.IsFloat || b.IsFloat)
         {
             var av = a.Floats(); var bv = b.Floats(); var r = new double[total];
             ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) => r[o] = ff(av[i], bv[j]));
             int et = a.IsFloat ? a.ElemType : b.ElemType;
-            if (et == OnnxType.Float) for (long i = 0; i < total; i++) r[i] = (float)r[i];
+            if (et == OnnxType.Float)
+            {
+                for (long i = 0; i < total; i++)
+                {
+                    r[i] = (float)r[i];
+                }
+            }
+
             return OnnxConst.FromFloats(et, dims, r);
         }
         else
@@ -376,27 +530,35 @@ internal static class OnnxFold
             var av = a.Ints(); var bv = b.Ints(); var r = new long[total];
             ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) =>
             {
-                if (IsSym(av[i]) || IsSym(bv[j])) throw new NotSupportedException("Arithmetic on the symbolic batch size is not supported; the model computes with a dynamic batch dimension.");
+                if (IsSym(av[i]) || IsSym(bv[j]))
+                {
+                    throw new NotSupportedException("Arithmetic on the symbolic batch size is not supported; the model computes with a dynamic batch dimension.");
+                }
+
                 r[o] = fi(av[i], bv[j]);
             });
             return OnnxConst.FromInts(a.ElemType, dims, r);
         }
     }
 
-    static OnnxConst Cmp(OnnxConst a, OnnxConst b, Func<double, double, bool> f)
+    private static OnnxConst Cmp(OnnxConst a, OnnxConst b, Func<double, double, bool> f)
     {
         var dims = Broadcast(a.Dims, b.Dims);
-        long total = 1; foreach (var d in dims) total *= d;
+        long total = 1; foreach (var d in dims)
+        {
+            total *= d;
+        }
+
         var av = a.Floats(); var bv = b.Floats(); var r = new long[total];
         ForEachBroadcast(a.Dims, b.Dims, dims, (o, i, j) => r[o] = f(av[i], bv[j]) ? 1 : 0);
         return OnnxConst.FromInts(OnnxType.Bool, dims, r);
     }
 
-    static OnnxConst Un(OnnxConst x, Func<double, double> ff, Func<long, long> fi)
+    private static OnnxConst Un(OnnxConst x, Func<double, double> ff, Func<long, long> fi)
         => x.IsFloat ? OnnxConst.FromFloats(x.ElemType, x.Dims, x.Floats().Select(ff).ToArray())
                      : OnnxConst.FromInts(x.ElemType, x.Dims, x.Ints().Select(fi).ToArray());
 
-    static OnnxConst UnF(OnnxConst x, Func<double, double> f)
+    private static OnnxConst UnF(OnnxConst x, Func<double, double> f)
     {
         int et = x.IsFloat ? x.ElemType : OnnxType.Float;
         return OnnxConst.FromFloats(et, x.Dims, x.Floats().Select(v => et == OnnxType.Float ? (double)(float)f(v) : f(v)).ToArray());
@@ -405,7 +567,11 @@ internal static class OnnxFold
     public static double Erf(double x)
     {
         // Abramowitz-Stegun 7.1.26 is too coarse; use a series/continued-fraction hybrid.
-        if (double.IsNaN(x)) return x;
+        if (double.IsNaN(x))
+        {
+            return x;
+        }
+
         double ax = Math.Abs(x);
         double r;
         if (ax < 2.5)
@@ -417,7 +583,11 @@ internal static class OnnxFold
         else
         {
             double t = 0;
-            for (int k = 60; k >= 1; k--) t = k / 2.0 / (ax + t);
+            for (int k = 60; k >= 1; k--)
+            {
+                t = k / 2.0 / (ax + t);
+            }
+
             r = 1 - Math.Exp(-ax * ax) / Math.Sqrt(Math.PI) / (ax + t);
         }
         return x < 0 ? -r : r;
@@ -429,7 +599,11 @@ internal static class OnnxFold
         var set = axes.Select(a => (int)(a < 0 ? a + outRank : a)).ToHashSet();
         var o = new long[outRank];
         int j = 0;
-        for (int i = 0; i < outRank; i++) o[i] = set.Contains(i) ? 1 : dims[j++];
+        for (int i = 0; i < outRank; i++)
+        {
+            o[i] = set.Contains(i) ? 1 : dims[j++];
+        }
+
         return o;
     }
 
@@ -438,16 +612,34 @@ internal static class OnnxFold
         var set = axes is null ? null : axes.Select(a => (int)(a < 0 ? a + dims.Length : a)).ToHashSet();
         var o = new List<long>();
         for (int i = 0; i < dims.Length; i++)
-            if (set is null ? dims[i] != 1 : !set.Contains(i)) o.Add(dims[i]);
+        {
+            if (set is null ? dims[i] != 1 : !set.Contains(i))
+            {
+                o.Add(dims[i]);
+            }
+        }
+
         return [.. o];
     }
 
-    static OnnxConst Gather(OnnxConst data, OnnxConst indices, int axis)
+    private static OnnxConst Gather(OnnxConst data, OnnxConst indices, int axis)
     {
-        if (axis < 0) axis += data.Rank;
+        if (axis < 0)
+        {
+            axis += data.Rank;
+        }
+
         long outer = 1, inner = 1;
-        for (int i = 0; i < axis; i++) outer *= data.Dims[i];
-        for (int i = axis + 1; i < data.Rank; i++) inner *= data.Dims[i];
+        for (int i = 0; i < axis; i++)
+        {
+            outer *= data.Dims[i];
+        }
+
+        for (int i = axis + 1; i < data.Rank; i++)
+        {
+            inner *= data.Dims[i];
+        }
+
         long dimA = data.Dims[axis];
         var idx = indices.Ints().Select(v => v < 0 ? v + dimA : v).ToArray();
         var dims = data.Dims[..axis].Concat(indices.Dims).Concat(data.Dims[(axis + 1)..]).ToArray();
@@ -455,35 +647,63 @@ internal static class OnnxFold
         if (data.IsFloat)
         {
             var src = data.Floats(); var dst = new double[total]; long p = 0;
-            for (long o = 0; o < outer; o++) foreach (var ix in idx) { CheckIdx(ix, dimA); Array.Copy(src, (o * dimA + ix) * inner, dst, p, inner); p += inner; }
+            for (long o = 0; o < outer; o++)
+            {
+                foreach (var ix in idx) { CheckIdx(ix, dimA); Array.Copy(src, (o * dimA + ix) * inner, dst, p, inner); p += inner; }
+            }
+
             return OnnxConst.FromFloats(data.ElemType, dims, dst);
         }
         else
         {
             var src = data.Ints(); var dst = new long[total]; long p = 0;
-            for (long o = 0; o < outer; o++) foreach (var ix in idx) { CheckIdx(ix, dimA); Array.Copy(src, (o * dimA + ix) * inner, dst, p, inner); p += inner; }
+            for (long o = 0; o < outer; o++)
+            {
+                foreach (var ix in idx) { CheckIdx(ix, dimA); Array.Copy(src, (o * dimA + ix) * inner, dst, p, inner); p += inner; }
+            }
+
             return OnnxConst.FromInts(data.ElemType, dims, dst);
         }
     }
 
-    static void CheckIdx(long ix, long dim) { if (ix < 0 || ix >= dim) throw new IndexOutOfRangeException($"Gather index {ix} out of range [0, {dim})."); }
+    private static void CheckIdx(long ix, long dim) { if (ix < 0 || ix >= dim)
+        {
+            throw new IndexOutOfRangeException($"Gather index {ix} out of range [0, {dim}).");
+        }
+    }
 
-    static OnnxConst Concat(List<OnnxConst> xs, int axis)
+    private static OnnxConst Concat(List<OnnxConst> xs, int axis)
     {
         int rank = xs[0].Rank;
-        if (axis < 0) axis += rank;
-        long outer = 1; for (int i = 0; i < axis; i++) outer *= xs[0].Dims[i];
+        if (axis < 0)
+        {
+            axis += rank;
+        }
+
+        long outer = 1; for (int i = 0; i < axis; i++)
+        {
+            outer *= xs[0].Dims[i];
+        }
+
         var dims = (long[])xs[0].Dims.Clone();
         dims[axis] = xs.Sum(x => x.Dims[axis]);
         bool fl = xs.Any(x => x.IsFloat);
         int et = fl ? xs.First(x => x.IsFloat).ElemType : xs[0].ElemType;
-        long total = 1; foreach (var d in dims) total *= d;
+        long total = 1; foreach (var d in dims)
+        {
+            total *= d;
+        }
+
         if (fl)
         {
             var dst = new double[total]; long p = 0;
             var arrs = xs.Select(x => x.Floats()).ToList();
             var chunk = xs.Select(x => x.Count / Math.Max(outer, 1)).ToList();
-            for (long o = 0; o < outer; o++) for (int k = 0; k < xs.Count; k++) { Array.Copy(arrs[k], o * chunk[k], dst, p, chunk[k]); p += chunk[k]; }
+            for (long o = 0; o < outer; o++)
+            {
+                for (int k = 0; k < xs.Count; k++) { Array.Copy(arrs[k], o * chunk[k], dst, p, chunk[k]); p += chunk[k]; }
+            }
+
             return OnnxConst.FromFloats(et, dims, dst);
         }
         else
@@ -491,7 +711,11 @@ internal static class OnnxFold
             var dst = new long[total]; long p = 0;
             var arrs = xs.Select(x => x.Ints()).ToList();
             var chunk = xs.Select(x => x.Count / Math.Max(outer, 1)).ToList();
-            for (long o = 0; o < outer; o++) for (int k = 0; k < xs.Count; k++) { Array.Copy(arrs[k], o * chunk[k], dst, p, chunk[k]); p += chunk[k]; }
+            for (long o = 0; o < outer; o++)
+            {
+                for (int k = 0; k < xs.Count; k++) { Array.Copy(arrs[k], o * chunk[k], dst, p, chunk[k]); p += chunk[k]; }
+            }
+
             return OnnxConst.FromInts(et, dims, dst);
         }
     }
@@ -499,14 +723,22 @@ internal static class OnnxFold
     /// <summary>Normalized (start, length) of an ONNX slice range on a dimension of extent <paramref name="dim"/>.</summary>
     public static (long Start, long Length) SliceRange(long start, long end, long dim)
     {
-        if (start < 0) start += dim;
-        if (end < 0) end += dim;
+        if (start < 0)
+        {
+            start += dim;
+        }
+
+        if (end < 0)
+        {
+            end += dim;
+        }
+
         start = Math.Clamp(start, 0, dim);
         end = Math.Clamp(end, 0, dim);
         return (start, Math.Max(0, end - start));
     }
 
-    static OnnxConst Slice(OnnxNode n, IReadOnlyList<OnnxConst?> ins, long opset)
+    private static OnnxConst Slice(OnnxNode n, IReadOnlyList<OnnxConst?> ins, long opset)
     {
         var x = ins[0]!;
         long[] starts, ends; long[]? axes, steps = null;
@@ -519,39 +751,75 @@ internal static class OnnxFold
         }
         axes ??= Enumerable.Range(0, starts.Length).Select(i => (long)i).ToArray();
         var pos = new long[x.Rank][];   // per axis: the source indices that are kept
-        for (int d = 0; d < x.Rank; d++) pos[d] = Enumerable.Range(0, (int)x.Dims[d]).Select(v => (long)v).ToArray();
+        for (int d = 0; d < x.Rank; d++)
+        {
+            pos[d] = Enumerable.Range(0, (int)x.Dims[d]).Select(v => (long)v).ToArray();
+        }
+
         for (int i = 0; i < axes.Length; i++)
         {
             int ax = (int)(axes[i] < 0 ? axes[i] + x.Rank : axes[i]);
             long step = steps is null ? 1 : steps[i], dim = x.Dims[ax];
-            if (step == 0) throw new InvalidDataException($"Slice '{n.Name}': step 0");
+            if (step == 0)
+            {
+                throw new InvalidDataException($"Slice '{n.Name}': step 0");
+            }
+
             long s0 = starts[i], e0 = ends[i];
-            if (s0 < 0) s0 += dim;
-            if (e0 < 0) e0 += dim;
+            if (s0 < 0)
+            {
+                s0 += dim;
+            }
+
+            if (e0 < 0)
+            {
+                e0 += dim;
+            }
+
             var list = new List<long>();
-            if (step > 0) { s0 = Math.Clamp(s0, 0, dim); e0 = Math.Clamp(e0, 0, dim); for (long k = s0; k < e0; k += step) list.Add(k); }
-            else { s0 = Math.Clamp(s0, 0, dim - 1); e0 = Math.Clamp(e0, -1, dim - 1); for (long k = s0; k > e0; k += step) list.Add(k); }
+            if (step > 0) { s0 = Math.Clamp(s0, 0, dim); e0 = Math.Clamp(e0, 0, dim); for (long k = s0; k < e0; k += step)
+                {
+                    list.Add(k);
+                }
+            }
+            else { s0 = Math.Clamp(s0, 0, dim - 1); e0 = Math.Clamp(e0, -1, dim - 1); for (long k = s0; k > e0; k += step)
+                {
+                    list.Add(k);
+                }
+            }
             pos[ax] = [.. list];
         }
         var len = pos.Select(p => (long)p.Length).ToArray();
-        long total = 1; foreach (var d in len) total *= d;
+        long total = 1; foreach (var d in len)
+        {
+            total *= d;
+        }
+
         var srcStr = new long[x.Rank]; long st = 1;
         for (int d = x.Rank - 1; d >= 0; d--) { srcStr[d] = st; st *= x.Dims[d]; }
         var map = new long[total];
         var idx = new long[x.Rank];
         for (long o = 0; o < total; o++)
         {
-            long off = 0; for (int d = 0; d < x.Rank; d++) off += pos[d][idx[d]] * srcStr[d];
+            long off = 0; for (int d = 0; d < x.Rank; d++)
+            {
+                off += pos[d][idx[d]] * srcStr[d];
+            }
+
             map[o] = off;
-            for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < len[d]) break; idx[d] = 0; }
+            for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < len[d]) { break; } idx[d] = 0; }
         }
         return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, len, map.Select(p => x.Floats()[p]).ToArray())
                          : OnnxConst.FromInts(x.ElemType, len, map.Select(p => x.Ints()[p]).ToArray());
     }
 
-    static IReadOnlyList<OnnxConst> Split(OnnxNode n, OnnxConst x, OnnxConst? splitIn)
+    private static IReadOnlyList<OnnxConst> Split(OnnxNode n, OnnxConst x, OnnxConst? splitIn)
     {
-        int axis = (int)n.Int("axis", 0); if (axis < 0) axis += x.Rank;
+        int axis = (int)n.Int("axis", 0); if (axis < 0)
+        {
+            axis += x.Rank;
+        }
+
         var sizes = n.Has("split") ? n.Ints("split")! : splitIn?.Ints();
         int outs = n.Outputs.Count;
         sizes ??= Enumerable.Repeat(x.Dims[axis] / outs, outs).ToArray();
@@ -571,15 +839,23 @@ internal static class OnnxFold
         return result;
     }
 
-    static OnnxConst Reduce(OnnxNode n, OnnxConst x, OnnxConst? axesIn)
+    private static OnnxConst Reduce(OnnxNode n, OnnxConst x, OnnxConst? axesIn)
     {
         var axesL = n.Has("axes") ? n.Ints("axes") : axesIn?.Ints();
         var axes = (axesL ?? Enumerable.Range(0, x.Rank).Select(i => (long)i).ToArray()).Select(a => (int)(a < 0 ? a + x.Rank : a)).ToHashSet();
         bool keep = n.Int("keepdims", 1) != 0;
         var outDims = new List<long>(); var keptDims = new List<long>();
-        for (int d = 0; d < x.Rank; d++) { if (!axes.Contains(d)) { outDims.Add(x.Dims[d]); keptDims.Add(x.Dims[d]); } else if (keep) outDims.Add(1); }
+        for (int d = 0; d < x.Rank; d++) { if (!axes.Contains(d)) { outDims.Add(x.Dims[d]); keptDims.Add(x.Dims[d]); } else if (keep)
+            {
+                outDims.Add(1);
+            }
+        }
         var vals = x.Floats();
-        long outCount = 1; foreach (var d in keptDims) outCount *= d;
+        long outCount = 1; foreach (var d in keptDims)
+        {
+            outCount *= d;
+        }
+
         var acc = new double[outCount];
         var cnt = new long[outCount];
         string op = n.OpType;
@@ -588,13 +864,27 @@ internal static class OnnxFold
         for (long i = 0; i < x.Count; i++)
         {
             long o = 0;
-            for (int d = 0; d < x.Rank; d++) if (!axes.Contains(d)) o = o * x.Dims[d] + idx[d];
+            for (int d = 0; d < x.Rank; d++)
+            {
+                if (!axes.Contains(d))
+                {
+                    o = o * x.Dims[d] + idx[d];
+                }
+            }
+
             double v = vals[i];
             acc[o] = op switch { "ReduceProd" => acc[o] * v, "ReduceMax" => Math.Max(acc[o], v), "ReduceMin" => Math.Min(acc[o], v), _ => acc[o] + v };
             cnt[o]++;
-            for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < x.Dims[d]) break; idx[d] = 0; }
+            for (int d = x.Rank - 1; d >= 0; d--) { if (++idx[d] < x.Dims[d]) { break; } idx[d] = 0; }
         }
-        if (op == "ReduceMean") for (long i = 0; i < outCount; i++) acc[i] /= Math.Max(cnt[i], 1);
+        if (op == "ReduceMean")
+        {
+            for (long i = 0; i < outCount; i++)
+            {
+                acc[i] /= Math.Max(cnt[i], 1);
+            }
+        }
+
         return x.IsFloat ? OnnxConst.FromFloats(x.ElemType, [.. outDims], acc) : OnnxConst.FromInts(x.ElemType, [.. outDims], acc.Select(v => (long)v).ToArray());
     }
 }

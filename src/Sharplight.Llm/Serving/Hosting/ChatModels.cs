@@ -16,18 +16,18 @@ public sealed record ChatModelOptions
 /// <summary>A loaded model that serves chat/completion requests.</summary>
 public interface IChatModel
 {
-    InferenceEngine Engine { get; }
-    ModelService Service { get; }
+    public InferenceEngine Engine { get; }
+    public ModelService Service { get; }
 }
 
 /// <summary>A loaded chat model: weights on the devices, a batch decoder, its own scheduler thread (<see cref="Engine"/>) and chat layer.</summary>
 public sealed class ChatModelInstance : LoadedModel, IChatModel
 {
-    readonly LlmModel? _model;
-    readonly bool _ownsEngine;
+    private readonly LlmModel? _model;
+    private readonly bool _ownsEngine;
     public InferenceEngine Engine { get; }
     public ModelService Service { get; }
-    readonly long _resident;
+    private readonly long _resident;
 
     internal ChatModelInstance(LlmModel? model, InferenceEngine engine, ModelService service, long resident, bool ownsEngine = true)
     {
@@ -45,7 +45,11 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
 
     public override void Dispose()
     {
-        if (!_ownsEngine) return;
+        if (!_ownsEngine)
+        {
+            return;
+        }
+
         Engine.Dispose();   // stops the scheduler thread and disposes the decoder (device memory)
         _model?.Dispose();
     }
@@ -54,7 +58,7 @@ public sealed class ChatModelInstance : LoadedModel, IChatModel
 /// <summary>Loads a chat model file (any format with an importer registered) onto devices shared with other models.</summary>
 public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions load, ChatModelOptions? chat = null) : IModelLoader
 {
-    readonly ChatModelOptions _chat = chat ?? new();
+    private readonly ChatModelOptions _chat = chat ?? new();
     public ModelKind Kind => ModelKind.Chat;
     public string Path => path;
 
@@ -73,9 +77,9 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         catch { model.Dispose(); throw; }
     }
 
-    sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
+    private sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
     {
-        bool _consumed;
+        private bool _consumed;
         public IReadOnlyList<MemoryRequirement> Requirements => reqs;
         public bool CanOffload => owner.Fallback is not null;
         public ModelFootprint Footprint => fp;
@@ -95,15 +99,27 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
             }
             catch
             {
-                if (engine is null) decoder.Dispose(); else engine.Dispose();
+                if (engine is null)
+                {
+                    decoder.Dispose();
+                }
+                else
+                {
+                    engine.Dispose();
+                }
+
                 throw;
             }
         }
 
-        public void Dispose() { if (!_consumed) model.Dispose(); }
+        public void Dispose() { if (!_consumed)
+            {
+                model.Dispose();
+            }
+        }
     }
 
-    DeviceSlot? Fallback => load.Fallback;
-    LlmLoadOptions Load => load;
-    string ModelName => name;
+    private DeviceSlot? Fallback => load.Fallback;
+    private LlmLoadOptions Load => load;
+    private string ModelName => name;
 }

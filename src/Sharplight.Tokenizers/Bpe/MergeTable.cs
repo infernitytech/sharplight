@@ -14,7 +14,11 @@ internal sealed class MergeTable
     public MergeTable(int expected)
     {
         int cap = 16;
-        while (cap < expected * 2) cap <<= 1;
+        while (cap < expected * 2)
+        {
+            cap <<= 1;
+        }
+
         _keys = new long[cap];
         Array.Fill(_keys, -1L);
         _ranks = new int[cap];
@@ -36,7 +40,11 @@ internal sealed class MergeTable
         while (true)
         {
             long k = _keys[i];
-            if (k == key) return false;
+            if (k == key)
+            {
+                return false;
+            }
+
             if (k == -1)
             {
                 _keys[i] = key; _ranks[i] = rank; _results[i] = result; Count++;

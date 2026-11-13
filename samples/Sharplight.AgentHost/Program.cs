@@ -5,7 +5,6 @@
 //   Chat Completions:  POST /assistant/v1/chat/completions   {"model":"assistant","messages":[...],"stream":true}
 //   Responses:         POST /assistant/v1/responses          {"input":"hello"}
 using Microsoft.Agents.AI.Hosting;
-using Microsoft.Agents.AI.Hosting.OpenAI;
 using Microsoft.Extensions.AI;
 using Sharplight.Cpu;
 using Sharplight.Extensions.AI;
@@ -34,7 +33,10 @@ HuggingFaceImporter.Register();
 ModelPackageImporter.Register();
 
 var builder = WebApplication.CreateBuilder(args.Where(a => a != modelPath).ToArray());
-if (Opt("--urls") is { } urls) builder.WebHost.UseUrls(urls);
+if (Opt("--urls") is { } urls)
+{
+    builder.WebHost.UseUrls(urls);
+}
 
 builder.Services.AddSharplightChatClient(modelPath, _ =>
 {

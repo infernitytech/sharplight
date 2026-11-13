@@ -4,7 +4,7 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
 
-static class SK
+internal static class SK
 {
     public static Dim[] D(params long[] d) => d.Select(v => (Dim)v).ToArray();
     public static Dim[] DSym(params long[] tail) => [TG.T, .. tail.Select(v => (Dim)v)];
@@ -35,7 +35,7 @@ public class ConvTests
 {
     public record Case(string Name, int C, int H, int W, int O, int KH, int KW, int[] Stride, int[] Pad, int[] Dil, int Groups, bool Bias);
 
-    static readonly Case[] Cases =
+    private static readonly Case[] Cases =
     [
         new("3x3-s1-p1-bias", 5, 11, 13, 7, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, true),
         new("3x3-s1-p1-nobias", 5, 11, 13, 7, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, false),
@@ -65,10 +65,24 @@ public class ConvTests
 
     public static IEnumerable<object[]> Params()
     {
-        foreach (var c in Cases) foreach (var n in new[] { 1, 3 }) yield return [c.Name, n, "f32"];
+        foreach (var c in Cases)
+        {
+            foreach (var n in new[] { 1, 3 })
+            {
+                yield return [c.Name, n, "f32"];
+            }
+        }
+
         foreach (var name in new[] { "3x3-s1-p1-bias", "groups2", "depthwise-3x3", "1x1-tail", "q-3x3", "q-groups2", "q-depthwise-5x5" })
+        {
             foreach (var t in new[] { "f16", "q8_0" })
-                if (t != "q8_0" || name == "1x1-tail" || name.StartsWith("q-")) yield return [name, 3, t];
+            {
+                if (t != "q8_0" || name == "1x1-tail" || name.StartsWith("q-"))
+                {
+                    yield return [name, 3, t];
+                }
+            }
+        }
     }
 
     [Theory, MemberData(nameof(Params))]
@@ -79,14 +93,22 @@ public class ConvTests
         long wn = (long)c.O * Cg * c.KH * c.KW;
         // q8_0 needs a multiple of 32 weight elements
         var w = Kit.Rand((int)wn, 11, 0.5f);
-        if (wtype == "q8_0") Assert.True(wn % 32 == 0, "q8_0 case needs whole blocks");
+        if (wtype == "q8_0")
+        {
+            Assert.True(wn % 32 == 0, "q8_0 case needs whole blocks");
+        }
+
         var x = Kit.Rand(N * c.C * c.H * c.W, 12);
         var bias = c.Bias ? Kit.Rand(c.O, 13) : null;
         var tg = new TG();
         var xin = tg.InF("x", SK.DSym(c.C, c.H, c.W));
         var wv = SK.Weight(tg, "w", w, [c.O, Cg, c.KH, c.KW], wtype, out var weff);
         var ins = new List<Value> { xin, wv };
-        if (bias != null) ins.Add(tg.WF("b", bias, c.O));
+        if (bias != null)
+        {
+            ins.Add(tg.WF("b", bias, c.O));
+        }
+
         var attrs = Attributes.From(("groups", (long)c.Groups), ("strides", c.Stride.Select(v => (long)v).ToArray()),
             ("pads", c.Pad.Select(v => (long)v).ToArray()), ("dilations", c.Dil.Select(v => (long)v).ToArray()));
         tg.B.Output("y", tg.B.Emit1("Conv", ins, attrs));
@@ -116,7 +138,20 @@ public class ConvTests
         Kit.Set(m, xin, x);
         var p = Kit.P(N); m.Run(p);
         var xc = new float[N * C * H * W];
-        for (int n = 0; n < N; n++) for (int h = 0; h < H; h++) for (int ww = 0; ww < W; ww++) for (int c = 0; c < C; c++) xc[((n * C + c) * H + h) * W + ww] = x[((n * H + h) * W + ww) * C + c];
+        for (int n = 0; n < N; n++)
+        {
+            for (int h = 0; h < H; h++)
+            {
+                for (int ww = 0; ww < W; ww++)
+                {
+                    for (int c = 0; c < C; c++)
+                    {
+                        xc[((n * C + c) * H + h) * W + ww] = x[((n * H + h) * W + ww) * C + c];
+                    }
+                }
+            }
+        }
+
         var r1 = SRef.Conv(xc, N, C, H, W, w1, O, 3, 3, null, [1, 1], [1, 1, 1, 1], [1, 1], 1, out int h1, out int w1o);
         r1 = r1.Select(v => Math.Max(0, v)).ToArray();
         var r2 = SRef.Conv(r1, N, O, h1, w1o, w2, O, 1, 1, null, [1, 1], [0, 0, 0, 0], [1, 1], 1, out _, out _);
@@ -159,7 +194,13 @@ public class PoolTests
             ["avg-ceil-incl-nopad", "avg", 8, 8, new[] { 3, 3 }, new[] { 2, 2 }, new[] { 0, 0, 0, 0 }, new[] { 1, 1 }, true, true],
             ["avg-7x7", "avg", 7, 7, new[] { 7, 7 }, new[] { 1, 1 }, new[] { 0, 0, 0, 0 }, new[] { 1, 1 }, false, false],
         ];
-        foreach (var o in c) foreach (var n in new[] { 1, 3 }) yield return [.. o, n];
+        foreach (var o in c)
+        {
+            foreach (var n in new[] { 1, 3 })
+            {
+                yield return [.. o, n];
+            }
+        }
     }
 
     [Theory, MemberData(nameof(Cases))]
@@ -187,18 +228,28 @@ public class ReduceTests
     {
         long[][] shapes = [[2, 3, 4, 5], [3, 16, 20, 17], [4, 9, 33], [37], [5, 40]];
         foreach (var mode in new[] { "sum", "mean", "max", "min" })
+        {
             foreach (var (shape, axes) in new (long[], long[])[]
             {
                 ([2, 3, 4, 5], [1]), ([2, 3, 4, 5], [0, 2]), ([2, 3, 4, 5], [2, 3]), ([2, 3, 4, 5], [-1]), ([2, 3, 4, 5], [0, 1, 2, 3]), ([2, 3, 4, 5], [1, 3]),
                 ([3, 16, 20, 17], [2, 3]), ([3, 16, 20, 17], [0, 1]), ([3, 16, 20, 17], [1]), ([3, 16, 20, 17], [3]), ([3, 16, 20, 17], [0, 3]), ([3, 16, 20, 17], [0, 1, 2]),
                 ([4, 9, 33], [2]), ([4, 9, 33], [0]), ([4, 9, 33], [1, 2]), ([37], [0]), ([5, 40], [1]), ([5, 40], [0]),
             })
+            {
                 foreach (var keep in new[] { true, false })
+                {
                     yield return [mode, shape, axes, keep, false];
+                }
+            }
+        }
         // strided (permuted) input: NHWC memory seen as NCHW
         foreach (var mode in new[] { "sum", "mean", "max", "min" })
+        {
             foreach (var axes in new long[][] { [2, 3], [1], [0, 1], [1, 2, 3] })
+            {
                 yield return [mode, new long[] { 2, 24, 7, 9 }, axes, true, true];
+            }
+        }
     }
 
     [Theory, MemberData(nameof(Cases))]
@@ -216,8 +267,19 @@ public class ReduceTests
             xin = tg.InF("x", SK.D(N, H, W, C));
             src = tg.B.Permute(xin, 0, 3, 1, 2);
             logical = new float[total];
-            for (long n = 0; n < N; n++) for (long h = 0; h < H; h++) for (long w = 0; w < W; w++) for (long c = 0; c < C; c++)
-                logical[((n * C + c) * H + h) * W + w] = x[((n * H + h) * W + w) * C + c];
+            for (long n = 0; n < N; n++)
+            {
+                for (long h = 0; h < H; h++)
+                {
+                    for (long w = 0; w < W; w++)
+                    {
+                        for (long c = 0; c < C; c++)
+                        {
+                            logical[((n * C + c) * H + h) * W + w] = x[((n * H + h) * W + w) * C + c];
+                        }
+                    }
+                }
+            }
         }
         else { xin = tg.InF("x", SK.D(dims)); src = xin; }
         tg.B.Output("y", tg.B.Emit1("Reduce", [src], Attributes.From(("mode", mode), ("axes", axes), ("keepdims", keep))));
@@ -265,7 +327,10 @@ public class BatchMatMulTests
             ([1, 1, 1, 64], [1, 1, 64, 130], false, false, 1f),  // M=1 (decode-like)
             ([2, 12, 197, 64], [2, 12, 64, 197], false, false, 0.125f), // attention-like
         ];
-        foreach (var t in c) yield return [t.a, t.b, t.ta, t.tb, t.alpha];
+        foreach (var t in c)
+        {
+            yield return [t.a, t.b, t.ta, t.tb, t.alpha];
+        }
     }
 
     [Theory, MemberData(nameof(Cases))]
@@ -298,8 +363,34 @@ public class BatchMatMulTests
         Kit.Set(m, qin, q); Kit.Set(m, kin, k);
         var p = Kit.P(1); m.Run(p);
         var ql = new float[B * H * T * D]; var kl = new float[B * H * D * S];
-        for (int b = 0; b < B; b++) for (int h = 0; h < H; h++) for (int t = 0; t < T; t++) for (int d = 0; d < D; d++) ql[((b * H + h) * T + t) * D + d] = q[((b * T + t) * H + h) * D + d];
-        for (int b = 0; b < B; b++) for (int h = 0; h < H; h++) for (int s = 0; s < S; s++) for (int d = 0; d < D; d++) kl[((b * H + h) * D + d) * S + s] = k[((b * S + s) * H + h) * D + d];
+        for (int b = 0; b < B; b++)
+        {
+            for (int h = 0; h < H; h++)
+            {
+                for (int t = 0; t < T; t++)
+                {
+                    for (int d = 0; d < D; d++)
+                    {
+                        ql[((b * H + h) * T + t) * D + d] = q[((b * T + t) * H + h) * D + d];
+                    }
+                }
+            }
+        }
+
+        for (int b = 0; b < B; b++)
+        {
+            for (int h = 0; h < H; h++)
+            {
+                for (int s = 0; s < S; s++)
+                {
+                    for (int d = 0; d < D; d++)
+                    {
+                        kl[((b * H + h) * D + d) * S + s] = k[((b * S + s) * H + h) * D + d];
+                    }
+                }
+            }
+        }
+
         var exp = SRef.Bmm(ql, [B, H, T, D], kl, [B, H, D, S], false, false, 0.25f, out _);
         Kit.AssertClose(exp, Kit.Out(m, "s", p), 1e-4, 1e-4);
         Kit.AssertClose(exp, Kit.Out(m, "s2", p), 1e-4, 1e-4);
@@ -324,6 +415,7 @@ public class PadResizeTests
     public static IEnumerable<object[]> PadCases()
     {
         foreach (var mode in new[] { "constant", "reflect", "edge" })
+        {
             foreach (var (dims, pads) in new (long[], long[])[]
             {
                 ([2, 3, 5, 6], [0, 0, 1, 2, 0, 0, 3, 1]),
@@ -335,7 +427,11 @@ public class PadResizeTests
                 ([3, 4, 5], [1, 0, 2, 2, 1, 1]),
                 ([1, 2, 6, 40], [0, 0, 0, 5, 0, 0, 0, 5]),
             })
+            {
                 yield return [mode, dims, pads, false];
+            }
+        }
+
         yield return ["reflect", new long[] { 2, 3, 5, 6 }, new long[] { 0, 0, 1, 2, 0, 0, 3, 1 }, true];
         yield return ["constant", new long[] { 2, 3, 5, 6 }, new long[] { 0, 0, 1, 2, 0, 0, 3, 1 }, true];
     }
@@ -351,8 +447,19 @@ public class PadResizeTests
             long N = dims[0], C = dims[1], H = dims[2], W = dims[3];
             xin = tg.InF("x", SK.D(N, H, W, C)); src = tg.B.Permute(xin, 0, 3, 1, 2);
             logical = new float[x.Length];
-            for (long n = 0; n < N; n++) for (long h = 0; h < H; h++) for (long w = 0; w < W; w++) for (long c = 0; c < C; c++)
-                logical[((n * C + c) * H + h) * W + w] = x[((n * H + h) * W + w) * C + c];
+            for (long n = 0; n < N; n++)
+            {
+                for (long h = 0; h < H; h++)
+                {
+                    for (long w = 0; w < W; w++)
+                    {
+                        for (long c = 0; c < C; c++)
+                        {
+                            logical[((n * C + c) * H + h) * W + w] = x[((n * H + h) * W + w) * C + c];
+                        }
+                    }
+                }
+            }
         }
         else { xin = tg.InF("x", SK.D(dims)); src = xin; }
         tg.B.Output("y", tg.B.Emit1("Pad", [src], Attributes.From(("pads", pads), ("mode", mode), ("value", 1.5f))));
@@ -381,10 +488,17 @@ public class PadResizeTests
         foreach (var coord in new[] { "half_pixel", "align_corners", "asymmetric", "pytorch_half_pixel" })
         {
             foreach (var nm in new[] { "round_prefer_floor", "round_prefer_ceil", "floor", "ceil" })
+            {
                 foreach (var (oh, ow) in new[] { (8, 10), (7, 9), (3, 2), (2, 7), (4, 5), (1, 1), (12, 15) })
+                {
                     yield return ["nearest", coord, nm, oh, ow];
+                }
+            }
+
             foreach (var (oh, ow) in new[] { (8, 10), (7, 9), (3, 2), (2, 7), (4, 5), (1, 1), (12, 15) })
+            {
                 yield return ["linear", coord, "round_prefer_floor", oh, ow];
+            }
         }
     }
 
@@ -405,7 +519,7 @@ public class PadResizeTests
 
 public class NewElementwiseTests
 {
-    static float[] Run1(string op, float[] x, Attributes? attrs = null)
+    private static float[] Run1(string op, float[] x, Attributes? attrs = null)
     {
         var tg = new TG(); var xin = tg.InF("x", TG.T, x.Length / 3);
         tg.B.Output("y", tg.B.Emit1(op, [xin], attrs));
@@ -418,7 +532,11 @@ public class NewElementwiseTests
     public void ErfIsAccurate()
     {
         int n = 3 * 4001; var x = new float[n];
-        for (int i = 0; i < n; i++) x[i] = -8f + 16f * i / (n - 1);
+        for (int i = 0; i < n; i++)
+        {
+            x[i] = -8f + 16f * i / (n - 1);
+        }
+
         var y = Run1("Erf", x);
         double worst = 0; float wx = 0;
         for (int i = 0; i < n; i++) { double e = Math.Abs(y[i] - Math2.Erf(x[i])); if (e > worst) { worst = e; wx = x[i]; } }
@@ -430,7 +548,10 @@ public class NewElementwiseTests
     {
         var x = new float[] { 0f, 1e-8f, -1e-3f, 0.5f, -0.5f, 3.5f, -3.5f, 10f, -10f };
         var y = Run1("Erf", x);
-        for (int i = 0; i < x.Length; i++) Assert.True(Math.Abs(y[i] - Math2.Erf(x[i])) < 2e-7, $"erf({x[i]}) = {y[i]}");
+        for (int i = 0; i < x.Length; i++)
+        {
+            Assert.True(Math.Abs(y[i] - Math2.Erf(x[i])) < 2e-7, $"erf({x[i]}) = {y[i]}");
+        }
     }
 
     [Fact]
@@ -503,13 +624,36 @@ public class NewElementwiseTests
         var ln = new float[x3.Length];
         for (int r = 0; r < N * 5; r++)
         {
-            double mean = 0; for (int i = 0; i < 24; i++) mean += x3[r * 24 + i]; mean /= 24;
-            double v = 0; for (int i = 0; i < 24; i++) v += Math.Pow(x3[r * 24 + i] - mean, 2); v /= 24;
-            for (int i = 0; i < 24; i++) ln[r * 24 + i] = (float)((x3[r * 24 + i] - mean) / Math.Sqrt(v + 1e-5) * w[i] + b[i]);
+            double mean = 0; for (int i = 0; i < 24; i++)
+            {
+                mean += x3[r * 24 + i];
+            }
+
+            mean /= 24;
+            double v = 0; for (int i = 0; i < 24; i++)
+            {
+                v += Math.Pow(x3[r * 24 + i] - mean, 2);
+            }
+
+            v /= 24;
+            for (int i = 0; i < 24; i++)
+            {
+                ln[r * 24 + i] = (float)((x3[r * 24 + i] - mean) / Math.Sqrt(v + 1e-5) * w[i] + b[i]);
+            }
         }
         Kit.AssertClose(ln, Kit.Out(m, "ln", p), 1e-5, 1e-4);
         var perm = new float[x4.Length];
-        for (int r = 0; r < N * 2; r++) for (int a = 0; a < 3; a++) for (int c = 0; c < 17; c++) perm[(r * 17 + c) * 3 + a] = x4[(r * 3 + a) * 17 + c];
+        for (int r = 0; r < N * 2; r++)
+        {
+            for (int a = 0; a < 3; a++)
+            {
+                for (int c = 0; c < 17; c++)
+                {
+                    perm[(r * 17 + c) * 3 + a] = x4[(r * 3 + a) * 17 + c];
+                }
+            }
+        }
+
         Kit.AssertClose(Ref.RmsNorm(perm, N * 2 * 17, 3, null, 1e-6f), Kit.Out(m, "rms", p), 1e-5, 1e-4);
     }
 
@@ -518,13 +662,16 @@ public class NewElementwiseTests
     {
         var x = Kit.Rand(3 * 101, 82, 5f);
         var y = Run1("Gelu", x.Concat(new float[3 * 101 - x.Length]).ToArray());
-        for (int i = 0; i < x.Length; i++) Assert.True(Math.Abs(y[i] - 0.5 * x[i] * (1 + Math2.Erf(x[i] / Math.Sqrt(2)))) < 2e-6);
+        for (int i = 0; i < x.Length; i++)
+        {
+            Assert.True(Math.Abs(y[i] - 0.5 * x[i] * (1 + Math2.Erf(x[i] / Math.Sqrt(2)))) < 2e-6);
+        }
     }
 }
 
 public class SupportTests
 {
-    static Node NodeOf(TG tg) => tg.B.Build().Nodes.Last();
+    private static Node NodeOf(TG tg) => tg.B.Build().Nodes.Last();
 
     [Fact]
     public void ReportsReasonsForUnsupportedAttributeCombos()
@@ -556,7 +703,9 @@ public class SupportTests
         tg.B.Output("e", tg.B.Binary("Pow", xin, xin));
         tg.B.Output("f", tg.B.Emit1("BatchMatMul", [xin, tg.B.Permute(xin, 0, 1, 3, 2)]));
         foreach (var n in tg.B.Build().Nodes.Where(n => n.Op.Category != OpCategory.View))
+        {
             Assert.True(Kit.Device.Supports(n).IsSupported, n.Op.Name + ": " + Kit.Device.Supports(n).Reason);
+        }
     }
 }
 
@@ -567,7 +716,11 @@ public class OrtDumpTests
     public void DumpResize()
     {
         var dir = Environment.GetEnvironmentVariable("SHARPLIGHT_ORT_DUMP");
-        if (string.IsNullOrEmpty(dir)) return;
+        if (string.IsNullOrEmpty(dir))
+        {
+            return;
+        }
+
         Directory.CreateDirectory(dir);
         int N = 1, C = 2, H = 4, W = 5;
         var x = Kit.Rand(N * C * H * W, 63);

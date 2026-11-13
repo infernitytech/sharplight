@@ -58,7 +58,13 @@ public sealed class JinjaTemplate
     {
         var vars = new Dictionary<string, object?>();
         if (context != null)
-            foreach (var kv in context) vars[kv.Key] = JinjaValue.From(kv.Value);
+        {
+            foreach (var kv in context)
+            {
+                vars[kv.Key] = JinjaValue.From(kv.Value);
+            }
+        }
+
         var frame = new Frame(_env, null, vars);
         var sb = new StringBuilder();
         Stmt.ExecAll(_body, frame, sb);

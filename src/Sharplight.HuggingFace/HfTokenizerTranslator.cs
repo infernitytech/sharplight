@@ -13,10 +13,10 @@ namespace Sharplight.HuggingFace;
 /// </summary>
 public static class HfTokenizerTranslator
 {
-    const int TypeNormal = 1, TypeControl = 3, TypeUserDefined = 4, TypeUnused = 5, TypeByte = 6;
+    private const int TypeNormal = 1, TypeControl = 3, TypeUserDefined = 4, TypeUnused = 5, TypeByte = 6;
 
     /// <summary>Known pre-tokenizer split regexes (as found in tokenizer.json) → Sharplight/llama.cpp preset names.</summary>
-    static readonly (string Preset, string Regex)[] KnownRegexes =
+    private static readonly (string Preset, string Regex)[] KnownRegexes =
     [
         ("qwen35", @"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}| ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
         ("qwen2", @"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"),
@@ -160,7 +160,7 @@ public static class HfTokenizerTranslator
     /// SentencePiece vocabulary (llama.cpp <c>_create_vocab_sentencepiece</c>): pieces, scores and types from
     /// <c>tokenizer.model</c>, extra added tokens appended into unused slots, padded to the model's vocab_size.
     /// </summary>
-    static void AddSentencePiece(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok)
+    private static void AddSentencePiece(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok)
     {
         var sp = SentencePieceModelFile.Read(Path.Combine(dir, "tokenizer.model"));
         int vocabSize = config.GetInt("vocab_size") ?? sp.Pieces.Length;
@@ -205,7 +205,7 @@ public static class HfTokenizerTranslator
     /// Face form: WordPiece continuations keep their <c>##</c>, unigram pieces their ▁), unigram scores, normalizer flags and the
     /// pair layout of cross-encoders.
     /// </summary>
-    static void AddVocabularyModel(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok, JsonElement model, string modelType)
+    private static void AddVocabularyModel(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok, JsonElement model, string modelType)
     {
         var addedTokens = tok.TryGetProperty("added_tokens", out var at) && at.ValueKind == JsonValueKind.Array ? at.EnumerateArray().ToArray() : [];
         var pieces = new List<string>();
@@ -368,16 +368,16 @@ public static class HfTokenizerTranslator
             return null;
         }
     }
-    static bool IsByteToken(string t) => t.Length == 6 && t.StartsWith("<0x", StringComparison.Ordinal) && t[5] == '>';
+    private static bool IsByteToken(string t) => t.Length == 6 && t.StartsWith("<0x", StringComparison.Ordinal) && t[5] == '>';
 
-    static bool LooksSpecial(string t)
+    private static bool LooksSpecial(string t)
         => t is "<pad>" or "<mask>" or "<2mass>" or "[@BOS@]"
            || (t.StartsWith("<|", StringComparison.Ordinal) && t.EndsWith("|>", StringComparison.Ordinal))
            || (t.StartsWith("<｜", StringComparison.Ordinal) && t.EndsWith("｜>", StringComparison.Ordinal))
            || (t.StartsWith("<unused", StringComparison.Ordinal) && t.EndsWith('>'));
 
     // ---- pre-tokenizer ------------------------------------------------------------------------
-    static string DetectPreTokenizer(JsonElement tok)
+    private static string DetectPreTokenizer(JsonElement tok)
     {
         var regexes = new List<string>();
         bool byteLevelRegex = false;
@@ -433,7 +433,7 @@ public static class HfTokenizerTranslator
     }
 
     // ---- merges ---------------------------------------------------------------------------------
-    static string[]? ReadMerges(JsonElement model)
+    private static string[]? ReadMerges(JsonElement model)
     {
         if (!model.TryGetProperty("merges", out var m) || m.ValueKind != JsonValueKind.Array)
         {
@@ -464,7 +464,7 @@ public static class HfTokenizerTranslator
     }
 
     // ---- special tokens (gguf-py SpecialVocab) ------------------------------------------------
-    static void AddSpecialVocab(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok, JsonElement? tcRoot, JsonElement[] addedTokens)
+    private static void AddSpecialVocab(IDictionary<string, object> md, string dir, HfConfig config, JsonElement tok, JsonElement? tcRoot, JsonElement[] addedTokens)
     {
         var types = new List<string> { "bos", "eos", "unk", "sep", "pad", "cls", "mask" };
         var ids = new Dictionary<string, int>();
@@ -665,7 +665,7 @@ public static class HfTokenizerTranslator
         // are not part of the canonical vocabulary yet, so they are not emitted.
     }
 
-    static string? ReadChatTemplate(string dir, JsonElement tcRoot)
+    private static string? ReadChatTemplate(string dir, JsonElement tcRoot)
     {
         string? template = null;
         if (tcRoot.TryGetProperty("chat_template", out var ct))
@@ -719,6 +719,6 @@ public static class HfTokenizerTranslator
         }
     }
 
-    static JsonDocument? ReadOptional(string path)
+    private static JsonDocument? ReadOptional(string path)
         => File.Exists(path) ? JsonDocument.Parse(File.ReadAllBytes(path)) : null;
 }

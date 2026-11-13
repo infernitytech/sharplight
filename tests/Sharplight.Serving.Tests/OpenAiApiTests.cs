@@ -5,7 +5,7 @@ namespace Sharplight.Serving.Tests;
 
 public class OpenAiApiTests
 {
-    const string Hi = """{"model":"m","messages":[{"role":"user","content":"hi"}],"temperature":0""";
+    private const string Hi = """{"model":"m","messages":[{"role":"user","content":"hi"}],"temperature":0""";
 
     [Fact]
     public async Task Models_List_And_Get()
@@ -370,7 +370,9 @@ public class OpenAiApiTests
         Assert.Contains("sharplight_completion_tokens_total{model=\"fake-model\"} 2", metrics);
         // every sample line has "name{labels} value"
         foreach (var line in metrics.Split('\n', StringSplitOptions.RemoveEmptyEntries).Where(l => !l.StartsWith('#')))
+        {
             Assert.Matches(@"^[a-z_]+(\{[^}]*\})? -?[0-9.eE+-]+$", line);
+        }
     }
 
     [Fact]

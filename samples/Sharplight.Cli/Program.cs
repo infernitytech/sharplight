@@ -14,7 +14,7 @@ using StbImageSharp;
 var argv = args.ToList();
 string? Opt(string name, string? def = null) { int i = argv.IndexOf(name); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : def; }
 bool Flag(string name) => argv.Contains(name);
-List<string> Opts(string name) { var l = new List<string>(); for (int i = 0; i + 1 < argv.Count; i++) if (argv[i] == name) l.Add(argv[i + 1]); return l; }
+List<string> Opts(string name) { var l = new List<string>(); for (int i = 0; i + 1 < argv.Count; i++) { if (argv[i] == name) { l.Add(argv[i + 1]); } } return l; }
 
 ProviderRegistry.Register(() => new VulkanProvider());
 CpuExecutionProvider.Register();
@@ -27,10 +27,17 @@ if (Flag("--devices") || argv.Count == 0)
     {
         Console.WriteLine($"{p.Name}: {(avail.IsAvailable ? "available" : "unavailable")} — {avail.Reason}");
         if (avail.IsAvailable)
+        {
             foreach (var d in p.GetDevices())
+            {
                 Console.WriteLine($"  [{d.Index}] {d}\n      features: {string.Join(" ", d.Features.Order())}\n      " + string.Join(", ", d.Capabilities.Select(kv => $"{kv.Key}={kv.Value}")));
+            }
+        }
     }
-    if (argv.Count <= 1) return;
+    if (argv.Count <= 1)
+    {
+        return;
+    }
 }
 
 var modelPath = argv[0];
@@ -42,7 +49,11 @@ var split = Opt("--split")?.Split(',').Select(double.Parse).ToArray() ?? [1.0];
 long? gpuMem = Opt("--gpu-mem") is { } gm ? (long)(double.Parse(gm, System.Globalization.CultureInfo.InvariantCulture) * (1L << 30)) : null;
 // --disable-features matrix_f16,fp16,...: never use these device features (see DeviceFeatures).
 var devOptions = new DeviceOptions();
-foreach (var f in (Opt("--disable-features") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)) devOptions.DisabledFeatures.Add(f.Trim());
+foreach (var f in (Opt("--disable-features") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+{
+    devOptions.DisabledFeatures.Add(f.Trim());
+}
+
 var slots = split.Select(w => new DeviceSlot { Device = provider.OpenDevice(devInfo, devOptions), Weight = w, MemoryLimit = gpuMem }).ToList();
 // --cpu-offload: layers that don't fit (see --gpu-mem) and unsupported ops run on the CPU.
 DeviceSlot? fallback = null;
@@ -75,9 +86,14 @@ if (Opt("--save") is { } savePath)
     var swSave = Stopwatch.StartNew();
     var targets = model.ExportCompilation();
     if (model.Source.Path is { } src && ModelPackage.IsPackage(src) && Path.GetFullPath(src) == Path.GetFullPath(savePath))
+    {
         ModelPackage.AddTargets(savePath, targets);
+    }
     else
+    {
         ModelPackage.Save(savePath, model.Definition, targets, Console.Error.WriteLine);
+    }
+
     Console.Error.WriteLine($"Saved {savePath}: {new FileInfo(savePath).Length / 1e9:F2} GB, targets: {string.Join("; ", targets.Select(t => $"{t.Target} ({t.Entries.Count} entries)"))} [{swSave.ElapsedMilliseconds} ms]");
 }
 if (Opt("--bench") is { } benchArg)
@@ -86,14 +102,19 @@ if (Opt("--bench") is { } benchArg)
     int nb = int.Parse(benchArg);
     var rng = new Random(1);
     var toks = Enumerable.Range(0, nb).Select(_ => rng.Next(1000, 50000)).ToArray();
-    void ResetProfiles() { foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>()) seg.ResetProfile(); }
-    void PrintProfiles(string what) { foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>()) if (seg.Profile) Console.Error.WriteLine($"--- {what} profile, segment {seg.Segment.Index}\n{seg.ProfileReport()}"); }
+    void ResetProfiles() { foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>()) { seg.ResetProfile(); } }
+    void PrintProfiles(string what) { foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>()) { if (seg.Profile) { Console.Error.WriteLine($"--- {what} profile, segment {seg.Segment.Index}\n{seg.ProfileReport()}"); } } }
     session.Process(toks); session.Process([5]); session.Reset(); // warm-up: record command buffers
     foreach (var seg in session.Compiled.Segments.OfType<VulkanSegment>())
     {
         Console.Error.WriteLine($"segment {seg.Segment.Index}: {seg.Stats(1).Dispatches} dispatches, {seg.Stats(1).Barriers} barriers per step");
         if (Environment.GetEnvironmentVariable("SHARPLIGHT_DUMP_SCHEDULE") == "1")
-            foreach (var (name, b) in seg.Schedule()) Console.Error.WriteLine($"{(b ? "--- barrier" + Environment.NewLine : "")}    {name}");
+        {
+            foreach (var (name, b) in seg.Schedule())
+            {
+                Console.Error.WriteLine($"{(b ? "--- barrier" + Environment.NewLine : "")}    {name}");
+            }
+        }
     }
     ResetProfiles();
     var sw0 = Stopwatch.StartNew();
@@ -119,7 +140,11 @@ if (Opt("--bench") is { } benchArg)
     // Best/median are robust against other GPU users; the mean is what a user would see.
     Console.WriteLine($"prefill {nb} tok: best {best * 1000:F0} ms = {nb / best:F1} tok/s | decode: best {1 / steps[0]:F2}, median {1 / steps[steps.Count / 2]:F2}, mean {64 / dec:F2} tok/s | GPU ms/step: best {gpu[0]:F2}, median {gpu[gpu.Count / 2]:F2}, wall best {steps[0] * 1000:F2}");
     session.Dispose();
-    foreach (var d in slots) d.Device.Dispose();
+    foreach (var d in slots)
+    {
+        d.Device.Dispose();
+    }
+
     fallback?.Device.Dispose();
     return;
 }
@@ -143,9 +168,17 @@ if (Opt("--logits") is { } logitsPath)
     var lg = session.Process(ids);
     File.WriteAllBytes(logitsPath, System.Runtime.InteropServices.MemoryMarshal.AsBytes<float>(lg).ToArray());
     Console.WriteLine("ids: " + string.Join(",", ids));
-    foreach (var i in Enumerable.Range(0, lg.Length).OrderByDescending(i => lg[i]).Take(5)) Console.WriteLine($"  {i} {lg[i]:F4} {model.Tokenizer.Decode([i])}");
+    foreach (var i in Enumerable.Range(0, lg.Length).OrderByDescending(i => lg[i]).Take(5))
+    {
+        Console.WriteLine($"  {i} {lg[i]:F4} {model.Tokenizer.Decode([i])}");
+    }
+
     session.Dispose();
-    foreach (var d in slots) d.Device.Dispose();
+    foreach (var d in slots)
+    {
+        d.Device.Dispose();
+    }
+
     fallback?.Device.Dispose();
     return;
 }
@@ -167,7 +200,11 @@ var options = new GenerationOptions
 int[]? promptIds = null;
 if (Flag("--chat") && images.Count == 0)
 {
-    if (model.ChatTemplate is not { } tpl) throw new InvalidOperationException("The model has no chat template.");
+    if (model.ChatTemplate is not { } tpl)
+    {
+        throw new InvalidOperationException("The model has no chat template.");
+    }
+
     string? Tok(int? id) => id is int i ? model.Tokenizer.TokenString(i) : null;
     var rendered = new Sharplight.Templating.ChatTemplate(tpl, Tok(model.Tokenizer.BosId), Tok(model.Tokenizer.EosId))
         .Render([new Sharplight.Templating.ChatMessage("user", prompt)], addGenerationPrompt: true);
@@ -175,13 +212,29 @@ if (Flag("--chat") && images.Count == 0)
     promptIds = model.Tokenizer.Encode(rendered, addSpecial: false, parseSpecial: true);
     prompt = "";
 }
-if (images.Count == 0) Console.Write(prompt);
-foreach (var t in images.Count > 0 ? gen.Generate(prompt, images, options) : promptIds is null ? gen.Generate(prompt, options) : gen.Generate(promptIds, options)) Console.Write(t.Text);
+if (images.Count == 0)
+{
+    Console.Write(prompt);
+}
+
+foreach (var t in images.Count > 0 ? gen.Generate(prompt, images, options) : promptIds is null ? gen.Generate(prompt, options) : gen.Generate(promptIds, options))
+{
+    Console.Write(t.Text);
+}
+
 Console.WriteLine();
 var s = gen.LastStats!;
 Console.Error.WriteLine($"prompt: {s.PromptTokens} tok in {s.PrefillTime.TotalMilliseconds:F0} ms ({s.PrefillTokensPerSecond:F1} tok/s) | generated: {s.GeneratedTokens} tok, {s.DecodeTokensPerSecond:F2} tok/s");
-if (images.Count > 0) Console.Error.WriteLine($"images: {images.Count} preprocessed and encoded in {gen.LastImageTime.TotalMilliseconds:F0} ms");
+if (images.Count > 0)
+{
+    Console.Error.WriteLine($"images: {images.Count} preprocessed and encoded in {gen.LastImageTime.TotalMilliseconds:F0} ms");
+}
+
 vision?.Dispose();
 session.Dispose();
-foreach (var d in slots) d.Device.Dispose();
+foreach (var d in slots)
+{
+    d.Device.Dispose();
+}
+
 fallback?.Device.Dispose();

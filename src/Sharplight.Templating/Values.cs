@@ -38,7 +38,11 @@ public sealed class JinjaDict : IEnumerable<KeyValuePair<object, object?>>
         set
         {
             key = NormalizeKey(key);
-            if (!_map.ContainsKey(key)) _keys.Add(key);
+            if (!_map.ContainsKey(key))
+            {
+                _keys.Add(key);
+            }
+
             _map[key] = value;
         }
     }
@@ -57,7 +61,11 @@ public sealed class JinjaDict : IEnumerable<KeyValuePair<object, object?>>
     public bool Remove(object key)
     {
         key = NormalizeKey(key);
-        if (!_map.Remove(key)) return false;
+        if (!_map.Remove(key))
+        {
+            return false;
+        }
+
         _keys.Remove(key);
         return true;
     }
@@ -71,13 +79,20 @@ public sealed class JinjaDict : IEnumerable<KeyValuePair<object, object?>>
     public JinjaDict Clone()
     {
         var d = new JinjaDict();
-        foreach (var k in _keys) d[k] = _map[k];
+        foreach (var k in _keys)
+        {
+            d[k] = _map[k];
+        }
+
         return d;
     }
 
     public IEnumerator<KeyValuePair<object, object?>> GetEnumerator()
     {
-        foreach (var k in _keys.ToArray()) yield return new KeyValuePair<object, object?>(k, _map[k]);
+        foreach (var k in _keys.ToArray())
+        {
+            yield return new KeyValuePair<object, object?>(k, _map[k]);
+        }
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
@@ -110,8 +125,16 @@ public sealed class CallArgs
 
     public object? Get(int index, string name, object? defaultValue = null)
     {
-        if (index >= 0 && index < Positional.Count) return Positional[index];
-        if (Named != null && Named.TryGetValue(name, out var v)) return v;
+        if (index >= 0 && index < Positional.Count)
+        {
+            return Positional[index];
+        }
+
+        if (Named != null && Named.TryGetValue(name, out var v))
+        {
+            return v;
+        }
+
         return defaultValue;
     }
 
@@ -229,7 +252,11 @@ internal sealed class LoopContext
     {
         if (name == "cycle")
         {
-            if (args.Positional.Count == 0) throw new TemplateRuntimeException("loop.cycle() requires at least one argument");
+            if (args.Positional.Count == 0)
+            {
+                throw new TemplateRuntimeException("loop.cycle() requires at least one argument");
+            }
+
             return args.Positional[Index0 % args.Positional.Count];
         }
         // changed

@@ -9,19 +9,28 @@ namespace Sharplight.HuggingFace;
 /// </summary>
 public sealed class HfConfig : IDisposable
 {
-    readonly JsonDocument _doc;
-    readonly Dictionary<string, JsonElement> _flat = new(StringComparer.Ordinal);
+    private readonly JsonDocument _doc;
+    private readonly Dictionary<string, JsonElement> _flat = new(StringComparer.Ordinal);
 
     public JsonElement Root => _doc.RootElement;
     public string Directory { get; }
 
-    HfConfig(JsonDocument doc, string directory)
+    private HfConfig(JsonDocument doc, string directory)
     {
         _doc = doc;
         Directory = directory;
-        foreach (var p in doc.RootElement.EnumerateObject()) _flat[p.Name] = p.Value;
+        foreach (var p in doc.RootElement.EnumerateObject())
+        {
+            _flat[p.Name] = p.Value;
+        }
+
         if (doc.RootElement.TryGetProperty("text_config", out var tc) && tc.ValueKind == JsonValueKind.Object)
-            foreach (var p in tc.EnumerateObject()) _flat[p.Name] = p.Value;
+        {
+            foreach (var p in tc.EnumerateObject())
+            {
+                _flat[p.Name] = p.Value;
+            }
+        }
     }
 
     public static HfConfig Load(string directory)
@@ -43,7 +52,13 @@ public sealed class HfConfig : IDisposable
     public JsonElement? Get(params string[] keys)
     {
         foreach (var k in keys)
-            if (_flat.TryGetValue(k, out var v) && v.ValueKind != JsonValueKind.Null) return v;
+        {
+            if (_flat.TryGetValue(k, out var v) && v.ValueKind != JsonValueKind.Null)
+            {
+                return v;
+            }
+        }
+
         return null;
     }
 
@@ -65,7 +80,11 @@ public sealed class HfConfig : IDisposable
     /// </summary>
     public double? RopeDouble(string rope, params string[] topLevel)
     {
-        if (RopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Number) return v.GetDouble();
+        if (RopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Number)
+        {
+            return v.GetDouble();
+        }
+
         return GetDouble(topLevel);
     }
 
@@ -76,7 +95,7 @@ public sealed class HfConfig : IDisposable
     public string[]? GetStringArray(string key)
         => Get(key) is { ValueKind: JsonValueKind.Array } v ? v.EnumerateArray().Select(x => x.GetString() ?? "").ToArray() : null;
 
-    static double ToDouble(JsonElement v) => v.ValueKind switch
+    private static double ToDouble(JsonElement v) => v.ValueKind switch
     {
         JsonValueKind.Number => v.GetDouble(),
         JsonValueKind.String => double.Parse(v.GetString()!, CultureInfo.InvariantCulture),
@@ -85,7 +104,7 @@ public sealed class HfConfig : IDisposable
         _ => throw new InvalidDataException($"config.json value of kind {v.ValueKind} is not numeric."),
     };
 
-    static KeyNotFoundException Missing(string[] keys) => new($"config.json: none of [{string.Join(", ", keys)}] is present.");
+    private static KeyNotFoundException Missing(string[] keys) => new($"config.json: none of [{string.Join(", ", keys)}] is present.");
 
     public void Dispose() => _doc.Dispose();
 }

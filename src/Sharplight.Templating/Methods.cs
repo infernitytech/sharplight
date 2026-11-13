@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 
 namespace Sharplight.Templating;
@@ -31,8 +30,16 @@ internal static class Methods
     private static string Arg(CallArgs a, int i, string name, string method)
     {
         var v = a.Get(i, name);
-        if (v is string s) return s;
-        if (v is Markup mk) return mk.Value;
+        if (v is string s)
+        {
+            return s;
+        }
+
+        if (v is Markup mk)
+        {
+            return mk.Value;
+        }
+
         throw new TemplateRuntimeException($"{method}() argument '{name}' must be str, not {Ops.TypeName(v)}");
     }
 
@@ -58,8 +65,22 @@ internal static class Methods
     {
         int start = 0, end = s.Length;
         bool Strip(char c) => chars == null ? char.IsWhiteSpace(c) : chars.IndexOf(c) >= 0;
-        if (left) while (start < end && Strip(s[start])) start++;
-        if (right) while (end > start && Strip(s[end - 1])) end--;
+        if (left)
+        {
+            while (start < end && Strip(s[start]))
+            {
+                start++;
+            }
+        }
+
+        if (right)
+        {
+            while (end > start && Strip(s[end - 1]))
+            {
+                end--;
+            }
+        }
+
         return s.Substring(start, end - start);
     }
 
@@ -72,21 +93,37 @@ internal static class Methods
             long splits = 0;
             while (true)
             {
-                while (i < n && char.IsWhiteSpace(s[i])) i++;
-                if (i >= n) break;
+                while (i < n && char.IsWhiteSpace(s[i]))
+                {
+                    i++;
+                }
+
+                if (i >= n)
+                {
+                    break;
+                }
+
                 if (maxsplit >= 0 && splits >= maxsplit)
                 {
                     r.Add(s.Substring(i).TrimEnd());
                     break;
                 }
                 int st = i;
-                while (i < n && !char.IsWhiteSpace(s[i])) i++;
+                while (i < n && !char.IsWhiteSpace(s[i]))
+                {
+                    i++;
+                }
+
                 r.Add(s.Substring(st, i - st));
                 splits++;
             }
             return r;
         }
-        if (sep.Length == 0) throw new TemplateRuntimeException("empty separator");
+        if (sep.Length == 0)
+        {
+            throw new TemplateRuntimeException("empty separator");
+        }
+
         int pos = 0;
         long cnt = 0;
         while (true)
@@ -106,7 +143,11 @@ internal static class Methods
 
     internal static List<object?> PyRSplit(string s, string? sep, long maxsplit)
     {
-        if (maxsplit < 0) return PySplit(s, sep, -1);
+        if (maxsplit < 0)
+        {
+            return PySplit(s, sep, -1);
+        }
+
         var r = new List<object?>();
         if (sep == null)
         {
@@ -114,15 +155,27 @@ internal static class Methods
             long cnt = 0;
             while (true)
             {
-                while (end > 0 && char.IsWhiteSpace(s[end - 1])) end--;
-                if (end <= 0) break;
+                while (end > 0 && char.IsWhiteSpace(s[end - 1]))
+                {
+                    end--;
+                }
+
+                if (end <= 0)
+                {
+                    break;
+                }
+
                 if (cnt >= maxsplit)
                 {
                     r.Add(s.Substring(0, end).TrimStart());
                     break;
                 }
                 int st = end;
-                while (st > 0 && !char.IsWhiteSpace(s[st - 1])) st--;
+                while (st > 0 && !char.IsWhiteSpace(s[st - 1]))
+                {
+                    st--;
+                }
+
                 r.Add(s.Substring(st, end - st));
                 end = st;
                 cnt++;
@@ -130,7 +183,11 @@ internal static class Methods
             r.Reverse();
             return r;
         }
-        if (sep.Length == 0) throw new TemplateRuntimeException("empty separator");
+        if (sep.Length == 0)
+        {
+            throw new TemplateRuntimeException("empty separator");
+        }
+
         int e = s.Length;
         long c = 0;
         while (true)
@@ -175,16 +232,28 @@ internal static class Methods
     internal static string PyCenter(string s, int width, char fill = ' ')
     {
         int marg = width - s.Length;
-        if (marg <= 0) return s;
+        if (marg <= 0)
+        {
+            return s;
+        }
+
         int left = marg / 2 + (marg & width & 1);
         return new string(fill, left) + s + new string(fill, marg - left);
     }
 
     private static int NormIndex(object? v, int len, int def)
     {
-        if (v is null or Undefined) return def;
+        if (v is null or Undefined)
+        {
+            return def;
+        }
+
         long i = Ops.ToLong(v);
-        if (i < 0) i = Math.Max(0, i + len);
+        if (i < 0)
+        {
+            i = Math.Max(0, i + len);
+        }
+
         return (int)Math.Min(i, len);
     }
 
@@ -206,12 +275,20 @@ internal static class Methods
                     if (s[i] == '\n' || s[i] == '\r')
                     {
                         r.Add(s.Substring(st, i - st));
-                        if (s[i] == '\r' && i + 1 < s.Length && s[i + 1] == '\n') i++;
-                        st = i + 1;
+                        if (s[i] == '\r' && i + 1 < s.Length && s[i + 1] == '\n')
+                            {
+                                i++;
+                            }
+
+                            st = i + 1;
                     }
                 }
-                if (st < s.Length) r.Add(s.Substring(st));
-                return r;
+                if (st < s.Length)
+                    {
+                        r.Add(s.Substring(st));
+                    }
+
+                    return r;
             }
             case "startswith":
             case "endswith":
@@ -223,8 +300,12 @@ internal static class Methods
                 bool Test(object? x) => x is string t
                     ? (name == "startswith" ? sub.StartsWith(t, StringComparison.Ordinal) : sub.EndsWith(t, StringComparison.Ordinal))
                     : throw new TemplateRuntimeException($"{name} first arg must be str or a tuple of str, not {Ops.TypeName(x)}");
-                if (p is List<object?> alts) return alts.Any(Test);
-                return Test(p);
+                if (p is List<object?> alts)
+                    {
+                        return alts.Any(Test);
+                    }
+
+                    return Test(p);
             }
             case "upper": return s.ToUpperInvariant();
             case "lower": return s.ToLowerInvariant();
@@ -250,16 +331,27 @@ internal static class Methods
                 {
                     string window = s.Substring(start, end - start);
                     idx = name is "find" or "index" ? window.IndexOf(sub, StringComparison.Ordinal) : window.LastIndexOf(sub, StringComparison.Ordinal);
-                    if (idx >= 0) idx += start;
-                }
-                if (idx < 0 && name is "index" or "rindex") throw new TemplateRuntimeException("substring not found");
-                return (long)idx;
+                    if (idx >= 0)
+                        {
+                            idx += start;
+                        }
+                    }
+                if (idx < 0 && name is "index" or "rindex")
+                    {
+                        throw new TemplateRuntimeException("substring not found");
+                    }
+
+                    return (long)idx;
             }
             case "count":
             {
                 string sub = Arg(a, 0, "sub", name);
-                if (sub.Length == 0) return (long)s.Length + 1;
-                long c = 0;
+                if (sub.Length == 0)
+                    {
+                        return (long)s.Length + 1;
+                    }
+
+                    long c = 0;
                 int i = 0;
                 while ((i = s.IndexOf(sub, i, StringComparison.Ordinal)) >= 0)
                 {
@@ -273,8 +365,11 @@ internal static class Methods
                 var items = Ops.Iterate(a.Get(0, "iterable"));
                 var parts = new List<string>(items.Count);
                 foreach (var x in items)
-                    parts.Add(x as string ?? throw new TemplateRuntimeException($"sequence item: expected str instance, {Ops.TypeName(x)} found"));
-                return string.Join(s, parts);
+                    {
+                        parts.Add(x as string ?? throw new TemplateRuntimeException($"sequence item: expected str instance, {Ops.TypeName(x)} found"));
+                    }
+
+                    return string.Join(s, parts);
             }
             case "format": return PyFormat.StrFormat(s, a);
             case "isdigit":
@@ -288,8 +383,12 @@ internal static class Methods
             case "zfill":
             {
                 int w = (int)Ops.ToLong(a.Get(0, "width"));
-                if (s.Length >= w) return s;
-                bool sign = s.Length > 0 && (s[0] == '-' || s[0] == '+');
+                if (s.Length >= w)
+                    {
+                        return s;
+                    }
+
+                    bool sign = s.Length > 0 && (s[0] == '-' || s[0] == '+');
                 return (sign ? s.Substring(0, 1) : "") + new string('0', w - s.Length) + (sign ? s.Substring(1) : s);
             }
             case "ljust":
@@ -337,15 +436,27 @@ internal static class Methods
 
     internal static string Replace(string s, string o, string n, long count)
     {
-        if (count < 0) return o.Length == 0 ? InsertBetween(s, n, long.MaxValue) : s.Replace(o, n, StringComparison.Ordinal);
-        if (o.Length == 0) return InsertBetween(s, n, count);
+        if (count < 0)
+        {
+            return o.Length == 0 ? InsertBetween(s, n, long.MaxValue) : s.Replace(o, n, StringComparison.Ordinal);
+        }
+
+        if (o.Length == 0)
+        {
+            return InsertBetween(s, n, count);
+        }
+
         var sb = new StringBuilder();
         int pos = 0;
         long done = 0;
         while (done < count)
         {
             int idx = s.IndexOf(o, pos, StringComparison.Ordinal);
-            if (idx < 0) break;
+            if (idx < 0)
+            {
+                break;
+            }
+
             sb.Append(s, pos, idx - pos).Append(n);
             pos = idx + o.Length;
             done++;
@@ -365,7 +476,10 @@ internal static class Methods
                 sb.Append(n);
                 done++;
             }
-            if (i < s.Length) sb.Append(s[i]);
+            if (i < s.Length)
+            {
+                sb.Append(s[i]);
+            }
         }
         return sb.ToString();
     }
@@ -385,17 +499,33 @@ internal static class Methods
             case "insert":
             {
                 long i = Ops.ToLong(a.Get(0, "index"));
-                if (i < 0) i = Math.Max(0, i + l.Count);
-                l.Insert((int)Math.Min(i, l.Count), a.Get(1, "object"));
+                if (i < 0)
+                    {
+                        i = Math.Max(0, i + l.Count);
+                    }
+
+                    l.Insert((int)Math.Min(i, l.Count), a.Get(1, "object"));
                 return null;
             }
             case "pop":
             {
-                if (l.Count == 0) throw new TemplateRuntimeException("pop from empty list");
-                long i = a.Has(0, "index") ? Ops.ToLong(a.Get(0, "index")) : -1;
-                if (i < 0) i += l.Count;
-                if (i < 0 || i >= l.Count) throw new TemplateRuntimeException("pop index out of range");
-                var v = l[(int)i];
+                if (l.Count == 0)
+                    {
+                        throw new TemplateRuntimeException("pop from empty list");
+                    }
+
+                    long i = a.Has(0, "index") ? Ops.ToLong(a.Get(0, "index")) : -1;
+                if (i < 0)
+                    {
+                        i += l.Count;
+                    }
+
+                    if (i < 0 || i >= l.Count)
+                    {
+                        throw new TemplateRuntimeException("pop index out of range");
+                    }
+
+                    var v = l[(int)i];
                 l.RemoveAt((int)i);
                 return v;
             }
@@ -403,8 +533,14 @@ internal static class Methods
             {
                 var x = a.Get(0, "value");
                 for (int i = 0; i < l.Count; i++)
-                    if (Ops.Eq(l[i], x)) return (long)i;
-                throw new TemplateRuntimeException("value is not in list");
+                    {
+                        if (Ops.Eq(l[i], x))
+                        {
+                            return (long)i;
+                        }
+                    }
+
+                    throw new TemplateRuntimeException("value is not in list");
             }
             case "count":
             {
@@ -448,8 +584,12 @@ internal static class Methods
             case "get":
             {
                 var k = a.Get(0, "key");
-                if (k is string or long or bool && d.TryGetValue(k, out var v)) return v;
-                return a.Get(1, "default");
+                if (k is string or long or bool && d.TryGetValue(k, out var v))
+                    {
+                        return v;
+                    }
+
+                    return a.Get(1, "default");
             }
             case "pop":
             {
@@ -459,22 +599,42 @@ internal static class Methods
                     d.Remove(k);
                     return v;
                 }
-                if (a.Has(1, "default")) return a.Get(1, "default");
-                throw new TemplateRuntimeException($"KeyError: {Ops.Repr(k)}");
+                if (a.Has(1, "default"))
+                    {
+                        return a.Get(1, "default");
+                    }
+
+                    throw new TemplateRuntimeException($"KeyError: {Ops.Repr(k)}");
             }
             case "update":
             {
                 if (a.Positional.Count > 0 && a.Positional[0] is JinjaDict o)
-                    foreach (var kv in o) d[kv.Key] = kv.Value;
-                if (a.Named != null)
-                    foreach (var kv in a.Named) d[kv.Key] = kv.Value;
-                return null;
+                    {
+                        foreach (var kv in o)
+                        {
+                            d[kv.Key] = kv.Value;
+                        }
+                    }
+
+                    if (a.Named != null)
+                    {
+                        foreach (var kv in a.Named)
+                        {
+                            d[kv.Key] = kv.Value;
+                        }
+                    }
+
+                    return null;
             }
             case "setdefault":
             {
                 var k = a.Get(0, "key")!;
-                if (d.TryGetValue(k, out var v)) return v;
-                var def = a.Get(1, "default");
+                if (d.TryGetValue(k, out var v))
+                    {
+                        return v;
+                    }
+
+                    var def = a.Get(1, "default");
                 d[k] = def;
                 return def;
             }

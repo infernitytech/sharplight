@@ -1,9 +1,7 @@
 using System.Runtime.InteropServices;
-using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
-using Sharplight.Vulkan;
 
 namespace Sharplight.Vulkan.Tests;
 
@@ -66,7 +64,10 @@ public class SubmissionBudgetTests
                 long n = t * (name == "h" ? H : Hq * D);
                 var a = new float[n]; var b = new float[n];
                 vk.GetOutput<float>(name, a); cpu.GetOutput<float>(name, b);
-                for (long i = 0; i < n; i++) Assert.True(Math.Abs(a[i] - b[i]) <= 3e-3 + 3e-3 * Math.Abs(b[i]), $"{name}[{i}] T={t} past={past}: {a[i]} vs {b[i]}");
+                for (long i = 0; i < n; i++)
+                {
+                    Assert.True(Math.Abs(a[i] - b[i]) <= 3e-3 + 3e-3 * Math.Abs(b[i]), $"{name}[{i}] T={t} past={past}: {a[i]} vs {b[i]}");
+                }
             }
             past += t;
         }

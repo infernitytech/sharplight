@@ -67,7 +67,7 @@ using Sharplight.Vulkan;
 
 var argv = args.ToList();
 string? Opt(string name, string? def = null) { int i = argv.IndexOf(name); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : def; }
-List<string> Opts(string name) { var l = new List<string>(); for (int i = 0; i + 1 < argv.Count; i++) if (argv[i] == name) l.Add(argv[i + 1]); return l; }
+List<string> Opts(string name) { var l = new List<string>(); for (int i = 0; i + 1 < argv.Count; i++) { if (argv[i] == name) { l.Add(argv[i + 1]); } } return l; }
 bool Flag(string name) => argv.Contains(name);
 
 var modelArgs = Opts("--model");
@@ -90,9 +90,20 @@ var specs = new List<Spec>();
 Config? config = configPath is null ? null : JsonSerializer.Deserialize<Config>(File.ReadAllText(configPath), new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true })
     ?? throw new InvalidOperationException("Empty config file.");
 if (positional)
+{
     specs.Add(new Spec { Name = Opt("--model-name") ?? Path.GetFileNameWithoutExtension(argv[0].TrimEnd('/', '\\')), Path = argv[0] });
-foreach (var m in modelArgs) specs.Add(ParseSpec(m));
-if (config?.Models is { } cm) specs.AddRange(cm);
+}
+
+foreach (var m in modelArgs)
+{
+    specs.Add(ParseSpec(m));
+}
+
+if (config?.Models is { } cm)
+{
+    specs.AddRange(cm);
+}
+
 if (specs.Select(s => s.Name).Distinct().Count() != specs.Count) { Console.Error.WriteLine("Model names must be unique."); return 1; }
 
 long reserve = ParseSize(Opt("--vram-reserve") ?? config?.VramReserve ?? "1G");
@@ -104,7 +115,11 @@ double? idleSeconds = Opt("--idle-timeout") is { } its ? double.Parse(its, Cultu
 // --- devices: one opened device per physical GPU, shared by all models ---
 using var devices = new DevicePool();
 var devOptions = new DeviceOptions { MemoryBudget = budget };
-foreach (var f in (Opt("--disable-features") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)) devOptions.DisabledFeatures.Add(f.Trim());
+foreach (var f in (Opt("--disable-features") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
+{
+    devOptions.DisabledFeatures.Add(f.Trim());
+}
+
 IComputeDevice OpenDevice(string spec)
 {
     bool cpu = spec.Equals("cpu", StringComparison.OrdinalIgnoreCase);
@@ -195,14 +210,22 @@ static long ParseSize(string s)
     long mult = 1;
     char last = char.ToUpperInvariant(s[^1]);
     if (last is 'K' or 'M' or 'G' or 'T') { mult = 1L << (last switch { 'K' => 10, 'M' => 20, 'G' => 30, _ => 40 }); s = s[..^1].TrimEnd('i', 'I', 'b', 'B'); }
-    else if (last == 'B') s = s[..^1];
+    else if (last == 'B')
+    {
+        s = s[..^1];
+    }
+
     return (long)(double.Parse(s, CultureInfo.InvariantCulture) * mult);
 }
 
 static Spec ParseSpec(string text)
 {
     int eq = text.IndexOf('=');
-    if (eq <= 0) throw new ArgumentException($"--model expects NAME=PATH[,key=value...], got '{text}'.");
+    if (eq <= 0)
+    {
+        throw new ArgumentException($"--model expects NAME=PATH[,key=value...], got '{text}'.");
+    }
+
     var parts = text[(eq + 1)..].Split(',');
     var spec = new Spec { Name = text[..eq], Path = parts[0] };
     foreach (var kv in parts.Skip(1))
@@ -227,7 +250,7 @@ static Spec ParseSpec(string text)
     return spec;
 }
 
-sealed class Spec
+internal sealed class Spec
 {
     public string Name { get; set; } = "";
     public string Path { get; set; } = "";
@@ -243,7 +266,7 @@ sealed class Spec
     public double? Idle { get; set; }
 }
 
-sealed class Config
+internal sealed class Config
 {
     public string? VramReserve { get; set; }
     public string? VramBudget { get; set; }

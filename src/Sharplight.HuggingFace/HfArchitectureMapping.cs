@@ -23,26 +23,26 @@ public sealed class HfImportOptions
 public interface IHfArchitectureMapping
 {
     /// <summary>Canonical architecture id (e.g. "qwen3_5").</summary>
-    string Architecture { get; }
+    public string Architecture { get; }
 
     /// <summary>HF <c>model_type</c> values handled.</summary>
-    IReadOnlyList<string> ModelTypes { get; }
+    public IReadOnlyList<string> ModelTypes { get; }
 
     /// <summary>Canonical <c>{arch}.*</c> hyper-parameters (full keys, including the architecture prefix).</summary>
-    IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options);
+    public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options);
 
     /// <summary>
     /// Canonical weights. Unchanged tensors must be zero-copy views (<see cref="SafetensorsTensor.ToWeightInfo"/> + <c>As</c>);
     /// transformed ones lazy (<see cref="WeightInfo.Derived"/>). Tensors that belong to other models/sources
     /// (vision tower, ...) are skipped; tensors that are neither mapped nor skipped must throw.
     /// </summary>
-    IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options);
+    public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options);
 }
 
 /// <summary>Registry of <see cref="IHfArchitectureMapping"/>s keyed by HF <c>model_type</c>.</summary>
 public static class HfArchitectureMappings
 {
-    static readonly ConcurrentDictionary<string, IHfArchitectureMapping> s_byModelType = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IHfArchitectureMapping> s_byModelType = new(StringComparer.OrdinalIgnoreCase);
 
     static HfArchitectureMappings()
     {
@@ -54,7 +54,10 @@ public static class HfArchitectureMappings
 
     public static void Register(IHfArchitectureMapping mapping)
     {
-        foreach (var t in mapping.ModelTypes) s_byModelType[t] = mapping;
+        foreach (var t in mapping.ModelTypes)
+        {
+            s_byModelType[t] = mapping;
+        }
     }
 
     public static IEnumerable<IHfArchitectureMapping> All => s_byModelType.Values.Distinct();

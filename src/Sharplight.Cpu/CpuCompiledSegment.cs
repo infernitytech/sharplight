@@ -12,22 +12,22 @@ namespace Sharplight.Cpu;
 /// </summary>
 public sealed unsafe class CpuCompiledSegment : ICompiledSegment
 {
-    readonly GraphSegment _segment;
-    readonly CompileOptions _options;
-    readonly Dictionary<Value, TRef> _refs = [];
-    readonly Dictionary<Value, TRef> _inputs = [];
-    readonly Dictionary<Value, TRef> _f32Cache = [];
-    readonly Dictionary<WeightInfo, Buf> _weightBufs = [];
-    readonly List<(CpuOp Op, TRef[] Touches)> _steps = [];
-    readonly List<Buf> _bufs = [];
-    readonly List<TRef> _allRefs = [];
-    readonly List<nint> _owned = [];
-    readonly List<(Buf State, long Bytes)> _stateBufs = [];
-    readonly Dictionary<string, long> _symBound = new(StringComparer.Ordinal);
-    byte* _arena;
-    long _arenaBytes, _ownedBytes, _weightBytes;
-    RunParameters? _last;
-    bool _disposed;
+    private readonly GraphSegment _segment;
+    private readonly CompileOptions _options;
+    private readonly Dictionary<Value, TRef> _refs = [];
+    private readonly Dictionary<Value, TRef> _inputs = [];
+    private readonly Dictionary<Value, TRef> _f32Cache = [];
+    private readonly Dictionary<WeightInfo, Buf> _weightBufs = [];
+    private readonly List<(CpuOp Op, TRef[] Touches)> _steps = [];
+    private readonly List<Buf> _bufs = [];
+    private readonly List<TRef> _allRefs = [];
+    private readonly List<nint> _owned = [];
+    private readonly List<(Buf State, long Bytes)> _stateBufs = [];
+    private readonly Dictionary<string, long> _symBound = new(StringComparer.Ordinal);
+    private byte* _arena;
+    private long _arenaBytes, _ownedBytes, _weightBytes;
+    private RunParameters? _last;
+    private bool _disposed;
 
     public GraphSegment Segment => _segment;
     public long DeviceMemoryBytes => _arenaBytes + _ownedBytes + _weightBytes;
@@ -44,10 +44,24 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
         _options = options;
         try
         {
-            foreach (var v in segment.Inputs) Ref(v);
-            foreach (var n in segment.Nodes) Emit(n, device);
+            foreach (var v in segment.Inputs)
+            {
+                Ref(v);
+            }
+
+            foreach (var n in segment.Nodes)
+            {
+                Emit(n, device);
+            }
+
             foreach (var o in segment.Outputs)
-                if (_refs.TryGetValue(o, out var r)) r.Buf.Pinned = true;
+            {
+                if (_refs.TryGetValue(o, out var r))
+                {
+                    r.Buf.Pinned = true;
+                }
+            }
+
             AllocateArena();
         }
         catch
@@ -58,36 +72,52 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
     }
 
     // ============================== leaves ====================================================
-    long Bound(string sym)
+    private long Bound(string sym)
     {
         long b = sym == WellKnown.ContextSymbol ? _options.ContextLength
                : sym == WellKnown.TokenSymbol ? _options.MaxTokens
                : _options.SymbolBounds.TryGetValue(sym, out var v) ? v : _options.MaxTokens;
-        if (!_symBound.TryGetValue(sym, out var old) || old < b) _symBound[sym] = b;
+        if (!_symBound.TryGetValue(sym, out var old) || old < b)
+        {
+            _symBound[sym] = b;
+        }
+
         return b;
     }
 
-    long[] DimsOf(Shape s)
+    private long[] DimsOf(Shape s)
     {
         var d = new long[s.Rank];
-        for (int i = 0; i < d.Length; i++) d[i] = s.Dims[i].IsSymbolic ? Bound(s.Dims[i].Symbol!) : s.Dims[i].Fixed;
+        for (int i = 0; i < d.Length; i++)
+        {
+            d[i] = s.Dims[i].IsSymbolic ? Bound(s.Dims[i].Symbol!) : s.Dims[i].Fixed;
+        }
+
         return d;
     }
 
-    TRef Register(TRef r) { _allRefs.Add(r); return r; }
+    private TRef Register(TRef r) { _allRefs.Add(r); return r; }
 
-    Buf NewArenaBuf(long bytes, string name)
+    private Buf NewArenaBuf(long bytes, string name)
     {
         var b = new Buf { Bytes = (Math.Max(bytes, 1) + 63) & ~63L, InArena = true, Name = name };
         _bufs.Add(b);
         return b;
     }
 
-    TRef NewDense(Value v)
+    private TRef NewDense(Value v)
     {
-        if (v.Type.IsQuantized) throw new NotSupportedException($"Quantized activation {v}.");
+        if (v.Type.IsQuantized)
+        {
+            throw new NotSupportedException($"Quantized activation {v}.");
+        }
+
         var dims = DimsOf(v.Shape);
-        long elems = 1; foreach (var d in dims) elems *= d;
+        long elems = 1; foreach (var d in dims)
+        {
+            elems *= d;
+        }
+
         return Register(new TRef
         {
             Type = v.Type, Dims = dims, Strides = TRef.RowMajor(dims), Sym = v.Shape.Symbol,
@@ -95,9 +125,13 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
         });
     }
 
-    TRef NewDense(DataType type, long[] dims, string? sym, string name)
+    private TRef NewDense(DataType type, long[] dims, string? sym, string name)
     {
-        long elems = 1; foreach (var d in dims) elems *= d;
+        long elems = 1; foreach (var d in dims)
+        {
+            elems *= d;
+        }
+
         return Register(new TRef
         {
             Type = type, Dims = dims, Strides = TRef.RowMajor(dims), Sym = sym,
@@ -105,14 +139,21 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
         });
     }
 
-    Buf LoadWeight(WeightInfo w)
+    private Buf LoadWeight(WeightInfo w)
     {
-        if (_weightBufs.TryGetValue(w, out var cached)) return cached;
+        if (_weightBufs.TryGetValue(w, out var cached))
+        {
+            return cached;
+        }
+
         long bytes = w.ByteSize;
         var src = w.Source;
         var buf = new Buf { Bytes = bytes, Name = w.Name };
         nint ptr = src.TryGetPointer();
-        if (ptr != 0) buf.Ptr = (byte*)ptr;
+        if (ptr != 0)
+        {
+            buf.Ptr = (byte*)ptr;
+        }
         else
         {
             buf.Ptr = Mem.Alloc(bytes, false);
@@ -120,7 +161,9 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             _ownedBytes += bytes;
             const long chunk = 1L << 30;
             for (long off = 0; off < bytes; off += chunk)
+            {
                 src.Read(off, new Span<byte>(buf.Ptr + off, (int)Math.Min(chunk, bytes - off)));
+            }
         }
         _weightBytes += bytes;
         _weightBufs[w] = buf;
@@ -128,9 +171,13 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
     }
 
     /// <summary>The value as seen by an op: weights/constants keep their raw storage type.</summary>
-    TRef Ref(Value v)
+    private TRef Ref(Value v)
     {
-        if (_refs.TryGetValue(v, out var r)) return r;
+        if (_refs.TryGetValue(v, out var r))
+        {
+            return r;
+        }
+
         switch (v.Kind)
         {
             case ValueKind.Weight:
@@ -153,8 +200,12 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             {
                 var def = v.State!;
                 var dims = DimsOf(def.Shape);
-                long elems = 1; foreach (var d in dims) elems *= d;
-                long bytes = def.Type.ByteSize(elems);
+                long elems = 1; foreach (var d in dims)
+                    {
+                        elems *= d;
+                    }
+
+                    long bytes = def.Type.ByteSize(elems);
                 var buf = new Buf { Bytes = bytes, Ptr = Mem.Alloc(bytes, true), Name = def.Name };
                 _owned.Add((nint)buf.Ptr); _ownedBytes += bytes;
                 _stateBufs.Add((buf, bytes));
@@ -164,7 +215,10 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             default:
                 // Input, or Intermediate produced outside this segment: dense buffer filled by SetInput.
                 if (v.Kind == ValueKind.Intermediate && v.Producer is { } prod && _segment.Nodes.Contains(prod))
+                {
                     throw new InvalidOperationException($"Value {v} used before it is produced.");
+                }
+
                 r = NewDense(v);
                 r.Buf.Pinned = true;
                 _inputs[v] = r;
@@ -175,11 +229,19 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
     }
 
     /// <summary>Like <see cref="Ref"/> but weights/constants are converted to dense f32.</summary>
-    TRef RefF32(Value v)
+    private TRef RefF32(Value v)
     {
         var r = Ref(v);
-        if (v.Kind is not (ValueKind.Weight or ValueKind.Constant) || r.Type == DataType.F32 || r.Type.Kind is DataTypeKind.Int or DataTypeKind.Bool) return r;
-        if (_f32Cache.TryGetValue(v, out var c)) return c;
+        if (v.Kind is not (ValueKind.Weight or ValueKind.Constant) || r.Type == DataType.F32 || r.Type.Kind is DataTypeKind.Int or DataTypeKind.Bool)
+        {
+            return r;
+        }
+
+        if (_f32Cache.TryGetValue(v, out var c))
+        {
+            return c;
+        }
+
         var fmt = Quant.FormatOf(r.Type) ?? throw new NotSupportedException($"Weight type {r.Type} cannot be converted to f32.");
         long elems = r.MaxElements;
         var buf = new Buf { Bytes = elems * 4, Ptr = Mem.Alloc(elems * 4, false), Name = v.Name + ".f32" };
@@ -191,38 +253,53 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
     }
 
     // ============================== steps =====================================================
-    void AddStep(CpuOp op, params TRef[] touches)
+    private void AddStep(CpuOp op, params TRef[] touches)
     {
         int i = _steps.Count;
         _steps.Add((op, touches));
         foreach (var t in touches)
         {
-            if (!t.Buf.InArena) continue;
-            if (i < t.Buf.First) t.Buf.First = i;
-            if (i > t.Buf.Last) t.Buf.Last = i;
+            if (!t.Buf.InArena)
+            {
+                continue;
+            }
+
+            if (i < t.Buf.First)
+            {
+                t.Buf.First = i;
+            }
+
+            if (i > t.Buf.Last)
+            {
+                t.Buf.Last = i;
+            }
         }
     }
 
-    TRef Materialize(TRef x)
+    private TRef Materialize(TRef x)
     {
         var y = NewDense(x.Type, (long[])x.Dims.Clone(), x.Sym, "materialized");
         AddStep(new CopyOp(x, y), x, y);
         return y;
     }
 
-    TRef RowContig(TRef x) => x.LastContiguous ? x : Materialize(x);
-    TRef Dense(TRef x) => x.IsDense ? x : Materialize(x);
+    private TRef RowContig(TRef x) => x.LastContiguous ? x : Materialize(x);
+    private TRef Dense(TRef x) => x.IsDense ? x : Materialize(x);
 
-    TRef View(TRef src, long[] dims, long[] strides, long offset, string? sym) => Register(new TRef
+    private TRef View(TRef src, long[] dims, long[] strides, long offset, string? sym) => Register(new TRef
     {
         Type = src.Type, Dims = dims, Strides = strides, Sym = sym, Buf = src.Buf, Offset = src.Offset + offset,
     });
 
-    static bool TryReshapeStrides(long[] od, long[] os, long[] nd, out long[] ns)
+    private static bool TryReshapeStrides(long[] od, long[] os, long[] nd, out long[] ns)
     {
         ns = new long[nd.Length];
         var oldD = new List<long>(); var oldS = new List<long>();
-        for (int i = 0; i < od.Length; i++) if (od[i] != 1) { oldD.Add(od[i]); oldS.Add(os[i]); }
+        for (int i = 0; i < od.Length; i++)
+        {
+            if (od[i] != 1) { oldD.Add(od[i]); oldS.Add(os[i]); }
+        }
+
         int oldnd = oldD.Count;
         int oi = 0, oj = 1, ni = 0, nj = 1;
         while (ni < nd.Length && oi < oldnd)
@@ -230,25 +307,43 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             long np = nd[ni], op = oldD[oi];
             while (np != op)
             {
-                if (np < op) { if (nj >= nd.Length) return false; np *= nd[nj++]; }
-                else { if (oj >= oldnd) return false; op *= oldD[oj++]; }
+                if (np < op) { if (nj >= nd.Length) { return false; } np *= nd[nj++]; }
+                else { if (oj >= oldnd) { return false; } op *= oldD[oj++]; }
             }
             for (int ok = oi; ok < oj - 1; ok++)
-                if (oldS[ok] != oldD[ok + 1] * oldS[ok + 1]) return false;
+            {
+                if (oldS[ok] != oldD[ok + 1] * oldS[ok + 1])
+                {
+                    return false;
+                }
+            }
+
             ns[nj - 1] = oldS[oj - 1];
-            for (int nk = nj - 1; nk > ni; nk--) ns[nk - 1] = ns[nk] * nd[nk];
+            for (int nk = nj - 1; nk > ni; nk--)
+            {
+                ns[nk - 1] = ns[nk] * nd[nk];
+            }
+
             ni = nj++; oi = oj++;
         }
         long last = ni >= 1 ? ns[ni - 1] : 1;
-        for (int nk = ni; nk < nd.Length; nk++) ns[nk] = last;
+        for (int nk = ni; nk < nd.Length; nk++)
+        {
+            ns[nk] = last;
+        }
+
         return true;
     }
 
-    TRef ReshapeView(TRef s, Value outV)
+    private TRef ReshapeView(TRef s, Value outV)
     {
         var nd = DimsOf(outV.Shape);
         string? sym = outV.Shape.Symbol;
-        if (s.IsDense) return View(s, nd, TRef.RowMajor(nd), 0, sym);
+        if (s.IsDense)
+        {
+            return View(s, nd, TRef.RowMajor(nd), 0, sym);
+        }
+
         long[] ns;
         if (s.Sym is not null && sym is not null)
         {
@@ -259,22 +354,29 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             }
         }
         else if (s.Sym is null && sym is null && TryReshapeStrides(s.Dims, s.Strides, nd, out ns))
+        {
             return View(s, nd, ns, 0, sym);
+        }
+
         var m = Materialize(s);
         return View(m, nd, TRef.RowMajor(nd), 0, sym);
     }
 
-    static int Norm(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
+    private static int Norm(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
 
-    static int[] Ints(Attributes a, string key, params int[] dflt)
+    private static int[] Ints(Attributes a, string key, params int[] dflt)
     {
         var r = IntArray(a, key);
         return r.Length > 0 ? r : dflt;
     }
 
-    static int[] IntArray(Attributes a, string key)
+    private static int[] IntArray(Attributes a, string key)
     {
-        if (!a.TryGetValue(key, out var o)) return [];
+        if (!a.TryGetValue(key, out var o))
+        {
+            return [];
+        }
+
         return o switch
         {
             int[] i => i,
@@ -284,9 +386,9 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
         };
     }
 
-    static readonly Dictionary<string, UnaryKind> s_unary = Enum.GetValues<UnaryKind>().Where(k => k is not (UnaryKind.Scale or UnaryKind.Clip)).ToDictionary(k => k.ToString(), StringComparer.Ordinal);
+    private static readonly Dictionary<string, UnaryKind> s_unary = Enum.GetValues<UnaryKind>().Where(k => k is not (UnaryKind.Scale or UnaryKind.Clip)).ToDictionary(k => k.ToString(), StringComparer.Ordinal);
 
-    void Emit(Node n, CpuDevice device)
+    private void Emit(Node n, CpuDevice device)
     {
         string op = n.Op.Name;
         var a = n.Attributes;
@@ -294,7 +396,10 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
         if (n.Op.Category != OpCategory.View)
         {
             var sup = device.Supports(n);
-            if (!sup.IsSupported) throw new NotSupportedException($"CPU provider cannot run {op} (node {n.Id}): {sup.Reason}");
+            if (!sup.IsSupported)
+            {
+                throw new NotSupportedException($"CPU provider cannot run {op} (node {n.Id}): {sup.Reason}");
+            }
         }
         switch (op)
         {
@@ -302,8 +407,12 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             case "Slice":
             {
                 var s = Ref(ins[0]);
-                int axis = a.Get<int>("axis"); if (axis < 0) axis += s.Rank;
-                long start = a.Get<long>("start");
+                int axis = a.Get<int>("axis"); if (axis < 0)
+                    {
+                        axis += s.Rank;
+                    }
+
+                    long start = a.Get<long>("start");
                 var dims = (long[])s.Dims.Clone(); dims[axis] = a.Get<long>("length");
                 _refs[n.Output] = View(s, dims, s.Strides, start * s.Strides[axis], s.Sym);
                 return;
@@ -361,8 +470,12 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             {
                 var x = RefF32(ins[0]); var y = NewDense(n.Output);
                 var red = new bool[x.Rank];
-                foreach (var ax in a.Get<long[]>("axes")) red[ax < 0 ? ax + x.Rank : ax] = true;
-                var kind = a.Get("mode", "sum") switch { "mean" => ReduceKind.Mean, "max" => ReduceKind.Max, "min" => ReduceKind.Min, "prod" => ReduceKind.Prod, "l1" => ReduceKind.L1, "l2" => ReduceKind.L2, "sumsquare" => ReduceKind.SumSquare, "logsumexp" => ReduceKind.LogSumExp, _ => ReduceKind.Sum };
+                foreach (var ax in a.Get<long[]>("axes"))
+                    {
+                        red[ax < 0 ? ax + x.Rank : ax] = true;
+                    }
+
+                    var kind = a.Get("mode", "sum") switch { "mean" => ReduceKind.Mean, "max" => ReduceKind.Max, "min" => ReduceKind.Min, "prod" => ReduceKind.Prod, "l1" => ReduceKind.L1, "l2" => ReduceKind.L2, "sumsquare" => ReduceKind.SumSquare, "logsumexp" => ReduceKind.LogSumExp, _ => ReduceKind.Sum };
                 AddStep(new ReduceOp(kind, x, y, red), x, y); _refs[n.Output] = y; return;
             }
             case "BatchMatMul":
@@ -462,8 +575,17 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var x = Dense(RefF32(ins[0]));
                 TRef? w = ins.Length > 1 ? Dense(RefF32(ins[1])) : null, b = ins.Length > 2 ? Dense(RefF32(ins[2])) : null;
                 var y = NewDense(n.Output);
-                var touches = new List<TRef> { x, y }; if (w != null) touches.Add(w); if (b != null) touches.Add(b);
-                AddStep(new GroupNormOp(x, w, b, y, (int)a.Get<long>("groups"), a.Get("eps", 1e-5f)), [.. touches]); _refs[n.Output] = y; return;
+                var touches = new List<TRef> { x, y }; if (w != null)
+                    {
+                        touches.Add(w);
+                    }
+
+                    if (b != null)
+                    {
+                        touches.Add(b);
+                    }
+
+                    AddStep(new GroupNormOp(x, w, b, y, (int)a.Get<long>("groups"), a.Get("eps", 1e-5f)), [.. touches]); _refs[n.Output] = y; return;
             }
             case "ConvTranspose":
             {
@@ -512,30 +634,46 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             }
             case "Concat":
             {
-                int axis = a.Get<int>("axis"); if (axis < 0) axis += n.Output.Rank;
-                var xs = ins.Select(Ref).ToArray(); var y = NewDense(n.Output);
+                int axis = a.Get<int>("axis"); if (axis < 0)
+                    {
+                        axis += n.Output.Rank;
+                    }
+
+                    var xs = ins.Select(Ref).ToArray(); var y = NewDense(n.Output);
                 AddStep(new ConcatOp(xs, y, axis), [.. xs, y]); _refs[n.Output] = y; return;
             }
             case "Gather":
             {
                 var t = Ref(ins[0]); var idx = Ref(ins[1]); var y = NewDense(n.Output);
                 var fmt = Quant.FormatOf(t.Type)!.Value;
-                if (ins[0].Kind is not (ValueKind.Weight or ValueKind.Constant)) t = Dense(t);
-                AddStep(new GatherOp(t, idx, y, fmt), t, idx, y); _refs[n.Output] = y; return;
+                if (ins[0].Kind is not (ValueKind.Weight or ValueKind.Constant))
+                    {
+                        t = Dense(t);
+                    }
+
+                    AddStep(new GatherOp(t, idx, y, fmt), t, idx, y); _refs[n.Output] = y; return;
             }
             case "MatMul":
             {
                 var x = RowContig(RefF32(ins[0])); var w = Ref(ins[1]);
-                if (ins[1].Kind is not (ValueKind.Weight or ValueKind.Constant)) w = Dense(w);
-                var fmt = Quant.FormatOf(w.Type)!.Value;
+                if (ins[1].Kind is not (ValueKind.Weight or ValueKind.Constant))
+                    {
+                        w = Dense(w);
+                    }
+
+                    var fmt = Quant.FormatOf(w.Type)!.Value;
                 var y = NewDense(n.Output);
                 AddStep(new MatMulOp(x, w, y, fmt), x, w, y); _refs[n.Output] = y; return;
             }
             case "MatMulId":
             {
                 var x = RowContig(RefF32(ins[0])); var w = Ref(ins[1]); var ix = Dense(Ref(ins[2]));
-                if (ins[1].Kind is not (ValueKind.Weight or ValueKind.Constant)) w = Dense(w);
-                var fmt = Quant.FormatOf(w.Type)!.Value;
+                if (ins[1].Kind is not (ValueKind.Weight or ValueKind.Constant))
+                    {
+                        w = Dense(w);
+                    }
+
+                    var fmt = Quant.FormatOf(w.Type)!.Value;
                 var y = NewDense(n.Output);
                 AddStep(new MatMulIdOp(x, w, ix, y, fmt), x, w, ix, y); _refs[n.Output] = y; return;
             }
@@ -545,8 +683,17 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var x = RowContig(RefF32(ins[0]));
                 TRef? w = ins.Length > 1 ? RefF32(ins[1]) : null, b = ins.Length > 2 ? RefF32(ins[2]) : null;
                 var y = NewDense(n.Output);
-                var touches = new List<TRef> { x, y }; if (w != null) touches.Add(w); if (b != null) touches.Add(b);
-                AddStep(new RowOp(kind, x, w, b, y, a.Get("eps", 1e-5f), a.Get("scale", 1f), a.Get("log", false)), [.. touches]); _refs[n.Output] = y; return;
+                var touches = new List<TRef> { x, y }; if (w != null)
+                    {
+                        touches.Add(w);
+                    }
+
+                    if (b != null)
+                    {
+                        touches.Add(b);
+                    }
+
+                    AddStep(new RowOp(kind, x, w, b, y, a.Get("eps", 1e-5f), a.Get("scale", 1f), a.Get("log", false)), [.. touches]); _refs[n.Output] = y; return;
             }
             case "Rope":
             {
@@ -575,9 +722,17 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 TRef? sinks = hasSinks ? Ref(ins[3]) : null;
                 var rows = ins.Length > 3 + ox ? Dense(Ref(ins[3 + ox])) : null;
                 var touched = new List<TRef> { q, k, v };
-                if (sinks is not null) touched.Add(sinks);
-                if (rows is not null) touched.Add(rows);
-                touched.Add(y);
+                if (sinks is not null)
+                    {
+                        touched.Add(sinks);
+                    }
+
+                    if (rows is not null)
+                    {
+                        touched.Add(rows);
+                    }
+
+                    touched.Add(y);
                 AddStep(new AttentionOp(q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
                     rows, (int)a.Get("slots", 1L), sinks), [.. touched]);
                 _refs[n.Output] = y; return;
@@ -596,9 +751,12 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             {
                 var x = RowContig(RefF32(ins[0])); var w = RefF32(ins[1]); var st = Ref(ins[2]); var y = NewDense(n.Output);
                 bool stat = ins[1].Kind is ValueKind.Weight or ValueKind.Constant;
-                if (!stat) w = Dense(w);
-                // Optional bias (attribute "bias", or a non-i32 input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
-                bool hasBias = a.Get("bias", false) || (ins.Length > 3 && ins[3].Type != DataType.I32);
+                if (!stat)
+                    {
+                        w = Dense(w);
+                    }
+                    // Optional bias (attribute "bias", or a non-i32 input 3) and, in the multi-sequence form, the trailing i32 sequence-runs table.
+                    bool hasBias = a.Get("bias", false) || (ins.Length > 3 && ins[3].Type != DataType.I32);
                 var cb = hasBias ? Dense(RefF32(ins[3])) : null;
                 var runs = ins.Length > (hasBias ? 4 : 3) ? Dense(Ref(ins[^1])) : null;
                 TRef[] uses = [x, w, st, y, .. cb is null ? [] : new[] { cb }, .. runs is null ? [] : new[] { runs }];
@@ -626,7 +784,7 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
     }
 
     // ============================== arena =====================================================
-    void AllocateArena()
+    private void AllocateArena()
     {
         int end = _steps.Count;
         foreach (var b in _bufs)
@@ -646,12 +804,25 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
                 var b = order[next++];
                 int best = -1;
                 for (int i = 0; i < free.Count; i++)
-                    if (free[i].Size >= b.Bytes && (best < 0 || free[i].Size < free[best].Size)) best = i;
+                {
+                    if (free[i].Size >= b.Bytes && (best < 0 || free[i].Size < free[best].Size))
+                    {
+                        best = i;
+                    }
+                }
+
                 if (best >= 0)
                 {
                     b.ArenaOffset = free[best].Off;
                     long rest = free[best].Size - b.Bytes;
-                    if (rest > 0) free[best] = (free[best].Off + b.Bytes, rest); else free.RemoveAt(best);
+                    if (rest > 0)
+                    {
+                        free[best] = (free[best].Off + b.Bytes, rest);
+                    }
+                    else
+                    {
+                        free.RemoveAt(best);
+                    }
                 }
                 else if (free.Count > 0 && free[^1].Off + free[^1].Size == top)
                 {
@@ -665,11 +836,23 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
             for (int i = active.Count - 1; i >= 0; i--)
             {
                 var b = active[i];
-                if (b.Last > step) continue;
+                if (b.Last > step)
+                {
+                    continue;
+                }
+
                 active.RemoveAt(i);
-                if (b.Pinned) continue;
+                if (b.Pinned)
+                {
+                    continue;
+                }
+
                 int pos = free.FindIndex(f => f.Off > b.ArenaOffset);
-                if (pos < 0) pos = free.Count;
+                if (pos < 0)
+                {
+                    pos = free.Count;
+                }
+
                 free.Insert(pos, (b.ArenaOffset, b.Bytes));
                 // coalesce
                 if (pos + 1 < free.Count && free[pos].Off + free[pos].Size == free[pos + 1].Off)
@@ -680,15 +863,30 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
         }
         _arenaBytes = top;
         _arena = Mem.Alloc(Math.Max(top, 64), true);
-        foreach (var b in _bufs) b.Ptr = _arena + b.ArenaOffset;
-        foreach (var r in _allRefs) r.P = r.Buf.Ptr + r.Offset * r.ElemSize;
+        foreach (var b in _bufs)
+        {
+            b.Ptr = _arena + b.ArenaOffset;
+        }
+
+        foreach (var r in _allRefs)
+        {
+            r.P = r.Buf.Ptr + r.Offset * r.ElemSize;
+        }
     }
 
     // ============================== ICompiledSegment ==========================================
     public void SetInput(Value value, ReadOnlySpan<byte> data)
     {
-        if (!_inputs.TryGetValue(value, out var r)) throw new ArgumentException($"{value} is not an input of this segment.");
-        if (data.Length > r.Buf.Bytes) throw new ArgumentException($"Input {value.Name}: {data.Length} bytes exceed the compiled capacity of {r.Buf.Bytes} bytes (MaxTokens too small?).");
+        if (!_inputs.TryGetValue(value, out var r))
+        {
+            throw new ArgumentException($"{value} is not an input of this segment.");
+        }
+
+        if (data.Length > r.Buf.Bytes)
+        {
+            throw new ArgumentException($"Input {value.Name}: {data.Length} bytes exceed the compiled capacity of {r.Buf.Bytes} bytes (MaxTokens too small?).");
+        }
+
         data.CopyTo(new Span<byte>(r.P, data.Length));
     }
 
@@ -696,13 +894,21 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         foreach (var (sym, bound) in _symBound)
+        {
             if (parameters.Symbols.TryGetValue(sym, out var v) && v > bound)
+            {
                 throw new InvalidOperationException($"Symbol '{sym}' = {v} exceeds the compiled bound {bound}.");
+            }
+        }
+
         _last = parameters;
         var prof = Profile;
         if (prof is null)
         {
-            foreach (var (op, _) in _steps) op.Run(parameters);
+            foreach (var (op, _) in _steps)
+            {
+                op.Run(parameters);
+            }
         }
         else
         {
@@ -719,23 +925,45 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
 
     public void GetOutput(Value value, Span<byte> destination)
     {
-        if (!_refs.TryGetValue(value, out var r)) throw new ArgumentException($"{value} is not a value of this segment.");
+        if (!_refs.TryGetValue(value, out var r))
+        {
+            throw new ArgumentException($"{value} is not a value of this segment.");
+        }
+
         var p = _last ?? throw new InvalidOperationException("GetOutput called before Execute.");
         long elems = r.Elements(p);
         long bytes = elems * r.ElemSize;
-        if (destination.Length < bytes) throw new ArgumentException($"Destination too small: need {bytes} bytes, got {destination.Length}.");
-        if (elems == 0) return;
+        if (destination.Length < bytes)
+        {
+            throw new ArgumentException($"Destination too small: need {bytes} bytes, got {destination.Length}.");
+        }
+
+        if (elems == 0)
+        {
+            return;
+        }
+
         var dims = new long[r.Rank];
-        for (int i = 0; i < dims.Length; i++) dims[i] = r.Dim(i, p);
+        for (int i = 0; i < dims.Length; i++)
+        {
+            dims[i] = r.Dim(i, p);
+        }
+
         fixed (byte* d = destination)
+        {
             Mem.CopyStrided(r.P, r.Strides, d, TRef.RowMajor(dims), r.Dims, r.Rank == 0 ? 1 : dims[0], r.ElemSize);
+        }
     }
 
     /// <summary>Overwrites a state tensor with host data (f32 states; used by tests and for state restore).</summary>
     public void TestSetState(Value state, float[] data)
     {
         var r = _refs[state];
-        if (r.Type != DataType.F32) throw new NotSupportedException("f32 states only");
+        if (r.Type != DataType.F32)
+        {
+            throw new NotSupportedException("f32 states only");
+        }
+
         data.AsSpan().CopyTo(new Span<float>(r.P, data.Length));
     }
 
@@ -750,16 +978,31 @@ public sealed unsafe class CpuCompiledSegment : ICompiledSegment
 
     public void ResetState()
     {
-        foreach (var (buf, bytes) in _stateBufs) System.Runtime.InteropServices.NativeMemory.Clear(buf.Ptr, (nuint)bytes);
+        foreach (var (buf, bytes) in _stateBufs)
+        {
+            System.Runtime.InteropServices.NativeMemory.Clear(buf.Ptr, (nuint)bytes);
+        }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
-        foreach (var (op, _) in _steps) op.Dispose();
+        foreach (var (op, _) in _steps)
+        {
+            op.Dispose();
+        }
+
         Mem.Free(_arena); _arena = null;
-        foreach (var p in _owned) Mem.Free((byte*)p);
+        foreach (var p in _owned)
+        {
+            Mem.Free((byte*)p);
+        }
+
         _owned.Clear();
         _bufs.Clear(); _steps.Clear();
     }

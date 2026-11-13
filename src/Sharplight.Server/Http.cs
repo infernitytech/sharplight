@@ -17,7 +17,7 @@ public sealed class ApiException(int status, string type, string message, string
     public static ApiException BadRequest(string message, string? param = null) => new(400, "invalid_request_error", message, null, param);
 }
 
-static class ApiErrors
+internal static class ApiErrors
 {
     public static bool IsAnthropic(HttpContext http)
         => (http.Request.Path.Value ?? "").StartsWith("/v1/messages", StringComparison.Ordinal) || http.Request.Headers.ContainsKey("anthropic-version");
@@ -44,15 +44,27 @@ static class ApiErrors
 
     public static async Task WriteAsync(HttpContext http, int status, string type, string message, string? code = null, string? param = null, int? retryAfter = null)
     {
-        if (http.Response.HasStarted) return;
-        if (!IsAnthropic(http) && status == 401) http.Response.Headers.WWWAuthenticate = "Bearer";
-        if (retryAfter is int ra) http.Response.Headers.RetryAfter = ra.ToString();
+        if (http.Response.HasStarted)
+        {
+            return;
+        }
+
+        if (!IsAnthropic(http) && status == 401)
+        {
+            http.Response.Headers.WWWAuthenticate = "Bearer";
+        }
+
+        if (retryAfter is int ra)
+        {
+            http.Response.Headers.RetryAfter = ra.ToString();
+        }
+
         http.Response.StatusCode = status;
         await HttpJson.WriteAsync(http, Body(IsAnthropic(http), type, message, code, param), status);
     }
 }
 
-static class HttpJson
+internal static class HttpJson
 {
     public static readonly JsonSerializerOptions Options = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -60,7 +72,11 @@ static class HttpJson
 
     public static async Task WriteAsync(HttpContext http, JsonNode body, int? status = null)
     {
-        if (status is int s) http.Response.StatusCode = s;
+        if (status is int s)
+        {
+            http.Response.StatusCode = s;
+        }
+
         http.Response.ContentType = "application/json";
         await http.Response.WriteAsync(ToJson(body), Encoding.UTF8, http.RequestAborted);
     }
@@ -68,20 +84,35 @@ static class HttpJson
     /// <summary>Reads and parses the JSON request body, enforcing the size limit.</summary>
     public static async Task<JsonDocument> ReadBodyAsync(HttpContext http, long maxBytes)
     {
-        if (http.Request.ContentLength > maxBytes) throw new ApiException(413, "request_too_large", $"The request body exceeds the limit of {maxBytes} bytes.");
-        if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } f) f.MaxRequestBodySize = maxBytes;
+        if (http.Request.ContentLength > maxBytes)
+        {
+            throw new ApiException(413, "request_too_large", $"The request body exceeds the limit of {maxBytes} bytes.");
+        }
+
+        if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } f)
+        {
+            f.MaxRequestBodySize = maxBytes;
+        }
+
         using var ms = new MemoryStream();
         var buf = new byte[81920];
         int n;
         while ((n = await http.Request.Body.ReadAsync(buf, http.RequestAborted)) > 0)
         {
             ms.Write(buf, 0, n);
-            if (ms.Length > maxBytes) throw new ApiException(413, "request_too_large", $"The request body exceeds the limit of {maxBytes} bytes.");
+            if (ms.Length > maxBytes)
+            {
+                throw new ApiException(413, "request_too_large", $"The request body exceeds the limit of {maxBytes} bytes.");
+            }
         }
         try
         {
             var doc = JsonDocument.Parse(ms.ToArray());
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) throw ApiException.BadRequest("The request body must be a JSON object.");
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw ApiException.BadRequest("The request body must be a JSON object.");
+            }
+
             return doc;
         }
         catch (JsonException ex) { throw ApiException.BadRequest("Invalid JSON: " + ex.Message); }
@@ -89,9 +120,9 @@ static class HttpJson
 }
 
 /// <summary>Server-sent events writer.</summary>
-sealed class SseWriter
+internal sealed class SseWriter
 {
-    readonly HttpContext _http;
+    private readonly HttpContext _http;
     public SseWriter(HttpContext http)
     {
         _http = http;
@@ -112,16 +143,28 @@ sealed class SseWriter
 }
 
 /// <summary>Typed accessors over a request JSON object.</summary>
-static class Jx
+internal static class Jx
 {
     public static JsonElement? Get(this JsonElement o, string name)
         => o.ValueKind == JsonValueKind.Object && o.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v : null;
     public static string? Str(this JsonElement o, string name) => o.Get(name) is { ValueKind: JsonValueKind.String } v ? v.GetString() : null;
     public static int? Int(this JsonElement o, string name, string? param = null)
     {
-        if (o.Get(name) is not { } v) return null;
-        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)) return i;
-        if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d)) return (int)d;
+        if (o.Get(name) is not { } v)
+        {
+            return null;
+        }
+
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i))
+        {
+            return i;
+        }
+
+        if (v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d))
+        {
+            return (int)d;
+        }
+
         throw ApiException.BadRequest($"'{name}' must be an integer.", param ?? name);
     }
     public static float? Float(this JsonElement o, string name)

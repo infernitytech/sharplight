@@ -15,39 +15,39 @@ public readonly record struct SequenceInput(int Slot, ReadOnlyMemory<int> Tokens
 /// </summary>
 public interface IBatchDecoder : IDisposable
 {
-    int SlotCount { get; }
+    public int SlotCount { get; }
     /// <summary>Maximum context length per slot.</summary>
-    int ContextLength { get; }
+    public int ContextLength { get; }
     /// <summary>Maximum rows (summed over all inputs) per <see cref="Step"/>.</summary>
-    int MaxBatchTokens { get; }
-    int VocabSize { get; }
+    public int MaxBatchTokens { get; }
+    public int VocabSize { get; }
     /// <summary>True when one <see cref="Step"/> really executes rows of several slots in one pass.</summary>
-    bool BatchesSequences { get; }
+    public bool BatchesSequences { get; }
     /// <summary>Tokens currently in a slot's context.</summary>
-    int Length(int slot);
+    public int Length(int slot);
     /// <summary>Empties a slot.</summary>
-    void Reset(int slot);
+    public void Reset(int slot);
     /// <summary>
     /// Whether <see cref="Truncate"/> works: true for pure-attention models (dropping KV rows), false when a slot holds
     /// recurrent state that cannot be rewound (then prefix reuse is limited to whole-context matches).
     /// </summary>
-    bool CanTruncate { get; }
+    public bool CanTruncate { get; }
     /// <summary>Shortens a slot's context to its first <paramref name="length"/> tokens (prefix reuse).</summary>
-    void Truncate(int slot, int length);
+    public void Truncate(int slot, int length);
     /// <summary>
     /// Runs one forward pass over the given inputs (at most one per slot, total rows ≤ <see cref="MaxBatchTokens"/>).
     /// Returns one logits array (length <see cref="VocabSize"/>) per input with <see cref="SequenceInput.WantLogits"/>,
     /// in input order; null entries for the others. The arrays may be reused by the next call.
     /// </summary>
-    IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs);
+    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs);
     /// <summary>Accelerator (GPU) memory held by this decoder's compiled model: weights, state, activations (0 when unknown or all on the CPU).</summary>
-    long DeviceMemoryBytes => 0;
+    public long DeviceMemoryBytes => 0;
 }
 
 /// <summary>Single-slot <see cref="IBatchDecoder"/> over an <see cref="InferenceSession"/>.</summary>
 public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSession = true) : IBatchDecoder
 {
-    readonly float[] _logits = new float[session.VocabSize];
+    private readonly float[] _logits = new float[session.VocabSize];
 
     public int SlotCount => 1;
     public int ContextLength => session.ContextLength;
@@ -61,8 +61,16 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     public void Truncate(int slot, int length)
     {
         Check(slot);
-        if (length == session.Position) return;
-        if (length != 0) throw new NotSupportedException("This decoder cannot truncate a context.");
+        if (length == session.Position)
+        {
+            return;
+        }
+
+        if (length != 0)
+        {
+            throw new NotSupportedException("This decoder cannot truncate a context.");
+        }
+
         session.Reset();
     }
 
@@ -78,7 +86,15 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
         return res;
     }
 
-    static void Check(int slot) { if (slot != 0) throw new ArgumentOutOfRangeException(nameof(slot)); }
+    private static void Check(int slot) { if (slot != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slot));
+        }
+    }
 
-    public void Dispose() { if (ownsSession) session.Dispose(); }
+    public void Dispose() { if (ownsSession)
+        {
+            session.Dispose();
+        }
+    }
 }

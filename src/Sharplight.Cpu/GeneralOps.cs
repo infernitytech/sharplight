@@ -25,14 +25,22 @@ internal static unsafe class Gen
     public static long[] Dims(TRef t, RunParameters p)
     {
         var d = new long[t.Rank];
-        for (int i = 0; i < d.Length; i++) d[i] = t.Dim(i, p);
+        for (int i = 0; i < d.Length; i++)
+        {
+            d[i] = t.Dim(i, p);
+        }
+
         return d;
     }
 
     public static long Prod(long[] d, int from, int to)
     {
         long n = 1;
-        for (int i = from; i < to; i++) n *= d[i];
+        for (int i = from; i < to; i++)
+        {
+            n *= d[i];
+        }
+
         return n;
     }
 
@@ -45,8 +53,16 @@ internal static unsafe class Gen
 
     public static long Wrap(long id, long n, string what)
     {
-        if (id < 0) id += n;
-        if ((ulong)id >= (ulong)n) throw new ArgumentOutOfRangeException("indices", $"{what} index {id} out of range [0,{n}).");
+        if (id < 0)
+        {
+            id += n;
+        }
+
+        if ((ulong)id >= (ulong)n)
+        {
+            throw new ArgumentOutOfRangeException("indices", $"{what} index {id} out of range [0,{n}).");
+        }
+
         return id;
     }
 
@@ -63,9 +79,18 @@ internal static unsafe class Gen
         for (int k = 0; k < outRank; k++)
         {
             int ik = k - (outRank - t.Rank);
-            if (ik < 0) s[k] = 0;
-            else if (t.Dims[ik] == 1 && !(ik == 0 && t.Sym is not null)) s[k] = 0;
-            else s[k] = t.Strides[ik];
+            if (ik < 0)
+            {
+                s[k] = 0;
+            }
+            else if (t.Dims[ik] == 1 && !(ik == 0 && t.Sym is not null))
+            {
+                s[k] = 0;
+            }
+            else
+            {
+                s[k] = t.Strides[ik];
+            }
         }
         return s;
     }
@@ -74,8 +99,8 @@ internal static unsafe class Gen
 /// <summary>y = cond ? a : b with broadcasting; any plain element type for a/b (copied by element size).</summary>
 internal sealed unsafe class WhereOp : CpuOp
 {
-    readonly TRef _c, _a, _b, _y; readonly long[] _sc, _sa, _sb; readonly Action<int> _body;
-    long _outer, _per, _l;
+    private readonly TRef _c, _a, _b, _y; private readonly long[] _sc, _sa, _sb; private readonly Action<int> _body;
+    private long _outer, _per, _l;
     public override string Name => "Where";
 
     public WhereOp(TRef c, TRef a, TRef b, TRef y)
@@ -84,25 +109,41 @@ internal sealed unsafe class WhereOp : CpuOp
         _sc = Gen.Align(c, y.Rank); _sa = Gen.Align(a, y.Rank); _sb = Gen.Align(b, y.Rank);
     }
 
-    bool Cond(long off)
+    private bool Cond(long off)
     {
         var t = _c.Type;
-        if (t == DataType.F32) return ((float*)_c.P)[off] != 0f;
-        if (t == DataType.I32) return ((int*)_c.P)[off] != 0;
-        if (t == DataType.I64) return ((long*)_c.P)[off] != 0;
+        if (t == DataType.F32)
+        {
+            return ((float*)_c.P)[off] != 0f;
+        }
+
+        if (t == DataType.I32)
+        {
+            return ((int*)_c.P)[off] != 0;
+        }
+
+        if (t == DataType.I64)
+        {
+            return ((long*)_c.P)[off] != 0;
+        }
+
         return _c.P[off] != 0;
     }
 
     public override void Run(RunParameters p)
     {
         long total = _y.Elements(p);
-        if (total == 0) return;
+        if (total == 0)
+        {
+            return;
+        }
+
         _l = _y.Cols(p); _outer = total / _l;
         var (ch, per) = Gen.Split(_outer, _l); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         int r = _y.Rank, es = _y.ElemSize;
         long s = chunk * _per, e = Math.Min(_outer, s + _per);
@@ -118,7 +159,9 @@ internal sealed unsafe class WhereOp : CpuOp
             long sc = _sc[r - 1], sa = _sa[r - 1], sb = _sb[r - 1];
             byte* y = _y.P + row * _l * es;
             for (long i = 0; i < _l; i++)
+            {
                 Gen.Cp(y + i * es, (Cond(oc + i * sc) ? _a.P + (oa + i * sa) * es : _b.P + (ob + i * sb) * es), es);
+            }
         }
     }
 }
@@ -126,8 +169,8 @@ internal sealed unsafe class WhereOp : CpuOp
 /// <summary>numpy take along an axis: out[o, q, i] = data[o, idx[q], i].</summary>
 internal sealed unsafe class GatherAxisOp : CpuOp
 {
-    readonly TRef _x, _idx, _y; readonly int _axis; readonly Action<int> _body;
-    long _outer, _a, _inner, _q, _per;
+    private readonly TRef _x, _idx, _y; private readonly int _axis; private readonly Action<int> _body;
+    private long _outer, _a, _inner, _q, _per;
     public override string Name => "GatherAxis";
     public GatherAxisOp(TRef x, TRef idx, TRef y, int axis) { _x = x; _idx = idx; _y = y; _axis = axis; _body = Body; }
 
@@ -137,12 +180,16 @@ internal sealed unsafe class GatherAxisOp : CpuOp
         _outer = Gen.Prod(d, 0, _axis); _a = d[_axis]; _inner = Gen.Prod(d, _axis + 1, d.Length);
         _q = _idx.Elements(p);
         long items = _outer * _q;
-        if (items == 0 || _inner == 0) return;
+        if (items == 0 || _inner == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(items, _inner); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         int es = _x.ElemSize;
         long s = chunk * _per, e = Math.Min(_outer * _q, s + _per);
@@ -157,8 +204,8 @@ internal sealed unsafe class GatherAxisOp : CpuOp
 
 internal sealed unsafe class GatherElementsOp : CpuOp
 {
-    readonly TRef _x, _idx, _y; readonly int _axis; readonly Action<int> _body;
-    long[] _od = [], _xs = []; long _total, _per, _axisN;
+    private readonly TRef _x, _idx, _y; private readonly int _axis; private readonly Action<int> _body;
+    private long[] _od = [], _xs = []; private long _total, _per, _axisN;
     public override string Name => "GatherElements";
     public GatherElementsOp(TRef x, TRef idx, TRef y, int axis) { _x = x; _idx = idx; _y = y; _axis = axis; _body = Body; }
 
@@ -167,12 +214,16 @@ internal sealed unsafe class GatherElementsOp : CpuOp
         _od = Gen.Dims(_idx, p); var xd = Gen.Dims(_x, p);
         _xs = Gen.Strides(xd); _axisN = xd[_axis];
         _total = Gen.Prod(_od, 0, _od.Length);
-        if (_total == 0) return;
+        if (_total == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(_total, 8); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         int es = _x.ElemSize, r = _od.Length;
         long s = chunk * _per, e = Math.Min(_total, s + _per);
@@ -182,7 +233,11 @@ internal sealed unsafe class GatherElementsOp : CpuOp
             for (int d = r - 1; d >= 0; d--)
             {
                 long ix = rem % _od[d]; rem /= _od[d];
-                if (d == _axis) ix = Gen.Wrap(Gen.Idx(_idx, l), _axisN, "GatherElements");
+                if (d == _axis)
+                {
+                    ix = Gen.Wrap(Gen.Idx(_idx, l), _axisN, "GatherElements");
+                }
+
                 off += ix * _xs[d];
             }
             Gen.Cp(_y.P + l * es, _x.P + off * es, es);
@@ -192,8 +247,8 @@ internal sealed unsafe class GatherElementsOp : CpuOp
 
 internal sealed unsafe class GatherNdOp : CpuOp
 {
-    readonly TRef _x, _idx, _y; readonly int _b; readonly Action<int> _body;
-    long[] _xd = [], _xs = []; long _tuples, _q, _slice, _perBatch, _tuplesPerBatch, _per;
+    private readonly TRef _x, _idx, _y; private readonly int _b; private readonly Action<int> _body;
+    private long[] _xd = [], _xs = []; private long _tuples, _q, _slice, _perBatch, _tuplesPerBatch, _per;
     public override string Name => "GatherND";
     public GatherNdOp(TRef x, TRef idx, TRef y, int batchDims) { _x = x; _idx = idx; _y = y; _b = batchDims; _body = Body; }
 
@@ -205,12 +260,16 @@ internal sealed unsafe class GatherNdOp : CpuOp
         _tuplesPerBatch = Gen.Prod(id, _b, id.Length - 1);
         _perBatch = Gen.Prod(_xd, _b, _xd.Length);
         _slice = Gen.Prod(_xd, _b + (int)_q, _xd.Length);
-        if (_tuples == 0 || _slice == 0) return;
+        if (_tuples == 0 || _slice == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(_tuples, _slice); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         int es = _x.ElemSize;
         long s = chunk * _per, e = Math.Min(_tuples, s + _per);
@@ -218,7 +277,10 @@ internal sealed unsafe class GatherNdOp : CpuOp
         {
             long batch = t / _tuplesPerBatch, off = batch * _perBatch;
             for (int j = 0; j < _q; j++)
+            {
                 off += Gen.Wrap(Gen.Idx(_idx, t * _q + j), _xd[_b + j], "GatherND") * _xs[_b + j];
+            }
+
             Buffer.MemoryCopy(_x.P + off * es, _y.P + t * _slice * es, _slice * es, _slice * es);
         }
     }
@@ -227,7 +289,7 @@ internal sealed unsafe class GatherNdOp : CpuOp
 /// <summary>ScatterElements / ScatterND on f32, i32 or i64 data (sequential, so duplicate indices resolve in order).</summary>
 internal sealed unsafe class ScatterOp : CpuOp
 {
-    readonly TRef _x, _idx, _upd, _y; readonly int _axis; readonly bool _nd; readonly int _red; // 0 none 1 add 2 mul 3 max 4 min
+    private readonly TRef _x, _idx, _upd, _y; private readonly int _axis; private readonly bool _nd; private readonly int _red; // 0 none 1 add 2 mul 3 max 4 min
     public override string Name => _nd ? "ScatterND" : "ScatterElements";
 
     public ScatterOp(TRef x, TRef idx, TRef upd, TRef y, int axis, bool nd, string reduction)
@@ -240,17 +302,26 @@ internal sealed unsafe class ScatterOp : CpuOp
     {
         long n = _x.Elements(p);
         Buffer.MemoryCopy(_x.P, _y.P, n * _x.ElemSize, n * _x.ElemSize);
-        if (_x.Type == DataType.F32) Go<float>(p);
-        else if (_x.Type == DataType.I32) Go<int>(p);
-        else Go<long>(p);
+        if (_x.Type == DataType.F32)
+        {
+            Go<float>(p);
+        }
+        else if (_x.Type == DataType.I32)
+        {
+            Go<int>(p);
+        }
+        else
+        {
+            Go<long>(p);
+        }
     }
 
-    static T Red<T>(int red, T a, T b) where T : unmanaged, INumber<T> => red switch
+    private static T Red<T>(int red, T a, T b) where T : unmanaged, INumber<T> => red switch
     {
         1 => a + b, 2 => a * b, 3 => T.Max(a, b), 4 => T.Min(a, b), _ => b,
     };
 
-    void Go<T>(RunParameters p) where T : unmanaged, INumber<T>
+    private void Go<T>(RunParameters p) where T : unmanaged, INumber<T>
     {
         var yd = Gen.Dims(_x, p); var ys = Gen.Strides(yd);
         T* y = (T*)_y.P; T* u = (T*)_upd.P;
@@ -265,7 +336,11 @@ internal sealed unsafe class ScatterOp : CpuOp
                 for (int d = r - 1; d >= 0; d--)
                 {
                     long ix = rem % id[d]; rem /= id[d];
-                    if (d == _axis) ix = Gen.Wrap(Gen.Idx(_idx, l), yd[d], "ScatterElements");
+                    if (d == _axis)
+                    {
+                        ix = Gen.Wrap(Gen.Idx(_idx, l), yd[d], "ScatterElements");
+                    }
+
                     off += ix * ys[d];
                 }
                 y[off] = Red(_red, y[off], u[l]);
@@ -278,8 +353,15 @@ internal sealed unsafe class ScatterOp : CpuOp
             for (long t = 0; t < tuples; t++)
             {
                 long off = 0;
-                for (int j = 0; j < q; j++) off += Gen.Wrap(Gen.Idx(_idx, t * q + j), yd[j], "ScatterND") * ys[j];
-                for (long i = 0; i < slice; i++) y[off + i] = Red(_red, y[off + i], u[t * slice + i]);
+                for (int j = 0; j < q; j++)
+                {
+                    off += Gen.Wrap(Gen.Idx(_idx, t * q + j), yd[j], "ScatterND") * ys[j];
+                }
+
+                for (long i = 0; i < slice; i++)
+                {
+                    y[off + i] = Red(_red, y[off + i], u[t * slice + i]);
+                }
             }
         }
     }
@@ -287,8 +369,8 @@ internal sealed unsafe class ScatterOp : CpuOp
 
 internal sealed unsafe class CumSumOp : CpuOp
 {
-    readonly TRef _x, _y; readonly int _axis; readonly bool _excl, _rev; readonly Action<int> _body;
-    long _outer, _a, _inner, _per;
+    private readonly TRef _x, _y; private readonly int _axis; private readonly bool _excl, _rev; private readonly Action<int> _body;
+    private long _outer, _a, _inner, _per;
     public override string Name => "CumSum";
     public CumSumOp(TRef x, TRef y, int axis, bool exclusive, bool reverse) { _x = x; _y = y; _axis = axis; _excl = exclusive; _rev = reverse; _body = Body; }
 
@@ -296,12 +378,16 @@ internal sealed unsafe class CumSumOp : CpuOp
     {
         var d = Gen.Dims(_x, p);
         _outer = Gen.Prod(d, 0, _axis); _a = d[_axis]; _inner = Gen.Prod(d, _axis + 1, d.Length);
-        if (_outer * _a * _inner == 0) return;
+        if (_outer * _a * _inner == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(_outer, _a * _inner); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         long s = chunk * _per, e = Math.Min(_outer, s + _per);
         float* x = (float*)_x.P; float* y = (float*)_y.P;
@@ -316,14 +402,23 @@ internal sealed unsafe class CumSumOp : CpuOp
                 float* xr = xb + a * n, yr = yb + a * n;
                 if (prev == null)
                 {
-                    if (_excl) new Span<float>(yr, (int)n).Clear();
-                    else Buffer.MemoryCopy(xr, yr, n * 4, n * 4);
+                    if (_excl)
+                    {
+                        new Span<float>(yr, (int)n).Clear();
+                    }
+                    else
+                    {
+                        Buffer.MemoryCopy(xr, yr, n * 4, n * 4);
+                    }
                 }
                 else
                 {
                     // inclusive: y[a] = y[prev] + x[a];  exclusive: y[a] = y[prev] + x[prev]
                     float* xs = _excl ? xb + (_rev ? a + 1 : a - 1) * n : xr;
-                    for (long i = 0; i < n; i++) yr[i] = prev[i] + xs[i];
+                    for (long i = 0; i < n; i++)
+                    {
+                        yr[i] = prev[i] + xs[i];
+                    }
                 }
                 prev = yr;
             }
@@ -333,8 +428,8 @@ internal sealed unsafe class CumSumOp : CpuOp
 
 internal sealed unsafe class ArgReduceOp : CpuOp
 {
-    readonly TRef _x, _y; readonly int _axis; readonly bool _max, _last; readonly Action<int> _body;
-    long _outer, _a, _inner, _per;
+    private readonly TRef _x, _y; private readonly int _axis; private readonly bool _max, _last; private readonly Action<int> _body;
+    private long _outer, _a, _inner, _per;
     public override string Name => "ArgReduce." + (_max ? "max" : "min");
     public ArgReduceOp(TRef x, TRef y, int axis, bool max, bool selectLast) { _x = x; _y = y; _axis = axis; _max = max; _last = selectLast; _body = Body; }
 
@@ -343,12 +438,16 @@ internal sealed unsafe class ArgReduceOp : CpuOp
         var d = Gen.Dims(_x, p);
         _outer = Gen.Prod(d, 0, _axis); _a = d[_axis]; _inner = Gen.Prod(d, _axis + 1, d.Length);
         long items = _outer * _inner;
-        if (items == 0) return;
+        if (items == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(items, _a); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         long s = chunk * _per, e = Math.Min(_outer * _inner, s + _per);
         float* x = (float*)_x.P; int* y = (int*)_y.P;
@@ -370,8 +469,8 @@ internal sealed unsafe class ArgReduceOp : CpuOp
 
 internal sealed unsafe class TopKOp : CpuOp
 {
-    readonly TRef _x, _v, _i; readonly int _axis, _k; readonly bool _largest; readonly Action<int> _body;
-    long _outer, _a, _inner, _per;
+    private readonly TRef _x, _v, _i; private readonly int _axis, _k; private readonly bool _largest; private readonly Action<int> _body;
+    private long _outer, _a, _inner, _per;
     public override string Name => "TopK";
     public TopKOp(TRef x, TRef vals, TRef idx, int axis, int k, bool largest) { _x = x; _v = vals; _i = idx; _axis = axis; _k = k; _largest = largest; _body = Body; }
 
@@ -380,12 +479,16 @@ internal sealed unsafe class TopKOp : CpuOp
         var d = Gen.Dims(_x, p);
         _outer = Gen.Prod(d, 0, _axis); _a = d[_axis]; _inner = Gen.Prod(d, _axis + 1, d.Length);
         long items = _outer * _inner;
-        if (items == 0 || _k == 0) return;
+        if (items == 0 || _k == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(items, _a * 4); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         long s = chunk * _per, e = Math.Min(_outer * _inner, s + _per);
         float* x = (float*)_x.P; float* ov = (float*)_v.P; int* oi = (int*)_i.P;
@@ -394,21 +497,45 @@ internal sealed unsafe class TopKOp : CpuOp
         {
             long o = it / _inner, i = it % _inner;
             float* b = x + o * _a * _inner + i;
-            for (int a = 0; a < _a; a++) ids[a] = a;
+            for (int a = 0; a < _a; a++)
+            {
+                ids[a] = a;
+            }
+
             bool largest = _largest;
             // total order: value (desc for largest, asc for smallest; NaN counts as the extreme), then lower index first
             int Cmp(int p, int q)
             {
                 float u = b[p * _inner], v = b[q * _inner];
                 int c;
-                if (u == v || (float.IsNaN(u) && float.IsNaN(v))) c = 0;
-                else if (float.IsNaN(u)) c = -1;
-                else if (float.IsNaN(v)) c = 1;
-                else c = largest ? (u > v ? -1 : 1) : (u < v ? -1 : 1);
-                if (!largest && c != 0 && (float.IsNaN(u) || float.IsNaN(v))) c = -c;
+                if (u == v || (float.IsNaN(u) && float.IsNaN(v)))
+                {
+                    c = 0;
+                }
+                else if (float.IsNaN(u))
+                {
+                    c = -1;
+                }
+                else if (float.IsNaN(v))
+                {
+                    c = 1;
+                }
+                else
+                {
+                    c = largest ? (u > v ? -1 : 1) : (u < v ? -1 : 1);
+                }
+
+                if (!largest && c != 0 && (float.IsNaN(u) || float.IsNaN(v)))
+                {
+                    c = -c;
+                }
+
                 return c != 0 ? c : p.CompareTo(q);
             }
-            if (_k >= _a) Array.Sort(ids, Cmp);
+            if (_k >= _a)
+            {
+                Array.Sort(ids, Cmp);
+            }
             else
             {
                 // partial selection: keep the k best in an insertion-sorted prefix
@@ -416,12 +543,19 @@ internal sealed unsafe class TopKOp : CpuOp
                 var top = new int[k]; int cnt = 0;
                 for (int a = 0; a < _a; a++)
                 {
-                    if (cnt == k && Cmp(a, top[k - 1]) >= 0) continue;
+                    if (cnt == k && Cmp(a, top[k - 1]) >= 0)
+                    {
+                        continue;
+                    }
+
                     int pos = cnt < k ? cnt++ : k - 1;
                     while (pos > 0 && Cmp(a, top[pos - 1]) < 0) { top[pos] = top[pos - 1]; pos--; }
                     top[pos] = a;
                 }
-                for (int j = 0; j < k; j++) ids[j] = top[j];
+                for (int j = 0; j < k; j++)
+                {
+                    ids[j] = top[j];
+                }
             }
             long ob = o * _k * _inner + i;
             for (int j = 0; j < _k; j++) { ov[ob + j * _inner] = b[ids[j] * _inner]; oi[ob + j * _inner] = ids[j]; }
@@ -431,8 +565,8 @@ internal sealed unsafe class TopKOp : CpuOp
 
 internal sealed unsafe class GroupNormOp : CpuOp
 {
-    readonly TRef _x, _y; readonly TRef? _w, _b; readonly int _groups; readonly float _eps; readonly Action<int> _body;
-    long _n, _c, _s, _per;
+    private readonly TRef _x, _y; private readonly TRef? _w, _b; private readonly int _groups; private readonly float _eps; private readonly Action<int> _body;
+    private long _n, _c, _s, _per;
     public override string Name => "GroupNorm";
     public GroupNormOp(TRef x, TRef? w, TRef? b, TRef y, int groups, float eps) { _x = x; _w = w; _b = b; _y = y; _groups = groups; _eps = eps; _body = Body; }
 
@@ -441,12 +575,16 @@ internal sealed unsafe class GroupNormOp : CpuOp
         var d = Gen.Dims(_x, p);
         _n = d[0]; _c = d[1]; _s = Gen.Prod(d, 2, d.Length);
         long items = _n * _groups;
-        if (items * _c * _s == 0) return;
+        if (items * _c * _s == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(items, _c / _groups * _s * 4); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         long s0 = chunk * _per, e0 = Math.Min(_n * _groups, s0 + _per);
         long cg = _c / _groups; long cnt = cg * _s;
@@ -466,7 +604,11 @@ internal sealed unsafe class GroupNormOp : CpuOp
                 v = Vector256.Sum(acc);
                 for (; i < cnt; i++) { double dd = xb[i] - mean; v += dd * dd; }
             }
-            else for (long i = 0; i < cnt; i++) { double dd = xb[i] - mean; v += dd * dd; }
+            else
+            {
+                for (long i = 0; i < cnt; i++) { double dd = xb[i] - mean; v += dd * dd; }
+            }
+
             float inv = 1f / MathF.Sqrt((float)(v / cnt) + _eps);
             for (long c = 0; c < cg; c++)
             {
@@ -478,9 +620,15 @@ internal sealed unsafe class GroupNormOp : CpuOp
                 if (Vector256.IsHardwareAccelerated)
                 {
                     var sv = Vector256.Create(sc); var hv = Vector256.Create(sh);
-                    for (; i + 8 <= _s; i += 8) Vector256.FusedMultiplyAdd(Vector256.Load(xr + i), sv, hv).Store(yr + i);
+                    for (; i + 8 <= _s; i += 8)
+                    {
+                        Vector256.FusedMultiplyAdd(Vector256.Load(xr + i), sv, hv).Store(yr + i);
+                    }
                 }
-                for (; i < _s; i++) yr[i] = xr[i] * sc + sh;
+                for (; i < _s; i++)
+                {
+                    yr[i] = xr[i] * sc + sh;
+                }
             }
         }
     }
@@ -489,8 +637,8 @@ internal sealed unsafe class GroupNormOp : CpuOp
 /// <summary>Triangular masking of the last two axes (any plain element type).</summary>
 internal sealed unsafe class TriluOp : CpuOp
 {
-    readonly TRef _x, _y; readonly bool _upper; readonly long _k; readonly Action<int> _body;
-    long _batch, _m, _n, _per;
+    private readonly TRef _x, _y; private readonly bool _upper; private readonly long _k; private readonly Action<int> _body;
+    private long _batch, _m, _n, _per;
     public override string Name => "Trilu";
     public TriluOp(TRef x, TRef y, bool upper, long k) { _x = x; _y = y; _upper = upper; _k = k; _body = Body; }
 
@@ -498,12 +646,16 @@ internal sealed unsafe class TriluOp : CpuOp
     {
         var d = Gen.Dims(_x, p);
         _m = d[^2]; _n = d[^1]; _batch = Gen.Prod(d, 0, d.Length - 2);
-        if (_batch * _m * _n == 0) return;
+        if (_batch * _m * _n == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(_batch * _m, _n); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         int es = _x.ElemSize;
         long s = chunk * _per, e = Math.Min(_batch * _m, s + _per);
@@ -514,8 +666,14 @@ internal sealed unsafe class TriluOp : CpuOp
             for (long j = 0; j < _n; j++)
             {
                 bool keep = _upper ? j - i >= _k : j - i <= _k;
-                if (keep) Gen.Cp(dst + j * es, src + j * es, es);
-                else new Span<byte>(dst + j * es, es).Clear();
+                if (keep)
+                {
+                    Gen.Cp(dst + j * es, src + j * es, es);
+                }
+                else
+                {
+                    new Span<byte>(dst + j * es, es).Clear();
+                }
             }
         }
     }
@@ -523,8 +681,8 @@ internal sealed unsafe class TriluOp : CpuOp
 
 internal sealed unsafe class OneHotOp : CpuOp
 {
-    readonly TRef _idx, _y; readonly int _axis; readonly long _depth; readonly float _on, _off; readonly Action<int> _body;
-    long _pre, _post, _per;
+    private readonly TRef _idx, _y; private readonly int _axis; private readonly long _depth; private readonly float _on, _off; private readonly Action<int> _body;
+    private long _pre, _post, _per;
     public override string Name => "OneHot";
     public OneHotOp(TRef idx, TRef y, int axis, long depth, float on, float off) { _idx = idx; _y = y; _axis = axis; _depth = depth; _on = on; _off = off; _body = Body; }
 
@@ -532,12 +690,16 @@ internal sealed unsafe class OneHotOp : CpuOp
     {
         var d = Gen.Dims(_idx, p);
         _pre = Gen.Prod(d, 0, _axis); _post = Gen.Prod(d, _axis, d.Length);
-        if (_pre * _post * _depth == 0) return;
+        if (_pre * _post * _depth == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(_pre, _post * _depth); _per = per;
         Par.For(ch, _body);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         long s = chunk * _per, e = Math.Min(_pre, s + _per);
         float* y = (float*)_y.P;
@@ -548,8 +710,15 @@ internal sealed unsafe class OneHotOp : CpuOp
             for (long q = 0; q < _post; q++)
             {
                 long id = Gen.Idx(_idx, pr * _post + q);
-                if (id < 0) id += _depth;
-                if ((ulong)id < (ulong)_depth) yb[id * _post + q] = _on;
+                if (id < 0)
+                {
+                    id += _depth;
+                }
+
+                if ((ulong)id < (ulong)_depth)
+                {
+                    yb[id * _post + q] = _on;
+                }
             }
         }
     }
@@ -558,13 +727,13 @@ internal sealed unsafe class OneHotOp : CpuOp
 /// <summary>Transposed 2-D convolution as GEMM (W^T · X into a column buffer) followed by col2im accumulation.</summary>
 internal sealed unsafe class ConvTransposeOp : CpuOp
 {
-    readonly TRef _x, _y; readonly TRef? _bias;
-    readonly int _c, _h, _w, _o, _kh, _kw, _sh, _sw, _pt, _pl, _dh, _dw, _g, _ho, _wo, _cg, _og, _m, _hw, _mp, _nt;
-    readonly float* _apack, _col;
-    readonly Action<int> _gemmBody, _colBody;
-    [ThreadStatic] static float[]? s_scratch;
-    long _n; int _img, _grp, _mpt, _nBlocksN; float* _xg, _bias0;
-    long _per;
+    private readonly TRef _x, _y; private readonly TRef? _bias;
+    private readonly int _c, _h, _w, _o, _kh, _kw, _sh, _sw, _pt, _pl, _dh, _dw, _g, _ho, _wo, _cg, _og, _m, _hw, _mp, _nt;
+    private readonly float* _apack, _col;
+    private readonly Action<int> _gemmBody, _colBody;
+    [ThreadStatic] private static float[]? s_scratch;
+    private long _n; private int _img, _grp, _mpt, _nBlocksN; private float* _xg, _bias0;
+    private long _per;
     public override string Name => "ConvTranspose";
 
     public ConvTransposeOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw)
@@ -578,11 +747,14 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
         _mp = (_m + MR - 1) / MR; _nt = (_hw + NR - 1) / NR;
         _apack = (float*)Mem.Alloc((long)_g * _mp * _cg * MR * 4, true);
         for (int g = 0; g < _g; g++)
+        {
             for (int p = 0; p < _mp; p++)
             {
                 int m0 = p * MR, rows = Math.Min(MR, _m - m0);
                 Gemm.PackA(_apack + ((long)(g * _mp + p) * _cg) * MR, wDense + (long)g * _cg * _m + m0, 1, _m, rows, _cg, 1f);
             }
+        }
+
         _col = (float*)Mem.Alloc((long)_m * _hw * 4, false);
         _gemmBody = GemmBody; _colBody = ColBody;
     }
@@ -594,13 +766,18 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
         _n = _x.Dim(0, p);
         _bias0 = _bias is null ? null : (float*)_bias.P;
         for (int img = 0; img < _n; img++)
+        {
             for (int g = 0; g < _g; g++)
             {
                 _img = img; _grp = g;
                 _xg = (float*)_x.P + ((long)img * _c + (long)g * _cg) * _hw;
                 int mpt = Math.Min(_mp, 16);
                 long target = 4L * Par.Threads;
-                while (((_mp + mpt - 1) / mpt) * (long)_nt < target && mpt > 1) mpt = (mpt + 1) / 2;
+                while (((_mp + mpt - 1) / mpt) * (long)_nt < target && mpt > 1)
+                {
+                    mpt = (mpt + 1) / 2;
+                }
+
                 _mpt = mpt;
                 int mBlocks = (_mp + mpt - 1) / mpt;
                 Par.For(mBlocks * _nt, _gemmBody);
@@ -608,17 +785,23 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
                 _per = (_og + chunks - 1) / chunks;
                 Par.For(chunks, _colBody);
             }
+        }
     }
 
-    void GemmBody(int task)
+    private void GemmBody(int task)
     {
         int MR = Gemm.MR, NR = Gemm.NR, KC = Gemm.KC;
         int mb = task / _nt, t = task % _nt;
         int p0 = mb * _mpt, p1 = Math.Min(_mp, p0 + _mpt);
         var sc = s_scratch;
-        if (sc is null || sc.Length < KC * NR) s_scratch = sc = GC.AllocateUninitializedArray<float>(KC * NR, pinned: true);
+        if (sc is null || sc.Length < KC * NR)
+        {
+            s_scratch = sc = GC.AllocateUninitializedArray<float>(KC * NR, pinned: true);
+        }
+
         long n0 = (long)t * NR; int cols = (int)Math.Min(NR, _hw - n0);
         fixed (float* bp = sc)
+        {
             for (int kb = 0; kb < _cg; kb += KC)
             {
                 int kc = Math.Min(KC, _cg - kb);
@@ -628,13 +811,20 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
                     float* a = _apack + ((long)(_grp * _mp + p) * _cg + kb) * MR;
                     float* c = _col + (long)p * MR * _hw + n0;
                     int rows = Math.Min(MR, _m - p * MR);
-                    if (rows == MR && cols == NR) Gemm.Tile(a, bp, NR, c, _hw, kc, null, kb > 0);
-                    else Gemm.TileEdge(a, bp, NR, c, _hw, kc, null, kb > 0, rows, cols);
+                    if (rows == MR && cols == NR)
+                    {
+                        Gemm.Tile(a, bp, NR, c, _hw, kc, null, kb > 0);
+                    }
+                    else
+                    {
+                        Gemm.TileEdge(a, bp, NR, c, _hw, kc, null, kb > 0, rows, cols);
+                    }
                 }
             }
+        }
     }
 
-    void ColBody(int chunk)
+    private void ColBody(int chunk)
     {
         long s = chunk * _per, e = Math.Min(_og, s + _per);
         for (long o = s; o < e; o++)
@@ -643,6 +833,7 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
             float* yp = (float*)_y.P + ((long)_img * _o + oc) * _ho * _wo;
             new Span<float>(yp, _ho * _wo).Fill(_bias0 == null ? 0f : _bias0[oc]);
             for (int kh = 0; kh < _kh; kh++)
+            {
                 for (int kw = 0; kw < _kw; kw++)
                 {
                     float* crow = _col + ((o * _kh + kh) * _kw + kw) * _hw;
@@ -650,21 +841,34 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
                     for (int ih = 0; ih < _h; ih++)
                     {
                         int oh = ih * _sh - _pt + kh * _dh;
-                        if ((uint)oh >= (uint)_ho) continue;
+                        if ((uint)oh >= (uint)_ho)
+                        {
+                            continue;
+                        }
+
                         float* yr = yp + (long)oh * _wo; float* cr = crow + (long)ih * _w;
                         if (_sw == 1)
                         {
                             int lo = Math.Max(0, -off), hi = Math.Min(_w, _wo - off);
-                            if (hi > lo) Simd.Axpy(yr + lo + off, cr + lo, 1f, hi - lo);
+                            if (hi > lo)
+                            {
+                                Simd.Axpy(yr + lo + off, cr + lo, 1f, hi - lo);
+                            }
                         }
                         else
+                        {
                             for (int iw = 0; iw < _w; iw++)
                             {
                                 int ow = iw * _sw + off;
-                                if ((uint)ow < (uint)_wo) yr[ow] += cr[iw];
+                                if ((uint)ow < (uint)_wo)
+                                {
+                                    yr[ow] += cr[iw];
+                                }
                             }
+                        }
                     }
                 }
+            }
         }
     }
 }
@@ -672,9 +876,9 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
 /// <summary>GridSample (ONNX/ORT semantics): linear, nearest, cubic; zeros / border / reflection padding.</summary>
 internal sealed unsafe class GridSampleOp : CpuOp
 {
-    readonly TRef _x, _g, _y; readonly int _mode, _pad; readonly bool _align; // mode 0 linear 1 nearest 2 cubic; pad 0 zeros 1 border 2 reflection
-    readonly int _c, _h, _w, _ho, _wo; readonly Action<int> _body;
-    long _n, _rows, _per;
+    private readonly TRef _x, _g, _y; private readonly int _mode, _pad; private readonly bool _align; // mode 0 linear 1 nearest 2 cubic; pad 0 zeros 1 border 2 reflection
+    private readonly int _c, _h, _w, _ho, _wo; private readonly Action<int> _body;
+    private long _n, _rows, _per;
     public override string Name => "GridSample";
 
     public GridSampleOp(TRef x, TRef grid, TRef y, string mode, string padding, bool alignCorners)
@@ -689,17 +893,25 @@ internal sealed unsafe class GridSampleOp : CpuOp
     public override void Run(RunParameters p)
     {
         _n = _x.Dim(0, p); _rows = _n * _ho;
-        if (_rows * _wo * _c == 0) return;
+        if (_rows * _wo * _c == 0)
+        {
+            return;
+        }
+
         var (ch, per) = Gen.Split(_rows, (long)_wo * _c * 8); _per = per;
         Par.For(ch, _body);
     }
 
-    float Denorm(float v, int len) => _align ? (v + 1f) * (len - 1) / 2f : ((v + 1f) * len - 1f) / 2f;
+    private float Denorm(float v, int len) => _align ? (v + 1f) * (len - 1) / 2f : ((v + 1f) * len - 1f) / 2f;
 
-    static float Reflect(float x, float lo, float hi)
+    private static float Reflect(float x, float lo, float hi)
     {
         float range = hi - lo;
-        if (range == 0) return lo;
+        if (range == 0)
+        {
+            return lo;
+        }
+
         if (x < lo)
         {
             float dx = lo - x; int n = (int)(dx / range); float r = dx - n * range;
@@ -714,9 +926,13 @@ internal sealed unsafe class GridSampleOp : CpuOp
     }
 
     /// <summary>Applies the padding mode to a (denormalized) coordinate.</summary>
-    float Coord(float x, int len)
+    private float Coord(float x, int len)
     {
-        if (_pad == 1) return Math.Clamp(x, 0f, len - 1f);
+        if (_pad == 1)
+        {
+            return Math.Clamp(x, 0f, len - 1f);
+        }
+
         if (_pad == 2)
         {
             x = _align ? Reflect(x, 0f, len - 1f) : Reflect(x, -0.5f, len - 0.5f);
@@ -725,20 +941,28 @@ internal sealed unsafe class GridSampleOp : CpuOp
         return x;
     }
 
-    float Px(float* img, int r, int c) => (uint)r < (uint)_h && (uint)c < (uint)_w ? img[r * _w + c] : 0f;
+    private float Px(float* img, int r, int c) => (uint)r < (uint)_h && (uint)c < (uint)_w ? img[r * _w + c] : 0f;
 
     /// <summary>Cubic taps apply the padding mode per sample (ORT PixelAtGrid), not to the coordinate.</summary>
-    float PxPad(float* img, int r, int c)
+    private float PxPad(float* img, int r, int c)
     {
-        if (_pad == 0) return Px(img, r, c);
-        if (_pad == 1) return img[Math.Clamp(r, 0, _h - 1) * _w + Math.Clamp(c, 0, _w - 1)];
+        if (_pad == 0)
+        {
+            return Px(img, r, c);
+        }
+
+        if (_pad == 1)
+        {
+            return img[Math.Clamp(r, 0, _h - 1) * _w + Math.Clamp(c, 0, _w - 1)];
+        }
+
         float xmin = _align ? 0f : -0.5f, ymin = xmin;
         float xmax = _align ? _w - 1f : _w - 0.5f, ymax = _align ? _h - 1f : _h - 0.5f;
         int rc = (int)Reflect(r, ymin, ymax), cc = (int)Reflect(c, xmin, xmax);
         return img[rc * _w + cc];
     }
 
-    static void CubicCoeffs(float t, float* c)
+    private static void CubicCoeffs(float t, float* c)
     {
         const float A = -0.75f;
         float CC1(float x) => ((A + 2f) * x - (A + 3f)) * x * x + 1f;
@@ -746,7 +970,7 @@ internal sealed unsafe class GridSampleOp : CpuOp
         c[0] = CC2(t + 1f); c[1] = CC1(t); c[2] = CC1(1f - t); c[3] = CC2(2f - t);
     }
 
-    void Body(int chunk)
+    private void Body(int chunk)
     {
         long s = chunk * _per, e = Math.Min(_rows, s + _per);
         float* coef = stackalloc float[8];
@@ -782,7 +1006,11 @@ internal sealed unsafe class GridSampleOp : CpuOp
                         for (int h = 0; h < 4; h++)
                         {
                             float r = 0;
-                            for (int w = 0; w < 4; w++) r += coef[w] * PxPad(img, yi + h, xi + w);
+                            for (int w = 0; w < 4; w++)
+                            {
+                                r += coef[w] * PxPad(img, yi + h, xi + w);
+                            }
+
                             acc += coef[4 + h] * r;
                         }
                         v = acc;

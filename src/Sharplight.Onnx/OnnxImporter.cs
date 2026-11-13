@@ -25,18 +25,26 @@ public sealed class OnnxImporter : IModelImporter
 
     public bool CanOpen(string path)
     {
-        if (!path.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) return false;
+        if (!path.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+        {
+            return false;
+        }
+
         try { return LooksLikeModelProto(path); }
         catch (IOException) { return false; }
         catch (UnauthorizedAccessException) { return false; }
     }
 
     /// <summary>Walks the top-level protobuf fields (skipping payloads) and checks for a plausible ModelProto.</summary>
-    static bool LooksLikeModelProto(string path)
+    private static bool LooksLikeModelProto(string path)
     {
         using var f = File.OpenRead(path);
         long len = f.Length;
-        if (len < 4) return false;
+        if (len < 4)
+        {
+            return false;
+        }
+
         bool sawGraph = false;
         long pos = 0;
         int fields = 0;
@@ -45,22 +53,39 @@ public sealed class OnnxImporter : IModelImporter
         {
             f.Position = pos;
             int n = f.Read(buf);
-            if (n == 0) return false;
+            if (n == 0)
+            {
+                return false;
+            }
+
             int i = 0;
             ulong ReadVar()
             {
                 ulong v = 0; int sh = 0;
                 while (true)
                 {
-                    if (i >= n || sh > 63) throw new InvalidDataException();
-                    byte b = buf[i++]; v |= (ulong)(b & 0x7F) << sh; if ((b & 0x80) == 0) return v; sh += 7;
+                    if (i >= n || sh > 63)
+                    {
+                        throw new InvalidDataException();
+                    }
+
+                    byte b = buf[i++]; v |= (ulong)(b & 0x7F) << sh; if ((b & 0x80) == 0)
+                    {
+                        return v;
+                    }
+
+                    sh += 7;
                 }
             }
             try
             {
                 ulong key = ReadVar();
                 int field = (int)(key >> 3), wire = (int)(key & 7);
-                if (field is <= 0 or > 30) return false;
+                if (field is <= 0 or > 30)
+                {
+                    return false;
+                }
+
                 switch (wire)
                 {
                     case 0: ReadVar(); break;
@@ -69,9 +94,17 @@ public sealed class OnnxImporter : IModelImporter
                     case 2:
                     {
                         ulong l = ReadVar();
-                        if ((long)l < 0 || pos + i + (long)l > len) return false;
-                        if (field == 7) sawGraph = true;
-                        pos += (long)l;
+                        if ((long)l < 0 || pos + i + (long)l > len)
+                            {
+                                return false;
+                            }
+
+                            if (field == 7)
+                            {
+                                sawGraph = true;
+                            }
+
+                            pos += (long)l;
                         break;
                     }
                     default: return false;
@@ -79,7 +112,10 @@ public sealed class OnnxImporter : IModelImporter
             }
             catch (InvalidDataException) { return false; }
             pos += i;
-            if (++fields > 64 && !sawGraph) return false;
+            if (++fields > 64 && !sawGraph)
+            {
+                return false;
+            }
         }
         return pos == len && sawGraph;
     }
@@ -94,15 +130,27 @@ public sealed class OnnxImporter : IModelImporter
         {
             var file = new MappedFile(path);
             resources.Add(file);
-            if (file.Length > int.MaxValue) throw new NotSupportedException($"{path}: protobuf files over 2 GiB are invalid; store tensors as external data.");
+            if (file.Length > int.MaxValue)
+            {
+                throw new NotSupportedException($"{path}: protobuf files over 2 GiB are invalid; store tensors as external data.");
+            }
+
             var ext = new ExternalResolver(Path.GetDirectoryName(Path.GetFullPath(path))!, resources);
             var model = OnnxParser.Parse(file.AsSpan(), new MappedSliceProvider(file), ext);
-            if (options is not null) model.Options = options;
+            if (options is not null)
+            {
+                model.Options = options;
+            }
+
             return FromModel(model, path, resources);
         }
         catch
         {
-            foreach (var r in resources) r.Dispose();
+            foreach (var r in resources)
+            {
+                r.Dispose();
+            }
+
             throw;
         }
     }
@@ -112,7 +160,12 @@ public sealed class OnnxImporter : IModelImporter
     {
         var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         foreach (var t in model.Graph.Initializers)
-            if (ToWeight(t) is { } w) weights[t.Name] = w;
+        {
+            if (ToWeight(t) is { } w)
+            {
+                weights[t.Name] = w;
+            }
+        }
 
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -126,8 +179,18 @@ public sealed class OnnxImporter : IModelImporter
             ["onnx.doc_string"] = model.DocString,
             ["onnx.opset"] = model.Opset(),
         };
-        foreach (var (d, v) in model.Opsets) if (d != "") md["onnx.opset." + d] = v;
-        foreach (var (k, v) in model.MetadataProps) md["onnx.meta." + k] = v;
+        foreach (var (d, v) in model.Opsets)
+        {
+            if (d != "")
+            {
+                md["onnx.opset." + d] = v;
+            }
+        }
+
+        foreach (var (k, v) in model.MetadataProps)
+        {
+            md["onnx.meta." + k] = v;
+        }
 
         return new ModelSource
         {
@@ -157,31 +220,49 @@ public sealed class OnnxImporter : IModelImporter
         _ => null,
     };
 
-    static WeightInfo? ToWeight(OnnxTensor t)
+    private static WeightInfo? ToWeight(OnnxTensor t)
     {
-        if (t.Source is null || ToDataType(t.ElemType) is not { } dt) return null;
+        if (t.Source is null || ToDataType(t.ElemType) is not { } dt)
+        {
+            return null;
+        }
+
         return new WeightInfo { Name = t.Name, Type = dt, Shape = new Shape(t.Dims.Select(d => (Dim)d).ToArray()), Source = t.Source };
     }
 
-    sealed class ExternalResolver(string baseDir, List<IDisposable> resources) : IOnnxExternalDataResolver
+    private sealed class ExternalResolver(string baseDir, List<IDisposable> resources) : IOnnxExternalDataResolver
     {
-        readonly Dictionary<string, MappedFile> _files = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, MappedFile> _files = new(StringComparer.Ordinal);
 
         public IWeightSource Open(string location, long offset, long length)
         {
             string full = Path.GetFullPath(Path.Combine(baseDir, location));
             string root = baseDir.EndsWith(Path.DirectorySeparatorChar) ? baseDir : baseDir + Path.DirectorySeparatorChar;
             if (!full.StartsWith(root, StringComparison.Ordinal))
+            {
                 throw new InvalidDataException($"External data location '{location}' escapes the model directory.");
+            }
+
             if (!_files.TryGetValue(full, out var f))
             {
-                if (!File.Exists(full)) throw new FileNotFoundException($"External data file '{location}' not found next to the model.", full);
+                if (!File.Exists(full))
+                {
+                    throw new FileNotFoundException($"External data file '{location}' not found next to the model.", full);
+                }
+
                 _files[full] = f = new MappedFile(full);
                 resources.Add(f);
             }
-            if (length < 0) length = f.Length - offset;
+            if (length < 0)
+            {
+                length = f.Length - offset;
+            }
+
             if (offset < 0 || offset + length > f.Length)
+            {
                 throw new InvalidDataException($"External data range [{offset}, {offset + length}) is outside '{location}' ({f.Length} bytes).");
+            }
+
             return new MappedRegionSource(f, offset, length);
         }
     }

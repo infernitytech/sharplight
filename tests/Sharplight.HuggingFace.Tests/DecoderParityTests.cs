@@ -1,9 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
-using Sharplight.Architectures;
 using Sharplight.Gguf;
-using Sharplight.HuggingFace;
 using Sharplight.Models;
 using Sharplight.Tensors;
 using Sharplight.Tokenizers;
@@ -18,7 +16,7 @@ namespace Sharplight.HuggingFace.Tests;
 /// </summary>
 public class DecoderParityTests
 {
-    static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     public static IEnumerable<TheoryDataRow<string, string, string>> Models() =>
     [
@@ -42,10 +40,14 @@ public class DecoderParityTests
         new("Ternary-Bonsai-1.7B-Q2_0_g64", "hf/Ternary-Bonsai-1.7B", "gguf/Ternary-Bonsai-1.7B/Ternary-Bonsai-1.7B-Q2_0_g64.gguf"),
     ];
 
-    static (ModelSource Hf, ModelSource Gguf)? Open(string hf, string gguf)
+    private static (ModelSource Hf, ModelSource Gguf)? Open(string hf, string gguf)
     {
         string h = Path.Combine(Home, "models", hf), g = Path.Combine(Home, "models", gguf);
-        if (!Directory.Exists(h) || !File.Exists(g)) return null;
+        if (!Directory.Exists(h) || !File.Exists(g))
+        {
+            return null;
+        }
+
         try { return (HuggingFaceImporter.Open(h), GgufImporter.Open(g)); }
         catch (NotSupportedException) { return null; }   // family not supported by this build
     }
@@ -61,14 +63,28 @@ public class DecoderParityTests
         foreach (var key in h.Metadata.Keys.Concat(g.Metadata.Keys).Where(k => k.StartsWith(g.Architecture + ".", StringComparison.Ordinal)).Distinct().Order(StringComparer.Ordinal))
         {
             bool inH = h.Metadata.TryGetValue(key, out var hv), inG = g.Metadata.TryGetValue(key, out var gv);
-            if (key.EndsWith(".context_length")) continue;   // repackagers sometimes truncate; informational
-            if (inH != inG) problems.Add($"{key}: HF present={inH} GGUF present={inG}");
-            else if (!ValueEquals(hv!, gv!)) problems.Add($"{key}: HF {Fmt(hv!)} vs GGUF {Fmt(gv!)}");
+            if (key.EndsWith(".context_length"))
+            {
+                continue;   // repackagers sometimes truncate; informational
+            }
+
+            if (inH != inG)
+            {
+                problems.Add($"{key}: HF present={inH} GGUF present={inG}");
+            }
+            else if (!ValueEquals(hv!, gv!))
+            {
+                problems.Add($"{key}: HF {Fmt(hv!)} vs GGUF {Fmt(gv!)}");
+            }
         }
         // A tied head may be stored explicitly by one format (then it equals the embedding): not a canonical difference.
         var onlyH = h.Weights.Keys.Except(g.Weights.Keys).Where(k => k != "lm_head.weight").Order().ToList();
         var onlyG = g.Weights.Keys.Except(h.Weights.Keys).Where(k => k != "lm_head.weight").Order().ToList();
-        if (onlyH.Count + onlyG.Count > 0) problems.Add($"weights only in HF: {string.Join(", ", onlyH.Take(8))}; only in GGUF: {string.Join(", ", onlyG.Take(8))}");
+        if (onlyH.Count + onlyG.Count > 0)
+        {
+            problems.Add($"weights only in HF: {string.Join(", ", onlyH.Take(8))}; only in GGUF: {string.Join(", ", onlyG.Take(8))}");
+        }
+
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
@@ -82,20 +98,38 @@ public class DecoderParityTests
         var report = new SortedDictionary<string, double>();
         foreach (var (wn, gw) in g.Weights.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            if (!h.Weights.TryGetValue(wn, out var hw)) continue;
+            if (!h.Weights.TryGetValue(wn, out var hw))
+            {
+                continue;
+            }
             // Only layers 0..2 and the last one: all layers share the mapping code.
             var lm = System.Text.RegularExpressions.Regex.Match(wn, @"^layers\.(\d+)\.");
-            if (lm.Success && int.Parse(lm.Groups[1].Value) is var il && il > 2 && il != g.Arch<int>("layer_count") - 1) continue;
+            if (lm.Success && int.Parse(lm.Groups[1].Value) is var il && il > 2 && il != g.Arch<int>("layer_count") - 1)
+            {
+                continue;
+            }
+
             if (!gw.Shape.Equals(hw.Shape)) { problems.Add($"{wn}: shape GGUF {gw.Shape} vs HF {hw.Shape}"); continue; }
-            if (gw.Type != DataType.F32 && gw.Type != DataType.F16 && gw.Type != DataType.BF16 && gw.Type != DataType.Q8_0 && !IsGroupBitFormat(gw.Type)) continue;   // shape-only for other quantizations
+            if (gw.Type != DataType.F32 && gw.Type != DataType.F16 && gw.Type != DataType.BF16 && gw.Type != DataType.Q8_0 && !IsGroupBitFormat(gw.Type))
+            {
+                continue;   // shape-only for other quantizations
+            }
+
             double err = RelRms(gw, hw);
             string cls = System.Text.RegularExpressions.Regex.Replace(wn, @"layers\.\d+\.", "layers.N.") + $" [{gw.Type}<-{hw.Type}]";
             report[cls] = Math.Max(report.GetValueOrDefault(cls), err);
             double tol = gw.Type.IsQuantized ? 0.03 : 2e-3;
-            if (err > tol) problems.Add($"{wn}: relative rms error {err:g3} > {tol} ({gw.Type} vs {hw.Type})");
+            if (err > tol)
+            {
+                problems.Add($"{wn}: relative rms error {err:g3} > {tol} ({gw.Type} vs {hw.Type})");
+            }
         }
         var sb = new StringBuilder("\n");
-        foreach (var (k, v) in report) sb.AppendLine($"  {k,-60} relRms={v:g3}");
+        foreach (var (k, v) in report)
+        {
+            sb.AppendLine($"  {k,-60} relRms={v:g3}");
+        }
+
         Console.WriteLine(name + sb);
         Assert.True(problems.Count == 0, string.Join("\n", problems.Take(20)) + sb);
     }
@@ -111,9 +145,20 @@ public class DecoderParityTests
         Assert.Equal(tg.BosId, th.BosId);
         // The unsloth Nemotron GGUF enables add_bos_token while the official tokenizer_config.json disables it: a repackaging choice, compare plain encodings then.
         bool sameBos = tg.AddBos == th.AddBos;
-        if (!name.StartsWith("NVIDIA-Nemotron", StringComparison.Ordinal)) Assert.True(sameBos, "add_bos differs");
-        if (name.Contains("12B", StringComparison.Ordinal)) Assert.Subset(th.EndOfGenerationIds.ToHashSet(), tg.EndOfGenerationIds.ToHashSet());   // the unsloth 12B GGUF lists only <turn|> (eos id 106), the HF generation_config also <eos>
-        else Assert.Equal(tg.EndOfGenerationIds.Order(), th.EndOfGenerationIds.Order());
+        if (!name.StartsWith("NVIDIA-Nemotron", StringComparison.Ordinal))
+        {
+            Assert.True(sameBos, "add_bos differs");
+        }
+
+        if (name.Contains("12B", StringComparison.Ordinal))
+        {
+            Assert.Subset(th.EndOfGenerationIds.ToHashSet(), tg.EndOfGenerationIds.ToHashSet());   // the unsloth 12B GGUF lists only <turn|> (eos id 106), the HF generation_config also <eos>
+        }
+        else
+        {
+            Assert.Equal(tg.EndOfGenerationIds.Order(), th.EndOfGenerationIds.Order());
+        }
+
         foreach (var s in new[]
         {
             "Hello, world!", "The quick brown fox jumps over the lazy dog.", "  leading and trailing  ", "numbers 1234567890 3.14159",
@@ -129,23 +174,46 @@ public class DecoderParityTests
     }
 
     // ---- helpers ------------------------------------------------------------------------------
-    sealed class Disposer(ModelSource s) : IDisposable
+    private sealed class Disposer(ModelSource s) : IDisposable
     {
-        public void Dispose() { foreach (var r in s.OwnedResources) r.Dispose(); }
+        public void Dispose() { foreach (var r in s.OwnedResources)
+            {
+                r.Dispose();
+            }
+        }
     }
 
-    static string Fmt(object v) => v is Array a ? $"[{string.Join(",", a.Cast<object>().Take(8))}{(a.Length > 8 ? ",..." : "")}] (len {a.Length})" : v.ToString() ?? "";
+    private static string Fmt(object v) => v is Array a ? $"[{string.Join(",", a.Cast<object>().Take(8))}{(a.Length > 8 ? ",..." : "")}] (len {a.Length})" : v.ToString() ?? "";
 
-    static bool ValueEquals(object a, object b)
+    private static bool ValueEquals(object a, object b)
     {
-        if (a is string sa && b is string sb) return sa == sb;
+        if (a is string sa && b is string sb)
+        {
+            return sa == sb;
+        }
+
         if (a is Array aa && b is Array ba)
         {
-            if (aa.Length != ba.Length) return false;
-            for (int i = 0; i < aa.Length; i++) if (!ValueEquals(aa.GetValue(i)!, ba.GetValue(i)!)) return false;
+            if (aa.Length != ba.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < aa.Length; i++)
+            {
+                if (!ValueEquals(aa.GetValue(i)!, ba.GetValue(i)!))
+                {
+                    return false;
+                }
+            }
+
             return true;
         }
-        if (a is bool x && b is bool y) return x == y;
+        if (a is bool x && b is bool y)
+        {
+            return x == y;
+        }
+
         try
         {
             double da = Convert.ToDouble(a, CultureInfo.InvariantCulture), db = Convert.ToDouble(b, CultureInfo.InvariantCulture);
@@ -155,7 +223,7 @@ public class DecoderParityTests
     }
 
     /// <summary>sqrt(Σ(a-b)²/Σa²) over the first up-to-4M elements.</summary>
-    static double RelRms(WeightInfo a, WeightInfo b)
+    private static double RelRms(WeightInfo a, WeightInfo b)
     {
         var fa = Decode(a); var fb = Decode(b);
         double num = 0, den = 0;
@@ -163,9 +231,9 @@ public class DecoderParityTests
         return den == 0 ? (num == 0 ? 0 : double.PositiveInfinity) : Math.Sqrt(num / den);
     }
 
-    static bool IsGroupBitFormat(DataType t) => t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128;
+    private static bool IsGroupBitFormat(DataType t) => t == DataType.Q1_0 || t == DataType.Q2_0 || t == DataType.Q2_0_G128;
 
-    static float[] Decode(WeightInfo w)
+    private static float[] Decode(WeightInfo w)
     {
         long n = Math.Min(w.Shape.Elements(), 4L << 20);
         if (IsGroupBitFormat(w.Type))
@@ -180,9 +248,11 @@ public class DecoderParityTests
             {
                 float d = (float)BinaryPrimitives.ReadHalfLittleEndian(raw.AsSpan((int)(blk * bb)));
                 for (int i = 0; i < bs; i++)
+                {
                     f[blk * bs + i] = w.Type == DataType.Q1_0
                         ? (((raw[blk * bb + 2 + i / 8] >> (i % 8)) & 1) != 0 ? d : -d)
                         : (((raw[blk * bb + 2 + i / 4] >> (2 * (i % 4))) & 3) - 1) * d;
+                }
             }
             return f;
         }
@@ -195,7 +265,10 @@ public class DecoderParityTests
             for (long blk = 0; blk < n / 32; blk++)
             {
                 float d = (float)BinaryPrimitives.ReadHalfLittleEndian(raw.AsSpan((int)(blk * 34)));
-                for (int i = 0; i < 32; i++) f[blk * 32 + i] = d * (sbyte)raw[blk * 34 + 2 + i];
+                for (int i = 0; i < 32; i++)
+                {
+                    f[blk * 32 + i] = d * (sbyte)raw[blk * 34 + 2 + i];
+                }
             }
             return f;
         }
@@ -204,10 +277,13 @@ public class DecoderParityTests
         w.Source.Read(0, bytes);
         var r = new float[n];
         for (int i = 0; i < n; i++)
+        {
             r[i] = w.Type == DataType.F32 ? BitConverter.ToSingle(bytes, i * 4)
                  : w.Type == DataType.BF16 ? BitConverter.Int32BitsToSingle(BitConverter.ToUInt16(bytes, i * 2) << 16)
                  : w.Type == DataType.F16 ? (float)BitConverter.ToHalf(bytes, i * 2)
                  : throw new NotSupportedException(w.Type.ToString());
+        }
+
         return r;
     }
 }

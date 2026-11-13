@@ -4,7 +4,7 @@ namespace Sharplight.Serving.Tests;
 
 public class SamplingTests
 {
-    static int[] Draw(SamplingParams p, float[] logits, int n, int[]? prompt = null)
+    private static int[] Draw(SamplingParams p, float[] logits, int n, int[]? prompt = null)
     {
         var s = new RequestSampler(p, prompt ?? []);
         var res = new int[n];
@@ -134,19 +134,31 @@ public class SamplingTests
         var logits = Enumerable.Range(0, 152_000).Select(_ => (float)rng.NextDouble() * 10).ToArray();
         var s = new RequestSampler(new SamplingParams { TopK = 40, TopP = 0.95f, Seed = 1 }, []);
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        for (int i = 0; i < 50; i++) s.Sample(logits);
+        for (int i = 0; i < 50; i++)
+        {
+            s.Sample(logits);
+        }
+
         Assert.True(sw.Elapsed.TotalMilliseconds / 50 < 10, $"{sw.Elapsed.TotalMilliseconds / 50} ms per sample");
     }
 }
 
 public class StopStringFilterTests
 {
-    static (string Out, string? Matched) Run(string[] stops, params string[] pieces)
+    private static (string Out, string? Matched) Run(string[] stops, params string[] pieces)
     {
         var f = new StopStringFilter(stops);
         var o = new System.Text.StringBuilder();
-        foreach (var p in pieces) { o.Append(f.Push(p)); if (f.Stopped) break; }
-        if (!f.Stopped) o.Append(f.Flush());
+        foreach (var p in pieces) { o.Append(f.Push(p)); if (f.Stopped)
+            {
+                break;
+            }
+        }
+        if (!f.Stopped)
+        {
+            o.Append(f.Flush());
+        }
+
         return (o.ToString(), f.Matched);
     }
 

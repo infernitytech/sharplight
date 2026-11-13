@@ -4,7 +4,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using Sharplight.Cpu;
-using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Onnx;
 using Sharplight.Runtime;
@@ -26,11 +25,13 @@ int runs = int.Parse(Opt("--runs", "5")!);
 
 var options = new OnnxImportOptions();
 for (int i = 0; i < argv.Count - 1; i++)
+{
     if (argv[i] == "--shape")
     {
         var kv = argv[i + 1].Split('=', 2);
         options.InputShapes[kv[0]] = kv[1].Split('x').Select(s => long.Parse(s, CultureInfo.InvariantCulture)).ToArray();
     }
+}
 
 var sw = Stopwatch.StartNew();
 OnnxImporter.Register();
@@ -39,7 +40,10 @@ var def = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = source });
 var graph = def.Graph(OnnxGraphAdapter.MainGraph);
 Console.WriteLine($"imported {Path.GetFileName(path)} in {sw.ElapsedMilliseconds} ms: {graph.Nodes.Count} nodes, {def.Weights.Count} weights, " +
                   $"producer {source.Get("onnx.producer_name", "?")}, opset {source.Get("onnx.opset", 0L)}");
-if (Flag("--dump-graph")) Console.WriteLine(graph.Dump());
+if (Flag("--dump-graph"))
+{
+    Console.WriteLine(graph.Dump());
+}
 
 IExecutionProvider provider = providerName switch
 {
@@ -78,7 +82,14 @@ foreach (var input in graph.Inputs)
         if (bytes.Length != count * 4) { Console.Error.WriteLine($"{inputFile}: {bytes.Length} bytes, expected {count * 4} for {input}"); return 3; }
         Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
     }
-    else for (long i = 0; i < count; i++) data[i] = (float)(rng.NextDouble() * 2 - 1);
+    else
+    {
+        for (long i = 0; i < count; i++)
+        {
+            data[i] = (float)(rng.NextDouble() * 2 - 1);
+        }
+    }
+
     first = false;
     compiled.SetInput<float>(input, data);
 }
@@ -103,5 +114,8 @@ if (Opt("--out") is { } outPath) { var ob = new byte[result.Length * 4]; Buffer.
 Console.WriteLine($"output '{outName}' {outVal.Shape}: top-5 of batch item 0");
 int per = result.Length / batch;
 foreach (var i in Enumerable.Range(0, per).OrderByDescending(i => result[i]).Take(5))
+{
     Console.WriteLine($"  [{i}] {result[i]:F5}");
+}
+
 return 0;

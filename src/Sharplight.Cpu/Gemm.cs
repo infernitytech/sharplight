@@ -23,9 +23,18 @@ internal static unsafe class Gemm
     /// <summary>Full MR x NR tile.</summary>
     public static void Tile(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
-        if (NR == 32) K8x32(a, b, ldb, c, ldc, kc, bias, acc);
-        else if (NR == 16) K6x16(a, b, ldb, c, ldc, kc, bias, acc);
-        else KScalar(a, b, ldb, c, ldc, kc, bias, acc);
+        if (NR == 32)
+        {
+            K8x32(a, b, ldb, c, ldc, kc, bias, acc);
+        }
+        else if (NR == 16)
+        {
+            K6x16(a, b, ldb, c, ldc, kc, bias, acc);
+        }
+        else
+        {
+            KScalar(a, b, ldb, c, ldc, kc, bias, acc);
+        }
     }
 
     /// <summary>Partial tile (rows &lt;= MR, cols &lt;= NR): computes into a scratch tile and copies the valid part.</summary>
@@ -33,29 +42,56 @@ internal static unsafe class Gemm
     {
         float* tmp = stackalloc float[MR * NR];
         if (acc)
+        {
             for (int i = 0; i < MR; i++)
-                for (int j = 0; j < NR; j++) tmp[i * NR + j] = i < rows && j < cols ? c[i * ldc + j] : 0f;
+            {
+                for (int j = 0; j < NR; j++)
+                {
+                    tmp[i * NR + j] = i < rows && j < cols ? c[i * ldc + j] : 0f;
+                }
+            }
+        }
+
         Tile(a, b, ldb, tmp, NR, kc, bias, acc);
         for (int i = 0; i < rows; i++)
-            for (int j = 0; j < cols; j++) c[i * ldc + j] = tmp[i * NR + j];
+        {
+            for (int j = 0; j < cols; j++)
+            {
+                c[i * ldc + j] = tmp[i * NR + j];
+            }
+        }
     }
 
-    static void KScalar(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
+    private static void KScalar(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         const int mr = 4, nr = 8;
         float* t = stackalloc float[mr * nr];
         for (int i = 0; i < mr; i++)
-            for (int j = 0; j < nr; j++) t[i * nr + j] = acc ? c[i * ldc + j] : bias != null ? bias[i] : 0f;
+        {
+            for (int j = 0; j < nr; j++)
+            {
+                t[i * nr + j] = acc ? c[i * ldc + j] : bias != null ? bias[i] : 0f;
+            }
+        }
+
         for (int k = 0; k < kc; k++)
         {
             for (int i = 0; i < mr; i++)
             {
                 float av = a[k * mr + i];
-                for (int j = 0; j < nr; j++) t[i * nr + j] += av * b[k * ldb + j];
+                for (int j = 0; j < nr; j++)
+                {
+                    t[i * nr + j] += av * b[k * ldb + j];
+                }
             }
         }
         for (int i = 0; i < mr; i++)
-            for (int j = 0; j < nr; j++) c[i * ldc + j] = t[i * nr + j];
+        {
+            for (int j = 0; j < nr; j++)
+            {
+                c[i * ldc + j] = t[i * nr + j];
+            }
+        }
     }
 
     /// <summary>dst[k*MR + i] = alpha * src[i*sm + k*sk] for i &lt; rows, zero for the remaining panel rows.</summary>
@@ -67,8 +103,15 @@ internal static unsafe class Gemm
             float* d = dst + (long)k * mr;
             float* s = src + k * sk;
             int i = 0;
-            for (; i < rows; i++) d[i] = alpha * s[i * sm];
-            for (; i < mr; i++) d[i] = 0f;
+            for (; i < rows; i++)
+            {
+                d[i] = alpha * s[i * sm];
+            }
+
+            for (; i < mr; i++)
+            {
+                d[i] = 0f;
+            }
         }
     }
 
@@ -83,18 +126,31 @@ internal static unsafe class Gemm
             if (sn == 1 && cols == nr)
             {
                 if (nr == 32) { Vector512.Load(s).Store(d); Vector512.Load(s + 16).Store(d + 16); }
-                else for (int j = 0; j < nr; j++) d[j] = s[j];
+                else
+                {
+                    for (int j = 0; j < nr; j++)
+                    {
+                        d[j] = s[j];
+                    }
+                }
             }
             else
             {
                 int j = 0;
-                for (; j < cols; j++) d[j] = s[j * sn];
-                for (; j < nr; j++) d[j] = 0f;
+                for (; j < cols; j++)
+                {
+                    d[j] = s[j * sn];
+                }
+
+                for (; j < nr; j++)
+                {
+                    d[j] = 0f;
+                }
             }
         }
     }
 
-    static void K8x32(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
+    private static void K8x32(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector512<float> c00, c01, c10, c11, c20, c21, c30, c31, c40, c41, c50, c51, c60, c61, c70, c71;
         if (acc)
@@ -194,7 +250,7 @@ internal static unsafe class Gemm
         c71.Store(c + 7 * ldc + 16);
     }
 
-    static void K6x16(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
+    private static void K6x16(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector256<float> c00, c01, c10, c11, c20, c21, c30, c31, c40, c41, c50, c51;
         if (acc)

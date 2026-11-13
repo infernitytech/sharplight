@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Sharplight.Templating;
 using Xunit;
 
 namespace Sharplight.Templating.Tests;
@@ -15,7 +14,11 @@ public class SnippetTests
     public static TheoryData<string> Names()
     {
         var d = new TheoryData<string>();
-        foreach (var n in Snippets.Keys) d.Add(n);
+        foreach (var n in Snippets.Keys)
+        {
+            d.Add(n);
+        }
+
         return d;
     }
 

@@ -9,20 +9,20 @@ namespace Sharplight.Extensions.AI;
 /// </summary>
 public sealed class OutputParser
 {
-    enum Mode { Text, Reasoning, ToolCall }
+    private enum Mode { Text, Reasoning, ToolCall }
 
-    const string ThinkStart = "<think>", ThinkEnd = "</think>";
+    private const string ThinkStart = "<think>", ThinkEnd = "</think>";
 
-    readonly string[] _stops;
-    readonly string? _toolStart, _toolEnd;
-    readonly IList<IToolCallParser> _parsers;
-    readonly ToolSchemas _tools;
-    readonly StringBuilder _stopBuf = new();
-    readonly StringBuilder _buf = new();
-    readonly StringBuilder _toolBody = new();
-    readonly StringBuilder _pendingWs = new();
-    Mode _mode;
-    bool _leading = true;
+    private readonly string[] _stops;
+    private readonly string? _toolStart, _toolEnd;
+    private readonly IList<IToolCallParser> _parsers;
+    private readonly ToolSchemas _tools;
+    private readonly StringBuilder _stopBuf = new();
+    private readonly StringBuilder _buf = new();
+    private readonly StringBuilder _toolBody = new();
+    private readonly StringBuilder _pendingWs = new();
+    private Mode _mode;
+    private bool _leading = true;
 
     /// <summary>True once a stop sequence was seen; further input is ignored.</summary>
     public bool Stopped { get; private set; }
@@ -45,7 +45,11 @@ public sealed class OutputParser
     public IReadOnlyList<AIContent> Push(string text)
     {
         var output = new List<AIContent>();
-        if (Stopped || text.Length == 0) return output;
+        if (Stopped || text.Length == 0)
+        {
+            return output;
+        }
+
         if (_stops.Length == 0) { Process(text, output, flush: false); return output; }
         _stopBuf.Append(text);
         var s = _stopBuf.ToString();
@@ -53,7 +57,10 @@ public sealed class OutputParser
         foreach (var stop in _stops)
         {
             int i = s.IndexOf(stop, StringComparison.Ordinal);
-            if (i >= 0 && (cut < 0 || i < cut)) cut = i;
+            if (i >= 0 && (cut < 0 || i < cut))
+            {
+                cut = i;
+            }
         }
         if (cut >= 0)
         {
@@ -82,7 +89,7 @@ public sealed class OutputParser
         return output;
     }
 
-    void Process(string text, List<AIContent> output, bool flush)
+    private void Process(string text, List<AIContent> output, bool flush)
     {
         _buf.Append(text);
         while (true)
@@ -105,7 +112,11 @@ public sealed class OutputParser
                 int hold = flush ? 0 : HoldBack(s, markers.Item3 is null ? [markers.Item1] : [markers.Item1, markers.Item3]);
                 Emit(s[..(s.Length - hold)], output);
                 _buf.Remove(0, s.Length - hold);
-                if (flush) FlushMode(output);
+                if (flush)
+                {
+                    FlushMode(output);
+                }
+
                 return;
             }
             Emit(s[..idx], output);
@@ -124,24 +135,32 @@ public sealed class OutputParser
         }
     }
 
-    enum Marker { None, Think, ThinkEnd, Tool, ToolEnd }
+    private enum Marker { None, Think, ThinkEnd, Tool, ToolEnd }
 
-    void SwitchTo(Mode m)
+    private void SwitchTo(Mode m)
     {
         _pendingWs.Clear(); // whitespace between blocks is dropped
         _leading = true;
         _mode = m;
     }
 
-    void Emit(string text, List<AIContent> output)
+    private void Emit(string text, List<AIContent> output)
     {
-        if (text.Length == 0) return;
+        if (text.Length == 0)
+        {
+            return;
+        }
+
         if (_mode == Mode.ToolCall) { _toolBody.Append(text); return; }
         // Leading whitespace of a block is dropped; trailing whitespace is held until more text follows.
         if (_leading)
         {
             text = text.TrimStart();
-            if (text.Length == 0) return;
+            if (text.Length == 0)
+            {
+                return;
+            }
+
             _leading = false;
         }
         string trimmed = text.TrimEnd();
@@ -155,7 +174,7 @@ public sealed class OutputParser
         _pendingWs.Append(ws);
     }
 
-    void FlushMode(List<AIContent> output)
+    private void FlushMode(List<AIContent> output)
     {
         if (_mode == Mode.ToolCall)
         {
@@ -167,7 +186,7 @@ public sealed class OutputParser
         _pendingWs.Clear();
     }
 
-    void FinishToolCall(string body, List<AIContent> output, bool markUnparsedAsText = false)
+    private void FinishToolCall(string body, List<AIContent> output, bool markUnparsedAsText = false)
     {
         foreach (var p in _parsers)
         {
@@ -183,14 +202,16 @@ public sealed class OutputParser
     }
 
     /// <summary>Length of the longest proper prefix of any candidate that is a suffix of <paramref name="s"/>.</summary>
-    static int HoldBack(string s, IEnumerable<string> candidates)
+    private static int HoldBack(string s, IEnumerable<string> candidates)
     {
         int best = 0;
         foreach (var c in candidates)
         {
             int max = Math.Min(c.Length - 1, s.Length);
             for (int len = max; len > best; len--)
+            {
                 if (s.AsSpan(s.Length - len).SequenceEqual(c.AsSpan(0, len))) { best = len; break; }
+            }
         }
         return best;
     }

@@ -10,9 +10,9 @@ public enum ModelState { Unloaded, Loading, Loaded, Unloading, Failed }
 /// <summary>A pool of memory models are charged against (normally one GPU). Same <see cref="Id"/> = same pool.</summary>
 public interface IMemoryDomain
 {
-    string Id { get; }
-    string Name { get; }
-    DeviceMemoryInfo GetMemoryInfo();
+    public string Id { get; }
+    public string Name { get; }
+    public DeviceMemoryInfo GetMemoryInfo();
 }
 
 /// <summary><see cref="IMemoryDomain"/> over an opened compute device (live budget from the driver when it has one).</summary>
@@ -44,22 +44,22 @@ public abstract class LoadedModel : IDisposable
 /// <summary>Knows how to load one model. <see cref="Prepare"/> is cheap (reads metadata, maps files); <see cref="IPreparedModel.Load"/> allocates device memory.</summary>
 public interface IModelLoader
 {
-    ModelKind Kind { get; }
-    IPreparedModel Prepare(CancellationToken ct);
+    public ModelKind Kind { get; }
+    public IPreparedModel Prepare(CancellationToken ct);
 }
 
 /// <summary>A model whose size is known but that holds no device memory yet. Dispose without <see cref="Load"/> releases the host-side resources.</summary>
 public interface IPreparedModel : IDisposable
 {
     /// <summary>Memory needed per pool. The first entry is the primary device.</summary>
-    IReadOnlyList<MemoryRequirement> Requirements { get; }
+    public IReadOnlyList<MemoryRequirement> Requirements { get; }
     /// <summary>True when the model can be loaded into less than <see cref="Requirements"/> by moving layers to a fallback device (CPU).</summary>
-    bool CanOffload { get; }
+    public bool CanOffload { get; }
     /// <summary>
     /// Compiles and uploads the model. <paramref name="primaryLimit"/> caps what the primary device may hold (the rest must be
     /// offloaded or the load fails); null = no cap beyond the device's own budget.
     /// </summary>
-    LoadedModel Load(long? primaryLimit);
+    public LoadedModel Load(long? primaryLimit);
 }
 
 /// <summary>Registration of a model under an API-visible name.</summary>

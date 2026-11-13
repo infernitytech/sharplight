@@ -69,7 +69,11 @@ public static class WeightRepacker
     public static void Apply(WeightRepack r, long k, ReadOnlySpan<byte> src, Span<byte> dst)
     {
         long rowBytes = RowBytes(r, k);
-        if (src.Length != dst.Length || src.Length % rowBytes != 0) throw new ArgumentException("Repack needs whole rows.");
+        if (src.Length != dst.Length || src.Length % rowBytes != 0)
+        {
+            throw new ArgumentException("Repack needs whole rows.");
+        }
+
         int blocks = (int)(k / 32);
         for (int row = 0; row < src.Length / rowBytes; row++)
         {
@@ -101,7 +105,11 @@ public sealed record TensorRef(BufferDecl Buffer, long ByteOffset, DataType Type
             long s = 1;
             for (int i = Rank - 1; i >= 0; i--)
             {
-                if (Shape[i] != 1 && Strides[i] != s) return false;
+                if (Shape[i] != 1 && Strides[i] != s)
+                {
+                    return false;
+                }
+
                 s *= Shape[i];
             }
             return true;
@@ -117,7 +125,11 @@ public sealed record TensorRef(BufferDecl Buffer, long ByteOffset, DataType Type
         get
         {
             long last = 0;
-            for (int i = 0; i < Rank; i++) last += (Shape[i] - 1) * Strides[i];
+            for (int i = 0; i < Rank; i++)
+            {
+                last += (Shape[i] - 1) * Strides[i];
+            }
+
             return last + 1;
         }
     }

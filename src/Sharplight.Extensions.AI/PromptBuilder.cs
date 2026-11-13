@@ -31,15 +31,25 @@ public static class PromptBuilder
 
         IReadOnlyList<ToolDefinition>? tools = null;
         bool useTools = options?.Tools is { Count: > 0 } && options.ToolMode is not NoneChatToolMode;
-        if (useTools) tools = MapTools(options!.Tools!);
+        if (useTools)
+        {
+            tools = MapTools(options!.Tools!);
+        }
 
         var extra = new Dictionary<string, object?>(clientOptions.TemplateVariables)
         {
             ["enable_thinking"] = options?.AdditionalProperties?.TryGetValue("enable_thinking", out var et) == true && et is bool b ? b : clientOptions.EnableThinking,
         };
         if (options?.AdditionalProperties is { } ap)
+        {
             foreach (var kv in ap)
-                if (kv.Key.StartsWith("template.", StringComparison.Ordinal)) extra[kv.Key["template.".Length..]] = kv.Value;
+            {
+                if (kv.Key.StartsWith("template.", StringComparison.Ordinal))
+                {
+                    extra[kv.Key["template.".Length..]] = kv.Value;
+                }
+            }
+        }
 
         string prompt = template.Render(msgs, addGenerationPrompt: true, extra, tools);
         return new PreparedRequest
@@ -58,10 +68,25 @@ public static class PromptBuilder
         var s = client.Sampling;
         if (o is not null)
         {
-            if (o.Temperature is { } t) s = s with { Temperature = t };
-            if (o.TopP is { } p) s = s with { TopP = p };
-            if (o.TopK is { } k) s = s with { TopK = k };
-            if (o.Seed is { } seed) s = s with { Seed = unchecked((int)seed) };
+            if (o.Temperature is { } t)
+            {
+                s = s with { Temperature = t };
+            }
+
+            if (o.TopP is { } p)
+            {
+                s = s with { TopP = p };
+            }
+
+            if (o.TopK is { } k)
+            {
+                s = s with { TopK = k };
+            }
+
+            if (o.Seed is { } seed)
+            {
+                s = s with { Seed = unchecked((int)seed) };
+            }
         }
         return new GenerationOptions
         {
@@ -109,7 +134,11 @@ public static class PromptBuilder
                         reasoning.Append(rc.Text);
                         break;
                     case DataContent dc when dc.HasTopLevelMediaType("image"):
-                        if (!supportsImages) throw new NotSupportedException("The model has no vision tower; images are not supported.");
+                        if (!supportsImages)
+                        {
+                            throw new NotSupportedException("The model has no vision tower; images are not supported.");
+                        }
+
                         images.Add(clientOptions.ImageDecoder(dc));
                         parts.Add(ChatContentPart.Image());
                         hasImage = true;
@@ -130,12 +159,19 @@ public static class PromptBuilder
             if (role == "system")
             {
                 // System text is hoisted into one leading system message (templates require it first).
-                if (text.Length > 0) system = system is null ? text.ToString() : system + "\n\n" + text;
+                if (text.Length > 0)
+                {
+                    system = system is null ? text.ToString() : system + "\n\n" + text;
+                }
+
                 continue;
             }
             if (role == "tool")
             {
-                if (toolResults.Count == 0 && text.Length > 0) result.Add(new TChatMessage("tool", text.ToString()));
+                if (toolResults.Count == 0 && text.Length > 0)
+                {
+                    result.Add(new TChatMessage("tool", text.ToString()));
+                }
             }
             else if (text.Length == 0 && calls.Count == 0 && !hasImage && toolResults.Count > 0)
             {
@@ -143,18 +179,29 @@ public static class PromptBuilder
             }
             else if (hasImage)
             {
-                if (role != "user") throw new NotSupportedException("Images are only supported in user messages.");
+                if (role != "user")
+                {
+                    throw new NotSupportedException("Images are only supported in user messages.");
+                }
+
                 result.Add(new TChatMessage(role, Parts: parts));
             }
             else
+            {
                 result.Add(new TChatMessage(role,
                     Content: text.Length == 0 && calls.Count > 0 ? null : text.ToString(),
                     ReasoningContent: reasoning.Length > 0 ? reasoning.ToString() : null,
                     ToolCalls: calls.Count > 0 ? calls : null));
+            }
+
             result.AddRange(toolResults);
         }
 
-        if (!string.IsNullOrEmpty(system)) result.Insert(0, new TChatMessage("system", system));
+        if (!string.IsNullOrEmpty(system))
+        {
+            result.Insert(0, new TChatMessage("system", system));
+        }
+
         return result;
     }
 
@@ -163,13 +210,21 @@ public static class PromptBuilder
         var list = new List<ToolDefinition>();
         foreach (var t in tools)
         {
-            if (t is not AIFunctionDeclaration f) continue; // hosted tools (web search, ...) can't run locally
+            if (t is not AIFunctionDeclaration f)
+            {
+                continue; // hosted tools (web search, ...) can't run locally
+            }
+
             using var ms = new MemoryStream();
             using (var w = new Utf8JsonWriter(ms))
             {
                 w.WriteStartObject();
                 w.WriteString("name", f.Name);
-                if (!string.IsNullOrEmpty(f.Description)) w.WriteString("description", f.Description);
+                if (!string.IsNullOrEmpty(f.Description))
+                {
+                    w.WriteString("description", f.Description);
+                }
+
                 if (f.JsonSchema.ValueKind == JsonValueKind.Object)
                 {
                     w.WritePropertyName("parameters");
@@ -182,7 +237,7 @@ public static class PromptBuilder
         return list;
     }
 
-    static string ResultToString(object? result) => result switch
+    private static string ResultToString(object? result) => result switch
     {
         null => "",
         string s => s,
@@ -192,15 +247,23 @@ public static class PromptBuilder
     };
 
     /// <summary>Converts call arguments (often <see cref="JsonElement"/>s) to plain values the template engine understands.</summary>
-    static Dictionary<string, object?>? ToPlain(IDictionary<string, object?>? args)
+    private static Dictionary<string, object?>? ToPlain(IDictionary<string, object?>? args)
     {
-        if (args is null) return null;
+        if (args is null)
+        {
+            return null;
+        }
+
         var d = new Dictionary<string, object?>();
-        foreach (var kv in args) d[kv.Key] = ToPlain(kv.Value);
+        foreach (var kv in args)
+        {
+            d[kv.Key] = ToPlain(kv.Value);
+        }
+
         return d;
     }
 
-    static object? ToPlain(object? v) => v switch
+    private static object? ToPlain(object? v) => v switch
     {
         JsonElement e => e.ValueKind switch
         {

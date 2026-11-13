@@ -41,24 +41,27 @@ public sealed class MultimodalPrompt
 public interface IMultimodalArchitecture
 {
     /// <summary>Canonical architecture ids handled.</summary>
-    IReadOnlyList<string> Architectures { get; }
+    public IReadOnlyList<string> Architectures { get; }
 
     /// <summary>
     /// Expands the image placeholders of an already tokenized prompt: <paramref name="tokens"/> holds one placeholder token
     /// per image (in order, as produced by the chat template); each becomes one row per output embedding of that image,
     /// with the positions the architecture defines. The first token gets rope position <paramref name="startPosition"/>.
     /// </summary>
-    MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition);
+    public MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition);
 }
 
 /// <summary>Registry of <see cref="IMultimodalArchitecture"/>s by canonical architecture id.</summary>
 public static class MultimodalRegistry
 {
-    static readonly ConcurrentDictionary<string, IMultimodalArchitecture> s_byArch = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IMultimodalArchitecture> s_byArch = new(StringComparer.OrdinalIgnoreCase);
 
     public static void Register(IMultimodalArchitecture m)
     {
-        foreach (var a in m.Architectures) s_byArch[a] = m;
+        foreach (var a in m.Architectures)
+        {
+            s_byArch[a] = m;
+        }
     }
 
     public static IMultimodalArchitecture? Find(string architecture) => s_byArch.GetValueOrDefault(architecture);

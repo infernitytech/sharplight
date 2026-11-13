@@ -19,7 +19,11 @@ public static partial class StandardOps
     public static readonly OpSchema SelectiveScan = new("SelectiveScan", OpCategory.Composite, 8, 8, (i, a) =>
     {
         var x = i[0].Shape;
-        if (x.Rank != 3) throw new ArgumentException("SelectiveScan x must be [T, H, P].");
+        if (x.Rank != 3)
+        {
+            throw new ArgumentException("SelectiveScan x must be [T, H, P].");
+        }
+
         return [new TensorType(DataType.F32, x)];
     });
 }

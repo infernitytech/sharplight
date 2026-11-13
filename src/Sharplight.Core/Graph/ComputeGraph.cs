@@ -41,9 +41,21 @@ public sealed class ComputeGraph
     {
         var sb = new StringBuilder();
         sb.AppendLine($"graph {Name}");
-        foreach (var i in Inputs) sb.AppendLine($"  input  {i} {i.Input}");
-        foreach (var n in Nodes) sb.AppendLine("  " + n);
-        foreach (var (k, v) in Outputs) sb.AppendLine($"  output {k} = %{v.Id}");
+        foreach (var i in Inputs)
+        {
+            sb.AppendLine($"  input  {i} {i.Input}");
+        }
+
+        foreach (var n in Nodes)
+        {
+            sb.AppendLine("  " + n);
+        }
+
+        foreach (var (k, v) in Outputs)
+        {
+            sb.AppendLine($"  output {k} = %{v.Id}");
+        }
+
         return sb.ToString();
     }
 }

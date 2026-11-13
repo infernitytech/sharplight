@@ -4,7 +4,6 @@ using Sharplight.Gguf;
 using Sharplight.HuggingFace;
 using Sharplight.Models;
 using Sharplight.Tensors;
-using Sharplight.Vision;
 
 namespace Sharplight.Vision.Tests;
 
@@ -15,20 +14,20 @@ namespace Sharplight.Vision.Tests;
 /// </summary>
 public class SyntheticImporterTests : IDisposable
 {
-    readonly string _dir = Path.Combine(Path.GetTempPath(), "slvision-imp-" + Guid.NewGuid().ToString("N")[..8]);
-    readonly List<IDisposable> _open = [];
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "slvision-imp-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly List<IDisposable> _open = [];
     public SyntheticImporterTests() => Directory.CreateDirectory(_dir);
-    public void Dispose() { foreach (var d in _open) d.Dispose(); try { Directory.Delete(_dir, true); } catch { } }
+    public void Dispose() { foreach (var d in _open) { d.Dispose(); } try { Directory.Delete(_dir, true); } catch { } }
 
-    static readonly VisionParameters P = Tiny.Vision;
-    static readonly float[] Mean = [0.48f, 0.46f, 0.41f], Std = [0.27f, 0.26f, 0.28f];
+    private static readonly VisionParameters P = Tiny.Vision;
+    private static readonly float[] Mean = [0.48f, 0.46f, 0.41f], Std = [0.27f, 0.26f, 0.28f];
 
     /// <summary>HF tensor name → (shape, values) for the tower.</summary>
-    static Dictionary<string, (long[] Shape, float[] Data)> HfTensors()
+    private static Dictionary<string, (long[] Shape, float[] Data)> HfTensors()
     {
         var rng = new Random(11);
         var t = new Dictionary<string, (long[], float[])>();
-        void Add(string n, params long[] shape) { var d = new float[shape.Aggregate(1L, (a, b) => a * b)]; for (int i = 0; i < d.Length; i++) d[i] = (float)(rng.NextDouble() * 2 - 1); t["model.visual." + n] = (shape, d); }
+        void Add(string n, params long[] shape) { var d = new float[shape.Aggregate(1L, (a, b) => a * b)]; for (int i = 0; i < d.Length; i++) { d[i] = (float)(rng.NextDouble() * 2 - 1); } t["model.visual." + n] = (shape, d); }
         long H = P.HiddenSize, F = P.FfnHiddenSize, M = P.MergeUnit * H;
         Add("patch_embed.proj.weight", H, P.InChannels, P.TemporalPatchSize, P.PatchSize, P.PatchSize); Add("patch_embed.proj.bias", H);
         Add("pos_embed.weight", P.PositionEmbeddingCount, H);
@@ -44,9 +43,9 @@ public class SyntheticImporterTests : IDisposable
         return t;
     }
 
-    static byte[] Bytes(float[] d) { var b = new byte[d.Length * 4]; Buffer.BlockCopy(d, 0, b, 0, b.Length); return b; }
+    private static byte[] Bytes(float[] d) { var b = new byte[d.Length * 4]; Buffer.BlockCopy(d, 0, b, 0, b.Length); return b; }
 
-    string WriteHf(Dictionary<string, (long[] Shape, float[] Data)> tensors)
+    private string WriteHf(Dictionary<string, (long[] Shape, float[] Data)> tensors)
     {
         string dir = Path.Combine(_dir, "hf"); Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "config.json"), JsonSerializer.Serialize(new
@@ -85,7 +84,7 @@ public class SyntheticImporterTests : IDisposable
         return dir;
     }
 
-    string WriteMmproj(Dictionary<string, (long[] Shape, float[] Data)> hf)
+    private string WriteMmproj(Dictionary<string, (long[] Shape, float[] Data)> hf)
     {
         string path = Path.Combine(_dir, "mmproj.gguf");
         var w = new GgufWriter()
@@ -118,7 +117,14 @@ public class SyntheticImporterTests : IDisposable
                 for (int t = 0; t < T; t++)
                 {
                     var part = new float[H * C * pp];
-                    for (long h = 0; h < H; h++) for (long c = 0; c < C; c++) Array.Copy(d, ((h * C + c) * T + t) * pp, part, (h * C + c) * pp, pp);
+                    for (long h = 0; h < H; h++)
+                    {
+                        for (long c = 0; c < C; c++)
+                        {
+                            Array.Copy(d, ((h * C + c) * T + t) * pp, part, (h * C + c) * pp, pp);
+                        }
+                    }
+
                     Add(t == 0 ? "v.patch_embd.weight" : $"v.patch_embd.weight.{t}", [H, C, shape[3], shape[4]], part);
                 }
                 continue;
@@ -141,7 +147,7 @@ public class SyntheticImporterTests : IDisposable
         return path;
     }
 
-    ModelSource Track(ModelSource s) { _open.AddRange(s.OwnedResources); return s; }
+    private ModelSource Track(ModelSource s) { _open.AddRange(s.OwnedResources); return s; }
 
     [Fact]
     public void Hf_and_mmproj_importers_agree_and_preserve_the_weights()
@@ -171,7 +177,7 @@ public class SyntheticImporterTests : IDisposable
         Assert.True(hfSrc["vision.patch_embed.weight"].ReadAll().AsSpan().SequenceEqual(Bytes(hf["model.visual.patch_embed.proj.weight"].Data)));
     }
 
-    HfView HfMapping(string dir)
+    private HfView HfMapping(string dir)
     {
         using var config = HfConfig.Load(dir);
         var cp = SafetensorsCheckpoint.Open(dir);
@@ -182,7 +188,7 @@ public class SyntheticImporterTests : IDisposable
     }
 
     // Adapter so the test reads naturally: (metadata, weights) of the HF mapping.
-    sealed class HfView(IReadOnlyDictionary<string, object> md, Dictionary<string, WeightInfo> w) : IEnumerable<KeyValuePair<string, WeightInfo>>
+    private sealed class HfView(IReadOnlyDictionary<string, object> md, Dictionary<string, WeightInfo> w) : IEnumerable<KeyValuePair<string, WeightInfo>>
     {
         public IReadOnlyDictionary<string, object> Metadata => md;
         public IEnumerable<string> Keys => w.Keys;

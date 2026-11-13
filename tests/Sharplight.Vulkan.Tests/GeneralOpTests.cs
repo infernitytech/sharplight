@@ -13,7 +13,11 @@ public class CastAndIntegerTests
         var tg = new TG(); var x = tg.InF("x", TG.T, 19);
         var c = tg.B.Emit1("Cast", [x], Attributes.From(("type", t)));
         tg.B.Output("back", tg.B.Emit1("Cast", [c], Attributes.From(("type", "f32"))));
-        if (t == "i32" || t == "i64") tg.B.Output("raw", c);
+        if (t == "i32" || t == "i64")
+        {
+            tg.B.Output("raw", c);
+        }
+
         var data = Rnd.F(3 * 19, 5, 100f); data[0] = -7.9f; data[1] = 7.9f; data[2] = 0.5f;
         Diff.Check("Cast." + t, tg.B.Build(), new Step(3, 0, (x, data)), atol: 0, rtol: 0);
     }
@@ -126,7 +130,11 @@ public class DataOpTests
         tg.B.Output("y", tg.B.Emit1("ScatterElements", [x, idx, u], Attributes.From(("axis", (long)axis), ("reduction", red))));
         // unique indices for "none" along the axis so the result is order independent
         int[] iv = axis == 1 ? [0, 2, 5, 1, 3, 4, 5, 0, 2, 1, 4, 3] : [1, 3, 0, 2, 3, 1, 0, 2, 0, 1, 2, 3];
-        if (red != "none") iv = Rnd.I(12, 7, (int)lim);
+        if (red != "none")
+        {
+            iv = Rnd.I(12, 7, (int)lim);
+        }
+
         Diff.Check("ScatterElements", tg.B.Build(), new Step(1, 0, (x, Rnd.F(24, 1)), (idx, iv), (u, Rnd.F(12, 2))), atol: 1e-5, what: $"{red} axis {axis}");
     }
 
@@ -138,7 +146,11 @@ public class DataOpTests
         var tg = new TG(); var x = tg.InF("x", 4, 5, 3); var idx = tg.In("idx", DataType.I32, 4, 2); var u = tg.InF("u", 4, 3);
         tg.B.Output("y", tg.B.Emit1("ScatterND", [x, idx, u], Attributes.From(("reduction", red))));
         var iv = new[] { 0, 1, 1, 2, 2, 4, 3, 0 };   // unique rows
-        if (red != "none") iv = [0, 1, 0, 1, 2, 2, 0, 1];
+        if (red != "none")
+        {
+            iv = [0, 1, 0, 1, 2, 2, 0, 1];
+        }
+
         Diff.Check("ScatterND", tg.B.Build(), new Step(1, 0, (x, Rnd.F(60, 1)), (idx, iv), (u, Rnd.F(12, 2))), atol: 1e-5, what: red);
     }
 
@@ -239,8 +251,16 @@ public class GeneralNumericTests
         Gpu.Require();
         var tg = new TG(); var x = tg.InF("x", TG.T, c, s, 3);
         var args = new List<Value> { x };
-        if (scale) args.Add(tg.RandW("s", DataType.F32, 1f, c));
-        if (bias) args.Add(tg.RandW("b", DataType.F32, 1f, c));
+        if (scale)
+        {
+            args.Add(tg.RandW("s", DataType.F32, 1f, c));
+        }
+
+        if (bias)
+        {
+            args.Add(tg.RandW("b", DataType.F32, 1f, c));
+        }
+
         tg.B.Output("y", tg.B.Emit1("GroupNorm", args, Attributes.From(("groups", (long)groups), ("eps", 1e-5f))));
         Diff.Check("GroupNorm", tg.B.Build(), new Step(3, 0, (x, Rnd.F(3 * c * s * 3, 1, 2f))), atol: 5e-5, rtol: 1e-4, what: $"c={c} g={groups}");
     }

@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using Sharplight.Cpu;
 using Sharplight.Graph;
@@ -12,14 +11,18 @@ namespace Sharplight.Onnx.Tests;
 /// <summary>Providers shared by the end-to-end tests (opened once, lazily).</summary>
 public static class Providers
 {
-    static readonly Lazy<IComputeDevice> s_cpu = new(() => { var p = new CpuExecutionProvider(); return p.OpenDevice(p.GetDevices()[0]); });
-    static readonly Lazy<(IComputeDevice? Device, string Reason)> s_vk = new(() =>
+    private static readonly Lazy<IComputeDevice> s_cpu = new(() => { var p = new CpuExecutionProvider(); return p.OpenDevice(p.GetDevices()[0]); });
+    private static readonly Lazy<(IComputeDevice? Device, string Reason)> s_vk = new(() =>
     {
         try
         {
             var p = new VulkanProvider();
             var a = p.CheckAvailability();
-            if (!a.IsAvailable) return (null, a.Reason);
+            if (!a.IsAvailable)
+            {
+                return (null, a.Reason);
+            }
+
             var d = p.GetDevices();
             int idx = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE"), out var di) ? di : 0;
             return d.Count <= idx ? (null, "no Vulkan device " + idx) : (p.OpenDevice(d[idx]), "");
@@ -32,7 +35,11 @@ public static class Providers
     public static IComputeDevice VulkanOrSkip()
     {
         var (d, reason) = s_vk.Value;
-        if (d is null) Assert.Skip("Vulkan unavailable: " + reason);
+        if (d is null)
+        {
+            Assert.Skip("Vulkan unavailable: " + reason);
+        }
+
         return d;
     }
 
@@ -67,7 +74,11 @@ public sealed class RefCase
 
     public static RefCase? TryLoad(string manifestPath, string modelPath)
     {
-        if (!File.Exists(manifestPath) || !File.Exists(modelPath)) return null;
+        if (!File.Exists(manifestPath) || !File.Exists(modelPath))
+        {
+            return null;
+        }
+
         using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath));
         var r = doc.RootElement;
         return new RefCase
@@ -96,7 +107,11 @@ public sealed class RefCase
     public static RefCase? Zoo(string name)
     {
         var manifest = Path.Combine(ZooRoot, name + ".json");
-        if (!File.Exists(manifest)) return null;
+        if (!File.Exists(manifest))
+        {
+            return null;
+        }
+
         using var doc = JsonDocument.Parse(File.ReadAllText(manifest));
         return TryLoad(manifest, Path.Combine(Path.GetDirectoryName(RefRoot)!, doc.RootElement.GetProperty("model").GetString()!));
     }
@@ -109,7 +124,7 @@ public sealed class RefCase
     public float[] ReadInput(int batch, int k) => ReadF32($"{Prefix}.b{batch}.in{k}.bin");
     public float[] ReadOutput(int batch, int k) => ReadF32($"{Prefix}.b{batch}.out{k}.bin");
 
-    static float[] ReadF32(string path)
+    private static float[] ReadF32(string path)
     {
         var b = File.ReadAllBytes(path);
         var f = new float[b.Length / 4];
@@ -137,7 +152,10 @@ public static class Compare
             if (double.IsNaN(actual[i])) { ok = false; worst = i; maxAbs = double.NaN; break; }
             if (d > maxAbs) { maxAbs = d; worst = i; }
             maxRel = Math.Max(maxRel, d / Math.Max(Math.Abs(expected[i]), 1e-2 * scale));
-            if (d > atol + rtol * Math.Abs(expected[i])) ok = false;
+            if (d > atol + rtol * Math.Abs(expected[i]))
+            {
+                ok = false;
+            }
         }
         return new Comparison(maxAbs, maxRel, scale, ok, worst, Math.Sqrt(sd / Math.Max(se, 1e-30)));
     }
@@ -149,7 +167,7 @@ public static class Compare
         return c with { Ok = !double.IsNaN(c.MaxAbs) && c.RmsRel <= rmsTol };
     }
 
-    public static int ArgMax(ReadOnlySpan<float> v) { int b = 0; for (int i = 1; i < v.Length; i++) if (v[i] > v[b]) b = i; return b; }
+    public static int ArgMax(ReadOnlySpan<float> v) { int b = 0; for (int i = 1; i < v.Length; i++) { if (v[i] > v[b]) { b = i; } } return b; }
 }
 
 /// <summary>Imports, compiles and runs an ONNX file on a provider.</summary>
@@ -182,46 +200,75 @@ public static class OnnxExec
         run.Symbols[OnnxGraphAdapter.BatchSymbol] = batch;
         for (int i = 0; i < graph.Inputs.Count; i++)
         {
-            if (graph.Inputs[i].Type == Sharplight.Tensors.DataType.I32) compiled.SetInput<int>(graph.Inputs[i], inputs[i].Select(v => (int)v).ToArray());
-            else compiled.SetInput<float>(graph.Inputs[i], inputs[i]);
+            if (graph.Inputs[i].Type == Sharplight.Tensors.DataType.I32)
+            {
+                compiled.SetInput<int>(graph.Inputs[i], inputs[i].Select(v => (int)v).ToArray());
+            }
+            else
+            {
+                compiled.SetInput<float>(graph.Inputs[i], inputs[i]);
+            }
         }
         compiled.Run(run);
         var outs = ReadOutputs(compiled, graph, run);   // also synchronizes
         double best = double.MaxValue;
         for (int r = 0; r < timedRuns - 1 || (timedRuns == 1 && r < 0); r++) { }
         if (timedRuns > 1)
+        {
             for (int r = 0; r < timedRuns; r++)
             {
                 sw.Restart(); compiled.Run(run); ReadOutputs(compiled, graph, run);
                 best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
             }
+        }
+
         return new Result(outs, importMs, compileMs, best == double.MaxValue ? 0 : best, graph);
     }
 
-    static float[][] ReadOutputs(CompiledModel compiled, ComputeGraph graph, RunParameters run)
+    private static float[][] ReadOutputs(CompiledModel compiled, ComputeGraph graph, RunParameters run)
     {
         var outs = new List<float[]>();
         foreach (var (name, v) in graph.Outputs)
         {
             var buf = new float[v.Shape.Elements(run.Symbols)];
-            if (v.Type == Sharplight.Tensors.DataType.I32) { var ib = new int[buf.Length]; compiled.GetOutput<int>(name, ib); for (int q = 0; q < ib.Length; q++) buf[q] = ib[q]; }
-            else compiled.GetOutput<float>(name, buf);
+            if (v.Type == Sharplight.Tensors.DataType.I32) { var ib = new int[buf.Length]; compiled.GetOutput<int>(name, ib); for (int q = 0; q < ib.Length; q++)
+                {
+                    buf[q] = ib[q];
+                }
+            }
+            else
+            {
+                compiled.GetOutput<float>(name, buf);
+            }
+
             outs.Add(buf);
         }
         return [.. outs];
     }
 
-    sealed class Disposer(IReadOnlyList<IDisposable> items) : IDisposable
+    private sealed class Disposer(IReadOnlyList<IDisposable> items) : IDisposable
     {
-        public void Dispose() { foreach (var i in items) i.Dispose(); }
+        public void Dispose() { foreach (var i in items)
+            {
+                i.Dispose();
+            }
+        }
     }
 
     public static OnnxImportOptions OptionsFor(RefCase c, int batch = 1)
     {
         var o = new OnnxImportOptions();
         // whisper-style attention reshapes [N,T,D] -> [N*heads,T,dh]: the batch cannot stay symbolic, so fix it.
-        foreach (var (k, v) in c.Constants) o.ConstantInputs[k] = v;
-        foreach (var i in c.Inputs) o.InputShapes[i.Name] = c.FixBatch || c.Name.StartsWith("whisper") ? i.Shape.Select(d => d < 0 ? batch : d).ToArray() : i.Shape;
+        foreach (var (k, v) in c.Constants)
+        {
+            o.ConstantInputs[k] = v;
+        }
+
+        foreach (var i in c.Inputs)
+        {
+            o.InputShapes[i.Name] = c.FixBatch || c.Name.StartsWith("whisper") ? i.Shape.Select(d => d < 0 ? batch : d).ToArray() : i.Shape;
+        }
+
         return o;
     }
 }

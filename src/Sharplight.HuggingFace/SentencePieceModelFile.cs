@@ -25,13 +25,19 @@ public sealed class SentencePieceModelFile
             int len = (int)Varint(data, ref pos);
             var body = data.AsSpan(pos, len).ToArray();
             pos += len;
-            if (field == 1) ReadPiece(body, pieces, scores, types);
-            else if (field == 3) dummyPrefix = ReadNormalizer(body, dummyPrefix);
+            if (field == 1)
+            {
+                ReadPiece(body, pieces, scores, types);
+            }
+            else if (field == 3)
+            {
+                dummyPrefix = ReadNormalizer(body, dummyPrefix);
+            }
         }
         return new SentencePieceModelFile { Pieces = [.. pieces], Scores = [.. scores], Types = [.. types], AddDummyPrefix = dummyPrefix };
     }
 
-    static void ReadPiece(byte[] arr, List<string> pieces, List<float> scores, List<int> types)
+    private static void ReadPiece(byte[] arr, List<string> pieces, List<float> scores, List<int> types)
     {
         string piece = ""; float score = 0; int type = 1;
         int pos = 0;
@@ -41,38 +47,54 @@ public sealed class SentencePieceModelFile
             int field = (int)(tag >> 3), wire = (int)(tag & 7);
             if (field == 1 && wire == 2) { int l = (int)Varint(arr, ref pos); piece = Encoding.UTF8.GetString(arr, pos, l); pos += l; }
             else if (field == 2 && wire == 5) { score = BitConverter.ToSingle(arr, pos); pos += 4; }
-            else if (field == 3 && wire == 0) type = (int)Varint(arr, ref pos);
-            else Skip(arr, ref pos, wire);
+            else if (field == 3 && wire == 0)
+            {
+                type = (int)Varint(arr, ref pos);
+            }
+            else
+            {
+                Skip(arr, ref pos, wire);
+            }
         }
         pieces.Add(piece); scores.Add(score); types.Add(type);
     }
 
-    static bool ReadNormalizer(byte[] arr, bool dummy)
+    private static bool ReadNormalizer(byte[] arr, bool dummy)
     {
         int pos = 0;
         while (pos < arr.Length)
         {
             ulong tag = Varint(arr, ref pos);
             int field = (int)(tag >> 3), wire = (int)(tag & 7);
-            if (field == 3 && wire == 0) dummy = Varint(arr, ref pos) != 0;
-            else Skip(arr, ref pos, wire);
+            if (field == 3 && wire == 0)
+            {
+                dummy = Varint(arr, ref pos) != 0;
+            }
+            else
+            {
+                Skip(arr, ref pos, wire);
+            }
         }
         return dummy;
     }
 
-    static ulong Varint(byte[] d, ref int pos)
+    private static ulong Varint(byte[] d, ref int pos)
     {
         ulong v = 0; int shift = 0;
         while (true)
         {
             byte x = d[pos++];
             v |= (ulong)(x & 0x7F) << shift;
-            if ((x & 0x80) == 0) return v;
+            if ((x & 0x80) == 0)
+            {
+                return v;
+            }
+
             shift += 7;
         }
     }
 
-    static void Skip(byte[] d, ref int pos, int wire)
+    private static void Skip(byte[] d, ref int pos, int wire)
     {
         switch (wire)
         {

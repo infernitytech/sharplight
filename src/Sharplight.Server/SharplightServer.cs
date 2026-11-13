@@ -78,8 +78,16 @@ public sealed class SharplightServerContext
     public async Task<ModelLease> AcquireAsync(HttpContext http, string? requested, ModelKind kind = ModelKind.Chat)
     {
         string? name = requested;
-        if (string.IsNullOrEmpty(name) || (Options.UnknownModelFallsBackToDefault && !Host.Contains(name))) name = Host.DefaultName(kind);
-        if (name is null) throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", $"No {kind.ToString().ToLowerInvariant()} model is available.", "model_not_found", "model");
+        if (string.IsNullOrEmpty(name) || (Options.UnknownModelFallsBackToDefault && !Host.Contains(name)))
+        {
+            name = Host.DefaultName(kind);
+        }
+
+        if (name is null)
+        {
+            throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", $"No {kind.ToString().ToLowerInvariant()} model is available.", "model_not_found", "model");
+        }
+
         try { return await Host.AcquireAsync(name, kind, http.RequestAborted); }
         catch (ModelNotFoundException ex) { throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", ex.Message, "model_not_found", "model"); }
         catch (ModelKindMismatchException ex) { throw new ApiException(404, ApiErrors.IsAnthropic(http) ? "not_found_error" : "invalid_request_error", ex.Message, "model_not_found", "model"); }
@@ -90,7 +98,7 @@ public sealed class SharplightServerContext
 }
 
 /// <summary>Drains the models when the host stops so running requests can finish while new ones get 503.</summary>
-sealed class EngineLifetime(SharplightServerContext ctx) : IHostedService
+internal sealed class EngineLifetime(SharplightServerContext ctx) : IHostedService
 {
     public Task StartAsync(CancellationToken ct) => Task.CompletedTask;
     public async Task StopAsync(CancellationToken ct) => await ctx.Host.DrainAsync(ctx.Options.DrainTimeout);
@@ -165,17 +173,31 @@ public static class SharplightServerExtensions
         return app;
     }
 
-    static bool KeyIsValid(HttpContext http, List<string> keys)
+    private static bool KeyIsValid(HttpContext http, List<string> keys)
     {
         string? presented = null;
         string auth = http.Request.Headers.Authorization.ToString();
-        if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) presented = auth[7..].Trim();
-        else if (http.Request.Headers.TryGetValue("x-api-key", out var k)) presented = k.ToString();
-        if (presented is null) return false;
+        if (auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            presented = auth[7..].Trim();
+        }
+        else if (http.Request.Headers.TryGetValue("x-api-key", out var k))
+        {
+            presented = k.ToString();
+        }
+
+        if (presented is null)
+        {
+            return false;
+        }
+
         var pb = System.Text.Encoding.UTF8.GetBytes(presented);
         bool ok = false;
         foreach (var key in keys)
+        {
             ok |= System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(pb, System.Text.Encoding.UTF8.GetBytes(key));
+        }
+
         return ok;
     }
 
@@ -188,8 +210,16 @@ public static class SharplightServerExtensions
         var o = routes.ServiceProvider.GetRequiredService<SharplightServerContext>().Options;
         routes.MapOperations();
         routes.MapAdmin();
-        if (o.OpenAi) routes.MapOpenAi();
-        if (o.Anthropic) routes.MapAnthropic();
+        if (o.OpenAi)
+        {
+            routes.MapOpenAi();
+        }
+
+        if (o.Anthropic)
+        {
+            routes.MapAnthropic();
+        }
+
         routes.MapSharplightRetrieval();   // /v1/embeddings, /v1/rerank when such models are registered
         return routes;
     }
@@ -215,18 +245,25 @@ public static class SharplightServerExtensions
             }));
         });
         if (ctx.Options.Metrics)
+        {
             routes.MapGet("/metrics", async http =>
             {
                 http.Response.ContentType = "text/plain; version=0.0.4; charset=utf-8";
                 var text = Prometheus.Render([.. ctx.LoadedChatModels().Select(c => (c.Name, c.Instance.Engine.GetMetrics()))]) + Prometheus.RenderHost(ctx.Host);
                 await http.Response.WriteAsync(text);
             });
+        }
+
         return routes;
     }
 
     internal static void MapModels(this IEndpointRouteBuilder routes, SharplightServerContext ctx)
     {
-        if (ctx.ModelsMapped) return;
+        if (ctx.ModelsMapped)
+        {
+            return;
+        }
+
         ctx.ModelsMapped = true;
         routes.MapGet("/v1/models", async http =>
         {

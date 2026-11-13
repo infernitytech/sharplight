@@ -15,12 +15,12 @@ namespace Sharplight.Serving.Tests;
 /// </summary>
 public class MultiModelRealTests
 {
-    static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    static readonly string PathA = Path.Combine(Home, "models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf");
-    static readonly string PathB = Path.Combine(Home, "models/gguf/SmolLM2-360M-Instruct/smollm2-360m-instruct-q8_0.gguf");
-    const long MiB = 1L << 20;
+    private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private static readonly string PathA = Path.Combine(Home, "models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf");
+    private static readonly string PathB = Path.Combine(Home, "models/gguf/SmolLM2-360M-Instruct/smollm2-360m-instruct-q8_0.gguf");
+    private const long MiB = 1L << 20;
 
-    static DevicePool? Setup(out IComputeDevice device, DeviceOptions? options = null)
+    private static DevicePool? Setup(out IComputeDevice device, DeviceOptions? options = null)
     {
         device = null!;
         Assert.SkipUnless(File.Exists(PathA) && File.Exists(PathB), "models not found");
@@ -34,10 +34,10 @@ public class MultiModelRealTests
         return pool;
     }
 
-    static LlmLoadOptions Options(IComputeDevice device) => new() { Devices = [new DeviceSlot { Device = device }], ContextLength = 1024, MaxBatchTokens = 128 };
+    private static LlmLoadOptions Options(IComputeDevice device) => new() { Devices = [new DeviceSlot { Device = device }], ContextLength = 1024, MaxBatchTokens = 128 };
 
     /// <summary>Greedy generation straight on a decoder: prefill the prompt, then <paramref name="n"/> argmax tokens.</summary>
-    static int[] Greedy(IBatchDecoder dec, LlmModel model, string prompt, int n, int slot = 0)
+    private static int[] Greedy(IBatchDecoder dec, LlmModel model, string prompt, int n, int slot = 0)
     {
         dec.Reset(slot);
         var toks = model.Tokenizer.Encode(prompt, addSpecial: true, parseSpecial: false);
@@ -47,7 +47,14 @@ public class MultiModelRealTests
         {
             var lg = dec.Step([new SequenceInput(slot, input)])[0]!;
             int best = 0;
-            for (int k = 1; k < lg.Length; k++) if (lg[k] > lg[best]) best = k;
+            for (int k = 1; k < lg.Length; k++)
+            {
+                if (lg[k] > lg[best])
+                {
+                    best = k;
+                }
+            }
+
             outTokens.Add(best);
             input = [best];
         }
@@ -188,10 +195,17 @@ public class MultiModelRealTests
                 threads.ForEach(t => t.Join());
                 Console.Error.WriteLine($"[stress] round {round}: 4 instances sequentially {seqMs:F0} ms, concurrently {sw.Elapsed.TotalMilliseconds:F0} ms");
                 Assert.All(errs, Assert.Null);
-                for (int i = 0; i < decs.Count; i++) Assert.Equal(solo[i], res[i]);
+                for (int i = 0; i < decs.Count; i++)
+                {
+                    Assert.Equal(solo[i], res[i]);
+                }
             }
         }
-        finally { foreach (var d in decs) d.Dec.Dispose(); }
+        finally { foreach (var d in decs)
+            {
+                d.Dec.Dispose();
+            }
+        }
         Assert.Equal(0, device.GetMemoryInfo().UsedByUs);
     }
 
@@ -227,10 +241,17 @@ public class MultiModelRealTests
             // Both resident, several concurrent requests to each from different threads.
             _ = await Ask("qwen", "Name a color.");
             var infos = host.List();
-            foreach (var i in infos) Console.Error.WriteLine($"[host] {i.Name}: {i.State}, estimated {i.EstimatedBytes / MiB} MiB, resident {i.ResidentBytes / MiB} MiB");
+            foreach (var i in infos)
+            {
+                Console.Error.WriteLine($"[host] {i.Name}: {i.State}, estimated {i.EstimatedBytes / MiB} MiB, resident {i.ResidentBytes / MiB} MiB");
+            }
+
             Console.Error.WriteLine($"[host] device: {device.GetMemoryInfo()}");
             var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(i => Task.Run(() => i % 2 == 0 ? Ask("qwen", "Name a color.") : Ask("smol", "Name an animal."))));
-            for (int i = 0; i < results.Length; i++) Assert.Equal(i % 2 == 0 ? soloQ : soloS, results[i]);
+            for (int i = 0; i < results.Length; i++)
+            {
+                Assert.Equal(i % 2 == 0 ? soloQ : soloS, results[i]);
+            }
 
             // Memory comes back and the estimate was in the right range (an over-estimate is fine, an under-estimate is not).
             long used = device.GetMemoryInfo().UsedByUs;
@@ -238,7 +259,10 @@ public class MultiModelRealTests
             Assert.True(await host.UnloadAsync("smol"));
             Assert.Equal(0, device.GetMemoryInfo().UsedByUs);
             Assert.True(used > 0);
-            foreach (var i in infos) Assert.True(i.EstimatedBytes >= i.ResidentBytes * 9 / 10, $"{i.Name}: estimate {i.EstimatedBytes / MiB} MiB < resident {i.ResidentBytes / MiB} MiB");
+            foreach (var i in infos)
+            {
+                Assert.True(i.EstimatedBytes >= i.ResidentBytes * 9 / 10, $"{i.Name}: estimate {i.EstimatedBytes / MiB} MiB < resident {i.ResidentBytes / MiB} MiB");
+            }
 
             // LRU eviction with a model cap of one: asking for the other model replaces the first.
             host.Dispose();

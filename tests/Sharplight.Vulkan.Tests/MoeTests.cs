@@ -1,5 +1,3 @@
-using Sharplight.Graph;
-using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -8,11 +6,11 @@ namespace Sharplight.Vulkan.Tests;
 public class MoeTests
 {
     // Grouped (tensor-core / tiled) path above 16 (token, slot) items may round activations/weights to f16.
-    static double Atol(int items) => items > 16 ? 1.5e-1 : 2e-3;
-    static double Rtol(int items) => items > 16 ? 1e-2 : 1e-3;
+    private static double Atol(int items) => items > 16 ? 1.5e-1 : 2e-3;
+    private static double Rtol(int items) => items > 16 ? 1e-2 : 1e-3;
 
     /// <summary>ids pattern: "random" (all experts), "few" (only experts 1 and 5 get tokens), "one" (a single expert).</summary>
-    static int[] Ids(string pattern, int t, int s, int e)
+    private static int[] Ids(string pattern, int t, int s, int e)
     {
         var rng = new Random(11 + t * 31 + s);
         return pattern switch
@@ -23,7 +21,7 @@ public class MoeTests
         };
     }
 
-    static void Run(string fmt, int t, int s, bool perSlot, string pattern, int E = 8, int N = 96, int K = 512)
+    private static void Run(string fmt, int t, int s, bool perSlot, string pattern, int E = 8, int N = 96, int K = 512)
     {
         Gpu.Require();
         var tg = new TG();
@@ -39,8 +37,12 @@ public class MoeTests
     public static IEnumerable<object[]> FormatCases()
     {
         foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k" })
+        {
             foreach (var t in new[] { 1, 3, 70 })
+            {
                 yield return [fmt, t];
+            }
+        }
     }
 
     [Theory]

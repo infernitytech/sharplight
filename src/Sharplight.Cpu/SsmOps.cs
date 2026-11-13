@@ -9,39 +9,63 @@ namespace Sharplight.Cpu;
 /// </summary>
 internal sealed unsafe class SelectiveScanOp : CpuOp
 {
-    readonly TRef _x, _dt, _dtBias, _a, _b, _c, _d, _state, _y;
-    readonly int _h, _p, _g, _n; readonly float _dtMin;
-    readonly Action<int> _body;
-    long _t; int _pChunks, _pPer;
+    private readonly TRef _x, _dt, _dtBias, _a, _b, _c, _d, _state, _y;
+    private readonly int _h, _p, _g, _n; private readonly float _dtMin;
+    private readonly Action<int> _body;
+    private long _t; private int _pChunks, _pPer;
     public override string Name => "SelectiveScan";
 
     public SelectiveScanOp(TRef x, TRef dt, TRef dtBias, TRef a, TRef b, TRef c, TRef d, TRef state, TRef y, float dtMin)
     {
         _x = x; _dt = dt; _dtBias = dtBias; _a = a; _b = b; _c = c; _d = d; _state = state; _y = y; _dtMin = dtMin;
         _h = (int)x.Dims[1]; _p = (int)x.Dims[2]; _g = (int)b.Dims[1]; _n = (int)b.Dims[2];
-        if (_h % _g != 0) throw new ArgumentException("SelectiveScan: head count must be a multiple of the group count.");
-        if (c.Dims[1] != _g || c.Dims[2] != _n) throw new ArgumentException("SelectiveScan: B/C shape mismatch.");
-        if (state.Dims[0] != _h || state.Dims[1] != _p || state.Dims[2] != _n) throw new ArgumentException("SelectiveScan: state shape mismatch.");
-        if (dt.Dims[1] != _h) throw new ArgumentException("SelectiveScan: dt shape mismatch.");
+        if (_h % _g != 0)
+        {
+            throw new ArgumentException("SelectiveScan: head count must be a multiple of the group count.");
+        }
+
+        if (c.Dims[1] != _g || c.Dims[2] != _n)
+        {
+            throw new ArgumentException("SelectiveScan: B/C shape mismatch.");
+        }
+
+        if (state.Dims[0] != _h || state.Dims[1] != _p || state.Dims[2] != _n)
+        {
+            throw new ArgumentException("SelectiveScan: state shape mismatch.");
+        }
+
+        if (dt.Dims[1] != _h)
+        {
+            throw new ArgumentException("SelectiveScan: dt shape mismatch.");
+        }
+
         _body = Body;
     }
 
     public override void Run(RunParameters p)
     {
         _t = _x.Dim(0, p);
-        if (_t == 0) return;
+        if (_t == 0)
+        {
+            return;
+        }
+
         _pChunks = Math.Max(1, Math.Min(_p / 4, (Par.Threads * 2 + _h - 1) / _h));
         _pPer = (_p + _pChunks - 1) / _pChunks;
         Par.For(_h * _pChunks, _body);
     }
 
-    static float Softplus(float v) => v > 20f ? v : (float)Math.Log(1.0 + Math.Exp(v));
+    private static float Softplus(float v) => v > 20f ? v : (float)Math.Log(1.0 + Math.Exp(v));
 
-    void Body(int task)
+    private void Body(int task)
     {
         int h = task / _pChunks, pc = task % _pChunks;
         int p0 = pc * _pPer, p1 = Math.Min(_p, p0 + _pPer);
-        if (p0 >= p1) return;
+        if (p0 >= p1)
+        {
+            return;
+        }
+
         int g = h / (_h / _g);
         float* S = (float*)_state.P + (long)h * _p * _n;
         float bias = ((float*)_dtBias.P)[h], A = ((float*)_a.P)[h], D = ((float*)_d.P)[h];
@@ -62,7 +86,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     }
 
     /// <summary>row = row*decay + b*coef; returns dot(row, c).</summary>
-    static float DecayUpdateDot(float* row, float* b, float* c, float decay, float coef, long n)
+    private static float DecayUpdateDot(float* row, float* b, float* c, float decay, float coef, long n)
     {
         long i = 0; float sum = 0;
         if (Vector512.IsHardwareAccelerated)

@@ -8,18 +8,20 @@ namespace Sharplight.Gguf;
 /// </summary>
 public sealed partial class GgufModelFiles : IDisposable
 {
-    readonly List<GgufFile> _files;
-    readonly List<GgufTensorInfo> _tensors = [];
-    readonly Dictionary<string, GgufTensorInfo> _byName = new(StringComparer.Ordinal);
+    private readonly List<GgufFile> _files;
+    private readonly List<GgufTensorInfo> _tensors = [];
+    private readonly Dictionary<string, GgufTensorInfo> _byName = new(StringComparer.Ordinal);
 
     [GeneratedRegex(@"^(?<prefix>.*)-(?<idx>\d{5})-of-(?<n>\d{5})\.gguf$", RegexOptions.IgnoreCase)]
     private static partial Regex ShardRegex();
 
-    GgufModelFiles(List<GgufFile> files)
+    private GgufModelFiles(List<GgufFile> files)
     {
         _files = files;
         foreach (var f in files)
+        {
             foreach (var t in f.Tensors) { _tensors.Add(t); _byName[t.Name] = t; }
+        }
     }
 
     public IReadOnlyList<GgufFile> Files => _files;
@@ -43,8 +45,16 @@ public sealed partial class GgufModelFiles : IDisposable
             {
                 int index = int.Parse(m.Groups["idx"].Value);
                 int count = int.Parse(m.Groups["n"].Value);
-                if (first.TryGet<int>("split.count", out var sc) && sc > 0) count = sc;
-                if (index != 1) throw new ArgumentException("Pass the first shard (-00001-of-N) of a split model.", nameof(path));
+                if (first.TryGet<int>("split.count", out var sc) && sc > 0)
+                {
+                    count = sc;
+                }
+
+                if (index != 1)
+                {
+                    throw new ArgumentException("Pass the first shard (-00001-of-N) of a split model.", nameof(path));
+                }
+
                 string dir = System.IO.Path.GetDirectoryName(path) ?? ".";
                 string prefix = m.Groups["prefix"].Value;
                 int width = m.Groups["idx"].Length;
@@ -58,10 +68,18 @@ public sealed partial class GgufModelFiles : IDisposable
         }
         catch
         {
-            foreach (var f in files) f.Dispose();
+            foreach (var f in files)
+            {
+                f.Dispose();
+            }
+
             throw;
         }
     }
 
-    public void Dispose() { foreach (var f in _files) f.Dispose(); }
+    public void Dispose() { foreach (var f in _files)
+        {
+            f.Dispose();
+        }
+    }
 }

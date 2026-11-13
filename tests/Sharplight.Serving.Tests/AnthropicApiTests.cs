@@ -5,8 +5,8 @@ namespace Sharplight.Serving.Tests;
 
 public class AnthropicApiTests
 {
-    static readonly (string, string)[] Hdr = [("anthropic-version", "2023-06-01")];
-    const string Hi = """{"model":"m","max_tokens":100,"messages":[{"role":"user","content":"hi"}]""";
+    private static readonly (string, string)[] Hdr = [("anthropic-version", "2023-06-01")];
+    private const string Hi = """{"model":"m","max_tokens":100,"messages":[{"role":"user","content":"hi"}]""";
 
     [Fact]
     public async Task Message_NonStreaming_WireFormat()

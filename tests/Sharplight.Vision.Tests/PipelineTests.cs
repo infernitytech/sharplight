@@ -4,27 +4,29 @@ using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
-using Sharplight.Vision;
 
 namespace Sharplight.Vision.Tests;
 
 /// <summary>Hermetic tests on a tiny randomly initialised Qwen3.5 + vision tower (no model files).</summary>
 public class PipelineTests
 {
-    static ImageInput Image(int w, int h, int seed = 5)
+    private static ImageInput Image(int w, int h, int seed = 5)
     {
         var rgb = new byte[w * h * 3];
         var rng = new Random(seed);
         for (int y = 0; y < h; y++)
+        {
             for (int x = 0; x < w; x++)
             {
                 int o = (y * w + x) * 3;
                 rgb[o] = (byte)(x * 255 / w); rgb[o + 1] = (byte)(y * 255 / h); rgb[o + 2] = (byte)(rng.Next(256));
             }
+        }
+
         return new ImageInput(w, h, rgb);
     }
 
-    static float[] Encode(ModelDefinition def, DeviceSlot slot, ImageInput image)
+    private static float[] Encode(ModelDefinition def, DeviceSlot slot, ImageInput image)
     {
         using var enc = VisionEncoder.Create(def, [slot], limits: new ImageTokenLimits(null, 64));
         return enc.Encode(image);
@@ -46,7 +48,7 @@ public class PipelineTests
         Assert.Null(VisionParameters.Of(t));
     }
 
-    sealed class ParamComparer : IEqualityComparer<VisionParameters?>
+    private sealed class ParamComparer : IEqualityComparer<VisionParameters?>
     {
         public bool Equals(VisionParameters? x, VisionParameters? y) => x is not null && y is not null
             && x with { ImageMean = [], ImageStd = [] } == y with { ImageMean = [], ImageStd = [] } && x.ImageMean.SequenceEqual(y.ImageMean) && x.ImageStd.SequenceEqual(y.ImageStd);
@@ -99,7 +101,10 @@ public class PipelineTests
         var tokens = new[] { 3, 17, 5, 9, 21 };
         var table = def.Weights["token_embedding.weight"].ReadAll();
         var emb = new float[tokens.Length * Tiny.Hidden];
-        for (int t = 0; t < tokens.Length; t++) Buffer.BlockCopy(table, tokens[t] * Tiny.Hidden * 4, emb, t * Tiny.Hidden * 4, Tiny.Hidden * 4);
+        for (int t = 0; t < tokens.Length; t++)
+        {
+            Buffer.BlockCopy(table, tokens[t] * Tiny.Hidden * 4, emb, t * Tiny.Hidden * 4, Tiny.Hidden * 4);
+        }
 
         float[] Run(string graphName, Action<CompiledModel, ComputeGraph> setup)
         {
@@ -174,7 +179,11 @@ public class PipelineTests
         var g = b.Build();
         foreach (var slot in new[] { Env.Cpu(), Env.Vulkan() })
         {
-            if (slot is null) continue;
+            if (slot is null)
+            {
+                continue;
+            }
+
             using var cm = CompiledModel.Compile(g, new PlacementOptions { Devices = [slot], Compile = new CompileOptions { MaxTokens = 16, SymbolBounds = new Dictionary<string, long> { ["N"] = 16, ["M"] = 8 } } });
             cm.SetInput<float>(g.Inputs[0], Enumerable.Range(0, 24).Select(i => (float)i).ToArray());
             var run = new RunParameters();

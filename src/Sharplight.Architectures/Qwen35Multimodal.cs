@@ -1,4 +1,3 @@
-using Sharplight.Models;
 using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
@@ -16,18 +15,31 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
     public const string ImageToken = "<|image_pad|>";
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
-    const int Axes = 4;
+    private const int Axes = 4;
 
     public MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition)
     {
         int imagePad = context.RequireToken(ImageToken);
         int placeholders = 0;
-        foreach (var t in tokens) if (t == imagePad) placeholders++;
+        foreach (var t in tokens)
+        {
+            if (t == imagePad)
+            {
+                placeholders++;
+            }
+        }
+
         if (placeholders != images.Count)
+        {
             throw new ArgumentException($"The prompt has {placeholders} {ImageToken} placeholder(s) but {images.Count} image(s) were given.");
+        }
 
         int rows = tokens.Length - placeholders;
-        foreach (var im in images) rows += im.TokenCount;
+        foreach (var im in images)
+        {
+            rows += im.TokenCount;
+        }
+
         var toks = new int[rows]; var imageIndex = new int[rows]; var imageRow = new int[rows]; var pos = new int[rows * Axes];
 
         int r = 0, next = startPosition, img = 0;

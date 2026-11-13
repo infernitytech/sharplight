@@ -20,7 +20,11 @@ public static class RopeScaling
     public static Result Proportional(int dim, int rotatedAngles, float factor = 1f)
     {
         var f = new float[dim / 2];
-        for (int i = 0; i < f.Length; i++) f[i] = i < rotatedAngles ? factor : 1e30f;
+        for (int i = 0; i < f.Length; i++)
+        {
+            f[i] = i < rotatedAngles ? factor : 1e30f;
+        }
+
         return new Result(f, 1f);
     }
 
@@ -32,8 +36,14 @@ public static class RopeScaling
         for (int i = 0; i < f.Length; i++)
         {
             double wavelen = 2 * Math.PI * Math.Pow(@base, 2.0 * i / dim);
-            if (wavelen < highWave) f[i] = 1f;
-            else if (wavelen > lowWave) f[i] = factor;
+            if (wavelen < highWave)
+            {
+                f[i] = 1f;
+            }
+            else if (wavelen > lowWave)
+            {
+                f[i] = factor;
+            }
             else
             {
                 double smooth = (originalContext / wavelen - lowFreqFactor) / (highFreqFactor - lowFreqFactor);
@@ -52,7 +62,11 @@ public static class RopeScaling
         double low = CorrDim(betaFast), high = CorrDim(betaSlow);
         if (truncate) { low = Math.Floor(low); high = Math.Ceiling(high); }
         low = Math.Max(low, 0); high = Math.Min(high, dim - 1);
-        if (low == high) high += 0.001;
+        if (low == high)
+        {
+            high += 0.001;
+        }
+
         var f = new float[dim / 2];
         for (int i = 0; i < f.Length; i++)
         {

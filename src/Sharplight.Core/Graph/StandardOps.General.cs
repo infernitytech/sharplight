@@ -25,10 +25,17 @@ public static partial class StandardOps
     public static readonly OpSchema Tile = new("Tile", OpCategory.Data, 1, 1, (i, a) =>
     {
         var x = i[0].Shape; var r = a.Get<long[]>("repeats");
-        if (r.Length != x.Rank) throw new ArgumentException("Tile: repeats must match rank.");
+        if (r.Length != x.Rank)
+        {
+            throw new ArgumentException("Tile: repeats must match rank.");
+        }
+
         var dims = new Dim[x.Rank];
         for (int d = 0; d < x.Rank; d++)
+        {
             dims[d] = x[d].IsSymbolic ? (r[d] == 1 ? x[d] : throw new ArgumentException("Tile on a symbolic axis.")) : x[d].Fixed * r[d];
+        }
+
         return [new(i[0].Type, new Shape(dims))];
     });
 
@@ -42,9 +49,17 @@ public static partial class StandardOps
         var x = i[0].Shape; var idx = i[1].Shape;
         int axis = Axis(a.Get("axis", 0L), x.Rank);
         var dims = new List<Dim>();
-        for (int d = 0; d < axis; d++) dims.Add(x[d]);
+        for (int d = 0; d < axis; d++)
+        {
+            dims.Add(x[d]);
+        }
+
         dims.AddRange(idx.Dims);
-        for (int d = axis + 1; d < x.Rank; d++) dims.Add(x[d]);
+        for (int d = axis + 1; d < x.Rank; d++)
+        {
+            dims.Add(x[d]);
+        }
+
         return [new(i[0].Type, new Shape(dims))];
     });
 
@@ -64,7 +79,11 @@ public static partial class StandardOps
         int b = (int)a.Get("batch_dims", 0L);
         long q = idx[-1].Fixed;
         var dims = new List<Dim>(idx.Dims.Take(idx.Rank - 1));
-        for (int d = b + (int)q; d < x.Rank; d++) dims.Add(x[d]);
+        for (int d = b + (int)q; d < x.Rank; d++)
+        {
+            dims.Add(x[d]);
+        }
+
         return [new(i[0].Type, new Shape(dims))];
     });
 
@@ -120,7 +139,11 @@ public static partial class StandardOps
     /// <summary>One-hot: indices (i32/i64) → f32 with a new axis of attr <c>depth</c> at attr <c>axis</c> (default -1); attrs <c>on</c>, <c>off</c>.</summary>
     public static readonly OpSchema OneHot = new("OneHot", OpCategory.Data, 1, 1, (i, a) =>
     {
-        var x = i[0].Shape; int axis = (int)a.Get("axis", -1L); if (axis < 0) axis += x.Rank + 1;
+        var x = i[0].Shape; int axis = (int)a.Get("axis", -1L); if (axis < 0)
+        {
+            axis += x.Rank + 1;
+        }
+
         var dims = x.Dims.ToList(); dims.Insert(axis, a.Get<long>("depth"));
         return [new(DataType.F32, new Shape(dims))];
     });
@@ -142,17 +165,30 @@ public static partial class StandardOps
         var set = axes.ToHashSet();
         var dims = new List<Dim>();
         for (int d = 0; d < x.Rank; d++)
-            if (!set.Contains(d)) dims.Add(x[d]);
-            else if (keep) dims.Add(1);
+        {
+            if (!set.Contains(d))
+            {
+                dims.Add(x[d]);
+            }
+            else if (keep)
+            {
+                dims.Add(1);
+            }
+        }
+
         return new Shape(dims);
     }
 
     /// <summary>Turns a fixed target shape into a Shape, keeping the input's symbolic outermost dim where the target has 1 or the same extent.</summary>
-    static Shape ShapeWithSymbol(long[] target, Shape like)
+    private static Shape ShapeWithSymbol(long[] target, Shape like)
     {
         var dims = target.Select(t => (Dim)t).ToArray();
         int off = target.Length - like.Rank;
-        if (like.Rank > 0 && like[0].IsSymbolic && off >= 0 && target[off] <= 1) dims[off] = like[0];
+        if (like.Rank > 0 && like[0].IsSymbolic && off >= 0 && target[off] <= 1)
+        {
+            dims[off] = like[0];
+        }
+
         return new Shape(dims);
     }
 }

@@ -1,11 +1,9 @@
 using System.Runtime.InteropServices;
-using Sharplight.Cpu;
-using Sharplight.Graph;
 using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
 
-static class Quantizers
+internal static class Quantizers
 {
     public static byte[] Half(float f) { var h = (Half)f; return BitConverter.GetBytes(BitConverter.HalfToUInt16Bits(h)); }
     public static float HalfV(byte[] b, int o) => (float)BitConverter.UInt16BitsToHalf(BitConverter.ToUInt16(b, o));
@@ -16,10 +14,17 @@ static class Quantizers
         int nb = x.Length / 32; var o = new byte[nb * 34];
         for (int b = 0; b < nb; b++)
         {
-            float amax = 0; for (int j = 0; j < 32; j++) amax = MathF.Max(amax, MathF.Abs(x[b * 32 + j]));
+            float amax = 0; for (int j = 0; j < 32; j++)
+            {
+                amax = MathF.Max(amax, MathF.Abs(x[b * 32 + j]));
+            }
+
             float d = amax / 127f, id = d != 0 ? 1f / d : 0;
             Half(d).CopyTo(o, b * 34);
-            for (int j = 0; j < 32; j++) o[b * 34 + 2 + j] = (byte)(sbyte)MathF.Round(x[b * 32 + j] * id, MidpointRounding.AwayFromZero);
+            for (int j = 0; j < 32; j++)
+            {
+                o[b * 34 + 2 + j] = (byte)(sbyte)MathF.Round(x[b * 32 + j] * id, MidpointRounding.AwayFromZero);
+            }
         }
         return o;
     }
@@ -47,7 +52,11 @@ static class Quantizers
     public static float[] DeqQ8_0(byte[] q)
     {
         int nb = q.Length / 34; var r = new float[nb * 32];
-        for (int b = 0; b < nb; b++) { float d = HalfV(q, b * 34); for (int j = 0; j < 32; j++) r[b * 32 + j] = (sbyte)q[b * 34 + 2 + j] * d; }
+        for (int b = 0; b < nb; b++) { float d = HalfV(q, b * 34); for (int j = 0; j < 32; j++)
+            {
+                r[b * 32 + j] = (sbyte)q[b * 34 + 2 + j] * d;
+            }
+        }
         return r;
     }
 
@@ -69,15 +78,15 @@ static class Quantizers
 
 public unsafe class QuantTests
 {
-    record Fixture(DataType Type, int Rows, int Cols, float[] Src, byte[] Quant, float[] Deq);
+    private record Fixture(DataType Type, int Rows, int Cols, float[] Src, byte[] Quant, float[] Deq);
 
-    static DataType FromGgml(int id) => id switch
+    private static DataType FromGgml(int id) => id switch
     {
         2 => DataType.Q4_0, 3 => DataType.Q4_1, 6 => DataType.Q5_0, 7 => DataType.Q5_1, 8 => DataType.Q8_0,
         12 => DataType.Q4_K, 13 => DataType.Q5_K, 14 => DataType.Q6_K, _ => throw new NotSupportedException(id.ToString()),
     };
 
-    static List<Fixture> LoadFixtures()
+    private static List<Fixture> LoadFixtures()
     {
         var bytes = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "ggml_quant.bin"));
         var r = new BinaryReader(new MemoryStream(bytes));
@@ -85,9 +94,17 @@ public unsafe class QuantTests
         for (int i = 0; i < n; i++)
         {
             var type = FromGgml(r.ReadInt32()); int rows = r.ReadInt32(), cols = r.ReadInt32();
-            var src = new float[rows * cols]; for (int k = 0; k < src.Length; k++) src[k] = r.ReadSingle();
+            var src = new float[rows * cols]; for (int k = 0; k < src.Length; k++)
+            {
+                src[k] = r.ReadSingle();
+            }
+
             var q = r.ReadBytes((int)type.ByteSize((long)rows * cols));
-            var dq = new float[rows * cols]; for (int k = 0; k < dq.Length; k++) dq[k] = r.ReadSingle();
+            var dq = new float[rows * cols]; for (int k = 0; k < dq.Length; k++)
+            {
+                dq[k] = r.ReadSingle();
+            }
+
             list.Add(new Fixture(type, rows, cols, src, q, dq));
         }
         return list;
@@ -102,7 +119,10 @@ public unsafe class QuantTests
         var f = LoadFixtures().First(x => x.Type.Name == typeName);
         var actual = new float[f.Rows * f.Cols];
         fixed (byte* q = f.Quant) fixed (float* d = actual)
+        {
             Quant.Dequantize(Quant.FormatOf(f.Type)!.Value, q, actual.Length, d);
+        }
+
         Kit.AssertClose(f.Deq, actual, 1e-5, 1e-5, typeName);
         // sanity: quantization error itself is moderate (guards against a broken fixture)
         double err = 0, norm = 0; for (int i = 0; i < actual.Length; i++) { err += Math.Pow(f.Src[i] - actual[i], 2); norm += f.Src[i] * f.Src[i]; }
@@ -125,7 +145,11 @@ public unsafe class QuantTests
             var p = Kit.P(4); m.Run(p);
             var y = Kit.Out(m, "y", p);
             var exp = new List<float>();
-            foreach (int r in new[] { 3, 0, 2, 2 }) exp.AddRange(f.Deq.AsSpan(r * f.Cols, f.Cols).ToArray());
+            foreach (int r in new[] { 3, 0, 2, 2 })
+            {
+                exp.AddRange(f.Deq.AsSpan(r * f.Cols, f.Cols).ToArray());
+            }
+
             Kit.AssertClose(exp.ToArray(), y, 1e-5, 1e-5, typeName);
         }
     }
@@ -145,11 +169,15 @@ public unsafe class QuantTests
     public static IEnumerable<object[]> MatMulCases()
     {
         foreach (var t in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "q5_0", "q5_1", "q4_k", "q5_k", "q6_k" })
+        {
             foreach (var tokens in new[] { 1, 2, 5 })
+            {
                 yield return [t, tokens];
+            }
+        }
     }
 
-    static (byte[] data, float[] deq) MakeWeight(string type, int n, int k, int seed)
+    private static (byte[] data, float[] deq) MakeWeight(string type, int n, int k, int seed)
     {
         var w = Kit.Rand(n * k, seed, 0.5f);
         switch (type)
@@ -182,13 +210,16 @@ public unsafe class QuantTests
                 var d = new byte[n * (int)fx.Type.ByteSize(k)]; var r = new float[n * k];
                 int perRow = k / fx.Cols;
                 for (int i = 0; i < n; i++)
-                    for (int c = 0; c < perRow; c++)
+                    {
+                        for (int c = 0; c < perRow; c++)
                     {
                         int src = (i + c) % fx.Rows;
                         Array.Copy(fx.Quant, src * rowBytes, d, (long)i * fx.Type.ByteSize(k) + c * rowBytes, rowBytes);
                         Array.Copy(fx.Deq, src * fx.Cols, r, i * k + c * fx.Cols, fx.Cols);
                     }
-                return (d, r);
+                    }
+
+                    return (d, r);
             }
         }
     }
@@ -198,8 +229,16 @@ public unsafe class QuantTests
     public void MatMulMatchesReference(string type, int tokens)
     {
         int n = 7, k = type.EndsWith("_k") ? 2560 : 1536 + (type == "f32" ? 37 : 0);
-        if (type is "q8_0" or "q4_0") k = 1568; // 49 blocks
-        if (type is "q4_1" or "q5_0" or "q5_1") k = 1024; // fixtures have 512 cols
+        if (type is "q8_0" or "q4_0")
+        {
+            k = 1568; // 49 blocks
+        }
+
+        if (type is "q4_1" or "q5_0" or "q5_1")
+        {
+            k = 1024; // fixtures have 512 cols
+        }
+
         var (data, deq) = MakeWeight(type, n, k, 7);
         var x = Kit.Rand(tokens * k, 11);
         var tg = new TG();
@@ -212,11 +251,18 @@ public unsafe class QuantTests
         var y = Kit.Out(m, "y", p);
         var exp = new float[tokens * n];
         for (int t = 0; t < tokens; t++)
+        {
             for (int r = 0; r < n; r++)
             {
-                double s = 0; for (int c = 0; c < k; c++) s += (double)x[t * k + c] * deq[r * k + c];
+                double s = 0; for (int c = 0; c < k; c++)
+                {
+                    s += (double)x[t * k + c] * deq[r * k + c];
+                }
+
                 exp[t * n + r] = (float)s;
             }
+        }
+
         Kit.AssertClose(exp, y, 2e-3, 1e-4, type);
     }
 
@@ -236,7 +282,11 @@ public unsafe class QuantTests
         var p = Kit.P(3); m.Run(p);
         var y = Kit.Out(m, "y", p);
         var exp = new float[3 * n];
-        for (int t = 0; t < 3; t++) for (int r = 0; r < n; r++) { double s = 0; for (int c = 0; c < k; c++) s += x[t * wide + off + c] * wdata[r * k + c]; exp[t * n + r] = (float)s; }
+        for (int t = 0; t < 3; t++)
+        {
+            for (int r = 0; r < n; r++) { double s = 0; for (int c = 0; c < k; c++) { s += x[t * wide + off + c] * wdata[r * k + c]; } exp[t * n + r] = (float)s; }
+        }
+
         Kit.AssertClose(exp, y, 1e-4, 1e-4);
     }
 

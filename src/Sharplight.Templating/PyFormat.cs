@@ -8,10 +8,25 @@ internal static class PyFormat
 {
     public static string FloatRepr(double d)
     {
-        if (double.IsNaN(d)) return "nan";
-        if (double.IsPositiveInfinity(d)) return "inf";
-        if (double.IsNegativeInfinity(d)) return "-inf";
-        if (d == 0) return double.IsNegative(d) ? "-0.0" : "0.0";
+        if (double.IsNaN(d))
+        {
+            return "nan";
+        }
+
+        if (double.IsPositiveInfinity(d))
+        {
+            return "inf";
+        }
+
+        if (double.IsNegativeInfinity(d))
+        {
+            return "-inf";
+        }
+
+        if (d == 0)
+        {
+            return double.IsNegative(d) ? "-0.0" : "0.0";
+        }
 
         string r = d.ToString("R", CultureInfo.InvariantCulture);
         bool neg = false;
@@ -42,15 +57,26 @@ internal static class PyFormat
         }
         pointPos += exp;
         int lead = 0;
-        while (lead < digits.Length - 1 && digits[lead] == '0') lead++;
+        while (lead < digits.Length - 1 && digits[lead] == '0')
+        {
+            lead++;
+        }
+
         digits = digits.Substring(lead);
         pointPos -= lead;
         digits = digits.TrimEnd('0');
-        if (digits.Length == 0) digits = "0";
+        if (digits.Length == 0)
+        {
+            digits = "0";
+        }
 
         int sci = pointPos - 1;
         var sb = new StringBuilder();
-        if (neg) sb.Append('-');
+        if (neg)
+        {
+            sb.Append('-');
+        }
+
         if (sci >= -4 && sci < 16)
         {
             if (pointPos <= 0)
@@ -69,10 +95,18 @@ internal static class PyFormat
         else
         {
             sb.Append(digits[0]);
-            if (digits.Length > 1) sb.Append('.').Append(digits, 1, digits.Length - 1);
+            if (digits.Length > 1)
+            {
+                sb.Append('.').Append(digits, 1, digits.Length - 1);
+            }
+
             sb.Append('e').Append(sci < 0 ? '-' : '+');
             int a = Math.Abs(sci);
-            if (a < 10) sb.Append('0');
+            if (a < 10)
+            {
+                sb.Append('0');
+            }
+
             sb.Append(a.ToString(CultureInfo.InvariantCulture));
         }
         return sb.ToString();
@@ -85,12 +119,30 @@ internal static class PyFormat
         sb.Append(quote);
         foreach (char c in s)
         {
-            if (c == quote || c == '\\') sb.Append('\\').Append(c);
-            else if (c == '\n') sb.Append("\\n");
-            else if (c == '\r') sb.Append("\\r");
-            else if (c == '\t') sb.Append("\\t");
-            else if (c < 0x20 || c == 0x7f) sb.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
-            else sb.Append(c);
+            if (c == quote || c == '\\')
+            {
+                sb.Append('\\').Append(c);
+            }
+            else if (c == '\n')
+            {
+                sb.Append("\\n");
+            }
+            else if (c == '\r')
+            {
+                sb.Append("\\r");
+            }
+            else if (c == '\t')
+            {
+                sb.Append("\\t");
+            }
+            else if (c < 0x20 || c == 0x7f)
+            {
+                sb.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                sb.Append(c);
+            }
         }
         sb.Append(quote);
         return sb.ToString();
@@ -111,54 +163,96 @@ internal static class PyFormat
                 continue;
             }
             i++;
-            if (i >= fmt.Length) throw new TemplateRuntimeException("incomplete format");
+            if (i >= fmt.Length)
+            {
+                throw new TemplateRuntimeException("incomplete format");
+            }
+
             bool left = false, zero = false, plus = false, space = false;
             for (; i < fmt.Length; i++)
             {
-                if (fmt[i] == '-') left = true;
-                else if (fmt[i] == '0') zero = true;
-                else if (fmt[i] == '+') plus = true;
-                else if (fmt[i] == ' ') space = true;
-                else break;
+                if (fmt[i] == '-')
+                {
+                    left = true;
+                }
+                else if (fmt[i] == '0')
+                {
+                    zero = true;
+                }
+                else if (fmt[i] == '+')
+                {
+                    plus = true;
+                }
+                else if (fmt[i] == ' ')
+                {
+                    space = true;
+                }
+                else
+                {
+                    break;
+                }
             }
             int width = 0;
-            while (i < fmt.Length && char.IsAsciiDigit(fmt[i])) width = width * 10 + (fmt[i++] - '0');
+            while (i < fmt.Length && char.IsAsciiDigit(fmt[i]))
+            {
+                width = width * 10 + (fmt[i++] - '0');
+            }
+
             int prec = -1;
             if (i < fmt.Length && fmt[i] == '.')
             {
                 i++;
                 prec = 0;
-                while (i < fmt.Length && char.IsAsciiDigit(fmt[i])) prec = prec * 10 + (fmt[i++] - '0');
+                while (i < fmt.Length && char.IsAsciiDigit(fmt[i]))
+                {
+                    prec = prec * 10 + (fmt[i++] - '0');
+                }
             }
-            if (i >= fmt.Length) throw new TemplateRuntimeException("incomplete format");
+            if (i >= fmt.Length)
+            {
+                throw new TemplateRuntimeException("incomplete format");
+            }
+
             char conv = fmt[i];
             if (conv == '%')
             {
                 sb.Append('%');
                 continue;
             }
-            if (ai >= list.Count) throw new TemplateRuntimeException("not enough arguments for format string");
+            if (ai >= list.Count)
+            {
+                throw new TemplateRuntimeException("not enough arguments for format string");
+            }
+
             object? arg = list[ai++];
             string text;
             switch (conv)
             {
-                case 's': text = Ops.Str(arg); if (prec >= 0 && text.Length > prec) text = text.Substring(0, prec); break;
+                case 's': text = Ops.Str(arg); if (prec >= 0 && text.Length > prec) { text = text.Substring(0, prec); } break;
                 case 'r': text = Ops.Repr(arg); break;
                 case 'd':
                 case 'i':
                 {
                     long v = arg is double dv ? (long)dv : Ops.ToLong(arg);
                     text = v.ToString(CultureInfo.InvariantCulture);
-                    if (v >= 0) text = (plus ? "+" : space ? " " : "") + text;
-                    break;
+                    if (v >= 0)
+                        {
+                            text = (plus ? "+" : space ? " " : "") + text;
+                        }
+
+                        break;
                 }
                 case 'f':
                 case 'F':
                 {
                     double v = Ops.ToDouble(arg);
                     text = v.ToString("F" + (prec < 0 ? 6 : prec), CultureInfo.InvariantCulture);
-                    if (v >= 0) text = (plus ? "+" : space ? " " : "") + text;
-                    break;
+                    if (v >= 0)
+                        {
+                            text = (plus ? "+" : space ? " " : "") + text;
+                        }
+
+                        break;
                 }
                 case 'x': text = Ops.ToLong(arg).ToString("x", CultureInfo.InvariantCulture); break;
                 case 'X': text = Ops.ToLong(arg).ToString("X", CultureInfo.InvariantCulture); break;
@@ -167,13 +261,19 @@ internal static class PyFormat
             }
             if (text.Length < width)
             {
-                if (left) text = text.PadRight(width);
+                if (left)
+                {
+                    text = text.PadRight(width);
+                }
                 else if (zero && conv != 's' && conv != 'r')
                 {
                     bool sign = text.Length > 0 && (text[0] == '-' || text[0] == '+');
                     text = (sign ? text.Substring(0, 1) : "") + new string('0', width - text.Length) + (sign ? text.Substring(1) : text);
                 }
-                else text = text.PadLeft(width);
+                else
+                {
+                    text = text.PadLeft(width);
+                }
             }
             sb.Append(text);
         }
@@ -197,7 +297,11 @@ internal static class PyFormat
                     continue;
                 }
                 int end = fmt.IndexOf('}', i);
-                if (end < 0) throw new TemplateRuntimeException("Single '{' encountered in format string");
+                if (end < 0)
+                {
+                    throw new TemplateRuntimeException("Single '{' encountered in format string");
+                }
+
                 string field = fmt.Substring(i + 1, end - i - 1);
                 i = end;
                 string spec = "";
@@ -216,22 +320,37 @@ internal static class PyFormat
                 }
                 // split first name / index and the accessor chain
                 int k = 0;
-                while (k < field.Length && field[k] != '.' && field[k] != '[') k++;
+                while (k < field.Length && field[k] != '.' && field[k] != '[')
+                {
+                    k++;
+                }
+
                 string first = field.Substring(0, k);
                 object? val;
-                if (first.Length == 0) val = args.Positional.Count > auto ? args.Positional[auto++] : throw new TemplateRuntimeException("Replacement index out of range for positional args tuple");
+                if (first.Length == 0)
+                {
+                    val = args.Positional.Count > auto ? args.Positional[auto++] : throw new TemplateRuntimeException("Replacement index out of range for positional args tuple");
+                }
                 else if (char.IsAsciiDigit(first[0]))
                 {
                     int idx = int.Parse(first, CultureInfo.InvariantCulture);
                     val = idx < args.Positional.Count ? args.Positional[idx] : throw new TemplateRuntimeException("Replacement index out of range for positional args tuple");
                 }
-                else val = args.Named != null && args.Named.TryGetValue(first, out var nv) ? nv : throw new TemplateRuntimeException($"KeyError: '{first}'");
+                else
+                {
+                    val = args.Named != null && args.Named.TryGetValue(first, out var nv) ? nv : throw new TemplateRuntimeException($"KeyError: '{first}'");
+                }
+
                 while (k < field.Length)
                 {
                     if (field[k] == '.')
                     {
                         int s = ++k;
-                        while (k < field.Length && field[k] != '.' && field[k] != '[') k++;
+                        while (k < field.Length && field[k] != '.' && field[k] != '[')
+                        {
+                            k++;
+                        }
+
                         val = Ops.GetAttr(val, field.Substring(s, k - s), false);
                     }
                     else
@@ -247,18 +366,32 @@ internal static class PyFormat
             }
             else if (c == '}')
             {
-                if (i + 1 < fmt.Length && fmt[i + 1] == '}') i++;
-                else throw new TemplateRuntimeException("Single '}' encountered in format string");
+                if (i + 1 < fmt.Length && fmt[i + 1] == '}')
+                {
+                    i++;
+                }
+                else
+                {
+                    throw new TemplateRuntimeException("Single '}' encountered in format string");
+                }
+
                 sb.Append('}');
             }
-            else sb.Append(c);
+            else
+            {
+                sb.Append(c);
+            }
         }
         return sb.ToString();
     }
 
     private static string ApplySpec(string text, object? val, string spec)
     {
-        if (spec.Length == 0) return text;
+        if (spec.Length == 0)
+        {
+            return text;
+        }
+
         int i = 0;
         char fill = ' ', align = '\0';
         if (spec.Length >= 2 && "<>^".IndexOf(spec[1]) >= 0)
@@ -279,23 +412,47 @@ internal static class PyFormat
             i++;
         }
         int width = 0;
-        while (i < spec.Length && char.IsAsciiDigit(spec[i])) width = width * 10 + (spec[i++] - '0');
+        while (i < spec.Length && char.IsAsciiDigit(spec[i]))
+        {
+            width = width * 10 + (spec[i++] - '0');
+        }
+
         int prec = -1;
         if (i < spec.Length && spec[i] == '.')
         {
             i++;
             prec = 0;
-            while (i < spec.Length && char.IsAsciiDigit(spec[i])) prec = prec * 10 + (spec[i++] - '0');
+            while (i < spec.Length && char.IsAsciiDigit(spec[i]))
+            {
+                prec = prec * 10 + (spec[i++] - '0');
+            }
         }
         char type = i < spec.Length ? spec[i] : '\0';
-        if (type == 'f' && Ops.IsNum(val)) text = Ops.ToDouble(val).ToString("F" + (prec < 0 ? 6 : prec), CultureInfo.InvariantCulture);
-        else if (type == 'd' && Ops.IsNum(val)) text = Ops.ToLong(val).ToString(CultureInfo.InvariantCulture);
-        else if (prec >= 0 && val is string && text.Length > prec) text = text.Substring(0, prec);
-        if (text.Length >= width) return text;
+        if (type == 'f' && Ops.IsNum(val))
+        {
+            text = Ops.ToDouble(val).ToString("F" + (prec < 0 ? 6 : prec), CultureInfo.InvariantCulture);
+        }
+        else if (type == 'd' && Ops.IsNum(val))
+        {
+            text = Ops.ToLong(val).ToString(CultureInfo.InvariantCulture);
+        }
+        else if (prec >= 0 && val is string && text.Length > prec)
+        {
+            text = text.Substring(0, prec);
+        }
+
+        if (text.Length >= width)
+        {
+            return text;
+        }
+
         if (align == '\0')
         {
             if (zero) { align = '>'; fill = '0'; }
-            else align = Ops.IsNum(val) ? '>' : '<';
+            else
+            {
+                align = Ops.IsNum(val) ? '>' : '<';
+            }
         }
         int pad = width - text.Length;
         return align switch

@@ -7,20 +7,20 @@ namespace Sharplight.Cpu;
 /// <summary>Scaled dot-product attention. Covers CachedAttention (K/V are state tensors) and plain Attention.</summary>
 internal sealed unsafe class AttentionOp : CpuOp
 {
-    readonly TRef _q, _k, _v, _y; readonly TRef? _mask, _sinks;
-    readonly float _scale;
-    readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
-    readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
-    readonly string? _offsetScalar;   // non-null => cached attention
-    readonly bool _causal;
-    readonly int _hq, _hkv, _d, _dv;
-    readonly bool _kHalf, _vHalf;
-    readonly Action<int> _body;
-    readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
-    readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
-    readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
-    long _t, _past, _s, _tasks, _per;
-    [ThreadStatic] static float[]? s_scores;
+    private readonly TRef _q, _k, _v, _y; private readonly TRef? _mask, _sinks;
+    private readonly float _scale;
+    private readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
+    private readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
+    private readonly string? _offsetScalar;   // non-null => cached attention
+    private readonly bool _causal;
+    private readonly int _hq, _hkv, _d, _dv;
+    private readonly bool _kHalf, _vHalf;
+    private readonly Action<int> _body;
+    private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, pos, ...) per query row
+    private readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
+    private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
+    private long _t, _past, _s, _tasks, _per;
+    [ThreadStatic] private static float[]? s_scores;
 
     public override string Name => _offsetScalar is null ? "Attention" : "CachedAttention";
 
@@ -97,7 +97,7 @@ internal sealed unsafe class AttentionOp : CpuOp
         Par.For(chunks, _body);
     }
 
-    void Body(int c)
+    private void Body(int c)
     {
         long s = c * _per, e = Math.Min(_tasks, s + _per);
         long maxKv = _offsetScalar is not null ? _k.Dims[0] : Math.Max(_s, _k.Dims[0]);
@@ -204,11 +204,11 @@ internal sealed unsafe class AttentionOp : CpuOp
 /// <summary>Writes x [T, ...] into rows [offset, offset+T) of a state [ctx, ...] (f32 → state type).</summary>
 internal sealed unsafe class CacheWriteOp : CpuOp
 {
-    readonly TRef _state, _x; readonly string _offset;
-    readonly long _inner, _rowLen;
-    readonly Action<int> _body;
-    readonly TRef? _seqRows; readonly long _slotCtx, _rowsPerToken;
-    long _past, _rows, _per;
+    private readonly TRef _state, _x; private readonly string _offset;
+    private readonly long _inner, _rowLen;
+    private readonly Action<int> _body;
+    private readonly TRef? _seqRows; private readonly long _slotCtx, _rowsPerToken;
+    private long _past, _rows, _per;
     public override string Name => "CacheWrite";
 
     public CacheWriteOp(TRef state, TRef x, string offset, TRef? seqRows = null, int slots = 1)
@@ -274,7 +274,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         Par.For(chunks, _body);
     }
 
-    void Body(int c)
+    private void Body(int c)
     {
         long s = c * _per, e = Math.Min(_rows, s + _per);
         var type = _state.Type;

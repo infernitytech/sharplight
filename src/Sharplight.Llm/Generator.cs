@@ -46,7 +46,11 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
     /// </summary>
     public IEnumerable<GeneratedToken> Generate(string prompt, IReadOnlyList<ImageInput> images, GenerationOptions options, bool parseSpecial = true)
     {
-        if (images.Count == 0) return Generate(prompt, options, parseSpecial);
+        if (images.Count == 0)
+        {
+            return Generate(prompt, options, parseSpecial);
+        }
+
         var enc = vision ?? throw new InvalidOperationException("Images need a Generator created with a VisionEncoder (LlmModel.CreateVisionEncoder).");
         var arch = MultimodalRegistry.Find(enc.Definition.Architecture)
             ?? throw new NotSupportedException($"Architecture '{enc.Definition.Architecture}' has no multimodal prompt support.");
@@ -60,16 +64,20 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
         return Generate(textTokens, () => session.Process(mm, embeddings), options, mm.Length);
     }
 
-    int? LookupToken(string text)
+    private int? LookupToken(string text)
     {
         var ids = tokenizer.Encode(text, addSpecial: false, parseSpecial: true);
         return ids.Length == 1 ? ids[0] : null;
     }
 
-    IEnumerable<GeneratedToken> Generate(int[] promptTokens, Func<float[]> prefillStep, GenerationOptions options, int? promptRows = null)
+    private IEnumerable<GeneratedToken> Generate(int[] promptTokens, Func<float[]> prefillStep, GenerationOptions options, int? promptRows = null)
     {
         var sampler = new Sampler(options.Sampling);
-        foreach (var t in promptTokens) sampler.Accept(t);
+        foreach (var t in promptTokens)
+        {
+            sampler.Accept(t);
+        }
+
         var decoder = new StreamingDecoder(tokenizer);
         var text = new System.Text.StringBuilder();
 
@@ -85,15 +93,29 @@ public sealed class Generator(InferenceSession session, ITokenizer tokenizer, Vi
                 int id = sampler.Sample(logits);
                 sampler.Accept(id);
                 generated++;
-                if (options.StopAtEog && tokenizer.IsEndOfGeneration(id)) break;
+                if (options.StopAtEog && tokenizer.IsEndOfGeneration(id))
+                {
+                    break;
+                }
+
                 var piece = decoder.Push(id);
                 text.Append(piece);
                 yield return new GeneratedToken(id, piece);
-                if (options.StopStrings.Any(s => text.ToString().EndsWith(s, StringComparison.Ordinal))) break;
-                if (i + 1 < options.MaxNewTokens) logits = session.Process([id]);
+                if (options.StopStrings.Any(s => text.ToString().EndsWith(s, StringComparison.Ordinal)))
+                {
+                    break;
+                }
+
+                if (i + 1 < options.MaxNewTokens)
+                {
+                    logits = session.Process([id]);
+                }
             }
             var tail = decoder.Flush();
-            if (tail.Length > 0) yield return new GeneratedToken(-1, tail);
+            if (tail.Length > 0)
+            {
+                yield return new GeneratedToken(-1, tail);
+            }
         }
         finally
         {

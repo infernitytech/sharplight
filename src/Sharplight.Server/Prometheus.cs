@@ -16,9 +16,16 @@ public static class Prometheus
         var sb = new StringBuilder();
         void Each(string name, string type, string help, Func<EngineMetricsSnapshot, double> v)
         {
-            if (models.Count == 0) return;
+            if (models.Count == 0)
+            {
+                return;
+            }
+
             sb.Append($"# HELP {name} {help}\n# TYPE {name} {type}\n");
-            foreach (var (model, m) in models) sb.Append($"{name}{{model=\"{Escape(model)}\"}} {Num(v(m))}\n");
+            foreach (var (model, m) in models)
+            {
+                sb.Append($"{name}{{model=\"{Escape(model)}\"}} {Num(v(m))}\n");
+            }
         }
         void Gauge(string name, string help, Func<EngineMetricsSnapshot, double> v) => Each(name, "gauge", help, v);
         void Counter(string name, string help, Func<EngineMetricsSnapshot, double> v) => Each(name, "counter", help, v);
@@ -42,8 +49,12 @@ public static class Prometheus
         {
             sb.Append("# HELP sharplight_requests_finished_total Finished requests by reason.\n# TYPE sharplight_requests_finished_total counter\n");
             foreach (var (model, m) in models)
+            {
                 foreach (var (reason, n) in m.RequestsFinished)
+                {
                     sb.Append($"sharplight_requests_finished_total{{model=\"{Escape(model)}\",reason=\"{reason.ToString().ToLowerInvariant()}\"}} {n}\n");
+                }
+            }
         }
 
         Histogram(sb, "sharplight_time_to_first_token_seconds", "Time from submission to the first token.", models, m => m.TimeToFirstToken);
@@ -63,35 +74,53 @@ public static class Prometheus
         if (list.Count > 0)
         {
             sb.Append("# HELP sharplight_model_loaded 1 when the model is loaded.\n# TYPE sharplight_model_loaded gauge\n");
-            foreach (var m in list) sb.Append($"sharplight_model_loaded{{model=\"{Escape(m.Name)}\",kind=\"{m.Kind.ToString().ToLowerInvariant()}\"}} {(m.State == ModelState.Loaded ? 1 : 0)}\n");
+            foreach (var m in list)
+            {
+                sb.Append($"sharplight_model_loaded{{model=\"{Escape(m.Name)}\",kind=\"{m.Kind.ToString().ToLowerInvariant()}\"}} {(m.State == ModelState.Loaded ? 1 : 0)}\n");
+            }
+
             sb.Append("# HELP sharplight_model_resident_bytes Device memory held by the model.\n# TYPE sharplight_model_resident_bytes gauge\n");
-            foreach (var m in list) sb.Append($"sharplight_model_resident_bytes{{model=\"{Escape(m.Name)}\"}} {m.ResidentBytes}\n");
+            foreach (var m in list)
+            {
+                sb.Append($"sharplight_model_resident_bytes{{model=\"{Escape(m.Name)}\"}} {m.ResidentBytes}\n");
+            }
         }
         var pools = host.MemoryPools();
         if (pools.Count > 0)
         {
             sb.Append("# HELP sharplight_device_memory_bytes Device memory by kind (available = what this process may still allocate).\n# TYPE sharplight_device_memory_bytes gauge\n");
             foreach (var (d, i) in pools)
+            {
                 foreach (var (kind, v) in new[] { ("total", i.Total), ("budget", i.Budget), ("used", i.Usage), ("used_by_sharplight", i.UsedByUs), ("available", i.Available) })
+                {
                     sb.Append($"sharplight_device_memory_bytes{{device=\"{Escape(d.Name)}\",kind=\"{kind}\"}} {v}\n");
+                }
+            }
         }
         return sb.ToString();
     }
 
-    static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
-    static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
+    private static string Escape(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
+    private static string Num(double v) => v.ToString("R", CultureInfo.InvariantCulture);
 
-    static void Metric(StringBuilder sb, string name, string type, string help, string labels, double v)
+    private static void Metric(StringBuilder sb, string name, string type, string help, string labels, double v)
         => sb.Append($"# HELP {name} {help}\n# TYPE {name} {type}\n{name}{labels} {Num(v)}\n");
 
-    static void Histogram(StringBuilder sb, string name, string help, IReadOnlyList<(string Model, EngineMetricsSnapshot M)> models, Func<EngineMetricsSnapshot, HistogramSnapshot> pick)
+    private static void Histogram(StringBuilder sb, string name, string help, IReadOnlyList<(string Model, EngineMetricsSnapshot M)> models, Func<EngineMetricsSnapshot, HistogramSnapshot> pick)
     {
-        if (models.Count == 0) return;
+        if (models.Count == 0)
+        {
+            return;
+        }
+
         sb.Append($"# HELP {name} {help}\n# TYPE {name} histogram\n");
-        foreach (var (model, m) in models) HistogramSamples(sb, name, pick(m), model);
+        foreach (var (model, m) in models)
+        {
+            HistogramSamples(sb, name, pick(m), model);
+        }
     }
 
-    static void HistogramSamples(StringBuilder sb, string name, HistogramSnapshot h, string model)
+    private static void HistogramSamples(StringBuilder sb, string name, HistogramSnapshot h, string model)
     {
         long acc = 0;
         for (int i = 0; i < h.Counts.Length; i++)

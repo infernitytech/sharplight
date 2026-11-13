@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -8,14 +7,14 @@ namespace Sharplight.Cpu.Tests;
 /// <summary>Cross-checks against outputs recorded from llama.cpp's ggml CPU backend (rope, ssm_conv, gated_delta_net).</summary>
 public class GgmlCrossCheckTests
 {
-    static float[] Floats(BinaryReader r, int n) { var a = new float[n]; for (int i = 0; i < n; i++) a[i] = r.ReadSingle(); return a; }
-    static int[] Ints(BinaryReader r, int n) { var a = new int[n]; for (int i = 0; i < n; i++) a[i] = r.ReadInt32(); return a; }
+    private static float[] Floats(BinaryReader r, int n) { var a = new float[n]; for (int i = 0; i < n; i++) { a[i] = r.ReadSingle(); } return a; }
+    private static int[] Ints(BinaryReader r, int n) { var a = new int[n]; for (int i = 0; i < n; i++) { a[i] = r.ReadInt32(); } return a; }
 
-    record RopeRec(int Mode, int Dims, int[] Sec, float FreqScale, int T, int H, int D, float[] X, int[] Pos, float[] Out);
-    record DeltaRec(int T, int Hk, int Hv, int S, float[] Q, float[] K, float[] V, float[] G, float[] B, float[] State, float[] Out);
-    record ConvRec(int T, int C, int K, float[] State, float[] X, float[] W, float[] Out);
+    private record RopeRec(int Mode, int Dims, int[] Sec, float FreqScale, int T, int H, int D, float[] X, int[] Pos, float[] Out);
+    private record DeltaRec(int T, int Hk, int Hv, int S, float[] Q, float[] K, float[] V, float[] G, float[] B, float[] State, float[] Out);
+    private record ConvRec(int T, int C, int K, float[] State, float[] X, float[] W, float[] Out);
 
-    static (List<RopeRec> Rope, List<DeltaRec> Delta, List<ConvRec> Conv) Load()
+    private static (List<RopeRec> Rope, List<DeltaRec> Delta, List<ConvRec> Conv) Load()
     {
         var r = new BinaryReader(File.OpenRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "ggml_ops.bin")));
         r.ReadInt32();
@@ -223,14 +222,26 @@ public class StatefulOpTests
         int[] chunks = [6, 3, 1, 1];
         int total = chunks.Sum();
         var q = Kit.Rand(total * Hq * D, 1); var k = Kit.Rand(total * Hkv * D, 2); var v = Kit.Rand(total * Hkv * D, 3);
-        for (int i = 0; i < q.Length; i++) q[i] *= 4;   // large scores so that capping / windowing matter
+        for (int i = 0; i < q.Length; i++)
+        {
+            q[i] *= 4;   // large scores so that capping / windowing matter
+        }
+
         var tg = new TG(); var T = TG.T;
         var qi = tg.InF("q", T, Hq, D); var ki = tg.InF("k", T, Hkv, D); var vi = tg.InF("v", T, Hkv, D);
         var kc = tg.State("kc", DataType.F32, StateKind.KeyCache, Dim.Sym("ctx"), Hkv, D); var vc = tg.State("vc", DataType.F32, StateKind.ValueCache, Dim.Sym("ctx"), Hkv, D);
         tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
-        if (window > 0) attrs.Add(("window", window));
-        if (softcap > 0) attrs.Add(("softcap", softcap));
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        if (softcap > 0)
+        {
+            attrs.Add(("softcap", softcap));
+        }
+
         tg.B.RuntimeScalar("n_past");
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
         using var m = Kit.Compile(tg.B.Build(), maxTokens: 8, ctx: ctx);
@@ -262,7 +273,11 @@ public class StatefulOpTests
         var sk = tg.WF("sinks", sinks, Hq);
         tg.B.CacheWrite(kc, ki); tg.B.CacheWrite(vc, vi);
         var attrs = new List<(string, object)> { ("scale", scale), ("offset", "n_past") };
-        if (window > 0) attrs.Add(("window", window));
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
         tg.B.RuntimeScalar("n_past");
         attrs.Add(("sinks", true));
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc, sk], Attributes.From([.. attrs])));

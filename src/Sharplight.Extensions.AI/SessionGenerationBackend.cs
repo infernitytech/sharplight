@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using Sharplight.Llm;
 using Sharplight.Models;
-using Sharplight.Vision;
 
 namespace Sharplight.Extensions.AI;
 
@@ -13,12 +12,12 @@ namespace Sharplight.Extensions.AI;
 /// </summary>
 public sealed class SessionGenerationBackend : ITextGenerationBackend
 {
-    readonly LlmModel _model;
-    readonly bool _ownsModel;
-    readonly SemaphoreSlim _gate = new(1, 1);
-    InferenceSession? _session;
-    VisionEncoder? _vision;
-    int _disposed;
+    private readonly LlmModel _model;
+    private readonly bool _ownsModel;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private InferenceSession? _session;
+    private VisionEncoder? _vision;
+    private int _disposed;
 
     public SessionGenerationBackend(LlmModel model, bool ownsModel = false)
     {
@@ -51,7 +50,9 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
             try
             {
                 await foreach (var piece in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+                {
                     yield return piece;
+                }
             }
             finally
             {
@@ -62,7 +63,7 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
         finally { _gate.Release(); }
     }
 
-    void Produce(TextGenerationRequest request, TextGenerationResult result, ChannelWriter<string> writer, CancellationToken ct)
+    private void Produce(TextGenerationRequest request, TextGenerationResult result, ChannelWriter<string> writer, CancellationToken ct)
     {
         try
         {
@@ -73,7 +74,11 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
             VisionEncoder? vision = null;
             if (request.Images.Count > 0)
             {
-                if (!_model.SupportsImages) throw new NotSupportedException("The model has no vision tower (load it with a vision projector).");
+                if (!_model.SupportsImages)
+                {
+                    throw new NotSupportedException("The model has no vision tower (load it with a vision projector).");
+                }
+
                 vision = _vision ??= _model.CreateVisionEncoder();
             }
             var gen = new Generator(session, tokenizer, vision);
@@ -86,7 +91,11 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
             {
                 // The chat template emits BOS itself, so no special tokens are added here.
                 var ids = tokenizer.Encode(request.Prompt, addSpecial: false, parseSpecial: true);
-                if (ids.Length >= session.ContextLength) throw new InvalidOperationException($"The prompt ({ids.Length} tokens) does not fit the context ({session.ContextLength}).");
+                if (ids.Length >= session.ContextLength)
+                {
+                    throw new InvalidOperationException($"The prompt ({ids.Length} tokens) does not fit the context ({session.ContextLength}).");
+                }
+
                 options = options with { MaxNewTokens = Math.Min(options.MaxNewTokens, session.ContextLength - ids.Length) };
                 result.PromptTokens = ids.Length;
                 tokens = gen.Generate(ids, options);
@@ -97,8 +106,15 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
                 foreach (var t in tokens)
                 {
                     ct.ThrowIfCancellationRequested();
-                    if (t.Id >= 0) visible++;
-                    if (t.Text.Length > 0) writer.TryWrite(t.Text);
+                    if (t.Id >= 0)
+                    {
+                        visible++;
+                    }
+
+                    if (t.Text.Length > 0)
+                    {
+                        writer.TryWrite(t.Text);
+                    }
                 }
             }
             finally
@@ -120,9 +136,13 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
         }
     }
 
-    InferenceSession EnsureSession()
+    private InferenceSession EnsureSession()
     {
-        if (_session is { } s) return s;
+        if (_session is { } s)
+        {
+            return s;
+        }
+
         s = _model.CreateSession(_model.SupportsImages ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph);
         ContextLength = s.ContextLength;
         return _session = s;
@@ -130,13 +150,20 @@ public sealed class SessionGenerationBackend : ITextGenerationBackend
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         _gate.Wait();
         try
         {
             _vision?.Dispose();
             _session?.Dispose();
-            if (_ownsModel) _model.Dispose();
+            if (_ownsModel)
+            {
+                _model.Dispose();
+            }
         }
         finally { _gate.Release(); }
     }

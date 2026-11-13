@@ -41,7 +41,7 @@ public sealed class Qwen35Adapter : IModelAdapter
     public string Name => "Qwen3.5 hybrid (Gated DeltaNet + gated attention)";
     public IReadOnlyList<string> Architectures => ["qwen3_5"];
 
-    sealed record HParams(
+    private sealed record HParams(
         int NLayer, int NEmbd, int NFf, int NHead, int NHeadKv, int HeadDim, float Eps,
         int RopeDims, float RopeBase, int[] RopeSections,
         int ConvKernel, int SsmState, int SsmGroups, int SsmDtRank, int SsmInner, int FullAttnInterval,
@@ -101,12 +101,19 @@ public sealed class Qwen35Adapter : IModelAdapter
         var visionSrc = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Mmproj) ?? src;
         var vision = VisionParameters.FromMetadata(visionSrc.Metadata, visionSrc.Architecture + ".vision.");
         if (vision is not null && !string.Equals(visionSrc.Architecture, src.Architecture, StringComparison.OrdinalIgnoreCase))
+        {
             throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
+        }
+
         var allWeights = src.Weights;
         if (vision is not null && !ReferenceEquals(visionSrc, src))
         {
             var merged = new Dictionary<string, WeightInfo>(src.Weights, StringComparer.Ordinal);
-            foreach (var (k, w) in visionSrc.Weights) merged[k] = w;
+            foreach (var (k, w) in visionSrc.Weights)
+            {
+                merged[k] = w;
+            }
+
             allWeights = merged;
         }
         WeightInfo? Lookup(string n) => allWeights.TryGetValue(n, out var w) ? w : null;
@@ -115,7 +122,10 @@ public sealed class Qwen35Adapter : IModelAdapter
             [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false),
         };
         if (options.IncludeAuxiliaryGraphs)
+        {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
+        }
+
         if (vision is not null)
         {
             graphs[WellKnown.DecodeMultimodalGraph] = BuildTrunk(WellKnown.DecodeMultimodalGraph, embeddingsInput: true, mixed: true);
@@ -123,8 +133,15 @@ public sealed class Qwen35Adapter : IModelAdapter
         }
 
         var eos = new List<int>();
-        if (src.Has(CanonicalKeys.TokenizerEosId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
-        if (src.Has(CanonicalKeys.TokenizerEotId)) eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
+        if (src.Has(CanonicalKeys.TokenizerEosId))
+        {
+            eos.Add(src.Get<int>(CanonicalKeys.TokenizerEosId));
+        }
+
+        if (src.Has(CanonicalKeys.TokenizerEotId))
+        {
+            eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
+        }
 
         var props = new Dictionary<string, object>
         {
@@ -139,11 +156,17 @@ public sealed class Qwen35Adapter : IModelAdapter
         if (vision is not null)
         {
             if (vision.OutHiddenSize != hp.NEmbd)
+            {
                 throw new InvalidDataException($"The vision tower produces {vision.OutHiddenSize}-wide embeddings but the language model's hidden size is {hp.NEmbd}.");
+            }
+
             vision.WriteProperties(props);
         }
         var owned = new List<IDisposable>(src.OwnedResources);
-        if (!ReferenceEquals(visionSrc, src)) owned.AddRange(visionSrc.OwnedResources);
+        if (!ReferenceEquals(visionSrc, src))
+        {
+            owned.AddRange(visionSrc.OwnedResources);
+        }
 
         return new ModelDefinition
         {
@@ -174,7 +197,9 @@ public sealed class Qwen35Adapter : IModelAdapter
                     x = b.Add(b.Mul(tok, b.Scale(mask, -1f, 1f)), b.Mul(emb, mask), "inp_embd");
                 }
                 else if (embeddingsInput)
+                {
                     x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, hp.NEmbd));
+                }
                 else
                 {
                     var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));

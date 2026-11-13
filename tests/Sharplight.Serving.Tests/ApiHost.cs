@@ -3,7 +3,6 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
@@ -27,7 +26,7 @@ public sealed class ApiHost : IAsyncDisposable
     public WebApplication App { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
 
-    ApiHost(FakeBatchDecoder d, string? template, ModelServiceOptions? mo, EngineOptions? eo)
+    private ApiHost(FakeBatchDecoder d, string? template, ModelServiceOptions? mo, EngineOptions? eo)
     {
         Decoder = d;
         Engine = new InferenceEngine(d, new FakeTokenizer(), eo);
@@ -52,7 +51,11 @@ public sealed class ApiHost : IAsyncDisposable
     public async Task<HttpResponseMessage> PostAsync(string path, string json, params (string, string)[] headers)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
-        foreach (var (k, v) in headers) req.Headers.TryAddWithoutValidation(k, v);
+        foreach (var (k, v) in headers)
+        {
+            req.Headers.TryAddWithoutValidation(k, v);
+        }
+
         return await Client.SendAsync(req);
     }
 
@@ -80,8 +83,14 @@ public sealed class ApiHost : IAsyncDisposable
             string? ev = null; var data = new StringBuilder();
             foreach (var line in block.Split('\n'))
             {
-                if (line.StartsWith("event: ")) ev = line[7..];
-                else if (line.StartsWith("data: ")) data.Append(line[6..]);
+                if (line.StartsWith("event: "))
+                {
+                    ev = line[7..];
+                }
+                else if (line.StartsWith("data: "))
+                {
+                    data.Append(line[6..]);
+                }
             }
             res.Add((ev, data.ToString()));
         }

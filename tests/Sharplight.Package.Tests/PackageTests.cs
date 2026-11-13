@@ -18,8 +18,8 @@ public sealed class TempDir : IDisposable
 
 public class PackageTests
 {
-    static readonly Lazy<IComputeDevice> s_cpu = new(() => { var p = new CpuExecutionProvider(); return p.OpenDevice(p.GetDevices()[0]); });
-    static string OnnxDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "onnx");
+    private static readonly Lazy<IComputeDevice> s_cpu = new(() => { var p = new CpuExecutionProvider(); return p.OpenDevice(p.GetDevices()[0]); });
+    private static string OnnxDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "onnx");
 
     /// <summary>A model built from ONNX survives save/load: same graph structure, bit-identical outputs.</summary>
     [Theory]
@@ -27,11 +27,26 @@ public class PackageTests
     public void OnnxModelRoundTrip(string name)
     {
         var path = Path.Combine(OnnxDir, name + ".onnx");
-        if (!File.Exists(path)) Assert.Skip($"{path} not present");
+        if (!File.Exists(path))
+        {
+            Assert.Skip($"{path} not present");
+        }
+
         using var tmp = new TempDir();
         var opts = new OnnxImportOptions();
-        if (name == "deit-tiny") opts.InputShapes["pixel_values"] = [-1, 3, 224, 224];
-        if (name == "minilm-l6") foreach (var i in new[] { "input_ids", "attention_mask", "token_type_ids" }) opts.InputShapes[i] = [-1, 16];
+        if (name == "deit-tiny")
+        {
+            opts.InputShapes["pixel_values"] = [-1, 3, 224, 224];
+        }
+
+        if (name == "minilm-l6")
+        {
+            foreach (var i in new[] { "input_ids", "attention_mask", "token_type_ids" })
+            {
+                opts.InputShapes[i] = [-1, 16];
+            }
+        }
+
         var def = OnnxGraphAdapter.Build(OnnxImporter.Open(path, opts));
         try
         {
@@ -53,14 +68,25 @@ public class PackageTests
                 var a = Run(g, def);
                 var b = Run(g2, def2);
                 Assert.Equal(a.Count, b.Count);
-                for (int i = 0; i < a.Count; i++) Assert.True(a[i].AsSpan().SequenceEqual(b[i]), $"output {i} differs after round trip");
+                for (int i = 0; i < a.Count; i++)
+                {
+                    Assert.True(a[i].AsSpan().SequenceEqual(b[i]), $"output {i} differs after round trip");
+                }
             }
-            finally { foreach (var r in def2.OwnedResources) r.Dispose(); }
+            finally { foreach (var r in def2.OwnedResources)
+                {
+                    r.Dispose();
+                }
+            }
         }
-        finally { foreach (var r in def.OwnedResources) r.Dispose(); }
+        finally { foreach (var r in def.OwnedResources)
+            {
+                r.Dispose();
+            }
+        }
     }
 
-    static List<byte[]> Run(ComputeGraph g, ModelDefinition def)
+    private static List<byte[]> Run(ComputeGraph g, ModelDefinition def)
     {
         var bounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = 1 };
         using var cm = CompiledModel.Compile(g, new PlacementOptions
@@ -69,15 +95,28 @@ public class PackageTests
             Compile = new CompileOptions { MaxTokens = 16, SymbolBounds = bounds },
         });
         var run = new RunParameters();
-        foreach (var (k, v) in bounds) run.Symbols[k] = v;
+        foreach (var (k, v) in bounds)
+        {
+            run.Symbols[k] = v;
+        }
+
         run.Symbols["T"] = 16;
         var rng = new Random(7);
         foreach (var input in g.Inputs)
         {
             long n = input.Shape.Elements(run.Symbols);
-            if (input.Type == DataType.I32) cm.SetInput<int>(input, Enumerable.Range(0, (int)n).Select(_ => rng.Next(0, 2)).ToArray()); // valid as ids, masks and type ids
-            else if (input.Type == DataType.I64) cm.SetInput<long>(input, Enumerable.Range(0, (int)n).Select(_ => (long)rng.Next(0, 2)).ToArray()); // valid as ids, masks and type ids
-            else cm.SetInput<float>(input, Enumerable.Range(0, (int)n).Select(_ => (float)rng.NextDouble()).ToArray());
+            if (input.Type == DataType.I32)
+            {
+                cm.SetInput<int>(input, Enumerable.Range(0, (int)n).Select(_ => rng.Next(0, 2)).ToArray()); // valid as ids, masks and type ids
+            }
+            else if (input.Type == DataType.I64)
+            {
+                cm.SetInput<long>(input, Enumerable.Range(0, (int)n).Select(_ => (long)rng.Next(0, 2)).ToArray()); // valid as ids, masks and type ids
+            }
+            else
+            {
+                cm.SetInput<float>(input, Enumerable.Range(0, (int)n).Select(_ => (float)rng.NextDouble()).ToArray());
+            }
         }
         cm.Run(run);
         var outs = new List<byte[]>();
@@ -90,7 +129,7 @@ public class PackageTests
         return outs;
     }
 
-    static ModelDefinition SmallDefinition(Dictionary<string, object>? extraMeta = null)
+    private static ModelDefinition SmallDefinition(Dictionary<string, object>? extraMeta = null)
     {
         var w = WeightInfo.Derived("w", DataType.F32, new Shape(4, 8), () => new byte[4 * 8 * 4].Select((_, i) => (byte)i).ToArray());
         var weights = new Dictionary<string, WeightInfo> { ["w"] = w };
@@ -112,7 +151,11 @@ public class PackageTests
             ["x.f"] = 1.5f, ["x.d"] = 2.25, ["x.l"] = -3L, ["x.u"] = 4u, ["x.b"] = true, ["x.dt"] = DataType.BF16,
             ["x.objs"] = new object[] { 1L, 2L },
         };
-        foreach (var (k, v) in extraMeta ?? []) meta[k] = v;
+        foreach (var (k, v) in extraMeta ?? [])
+        {
+            meta[k] = v;
+        }
+
         return new ModelDefinition
         {
             Architecture = "test_arch",

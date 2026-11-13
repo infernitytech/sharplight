@@ -1,6 +1,4 @@
 using Sharplight.Graph;
-using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
@@ -9,7 +7,7 @@ namespace Sharplight.Onnx;
 internal sealed partial class OnnxTranslator
 {
     /// <summary>Interpolation matrix [outLen, inLen] of ONNX Resize mode "cubic" (border indices are clamped, optionally excluded).</summary>
-    static double[] CubicMatrix(int inLen, int outLen, double scale, string coord, double a, bool excludeOutside)
+    private static double[] CubicMatrix(int inLen, int outLen, double scale, string coord, double a, bool excludeOutside)
     {
         var m = new double[(long)outLen * inLen];
         for (int o = 0; o < outLen; o++)
@@ -33,8 +31,14 @@ internal sealed partial class OnnxTranslator
             if (excludeOutside)
             {
                 double sum = 0;
-                for (int k = 0; k < 4; k++) { long i = (long)fl - 1 + k; if (i < 0 || i >= inLen) w[k] = 0; sum += w[k]; }
-                if (sum != 0) for (int k = 0; k < 4; k++) w[k] /= sum;
+                for (int k = 0; k < 4; k++) { long i = (long)fl - 1 + k; if (i < 0 || i >= inLen) { w[k] = 0; } sum += w[k]; }
+                if (sum != 0)
+                {
+                    for (int k = 0; k < 4; k++)
+                    {
+                        w[k] /= sum;
+                    }
+                }
             }
             for (int k = 0; k < 4; k++)
             {
@@ -45,7 +49,7 @@ internal sealed partial class OnnxTranslator
         return m;
     }
 
-    Value ResizeCubic(OnnxNode n, Value x, long[] size, double[]? scaleHW, string coord)
+    private Value ResizeCubic(OnnxNode n, Value x, long[] size, double[]? scaleHW, string coord)
     {
         int h = (int)x.Shape[2].Fixed, w = (int)x.Shape[3].Fixed;
         double a = n.Float("cubic_coeff_a", -0.75f);
@@ -56,12 +60,22 @@ internal sealed partial class OnnxTranslator
         OnnxConst Mt(double[] m, int outLen, int inLen)
         {
             var t = new double[m.Length];
-            for (int o = 0; o < outLen; o++) for (int i = 0; i < inLen; i++) t[(long)i * outLen + o] = m[(long)o * inLen + i];
+            for (int o = 0; o < outLen; o++)
+            {
+                for (int i = 0; i < inLen; i++)
+                {
+                    t[(long)i * outLen + o] = m[(long)o * inLen + i];
+                }
+            }
+
             return OnnxConst.FromFloats(OnnxType.Float, [inLen, outLen], t);
         }
         var y = x;
         if (size[1] != w || sw != 1)
+        {
             y = MatMulWeightOrBatch(y, Mt(CubicMatrix(w, (int)size[1], sw, coord, a, excl), (int)size[1], w), name + ".w");
+        }
+
         if (size[0] != h || sh != 1)
         {
             var p = Permute(y, [0, 1, 3, 2]);

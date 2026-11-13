@@ -27,9 +27,9 @@ public sealed record EngineOptions
 /// </summary>
 public sealed class InferenceEngine : IDisposable
 {
-    sealed class Slot { public int Index; public List<int> Tokens = []; public long LastUsed; public Seq? Active; }
+    private sealed class Slot { public int Index; public List<int> Tokens = []; public long LastUsed; public Seq? Active; }
 
-    sealed class Seq
+    private sealed class Seq
     {
         public long Id;
         public required GenerationRequest Req;
@@ -51,20 +51,20 @@ public sealed class InferenceEngine : IDisposable
         public bool Prefilling => PromptPos < Prompt.Length;
     }
 
-    readonly IBatchDecoder _decoder;
-    readonly ITokenizer _tokenizer;
-    readonly EngineOptions _opt;
-    readonly Slot[] _slots;
-    readonly List<Seq> _queue = [];
-    readonly List<Seq> _active = [];
-    readonly object _gate = new();
-    readonly Thread _thread;
-    readonly HashSet<int> _eog;
-    readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    readonly int _budget;
-    long _nextId, _tick;
-    int _rr, _transit;
-    bool _stop, _draining;
+    private readonly IBatchDecoder _decoder;
+    private readonly ITokenizer _tokenizer;
+    private readonly EngineOptions _opt;
+    private readonly Slot[] _slots;
+    private readonly List<Seq> _queue = [];
+    private readonly List<Seq> _active = [];
+    private readonly object _gate = new();
+    private readonly Thread _thread;
+    private readonly HashSet<int> _eog;
+    private readonly TaskCompletionSource _idle = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly int _budget;
+    private long _nextId, _tick;
+    private int _rr, _transit;
+    private bool _stop, _draining;
 
     public EngineMetrics Metrics { get; } = new();
     public ITokenizer Tokenizer => _tokenizer;
@@ -99,7 +99,10 @@ public sealed class InferenceEngine : IDisposable
         int n = request.PromptTokens.Length;
         if (n == 0) { Metrics.Rejected(); throw new EngineException("The prompt is empty.", "invalid_request"); }
         foreach (var t in request.PromptTokens)
+        {
             if ((uint)t >= (uint)_decoder.VocabSize) { Metrics.Rejected(); throw new EngineException($"Token id {t} is outside the vocabulary.", "invalid_request"); }
+        }
+
         if (n >= _decoder.ContextLength) { Metrics.Rejected(); throw new PromptTooLongException(n, _decoder.ContextLength - 1); }
         int room = _decoder.ContextLength - n;
         var ch = Channel.CreateUnbounded<GenerationChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
@@ -111,8 +114,16 @@ public sealed class InferenceEngine : IDisposable
             Id = handle.Id, Req = request, Writer = ch.Writer, Prompt = request.PromptTokens, SubmitTicks = now,
             MaxTokens = request.MaxTokens > 0 ? Math.Min(request.MaxTokens, room) : room,
         };
-        if ((request.Timeout ?? _opt.DefaultTimeout) is { } to) seq.DeadlineTicks = now + (long)(to.TotalSeconds * Stopwatch.Frequency);
-        if ((request.QueueTimeout ?? _opt.DefaultQueueTimeout) is { } qt) seq.QueueDeadlineTicks = now + (long)(qt.TotalSeconds * Stopwatch.Frequency);
+        if ((request.Timeout ?? _opt.DefaultTimeout) is { } to)
+        {
+            seq.DeadlineTicks = now + (long)(to.TotalSeconds * Stopwatch.Frequency);
+        }
+
+        if ((request.QueueTimeout ?? _opt.DefaultQueueTimeout) is { } qt)
+        {
+            seq.QueueDeadlineTicks = now + (long)(qt.TotalSeconds * Stopwatch.Frequency);
+        }
+
         lock (_gate)
         {
             if (_stop || _draining) { Metrics.Rejected(); throw new EngineStoppedException(); }
@@ -121,7 +132,11 @@ public sealed class InferenceEngine : IDisposable
             Metrics.Submitted();
             Monitor.PulseAll(_gate);
         }
-        if (ct.CanBeCanceled) seq.Reg = ct.Register(() => RequestCancel(seq));
+        if (ct.CanBeCanceled)
+        {
+            seq.Reg = ct.Register(() => RequestCancel(seq));
+        }
+
         return handle;
     }
 
@@ -129,16 +144,32 @@ public sealed class InferenceEngine : IDisposable
     public async IAsyncEnumerable<GenerationChunk> GenerateAsync(GenerationRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
     {
         var h = Submit(request, ct);
-        await foreach (var c in h.ReadAllAsync(ct).ConfigureAwait(false)) yield return c;
+        await foreach (var c in h.ReadAllAsync(ct).ConfigureAwait(false))
+        {
+            yield return c;
+        }
     }
 
-    void RequestCancel(Seq seq)
+    private void RequestCancel(Seq seq)
     {
         seq.CancelRequested = true;
         bool queued;
-        lock (_gate) queued = _queue.Remove(seq);
-        if (queued) Finalize(seq, FinishReason.Cancelled, null, null);
-        else lock (_gate) Monitor.PulseAll(_gate);
+        lock (_gate)
+        {
+            queued = _queue.Remove(seq);
+        }
+
+        if (queued)
+        {
+            Finalize(seq, FinishReason.Cancelled, null, null);
+        }
+        else
+        {
+            lock (_gate)
+            {
+                Monitor.PulseAll(_gate);
+            }
+        }
     }
 
     // ---- shutdown ---------------------------------------------------------------------------------------------------
@@ -152,19 +183,30 @@ public sealed class InferenceEngine : IDisposable
         lock (_gate)
         {
             _draining = true;
-            if (_queue.Count == 0 && _active.Count == 0 && _transit == 0) return true;
+            if (_queue.Count == 0 && _active.Count == 0 && _transit == 0)
+            {
+                return true;
+            }
+
             Monitor.PulseAll(_gate);
         }
         var done = await Task.WhenAny(_idle.Task, Task.Delay(timeout)).ConfigureAwait(false) == _idle.Task;
-        if (!done) CancelAll();
+        if (!done)
+        {
+            CancelAll();
+        }
+
         return done;
     }
 
-    void CancelAll()
+    private void CancelAll()
     {
         List<Seq> qs;
-        lock (_gate) { qs = [.. _queue]; _queue.Clear(); foreach (var s in _active) s.CancelRequested = true; Monitor.PulseAll(_gate); }
-        foreach (var s in qs) Finalize(s, FinishReason.Cancelled, null, null);
+        lock (_gate) { qs = [.. _queue]; _queue.Clear(); foreach (var s in _active) { s.CancelRequested = true; } Monitor.PulseAll(_gate); }
+        foreach (var s in qs)
+        {
+            Finalize(s, FinishReason.Cancelled, null, null);
+        }
     }
 
     public void Dispose()
@@ -172,13 +214,17 @@ public sealed class InferenceEngine : IDisposable
         lock (_gate) { _draining = true; }
         CancelAll();
         lock (_gate) { _stop = true; Monitor.PulseAll(_gate); }
-        if (Thread.CurrentThread != _thread) _thread.Join();
+        if (Thread.CurrentThread != _thread)
+        {
+            _thread.Join();
+        }
+
         _decoder.Dispose();
     }
 
     // ---- scheduler --------------------------------------------------------------------------------------------------
 
-    void Run()
+    private void Run()
     {
         while (true)
         {
@@ -186,16 +232,26 @@ public sealed class InferenceEngine : IDisposable
             {
                 while (_queue.Count == 0 && _active.Count == 0 && !_stop)
                 {
-                    if (_draining) _idle.TrySetResult();
+                    if (_draining)
+                    {
+                        _idle.TrySetResult();
+                    }
+
                     Monitor.Wait(_gate);
                 }
-                if (_stop && _active.Count == 0) break;
+                if (_stop && _active.Count == 0)
+                {
+                    break;
+                }
             }
             try
             {
                 Reap();
                 Admit();
-                if (_active.Count > 0) StepOnce();
+                if (_active.Count > 0)
+                {
+                    StepOnce();
+                }
             }
             catch (Exception ex)
             {
@@ -205,71 +261,135 @@ public sealed class InferenceEngine : IDisposable
         lock (_gate) { _idle.TrySetResult(); }
     }
 
-    void FailAll(string message)
+    private void FailAll(string message)
     {
-        foreach (var s in _active.ToArray()) Complete(s, FinishReason.Error, message, null, reset: true);
+        foreach (var s in _active.ToArray())
+        {
+            Complete(s, FinishReason.Error, message, null, reset: true);
+        }
     }
 
     /// <summary>Handles cancellations and expired deadlines of running and waiting requests.</summary>
-    void Reap()
+    private void Reap()
     {
         long now = Stopwatch.GetTimestamp();
         List<Seq>? expired = null;
         lock (_gate)
+        {
             foreach (var s in _queue)
-                if (s.CancelRequested || now > s.DeadlineTicks || now > s.QueueDeadlineTicks) (expired ??= []).Add(s);
+            {
+                if (s.CancelRequested || now > s.DeadlineTicks || now > s.QueueDeadlineTicks)
+                {
+                    (expired ??= []).Add(s);
+                }
+            }
+        }
+
         if (expired is not null)
+        {
             foreach (var s in expired)
             {
-                lock (_gate) if (!_queue.Remove(s)) continue;
+                lock (_gate)
+                {
+                    if (!_queue.Remove(s))
+                    {
+                        continue;
+                    }
+                }
+
                 Finalize(s, s.CancelRequested ? FinishReason.Cancelled : FinishReason.Timeout, s.CancelRequested ? null : "timed out waiting for a free slot", null);
             }
+        }
+
         foreach (var s in _active.ToArray())
         {
-            if (s.CancelRequested) Complete(s, FinishReason.Cancelled, null, null);
-            else if (now > s.DeadlineTicks) Complete(s, FinishReason.Timeout, "request timed out", null);
+            if (s.CancelRequested)
+            {
+                Complete(s, FinishReason.Cancelled, null, null);
+            }
+            else if (now > s.DeadlineTicks)
+            {
+                Complete(s, FinishReason.Timeout, "request timed out", null);
+            }
         }
     }
 
-    void Admit()
+    private void Admit()
     {
         while (true)
         {
             Slot? free = null;
-            foreach (var s in _slots) if (s.Active is null) { free = s; break; }
-            if (free is null) return;
+            foreach (var s in _slots)
+            {
+                if (s.Active is null) { free = s; break; }
+            }
+
+            if (free is null)
+            {
+                return;
+            }
+
             Seq seq;
             lock (_gate)
             {
-                if (_queue.Count == 0) return;
+                if (_queue.Count == 0)
+                {
+                    return;
+                }
+
                 int best = 0;
                 for (int i = 1; i < _queue.Count; i++)
-                    if (_queue[i].Req.Priority > _queue[best].Req.Priority) best = i;   // stable: earliest wins ties
+                {
+                    if (_queue[i].Req.Priority > _queue[best].Req.Priority)
+                    {
+                        best = i;   // stable: earliest wins ties
+                    }
+                }
+
                 seq = _queue[best];
                 _queue.RemoveAt(best);
                 _transit++;
             }
             try { AssignSlot(seq); }
-            finally { lock (_gate) _transit--; }
+            finally { lock (_gate)
+                {
+                    _transit--;
+                }
+            }
         }
     }
 
-    int ReusableTokens(Slot slot, int[] prompt)
+    private int ReusableTokens(Slot slot, int[] prompt)
     {
-        if (!_opt.PrefixCache || slot.Tokens.Count == 0) return 0;
+        if (!_opt.PrefixCache || slot.Tokens.Count == 0)
+        {
+            return 0;
+        }
+
         int common = 0, max = Math.Min(slot.Tokens.Count, prompt.Length);
-        while (common < max && slot.Tokens[common] == prompt[common]) common++;
+        while (common < max && slot.Tokens[common] == prompt[common])
+        {
+            common++;
+        }
         // One prompt token must always be (re)computed to obtain the logits of the last prompt position.
-        if (_decoder.CanTruncate) return Math.Min(common, prompt.Length - 1);
+        if (_decoder.CanTruncate)
+        {
+            return Math.Min(common, prompt.Length - 1);
+        }
+
         return common == slot.Tokens.Count && common < prompt.Length ? common : 0;
     }
 
-    void AssignSlot(Seq seq)
+    private void AssignSlot(Seq seq)
     {
         Slot? best = null; int bestReuse = -1;
         foreach (var s in _slots)
         {
-            if (s.Active is not null) continue;
+            if (s.Active is not null)
+            {
+                continue;
+            }
+
             int reuse = ReusableTokens(s, seq.Prompt);
             // Equal reuse (typically none): take an empty slot first, then evict the least recently used one.
             static long Rank(Slot x) => x.Tokens.Count == 0 ? long.MinValue : x.LastUsed;
@@ -280,7 +400,15 @@ public sealed class InferenceEngine : IDisposable
         int keep = Math.Max(0, bestReuse);
         if (slot.Tokens.Count > keep)
         {
-            if (keep == 0) _decoder.Reset(slot.Index); else _decoder.Truncate(slot.Index, keep);
+            if (keep == 0)
+            {
+                _decoder.Reset(slot.Index);
+            }
+            else
+            {
+                _decoder.Truncate(slot.Index, keep);
+            }
+
             slot.Tokens.RemoveRange(keep, slot.Tokens.Count - keep);
         }
         seq.Slot = slot; slot.Active = seq;
@@ -293,7 +421,7 @@ public sealed class InferenceEngine : IDisposable
         Metrics.Admitted(seq.Prompt.Length, keep, TimeSpan.FromSeconds((Stopwatch.GetTimestamp() - seq.SubmitTicks) / (double)Stopwatch.Frequency));
     }
 
-    void StepOnce()
+    private void StepOnce()
     {
         int budget = _budget;
         var inputs = new List<SequenceInput>(_active.Count);
@@ -305,19 +433,30 @@ public sealed class InferenceEngine : IDisposable
         for (int k = 0; k < count && budget > 0; k++)
         {
             var s = _active[(k + _rr) % count];
-            if (s.Prefilling) continue;
+            if (s.Prefilling)
+            {
+                continue;
+            }
+
             inputs.Add(new SequenceInput(s.Slot!.Index, new[] { s.Pending }, true));
             seqs.Add(s); budget--; nDecode++;
         }
         foreach (var s in _active)
         {
-            if (!s.Prefilling || budget <= 0) continue;
+            if (!s.Prefilling || budget <= 0)
+            {
+                continue;
+            }
+
             int chunk = Math.Min(Math.Min(_opt.PrefillChunk, s.Prompt.Length - s.PromptPos), budget);
             bool last = s.PromptPos + chunk == s.Prompt.Length;
             inputs.Add(new SequenceInput(s.Slot!.Index, s.Prompt.AsMemory(s.PromptPos, chunk), last));
             seqs.Add(s); budget -= chunk;
         }
-        if (inputs.Count == 0) return;
+        if (inputs.Count == 0)
+        {
+            return;
+        }
 
         var sw = Stopwatch.StartNew();
         var results = _decoder.Step(inputs);
@@ -326,18 +465,34 @@ public sealed class InferenceEngine : IDisposable
         for (int i = 0; i < inputs.Count; i++)
         {
             var s = seqs[i];
-            if (s.Finished != 0) continue;
+            if (s.Finished != 0)
+            {
+                continue;
+            }
+
             var slot = s.Slot!;
             var toks = inputs[i].Tokens;
-            for (int j = 0; j < toks.Length; j++) slot.Tokens.Add(toks.Span[j]);
-            if (s.Prefilling) s.PromptPos += toks.Length;
-            if (!inputs[i].WantLogits) continue;
+            for (int j = 0; j < toks.Length; j++)
+            {
+                slot.Tokens.Add(toks.Span[j]);
+            }
+
+            if (s.Prefilling)
+            {
+                s.PromptPos += toks.Length;
+            }
+
+            if (!inputs[i].WantLogits)
+            {
+                continue;
+            }
+
             try { OnLogits(s, results[i]!); }
             catch (Exception ex) { Complete(s, FinishReason.Error, ex.Message, null, reset: true); }
         }
     }
 
-    void OnLogits(Seq s, float[] logits)
+    private void OnLogits(Seq s, float[] logits)
     {
         long now = Stopwatch.GetTimestamp();
         int tok = s.Sampler.Sample(logits);
@@ -349,7 +504,10 @@ public sealed class InferenceEngine : IDisposable
         }
         s.Sampler.Accept(tok);
         s.Generated++;
-        if (s.Generated == 1) Metrics.FirstToken(TimeSpan.FromSeconds((now - s.SubmitTicks) / (double)Stopwatch.Frequency));
+        if (s.Generated == 1)
+        {
+            Metrics.FirstToken(TimeSpan.FromSeconds((now - s.SubmitTicks) / (double)Stopwatch.Frequency));
+        }
 
         if (s.StopIds.Contains(tok) || (s.Req.StopAtEog && _eog.Contains(tok)))
         {
@@ -360,7 +518,11 @@ public sealed class InferenceEngine : IDisposable
         Metrics.Token(s.Generated == 1 ? null : TimeSpan.FromSeconds((now - s.LastTokenTicks) / (double)Stopwatch.Frequency));
         s.LastTokenTicks = now;
         string text = s.Filter.Push(s.Decoder.Push(tok));
-        if (text.Length > 0 || lps is not null) s.Writer.TryWrite(new GenerationChunk(text, lps));
+        if (text.Length > 0 || lps is not null)
+        {
+            s.Writer.TryWrite(new GenerationChunk(text, lps));
+        }
+
         if (s.Filter.Stopped) { Complete(s, FinishReason.Stop, null, s.Filter.Matched); return; }
         if (s.Generated >= s.MaxTokens || s.Slot!.Tokens.Count + 1 > _decoder.ContextLength)
         {
@@ -370,17 +532,32 @@ public sealed class InferenceEngine : IDisposable
         s.Pending = tok;
     }
 
-    string TokenText(int id) => _tokenizer.Decode([id]);
+    private string TokenText(int id) => _tokenizer.Decode([id]);
 
     /// <summary>Ends a running sequence: emits held-back text (when <paramref name="flush"/>), the final chunk, frees the slot.</summary>
-    void Complete(Seq s, FinishReason reason, string? error, string? stopSeq, bool flush = false, bool reset = false)
+    private void Complete(Seq s, FinishReason reason, string? error, string? stopSeq, bool flush = false, bool reset = false)
     {
-        if (s.Finished != 0) return;
+        if (s.Finished != 0)
+        {
+            return;
+        }
+
         if (flush)
         {
             string tail = s.Filter.Push(s.Decoder.Flush());
-            if (!s.Filter.Stopped) tail += s.Filter.Flush(); else stopSeq = s.Filter.Matched;
-            if (tail.Length > 0) s.Writer.TryWrite(new GenerationChunk(tail));
+            if (!s.Filter.Stopped)
+            {
+                tail += s.Filter.Flush();
+            }
+            else
+            {
+                stopSeq = s.Filter.Matched;
+            }
+
+            if (tail.Length > 0)
+            {
+                s.Writer.TryWrite(new GenerationChunk(tail));
+            }
         }
         var slot = s.Slot!;
         _active.Remove(s);
@@ -394,9 +571,13 @@ public sealed class InferenceEngine : IDisposable
         Finalize(s, reason, error, stopSeq);
     }
 
-    void Finalize(Seq s, FinishReason reason, string? error, string? stopSeq)
+    private void Finalize(Seq s, FinishReason reason, string? error, string? stopSeq)
     {
-        if (Interlocked.Exchange(ref s.Finished, 1) != 0) return;
+        if (Interlocked.Exchange(ref s.Finished, 1) != 0)
+        {
+            return;
+        }
+
         var usage = new GenerationUsage(s.Prompt.Length, s.Generated, s.Cached);
         s.Writer.TryWrite(new GenerationChunk("", null, reason, usage, error, stopSeq));
         s.Writer.TryComplete();

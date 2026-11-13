@@ -19,17 +19,21 @@ internal sealed class OnnxConst
     public long Count { get; }
     public string Name { get; init; } = "";
 
-    IWeightSource? _source;
-    byte[]? _bytes;
-    long[]? _ints;
-    double[]? _floats;
-    Func<byte[]>? _produce;
+    private IWeightSource? _source;
+    private byte[]? _bytes;
+    private long[]? _ints;
+    private double[]? _floats;
+    private Func<byte[]>? _produce;
 
-    OnnxConst(int elemType, long[] dims)
+    private OnnxConst(int elemType, long[] dims)
     {
         ElemType = elemType;
         Dims = dims;
-        long n = 1; foreach (var d in dims) n *= d;
+        long n = 1; foreach (var d in dims)
+        {
+            n *= d;
+        }
+
         Count = n;
     }
 
@@ -45,21 +49,33 @@ internal sealed class OnnxConst
     public static OnnxConst FromInts(int elemType, long[] dims, long[] values, string name = "")
     {
         var c = new OnnxConst(elemType, dims) { Name = name, _ints = values };
-        if (values.Length != c.Count) throw new ArgumentException($"{values.Length} values for shape [{string.Join(",", dims)}].");
+        if (values.Length != c.Count)
+        {
+            throw new ArgumentException($"{values.Length} values for shape [{string.Join(",", dims)}].");
+        }
+
         return c;
     }
 
     public static OnnxConst FromFloats(int elemType, long[] dims, double[] values, string name = "")
     {
         var c = new OnnxConst(elemType, dims) { Name = name, _floats = values };
-        if (values.Length != c.Count) throw new ArgumentException($"{values.Length} values for shape [{string.Join(",", dims)}].");
+        if (values.Length != c.Count)
+        {
+            throw new ArgumentException($"{values.Length} values for shape [{string.Join(",", dims)}].");
+        }
+
         return c;
     }
 
     public static OnnxConst FromBytes(int elemType, long[] dims, byte[] bytes, string name = "")
     {
         var c = new OnnxConst(elemType, dims) { Name = name, _bytes = bytes };
-        if (bytes.Length != c.ByteSize) throw new ArgumentException($"{bytes.Length} bytes for {OnnxType.Name(elemType)}[{string.Join(",", dims)}].");
+        if (bytes.Length != c.ByteSize)
+        {
+            throw new ArgumentException($"{bytes.Length} bytes for {OnnxType.Name(elemType)}[{string.Join(",", dims)}].");
+        }
+
         return c;
     }
 
@@ -72,8 +88,16 @@ internal sealed class OnnxConst
     // ---- views (no data movement) ---------------------------------------------------------------
     public OnnxConst Reshaped(long[] dims, string? name = null)
     {
-        long n = 1; foreach (var d in dims) n *= d;
-        if (n != Count) throw new ArgumentException($"Cannot reshape {Count} elements to [{string.Join(",", dims)}].");
+        long n = 1; foreach (var d in dims)
+        {
+            n *= d;
+        }
+
+        if (n != Count)
+        {
+            throw new ArgumentException($"Cannot reshape {Count} elements to [{string.Join(",", dims)}].");
+        }
+
         var c = new OnnxConst(ElemType, dims) { Name = name ?? Name, _source = _source, _bytes = _bytes, _ints = _ints, _floats = _floats };
         if (_produce is not null) { var me = this; c._produce = () => me.Bytes(); }
         return c;
@@ -82,8 +106,16 @@ internal sealed class OnnxConst
     // ---- byte access ---------------------------------------------------------------------------
     public byte[] Bytes()
     {
-        if (_bytes is not null) return _bytes;
-        if (_produce is not null) return _bytes = _produce();
+        if (_bytes is not null)
+        {
+            return _bytes;
+        }
+
+        if (_produce is not null)
+        {
+            return _bytes = _produce();
+        }
+
         if (_source is not null)
         {
             var b = new byte[_source.ByteLength];
@@ -93,7 +125,7 @@ internal sealed class OnnxConst
         return _bytes = Encode();
     }
 
-    byte[] Encode()
+    private byte[] Encode()
     {
         int es = OnnxType.ElementSize(ElemType);
         var b = new byte[Count * es];
@@ -112,12 +144,15 @@ internal sealed class OnnxConst
                     default: WriteInt(s, es, (long)v); break;
                 }
             }
-            else WriteInt(s, es, _ints![i]);
+            else
+            {
+                WriteInt(s, es, _ints![i]);
+            }
         }
         return b;
     }
 
-    static void WriteInt(Span<byte> s, int es, long v)
+    private static void WriteInt(Span<byte> s, int es, long v)
     {
         switch (es)
         {
@@ -131,8 +166,16 @@ internal sealed class OnnxConst
     // ---- host values -----------------------------------------------------------------------------
     public long[] Ints()
     {
-        if (_ints is not null) return _ints;
-        if (_floats is not null && _bytes is null && _source is null) return _ints = _floats.Select(f => (long)f).ToArray();
+        if (_ints is not null)
+        {
+            return _ints;
+        }
+
+        if (_floats is not null && _bytes is null && _source is null)
+        {
+            return _ints = _floats.Select(f => (long)f).ToArray();
+        }
+
         var b = Bytes();
         var r = new long[Count];
         int es = OnnxType.ElementSize(ElemType);
@@ -156,8 +199,16 @@ internal sealed class OnnxConst
 
     public double[] Floats()
     {
-        if (_floats is not null) return _floats;
-        if (_ints is not null && _bytes is null && _source is null) return _floats = _ints.Select(i => (double)i).ToArray();
+        if (_floats is not null)
+        {
+            return _floats;
+        }
+
+        if (_ints is not null && _bytes is null && _source is null)
+        {
+            return _floats = _ints.Select(i => (double)i).ToArray();
+        }
+
         var b = Bytes();
         var r = new double[Count];
         int es = OnnxType.ElementSize(ElemType);
@@ -169,7 +220,7 @@ internal sealed class OnnxConst
         return _floats = r;
     }
 
-    static double ReadIntAsDouble(ReadOnlySpan<byte> s, int t) => t switch
+    private static double ReadIntAsDouble(ReadOnlySpan<byte> s, int t) => t switch
     {
         OnnxType.Int32 => BinaryPrimitives.ReadInt32LittleEndian(s),
         OnnxType.UInt32 => BinaryPrimitives.ReadUInt32LittleEndian(s),
@@ -179,7 +230,7 @@ internal sealed class OnnxConst
         _ => s[0],
     };
 
-    static double ReadFloat(ReadOnlySpan<byte> s, int t) => t switch
+    private static double ReadFloat(ReadOnlySpan<byte> s, int t) => t switch
     {
         OnnxType.Float => BinaryPrimitives.ReadSingleLittleEndian(s),
         OnnxType.Double => BinaryPrimitives.ReadDoubleLittleEndian(s),
@@ -191,10 +242,18 @@ internal sealed class OnnxConst
     /// <summary>Little-endian f32 bytes of the (float) data, converting from f16/bf16/f64/ints as needed.</summary>
     public byte[] F32Bytes()
     {
-        if (ElemType == OnnxType.Float) return Bytes();
+        if (ElemType == OnnxType.Float)
+        {
+            return Bytes();
+        }
+
         var f = Floats();
         var r = new byte[Count * 4];
-        for (long i = 0; i < Count; i++) BinaryPrimitives.WriteSingleLittleEndian(r.AsSpan((int)(i * 4), 4), (float)f[i]);
+        for (long i = 0; i < Count; i++)
+        {
+            BinaryPrimitives.WriteSingleLittleEndian(r.AsSpan((int)(i * 4), 4), (float)f[i]);
+        }
+
         return r;
     }
 
@@ -212,14 +271,26 @@ internal sealed class OnnxConst
     // ---- element-type conversion -----------------------------------------------------------------
     public OnnxConst CastTo(int et)
     {
-        if (et == ElemType) return this;
+        if (et == ElemType)
+        {
+            return this;
+        }
+
         if (OnnxType.IsFloat(et))
         {
             var f = Floats();
-            if (et == OnnxType.Float) f = f.Select(v => (double)(float)v).ToArray();
+            if (et == OnnxType.Float)
+            {
+                f = f.Select(v => (double)(float)v).ToArray();
+            }
+
             return FromFloats(et, Dims, f, Name);
         }
-        if (et == OnnxType.Bool) return FromInts(et, Dims, (IsFloat ? Floats().Select(v => v != 0 ? 1L : 0L) : Ints().Select(v => v != 0 ? 1L : 0L)).ToArray(), Name);
+        if (et == OnnxType.Bool)
+        {
+            return FromInts(et, Dims, (IsFloat ? Floats().Select(v => v != 0 ? 1L : 0L) : Ints().Select(v => v != 0 ? 1L : 0L)).ToArray(), Name);
+        }
+
         return FromInts(et, Dims, IsFloat ? Floats().Select(v => (long)v).ToArray() : Ints(), Name);
     }
 
@@ -238,7 +309,10 @@ internal sealed class OnnxConst
             long s = 1; for (int d = r - 1; d >= 0; d--) { inStr[d] = s; s *= src.Dims[d]; }
             var pStr = perm.Select(p => inStr[p]).ToArray();
             long total = src.Count;
-            if (total == 0) return outB;
+            if (total == 0)
+            {
+                return outB;
+            }
             // iterate over output indices in row-major order
             var idx = new long[r];
             long inPos = 0;
@@ -248,7 +322,11 @@ internal sealed class OnnxConst
                 for (int d = r - 1; d >= 0; d--)
                 {
                     idx[d]++; inPos += pStr[d];
-                    if (idx[d] < newDims[d]) break;
+                    if (idx[d] < newDims[d])
+                    {
+                        break;
+                    }
+
                     inPos -= pStr[d] * newDims[d]; idx[d] = 0;
                 }
             }

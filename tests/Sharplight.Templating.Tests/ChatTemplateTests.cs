@@ -1,4 +1,3 @@
-using Sharplight.Templating;
 using Xunit;
 
 namespace Sharplight.Templating.Tests;

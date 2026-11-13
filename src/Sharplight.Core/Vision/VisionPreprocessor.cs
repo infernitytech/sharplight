@@ -5,8 +5,15 @@ public sealed record ImageInput(int Width, int Height, byte[] Rgb)
 {
     public void Validate()
     {
-        if (Width <= 0 || Height <= 0) throw new ArgumentException("Image has no pixels.");
-        if (Rgb.LongLength != 3L * Width * Height) throw new ArgumentException($"Expected {3L * Width * Height} RGB bytes for {Width}x{Height}, got {Rgb.Length}.");
+        if (Width <= 0 || Height <= 0)
+        {
+            throw new ArgumentException("Image has no pixels.");
+        }
+
+        if (Rgb.LongLength != 3L * Width * Height)
+        {
+            throw new ArgumentException($"Expected {3L * Width * Height} RGB bytes for {Width}x{Height}, got {Rgb.Length}.");
+        }
     }
 }
 
@@ -78,7 +85,11 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     public PreprocessedImage Process(ImageInput image)
     {
         image.Validate();
-        if (p.InChannels != 3) throw new NotSupportedException($"Only 3-channel images are supported (in_channels {p.InChannels}).");
+        if (p.InChannels != 3)
+        {
+            throw new NotSupportedException($"Only 3-channel images are supported (in_channels {p.InChannels}).");
+        }
+
         var (tw, th) = TargetSize(image.Width, image.Height);
         byte[] px = image.Width == tw && image.Height == th ? image.Rgb : ResizeBicubic(image.Rgb, image.Width, image.Height, tw, th);
 
@@ -87,7 +98,13 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         for (int c = 0; c < 3; c++) { a[c] = 1f / (255f * p.ImageStd[c]); b[c] = -p.ImageMean[c] / p.ImageStd[c]; }
         var values = new float[px.Length];
         for (int i = 0; i < px.Length; i += 3)
-            for (int c = 0; c < 3; c++) values[i + c] = px[i + c] * a[c] + b[c];
+        {
+            for (int c = 0; c < 3; c++)
+            {
+                values[i + c] = px[i + c] * a[c] + b[c];
+            }
+        }
+
         return Patchify(values, tw, th);
     }
 
@@ -99,13 +116,20 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     {
         int ps = p.PatchSize, m = p.SpatialMergeSize, tp = p.TemporalPatchSize;
         int gh = th / ps, gw = tw / ps, n = gh * gw, k = p.PatchDim;
-        if (th % (ps * m) != 0 || tw % (ps * m) != 0 || rgb.Length != 3 * tw * th) throw new ArgumentException($"Image {tw}x{th} does not fit patch_size {ps} x spatial_merge_size {m}.");
+        if (th % (ps * m) != 0 || tw % (ps * m) != 0 || rgb.Length != 3 * tw * th)
+        {
+            throw new ArgumentException($"Image {tw}x{th} does not fit patch_size {ps} x spatial_merge_size {m}.");
+        }
+
         var patches = new float[checked(n * k)];
         var positions = new int[n * 2];
         int idx = 0;
         for (int br = 0; br < gh / m; br++)
+        {
             for (int bc = 0; bc < gw / m; bc++)
+            {
                 for (int ir = 0; ir < m; ir++)
+                {
                     for (int ic = 0; ic < m; ic++, idx++)
                     {
                         int row = br * m + ir, col = bc * m + ic;
@@ -113,13 +137,23 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
                         var dst = patches.AsSpan(checked(idx * k), k);
                         int o = 0;
                         for (int c = 0; c < 3; c++)
+                        {
                             for (int t = 0; t < tp; t++)
+                            {
                                 for (int y = 0; y < ps; y++)
                                 {
                                     int src = ((row * ps + y) * tw + col * ps) * 3 + c;
-                                    for (int x = 0; x < ps; x++, src += 3) dst[o++] = rgb[src];
+                                    for (int x = 0; x < ps; x++, src += 3)
+                                    {
+                                        dst[o++] = rgb[src];
+                                    }
                                 }
+                            }
+                        }
                     }
+                }
+            }
+        }
 
         var (ei, ew) = PositionTaps(positions, gh, gw);
         return new PreprocessedImage
@@ -130,12 +164,16 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     }
 
     /// <summary>Bilinear taps (align_corners) resampling the learned g×g position grid to the image grid, per patch.</summary>
-    (int[] Index, float[] Weight) PositionTaps(int[] positions, int gh, int gw)
+    private (int[] Index, float[] Weight) PositionTaps(int[] positions, int gh, int gw)
     {
         int n = positions.Length / 2, side = Math.Max(1, p.PositionGridSide);
         var index = new int[n * 4];
         var weight = new float[n * 4];
-        if (p.PositionEmbeddingCount == 0) return (index, weight);
+        if (p.PositionEmbeddingCount == 0)
+        {
+            return (index, weight);
+        }
+
         static void Axis(int pos, int count, int side, out int i0, out int i1, out float w0, out float w1)
         {
             double f = count > 1 ? pos * (side - 1.0) / (count - 1) : 0;
@@ -156,16 +194,24 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     }
 
     // ---- antialiased bicubic resize (PIL / torch antialias=True semantics, Keys kernel a = -0.5) ----------------------
-    static double Cubic(double x)
+    private static double Cubic(double x)
     {
         const double a = -0.5;
         x = Math.Abs(x);
-        if (x < 1) return ((a + 2) * x - (a + 3)) * x * x + 1;
-        if (x < 2) return (((x - 5) * x + 8) * x - 4) * a;
+        if (x < 1)
+        {
+            return ((a + 2) * x - (a + 3)) * x * x + 1;
+        }
+
+        if (x < 2)
+        {
+            return (((x - 5) * x + 8) * x - 4) * a;
+        }
+
         return 0;
     }
 
-    static (int[] Start, int[] Count, float[] Weights, int Max) Coefficients(int inSize, int outSize)
+    private static (int[] Start, int[] Count, float[] Weights, int Max) Coefficients(int inSize, int outSize)
     {
         double scale = (double)inSize / outSize;
         double filterScale = Math.Max(scale, 1.0);
@@ -181,7 +227,10 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             var tmp = new double[xmax - xmin];
             for (int i = 0; i < tmp.Length; i++) { tmp[i] = Cubic((xmin + i - center + 0.5) / filterScale); sum += tmp[i]; }
             start[x] = xmin; count[x] = tmp.Length;
-            for (int i = 0; i < tmp.Length; i++) w[x * max + i] = (float)(tmp[i] / sum);
+            for (int i = 0; i < tmp.Length; i++)
+            {
+                w[x * max + i] = (float)(tmp[i] / sum);
+            }
         }
         return (start, count, w, max);
     }
@@ -227,5 +276,5 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         return dst;
     }
 
-    static byte Clamp8(float v) => (byte)Math.Clamp((int)MathF.Round(v, MidpointRounding.AwayFromZero), 0, 255);
+    private static byte Clamp8(float v) => (byte)Math.Clamp((int)MathF.Round(v, MidpointRounding.AwayFromZero), 0, 255);
 }

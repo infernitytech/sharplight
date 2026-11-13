@@ -35,7 +35,7 @@ public sealed class OpSchema
     public int MinInputs { get; }
     public int MaxInputs { get; }
     public string Description { get; }
-    readonly Func<IReadOnlyList<Value>, Attributes, IReadOnlyList<TensorType>> _infer;
+    private readonly Func<IReadOnlyList<Value>, Attributes, IReadOnlyList<TensorType>> _infer;
 
     public OpSchema(string name, OpCategory category, int minInputs, int maxInputs,
         Func<IReadOnlyList<Value>, Attributes, IReadOnlyList<TensorType>> infer, string description = "")
@@ -51,7 +51,10 @@ public sealed class OpSchema
     public IReadOnlyList<TensorType> Infer(IReadOnlyList<Value> inputs, Attributes attrs)
     {
         if (inputs.Count < MinInputs || inputs.Count > MaxInputs)
+        {
             throw new ArgumentException($"{Name} expects {MinInputs}..{MaxInputs} inputs, got {inputs.Count}.");
+        }
+
         return _infer(inputs, attrs);
     }
 
@@ -61,14 +64,17 @@ public sealed class OpSchema
 /// <summary>Global, thread-safe registry of operator schemas.</summary>
 public static class OpRegistry
 {
-    static readonly ConcurrentDictionary<string, OpSchema> s_ops = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, OpSchema> s_ops = new(StringComparer.Ordinal);
 
     static OpRegistry() => StandardOps.RegisterAll();
 
     public static OpSchema Register(OpSchema schema)
     {
         if (!s_ops.TryAdd(schema.Name, schema) && !ReferenceEquals(s_ops[schema.Name], schema))
+        {
             throw new InvalidOperationException($"Op '{schema.Name}' is already registered.");
+        }
+
         return schema;
     }
 

@@ -12,11 +12,18 @@ public class ReferenceTests(ITestOutputHelper output)
     public static IEnumerable<TheoryDataRow<string>> SyntheticCases()
     {
         var names = RefCase.SyntheticNames().ToList();
-        if (names.Count == 0) yield return new TheoryDataRow<string>("(no reference data)");
-        foreach (var n in names) yield return new TheoryDataRow<string>(n);
+        if (names.Count == 0)
+        {
+            yield return new TheoryDataRow<string>("(no reference data)");
+        }
+
+        foreach (var n in names)
+        {
+            yield return new TheoryDataRow<string>(n);
+        }
     }
 
-    void RunCase(RefCase c, string provider)
+    private void RunCase(RefCase c, string provider)
     {
         IComputeDevice dev = Providers.Get(provider);
         foreach (int batch in c.Batches)
@@ -56,13 +63,17 @@ public class ReferenceTests(ITestOutputHelper output)
     }
 
     // ---- real models ---------------------------------------------------------------------------------
-    void RunModel(string refName, string onnxFile, string provider, bool top1 = true)
+    private void RunModel(string refName, string onnxFile, string provider, bool top1 = true)
     {
         var c = RefCase.Model(refName, onnxFile);
         if (c is null) { Assert.Skip($"{onnxFile}.onnx or its reference data is missing (see .work/onnx_ref/make_model_refs.py)"); return; }
         if (refName == "yolov10n") { YoloScores(c, provider); return; }
         RunCase(c, provider);
-        if (!top1) return;
+        if (!top1)
+        {
+            return;
+        }
+
         var dev = Providers.Get(provider);
         foreach (int batch in c.Batches)
         {
@@ -70,7 +81,9 @@ public class ReferenceTests(ITestOutputHelper output)
             var exp = c.ReadOutput(batch, 0);
             int per = exp.Length / batch;
             for (int b = 0; b < batch; b++)
+            {
                 Assert.Equal(Compare.ArgMax(exp.AsSpan(b * per, per)), Compare.ArgMax(res.Outputs[0].AsSpan(b * per, per)));
+            }
         }
     }
 
@@ -78,7 +91,7 @@ public class ReferenceTests(ITestOutputHelper output)
     /// yolov10n on random input yields almost-tied detections, so class ids / boxes of tied rows are order dependent;
     /// compare the (sorted) score column and require most rows to match exactly.
     /// </summary>
-    void YoloScores(RefCase c, string provider)
+    private void YoloScores(RefCase c, string provider)
     {
         var dev = Providers.Get(provider);
         var inputs = new List<float[]> { c.ReadInput(1, 0) };
@@ -90,8 +103,15 @@ public class ReferenceTests(ITestOutputHelper output)
         for (int r = 0; r < rows; r++)
         {
             maxScore = Math.Max(maxScore, Math.Abs(exp[r * 6 + 4] - act[r * 6 + 4]));
-            bool eq = true; for (int k = 0; k < 6; k++) eq &= Math.Abs(exp[r * 6 + k] - act[r * 6 + k]) <= 1e-3 * Math.Max(1, Math.Abs(exp[r * 6 + k]));
-            if (eq) same++;
+            bool eq = true; for (int k = 0; k < 6; k++)
+            {
+                eq &= Math.Abs(exp[r * 6 + k] - act[r * 6 + k]) <= 1e-3 * Math.Max(1, Math.Abs(exp[r * 6 + k]));
+            }
+
+            if (eq)
+            {
+                same++;
+            }
         }
         output.WriteLine($"{provider} yolov10n: score maxAbs={maxScore:E2}, identical rows {same}/{rows}");
         Assert.True(maxScore < 1e-4, $"score column differs by {maxScore}");

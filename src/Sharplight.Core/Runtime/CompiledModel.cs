@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
-using Sharplight.Models;
 
 namespace Sharplight.Runtime;
 
@@ -10,15 +9,15 @@ namespace Sharplight.Runtime;
 /// </summary>
 public sealed class CompiledModel : IDisposable
 {
-    readonly ICompiledSegment[] _segments;
-    readonly Dictionary<Value, byte[]> _hostValues = [];
+    private readonly ICompiledSegment[] _segments;
+    private readonly Dictionary<Value, byte[]> _hostValues = [];
 
     public ComputeGraph Graph { get; }
     public PlacementPlan Plan { get; }
     public CompileOptions Options { get; }
     public IReadOnlyList<ICompiledSegment> Segments => _segments;
 
-    CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments)
+    private CompiledModel(ComputeGraph graph, PlacementPlan plan, CompileOptions options, ICompiledSegment[] segments)
     {
         Graph = graph;
         Plan = plan;
@@ -33,11 +32,17 @@ public sealed class CompiledModel : IDisposable
         try
         {
             foreach (var seg in plan.Segments)
+            {
                 compiled.Add(plan.Slots[seg.DeviceSlot].Device.Compile(seg, placement.Compile));
+            }
         }
         catch
         {
-            foreach (var c in compiled) c.Dispose();
+            foreach (var c in compiled)
+            {
+                c.Dispose();
+            }
+
             throw;
         }
         return new CompiledModel(graph, plan, placement.Compile, [.. compiled]);
@@ -51,8 +56,12 @@ public sealed class CompiledModel : IDisposable
     public void SetInput(Value input, ReadOnlySpan<byte> data)
     {
         foreach (var s in _segments)
+        {
             if (s.Segment.Inputs.Contains(input))
+            {
                 s.SetInput(input, data);
+            }
+        }
     }
 
     public void SetInput<T>(Value input, ReadOnlySpan<T> data) where T : unmanaged
@@ -65,21 +74,34 @@ public sealed class CompiledModel : IDisposable
             var seg = _segments[i];
             // Forward activations produced by earlier segments.
             foreach (var v in seg.Segment.Inputs)
+            {
                 if (v.Kind == ValueKind.Intermediate && _hostValues.TryGetValue(v, out var bytes))
+                {
                     seg.SetInput(v, bytes.AsSpan(0, (int)ByteCount(v, parameters)));
+                }
+            }
 
             seg.Execute(parameters);
 
             // Pull values needed by later segments.
             if (i < _segments.Length - 1)
+            {
                 foreach (var o in seg.Segment.Outputs)
                 {
-                    if (!_segments.Skip(i + 1).Any(s => s.Segment.Inputs.Contains(o))) continue;
+                    if (!_segments.Skip(i + 1).Any(s => s.Segment.Inputs.Contains(o)))
+                    {
+                        continue;
+                    }
+
                     var n = ByteCount(o, parameters);
                     if (!_hostValues.TryGetValue(o, out var buf) || buf.Length < n)
+                    {
                         _hostValues[o] = buf = new byte[n];
+                    }
+
                     seg.GetOutput(o, buf.AsSpan(0, (int)n));
                 }
+            }
         }
     }
 
@@ -96,33 +118,46 @@ public sealed class CompiledModel : IDisposable
 
     public void ResetState()
     {
-        foreach (var s in _segments) s.ResetState();
+        foreach (var s in _segments)
+        {
+            s.ResetState();
+        }
     }
 
     public static long ByteCount(Value v, RunParameters p) => v.Type.ByteSize(v.Shape.Elements(p.Symbols));
 
     public void Dispose()
     {
-        foreach (var s in _segments) s.Dispose();
+        foreach (var s in _segments)
+        {
+            s.Dispose();
+        }
     }
 }
 
 /// <summary>Registry of available execution providers (Vulkan, CUDA, CPU, ...).</summary>
 public static class ProviderRegistry
 {
-    static readonly List<Func<IExecutionProvider>> s_factories = [];
-    static readonly Lock s_lock = new();
+    private static readonly List<Func<IExecutionProvider>> s_factories = [];
+    private static readonly Lock s_lock = new();
 
     public static void Register(Func<IExecutionProvider> factory)
     {
-        lock (s_lock) s_factories.Add(factory);
+        lock (s_lock)
+        {
+            s_factories.Add(factory);
+        }
     }
 
     /// <summary>Instantiates all registered providers and reports their availability.</summary>
     public static IReadOnlyList<(IExecutionProvider Provider, ProviderAvailability Availability)> Discover()
     {
         List<Func<IExecutionProvider>> f;
-        lock (s_lock) f = [.. s_factories];
+        lock (s_lock)
+        {
+            f = [.. s_factories];
+        }
+
         var result = new List<(IExecutionProvider, ProviderAvailability)>();
         foreach (var factory in f)
         {
@@ -137,7 +172,7 @@ public static class ProviderRegistry
         return result;
     }
 
-    sealed class UnavailableProvider(string name, string reason) : IExecutionProvider
+    private sealed class UnavailableProvider(string name, string reason) : IExecutionProvider
     {
         public string Name => name;
         public ProviderAvailability CheckAvailability() => ProviderAvailability.Unavailable(reason);

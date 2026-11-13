@@ -50,8 +50,16 @@ public static partial class StandardOps
     public static readonly OpSchema Slice = new("Slice", OpCategory.View, 1, 1, (i, a) =>
     {
         int axis = a.Get<int>("axis");
-        if (axis < 0) axis += i[0].Rank;
-        if (axis == 0 && i[0].Shape[0].IsSymbolic) throw new NotSupportedException("Slicing the symbolic axis is not supported.");
+        if (axis < 0)
+        {
+            axis += i[0].Rank;
+        }
+
+        if (axis == 0 && i[0].Shape[0].IsSymbolic)
+        {
+            throw new NotSupportedException("Slicing the symbolic axis is not supported.");
+        }
+
         long len = a.Get<long>("length");
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, len))];
     });
@@ -70,7 +78,11 @@ public static partial class StandardOps
     public static readonly OpSchema Concat = new("Concat", OpCategory.Data, 2, 64, (i, a) =>
     {
         int axis = a.Get<int>("axis");
-        if (axis < 0) axis += i[0].Rank;
+        if (axis < 0)
+        {
+            axis += i[0].Rank;
+        }
+
         long sum = i.Sum(v => v.Shape[axis].Fixed);
         return [new TensorType(i[0].Type, i[0].Shape.WithDim(axis, sum))];
     });
@@ -80,7 +92,10 @@ public static partial class StandardOps
     {
         var t = i[0].Shape;
         var dims = new List<Dim> { i[1].Shape[0] };
-        for (int d = 1; d < t.Rank; d++) dims.Add(t[d]);
+        for (int d = 1; d < t.Rank; d++)
+        {
+            dims.Add(t[d]);
+        }
         // Rows are decoded into the activation type (f32 unless "out_type" says otherwise), whatever the table format.
         return [new TensorType(a.Get("out_type", DataType.F32), new Shape(dims))];
     });
@@ -93,8 +108,16 @@ public static partial class StandardOps
     public static readonly OpSchema MatMul = new("MatMul", OpCategory.MatMul, 2, 2, (i, a) =>
     {
         var x = i[0].Shape; var w = i[1].Shape;
-        if (w.Rank != 2) throw new ArgumentException("MatMul weight must be rank 2 [N, K].");
-        if (x[-1] != w[1]) throw new ArgumentException($"MatMul K mismatch: x{x} w{w}.");
+        if (w.Rank != 2)
+        {
+            throw new ArgumentException("MatMul weight must be rank 2 [N, K].");
+        }
+
+        if (x[-1] != w[1])
+        {
+            throw new ArgumentException($"MatMul K mismatch: x{x} w{w}.");
+        }
+
         return [new TensorType(DataType.F32, x.WithLast(w[0]))];
     });
 
@@ -195,15 +218,28 @@ public static partial class StandardOps
 
     internal static void RegisterAll()
     {
-        foreach (var n in UnaryNames) OpRegistry.Register(new OpSchema(n, OpCategory.Elementwise, 1, 1, SameF32));
-        foreach (var n in BinaryNames) OpRegistry.Register(new OpSchema(n, OpCategory.Elementwise, 2, 2, Broadcast));
+        foreach (var n in UnaryNames)
+        {
+            OpRegistry.Register(new OpSchema(n, OpCategory.Elementwise, 1, 1, SameF32));
+        }
+
+        foreach (var n in BinaryNames)
+        {
+            OpRegistry.Register(new OpSchema(n, OpCategory.Elementwise, 2, 2, Broadcast));
+        }
+
         foreach (var f in typeof(StandardOps).GetFields())
-            if (f.GetValue(null) is OpSchema s) OpRegistry.Register(s);
+        {
+            if (f.GetValue(null) is OpSchema s)
+            {
+                OpRegistry.Register(s);
+            }
+        }
     }
 
     // ---- inference helpers ----------------------------------------------------------------
-    static IReadOnlyList<TensorType> Same(IReadOnlyList<Value> i, Attributes a) => [new(i[0].Type, i[0].Shape)];
-    static IReadOnlyList<TensorType> SameF32(IReadOnlyList<Value> i, Attributes a) => [new(DataType.F32, i[0].Shape)];
+    private static IReadOnlyList<TensorType> Same(IReadOnlyList<Value> i, Attributes a) => [new(i[0].Type, i[0].Shape)];
+    private static IReadOnlyList<TensorType> SameF32(IReadOnlyList<Value> i, Attributes a) => [new(DataType.F32, i[0].Shape)];
 
     public static Shape BroadcastShapes(Shape a, Shape b)
     {
@@ -214,27 +250,47 @@ public static partial class StandardOps
             int ia = a.Rank - rank + k, ib = b.Rank - rank + k;
             Dim da = ia >= 0 ? a.Dims[ia] : 1;
             Dim db = ib >= 0 ? b.Dims[ib] : 1;
-            if (da == db) dims[k] = da;
-            else if (!da.IsSymbolic && da.Fixed == 1) dims[k] = db;
-            else if (!db.IsSymbolic && db.Fixed == 1) dims[k] = da;
-            else throw new ArgumentException($"Shapes {a} and {b} are not broadcast-compatible.");
+            if (da == db)
+            {
+                dims[k] = da;
+            }
+            else if (!da.IsSymbolic && da.Fixed == 1)
+            {
+                dims[k] = db;
+            }
+            else if (!db.IsSymbolic && db.Fixed == 1)
+            {
+                dims[k] = da;
+            }
+            else
+            {
+                throw new ArgumentException($"Shapes {a} and {b} are not broadcast-compatible.");
+            }
         }
         return new Shape(dims);
     }
 
-    static IReadOnlyList<TensorType> Broadcast(IReadOnlyList<Value> i, Attributes a) =>
+    private static IReadOnlyList<TensorType> Broadcast(IReadOnlyList<Value> i, Attributes a) =>
         [new(DataType.F32, BroadcastShapes(i[0].Shape, i[1].Shape))];
 
-    static IReadOnlyList<TensorType> InferReshape(IReadOnlyList<Value> i, Attributes a)
+    private static IReadOnlyList<TensorType> InferReshape(IReadOnlyList<Value> i, Attributes a)
     {
         var src = i[0].Shape;
         var req = a.Get<long[]>("shape");
         var dims = new Dim[req.Length];
         if (a.Get("outer_symbol", "") is { Length: > 0 } outer)
         {
-            if (!src[0].IsSymbolic || req.Length < 1 || req[0] != 0) throw new ArgumentException("Reshape outer_symbol needs a symbolic outer dimension and shape[0] = 0.");
+            if (!src[0].IsSymbolic || req.Length < 1 || req[0] != 0)
+            {
+                throw new ArgumentException("Reshape outer_symbol needs a symbolic outer dimension and shape[0] = 0.");
+            }
+
             dims[0] = Dim.Sym(outer);
-            for (int k = 1; k < req.Length; k++) dims[k] = req[k];
+            for (int k = 1; k < req.Length; k++)
+            {
+                dims[k] = req[k];
+            }
+
             return [new(i[0].Type, new Shape(dims))];
         }
         long known = 1; int infer = -1;
@@ -242,15 +298,25 @@ public static partial class StandardOps
         for (int k = 0; k < req.Length; k++)
         {
             if (req[k] == 0 && k == 0 && srcSym) { dims[k] = src[0]; continue; }
-            if (req[k] == -1) { if (infer >= 0) throw new ArgumentException("Only one -1 allowed in reshape."); infer = k; continue; }
+            if (req[k] == -1) { if (infer >= 0) { throw new ArgumentException("Only one -1 allowed in reshape."); } infer = k; continue; }
             dims[k] = req[k];
             known *= req[k];
         }
         long total = srcSym ? src.InnerElements : src.Elements();
         if (srcSym && !(req.Length > 0 && req[0] == 0))
+        {
             throw new ArgumentException("Reshape of a tensor with a symbolic outer dim must keep it (use 0 as first dim).");
-        if (infer >= 0) dims[infer] = total / known;
-        else if (known != total) throw new ArgumentException($"Reshape {src} → [{string.Join(",", req)}] changes element count.");
+        }
+
+        if (infer >= 0)
+        {
+            dims[infer] = total / known;
+        }
+        else if (known != total)
+        {
+            throw new ArgumentException($"Reshape {src} → [{string.Join(",", req)}] changes element count.");
+        }
+
         return [new(i[0].Type, new Shape(dims))];
     }
 }

@@ -13,31 +13,31 @@ namespace Sharplight.Gguf;
 public interface IGgufArchitectureMapping
 {
     /// <summary>GGUF <c>general.architecture</c> values handled (e.g. "qwen35").</summary>
-    IReadOnlyList<string> GgufArchitectures { get; }
+    public IReadOnlyList<string> GgufArchitectures { get; }
 
     /// <summary>Canonical architecture id (e.g. "qwen3_5").</summary>
-    string Architecture { get; }
+    public string Architecture { get; }
 
     /// <summary>Canonical <c>{arch}.*</c> hyper-parameters (full keys) from the GGUF metadata.</summary>
-    IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView gguf);
+    public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView gguf);
 
     /// <summary>Canonical name of a GGUF tensor, or null when it has none (the import then fails).</summary>
-    string? MapWeightName(string ggufName, GgufMetadataView gguf);
+    public string? MapWeightName(string ggufName, GgufMetadataView gguf);
 
     /// <summary>
     /// Optional value/layout transform of a tensor that already carries its canonical name (e.g. a lazily derived row
     /// permutation), so canonical weights are format independent. Default: unchanged (zero-copy).
     /// </summary>
-    WeightInfo MapWeight(WeightInfo weight, GgufMetadataView gguf) => weight;
+    public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView gguf) => weight;
 
     /// <summary>Canonical weights that GGUF does not store but the metadata determines (e.g. computed rope frequency factors).</summary>
-    IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights) => [];
+    public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights) => [];
 
     /// <summary>
     /// The canonical architecture id for this particular file. Mappings whose GGUF architecture covers several
     /// layouts (e.g. <c>clip</c> projector types) override it; default: <see cref="Architecture"/>.
     /// </summary>
-    string ResolveArchitecture(GgufMetadataView gguf) => Architecture;
+    public string ResolveArchitecture(GgufMetadataView gguf) => Architecture;
 }
 
 /// <summary>
@@ -46,14 +46,14 @@ public interface IGgufArchitectureMapping
 /// </summary>
 public interface IGgufWeightTransformer
 {
-    void Transform(Dictionary<string, Models.WeightInfo> weights, GgufMetadataView gguf);
+    public void Transform(Dictionary<string, Models.WeightInfo> weights, GgufMetadataView gguf);
 }
 
 /// <summary>Optional capability of a mapping: one GGUF tensor that becomes several canonical weights (fused projections).</summary>
 public interface IGgufSplitMapping
 {
     /// <summary>The canonical weights a GGUF tensor splits into, or null when the tensor maps one-to-one.</summary>
-    IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf);
+    public IReadOnlyList<WeightInfo>? Split(string ggufName, WeightInfo tensor, GgufMetadataView gguf);
 }
 
 /// <summary>Read access to GGUF metadata of one architecture (<c>{gguf_arch}.key</c>).</summary>
@@ -71,7 +71,7 @@ public sealed class GgufMetadataView(IReadOnlyDictionary<string, object> metadat
 /// <summary>Registry of <see cref="IGgufArchitectureMapping"/>s keyed by GGUF architecture id.</summary>
 public static class GgufArchitectureMappings
 {
-    static readonly ConcurrentDictionary<string, IGgufArchitectureMapping> s_byArch = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IGgufArchitectureMapping> s_byArch = new(StringComparer.OrdinalIgnoreCase);
 
     static GgufArchitectureMappings()
     {
@@ -84,7 +84,10 @@ public static class GgufArchitectureMappings
 
     public static void Register(IGgufArchitectureMapping mapping)
     {
-        foreach (var a in mapping.GgufArchitectures) s_byArch[a] = mapping;
+        foreach (var a in mapping.GgufArchitectures)
+        {
+            s_byArch[a] = mapping;
+        }
     }
 
     public static IEnumerable<IGgufArchitectureMapping> All => s_byArch.Values.Distinct();
@@ -122,12 +125,24 @@ public sealed partial class Qwen35GgufMapping : IGgufArchitectureMapping
             [a + "linear_attention.value_head_dim"] = g.Int("ssm.inner_size") / valueHeads,
             [a + "mtp.layer_count"] = nextn,
         };
-        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
-        if (g.Has("rope.freq_base")) md[a + "rope.base"] = g.Float("rope.freq_base");
+        if (g.Has("context_length"))
+        {
+            md[a + "context_length"] = g.Int("context_length");
+        }
+
+        if (g.Has("rope.freq_base"))
+        {
+            md[a + "rope.base"] = g.Float("rope.freq_base");
+        }
+
         if (g.Raw("rope.dimension_sections") is Array sec)
         {
             var s = new int[4];
-            for (int i = 0; i < Math.Min(4, sec.Length); i++) s[i] = Convert.ToInt32(sec.GetValue(i));
+            for (int i = 0; i < Math.Min(4, sec.Length); i++)
+            {
+                s[i] = Convert.ToInt32(sec.GetValue(i));
+            }
+
             md[a + "rope.sections"] = s;
         }
         return md;
@@ -136,7 +151,7 @@ public sealed partial class Qwen35GgufMapping : IGgufArchitectureMapping
     [GeneratedRegex(@"^blk\.(\d+)\.(.+)$")]
     private static partial Regex BlockName();
 
-    static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["attn_norm.weight"] = "input_norm.weight",
         ["post_attention_norm.weight"] = "post_attention_norm.weight",
@@ -160,7 +175,7 @@ public sealed partial class Qwen35GgufMapping : IGgufArchitectureMapping
         ["ffn_down.weight"] = "mlp.down.weight",
     };
 
-    static readonly Dictionary<string, string> s_nextn = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_nextn = new(StringComparer.Ordinal)
     {
         ["nextn.eh_proj.weight"] = "fc.weight",
         ["nextn.enorm.weight"] = "embedding_norm.weight",
@@ -179,13 +194,24 @@ public sealed partial class Qwen35GgufMapping : IGgufArchitectureMapping
             case "output.weight": return "lm_head.weight";
         }
         var m = BlockName().Match(name);
-        if (!m.Success) return null;
+        if (!m.Success)
+        {
+            return null;
+        }
+
         int il = int.Parse(m.Groups[1].Value);
         string suffix = m.Groups[2].Value;
         int nLayer = g.Int("block_count") - g.Int("nextn_predict_layers", 0);
-        if (il < nLayer) return s_layer.TryGetValue(suffix, out var c) ? $"layers.{il}.{c}" : null;
+        if (il < nLayer)
+        {
+            return s_layer.TryGetValue(suffix, out var c) ? $"layers.{il}.{c}" : null;
+        }
         // MTP (NextN) layers: per-layer tensors under mtp.layers.{j}, the shared ones under mtp.*.
-        if (s_nextn.TryGetValue(suffix, out var n)) return $"mtp.{n}";
+        if (s_nextn.TryGetValue(suffix, out var n))
+        {
+            return $"mtp.{n}";
+        }
+
         return s_layer.TryGetValue(suffix, out var l) ? $"mtp.layers.{il - nLayer}.{l}" : null;
     }
 }

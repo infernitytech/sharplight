@@ -49,7 +49,10 @@ public static class VisionTowerGraph
         }
 
         Value? cos = null, sinSigned = null;
-        if (p.RopeBase > 0) (cos, sinSigned) = RotaryTables(b, p, positions);
+        if (p.RopeBase > 0)
+        {
+            (cos, sinSigned) = RotaryTables(b, p, positions);
+        }
 
         for (int il = 0; il < p.LayerCount; il++)
         {
@@ -58,7 +61,11 @@ public static class VisionTowerGraph
             var h = LayerNorm(b, x, w + "input_norm", eps);
             var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
             var qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), 0, 2 * heads, D);                       // [N, 2·heads, D]
-            if (cos is not null) qk = Rotate(b, qk, cos, sinSigned!, D);
+            if (cos is not null)
+            {
+                qk = Rotate(b, qk, cos, sinSigned!, D);
+            }
+
             var q = b.Slice(qk, 1, 0, heads);
             var k = b.Slice(qk, 1, heads, heads);
             var v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), 0, heads, D);
@@ -76,7 +83,10 @@ public static class VisionTowerGraph
         {
             var h = LayerNorm(b, x, "vision.merger.norm", eps);
             if (p.MergeUnit > 1)
+            {
                 h = b.Emit1("Reshape", [h], Attributes.From(("shape", new long[] { 0, (long)p.MergeUnit * H }), ("outer_symbol", VisionParameters.MergedSymbol)));
+            }
+
             var up = b.Linear(h, "vision.merger.up.weight", "vision.merger.up.bias");
             var down = b.Linear(Activation(b, up, p.MergerActivation), "vision.merger.down.weight", "vision.merger.down.bias", VisionParameters.EmbeddingsOutput);
             b.Output(VisionParameters.EmbeddingsOutput, down);
@@ -84,10 +94,10 @@ public static class VisionTowerGraph
         return b.Build();
     }
 
-    static Value LayerNorm(GraphBuilder b, Value x, string name, float eps)
+    private static Value LayerNorm(GraphBuilder b, Value x, string name, float eps)
         => b.Emit1("LayerNorm", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps)));
 
-    static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
+    private static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
     {
         "gelu_tanh" => b.Unary("GeluTanh", x),
         "gelu" => b.Unary("Gelu", x),
@@ -100,13 +110,21 @@ public static class VisionTowerGraph
     /// [row·f | col·f] are repeated to span the head (rotation pairs (i, i + head_dim/2)). Returns cos and the sign-folded
     /// sin (negated on the first half) as [N, 1, D], so that rotate(x) = x·cos + swap_halves(x)·sinSigned.
     /// </summary>
-    static (Value Cos, Value SinSigned) RotaryTables(GraphBuilder b, VisionParameters p, Value positions)
+    private static (Value Cos, Value SinSigned) RotaryTables(GraphBuilder b, VisionParameters p, Value positions)
     {
         int D = p.HeadDim, F = D / 4;
         var freqs = new float[F];
-        for (int j = 0; j < F; j++) freqs[j] = (float)Math.Pow(p.RopeBase, -2.0 * j / (D / 2));
+        for (int j = 0; j < F; j++)
+        {
+            freqs[j] = (float)Math.Pow(p.RopeBase, -2.0 * j / (D / 2));
+        }
+
         var signs = new float[D];
-        for (int i = 0; i < D; i++) signs[i] = i < D / 2 ? -1f : 1f;
+        for (int i = 0; i < D; i++)
+        {
+            signs[i] = i < D / 2 ? -1f : 1f;
+        }
+
         var cf = b.Constant("rope_freqs", DataType.F32, new Shape(1, F), Bytes(freqs));
         var cs = b.Constant("rope_signs", DataType.F32, new Shape(1, 1, D), Bytes(signs));
 
@@ -120,13 +138,13 @@ public static class VisionTowerGraph
         return (cos, sin);
     }
 
-    static Value Rotate(GraphBuilder b, Value x, Value cos, Value sinSigned, int D)
+    private static Value Rotate(GraphBuilder b, Value x, Value cos, Value sinSigned, int D)
     {
         var swapped = b.Concat(2, b.Slice(x, 2, D / 2, D / 2), b.Slice(x, 2, 0, D / 2));
         return b.Add(b.Mul(x, cos), b.Mul(swapped, sinSigned));
     }
 
-    static byte[] Bytes(float[] v)
+    private static byte[] Bytes(float[] v)
     {
         var r = new byte[v.Length * 4];
         Buffer.BlockCopy(v, 0, r, 0, r.Length);

@@ -24,17 +24,20 @@ public static class MultiSequence
     /// <summary>The rewritten graph and, per original state, its multi-sequence definition.</summary>
     public sealed record Result(ComputeGraph Graph, IReadOnlyDictionary<StateDefinition, StateDefinition> States, int Slots);
 
-    static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule"];
+    private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule"];
 
     /// <summary>True when every stateful op of the graph has a multi-sequence form.</summary>
     public static bool IsSupported(ComputeGraph g, out string? reason)
     {
         foreach (var n in g.Nodes)
+        {
             if ((n.Inputs.Any(v => v.Kind == ValueKind.State) || n.Writes.Length > 0) && !s_supported.Contains(n.Op.Name))
             {
                 reason = $"op {n.Op.Name} uses state but has no multi-sequence form";
                 return false;
             }
+        }
+
         reason = null;
         return true;
     }
@@ -43,22 +46,44 @@ public static class MultiSequence
 
     public static Result Transform(ComputeGraph g, int slots)
     {
-        if (slots < 1) throw new ArgumentOutOfRangeException(nameof(slots));
-        if (!IsSupported(g, out var why)) throw new NotSupportedException($"Graph '{g.Name}': {why}.");
+        if (slots < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slots));
+        }
+
+        if (!IsSupported(g, out var why))
+        {
+            throw new NotSupportedException($"Graph '{g.Name}': {why}.");
+        }
+
         var weights = g.Weights.Where(w => w.Weight is not null).ToDictionary(w => w.Name, w => w.Weight!);
         var b = new GraphBuilder(g.Name, n => weights.GetValueOrDefault(n));
         var map = new Dictionary<Value, Value>();
         var states = new Dictionary<StateDefinition, StateDefinition>();
 
-        foreach (var i in g.Inputs) map[i] = b.Input(i.Name, i.Input!.Role, i.Type, i.Shape);
+        foreach (var i in g.Inputs)
+        {
+            map[i] = b.Input(i.Name, i.Input!.Role, i.Type, i.Shape);
+        }
+
         var T = Dim.Sym(WellKnown.TokenSymbol);
         var rows = b.Input(RowsInput, InputRole.SequenceRows, DataType.I32, new Shape(T, Dim.Of(4)));
         var runs = b.Input(RunsInput, InputRole.SequenceRuns, DataType.I32, new Shape(Dim.Sym(WellKnown.RunSymbol), Dim.Of(4)));
-        foreach (var s in g.RuntimeScalars) if (s != WellKnown.PastScalar) b.RuntimeScalar(s);
+        foreach (var s in g.RuntimeScalars)
+        {
+            if (s != WellKnown.PastScalar)
+            {
+                b.RuntimeScalar(s);
+            }
+        }
 
         Value Map(Value v)
         {
-            if (map.TryGetValue(v, out var m)) return m;
+            if (map.TryGetValue(v, out var m))
+            {
+                return m;
+            }
+
             m = v.Kind switch
             {
                 ValueKind.Weight => b.Weight(v.Name),
@@ -71,7 +96,11 @@ public static class MultiSequence
 
         StateDefinition StateFor(StateDefinition s)
         {
-            if (states.TryGetValue(s, out var d)) return d;
+            if (states.TryGetValue(s, out var d))
+            {
+                return d;
+            }
+
             d = IsKvState(s) ? s : new StateDefinition
             {
                 Name = s.Name, Type = s.Type, Kind = s.Kind, Group = s.Group,
@@ -100,10 +129,20 @@ public static class MultiSequence
             }
             IReadOnlyList<Value> outs;
             using (b.Group(n.Group))
+            {
                 outs = b.Emit(n.Op, ins, attrs, n.Outputs.Length == 1 ? n.Outputs[0].Name : null, n.Writes.Select(Map).ToList());
-            for (int k = 0; k < outs.Count; k++) map[n.Outputs[k]] = outs[k];
+            }
+
+            for (int k = 0; k < outs.Count; k++)
+            {
+                map[n.Outputs[k]] = outs[k];
+            }
         }
-        foreach (var (name, v) in g.Outputs) b.Output(name, Map(v));
+        foreach (var (name, v) in g.Outputs)
+        {
+            b.Output(name, Map(v));
+        }
+
         return new Result(b.Build(), states, slots);
     }
 }

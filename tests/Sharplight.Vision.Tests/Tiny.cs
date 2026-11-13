@@ -1,14 +1,13 @@
 using System.Runtime.InteropServices;
 using Sharplight.Models;
 using Sharplight.Tensors;
-using Sharplight.Vision;
 
 namespace Sharplight.Vision.Tests;
 
 /// <summary>Weight bytes in managed memory.</summary>
-sealed class MemSource : IWeightSource
+internal sealed class MemSource : IWeightSource
 {
-    readonly byte[] _data; readonly GCHandle _h;
+    private readonly byte[] _data; private readonly GCHandle _h;
     public MemSource(byte[] data) { _data = data; _h = GCHandle.Alloc(data, GCHandleType.Pinned); }
     public long ByteLength => _data.Length;
     public void Read(long offset, Span<byte> destination) => _data.AsSpan((int)offset, destination.Length).CopyTo(destination);
@@ -16,7 +15,7 @@ sealed class MemSource : IWeightSource
 }
 
 /// <summary>A tiny, randomly initialised Qwen3.5 text model (canonical vocabulary) plus a tiny vision tower.</summary>
-static class Tiny
+internal static class Tiny
 {
     public const string Arch = "qwen3_5";
     public const int Vocab = 40, Hidden = 32;
@@ -32,7 +31,11 @@ static class Tiny
     {
         long n = dims.Aggregate(1L, (a, b) => a * b);
         var f = new float[n];
-        for (int i = 0; i < n; i++) f[i] = (float)((rng.NextDouble() * 2 - 1) * scale);
+        for (int i = 0; i < n; i++)
+        {
+            f[i] = (float)((rng.NextDouble() * 2 - 1) * scale);
+        }
+
         return new WeightInfo { Name = name, Type = DataType.F32, Shape = new Shape(dims.Select(d => (Dim)d)), Source = new MemSource(MemoryMarshal.AsBytes(f.AsSpan()).ToArray()) };
     }
 
@@ -120,8 +123,15 @@ static class Tiny
         };
         if (withVision)
         {
-            foreach (var (k, v) in VisionMetadata()) md[k] = v;
-            foreach (var (k, v) in VisionWeights()) w[k] = v;
+            foreach (var (k, v) in VisionMetadata())
+            {
+                md[k] = v;
+            }
+
+            foreach (var (k, v) in VisionWeights())
+            {
+                w[k] = v;
+            }
         }
         return new ModelSource { Format = "test", Architecture = Arch, Metadata = md, Weights = w };
     }

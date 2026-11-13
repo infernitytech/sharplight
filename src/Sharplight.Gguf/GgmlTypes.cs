@@ -23,10 +23,10 @@ public static class GgmlTypes
     public static readonly DataType NVFP4 = DataType.Register("nvfp4", DataTypeKind.Quantized, 64, 36);
     public static readonly DataType F8_E4M3 = DataType.Register("f8_e4m3", DataTypeKind.Float, 1, 1);
 
-    static readonly DataType?[] s_byId = Build();
-    static readonly Dictionary<DataType, int> s_toId = BuildReverse();
+    private static readonly DataType?[] s_byId = Build();
+    private static readonly Dictionary<DataType, int> s_toId = BuildReverse();
 
-    static DataType?[] Build()
+    private static DataType?[] Build()
     {
         var t = new DataType?[44];
         t[0] = DataType.F32; t[1] = DataType.F16; t[2] = DataType.Q4_0; t[3] = DataType.Q4_1;
@@ -42,10 +42,17 @@ public static class GgmlTypes
         return t;
     }
 
-    static Dictionary<DataType, int> BuildReverse()
+    private static Dictionary<DataType, int> BuildReverse()
     {
         var d = new Dictionary<DataType, int>();
-        for (int i = 0; i < s_byId.Length; i++) if (s_byId[i] is { } dt) d[dt] = i;
+        for (int i = 0; i < s_byId.Length; i++)
+        {
+            if (s_byId[i] is { } dt)
+            {
+                d[dt] = i;
+            }
+        }
+
         return d;
     }
 

@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -14,16 +13,16 @@ namespace Sharplight.Llm.Serving;
 /// </summary>
 public sealed class MultiSequenceDecoder : IBatchDecoder
 {
-    readonly CompiledModel _compiled;
-    readonly Value _tokens, _rows, _runs;
-    readonly Value? _positions, _outputRows;
-    readonly int _posAxes;
-    readonly int[] _length;
-    readonly RunParameters _run = new();
-    readonly int[] _tokBuf, _posBuf, _rowBuf, _outBuf;
-    readonly int[] _runBuf;
-    readonly float[] _logits;
-    readonly List<float[]> _results = [];
+    private readonly CompiledModel _compiled;
+    private readonly Value _tokens, _rows, _runs;
+    private readonly Value? _positions, _outputRows;
+    private readonly int _posAxes;
+    private readonly int[] _length;
+    private readonly RunParameters _run = new();
+    private readonly int[] _tokBuf, _posBuf, _rowBuf, _outBuf;
+    private readonly int[] _runBuf;
+    private readonly float[] _logits;
+    private readonly List<float[]> _results = [];
 
     public int SlotCount { get; }
     public int ContextLength { get; }
@@ -46,7 +45,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         _runs = g.Input(InputRole.SequenceRuns);
         _positions = g.TryInput(InputRole.Positions);
         _outputRows = g.TryInput(InputRole.OutputRows);
-        if (g.TryInput(InputRole.Embeddings) is not null) throw new NotSupportedException("Multimodal graphs are not supported by the multi-sequence decoder.");
+        if (g.TryInput(InputRole.Embeddings) is not null)
+        {
+            throw new NotSupportedException("Multimodal graphs are not supported by the multi-sequence decoder.");
+        }
+
         _posAxes = _positions is null ? 0 : _positions.Rank == 1 ? 1 : (int)_positions.Shape[-1].Fixed;
         SlotCount = slots;
         ContextLength = contextLength;
@@ -60,7 +63,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         _runBuf = new int[slots * 4];
         _outBuf = new int[slots];
         _logits = new float[(long)slots * VocabSize > int.MaxValue ? throw new NotSupportedException("Logits buffer too large.") : slots * VocabSize];
-        for (int i = 0; i < slots; i++) _results.Add(new float[VocabSize]);
+        for (int i = 0; i < slots; i++)
+        {
+            _results.Add(new float[VocabSize]);
+        }
     }
 
     /// <summary>Compiles <paramref name="graph"/> (single-sequence decoder) for <paramref name="slots"/> sequences.</summary>
@@ -99,60 +105,121 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
     public void Truncate(int slot, int length)
     {
         Check(slot);
-        if (length < 0 || length > _length[slot]) throw new ArgumentOutOfRangeException(nameof(length));
-        if (length != _length[slot] && length != 0 && !CanTruncate) throw new NotSupportedException("This model's recurrent state cannot be truncated.");
+        if (length < 0 || length > _length[slot])
+        {
+            throw new ArgumentOutOfRangeException(nameof(length));
+        }
+
+        if (length != _length[slot] && length != 0 && !CanTruncate)
+        {
+            throw new NotSupportedException("This model's recurrent state cannot be truncated.");
+        }
+
         _length[slot] = length;
     }
 
     public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs)
     {
         var res = new float[]?[inputs.Count];
-        if (inputs.Count == 0) return res;
-        if (inputs.Count > SlotCount) throw new ArgumentException("More inputs than slots.");
+        if (inputs.Count == 0)
+        {
+            return res;
+        }
+
+        if (inputs.Count > SlotCount)
+        {
+            throw new ArgumentException("More inputs than slots.");
+        }
+
         int T = 0, R = 0;
         Span<bool> seen = stackalloc bool[SlotCount];
         for (int u = 0; u < inputs.Count; u++)
         {
             var inp = inputs[u];
             Check(inp.Slot);
-            if (seen[inp.Slot]) throw new ArgumentException($"Slot {inp.Slot} appears twice in one step.");
+            if (seen[inp.Slot])
+            {
+                throw new ArgumentException($"Slot {inp.Slot} appears twice in one step.");
+            }
+
             seen[inp.Slot] = true;
             int n = inp.Tokens.Length;
-            if (n == 0) throw new ArgumentException($"Empty input for slot {inp.Slot}.");
-            if (T + n > MaxBatchTokens) throw new ArgumentException($"Step has more than {MaxBatchTokens} rows.");
+            if (n == 0)
+            {
+                throw new ArgumentException($"Empty input for slot {inp.Slot}.");
+            }
+
+            if (T + n > MaxBatchTokens)
+            {
+                throw new ArgumentException($"Step has more than {MaxBatchTokens} rows.");
+            }
+
             int pos0 = _length[inp.Slot];
-            if (pos0 + n > ContextLength) throw new InvalidOperationException($"Context of slot {inp.Slot} full ({pos0} + {n} > {ContextLength}).");
+            if (pos0 + n > ContextLength)
+            {
+                throw new InvalidOperationException($"Context of slot {inp.Slot} full ({pos0} + {n} > {ContextLength}).");
+            }
+
             inp.Tokens.Span.CopyTo(_tokBuf.AsSpan(T));
             for (int i = 0; i < n; i++)
             {
                 int row = T + i, pos = pos0 + i;
                 _rowBuf[row * 4] = inp.Slot; _rowBuf[row * 4 + 1] = pos; _rowBuf[row * 4 + 2] = n; _rowBuf[row * 4 + 3] = u;
                 // Text rows use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
-                for (int a = 0; a < _posAxes; a++) _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
+                for (int a = 0; a < _posAxes; a++)
+                {
+                    _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
+                }
             }
             _runBuf[u * 4] = inp.Slot; _runBuf[u * 4 + 1] = T; _runBuf[u * 4 + 2] = n; _runBuf[u * 4 + 3] = pos0;
-            if (inp.WantLogits) _outBuf[R++] = T + n - 1;
+            if (inp.WantLogits)
+            {
+                _outBuf[R++] = T + n - 1;
+            }
+
             T += n;
         }
         bool anyLogits = R > 0;
-        if (!anyLogits) _outBuf[R++] = T - 1;   // the graph needs at least one output row
+        if (!anyLogits)
+        {
+            _outBuf[R++] = T - 1;   // the graph needs at least one output row
+        }
 
         _compiled.SetInput(_tokens, _tokBuf.AsSpan(0, T));
-        if (_positions is not null) _compiled.SetInput<int>(_positions, _posBuf.AsSpan(0, T * _posAxes));
+        if (_positions is not null)
+        {
+            _compiled.SetInput<int>(_positions, _posBuf.AsSpan(0, T * _posAxes));
+        }
+
         _compiled.SetInput<int>(_rows, _rowBuf.AsSpan(0, T * 4));
         _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, inputs.Count * 4));
-        if (_outputRows is not null) _compiled.SetInput<int>(_outputRows, _outBuf.AsSpan(0, R));
+        if (_outputRows is not null)
+        {
+            _compiled.SetInput<int>(_outputRows, _outBuf.AsSpan(0, R));
+        }
+
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = R;
         _run.Symbols[WellKnown.RunSymbol] = inputs.Count;
         _compiled.Run(_run);
-        foreach (var inp in inputs) _length[inp.Slot] += inp.Tokens.Length;
-        if (!anyLogits) return res;
+        foreach (var inp in inputs)
+        {
+            _length[inp.Slot] += inp.Tokens.Length;
+        }
+
+        if (!anyLogits)
+        {
+            return res;
+        }
 
         _compiled.GetOutput<float>("logits", _logits.AsSpan(0, R * VocabSize));
         for (int u = 0, r = 0; u < inputs.Count; u++)
         {
-            if (!inputs[u].WantLogits) continue;
+            if (!inputs[u].WantLogits)
+            {
+                continue;
+            }
+
             var dst = _results[u];
             _logits.AsSpan(r++ * VocabSize, VocabSize).CopyTo(dst);
             res[u] = dst;
@@ -160,7 +227,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder
         return res;
     }
 
-    void Check(int slot) { if ((uint)slot >= (uint)SlotCount) throw new ArgumentOutOfRangeException(nameof(slot)); }
+    private void Check(int slot) { if ((uint)slot >= (uint)SlotCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(slot));
+        }
+    }
 
     public void Dispose() => _compiled.Dispose();
 }

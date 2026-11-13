@@ -11,7 +11,7 @@ namespace Sharplight.Serving.Tests;
 /// <summary>End-to-end on a real small model (skipped when the file is absent): engine + chat layer on SessionBatchDecoder.</summary>
 public class RealModelSmokeTests
 {
-    static readonly string ModelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf");
+    private static readonly string ModelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/gguf/Qwen3-0.6B/Qwen3-0.6B-Q8_0.gguf");
 
     [Fact]
     public async Task Qwen3_Chat_Streams_Stops_And_ParsesToolCall()
@@ -41,7 +41,14 @@ public class RealModelSmokeTests
         // Streaming deltas concatenate to the non-streaming text, and a stop string cuts the output.
         var run = svc.StartChat(Ask("Count from 1 to 10, separated by commas.", ["5"]));
         var text = new System.Text.StringBuilder();
-        await foreach (var e in run.ReadAllAsync()) if (e.Content is not null) text.Append(e.Content);
+        await foreach (var e in run.ReadAllAsync())
+        {
+            if (e.Content is not null)
+            {
+                text.Append(e.Content);
+            }
+        }
+
         Assert.Contains("1, 2, 3, 4", text.ToString());
         Assert.DoesNotContain("5", text.ToString());
 

@@ -14,11 +14,11 @@ namespace Sharplight.Extensions.AI;
 /// </summary>
 public sealed class SharplightChatClient : IChatClient
 {
-    readonly ITextGenerationBackend _backend;
-    readonly SharplightChatClientOptions _options;
-    readonly bool _ownsBackend;
-    readonly ChatClientMetadata _metadata;
-    ChatTemplate? _template;
+    private readonly ITextGenerationBackend _backend;
+    private readonly SharplightChatClientOptions _options;
+    private readonly bool _ownsBackend;
+    private readonly ChatClientMetadata _metadata;
+    private ChatTemplate? _template;
 
     public SharplightChatClient(ITextGenerationBackend backend, SharplightChatClientOptions? options = null, bool ownsBackend = false)
     {
@@ -41,7 +41,11 @@ public sealed class SharplightChatClient : IChatClient
     public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var u in GetStreamingResponseAsync(messages, options, cancellationToken).ConfigureAwait(false)) updates.Add(u);
+        await foreach (var u in GetStreamingResponseAsync(messages, options, cancellationToken).ConfigureAwait(false))
+        {
+            updates.Add(u);
+        }
+
         return updates.ToChatResponse();
     }
 
@@ -68,11 +72,18 @@ public sealed class SharplightChatClient : IChatClient
         await foreach (var piece in _backend.GenerateAsync(genRequest, result, cts.Token).ConfigureAwait(false))
         {
             var contents = parser.Push(piece);
-            if (contents.Count > 0) yield return Update([.. contents]);
+            if (contents.Count > 0)
+            {
+                yield return Update([.. contents]);
+            }
+
             if (parser.Stopped) { cts.Cancel(); break; }
         }
         var tail = parser.Complete();
-        if (tail.Count > 0) yield return Update([.. tail]);
+        if (tail.Count > 0)
+        {
+            yield return Update([.. tail]);
+        }
 
         var final = Update([new UsageContent(new UsageDetails
         {
@@ -85,7 +96,7 @@ public sealed class SharplightChatClient : IChatClient
         yield return final;
     }
 
-    ChatTemplate CreateTemplate()
+    private ChatTemplate CreateTemplate()
     {
         var src = _backend.ChatTemplate ?? throw new InvalidOperationException("The model has no chat template; SharplightChatClient needs one to format messages.");
         return new ChatTemplate(src, _backend.BosToken, _backend.EosToken);
@@ -94,15 +105,34 @@ public sealed class SharplightChatClient : IChatClient
     public object? GetService(Type serviceType, object? serviceKey = null)
     {
         ArgumentNullException.ThrowIfNull(serviceType);
-        if (serviceKey is not null) return null;
-        if (serviceType == typeof(ChatClientMetadata)) return _metadata;
-        if (serviceType.IsInstanceOfType(this)) return this;
-        if (serviceType.IsInstanceOfType(_backend)) return _backend;
+        if (serviceKey is not null)
+        {
+            return null;
+        }
+
+        if (serviceType == typeof(ChatClientMetadata))
+        {
+            return _metadata;
+        }
+
+        if (serviceType.IsInstanceOfType(this))
+        {
+            return this;
+        }
+
+        if (serviceType.IsInstanceOfType(_backend))
+        {
+            return _backend;
+        }
+
         return null;
     }
 
     public void Dispose()
     {
-        if (_ownsBackend) _backend.Dispose();
+        if (_ownsBackend)
+        {
+            _backend.Dispose();
+        }
     }
 }

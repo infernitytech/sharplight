@@ -52,13 +52,22 @@ internal sealed class Lexer
         _trimBlocks = trimBlocks;
         _lstripBlocks = lstripBlocks;
         for (int i = 0; i < _s.Length; i++)
-            if (_s[i] == '\n') _lineStarts.Add(i + 1);
+        {
+            if (_s[i] == '\n')
+            {
+                _lineStarts.Add(i + 1);
+            }
+        }
     }
 
     public static List<Token> Tokenize(string source, bool trimBlocks, bool lstripBlocks, bool keepTrailingNewline)
     {
         source = source.Replace("\r\n", "\n").Replace('\r', '\n');
-        if (!keepTrailingNewline && source.EndsWith('\n')) source = source.Substring(0, source.Length - 1);
+        if (!keepTrailingNewline && source.EndsWith('\n'))
+        {
+            source = source.Substring(0, source.Length - 1);
+        }
+
         var lx = new Lexer(source, trimBlocks, lstripBlocks);
         lx.Run();
         return lx._tokens;
@@ -70,8 +79,14 @@ internal sealed class Lexer
         while (lo < hi)
         {
             int mid = (lo + hi + 1) / 2;
-            if (_lineStarts[mid] <= index) lo = mid;
-            else hi = mid - 1;
+            if (_lineStarts[mid] <= index)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
         }
         return (lo + 1, index - _lineStarts[lo] + 1);
     }
@@ -93,19 +108,38 @@ internal sealed class Lexer
         while (true)
         {
             int i = _s.IndexOf('{', from);
-            if (i < 0 || i + 1 >= _s.Length) return -1;
+            if (i < 0 || i + 1 >= _s.Length)
+            {
+                return -1;
+            }
+
             char n = _s[i + 1];
-            if (n == '{' || n == '%' || n == '#') return i;
+            if (n == '{' || n == '%' || n == '#')
+            {
+                return i;
+            }
+
             from = i + 1;
         }
     }
 
     private void AddData(int from, int to, bool lstripStart, bool rstripEnd, bool lstripBlock)
     {
-        if (to <= from) return;
+        if (to <= from)
+        {
+            return;
+        }
+
         string text = _s.Substring(from, to - from);
-        if (lstripStart) text = text.TrimStart();
-        if (rstripEnd) text = text.TrimEnd();
+        if (lstripStart)
+        {
+            text = text.TrimStart();
+        }
+
+        if (rstripEnd)
+        {
+            text = text.TrimEnd();
+        }
         else if (lstripBlock)
         {
             int l = text.LastIndexOf('\n') + 1;
@@ -113,11 +147,20 @@ internal sealed class Lexer
             {
                 bool blank = true;
                 for (int i = l; i < text.Length; i++)
+                {
                     if (text[i] != ' ' && text[i] != '\t') { blank = false; break; }
-                if (blank) text = text.Substring(0, l);
+                }
+
+                if (blank)
+                {
+                    text = text.Substring(0, l);
+                }
             }
         }
-        if (text.Length > 0) Add(TokenKind.Data, text, from, text);
+        if (text.Length > 0)
+        {
+            Add(TokenKind.Data, text, from, text);
+        }
     }
 
     private void Run()
@@ -151,10 +194,22 @@ internal sealed class Lexer
             if (kind == '#')
             {
                 int e = _s.IndexOf("#}", p, StringComparison.Ordinal);
-                if (e < 0) throw Error("Missing end of comment tag", t);
-                if (e > p && _s[e - 1] == '-') lstripNext = true;
+                if (e < 0)
+                {
+                    throw Error("Missing end of comment tag", t);
+                }
+
+                if (e > p && _s[e - 1] == '-')
+                {
+                    lstripNext = true;
+                }
+
                 pos = e + 2;
-                if (_trimBlocks && pos < _s.Length && _s[pos] == '\n') pos++;
+                if (_trimBlocks && pos < _s.Length && _s[pos] == '\n')
+                {
+                    pos++;
+                }
+
                 continue;
             }
 
@@ -165,7 +220,10 @@ internal sealed class Lexer
             pos = p;
             lstripNext = rstripNext;
             bool isRaw = isBlock && _tokens.Count == firstInner + 2 && _tokens[firstInner].Kind == TokenKind.Name && _tokens[firstInner].Text == "raw" && _tokens[firstInner + 1].Kind == TokenKind.BlockEnd;
-            if (isBlock && !isRaw && _trimBlocks && !rstripNext && pos < _s.Length && _s[pos] == '\n') pos++;
+            if (isBlock && !isRaw && _trimBlocks && !rstripNext && pos < _s.Length && _s[pos] == '\n')
+            {
+                pos++;
+            }
 
             // raw block: [BlockBegin, Name raw, BlockEnd]; trim_blocks does not apply to the raw tag itself
             if (isRaw)
@@ -175,13 +233,21 @@ internal sealed class Lexer
                 while (true)
                 {
                     int b = _s.IndexOf("{%", search, StringComparison.Ordinal);
-                    if (b < 0) throw Error("Missing end of raw directive", t);
+                    if (b < 0)
+                    {
+                        throw Error("Missing end of raw directive", t);
+                    }
+
                     if (MatchEndRaw(b, out int endIdx, out bool stripBefore, out bool stripAfter))
                     {
                         AddData(pos, b, lstripNext, stripBefore, false);
                         pos = endIdx;
                         lstripNext = stripAfter;
-                        if (_trimBlocks && !stripAfter && pos < _s.Length && _s[pos] == '\n') pos++;
+                        if (_trimBlocks && !stripAfter && pos < _s.Length && _s[pos] == '\n')
+                        {
+                            pos++;
+                        }
+
                         break;
                     }
                     search = b + 2;
@@ -201,10 +267,22 @@ internal sealed class Lexer
             stripBefore = _s[i] == '-';
             i++;
         }
-        while (i < _s.Length && char.IsWhiteSpace(_s[i])) i++;
-        if (string.CompareOrdinal(_s, i, "endraw", 0, 6) != 0) return false;
+        while (i < _s.Length && char.IsWhiteSpace(_s[i]))
+        {
+            i++;
+        }
+
+        if (string.CompareOrdinal(_s, i, "endraw", 0, 6) != 0)
+        {
+            return false;
+        }
+
         i += 6;
-        while (i < _s.Length && char.IsWhiteSpace(_s[i])) i++;
+        while (i < _s.Length && char.IsWhiteSpace(_s[i]))
+        {
+            i++;
+        }
+
         if (i < _s.Length && (_s[i] == '-' || _s[i] == '+'))
         {
             stripAfter = _s[i] == '-';
@@ -228,8 +306,16 @@ internal sealed class Lexer
         int depth = 0;
         while (true)
         {
-            while (p < _s.Length && char.IsWhiteSpace(_s[p])) p++;
-            if (p >= _s.Length) throw Error(isBlock ? "Unexpected end of template, expected '%}'" : "Unexpected end of template, expected '}}'", tagStart);
+            while (p < _s.Length && char.IsWhiteSpace(_s[p]))
+            {
+                p++;
+            }
+
+            if (p >= _s.Length)
+            {
+                throw Error(isBlock ? "Unexpected end of template, expected '%}'" : "Unexpected end of template, expected '}}'", tagStart);
+            }
+
             char c = _s[p];
             if (depth == 0)
             {
@@ -249,34 +335,62 @@ internal sealed class Lexer
             int start = p;
             if (IsNameStart(c))
             {
-                while (p < _s.Length && IsNameChar(_s[p])) p++;
+                while (p < _s.Length && IsNameChar(_s[p]))
+                {
+                    p++;
+                }
+
                 Add(TokenKind.Name, _s.Substring(start, p - start), start);
             }
             else if (char.IsAsciiDigit(c))
             {
-                while (p < _s.Length && (char.IsAsciiDigit(_s[p]) || _s[p] == '_')) p++;
+                while (p < _s.Length && (char.IsAsciiDigit(_s[p]) || _s[p] == '_'))
+                {
+                    p++;
+                }
+
                 bool isFloat = false;
                 if (p + 1 < _s.Length && _s[p] == '.' && char.IsAsciiDigit(_s[p + 1]))
                 {
                     isFloat = true;
                     p++;
-                    while (p < _s.Length && char.IsAsciiDigit(_s[p])) p++;
+                    while (p < _s.Length && char.IsAsciiDigit(_s[p]))
+                    {
+                        p++;
+                    }
                 }
                 if (p < _s.Length && (_s[p] == 'e' || _s[p] == 'E'))
                 {
                     int q = p + 1;
-                    if (q < _s.Length && (_s[q] == '+' || _s[q] == '-')) q++;
+                    if (q < _s.Length && (_s[q] == '+' || _s[q] == '-'))
+                    {
+                        q++;
+                    }
+
                     if (q < _s.Length && char.IsAsciiDigit(_s[q]))
                     {
                         isFloat = true;
-                        while (q < _s.Length && char.IsAsciiDigit(_s[q])) q++;
+                        while (q < _s.Length && char.IsAsciiDigit(_s[q]))
+                        {
+                            q++;
+                        }
+
                         p = q;
                     }
                 }
                 string text = _s.Substring(start, p - start).Replace("_", "");
-                if (isFloat) Add(TokenKind.Float, text, start, double.Parse(text, CultureInfo.InvariantCulture));
-                else if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var lv)) Add(TokenKind.Int, text, start, lv);
-                else Add(TokenKind.Float, text, start, double.Parse(text, CultureInfo.InvariantCulture));
+                if (isFloat)
+                {
+                    Add(TokenKind.Float, text, start, double.Parse(text, CultureInfo.InvariantCulture));
+                }
+                else if (long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var lv))
+                {
+                    Add(TokenKind.Int, text, start, lv);
+                }
+                else
+                {
+                    Add(TokenKind.Float, text, start, double.Parse(text, CultureInfo.InvariantCulture));
+                }
             }
             else if (c == '"' || c == '\'')
             {
@@ -284,15 +398,27 @@ internal sealed class Lexer
                 var sb = new StringBuilder();
                 while (true)
                 {
-                    if (p >= _s.Length) throw Error("Unterminated string literal", start);
+                    if (p >= _s.Length)
+                    {
+                        throw Error("Unterminated string literal", start);
+                    }
+
                     char ch = _s[p++];
-                    if (ch == c) break;
+                    if (ch == c)
+                    {
+                        break;
+                    }
+
                     if (ch != '\\')
                     {
                         sb.Append(ch);
                         continue;
                     }
-                    if (p >= _s.Length) throw Error("Unterminated string literal", start);
+                    if (p >= _s.Length)
+                    {
+                        throw Error("Unterminated string literal", start);
+                    }
+
                     char e = _s[p++];
                     switch (e)
                     {
@@ -310,15 +436,27 @@ internal sealed class Lexer
                         case '\n': break;
                         case 'x':
                             if (p + 2 <= _s.Length && int.TryParse(_s.AsSpan(p, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var xv)) { sb.Append((char)xv); p += 2; }
-                            else sb.Append("\\x");
+                            else
+                            {
+                                sb.Append("\\x");
+                            }
+
                             break;
                         case 'u':
                             if (p + 4 <= _s.Length && int.TryParse(_s.AsSpan(p, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var uv)) { sb.Append((char)uv); p += 4; }
-                            else sb.Append("\\u");
+                            else
+                            {
+                                sb.Append("\\u");
+                            }
+
                             break;
                         case 'U':
                             if (p + 8 <= _s.Length && int.TryParse(_s.AsSpan(p, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var Uv) && Uv <= 0x10FFFF) { sb.Append(char.ConvertFromUtf32(Uv)); p += 8; }
-                            else sb.Append("\\U");
+                            else
+                            {
+                                sb.Append("\\U");
+                            }
+
                             break;
                         default: sb.Append('\\').Append(e); break;
                     }
@@ -329,12 +467,29 @@ internal sealed class Lexer
             else
             {
                 string op;
-                if (p + 1 < _s.Length && IsTwoCharOp(c, _s[p + 1])) op = _s.Substring(p, 2);
-                else if ("+-*/%~<>=|.,:;()[]{}!".IndexOf(c) >= 0) op = c.ToString();
-                else throw Error($"Unexpected character '{c}'", p);
+                if (p + 1 < _s.Length && IsTwoCharOp(c, _s[p + 1]))
+                {
+                    op = _s.Substring(p, 2);
+                }
+                else if ("+-*/%~<>=|.,:;()[]{}!".IndexOf(c) >= 0)
+                {
+                    op = c.ToString();
+                }
+                else
+                {
+                    throw Error($"Unexpected character '{c}'", p);
+                }
+
                 p += op.Length;
-                if (op == "(" || op == "[" || op == "{") depth++;
-                else if (op == ")" || op == "]" || op == "}") depth--;
+                if (op == "(" || op == "[" || op == "{")
+                {
+                    depth++;
+                }
+                else if (op == ")" || op == "]" || op == "}")
+                {
+                    depth--;
+                }
+
                 Add(TokenKind.Op, op, start);
             }
         }

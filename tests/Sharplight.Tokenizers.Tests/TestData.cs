@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Sharplight.Tokenizers;
 
 namespace Sharplight.Tokenizers.Tests;
 
@@ -8,11 +7,18 @@ internal static class TestData
     public static string? FindWorkFile(string relative)
     {
         string? env = Environment.GetEnvironmentVariable("SHARPLIGHT_TOKENIZER_DIR");
-        if (env != null && File.Exists(Path.Combine(env, relative))) return Path.Combine(env, relative);
+        if (env != null && File.Exists(Path.Combine(env, relative)))
+        {
+            return Path.Combine(env, relative);
+        }
+
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
         {
             string p = Path.Combine(d.FullName, ".work", "tokenizer", relative);
-            if (File.Exists(p)) return p;
+            if (File.Exists(p))
+            {
+                return p;
+            }
         }
         return null;
     }
@@ -23,10 +29,18 @@ internal static class TestData
     /// <summary>The Qwen3.8 tokenizer exported from the GGUF by .work/tokenizer/export_gguf_tokenizer.py; null if not exported.</summary>
     public static TokenizerData? Qwen35()
     {
-        if (_qwenLoaded) return _qwen;
+        if (_qwenLoaded)
+        {
+            return _qwen;
+        }
+
         _qwenLoaded = true;
         string? path = FindWorkFile("qwen35.json");
-        if (path == null) return null;
+        if (path == null)
+        {
+            return null;
+        }
+
         using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
         var md = new Dictionary<string, object>();
         foreach (var p in doc.RootElement.EnumerateObject())

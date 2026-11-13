@@ -9,23 +9,27 @@ namespace Sharplight.HuggingFace.Tests;
 /// <summary>Graph-level checks of the generic decoder adapter on a tiny synthetic model: longrope factor selection and sliding windows.</summary>
 public class DecoderGraphTests
 {
-    sealed class Mem(byte[] data) : IWeightSource
+    private sealed class Mem(byte[] data) : IWeightSource
     {
         public long ByteLength => data.Length;
         public void Read(long offset, Span<byte> destination) => data.AsSpan((int)offset, destination.Length).CopyTo(destination);
     }
 
-    static WeightInfo W(string name, params long[] dims)
+    private static WeightInfo W(string name, params long[] dims)
     {
         long n = dims.Aggregate(1L, (a, b) => a * b);
         var f = new float[n];
-        for (int i = 0; i < n; i++) f[i] = 0.01f * (i % 7 + 1);
+        for (int i = 0; i < n; i++)
+        {
+            f[i] = 0.01f * (i % 7 + 1);
+        }
+
         return new WeightInfo { Name = name, Type = DataType.F32, Shape = new Shape(dims.Select(d => (Dim)d)), Source = new Mem(MemoryMarshal.AsBytes(f.AsSpan()).ToArray()) };
     }
 
-    const int Hidden = 8, Heads = 2, Kv = 1, D = 4, Ffn = 8, Vocab = 10, Layers = 2;
+    private const int Hidden = 8, Heads = 2, Kv = 1, D = 4, Ffn = 8, Vocab = 10, Layers = 2;
 
-    static ModelSource Source(Dictionary<string, object>? extra = null, bool longrope = false)
+    private static ModelSource Source(Dictionary<string, object>? extra = null, bool longrope = false)
     {
         var md = new Dictionary<string, object>
         {
@@ -33,7 +37,14 @@ public class DecoderGraphTests
             ["decoder.attention.head_count"] = Heads, ["decoder.attention.kv_head_count"] = Kv, ["decoder.attention.head_dim"] = D,
             ["decoder.rope.dim"] = D, ["decoder.context_length"] = 32768,
         };
-        if (extra is not null) foreach (var kv in extra) md[kv.Key] = kv.Value;
+        if (extra is not null)
+        {
+            foreach (var kv in extra)
+            {
+                md[kv.Key] = kv.Value;
+            }
+        }
+
         var w = new Dictionary<string, WeightInfo>();
         void Add(WeightInfo x) => w[x.Name] = x;
         Add(W("token_embedding.weight", Vocab, Hidden)); Add(W("output_norm.weight", Hidden));
@@ -49,10 +60,10 @@ public class DecoderGraphTests
         return new ModelSource { Format = "test", Architecture = "decoder", Metadata = md, Weights = w };
     }
 
-    static ModelDefinition Build(ModelSource src, int context = 0)
+    private static ModelDefinition Build(ModelSource src, int context = 0)
         => new DecoderAdapter().Build(new ModelSourceSet { Primary = src }, new AdapterOptions { ContextLength = context });
 
-    static IEnumerable<Sharplight.Graph.Node> Nodes(ModelDefinition d, string op) => d.Graph(WellKnown.DecodeGraph).Nodes.Where(n => n.Op.Name == op);
+    private static IEnumerable<Sharplight.Graph.Node> Nodes(ModelDefinition d, string op) => d.Graph(WellKnown.DecodeGraph).Nodes.Where(n => n.Op.Name == op);
 
     [Theory]
     [InlineData(4096, "rope.freq_factors")]        // at the original context: short factors
@@ -64,14 +75,20 @@ public class DecoderGraphTests
         var def = Build(Source(new() { ["decoder.rope.original_context_length"] = 4096 }, longrope: true), context);
         var ropes = Nodes(def, "Rope").ToList();
         Assert.Equal(Layers * 2, ropes.Count);
-        foreach (var r in ropes) Assert.Equal(expected, r.Inputs[2].Name);
+        foreach (var r in ropes)
+        {
+            Assert.Equal(expected, r.Inputs[2].Name);
+        }
     }
 
     [Fact]
     public void NoOriginalContextMeansShortFactorsOnly()
     {
         var def = Build(Source(longrope: true), 100000);
-        foreach (var r in Nodes(def, "Rope")) Assert.Equal("rope.freq_factors", r.Inputs[2].Name);
+        foreach (var r in Nodes(def, "Rope"))
+        {
+            Assert.Equal("rope.freq_factors", r.Inputs[2].Name);
+        }
     }
 
     [Theory]
@@ -81,11 +98,18 @@ public class DecoderGraphTests
     public void SlidingWindowAppliesToEveryLayerWhenDeclared(int? window, int expected)
     {
         var extra = new Dictionary<string, object>();
-        if (window is { } w) extra["decoder.attention.sliding_window"] = w;
+        if (window is { } w)
+        {
+            extra["decoder.attention.sliding_window"] = w;
+        }
+
         var def = Build(Source(extra));
         var attn = Nodes(def, "CachedAttention").ToList();
         Assert.Equal(Layers, attn.Count);
-        foreach (var a in attn) Assert.Equal(expected, a.Attributes.Get("window", 0));
+        foreach (var a in attn)
+        {
+            Assert.Equal(expected, a.Attributes.Get("window", 0));
+        }
     }
 
     [Fact]

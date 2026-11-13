@@ -29,15 +29,29 @@ public sealed record ChatMessage(
             foreach (var p in Parts)
             {
                 var pd = new JinjaDict { ["type"] = p.Type };
-                if (p.Text != null) pd["text"] = p.Text;
+                if (p.Text != null)
+                {
+                    pd["text"] = p.Text;
+                }
+
                 list.Add(pd);
             }
             d["content"] = list;
         }
-        else if (Content != null) d["content"] = Content;
-        else d["content"] = ToolCalls is { Count: > 0 } ? null : "";
+        else if (Content != null)
+        {
+            d["content"] = Content;
+        }
+        else
+        {
+            d["content"] = ToolCalls is { Count: > 0 } ? null : "";
+        }
 
-        if (ReasoningContent != null) d["reasoning_content"] = ReasoningContent;
+        if (ReasoningContent != null)
+        {
+            d["reasoning_content"] = ReasoningContent;
+        }
+
         if (ToolCalls is { Count: > 0 })
         {
             var calls = new List<object?>();
@@ -45,15 +59,27 @@ public sealed record ChatMessage(
             {
                 var fn = new JinjaDict { ["name"] = c.Name, ["arguments"] = JinjaValue.From(c.Arguments) ?? new JinjaDict() };
                 var cd = new JinjaDict();
-                if (c.Id != null) cd["id"] = c.Id;
+                if (c.Id != null)
+                {
+                    cd["id"] = c.Id;
+                }
+
                 cd["type"] = "function";
                 cd["function"] = fn;
                 calls.Add(cd);
             }
             d["tool_calls"] = calls;
         }
-        if (Name != null) d["name"] = Name;
-        if (ToolCallId != null) d["tool_call_id"] = ToolCallId;
+        if (Name != null)
+        {
+            d["name"] = Name;
+        }
+
+        if (ToolCallId != null)
+        {
+            d["tool_call_id"] = ToolCallId;
+        }
+
         return d;
     }
 }
@@ -64,8 +90,16 @@ public sealed record ToolDefinition(string Name, string? Description = null, IRe
     internal JinjaDict ToValue()
     {
         var fn = new JinjaDict { ["name"] = Name };
-        if (Description != null) fn["description"] = Description;
-        if (Parameters != null) fn["parameters"] = JinjaValue.From(Parameters);
+        if (Description != null)
+        {
+            fn["description"] = Description;
+        }
+
+        if (Parameters != null)
+        {
+            fn["parameters"] = JinjaValue.From(Parameters);
+        }
+
         return new JinjaDict { ["type"] = "function", ["function"] = fn };
     }
 
@@ -75,13 +109,24 @@ public sealed record ToolDefinition(string Name, string? Description = null, IRe
     /// </summary>
     public static ToolDefinition FromJson(string json)
     {
-        if (JinjaJson.Parse(json) is not JinjaDict root) throw new ArgumentException("Tool definition must be a JSON object", nameof(json));
-        if (root.TryGetValue("function", out var f) && f is JinjaDict fd) root = fd;
+        if (JinjaJson.Parse(json) is not JinjaDict root)
+        {
+            throw new ArgumentException("Tool definition must be a JSON object", nameof(json));
+        }
+
+        if (root.TryGetValue("function", out var f) && f is JinjaDict fd)
+        {
+            root = fd;
+        }
+
         string name = root.TryGetValue("name", out var n) && n is string ns ? ns : throw new ArgumentException("Tool definition has no name", nameof(json));
         string? desc = root.TryGetValue("description", out var d) ? d as string : null;
         IReadOnlyDictionary<string, object?>? pars = null;
         if (root.TryGetValue("parameters", out var p) && p is JinjaDict pd)
+        {
             pars = pd.ToDictionary(kv => (string)kv.Key, kv => kv.Value);
+        }
+
         return new ToolDefinition(name, desc, pars);
     }
 }
@@ -125,17 +170,35 @@ public sealed class ChatTemplate
             ["add_generation_prompt"] = addGenerationPrompt,
         };
         var msgs = new List<object?>(messages.Count);
-        foreach (var m in messages) msgs.Add(m.ToValue());
+        foreach (var m in messages)
+        {
+            msgs.Add(m.ToValue());
+        }
+
         ctx["messages"] = msgs;
         if (tools is { Count: > 0 })
         {
             var tl = new List<object?>(tools.Count);
-            foreach (var t in tools) tl.Add(t.ToValue());
+            foreach (var t in tools)
+            {
+                tl.Add(t.ToValue());
+            }
+
             ctx["tools"] = tl;
         }
-        else ctx["tools"] = null;
+        else
+        {
+            ctx["tools"] = null;
+        }
+
         if (extraContext != null)
-            foreach (var kv in extraContext) ctx[kv.Key] = kv.Value;
+        {
+            foreach (var kv in extraContext)
+            {
+                ctx[kv.Key] = kv.Value;
+            }
+        }
+
         return _template.Render(ctx);
     }
 }

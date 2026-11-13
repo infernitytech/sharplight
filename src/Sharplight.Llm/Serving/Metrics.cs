@@ -9,12 +9,20 @@ public sealed record HistogramSnapshot(double[] UpperBounds, long[] Counts, doub
     /// <summary>Estimated quantile (linear interpolation inside the bucket).</summary>
     public double Quantile(double q)
     {
-        if (Count == 0) return 0;
+        if (Count == 0)
+        {
+            return 0;
+        }
+
         double target = q * Count, acc = 0, lower = 0;
         for (int i = 0; i < Counts.Length; i++)
         {
             double upper = i < UpperBounds.Length ? UpperBounds[i] : UpperBounds[^1] * 2;
-            if (acc + Counts[i] >= target && Counts[i] > 0) return lower + (upper - lower) * (target - acc) / Counts[i];
+            if (acc + Counts[i] >= target && Counts[i] > 0)
+            {
+                return lower + (upper - lower) * (target - acc) / Counts[i];
+            }
+
             acc += Counts[i]; lower = upper;
         }
         return lower;
@@ -24,9 +32,9 @@ public sealed record HistogramSnapshot(double[] UpperBounds, long[] Counts, doub
 /// <summary>Thread-safe fixed-bucket histogram.</summary>
 public sealed class Histogram(double[] upperBounds)
 {
-    readonly long[] _counts = new long[upperBounds.Length + 1];
-    double _sum; long _count;
-    readonly Lock _lock = new();
+    private readonly long[] _counts = new long[upperBounds.Length + 1];
+    private double _sum; private long _count;
+    private readonly Lock _lock = new();
 
     public static double[] LatencyBuckets { get; } = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120];
     public static double[] CountBuckets { get; } = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
@@ -34,13 +42,20 @@ public sealed class Histogram(double[] upperBounds)
     public void Observe(double v)
     {
         int i = Array.FindIndex(upperBounds, b => v <= b);
-        if (i < 0) i = upperBounds.Length;
+        if (i < 0)
+        {
+            i = upperBounds.Length;
+        }
+
         lock (_lock) { _counts[i]++; _sum += v; _count++; }
     }
 
     public HistogramSnapshot Snapshot()
     {
-        lock (_lock) return new HistogramSnapshot(upperBounds, (long[])_counts.Clone(), _sum, _count);
+        lock (_lock)
+        {
+            return new HistogramSnapshot(upperBounds, (long[])_counts.Clone(), _sum, _count);
+        }
     }
 }
 
@@ -75,14 +90,14 @@ public sealed record EngineMetricsSnapshot
 /// <summary>Counters and histograms the engine updates; read them as an <see cref="EngineMetricsSnapshot"/>.</summary>
 public sealed class EngineMetrics
 {
-    long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps;
-    readonly long[] _finished = new long[Enum.GetValues<FinishReason>().Length];
-    readonly Histogram _ttft = new(Histogram.LatencyBuckets), _itl = new(Histogram.LatencyBuckets), _wait = new(Histogram.LatencyBuckets),
+    private long _submitted, _rejected, _promptTokens, _cachedTokens, _completionTokens, _lookups, _hits, _steps;
+    private readonly long[] _finished = new long[Enum.GetValues<FinishReason>().Length];
+    private readonly Histogram _ttft = new(Histogram.LatencyBuckets), _itl = new(Histogram.LatencyBuckets), _wait = new(Histogram.LatencyBuckets),
         _duration = new(Histogram.LatencyBuckets), _stepTime = new(Histogram.LatencyBuckets), _rows = new(Histogram.CountBuckets);
     // Ring of per-second completion token counts for the recent rate.
-    readonly long[] _ring = new long[11];
-    long _ringSecond = -1;
-    readonly Lock _ringLock = new();
+    private readonly long[] _ring = new long[11];
+    private long _ringSecond = -1;
+    private readonly Lock _ringLock = new();
 
     internal void Submitted() => Interlocked.Increment(ref _submitted);
     internal void Rejected() => Interlocked.Increment(ref _rejected);
@@ -91,18 +106,30 @@ public sealed class EngineMetrics
         Interlocked.Add(ref _promptTokens, promptTokens);
         Interlocked.Add(ref _cachedTokens, cached);
         Interlocked.Increment(ref _lookups);
-        if (cached > 0) Interlocked.Increment(ref _hits);
+        if (cached > 0)
+        {
+            Interlocked.Increment(ref _hits);
+        }
+
         _wait.Observe(wait.TotalSeconds);
     }
     internal void FirstToken(TimeSpan sinceSubmit) => _ttft.Observe(sinceSubmit.TotalSeconds);
     internal void Token(TimeSpan? sincePrevious)
     {
         Interlocked.Increment(ref _completionTokens);
-        if (sincePrevious is { } d) _itl.Observe(d.TotalSeconds);
+        if (sincePrevious is { } d)
+        {
+            _itl.Observe(d.TotalSeconds);
+        }
+
         long sec = Stopwatch.GetTimestamp() / Stopwatch.Frequency;
         lock (_ringLock)
         {
-            if (_ringSecond < 0) _ringSecond = sec;
+            if (_ringSecond < 0)
+            {
+                _ringSecond = sec;
+            }
+
             while (_ringSecond < sec) { _ringSecond++; _ring[_ringSecond % _ring.Length] = 0; }
             _ring[sec % _ring.Length]++;
         }
@@ -119,15 +146,25 @@ public sealed class EngineMetrics
         _stepTime.Observe(time.TotalSeconds);
     }
 
-    double RecentRate()
+    private double RecentRate()
     {
         long sec = Stopwatch.GetTimestamp() / Stopwatch.Frequency;
         lock (_ringLock)
         {
-            if (_ringSecond < 0) return 0;
+            if (_ringSecond < 0)
+            {
+                return 0;
+            }
+
             long total = 0;
             for (long s = sec - 9; s <= sec; s++)
-                if (s <= _ringSecond && s > _ringSecond - _ring.Length) total += _ring[s % _ring.Length];
+            {
+                if (s <= _ringSecond && s > _ringSecond - _ring.Length)
+                {
+                    total += _ring[s % _ring.Length];
+                }
+            }
+
             return total / 10.0;
         }
     }

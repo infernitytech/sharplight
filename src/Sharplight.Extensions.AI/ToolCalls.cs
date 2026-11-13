@@ -8,25 +8,35 @@ namespace Sharplight.Extensions.AI;
 public interface IToolCallParser
 {
     /// <summary>Parses the text between the tool-call start and end markers; returns null if it is not this parser's format.</summary>
-    FunctionCallContent? TryParse(string body, ToolSchemas tools);
+    public FunctionCallContent? TryParse(string body, ToolSchemas tools);
 }
 
 /// <summary>The tools offered in a request, used to coerce text parameter values to their declared JSON types.</summary>
 public sealed class ToolSchemas
 {
     public static readonly ToolSchemas Empty = new([]);
-    readonly Dictionary<string, JsonElement> _parameters = new();
-    readonly HashSet<string> _names = new();
+    private readonly Dictionary<string, JsonElement> _parameters = new();
+    private readonly HashSet<string> _names = new();
 
     public ToolSchemas(IEnumerable<AITool>? tools)
     {
-        if (tools == null) return;
+        if (tools == null)
+        {
+            return;
+        }
+
         foreach (var t in tools)
         {
-            if (t is not AIFunctionDeclaration f) continue;
+            if (t is not AIFunctionDeclaration f)
+            {
+                continue;
+            }
+
             _names.Add(f.Name);
             if (f.JsonSchema.ValueKind == JsonValueKind.Object && f.JsonSchema.TryGetProperty("properties", out var props) && props.ValueKind == JsonValueKind.Object)
+            {
                 _parameters[f.Name] = props;
+            }
         }
     }
 
@@ -37,7 +47,10 @@ public sealed class ToolSchemas
     {
         if (_parameters.TryGetValue(function, out var props) && props.TryGetProperty(parameter, out var p)
             && p.ValueKind == JsonValueKind.Object && p.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String)
+        {
             return t.GetString();
+        }
+
         return null;
     }
 }
@@ -48,14 +61,30 @@ public sealed class JsonToolCallParser : IToolCallParser
     public FunctionCallContent? TryParse(string body, ToolSchemas tools)
     {
         body = body.Trim();
-        if (!body.StartsWith('{')) return null;
+        if (!body.StartsWith('{'))
+        {
+            return null;
+        }
+
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Object) return null;
-            if (root.TryGetProperty("function", out var fn) && fn.ValueKind == JsonValueKind.Object) root = fn;
-            if (!root.TryGetProperty("name", out var n) || n.ValueKind != JsonValueKind.String) return null;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (root.TryGetProperty("function", out var fn) && fn.ValueKind == JsonValueKind.Object)
+            {
+                root = fn;
+            }
+
+            if (!root.TryGetProperty("name", out var n) || n.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
             Dictionary<string, object?>? args = null;
             if (root.TryGetProperty("arguments", out var a) || root.TryGetProperty("parameters", out a))
             {
@@ -64,18 +93,29 @@ public sealed class JsonToolCallParser : IToolCallParser
                     using var inner = JsonDocument.Parse(a.GetString()!);
                     args = ToArguments(inner.RootElement);
                 }
-                else args = ToArguments(a);
+                else
+                {
+                    args = ToArguments(a);
+                }
             }
             return new FunctionCallContent(ToolCallIds.New(), n.GetString()!, args ?? []);
         }
         catch (JsonException) { return null; }
     }
 
-    static Dictionary<string, object?> ToArguments(JsonElement e)
+    private static Dictionary<string, object?> ToArguments(JsonElement e)
     {
         var d = new Dictionary<string, object?>();
-        if (e.ValueKind != JsonValueKind.Object) return d;
-        foreach (var p in e.EnumerateObject()) d[p.Name] = p.Value.Clone();
+        if (e.ValueKind != JsonValueKind.Object)
+        {
+            return d;
+        }
+
+        foreach (var p in e.EnumerateObject())
+        {
+            d[p.Name] = p.Value.Clone();
+        }
+
         return d;
     }
 }
@@ -95,23 +135,39 @@ public sealed partial class XmlToolCallParser : IToolCallParser
     public FunctionCallContent? TryParse(string body, ToolSchemas tools)
     {
         var fm = FunctionRegex().Match(body);
-        if (!fm.Success) return null;
+        if (!fm.Success)
+        {
+            return null;
+        }
+
         string name = fm.Groups[1].Value;
         var args = new Dictionary<string, object?>();
         foreach (Match m in ParameterRegex().Matches(body, fm.Index + fm.Length))
         {
             string key = m.Groups[1].Value;
             string raw = m.Groups[2].Value;
-            if (raw.StartsWith('\n')) raw = raw[1..];
-            if (raw.EndsWith('\n')) raw = raw[..^1];
+            if (raw.StartsWith('\n'))
+            {
+                raw = raw[1..];
+            }
+
+            if (raw.EndsWith('\n'))
+            {
+                raw = raw[..^1];
+            }
+
             args[key] = Coerce(raw, tools.ParameterType(name, key));
         }
         return new FunctionCallContent(ToolCallIds.New(), name, args);
     }
 
-    static object? Coerce(string raw, string? type)
+    private static object? Coerce(string raw, string? type)
     {
-        if (type == "string") return raw;
+        if (type == "string")
+        {
+            return raw;
+        }
+
         var t = raw.Trim();
         if (t.Length > 0 && (type is null or "integer" or "number" or "boolean" or "object" or "array" or "null"))
         {
@@ -126,7 +182,7 @@ public sealed partial class XmlToolCallParser : IToolCallParser
     }
 }
 
-static class ToolCallIds
+internal static class ToolCallIds
 {
     public static string New() => "call_" + Guid.NewGuid().ToString("N")[..24];
 }

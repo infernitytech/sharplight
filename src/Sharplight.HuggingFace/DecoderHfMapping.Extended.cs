@@ -6,15 +6,15 @@ namespace Sharplight.HuggingFace;
 /// <summary>Gemma 4 and Muse Glimmer text models: the generic decoder plus per-layer head sizes, KV sharing, per-layer embeddings, NoPE layers, ...</summary>
 public sealed partial class DecoderHfMapping
 {
-    static bool IsGemma4OrMuse(string? t) => t is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text" or "muse_glimmer";
+    private static bool IsGemma4OrMuse(string? t) => t is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text" or "muse_glimmer";
 
     /// <summary>Vision / audio towers and their projectors live in other canonical sources.</summary>
-    static bool IsNonTextTensor(string name)
+    private static bool IsNonTextTensor(string name)
         => name.StartsWith("model.vision_tower.", StringComparison.Ordinal) || name.StartsWith("model.audio_tower.", StringComparison.Ordinal)
         || name.StartsWith("model.embed_vision.", StringComparison.Ordinal) || name.StartsWith("model.embed_audio.", StringComparison.Ordinal)
         || name.StartsWith("model.vision_", StringComparison.Ordinal) || name.StartsWith("model.visual.", StringComparison.Ordinal);
 
-    static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
     {
         ["self_attn.gate_proj.weight"] = "attention.gate.weight",
         ["per_layer_input_gate.weight"] = "per_layer.gate.weight",
@@ -23,28 +23,36 @@ public sealed partial class DecoderHfMapping
         ["layer_scalar"] = "output_scale",
     };
 
-    static JsonElement? LayerTypeRope(HfConfig c, string layerType)
+    private static JsonElement? LayerTypeRope(HfConfig c, string layerType)
         => c.RopeParameters is { } rp && rp.TryGetProperty(layerType, out var e) && e.ValueKind == JsonValueKind.Object ? e : null;
 
-    static double RopeNumber(JsonElement? e, string key, double def)
+    private static double RopeNumber(JsonElement? e, string key, double def)
         => e is { } x && x.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : def;
 
-    static string[] LayerTypes(HfConfig c, int nLayer)
+    private static string[] LayerTypes(HfConfig c, int nLayer)
         => c.GetStringArray("layer_types") ?? Enumerable.Repeat("full_attention", nLayer).ToArray();
 
     /// <summary>Per-frequency divisors of the global layers' rope (Gemma 4 proportional rotary), or null.</summary>
-    static float[]? ExtendedRopeFactors(HfConfig c)
+    private static float[]? ExtendedRopeFactors(HfConfig c)
     {
-        if (c.ModelType is not ("gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text")) return null;
+        if (c.ModelType is not ("gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text"))
+        {
+            return null;
+        }
+
         var full = LayerTypeRope(c, "full_attention");
-        if (full is not { } f || !f.TryGetProperty("rope_type", out var rt) || rt.GetString() != "proportional") return null;
+        if (full is not { } f || !f.TryGetProperty("rope_type", out var rt) || rt.GetString() != "proportional")
+        {
+            return null;
+        }
+
         int dim = c.GetInt("global_head_dim") ?? c.Int("head_dim");
         int angles = (int)(RopeNumber(f, "partial_rotary_factor", 1.0) * dim / 2);
         return Sharplight.Models.RopeScaling.Proportional(dim, angles, (float)RopeNumber(f, "factor", 1.0)).Factors;
     }
 
     /// <summary>Muse Glimmer's q/k norms have no weights; canonical weights make them explicit (k: 1, q: qk_scale_factor, the scale applied to q after its norm).</summary>
-    static IEnumerable<(WeightInfo, int)> MuseQkNorms(HfConfig c)
+    private static IEnumerable<(WeightInfo, int)> MuseQkNorms(HfConfig c)
     {
         int nLayer = c.Int("num_hidden_layers"), headDim = c.GetInt("head_dim") ?? c.Int("hidden_size") / c.Int("num_attention_heads");
         float qScale = (float)(c.GetDouble("qk_scale_factor") ?? 1.0);
@@ -61,7 +69,7 @@ public sealed partial class DecoderHfMapping
     /// Flint: Qwen3-MoE-style routed experts with sigmoid router scores, an always-on shared expert, per-head attention sinks, sliding-window layers
     /// that carry rope alternating with full-attention NoPE layers, two leading dense layers.
     /// </summary>
-    IReadOnlyDictionary<string, object> FlintHyper(HfConfig c)
+    private IReadOnlyDictionary<string, object> FlintHyper(HfConfig c)
     {
         string a = Architecture + ".";
         int nLayer = c.Int("num_hidden_layers"), nHead = c.Int("num_attention_heads"), hidden = c.Int("hidden_size");
@@ -90,13 +98,21 @@ public sealed partial class DecoderHfMapping
             [a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? false,
             [a + "moe.router_activation"] = c.GetString("router_score_function") ?? "sigmoid",
         };
-        if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
+        if (c.GetInt("max_position_embeddings") is { } ctx)
+        {
+            md[a + "context_length"] = ctx;
+        }
+
         return md;
     }
 
-    IReadOnlyDictionary<string, object> Gemma4Hyper(HfConfig c)
+    private IReadOnlyDictionary<string, object> Gemma4Hyper(HfConfig c)
     {
-        if (c.GetBool("enable_moe_block") == true) throw new NotSupportedException("Gemma 4 mixture-of-experts blocks are not supported yet.");
+        if (c.GetBool("enable_moe_block") == true)
+        {
+            throw new NotSupportedException("Gemma 4 mixture-of-experts blocks are not supported yet.");
+        }
+
         string a = Architecture + ".";
         int nLayer = c.Int("num_hidden_layers"), nHead = c.Int("num_attention_heads"), hidden = c.Int("hidden_size");
         int headDim = c.Int("head_dim"), globalDim = c.GetInt("global_head_dim") ?? headDim;
@@ -128,22 +144,37 @@ public sealed partial class DecoderHfMapping
             [a + "mlp.activation"] = Activation(c),
             [a + "embedding_scale"] = MathF.Sqrt(hidden),
         };
-        if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
-        if (c.GetDouble("final_logit_softcapping") is { } fsc && fsc > 0) md[a + "final_logit_softcap"] = (float)fsc;
+        if (c.GetInt("max_position_embeddings") is { } ctx)
+        {
+            md[a + "context_length"] = ctx;
+        }
+
+        if (c.GetDouble("final_logit_softcapping") is { } fsc && fsc > 0)
+        {
+            md[a + "final_logit_softcap"] = (float)fsc;
+        }
+
         int shared = c.GetInt("num_kv_shared_layers") ?? 0;
         if (shared > 0)
         {
             int first = nLayer - shared;
             var source = new int[nLayer];
             for (int il = 0; il < nLayer; il++)
+            {
                 source[il] = il < first ? il : Enumerable.Range(0, first).Last(j => types[j] == types[il]);
+            }
+
             md[a + "attention.kv_source_layers"] = source;
         }
-        if (c.GetInt("hidden_size_per_layer_input") is { } ple and > 0) md[a + "per_layer.size"] = ple;
+        if (c.GetInt("hidden_size_per_layer_input") is { } ple and > 0)
+        {
+            md[a + "per_layer.size"] = ple;
+        }
+
         return md;
     }
 
-    IReadOnlyDictionary<string, object> MuseHyper(HfConfig c)
+    private IReadOnlyDictionary<string, object> MuseHyper(HfConfig c)
     {
         string a = Architecture + ".";
         int nLayer = c.Int("num_hidden_layers"), nHead = c.Int("num_attention_heads"), hidden = c.Int("hidden_size");
@@ -169,10 +200,25 @@ public sealed partial class DecoderHfMapping
             [a + "embedding_norm"] = true,
         };
         if (c.Get("layer_rope_theta") is { ValueKind: JsonValueKind.Array } lrt)
+        {
             md[a + "rope.layers"] = lrt.EnumerateArray().Select(e => e.GetDouble() != 0 ? 1 : 0).ToArray();
-        if (c.GetInt("max_position_embeddings") is { } ctx) md[a + "context_length"] = ctx;
-        if (c.GetDouble("output_multiplier") is { } om && om != 1.0) md[a + "logit_scale"] = (float)om;
-        if (c.GetDouble("final_logit_softcapping") is { } fsc && fsc > 0) md[a + "final_logit_softcap"] = (float)fsc;
+        }
+
+        if (c.GetInt("max_position_embeddings") is { } ctx)
+        {
+            md[a + "context_length"] = ctx;
+        }
+
+        if (c.GetDouble("output_multiplier") is { } om && om != 1.0)
+        {
+            md[a + "logit_scale"] = (float)om;
+        }
+
+        if (c.GetDouble("final_logit_softcapping") is { } fsc && fsc > 0)
+        {
+            md[a + "final_logit_softcap"] = (float)fsc;
+        }
+
         return md;
     }
 }

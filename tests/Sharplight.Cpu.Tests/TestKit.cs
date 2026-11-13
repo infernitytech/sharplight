@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Sharplight.Cpu;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -8,18 +7,26 @@ using Sharplight.Tensors;
 namespace Sharplight.Cpu.Tests;
 
 /// <summary>Weight bytes in managed memory; optionally exposes a pinned pointer to exercise the zero-copy path.</summary>
-sealed class MemSource : IWeightSource, IDisposable
+internal sealed class MemSource : IWeightSource, IDisposable
 {
-    readonly byte[] _data; readonly GCHandle _h; readonly bool _zeroCopy;
-    public MemSource(byte[] data, bool zeroCopy = true) { _data = data; _zeroCopy = zeroCopy; if (zeroCopy) _h = GCHandle.Alloc(data, GCHandleType.Pinned); }
+    private readonly byte[] _data; private readonly GCHandle _h; private readonly bool _zeroCopy;
+    public MemSource(byte[] data, bool zeroCopy = true) { _data = data; _zeroCopy = zeroCopy; if (zeroCopy)
+        {
+            _h = GCHandle.Alloc(data, GCHandleType.Pinned);
+        }
+    }
     public long ByteLength => _data.Length;
     public void Read(long offset, Span<byte> destination) => _data.AsSpan((int)offset, destination.Length).CopyTo(destination);
     public nint TryGetPointer() => _zeroCopy ? _h.AddrOfPinnedObject() : 0;
-    public void Dispose() { if (_zeroCopy && _h.IsAllocated) _h.Free(); }
+    public void Dispose() { if (_zeroCopy && _h.IsAllocated)
+        {
+            _h.Free();
+        }
+    }
 }
 
 /// <summary>Builder wrapper that owns weights.</summary>
-sealed class TG
+internal sealed class TG
 {
     public readonly Dictionary<string, WeightInfo> Weights = [];
     public readonly GraphBuilder B;
@@ -42,7 +49,7 @@ sealed class TG
         B.State(new StateDefinition { Name = name, Type = type, Shape = new Shape(dims), Kind = kind });
 }
 
-static class Kit
+internal static class Kit
 {
     public static CpuExecutionProvider Provider = new();
     public static IComputeDevice Device = Provider.OpenDevice(Provider.GetDevices()[0]);
@@ -66,7 +73,11 @@ static class Kit
         var p = new RunParameters();
         p.Symbols["T"] = t; p.Symbols["R"] = t;
         p.Scalars["n_past"] = past;
-        foreach (var (k, v) in extra) p.Symbols[k] = v;
+        foreach (var (k, v) in extra)
+        {
+            p.Symbols[k] = v;
+        }
+
         return p;
     }
 
@@ -90,7 +101,11 @@ static class Kit
     {
         var rng = new Random(seed);
         var a = new float[n];
-        for (int i = 0; i < n; i++) a[i] = (float)(rng.NextDouble() * 2 - 1) * scale;
+        for (int i = 0; i < n; i++)
+        {
+            a[i] = (float)(rng.NextDouble() * 2 - 1) * scale;
+        }
+
         return a;
     }
 
@@ -101,7 +116,9 @@ static class Kit
         {
             double e = expected[i], a = actual[i];
             if (double.IsNaN(e) != double.IsNaN(a) || Math.Abs(e - a) > atol + rtol * Math.Abs(e))
+            {
                 Assert.Fail($"{what} mismatch at {i}: expected {e:G9}, actual {a:G9} (atol {atol}, rtol {rtol})");
+            }
         }
     }
 

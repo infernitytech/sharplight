@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Numerics;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -20,7 +19,11 @@ public static class HfTransforms
     public static WeightInfo ToF32(WeightInfo src, string name, Shape? shape = null, Func<float, float>? map = null)
     {
         var s = shape ?? src.Shape;
-        if (s.Elements() != src.Shape.Elements()) throw new ArgumentException($"{src.Name}: cannot view {src.Shape} as {s}.");
+        if (s.Elements() != src.Shape.Elements())
+        {
+            throw new ArgumentException($"{src.Name}: cannot view {src.Shape} as {s}.");
+        }
+
         return WeightInfo.Derived(name, DataType.F32, s, () => EncodeF32(DecodeF32(src, map)));
     }
 
@@ -42,13 +45,23 @@ public static class HfTransforms
         long block = innerElems * elemBytes;
         long axisBytes = block * numK * vPerK;
         if (data.LongLength != outerElems * axisBytes)
+        {
             throw new ArgumentException($"Reorder: {data.LongLength} bytes, expected {outerElems * axisBytes}.");
+        }
+
         var dst = new byte[data.Length];
         for (long o = 0; o < outerElems; o++)
+        {
             for (int k = 0; k < numK; k++)
+            {
                 for (int v = 0; v < vPerK; v++)
+                {
                     Buffer.BlockCopy(data, checked((int)(o * axisBytes + (k * vPerK + v) * block)),
                                      dst, checked((int)(o * axisBytes + (v * numK + k) * block)), checked((int)block));
+                }
+            }
+        }
+
         return dst;
     }
 
@@ -59,21 +72,86 @@ public static class HfTransforms
         long n = w.Shape.Elements();
         var f = new float[n];
         var t = w.Type;
-        if (t == DataType.F32) System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).CopyTo(f);
+        if (t == DataType.F32)
+        {
+            System.Runtime.InteropServices.MemoryMarshal.Cast<byte, float>(bytes).CopyTo(f);
+        }
         else if (t == DataType.BF16)
-            for (int i = 0; i < f.Length; i++) f[i] = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2)) << 16);
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(i * 2)) << 16);
+            }
+        }
         else if (t == DataType.F16)
-            for (int i = 0; i < f.Length; i++) f[i] = (float)BinaryPrimitives.ReadHalfLittleEndian(bytes.AsSpan(i * 2));
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = (float)BinaryPrimitives.ReadHalfLittleEndian(bytes.AsSpan(i * 2));
+            }
+        }
         else if (t == DataType.F64)
-            for (int i = 0; i < f.Length; i++) f[i] = (float)BinaryPrimitives.ReadDoubleLittleEndian(bytes.AsSpan(i * 8));
-        else if (t == DataType.I8) for (int i = 0; i < f.Length; i++) f[i] = (sbyte)bytes[i];
-        else if (t == DataType.U8) for (int i = 0; i < f.Length; i++) f[i] = bytes[i];
-        else if (t == DataType.I16) for (int i = 0; i < f.Length; i++) f[i] = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(i * 2));
-        else if (t == DataType.I32) for (int i = 0; i < f.Length; i++) f[i] = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(i * 4));
-        else if (t == DataType.U32) for (int i = 0; i < f.Length; i++) f[i] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(i * 4));
-        else if (t == DataType.I64) for (int i = 0; i < f.Length; i++) f[i] = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(i * 8));
-        else throw new NotSupportedException($"{w.Name}: cannot convert {t} to f32.");
-        if (map != null) for (int i = 0; i < f.Length; i++) f[i] = map(f[i]);
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = (float)BinaryPrimitives.ReadDoubleLittleEndian(bytes.AsSpan(i * 8));
+            }
+        }
+        else if (t == DataType.I8)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = (sbyte)bytes[i];
+            }
+        }
+        else if (t == DataType.U8)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = bytes[i];
+            }
+        }
+        else if (t == DataType.I16)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = BinaryPrimitives.ReadInt16LittleEndian(bytes.AsSpan(i * 2));
+            }
+        }
+        else if (t == DataType.I32)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(i * 4));
+            }
+        }
+        else if (t == DataType.U32)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(i * 4));
+            }
+        }
+        else if (t == DataType.I64)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(i * 8));
+            }
+        }
+        else
+        {
+            throw new NotSupportedException($"{w.Name}: cannot convert {t} to f32.");
+        }
+
+        if (map != null)
+        {
+            for (int i = 0; i < f.Length; i++)
+            {
+                f[i] = map(f[i]);
+            }
+        }
+
         return f;
     }
 

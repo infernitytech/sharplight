@@ -1,4 +1,3 @@
-using Sharplight.Tokenizers;
 using Sharplight.Tokenizers.Spm;
 using Xunit;
 
@@ -8,7 +7,7 @@ namespace Sharplight.Tokenizers.Tests;
 public class SentencePieceTests
 {
     // ids: 0 <unk>, 1 <s>, 2 </s>, 3.. pieces, bytes <0x00>..<0xFF> at the end
-    static SentencePieceTokenizer Make(bool addSpacePrefix = true)
+    private static SentencePieceTokenizer Make(bool addSpacePrefix = true)
     {
         var tokens = new List<string> { "<unk>", "<s>", "</s>", "▁", "a", "b", "c", "ab", "abc", "▁a", "▁ab", "▁abc", "<end_of_turn>" };
         var scores = new List<float> { 0, 0, 0, -1, -2, -2, -2, -1.5f, -1.2f, -1.4f, -1.1f, -0.5f, 0 };

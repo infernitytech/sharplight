@@ -13,7 +13,7 @@ namespace Sharplight.Tensors;
 /// </remarks>
 public sealed class DataType : IEquatable<DataType>
 {
-    static readonly ConcurrentDictionary<string, DataType> s_byName = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, DataType> s_byName = new(StringComparer.OrdinalIgnoreCase);
 
     public string Name { get; }
     public int BlockSize { get; }
@@ -21,7 +21,7 @@ public sealed class DataType : IEquatable<DataType>
     public bool IsQuantized => BlockSize > 1 || Kind == DataTypeKind.Quantized;
     public DataTypeKind Kind { get; }
 
-    DataType(string name, DataTypeKind kind, int blockSize, int blockBytes)
+    private DataType(string name, DataTypeKind kind, int blockSize, int blockBytes)
     {
         Name = name;
         Kind = kind;
@@ -34,7 +34,10 @@ public sealed class DataType : IEquatable<DataType>
     {
         var dt = s_byName.GetOrAdd(name, n => new DataType(n, kind, blockSize, blockBytes));
         if (dt.BlockSize != blockSize || dt.BlockBytes != blockBytes || dt.Kind != kind)
+        {
             throw new InvalidOperationException($"Data type '{name}' already registered with a different layout.");
+        }
+
         return dt;
     }
 
@@ -46,7 +49,10 @@ public sealed class DataType : IEquatable<DataType>
     public long ByteSize(long elements)
     {
         if (elements % BlockSize != 0)
+        {
             throw new ArgumentException($"{elements} elements is not a multiple of the {Name} block size {BlockSize}.");
+        }
+
         return elements / BlockSize * BlockBytes;
     }
 

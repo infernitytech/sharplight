@@ -20,7 +20,11 @@ internal static class UnicodeInfo
     private static byte[] BuildBmp()
     {
         var t = new byte[0x10000];
-        for (int cp = 0; cp < t.Length; cp++) t[cp] = Compute(cp);
+        for (int cp = 0; cp < t.Length; cp++)
+        {
+            t[cp] = Compute(cp);
+        }
+
         return t;
     }
 
@@ -29,9 +33,21 @@ internal static class UnicodeInfo
     private static byte Compute(int cp)
     {
         byte f = Present;
-        if (IsWhitespace(cp)) f |= Whitespace;
-        if (cp >= 0xD800 && cp <= 0xDFFF) return f;
-        if (cp > 0x10FFFF) return f;
+        if (IsWhitespace(cp))
+        {
+            f |= Whitespace;
+        }
+
+        if (cp >= 0xD800 && cp <= 0xDFFF)
+        {
+            return f;
+        }
+
+        if (cp > 0x10FFFF)
+        {
+            return f;
+        }
+
         switch (CharUnicodeInfo.GetUnicodeCategory(cp))
         {
             case UnicodeCategory.UppercaseLetter:

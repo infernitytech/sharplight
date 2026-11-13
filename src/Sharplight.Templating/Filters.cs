@@ -18,7 +18,11 @@ internal static class Builtins
         foreach (var part in path.Split('.'))
         {
             object? next = Ops.GetItem(o, long.TryParse(part, out var idx) ? idx : part, strict);
-            if (next is Undefined) next = Ops.GetAttr(o, part, strict);
+            if (next is Undefined)
+            {
+                next = Ops.GetAttr(o, part, strict);
+            }
+
             o = next;
         }
         return o;
@@ -26,8 +30,16 @@ internal static class Builtins
 
     private static object? AttrOf(JinjaEnvironment env, object? item, object? attr)
     {
-        if (attr is string s) return AttrPath(item, s, env.StrictUndefined);
-        if (attr is long l) return Ops.GetItem(item, l, env.StrictUndefined);
+        if (attr is string s)
+        {
+            return AttrPath(item, s, env.StrictUndefined);
+        }
+
+        if (attr is long l)
+        {
+            return Ops.GetItem(item, l, env.StrictUndefined);
+        }
+
         return item;
     }
 
@@ -46,14 +58,26 @@ internal static class Builtins
 
     private static object? CallTest(JinjaEnvironment env, string name, object? value, List<object?> extra)
     {
-        if (!env.Tests.TryGetValue(name, out var t)) throw new TemplateRuntimeException($"No test named '{name}'");
+        if (!env.Tests.TryGetValue(name, out var t))
+        {
+            throw new TemplateRuntimeException($"No test named '{name}'");
+        }
+
         return t(env, value, new CallArgs(extra, null));
     }
 
     private static string Indent(object? v)
     {
-        if (v is null or Undefined) return "";
-        if (v is string s) return s;
+        if (v is null or Undefined)
+        {
+            return "";
+        }
+
+        if (v is string s)
+        {
+            return s;
+        }
+
         return new string(' ', (int)Ops.ToLong(v));
     }
 
@@ -80,20 +104,36 @@ internal static class Builtins
         {
             var def = a.Get(0, "default_value", "");
             bool boolean = Boolean(a, 1, "boolean", false);
-            if (v is Undefined) return def;
-            if (boolean && !Ops.Truthy(v)) return def;
+            if (v is Undefined)
+            {
+                return def;
+            }
+
+            if (boolean && !Ops.Truthy(v))
+            {
+                return def;
+            }
+
             return v;
         };
 
         f["first"] = (env, v, a) =>
         {
-            if (v is string s) return s.Length > 0 ? s.Substring(0, char.IsHighSurrogate(s[0]) && s.Length > 1 ? 2 : 1) : new Undefined("first", env.StrictUndefined);
+            if (v is string s)
+            {
+                return s.Length > 0 ? s.Substring(0, char.IsHighSurrogate(s[0]) && s.Length > 1 ? 2 : 1) : new Undefined("first", env.StrictUndefined);
+            }
+
             var l = Seq(v);
             return l.Count > 0 ? l[0] : new Undefined("first", env.StrictUndefined);
         };
         f["last"] = (env, v, a) =>
         {
-            if (v is string s) return s.Length > 0 ? s.Substring(s.Length - (char.IsLowSurrogate(s[^1]) && s.Length > 1 ? 2 : 1)) : new Undefined("last", env.StrictUndefined);
+            if (v is string s)
+            {
+                return s.Length > 0 ? s.Substring(s.Length - (char.IsLowSurrogate(s[^1]) && s.Length > 1 ? 2 : 1)) : new Undefined("last", env.StrictUndefined);
+            }
+
             var l = Seq(v);
             return l.Count > 0 ? l[^1] : new Undefined("last", env.StrictUndefined);
         };
@@ -105,7 +145,11 @@ internal static class Builtins
             bool first = true;
             foreach (var x in Seq(v))
             {
-                if (!first) sb.Append(sep);
+                if (!first)
+                {
+                    sb.Append(sep);
+                }
+
                 first = false;
                 sb.Append(S(attr == null ? x : AttrOf(env, x, attr)));
             }
@@ -148,9 +192,16 @@ internal static class Builtins
                     int bas = a.Get(1, "base", 10L) is long bl ? (int)bl : 10;
                     if (bas == 10)
                     {
-                        if (long.TryParse(s, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var l)) return l;
-                        if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d2) && double.IsFinite(d2)) return (long)d2;
-                    }
+                        if (long.TryParse(s, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var l))
+                            {
+                                return l;
+                            }
+
+                            if (double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d2) && double.IsFinite(d2))
+                            {
+                                return (long)d2;
+                            }
+                        }
                     else
                     {
                         try { return Convert.ToInt64(s, bas); } catch (Exception) { }
@@ -179,7 +230,11 @@ internal static class Builtins
             if (v is long or bool)
             {
                 long n = Ops.ToLong(v);
-                if (prec >= 0) return n;
+                if (prec >= 0)
+                {
+                    return n;
+                }
+
                 double p = Math.Pow(10, -prec);
                 double q = method switch { "ceil" => Math.Ceiling(n / p), "floor" => Math.Floor(n / p), _ => Math.Round(n / p, MidpointRounding.ToEven) };
                 return (long)(q * p);
@@ -206,7 +261,11 @@ internal static class Builtins
         f["attr"] = (env, v, a) =>
         {
             string name = S(a.Get(0, "name"));
-            if (v is JinjaDict d) return Methods.HasDictMethod(name) ? new BoundMethod(d, name) : new Undefined(name, env.StrictUndefined);
+            if (v is JinjaDict d)
+            {
+                return Methods.HasDictMethod(name) ? new BoundMethod(d, name) : new Undefined(name, env.StrictUndefined);
+            }
+
             return Ops.GetAttr(v, name, env.StrictUndefined);
         };
 
@@ -225,7 +284,11 @@ internal static class Builtins
         {
             var attr = a.Get(1, "attribute");
             object? acc = a.Get(2, "start", 0L);
-            foreach (var x in Seq(v)) acc = Ops.Add(acc, attr == null ? x : AttrOf(env, x, attr));
+            foreach (var x in Seq(v))
+            {
+                acc = Ops.Add(acc, attr == null ? x : AttrOf(env, x, attr));
+            }
+
             return acc;
         };
         f["min"] = (env, v, a) => MinMax(env, v, a, -1);
@@ -239,7 +302,11 @@ internal static class Builtins
             foreach (var x in Seq(v))
             {
                 var k = SortKey(attr == null ? x : AttrOf(env, x, attr), cs);
-                if (seen.Any(s => Ops.Eq(s, k))) continue;
+                if (seen.Any(s => Ops.Eq(s, k)))
+                {
+                    continue;
+                }
+
                 seen.Add(k);
                 res.Add(x);
             }
@@ -257,7 +324,11 @@ internal static class Builtins
         };
         f["dictsort"] = (env, v, a) =>
         {
-            if (v is not JinjaDict d) throw new TemplateRuntimeException("dictsort requires a mapping");
+            if (v is not JinjaDict d)
+            {
+                throw new TemplateRuntimeException("dictsort requires a mapping");
+            }
+
             bool cs = Boolean(a, 0, "case_sensitive", false);
             bool byValue = S(a.Get(1, "by", "key")) == "value";
             bool rev = Boolean(a, 2, "reverse", false);
@@ -283,7 +354,14 @@ internal static class Builtins
             }
             if (cur != null)
             {
-                if (hasFill) while (cur.Count < n) cur.Add(fill);
+                if (hasFill)
+                {
+                    while (cur.Count < n)
+                    {
+                        cur.Add(fill);
+                    }
+                }
+
                 res.Add(cur);
             }
             return res;
@@ -298,10 +376,18 @@ internal static class Builtins
             for (int i = 0; i < n; i++)
             {
                 int start = offset + i * per;
-                if (i < extra) offset++;
+                if (i < extra)
+                {
+                    offset++;
+                }
+
                 int end = offset + (i + 1) * per;
                 var tmp = seq.GetRange(start, end - start);
-                if (a.Has(1, "fill_with") && i >= extra) tmp.Add(fill);
+                if (a.Has(1, "fill_with") && i >= extra)
+                {
+                    tmp.Add(fill);
+                }
+
                 res.Add(tmp);
             }
             return res;
@@ -314,8 +400,14 @@ internal static class Builtins
             foreach (var x in sorted)
             {
                 var k = AttrOf(env, x, attr);
-                if (groups.Count > 0 && Ops.Eq(groups[^1].Key, k)) groups[^1].Items.Add(x);
-                else groups.Add((k, new List<object?> { x }));
+                if (groups.Count > 0 && Ops.Eq(groups[^1].Key, k))
+                {
+                    groups[^1].Items.Add(x);
+                }
+                else
+                {
+                    groups.Add((k, new List<object?> { x }));
+                }
             }
             return groups.Select(g => (object?)new JinjaTuple { g.Key, g.Items }).ToList();
         };
@@ -323,7 +415,11 @@ internal static class Builtins
         f["map"] = (env, v, a) =>
         {
             var res = new List<object?>();
-            if (!Ops.Truthy(v)) return res;
+            if (!Ops.Truthy(v))
+            {
+                return res;
+            }
+
             if (a.Named != null && a.Named.ContainsKey("attribute"))
             {
                 var attr = a.Named["attribute"];
@@ -335,10 +431,22 @@ internal static class Builtins
                 }
                 return res;
             }
-            if (a.Positional.Count == 0 || a.Positional[0] is not string fname) throw new TemplateRuntimeException("map requires a filter name or attribute=");
-            if (!env.Filters.TryGetValue(fname, out var fn)) throw new TemplateRuntimeException($"No filter named '{fname}'");
+            if (a.Positional.Count == 0 || a.Positional[0] is not string fname)
+            {
+                throw new TemplateRuntimeException("map requires a filter name or attribute=");
+            }
+
+            if (!env.Filters.TryGetValue(fname, out var fn))
+            {
+                throw new TemplateRuntimeException($"No filter named '{fname}'");
+            }
+
             var rest = new CallArgs(a.Positional.Skip(1).ToList(), a.Named);
-            foreach (var x in Seq(v)) res.Add(fn(env, x, rest));
+            foreach (var x in Seq(v))
+            {
+                res.Add(fn(env, x, rest));
+            }
+
             return res;
         };
         f["select"] = (env, v, a) => SelectCore(env, v, a, 0, false, false);
@@ -355,8 +463,16 @@ internal static class Builtins
             var sb = new StringBuilder();
             for (int i = 0; i < lines.Length; i++)
             {
-                if (i > 0) sb.Append('\n');
-                if (lines[i].Length == 0 && !blank) continue;
+                if (i > 0)
+                {
+                    sb.Append('\n');
+                }
+
+                if (lines[i].Length == 0 && !blank)
+                {
+                    continue;
+                }
+
                 if (i == 0 && !first) { sb.Append(lines[i]); continue; }
                 sb.Append(pad).Append(lines[i]);
             }
@@ -370,7 +486,11 @@ internal static class Builtins
             foreach (char c in S(v))
             {
                 bool w = char.IsLetterOrDigit(c) || c == '_';
-                if (w && !inWord) n++;
+                if (w && !inWord)
+                {
+                    n++;
+                }
+
                 inWord = w;
             }
             return n;
@@ -382,9 +502,17 @@ internal static class Builtins
             bool kill = Boolean(a, 1, "killwords", false);
             string end = S(a.Get(2, "end", "..."));
             int leeway = (int)Ops.ToLong(a.Get(3, "leeway", 5L));
-            if (s.Length <= len + leeway) return s;
+            if (s.Length <= len + leeway)
+            {
+                return s;
+            }
+
             string cut = s.Substring(0, Math.Max(0, len - end.Length));
-            if (kill) return cut + end;
+            if (kill)
+            {
+                return cut + end;
+            }
+
             int sp = cut.LastIndexOf(' ');
             return (sp >= 0 ? cut.Substring(0, sp) : cut) + end;
         };
@@ -394,18 +522,34 @@ internal static class Builtins
             foreach (byte b in Encoding.UTF8.GetBytes(S(v)))
             {
                 char c = (char)b;
-                if (char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-' or '~' or '/') sb.Append(c);
-                else sb.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));
+                if (char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-' or '~' or '/')
+                {
+                    sb.Append(c);
+                }
+                else
+                {
+                    sb.Append('%').Append(b.ToString("X2", CultureInfo.InvariantCulture));
+                }
             }
             return sb.ToString();
         };
         f["format"] = (env, v, a) => PyFormat.Percent(S(v), new List<object?>(a.Positional));
         f["xmlattr"] = (env, v, a) =>
         {
-            if (v is not JinjaDict d) throw new TemplateRuntimeException("xmlattr requires a mapping");
+            if (v is not JinjaDict d)
+            {
+                throw new TemplateRuntimeException("xmlattr requires a mapping");
+            }
+
             var sb = new StringBuilder();
             foreach (var kv in d)
-                if (kv.Value is not (null or Undefined)) sb.Append(' ').Append(S(kv.Key)).Append("=\"").Append(Markup.Escape(S(kv.Value))).Append('"');
+            {
+                if (kv.Value is not (null or Undefined))
+                {
+                    sb.Append(' ').Append(S(kv.Key)).Append("=\"").Append(Markup.Escape(S(kv.Value))).Append('"');
+                }
+            }
+
             return sb.Length > 0 ? sb.ToString() : "";
         };
         return f;
@@ -435,8 +579,15 @@ internal static class Builtins
         bool start = true;
         foreach (char c in s)
         {
-            if (start) sb.Append(char.ToUpperInvariant(c));
-            else sb.Append(char.ToLowerInvariant(c));
+            if (start)
+            {
+                sb.Append(char.ToUpperInvariant(c));
+            }
+            else
+            {
+                sb.Append(char.ToLowerInvariant(c));
+            }
+
             start = char.IsWhiteSpace(c) || c is '-' or '(' or '{' or '[' or '<';
         }
         return sb.ToString();
@@ -447,7 +598,11 @@ internal static class Builtins
         bool cs = Boolean(a, 0, "case_sensitive", false);
         var attr = a.Get(1, "attribute");
         var seq = Seq(v);
-        if (seq.Count == 0) return new Undefined(dir < 0 ? "min" : "max", env.StrictUndefined);
+        if (seq.Count == 0)
+        {
+            return new Undefined(dir < 0 ? "min" : "max", env.StrictUndefined);
+        }
+
         object? best = seq[0];
         object? bestKey = SortKey(attr == null ? best : AttrOf(env, best, attr), cs);
         for (int i = 1; i < seq.Count; i++)
@@ -468,12 +623,19 @@ internal static class Builtins
         string? testName = a.Positional.Count > testIdx ? a.Positional[testIdx] as string : null;
         var extra = a.Positional.Count > testIdx + 1 ? a.Positional.GetRange(testIdx + 1, a.Positional.Count - testIdx - 1) : new List<object?>();
         var res = new List<object?>();
-        if (!Ops.Truthy(v)) return res;
+        if (!Ops.Truthy(v))
+        {
+            return res;
+        }
+
         foreach (var x in Seq(v))
         {
             var target = byAttr ? AttrOf(env, x, attr) : x;
             bool ok = testName == null ? Ops.Truthy(target) : (bool)CallTest(env, testName, target, extra)!;
-            if (ok != reject) res.Add(x);
+            if (ok != reject)
+            {
+                res.Add(x);
+            }
         }
         return res;
     }
@@ -502,7 +664,11 @@ internal static class Builtins
         t["divisibleby"] = (env, v, a) =>
         {
             long n = Ops.ToLong(a.Get(0, "num"));
-            if (n == 0) throw new TemplateRuntimeException("division by zero");
+            if (n == 0)
+            {
+                throw new TemplateRuntimeException("division by zero");
+            }
+
             return Ops.ToLong(v) % n == 0;
         };
         t["eq"] = t["equalto"] = t["=="] = (env, v, a) => Ops.Eq(v, a.Get(0, "other"));
@@ -515,11 +681,31 @@ internal static class Builtins
         t["sameas"] = (env, v, a) =>
         {
             var o = a.Get(0, "other");
-            if (v is bool b1 && o is bool b2) return b1 == b2;
-            if (v is null) return o is null;
-            if (v is Undefined) return o is Undefined;
-            if (v is long l1 && o is long l2) return l1 == l2;
-            if (v is string s1 && o is string s2) return ReferenceEquals(s1, s2) || s1 == s2;
+            if (v is bool b1 && o is bool b2)
+            {
+                return b1 == b2;
+            }
+
+            if (v is null)
+            {
+                return o is null;
+            }
+
+            if (v is Undefined)
+            {
+                return o is Undefined;
+            }
+
+            if (v is long l1 && o is long l2)
+            {
+                return l1 == l2;
+            }
+
+            if (v is string s1 && o is string s2)
+            {
+                return ReferenceEquals(s1, s2) || s1 == s2;
+            }
+
             return ReferenceEquals(v, o);
         };
         t["lower"] = (env, v, a) => v is string s && s.Any(char.IsLetter) && !s.Any(char.IsUpper);
@@ -537,27 +723,66 @@ internal static class Builtins
         {
             long start = 0, stop, step = 1;
             var p = a.Positional;
-            if (p.Count == 1) stop = Ops.ToLong(p[0]);
+            if (p.Count == 1)
+            {
+                stop = Ops.ToLong(p[0]);
+            }
             else if (p.Count >= 2)
             {
                 start = Ops.ToLong(p[0]);
                 stop = Ops.ToLong(p[1]);
-                if (p.Count >= 3) step = Ops.ToLong(p[2]);
+                if (p.Count >= 3)
+                {
+                    step = Ops.ToLong(p[2]);
+                }
             }
-            else throw new TemplateRuntimeException("range expected at least 1 argument, got 0");
-            if (step == 0) throw new TemplateRuntimeException("range() arg 3 must not be zero");
+            else
+            {
+                throw new TemplateRuntimeException("range expected at least 1 argument, got 0");
+            }
+
+            if (step == 0)
+            {
+                throw new TemplateRuntimeException("range() arg 3 must not be zero");
+            }
+
             var l = new List<object?>();
-            if (step > 0) for (long i = start; i < stop; i += step) l.Add(i);
-            else for (long i = start; i > stop; i += step) l.Add(i);
+            if (step > 0)
+            {
+                for (long i = start; i < stop; i += step)
+                {
+                    l.Add(i);
+                }
+            }
+            else
+            {
+                for (long i = start; i > stop; i += step)
+                {
+                    l.Add(i);
+                }
+            }
+
             return l;
         });
         g["namespace"] = new NativeFunction("namespace", a =>
         {
             var ns = new JinjaNamespace();
             if (a.Positional.Count > 0 && a.Positional[0] is JinjaDict d)
-                foreach (var kv in d) ns.Attributes[Ops.Str(kv.Key)] = kv.Value;
+            {
+                foreach (var kv in d)
+                {
+                    ns.Attributes[Ops.Str(kv.Key)] = kv.Value;
+                }
+            }
+
             if (a.Named != null)
-                foreach (var kv in a.Named) ns.Attributes[kv.Key] = kv.Value;
+            {
+                foreach (var kv in a.Named)
+                {
+                    ns.Attributes[kv.Key] = kv.Value;
+                }
+            }
+
             return ns;
         });
         g["dict"] = new NativeFunction("dict", a =>
@@ -566,19 +791,35 @@ internal static class Builtins
             if (a.Positional.Count > 0)
             {
                 var src = a.Positional[0];
-                if (src is JinjaDict sd) foreach (var kv in sd) d[kv.Key] = kv.Value;
+                if (src is JinjaDict sd)
+                {
+                    foreach (var kv in sd)
+                    {
+                        d[kv.Key] = kv.Value;
+                    }
+                }
                 else
                 {
                     foreach (var pair in Ops.Iterate(src))
                     {
                         var pl = Ops.Iterate(pair);
-                        if (pl.Count != 2) throw new TemplateRuntimeException("dict() sequence element has wrong length");
+                        if (pl.Count != 2)
+                        {
+                            throw new TemplateRuntimeException("dict() sequence element has wrong length");
+                        }
+
                         d[pl[0]!] = pl[1];
                     }
                 }
             }
             if (a.Named != null)
-                foreach (var kv in a.Named) d[kv.Key] = kv.Value;
+            {
+                foreach (var kv in a.Named)
+                {
+                    d[kv.Key] = kv.Value;
+                }
+            }
+
             return d;
         });
         g["raise_exception"] = new NativeFunction("raise_exception", a =>

@@ -6,21 +6,25 @@ namespace Sharplight.Extensions.AI.Tests;
 
 public class OutputParserTests
 {
-    static (List<AIContent> All, OutputParser P) Run(OutputParser p, params string[] pieces)
+    private static (List<AIContent> All, OutputParser P) Run(OutputParser p, params string[] pieces)
     {
         var all = new List<AIContent>();
-        foreach (var s in pieces) all.AddRange(p.Push(s));
+        foreach (var s in pieces)
+        {
+            all.AddRange(p.Push(s));
+        }
+
         all.AddRange(p.Complete());
         return (all, p);
     }
 
-    static string Text(IEnumerable<AIContent> c) => string.Concat(c.OfType<TextContent>().Select(t => t.Text));
-    static string Reasoning(IEnumerable<AIContent> c) => string.Concat(c.OfType<TextReasoningContent>().Select(t => t.Text));
+    private static string Text(IEnumerable<AIContent> c) => string.Concat(c.OfType<TextContent>().Select(t => t.Text));
+    private static string Reasoning(IEnumerable<AIContent> c) => string.Concat(c.OfType<TextReasoningContent>().Select(t => t.Text));
 
-    static OutputParser Plain(bool reasoning = false, string[]? stops = null)
+    private static OutputParser Plain(bool reasoning = false, string[]? stops = null)
         => new(reasoning, stops, null, null, null, null);
 
-    static OutputParser WithTools(params AITool[] tools)
+    private static OutputParser WithTools(params AITool[] tools)
         => new(false, null, "<tool_call>", "</tool_call>", [new JsonToolCallParser(), new XmlToolCallParser()], new ToolSchemas(tools));
 
     [Fact]
@@ -118,7 +122,7 @@ public class OutputParserTests
 
 public class PromptMappingTests
 {
-    static readonly SharplightChatClientOptions Opts = new();
+    private static readonly SharplightChatClientOptions Opts = new();
 
     [Fact]
     public void ChatOptionsMapToSampling()
@@ -201,7 +205,7 @@ public class PromptMappingTests
 
 public class ChatClientPipelineTests
 {
-    static ChatOptions Weather() => new() { Tools = [AIFunctionFactory.Create(([Description("City")] string city) => "sunny", "get_weather", "Weather")] };
+    private static ChatOptions Weather() => new() { Tools = [AIFunctionFactory.Create(([Description("City")] string city) => "sunny", "get_weather", "Weather")] };
 
     [Fact]
     public async Task NonStreamingReturnsTextUsageAndFinishReason()
@@ -226,7 +230,11 @@ public class ChatClientPipelineTests
         using var backend = new FakeBackend("a", "b", "c") { ReachedLimit = true };
         using var client = new SharplightChatClient(backend);
         var updates = new List<ChatResponseUpdate>();
-        await foreach (var u in client.GetStreamingResponseAsync("x")) updates.Add(u);
+        await foreach (var u in client.GetStreamingResponseAsync("x"))
+        {
+            updates.Add(u);
+        }
+
         Assert.Equal(["a", "b", "c"], updates.Where(u => u.Text.Length > 0).Select(u => u.Text));
         Assert.Contains(updates.Last().Contents, c => c is UsageContent);
         Assert.Equal(ChatFinishReason.Length, updates.Last().FinishReason);
@@ -302,7 +310,7 @@ public class ChatClientPipelineTests
     }
 
     /// <summary>An IChatClient (through the real pipeline) whose model output is scripted per call.</summary>
-    sealed class ScriptedClient(Func<int, string> script) : IChatClient
+    private sealed class ScriptedClient(Func<int, string> script) : IChatClient
     {
         public List<string> Prompts { get; } = [];
 

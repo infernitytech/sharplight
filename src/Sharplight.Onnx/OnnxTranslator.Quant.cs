@@ -1,6 +1,4 @@
 using Sharplight.Graph;
-using Sharplight.Models;
-using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
@@ -8,37 +6,49 @@ namespace Sharplight.Onnx;
 // (see QuantOps); scales/zero points may be compile-time constants or runtime values (DynamicQuantizeLinear).
 internal sealed partial class OnnxTranslator
 {
-    static readonly HashSet<string> s_quantContrib =
+    private static readonly HashSet<string> s_quantContrib =
     [
         "QLinearAdd", "QLinearMul", "QLinearGlobalAveragePool", "QLinearAveragePool", "QLinearSigmoid", "QLinearLeakyRelu", "QLinearConcat", "QLinearSoftmax",
     ];
 
     /// <summary>A scale or zero point as an f32 value broadcastable against a tensor (constant, or a runtime scalar).</summary>
-    Value QParam(Tn t, string name) => t.IsConst ? ConstValue(t.C!.CastTo(OnnxType.Float).Count == 1 ? t.C.CastTo(OnnxType.Float).Reshaped([1]) : t.C.CastTo(OnnxType.Float), name) : t.V!;
+    private Value QParam(Tn t, string name) => t.IsConst ? ConstValue(t.C!.CastTo(OnnxType.Float).Count == 1 ? t.C.CastTo(OnnxType.Float).Reshaped([1]) : t.C.CastTo(OnnxType.Float), name) : t.V!;
 
     /// <summary>(q - zp) * scale.</summary>
-    Value Deq(Tn x, Tn scale, Tn? zp, string name)
+    private Value Deq(Tn x, Tn scale, Tn? zp, string name)
     {
         var v = AsValue(x);
         bool zeroZp = zp is null || (zp.IsConst && zp.C!.Floats().All(z => z == 0));
-        if (!zeroZp) v = _b.Sub(v, QParam(zp!, name + ".zp"));
-        if (scale.IsConst && scale.C!.Count == 1) return _b.Scale(v, scale.C.ScalarF32());
+        if (!zeroZp)
+        {
+            v = _b.Sub(v, QParam(zp!, name + ".zp"));
+        }
+
+        if (scale.IsConst && scale.C!.Count == 1)
+        {
+            return _b.Scale(v, scale.C.ScalarF32());
+        }
+
         return _b.Mul(v, QParam(scale, name + ".scale"));
     }
 
     /// <summary>clip(round(y / scale) + zp, range of the zero-point type).</summary>
-    Value Req(Value y, Tn scale, Tn? zp, string name)
+    private Value Req(Value y, Tn scale, Tn? zp, string name)
     {
         var q = Emit("Round", [_b.Binary("Div", y, QParam(scale, name + ".ys"))]);   // a true division (not * 1/s) so ties round like onnxruntime
         int et = zp is { IsConst: true } ? zp.C!.ElemType : OnnxType.UInt8;
-        if (zp is not null) q = _b.Add(q, QParam(zp, name + ".yzp"));
+        if (zp is not null)
+        {
+            q = _b.Add(q, QParam(zp, name + ".yzp"));
+        }
+
         var (lo, hi) = OnnxFold.Range(et);
         return Emit("Clip", [q], Attributes.From(("min", (float)lo), ("max", (float)hi)), name);
     }
 
-    Tn? Opt(Tn?[] ins, int i) => i < ins.Length ? ins[i] : null;
+    private Tn? Opt(Tn?[] ins, int i) => i < ins.Length ? ins[i] : null;
 
-    bool QuantExtra(OnnxNode n, Tn?[] ins)
+    private bool QuantExtra(OnnxNode n, Tn?[] ins)
     {
         string name = Nm(n);
         if (n.Domain is "" or "ai.onnx" && n.OpType == "DynamicQuantizeLinear")
@@ -52,11 +62,23 @@ internal sealed partial class OnnxTranslator
             var zpv = Emit("Clip", [Emit("Round", [_b.Binary("Div", _b.Scale(lo, -1f), scale)])], Attributes.From(("min", 0f), ("max", 255f)));
             var y = Emit("Clip", [_b.Add(Emit("Round", [_b.Binary("Div", x, scale)]), zpv)], Attributes.From(("min", 0f), ("max", 255f)), name);
             SetDyn(n, 0, y);
-            if (n.Outputs.Count > 1 && n.Outputs[1] != "") SetDyn(n, 1, Rs(scale, 1));
-            if (n.Outputs.Count > 2 && n.Outputs[2] != "") SetDyn(n, 2, Rs(zpv, 1));
+            if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+            {
+                SetDyn(n, 1, Rs(scale, 1));
+            }
+
+            if (n.Outputs.Count > 2 && n.Outputs[2] != "")
+            {
+                SetDyn(n, 2, Rs(zpv, 1));
+            }
+
             return true;
         }
-        if (n.Domain != "com.microsoft" || !s_quantContrib.Contains(n.OpType)) return false;
+        if (n.Domain != "com.microsoft" || !s_quantContrib.Contains(n.OpType))
+        {
+            return false;
+        }
+
         switch (n.OpType)
         {
             case "QLinearAdd": case "QLinearMul":
@@ -80,19 +102,30 @@ internal sealed partial class OnnxTranslator
             case "QLinearGlobalAveragePool": case "QLinearAveragePool":
             {
                 var x = Deq(ins[0]!, ins[1]!, Opt(ins, 2), name + ".x");
-                if (n.Int("channels_last", 0) != 0) x = Permute(x, [0, 3, 1, 2]);
-                var pool = new OnnxNode { OpType = n.OpType == "QLinearGlobalAveragePool" ? "GlobalAveragePool" : "AveragePool", Name = n.Name, Inputs = ["x"], Outputs = [name + ".pool"], Attributes = n.Attributes };
+                if (n.Int("channels_last", 0) != 0)
+                    {
+                        x = Permute(x, [0, 3, 1, 2]);
+                    }
+
+                    var pool = new OnnxNode { OpType = n.OpType == "QLinearGlobalAveragePool" ? "GlobalAveragePool" : "AveragePool", Name = n.Name, Inputs = ["x"], Outputs = [name + ".pool"], Attributes = n.Attributes };
                 Dynamic(pool, [Tn.Dyn(x)]);
                 var y = _env[name + ".pool"].V!;
-                if (n.Int("channels_last", 0) != 0) y = Permute(y, [0, 2, 3, 1]);
-                SetDyn(n, 0, Req(y, ins[3]!, Opt(ins, 4), name)); return true;
+                if (n.Int("channels_last", 0) != 0)
+                    {
+                        y = Permute(y, [0, 2, 3, 1]);
+                    }
+
+                    SetDyn(n, 0, Req(y, ins[3]!, Opt(ins, 4), name)); return true;
             }
             case "QLinearConcat":
             {
                 var parts = new List<Value>();
                 for (int i = 2; i + 2 < ins.Length; i += 3)
-                    parts.Add(Deq(ins[i]!, ins[i + 1]!, Opt(ins, i + 2), name + $".in{i}"));
-                var cat = Emit("Concat", [.. parts], Attributes.From(("axis", n.Int("axis", 1))));
+                    {
+                        parts.Add(Deq(ins[i]!, ins[i + 1]!, Opt(ins, i + 2), name + $".in{i}"));
+                    }
+
+                    var cat = Emit("Concat", [.. parts], Attributes.From(("axis", n.Int("axis", 1))));
                 SetDyn(n, 0, Req(cat, ins[0]!, Opt(ins, 1), name)); return true;
             }
         }

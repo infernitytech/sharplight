@@ -4,20 +4,24 @@ namespace Sharplight.Serving.Tests;
 
 public class ParserTests
 {
-    static readonly string[] Tools = ["get_weather", "add"];
+    private static readonly string[] Tools = ["get_weather", "add"];
 
     /// <summary>Feeds <paramref name="text"/> in pieces of <paramref name="step"/> chars and returns all pieces.</summary>
-    static List<ParsedPiece> Parse(string text, int step, IReadOnlyList<IToolCallFormat>? formats = null, bool reasoning = false, string[]? tools = null)
+    private static List<ParsedPiece> Parse(string text, int step, IReadOnlyList<IToolCallFormat>? formats = null, bool reasoning = false, string[]? tools = null)
     {
         var p = new ChatOutputParser(formats ?? ToolCallFormats.All, tools ?? Tools, reasoning);
         var o = new List<ParsedPiece>();
-        for (int i = 0; i < text.Length; i += step) o.AddRange(p.Push(text.Substring(i, Math.Min(step, text.Length - i))));
+        for (int i = 0; i < text.Length; i += step)
+        {
+            o.AddRange(p.Push(text.Substring(i, Math.Min(step, text.Length - i))));
+        }
+
         o.AddRange(p.Finish());
         return o;
     }
 
-    static string Join(List<ParsedPiece> ps, PieceKind k) => string.Concat(ps.Where(p => p.Kind == k).Select(p => p.Text));
-    static List<ToolCall> Calls(List<ParsedPiece> ps) => [.. ps.Where(p => p.Kind == PieceKind.ToolCall).Select(p => p.Call!)];
+    private static string Join(List<ParsedPiece> ps, PieceKind k) => string.Concat(ps.Where(p => p.Kind == k).Select(p => p.Text));
+    private static List<ToolCall> Calls(List<ParsedPiece> ps) => [.. ps.Where(p => p.Kind == PieceKind.ToolCall).Select(p => p.Call!)];
 
     [Theory]
     [InlineData(1)] [InlineData(3)] [InlineData(1000)]
@@ -190,7 +194,7 @@ public class ParserTests
         Assert.Equal("say hibye", Join(ps, PieceKind.Content));
     }
 
-    sealed class AtFormat : IToolCallFormat
+    private sealed class AtFormat : IToolCallFormat
     {
         public string Name => "at";
         public string? StartMarker => "@@call ";

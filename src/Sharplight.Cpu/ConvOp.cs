@@ -10,23 +10,23 @@ namespace Sharplight.Cpu;
 /// </summary>
 internal sealed unsafe class ConvOp : CpuOp
 {
-    readonly TRef _x, _y; readonly TRef? _bias;
-    readonly int _c, _h, _w, _o, _kh, _kw, _sh, _sw, _pt, _pl, _dh, _dw, _g, _ho, _wo;
-    readonly int _cg, _mg, _kg, _hw, _mp, _nt;
-    readonly bool _depthwise, _direct;
-    readonly float* _apack;     // packed weights [g][panel][k][MR]
-    readonly float* _wdw;       // depthwise: dense f32 weights [O, KH*KW]
-    readonly float* _bpack;     // packed im2col [tile][k][NR]
-    readonly Action<int> _packBody, _gemmBody, _dwBody;
+    private readonly TRef _x, _y; private readonly TRef? _bias;
+    private readonly int _c, _h, _w, _o, _kh, _kw, _sh, _sw, _pt, _pl, _dh, _dw, _g, _ho, _wo;
+    private readonly int _cg, _mg, _kg, _hw, _mp, _nt;
+    private readonly bool _depthwise, _direct;
+    private readonly float* _apack;     // packed weights [g][panel][k][MR]
+    private readonly float* _wdw;       // depthwise: dense f32 weights [O, KH*KW]
+    private readonly float* _bpack;     // packed im2col [tile][k][NR]
+    private readonly Action<int> _packBody, _gemmBody, _dwBody;
 
     // per-run state
-    long _n; int _img, _grp, _kSplit, _chunkC; int _mpt, _ntt, _nBlocks, _mBlocks;
-    float* _xg, _yg, _bias0;
-    long _planes, _perChunk;
+    private long _n; private int _img, _grp, _kSplit, _chunkC; private int _mpt, _ntt, _nBlocks, _mBlocks;
+    private float* _xg, _yg, _bias0;
+    private long _planes, _perChunk;
 
     public override string Name => _depthwise ? "Conv.depthwise" : _direct ? "Conv.1x1" : "Conv";
 
-    ConvOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw)
+    private ConvOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw)
     {
         _x = x; _y = y; _bias = bias;
         _c = (int)x.Dims[1]; _h = (int)x.Dims[2]; _w = (int)x.Dims[3];
@@ -48,11 +48,14 @@ internal sealed unsafe class ConvOp : CpuOp
         long aBytes = (long)_g * _mp * _kg * MR * 4;
         _apack = (float*)Mem.Alloc(aBytes, true);
         for (int g = 0; g < _g; g++)
+        {
             for (int p = 0; p < _mp; p++)
             {
                 int r0 = g * _mg + p * MR, rows = Math.Min(MR, _mg - p * MR);
                 Gemm.PackA(_apack + ((long)(g * _mp + p) * _kg) * MR, wDense + (long)r0 * _kg, _kg, 1, rows, _kg, 1f);
             }
+        }
+
         long tiles = _direct ? 1 : _nt;
         _bpack = (float*)Mem.Alloc(tiles * _kg * NR * 4, false);
     }
@@ -68,7 +71,11 @@ internal sealed unsafe class ConvOp : CpuOp
     public override void Run(RunParameters p)
     {
         _n = _x.Dim(0, p);
-        if (_n == 0 || _hw == 0) return;
+        if (_n == 0 || _hw == 0)
+        {
+            return;
+        }
+
         _bias0 = _bias is null ? null : (float*)_bias.P;
         if (_depthwise)
         {
@@ -81,6 +88,7 @@ internal sealed unsafe class ConvOp : CpuOp
         }
         int MR = Gemm.MR, NR = Gemm.NR;
         for (int img = 0; img < _n; img++)
+        {
             for (int g = 0; g < _g; g++)
             {
                 _img = img; _grp = g;
@@ -100,22 +108,34 @@ internal sealed unsafe class ConvOp : CpuOp
                 long target = 4L * Par.Threads;
                 while (((_mp + mpt - 1) / mpt) * (long)((_nt + ntt - 1) / ntt) < target && (ntt > 1 || mpt > 1))
                 {
-                    if (ntt > 1) ntt = (ntt + 1) / 2; else mpt = (mpt + 1) / 2;
+                    if (ntt > 1)
+                    {
+                        ntt = (ntt + 1) / 2;
+                    }
+                    else
+                    {
+                        mpt = (mpt + 1) / 2;
+                    }
                 }
                 _mpt = mpt; _ntt = ntt;
                 _mBlocks = (_mp + mpt - 1) / mpt; _nBlocks = (_nt + ntt - 1) / ntt;
                 Par.For(_mBlocks * _nBlocks, _gemmBody);
             }
+        }
     }
 
     /// <summary>Task = (output tile, channel range): fills the B panel rows of those channels.</summary>
-    void PackBody(int task)
+    private void PackBody(int task)
     {
         int ks = _kSplit;
         int tileSel = task / ks, part = task % ks;
         int tile = _direct ? _nt - 1 : tileSel;
         int c0 = part * _chunkC, c1 = Math.Min(_cg, c0 + _chunkC);
-        if (c0 >= c1) return;
+        if (c0 >= c1)
+        {
+            return;
+        }
+
         int NR = Gemm.NR;
         long p0 = (long)tile * NR;
         int ncols = (int)Math.Min(NR, _hw - p0);
@@ -133,6 +153,7 @@ internal sealed unsafe class ConvOp : CpuOp
         {
             float* xc = _xg + (long)c * H * W;
             for (int fh = 0; fh < kh; fh++)
+            {
                 for (int fw = 0; fw < kw; fw++)
                 {
                     float* row = panel + (long)((c * kh + fh) * kw + fw) * NR;
@@ -146,9 +167,20 @@ internal sealed unsafe class ConvOp : CpuOp
                         if (_sw == 1)
                         {
                             int lo = Math.Clamp(-off, 0, len), hi = Math.Clamp(W - off, lo, len);
-                            if (lo > 0) new Span<float>(d, lo).Clear();
-                            if (hi > lo) new ReadOnlySpan<float>(xr + off + lo, hi - lo).CopyTo(new Span<float>(d + lo, hi - lo));
-                            if (hi < len) new Span<float>(d + hi, len - hi).Clear();
+                            if (lo > 0)
+                            {
+                                new Span<float>(d, lo).Clear();
+                            }
+
+                            if (hi > lo)
+                            {
+                                new ReadOnlySpan<float>(xr + off + lo, hi - lo).CopyTo(new Span<float>(d + lo, hi - lo));
+                            }
+
+                            if (hi < len)
+                            {
+                                new Span<float>(d + hi, len - hi).Clear();
+                            }
                         }
                         else
                         {
@@ -159,12 +191,16 @@ internal sealed unsafe class ConvOp : CpuOp
                             }
                         }
                     }
-                    if (ncols < NR) new Span<float>(row + ncols, NR - ncols).Clear();
+                    if (ncols < NR)
+                    {
+                        new Span<float>(row + ncols, NR - ncols).Clear();
+                    }
                 }
+            }
         }
     }
 
-    void GemmBody(int task)
+    private void GemmBody(int task)
     {
         int MR = Gemm.MR, NR = Gemm.NR;
         int mb = task / _nBlocks, nb = task % _nBlocks;
@@ -172,12 +208,17 @@ internal sealed unsafe class ConvOp : CpuOp
         int t0 = nb * _ntt, t1 = Math.Min(_nt, t0 + _ntt);
         float* bias = stackalloc float[MR * _mpt];
         if (_bias0 != null)
+        {
             for (int p = pm0; p < pm1; p++)
+            {
                 for (int i = 0; i < MR; i++)
                 {
                     int r = p * MR + i;
                     bias[(p - pm0) * MR + i] = r < _mg ? _bias0[_grp * _mg + r] : 0f;
                 }
+            }
+        }
+
         long kg = _kg;
         for (int kb = 0; kb < kg; kb += Gemm.KC)
         {
@@ -196,14 +237,20 @@ internal sealed unsafe class ConvOp : CpuOp
                     float* c = _yg + (long)p * MR * _hw + n0;
                     int rows = Math.Min(MR, _mg - p * MR);
                     float* bi = _bias0 != null ? bias + (p - pm0) * MR : null;
-                    if (rows == MR && cols == NR) Gemm.Tile(a, b, ldb, c, _hw, kc, bi, acc);
-                    else Gemm.TileEdge(a, b, ldb, c, _hw, kc, bi, acc, rows, cols);
+                    if (rows == MR && cols == NR)
+                    {
+                        Gemm.Tile(a, b, ldb, c, _hw, kc, bi, acc);
+                    }
+                    else
+                    {
+                        Gemm.TileEdge(a, b, ldb, c, _hw, kc, bi, acc, rows, cols);
+                    }
                 }
             }
         }
     }
 
-    void DwBody(int chunk)
+    private void DwBody(int chunk)
     {
         long s = chunk * _perChunk, e = Math.Min(_planes, s + _perChunk);
         int mult = _o / _c;
@@ -221,7 +268,11 @@ internal sealed unsafe class ConvOp : CpuOp
                 for (int fh = 0; fh < _kh; fh++)
                 {
                     int ih = oh * _sh - _pt + fh * _dh;
-                    if ((uint)ih >= (uint)_h) continue;
+                    if ((uint)ih >= (uint)_h)
+                    {
+                        continue;
+                    }
+
                     float* xr = xp + (long)ih * _w;
                     for (int fw = 0; fw < _kw; fw++)
                     {
@@ -229,10 +280,22 @@ internal sealed unsafe class ConvOp : CpuOp
                         int off = fw * _dw - _pl;
                         int lo = off >= 0 ? 0 : (-off + _sw - 1) / _sw;
                         int hi = _w - 1 - off < 0 ? 0 : Math.Min(_wo, (_w - 1 - off) / _sw + 1);
-                        if (hi <= lo) continue;
-                        if (_sw == 1) Simd.Axpy(yr + lo, xr + off + lo, wv, hi - lo);
+                        if (hi <= lo)
+                        {
+                            continue;
+                        }
+
+                        if (_sw == 1)
+                        {
+                            Simd.Axpy(yr + lo, xr + off + lo, wv, hi - lo);
+                        }
                         else
-                            for (int ow = lo; ow < hi; ow++) yr[ow] += wv * xr[ow * _sw + off];
+                        {
+                            for (int ow = lo; ow < hi; ow++)
+                            {
+                                yr[ow] += wv * xr[ow * _sw + off];
+                            }
+                        }
                     }
                 }
             }

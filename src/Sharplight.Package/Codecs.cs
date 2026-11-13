@@ -6,9 +6,9 @@ using Sharplight.Tensors;
 namespace Sharplight.Package;
 
 /// <summary>Typed values of metadata, properties and op attributes (scalars, strings, arrays, data types).</summary>
-static class MetadataCodec
+internal static class MetadataCodec
 {
-    enum Tag : byte { String = 1, Bool, I8, U8, I16, U16, I32, U32, I64, U64, F32, F64, DataType, Array = 0x40 }
+    private enum Tag : byte { String = 1, Bool, I8, U8, I16, U16, I32, U32, I64, U64, F32, F64, DataType, Array = 0x40 }
 
     public static void WriteString(BinaryWriter w, string s)
     {
@@ -35,7 +35,11 @@ static class MetadataCodec
     {
         int n = r.ReadInt32();
         var d = new Dictionary<string, object>(n, StringComparer.Ordinal);
-        for (int i = 0; i < n; i++) d[ReadString(r)] = ReadValue(r);
+        for (int i = 0; i < n; i++)
+        {
+            d[ReadString(r)] = ReadValue(r);
+        }
+
         return d;
     }
 
@@ -48,13 +52,21 @@ static class MetadataCodec
             {
                 // Heterogeneous holder: use the element type of its contents (must agree).
                 var types = a.Cast<object>().Select(o => o.GetType()).Distinct().ToList();
-                if (types.Count > 1) throw new NotSupportedException($"mixed array element types ({string.Join(", ", types.Select(t => t.Name))})");
+                if (types.Count > 1)
+                {
+                    throw new NotSupportedException($"mixed array element types ({string.Join(", ", types.Select(t => t.Name))})");
+                }
+
                 et = types.Count == 1 ? types[0] : typeof(long);
             }
             var tag = TagOf(et);
             w.Write((byte)(Tag.Array | tag));
             w.Write(a.LongLength);
-            foreach (var e in a) WriteScalar(w, tag, e);
+            foreach (var e in a)
+            {
+                WriteScalar(w, tag, e);
+            }
+
             return;
         }
         var t = TagOf(v.GetType());
@@ -65,15 +77,23 @@ static class MetadataCodec
     public static object ReadValue(BinaryReader r)
     {
         var tag = (Tag)r.ReadByte();
-        if ((tag & Tag.Array) == 0) return ReadScalar(r, tag);
+        if ((tag & Tag.Array) == 0)
+        {
+            return ReadScalar(r, tag);
+        }
+
         var et = tag & ~Tag.Array;
         long n = r.ReadInt64();
         var arr = Array.CreateInstance(ClrType(et), n);
-        for (long i = 0; i < n; i++) arr.SetValue(ReadScalar(r, et), i);
+        for (long i = 0; i < n; i++)
+        {
+            arr.SetValue(ReadScalar(r, et), i);
+        }
+
         return arr;
     }
 
-    static Tag TagOf(Type t) => t switch
+    private static Tag TagOf(Type t) => t switch
     {
         _ when t == typeof(string) => Tag.String,
         _ when t == typeof(bool) => Tag.Bool,
@@ -91,7 +111,7 @@ static class MetadataCodec
         _ => throw new NotSupportedException($"value type {t.FullName} cannot be stored in a package"),
     };
 
-    static Type ClrType(Tag t) => t switch
+    private static Type ClrType(Tag t) => t switch
     {
         Tag.String => typeof(string), Tag.Bool => typeof(bool), Tag.I8 => typeof(sbyte), Tag.U8 => typeof(byte),
         Tag.I16 => typeof(short), Tag.U16 => typeof(ushort), Tag.I32 => typeof(int), Tag.U32 => typeof(uint),
@@ -100,7 +120,7 @@ static class MetadataCodec
         _ => throw new InvalidDataException($"Unknown package value tag {t}."),
     };
 
-    static void WriteScalar(BinaryWriter w, Tag t, object v)
+    private static void WriteScalar(BinaryWriter w, Tag t, object v)
     {
         switch (t)
         {
@@ -121,7 +141,7 @@ static class MetadataCodec
         }
     }
 
-    static object ReadScalar(BinaryReader r, Tag t) => t switch
+    private static object ReadScalar(BinaryReader r, Tag t) => t switch
     {
         Tag.String => ReadString(r),
         Tag.Bool => r.ReadBoolean(),
@@ -145,7 +165,14 @@ static class MetadataCodec
         foreach (var d in s.Dims)
         {
             w.Write(d.IsSymbolic);
-            if (d.IsSymbolic) WriteString(w, d.Symbol!); else w.Write(d.Fixed);
+            if (d.IsSymbolic)
+            {
+                WriteString(w, d.Symbol!);
+            }
+            else
+            {
+                w.Write(d.Fixed);
+            }
         }
     }
 
@@ -153,7 +180,11 @@ static class MetadataCodec
     {
         int rank = r.ReadInt32();
         var dims = new Dim[rank];
-        for (int i = 0; i < rank; i++) dims[i] = r.ReadBoolean() ? Dim.Sym(ReadString(r)) : Dim.Of(r.ReadInt64());
+        for (int i = 0; i < rank; i++)
+        {
+            dims[i] = r.ReadBoolean() ? Dim.Sym(ReadString(r)) : Dim.Of(r.ReadInt64());
+        }
+
         return new Shape(dims);
     }
 }
@@ -164,9 +195,9 @@ static class MetadataCodec
 /// op's type inference — a stored graph is validated against the current op definitions when loaded.
 /// Weights are referenced by name.
 /// </summary>
-static class DefinitionCodec
+internal static class DefinitionCodec
 {
-    enum Rec : byte { Input = 1, Weight, State, Constant, Node, End }
+    private enum Rec : byte { Input = 1, Weight, State, Constant, Node, End }
 
     public static void Write(BinaryWriter w, ModelDefinition def)
     {
@@ -175,7 +206,11 @@ static class DefinitionCodec
         MetadataCodec.Write(w, def.Properties);
         MetadataCodec.Write(w, def.SourceMetadata);
         w.Write(def.States.Count);
-        foreach (var s in def.States) WriteState(w, s);
+        foreach (var s in def.States)
+        {
+            WriteState(w, s);
+        }
+
         w.Write(def.Graphs.Count);
         foreach (var (key, g) in def.Graphs.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
@@ -191,7 +226,11 @@ static class DefinitionCodec
         var meta = MetadataCodec.Read(r);
         int ns = r.ReadInt32();
         var states = new List<StateDefinition>(ns);
-        for (int i = 0; i < ns; i++) states.Add(ReadState(r));
+        for (int i = 0; i < ns; i++)
+        {
+            states.Add(ReadState(r));
+        }
+
         var stateByName = states.ToDictionary(s => s.Name, StringComparer.Ordinal);
         int ng = r.ReadInt32();
         var graphs = new Dictionary<string, ComputeGraph>(ng, StringComparer.Ordinal);
@@ -213,7 +252,7 @@ static class DefinitionCodec
         };
     }
 
-    static void WriteState(BinaryWriter w, StateDefinition s)
+    private static void WriteState(BinaryWriter w, StateDefinition s)
     {
         MetadataCodec.WriteString(w, s.Name);
         MetadataCodec.WriteString(w, s.Type.Name);
@@ -222,7 +261,7 @@ static class DefinitionCodec
         MetadataCodec.WriteString(w, s.Group);
     }
 
-    static StateDefinition ReadState(BinaryReader r) => new()
+    private static StateDefinition ReadState(BinaryReader r) => new()
     {
         Name = MetadataCodec.ReadString(r),
         Type = DataType.Get(MetadataCodec.ReadString(r)),
@@ -231,7 +270,7 @@ static class DefinitionCodec
         Group = MetadataCodec.ReadString(r),
     };
 
-    static void WriteGraph(BinaryWriter w, ComputeGraph g, ModelDefinition def)
+    private static void WriteGraph(BinaryWriter w, ComputeGraph g, ModelDefinition def)
     {
         MetadataCodec.WriteString(w, g.Name);
         var index = new Dictionary<Value, int>();
@@ -249,7 +288,11 @@ static class DefinitionCodec
 
         int Ref(Value v)
         {
-            if (index.TryGetValue(v, out var i)) return i;
+            if (index.TryGetValue(v, out var i))
+            {
+                return i;
+            }
+
             switch (v.Kind)
             {
                 case ValueKind.Weight:
@@ -258,7 +301,10 @@ static class DefinitionCodec
                     break;
                 case ValueKind.State:
                     if (!def.States.Contains(v.State!))
+                    {
                         throw new InvalidDataException($"Graph {g.Name} uses state {v.State!.Name}, which the model definition does not declare.");
+                    }
+
                     w.Write((byte)Rec.State);
                     MetadataCodec.WriteString(w, v.State!.Name);
                     break;
@@ -285,18 +331,36 @@ static class DefinitionCodec
             MetadataCodec.WriteString(w, n.Group);
             MetadataCodec.Write(w, n.Attributes);
             w.Write(ins.Length);
-            foreach (var i in ins) w.Write(i);
+            foreach (var i in ins)
+            {
+                w.Write(i);
+            }
+
             w.Write(writes.Length);
-            foreach (var i in writes) w.Write(i);
+            foreach (var i in writes)
+            {
+                w.Write(i);
+            }
             // Output names: single outputs keep theirs, multi-output nodes keep the common "{name}.{i}" prefix.
             string? name = n.Outputs.Length == 0 ? null : n.Outputs.Length == 1 ? n.Outputs[0].Name
                 : n.Outputs[0].Name.EndsWith(".0", StringComparison.Ordinal) ? n.Outputs[0].Name[..^2] : null;
             w.Write(name is not null);
-            if (name is not null) MetadataCodec.WriteString(w, name);
+            if (name is not null)
+            {
+                MetadataCodec.WriteString(w, name);
+            }
+
             w.Write(n.Outputs.Length);
-            foreach (var o in n.Outputs) index[o] = next++;
+            foreach (var o in n.Outputs)
+            {
+                index[o] = next++;
+            }
         }
-        foreach (var v in g.Outputs.Values) Ref(v); // outputs that are leaves get their records before End
+        foreach (var v in g.Outputs.Values)
+        {
+            Ref(v); // outputs that are leaves get their records before End
+        }
+
         w.Write((byte)Rec.End);
 
         w.Write(g.Outputs.Count);
@@ -306,10 +370,13 @@ static class DefinitionCodec
             w.Write(Ref(v));
         }
         w.Write(g.RuntimeScalars.Count);
-        foreach (var s in g.RuntimeScalars) MetadataCodec.WriteString(w, s);
+        foreach (var s in g.RuntimeScalars)
+        {
+            MetadataCodec.WriteString(w, s);
+        }
     }
 
-    static ComputeGraph ReadGraph(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, Dictionary<string, StateDefinition> states)
+    private static ComputeGraph ReadGraph(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, Dictionary<string, StateDefinition> states)
     {
         var b = new GraphBuilder(MetadataCodec.ReadString(r), n => weights.GetValueOrDefault(n));
         var values = new List<Value>();
@@ -354,12 +421,23 @@ static class DefinitionCodec
                     var writes = ReadRefs(r, values);
                     string? name = r.ReadBoolean() ? MetadataCodec.ReadString(r) : null;
                     int nOut = r.ReadInt32();
-                    if (!OpRegistry.TryGet(op, out var schema)) throw new InvalidDataException($"Package graph uses unknown op '{op}'.");
-                    IReadOnlyList<Value> outs;
+                    if (!OpRegistry.TryGet(op, out var schema))
+                        {
+                            throw new InvalidDataException($"Package graph uses unknown op '{op}'.");
+                        }
+
+                        IReadOnlyList<Value> outs;
                     using (b.Group(group))
-                        outs = b.Emit(schema, ins, attrs, name, writes.Length > 0 ? writes : null);
-                    if (outs.Count != nOut) throw new InvalidDataException($"Op {op} now produces {outs.Count} outputs, the package stored {nOut}.");
-                    values.AddRange(outs);
+                        {
+                            outs = b.Emit(schema, ins, attrs, name, writes.Length > 0 ? writes : null);
+                        }
+
+                        if (outs.Count != nOut)
+                        {
+                            throw new InvalidDataException($"Op {op} now produces {outs.Count} outputs, the package stored {nOut}.");
+                        }
+
+                        values.AddRange(outs);
                     break;
                 }
                 default:
@@ -373,11 +451,15 @@ static class DefinitionCodec
             b.Output(k, values[r.ReadInt32()]);
         }
         int nsc = r.ReadInt32();
-        for (int i = 0; i < nsc; i++) b.RuntimeScalar(MetadataCodec.ReadString(r));
+        for (int i = 0; i < nsc; i++)
+        {
+            b.RuntimeScalar(MetadataCodec.ReadString(r));
+        }
+
         return b.Build();
     }
 
-    static Value[] ReadRefs(BinaryReader r, List<Value> values)
+    private static Value[] ReadRefs(BinaryReader r, List<Value> values)
     {
         var a = new Value[r.ReadInt32()];
         for (int i = 0; i < a.Length; i++)

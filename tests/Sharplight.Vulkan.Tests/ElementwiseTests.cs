@@ -5,7 +5,7 @@ namespace Sharplight.Vulkan.Tests;
 
 public class ElementwiseTests
 {
-    static readonly string[] Positive = ["Log", "Sqrt", "Rsqrt", "Recip"];
+    private static readonly string[] Positive = ["Log", "Sqrt", "Rsqrt", "Recip"];
 
     public static IEnumerable<object[]> UnaryOps() => StandardOps.UnaryNames.Select(n => new object[] { n });
 
@@ -18,13 +18,33 @@ public class ElementwiseTests
         var tg = new TG(); var x = tg.InF("x", TG.T, D);
         tg.B.Output("y", tg.B.Unary(op, x));
         var data = Positive.Contains(op) ? Rnd.Pos(T * D, 1) : Rnd.F(T * D, 1, 4f);
-        if (op is "Asin" or "Acos" or "Atanh") data = Rnd.F(T * D, 1, 0.95f);
-        if (op == "Acosh") data = Rnd.Pos(T * D, 1, 1.05f, 6f);
-        if (op is "Sinh" or "Cosh") data = Rnd.F(T * D, 1, 3f);
+        if (op is "Asin" or "Acos" or "Atanh")
+        {
+            data = Rnd.F(T * D, 1, 0.95f);
+        }
+
+        if (op == "Acosh")
+        {
+            data = Rnd.Pos(T * D, 1, 1.05f, 6f);
+        }
+
+        if (op is "Sinh" or "Cosh")
+        {
+            data = Rnd.F(T * D, 1, 3f);
+        }
+
         if (op is "Round" or "Floor" or "Ceil" or "Sign") { data = Rnd.F(T * D, 1, 6f); data[0] = 0.5f; data[1] = 1.5f; data[2] = 2.5f; data[3] = -0.5f; data[4] = -1.5f; data[5] = -2.5f; data[6] = 0f; data[7] = 3f; }
-        if (op is "Not") data = [.. data.Select((v, i) => i % 3 == 0 ? 0f : v)];
+        if (op is "Not")
+        {
+            data = [.. data.Select((v, i) => i % 3 == 0 ? 0f : v)];
+        }
+
         if (op is "IsNaN" or "IsInf") { data[0] = float.NaN; data[1] = float.PositiveInfinity; data[2] = float.NegativeInfinity; data[3] = 0f; }
-        if (op == "Exp") data = Rnd.F(T * D, 1, 3f);
+        if (op == "Exp")
+        {
+            data = Rnd.F(T * D, 1, 3f);
+        }
+
         Diff.Check("Unary." + op, tg.B.Build(), new Step(T, 0, (x, data)), atol: 2e-5, rtol: 2e-5);
     }
 
@@ -57,8 +77,16 @@ public class ElementwiseTests
         Gpu.Require();
         var tg = new TG(); var x = tg.InF("x", TG.T, 4, 9);
         var attrs = Attributes.Empty;
-        if (!float.IsNegativeInfinity(lo)) attrs = attrs.With("min", lo);
-        if (!float.IsPositiveInfinity(hi)) attrs = attrs.With("max", hi);
+        if (!float.IsNegativeInfinity(lo))
+        {
+            attrs = attrs.With("min", lo);
+        }
+
+        if (!float.IsPositiveInfinity(hi))
+        {
+            attrs = attrs.With("max", hi);
+        }
+
         tg.B.Output("y", tg.B.Emit1("Clip", [x], attrs));
         Diff.Check("Clip", tg.B.Build(), new Step(7, 0, (x, Rnd.F(7 * 36, 4, 3f))));
     }

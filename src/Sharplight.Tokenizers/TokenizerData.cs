@@ -87,7 +87,12 @@ public sealed record TokenizerData
         int? eom = GetInt(md, CanonicalKeys.TokenizerEomId);
         var eosIds = new List<int>(3);
         foreach (int? id in new[] { eos, eot, eom })
-            if (id is int v && !eosIds.Contains(v)) eosIds.Add(v);
+        {
+            if (id is int v && !eosIds.Contains(v))
+            {
+                eosIds.Add(v);
+            }
+        }
 
         return new TokenizerData
         {
@@ -115,7 +120,11 @@ public sealed record TokenizerData
 
     private static int? GetInt(IReadOnlyDictionary<string, object> md, string key)
     {
-        if (!md.TryGetValue(key, out var v) || v is null) return null;
+        if (!md.TryGetValue(key, out var v) || v is null)
+        {
+            return null;
+        }
+
         long n = ToLong(v);
         // llama.cpp treats ids >= vocab as invalid; 0xFFFFFFFF style values mean "none".
         return n is < 0 or > int.MaxValue ? null : (int)n;
@@ -123,38 +132,94 @@ public sealed record TokenizerData
 
     private static bool? GetBool(IReadOnlyDictionary<string, object> md, string key)
     {
-        if (!md.TryGetValue(key, out var v) || v is null) return null;
+        if (!md.TryGetValue(key, out var v) || v is null)
+        {
+            return null;
+        }
+
         return v is bool b ? b : ToLong(v) != 0;
     }
 
     private static string[]? GetStringArray(IReadOnlyDictionary<string, object> md, string key)
     {
-        if (!md.TryGetValue(key, out var v) || v is null) return null;
-        if (v is string[] sa) return sa;
-        if (v is string) return null;
-        if (v is not IEnumerable e) return null;
+        if (!md.TryGetValue(key, out var v) || v is null)
+        {
+            return null;
+        }
+
+        if (v is string[] sa)
+        {
+            return sa;
+        }
+
+        if (v is string)
+        {
+            return null;
+        }
+
+        if (v is not IEnumerable e)
+        {
+            return null;
+        }
+
         var list = new List<string>();
-        foreach (object? o in e) list.Add(o as string ?? o?.ToString() ?? "");
+        foreach (object? o in e)
+        {
+            list.Add(o as string ?? o?.ToString() ?? "");
+        }
+
         return list.ToArray();
     }
 
     private static float[]? GetFloatArray(IReadOnlyDictionary<string, object> md, string key)
     {
-        if (!md.TryGetValue(key, out var v) || v is null) return null;
-        if (v is float[] fa) return fa;
-        if (v is string || v is not IEnumerable e) return null;
+        if (!md.TryGetValue(key, out var v) || v is null)
+        {
+            return null;
+        }
+
+        if (v is float[] fa)
+        {
+            return fa;
+        }
+
+        if (v is string || v is not IEnumerable e)
+        {
+            return null;
+        }
+
         var list = new List<float>();
-        foreach (object? o in e) list.Add(Convert.ToSingle(o, CultureInfo.InvariantCulture));
+        foreach (object? o in e)
+        {
+            list.Add(Convert.ToSingle(o, CultureInfo.InvariantCulture));
+        }
+
         return list.ToArray();
     }
 
     private static int[]? GetIntArray(IReadOnlyDictionary<string, object> md, string key)
     {
-        if (!md.TryGetValue(key, out var v) || v is null) return null;
-        if (v is int[] ia) return ia;
-        if (v is string || v is not IEnumerable e) return null;
+        if (!md.TryGetValue(key, out var v) || v is null)
+        {
+            return null;
+        }
+
+        if (v is int[] ia)
+        {
+            return ia;
+        }
+
+        if (v is string || v is not IEnumerable e)
+        {
+            return null;
+        }
+
         var list = new List<int>();
-        foreach (object? o in e) list.Add(checked((int)ToLong(o!)));
+        foreach (object? o in e)
+        {
+            list.Add(checked((int)ToLong(o!)));
+        }
+
         return list.ToArray();
     }
 

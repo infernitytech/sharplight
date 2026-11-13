@@ -1,4 +1,3 @@
-using Sharplight.Gguf;
 using Sharplight.Tensors;
 using Xunit;
 
@@ -6,11 +5,11 @@ namespace Sharplight.Gguf.Tests;
 
 public class GgufRoundTripTests : IDisposable
 {
-    readonly string _dir = Path.Combine(Path.GetTempPath(), "gguf-tests-" + Guid.NewGuid().ToString("N"));
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "gguf-tests-" + Guid.NewGuid().ToString("N"));
     public GgufRoundTripTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
-    static byte[] Pattern(int n, int seed = 1) { var b = new byte[n]; for (int i = 0; i < n; i++) b[i] = (byte)(i * 7 + seed); return b; }
+    private static byte[] Pattern(int n, int seed = 1) { var b = new byte[n]; for (int i = 0; i < n; i++) { b[i] = (byte)(i * 7 + seed); } return b; }
 
     [Fact]
     public void Scalars_Arrays_Nested_RoundTrip()
@@ -92,7 +91,10 @@ public class GgufRoundTripTests : IDisposable
         using var f = GgufFile.Open(path);
         Assert.Equal(4, f.Tensors.Count);
         Assert.Equal(0, f.DataOffset % 32);
-        foreach (var t in f.Tensors) Assert.Equal(0, t.Offset % 32);
+        foreach (var t in f.Tensors)
+        {
+            Assert.Equal(0, t.Offset % 32);
+        }
 
         var t0 = f.GetTensor("w.f32");
         Assert.Equal(new long[] { 4, 3 }, t0.Ne);
@@ -160,7 +162,11 @@ public class GgufRoundTripTests : IDisposable
         for (int id = 0; id < 44; id++)
         {
             var dt = GgmlTypes.TryGetDataType(id);
-            if (dt is null) continue;
+            if (dt is null)
+            {
+                continue;
+            }
+
             known++;
             Assert.Equal(id, GgmlTypes.GetGgmlType(dt));
         }
@@ -196,7 +202,10 @@ public class GgufRoundTripTests : IDisposable
         var types = new[] { DataType.Q4_0, DataType.Q5_1, DataType.Q2_K, DataType.Q6_K, DataType.IQ4_XS, GgmlTypes.IQ3_S, GgmlTypes.TQ1_0, GgmlTypes.NVFP4, DataType.MXFP4, DataType.BF16, DataType.I32,
             DataType.Q1_0, DataType.Q2_0, DataType.Q2_0_G128, DataType.Tern1_G128 };
         foreach (var t in types)
+        {
             w.AddTensor("t." + t.Name, t, Pattern((int)t.ByteSize(t.BlockSize * 2)), 2, t.BlockSize);
+        }
+
         w.Write(path);
         using var f = GgufFile.Open(path);
         foreach (var t in types)
@@ -255,14 +264,18 @@ public class GgufRoundTripTests : IDisposable
 
 public class RealModelTests
 {
-    const string Q8 = "~/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q8_0.gguf";
-    const string Q4KM = "~/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf";
-    const string Nvfp4 = "~/.lmstudio/models/esatapedico/Qwen3.8-27B-NVFP4-MTP-GGUF/Qwen3.8-27B-NVFP4-MTP-ORIG.gguf";
+    private const string Q8 = "~/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q8_0.gguf";
+    private const string Q4KM = "~/.lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q4_K_M.gguf";
+    private const string Nvfp4 = "~/.lmstudio/models/esatapedico/Qwen3.8-27B-NVFP4-MTP-GGUF/Qwen3.8-27B-NVFP4-MTP-ORIG.gguf";
 
     [Fact]
     public void Qwen_Q8_0()
     {
-        if (!File.Exists(Q8)) return;
+        if (!File.Exists(Q8))
+        {
+            return;
+        }
+
         using var f = GgufFile.Open(Q8);
         Assert.Equal(3u, f.Version);
         Assert.Equal(866, f.Tensors.Count);
@@ -287,7 +300,11 @@ public class RealModelTests
     [InlineData(Nvfp4)]
     public void Other_Models_Parse(string path)
     {
-        if (!File.Exists(path)) return;
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
         using var f = GgufFile.Open(path);
         Assert.NotEmpty(f.Tensors);
         Assert.NotNull(f.Architecture);

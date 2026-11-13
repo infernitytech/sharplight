@@ -13,15 +13,19 @@ public enum WireType { Varint = 0, Fixed64 = 1, LengthDelimited = 2, StartGroup 
 /// </summary>
 public ref struct ProtoReader
 {
-    readonly ReadOnlySpan<byte> _data;
-    readonly int _end;
-    int _pos;
+    private readonly ReadOnlySpan<byte> _data;
+    private readonly int _end;
+    private int _pos;
 
     public ProtoReader(ReadOnlySpan<byte> data) : this(data, 0, data.Length) { }
 
     public ProtoReader(ReadOnlySpan<byte> data, int start, int end)
     {
-        if (start < 0 || end > data.Length || start > end) throw new InvalidDataException("Protobuf range out of bounds.");
+        if (start < 0 || end > data.Length || start > end)
+        {
+            throw new InvalidDataException("Protobuf range out of bounds.");
+        }
+
         _data = data;
         _pos = start;
         _end = end;
@@ -37,7 +41,11 @@ public ref struct ProtoReader
         ulong key = ReadVarint();
         field = checked((int)(key >> 3));
         wire = (WireType)(key & 7);
-        if (field <= 0) throw new InvalidDataException($"Invalid protobuf field number {field} at offset {_pos}.");
+        if (field <= 0)
+        {
+            throw new InvalidDataException($"Invalid protobuf field number {field} at offset {_pos}.");
+        }
+
         return true;
     }
 
@@ -47,12 +55,23 @@ public ref struct ProtoReader
         int shift = 0;
         while (true)
         {
-            if (_pos >= _end) throw new InvalidDataException("Truncated protobuf varint.");
+            if (_pos >= _end)
+            {
+                throw new InvalidDataException("Truncated protobuf varint.");
+            }
+
             byte b = _data[_pos++];
             result |= (ulong)(b & 0x7F) << shift;
-            if ((b & 0x80) == 0) return result;
+            if ((b & 0x80) == 0)
+            {
+                return result;
+            }
+
             shift += 7;
-            if (shift > 63) throw new InvalidDataException("Protobuf varint too long.");
+            if (shift > 63)
+            {
+                throw new InvalidDataException("Protobuf varint too long.");
+            }
         }
     }
 
@@ -62,7 +81,11 @@ public ref struct ProtoReader
 
     public uint ReadFixed32()
     {
-        if (_end - _pos < 4) throw new InvalidDataException("Truncated protobuf fixed32.");
+        if (_end - _pos < 4)
+        {
+            throw new InvalidDataException("Truncated protobuf fixed32.");
+        }
+
         var v = BinaryPrimitives.ReadUInt32LittleEndian(_data.Slice(_pos, 4));
         _pos += 4;
         return v;
@@ -70,7 +93,11 @@ public ref struct ProtoReader
 
     public ulong ReadFixed64()
     {
-        if (_end - _pos < 8) throw new InvalidDataException("Truncated protobuf fixed64.");
+        if (_end - _pos < 8)
+        {
+            throw new InvalidDataException("Truncated protobuf fixed64.");
+        }
+
         var v = BinaryPrimitives.ReadUInt64LittleEndian(_data.Slice(_pos, 8));
         _pos += 8;
         return v;
@@ -83,7 +110,11 @@ public ref struct ProtoReader
     public ReadOnlySpan<byte> ReadBytes(out int offset)
     {
         ulong len = ReadVarint();
-        if (len > (ulong)(_end - _pos)) throw new InvalidDataException($"Protobuf length {len} exceeds the enclosing message.");
+        if (len > (ulong)(_end - _pos))
+        {
+            throw new InvalidDataException($"Protobuf length {len} exceeds the enclosing message.");
+        }
+
         offset = _pos;
         var s = _data.Slice(_pos, (int)len);
         _pos += (int)len;
@@ -96,7 +127,11 @@ public ref struct ProtoReader
     public ProtoReader ReadMessage()
     {
         ulong len = ReadVarint();
-        if (len > (ulong)(_end - _pos)) throw new InvalidDataException($"Protobuf length {len} exceeds the enclosing message.");
+        if (len > (ulong)(_end - _pos))
+        {
+            throw new InvalidDataException($"Protobuf length {len} exceeds the enclosing message.");
+        }
+
         var r = new ProtoReader(_data, _pos, _pos + (int)len);
         _pos += (int)len;
         return r;
@@ -117,8 +152,15 @@ public ref struct ProtoReader
     // ---- repeated scalar helpers (packed or not) ---------------------------------------------
     public void ReadRepeatedInt64(WireType wire, List<long> into)
     {
-        if (wire == WireType.LengthDelimited) { var m = ReadMessage(); while (!m.AtEnd) into.Add(m.ReadInt64()); }
-        else into.Add(ReadInt64());
+        if (wire == WireType.LengthDelimited) { var m = ReadMessage(); while (!m.AtEnd)
+            {
+                into.Add(m.ReadInt64());
+            }
+        }
+        else
+        {
+            into.Add(ReadInt64());
+        }
     }
 
     public void ReadRepeatedFloat(WireType wire, List<float> into)
@@ -126,10 +168,20 @@ public ref struct ProtoReader
         if (wire == WireType.LengthDelimited)
         {
             var b = ReadBytes(out _);
-            if (b.Length % 4 != 0) throw new InvalidDataException("Packed float field has a length that is not a multiple of 4.");
-            for (int i = 0; i < b.Length; i += 4) into.Add(BinaryPrimitives.ReadSingleLittleEndian(b.Slice(i, 4)));
+            if (b.Length % 4 != 0)
+            {
+                throw new InvalidDataException("Packed float field has a length that is not a multiple of 4.");
+            }
+
+            for (int i = 0; i < b.Length; i += 4)
+            {
+                into.Add(BinaryPrimitives.ReadSingleLittleEndian(b.Slice(i, 4)));
+            }
         }
-        else into.Add(ReadFloat());
+        else
+        {
+            into.Add(ReadFloat());
+        }
     }
 
     public void ReadRepeatedDouble(WireType wire, List<double> into)
@@ -137,9 +189,19 @@ public ref struct ProtoReader
         if (wire == WireType.LengthDelimited)
         {
             var b = ReadBytes(out _);
-            if (b.Length % 8 != 0) throw new InvalidDataException("Packed double field has a length that is not a multiple of 8.");
-            for (int i = 0; i < b.Length; i += 8) into.Add(BinaryPrimitives.ReadDoubleLittleEndian(b.Slice(i, 8)));
+            if (b.Length % 8 != 0)
+            {
+                throw new InvalidDataException("Packed double field has a length that is not a multiple of 8.");
+            }
+
+            for (int i = 0; i < b.Length; i += 8)
+            {
+                into.Add(BinaryPrimitives.ReadDoubleLittleEndian(b.Slice(i, 8)));
+            }
         }
-        else into.Add(ReadDouble());
+        else
+        {
+            into.Add(ReadDouble());
+        }
     }
 }

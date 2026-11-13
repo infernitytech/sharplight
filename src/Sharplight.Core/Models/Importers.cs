@@ -17,19 +17,19 @@ namespace Sharplight.Models;
 public interface IModelImporter
 {
     /// <summary>Short format id, e.g. "gguf", "hf".</summary>
-    string Format { get; }
+    public string Format { get; }
 
     /// <summary>Cheap check (extension, magic bytes, directory layout) whether this importer handles <paramref name="path"/>.</summary>
-    bool CanOpen(string path);
+    public bool CanOpen(string path);
 
     /// <summary>Opens <paramref name="path"/> (a file or a directory) as a canonical model source.</summary>
-    ModelSource Open(string path);
+    public ModelSource Open(string path);
 }
 
 /// <summary>Global importer registry. Hosts register the formats they want to support.</summary>
 public static class ModelImporterRegistry
 {
-    static readonly ConcurrentDictionary<string, IModelImporter> s_importers = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IModelImporter> s_importers = new(StringComparer.OrdinalIgnoreCase);
 
     public static void Register(IModelImporter importer) => s_importers[importer.Format] = importer;
 
@@ -49,12 +49,26 @@ public static class ModelImporterRegistry
         var aux = new Dictionary<string, ModelSource>();
         try
         {
-            foreach (var (role, p) in auxiliary) aux[role] = Open(p);
+            foreach (var (role, p) in auxiliary)
+            {
+                aux[role] = Open(p);
+            }
         }
         catch
         {
-            foreach (var r in primary.OwnedResources) r.Dispose();
-            foreach (var s in aux.Values) foreach (var r in s.OwnedResources) r.Dispose();
+            foreach (var r in primary.OwnedResources)
+            {
+                r.Dispose();
+            }
+
+            foreach (var s in aux.Values)
+            {
+                foreach (var r in s.OwnedResources)
+                {
+                    r.Dispose();
+                }
+            }
+
             throw;
         }
         return new ModelSourceSet { Primary = primary, Auxiliary = aux };

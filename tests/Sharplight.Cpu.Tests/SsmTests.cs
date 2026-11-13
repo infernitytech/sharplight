@@ -12,6 +12,7 @@ public class SsmTests
     {
         var y = new float[T * H * P];
         for (int t = 0; t < T; t++)
+        {
             for (int h = 0; h < H; h++)
             {
                 int g = h / (H / G);
@@ -31,6 +32,8 @@ public class SsmTests
                     y[(t * H + h) * P + p] = (float)(acc + D[h] * xp);
                 }
             }
+        }
+
         return y;
     }
 

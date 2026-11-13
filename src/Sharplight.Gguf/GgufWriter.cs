@@ -6,8 +6,8 @@ namespace Sharplight.Gguf;
 /// <summary>Minimal GGUF v3 writer, mainly used to create test fixtures.</summary>
 public sealed class GgufWriter
 {
-    readonly List<(string key, object value)> _kv = [];
-    readonly List<(string name, int type, long[] ne, ReadOnlyMemory<byte> data)> _tensors = [];
+    private readonly List<(string key, object value)> _kv = [];
+    private readonly List<(string name, int type, long[] ne, ReadOnlyMemory<byte> data)> _tensors = [];
 
     public int Alignment { get; set; } = GgufFile.DefaultAlignment;
 
@@ -18,7 +18,11 @@ public sealed class GgufWriter
     public GgufWriter AddTensorNe(string name, DataType type, ReadOnlyMemory<byte> data, params long[] ne)
     {
         long expected = GgufFile.ComputeByteSize(type, ne, name);
-        if (data.Length != expected) throw new ArgumentException($"Tensor '{name}': expected {expected} bytes, got {data.Length}.");
+        if (data.Length != expected)
+        {
+            throw new ArgumentException($"Tensor '{name}': expected {expected} bytes, got {data.Length}.");
+        }
+
         _tensors.Add((name, GgmlTypes.GetGgmlType(type), ne, data));
         return this;
     }
@@ -38,7 +42,9 @@ public sealed class GgufWriter
         using var w = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
         var kv = _kv.ToList();
         if (Alignment != GgufFile.DefaultAlignment && !kv.Any(k => k.key == "general.alignment"))
+        {
             kv.Add(("general.alignment", (uint)Alignment));
+        }
 
         w.Write(GgufFile.Magic);
         w.Write(3u);
@@ -54,7 +60,11 @@ public sealed class GgufWriter
             offsets[i] = off;
             WriteString(w, t.name);
             w.Write((uint)t.ne.Length);
-            foreach (var n in t.ne) w.Write((ulong)n);
+            foreach (var n in t.ne)
+            {
+                w.Write((ulong)n);
+            }
+
             w.Write((uint)t.type);
             w.Write((ulong)off);
             off += Align(t.data.Length);
@@ -68,48 +78,107 @@ public sealed class GgufWriter
         w.Flush();
     }
 
-    long Align(long n) => (n + Alignment - 1) / Alignment * Alignment;
+    private long Align(long n) => (n + Alignment - 1) / Alignment * Alignment;
 
-    void Pad(BinaryWriter w, long pos)
+    private void Pad(BinaryWriter w, long pos)
     {
         long pad = Align(pos) - pos;
-        if (pad > 0) w.Write(new byte[pad]);
+        if (pad > 0)
+        {
+            w.Write(new byte[pad]);
+        }
     }
 
-    static void WriteString(BinaryWriter w, string s)
+    private static void WriteString(BinaryWriter w, string s)
     {
         var b = Encoding.UTF8.GetBytes(s);
         w.Write((ulong)b.Length);
         w.Write(b);
     }
 
-    static GgufValueType TypeOf(Type t)
+    private static GgufValueType TypeOf(Type t)
     {
-        if (t == typeof(byte)) return GgufValueType.UInt8;
-        if (t == typeof(sbyte)) return GgufValueType.Int8;
-        if (t == typeof(ushort)) return GgufValueType.UInt16;
-        if (t == typeof(short)) return GgufValueType.Int16;
-        if (t == typeof(uint)) return GgufValueType.UInt32;
-        if (t == typeof(int)) return GgufValueType.Int32;
-        if (t == typeof(float)) return GgufValueType.Float32;
-        if (t == typeof(bool)) return GgufValueType.Bool;
-        if (t == typeof(string)) return GgufValueType.String;
-        if (t == typeof(ulong)) return GgufValueType.UInt64;
-        if (t == typeof(long)) return GgufValueType.Int64;
-        if (t == typeof(double)) return GgufValueType.Float64;
-        if (t == typeof(object)) return GgufValueType.Array; // object[] elements are nested arrays
-        if (t.IsArray) return GgufValueType.Array;
+        if (t == typeof(byte))
+        {
+            return GgufValueType.UInt8;
+        }
+
+        if (t == typeof(sbyte))
+        {
+            return GgufValueType.Int8;
+        }
+
+        if (t == typeof(ushort))
+        {
+            return GgufValueType.UInt16;
+        }
+
+        if (t == typeof(short))
+        {
+            return GgufValueType.Int16;
+        }
+
+        if (t == typeof(uint))
+        {
+            return GgufValueType.UInt32;
+        }
+
+        if (t == typeof(int))
+        {
+            return GgufValueType.Int32;
+        }
+
+        if (t == typeof(float))
+        {
+            return GgufValueType.Float32;
+        }
+
+        if (t == typeof(bool))
+        {
+            return GgufValueType.Bool;
+        }
+
+        if (t == typeof(string))
+        {
+            return GgufValueType.String;
+        }
+
+        if (t == typeof(ulong))
+        {
+            return GgufValueType.UInt64;
+        }
+
+        if (t == typeof(long))
+        {
+            return GgufValueType.Int64;
+        }
+
+        if (t == typeof(double))
+        {
+            return GgufValueType.Float64;
+        }
+
+        if (t == typeof(object))
+        {
+            return GgufValueType.Array; // object[] elements are nested arrays
+        }
+
+        if (t.IsArray)
+        {
+            return GgufValueType.Array;
+        }
+
         throw new NotSupportedException($"Cannot write metadata of type {t}.");
     }
 
-    static void WriteTyped(BinaryWriter w, object v)
+    private static void WriteTyped(BinaryWriter w, object v)
     {
         var t = v is Array ? GgufValueType.Array : TypeOf(v.GetType());
         w.Write((uint)t);
         WriteValue(w, v);
     }
 
-    static void WriteValue(BinaryWriter w, object v)
+    private static void WriteValue(BinaryWriter w, object v)
     {
         switch (v)
         {
@@ -128,7 +197,11 @@ public sealed class GgufWriter
             case Array a:
                 w.Write((uint)TypeOf(a.GetType().GetElementType()!));
                 w.Write((ulong)a.Length);
-                foreach (var e in a) WriteValue(w, e);
+                foreach (var e in a)
+                {
+                    WriteValue(w, e);
+                }
+
                 break;
             default: throw new NotSupportedException($"Cannot write metadata of type {v.GetType()}.");
         }

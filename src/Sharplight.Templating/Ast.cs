@@ -23,8 +23,18 @@ internal sealed class Frame
     public object? Lookup(string name)
     {
         for (var f = this; f != null; f = f.Parent)
-            if (f.Vars.TryGetValue(name, out var v)) return v;
-        if (Env.Globals.TryGetValue(name, out var g)) return g;
+        {
+            if (f.Vars.TryGetValue(name, out var v))
+            {
+                return v;
+            }
+        }
+
+        if (Env.Globals.TryGetValue(name, out var g))
+        {
+            return g;
+        }
+
         return new Undefined(name, Strict);
     }
 
@@ -65,7 +75,10 @@ internal abstract class Stmt : Node
         foreach (var s in body)
         {
             var flow = s.Exec(f, o);
-            if (flow != Flow.Normal) return flow;
+            if (flow != Flow.Normal)
+            {
+                return flow;
+            }
         }
         return Flow.Normal;
     }
@@ -91,7 +104,11 @@ internal sealed class ListExpr(List<Expr> items, bool tuple = false) : Expr
     protected override object? Core(Frame f)
     {
         List<object?> l = tuple ? new JinjaTuple() : new List<object?>(items.Count);
-        foreach (var e in items) l.Add(e.Eval(f));
+        foreach (var e in items)
+        {
+            l.Add(e.Eval(f));
+        }
+
         return l;
     }
 }
@@ -105,7 +122,10 @@ internal sealed class DictExpr(List<(Expr Key, Expr Value)> items) : Expr
         {
             var key = k.Eval(f);
             if (key is not (string or long or bool or double))
+            {
                 throw new TemplateRuntimeException($"unhashable or unsupported dict key of type '{Ops.TypeName(key)}'");
+            }
+
             d[key is double dk && dk == Math.Floor(dk) ? (long)dk : key!] = v.Eval(f);
         }
         return d;
@@ -123,7 +143,11 @@ internal sealed class GetAttrExpr(Expr obj, string name) : Expr
     {
         var o = obj.Eval(f);
         var r = Ops.GetAttr(o, name, f.Strict, forCall);
-        if (r is Undefined { Name: null } u) return new Undefined(Describe(), u.Strict);
+        if (r is Undefined { Name: null } u)
+        {
+            return new Undefined(Describe(), u.Strict);
+        }
+
         return r;
     }
 
@@ -137,7 +161,11 @@ internal sealed class GetItemExpr(Expr obj, Expr key) : Expr
         var o = obj.Eval(f);
         var k = key.Eval(f);
         var r = Ops.GetItem(o, k, f.Strict);
-        if (r is Undefined { Name: null } u) return new Undefined(Describe(), u.Strict);
+        if (r is Undefined { Name: null } u)
+        {
+            return new Undefined(Describe(), u.Strict);
+        }
+
         return r;
     }
 
@@ -174,16 +202,35 @@ internal sealed class CallExpr(Expr callee, List<Expr> args, List<(string Name, 
     {
         object? fn = callee is GetAttrExpr ga ? ga.Resolve(f, true) : callee.Eval(f);
         var pos = new List<object?>(args.Count);
-        foreach (var a in args) pos.Add(a.Eval(f));
+        foreach (var a in args)
+        {
+            pos.Add(a.Eval(f));
+        }
+
         Dictionary<string, object?>? nm = null;
         if (named.Count > 0)
         {
             nm = new Dictionary<string, object?>();
-            foreach (var (n, v) in named) nm[n] = v.Eval(f);
+            foreach (var (n, v) in named)
+            {
+                nm[n] = v.Eval(f);
+            }
         }
-        if (caller != null) (nm ??= new Dictionary<string, object?>())["caller"] = caller;
-        if (fn is JinjaCallable c) return c.Invoke(new CallArgs(pos, nm));
-        if (fn is Undefined u) throw new TemplateRuntimeException($"'{u.Name ?? callee.Describe()}' is undefined");
+        if (caller != null)
+        {
+            (nm ??= new Dictionary<string, object?>())["caller"] = caller;
+        }
+
+        if (fn is JinjaCallable c)
+        {
+            return c.Invoke(new CallArgs(pos, nm));
+        }
+
+        if (fn is Undefined u)
+        {
+            throw new TemplateRuntimeException($"'{u.Name ?? callee.Describe()}' is undefined");
+        }
+
         throw new TemplateRuntimeException($"'{callee.Describe()}' is not callable (type {Ops.TypeName(fn)})");
     }
 
@@ -198,14 +245,25 @@ internal sealed class FilterSpec(string name, List<Expr> args, List<(string Name
 
     public object? Apply(Frame f, object? value)
     {
-        if (!f.Env.Filters.TryGetValue(name, out var fn)) throw new TemplateRuntimeException($"No filter named '{name}'");
+        if (!f.Env.Filters.TryGetValue(name, out var fn))
+        {
+            throw new TemplateRuntimeException($"No filter named '{name}'");
+        }
+
         var pos = new List<object?>(args.Count);
-        foreach (var a in args) pos.Add(a.Eval(f));
+        foreach (var a in args)
+        {
+            pos.Add(a.Eval(f));
+        }
+
         Dictionary<string, object?>? nm = null;
         if (named.Count > 0)
         {
             nm = new Dictionary<string, object?>();
-            foreach (var (n, v) in named) nm[n] = v.Eval(f);
+            foreach (var (n, v) in named)
+            {
+                nm[n] = v.Eval(f);
+            }
         }
         try
         {
@@ -228,15 +286,26 @@ internal sealed class TestExpr(Expr value, string name, List<Expr> args, List<(s
 {
     protected override object? Core(Frame f)
     {
-        if (!f.Env.Tests.TryGetValue(name, out var fn)) throw new TemplateRuntimeException($"No test named '{name}'");
+        if (!f.Env.Tests.TryGetValue(name, out var fn))
+        {
+            throw new TemplateRuntimeException($"No test named '{name}'");
+        }
+
         var v = value.Eval(f);
         var pos = new List<object?>(args.Count);
-        foreach (var a in args) pos.Add(a.Eval(f));
+        foreach (var a in args)
+        {
+            pos.Add(a.Eval(f));
+        }
+
         Dictionary<string, object?>? nm = null;
         if (named.Count > 0)
         {
             nm = new Dictionary<string, object?>();
-            foreach (var (n, nv) in named) nm[n] = nv.Eval(f);
+            foreach (var (n, nv) in named)
+            {
+                nm[n] = nv.Eval(f);
+            }
         }
         bool r = fn(f.Env, v, new CallArgs(pos, nm));
         return negate ? !r : r;
@@ -267,9 +336,17 @@ internal sealed class ConcatExpr(List<Expr> parts) : Expr
 {
     protected override object? Core(Frame f)
     {
-        if (parts.Count == 2) return string.Concat(Ops.Str(parts[0].Eval(f)), Ops.Str(parts[1].Eval(f)));
+        if (parts.Count == 2)
+        {
+            return string.Concat(Ops.Str(parts[0].Eval(f)), Ops.Str(parts[1].Eval(f)));
+        }
+
         var sb = new StringBuilder();
-        foreach (var p in parts) sb.Append(Ops.Str(p.Eval(f)));
+        foreach (var p in parts)
+        {
+            sb.Append(Ops.Str(p.Eval(f)));
+        }
+
         return sb.ToString();
     }
 }
@@ -295,7 +372,11 @@ internal sealed class CompareExpr(Expr first, List<(string Op, Expr Rhs)> rest) 
                 "not in" => !Ops.Contains(right, left),
                 _ => throw new InvalidOperationException(op),
             };
-            if (!result) return false;
+            if (!result)
+            {
+                return false;
+            }
+
             left = right;
         }
         return result;
@@ -334,7 +415,11 @@ internal sealed class CondExpr(Expr cond, Expr then, Expr? otherwise) : Expr
 {
     protected override object? Core(Frame f)
     {
-        if (Ops.Truthy(cond.Eval(f))) return then.Eval(f);
+        if (Ops.Truthy(cond.Eval(f)))
+        {
+            return then.Eval(f);
+        }
+
         return otherwise != null ? otherwise.Eval(f) : new Undefined("conditional expression", f.Strict);
     }
 }
@@ -356,8 +441,14 @@ internal sealed class AttrTarget(string objName, string attr) : Target
     public override void Assign(Frame f, object? value)
     {
         var o = f.Lookup(objName);
-        if (o is JinjaNamespace ns) ns.Attributes[attr] = value;
-        else throw new TemplateRuntimeException($"cannot assign attribute '{attr}' on '{objName}' (type {Ops.TypeName(o)}); only namespace objects support attribute assignment");
+        if (o is JinjaNamespace ns)
+        {
+            ns.Attributes[attr] = value;
+        }
+        else
+        {
+            throw new TemplateRuntimeException($"cannot assign attribute '{attr}' on '{objName}' (type {Ops.TypeName(o)}); only namespace objects support attribute assignment");
+        }
     }
 }
 
@@ -365,14 +456,28 @@ internal sealed class TupleTarget(List<Target> items) : Target
 {
     public override void Assign(Frame f, object? value)
     {
-        if (value is Undefined u && u.Strict) throw u.Fail();
-        if (!Ops.IsIterable(value)) throw new TemplateRuntimeException($"cannot unpack non-iterable {Ops.TypeName(value)} object");
+        if (value is Undefined u && u.Strict)
+        {
+            throw u.Fail();
+        }
+
+        if (!Ops.IsIterable(value))
+        {
+            throw new TemplateRuntimeException($"cannot unpack non-iterable {Ops.TypeName(value)} object");
+        }
+
         var l = Ops.Iterate(value);
         if (l.Count != items.Count)
+        {
             throw new TemplateRuntimeException(l.Count < items.Count
                 ? $"not enough values to unpack (expected {items.Count}, got {l.Count})"
                 : $"too many values to unpack (expected {items.Count})");
-        for (int i = 0; i < items.Count; i++) items[i].Assign(f, l[i]);
+        }
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            items[i].Assign(f, l[i]);
+        }
     }
 }
 
@@ -419,7 +524,10 @@ internal sealed class IfStmt(List<(Expr Cond, List<Stmt> Body)> branches, List<S
             {
                 throw;
             }
-            if (t) return ExecAll(body, f, o);
+            if (t)
+            {
+                return ExecAll(body, f, o);
+            }
         }
         return otherwise != null ? ExecAll(otherwise, f, o) : Flow.Normal;
     }
@@ -446,12 +554,19 @@ internal sealed class ForStmt(Target target, Expr iter, Expr? filter, List<Stmt>
             foreach (var x in seq)
             {
                 target.Assign(inner, x);
-                if (Ops.Truthy(filter.Eval(inner))) items.Add(x);
+                if (Ops.Truthy(filter.Eval(inner)))
+                {
+                    items.Add(x);
+                }
             }
         }
         if (items.Count == 0)
         {
-            if (otherwise != null) ExecAll(otherwise, f, o);
+            if (otherwise != null)
+            {
+                ExecAll(otherwise, f, o);
+            }
+
             return Flow.Normal;
         }
         var loop = new LoopContext { Items = items };
@@ -469,7 +584,10 @@ internal sealed class ForStmt(Target target, Expr iter, Expr? filter, List<Stmt>
                 throw;
             }
             var flow = ExecAll(body, inner, o);
-            if (flow == Flow.Break) break;
+            if (flow == Flow.Break)
+            {
+                break;
+            }
         }
         return Flow.Normal;
     }
@@ -499,7 +617,11 @@ internal sealed class SetBlockStmt(Target target, List<FilterSpec> filters, List
         var sb = new StringBuilder();
         ExecAll(body, f, sb);
         object? v = sb.ToString();
-        foreach (var fl in filters) v = fl.Apply(f, v);
+        foreach (var fl in filters)
+        {
+            v = fl.Apply(f, v);
+        }
+
         target.Assign(f, v);
         return Flow.Normal;
     }
@@ -512,7 +634,11 @@ internal sealed class FilterBlockStmt(List<FilterSpec> filters, List<Stmt> body)
         var sb = new StringBuilder();
         ExecAll(body, f, sb);
         object? v = sb.ToString();
-        foreach (var fl in filters) v = fl.Apply(f, v);
+        foreach (var fl in filters)
+        {
+            v = fl.Apply(f, v);
+        }
+
         o.Append(Ops.Str(v));
         return Flow.Normal;
     }
@@ -573,20 +699,42 @@ internal sealed class Macro(MacroDef def, Frame closure) : JinjaCallable
         for (int i = 0; i < ps.Count; i++)
         {
             var (pn, pd) = ps[i];
-            if (i < args.Positional.Count) frame.Vars[pn] = args.Positional[i];
-            else if (args.Named != null && args.Named.TryGetValue(pn, out var nv)) frame.Vars[pn] = nv;
-            else if (pd != null) frame.Vars[pn] = pd.Eval(frame);
-            else frame.Vars[pn] = new Undefined(pn, closure.Strict);
+            if (i < args.Positional.Count)
+            {
+                frame.Vars[pn] = args.Positional[i];
+            }
+            else if (args.Named != null && args.Named.TryGetValue(pn, out var nv))
+            {
+                frame.Vars[pn] = nv;
+            }
+            else if (pd != null)
+            {
+                frame.Vars[pn] = pd.Eval(frame);
+            }
+            else
+            {
+                frame.Vars[pn] = new Undefined(pn, closure.Strict);
+            }
         }
         var varargs = new JinjaTuple();
-        for (int i = ps.Count; i < args.Positional.Count; i++) varargs.Add(args.Positional[i]);
+        for (int i = ps.Count; i < args.Positional.Count; i++)
+        {
+            varargs.Add(args.Positional[i]);
+        }
+
         var kwargs = new JinjaDict();
         if (args.Named != null)
         {
             foreach (var (k, v) in args.Named)
             {
-                if (k == "caller") frame.Vars["caller"] = v;
-                else if (!ps.Exists(p => p.Name == k)) kwargs[k] = v;
+                if (k == "caller")
+                {
+                    frame.Vars["caller"] = v;
+                }
+                else if (!ps.Exists(p => p.Name == k))
+                {
+                    kwargs[k] = v;
+                }
             }
         }
         frame.Vars["varargs"] = varargs;

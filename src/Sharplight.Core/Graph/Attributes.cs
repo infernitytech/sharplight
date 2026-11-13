@@ -7,18 +7,22 @@ namespace Sharplight.Graph;
 /// <summary>Immutable bag of op attributes (ints, floats, strings, arrays, enums).</summary>
 public sealed class Attributes : IReadOnlyDictionary<string, object>
 {
-    readonly ImmutableSortedDictionary<string, object> _values;
+    private readonly ImmutableSortedDictionary<string, object> _values;
 
     public static Attributes Empty { get; } = new(ImmutableSortedDictionary<string, object>.Empty);
 
-    Attributes(ImmutableSortedDictionary<string, object> values) => _values = values;
+    private Attributes(ImmutableSortedDictionary<string, object> values) => _values = values;
 
     public Attributes With(string key, object value) => new(_values.SetItem(key, value));
 
     public static Attributes From(params ReadOnlySpan<(string Key, object Value)> items)
     {
         var b = ImmutableSortedDictionary.CreateBuilder<string, object>(StringComparer.Ordinal);
-        foreach (var (k, v) in items) b[k] = v;
+        foreach (var (k, v) in items)
+        {
+            b[k] = v;
+        }
+
         return new Attributes(b.ToImmutable());
     }
 
@@ -30,14 +34,22 @@ public sealed class Attributes : IReadOnlyDictionary<string, object>
 
     public bool Has(string key) => _values.ContainsKey(key);
 
-    static T Convert<T>(object v, string key)
+    private static T Convert<T>(object v, string key)
     {
-        if (v is T t) return t;
+        if (v is T t)
+        {
+            return t;
+        }
+
         if (typeof(T).IsArray && v is Array src)
         {
             var et = typeof(T).GetElementType()!;
             var dst = Array.CreateInstance(et, src.Length);
-            for (int k = 0; k < src.Length; k++) dst.SetValue(System.Convert.ChangeType(src.GetValue(k), et, CultureInfo.InvariantCulture), k);
+            for (int k = 0; k < src.Length; k++)
+            {
+                dst.SetValue(System.Convert.ChangeType(src.GetValue(k), et, CultureInfo.InvariantCulture), k);
+            }
+
             return (T)(object)dst;
         }
         try
@@ -63,7 +75,7 @@ public sealed class Attributes : IReadOnlyDictionary<string, object>
     public override string ToString() =>
         "{" + string.Join(", ", _values.Select(kv => $"{kv.Key}={Format(kv.Value)}")) + "}";
 
-    static string Format(object v) => v switch
+    private static string Format(object v) => v switch
     {
         float f => f.ToString("R", CultureInfo.InvariantCulture),
         double d => d.ToString("R", CultureInfo.InvariantCulture),

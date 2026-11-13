@@ -47,7 +47,10 @@ public sealed class RankedBpeTokenizer : ITokenizer
             _types[i] = data.TokenTypes is { } tt && i < tt.Length && Enum.IsDefined((TokenType)tt[i]) ? (TokenType)tt[i] : TokenType.Normal;
             _bytes[i] = Encoding.UTF8.GetBytes(_tokens[i]);
             _toId[_tokens[i]] = i;
-            if (_types[i] == TokenType.Byte && TryParseByteToken(_tokens[i], out byte b)) _byteToken[b] = i;
+            if (_types[i] == TokenType.Byte && TryParseByteToken(_tokens[i], out byte b))
+            {
+                _byteToken[b] = i;
+            }
         }
         int? Valid(int? id) => id is int v && v >= 0 && v < n ? v : null;
         BosId = Valid(data.BosId);
@@ -63,19 +66,42 @@ public sealed class RankedBpeTokenizer : ITokenizer
         {
             string m = merges[r];
             int sep = m.Length > 1 ? m.IndexOf(' ', 1) : -1;
-            if (sep < 0) continue;
+            if (sep < 0)
+            {
+                continue;
+            }
+
             if (_toId.TryGetValue(m[..sep], out int l) && _toId.TryGetValue(m[(sep + 1)..], out int rt) && _toId.TryGetValue(m[..sep] + m[(sep + 1)..], out int res))
+            {
                 _merges.TryAdd(l, rt, r, res);
+            }
         }
 
         _specials = Enumerable.Range(0, n).Where(i => _types[i] is TokenType.Control or TokenType.UserDefined or TokenType.Unknown)
             .Select(i => (_tokens[i], i)).Where(s => s.Item1.Length > 0).OrderByDescending(s => _bytes[s.i].Length).ToArray();
 
         var eog = new List<int>();
-        foreach (int id in data.EosIds) if (Valid(id) is int v && !eog.Contains(v)) eog.Add(v);
-        if (EosId is int e && !eog.Contains(e)) eog.Add(e);
+        foreach (int id in data.EosIds)
+        {
+            if (Valid(id) is int v && !eog.Contains(v))
+            {
+                eog.Add(v);
+            }
+        }
+
+        if (EosId is int e && !eog.Contains(e))
+        {
+            eog.Add(e);
+        }
+
         foreach (string name in EogNames)
-            if (_toId.TryGetValue(name, out int id) && _types[id] is TokenType.Control or TokenType.UserDefined && !eog.Contains(id)) eog.Add(id);
+        {
+            if (_toId.TryGetValue(name, out int id) && _types[id] is TokenType.Control or TokenType.UserDefined && !eog.Contains(id))
+            {
+                eog.Add(id);
+            }
+        }
+
         eog.Sort();
         _eog = [.. eog];
     }
@@ -97,7 +123,11 @@ public sealed class RankedBpeTokenizer : ITokenizer
 
     public byte[] TokenBytes(int id)
     {
-        if ((uint)id >= (uint)_tokens.Length) return [];
+        if ((uint)id >= (uint)_tokens.Length)
+        {
+            return [];
+        }
+
         switch (_types[id])
         {
             case TokenType.Byte: return TryParseByteToken(_tokens[id], out byte b) ? [b] : [];
@@ -114,9 +144,17 @@ public sealed class RankedBpeTokenizer : ITokenizer
         if (skipSpecial && AddBos && ids.Length > 0 && ids[0] == BosId) { removeSpace = false; ids = ids[1..]; }
         foreach (int id in ids)
         {
-            if (skipSpecial && IsSpecial(id)) continue;
+            if (skipSpecial && IsSpecial(id))
+            {
+                continue;
+            }
+
             var piece = TokenBytes(id);
-            if (removeSpace && piece.Length > 0 && piece[0] == (byte)' ') piece = piece[1..];
+            if (removeSpace && piece.Length > 0 && piece[0] == (byte)' ')
+            {
+                piece = piece[1..];
+            }
+
             removeSpace = false;
             ms.Write(piece);
         }
@@ -131,7 +169,10 @@ public sealed class RankedBpeTokenizer : ITokenizer
     {
         ArgumentNullException.ThrowIfNull(text);
         var output = new List<int>(Math.Max(16, text.Length / 3 + 4));
-        if (addSpecial && AddBos && BosId is int bos) output.Add(bos);
+        if (addSpecial && AddBos && BosId is int bos)
+        {
+            output.Add(bos);
+        }
 
         bool prevSpecial = true;
         foreach (var (isToken, piece, id) in Partition(text, parseSpecial))
@@ -141,17 +182,29 @@ public sealed class RankedBpeTokenizer : ITokenizer
             EncodeText(t.Replace(' ', '▁'), output);
             prevSpecial = false;
         }
-        if (addSpecial && AddEos && EosId is int eos) output.Add(eos);
+        if (addSpecial && AddEos && EosId is int eos)
+        {
+            output.Add(eos);
+        }
+
         return [.. output];
     }
 
     private List<(bool IsToken, string Text, int Id)> Partition(string text, bool parseSpecial)
     {
         var buffer = new List<(bool, string, int)>();
-        if (text.Length > 0) buffer.Add((false, text, 0));
+        if (text.Length > 0)
+        {
+            buffer.Add((false, text, 0));
+        }
+
         foreach (var (stext, sid) in _specials)
         {
-            if (!parseSpecial && _types[sid] is TokenType.Control or TokenType.Unknown) continue;
+            if (!parseSpecial && _types[sid] is TokenType.Control or TokenType.Unknown)
+            {
+                continue;
+            }
+
             var next = new List<(bool, string, int)>(buffer.Count + 2);
             foreach (var frag in buffer)
             {
@@ -160,8 +213,12 @@ public sealed class RankedBpeTokenizer : ITokenizer
                 while (true)
                 {
                     int at = rest.IndexOf(stext, StringComparison.Ordinal);
-                    if (at < 0) { if (rest.Length > 0) next.Add((false, rest, 0)); break; }
-                    if (at > 0) next.Add((false, rest[..at], 0));
+                    if (at < 0) { if (rest.Length > 0) { next.Add((false, rest, 0)); } break; }
+                    if (at > 0)
+                    {
+                        next.Add((false, rest[..at], 0));
+                    }
+
                     next.Add((true, "", sid));
                     rest = rest[(at + stext.Length)..];
                 }
@@ -175,40 +232,82 @@ public sealed class RankedBpeTokenizer : ITokenizer
 
     private void EncodeText(string text, List<int> output)
     {
-        if (text.Length == 0) return;
+        if (text.Length == 0)
+        {
+            return;
+        }
         // initial symbols: one per character (or one byte token per UTF-8 byte of an unknown character)
         var ids = new List<int>(text.Length);
         for (int i = 0; i < text.Length;)
         {
             int len = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? 2 : 1;
             string ch = text.Substring(i, len);
-            if (_toId.TryGetValue(ch, out int id)) ids.Add(id);
-            else foreach (byte b in Encoding.UTF8.GetBytes(ch)) if (_byteToken[b] >= 0) ids.Add(_byteToken[b]);
+            if (_toId.TryGetValue(ch, out int id))
+            {
+                ids.Add(id);
+            }
+            else
+            {
+                foreach (byte b in Encoding.UTF8.GetBytes(ch))
+                {
+                    if (_byteToken[b] >= 0)
+                    {
+                        ids.Add(_byteToken[b]);
+                    }
+                }
+            }
+
             i += len;
         }
         int n = ids.Count;
-        if (n == 0) return;
+        if (n == 0)
+        {
+            return;
+        }
+
         var sym = ids.ToArray();
         var prev = new int[n]; var next = new int[n];
         for (int i = 0; i < n; i++) { prev[i] = i - 1; next[i] = i + 1 < n ? i + 1 : -1; }
         var queue = new PriorityQueue<Bigram, (int, int)>();
         void TryAdd(int l, int r)
         {
-            if (l < 0 || r < 0) return;
-            if (_merges.TryGet(sym[l], sym[r], out int rank, out int res)) queue.Enqueue(new Bigram(l, r, sym[l], sym[r], res), (rank, l));
+            if (l < 0 || r < 0)
+            {
+                return;
+            }
+
+            if (_merges.TryGet(sym[l], sym[r], out int rank, out int res))
+            {
+                queue.Enqueue(new Bigram(l, r, sym[l], sym[r], res), (rank, l));
+            }
         }
-        for (int i = 1; i < n; i++) TryAdd(i - 1, i);
+        for (int i = 1; i < n; i++)
+        {
+            TryAdd(i - 1, i);
+        }
+
         while (queue.Count > 0)
         {
             var bg = queue.Dequeue();
-            if (sym[bg.Left] != bg.LeftId || sym[bg.Right] != bg.RightId || sym[bg.Left] < 0 || sym[bg.Right] < 0 || next[bg.Left] != bg.Right) continue;
+            if (sym[bg.Left] != bg.LeftId || sym[bg.Right] != bg.RightId || sym[bg.Left] < 0 || sym[bg.Right] < 0 || next[bg.Left] != bg.Right)
+            {
+                continue;
+            }
+
             sym[bg.Left] = bg.Result;
             sym[bg.Right] = -1;
             next[bg.Left] = next[bg.Right];
-            if (next[bg.Right] >= 0) prev[next[bg.Right]] = bg.Left;
+            if (next[bg.Right] >= 0)
+            {
+                prev[next[bg.Right]] = bg.Left;
+            }
+
             TryAdd(prev[bg.Left], bg.Left);
             TryAdd(bg.Left, next[bg.Left]);
         }
-        for (int i = 0; i != -1; i = next[i]) output.Add(sym[i]);
+        for (int i = 0; i != -1; i = next[i])
+        {
+            output.Add(sym[i]);
+        }
     }
 }

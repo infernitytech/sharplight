@@ -9,44 +9,92 @@ namespace Sharplight.Shaders.Lowering;
 public sealed partial class GraphLowerer
 {
     // A property (not a field) so it can be used from field initializers in other parts regardless of static init order.
-    static string[] SpatialOpNames => ["Conv", "Pool", "Reduce", "BatchMatMul", "Pad", "Resize", "Softmax", "LayerNorm", "ReduceSum", "ReduceMax", "ArgMax"];
-    static readonly HashSet<string> s_spatialOps = [.. SpatialOpNames];
+    private static string[] SpatialOpNames => ["Conv", "Pool", "Reduce", "BatchMatMul", "Pad", "Resize", "Softmax", "LayerNorm", "ReduceSum", "ReduceMax", "ArgMax"];
+    private static readonly HashSet<string> s_spatialOps = [.. SpatialOpNames];
 
     /// <summary>Support check for the ops handled in this file.</summary>
-    static OpSupport SupportsSpatial(Node node)
+    private static OpSupport SupportsSpatial(Node node)
     {
         var a = node.Attributes;
         switch (node.Op.Name)
         {
             case "Conv":
-                if (node.Inputs[0].Type.IsQuantized) return OpSupport.No("Conv input must not be quantized");
-                if (node.Inputs[1].Type.IsQuantized && WeightFormat(node.Inputs[1].Type) is null) return OpSupport.No($"weight format {node.Inputs[1].Type} not supported");
+                if (node.Inputs[0].Type.IsQuantized)
+                {
+                    return OpSupport.No("Conv input must not be quantized");
+                }
+
+                if (node.Inputs[1].Type.IsQuantized && WeightFormat(node.Inputs[1].Type) is null)
+                {
+                    return OpSupport.No($"weight format {node.Inputs[1].Type} not supported");
+                }
+
                 if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16 && node.Inputs[1].Type != DataType.BF16 && !node.Inputs[1].Type.IsQuantized)
+                {
                     return OpSupport.No($"Conv weight type {node.Inputs[1].Type}");
-                if (node.Inputs.Length > 2 && node.Inputs[2].Type.IsQuantized) return OpSupport.No("quantized bias");
+                }
+
+                if (node.Inputs.Length > 2 && node.Inputs[2].Type.IsQuantized)
+                {
+                    return OpSupport.No("quantized bias");
+                }
+
                 return OpSupport.Yes;
             case "Resize":
-                if (!(a.Get("mode", "nearest") is "nearest" or "linear")) return OpSupport.No($"Resize mode {a.Get("mode", "nearest")}");
-                if (!(a.Get("coord", "half_pixel") is "half_pixel" or "align_corners" or "asymmetric" or "pytorch_half_pixel")) return OpSupport.No($"Resize coord {a.Get("coord", "half_pixel")}");
-                if (!(a.Get("nearest_mode", "round_prefer_floor") is "round_prefer_floor" or "round_prefer_ceil" or "floor" or "ceil")) return OpSupport.No($"Resize nearest_mode {a.Get("nearest_mode", "round_prefer_floor")}");
+                if (!(a.Get("mode", "nearest") is "nearest" or "linear"))
+                {
+                    return OpSupport.No($"Resize mode {a.Get("mode", "nearest")}");
+                }
+
+                if (!(a.Get("coord", "half_pixel") is "half_pixel" or "align_corners" or "asymmetric" or "pytorch_half_pixel"))
+                {
+                    return OpSupport.No($"Resize coord {a.Get("coord", "half_pixel")}");
+                }
+
+                if (!(a.Get("nearest_mode", "round_prefer_floor") is "round_prefer_floor" or "round_prefer_ceil" or "floor" or "ceil"))
+                {
+                    return OpSupport.No($"Resize nearest_mode {a.Get("nearest_mode", "round_prefer_floor")}");
+                }
+
                 break;
             case "Pad":
-                if (!(a.Get("mode", "constant") is "constant" or "reflect" or "edge")) return OpSupport.No($"Pad mode {a.Get("mode", "constant")}");
+                if (!(a.Get("mode", "constant") is "constant" or "reflect" or "edge"))
+                {
+                    return OpSupport.No($"Pad mode {a.Get("mode", "constant")}");
+                }
+
                 break;
             case "Pool":
-                if (!(a.Get("mode", "max") is "max" or "avg")) return OpSupport.No($"Pool mode {a.Get("mode", "max")}");
+                if (!(a.Get("mode", "max") is "max" or "avg"))
+                {
+                    return OpSupport.No($"Pool mode {a.Get("mode", "max")}");
+                }
+
                 break;
             case "Reduce":
-                if (!(a.Get("mode", "sum") is "sum" or "mean" or "max" or "min" or "prod" or "l1" or "l2" or "sumsquare" or "logsumexp")) return OpSupport.No($"Reduce mode {a.Get("mode", "sum")}");
+                if (!(a.Get("mode", "sum") is "sum" or "mean" or "max" or "min" or "prod" or "l1" or "l2" or "sumsquare" or "logsumexp"))
+                {
+                    return OpSupport.No($"Reduce mode {a.Get("mode", "sum")}");
+                }
+
                 break;
         }
         foreach (var v in node.Inputs)
-            if (v.Type.IsQuantized) return OpSupport.No($"{node.Op.Name} cannot read quantized {v.Type}");
-            else if (v.Type != DataType.F32 && v.Type != DataType.F16 && v.Type != DataType.BF16) return OpSupport.No($"{node.Op.Name} input type {v.Type}");
+        {
+            if (v.Type.IsQuantized)
+            {
+                return OpSupport.No($"{node.Op.Name} cannot read quantized {v.Type}");
+            }
+            else if (v.Type != DataType.F32 && v.Type != DataType.F16 && v.Type != DataType.BF16)
+            {
+                return OpSupport.No($"{node.Op.Name} input type {v.Type}");
+            }
+        }
+
         return OpSupport.Yes;
     }
 
-    bool LowerSpatial(Node n)
+    private bool LowerSpatial(Node n)
     {
         switch (n.Op.Name)
         {
@@ -67,7 +115,7 @@ public sealed partial class GraphLowerer
 
     // ---- helpers -----------------------------------------------------------------------------
     /// <summary>Scratch tensor in the arena, released after the current node is lowered.</summary>
-    TensorRef Temp(DataType type, long[] shape, string? symbol)
+    private TensorRef Temp(DataType type, long[] shape, string? symbol)
     {
         var key = new object();
         long bytes = type.ByteSize(shape.Aggregate(1L, (a, b) => a * b));
@@ -77,34 +125,42 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Returns <paramref name="r"/> if it is f32 (strides preserved), else a dense f32 copy.</summary>
-    TensorRef AsF32(TensorRef r, string why)
+    private TensorRef AsF32(TensorRef r, string why)
     {
-        if (r.Type == DataType.F32) return r;
+        if (r.Type == DataType.F32)
+        {
+            return r;
+        }
+
         var dst = Temp(DataType.F32, r.Shape, r.Symbol);
         EmitCopy(r, dst, "to_f32:" + why);
         return dst;
     }
 
     /// <summary>Dense f32 tensor (copying/converting when needed).</summary>
-    TensorRef AsDenseF32(TensorRef r, string why)
+    private TensorRef AsDenseF32(TensorRef r, string why)
     {
-        if (r.Type == DataType.F32 && r.IsDense) return r;
+        if (r.Type == DataType.F32 && r.IsDense)
+        {
+            return r;
+        }
+
         var dst = Temp(DataType.F32, r.Shape, r.Symbol);
         EmitCopy(r, dst, "dense_f32:" + why);
         return dst;
     }
 
-    static string IntList(IEnumerable<long> v)
+    private static string IntList(IEnumerable<long> v)
     {
         var s = string.Join(",", v);
         return s.Length == 0 ? "0" : s;
     }
 
     /// <summary>Total tokens of the (possibly symbolic) outermost dim times <paramref name="inner"/> as a launch argument.</summary>
-    static KernelArg CountArg(TensorRef r, long inner) => r.Symbol is null ? new UIntArg((uint)(r.Shape[0] * inner)) : new SymbolArg(r.Symbol, inner);
+    private static KernelArg CountArg(TensorRef r, long inner) => r.Symbol is null ? new UIntArg((uint)(r.Shape[0] * inner)) : new SymbolArg(r.Symbol, inner);
 
     /// <summary>One variant per distinct choice over all bindings of the symbolic dim (1..bound).</summary>
-    List<KernelVariant> ChooseVariants<TCfg>(string? symbol, long bound, Func<long, TCfg> choose, Func<TCfg, (CompiledKernel Kernel, Func<long, Grid> Grid)> make)
+    private List<KernelVariant> ChooseVariants<TCfg>(string? symbol, long bound, Func<long, TCfg> choose, Func<TCfg, (CompiledKernel Kernel, Func<long, Grid> Grid)> make)
         where TCfg : notnull
     {
         var list = new List<KernelVariant>();
@@ -118,7 +174,11 @@ public sealed partial class GraphLowerer
         for (long v = 1; v <= Math.Max(1, bound); v++)
         {
             var cfg = choose(v);
-            if (!seen.TryAdd(cfg, true)) continue;
+            if (!seen.TryAdd(cfg, true))
+            {
+                continue;
+            }
+
             var (k, g) = make(cfg);
             var c = cfg;
             list.Add(new KernelVariant(b => choose(b[symbol]).Equals(c), k, b => g(b[symbol])));
@@ -127,48 +187,68 @@ public sealed partial class GraphLowerer
     }
 
     // ---- Conv --------------------------------------------------------------------------------
-    sealed record ConvTile(int BM, int BN, int TM, int TN)
+    private sealed record ConvTile(int BM, int BN, int TM, int TN)
     {
         public int NT => (BM / TM) * (BN / TN);
     }
 
-    static readonly ConvTile[] s_convTiles =
+    private static readonly ConvTile[] s_convTiles =
         [new(128, 128, 8, 8), new(128, 64, 8, 4), new(64, 64, 4, 4), new(64, 32, 4, 4), new(32, 64, 4, 4), new(32, 32, 4, 4)];
-    const int ConvBK = 32;
-    const long TargetWorkgroups = 480;
+    private const int ConvBK = 32;
+    private const long TargetWorkgroups = 480;
 
-    sealed record ConvCfg(ConvTile Tile, int Split, long Kps);
+    private sealed record ConvCfg(ConvTile Tile, int Split, long Kps);
 
-    static ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
+    private static ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
     {
         long NC = N * HW;
         ConvTile? best = null; long bestWgs = 0;
         foreach (var t in s_convTiles)
         {
             // Avoid grossly oversized tiles for small problems.
-            if (t.BM > 2 * Math.Max(OG, 16) && t.BM > 32) continue;
-            if (t.BN > 2 * Math.Max(NC, 16) && t.BN > 32) continue;
+            if (t.BM > 2 * Math.Max(OG, 16) && t.BM > 32)
+            {
+                continue;
+            }
+
+            if (t.BN > 2 * Math.Max(NC, 16) && t.BN > 32)
+            {
+                continue;
+            }
+
             long wgs = ((NC + t.BN - 1) / t.BN) * ((OG + t.BM - 1) / t.BM) * G;
-            if (wgs >= TargetWorkgroups) return new ConvCfg(t, 1, K);
+            if (wgs >= TargetWorkgroups)
+            {
+                return new ConvCfg(t, 1, K);
+            }
+
             if (wgs > bestWgs) { best = t; bestWgs = wgs; }
         }
         best ??= s_convTiles[^1];
         bestWgs = Math.Max(1, bestWgs);
         long kTiles = (K + ConvBK - 1) / ConvBK;
         long split = Math.Min(Math.Min((TargetWorkgroups + bestWgs - 1) / bestWgs, kTiles / 4), 16);
-        if (split < 2) return new ConvCfg(best, 1, K);
+        if (split < 2)
+        {
+            return new ConvCfg(best, 1, K);
+        }
+
         long kps = (kTiles + split - 1) / split * ConvBK;
         split = (K + kps - 1) / kps;
         return new ConvCfg(best, (int)split, kps);
     }
 
-    void LowerConv2d(Node n)
+    private void LowerConv2d(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "conv-x");
         var w = Ref(n.Inputs[1]);
         if (!w.IsDense)
         {
-            if (w.Type.IsQuantized) throw new NotSupportedException("Conv weight must be dense.");
+            if (w.Type.IsQuantized)
+            {
+                throw new NotSupportedException("Conv weight must be dense.");
+            }
+
             w = DenseTemp(w, "conv-w");
         }
         TensorRef? bias = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "conv-bias") : null;
@@ -214,7 +294,10 @@ public sealed partial class GraphLowerer
         for (long v = x.Symbol is null ? bound : 1; v <= bound; v++)
         {
             var c = choose(v);
-            if (c.Split > 1) maxWs = Math.Max(maxWs, c.Split * v * O * HW);
+            if (c.Split > 1)
+            {
+                maxWs = Math.Max(maxWs, c.Split * v * O * HW);
+            }
         }
         TensorRef? ws = maxWs > 0 ? Temp(DataType.F32, [maxWs], null) : null;
 
@@ -232,7 +315,11 @@ public sealed partial class GraphLowerer
         Emit(useWs ? name + " gemm" : name, [n], gemmVariants,
             [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(w.Buffer, w.ByteOffset), new PointerArg(biasPtr.Buffer, biasPtr.ByteOffset), new PointerArg(dst.Buffer, dst.ByteOffset), TokenArg(x)],
             bias is null || useWs ? [x, w] : [x, w, bias], [dst]);
-        if (!useWs) return;
+        if (!useWs)
+        {
+            return;
+        }
+
         var redVariants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
             var k = Lib("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)));
@@ -244,7 +331,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- Pool --------------------------------------------------------------------------------
-    void LowerPool(Node n)
+    private void LowerPool(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "pool");
         var a = n.Attributes;
@@ -265,7 +352,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- Reduce ------------------------------------------------------------------------------
-    void LowerReduce(Node n)
+    private void LowerReduce(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "reduce");
         var a = n.Attributes;
@@ -279,11 +366,19 @@ public sealed partial class GraphLowerer
         {
             bool isRed = axes.Contains(d);
             var list = isRed ? red : kept;
-            if (x.Shape[d] == 1 && !(d == 0 && x.Symbol is not null)) continue;
+            if (x.Shape[d] == 1 && !(d == 0 && x.Symbol is not null))
+            {
+                continue;
+            }
             // adjacent dims of one class merge when their addresses are contiguous
             if (list.Count > 0 && list[^1].Stride == x.Strides[d] * x.Shape[d])
+            {
                 list[^1] = (list[^1].Shape * x.Shape[d], x.Strides[d]);
-            else list.Add((x.Shape[d], x.Strides[d]));
+            }
+            else
+            {
+                list.Add((x.Shape[d], x.Strides[d]));
+            }
         }
         long rTotal = red.Aggregate(1L, (acc, r) => acc * r.Shape);
         long nOutInner = kept.Skip(x.Symbol is not null ? 1 : 0).Aggregate(1L, (acc, r) => acc * r.Shape);
@@ -304,19 +399,19 @@ public sealed partial class GraphLowerer
     }
 
     // ---- BatchMatMul -------------------------------------------------------------------------
-    sealed record BmmTile(int BM, int BN, int TM, int TN, int BK)
+    private sealed record BmmTile(int BM, int BN, int TM, int TN, int BK)
     {
         public int NT => (BM / TM) * (BN / TN);
     }
 
-    void LowerBatchMatMul(Node n)
+    private void LowerBatchMatMul(Node n)
     {
         var at = n.Attributes;
         LowerBmm(n, Ref(n.Inputs[0]), Ref(n.Inputs[1]), at.Get("trans_a", false), at.Get("trans_b", false), at.Get("alpha", 1f));
     }
 
     /// <summary>General strided (batched) matmul y = alpha · op(a) · op(b); also used for MatMul shapes the weight kernels can't take.</summary>
-    void LowerBmm(Node n, TensorRef aRef, TensorRef bRef, bool ta, bool tb, float alpha)
+    private void LowerBmm(Node n, TensorRef aRef, TensorRef bRef, bool ta, bool tb, float alpha)
     {
         var a = AsF32(aRef, "bmm-a");
         var b = AsF32(bRef, "bmm-b");
@@ -337,7 +432,11 @@ public sealed partial class GraphLowerer
         }
         bool mdyn = y.Symbol is not null && nb == 0;
         long batchesInner = 1;
-        for (int d = 1; d < nb; d++) batchesInner *= bsh[d];
+        for (int d = 1; d < nb; d++)
+        {
+            batchesInner *= bsh[d];
+        }
+
         long Mb = M;
         Func<long, BmmTile> choose = dyn =>
         {
@@ -365,7 +464,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- Pad ---------------------------------------------------------------------------------
-    void LowerPad(Node n)
+    private void LowerPad(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "pad");
         var a = n.Attributes;
@@ -383,7 +482,7 @@ public sealed partial class GraphLowerer
     }
 
     // ---- Resize ------------------------------------------------------------------------------
-    void LowerResize(Node n)
+    private void LowerResize(Node n)
     {
         var x = AsF32(Ref(n.Inputs[0]), "resize");
         var a = n.Attributes;
@@ -400,14 +499,14 @@ public sealed partial class GraphLowerer
     }
 
     // ---- row ops -----------------------------------------------------------------------------
-    TensorRef RowsInput(Value v, string why, out long r1, out long s0, out long s1)
+    private TensorRef RowsInput(Value v, string why, out long r1, out long s0, out long s1)
     {
         var x = AsF32(Ref(v), why);
         if (!TryRows3(x, out r1, out s0, out s1)) { x = DenseTemp(x, why); TryRows3(x, out r1, out s0, out s1); }
         return x;
     }
 
-    void LowerSoftmax(Node n)
+    private void LowerSoftmax(Node n)
     {
         var x = RowsInput(n.Inputs[0], "softmax", out long r1, out long s0, out long s1);
         var y = Produce(n.Output);
@@ -417,7 +516,7 @@ public sealed partial class GraphLowerer
             [new PointerArg(x.Buffer, x.ByteOffset), new PointerArg(y.Buffer, y.ByteOffset), TokenArg(x)], [x], [y]);
     }
 
-    void LowerLayerNorm(Node n)
+    private void LowerLayerNorm(Node n)
     {
         var x = RowsInput(n.Inputs[0], "layernorm", out long r1, out long s0, out long s1);
         var w = n.Inputs.Length > 1 ? AsDenseF32(Ref(n.Inputs[1]), "ln-w") : null;
@@ -432,7 +531,7 @@ public sealed partial class GraphLowerer
             [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
     }
 
-    void LowerRowReduce(Node n, int mode)
+    private void LowerRowReduce(Node n, int mode)
     {
         var x = RowsInput(n.Inputs[0], "rowreduce", out long r1, out long s0, out long s1);
         var y = Produce(n.Output);

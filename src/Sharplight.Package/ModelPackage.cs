@@ -47,7 +47,10 @@ public static class ModelPackage
     public static void Save(string path, ModelDefinition definition, IEnumerable<CompilationCache> targets, Action<string>? log = null)
     {
         if (definition.OwnedResources.OfType<PackageFile>().Any(f => Path.GetFullPath(f.Path) == Path.GetFullPath(path)))
+        {
             throw new IOException($"Cannot overwrite the package being read ({path}); use AddTargets to store new targets.");
+        }
+
         var tmp = path + ".tmp";
         try
         {
@@ -61,10 +64,19 @@ public static class ModelPackage
                 // Every weight of the definition plus any the graphs reference beyond it (e.g. auxiliary files).
                 var byName = new Dictionary<string, WeightInfo>(definition.Weights, StringComparer.Ordinal);
                 foreach (var g in definition.Graphs.Values)
+                {
                     foreach (var v in g.Weights)
+                    {
                         if (byName.TryGetValue(v.Weight!.Name, out var known) ? !ReferenceEquals(known, v.Weight) && !SameWeight(known, v.Weight) : false)
+                        {
                             throw new InvalidDataException($"Two different weights are named '{v.Weight.Name}'.");
-                        else byName.TryAdd(v.Weight.Name, v.Weight);
+                        }
+                        else
+                        {
+                            byName.TryAdd(v.Weight.Name, v.Weight);
+                        }
+                    }
+                }
                 // Weight index needs the data offsets: lay the data out first, after the (sized) index.
                 var weights = byName.Values.OrderBy(w => w.Name, StringComparer.Ordinal).ToList();
                 var index = new MemoryStream();
@@ -106,8 +118,13 @@ public static class ModelPackage
                 sections.Add(new Section(SectionKind.WeightData, "", dataStart, dataEnd - dataStart));
 
                 foreach (var t in targets)
+                {
                     if (t.Entries.Count > 0)
+                    {
                         sections.Add(WriteKernelSet(fs, t));
+                    }
+                }
+
                 WriteTable(fs, sections);
             }
             File.Move(tmp, path, overwrite: true);
@@ -132,7 +149,11 @@ public static class ModelPackage
         fs.Seek(0, SeekOrigin.End);
         foreach (var t in targets)
         {
-            if (t.Entries.Count == 0) continue;
+            if (t.Entries.Count == 0)
+            {
+                continue;
+            }
+
             list.RemoveAll(s => s.Kind == SectionKind.KernelSet && s.Name == t.Target);
             list.Add(WriteKernelSet(fs, t));
         }
@@ -141,9 +162,9 @@ public static class ModelPackage
 
     // ---- writing ---------------------------------------------------------------------------------------
 
-    static bool SameWeight(WeightInfo a, WeightInfo b) => ReferenceEquals(a.Source, b.Source) && a.Type == b.Type && a.Shape.Equals(b.Shape);
+    private static bool SameWeight(WeightInfo a, WeightInfo b) => ReferenceEquals(a.Source, b.Source) && a.Type == b.Type && a.Shape.Equals(b.Shape);
 
-    static void WriteIndex(BinaryWriter w, List<WeightInfo> weights, long[] offsets)
+    private static void WriteIndex(BinaryWriter w, List<WeightInfo> weights, long[] offsets)
     {
         w.Write(weights.Count);
         for (int i = 0; i < weights.Count; i++)
@@ -153,22 +174,33 @@ public static class ModelPackage
             MetadataCodec.WriteString(w, wi.Type.Name);
             var dims = wi.Shape.Dims;
             w.Write(dims.Length);
-            foreach (var d in dims) w.Write(d.IsSymbolic ? throw new InvalidDataException($"Weight {wi.Name} has a symbolic shape.") : d.Fixed);
+            foreach (var d in dims)
+            {
+                w.Write(d.IsSymbolic ? throw new InvalidDataException($"Weight {wi.Name} has a symbolic shape.") : d.Fixed);
+            }
+
             w.Write(offsets[i]);
             w.Write(wi.ByteSize);
         }
         w.Flush();
     }
 
-    static unsafe void CopyWeight(WeightInfo w, FileStream fs, byte[] buf)
+    private static unsafe void CopyWeight(WeightInfo w, FileStream fs, byte[] buf)
     {
         long size = w.ByteSize;
-        if (w.Source.ByteLength < size) throw new InvalidDataException($"Weight {w.Name}: source has {w.Source.ByteLength} bytes, expected {size}.");
+        if (w.Source.ByteLength < size)
+        {
+            throw new InvalidDataException($"Weight {w.Name}: source has {w.Source.ByteLength} bytes, expected {size}.");
+        }
+
         nint ptr = w.Source.TryGetPointer();
         for (long done = 0; done < size;)
         {
             int n = (int)Math.Min(buf.Length, size - done);
-            if (ptr != 0) fs.Write(new ReadOnlySpan<byte>((byte*)ptr + done, n));
+            if (ptr != 0)
+            {
+                fs.Write(new ReadOnlySpan<byte>((byte*)ptr + done, n));
+            }
             else
             {
                 w.Source.Read(done, buf.AsSpan(0, n));
@@ -178,7 +210,7 @@ public static class ModelPackage
         }
     }
 
-    static Section WriteKernelSet(FileStream fs, CompilationCache cache)
+    private static Section WriteKernelSet(FileStream fs, CompilationCache cache)
     {
         var entries = cache.Entries.OrderBy(e => e.Key, StringComparer.Ordinal).ToList();
         return WriteSection(fs, SectionKind.KernelSet, cache.Target, w =>
@@ -207,7 +239,7 @@ public static class ModelPackage
         });
     }
 
-    static Section WriteSection(FileStream fs, SectionKind kind, string name, Action<BinaryWriter> body)
+    private static Section WriteSection(FileStream fs, SectionKind kind, string name, Action<BinaryWriter> body)
     {
         long start = Align(fs.Position, 16);
         Pad(fs, start);
@@ -215,7 +247,7 @@ public static class ModelPackage
         return new Section(kind, name, start, fs.Position - start);
     }
 
-    static void WriteTable(FileStream fs, List<Section> sections)
+    private static void WriteTable(FileStream fs, List<Section> sections)
     {
         long table = Align(fs.Seek(0, SeekOrigin.End), 16);
         Pad(fs, table);
@@ -244,10 +276,17 @@ public static class ModelPackage
         fs.Flush(flushToDisk: true);
     }
 
-    static void Pad(FileStream fs, long to)
+    private static void Pad(FileStream fs, long to)
     {
-        if (fs.Position > to) throw new InvalidOperationException("Package writer position overran its layout.");
-        if (fs.Position < to) fs.Write(new byte[to - fs.Position]);
+        if (fs.Position > to)
+        {
+            throw new InvalidOperationException("Package writer position overran its layout.");
+        }
+
+        if (fs.Position < to)
+        {
+            fs.Write(new byte[to - fs.Position]);
+        }
     }
 
     internal static long Align(long v, long a) => (v + a - 1) / a * a;
@@ -259,9 +298,17 @@ public static class ModelPackage
         Span<byte> h = stackalloc byte[HeaderSize];
         s.Seek(0, SeekOrigin.Begin);
         s.ReadExactly(h);
-        if (!h[..8].SequenceEqual(Magic)) throw new InvalidDataException("Not a Sharplight package (bad magic).");
+        if (!h[..8].SequenceEqual(Magic))
+        {
+            throw new InvalidDataException("Not a Sharplight package (bad magic).");
+        }
+
         int version = BinaryPrimitives.ReadInt32LittleEndian(h[8..]);
-        if (version != Version) throw new InvalidDataException($"Unsupported Sharplight package version {version} (expected {Version}).");
+        if (version != Version)
+        {
+            throw new InvalidDataException($"Unsupported Sharplight package version {version} (expected {Version}).");
+        }
+
         long table = BinaryPrimitives.ReadInt64LittleEndian(h[16..]);
         int count = BinaryPrimitives.ReadInt32LittleEndian(h[24..]);
         s.Seek(table, SeekOrigin.Begin);
@@ -280,7 +327,11 @@ public static class ModelPackage
     /// <summary>True when <paramref name="path"/> is a file starting with the package magic.</summary>
     public static bool IsPackage(string path)
     {
-        if (!File.Exists(path)) return false;
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -295,12 +346,12 @@ public static class ModelPackage
 /// <summary>An open, memory-mapped package.</summary>
 public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
 {
-    readonly MemoryMappedFile _mmf;
-    readonly MemoryMappedViewAccessor _view;
-    readonly byte* _base;
-    readonly long _length;
-    readonly Dictionary<string, KernelSet> _targets = new(StringComparer.Ordinal);
-    bool _disposed;
+    private readonly MemoryMappedFile _mmf;
+    private readonly MemoryMappedViewAccessor _view;
+    private readonly byte* _base;
+    private readonly long _length;
+    private readonly Dictionary<string, KernelSet> _targets = new(StringComparer.Ordinal);
+    private bool _disposed;
 
     public string Path { get; }
     public IReadOnlyDictionary<string, WeightInfo> Weights { get; }
@@ -330,20 +381,27 @@ public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         _base = p + _view.PointerOffset;
 
         foreach (var s in sections)
+        {
             if (s.Offset < 0 || s.Length < 0 || s.Offset + s.Length > _length)
+            {
                 throw new InvalidDataException($"Package section {s.Kind} '{s.Name}' lies outside the file.");
+            }
+        }
+
         var idx = sections.Single(s => s.Kind == ModelPackage.SectionKind.WeightIndex);
         Weights = ReadIndex(Reader(idx));
         var def = sections.Single(s => s.Kind == ModelPackage.SectionKind.Definition);
         Definition = DefinitionCodec.Read(Reader(def), Weights, [this]);
         foreach (var s in sections.Where(s => s.Kind == ModelPackage.SectionKind.KernelSet))
+        {
             _targets[s.Name] = new KernelSet(this, s);
+        }
     }
 
-    BinaryReader Reader(ModelPackage.Section s)
+    private BinaryReader Reader(ModelPackage.Section s)
         => new(new UnmanagedMemoryStream(_base + s.Offset, s.Length), Encoding.UTF8);
 
-    Dictionary<string, WeightInfo> ReadIndex(BinaryReader r)
+    private Dictionary<string, WeightInfo> ReadIndex(BinaryReader r)
     {
         int n = r.ReadInt32();
         var d = new Dictionary<string, WeightInfo>(n, StringComparer.Ordinal);
@@ -353,11 +411,23 @@ public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             var type = DataType.Get(MetadataCodec.ReadString(r));
             int rank = r.ReadInt32();
             var dims = new Dim[rank];
-            for (int j = 0; j < rank; j++) dims[j] = Dim.Of(r.ReadInt64());
+            for (int j = 0; j < rank; j++)
+            {
+                dims[j] = Dim.Of(r.ReadInt64());
+            }
+
             long off = r.ReadInt64(), len = r.ReadInt64();
-            if (off < 0 || off + len > _length) throw new InvalidDataException($"Weight {name} lies outside the package.");
+            if (off < 0 || off + len > _length)
+            {
+                throw new InvalidDataException($"Weight {name} lies outside the package.");
+            }
+
             var shape = new Shape(dims);
-            if (type.ByteSize(shape.Elements()) != len) throw new InvalidDataException($"Weight {name}: {len} bytes do not match {type}{shape}.");
+            if (type.ByteSize(shape.Elements()) != len)
+            {
+                throw new InvalidDataException($"Weight {name}: {len} bytes do not match {type}{shape}.");
+            }
+
             d[name] = new WeightInfo { Name = name, Type = type, Shape = shape, Source = new MappedSource(this, off, len) };
         }
         return d;
@@ -365,24 +435,32 @@ public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
 
     public ICompilationCache? Find(string target) => _targets.GetValueOrDefault(target);
 
-    void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
         _view.SafeMemoryMappedViewHandle.ReleasePointer();
         _view.Dispose();
         _mmf.Dispose();
     }
 
-    sealed class MappedSource(PackageFile file, long offset, long length) : IWeightSource
+    private sealed class MappedSource(PackageFile file, long offset, long length) : IWeightSource
     {
         public long ByteLength => length;
         public void Read(long o, Span<byte> destination)
         {
             file.ThrowIfDisposed();
-            if (o < 0 || o + destination.Length > length) throw new ArgumentOutOfRangeException(nameof(o));
+            if (o < 0 || o + destination.Length > length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(o));
+            }
+
             new ReadOnlySpan<byte>(file._base + offset + o, destination.Length).CopyTo(destination);
         }
         public nint TryGetPointer()
@@ -393,10 +471,10 @@ public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
     }
 
     /// <summary>A stored target's entries, served from the mapping without copying.</summary>
-    sealed class KernelSet : ICompilationCache
+    private sealed class KernelSet : ICompilationCache
     {
-        readonly PackageFile _file;
-        readonly Dictionary<string, (long Offset, int Length)> _entries = new(StringComparer.Ordinal);
+        private readonly PackageFile _file;
+        private readonly Dictionary<string, (long Offset, int Length)> _entries = new(StringComparer.Ordinal);
 
         public KernelSet(PackageFile file, ModelPackage.Section s)
         {
@@ -407,7 +485,11 @@ public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
             {
                 string key = MetadataCodec.ReadString(r);
                 long off = r.ReadInt64(), len = r.ReadInt64();
-                if (off < 0 || len < 0 || len > int.MaxValue || off + len > s.Length) throw new InvalidDataException($"Package entry {key} lies outside its section.");
+                if (off < 0 || len < 0 || len > int.MaxValue || off + len > s.Length)
+                {
+                    throw new InvalidDataException($"Package entry {key} lies outside its section.");
+                }
+
                 _entries[key] = (s.Offset + off, (int)len);
             }
         }
@@ -423,7 +505,7 @@ public sealed unsafe class PackageFile : IDisposable, ICompilationCacheStore
         public void Put(string key, ReadOnlyMemory<byte> data) => throw new NotSupportedException("Stored package targets are read-only.");
     }
 
-    sealed class MappedMemory(byte* ptr, int length) : MemoryManager<byte>
+    private sealed class MappedMemory(byte* ptr, int length) : MemoryManager<byte>
     {
         public override Span<byte> GetSpan() => new(ptr, length);
         public override MemoryHandle Pin(int elementIndex = 0) => new(ptr + elementIndex);

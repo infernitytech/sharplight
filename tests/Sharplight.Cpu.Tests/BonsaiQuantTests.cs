@@ -1,6 +1,4 @@
 using System.Runtime.InteropServices;
-using Sharplight.Cpu;
-using Sharplight.Graph;
 using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
@@ -11,11 +9,11 @@ namespace Sharplight.Cpu.Tests;
 /// </summary>
 public unsafe class BonsaiQuantTests
 {
-    static readonly DataType[] Types = [DataType.Q1_0, DataType.Q2_0, DataType.Q2_0_G128, DataType.Tern1_G128];
+    private static readonly DataType[] Types = [DataType.Q1_0, DataType.Q2_0, DataType.Q2_0_G128, DataType.Tern1_G128];
 
     public static IEnumerable<object[]> TypeNames() => Types.Select(t => new object[] { t.Name });
 
-    static byte[] RandomBlocks(DataType t, long elements, int seed)
+    private static byte[] RandomBlocks(DataType t, long elements, int seed)
     {
         var rng = new Random(seed);
         var b = new byte[t.ByteSize(elements)];
@@ -29,7 +27,7 @@ public unsafe class BonsaiQuantTests
         return b;
     }
 
-    static int Trit(byte b, int n) { int pw = 1; for (int i = 0; i < n; i++) pw *= 3; return ((((b * pw) & 0xFF) * 3) >> 8) - 1; }
+    private static int Trit(byte b, int n) { int pw = 1; for (int i = 0; i < n; i++) { pw *= 3; } return ((((b * pw) & 0xFF) * 3) >> 8) - 1; }
 
     public static float[] Reference(DataType t, byte[] q, long elements)
     {
@@ -42,21 +40,47 @@ public unsafe class BonsaiQuantTests
             if (t == DataType.Q1_0)
             {
                 float d = (float)BitConverter.ToHalf(q, o);
-                for (int j = 0; j < 128; j++) r[e0 + j] = ((q[o + 2 + j / 8] >> (j % 8)) & 1) != 0 ? d : -d;
+                for (int j = 0; j < 128; j++)
+                {
+                    r[e0 + j] = ((q[o + 2 + j / 8] >> (j % 8)) & 1) != 0 ? d : -d;
+                }
             }
             else if (t == DataType.Q2_0 || t == DataType.Q2_0_G128)
             {
                 float d = (float)BitConverter.ToHalf(q, o);
-                for (int j = 0; j < t.BlockSize; j++) r[e0 + j] = (((q[o + 2 + j / 4] >> (2 * (j % 4))) & 3) - 1) * d;
+                for (int j = 0; j < t.BlockSize; j++)
+                {
+                    r[e0 + j] = (((q[o + 2 + j / 4] >> (2 * (j % 4))) & 3) - 1) * d;
+                }
             }
             else
             {
                 float d = (float)BitConverter.ToHalf(q, o + 26);
                 int j = 0;
                 // stage 1: 16 bytes x 5 trits, n-major; stage 2: 8 bytes x 5 trits; qh: 2 bytes x 4 trits
-                for (int n = 0; n < 5; n++) for (int m = 0; m < 16; m++) r[e0 + j++] = Trit(q[o + m], n) * d;
-                for (int n = 0; n < 5; n++) for (int m = 0; m < 8; m++) r[e0 + j++] = Trit(q[o + 16 + m], n) * d;
-                for (int n = 0; n < 4; n++) for (int h = 0; h < 2; h++) r[e0 + j++] = Trit(q[o + 24 + h], n) * d;
+                for (int n = 0; n < 5; n++)
+                {
+                    for (int m = 0; m < 16; m++)
+                    {
+                        r[e0 + j++] = Trit(q[o + m], n) * d;
+                    }
+                }
+
+                for (int n = 0; n < 5; n++)
+                {
+                    for (int m = 0; m < 8; m++)
+                    {
+                        r[e0 + j++] = Trit(q[o + 16 + m], n) * d;
+                    }
+                }
+
+                for (int n = 0; n < 4; n++)
+                {
+                    for (int h = 0; h < 2; h++)
+                    {
+                        r[e0 + j++] = Trit(q[o + 24 + h], n) * d;
+                    }
+                }
             }
         }
         return r;
@@ -70,7 +94,11 @@ public unsafe class BonsaiQuantTests
         var q = RandomBlocks(t, n, 5);
         var exp = Reference(t, q, n);
         var act = new float[n];
-        fixed (byte* p = q) fixed (float* d = act) Quant.Dequantize(Quant.FormatOf(t)!.Value, p, n, d);
+        fixed (byte* p = q) fixed (float* d = act)
+        {
+            Quant.Dequantize(Quant.FormatOf(t)!.Value, p, n, d);
+        }
+
         Kit.AssertClose(exp, act, 0, 0, name);
     }
 
@@ -91,7 +119,11 @@ public unsafe class BonsaiQuantTests
             m.SetInput(idx, MemoryMarshal.AsBytes(new[] { 3, 0, 8 }.AsSpan()));
             var p = Kit.P(3); m.Run(p);
             var exp = new List<float>();
-            foreach (int r in new[] { 3, 0, 8 }) exp.AddRange(deq.AsSpan(r * k, k).ToArray());
+            foreach (int r in new[] { 3, 0, 8 })
+            {
+                exp.AddRange(deq.AsSpan(r * k, k).ToArray());
+            }
+
             Kit.AssertClose(exp.ToArray(), Kit.Out(m, "y", p), 0, 0, name + " gather");
         }
 
@@ -107,11 +139,18 @@ public unsafe class BonsaiQuantTests
             var p = Kit.P(tokens); m.Run(p);
             var exp = new float[tokens * rows];
             for (int tt = 0; tt < tokens; tt++)
+            {
                 for (int r = 0; r < rows; r++)
                 {
-                    double s = 0; for (int c = 0; c < k; c++) s += (double)x[tt * k + c] * deq[r * k + c];
+                    double s = 0; for (int c = 0; c < k; c++)
+                    {
+                        s += (double)x[tt * k + c] * deq[r * k + c];
+                    }
+
                     exp[tt * rows + r] = (float)s;
                 }
+            }
+
             Kit.AssertClose(exp, Kit.Out(m, "y", p), 2e-3, 1e-4, name + " matmul");
         }
     }

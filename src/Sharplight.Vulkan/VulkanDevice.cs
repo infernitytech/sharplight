@@ -21,28 +21,28 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     internal readonly uint PushConstantSize;
     internal readonly MemoryAllocator Memory;
     internal readonly SlangCompiler Compiler;
-    readonly ConcurrentDictionary<string, VkPipeline> _pipelines = new();
+    private readonly ConcurrentDictionary<string, VkPipeline> _pipelines = new();
     /// <summary>Every kernel of every compiled program (so an export can cover pipelines not created yet).</summary>
-    readonly ConcurrentDictionary<string, CompiledKernel> _kernels = new();
-    readonly Lock _pipelineCacheLock = new();
-    VkPipelineCache _pipelineCache;
-    const string PipelineCacheKey = "vulkan/pipeline_cache";
-    readonly List<VkShaderModule> _modules = [];
+    private readonly ConcurrentDictionary<string, CompiledKernel> _kernels = new();
+    private readonly Lock _pipelineCacheLock = new();
+    private VkPipelineCache _pipelineCache;
+    private const string PipelineCacheKey = "vulkan/pipeline_cache";
+    private readonly List<VkShaderModule> _modules = [];
     // Thread safety: one VkDevice/queue is shared by every model (and thread) using this device. vkQueueSubmit needs
     // external synchronization (_queueLock via Submit); command pools are externally synchronized too, so every segment
     // records into its own pool and the device-level pool is only used under _poolLock.
-    readonly Lock _queueLock = new();
-    readonly Lock _poolLock = new();
-    readonly bool _budgetExt;
-    readonly long _budget;
-    long _used;
-    bool _disposed;
+    private readonly Lock _queueLock = new();
+    private readonly Lock _poolLock = new();
+    private readonly bool _budgetExt;
+    private readonly long _budget;
+    private long _used;
+    private bool _disposed;
 
     public DeviceInfo Info { get; }
     public DeviceOptions Options { get; }
     /// <summary>Detected features minus the ones disabled for this device; only these are enabled in the driver.</summary>
     public IReadOnlySet<string> EnabledFeatures { get; }
-    bool Has(string feature) => EnabledFeatures.Contains(feature);
+    private bool Has(string feature) => EnabledFeatures.Contains(feature);
     public long AvailableMemory => GetMemoryInfo().Available;
 
     /// <summary>Live memory figures: VK_EXT_memory_budget when the driver has it (accounts for other processes), else our own tally against the configured budget.</summary>
@@ -50,12 +50,20 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     {
         long ours = Interlocked.Read(ref _used);
         long total = Phys.DeviceLocalBytes;
-        if (!_budgetExt) return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+        if (!_budgetExt)
+        {
+            return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+        }
+
         var bp = new VkPhysicalDeviceMemoryBudgetPropertiesEXT();
         var mp = new VkPhysicalDeviceMemoryProperties2 { pNext = &bp };
         Inst.Api.vkGetPhysicalDeviceMemoryProperties2(Phys.Handle, &mp);
         long heapBudget = (long)bp.heapBudget[Phys.DeviceLocalHeap], heapUsage = (long)bp.heapUsage[Phys.DeviceLocalHeap];
-        if (heapBudget <= 0) return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+        if (heapBudget <= 0)
+        {
+            return new DeviceMemoryInfo(total, _budget, ours, ours, false);
+        }
+
         return new DeviceMemoryInfo(total, Math.Min(_budget, heapBudget), Math.Max(ours, heapUsage), ours, true);
     }
     public int SubgroupSize => (int)Phys.SubgroupSize;
@@ -72,18 +80,32 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         SubmissionBudgetMs = info.SubmissionBudgetMs;
         if ((options.Settings.TryGetValue("submission_budget_ms", out var sb) ? sb : Environment.GetEnvironmentVariable("SHARPLIGHT_SUBMISSION_BUDGET_MS")) is { } sbv
             && double.TryParse(sbv, System.Globalization.CultureInfo.InvariantCulture, out var sbm))
+        {
             SubmissionBudgetMs = Math.Max(0, sbm);
+        }
+
         var iapi = inst.Api;
 
         // ---- queue ------------------------------------------------------------------------------
         uint qn = 0;
         iapi.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &qn, null);
         var qfs = new VkQueueFamilyProperties[qn];
-        fixed (VkQueueFamilyProperties* q = qfs) iapi.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &qn, q);
+        fixed (VkQueueFamilyProperties* q = qfs)
+        {
+            iapi.vkGetPhysicalDeviceQueueFamilyProperties(phys.Handle, &qn, q);
+        }
         // Prefer a dedicated compute queue (async compute), else any queue with compute.
         int qf = Array.FindIndex(qfs, q => (q.queueFlags & VkQueueFlags.Compute) != 0 && (q.queueFlags & VkQueueFlags.Graphics) == 0);
-        if (qf < 0) qf = Array.FindIndex(qfs, q => (q.queueFlags & VkQueueFlags.Compute) != 0);
-        if (qf < 0) throw new NotSupportedException("No compute queue.");
+        if (qf < 0)
+        {
+            qf = Array.FindIndex(qfs, q => (q.queueFlags & VkQueueFlags.Compute) != 0);
+        }
+
+        if (qf < 0)
+        {
+            throw new NotSupportedException("No compute queue.");
+        }
+
         QueueFamily = (uint)qf;
 
         // ---- features -----------------------------------------------------------------------------
@@ -115,8 +137,16 @@ public sealed unsafe class VulkanDevice : IComputeDevice
             pNext = coop.pNext, cooperativeMatrixWorkgroupScope = true, cooperativeMatrixFlexibleDimensions = true,
             cooperativeMatrixTensorAddressing = true, cooperativeMatrixBlockLoads = true,
         };
-        if (coopMat2) coop.pNext = &coop2;
-        if (coopMat) f13.pNext = &coop;
+        if (coopMat2)
+        {
+            coop.pNext = &coop2;
+        }
+
+        if (coopMat)
+        {
+            f13.pNext = &coop;
+        }
+
         var f2 = new VkPhysicalDeviceFeatures2 { pNext = &f11 };
         f2.features.shaderInt64 = true;
         f2.features.shaderInt16 = true;
@@ -125,15 +155,31 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         var qci = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &prio };
         var exts = new List<string>();
         _budgetExt = phys.MemoryBudgetExt && !DeviceFeatures.DisabledByEnvironment.Contains(DeviceFeatures.MemoryBudget) && !options.DisabledFeatures.Contains(DeviceFeatures.MemoryBudget);
-        if (_budgetExt) exts.Add("VK_EXT_memory_budget");
-        if (coopMat) exts.Add("VK_KHR_cooperative_matrix");
-        if (coopMat2) exts.Add("VK_NV_cooperative_matrix2");
+        if (_budgetExt)
+        {
+            exts.Add("VK_EXT_memory_budget");
+        }
+
+        if (coopMat)
+        {
+            exts.Add("VK_KHR_cooperative_matrix");
+        }
+
+        if (coopMat2)
+        {
+            exts.Add("VK_NV_cooperative_matrix2");
+        }
+
         var extNames = exts.Select(e => (nint)System.Runtime.InteropServices.Marshal.StringToHGlobalAnsi(e)).ToArray();
         var dci = new VkDeviceCreateInfo { pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci };
         fixed (nint* en = extNames) { dci.enabledExtensionCount = (uint)extNames.Length; dci.ppEnabledExtensionNames = (byte**)en; }
         VkDevice dev;
         try { iapi.vkCreateDevice(phys.Handle, &dci, null, &dev).CheckResult(); }
-        finally { foreach (var e in extNames) System.Runtime.InteropServices.Marshal.FreeHGlobal(e); }
+        finally { foreach (var e in extNames)
+            {
+                System.Runtime.InteropServices.Marshal.FreeHGlobal(e);
+            }
+        }
         Handle = dev;
         Api = new VkDeviceApi(iapi, dev);
         VkQueue queue;
@@ -179,20 +225,38 @@ public sealed unsafe class VulkanDevice : IComputeDevice
             Cache = cache,
         });
         foreach (var l in program.Launches.Concat(program.ResetLaunches))
-            foreach (var v in l.Variants) _kernels.TryAdd(v.Kernel.CacheKey, v.Kernel);
-        if (s_loadTiming) Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers)");
+        {
+            foreach (var v in l.Variants)
+            {
+                _kernels.TryAdd(v.Kernel.CacheKey, v.Kernel);
+            }
+        }
+
+        if (s_loadTiming)
+        {
+            Console.Error.WriteLine($"[load] lower segment {segment.Index}: {swLower.ElapsedMilliseconds} ms ({program.Launches.Count} launches, {program.Buffers.Count} buffers)");
+        }
+
         return new VulkanSegment(this, segment, program, options);
     }
 
     /// <summary>Creates the driver pipeline cache on first compile, seeded from a saved model's cache when present
     /// (the driver validates the blob's header and ignores data from another device/driver).</summary>
-    void EnsurePipelineCache(ICompilationCache? cache)
+    private void EnsurePipelineCache(ICompilationCache? cache)
     {
         lock (_pipelineCacheLock)
         {
-            if (_pipelineCache != VkPipelineCache.Null) return;
+            if (_pipelineCache != VkPipelineCache.Null)
+            {
+                return;
+            }
+
             ReadOnlyMemory<byte> data = default;
-            if (cache is not null && cache.TryGet(PipelineCacheKey, out var d)) data = d;
+            if (cache is not null && cache.TryGet(PipelineCacheKey, out var d))
+            {
+                data = d;
+            }
+
             fixed (byte* p = data.Span)
             {
                 var ci = new VkPipelineCacheCreateInfo { initialDataSize = (nuint)data.Length, pInitialData = data.Length > 0 ? p : null };
@@ -207,21 +271,34 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     public void ExportCompilationState(ICompilationCache cache)
     {
         EnsurePipelineCache(null);
-        foreach (var k in _kernels.Values) Pipeline(k);
+        foreach (var k in _kernels.Values)
+        {
+            Pipeline(k);
+        }
+
         nuint size = 0;
         Api.vkGetPipelineCacheData(_pipelineCache, &size, null).CheckResult();
         var data = new byte[size];
-        fixed (byte* p = data) Api.vkGetPipelineCacheData(_pipelineCache, &size, p).CheckResult();
+        fixed (byte* p = data)
+        {
+            Api.vkGetPipelineCacheData(_pipelineCache, &size, p).CheckResult();
+        }
+
         cache.Put(PipelineCacheKey, data.AsMemory(0, (int)size));
     }
 
-    readonly Lock _pipelineCreateLock = new();
+    private readonly Lock _pipelineCreateLock = new();
 
     internal VkPipeline Pipeline(CompiledKernel kernel)
     {
-        if (_pipelines.TryGetValue(kernel.CacheKey, out var existing)) return existing;
+        if (_pipelines.TryGetValue(kernel.CacheKey, out var existing))
+        {
+            return existing;
+        }
         // GetOrAdd may run its factory twice under a race (leaking a VkPipeline); models sharing the device record concurrently.
-        lock (_pipelineCreateLock) return _pipelines.GetOrAdd(kernel.CacheKey, _ =>
+        lock (_pipelineCreateLock)
+        {
+            return _pipelines.GetOrAdd(kernel.CacheKey, _ =>
         {
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             try {
@@ -231,9 +308,12 @@ public sealed unsafe class VulkanDevice : IComputeDevice
                 var smci = new VkShaderModuleCreateInfo { codeSize = (nuint)kernel.Code.Length, pCode = (uint*)code };
                 Api.vkCreateShaderModule(&smci, null, &module).CheckResult();
             }
-            lock (_modules) _modules.Add(module);
-            // Slang names the single SPIR-V entry point "main" regardless of the source function name.
-            var entryBytes = "main\0"u8.ToArray();
+            lock (_modules)
+                {
+                    _modules.Add(module);
+                }
+                // Slang names the single SPIR-V entry point "main" regardless of the source function name.
+                var entryBytes = "main\0"u8.ToArray();
             fixed (byte* entryPtr = entryBytes) {
             var sub = new VkPipelineShaderStageRequiredSubgroupSizeCreateInfo { requiredSubgroupSize = Phys.SubgroupSize };
             bool control = Has(DeviceFeatures.SubgroupSizeControl) && Phys.MinSubgroupSize != Phys.MaxSubgroupSize;
@@ -252,6 +332,7 @@ public sealed unsafe class VulkanDevice : IComputeDevice
             }
             } finally { Interlocked.Add(ref PipelineTicks, System.Diagnostics.Stopwatch.GetTimestamp() - t0); Interlocked.Increment(ref PipelinesCreated); }
         });
+        }
     }
 
     /// <summary>Submits a command buffer and waits for completion.</summary>
@@ -263,7 +344,11 @@ public sealed unsafe class VulkanDevice : IComputeDevice
         try
         {
             var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
-            lock (_queueLock) Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+            lock (_queueLock)
+            {
+                Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+            }
+
             Api.vkWaitForFences(1, &fence, true, ulong.MaxValue).CheckResult();
         }
         finally
@@ -284,7 +369,10 @@ public sealed unsafe class VulkanDevice : IComputeDevice
     internal void Submit(VkCommandBuffer cb, VkFence fence)
     {
         var si = new VkSubmitInfo { commandBufferCount = 1, pCommandBuffers = &cb };
-        lock (_queueLock) Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+        lock (_queueLock)
+        {
+            Api.vkQueueSubmit(Queue, 1, &si, fence).CheckResult();
+        }
     }
 
     /// <summary>Records and runs a one-off command buffer (device-level pool, serialized by a lock while recording).</summary>
@@ -301,17 +389,37 @@ public sealed unsafe class VulkanDevice : IComputeDevice
             Api.vkEndCommandBuffer(cb).CheckResult();
         }
         try { SubmitAndWait(cb); }
-        finally { lock (_poolLock) Api.vkFreeCommandBuffers(CommandPool, 1, &cb); }
+        finally { lock (_poolLock)
+            {
+                Api.vkFreeCommandBuffers(CommandPool, 1, &cb);
+            }
+        }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
         Api.vkDeviceWaitIdle();
-        foreach (var p in _pipelines.Values) Api.vkDestroyPipeline(p, null);
-        foreach (var m in _modules) Api.vkDestroyShaderModule(m, null);
-        if (_pipelineCache != VkPipelineCache.Null) Api.vkDestroyPipelineCache(_pipelineCache, null);
+        foreach (var p in _pipelines.Values)
+        {
+            Api.vkDestroyPipeline(p, null);
+        }
+
+        foreach (var m in _modules)
+        {
+            Api.vkDestroyShaderModule(m, null);
+        }
+
+        if (_pipelineCache != VkPipelineCache.Null)
+        {
+            Api.vkDestroyPipelineCache(_pipelineCache, null);
+        }
+
         Memory.Dispose();
         Api.vkDestroyPipelineLayout(PipelineLayout, null);
         Api.vkDestroyCommandPool(CommandPool, null);

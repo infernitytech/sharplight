@@ -1,5 +1,4 @@
 using System.Globalization;
-using Sharplight.Runtime;
 using Xunit;
 
 namespace Sharplight.Onnx.Tests;
@@ -16,11 +15,18 @@ public class ZooTests(ITestOutputHelper output)
     public static IEnumerable<TheoryDataRow<string>> Names()
     {
         var names = RefCase.ZooNames().ToList();
-        if (names.Count == 0) yield return new TheoryDataRow<string>("(no zoo reference data)");
-        foreach (var n in names) yield return new TheoryDataRow<string>(n);
+        if (names.Count == 0)
+        {
+            yield return new TheoryDataRow<string>("(no zoo reference data)");
+        }
+
+        foreach (var n in names)
+        {
+            yield return new TheoryDataRow<string>(n);
+        }
     }
 
-    void RunZoo(string name, string provider)
+    private void RunZoo(string name, string provider)
     {
         var c = RefCase.Zoo(name);
         if (c is null) { Assert.Skip($"zoo reference or model missing for '{name}' (scripts/make_zoo_refs.py)"); return; }
@@ -50,9 +56,12 @@ public class ZooTests(ITestOutputHelper output)
                 output.WriteLine(line);
                 var report = Environment.GetEnvironmentVariable("SHARPLIGHT_ZOO_REPORT");
                 if (!string.IsNullOrEmpty(report))
+                {
                     File.AppendAllText(report, string.Join('\t', provider, name, batch.ToString(CultureInfo.InvariantCulture), k.ToString(CultureInfo.InvariantCulture), c.Outputs[k],
                         cmp.MaxAbs.ToString("E3", CultureInfo.InvariantCulture), cmp.Scale.ToString("F2", CultureInfo.InvariantCulture), cmp.RmsRel.ToString("E2", CultureInfo.InvariantCulture), cmp.Ok ? "ok" : "FAIL",
                         res.CompileMs.ToString("F0", CultureInfo.InvariantCulture), res.RunMs.ToString("F1", CultureInfo.InvariantCulture)) + "\n");
+                }
+
                 Assert.True(cmp.Ok, $"{provider} {name} batch {batch} output '{c.Outputs[k]}': maxAbs={cmp.MaxAbs:E3} maxRel={cmp.MaxRel:E3} rms={cmp.RmsRel:E3} scale={cmp.Scale:F2} at {cmp.Worst}");
             }
         }

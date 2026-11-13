@@ -16,7 +16,7 @@ namespace Sharplight.Families.Tests;
 /// </summary>
 public class FamilyGenerationTests
 {
-    static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     static FamilyGenerationTests()
     {
@@ -27,12 +27,12 @@ public class FamilyGenerationTests
     /// <param name="Kind">"ids": expected generated token ids (transformers); "text": expected continuation text of <paramref name="Tokens"/> greedy tokens (llama.cpp).</param>
     public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallbackForMoe = false, bool Large = false, int Tokens = 40);
 
-    static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
-    const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
+    private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
+    private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
 
     public static IEnumerable<TheoryDataRow<string>> CaseNames() => Cases.Select(c => new TheoryDataRow<string>(c.Name));
 
-    static readonly Case[] Cases =
+    private static readonly Case[] Cases =
     [
         // Gemma 4 E2B: per-layer embeddings, KV sharing, 256/512 head sizes, proportional rope, v-norm, layer scalars, 30-capped logits.
         new("gemma-4-E2B-it HF (transformers)", "hf/gemma-4-E2B-it", P1, "ids",
@@ -60,13 +60,17 @@ public class FamilyGenerationTests
             [140756, 125813, 22985, 123010, 143067, 136720, 86988, 72881, 88183, 83127, 61195, 133527, 129060, 110388, 65465, 7319, 86512, 79741, 81427, 118452, 20753, 25666, 5229, 81385], "", NeedsCpuFallbackForMoe: true),
     ];
 
-    static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
+    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
     {
         DeviceSlot slot, fallback = null!;
         if (vulkan)
         {
             var p = new VulkanProvider();
-            if (!p.CheckAvailability().IsAvailable) throw new SkipException("Vulkan is not available");
+            if (!p.CheckAvailability().IsAvailable)
+            {
+                throw new SkipException("Vulkan is not available");
+            }
+
             var devs = p.GetDevices();
             var dev = Environment.GetEnvironmentVariable("SHARPLIGHT_TEST_VK_DEVICE") is { } e && int.TryParse(e, out int i) && i < devs.Count ? devs[i]
                 : devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault() ?? throw new SkipException("no Vulkan device");
@@ -82,9 +86,9 @@ public class FamilyGenerationTests
         return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
     }
 
-    sealed class SkipException(string reason) : Exception(reason);
+    private sealed class SkipException(string reason) : Exception(reason);
 
-    static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback)
+    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback)
     {
         var (model, slots) = Load(path, vulkan, cpuFallback);
         try
@@ -97,11 +101,14 @@ public class FamilyGenerationTests
         finally
         {
             model.Dispose();
-            foreach (var s in slots) s.Device.Dispose();
+            foreach (var s in slots)
+            {
+                s.Device.Dispose();
+            }
         }
     }
 
-    void Run(string name, bool vulkan)
+    private void Run(string name, bool vulkan)
     {
         var c = Cases.Single(x => x.Name == name);
         string path = System.IO.Path.Combine(Home, "models", c.Path);
@@ -111,8 +118,14 @@ public class FamilyGenerationTests
         (int[] ids, string text) result;
         try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallbackForMoe); }
         catch (SkipException s) { Assert.Skip(s.Message); return; }
-        if (c.Kind == "ids") Assert.Equal(c.Ids, result.ids);
-        else Assert.Equal(c.Text, result.text);
+        if (c.Kind == "ids")
+        {
+            Assert.Equal(c.Ids, result.ids);
+        }
+        else
+        {
+            Assert.Equal(c.Text, result.text);
+        }
     }
 
     [Theory, MemberData(nameof(CaseNames))]

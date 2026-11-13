@@ -16,7 +16,7 @@ namespace Sharplight.Serving.Tests;
 /// <summary>A memory pool with a fixed capacity; models charge it on load and give it back on dispose. Other applications' use is simulated with <see cref="External"/>.</summary>
 public sealed class FakePool(string name, long capacity) : IMemoryDomain
 {
-    long _ours, _external;
+    private long _ours, _external;
     public string Id => name;
     public string Name => name;
     public long External { get => Interlocked.Read(ref _external); set => Interlocked.Exchange(ref _external, value); }
@@ -27,9 +27,9 @@ public sealed class FakePool(string name, long capacity) : IMemoryDomain
 
 public sealed class FakeLoader : IModelLoader
 {
-    readonly FakePool _pool;
-    readonly long _bytes;
-    readonly bool _offload;
+    private readonly FakePool _pool;
+    private readonly long _bytes;
+    private readonly bool _offload;
     public int Prepares, Loads;
     public long? LastLimit;
     public Func<FakeBatchDecoder>? MakeDecoder;
@@ -45,7 +45,7 @@ public sealed class FakeLoader : IModelLoader
         return new Prepared(this);
     }
 
-    sealed class Prepared(FakeLoader o) : IPreparedModel
+    private sealed class Prepared(FakeLoader o) : IPreparedModel
     {
         public IReadOnlyList<MemoryRequirement> Requirements => [new MemoryRequirement(o._pool, o._bytes)];
         public bool CanOffload => o._offload;
@@ -53,12 +53,20 @@ public sealed class FakeLoader : IModelLoader
         {
             Interlocked.Increment(ref o.Loads);
             o.LastLimit = limit;
-            if (o.LoadDelay > TimeSpan.Zero) Thread.Sleep(o.LoadDelay);
+            if (o.LoadDelay > TimeSpan.Zero)
+            {
+                Thread.Sleep(o.LoadDelay);
+            }
+
             long bytes = limit is { } l ? Math.Min(l, o._bytes) : o._bytes;
             var dec = o.MakeDecoder?.Invoke() ?? new FakeBatchDecoder(2);
             dec.Script(o.Reply);
             var inst = new FakeLoaded(o._pool, bytes, o.Kind, dec);
-            lock (o.Instances) o.Instances.Add(inst);
+            lock (o.Instances)
+            {
+                o.Instances.Add(inst);
+            }
+
             return inst;
         }
         public void Dispose() { }
@@ -67,8 +75,8 @@ public sealed class FakeLoader : IModelLoader
 
 public sealed class FakeLoaded : LoadedModel, IChatModel
 {
-    readonly FakePool _pool;
-    readonly long _bytes;
+    private readonly FakePool _pool;
+    private readonly long _bytes;
     public FakeBatchDecoder Decoder { get; }
     public InferenceEngine Engine { get; }
     public ModelService Service { get; }
@@ -86,7 +94,11 @@ public sealed class FakeLoaded : LoadedModel, IChatModel
     public override Task<bool> DrainAsync(TimeSpan timeout) => Engine.DrainAsync(timeout);
     public override void Dispose()
     {
-        if (Disposed) return;
+        if (Disposed)
+        {
+            return;
+        }
+
         Disposed = true;
         Engine.Dispose();
         _pool.Charge(-_bytes);
@@ -94,21 +106,21 @@ public sealed class FakeLoaded : LoadedModel, IChatModel
 }
 
 /// <summary>Clock the tests advance by hand.</summary>
-sealed class ManualTime : TimeProvider
+internal sealed class ManualTime : TimeProvider
 {
-    DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
     public override DateTimeOffset GetUtcNow() => _now;
     public void Advance(TimeSpan t) => _now += t;
 }
 
 public class ModelHostTests
 {
-    const long GiB = 1L << 30;
+    private const long GiB = 1L << 30;
 
-    static ModelRegistration Reg(string name, FakeLoader l, bool eager = false, bool pinned = false, TimeSpan? idle = null)
+    private static ModelRegistration Reg(string name, FakeLoader l, bool eager = false, bool pinned = false, TimeSpan? idle = null)
         => new() { Name = name, Loader = l, LoadAtStartup = eager, Pinned = pinned, IdleTimeout = idle };
 
-    static ModelHost Host(long reserve = 0, int max = 0, TimeProvider? time = null, TimeSpan? idle = null)
+    private static ModelHost Host(long reserve = 0, int max = 0, TimeProvider? time = null, TimeSpan? idle = null)
         => new(new ModelHostOptions { ReserveBytes = reserve, MaxLoadedModels = max, Time = time ?? TimeProvider.System, IdleTimeout = idle, IdleCheckInterval = TimeSpan.FromHours(1) });
 
     [Fact]
@@ -128,7 +140,11 @@ public class ModelHostTests
         Assert.Equal(12, host.Get("a")!.ActiveLeases);
         Assert.Equal(ModelState.Loaded, host.Get("a")!.State);
         Assert.Equal(2 * GiB, pool.Ours);
-        foreach (var x in leases) x.Dispose();
+        foreach (var x in leases)
+        {
+            x.Dispose();
+        }
+
         Assert.Equal(0, host.Get("a")!.ActiveLeases);
         using (await host.AcquireAsync("a")) { }
         Assert.Equal(1, l.Loads);
@@ -211,7 +227,11 @@ public class ModelHostTests
         var t = new ManualTime();
         using var host = Host(time: t);
         var ls = new[] { "a", "b", "c" }.ToDictionary(n => n, _ => new FakeLoader(pool, 4 * GiB));
-        foreach (var (n, l) in ls) host.Register(Reg(n, l));
+        foreach (var (n, l) in ls)
+        {
+            host.Register(Reg(n, l));
+        }
+
         (await host.AcquireAsync("a")).Dispose();
         t.Advance(TimeSpan.FromSeconds(1));
         (await host.AcquireAsync("b")).Dispose();
@@ -258,7 +278,11 @@ public class ModelHostTests
         var pool = new FakePool("gpu", 100 * GiB);
         var t = new ManualTime();
         using var host = Host(max: 2, time: t);
-        foreach (var n in new[] { "a", "b", "c" }) host.Register(Reg(n, new FakeLoader(pool, GiB)));
+        foreach (var n in new[] { "a", "b", "c" })
+        {
+            host.Register(Reg(n, new FakeLoader(pool, GiB)));
+        }
+
         foreach (var n in new[] { "a", "b", "c" }) { (await host.AcquireAsync(n)).Dispose(); t.Advance(TimeSpan.FromSeconds(1)); }
         Assert.Equal(ModelState.Unloaded, host.Get("a")!.State);
         Assert.Equal(2, host.List().Count(m => m.State == ModelState.Loaded));
@@ -280,7 +304,11 @@ public class ModelHostTests
         host.Register(Reg("keep", new FakeLoader(pool, GiB), pinned: true));
         host.Register(Reg("short", new FakeLoader(pool, GiB), idle: TimeSpan.FromSeconds(10)));
         var busy = await host.AcquireAsync("b");
-        foreach (var n in new[] { "a", "keep", "short" }) (await host.AcquireAsync(n)).Dispose();
+        foreach (var n in new[] { "a", "keep", "short" })
+        {
+            (await host.AcquireAsync(n)).Dispose();
+        }
+
         t.Advance(TimeSpan.FromSeconds(30));
         Assert.Equal(1, host.SweepIdle());
         Assert.Equal(ModelState.Unloaded, host.Get("short")!.State);
@@ -368,7 +396,10 @@ public class ModelHostTests
         var bothMs = sw.Elapsed.TotalMilliseconds;
 
         Assert.Equal("alpha alpha alpha alpha", solo);
-        for (int i = 0; i < both.Length; i++) Assert.Equal(i % 2 == 0 ? "alpha alpha alpha alpha" : "bravo bravo bravo bravo", both[i]);
+        for (int i = 0; i < both.Length; i++)
+        {
+            Assert.Equal(i % 2 == 0 ? "alpha alpha alpha alpha" : "bravo bravo bravo bravo", both[i]);
+        }
         // 8 requests over two 2-slot engines = 2 waves each; run serially on one thread they would take ~8x a single request.
         Assert.True(bothMs < soloMs * 5, $"models did not run concurrently: single {soloMs:F0} ms, 8 mixed {bothMs:F0} ms");
         Assert.True(a.Instances[0].Decoder.Steps.Count > 0 && b.Instances[0].Decoder.Steps.Count > 0);
@@ -392,15 +423,15 @@ public class ModelHostTests
 /// <summary>Routing, listing and admin endpoints over a host with two (lazily loaded) models.</summary>
 public sealed class MultiModelApiTests : IAsyncLifetime
 {
-    FakePool _pool = null!;
-    FakeLoader _a = null!, _b = null!;
-    ModelHost _host = null!;
-    WebApplication _app = null!;
-    HttpClient _client = null!;
+    private FakePool _pool = null!;
+    private FakeLoader _a = null!, _b = null!;
+    private ModelHost _host = null!;
+    private WebApplication _app = null!;
+    private HttpClient _client = null!;
 
     public async ValueTask InitializeAsync() => await Start(o => { });
 
-    async Task Start(Action<SharplightServerOptions> configure)
+    private async Task Start(Action<SharplightServerOptions> configure)
     {
         _pool = new FakePool("gpu", 10L << 30);
         _a = new FakeLoader(_pool, 1L << 30) { Reply = "I am A" };
@@ -427,16 +458,20 @@ public sealed class MultiModelApiTests : IAsyncLifetime
         _host.Dispose();
     }
 
-    async Task<(HttpStatusCode, JsonElement)> Post(string path, string json, params (string, string)[] headers)
+    private async Task<(HttpStatusCode, JsonElement)> Post(string path, string json, params (string, string)[] headers)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
-        foreach (var (k, v) in headers) req.Headers.TryAddWithoutValidation(k, v);
+        foreach (var (k, v) in headers)
+        {
+            req.Headers.TryAddWithoutValidation(k, v);
+        }
+
         using var r = await _client.SendAsync(req, TestContext.Current.CancellationToken);
         var text = await r.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         return (r.StatusCode, text.Length == 0 ? default : JsonDocument.Parse(text).RootElement.Clone());
     }
 
-    string Chat(string model) => $$"""{"model":"{{model}}","messages":[{"role":"user","content":"hi"}],"temperature":0}""";
+    private string Chat(string model) => $$"""{"model":"{{model}}","messages":[{"role":"user","content":"hi"}],"temperature":0}""";
 
     [Fact]
     public async Task ModelField_SelectsTheModel_AndLoadsItLazily()

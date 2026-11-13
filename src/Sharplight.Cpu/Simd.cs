@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -23,7 +22,11 @@ internal static unsafe class Simd
                 s2 = Vector512.FusedMultiplyAdd(Vector512.Load(a + i + 32), Vector512.Load(b + i + 32), s2);
                 s3 = Vector512.FusedMultiplyAdd(Vector512.Load(a + i + 48), Vector512.Load(b + i + 48), s3);
             }
-            for (; i + 16 <= n; i += 16) s0 = Vector512.FusedMultiplyAdd(Vector512.Load(a + i), Vector512.Load(b + i), s0);
+            for (; i + 16 <= n; i += 16)
+            {
+                s0 = Vector512.FusedMultiplyAdd(Vector512.Load(a + i), Vector512.Load(b + i), s0);
+            }
+
             sum = Vector512.Sum((s0 + s1) + (s2 + s3));
         }
         else if (Vector256.IsHardwareAccelerated)
@@ -36,10 +39,18 @@ internal static unsafe class Simd
                 s2 = Vector256.FusedMultiplyAdd(Vector256.Load(a + i + 16), Vector256.Load(b + i + 16), s2);
                 s3 = Vector256.FusedMultiplyAdd(Vector256.Load(a + i + 24), Vector256.Load(b + i + 24), s3);
             }
-            for (; i + 8 <= n; i += 8) s0 = Vector256.FusedMultiplyAdd(Vector256.Load(a + i), Vector256.Load(b + i), s0);
+            for (; i + 8 <= n; i += 8)
+            {
+                s0 = Vector256.FusedMultiplyAdd(Vector256.Load(a + i), Vector256.Load(b + i), s0);
+            }
+
             sum = Vector256.Sum((s0 + s1) + (s2 + s3));
         }
-        for (; i < n; i++) sum += a[i] * b[i];
+        for (; i < n; i++)
+        {
+            sum += a[i] * b[i];
+        }
+
         return sum;
     }
 
@@ -167,7 +178,11 @@ internal static unsafe class Simd
             for (; i + 8 <= n; i += 8) { var v = Vector256.Load(a + i); s0 = Vector256.FusedMultiplyAdd(v, v, s0); }
             sum = Vector256.Sum(s0);
         }
-        for (; i < n; i++) sum += a[i] * a[i];
+        for (; i < n; i++)
+        {
+            sum += a[i] * a[i];
+        }
+
         return sum;
     }
 
@@ -177,10 +192,18 @@ internal static unsafe class Simd
         if (Vector256.IsHardwareAccelerated)
         {
             var s = Vector256<float>.Zero;
-            for (; i + 8 <= n; i += 8) s += Vector256.Load(a + i);
+            for (; i + 8 <= n; i += 8)
+            {
+                s += Vector256.Load(a + i);
+            }
+
             sum = Vector256.Sum(s);
         }
-        for (; i < n; i++) sum += a[i];
+        for (; i < n; i++)
+        {
+            sum += a[i];
+        }
+
         return sum;
     }
 
@@ -190,11 +213,22 @@ internal static unsafe class Simd
         if (Vector256.IsHardwareAccelerated && n >= 8)
         {
             var s = Vector256.Create(float.NegativeInfinity);
-            for (; i + 8 <= n; i += 8) s = Vector256.Max(s, Vector256.Load(a + i));
+            for (; i + 8 <= n; i += 8)
+            {
+                s = Vector256.Max(s, Vector256.Load(a + i));
+            }
+
             var h = Vector128.Max(s.GetLower(), s.GetUpper());
             m = MathF.Max(MathF.Max(h.GetElement(0), h.GetElement(1)), MathF.Max(h.GetElement(2), h.GetElement(3)));
         }
-        for (; i < n; i++) if (a[i] > m) m = a[i];
+        for (; i < n; i++)
+        {
+            if (a[i] > m)
+            {
+                m = a[i];
+            }
+        }
+
         return m;
     }
 
@@ -205,9 +239,15 @@ internal static unsafe class Simd
         if (Vector256.IsHardwareAccelerated)
         {
             var sv = Vector256.Create(s);
-            for (; i + 8 <= n; i += 8) (Vector256.Load(src + i) * sv).Store(dst + i);
+            for (; i + 8 <= n; i += 8)
+            {
+                (Vector256.Load(src + i) * sv).Store(dst + i);
+            }
         }
-        for (; i < n; i++) dst[i] = src[i] * s;
+        for (; i < n; i++)
+        {
+            dst[i] = src[i] * s;
+        }
     }
 
     /// <summary>dst[i] = src[i] * s * w[i]</summary>
@@ -217,9 +257,15 @@ internal static unsafe class Simd
         if (Vector256.IsHardwareAccelerated)
         {
             var sv = Vector256.Create(s);
-            for (; i + 8 <= n; i += 8) (Vector256.Load(src + i) * sv * Vector256.Load(w + i)).Store(dst + i);
+            for (; i + 8 <= n; i += 8)
+            {
+                (Vector256.Load(src + i) * sv * Vector256.Load(w + i)).Store(dst + i);
+            }
         }
-        for (; i < n; i++) dst[i] = src[i] * s * w[i];
+        for (; i < n; i++)
+        {
+            dst[i] = src[i] * s * w[i];
+        }
     }
 
     /// <summary>acc[i] += p * v[i]</summary>
@@ -229,14 +275,23 @@ internal static unsafe class Simd
         if (Vector512.IsHardwareAccelerated)
         {
             var pv = Vector512.Create(p);
-            for (; i + 16 <= n; i += 16) Vector512.FusedMultiplyAdd(Vector512.Load(v + i), pv, Vector512.Load(acc + i)).Store(acc + i);
+            for (; i + 16 <= n; i += 16)
+            {
+                Vector512.FusedMultiplyAdd(Vector512.Load(v + i), pv, Vector512.Load(acc + i)).Store(acc + i);
+            }
         }
         else if (Vector256.IsHardwareAccelerated)
         {
             var pv = Vector256.Create(p);
-            for (; i + 8 <= n; i += 8) Vector256.FusedMultiplyAdd(Vector256.Load(v + i), pv, Vector256.Load(acc + i)).Store(acc + i);
+            for (; i + 8 <= n; i += 8)
+            {
+                Vector256.FusedMultiplyAdd(Vector256.Load(v + i), pv, Vector256.Load(acc + i)).Store(acc + i);
+            }
         }
-        for (; i < n; i++) acc[i] += p * v[i];
+        for (; i < n; i++)
+        {
+            acc[i] += p * v[i];
+        }
     }
 
     // ---- half / bfloat conversion -------------------------------------------------------------
@@ -256,14 +311,18 @@ internal static unsafe class Simd
     public static ushort FloatToBFloat(float f)
     {
         uint b = BitConverter.SingleToUInt32Bits(f);
-        if ((b & 0x7FFFFFFF) > 0x7F800000) return (ushort)((b >> 16) | 0x40);
+        if ((b & 0x7FFFFFFF) > 0x7F800000)
+        {
+            return (ushort)((b >> 16) | 0x40);
+        }
+
         b += 0x7FFF + ((b >> 16) & 1);
         return (ushort)(b >> 16);
     }
 
     /// <summary>Converts 16 half values (as widened uint lanes) to float.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static Vector512<float> HalfBitsToSingle(Vector512<uint> h)
+    private static Vector512<float> HalfBitsToSingle(Vector512<uint> h)
     {
         var sign = Vector512.ShiftLeft(h & Vector512.Create(0x8000u), 16);
         var shifted = Vector512.ShiftLeft(h & Vector512.Create(0x7FFFu), 13);
@@ -273,7 +332,7 @@ internal static unsafe class Simd
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static Vector256<float> HalfBitsToSingle(Vector256<uint> h)
+    private static Vector256<float> HalfBitsToSingle(Vector256<uint> h)
     {
         var sign = Vector256.ShiftLeft(h & Vector256.Create(0x8000u), 16);
         var shifted = Vector256.ShiftLeft(h & Vector256.Create(0x7FFFu), 13);
@@ -286,22 +345,48 @@ internal static unsafe class Simd
     {
         long i = 0;
         if (Avx512F.IsSupported)
-            for (; i + 16 <= n; i += 16) HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(src + i))).Store(dst + i);
+        {
+            for (; i + 16 <= n; i += 16)
+            {
+                HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(src + i))).Store(dst + i);
+            }
+        }
         else if (Avx2.IsSupported)
-            for (; i + 8 <= n; i += 8) HalfBitsToSingle(Avx2.ConvertToVector256Int32(Vector128.Load(src + i)).AsUInt32()).Store(dst + i);
-        for (; i < n; i++) dst[i] = HalfToFloat(src[i]);
+        {
+            for (; i + 8 <= n; i += 8)
+            {
+                HalfBitsToSingle(Avx2.ConvertToVector256Int32(Vector128.Load(src + i)).AsUInt32()).Store(dst + i);
+            }
+        }
+
+        for (; i < n; i++)
+        {
+            dst[i] = HalfToFloat(src[i]);
+        }
     }
 
     public static void BFloatToFloat(ushort* src, float* dst, long n)
     {
         long i = 0;
         if (Avx512F.IsSupported)
+        {
             for (; i + 16 <= n; i += 16)
+            {
                 Vector512.ShiftLeft(Avx512F.ConvertToVector512UInt32(Vector256.Load(src + i)), 16).AsSingle().Store(dst + i);
+            }
+        }
         else if (Avx2.IsSupported)
+        {
             for (; i + 8 <= n; i += 8)
+            {
                 Vector256.ShiftLeft(Avx2.ConvertToVector256Int32(Vector128.Load(src + i)).AsUInt32(), 16).AsSingle().Store(dst + i);
-        for (; i < n; i++) dst[i] = BFloatToFloat(src[i]);
+            }
+        }
+
+        for (; i < n; i++)
+        {
+            dst[i] = BFloatToFloat(src[i]);
+        }
     }
 
     /// <summary>Dot product of f32 vector with half vector.</summary>
@@ -317,17 +402,27 @@ internal static unsafe class Simd
                 s1 = Vector512.FusedMultiplyAdd(Vector512.Load(a + i + 16), HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(h + i + 16))), s1);
             }
             for (; i + 16 <= n; i += 16)
+            {
                 s0 = Vector512.FusedMultiplyAdd(Vector512.Load(a + i), HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(h + i))), s0);
+            }
+
             sum = Vector512.Sum(s0 + s1);
         }
         else if (Avx2.IsSupported)
         {
             var s0 = Vector256<float>.Zero;
             for (; i + 8 <= n; i += 8)
+            {
                 s0 = Vector256.FusedMultiplyAdd(Vector256.Load(a + i), HalfBitsToSingle(Avx2.ConvertToVector256Int32(Vector128.Load(h + i)).AsUInt32()), s0);
+            }
+
             sum = Vector256.Sum(s0);
         }
-        for (; i < n; i++) sum += a[i] * HalfToFloat(h[i]);
+        for (; i < n; i++)
+        {
+            sum += a[i] * HalfToFloat(h[i]);
+        }
+
         return sum;
     }
 
@@ -339,15 +434,22 @@ internal static unsafe class Simd
         {
             var pv = Vector512.Create(p);
             for (; i + 16 <= n; i += 16)
+            {
                 Vector512.FusedMultiplyAdd(HalfBitsToSingle(Avx512F.ConvertToVector512UInt32(Vector256.Load(h + i))), pv, Vector512.Load(acc + i)).Store(acc + i);
+            }
         }
         else if (Avx2.IsSupported)
         {
             var pv = Vector256.Create(p);
             for (; i + 8 <= n; i += 8)
+            {
                 Vector256.FusedMultiplyAdd(HalfBitsToSingle(Avx2.ConvertToVector256Int32(Vector128.Load(h + i)).AsUInt32()), pv, Vector256.Load(acc + i)).Store(acc + i);
+            }
         }
-        for (; i < n; i++) acc[i] += p * HalfToFloat(h[i]);
+        for (; i < n; i++)
+        {
+            acc[i] += p * HalfToFloat(h[i]);
+        }
     }
 
     // ---- small-integer widening ----------------------------------------------------------------
@@ -368,7 +470,10 @@ internal static unsafe class Simd
         }
         else
         {
-            for (int i = 0; i < 16; i++) dst[i] = v.GetElement(i) * scale + offset;
+            for (int i = 0; i < 16; i++)
+            {
+                dst[i] = v.GetElement(i) * scale + offset;
+            }
         }
     }
 
@@ -389,7 +494,10 @@ internal static unsafe class Simd
         }
         else
         {
-            for (int i = 0; i < 16; i++) dst[i] = v.GetElement(i) * scale + offset;
+            for (int i = 0; i < 16; i++)
+            {
+                dst[i] = v.GetElement(i) * scale + offset;
+            }
         }
     }
 }

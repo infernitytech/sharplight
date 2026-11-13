@@ -28,7 +28,7 @@ public sealed class SharplightChatClientOptions
     public IDictionary<string, object?> TemplateVariables { get; set; } = new Dictionary<string, object?>();
 }
 
-static class ImageDecoding
+internal static class ImageDecoding
 {
     public static ImageInput DecodeWithStb(DataContent content)
     {

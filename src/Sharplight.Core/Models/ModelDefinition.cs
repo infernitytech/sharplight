@@ -7,16 +7,16 @@ namespace Sharplight.Models;
 public interface IWeightSource
 {
     /// <summary>Size of the stored data in bytes.</summary>
-    long ByteLength { get; }
+    public long ByteLength { get; }
 
     /// <summary>Copies <paramref name="destination"/>.Length bytes starting at <paramref name="offset"/>.</summary>
-    void Read(long offset, Span<byte> destination);
+    public void Read(long offset, Span<byte> destination);
 
     /// <summary>
     /// Returns a pointer to the data if it is directly addressable (memory mapped), enabling zero-copy
     /// uploads; otherwise <see cref="IntPtr.Zero"/>.
     /// </summary>
-    nint TryGetPointer() => 0;
+    public nint TryGetPointer() => 0;
 }
 
 /// <summary>A model parameter: name, logical shape, storage type and where its bytes live.</summary>
@@ -42,7 +42,11 @@ public sealed class WeightInfo
     public WeightInfo As(string name, Shape? shape = null)
     {
         var s = shape ?? Shape;
-        if (s.Elements() != Shape.Elements()) throw new ArgumentException($"{Name}: cannot view {Shape} as {s}.");
+        if (s.Elements() != Shape.Elements())
+        {
+            throw new ArgumentException($"{Name}: cannot view {Shape} as {s}.");
+        }
+
         return new() { Name = name, Type = Type, Shape = s, Source = Source };
     }
 
@@ -53,11 +57,19 @@ public sealed class WeightInfo
     public WeightInfo RowSlice(string name, long firstRow, long rows)
     {
         long total = Shape[0].Fixed;
-        if (firstRow < 0 || rows <= 0 || firstRow + rows > total) throw new ArgumentOutOfRangeException(nameof(rows), $"{Name}: rows [{firstRow}, {firstRow + rows}) outside [0, {total}).");
+        if (firstRow < 0 || rows <= 0 || firstRow + rows > total)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rows), $"{Name}: rows [{firstRow}, {firstRow + rows}) outside [0, {total}).");
+        }
+
         long rowElems = Shape.Elements() / total;
         long rowBytes = Type.ByteSize(rowElems);
         var dims = new List<Dim> { rows };
-        for (int d = 1; d < Shape.Rank; d++) dims.Add(Shape[d]);
+        for (int d = 1; d < Shape.Rank; d++)
+        {
+            dims.Add(Shape[d]);
+        }
+
         return new() { Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes) };
     }
 
@@ -69,9 +81,19 @@ public sealed class WeightInfo
     {
         var first = parts[0];
         foreach (var w in parts)
-            if (w.Type != first.Type || !w.Shape.Equals(first.Shape)) throw new ArgumentException($"{name}: cannot stack {w} with {first}.");
+        {
+            if (w.Type != first.Type || !w.Shape.Equals(first.Shape))
+            {
+                throw new ArgumentException($"{name}: cannot stack {w} with {first}.");
+            }
+        }
+
         var dims = new List<Dim> { parts.Count };
-        for (int d = 0; d < first.Shape.Rank; d++) dims.Add(first.Shape[d]);
+        for (int d = 0; d < first.Shape.Rank; d++)
+        {
+            dims.Add(first.Shape[d]);
+        }
+
         return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]) };
     }
 
@@ -84,9 +106,9 @@ public sealed class WeightInfo
     }
 }
 
-sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
+internal sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
 {
-    readonly long _each = parts[0].ByteLength;
+    private readonly long _each = parts[0].ByteLength;
     public long ByteLength => _each * parts.Length;
     public void Read(long offset, Span<byte> destination)
     {
@@ -102,19 +124,23 @@ sealed class StackedWeightSource(IWeightSource[] parts) : IWeightSource
     }
 }
 
-sealed class SliceWeightSource(IWeightSource parent, long offset, long length) : IWeightSource
+internal sealed class SliceWeightSource(IWeightSource parent, long offset, long length) : IWeightSource
 {
     public long ByteLength => length;
     public void Read(long off, Span<byte> destination) => parent.Read(offset + off, destination);
     public nint TryGetPointer() => parent.TryGetPointer() is var p && p != 0 ? p + (nint)offset : 0;
 }
 
-sealed class DerivedWeightSource(long length, Func<byte[]> produce) : IWeightSource
+internal sealed class DerivedWeightSource(long length, Func<byte[]> produce) : IWeightSource
 {
-    readonly Lazy<byte[]> _data = new(() =>
+    private readonly Lazy<byte[]> _data = new(() =>
     {
         var d = produce();
-        if (d.LongLength != length) throw new InvalidDataException($"Derived weight produced {d.LongLength} bytes, expected {length}.");
+        if (d.LongLength != length)
+        {
+            throw new InvalidDataException($"Derived weight produced {d.LongLength} bytes, expected {length}.");
+        }
+
         return d;
     });
     public long ByteLength => length;

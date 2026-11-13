@@ -111,17 +111,38 @@ public static class DeviceFeatures
     {
         var set = new HashSet<string>(detected, StringComparer.OrdinalIgnoreCase);
         set.ExceptWith(DisabledByEnvironment);
-        foreach (var d in disabled) if (d is not null) set.ExceptWith(d);
+        foreach (var d in disabled)
+        {
+            if (d is not null)
+            {
+                set.ExceptWith(d);
+            }
+        }
+
         return set;
     }
 
-    static HashSet<string> ParseEnv()
+    private static HashSet<string> ParseEnv()
     {
         var v = Environment.GetEnvironmentVariable("SHARPLIGHT_DISABLE_FEATURES");
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrWhiteSpace(v)) return set;
+        if (string.IsNullOrWhiteSpace(v))
+        {
+            return set;
+        }
+
         foreach (var f in v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            if (f.Equals("all", StringComparison.OrdinalIgnoreCase)) set.UnionWith(All); else set.Add(f);
+        {
+            if (f.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                set.UnionWith(All);
+            }
+            else
+            {
+                set.Add(f);
+            }
+        }
+
         return set;
     }
 }
@@ -132,11 +153,11 @@ public static class DeviceFeatures
 /// </summary>
 public interface IExecutionProvider : IDisposable
 {
-    string Name { get; }
+    public string Name { get; }
     /// <summary>Detects whether the provider can run on this machine (driver/library present, ...).</summary>
-    ProviderAvailability CheckAvailability();
-    IReadOnlyList<DeviceInfo> GetDevices();
-    IComputeDevice OpenDevice(DeviceInfo device, DeviceOptions? options = null);
+    public ProviderAvailability CheckAvailability();
+    public IReadOnlyList<DeviceInfo> GetDevices();
+    public IComputeDevice OpenDevice(DeviceInfo device, DeviceOptions? options = null);
 }
 
 public readonly record struct OpSupport(bool IsSupported, string? Reason = null)
@@ -162,35 +183,35 @@ public readonly record struct DeviceMemoryInfo(long Total, long Budget, long Usa
 /// <summary>An opened device able to compile and run graph segments.</summary>
 public interface IComputeDevice : IDisposable
 {
-    DeviceInfo Info { get; }
+    public DeviceInfo Info { get; }
     /// <summary>Features this opened device may use: detected minus <see cref="DeviceOptions.DisabledFeatures"/> (and the environment).</summary>
-    IReadOnlySet<string> EnabledFeatures => DeviceFeatures.Effective(Info.Features);
+    public IReadOnlySet<string> EnabledFeatures => DeviceFeatures.Effective(Info.Features);
     /// <summary>Memory budget remaining for new allocations (see <see cref="GetMemoryInfo"/>).</summary>
-    long AvailableMemory { get; }
+    public long AvailableMemory { get; }
     /// <summary>
     /// Current device memory figures. Devices that can ask the driver (<see cref="DeviceFeatures.MemoryBudget"/>) report
     /// the live budget, which already accounts for other processes; others derive it from <see cref="AvailableMemory"/>.
     /// Cheap enough to call per load decision; safe from any thread.
     /// </summary>
-    DeviceMemoryInfo GetMemoryInfo()
+    public DeviceMemoryInfo GetMemoryInfo()
     {
         long total = Info.TotalMemory, avail = AvailableMemory;
         return new DeviceMemoryInfo(total, total, Math.Max(0, total - avail), Math.Max(0, total - avail), false);
     }
-    OpSupport Supports(Node node);
-    ICompiledSegment Compile(GraphSegment segment, CompileOptions options);
+    public OpSupport Supports(Node node);
+    public ICompiledSegment Compile(GraphSegment segment, CompileOptions options);
 
     /// <summary>
     /// Identifies devices that can share compilation artifacts (provider, device model, driver, enabled features).
     /// Saved compiled models keep one <see cref="ICompilationCache"/> per target.
     /// </summary>
-    string CompilationTarget => $"{Info.Provider}|{Info.Name}|{Info.Driver}|{string.Join(",", EnabledFeatures.Order(StringComparer.Ordinal))}";
+    public string CompilationTarget => $"{Info.Provider}|{Info.Name}|{Info.Driver}|{string.Join(",", EnabledFeatures.Order(StringComparer.Ordinal))}";
 
     /// <summary>
     /// Adds device-level compilation state (e.g. a driver pipeline cache covering every kernel compiled so far) to
     /// <paramref name="cache"/> before it is saved.
     /// </summary>
-    void ExportCompilationState(ICompilationCache cache) { }
+    public void ExportCompilationState(ICompilationCache cache) { }
 }
 
 /// <summary>Bounds for compilation: buffers are sized for the maximum and kernels specialized.</summary>
@@ -244,15 +265,15 @@ public sealed class RunParameters
 /// <summary>A compiled, device-resident part of a graph.</summary>
 public interface ICompiledSegment : IDisposable
 {
-    GraphSegment Segment { get; }
+    public GraphSegment Segment { get; }
     /// <summary>Uploads host data for a segment input (dense, logical layout).</summary>
-    void SetInput(Value value, ReadOnlySpan<byte> data);
+    public void SetInput(Value value, ReadOnlySpan<byte> data);
     /// <summary>Records/executes the segment. Implementations may run asynchronously until an output is read.</summary>
-    void Execute(RunParameters parameters);
+    public void Execute(RunParameters parameters);
     /// <summary>Downloads a segment output (dense, logical layout) after <see cref="Execute"/>.</summary>
-    void GetOutput(Value value, Span<byte> destination);
+    public void GetOutput(Value value, Span<byte> destination);
     /// <summary>Clears persistent state (KV caches, recurrent states) owned by this segment.</summary>
-    void ResetState();
+    public void ResetState();
     /// <summary>Device memory held by this segment (weights, state, activations).</summary>
-    long DeviceMemoryBytes { get; }
+    public long DeviceMemoryBytes { get; }
 }

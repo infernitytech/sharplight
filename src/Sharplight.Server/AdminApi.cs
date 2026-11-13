@@ -18,24 +18,40 @@ public static class AdminApi
     public static IEndpointRouteBuilder MapAdmin(this IEndpointRouteBuilder routes)
     {
         var ctx = routes.ServiceProvider.GetRequiredService<SharplightServerContext>();
-        if (!ctx.Options.Admin) return routes;
+        if (!ctx.Options.Admin)
+        {
+            return routes;
+        }
+
         var host = ctx.Host;
 
         routes.MapGet("/admin/models", async http =>
         {
-            if (!await Allowed(http, ctx)) return;
+            if (!await Allowed(http, ctx))
+            {
+                return;
+            }
+
             await HttpJson.WriteAsync(http, Describe(host));
         });
         routes.MapPost("/admin/models/{name}/load", async http =>
         {
-            if (!await Allowed(http, ctx)) return;
+            if (!await Allowed(http, ctx))
+            {
+                return;
+            }
+
             string name = (string)http.Request.RouteValues["name"]!;
             await host.LoadAsync(name, http.RequestAborted);   // errors map to 404 / 503 through the shared handler
             await HttpJson.WriteAsync(http, ModelJson(host.Get(name)!));
         });
         routes.MapPost("/admin/models/{name}/unload", async http =>
         {
-            if (!await Allowed(http, ctx)) return;
+            if (!await Allowed(http, ctx))
+            {
+                return;
+            }
+
             string name = (string)http.Request.RouteValues["name"]!;
             bool force = http.Request.Query.TryGetValue("force", out var f) && f.ToString() is "1" or "true";
             await host.UnloadAsync(name, null, force);
@@ -44,11 +60,19 @@ public static class AdminApi
         return routes;
     }
 
-    static async Task<bool> Allowed(HttpContext http, SharplightServerContext ctx)
+    private static async Task<bool> Allowed(HttpContext http, SharplightServerContext ctx)
     {
-        if (ctx.Options.ApiKeys.Count > 0) return true;   // the middleware already checked the key
+        if (ctx.Options.ApiKeys.Count > 0)
+        {
+            return true;   // the middleware already checked the key
+        }
+
         var ip = http.Connection.RemoteIpAddress;
-        if (ip is null || IPAddress.IsLoopback(ip)) return true;
+        if (ip is null || IPAddress.IsLoopback(ip))
+        {
+            return true;
+        }
+
         await ApiErrors.WriteAsync(http, 403, "permission_error", "Admin endpoints need an API key (or a local caller).", "forbidden");
         return false;
     }
@@ -64,11 +88,14 @@ public static class AdminApi
     {
         var devices = new JsonArray();
         foreach (var (d, i) in host.MemoryPools())
+        {
             devices.Add(new JsonObject
             {
                 ["device"] = d.Name, ["total_bytes"] = i.Total, ["budget_bytes"] = i.Budget, ["used_bytes"] = i.Usage,
                 ["used_by_sharplight_bytes"] = i.UsedByUs, ["available_bytes"] = i.Available, ["exact"] = i.IsExact,
             });
+        }
+
         return new JsonObject
         {
             ["models"] = new JsonArray(host.List().Select(m => (JsonNode)ModelJson(m)).ToArray()),

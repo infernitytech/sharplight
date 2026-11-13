@@ -84,7 +84,10 @@ public static class PlacementPlanner
             slots.Add(options.Fallback);
             fallbackSlot = slots.Count - 1;
         }
-        if (slots.Count == 0) throw new ArgumentException("No devices given.");
+        if (slots.Count == 0)
+        {
+            throw new ArgumentException("No devices given.");
+        }
 
         // ---- cost per group -------------------------------------------------------------------
         var groupOrder = new List<string>();
@@ -96,8 +99,15 @@ public static class PlacementPlanner
             if (!groupBytes.ContainsKey(n.Group)) { groupBytes[n.Group] = 0; groupOrder.Add(n.Group); }
             foreach (var v in n.Inputs)
             {
-                if (v.Weight is { } w && seenWeights.Add(w)) groupBytes[n.Group] += w.ByteSize;
-                if (v.State is { } s && seenStates.Add(s)) groupBytes[n.Group] += StateBytes(s, options.Compile);
+                if (v.Weight is { } w && seenWeights.Add(w))
+                {
+                    groupBytes[n.Group] += w.ByteSize;
+                }
+
+                if (v.State is { } s && seenStates.Add(s))
+                {
+                    groupBytes[n.Group] += StateBytes(s, options.Compile);
+                }
             }
         }
         long total = groupBytes.Values.Sum();
@@ -115,7 +125,9 @@ public static class PlacementPlanner
         double shareSum = share.Sum();
         var target = new long[nPipe];
         for (int i = 0; i < nPipe; i++)
+        {
             target[i] = shareSum > 0 ? (long)Math.Ceiling(total * (share[i] / shareSum)) : 0;
+        }
 
         // ---- greedy fill in order -------------------------------------------------------------
         var groupDevice = new Dictionary<string, int>();
@@ -125,12 +137,25 @@ public static class PlacementPlanner
         {
             long b = groupBytes[g];
             while (cur < nPipe && (used[cur] + b > capacity[cur] || (used[cur] > 0 && used[cur] + b / 2 > target[cur] && cur < nPipe - 1)))
+            {
                 cur++;
+            }
+
             int slot;
-            if (cur < nPipe) slot = cur;
-            else if (fallbackSlot >= 0) slot = fallbackSlot;
-            else throw new InsufficientMemoryException(
+            if (cur < nPipe)
+            {
+                slot = cur;
+            }
+            else if (fallbackSlot >= 0)
+            {
+                slot = fallbackSlot;
+            }
+            else
+            {
+                throw new InsufficientMemoryException(
                 $"Model does not fit: needs {total / (1024.0 * 1024 * 1024):F2} GiB, group '{g}' ({b / (1024.0 * 1024 * 1024):F2} GiB) has no room and no fallback device is configured.");
+            }
+
             groupDevice[g] = slot;
             used[slot] += b;
         }
@@ -143,8 +168,14 @@ public static class PlacementPlanner
             int s = groupDevice[n.Group];
             if (n.Op.Category != OpCategory.View && !slots[s].Device.Supports(n).IsSupported)
             {
-                if (fallbackSlot >= 0 && slots[fallbackSlot].Device.Supports(n).IsSupported) s = fallbackSlot;
-                else throw new NotSupportedException($"Op {n.Op.Name} (node {n.Id}) is not supported on {slots[s].Device.Info.Name}: {slots[s].Device.Supports(n).Reason}");
+                if (fallbackSlot >= 0 && slots[fallbackSlot].Device.Supports(n).IsSupported)
+                {
+                    s = fallbackSlot;
+                }
+                else
+                {
+                    throw new NotSupportedException($"Op {n.Op.Name} (node {n.Id}) is not supported on {slots[s].Device.Info.Name}: {slots[s].Device.Supports(n).Reason}");
+                }
             }
             nodeSlot[i] = s;
         }
@@ -153,7 +184,9 @@ public static class PlacementPlanner
         {
             var n = graph.Nodes[i];
             if (n.Op.Category == OpCategory.View && n.Inputs[0].Producer is { } p)
+            {
                 nodeSlot[i] = nodeSlot[IndexOf(graph, p)];
+            }
         }
 
         var segments = BuildSegments(graph, nodeSlot);
@@ -166,11 +199,22 @@ public static class PlacementPlanner
         };
     }
 
-    static int IndexOf(ComputeGraph g, Node n)
+    private static int IndexOf(ComputeGraph g, Node n)
     {
         // Node ids are assigned sequentially by the builder, but be robust.
-        if (n.Id < g.Nodes.Count && g.Nodes[n.Id] == n) return n.Id;
-        for (int i = 0; i < g.Nodes.Count; i++) if (g.Nodes[i] == n) return i;
+        if (n.Id < g.Nodes.Count && g.Nodes[n.Id] == n)
+        {
+            return n.Id;
+        }
+
+        for (int i = 0; i < g.Nodes.Count; i++)
+        {
+            if (g.Nodes[i] == n)
+            {
+                return i;
+            }
+        }
+
         throw new InvalidOperationException("Node not in graph.");
     }
 
@@ -190,15 +234,28 @@ public static class PlacementPlanner
             long nodeBytes = 0;
             foreach (var v in n.Inputs)
             {
-                if (v.Weight is { } w && seenW.Add(w)) weights += w.ByteSize;
+                if (v.Weight is { } w && seenW.Add(w))
+                {
+                    weights += w.ByteSize;
+                }
+
                 if (v.State is { } st && seenS.Add(st))
                 {
                     if (slots > 1 && MultiSequence.IsKvState(st))
+                    {
                         states += StateBytes(st, new CompileOptions { MaxTokens = options.MaxTokens, ContextLength = options.ContextLength * slots, SymbolBounds = options.SymbolBounds });
-                    else states += StateBytes(st, options) * Math.Max(1, slots);
+                    }
+                    else
+                    {
+                        states += StateBytes(st, options) * Math.Max(1, slots);
+                    }
                 }
             }
-            if (n.Op.Category == OpCategory.View) continue;
+            if (n.Op.Category == OpCategory.View)
+            {
+                continue;
+            }
+
             foreach (var o in n.Outputs)
             {
                 long b = ValueBytes(o, options);
@@ -214,33 +271,52 @@ public static class PlacementPlanner
         return new ModelFootprint(weights, states, act);
     }
 
-    static long ValueBytes(Value v, CompileOptions o)
+    private static long ValueBytes(Value v, CompileOptions o)
     {
         long elems = 1;
-        foreach (var d in v.Shape.Dims) elems *= d.IsSymbolic ? Math.Max(1, d.Symbol is WellKnown.TokenSymbol or WellKnown.ContextSymbol || o.SymbolBounds.ContainsKey(d.Symbol!) ? o.Bound(d.Symbol!) : o.MaxTokens) : d.Fixed;
+        foreach (var d in v.Shape.Dims)
+        {
+            elems *= d.IsSymbolic ? Math.Max(1, d.Symbol is WellKnown.TokenSymbol or WellKnown.ContextSymbol || o.SymbolBounds.ContainsKey(d.Symbol!) ? o.Bound(d.Symbol!) : o.MaxTokens) : d.Fixed;
+        }
+
         return v.Type.ByteSize(elems);
     }
 
     public static long StateBytes(StateDefinition s, CompileOptions o)
     {
         long elems = 1;
-        foreach (var d in s.Shape.Dims) elems *= d.IsSymbolic ? o.Bound(d.Symbol!) : d.Fixed;
+        foreach (var d in s.Shape.Dims)
+        {
+            elems *= d.IsSymbolic ? o.Bound(d.Symbol!) : d.Fixed;
+        }
+
         return s.Type.ByteSize(elems);
     }
 
-    static List<GraphSegment> BuildSegments(ComputeGraph graph, int[] nodeSlot)
+    private static List<GraphSegment> BuildSegments(ComputeGraph graph, int[] nodeSlot)
     {
         var runs = new List<(int Slot, List<Node> Nodes)>();
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
-            if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i]) runs.Add((nodeSlot[i], []));
+            if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i])
+            {
+                runs.Add((nodeSlot[i], []));
+            }
+
             runs[^1].Nodes.Add(graph.Nodes[i]);
         }
 
         var producerRun = new Dictionary<Value, int>();
         for (int r = 0; r < runs.Count; r++)
+        {
             foreach (var n in runs[r].Nodes)
-                foreach (var o in n.Outputs) producerRun[o] = r;
+            {
+                foreach (var o in n.Outputs)
+                {
+                    producerRun[o] = r;
+                }
+            }
+        }
 
         var graphOutputs = graph.Outputs.Values.ToHashSet();
         var segs = new List<GraphSegment>();
@@ -249,19 +325,33 @@ public static class PlacementPlanner
             var inputs = new List<Value>();
             var seenIn = new HashSet<Value>();
             foreach (var n in runs[r].Nodes)
+            {
                 foreach (var v in n.Inputs)
+                {
                     if ((v.Kind == ValueKind.Input || (v.Kind == ValueKind.Intermediate && producerRun[v] != r)) && seenIn.Add(v))
+                    {
                         inputs.Add(v);
+                    }
+                }
+            }
 
             var outputs = new List<Value>();
             foreach (var n in runs[r].Nodes)
+            {
                 foreach (var o in n.Outputs)
                 {
                     bool usedLater = graphOutputs.Contains(o);
                     for (int r2 = r + 1; r2 < runs.Count && !usedLater; r2++)
+                    {
                         usedLater = runs[r2].Nodes.Any(n2 => n2.Inputs.Contains(o));
-                    if (usedLater) outputs.Add(o);
+                    }
+
+                    if (usedLater)
+                    {
+                        outputs.Add(o);
+                    }
                 }
+            }
 
             segs.Add(new GraphSegment
             {

@@ -10,7 +10,7 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
     public IReadOnlyList<string> GgufArchitectures { get; } = ["nemotron_h", "nemotron_h_moe"];
     public string Architecture => "nemotron_h";
 
-    static int[] PerLayer(GgufMetadataView g, string key, int nLayer)
+    private static int[] PerLayer(GgufMetadataView g, string key, int nLayer)
         => g.Raw(key) is Array arr && arr.Length == nLayer
             ? Enumerable.Range(0, nLayer).Select(i => Convert.ToInt32(arr.GetValue(i))).ToArray()
             : Enumerable.Repeat(g.Int(key, 0), nLayer).ToArray();
@@ -43,14 +43,25 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
             md[a + "attention.kv_head_count"] = kv.Max();
             md[a + "attention.head_dim"] = g.Int("attention.key_length", g.Int("embedding_length") / g.Int("attention.head_count"));
         }
-        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        if (g.Has("context_length"))
+        {
+            md[a + "context_length"] = g.Int("context_length");
+        }
+
         if (moeArch)
         {
-            if (g.Int("expert_group_count", 1) > 1) throw new NotSupportedException("nemotron_h_moe: group-limited expert routing is not supported yet.");
+            if (g.Int("expert_group_count", 1) > 1)
+            {
+                throw new NotSupportedException("nemotron_h_moe: group-limited expert routing is not supported yet.");
+            }
+
             md[a + "moe.expert_count"] = g.Int("expert_count");
             md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
             md[a + "moe.normalize_weights"] = g.Raw("expert_weights_norm") is not { } n || Convert.ToBoolean(n);
-            if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var sc && sc != 1f) md[a + "moe.weights_scale"] = sc;
+            if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var sc && sc != 1f)
+            {
+                md[a + "moe.weights_scale"] = sc;
+            }
         }
         return md;
     }
@@ -58,7 +69,7 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
     [GeneratedRegex(@"^blk\.(\d+)\.(.+)$")]
     private static partial Regex BlockName();
 
-    static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["attn_norm.weight"] = "input_norm.weight",
         ["ssm_in.weight"] = "ssm.in.weight",
@@ -99,7 +110,10 @@ public sealed partial class NemotronHGgufMapping : IGgufArchitectureMapping
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
     {
         if (w.Name.EndsWith(".ssm.a", StringComparison.Ordinal) || w.Name.EndsWith(".ssm.d", StringComparison.Ordinal) || w.Name.EndsWith(".ssm.norm.weight", StringComparison.Ordinal))
+        {
             return w.As(w.Name, new Shape(w.Shape.Elements()));
+        }
+
         return w;
     }
 }

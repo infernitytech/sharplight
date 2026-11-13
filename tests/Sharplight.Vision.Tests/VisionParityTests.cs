@@ -1,14 +1,12 @@
 using Sharplight.Llm;
 using Sharplight.Runtime;
-using Sharplight.Vision;
-using Xunit.Sdk;
 
 namespace Sharplight.Vision.Tests;
 
 /// <summary>Vision encoder numerics against the Hugging Face transformers reference (torch, f32) on the Qwen3.5-0.8B tower.</summary>
 public class VisionParityTests(ITestOutputHelper output)
 {
-    static LlmModel LoadHf(DeviceSlot slot, ImageTokenLimits? limits = null)
+    private static LlmModel LoadHf(DeviceSlot slot, ImageTokenLimits? limits = null)
         => LlmModel.Load(Env.Hf08, new LlmLoadOptions { Devices = [slot], ContextLength = 256, MaxBatchTokens = 64, ImageTokens = limits });
 
     [Fact]
@@ -50,11 +48,14 @@ public class VisionParityTests(ITestOutputHelper output)
         var rgb = new byte[w * h * 3];
         var rng = new Random(7);
         for (int y = 0; y < h; y++)
+        {
             for (int x = 0; x < w; x++)
             {
                 int o = (y * w + x) * 3;
                 rgb[o] = (byte)(x * 255 / w); rgb[o + 1] = (byte)(y * 255 / h); rgb[o + 2] = (byte)(((x / 40 + y / 40) & 1) * 200 + rng.Next(40));
             }
+        }
+
         var image = new ImageInput(w, h, rgb);
         float[] cpu, vk;
         using (var m = LoadHf(Env.Cpu())) { using var e = m.CreateVisionEncoder(); cpu = e.Encode(image); }

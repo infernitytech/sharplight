@@ -1,10 +1,7 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
-using Sharplight.Vulkan;
-using Xunit.Sdk;
 
 namespace Sharplight.Vulkan.Tests;
 
@@ -14,13 +11,13 @@ namespace Sharplight.Vulkan.Tests;
 /// </summary>
 public class BenchTests
 {
-    static void RequireBench()
+    private static void RequireBench()
     {
         Gpu.Require();
         Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
     }
 
-    static CompiledModel Compile(ComputeGraph g, long maxTokens = 8) => CompiledModel.Compile(g, new PlacementOptions
+    private static CompiledModel Compile(ComputeGraph g, long maxTokens = 8) => CompiledModel.Compile(g, new PlacementOptions
     {
         Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
         Compile = new CompileOptions { MaxTokens = maxTokens },
@@ -28,21 +25,25 @@ public class BenchTests
     });
 
     /// <summary>Runs the model repeatedly with profiling on; returns average GPU ms per execution and the report.</summary>
-    static (double Ms, string Report) Profile(CompiledModel m, int n, int iters = 20)
+    private static (double Ms, string Report) Profile(CompiledModel m, int n, int iters = 20)
     {
         var seg = (VulkanSegment)m.Segments[0];
         var p = new RunParameters(); p.Symbols["T"] = n; p.Scalars["n_past"] = 0;
         m.Run(p);   // warmup (pipelines)
         seg.Profile = true; seg.ResetProfile();
-        for (int i = 0; i < iters; i++) m.Run(p);
+        for (int i = 0; i < iters; i++)
+        {
+            m.Run(p);
+        }
+
         seg.Profile = false;
         double total = seg.ProfileData.Values.Sum(v => v.Ms) / iters;
         return (total, seg.ProfileReport(12));
     }
 
-    static void Feed(CompiledModel m, Value x, long n) => m.SetInput(x, MemoryMarshal.AsBytes(Rnd.F(n, 1).AsSpan()));
+    private static void Feed(CompiledModel m, Value x, long n) => m.SetInput(x, MemoryMarshal.AsBytes(Rnd.F(n, 1).AsSpan()));
 
-    static void ConvBench(string label, int N, int C, int H, int W, int O, int k, int stride, int pad, int groups)
+    private static void ConvBench(string label, int N, int C, int H, int W, int O, int k, int stride, int pad, int groups)
     {
         var tg = new TG(); var x = tg.InF("x", TG.T, C, H, W);
         var w = tg.RandW("w", DataType.F32, 0.1f, O, C / groups, k, k);
@@ -98,10 +99,10 @@ public class BenchTests
     }
 
     // ---- ResNet-50 (inference, BN folded into conv bias) ------------------------------------------
-    sealed class Net(TG tg)
+    private sealed class Net(TG tg)
     {
         public TG G => tg;
-        int _i;
+        private int _i;
         public Value Conv(Value x, int c, int o, int k, int s, int p, bool relu)
         {
             var w = tg.RandW($"w{_i}", DataType.F32, MathF.Sqrt(2f / (c * k * k)) * 1.7f, o, c, k, k);
@@ -121,6 +122,7 @@ public class BenchTests
         int c = 64;
         int[] blocks = [3, 4, 6, 3], widths = [64, 128, 256, 512];
         for (int stage = 0; stage < 4; stage++)
+        {
             for (int b = 0; b < blocks[stage]; b++)
             {
                 int s = b == 0 && stage > 0 ? 2 : 1, w = widths[stage], o = w * 4;
@@ -131,6 +133,8 @@ public class BenchTests
                 h = tg.B.Unary("Relu", tg.B.Add(y, sc));
                 c = o;
             }
+        }
+
         h = tg.B.Emit1("Reduce", [h], Attributes.From(("mode", "mean"), ("axes", new long[] { 2, 3 }), ("keepdims", false)));
         var fc = tg.RandW("fc.w", DataType.F32, 0.05f, 1000, 2048);
         tg.B.Output("logits", tg.B.MatMul(h, fc));

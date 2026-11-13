@@ -7,8 +7,8 @@ namespace Sharplight.Onnx.Tests;
 /// <summary>Graph-level checks of the ONNX → IR translation (no execution).</summary>
 public class TranslationTests
 {
-    static float[] Rnd(int n, int seed = 1) { var r = new Random(seed); return Enumerable.Range(0, n).Select(_ => (float)(r.NextDouble() - 0.5)).ToArray(); }
-    static IEnumerable<string> Ops(ModelDefinition d) => d.Graph("main").Nodes.Select(n => n.Op.Name);
+    private static float[] Rnd(int n, int seed = 1) { var r = new Random(seed); return Enumerable.Range(0, n).Select(_ => (float)(r.NextDouble() - 0.5)).ToArray(); }
+    private static IEnumerable<string> Ops(ModelDefinition d) => d.Graph("main").Nodes.Select(n => n.Op.Name);
 
     [Fact]
     public void BatchDim_BecomesSymbolN_AndOutputsKeepNames()
@@ -121,7 +121,7 @@ public class TranslationTests
         Assert.Equal([0f, 1f, -1.5f, -1f], f, new FloatCmp());
     }
 
-    sealed class FloatCmp : IEqualityComparer<float>
+    private sealed class FloatCmp : IEqualityComparer<float>
     {
         public bool Equals(float a, float b) => Math.Abs(a - b) < 1e-5;
         public int GetHashCode(float f) => 0;

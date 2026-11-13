@@ -13,11 +13,15 @@ public sealed class QwenFixture : IDisposable
 {
     public static readonly string Path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models/gguf/Qwen3.5-0.8B/Qwen3.5-0.8B-BF16.gguf");
     public SharplightChatClient? Client { get; }
-    readonly DeviceSlot? _slot;
+    private readonly DeviceSlot? _slot;
 
     public QwenFixture()
     {
-        if (!File.Exists(Path)) return;
+        if (!File.Exists(Path))
+        {
+            return;
+        }
+
         GgufImporter.Register();
         var vk = new VulkanProvider();
         if (vk.CheckAvailability().IsAvailable && vk.GetDevices().Count > 0)
@@ -35,7 +39,7 @@ public sealed class QwenFixture : IDisposable
             new SharplightChatClientOptions { Sampling = SamplingOptionsGreedy });
     }
 
-    static SamplingOptions SamplingOptionsGreedy => SamplingOptions.Greedy;
+    private static SamplingOptions SamplingOptionsGreedy => SamplingOptions.Greedy;
 
     public void Dispose()
     {
@@ -46,7 +50,7 @@ public sealed class QwenFixture : IDisposable
 
 public class ModelTests(QwenFixture fx) : IClassFixture<QwenFixture>
 {
-    SharplightChatClient Client
+    private SharplightChatClient Client
     {
         get
         {

@@ -17,15 +17,15 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
     /// <summary>Placeholder; the real id depends on the projector type (see <see cref="ResolveArchitecture"/>).</summary>
     public string Architecture => "clip";
 
-    sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase);
+    private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
-    static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
     {
         ["qwen3vl_merger"] = new("qwen3_5", TemporalPatchSize: 2, MinPixels: 65536, MaxPixels: 16777216, RopeBase: 10000f),
     };
 
-    static Projector Find(GgufMetadataView g)
+    private static Projector Find(GgufMetadataView g)
     {
         string type = g.Raw("projector_type") as string ?? throw new InvalidDataException("clip GGUF: missing clip.projector_type.");
         return s_projectors.TryGetValue(type, out var p) ? p
@@ -38,7 +38,10 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
     {
         var p = Find(g);
         if (g.Raw("vision.is_deepstack_layers") is Array ds && ds.Cast<object>().Any(v => Convert.ToBoolean(v)))
+        {
             throw new NotSupportedException("Vision towers with deepstack layers are not supported yet.");
+        }
+
         string a = p.Architecture + ".vision.";
         int patch = g.Int("vision.patch_size");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -61,17 +64,25 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
             [a + "min_pixels"] = g.Has("vision.min_pixels") ? (long)g.Int("vision.min_pixels") : p.MinPixels,
             [a + "max_pixels"] = g.Has("vision.max_pixels") ? (long)g.Int("vision.max_pixels") : p.MaxPixels,
         };
-        if (g.Raw("vision.image_mean") is Array mean) md[a + "image_mean"] = ToFloats(mean);
-        if (g.Raw("vision.image_std") is Array std) md[a + "image_std"] = ToFloats(std);
+        if (g.Raw("vision.image_mean") is Array mean)
+        {
+            md[a + "image_mean"] = ToFloats(mean);
+        }
+
+        if (g.Raw("vision.image_std") is Array std)
+        {
+            md[a + "image_std"] = ToFloats(std);
+        }
+
         return md;
     }
 
-    static float[] ToFloats(Array a) => a.Cast<object>().Select(Convert.ToSingle).ToArray();
+    private static float[] ToFloats(Array a) => a.Cast<object>().Select(Convert.ToSingle).ToArray();
 
     [GeneratedRegex(@"^v\.blk\.(\d+)\.(.+)$")]
     private static partial Regex Block();
 
-    static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
     {
         ["ln1.weight"] = "input_norm.weight", ["ln1.bias"] = "input_norm.bias",
         ["ln2.weight"] = "post_attention_norm.weight", ["ln2.bias"] = "post_attention_norm.bias",
@@ -81,7 +92,7 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
         ["ffn_down.weight"] = "mlp.down.weight", ["ffn_down.bias"] = "mlp.down.bias",
     };
 
-    const string FrameSuffix = ".1";
+    private const string FrameSuffix = ".1";
 
     public string? MapWeightName(string name, GgufMetadataView g)
     {
@@ -117,7 +128,13 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
         }
         long hidden = parts[0].Shape[0].Fixed, perFrame = parts[0].Shape.Elements() / hidden;
         foreach (var w in parts)
-            if (w.Type != parts[0].Type || w.Shape.Elements() != parts[0].Shape.Elements()) throw new InvalidDataException("clip GGUF: patch embedding frames differ in type or size.");
+        {
+            if (w.Type != parts[0].Type || w.Shape.Elements() != parts[0].Shape.Elements())
+            {
+                throw new InvalidDataException("clip GGUF: patch embedding frames differ in type or size.");
+            }
+        }
+
         int channels = (int)(perFrame / (g.Int("vision.patch_size") * g.Int("vision.patch_size")));
         long plane = perFrame / channels;   // p·p elements per channel and frame
         var shape = new Shape(hidden, channels * frames * plane);
@@ -129,9 +146,16 @@ public sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufWei
             var dst = new byte[hidden * channels * frames * plane * eb];
             long o = 0;
             for (long h = 0; h < hidden; h++)
+            {
                 for (int c = 0; c < channels; c++)
+                {
                     for (int t = 0; t < frames; t++, o += plane * eb)
+                    {
                         Buffer.BlockCopy(src[t], (int)((h * channels + c) * plane * eb), dst, (int)o, (int)(plane * eb));
+                    }
+                }
+            }
+
             return dst;
         });
     }

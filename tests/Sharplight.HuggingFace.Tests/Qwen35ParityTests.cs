@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Text;
 using Sharplight.Architectures;
 using Sharplight.Gguf;
-using Sharplight.HuggingFace;
 using Sharplight.Models;
 using Sharplight.Tensors;
 using Sharplight.Tokenizers;
@@ -26,7 +25,11 @@ public sealed class ParityFixture : IDisposable
     public ParityFixture()
     {
         Available = Directory.Exists(HfDir) && File.Exists(GgufPath);
-        if (!Available) return;
+        if (!Available)
+        {
+            return;
+        }
+
         Gguf = GgufImporter.Open(GgufPath);
         Hf = HuggingFaceImporter.Open(HfDir, new HfImportOptions { IncludeMtp = false });
         HfMtp = HuggingFaceImporter.Open(HfDir);
@@ -35,13 +38,21 @@ public sealed class ParityFixture : IDisposable
     public void Dispose()
     {
         foreach (var s in new[] { Gguf, Hf, HfMtp })
-            if (s != null) foreach (var r in s.OwnedResources) r.Dispose();
+        {
+            if (s != null)
+            {
+                foreach (var r in s.OwnedResources)
+                {
+                    r.Dispose();
+                }
+            }
+        }
     }
 }
 
 public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
 {
-    static void RequireModels(ParityFixture fx) => Assert.SkipUnless(fx.Available, $"model files not found ({ParityFixture.HfDir}, {ParityFixture.GgufPath})");
+    private static void RequireModels(ParityFixture fx) => Assert.SkipUnless(fx.Available, $"model files not found ({ParityFixture.HfDir}, {ParityFixture.GgufPath})");
 
     [Fact]
     public void Importer_Metadata_Basics()
@@ -90,19 +101,33 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         var report = new SortedDictionary<string, (double MaxAbs, double MaxRel, int Count, bool BitExact)>();
         foreach (var (name, gw) in fx.Gguf!.Weights.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
-            if (!fx.Hf!.Weights.TryGetValue(name, out var hw)) continue;
+            if (!fx.Hf!.Weights.TryGetValue(name, out var hw))
+            {
+                continue;
+            }
+
             if (!gw.Shape.Equals(hw.Shape)) { problems.Add($"{name}: shape GGUF {gw.Shape} vs HF {hw.Shape}"); continue; }
             var (maxAbs, maxRel, exact) = Compare(gw, hw);
             // class = name with layer index stripped
             string cls = System.Text.RegularExpressions.Regex.Replace(name, @"layers\.\d+\.", "layers.N.") + $" [{gw.Type}<-{hw.Type}]";
             report.TryGetValue(cls, out var cur);
             report[cls] = (Math.Max(cur.MaxAbs, maxAbs), Math.Max(cur.MaxRel, maxRel), cur.Count + 1, (cur.Count == 0 || cur.BitExact) && exact);
-            if (gw.Type != hw.Type) problems.Add($"{name}: type GGUF {gw.Type} vs HF {hw.Type}");
-            if (maxRel > 1e-6) problems.Add($"{name}: max rel error {maxRel:g3} (abs {maxAbs:g3})");
+            if (gw.Type != hw.Type)
+            {
+                problems.Add($"{name}: type GGUF {gw.Type} vs HF {hw.Type}");
+            }
+
+            if (maxRel > 1e-6)
+            {
+                problems.Add($"{name}: max rel error {maxRel:g3} (abs {maxAbs:g3})");
+            }
         }
         var sb = new StringBuilder("\nper-class comparison (GGUF vs HF, decoded to f32):\n");
         foreach (var (k, v) in report)
+        {
             sb.AppendLine($"  {k,-60} n={v.Count,3} bitExact={v.BitExact,-5} maxAbs={v.MaxAbs:g3} maxRel={v.MaxRel:g3}");
+        }
+
         Console.WriteLine(sb);
         Assert.True(problems.Count == 0, string.Join("\n", problems.Take(30)) + sb);
     }
@@ -122,7 +147,7 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         Assert.Equal(0, fx.Hf.Weights["layers.0.linear_attention.a"].Source.TryGetPointer());
     }
 
-    static readonly string[] AdapterKeys =
+    private static readonly string[] AdapterKeys =
     [
         "layer_count", "mtp.layer_count", "hidden_size", "ffn_hidden_size", "attention.head_count", "attention.kv_head_count",
         "attention.head_dim", "norm_eps", "rope.dim", "rope.base", "rope.sections", "linear_attention.conv_kernel",
@@ -139,9 +164,16 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         {
             string key = "qwen3_5." + k;
             bool inG = fx.Gguf!.Has(key), inH = fx.Hf!.Has(key);
-            if (!inG && !inH) continue;
+            if (!inG && !inH)
+            {
+                continue;
+            }
+
             if (inG != inH) { problems.Add($"{key}: GGUF present={inG}, HF present={inH}"); continue; }
-            if (!ValueEquals(fx.Gguf.Metadata[key], fx.Hf.Metadata[key])) problems.Add($"{key}: GGUF {Fmt(fx.Gguf.Metadata[key])} vs HF {Fmt(fx.Hf.Metadata[key])}");
+            if (!ValueEquals(fx.Gguf.Metadata[key], fx.Hf.Metadata[key]))
+            {
+                problems.Add($"{key}: GGUF {Fmt(fx.Gguf.Metadata[key])} vs HF {Fmt(fx.Hf.Metadata[key])}");
+            }
         }
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
@@ -159,7 +191,11 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
             bool inG = g.TryGetValue(key, out var gv), inH = h.TryGetValue(key, out var hv);
             if (inG && inH)
             {
-                if (ValueEquals(gv!, hv!)) continue;
+                if (ValueEquals(gv!, hv!))
+                {
+                    continue;
+                }
+
                 if (key == CanonicalKeys.ChatTemplate) { notes.Add($"{key}: differs (GGUF {((string)gv!).Length} chars vs HF {((string)hv!).Length} chars) - the GGUF comes from a re-packaged template"); continue; }
                 if (key == CanonicalKeys.TokenizerPadId)
                 {
@@ -170,14 +206,19 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
                 problems.Add($"{key}: values differ ({Fmt(gv!)} vs {Fmt(hv!)}){ArrayDiff(gv!, hv!)}");
             }
             else if (inH && key is CanonicalKeys.TokenizerAddBos or CanonicalKeys.TokenizerAddEos && hv is false)
+            {
                 notes.Add($"{key}: HF states false explicitly (llama.cpp's converter does too), GGUF omits it (= preset default, false)");
-            else problems.Add($"{key}: only in {(inG ? "GGUF" : "HF")}");
+            }
+            else
+            {
+                problems.Add($"{key}: only in {(inG ? "GGUF" : "HF")}");
+            }
         }
         Console.WriteLine("tokenizer notes:\n  " + string.Join("\n  ", notes));
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
-    static readonly string[] Samples =
+    private static readonly string[] Samples =
     [
         "Hello, world!", "", " ", "  leading and trailing  ", "The quick brown fox jumps over the lazy dog.",
         "<|im_start|>user\nWrite a haiku.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
@@ -208,6 +249,7 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
             Assert.Equal(tg.TokenString(i), th.TokenString(i));
         }
         foreach (var s in Samples)
+        {
             foreach (var (addSpecial, parseSpecial) in new[] { (true, true), (false, true), (false, false) })
             {
                 var a = tg.Encode(s, addSpecial, parseSpecial);
@@ -215,6 +257,7 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
                 Assert.True(a.AsSpan().SequenceEqual(b), $"encode mismatch for '{s}' (addSpecial={addSpecial}, parseSpecial={parseSpecial})");
                 Assert.Equal(tg.Decode(a), th.Decode(b));
             }
+        }
         // sanity: the special tokens really are single ids
         Assert.Single(th.Encode("<|im_start|>", false, true));
     }
@@ -230,7 +273,10 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         var visionGraphs = new[] { WellKnown.VisionEncodeGraph, WellKnown.DecodeMultimodalGraph };
         Assert.Equal(dg.Graphs.Keys.Order(), dh.Graphs.Keys.Except(visionGraphs).Order());
         foreach (var (name, graph) in dg.Graphs)
+        {
             Assert.Equal(graph.Nodes.Count, dh.Graphs[name].Nodes.Count);
+        }
+
         Assert.Equal(dg.States.Count, dh.States.Count);
         Assert.Equal(dg.Property<int>(WellKnown.VocabSize), dh.Property<int>(WellKnown.VocabSize));
         Assert.Equal(dg.Property<int>("n_layer"), dh.Property<int>("n_layer"));
@@ -268,53 +314,103 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         // [numK=2, vPerK=3, d=2] -> [vPerK, numK, d]; elements are int16 ids
         int numK = 2, vPerK = 3, d = 2;
         var src = new byte[numK * vPerK * d * 2];
-        for (int i = 0; i < src.Length / 2; i++) BitConverter.TryWriteBytes(src.AsSpan(i * 2), (short)i);
+        for (int i = 0; i < src.Length / 2; i++)
+        {
+            BitConverter.TryWriteBytes(src.AsSpan(i * 2), (short)i);
+        }
+
         var dst = HfTransforms.ReorderVHeads(src, 2, 1, numK, vPerK, d);
         for (int k = 0; k < numK; k++)
+        {
             for (int v = 0; v < vPerK; v++)
+            {
                 for (int e = 0; e < d; e++)
+                {
                     Assert.Equal((short)((k * vPerK + v) * d + e), BitConverter.ToInt16(dst, ((v * numK + k) * d + e) * 2));
+                }
+            }
+        }
         // with an outer dimension (column reorder of a [3, K*V*d] matrix)
         var big = new byte[3 * src.Length];
-        for (int i = 0; i < big.Length / 2; i++) BitConverter.TryWriteBytes(big.AsSpan(i * 2), (short)i);
+        for (int i = 0; i < big.Length / 2; i++)
+        {
+            BitConverter.TryWriteBytes(big.AsSpan(i * 2), (short)i);
+        }
+
         var rb = HfTransforms.ReorderVHeads(big, 2, 3, numK, vPerK, d);
         int row = numK * vPerK * d;
         for (int r = 0; r < 3; r++)
+        {
             for (int k = 0; k < numK; k++)
+            {
                 for (int v = 0; v < vPerK; v++)
+                {
                     Assert.Equal(BitConverter.ToInt16(big, (r * row + (k * vPerK + v) * d) * 2), BitConverter.ToInt16(rb, (r * row + (v * numK + k) * d) * 2));
+                }
+            }
+        }
     }
 
     // ---- helpers ------------------------------------------------------------------------------
 
-    static ModelDefinition ModelAdapterRegistryBuild(ModelSource src)
+    private static ModelDefinition ModelAdapterRegistryBuild(ModelSource src)
     {
         ModelAdapterRegistry.Register(new Qwen35Adapter());
         return ModelAdapterRegistry.Build(new ModelSourceSet { Primary = src });
     }
 
-    static string Fmt(object v) => v is Array a ? $"[{string.Join(",", a.Cast<object>().Take(8))}{(a.Length > 8 ? ",..." : "")}] (len {a.Length})" : v is string s && s.Length > 60 ? s[..60] + "..." : v.ToString() ?? "";
+    private static string Fmt(object v) => v is Array a ? $"[{string.Join(",", a.Cast<object>().Take(8))}{(a.Length > 8 ? ",..." : "")}] (len {a.Length})" : v is string s && s.Length > 60 ? s[..60] + "..." : v.ToString() ?? "";
 
-    static string ArrayDiff(object a, object b)
+    private static string ArrayDiff(object a, object b)
     {
-        if (a is not Array x || b is not Array y) return "";
+        if (a is not Array x || b is not Array y)
+        {
+            return "";
+        }
+
         var diffs = new List<string>();
         int total = 0;
         for (int i = 0; i < Math.Min(x.Length, y.Length); i++)
-            if (!ValueEquals(x.GetValue(i)!, y.GetValue(i)!)) { total++; if (diffs.Count < 12) diffs.Add($"[{i}] {Fmt(x.GetValue(i)!)} vs {Fmt(y.GetValue(i)!)}"); }
+        {
+            if (!ValueEquals(x.GetValue(i)!, y.GetValue(i)!)) { total++; if (diffs.Count < 12)
+                {
+                    diffs.Add($"[{i}] {Fmt(x.GetValue(i)!)} vs {Fmt(y.GetValue(i)!)}");
+                }
+            }
+        }
+
         return $"\n    {total} differing elements: {string.Join("; ", diffs)}";
     }
 
-    static bool ValueEquals(object a, object b)
+    private static bool ValueEquals(object a, object b)
     {
-        if (a is string sa && b is string sb) return sa == sb;
+        if (a is string sa && b is string sb)
+        {
+            return sa == sb;
+        }
+
         if (a is Array aa && b is Array ba)
         {
-            if (aa.Length != ba.Length) return false;
-            for (int i = 0; i < aa.Length; i++) if (!ValueEquals(aa.GetValue(i)!, ba.GetValue(i)!)) return false;
+            if (aa.Length != ba.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < aa.Length; i++)
+            {
+                if (!ValueEquals(aa.GetValue(i)!, ba.GetValue(i)!))
+                {
+                    return false;
+                }
+            }
+
             return true;
         }
-        if (a is bool x && b is bool y) return x == y;
+        if (a is bool x && b is bool y)
+        {
+            return x == y;
+        }
+
         try
         {
             double da = Convert.ToDouble(a, CultureInfo.InvariantCulture), db = Convert.ToDouble(b, CultureInfo.InvariantCulture);
@@ -324,7 +420,7 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
     }
 
     /// <summary>Compares two weights chunk-wise after decoding to f32. Returns (max abs error, max relative error, bit-exact bytes).</summary>
-    static (double MaxAbs, double MaxRel, bool BitExact) Compare(WeightInfo a, WeightInfo b)
+    private static (double MaxAbs, double MaxRel, bool BitExact) Compare(WeightInfo a, WeightInfo b)
     {
         long n = a.Shape.Elements();
         const int Chunk = 1 << 20;
@@ -335,22 +431,37 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
             int count = (int)Math.Min(Chunk, n - start);
             var ba = ReadChunk(a, start, count);
             var bb = ReadChunk(b, start, count);
-            if (exact && !ba.AsSpan().SequenceEqual(bb)) exact = false;
-            if (a.Type == b.Type && ba.AsSpan().SequenceEqual(bb)) continue;
+            if (exact && !ba.AsSpan().SequenceEqual(bb))
+            {
+                exact = false;
+            }
+
+            if (a.Type == b.Type && ba.AsSpan().SequenceEqual(bb))
+            {
+                continue;
+            }
+
             var fa = ToF32(a.Type, ba, count);
             var fb = ToF32(b.Type, bb, count);
             for (int i = 0; i < count; i++)
             {
                 double abs = Math.Abs((double)fa[i] - fb[i]);
                 double rel = abs / Math.Max(Math.Max(Math.Abs((double)fa[i]), Math.Abs((double)fb[i])), 1e-30);
-                if (abs > maxAbs) maxAbs = abs;
-                if (rel > maxRel) maxRel = rel;
+                if (abs > maxAbs)
+                {
+                    maxAbs = abs;
+                }
+
+                if (rel > maxRel)
+                {
+                    maxRel = rel;
+                }
             }
         }
         return (maxAbs, maxRel, exact);
     }
 
-    static byte[] ReadChunk(WeightInfo w, long startElem, int count)
+    private static byte[] ReadChunk(WeightInfo w, long startElem, int count)
     {
         int es = w.Type.ElementSize;
         var buf = new byte[count * es];
@@ -358,13 +469,35 @@ public class Qwen35ParityTests(ParityFixture fx) : IClassFixture<ParityFixture>
         return buf;
     }
 
-    static float[] ToF32(DataType t, byte[] bytes, int count)
+    private static float[] ToF32(DataType t, byte[] bytes, int count)
     {
         var f = new float[count];
-        if (t == DataType.F32) for (int i = 0; i < count; i++) f[i] = BitConverter.ToSingle(bytes, i * 4);
-        else if (t == DataType.BF16) for (int i = 0; i < count; i++) f[i] = BitConverter.Int32BitsToSingle(BitConverter.ToUInt16(bytes, i * 2) << 16);
-        else if (t == DataType.F16) for (int i = 0; i < count; i++) f[i] = (float)BitConverter.ToHalf(bytes, i * 2);
-        else throw new NotSupportedException(t.ToString());
+        if (t == DataType.F32)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                f[i] = BitConverter.ToSingle(bytes, i * 4);
+            }
+        }
+        else if (t == DataType.BF16)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                f[i] = BitConverter.Int32BitsToSingle(BitConverter.ToUInt16(bytes, i * 2) << 16);
+            }
+        }
+        else if (t == DataType.F16)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                f[i] = (float)BitConverter.ToHalf(bytes, i * 2);
+            }
+        }
+        else
+        {
+            throw new NotSupportedException(t.ToString());
+        }
+
         return f;
     }
 }

@@ -1,13 +1,11 @@
-using Sharplight.Models;
-
 namespace Sharplight.Gguf;
 
 /// <summary>llama.cpp <c>gemma4</c> (and <c>muse-glimmer</c>): the generic decoder plus per-layer head sizes, KV sharing, per-layer embeddings, NoPE layers, ...</summary>
 public sealed partial class DecoderGgufMapping
 {
-    static bool IsExtended(string a) => a is "gemma4" or "muse-glimmer";
+    private static bool IsExtended(string a) => a is "gemma4" or "muse-glimmer";
 
-    static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
     {
         ["inp_gate.weight"] = "per_layer.gate.weight",
         ["proj.weight"] = "per_layer.projection.weight",
@@ -16,7 +14,7 @@ public sealed partial class DecoderGgufMapping
         ["attn_gate.weight"] = "attention.gate.weight",
     };
 
-    static readonly Dictionary<string, string> s_extendedGlobal = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> s_extendedGlobal = new(StringComparer.Ordinal)
     {
         ["per_layer_token_embd.weight"] = "per_layer.embedding.weight",
         ["per_layer_model_proj.weight"] = "per_layer.model_projection.weight",
@@ -24,9 +22,13 @@ public sealed partial class DecoderGgufMapping
     };
 
     /// <summary>A per-layer GGUF array (or a scalar repeated) as ints.</summary>
-    static int[] PerLayer(GgufMetadataView g, string key, int nLayer, int fallback)
+    private static int[] PerLayer(GgufMetadataView g, string key, int nLayer, int fallback)
     {
-        if (g.Raw(key) is Array arr && arr.Length == nLayer) return Enumerable.Range(0, nLayer).Select(i => Convert.ToInt32(arr.GetValue(i))).ToArray();
+        if (g.Raw(key) is Array arr && arr.Length == nLayer)
+        {
+            return Enumerable.Range(0, nLayer).Select(i => Convert.ToInt32(arr.GetValue(i))).ToArray();
+        }
+
         return Enumerable.Repeat(g.Has(key) && g.Raw(key) is not Array ? g.Int(key) : fallback, nLayer).ToArray();
     }
 
@@ -35,7 +37,7 @@ public sealed partial class DecoderGgufMapping
     /// sliding-window layers with rope alternating with full-attention NoPE layers (every <c>sliding_window_pattern</c>-th layer), weight-less norm of the
     /// embeddings, logits scaled before the soft cap. llama.cpp does not store the post-norm epsilon (1e-8 in the reference implementation).
     /// </summary>
-    IReadOnlyDictionary<string, object> MuseHyper(GgufMetadataView g)
+    private IReadOnlyDictionary<string, object> MuseHyper(GgufMetadataView g)
     {
         string a = Architecture + ".";
         int nLayer = g.Int("block_count"), nHead = g.Int("attention.head_count"), nEmbd = g.Int("embedding_length");
@@ -61,14 +63,26 @@ public sealed partial class DecoderGgufMapping
             [a + "mlp.activation"] = "silu",
             [a + "embedding_norm"] = true,
         };
-        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
-        if (g.Has("logit_scale")) md[a + "logit_scale"] = g.Float("logit_scale");
-        if (g.Has("final_logit_softcapping")) md[a + "final_logit_softcap"] = g.Float("final_logit_softcapping");
+        if (g.Has("context_length"))
+        {
+            md[a + "context_length"] = g.Int("context_length");
+        }
+
+        if (g.Has("logit_scale"))
+        {
+            md[a + "logit_scale"] = g.Float("logit_scale");
+        }
+
+        if (g.Has("final_logit_softcapping"))
+        {
+            md[a + "final_logit_softcap"] = g.Float("final_logit_softcapping");
+        }
+
         return md;
     }
 
     /// <summary>Flint: sliding-window layers with rope alternate with full-attention NoPE layers (rope_pattern), sigmoid-gated routed experts plus a shared expert, per-head attention sinks.</summary>
-    IReadOnlyDictionary<string, object> FlintHyper(GgufMetadataView g)
+    private IReadOnlyDictionary<string, object> FlintHyper(GgufMetadataView g)
     {
         string a = Architecture + ".";
         int nLayer = g.Int("block_count"), nHead = g.Int("attention.head_count"), nEmbd = g.Int("embedding_length");
@@ -98,12 +112,20 @@ public sealed partial class DecoderGgufMapping
             [a + "moe.normalize_weights"] = g.Raw("expert_weights_norm") is { } n && Convert.ToBoolean(n),
             [a + "moe.router_activation"] = g.Int("expert_gating_func", 1) == 2 ? "sigmoid" : "softmax",
         };
-        if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var sc && sc != 1f) md[a + "moe.weights_scale"] = sc;
-        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
+        if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var sc && sc != 1f)
+        {
+            md[a + "moe.weights_scale"] = sc;
+        }
+
+        if (g.Has("context_length"))
+        {
+            md[a + "context_length"] = g.Int("context_length");
+        }
+
         return md;
     }
 
-    IReadOnlyDictionary<string, object> Gemma4Hyper(GgufMetadataView g)
+    private IReadOnlyDictionary<string, object> Gemma4Hyper(GgufMetadataView g)
     {
         string a = Architecture + ".";
         int nLayer = g.Int("block_count"), nHead = g.Int("attention.head_count"), nEmbd = g.Int("embedding_length");
@@ -137,18 +159,33 @@ public sealed partial class DecoderGgufMapping
             [a + "mlp.activation"] = "gelu_tanh",
             [a + "embedding_scale"] = MathF.Sqrt(nEmbd),
         };
-        if (g.Has("context_length")) md[a + "context_length"] = g.Int("context_length");
-        if (g.Has("final_logit_softcapping")) md[a + "final_logit_softcap"] = g.Float("final_logit_softcapping");
+        if (g.Has("context_length"))
+        {
+            md[a + "context_length"] = g.Int("context_length");
+        }
+
+        if (g.Has("final_logit_softcapping"))
+        {
+            md[a + "final_logit_softcap"] = g.Float("final_logit_softcapping");
+        }
+
         int shared = g.Int("attention.shared_kv_layers", 0);
         if (shared > 0)
         {
             int first = nLayer - shared;
             var source = new int[nLayer];
             for (int il = 0; il < nLayer; il++)
+            {
                 source[il] = il < first ? il : Enumerable.Range(0, first).Last(j => sliding[j] == sliding[il]);
+            }
+
             md[a + "attention.kv_source_layers"] = source;
         }
-        if (g.Int("embedding_length_per_layer_input", 0) is var ple and > 0) md[a + "per_layer.size"] = ple;
+        if (g.Int("embedding_length_per_layer_input", 0) is var ple and > 0)
+        {
+            md[a + "per_layer.size"] = ple;
+        }
+
         return md;
     }
 }

@@ -14,10 +14,26 @@ public static partial class StandardOps
     public static readonly OpSchema MatMulId = new("MatMulId", OpCategory.MatMul, 3, 3, (i, a) =>
     {
         var x = i[0].Shape; var w = i[1].Shape; var ids = i[2].Shape;
-        if (w.Rank != 3) throw new ArgumentException("MatMulId weight must be rank 3 [E, N, K].");
-        if (ids.Rank != 2) throw new ArgumentException("MatMulId ids must be rank 2 [T, S].");
-        if (x[-1] != w[2]) throw new ArgumentException($"MatMulId K mismatch: x{x} w{w}.");
-        if (x.Rank == 3 && x[1] != ids[1]) throw new ArgumentException($"MatMulId slot mismatch: x{x} ids{ids}.");
+        if (w.Rank != 3)
+        {
+            throw new ArgumentException("MatMulId weight must be rank 3 [E, N, K].");
+        }
+
+        if (ids.Rank != 2)
+        {
+            throw new ArgumentException("MatMulId ids must be rank 2 [T, S].");
+        }
+
+        if (x[-1] != w[2])
+        {
+            throw new ArgumentException($"MatMulId K mismatch: x{x} w{w}.");
+        }
+
+        if (x.Rank == 3 && x[1] != ids[1])
+        {
+            throw new ArgumentException($"MatMulId slot mismatch: x{x} ids{ids}.");
+        }
+
         return [new TensorType(DataType.F32, new Shape(ids[0], ids[1], w[1]))];
     });
 }

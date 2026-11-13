@@ -21,9 +21,17 @@ public static partial class StandardOps
     public static readonly OpSchema Conv = new("Conv", OpCategory.MatMul, 2, 3, (i, a) =>
     {
         var x = i[0].Shape; var w = i[1].Shape;
-        if (x.Rank != 4 || w.Rank != 4) throw new ArgumentException($"Conv expects x [N,C,H,W] and w [O,C/g,KH,KW], got x{x} w{w}.");
+        if (x.Rank != 4 || w.Rank != 4)
+        {
+            throw new ArgumentException($"Conv expects x [N,C,H,W] and w [O,C/g,KH,KW], got x{x} w{w}.");
+        }
+
         long groups = a.Get("groups", 1L);
-        if (x[1].Fixed != w[1].Fixed * groups) throw new ArgumentException($"Conv channel mismatch: x{x} w{w} groups={groups}.");
+        if (x[1].Fixed != w[1].Fixed * groups)
+        {
+            throw new ArgumentException($"Conv channel mismatch: x{x} w{w} groups={groups}.");
+        }
+
         var (ho, wo) = SpatialOut(x[2].Fixed, x[3].Fixed, w[2].Fixed, w[3].Fixed, a, ceil: false);
         return [new(DataType.F32, new Shape(x[0], w[0], ho, wo))];
     });
@@ -37,7 +45,11 @@ public static partial class StandardOps
     public static readonly OpSchema Pool = new("Pool", OpCategory.Reduction, 1, 1, (i, a) =>
     {
         var x = i[0].Shape;
-        if (x.Rank != 4) throw new ArgumentException($"Pool expects x [N,C,H,W], got {x}.");
+        if (x.Rank != 4)
+        {
+            throw new ArgumentException($"Pool expects x [N,C,H,W], got {x}.");
+        }
+
         var k = a.Get<long[]>("kernel");
         var (ho, wo) = SpatialOut(x[2].Fixed, x[3].Fixed, k[0], k[1], a, a.Get("ceil_mode", false));
         return [new(DataType.F32, new Shape(x[0], x[1], ho, wo))];
@@ -52,12 +64,25 @@ public static partial class StandardOps
     {
         var x = i[0].Shape;
         var axes = a.Get<long[]>("axes").Select(ax => (int)(ax < 0 ? ax + x.Rank : ax)).ToHashSet();
-        if (axes.Contains(0) && x[0].IsSymbolic) throw new ArgumentException("Reduce over the symbolic outermost axis is not supported.");
+        if (axes.Contains(0) && x[0].IsSymbolic)
+        {
+            throw new ArgumentException("Reduce over the symbolic outermost axis is not supported.");
+        }
+
         bool keep = a.Get("keepdims", true);
         var dims = new List<Dim>();
         for (int d = 0; d < x.Rank; d++)
-            if (!axes.Contains(d)) dims.Add(x[d]);
-            else if (keep) dims.Add(1);
+        {
+            if (!axes.Contains(d))
+            {
+                dims.Add(x[d]);
+            }
+            else if (keep)
+            {
+                dims.Add(1);
+            }
+        }
+
         return [new(DataType.F32, new Shape(dims))];
     });
 
@@ -69,11 +94,19 @@ public static partial class StandardOps
     public static readonly OpSchema BatchMatMul = new("BatchMatMul", OpCategory.MatMul, 2, 2, (i, a) =>
     {
         var x = i[0].Shape; var y = i[1].Shape;
-        if (x.Rank < 2 || y.Rank < 2) throw new ArgumentException("BatchMatMul inputs must be rank >= 2.");
+        if (x.Rank < 2 || y.Rank < 2)
+        {
+            throw new ArgumentException("BatchMatMul inputs must be rank >= 2.");
+        }
+
         bool ta = a.Get("trans_a", false), tb = a.Get("trans_b", false);
         Dim m = ta ? x[-1] : x[-2], k = ta ? x[-2] : x[-1];
         Dim k2 = tb ? y[-1] : y[-2], n = tb ? y[-2] : y[-1];
-        if (k != k2) throw new ArgumentException($"BatchMatMul K mismatch: a{x} b{y} (trans_a={ta}, trans_b={tb}).");
+        if (k != k2)
+        {
+            throw new ArgumentException($"BatchMatMul K mismatch: a{x} b{y} (trans_a={ta}, trans_b={tb}).");
+        }
+
         var batch = BroadcastShapes(new Shape(x.Dims.Take(x.Rank - 2)), new Shape(y.Dims.Take(y.Rank - 2)));
         return [new(DataType.F32, new Shape([.. batch.Dims, m, n]))];
     });
@@ -86,12 +119,19 @@ public static partial class StandardOps
     {
         var x = i[0].Shape;
         var p = a.Get<long[]>("pads");
-        if (p.Length != 2 * x.Rank) throw new ArgumentException($"Pad: pads must have {2 * x.Rank} entries.");
+        if (p.Length != 2 * x.Rank)
+        {
+            throw new ArgumentException($"Pad: pads must have {2 * x.Rank} entries.");
+        }
+
         var dims = new Dim[x.Rank];
         for (int d = 0; d < x.Rank; d++)
         {
-            if (x[d].IsSymbolic) { if (p[d] != 0 || p[d + x.Rank] != 0) throw new ArgumentException("Pad on a symbolic axis."); dims[d] = x[d]; }
-            else dims[d] = x[d].Fixed + p[d] + p[d + x.Rank];
+            if (x[d].IsSymbolic) { if (p[d] != 0 || p[d + x.Rank] != 0) { throw new ArgumentException("Pad on a symbolic axis."); } dims[d] = x[d]; }
+            else
+            {
+                dims[d] = x[d].Fixed + p[d] + p[d + x.Rank];
+            }
         }
         return [new(DataType.F32, new Shape(dims))];
     });
@@ -108,7 +148,7 @@ public static partial class StandardOps
         return [new(DataType.F32, new Shape(x[0], x[1], s[0], s[1]))];
     });
 
-    static (long H, long W) SpatialOut(long h, long w, long kh, long kw, Attributes a, bool ceil)
+    private static (long H, long W) SpatialOut(long h, long w, long kh, long kw, Attributes a, bool ceil)
     {
         var st = a.Get("strides", new long[] { 1, 1 });
         var pd = a.Get("pads", new long[] { 0, 0, 0, 0 });
@@ -118,7 +158,11 @@ public static partial class StandardOps
             long span = n + p0 + p1 - d * (k - 1) - 1;
             long o = (ceil ? (span + s - 1) / s : span / s) + 1;
             // ONNX/PyTorch: with ceil_mode the last window must start inside the (left-padded) input.
-            if (ceil && (o - 1) * s >= n + p0) o--;
+            if (ceil && (o - 1) * s >= n + p0)
+            {
+                o--;
+            }
+
             return o;
         }
         return (Out(h, kh, st[0], pd[0], pd[2], dl[0]), Out(w, kw, st[1], pd[1], pd[3], dl[1]));

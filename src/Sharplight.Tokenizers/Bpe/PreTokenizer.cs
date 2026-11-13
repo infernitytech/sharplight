@@ -74,8 +74,14 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
 
     public override void Split(in SplitInput input, List<int> lengths)
     {
-        if (kind == Kind.Gpt2) SplitGpt2(input.Cpts, lengths);
-        else SplitLlama(input.Cpts, lengths);
+        if (kind == Kind.Gpt2)
+        {
+            SplitGpt2(input.Cpts, lengths);
+        }
+        else
+        {
+            SplitLlama(input.Cpts, lengths);
+        }
     }
 
     private static byte F(ReadOnlySpan<int> c, int pos) => (uint)pos < (uint)c.Length ? UnicodeInfo.Flags(c[pos]) : (byte)0;
@@ -85,7 +91,11 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
     private static void Add(List<int> lengths, ref int prevEnd, int end)
     {
         int len = end - prevEnd;
-        if (len > 0) lengths.Add(len);
+        if (len > 0)
+        {
+            lengths.Add(len);
+        }
+
         prevEnd = end;
     }
 
@@ -93,11 +103,23 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
     private int Contraction(ReadOnlySpan<int> c, int pos)
     {
         int n = c.Length;
-        if (c[pos] != '\'' || pos + 1 >= n) return 0;
+        if (c[pos] != '\'' || pos + 1 >= n)
+        {
+            return 0;
+        }
+
         int a = c[pos + 1], b = pos + 2 < n ? c[pos + 2] : -1;
         if (caseInsensitiveContractions) { a = Lower(a); b = Lower(b); }
-        if (a == 's' || a == 't' || a == 'm' || a == 'd') return 2;
-        if (pos + 2 < n && ((a == 'r' && b == 'e') || (a == 'v' && b == 'e') || (a == 'l' && b == 'l'))) return 3;
+        if (a == 's' || a == 't' || a == 'm' || a == 'd')
+        {
+            return 2;
+        }
+
+        if (pos + 2 < n && ((a == 'r' && b == 'e') || (a == 'v' && b == 'e') || (a == 'l' && b == 'l')))
+        {
+            return 3;
+        }
+
         return 0;
     }
 
@@ -116,14 +138,22 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
             if ((f2 & UnicodeInfo.Letter) != 0)
             {
                 pos += cpt == ' ' ? 1 : 0;
-                while ((f2 & UnicodeInfo.Letter) != 0) f2 = F(c, ++pos);
+                while ((f2 & UnicodeInfo.Letter) != 0)
+                {
+                    f2 = F(c, ++pos);
+                }
+
                 Add(lengths, ref prevEnd, pos);
                 continue;
             }
             if ((f2 & UnicodeInfo.Number) != 0)
             {
                 pos += cpt == ' ' ? 1 : 0;
-                while ((f2 & UnicodeInfo.Number) != 0) f2 = F(c, ++pos);
+                while ((f2 & UnicodeInfo.Number) != 0)
+                {
+                    f2 = F(c, ++pos);
+                }
+
                 Add(lengths, ref prevEnd, pos);
                 continue;
             }
@@ -131,13 +161,21 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
             if ((f2 & Excl) == 0 && f2 != 0)
             {
                 pos += cpt == ' ' ? 1 : 0;
-                while ((f2 & Excl) == 0 && f2 != 0) f2 = F(c, ++pos);
+                while ((f2 & Excl) == 0 && f2 != 0)
+                {
+                    f2 = F(c, ++pos);
+                }
+
                 Add(lengths, ref prevEnd, pos);
                 continue;
             }
 
             int nws = 0;
-            while ((F(c, pos + nws) & UnicodeInfo.Whitespace) != 0) nws++;
+            while ((F(c, pos + nws) & UnicodeInfo.Whitespace) != 0)
+            {
+                nws++;
+            }
+
             if (nws > 1 && pos + nws < n) { pos += nws - 1; Add(lengths, ref prevEnd, pos); continue; }
             if (nws > 0) { pos += nws; Add(lengths, ref prevEnd, pos); continue; }
             Add(lengths, ref prevEnd, ++pos);
@@ -163,7 +201,11 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
                 if ((flags & letterMask) != 0 || (F(c, pos + 1) & letterMask) != 0)
                 {
                     pos++;
-                    while ((F(c, pos) & letterMask) != 0) pos++;
+                    while ((F(c, pos) & letterMask) != 0)
+                    {
+                        pos++;
+                    }
+
                     Add(lengths, ref prevEnd, pos);
                     continue;
                 }
@@ -186,8 +228,16 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
             if ((f2 & punctExcl) == 0 && flags != 0)
             {
                 pos += cpt == ' ' ? 1 : 0;
-                while ((f2 & punctExcl) == 0 && f2 != 0) f2 = F(c, ++pos);
-                while (pos < n && (c[pos] == '\r' || c[pos] == '\n')) pos++;
+                while ((f2 & punctExcl) == 0 && f2 != 0)
+                {
+                    f2 = F(c, ++pos);
+                }
+
+                while (pos < n && (c[pos] == '\r' || c[pos] == '\n'))
+                {
+                    pos++;
+                }
+
                 Add(lengths, ref prevEnd, pos);
                 continue;
             }
@@ -196,7 +246,11 @@ internal sealed class RegexFamilySplitter(RegexFamilySplitter.Kind kind, bool ca
             while ((F(c, pos + nws) & UnicodeInfo.Whitespace) != 0)
             {
                 int cp2 = c[pos + nws];
-                if (cp2 == '\r' || cp2 == '\n') lastEndRn = pos + nws + 1;
+                if (cp2 == '\r' || cp2 == '\n')
+                {
+                    lastEndRn = pos + nws + 1;
+                }
+
                 nws++;
             }
             if (lastEndRn > 0) { pos = lastEndRn; Add(lengths, ref prevEnd, pos); continue; }      // \s*[\r\n]+
@@ -249,15 +303,29 @@ internal sealed class DefaultRegexStages : PreTokenizer
                 {
                     int ms = CptIndex(input.CharStart, cs + m.Index, start, start + len);
                     int me = CptIndex(input.CharStart, cs + m.Index + m.Length, start, start + len);
-                    if (ms > prev) next.Add((prev, ms - prev));
-                    if (me > ms) next.Add((ms, me - ms));
+                    if (ms > prev)
+                    {
+                        next.Add((prev, ms - prev));
+                    }
+
+                    if (me > ms)
+                    {
+                        next.Add((ms, me - ms));
+                    }
+
                     prev = me;
                 }
-                if (prev < start + len) next.Add((prev, start + len - prev));
+                if (prev < start + len)
+                {
+                    next.Add((prev, start + len - prev));
+                }
             }
             pieces = next;
         }
-        foreach (var (_, len) in pieces) lengths.Add(len);
+        foreach (var (_, len) in pieces)
+        {
+            lengths.Add(len);
+        }
     }
 
     private static int CptIndex(ReadOnlySpan<int> charStart, int charPos, int lo, int hi)

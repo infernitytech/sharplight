@@ -5,7 +5,7 @@ namespace Sharplight.Vulkan.Tests;
 
 public class PoolTests
 {
-    static void Run(string label, int n, int c, int h, int w, string mode, int[] k, int[] s, int[] pads, int[] dil, bool ceil, bool countPad, bool slice = false)
+    private static void Run(string label, int n, int c, int h, int w, string mode, int[] k, int[] s, int[] pads, int[] dil, bool ceil, bool countPad, bool slice = false)
     {
         Gpu.Require();
         var tg = new TG();
@@ -40,15 +40,22 @@ public class PoolTests
 
 public class ReduceTests
 {
-    static void Run(string label, string mode, long[] axes, bool keep, int[] shape, int n = 3, bool permute = false)
+    private static void Run(string label, string mode, long[] axes, bool keep, int[] shape, int n = 3, bool permute = false)
     {
         Gpu.Require();
         var tg = new TG();
         var dims = shape.Select(d => (Dim)d).ToArray();
         var x = tg.InF("x", [TG.T, .. dims]);
         var xv = x;
-        long total = n; foreach (var d in shape) total *= d;
-        if (permute) xv = tg.B.Permute(x, [0, .. Enumerable.Range(1, shape.Length).Reverse()]);
+        long total = n; foreach (var d in shape)
+        {
+            total *= d;
+        }
+
+        if (permute)
+        {
+            xv = tg.B.Permute(x, [0, .. Enumerable.Range(1, shape.Length).Reverse()]);
+        }
         // user axes refer to the (possibly permuted) value, rank = shape.Length + 1
         tg.B.Output("y", tg.B.Emit1("Reduce", [xv], Attributes.From(("mode", mode), ("axes", axes), ("keepdims", keep))));
         Diff.Check("Reduce." + mode, tg.B.Build(), new Step(n, 0, (x, Rnd.F(total, 5))), atol: 2e-4, rtol: 1e-4, what: label);
@@ -84,14 +91,18 @@ public class ReduceTests
 
 public class BatchMatMulTests
 {
-    static void Run(string label, int[] aShape, int[] bShape, bool ta, bool tb, float alpha = 1f, int sym = 0, bool permuteA = false, bool permuteB = false, int[]? tvals = null)
+    private static void Run(string label, int[] aShape, int[] bShape, bool ta, bool tb, float alpha = 1f, int sym = 0, bool permuteA = false, bool permuteB = false, int[]? tvals = null)
     {
         Gpu.Require();
         var tg = new TG();
         Dim[] Dims(int[] s) => [.. s.Select((d, i) => i == 0 && sym == 1 ? TG.T : (Dim)d)];
         var a = tg.InF("a", Dims(aShape));
         Dim[] bd = bShape.Select((d, i) => (Dim)d).ToArray();
-        if (sym == 2) bd[0] = TG.T;
+        if (sym == 2)
+        {
+            bd[0] = TG.T;
+        }
+
         var b = tg.InF("b", bd);
         tg.B.Output("y", tg.B.Emit1("BatchMatMul", [a, b], Attributes.From(("trans_a", ta), ("trans_b", tb), ("alpha", alpha))));
         var g = tg.B.Build();
@@ -125,15 +136,23 @@ public class BatchMatMulTests
 
 public class PadTests
 {
-    static void Run(string label, string mode, int[] shape, long[] pads, float value = 0f, bool slice = false)
+    private static void Run(string label, string mode, int[] shape, long[] pads, float value = 0f, bool slice = false)
     {
         Gpu.Require();
         var tg = new TG();
         var x = tg.InF("x", [TG.T, .. shape.Select(d => (Dim)d)]);
         var xv = x;
-        if (slice) xv = tg.B.Slice(x, 2, 1, shape[1] - 2);
+        if (slice)
+        {
+            xv = tg.B.Slice(x, 2, 1, shape[1] - 2);
+        }
+
         tg.B.Output("y", tg.B.Emit1("Pad", [xv], Attributes.From(("pads", pads), ("mode", mode), ("value", value))));
-        long n = 3; foreach (var d in shape) n *= d;
+        long n = 3; foreach (var d in shape)
+        {
+            n *= d;
+        }
+
         Diff.Check("Pad." + mode, tg.B.Build(), new Step(3, 0, (x, Rnd.F(n, 2))), what: label);
     }
 
@@ -155,7 +174,7 @@ public class PadTests
 
 public class ResizeTests
 {
-    static void Run(string label, string mode, string coord, string nearest, int n, int c, int h, int w, int oh, int ow, bool slice = false)
+    private static void Run(string label, string mode, string coord, string nearest, int n, int c, int h, int w, int oh, int ow, bool slice = false)
     {
         Gpu.Require();
         var tg = new TG();
@@ -169,9 +188,15 @@ public class ResizeTests
     public static IEnumerable<object[]> NearestCases()
     {
         foreach (var coord in new[] { "half_pixel", "asymmetric", "align_corners", "pytorch_half_pixel" })
+        {
             foreach (var nm in new[] { "round_prefer_floor", "round_prefer_ceil", "floor", "ceil" })
+            {
                 foreach (var (oh, ow) in new[] { (16, 14), (5, 6), (7, 9) })
+                {
                     yield return [coord, nm, oh, ow];
+                }
+            }
+        }
     }
 
     [Theory]
@@ -181,8 +206,12 @@ public class ResizeTests
     public static IEnumerable<object[]> LinearCases()
     {
         foreach (var coord in new[] { "half_pixel", "asymmetric", "align_corners", "pytorch_half_pixel" })
+        {
             foreach (var (oh, ow) in new[] { (16, 14), (5, 6), (7, 9), (1, 1), (8, 7) })
+            {
                 yield return [coord, oh, ow];
+            }
+        }
     }
 
     [Theory]
@@ -232,8 +261,16 @@ public class RowOpTests
         Gpu.Require();
         var tg = new TG(); var x = tg.InF("x", TG.T, 5, d);
         var args = new List<Value> { x };
-        if (w) args.Add(tg.RandW("w", DataType.F32, 1f, d));
-        if (b) args.Add(tg.RandW("b", DataType.F32, 1f, d));
+        if (w)
+        {
+            args.Add(tg.RandW("w", DataType.F32, 1f, d));
+        }
+
+        if (b)
+        {
+            args.Add(tg.RandW("b", DataType.F32, 1f, d));
+        }
+
         tg.B.Output("y", tg.B.Emit1("LayerNorm", args, Attributes.From(("eps", 1e-5f))));
         Diff.Check("LayerNorm", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * 5 * d, 3, 3f))), atol: 2e-5, rtol: 1e-4);
     }

@@ -35,7 +35,7 @@ public sealed class CpuExecutionProvider : IExecutionProvider
 /// <summary>The host CPU as a compute device.</summary>
 public sealed class CpuDevice : IComputeDevice
 {
-    readonly DeviceOptions? _options;
+    private readonly DeviceOptions? _options;
     public DeviceInfo Info { get; }
 
     internal CpuDevice(DeviceInfo info, DeviceOptions? options)
@@ -86,7 +86,7 @@ public sealed class CpuDevice : IComputeDevice
         };
     }
 
-    static string CpuName()
+    private static string CpuName()
     {
         try
         {
@@ -109,7 +109,7 @@ public sealed class CpuDevice : IComputeDevice
         return $"{RuntimeInformation.ProcessArchitecture} CPU";
     }
 
-    static string Vendor()
+    private static string Vendor()
     {
         try
         {
@@ -133,7 +133,7 @@ public sealed class CpuDevice : IComputeDevice
     }
 
     /// <summary>Reads a /proc/meminfo field in bytes (Linux); null elsewhere.</summary>
-    static long? MemInfo(string key)
+    private static long? MemInfo(string key)
     {
         try
         {
@@ -158,17 +158,17 @@ public sealed class CpuDevice : IComputeDevice
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options) => new CpuCompiledSegment(segment, options, this);
 
     // ----------------------------------------------------------------------------------------
-    static readonly HashSet<string> s_unary = new(StandardOps.UnaryNames);
-    static readonly HashSet<string> s_binary = new(StandardOps.BinaryNames);
-    static readonly HashSet<string> s_rows = ["RmsNorm", "L2Norm", "LayerNorm", "Softmax", "ReduceSum", "ReduceMax", "ArgMax"];
+    private static readonly HashSet<string> s_unary = new(StandardOps.UnaryNames);
+    private static readonly HashSet<string> s_binary = new(StandardOps.BinaryNames);
+    private static readonly HashSet<string> s_rows = ["RmsNorm", "L2Norm", "LayerNorm", "Softmax", "ReduceSum", "ReduceMax", "ArgMax"];
 
-    static bool IsStatic(Value v) => v.Kind is ValueKind.Weight or ValueKind.Constant;
-    static bool F32Like(Value v) => v.Type == DataType.F32 || (IsStatic(v) && Quant.FormatOf(v.Type) is not null);
-    static bool Plain(Value v) => !v.Type.IsQuantized && v.Type.BlockSize == 1 && v.Type.BlockBytes is 1 or 2 or 4 or 8;
-    static bool IsIdx(Value v) => v.Type == DataType.I32 || v.Type == DataType.I64;
-    static bool IsKv(DataType t) => t == DataType.F32 || t == DataType.F16;
+    private static bool IsStatic(Value v) => v.Kind is ValueKind.Weight or ValueKind.Constant;
+    private static bool F32Like(Value v) => v.Type == DataType.F32 || (IsStatic(v) && Quant.FormatOf(v.Type) is not null);
+    private static bool Plain(Value v) => !v.Type.IsQuantized && v.Type.BlockSize == 1 && v.Type.BlockBytes is 1 or 2 or 4 or 8;
+    private static bool IsIdx(Value v) => v.Type == DataType.I32 || v.Type == DataType.I64;
+    private static bool IsKv(DataType t) => t == DataType.F32 || t == DataType.F16;
 
-    static OpSupport CheckSpatialAttrs(string op, Sharplight.Graph.Attributes a, bool strides, bool dilations)
+    private static OpSupport CheckSpatialAttrs(string op, Sharplight.Graph.Attributes a, bool strides, bool dilations)
     {
         if (a.Has("strides") && (a.Get<long[]>("strides") is not { Length: 2 } st || st.Any(v => v < 1)))
         {

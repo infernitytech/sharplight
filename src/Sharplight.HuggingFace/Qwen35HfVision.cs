@@ -14,20 +14,26 @@ public sealed partial class Qwen35HfMapping
     [GeneratedRegex(@"^(?:model\.)?visual\.blocks\.(\d+)\.(.+)$")]
     private static partial Regex VisualBlock();
 
-    static JsonElement? VisionConfig(HfConfig c)
+    private static JsonElement? VisionConfig(HfConfig c)
         => c.Root.TryGetProperty("vision_config", out var v) && v.ValueKind == JsonValueKind.Object ? v : null;
 
-    static bool IsVisionTensor(string name) => name.StartsWith("model.visual.", StringComparison.Ordinal) || name.StartsWith("visual.", StringComparison.Ordinal);
+    private static bool IsVisionTensor(string name) => name.StartsWith("model.visual.", StringComparison.Ordinal) || name.StartsWith("visual.", StringComparison.Ordinal);
 
     /// <summary>Adds <c>qwen3_5.vision.*</c> when the checkpoint has a vision tower.</summary>
-    void AddVisionHyperParameters(HfConfig c, Dictionary<string, object> md)
+    private void AddVisionHyperParameters(HfConfig c, Dictionary<string, object> md)
     {
-        if (VisionConfig(c) is not { } vc) return;
+        if (VisionConfig(c) is not { } vc)
+        {
+            return;
+        }
+
         string a = Architecture + ".vision.";
         int Int(string k) => vc.TryGetProperty(k, out var v) ? v.GetInt32() : throw new InvalidDataException($"config.json vision_config.{k} is missing.");
         int IntOr(string k, int d) => vc.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : d;
         if (vc.TryGetProperty("deepstack_visual_indexes", out var ds) && ds.ValueKind == JsonValueKind.Array && ds.GetArrayLength() > 0)
+        {
             throw new NotSupportedException("Vision towers with deepstack features (deepstack_visual_indexes) are not supported yet.");
+        }
 
         md[a + "layer_count"] = Int("depth");
         md[a + "hidden_size"] = Int("hidden_size");
@@ -50,31 +56,69 @@ public sealed partial class Qwen35HfMapping
         md[a + "out_hidden_size"] = Int("out_hidden_size");
         md[a + "merger.activation"] = "gelu"; // the patch merger uses the exact (erf) GELU
         float theta = 10000f;
-        if (vc.TryGetProperty("rope_parameters", out var rp) && rp.ValueKind == JsonValueKind.Object && rp.TryGetProperty("rope_theta", out var rt)) theta = (float)rt.GetDouble();
+        if (vc.TryGetProperty("rope_parameters", out var rp) && rp.ValueKind == JsonValueKind.Object && rp.TryGetProperty("rope_theta", out var rt))
+        {
+            theta = (float)rt.GetDouble();
+        }
+
         md[a + "rope.base"] = theta;
 
         // Image preprocessing (preprocessor_config.json): normalization and pixel bounds.
         string path = Path.Combine(c.Directory, "preprocessor_config.json");
-        if (!File.Exists(path)) return;
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
         using var doc = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions { AllowTrailingCommas = true });
         var r = doc.RootElement;
         float[]? Floats(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Array ? v.EnumerateArray().Select(x => (float)x.GetDouble()).ToArray() : null;
-        if (Floats("image_mean") is { } mean) md[a + "image_mean"] = mean;
-        if (Floats("image_std") is { } std) md[a + "image_std"] = std;
+        if (Floats("image_mean") is { } mean)
+        {
+            md[a + "image_mean"] = mean;
+        }
+
+        if (Floats("image_std") is { } std)
+        {
+            md[a + "image_std"] = std;
+        }
+
         long? min = null, max = null;
         if (r.TryGetProperty("size", out var size) && size.ValueKind == JsonValueKind.Object)
         {
-            if (size.TryGetProperty("shortest_edge", out var se)) min = se.GetInt64();
-            if (size.TryGetProperty("longest_edge", out var le)) max = le.GetInt64();
+            if (size.TryGetProperty("shortest_edge", out var se))
+            {
+                min = se.GetInt64();
+            }
+
+            if (size.TryGetProperty("longest_edge", out var le))
+            {
+                max = le.GetInt64();
+            }
         }
-        if (r.TryGetProperty("min_pixels", out var mp)) min = mp.GetInt64();
-        if (r.TryGetProperty("max_pixels", out var xp)) max = xp.GetInt64();
-        if (min is { } mi) md[a + "min_pixels"] = mi;
-        if (max is { } ma) md[a + "max_pixels"] = ma;
+        if (r.TryGetProperty("min_pixels", out var mp))
+        {
+            min = mp.GetInt64();
+        }
+
+        if (r.TryGetProperty("max_pixels", out var xp))
+        {
+            max = xp.GetInt64();
+        }
+
+        if (min is { } mi)
+        {
+            md[a + "min_pixels"] = mi;
+        }
+
+        if (max is { } ma)
+        {
+            md[a + "max_pixels"] = ma;
+        }
     }
 
     /// <summary>Maps one <c>model.visual.*</c> tensor; null when it has no canonical counterpart.</summary>
-    static WeightInfo? MapVisionTensor(string rawName, SafetensorsTensor t, HfConfig c)
+    private static WeightInfo? MapVisionTensor(string rawName, SafetensorsTensor t, HfConfig c)
     {
         string name = rawName.StartsWith("model.", StringComparison.Ordinal) ? rawName["model.".Length..] : rawName;
         var w = t.ToWeightInfo();
@@ -94,7 +138,11 @@ public sealed partial class Qwen35HfMapping
             case "visual.merger.linear_fc2.bias": return Plain(w, "vision.merger.down.bias");
         }
         var m = VisualBlock().Match(rawName);
-        if (!m.Success) return null;
+        if (!m.Success)
+        {
+            return null;
+        }
+
         string p = $"vision.layers.{m.Groups[1].Value}.";
         string? canon = m.Groups[2].Value switch
         {

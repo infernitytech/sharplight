@@ -22,7 +22,11 @@ internal sealed class Parser
     private Token Next()
     {
         var t = _t[_i];
-        if (t.Kind != TokenKind.Eof) _i++;
+        if (t.Kind != TokenKind.Eof)
+        {
+            _i++;
+        }
+
         return t;
     }
 
@@ -31,14 +35,22 @@ internal sealed class Parser
 
     private bool SkipOp(string op)
     {
-        if (!IsOp(op)) return false;
+        if (!IsOp(op))
+        {
+            return false;
+        }
+
         _i++;
         return true;
     }
 
     private bool SkipName(string name)
     {
-        if (!IsName(name)) return false;
+        if (!IsName(name))
+        {
+            return false;
+        }
+
         _i++;
         return true;
     }
@@ -51,20 +63,31 @@ internal sealed class Parser
 
     private Token ExpectOp(string op)
     {
-        if (!IsOp(op)) throw Fail($"expected '{op}', got {Cur}");
+        if (!IsOp(op))
+        {
+            throw Fail($"expected '{op}', got {Cur}");
+        }
+
         return Next();
     }
 
     private Token ExpectName(string? name = null)
     {
         if (Cur.Kind != TokenKind.Name || (name != null && Cur.Text != name))
+        {
             throw Fail($"expected {(name != null ? $"'{name}'" : "a name")}, got {Cur}");
+        }
+
         return Next();
     }
 
     private void ExpectBlockEnd()
     {
-        if (Cur.Kind != TokenKind.BlockEnd) throw Fail($"expected '%}}', got {Cur}");
+        if (Cur.Kind != TokenKind.BlockEnd)
+        {
+            throw Fail($"expected '%}}', got {Cur}");
+        }
+
         _i++;
     }
 
@@ -93,23 +116,43 @@ internal sealed class Parser
                 {
                     _i++;
                     var e = ParseExpr();
-                    if (Cur.Kind != TokenKind.VarEnd) throw Fail($"expected '}}}}', got {Cur}");
-                    _i++;
+                    if (Cur.Kind != TokenKind.VarEnd)
+                        {
+                            throw Fail($"expected '}}}}', got {Cur}");
+                        }
+
+                        _i++;
                     body.Add(At(new PrintStmt(e), t));
                     break;
                 }
                 case TokenKind.BlockBegin:
                 {
                     var nameTok = PeekAt(1);
-                    if (nameTok.Kind != TokenKind.Name) throw Fail("expected a tag name after '{%'", nameTok);
-                    if (Array.IndexOf(endTags, nameTok.Text) >= 0) return body;
-                    _i += 2;
+                    if (nameTok.Kind != TokenKind.Name)
+                        {
+                            throw Fail("expected a tag name after '{%'", nameTok);
+                        }
+
+                        if (Array.IndexOf(endTags, nameTok.Text) >= 0)
+                        {
+                            return body;
+                        }
+
+                        _i += 2;
                     var s = ParseBlockTag(nameTok);
-                    if (s != null) body.Add(At(s, t));
-                    break;
+                    if (s != null)
+                        {
+                            body.Add(At(s, t));
+                        }
+
+                        break;
                 }
                 case TokenKind.Eof:
-                    if (endTags.Length == 0) return body;
+                    if (endTags.Length == 0)
+                    {
+                        return body;
+                    }
+
                     throw Fail($"Unexpected end of template. Expected one of: {string.Join(", ", endTags.Select(e => "'" + e + "'"))}");
                 default:
                     throw Fail($"unexpected {t}");
@@ -122,7 +165,11 @@ internal sealed class Parser
     {
         _i++; // BlockBegin
         ExpectName(name);
-        if (Cur.Kind == TokenKind.Name) _i++;
+        if (Cur.Kind == TokenKind.Name)
+        {
+            _i++;
+        }
+
         ExpectBlockEnd();
     }
 
@@ -211,8 +258,16 @@ internal sealed class Parser
         ExpectName("in");
         var iter = ParseOr();
         Expr? filter = null;
-        if (SkipName("if")) filter = ParseExpr();
-        if (IsName("recursive")) throw Fail("recursive loops are not supported");
+        if (SkipName("if"))
+        {
+            filter = ParseExpr();
+        }
+
+        if (IsName("recursive"))
+        {
+            throw Fail("recursive loops are not supported");
+        }
+
         ExpectBlockEnd();
         var body = ParseStatements("else", "endfor");
         List<Stmt>? otherwise = null;
@@ -234,12 +289,23 @@ internal sealed class Parser
         while (true)
         {
             items.Add(ParseSingleTarget());
-            if (!IsOp(",")) break;
+            if (!IsOp(","))
+            {
+                break;
+            }
+
             _i++;
             comma = true;
-            if (IsName("in") || IsOp("=") || Cur.Kind == TokenKind.BlockEnd || IsOp(")")) break;
+            if (IsName("in") || IsOp("=") || Cur.Kind == TokenKind.BlockEnd || IsOp(")"))
+            {
+                break;
+            }
         }
-        if (items.Count == 1 && !comma) return items[0];
+        if (items.Count == 1 && !comma)
+        {
+            return items[0];
+        }
+
         return At(new TupleTarget(items), first);
     }
 
@@ -271,7 +337,11 @@ internal sealed class Parser
             return new SetStmt(target, value);
         }
         var filters = new List<FilterSpec>();
-        while (IsOp("|")) filters.Add(ParseFilterSpec());
+        while (IsOp("|"))
+        {
+            filters.Add(ParseFilterSpec());
+        }
+
         ExpectBlockEnd();
         var body = ParseStatements("endset");
         EatEndTag("endset");
@@ -290,7 +360,11 @@ internal sealed class Parser
         }
         var args = new List<Expr>();
         var named = new List<(string, Expr)>();
-        if (IsOp("(")) ParseCallArgs(args, named);
+        if (IsOp("("))
+        {
+            ParseCallArgs(args, named);
+        }
+
         return new FilterSpec(fname, args, named, name);
     }
 
@@ -300,11 +374,23 @@ internal sealed class Parser
         ExpectOp("(");
         while (!IsOp(")"))
         {
-            if (ps.Count > 0) ExpectOp(",");
-            if (IsOp(")")) break;
+            if (ps.Count > 0)
+            {
+                ExpectOp(",");
+            }
+
+            if (IsOp(")"))
+            {
+                break;
+            }
+
             var n = ExpectName();
             Expr? def = null;
-            if (SkipOp("=")) def = ParseExpr();
+            if (SkipOp("="))
+            {
+                def = ParseExpr();
+            }
+
             ps.Add((n.Text, def));
         }
         ExpectOp(")");
@@ -327,7 +413,11 @@ internal sealed class Parser
         var ps = IsOp("(") ? ParseParams() : new List<(string, Expr?)>();
         var callTok = Cur;
         var e = ParseExpr();
-        if (e is not CallExpr ce) throw Fail("expected a call expression after 'call'", callTok);
+        if (e is not CallExpr ce)
+        {
+            throw Fail("expected a call expression after 'call'", callTok);
+        }
+
         ExpectBlockEnd();
         var body = ParseStatements("endcall");
         EatEndTag("endcall");
@@ -341,9 +431,17 @@ internal sealed class Parser
         var name = ExpectName();
         var args = new List<Expr>();
         var named = new List<(string, Expr)>();
-        if (IsOp("(")) ParseCallArgs(args, named);
+        if (IsOp("("))
+        {
+            ParseCallArgs(args, named);
+        }
+
         filters.Add(new FilterSpec(name.Text, args, named, name));
-        while (IsOp("|")) filters.Add(ParseFilterSpec());
+        while (IsOp("|"))
+        {
+            filters.Add(ParseFilterSpec());
+        }
+
         ExpectBlockEnd();
         var body = ParseStatements("endfilter");
         EatEndTag("endfilter");
@@ -357,11 +455,19 @@ internal sealed class Parser
     {
         var first = Cur;
         var e = ParseExpr();
-        if (!IsOp(",")) return e;
+        if (!IsOp(","))
+        {
+            return e;
+        }
+
         var items = new List<Expr> { e };
         while (SkipOp(","))
         {
-            if (Cur.Kind == TokenKind.BlockEnd || Cur.Kind == TokenKind.VarEnd) break;
+            if (Cur.Kind == TokenKind.BlockEnd || Cur.Kind == TokenKind.VarEnd)
+            {
+                break;
+            }
+
             items.Add(ParseExpr());
         }
         return At(new ListExpr(items, true), first);
@@ -371,13 +477,20 @@ internal sealed class Parser
     {
         var t = Cur;
         var e = ParseOr();
-        if (!IsName("if")) return e;
+        if (!IsName("if"))
+        {
+            return e;
+        }
         // 'a if c else b' (right associative)
         while (SkipName("if"))
         {
             var cond = ParseOr();
             Expr? other = null;
-            if (SkipName("else")) other = ParseExpr();
+            if (SkipName("else"))
+            {
+                other = ParseExpr();
+            }
+
             e = At(new CondExpr(cond, e, other), t);
         }
         return e;
@@ -441,7 +554,11 @@ internal sealed class Parser
                 op = "not in";
                 _i += 2;
             }
-            if (op == null) break;
+            if (op == null)
+            {
+                break;
+            }
+
             (rest ??= new()).Add((op, ParseAdd()));
         }
         return rest == null ? first : At(new CompareExpr(first, rest), t);
@@ -463,9 +580,17 @@ internal sealed class Parser
     {
         var t = Cur;
         var first = ParseMul();
-        if (!IsOp("~")) return first;
+        if (!IsOp("~"))
+        {
+            return first;
+        }
+
         var parts = new List<Expr> { first };
-        while (SkipOp("~")) parts.Add(ParseMul());
+        while (SkipOp("~"))
+        {
+            parts.Add(ParseMul());
+        }
+
         return At(new ConcatExpr(parts), t);
     }
 
@@ -507,9 +632,17 @@ internal sealed class Parser
             _i++;
             node = At(new NegExpr(ParseUnary(false), false), t);
         }
-        else node = ParsePrimary();
+        else
+        {
+            node = ParsePrimary();
+        }
+
         node = ParsePostfix(node);
-        if (withFilter) node = ParseFilterTail(node);
+        if (withFilter)
+        {
+            node = ParseFilterTail(node);
+        }
+
         return node;
     }
 
@@ -531,8 +664,12 @@ internal sealed class Parser
             {
                 _i++;
                 string s = (string)t.Value!;
-                while (Cur.Kind == TokenKind.String) s += (string)Next().Value!;
-                return At(new ConstExpr(s), t);
+                while (Cur.Kind == TokenKind.String)
+                    {
+                        s += (string)Next().Value!;
+                    }
+
+                    return At(new ConstExpr(s), t);
             }
             case TokenKind.Int:
             case TokenKind.Float:
@@ -541,15 +678,23 @@ internal sealed class Parser
             case TokenKind.Op when t.Text == "(":
             {
                 _i++;
-                if (SkipOp(")")) return At(new ListExpr(new List<Expr>(), true), t);
-                var first = ParseExpr();
+                if (SkipOp(")"))
+                    {
+                        return At(new ListExpr(new List<Expr>(), true), t);
+                    }
+
+                    var first = ParseExpr();
                 if (IsOp(","))
                 {
                     var items = new List<Expr> { first };
                     while (SkipOp(","))
                     {
-                        if (IsOp(")")) break;
-                        items.Add(ParseExpr());
+                        if (IsOp(")"))
+                            {
+                                break;
+                            }
+
+                            items.Add(ParseExpr());
                     }
                     ExpectOp(")");
                     return At(new ListExpr(items, true), t);
@@ -563,9 +708,17 @@ internal sealed class Parser
                 var items = new List<Expr>();
                 while (!IsOp("]"))
                 {
-                    if (items.Count > 0) ExpectOp(",");
-                    if (IsOp("]")) break;
-                    items.Add(ParseExpr());
+                    if (items.Count > 0)
+                        {
+                            ExpectOp(",");
+                        }
+
+                        if (IsOp("]"))
+                        {
+                            break;
+                        }
+
+                        items.Add(ParseExpr());
                 }
                 ExpectOp("]");
                 return At(new ListExpr(items), t);
@@ -576,9 +729,17 @@ internal sealed class Parser
                 var items = new List<(Expr, Expr)>();
                 while (!IsOp("}"))
                 {
-                    if (items.Count > 0) ExpectOp(",");
-                    if (IsOp("}")) break;
-                    var k = ParseExpr();
+                    if (items.Count > 0)
+                        {
+                            ExpectOp(",");
+                        }
+
+                        if (IsOp("}"))
+                        {
+                            break;
+                        }
+
+                        var k = ParseExpr();
                     ExpectOp(":");
                     var v = ParseExpr();
                     items.Add((k, v));
@@ -610,7 +771,10 @@ internal sealed class Parser
                     _i++;
                     node = At(new GetItemExpr(node, At(new ConstExpr(n.Value), n)), t);
                 }
-                else throw Fail($"expected attribute name, got {n}");
+                else
+                {
+                    throw Fail($"expected attribute name, got {n}");
+                }
             }
             else if (IsOp("["))
             {
@@ -625,7 +789,10 @@ internal sealed class Parser
                 ParseCallArgs(args, named);
                 node = At(new CallExpr(node, args, named), t);
             }
-            else return node;
+            else
+            {
+                return node;
+            }
         }
     }
 
@@ -633,11 +800,27 @@ internal sealed class Parser
     {
         var t = Cur;
         Expr? start = null, stop = null, step = null;
-        if (!IsOp(":")) start = ParseExpr();
-        if (!IsOp(":")) return start!;
+        if (!IsOp(":"))
+        {
+            start = ParseExpr();
+        }
+
+        if (!IsOp(":"))
+        {
+            return start!;
+        }
+
         _i++; // first ':'
-        if (!IsOp(":") && !IsOp("]")) stop = ParseExpr();
-        if (SkipOp(":") && !IsOp("]")) step = ParseExpr();
+        if (!IsOp(":") && !IsOp("]"))
+        {
+            stop = ParseExpr();
+        }
+
+        if (SkipOp(":") && !IsOp("]"))
+        {
+            step = ParseExpr();
+        }
+
         return At(new SliceExpr(start, stop, step), t);
     }
 
@@ -646,8 +829,16 @@ internal sealed class Parser
         ExpectOp("(");
         while (!IsOp(")"))
         {
-            if (args.Count + named.Count > 0) ExpectOp(",");
-            if (IsOp(")")) break;
+            if (args.Count + named.Count > 0)
+            {
+                ExpectOp(",");
+            }
+
+            if (IsOp(")"))
+            {
+                break;
+            }
+
             if (Cur.Kind == TokenKind.Name && PeekAt(1).Kind == TokenKind.Op && PeekAt(1).Text == "=")
             {
                 string n = Next().Text;
@@ -656,7 +847,11 @@ internal sealed class Parser
             }
             else
             {
-                if (named.Count > 0) throw Fail("positional argument follows keyword argument");
+                if (named.Count > 0)
+                {
+                    throw Fail("positional argument follows keyword argument");
+                }
+
                 args.Add(ParseExpr());
             }
         }
@@ -685,7 +880,10 @@ internal sealed class Parser
                 }
                 var args = new List<Expr>();
                 var named = new List<(string, Expr)>();
-                if (IsOp("(")) ParseCallArgs(args, named);
+                if (IsOp("("))
+                {
+                    ParseCallArgs(args, named);
+                }
                 else if ((Cur.Kind is TokenKind.Name or TokenKind.String or TokenKind.Int or TokenKind.Float
                           || (Cur.Kind == TokenKind.Op && Cur.Text is "(" or "[" or "{"))
                          && !(Cur.Kind == TokenKind.Name && Cur.Text is "else" or "or" or "and" or "if" or "is" or "in" or "not"))
@@ -695,7 +893,10 @@ internal sealed class Parser
                 }
                 node = At(new TestExpr(node, tname, args, named, negate), t);
             }
-            else return node;
+            else
+            {
+                return node;
+            }
         }
     }
 }

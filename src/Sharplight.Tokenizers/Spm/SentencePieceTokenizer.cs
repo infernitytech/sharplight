@@ -48,7 +48,10 @@ public sealed class SentencePieceTokenizer : ITokenizer
             _types[i] = data.TokenTypes is { } tt && i < tt.Length && Enum.IsDefined((TokenType)tt[i]) ? (TokenType)tt[i] : TokenType.Normal;
             _bytes[i] = Encoding.UTF8.GetBytes(_tokens[i]);
             _toId[Latin1(_bytes[i])] = i;
-            if (_types[i] == TokenType.Byte && TryParseByteToken(_tokens[i], out byte b)) _byteToken[b] = i;
+            if (_types[i] == TokenType.Byte && TryParseByteToken(_tokens[i], out byte b))
+            {
+                _byteToken[b] = i;
+            }
         }
         int? Valid(int? id) => id is int v && v >= 0 && v < n ? v : null;
         BosId = Valid(data.BosId ?? 1);
@@ -62,10 +65,27 @@ public sealed class SentencePieceTokenizer : ITokenizer
             .Select(i => (_tokens[i], i)).OrderByDescending(s => _bytes[s.i].Length).ToArray();
 
         var eog = new List<int>();
-        foreach (int id in data.EosIds) if (Valid(id) is int v && !eog.Contains(v)) eog.Add(v);
-        if (EosId is int e && !eog.Contains(e)) eog.Add(e);
+        foreach (int id in data.EosIds)
+        {
+            if (Valid(id) is int v && !eog.Contains(v))
+            {
+                eog.Add(v);
+            }
+        }
+
+        if (EosId is int e && !eog.Contains(e))
+        {
+            eog.Add(e);
+        }
+
         foreach (string name in EogNames)
-            if (_toId.TryGetValue(Latin1(Encoding.UTF8.GetBytes(name)), out int id) && _types[id] is TokenType.Control or TokenType.UserDefined && !eog.Contains(id)) eog.Add(id);
+        {
+            if (_toId.TryGetValue(Latin1(Encoding.UTF8.GetBytes(name)), out int id) && _types[id] is TokenType.Control or TokenType.UserDefined && !eog.Contains(id))
+            {
+                eog.Add(id);
+            }
+        }
+
         eog.Sort();
         _eog = [.. eog];
     }
@@ -90,7 +110,11 @@ public sealed class SentencePieceTokenizer : ITokenizer
     /// <summary>Bytes a token renders to: normal pieces with ▁ turned into spaces, byte tokens as the byte, control tokens literally.</summary>
     public byte[] TokenBytes(int id)
     {
-        if ((uint)id >= (uint)_tokens.Length) return [];
+        if ((uint)id >= (uint)_tokens.Length)
+        {
+            return [];
+        }
+
         switch (_types[id])
         {
             case TokenType.Byte: return TryParseByteToken(_tokens[id], out byte b) ? [b] : [];
@@ -109,9 +133,17 @@ public sealed class SentencePieceTokenizer : ITokenizer
         if (skipSpecial && AddBos && ids.Length > 0 && ids[0] == BosId) { removeSpace = false; ids = ids[1..]; }
         foreach (int id in ids)
         {
-            if (skipSpecial && IsSpecial(id)) continue;
+            if (skipSpecial && IsSpecial(id))
+            {
+                continue;
+            }
+
             var piece = TokenBytes(id);
-            if (removeSpace && piece.Length > 0 && piece[0] == (byte)' ') piece = piece[1..];
+            if (removeSpace && piece.Length > 0 && piece[0] == (byte)' ')
+            {
+                piece = piece[1..];
+            }
+
             removeSpace = false;
             ms.Write(piece);
         }
@@ -126,7 +158,10 @@ public sealed class SentencePieceTokenizer : ITokenizer
     {
         ArgumentNullException.ThrowIfNull(text);
         var output = new List<int>(Math.Max(16, text.Length / 3 + 4));
-        if (addSpecial && AddBos && BosId is int bos) output.Add(bos);
+        if (addSpecial && AddBos && BosId is int bos)
+        {
+            output.Add(bos);
+        }
 
         bool prevSpecial = true;   // prefix with a space if first
         foreach (var (isToken, piece, id) in Partition(text, parseSpecial))
@@ -136,18 +171,34 @@ public sealed class SentencePieceTokenizer : ITokenizer
             EncodeText(Encoding.UTF8.GetBytes(t.Replace(" ", "▁")), output);
             prevSpecial = false;
         }
-        if (addSpecial && AddEos && EosId is int eos) output.Add(eos);
+        if (addSpecial && AddEos && EosId is int eos)
+        {
+            output.Add(eos);
+        }
+
         return [.. output];
     }
 
     private List<(bool IsToken, string Text, int Id)> Partition(string text, bool parseSpecial)
     {
         var buffer = new List<(bool, string, int)>();
-        if (text.Length > 0) buffer.Add((false, text, 0));
+        if (text.Length > 0)
+        {
+            buffer.Add((false, text, 0));
+        }
+
         foreach (var (stext, sid) in _specials)
         {
-            if (!parseSpecial && _types[sid] is TokenType.Control or TokenType.Unknown) continue;
-            if (stext.Length == 0) continue;
+            if (!parseSpecial && _types[sid] is TokenType.Control or TokenType.Unknown)
+            {
+                continue;
+            }
+
+            if (stext.Length == 0)
+            {
+                continue;
+            }
+
             var next = new List<(bool, string, int)>(buffer.Count + 2);
             foreach (var frag in buffer)
             {
@@ -156,8 +207,12 @@ public sealed class SentencePieceTokenizer : ITokenizer
                 while (true)
                 {
                     int at = rest.IndexOf(stext, StringComparison.Ordinal);
-                    if (at < 0) { if (rest.Length > 0) next.Add((false, rest, 0)); break; }
-                    if (at > 0) next.Add((false, rest[..at], 0));
+                    if (at < 0) { if (rest.Length > 0) { next.Add((false, rest, 0)); } break; }
+                    if (at > 0)
+                    {
+                        next.Add((false, rest[..at], 0));
+                    }
+
                     next.Add((true, "", sid));
                     rest = rest[(at + stext.Length)..];
                 }
@@ -173,7 +228,11 @@ public sealed class SentencePieceTokenizer : ITokenizer
     /// <summary>Port of llama.cpp's <c>llm_tokenizer_spm_session::tokenize</c>.</summary>
     private void EncodeText(byte[] text, List<int> output)
     {
-        if (text.Length == 0) return;
+        if (text.Length == 0)
+        {
+            return;
+        }
+
         var symbols = new List<Symbol>(text.Length);
         for (int offs = 0; offs < text.Length;)
         {
@@ -186,21 +245,37 @@ public sealed class SentencePieceTokenizer : ITokenizer
 
         void TryAdd(int left, int right)
         {
-            if (left == -1 || right == -1) return;
+            if (left == -1 || right == -1)
+            {
+                return;
+            }
+
             int size = symbols[left].Len + symbols[right].Len;
             string key = Latin1(text.AsSpan(symbols[left].Start, size));
-            if (!_toId.TryGetValue(key, out int id)) return;
+            if (!_toId.TryGetValue(key, out int id))
+            {
+                return;
+            }
+
             float score = _scores[id];
             queue.Enqueue(new Bigram(left, right, score, size), (-score, left));
             revMerge[key] = (left, right);
         }
 
-        for (int i = 1; i < symbols.Count; i++) TryAdd(i - 1, i);
+        for (int i = 1; i < symbols.Count; i++)
+        {
+            TryAdd(i - 1, i);
+        }
+
         while (queue.Count > 0)
         {
             var bg = queue.Dequeue();
             var l = symbols[bg.Left]; var r = symbols[bg.Right];
-            if (l.Len == 0 || r.Len == 0 || l.Len + r.Len != bg.Size) continue;
+            if (l.Len == 0 || r.Len == 0 || l.Len + r.Len != bg.Size)
+            {
+                continue;
+            }
+
             l.Len += r.Len; r.Len = 0;
             l.Next = r.Next;
             symbols[bg.Left] = l; symbols[bg.Right] = r;
@@ -220,7 +295,14 @@ public sealed class SentencePieceTokenizer : ITokenizer
                 if (_toId.TryGetValue(key, out int tok)) { output.Add(tok); continue; }
                 if (!revMerge.TryGetValue(key, out var lr))
                 {
-                    for (int j = 0; j < cur.Len; j++) if (_byteToken[text[cur.Start + j]] is var bt and >= 0) output.Add(bt);
+                    for (int j = 0; j < cur.Len; j++)
+                    {
+                        if (_byteToken[text[cur.Start + j]] is var bt and >= 0)
+                        {
+                            output.Add(bt);
+                        }
+                    }
+
                     continue;
                 }
                 todo.Push(lr.Right);

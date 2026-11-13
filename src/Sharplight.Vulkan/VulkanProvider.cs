@@ -12,9 +12,9 @@ namespace Sharplight.Vulkan;
 /// </summary>
 public sealed unsafe class VulkanProvider : IExecutionProvider
 {
-    static readonly Lock s_lock = new();
-    static VulkanInstance? s_instance;
-    static string? s_initError;
+    private static readonly Lock s_lock = new();
+    private static VulkanInstance? s_instance;
+    private static string? s_initError;
 
     public string Name => "vulkan";
 
@@ -27,8 +27,16 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         {
             lock (s_lock)
             {
-                if (s_instance is not null) return s_instance;
-                if (s_initError is not null) throw new InvalidOperationException(s_initError);
+                if (s_instance is not null)
+                {
+                    return s_instance;
+                }
+
+                if (s_initError is not null)
+                {
+                    throw new InvalidOperationException(s_initError);
+                }
+
                 try { return s_instance = new VulkanInstance(EnableValidation); }
                 catch (Exception e) { s_initError = e.Message; throw; }
             }
@@ -42,8 +50,11 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
             var inst = Instance;
             var usable = inst.PhysicalDevices.Where(p => p.MissingFeatures.Count == 0).ToList();
             if (usable.Count == 0)
+            {
                 return ProviderAvailability.Unavailable("No Vulkan device with the required features: " +
                     string.Join("; ", inst.PhysicalDevices.Select(p => $"{p.Name}: missing {string.Join(", ", p.MissingFeatures)}")));
+            }
+
             return ProviderAvailability.Available($"Vulkan {inst.ApiVersion}, {usable.Count} usable device(s)");
         }
         catch (Exception e)
@@ -59,7 +70,11 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
         for (int i = 0; i < inst.PhysicalDevices.Count; i++)
         {
             var p = inst.PhysicalDevices[i];
-            if (p.MissingFeatures.Count > 0) continue;
+            if (p.MissingFeatures.Count > 0)
+            {
+                continue;
+            }
+
             list.Add(p.ToDeviceInfo(i));
         }
         return list;
@@ -67,7 +82,11 @@ public sealed unsafe class VulkanProvider : IExecutionProvider
 
     public IComputeDevice OpenDevice(DeviceInfo device, DeviceOptions? options = null)
     {
-        if (device.Provider != Name) throw new ArgumentException($"Device belongs to provider '{device.Provider}'.");
+        if (device.Provider != Name)
+        {
+            throw new ArgumentException($"Device belongs to provider '{device.Provider}'.");
+        }
+
         return new VulkanDevice(Instance, Instance.PhysicalDevices[device.Index], device, options ?? new DeviceOptions());
     }
 
@@ -88,20 +107,34 @@ internal sealed unsafe class VulkanInstance
         uint ver = 0;
         vkEnumerateInstanceVersion(&ver);
         ApiVersion = new VkVersion(ver);
-        if (ApiVersion < VkVersion.Version_1_2) throw new NotSupportedException($"Vulkan {ApiVersion} < 1.2");
+        if (ApiVersion < VkVersion.Version_1_2)
+        {
+            throw new NotSupportedException($"Vulkan {ApiVersion} < 1.2");
+        }
 
         VkUtf8ReadOnlyString appName = "Sharplight"u8;
         var app = new VkApplicationInfo { pApplicationName = appName, apiVersion = VkVersion.Version_1_3, engineVersion = new VkVersion(0, 1, 0), pEngineName = appName };
         var layers = new List<nint>();
-        if (validation) layers.Add(Marshal.StringToHGlobalAnsi("VK_LAYER_KHRONOS_validation"));
+        if (validation)
+        {
+            layers.Add(Marshal.StringToHGlobalAnsi("VK_LAYER_KHRONOS_validation"));
+        }
         // Allow portability drivers (MoltenVK) to be enumerated.
         var exts = new List<nint>();
         uint extCount = 0;
         vkEnumerateInstanceExtensionProperties(&extCount, null);
         var extProps = new VkExtensionProperties[extCount];
-        fixed (VkExtensionProperties* ep = extProps) vkEnumerateInstanceExtensionProperties(&extCount, ep);
+        fixed (VkExtensionProperties* ep = extProps)
+        {
+            vkEnumerateInstanceExtensionProperties(&extCount, ep);
+        }
+
         bool portability = extProps.Any(e => Name(e) == "VK_KHR_portability_enumeration");
-        if (portability) exts.Add(Marshal.StringToHGlobalAnsi("VK_KHR_portability_enumeration"));
+        if (portability)
+        {
+            exts.Add(Marshal.StringToHGlobalAnsi("VK_KHR_portability_enumeration"));
+        }
+
         try
         {
             fixed (nint* pl = layers.ToArray())
@@ -123,14 +156,21 @@ internal sealed unsafe class VulkanInstance
         }
         finally
         {
-            foreach (var p in layers.Concat(exts)) Marshal.FreeHGlobal(p);
+            foreach (var p in layers.Concat(exts))
+            {
+                Marshal.FreeHGlobal(p);
+            }
         }
         Api = new VkInstanceApi(Handle);
 
         uint n = 0;
         Api.vkEnumeratePhysicalDevices(&n, null);
         var pds = new VkPhysicalDevice[n];
-        fixed (VkPhysicalDevice* pp = pds) Api.vkEnumeratePhysicalDevices(&n, pp);
+        fixed (VkPhysicalDevice* pp = pds)
+        {
+            Api.vkEnumeratePhysicalDevices(&n, pp);
+        }
+
         PhysicalDevices = [.. pds.Select(pd => new PhysicalDeviceInfo(this, pd))];
     }
 
@@ -183,8 +223,15 @@ internal sealed unsafe class PhysicalDeviceInfo
         uint ec = 0;
         api.vkEnumerateDeviceExtensionProperties(pd, null, &ec, null);
         var eps = new VkExtensionProperties[ec];
-        fixed (VkExtensionProperties* e = eps) api.vkEnumerateDeviceExtensionProperties(pd, null, &ec, e);
-        foreach (var e in eps) Extensions.Add(VulkanInstance.Name(e));
+        fixed (VkExtensionProperties* e = eps)
+        {
+            api.vkEnumerateDeviceExtensionProperties(pd, null, &ec, e);
+        }
+
+        foreach (var e in eps)
+        {
+            Extensions.Add(VulkanInstance.Name(e));
+        }
 
         var sub = new VkPhysicalDeviceSubgroupProperties();
         var ssc = new VkPhysicalDeviceSubgroupSizeControlProperties { pNext = &sub };
@@ -224,8 +271,16 @@ internal sealed unsafe class PhysicalDeviceInfo
             uint cn = 0;
             api.vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(pd, &cn, null);
             var cps = new VkCooperativeMatrixPropertiesKHR[cn];
-            for (int i = 0; i < cn; i++) cps[i] = new VkCooperativeMatrixPropertiesKHR();
-            fixed (VkCooperativeMatrixPropertiesKHR* cp = cps) api.vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(pd, &cn, cp);
+            for (int i = 0; i < cn; i++)
+            {
+                cps[i] = new VkCooperativeMatrixPropertiesKHR();
+            }
+
+            fixed (VkCooperativeMatrixPropertiesKHR* cp = cps)
+            {
+                api.vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR(pd, &cn, cp);
+            }
+
             CoopMatShapes = cps.Where(c => c.scope == VkScopeKHR.Subgroup)
                 .Select(c => new CoopMatShape(c.MSize, c.NSize, c.KSize, c.AType.ToString(), c.BType.ToString(), c.CType.ToString(), c.ResultType.ToString()))
                 .ToArray();
@@ -238,8 +293,16 @@ internal sealed unsafe class PhysicalDeviceInfo
             uint fn = 0;
             api.vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV(pd, &fn, null);
             var fps = new VkCooperativeMatrixFlexibleDimensionsPropertiesNV[fn];
-            for (int i = 0; i < fn; i++) fps[i] = new VkCooperativeMatrixFlexibleDimensionsPropertiesNV();
-            fixed (VkCooperativeMatrixFlexibleDimensionsPropertiesNV* fp = fps) api.vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV(pd, &fn, fp);
+            for (int i = 0; i < fn; i++)
+            {
+                fps[i] = new VkCooperativeMatrixFlexibleDimensionsPropertiesNV();
+            }
+
+            fixed (VkCooperativeMatrixFlexibleDimensionsPropertiesNV* fp = fps)
+            {
+                api.vkGetPhysicalDeviceCooperativeMatrixFlexibleDimensionsPropertiesNV(pd, &fn, fp);
+            }
+
             CooperativeMatrix2 = fps.Any(f => f.scope == VkScopeKHR.Workgroup && f.workgroupInvocations == 256
                 && f.AType == VkComponentTypeKHR.Float16 && f.BType == VkComponentTypeKHR.Float16
                 && f.CType == VkComponentTypeKHR.Float32 && f.ResultType == VkComponentTypeKHR.Float32
@@ -252,17 +315,49 @@ internal sealed unsafe class PhysicalDeviceInfo
         // when the exact tile configuration our kernels use is supported.
         var feats = new HashSet<string> { DeviceFeatures.SubgroupOps };
         bool Shape(string s) => CoopMatShapes.Any(c => c.ToString() == s);
-        if (ShaderFloat16) feats.Add(DeviceFeatures.Float16);
-        if (ShaderBFloat16) feats.Add(DeviceFeatures.BFloat16);
-        if (IntegerDotProduct) feats.Add(DeviceFeatures.IntDot);
-        if (SubgroupSizeControl && ComputeFullSubgroups) feats.Add(DeviceFeatures.SubgroupSizeControl);
-        if (CooperativeMatrix && ShaderFloat16 && Shape("16x16x16:f16*f16+f32->f32")) feats.Add(DeviceFeatures.MatrixF16);
-        if (CooperativeMatrix && ShaderBFloat16 && Shape("16x16x16:bf16*bf16+f32->f32")) feats.Add(DeviceFeatures.MatrixBF16);
-        if (CooperativeMatrix && Shape("16x16x32:i8*i8+i32->i32")) feats.Add(DeviceFeatures.MatrixInt8);
-        if (CooperativeMatrix2 && feats.Contains(DeviceFeatures.MatrixF16) && SubgroupSize == 32) feats.Add(DeviceFeatures.MatrixWorkgroup);
+        if (ShaderFloat16)
+        {
+            feats.Add(DeviceFeatures.Float16);
+        }
+
+        if (ShaderBFloat16)
+        {
+            feats.Add(DeviceFeatures.BFloat16);
+        }
+
+        if (IntegerDotProduct)
+        {
+            feats.Add(DeviceFeatures.IntDot);
+        }
+
+        if (SubgroupSizeControl && ComputeFullSubgroups)
+        {
+            feats.Add(DeviceFeatures.SubgroupSizeControl);
+        }
+
+        if (CooperativeMatrix && ShaderFloat16 && Shape("16x16x16:f16*f16+f32->f32"))
+        {
+            feats.Add(DeviceFeatures.MatrixF16);
+        }
+
+        if (CooperativeMatrix && ShaderBFloat16 && Shape("16x16x16:bf16*bf16+f32->f32"))
+        {
+            feats.Add(DeviceFeatures.MatrixBF16);
+        }
+
+        if (CooperativeMatrix && Shape("16x16x32:i8*i8+i32->i32"))
+        {
+            feats.Add(DeviceFeatures.MatrixInt8);
+        }
+
+        if (CooperativeMatrix2 && feats.Contains(DeviceFeatures.MatrixF16) && SubgroupSize == 32)
+        {
+            feats.Add(DeviceFeatures.MatrixWorkgroup);
+        }
+
         Features = feats;
 
-        void Need(bool ok, string what) { if (!ok) MissingFeatures.Add(what); }
+        void Need(bool ok, string what) { if (!ok) { MissingFeatures.Add(what); } }
         Need(ApiVersion >= VkVersion.Version_1_2, "Vulkan 1.2");
         Need(f12.bufferDeviceAddress, "bufferDeviceAddress");
         Need(f12.storageBuffer8BitAccess, "storageBuffer8BitAccess");
@@ -279,7 +374,10 @@ internal sealed unsafe class PhysicalDeviceInfo
         long local = 0;
         int heap = 0;
         for (int i = 0; i < mp.memoryHeapCount; i++)
+        {
             if ((mp.memoryHeaps[i].flags & VkMemoryHeapFlags.DeviceLocal) != 0 && (long)mp.memoryHeaps[i].size > local) { local = (long)mp.memoryHeaps[i].size; heap = i; }
+        }
+
         DeviceLocalBytes = local;
         DeviceLocalHeap = heap;
         MemoryBudgetExt = Extensions.Contains("VK_EXT_memory_budget");
@@ -326,7 +424,7 @@ internal sealed unsafe class PhysicalDeviceInfo
 /// <summary>One supported cooperative-matrix configuration: A[M,K]·B[K,N] + C[M,N].</summary>
 internal readonly record struct CoopMatShape(uint M, uint N, uint K, string A, string B, string C, string Result)
 {
-    static string Short(string t) => t.Replace("Float", "f").Replace("Sint", "i").Replace("Uint", "u").Replace("KHR", "").Replace("Bfloat", "bf");
+    private static string Short(string t) => t.Replace("Float", "f").Replace("Sint", "i").Replace("Uint", "u").Replace("KHR", "").Replace("Bfloat", "bf");
     public override string ToString() => $"{M}x{N}x{K}:{Short(A)}*{Short(B)}+{Short(C)}->{Short(Result)}";
     public bool Is(uint m, uint n, uint k, string a, string c) => M == m && N == n && K == k && A == a && B == a && C == c && Result == c;
 }

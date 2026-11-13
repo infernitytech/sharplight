@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using Sharplight.Graph;
 using Sharplight.Models;
-using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Cpu.Tests;
@@ -12,12 +11,12 @@ namespace Sharplight.Cpu.Tests;
 /// </summary>
 public class EndToEndTests
 {
-    const int V = 50, E = 32, H = 4, Hkv = 2, D = 8, FF = 64;
-    const int Hk = 2, Dk = 8, Hv = 4, Dv = 8, ConvK = 4;
-    const float Eps = 1e-6f;
-    static readonly int[] Sections = [2, 1, 1, 0];
+    private const int V = 50, E = 32, H = 4, Hkv = 2, D = 8, FF = 64;
+    private const int Hk = 2, Dk = 8, Hv = 4, Dv = 8, ConvK = 4;
+    private const float Eps = 1e-6f;
+    private static readonly int[] Sections = [2, 1, 1, 0];
 
-    sealed class Model
+    private sealed class Model
     {
         public readonly Dictionary<string, float[]> Deq = [];     // dequantized values for the reference
         public TG G = new("tiny");
@@ -46,7 +45,7 @@ public class EndToEndTests
         }
     }
 
-    (Model m, Value tokens, Value pos, Value rows, ComputeGraph graph) Build()
+    private (Model m, Value tokens, Value pos, Value rows, ComputeGraph graph) Build()
     {
         var m = new Model(); var g = m.G; var b = g.B; var T = TG.T;
         var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
@@ -54,7 +53,10 @@ public class EndToEndTests
         var rows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
         var embd = m.W("token_embd.weight", "q8_0", V, E, 1);
         Value x;
-        using (b.Group("input")) x = b.Gather(embd, tokens, "inp_embd");
+        using (b.Group("input"))
+        {
+            x = b.Gather(embd, tokens, "inp_embd");
+        }
 
         // ---- layer 0: full attention ----
         using (b.Group("blk.0"))
@@ -114,7 +116,7 @@ public class EndToEndTests
         return (m, tokens, pos, rows, b.Build());
     }
 
-    static Value Mlp(Model m, GraphBuilder b, Value x, string p, int seed)
+    private static Value Mlp(Model m, GraphBuilder b, Value x, string p, int seed)
     {
         var residual = x;
         var h = b.RmsNorm(x, m.Vec(p + ".ffn_norm", E, seed, 0.5f, 1f), Eps);
@@ -125,11 +127,15 @@ public class EndToEndTests
     }
 
     // ---------------------------------------------------------------- scalar reference
-    static float[] RefForward(Model m, int[] tokens, int[] positions /* [T,4] */, out float[] hiddenOut)
+    private static float[] RefForward(Model m, int[] tokens, int[] positions /* [T,4] */, out float[] hiddenOut)
     {
         int T = tokens.Length; var W = m.Deq;
         var x = new float[T * E];
-        for (int t = 0; t < T; t++) Array.Copy(W["token_embd.weight"], tokens[t] * E, x, t * E, E);
+        for (int t = 0; t < T; t++)
+        {
+            Array.Copy(W["token_embd.weight"], tokens[t] * E, x, t * E, E);
+        }
+
         Func<float[], float[], float[]> add = (a, c) => a.Select((v, i) => v + c[i]).ToArray();
 
         float[] Mlp(float[] x, string p)
@@ -145,7 +151,11 @@ public class EndToEndTests
             var h = Ref.RmsNorm(x, T, E, W["l0.attn_norm"], Eps);
             var qFull = Ref.MatMul(h, T, E, W["l0.q"], 2 * H * D);
             var q = new float[T * H * D]; var gate = new float[T * H * D];
-            for (int r = 0; r < T * H; r++) for (int i = 0; i < D; i++) { q[r * D + i] = qFull[r * 2 * D + i]; gate[r * D + i] = qFull[r * 2 * D + D + i]; }
+            for (int r = 0; r < T * H; r++)
+            {
+                for (int i = 0; i < D; i++) { q[r * D + i] = qFull[r * 2 * D + i]; gate[r * D + i] = qFull[r * 2 * D + D + i]; }
+            }
+
             q = Ref.RmsNorm(q, T * H, D, W["l0.q_norm"], Eps);
             var k = Ref.RmsNorm(Ref.MatMul(h, T, E, W["l0.k"], Hkv * D), T * Hkv, D, W["l0.k_norm"], Eps);
             var v = Ref.MatMul(h, T, E, W["l0.v"], Hkv * D);
@@ -153,7 +163,11 @@ public class EndToEndTests
             k = Ref.Rope(k, T, Hkv, D, positions, 4, D, 10000f, "neox", Sections, true, 1f);
             var kr = k.Select(f => (float)(Half)f).ToArray(); var vr = v.Select(f => (float)(Half)f).ToArray();
             var attn = Ref.Attention(q, T, H, D, kr, vr, T, Hkv, D, 1f / MathF.Sqrt(D), 0, true);
-            for (int i = 0; i < attn.Length; i++) attn[i] *= Ref.Sigmoid(gate[i]);
+            for (int i = 0; i < attn.Length; i++)
+            {
+                attn[i] *= Ref.Sigmoid(gate[i]);
+            }
+
             x = Mlp(add(Ref.MatMul(attn, T, H * D, W["l0.o"], E), x), "l0");
         }
         // layer 1
@@ -163,13 +177,24 @@ public class EndToEndTests
             var qkv = Ref.MatMul(h, T, E, W["l1.qkv"], qkvDim); var z = Ref.MatMul(h, T, E, W["l1.zgate"], Hv * Dv);
             var beta = Ref.MatMul(h, T, E, W["l1.beta"], Hv).Select(Ref.Sigmoid).ToArray();
             var alpha = Ref.MatMul(h, T, E, W["l1.alpha"], Hv);
-            var g = new float[T * Hv]; for (int t = 0; t < T; t++) for (int i = 0; i < Hv; i++) g[t * Hv + i] = Ref.Softplus(alpha[t * Hv + i] + W["l1.dt_bias"][i]) * W["l1.ssm_a"][i];
+            var g = new float[T * Hv]; for (int t = 0; t < T; t++)
+            {
+                for (int i = 0; i < Hv; i++)
+                {
+                    g[t * Hv + i] = Ref.Softplus(alpha[t * Hv + i] + W["l1.dt_bias"][i]) * W["l1.ssm_a"][i];
+                }
+            }
+
             var conv = Ref.Conv(qkv, T, qkvDim, W["l1.conv1d"], ConvK, new float[(ConvK - 1) * qkvDim], true);
-            float[] Cut(int col, int n) { var r = new float[T * n]; for (int t = 0; t < T; t++) Array.Copy(conv, t * qkvDim + col, r, t * n, n); return r; }
+            float[] Cut(int col, int n) { var r = new float[T * n]; for (int t = 0; t < T; t++) { Array.Copy(conv, t * qkvDim + col, r, t * n, n); } return r; }
             var q = Ref.L2Norm(Cut(0, Hk * Dk), T * Hk, Dk, Eps); var k = Ref.L2Norm(Cut(Hk * Dk, Hk * Dk), T * Hk, Dk, Eps); var v = Cut(2 * Hk * Dk, Hv * Dv);
             var o = Ref.Delta(q, k, v, g, beta, new float[Hv * Dv * Dk], T, Hk, Hv, Dk, Dv, 1f / MathF.Sqrt(Dk));
             var on = Ref.RmsNorm(o, T * Hv, Dv, W["l1.ssm_norm"], Eps);
-            for (int i = 0; i < on.Length; i++) on[i] *= Ref.Silu(z[i]);
+            for (int i = 0; i < on.Length; i++)
+            {
+                on[i] *= Ref.Silu(z[i]);
+            }
+
             x = Mlp(add(Ref.MatMul(on, T, Hv * Dv, W["l1.out"], E), x), "l1");
         }
         var hid = Ref.RmsNorm(x, T, E, W["output_norm"], Eps);
@@ -183,7 +208,14 @@ public class EndToEndTests
         var (model, tokensIn, posIn, rowsIn, graph) = Build();
         int[] tokens = [3, 17, 42, 8, 29, 5];
         int total = tokens.Length;
-        var positions = new int[total * 4]; for (int t = 0; t < total; t++) for (int a = 0; a < 4; a++) positions[t * 4 + a] = t;
+        var positions = new int[total * 4]; for (int t = 0; t < total; t++)
+        {
+            for (int a = 0; a < 4; a++)
+            {
+                positions[t * 4 + a] = t;
+            }
+        }
+
         var refLogits = RefForward(model, tokens, positions, out var refHidden);
 
         using var cm = Kit.Compile(graph, maxTokens: 16, ctx: 32);
