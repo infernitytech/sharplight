@@ -109,6 +109,48 @@ var result = await service.StartChat(new ChatRequest
 Console.WriteLine(result.Choices[0].Content);          // also .Reasoning, .ToolCalls, .Usage
 ```
 
+### Scheduling
+
+Every engine step has a token budget (`EngineOptions.MaxBatchTokens`, default the decoder's batch size): decoding sequences
+get their rows first, prompts fill the rest in chunks of at most `PrefillChunk` rows, so a long prompt never stalls running
+streams for more than one step (chunked prefill). Queued requests are admitted by `Priority`, then by fair share: among
+equal priorities the `Tenant` with the least recent usage (tokens, decaying with `FairShareHalfLife`) goes first. A
+cancelled request (token or client disconnect) frees its slot at the next step boundary. `MinTokens` suppresses end-of-
+generation and stop tokens until reached; `StopAtEog = false` generates through them (benchmarks).
+
+### Structured outputs
+
+A request can carry an `IOutputConstraint`; the engine asks it for the allowed tokens before every sample, masks the logits
+(a packed `TokenMask` bitset, so a GPU sampler can take the same mask as an input) and reports the chosen token back.
+`GrammarConstraint` implements it for a byte-level context-free `Grammar` built from GBNF (the llama.cpp format), a regular
+expression or a JSON schema. Masks are computed by walking a precompiled vocabulary trie of the tokenizer in step with the
+grammar; per-stack-top results are cached and shared between requests, so a JSON string body costs a few hundred
+microseconds after its first use (151k-token Qwen3 vocabulary).
+
+```csharp
+var schema = """{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}""";
+var constraint = new GrammarConstraint(Grammar.FromJsonSchema(schema), model.Tokenizer);   // reuse across requests
+var request = new GenerationRequest { PromptTokens = prompt, MaxTokens = 200, Constraint = constraint };
+```
+
+The chat layer does this for you: `ChatRequest.ResponseFormat = OutputFormat.JsonSchema(schema)` (also `JsonObject`,
+`Regex`, `Gbnf`, `Choice`) constrains the answer while a reasoning block before it stays free, and tool calls are constrained
+to the model's tool-call syntax and each tool's parameter schema when the call is forced (`ToolChoiceMode.Required` /
+`Function`) or the tool is `Strict` (then the grammar starts at the call marker, plain answers stay free). Supported
+JSON-schema subset: see `JsonSchemaCompiler` (types, properties/required in order, enums/consts, anyOf/oneOf/allOf, local
+`$ref` incl. recursion, array bounds, string lengths, patterns, common formats).
+
+### Speculative decoding
+
+`EngineOptions.Speculator` proposes draft tokens that the target model verifies in one multi-row forward pass; a draft token
+is kept while it equals what the target samples at that position, so the output is exactly the non-speculative output.
+`NgramSpeculator` drafts by prompt lookup (continuations of the last n-gram earlier in the context), which pays off for edits,
+code and quoting. The decoder must be created with room for the verification rows
+(`CreateBatchDecoder(slots, maxLogitsRows: ...)`; `ChatModelOptions.Speculator` does that for hosted models) and must support
+rollback (`CanTruncate`): models with recurrent state (Mamba, RWKV, gated delta nets) run without speculation. A draft model
+or MTP heads plug in through the same `ISpeculator` interface (`Propose` for a batch of sequences, `Release` when a slot is
+freed); requests with an output constraint are not speculated.
+
 ### Several models
 
 `ModelHost` registers models by name, loads them on first use within the device memory budget, evicts the least recently used
@@ -130,7 +172,12 @@ var chat = lease.As<ChatModelInstance>().Service;
 
 `Sharplight.Server` maps OpenAI-compatible (`/v1/chat/completions`, `/v1/completions`, `/v1/models`) and Anthropic-compatible
 (`/v1/messages`, `/v1/messages/count_tokens`) endpoints, `/v1/embeddings` and `/v1/rerank` for registered retrieval models,
-`/health`, `/metrics` (Prometheus) and `/admin/models`.
+`/health` (summary), `/health/live` and `/health/ready` (probes; ready answers 503 while draining or loading), `/metrics`
+(Prometheus: queue depth, batch size, step time, TTFT / inter-token histograms, KV-cache use, speculation acceptance) and
+`/admin/models`. Beyond the standard fields the APIs accept `ignore_eos`, `min_tokens`, `priority`, `user` (the fair-share
+tenant; else the API key), `response_format` (`json_object`, `json_schema`), strict tools (`tools[].function.strict`), the
+vLLM guided-decoding fields (`guided_json`, `guided_regex`, `guided_grammar`, `guided_choice`, `structured_outputs`) and,
+on `/v1/messages`, `output_format` and `metadata.user_id`. A full queue answers 429 with `Retry-After`.
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);

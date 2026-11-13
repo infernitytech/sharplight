@@ -59,12 +59,21 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs)
+    public int MaxLogitsRows => 1;
+
+    /// <inheritdoc/>
+    /// <exception cref="NotSupportedException">An input asks for more than one logits row.</exception>
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs)
     {
-        var res = new float[]?[inputs.Count];
+        var res = new Memory<float>[inputs.Count];
         for (int i = 0; i < inputs.Count; i++)
         {
             Check(inputs[i].Slot);
+            if (inputs[i].OutputRows > 1)
+            {
+                throw new NotSupportedException("This decoder returns the logits of the last row only.");
+            }
+
             var lg = session.Process(inputs[i].Tokens.Span);
             if (inputs[i].WantLogits)
             {

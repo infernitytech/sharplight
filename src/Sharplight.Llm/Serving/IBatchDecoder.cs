@@ -31,11 +31,17 @@ public interface IBatchDecoder : IDisposable
     /// <summary>Shortens a slot's context to its first <paramref name="length"/> tokens (prefix reuse).</summary>
     public void Truncate(int slot, int length);
     /// <summary>
-    /// Runs one forward pass over the given inputs (at most one per slot, total rows ≤ <see cref="MaxBatchTokens"/>).
-    /// Returns one logits array (length <see cref="VocabSize"/>) per input with <see cref="SequenceInput.WantLogits"/>,
-    /// in input order; null entries for the others. The arrays may be reused by the next call.
+    /// Most logits rows one <see cref="Step"/> can return in total (the sum of <see cref="SequenceInput.OutputRows"/>); at least
+    /// <see cref="SlotCount"/>. Larger values allow speculative verification (several rows of one sequence).
     /// </summary>
-    public IReadOnlyList<float[]?> Step(IReadOnlyList<SequenceInput> inputs);
+    public int MaxLogitsRows => SlotCount;
+    /// <summary>
+    /// Runs one forward pass over the given inputs (at most one per slot, total rows ≤ <see cref="MaxBatchTokens"/>).
+    /// Returns, in input order, the logits of each input: <see cref="SequenceInput.OutputRows"/> consecutive rows of
+    /// <see cref="VocabSize"/> floats (row-major, oldest row first), or an empty slice for inputs without logits.
+    /// The slices point into decoder-owned memory that the next call overwrites; callers may modify them in place.
+    /// </summary>
+    public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs);
     /// <summary>Accelerator (GPU) memory held by this decoder's compiled model: weights, state, activations (0 when unknown or all on the CPU).</summary>
     public long DeviceMemoryBytes => 0;
 }

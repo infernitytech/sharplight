@@ -94,7 +94,14 @@ public sealed class LlmModel : IDisposable
     /// <paramref name="slots"/> sequences per forward pass, each with <paramref name="contextLength"/> tokens of context,
     /// default the load option); otherwise a single-slot <see cref="Serving.SessionBatchDecoder"/>.
     /// </summary>
-    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null)
+    /// <param name="slots">Sequences decoded together.</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="memoryLimit">Device bytes the decoder may use, or null for the devices as configured.</param>
+    /// <param name="maxLogitsRows">
+    /// Logits rows one step may return (default <paramref name="slots"/>, one per sequence). Speculative decoding needs
+    /// <c>slots · (draft tokens + 1)</c>; each extra row costs <c>vocabulary · 4</c> bytes of activations.
+    /// </param>
+    public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null)
     {
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
@@ -109,7 +116,7 @@ public sealed class LlmModel : IDisposable
         }
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
-        var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, 1));
+        var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement);
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return dec;
