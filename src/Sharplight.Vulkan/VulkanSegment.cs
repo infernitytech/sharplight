@@ -29,7 +29,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
     private readonly VkQueryPool _stepPool;
     private bool _disposed;
 
-    /// <summary>GPU time (first to last command) of the most recent non-profiled <see cref="Execute"/>, in ms.</summary>
+    /// <summary>GPU time (first to last command) of the most recent non-profiled <see cref="Execute(RunParameters)"/>, in ms.</summary>
     public double LastGpuMs { get; private set; }
 
     /// <inheritdoc />
@@ -833,7 +833,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment
         return (s.Count, s.Count(x => x.BarrierBefore));
     }
 
-    /// <summary>Launch order with the barriers <see cref="Execute"/> places (for diagnostics).</summary>
+    /// <summary>Launch order with the barriers <see cref="Execute(RunParameters)"/> places (for diagnostics).</summary>
     public List<(string Name, bool BarrierBefore)> Schedule(long tokens = 1)
     {
         var list = new List<(string, bool)>();

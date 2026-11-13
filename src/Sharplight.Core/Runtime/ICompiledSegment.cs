@@ -16,7 +16,7 @@ public interface ICompiledSegment : IDisposable
     /// provider that stages outputs in host memory may skip copying them. The default ignores the hint.
     /// </summary>
     public void Execute(RunParameters parameters, IReadOnlySet<Value> skipDownloads) => Execute(parameters);
-    /// <summary>Downloads a segment output (dense, logical layout) after <see cref="Execute"/>.</summary>
+    /// <summary>Downloads a segment output (dense, logical layout) after <see cref="Execute(RunParameters)"/>.</summary>
     public void GetOutput(Value value, Span<byte> destination);
     /// <summary>Clears persistent state (KV caches, recurrent states) owned by this segment.</summary>
     public void ResetState();
