@@ -138,6 +138,37 @@ void layernorm_wg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
 }
 #endif
 
+#ifdef KERNEL_ROWREDUCE_NARROW
+// Reduction of short rows (D up to 32, e.g. the k expert slots of a MoE block): one thread per row, with an inner
+// stride SI so permuted views ([T, H, k] over [T, k, H]) need no dense copy and neighbouring threads read neighbouring
+// addresses. MODE as in rowreduce.
+struct RrParams { float* x; float* y; uint T; };
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void rowreduce_narrow(uint3 tid : SV_DispatchThreadID, uniform RrParams p)
+{
+    uint row = tid.x;
+    if (row >= p.T * R1) return;
+    uint t = row / R1, r1 = row % R1;
+    float* xr = p.x + uint64_t(t) * S0 + uint64_t(r1) * S1;
+#if MODE == 0
+    float s = 0;
+    [ForceUnroll] for (uint i = 0; i < D; i++) s += xr[uint64_t(i) * SI];
+    p.y[row] = s;
+#elif MODE == 1
+    float m = -3.4028235e38;
+    [ForceUnroll] for (uint i = 0; i < D; i++) m = max(m, xr[uint64_t(i) * SI]);
+    p.y[row] = m;
+#else
+    float m = xr[0];
+    uint best = 0;
+    [ForceUnroll] for (uint i = 1; i < D; i++) { float v = xr[uint64_t(i) * SI]; if (v > m) { m = v; best = i; } }
+    ((uint*)p.y)[row] = best;
+#endif
+}
+#endif
+
 #ifdef KERNEL_ROWREDUCE
 // MODE 0 = sum, 1 = max, 2 = argmax (i32 output, first maximum). Output dense [T*R1].
 struct RrParams { float* x; float* y; uint T; };

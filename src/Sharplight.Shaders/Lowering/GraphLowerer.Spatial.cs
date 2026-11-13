@@ -538,9 +538,32 @@ public sealed partial class GraphLowerer
             [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
     }
 
+    /// <summary>Widest row reduced by one thread per row (rowreduce_narrow).</summary>
+    private const long NarrowReduceMaxWidth = 32;
+
     private void LowerRowReduce(Node n, int mode)
     {
-        var x = RowsInput(n.Inputs[0], "rowreduce", out long r1, out long s0, out long s1);
+        var src = AsF32(Ref(n.Inputs[0]), "rowreduce");
+        if (src.Rank is 2 or 3 && src.Shape[^1] <= NarrowReduceMaxWidth)
+        {
+            // Short rows: thread per row on the (possibly permuted) view itself.
+            long rows1 = src.Rank == 3 ? src.Shape[1] : 1;
+            var ny = Produce(n.Output);
+            var nk = Lib("rows.slang", "rowreduce_narrow", Macros(("D", src.Shape[^1]), ("R1", rows1), ("S0", src.Strides[0]),
+                ("S1", src.Rank == 3 ? src.Strides[1] : 0), ("SI", src.Strides[^1]), ("MODE", mode)));
+            var ns = src;
+            Emit($"{n.Op.Name} {n.Output.Name}", [n], [Always(nk, b => new Grid(Grid.Div(Rows(b, ns) * rows1, 256)))],
+                [Pointer(src), Pointer(ny), TokenArg(src)], [src], [ny]);
+            return;
+        }
+
+        var x = src;
+        if (!TryRows3(x, out long r1, out long s0, out long s1))
+        {
+            x = DenseTemp(x, "rowreduce");
+            TryRows3(x, out r1, out s0, out s1);
+        }
+
         var y = Produce(n.Output);
         var k = Lib("rows.slang", "rowreduce", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", s1), ("MODE", mode)));
         var tx = x;

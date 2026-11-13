@@ -96,6 +96,22 @@ public sealed class RowOpTests
         Diff.Check(op, tg.B.Build(), new Step(5, 0, (x, Rnd.F(5 * 3 * 77, 3))), atol: 2e-4);
     }
 
+    /// <summary>Short rows (thread-per-row kernel) over a permuted view: [T, 40, 8] read from [T, 8, 40], and plain [T, 6].</summary>
+    [Theory]
+    [InlineData("ReduceSum")]
+    [InlineData("ReduceMax")]
+    [InlineData("ArgMax")]
+    public void NarrowRowReduce(string op)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 8, 40);
+        var x2 = tg.InF("x2", TG.T, 6);
+        tg.B.Output("y", tg.B.Emit1(op, [tg.B.Permute(x, 0, 2, 1)], Attributes.Empty));
+        tg.B.Output("y2", tg.B.Emit1(op, [x2], Attributes.Empty));
+        Diff.Check(op + ".narrow", tg.B.Build(), new Step(5, 0, (x, Rnd.F(5 * 8 * 40, 3)), (x2, Rnd.F(5 * 6, 4))), atol: 2e-5);
+    }
+
     [Fact]
     public void ArgMaxTieBreaksToFirst()
     {
