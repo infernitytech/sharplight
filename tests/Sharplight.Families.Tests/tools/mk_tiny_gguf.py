@@ -7,7 +7,8 @@ from ~/models/hf/tiny-random-falcon with convert_hf_to_gguf.py.
 
     PYTHONPATH=<llama.cpp>/gguf-py python mk_tiny_gguf.py <tokenizer gguf> <output directory> [name ...]
 
-Files: <output directory>/tiny-random-{qwen1,xverse,chatglm,arwkv7,arwkv7-nogate,rwkv6qwen2,plamo2}-f32.gguf (only the named ones when names are given). Norm weights
+Files: <output directory>/tiny-random-<name>-f32.gguf for every name of the models table below (only the named ones when names are given). The
+bidirectional embedding families (eurobert, neo-bert, llama-embed, gemma-embedding, modern-bert) get their references from llamacpp_embeddings.py. Norm weights
 and biases are randomized so that every tensor matters.
 """
 import os, sys
@@ -397,6 +398,59 @@ def plm_parameters(writer):
     writer.add_value_length(VALUE)
 
 
+def bidirectional(extra=None):
+    # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
+    def parameters(writer):
+        writer.add_causal_attention(False)
+        if extra:
+            extra(writer)
+    return parameters
+
+
+def neo_bert_block():
+    # Fused q/k/v, fused SwiGLU up projection (gate rows first), RMS norms.
+    return {"attn_norm.weight": norm(HIDDEN), "attn_qkv.weight": weight(3 * HIDDEN, HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN),
+            "ffn_norm.weight": norm(HIDDEN), "ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+
+
+def gemma_embedding_block():
+    return {"attn_norm.weight": norm(HIDDEN), "attn_q.weight": weight(HIDDEN, HIDDEN), "attn_k.weight": weight(HEAD_DIM, HIDDEN),
+            "attn_v.weight": weight(HEAD_DIM, HIDDEN), "attn_q_norm.weight": norm(HEAD_DIM), "attn_k_norm.weight": norm(HEAD_DIM),
+            "attn_output.weight": weight(HIDDEN, HIDDEN), "post_attention_norm.weight": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN),
+            "ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN),
+            "post_ffw_norm.weight": norm(HIDDEN)}
+
+
+DENSE = 96
+
+
+def gemma_embedding_parameters(writer):
+    # Window 8 is symmetric (keys at most 4 positions away); layers 0-4 slide, layer 5 is global; Dense 64 -> 96 -> 64 after pooling.
+    writer.add_sliding_window(8)
+    writer.add_rope_freq_base_swa(10000.0)
+    writer.add_uint32("gemma-embedding.dense_2_feat_in", HIDDEN)
+    writer.add_uint32("gemma-embedding.dense_2_feat_out", DENSE)
+    writer.add_uint32("gemma-embedding.dense_3_feat_in", DENSE)
+    writer.add_uint32("gemma-embedding.dense_3_feat_out", HIDDEN)
+
+
+def modern_bert_block(layer):
+    # Bias-free layer norms, no norm in front of the first attention, fused q/k/v and GeGLU up projection (activated half first).
+    t = {"attn_qkv.weight": weight(3 * HIDDEN, HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN), "ffn_norm.weight": norm(HIDDEN),
+         "ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+    if layer != 0:
+        t["attn_norm.weight"] = norm(HIDDEN)
+    return t
+
+
+def modern_bert_parameters(writer):
+    # Local window 8, every third layer global from the first.
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern(3)
+    writer.add_rope_freq_base_swa(10000.0)
+    writer.add_string("modern-bert.hidden_act", "gelu")
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -436,6 +490,21 @@ models = {
     # PLM: latent attention without query compression, squared-ReLU MLP, output head tied to the embedding.
     "plm": lambda path: write_family(path, "plm", 24, lambda layer: plm_block(), parameters=plm_parameters, rope_dim=ROPE, kv_heads=HEADS,
                                      global_tensors=lambda vocab: {"output.weight": None}),
+    # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
+    "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
+                                          global_tensors=lambda vocab: {"output.weight": None}),
+    "neo-bert": lambda path: write_family(path, "neo-bert", 41, lambda layer: neo_bert_block(), parameters=bidirectional(), kv_heads=HEADS,
+                                          global_tensors=lambda vocab: {"output.weight": None, "output_norm.weight": None, "enc.output_norm.weight": norm(HIDDEN)}),
+    "llama-embed": lambda path: write_family(path, "llama-embed", 42, lambda layer: llama_block(), parameters=bidirectional(),
+                                             global_tensors=lambda vocab: {"output.weight": None}),
+    "gemma-embedding": lambda path: write_family(path, "gemma-embedding", 43, lambda layer: gemma_embedding_block(), layers=6, kv_heads=1,
+                                                 parameters=bidirectional(gemma_embedding_parameters),
+                                                 global_tensors=lambda vocab: {"output.weight": None, "dense_2.weight": weight(DENSE, HIDDEN),
+                                                                               "dense_3.weight": weight(HIDDEN, DENSE)}),
+    "modern-bert": lambda path: write_family(path, "modern-bert", 44, modern_bert_block, layers=4, kv_heads=HEADS, layer_norm=True,
+                                             parameters=bidirectional(modern_bert_parameters),
+                                             global_tensors=lambda vocab: {"output.weight": None, "output_norm.bias": None,
+                                                                           "token_embd_norm.weight": norm(HIDDEN)}),
 }
 for name, write in models.items():
     if not only or name in only:

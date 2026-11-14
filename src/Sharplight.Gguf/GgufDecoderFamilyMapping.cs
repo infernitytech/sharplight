@@ -61,6 +61,9 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     public void RefineHyperParameters(Dictionary<string, object> hyperParameters, GgufMetadataView gguf, IReadOnlyDictionary<string, WeightInfo> weights)
         => RefineFamilyHyperParameters(hyperParameters, gguf, weights);
 
+    /// <summary>Tensors outside the layers that only this family has (or names differently), GGUF name to canonical name.</summary>
+    protected virtual IReadOnlyDictionary<string, string>? GlobalTensorOverrides => null;
+
     /// <summary>Per-layer tensors this family names differently from the shared table, GGUF suffix to canonical suffix.</summary>
     protected virtual IReadOnlyDictionary<string, string>? LayerTensorOverrides => null;
 
@@ -101,6 +104,11 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (GlobalTensorOverrides is { } globalOverrides && globalOverrides.TryGetValue(name, out var overriddenGlobal))
+        {
+            return overriddenGlobal;
+        }
+
         if (GgufTensorNames.MapGlobal(name) is { } globalName)
         {
             return globalName;

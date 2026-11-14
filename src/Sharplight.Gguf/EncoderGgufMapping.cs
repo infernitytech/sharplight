@@ -48,9 +48,7 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
         {
             throw new NotSupportedException($"GGUF {g.GgufArchitecture}: causal encoders are not supported.");
         }
-        // llama.cpp pooling_type: 0 none, 1 mean, 2 cls, 3 last, 4 rank (classifier on the cls row).
-        string? pooling = g.Int("pooling_type", -1) switch { 0 => "none", 1 => "mean", 2 or 4 => "cls", 3 => "last", _ => null };
-        if (pooling is not null)
+        if (GgufMappingHelpers.Pooling(g) is { } pooling)
         {
             md[CanonicalKeys.EmbeddingPooling] = pooling;
         }

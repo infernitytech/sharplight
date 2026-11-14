@@ -87,6 +87,11 @@ internal static class GgufArchitectureMappings
         yield return new LagunaGgufMapping();
         yield return new BloomGgufMapping();
         yield return new MptGgufMapping();
+        yield return new EuroBertGgufMapping();
+        yield return new NeoBertGgufMapping();
+        yield return new LlamaEmbedGgufMapping();
+        yield return new GemmaEmbeddingGgufMapping();
+        yield return new ModernBertGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>
