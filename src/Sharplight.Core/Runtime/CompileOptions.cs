@@ -28,6 +28,19 @@ public sealed class CompileOptions
     /// </summary>
     public Func<IComputeDevice, ICompilationCache?>? CacheFor { get; init; }
 
+    /// <summary>
+    /// Receives progress of the compilation: placement (<see cref="LoadStage.Placing"/>), kernel compilation and pipeline
+    /// creation or op lowering (<see cref="LoadStage.Compiling"/>, with cache hits) and weight upload
+    /// (<see cref="LoadStage.Uploading"/>), counted over all segments. Reports may come from worker threads. Null = no reports.
+    /// </summary>
+    public IProgress<LoadProgress>? Progress { get; init; }
+
+    /// <summary>
+    /// Cancels the compilation between segments, kernels and weight uploads; a cancelled compilation throws
+    /// <see cref="OperationCanceledException"/> after releasing what it allocated.
+    /// </summary>
+    public CancellationToken CancellationToken { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -59,14 +72,21 @@ public sealed class CompileOptions
             merged[k] = v;
         }
 
-        return new CompileOptions
-        {
-            MaxTokens = MaxTokens,
-            ContextLength = ContextLength,
-            SymbolBounds = merged,
-            DisabledFeatures = DisabledFeatures,
-            AllowReducedPrecision = AllowReducedPrecision,
-            CacheFor = CacheFor,
-        };
+        return Copy(merged, Progress);
     }
+
+    /// <summary>A copy reporting to <paramref name="progress"/>.</summary>
+    internal CompileOptions WithProgress(IProgress<LoadProgress>? progress) => Copy(SymbolBounds, progress);
+
+    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress) => new()
+    {
+        MaxTokens = MaxTokens,
+        ContextLength = ContextLength,
+        SymbolBounds = symbolBounds,
+        DisabledFeatures = DisabledFeatures,
+        AllowReducedPrecision = AllowReducedPrecision,
+        CacheFor = CacheFor,
+        Progress = progress,
+        CancellationToken = CancellationToken,
+    };
 }

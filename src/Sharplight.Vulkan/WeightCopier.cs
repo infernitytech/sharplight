@@ -17,11 +17,11 @@ internal static unsafe class WeightCopier
     /// Produces the weights that are computed on first read (layout conversions, folded constants) on several threads while the
     /// copy loop uploads the ones before them; mapped weights need no preparation.
     /// </summary>
-    internal static Task MaterializeInBackground(List<BufferDecl> weights)
+    internal static Task MaterializeInBackground(List<BufferDecl> weights, CancellationToken ct)
     {
         const int Parallelism = 4;
         var lazy = weights.Select(b => b.Weight?.Source).OfType<IWeightSource>().Where(source => source.TryGetPointer() == 0).ToList();
-        return Task.Run(() => Parallel.ForEach(lazy, new ParallelOptions { MaxDegreeOfParallelism = Parallelism }, source =>
+        return Task.Run(() => Parallel.ForEach(lazy, new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = ct }, source =>
         {
             try
             {

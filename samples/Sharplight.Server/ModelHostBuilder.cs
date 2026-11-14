@@ -81,7 +81,8 @@ internal sealed class ModelHostBuilder
 
         // With several models the log lines need a prefix to tell them apart.
         bool prefixLog = _plan.LazyByDefault || _plan.Models.Count > 1;
-        Action<string> log = prefixLog ? message => Console.Error.WriteLine($"[{spec.Name}] {message}") : Console.Error.WriteLine;
+        // Several models may load at once (lazily, while serving): then plain progress lines, not one updating line.
+        var progress = prefixLog ? new ConsoleLoadProgress($"[{spec.Name}] ", live: false) : new ConsoleLoadProgress();
 
         return new LlmLoadOptions
         {
@@ -92,7 +93,8 @@ internal sealed class ModelHostBuilder
             MaxBatchTokens = spec.Batch ?? runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,
             AllowReducedPrecision = runtime.ReducedPrecision,
-            Log = log,
+            Log = progress.Log,
+            Progress = progress,
         };
     }
 

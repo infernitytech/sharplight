@@ -53,6 +53,19 @@ public sealed class LlmLoadOptions
     /// <summary>Receives progress and compile-plan messages; null for silence.</summary>
     public Action<string>? Log { get; init; }
     /// <summary>
+    /// Receives structured progress (stage, completed / total, cache hits) of <see cref="LlmModel.Load"/>
+    /// (<see cref="LoadStage.Reading"/>, <see cref="LoadStage.Building"/>) and of every compilation of the model's sessions and
+    /// decoders (<see cref="LoadStage.Placing"/>, <see cref="LoadStage.Compiling"/>, <see cref="LoadStage.Uploading"/>, then
+    /// <see cref="LoadStage.Ready"/>), e.g. for a progress bar. Reports may come from worker threads. Null = no reports.
+    /// </summary>
+    public IProgress<LoadProgress>? Progress { get; init; }
+    /// <summary>
+    /// Cancels loading: checked between load stages and during compilation (between segments, kernels and weight uploads), which
+    /// then throws <see cref="OperationCanceledException"/> after releasing what it allocated. It applies to every compilation of
+    /// the model, so cancel it only to abandon the model.
+    /// </summary>
+    public CancellationToken CancellationToken { get; init; }
+    /// <summary>
     /// Compilation artifacts to compile with: consulted before compiling, and recording everything compilation uses
     /// (<see cref="LlmModel.ExportCompilation"/>). Null (default) = one instance per model, seeded from the artifact sets stored in
     /// the model file. Share one instance (seeded from the file's <see cref="ModelSource.CompilationCaches"/>) to collect what

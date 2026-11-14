@@ -43,15 +43,24 @@ public sealed class CompiledModel : IDisposable
     public static CompiledModel Compile(ComputeGraph graph, PlacementOptions placement)
     {
         placement = WithDynamicBounds(graph, placement);
+        var ct = placement.Compile.CancellationToken;
+        ct.ThrowIfCancellationRequested();
+        var placing = new LoadProgressCounter(placement.Compile.Progress, LoadStage.Placing, 1, graph.Name);
         var plan = PlacementPlanner.Plan(graph, placement);
+        placing.Complete();
+        // Segments report through one combined count per stage.
+        var progress = placement.Compile.Progress is { } target ? new SegmentProgress(target) : null;
+        var segmentOptions = progress is null ? placement.Compile : placement.Compile.WithProgress(progress);
         var compiled = new List<ICompiledSegment>();
         try
         {
             foreach (var seg in plan.Segments)
             {
+                ct.ThrowIfCancellationRequested();
                 compiled.Add(seg.Nodes is [{ Op.Category: OpCategory.ControlFlow }]
                     ? new IfSegment(seg, placement)
-                    : plan.Slots[seg.DeviceSlot].Device.Compile(seg, placement.Compile));
+                    : plan.Slots[seg.DeviceSlot].Device.Compile(seg, segmentOptions));
+                progress?.NextSegment();
             }
         }
         catch
