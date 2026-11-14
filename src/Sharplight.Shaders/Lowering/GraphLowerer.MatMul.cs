@@ -596,7 +596,7 @@ public sealed partial class GraphLowerer
                 b => Gemm2Grid(p, b, (uint)ts.Split)));
         Emit($"{MatMulLabel(p)} split-k", [p.Node],
             [.. partialVariants],
-            [Pointer(activations), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(activations, rowsPerLead)],
+            [Pointer(activations), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, rowsPerLead)],
             [activations, p.W], [partial]);
 
         var reduceVariants = splits.Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
@@ -604,7 +604,7 @@ public sealed partial class GraphLowerer
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         Emit($"matmul {p.Node.Output.Name} split-k reduce", [p.Node],
             [.. reduceVariants],
-            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(activations, rowsPerLead)],
+            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, rowsPerLead)],
             [partial], [p.Y]);
     }
 
