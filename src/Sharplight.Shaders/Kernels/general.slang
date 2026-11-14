@@ -105,7 +105,7 @@ void conv_transpose(uint3 dtid : SV_DispatchThreadID, uniform CtParams p)
 }
 #endif
 
-#ifdef KERNEL_GRID_SAMPLE
+#if defined(KERNEL_GRID_SAMPLE) || defined(KERNEL_GRID_SAMPLE3D)
 // x [N,C,H,W] strided, grid dense [N,HO,WO,2], y dense [N,C,HO,WO].
 // Macros: C H W HO WO XS_* MODE (0 linear 1 nearest 2 cubic) PAD (0 zeros 1 border 2 reflection) ALIGN
 struct GsParams { float* x; float* grid; float* y; uint total; };
@@ -162,6 +162,7 @@ float cubic_coeff(float t, int k)
     return ((A * u - 5.0 * A) * u + 8.0 * A) * u - 4.0 * A;
 }
 
+#ifdef KERNEL_GRID_SAMPLE
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void grid_sample(uint3 dtid : SV_DispatchThreadID, uniform GsParams p)
@@ -211,4 +212,56 @@ void grid_sample(uint3 dtid : SV_DispatchThreadID, uniform GsParams p)
     p.y[idx] = (v00 * (1.0 - dx) + v01 * dx) * (1.0 - dy) + (v10 * (1.0 - dx) + v11 * dx) * dy;
 #endif
 }
+#endif
+
+#ifdef KERNEL_GRID_SAMPLE3D
+// Volumetric form: x [N,C,D,H,W] strided (extra macros D, XS_D, DO), grid dense [N,DO,HO,WO,3] (x, y, z), y dense
+// [N,C,DO,HO,WO]; MODE 0 (trilinear) or 1 (nearest).
+float gs_tap3(float* xp, int zz, int yy, int xx)
+{
+    if (zz < 0 || zz >= D || yy < 0 || yy >= H || xx < 0 || xx >= W) return 0.0;
+    return xp[zz * XS_D + yy * XS_H + xx * XS_W];
+}
+
+// nearbyint: round half to even.
+float gs_round_even(float f)
+{
+    float r = floor(f + 0.5);
+    if (r - f == 0.5 && fmod(r, 2.0) != 0.0) r -= 1.0;
+    return r;
+}
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void grid_sample3d(uint3 dtid : SV_DispatchThreadID, uniform GsParams p)
+{
+    uint idx = dtid.x;
+    if (idx >= p.total) return;
+    uint ox = idx % WO;
+    uint t = idx / WO;
+    uint oy = t % HO;
+    t /= HO;
+    uint oz = t % DO;
+    uint nc = t / DO;
+    uint c = nc % C, n = nc / C;
+    float* xp = p.x + uint64_t(n) * XS_N + uint64_t(c) * XS_C;
+    float* gp = p.grid + ((uint64_t(n) * DO + oz) * HO * WO + uint64_t(oy) * WO + ox) * 3;
+    float fx = gs_pad(gs_denorm(gp[0], W), W), fy = gs_pad(gs_denorm(gp[1], H), H), fz = gs_pad(gs_denorm(gp[2], D), D);
+#if MODE == 1
+    p.y[idx] = gs_tap3(xp, int(gs_round_even(fz)), int(gs_round_even(fy)), int(gs_round_even(fx)));
+#else
+    float x0f = floor(fx), y0f = floor(fy), z0f = floor(fz);
+    int x0 = int(x0f), y0 = int(y0f), z0 = int(z0f);
+    float dx = fx - x0f, dy = fy - y0f, dz = fz - z0f;
+    float acc = 0.0;
+    for (int k = 0; k < 2; k++)
+    {
+        float plane = (gs_tap3(xp, z0 + k, y0, x0) * (1.0 - dx) + gs_tap3(xp, z0 + k, y0, x0 + 1) * dx) * (1.0 - dy)
+                    + (gs_tap3(xp, z0 + k, y0 + 1, x0) * (1.0 - dx) + gs_tap3(xp, z0 + k, y0 + 1, x0 + 1) * dx) * dy;
+        acc += plane * (k == 0 ? 1.0 - dz : dz);
+    }
+    p.y[idx] = acc;
+#endif
+}
+#endif
 #endif

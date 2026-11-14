@@ -37,6 +37,14 @@ internal sealed class TestModel
     }
     public static ProtoWriter AttrTensor(string name, ProtoWriter t) => new ProtoWriter().Str(1, name).Msg(5, t).Int(20, 4);
 
+    /// <summary>A node of the com.microsoft contrib domain.</summary>
+    public TestModel ContribNode(string op, string[] ins, string[] outs, params ProtoWriter[] attrs)
+    {
+        Node(op, ins, outs, attrs);
+        _nodes[^1] = [.. _nodes[^1], .. new ProtoWriter().Str(7, "com.microsoft").ToArray()];
+        return this;
+    }
+
     public TestModel Node(string op, string[] ins, string[] outs, params ProtoWriter[] attrs)
     {
         var w = new ProtoWriter();
