@@ -1,10 +1,22 @@
+using Sharplight.Hub;
+
 namespace Sharplight.Studio.Models;
 
 /// <summary>Everything the user configures, persisted as JSON in the app's configuration directory.</summary>
 internal sealed record AppSettings
 {
-    /// <summary>The model store; null resolves like the CLI (<c>--models-dir</c>, <c>SHARPLIGHT_MODELS</c>, portable, per user).</summary>
+    /// <summary>
+    /// Where the model store is: the application folder, the user folder or <see cref="ModelsDirectory"/>. Null when never chosen:
+    /// a custom folder when <see cref="ModelsDirectory"/> is set (settings of earlier versions), else the default (application
+    /// folder). <c>--models-dir</c> and <c>SHARPLIGHT_MODELS</c> take precedence.
+    /// </summary>
+    public ModelStoreLocation? ModelsLocation { get; init; }
+
+    /// <summary>The custom model store directory (<see cref="ModelStoreLocation.Custom"/>).</summary>
     public string? ModelsDirectory { get; init; }
+
+    /// <summary>The offer to move the models of a previous store (the per-user store) was answered; it is made once.</summary>
+    public bool StoreMigrationAnswered { get; init; }
 
     /// <summary>Hugging Face access token for gated and private repositories; null uses <c>HF_TOKEN</c>.</summary>
     public string? HuggingFaceToken { get; init; }

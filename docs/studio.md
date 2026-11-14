@@ -27,9 +27,8 @@ different models run at the same time. Images and documents can be attached by d
 
 - *Discover* searches Hugging Face (format filter, gated models hidden on request) and lists a repository's quantizations with
   their sizes.
-- *Library* lists the model store (the same store and resolution as the command-line tools: `--models-dir`, the setting,
-  `SHARPLIGHT_MODELS`, a `models` folder next to the app, then the per-user default) and any added `.gguf`, `.slm` or `.onnx`
-  files. *Load* opens the load options:
+- *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
+  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files. *Load* opens the load options:
   - device;
   - context length;
   - parallel slots;
@@ -74,7 +73,11 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 **Settings.**
 - Theme (dark, light, system) and accent palette.
-- Models directory and Hugging Face token (falls back to `HF_TOKEN`).
+- Model store: **application folder** (`data` next to the app, the default), **user folder** (`~/.local/share/sharplight/models`
+  on Linux, shared with the command-line tools of the user) or a **custom folder** picked with a folder dialog. The page shows the
+  store in use and why (for example "Default: application folder", or "Default: user folder, the application folder is not
+  writable" for a read-only install), and *Open folder* opens it. `--models-dir` and `SHARPLIGHT_MODELS` take precedence.
+- Hugging Face token (falls back to `HF_TOKEN`).
 - Precompile after download, and whether to keep the source files.
 - Load defaults.
 - Residency:
@@ -96,7 +99,11 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 |---|---|
 | Settings (`settings.json`), including the download queue | `sharplight/studio` under the roaming application data directory (`~/.config` on Linux) |
 | Conversations and statistics (`studio.db`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
-| Models | The model store shared with the command-line tools |
+| Models | The model store: `data` next to the app by default, else the folder chosen in the settings (see above); converted local models go to `converted/` in it by default |
+| Compiled kernels | `sharplight/kernels` under the local application data directory (`~/.local/share` on Linux), shared by every tool |
+
+When the model store in effect is empty while the user folder (the default of earlier versions) has models, Studio offers once to
+keep using the user folder or to move or copy the models into the new store.
 
 `SHARPLIGHT_STUDIO_HOME` moves settings and data into one directory (portable use).
 

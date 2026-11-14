@@ -154,7 +154,7 @@ internal static class DemoData
             new HubModelSummary("onnx-community/Qwen3-0.6B-ONNX", 18_400, 75, false, "transformers.js", "text-generation", 600_000_000, [ModelFormat.Onnx], ["model_q4f16", "model_fp16"]),
         ]);
 
-        services.Settings.StoreRoot = "~/.local/share/sharplight/models";
+        services.Settings.ApplicationRoot = "/opt/sharplight-studio/data";
         services.Hub.FirstUpdate = new PullUpdate(PullPhase.Downloading, "Pulling Qwen/Qwen3-8B-GGUF:Q4_K_M", Received: 2_140_000_000, Total: 5_030_000_000,
             File: "Qwen3-8B-Q4_K_M.gguf", FileReceived: 2_140_000_000, FileSize: 5_030_000_000);
         await services.Server.StartAsync(new ServerSettings(), CancellationToken.None);

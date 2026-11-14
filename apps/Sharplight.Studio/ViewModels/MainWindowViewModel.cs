@@ -24,6 +24,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
         Server = new ServerPageViewModel(services);
         Stats = new StatsPageViewModel(services);
         Settings = new SettingsPageViewModel(services);
+        StoreMigration = new StoreMigrationViewModel(services, () => _ = Models.Library.RefreshAsync());
         Pages = [Chat, Models, Server, Stats];
         services.Runtime.ModelsChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
         services.Server.StateChanged += (_, _) => services.Dispatcher.Post(UpdateStatus);
@@ -44,6 +45,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
 
     /// <summary>Settings page (pinned to the bottom of the navigation).</summary>
     public SettingsPageViewModel Settings { get; }
+
+    /// <summary>The one-time offer to move the models of a previous store.</summary>
+    public StoreMigrationViewModel StoreMigration { get; }
 
     /// <summary>The download queue, for the indicator shown on every page.</summary>
     public DownloadsViewModel Downloads => Models.Downloads;
@@ -70,8 +74,12 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <summary>The main device, for the status bar.</summary>
     public string DeviceText => _services.Runtime.Devices.FirstOrDefault()?.Name ?? "No device";
 
-    /// <summary>Shows the first page.</summary>
-    public Task StartAsync() => NavigateAsync(_services.Runtime.LoadedModels.Count == 0 ? Models : Chat);
+    /// <summary>Offers to move the models of a previous store, then shows the first page.</summary>
+    public Task StartAsync()
+    {
+        StoreMigration.Check();
+        return NavigateAsync(_services.Runtime.LoadedModels.Count == 0 ? Models : Chat);
+    }
 
     /// <inheritdoc/>
     public void OpenChat(ILoadedModel? model)
