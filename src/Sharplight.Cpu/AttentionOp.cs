@@ -36,6 +36,10 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
     private readonly KvPages? _pages;    // paged multi-sequence cache
     private readonly TRef? _selection;   // sparse attention: [T, K] or [T, Hs, K] key positions per query row (and selection head; < 0: none)
+    private readonly CompressedKv? _compressed;   // compressed attention: entries of complete windows join the softmax (the selection lists entries)
+    private readonly long _compressedSlotRows;    // multi-sequence: compressed cache rows per slot
+    private readonly KvPages? _compressedPages;   // paged multi-sequence: the block table addressing the compressed cache
+    private readonly bool _cHalf;
     private long _t;
     private long _past;
     private long _s;
@@ -49,9 +53,21 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
-        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null)
+        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null, CompressedKv? compressed = null)
     {
         _selection = selection;
+        _compressed = compressed;
+        if (compressed is not null)
+        {
+            _compressedSlotRows = compressed.Cache.Dims[0] / Math.Max(1, slots);
+            _compressedPages = pages?.Compressed(compressed.Compression);
+            _cHalf = compressed.Cache.Type == DataType.F16;
+            if ((compressed.Cache.Type != DataType.F32 && compressed.Cache.Type != DataType.F16) || compressed.Cache.Dims[1] != k.Dims[1] || compressed.Cache.Dims[2] != k.Dims[2])
+            {
+                throw new ArgumentException("CachedAttention: the compressed cache must be an f32 or f16 cache with the key cache's row layout.");
+            }
+        }
+
         _alibiSlopes = alibiSlopes;
         _positionBias = positionBias;
         _positionBiasRange = positionBiasRange;
@@ -138,6 +154,15 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     {
                         _pages.Check(rw[t * 4], pos, _k.Dims[0]);
                     }
+
+                    if (_compressedPages is not null)
+                    {
+                        long step = Math.Max(1, _pages.BlockSize / _compressedPages.Compression);
+                        for (long entry = (rw[t * 4 + 1] + 1) / _compressedPages.Compression - 1; entry >= 0; entry -= step)
+                        {
+                            _compressedPages.Check(rw[t * 4], entry, _compressed!.Cache.Dims[0]);
+                        }
+                    }
                 }
                 else if ((uint)rw[t * 4] >= slots || (uint)rw[t * 4 + 1] >= _slotCtx)
                 {
@@ -167,13 +192,14 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         int chunks = (int)Math.Min(_tasks, CpuParallel.Threads * 4L);
         _per = (_tasks + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
+
     }
 
     private void Body(int c)
     {
         long s = c * _per;
         long e = Math.Min(_tasks, s + _per);
-        long maxKv = _offsetScalar is not null ? _k.Dims[0] : Math.Max(_s, _k.Dims[0]);
+        long maxKv = (_offsetScalar is not null ? _k.Dims[0] : Math.Max(_s, _k.Dims[0])) + (_compressed?.Cache.Dims[0] ?? 0);
         var scores = s_scores;
         if (scores is null || scores.Length < maxKv)
         {
@@ -240,7 +266,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 float* o = (float*)_y.P + task * _dv;
                 new Span<float>(o, _dv).Clear();
                 long* positions = null;
-                if (_selection is not null)
+                if (_selection is not null && _compressed is null)
                 {
                     // Sparse attention: the scores are kept per selected entry, entries index the visible selected positions.
                     positions = SelectedPositions(t, h, n, out long count);
@@ -248,11 +274,27 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     n = count;
                 }
 
-                if (n <= j0)
+                long compressedCount = 0;
+                long* entries = null;
+                if (_compressed is not null)
+                {
+                    long complete = (queryPosition + 1) / _compressed.Compression;
+                    if (_selection is not null)
+                    {
+                        entries = SelectedPositions(t, h, complete, out compressedCount);
+                    }
+                    else
+                    {
+                        compressedCount = complete;
+                    }
+                }
+
+                if (n <= j0 && compressedCount == 0)
                 {
                     continue;
                 }
 
+                n = Math.Max(n, j0);
                 float* mrow = _mask is null ? null : (float*)_mask.P + t * _mask.Strides[0];
                 long mstride = _mask is null ? 0 : _mask.Strides[1];
                 if (_chunk > 0)
@@ -305,7 +347,31 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                         max = dot;
                     }
                 }
+
+                // Compressed entries follow the cache rows in the score buffer: sc[n + ci] for entry i of this row.
+                for (long ci = 0; ci < compressedCount; ci++)
+                {
+                    long off = CompressedRow(t, entries == null ? ci : entries[ci], hk);
+                    float dot = (_cHalf ? Simd.DotHalf(q, (ushort*)_compressed!.Cache.P + off, _d) : Simd.Dot(q, (float*)_compressed!.Cache.P + off, _d)) * _scale;
+                    sc[n + ci] = dot;
+                    if (dot > max)
+                    {
+                        max = dot;
+                    }
+                }
+
+                for (long ci = 0; ci < compressedCount; ci++)
+                {
+                    float ev = MathF.Exp(sc[n + ci] - max);
+                    sc[n + ci] = ev;
+                }
+
                 float sum = _sinks is null ? 0f : MathF.Exp(sink - max);
+                for (long ci = 0; ci < compressedCount; ci++)
+                {
+                    sum += sc[n + ci];
+                }
+
                 long i = j0;
                 if (CpuIsa.Use256)
                 {
@@ -343,6 +409,19 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                         Simd.Axpy(o, (float*)_v.P + off, sc[entry], _dv);
                     }
                 }
+                for (long ci = 0; ci < compressedCount; ci++)
+                {
+                    long off = CompressedRow(t, entries == null ? ci : entries[ci], hk);
+                    if (_cHalf)
+                    {
+                        Simd.AxpyHalf(o, (ushort*)_compressed!.Cache.P + off, sc[n + ci], _dv);
+                    }
+                    else
+                    {
+                        Simd.Axpy(o, (float*)_compressed!.Cache.P + off, sc[n + ci], _dv);
+                    }
+                }
+
                 Simd.Scale(o, o, 1f / sum, _dv);
             }
         }
@@ -380,5 +459,19 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         }
 
         return (long*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref buffer[0]);
+    }
+
+    /// <summary>Element offset of compressed entry <paramref name="entry"/> (key-value head <paramref name="hk"/>) of query row <paramref name="t"/>'s sequence.</summary>
+    private long CompressedRow(long t, long entry, int hk)
+    {
+        var cache = _compressed!.Cache;
+        long row = entry;
+        if (_rows is not null)
+        {
+            int* rw = (int*)_rows.P + t * 4;
+            row = _compressedPages is not null ? _compressedPages.Row(rw[0], entry) : rw[0] * _compressedSlotRows + entry;
+        }
+
+        return row * cache.Strides[0] + hk * cache.Strides[1];
     }
 }

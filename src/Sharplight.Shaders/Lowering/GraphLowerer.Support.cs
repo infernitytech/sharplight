@@ -101,7 +101,7 @@ public sealed partial class GraphLowerer
             "CachedAttention" => SupportsCachedAttention(node),
             "IndexerTopK" => SupportsIndexerTopK(node),
             "GatedDeltaRule" => SupportsDeltaRule(node),
-            "CacheWrite" => SupportsKvRows(node.Inputs[0]),
+            "CacheWrite" => node.Attributes.Get("compression", 1L) > 1 ? OpSupport.No("CacheWrite: compressed caches run on the CPU") : SupportsKvRows(node.Inputs[0]),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
             "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
@@ -146,6 +146,11 @@ public sealed partial class GraphLowerer
 
     private static OpSupport SupportsIndexerTopK(Node node)
     {
+        if (node.Attributes.Get("compression", 1L) > 1)
+        {
+            return OpSupport.No("IndexerTopK: compressed caches run on the CPU");
+        }
+
         if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16)
         {
             return OpSupport.No($"IndexerTopK: key cache type {node.Inputs[1].Type} (f32 or f16)");
@@ -164,6 +169,11 @@ public sealed partial class GraphLowerer
 
     private static OpSupport SupportsCachedAttention(Node node)
     {
+        if (node.Attributes.Get("compression", 1L) > 1)
+        {
+            return OpSupport.No("CachedAttention: compressed caches run on the CPU");
+        }
+
         if (node.Attributes.Get<float[]?>("alibi_slopes", null) is { } slopes && slopes.Length != node.Inputs[0].Shape[1].Fixed)
         {
             return OpSupport.No("CachedAttention: ALiBi needs one slope per query head");

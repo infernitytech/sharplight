@@ -30,6 +30,24 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
+    /// <summary>WindowPool: values, scores, bias, positions, state, [rows, runs].</summary>
+    private void LowerWindowPool(Node n)
+    {
+        var a = n.Attributes;
+        var ins = n.Inputs;
+        var values = RowContig(RefF32(ins[0]));
+        var scores = RowContig(RefF32(ins[1]));
+        var bias = Dense(RefF32(ins[2]));
+        var positions = Dense(Ref(ins[3]));
+        var state = Ref(ins[4]);
+        TRef? rows = ins.Length > 5 ? Dense(Ref(ins[5])) : null;
+        TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
+        var y = NewDense(n.Output);
+        var pool = new WindowPoolOp(values, scores, bias, positions, state, y, a.Get("ratio", 1L), a.Get("overlap", false), rows, runs);
+        AddStep(pool, Touched(values, scores, bias, positions, state, rows, runs, y));
+        _refs[n.Output] = y;
+    }
+
     private void LowerSelectiveScan(Node n)
     {
         var ins = BaseInputs(n);

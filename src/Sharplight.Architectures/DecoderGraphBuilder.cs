@@ -24,6 +24,7 @@ internal sealed partial class DecoderGraphBuilder
     private Func<string, WeightInfo?>? _draft;
     private readonly int[] _taps;                                 // layers whose inputs the decode graphs export (an EAGLE-3 drafter's features)
     private Dictionary<int, Value>? _tapValues;                   // while a trunk graph is built: the tapped layer inputs
+    private Value? _valueEmbeddings;                              // while a graph with token inputs is built: value_embedding rows [T, KvH·D]
     private readonly int[] _kvExports;                            // layers whose keys and values the decode graphs export (a shared-KV drafter's)
     private Dictionary<int, (Value K, Value V)>? _kvExportValues; // while a trunk graph is built: the exported keys and values by layer
     private Dictionary<int, (Value K, Value V)>? _suppliedKv;     // while a shared-KV draft graph is built: keys and values from the input, by slot
@@ -51,7 +52,7 @@ internal sealed partial class DecoderGraphBuilder
     {
         _taps = taps ?? [];
         _kvExports = kvExports ?? [];
-        if (_taps.Any(il => il < 0 || il > hyperParameters.LogicalLayers) || (_taps.Length > 0 && hyperParameters.AltUpStreams > 0))
+        if (_taps.Any(il => il < 0 || il > hyperParameters.LogicalLayers) || (_taps.Length > 0 && (hyperParameters.AltUpStreams > 0 || hyperParameters.Cycles is not null)))
         {
             throw new InvalidDataException($"decoder: cannot export the inputs of layers {string.Join(", ", _taps)}.");
         }
@@ -59,7 +60,7 @@ internal sealed partial class DecoderGraphBuilder
         _src = source;
         _options = adapterOptions;
         _hp = hyperParameters;
-        _norm = new DecoderNorm(_hp.NormType);
+        _norm = new DecoderNorm(_hp.NormType, _hp.NormGroups);
         _activation = MlpActivations.Create(_hp);
         int origCtx = _src.Arch("rope.original_context_length", 0);
         int runtimeCtx = _options.ContextLength > 0 ? _options.ContextLength : _hp.ContextLength;
@@ -76,7 +77,7 @@ internal sealed partial class DecoderGraphBuilder
         _vCache = new StateDefinition?[slots];
         for (int slot = 0; slot < slots; slot++)
         {
-            int il = slot < logical ? slot % _hp.NLayer : _hp.NLayer;
+            int il = slot < logical ? _hp.PhysicalLayerOf(slot) : _hp.NLayer;
             string g = statePrefix + (slot < logical ? $"layers.{slot}" : $"mtp.layers.{slot - logical}");
             int sourceSlot = slot - il + _hp.KvSourceOf(il);
             if (sourceSlot != slot)
@@ -111,7 +112,7 @@ internal sealed partial class DecoderGraphBuilder
         _blockIndexerCache = new StateDefinition?[slots];
         for (int slot = 0; slot < slots && _blockIndexer is not null; slot++)
         {
-            string prefix = slot < logical ? $"layers.{slot % _hp.NLayer}." : "mtp.layers.0.";
+            string prefix = slot < logical ? $"layers.{_hp.PhysicalLayerOf(slot)}." : "mtp.layers.0.";
             if (_kCache[slot] is not null && BlockSparseIndexer.IsPresent(_src.Weight, prefix))
             {
                 string g = slot < logical ? $"layers.{slot}" : "mtp.layers.0";
@@ -187,8 +188,8 @@ internal sealed partial class DecoderGraphBuilder
             }
         }
 
-        // Adapter routing reads the token ids, so there is no embeddings-input graph.
-        if (_options.IncludeAuxiliaryGraphs && _routerCache is null)
+        // Value embeddings and adapter routing are looked up by token id: no embeddings-input graph.
+        if (_options.IncludeAuxiliaryGraphs && _src.Weight(ValueEmbeddingWeight) is null && _routerCache is null)
         {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
         }
@@ -264,7 +265,7 @@ internal sealed partial class DecoderGraphBuilder
 
         using (b.Group("output"))
         {
-            var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+            var hidden = OutputNorm(b, x);
             var rows = b.Gather(hidden, outRows, "selected_rows");
             b.Output("logits", Logits(b, rows));
             b.Output("hidden", hidden);
@@ -298,7 +299,7 @@ internal sealed partial class DecoderGraphBuilder
         var x = PackedLayers(b, inp);
         using (b.Group("output"))
         {
-            var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+            var hidden = OutputNorm(b, x);
             b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
         }
 
@@ -368,14 +369,14 @@ internal sealed partial class DecoderGraphBuilder
         {
             if (!classify)
             {
-                var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+                var hidden = OutputNorm(b, x);
                 PackedSequences.EmbeddingsOutput(b, hidden, inp.SequenceSpans, _pooling, _normalize);
             }
             else
             {
                 // Score heads read the language model head at each sequence's last row (e.g. "yes" / "no" logits).
                 var last = PackedSequences.Pool(b, x, inp.SequenceSpans, "last", "last_rows");
-                var hidden = _norm.Apply(b, last, "output_norm.weight", _hp.Eps, "result_norm");
+                var hidden = OutputNorm(b, last);
                 b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
             }
         }
@@ -386,6 +387,7 @@ internal sealed partial class DecoderGraphBuilder
     // Token embedding lookup followed by the optional scale and weight-less norm some models apply to it.
     private Value TokenEmbeddings(GraphBuilder b, Value tokens)
     {
+        _valueEmbeddings = b.TryWeight(ValueEmbeddingWeight) is { } valueTable ? b.Gather(valueTable, tokens, "inp_value_embd") : null;
         var x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
         if (_hp.EmbeddingScale != 1f)
         {
@@ -440,6 +442,12 @@ internal sealed partial class DecoderGraphBuilder
         {
             logits = b.Scale(logits, _hp.LogitScale);
         }
+        if (_hp.LogitSigmoidCap is { } cap)
+        {
+            // scale · sigmoid((logits + shift) / temperature) (Limite).
+            logits = b.Scale(b.Sigmoid(b.Scale(logits, 1f / cap[2], cap[1] / cap[2])), cap[0], 0, "logits_capped");
+        }
+
         if (_hp.FinalSoftCap > 0)
         {
             logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / _hp.FinalSoftCap)), _hp.FinalSoftCap, 0, "logits_capped");
@@ -453,9 +461,15 @@ internal sealed partial class DecoderGraphBuilder
     // deepstack: [T, H·K] blocks added to the hidden state after the first K layers (Qwen3-VL DeepStack).
     private Value Layers(GraphBuilder b, Value x, Value positions, Value? freqFactors, Value? perLayer, Value? rowSpans, Value? deepstack = null)
     {
+        if (_hp.Cycles is { } cycles)
+        {
+            return CycleLayers(b, x, cycles, positions, freqFactors, rowSpans);
+        }
+
         int deepstackLayers = deepstack is null ? 0 : (int)(deepstack.Shape[-1].Fixed / _hp.NEmbd);
         var packedKv = new Dictionary<int, (Value K, Value V)>();
         var embeddings = x;
+        var history = _hp.DenseConnections is null ? null : new List<Value>();
         int streams = _hp.AltUpStreams;
         if (streams > 0)
         {
@@ -480,9 +494,19 @@ internal sealed partial class DecoderGraphBuilder
                 continue;
             }
 
+            Value? attentionInput = null;
+            history?.Add(x);
+            if (history is not null && _hp.DenseConnections!.TapsOf(il) is { } taps && DenseConnections.IsPresent(b, p))
+            {
+                // Dense connections (MUDD): the attention reads one mixture of earlier layer inputs, the residual stream another.
+                var mixtures = DenseConnections.Mix(b, history, x, taps, p, _hp.Eps, mixtures: 2);
+                attentionInput = mixtures[0];
+                x = mixtures[1];
+            }
+
             x = _hp.ParallelResidual
                 ? ParallelLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
-                : SequentialLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
+                : SequentialLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings, attentionInput);
 
             if (b.TryWeight(p + "embedding_skip.weight") is { } skipScale)
             {
@@ -507,6 +531,32 @@ internal sealed partial class DecoderGraphBuilder
 
         return streams > 0 ? AltUp.Collapse(b, x, streams, _hp.NEmbd) : x;
     }
+
+    // Hierarchical cycles (HRM-Text): the low and high stacks run alternately, every pass with KV caches of its own (see HierarchicalCycles).
+    private Value CycleLayers(GraphBuilder b, Value x, HierarchicalCycleOptions cycles, Value positions, Value? freqFactors, Value? rowSpans)
+    {
+        var packedKv = new Dictionary<int, (Value K, Value V)>();
+        var embeddings = x;
+        return HierarchicalCycles.Build(b, x, cycles, _norm, _hp.Eps, (input, slotBase, layerBase) =>
+        {
+            var h = input;
+            for (int i = 0; i < cycles.StackLayers; i++)
+            {
+                using var _ = b.Group($"layers.{slotBase + i}");
+                string p = $"layers.{layerBase + i}.";
+                var slot = new LayerSlot(layerBase + i, slotBase + i);
+                h = _hp.ParallelResidual
+                    ? ParallelLayer(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
+                    : SequentialLayer(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
+            }
+
+            return h;
+        });
+    }
+
+    // The final norm of the trunk. Hierarchical cycles end with the high stack's norm, so a model with cycles and no output norm weight has none.
+    private Value OutputNorm(GraphBuilder b, Value x)
+        => _hp.Cycles is not null && !b.HasWeight("output_norm.weight") ? x : _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
 
     // One layer over AltUp streams [T, S·H] (Gemma 3n): the streams are mixed into predictions, the active prediction runs through the
     // sequential layer, its output corrects every prediction. The per-layer embedding contribution, gated by the active corrected stream
@@ -536,13 +586,14 @@ internal sealed partial class DecoderGraphBuilder
     // Residual topology "sequential": x += attention(norm(x)); x += mlp(norm(x)). A layer without attention weights skips the attention
     // (Deci); one whose attention is a single linear map (attention.o without q/k/v) adds o(norm(x)). A layer with moe_norm.weight adds a
     // mixture-of-experts branch that reads the layer input (moe(moe_norm(x)), Arctic) next to its dense MLP; a layer without MLP weights has none.
+    // attentionInput: what the attention block reads instead of x (dense connections), x staying the residual stream.
     private Value SequentialLayer(GraphBuilder b, Value x, string p, LayerSlot slot, Value positions, Value? freqFactors, Value? rowSpans,
-        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings)
+        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings, Value? attentionInput = null)
     {
         var residual = x;
         if (b.HasWeight(p + "attention.o.weight"))
         {
-            var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
+            var h = PreNorm(b, attentionInput ?? x, p + "input_norm.weight", $"{p}attn_norm");
             var attention = b.HasWeight(p + "attention.q.weight")
                 ? Attention(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
                 : b.Linear(h, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
@@ -594,12 +645,13 @@ internal sealed partial class DecoderGraphBuilder
     // The residual sum of a sequential layer's sub-layer output and its input. With residual.norm_preserving (Beam) the i-th sum (i = 2 for the
     // first attention, counting both sub-layers of every layer) is output / sqrt(i) + residual · sqrt((i − 1) / i), which keeps the expected
     // norm of the stream when the sub-layer outputs are normalized. A sub-layer with learned residual_alpha / residual_beta weights [H] (Muse Spark)
-    // sums alpha · residual + beta · output instead.
+    // sums alpha · residual + beta · output instead (output alone without residual_beta, Limite).
     private Value ResidualAdd(GraphBuilder b, Value output, Value residual, int i, string block, string name)
     {
         if (b.TryWeight(block + "residual_alpha") is { } alpha)
         {
-            return b.Add(b.Mul(residual, alpha), b.Mul(output, b.Weight(block + "residual_beta")), name);
+            var scaledOutput = b.TryWeight(block + "residual_beta") is { } beta ? b.Mul(output, beta) : output;
+            return b.Add(b.Mul(residual, alpha), scaledOutput, name);
         }
 
         return _hp.NormPreservingResidual

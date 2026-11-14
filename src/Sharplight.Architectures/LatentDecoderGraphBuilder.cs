@@ -23,12 +23,18 @@ internal sealed partial class LatentDecoderGraphBuilder
     private readonly Func<string, WeightInfo?>? _draft;
     private readonly StateDefinition? _draftCache;
     private readonly SparseAttentionIndexer? _indexer;
+    private readonly AttentionResiduals? _residuals;   // Kimi K3: block attention residuals instead of the running residual sum
     private readonly StateDefinition?[] _indexerCaches;
     private Value? _previousSelection;   // while a graph is built: the last indexer selection, which layers without their own indexer reuse
     private Func<Value, Value>? _indexerRotate;   // while a graph is built: the indexer's rotary embedding
     private Value? _logPositions;   // while a graph is built: ln(pos + 1) of every row for the SSMax factors
     private Value? _slidingHeadIds;   // while a graph is built: the head indices of the sliding-window layers
     private Func<Value, Value>? _slidingRotate;   // while a graph is built: the rotary embedding of the sliding-window layers
+    private readonly CompressedKvAttention? _compressedKv;   // DeepSeek-V4: windowed attention with compressed entries instead of the latent cache
+    private readonly CompressedKvLayerStates?[] _compressedStates;
+    private Value? _positions;   // while a graph is built: the row positions
+    private Value? _tokens;   // while a graph is built: the token ids (null for the embeddings graph), for hash routing
+    private Value? _groupIds;   // while a graph is built: the output group indices of compressed-KV attention
 
     /// <summary>Creates the builder and the latent cache state of every layer.</summary>
     public LatentDecoderGraphBuilder(ModelSource source, AdapterOptions options, LatentDecoderHyperParameters hyperParameters)
@@ -40,16 +46,27 @@ internal sealed partial class LatentDecoderGraphBuilder
         var sliding = new LatentAttention(_hp.SlidingAttention);
         _attentions = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _hp.IsSliding(il) ? sliding : _hp.HasRope(il) ? _attention : nope)];
         _ssmax = Enumerable.Range(0, _hp.LayerCount).Any(il => _src.Weight($"layers.{il}.attention.ssmax.weight") is not null);
-        _activation = MlpActivations.Create(_hp.Activation);
+        _activation = MlpActivations.Create(_hp.Activation, _src);
         int originalContext = _src.Arch("rope.original_context_length", 0);
         int runtimeContext = options.ContextLength > 0 ? options.ContextLength : _hp.ContextLength;
         _longRope = originalContext > 0 && runtimeContext > originalContext;
         // Delta-attention layers (Kimi-Linear, Ling 3) keep a convolution window and a recurrent state instead of a latent cache.
         _delta = new ChannelDeltaAttention(_src);
+        _residuals = AttentionResiduals.Read(_src, _hp.Eps);
         _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
             ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
         _caches = new StateDefinition?[_hp.LayerCount];
-        for (int il = 0; il < _hp.LayerCount; il++)
+        _compressedStates = new CompressedKvLayerStates?[_hp.LayerCount];
+        if (_hp.CompressedKv is { } compressedKv)
+        {
+            _compressedKv = new CompressedKvAttention(compressedKv, _hp.Attention.Heads, _hp.Attention.RopeDims, _hp.Eps);
+            for (int il = 0; il < _hp.LayerCount; il++)
+            {
+                _compressedStates[il] = _compressedKv.CreateStates(_src.Weight, $"layers.{il}.", $"layers.{il}", il, options.KvCacheType);
+            }
+        }
+
+        for (int il = 0; il < _hp.LayerCount && _compressedKv is null; il++)
         {
             // Layers without their own key-value projection (Mistral Large 4) attend the cache of their source layer.
             int kvSource = _hp.KvSourceOf(il);
@@ -58,25 +75,28 @@ internal sealed partial class LatentDecoderGraphBuilder
         }
 
         // DSA indexer: only when the context exceeds its budget (below it every row keeps every visible position, the dense attention).
-        if (_hp.Indexer is { } indexer && runtimeContext > indexer.TokenBudget)
+        if (_hp.Indexer is { } indexer && runtimeContext > indexer.TokenBudget && _compressedKv is null)
         {
             _indexer = new SparseAttentionIndexer(indexer);
         }
 
-        _indexerCaches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _indexer is not null && _caches[il] is not null
+        _indexerCaches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _indexer is not null && _caches[il] is not null && _compressedKv is null
             && SparseAttentionIndexer.IsPresent(_src.Weight, $"layers.{il}.")
                 ? _indexer.CreateKeyCache(_src.Weight, $"layers.{il}.", $"layers.{il}", options.KvCacheType)
                 : null)];
         // The NextN draft head (DeepSeek-V3: one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) with its own cache;
         // not with hyper-connections (the hidden state is several residual streams).
         // Not with two attention geometries either (dots.3's NextN layer has the sliding one, which llama.cpp does not run).
-        _draft = _hp.HyperConnections is null && _hp.SlidingLayers.Length == 0 ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
+        // Not with attention residuals either (the draft layer's residual would need the trunk's banked checkpoints).
+        _draft = _hp.HyperConnections is null && _residuals is null && _hp.SlidingLayers.Length == 0 ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
         if (_draft is not null)
         {
             _draftCache = _attention.CreateCache("mtp.layers.0", options.KvCacheType);
         }
 
-        IncludeEmbeddingsGraph = options.IncludeAuxiliaryGraphs;
+        // Hash-routed experts need the token ids, which the embeddings graph does not have.
+        IncludeEmbeddingsGraph = options.IncludeAuxiliaryGraphs
+            && !Enumerable.Range(0, _hp.LayerCount).Any(il => _src.Weight($"layers.{il}.mlp.router.token_experts") is not null);
     }
 
     /// <summary>The persistent states (one latent cache per layer, and the draft layer's).</summary>
@@ -87,6 +107,12 @@ internal sealed partial class LatentDecoderGraphBuilder
             var states = new List<StateDefinition>();
             for (int il = 0; il < _hp.LayerCount; il++)
             {
+                if (_compressedStates[il] is { } compressed)
+                {
+                    states.AddRange(compressed.All());
+                    continue;
+                }
+
                 if (_deltaStates[il] is { } delta)
                 {
                     states.Add(delta.Conv);
@@ -121,6 +147,7 @@ internal sealed partial class LatentDecoderGraphBuilder
     public Dictionary<string, ComputeGraph> BuildGraphs()
     {
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = Build(WellKnown.DecodeGraph, embeddingsInput: false) };
+        _tokens = null;
         if (_draft is not null)
         {
             graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.HiddenSize, positionAxes: 1, _hp.Eps, layers: 1,
@@ -155,6 +182,7 @@ internal sealed partial class LatentDecoderGraphBuilder
             else
             {
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                _tokens = tokens;
                 x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
                 if (_hp.EmbeddingScale != 1f)
                 {
@@ -165,11 +193,14 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
         var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+        _positions = positions;
+        _groupIds = _compressedKv is null ? null : LatentAttention.HeadIndices(b, positions, _compressedKv.Options.OutputGroups, "_groups");
         var headIds = LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads);
         var rotate = Rotation(b, positions);
         var temperature = Temperature(b, positions);
         _previousSelection = null;
         _indexerRotate = _indexer is null ? null : IndexerRotation(b, positions);
+        _residuals?.Reset();
         _logPositions = _ssmax ? ScalableSoftmax.LogPositions(b, positions) : null;
         _slidingHeadIds = _hp.SlidingAttention.Heads == _hp.Attention.Heads ? headIds : LatentAttention.HeadIndices(b, positions, _hp.SlidingAttention.Heads, "_sliding");
         _slidingRotate = _hp.SlidingLayers.Length == 0 ? null : RopeOf(b, positions, _hp.RopeStyle, 1f, _hp.SlidingRopeBase, "rope.freq_factors_sliding");
@@ -186,6 +217,11 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         using (b.Group("output"))
         {
+            if (_residuals is not null)
+            {
+                x = _residuals.Mix(b, x, "output_res.score.weight", _hp.HiddenSize, "output_res");
+            }
+
             if (_hp.HyperConnections is { } streams)
             {
                 // A learned head collapses the streams with its own weights; without one (GLM-5.3-Flash) they are averaged.
@@ -223,6 +259,11 @@ internal sealed partial class LatentDecoderGraphBuilder
             return HyperConnectedLayer(b, x, p, il, headIds, rotate, temperature, hc);
         }
 
+        if (_residuals is not null && il >= 0)
+        {
+            return ResidualAttentionLayer(b, x, p, il, headIds, rotate, temperature, _residuals);
+        }
+
         var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
         var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
@@ -239,6 +280,14 @@ internal sealed partial class LatentDecoderGraphBuilder
         if (il >= 0 && _deltaStates[il] is { } delta)
         {
             return _delta.Build(b, h, p, delta.Conv, delta.State);
+        }
+
+        if (il >= 0 && _compressedStates[il] is { } compressed)
+        {
+            // Sliding-only layers rotate with the main rope, layers with compressed entries with the compressed one.
+            bool main = _compressedKv!.Options.Ratios[il] == 0;
+            var rope = RopeAt(b, main ? _hp.RopeBase : _compressedKv.Options.CompressedRopeBase, main ? "rope.freq_factors" : "rope.freq_factors_compressed");
+            return _compressedKv.Build(b, h, p, il, compressed, _positions!, _groupIds!, rope);
         }
 
         if (il >= 0 && _hp.IsSliding(il))
@@ -264,7 +313,9 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         if (_indexerCaches[il] is { } keys)
         {
-            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, _attentions[il].Parameters.RopeDims, _indexerRotate!, _logPositions);
+            // An indexer without rotary embedding (Kimi K3.1) scores the whole rows as they are.
+            int ropeDims = _indexer.Options.RopeStyle == "none" ? 0 : _attentions[il].Parameters.RopeDims;
+            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, ropeDims, _indexerRotate!, _logPositions);
         }
 
         return _ => _previousSelection ?? throw new InvalidDataException($"latent_decoder: layer {il} reuses an indexer selection, but no earlier layer has an indexer.");
@@ -277,12 +328,34 @@ internal sealed partial class LatentDecoderGraphBuilder
         var (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "attention_hc.", hc, _hp.HiddenSize);
         var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
         var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
-        x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc.Streams, _hp.HiddenSize, $"{p}attn_residual");
+        x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc, _hp.HiddenSize, $"{p}attn_residual");
 
         (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "mlp_hc.", hc, _hp.HiddenSize);
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
         var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
-        return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc.Streams, _hp.HiddenSize, $"{p}l_out");
+        return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, _hp.HiddenSize, $"{p}l_out");
+    }
+
+    // The layer with block attention residuals: x is the running sum of the current block; each sub-layer reads the mix of the banked
+    // checkpoints and that sum, and a layer that starts a block banks its input and restarts the sum from its mixer's output.
+    private Value ResidualAttentionLayer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature,
+        AttentionResiduals residuals)
+    {
+        var input = residuals.Mix(b, x, p + "attention_res.score.weight", _hp.HiddenSize, $"{p}attn_res");
+        bool restart = residuals.StartsBlock(il);
+        if (restart)
+        {
+            residuals.Push(b, x, _hp.HiddenSize);
+        }
+
+        var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
+        var attention = ResidualBranch(b, Mixer(b, h, p, il, headIds, rotate, temperature));
+        x = restart ? attention : b.Add(attention, x, $"{p}attn_residual");
+
+        input = residuals.Mix(b, x, p + "mlp_res.score.weight", _hp.HiddenSize, $"{p}mlp_res");
+        h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
+        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 
     /// <summary>The query temperature of every row (Mistral 4 / Mistral Large 3), or null when the model has none.</summary>
@@ -304,7 +377,15 @@ internal sealed partial class LatentDecoderGraphBuilder
 
     /// <summary>The indexer's rotary embedding: the attention's frequencies and magnitude with the indexer's pairing style.</summary>
     private Func<Value, Value> IndexerRotation(GraphBuilder b, Value positions)
-        => RopeOf(b, positions, _indexer!.Options.RopeStyle, _hp.Attention.RopeMagnitude);
+        => _indexer!.Options.RopeStyle == "none" ? t => t : RopeOf(b, positions, _indexer.Options.RopeStyle, _hp.Attention.RopeMagnitude);
+
+    /// <summary>The model's rotary embedding of the rope parts at given positions, with a base and optional frequency factors.</summary>
+    private Func<Value, Value, Value> RopeAt(GraphBuilder b, float ropeBase, string factorsName)
+    {
+        var factors = b.TryWeight(factorsName);
+        var attributes = Attributes.From(("dims", _hp.Attention.RopeDims), ("base", ropeBase), ("style", _hp.RopeStyle));
+        return (t, positions) => b.Emit1("Rope", factors is null ? [t, positions] : [t, positions, factors], attributes);
+    }
 
     private Func<Value, Value> RopeOf(GraphBuilder b, Value positions, string style, float magnitude, float? ropeBase = null,
         string factorsName = "rope.freq_factors")

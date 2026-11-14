@@ -133,6 +133,11 @@ public sealed record VisionParameters
     public long MinPixels { get; init; }
     /// <summary>Upper bound of the resized image area in pixels; 0 = unlimited.</summary>
     public long MaxPixels { get; init; }
+    /// <summary>
+    /// A convolutional first stage whose feature map replaces the patch embedding (keys <c>sam.*</c>, DeepSeek-OCR); null for a plain ViT.
+    /// With it the image is encoded as fixed-size views by <see cref="SamParameters.PixelsInput"/> graphs instead of patches.
+    /// </summary>
+    public SamParameters? Sam { get; init; }
 
     /// <summary>Width of one row of the encoder output: the embedding followed by one DeepStack block per DeepStack layer.</summary>
     public int EmbeddingWidth => OutHiddenSize * (1 + DeepstackLayers.Length);
@@ -183,6 +188,7 @@ public sealed record VisionParameters
             ImageStd = Get("image_std", new[] { 0.5f, 0.5f, 0.5f }),
             MinPixels = Get("min_pixels", 0L),
             MaxPixels = Get("max_pixels", 0L),
+            Sam = SamParameters.FromMetadata(md, prefix),
         };
         p.Validate();
         return p;
@@ -243,6 +249,7 @@ public sealed record VisionParameters
         Set("image_std", ImageStd);
         Set("min_pixels", MinPixels);
         Set("max_pixels", MaxPixels);
+        Sam?.Write(Set);
     }
 
     private void Validate()
@@ -296,7 +303,7 @@ public sealed record VisionParameters
         }
     }
 
-    private static T Convert<T>(object v)
+    internal static T Convert<T>(object v)
     {
         if (v is T t)
         {

@@ -13,6 +13,7 @@ internal static class HfArchitectureMappings
         Register(new Qwen3VlHfMapping());
         Register(new Qwen2VlHfMapping());
         Register(new PaddleOcrVlHfMapping());
+        Register(new DeepseekOcrHfMapping());
         Register(new Glm4vHfMapping());
         Register(new NemotronHHfMapping());
         Register(new GraniteHybridHfMapping());
@@ -22,6 +23,7 @@ internal static class HfArchitectureMappings
         Register(new MiniMaxHfMapping());
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());
+        Register(new DeepseekV4HfMapping());
         Register(new Eagle3HfMapping());
         Register(new Gemma4AssistantHfMapping());
         Register(new DecoderHfMapping());
@@ -94,6 +96,10 @@ internal static class HfArchitectureMappings
         yield return new DreamHfMapping();
         yield return new LladaHfMapping();
         yield return new ModernBertHfMapping();
+        yield return new HrmTextHfMapping();
+        yield return new SenseNovaU1HfMapping();
+        yield return new GroveMoeHfMapping();
+        yield return new K2HorizonHfMapping();
         yield return new GraniteSwitchHfMapping();
     }
 

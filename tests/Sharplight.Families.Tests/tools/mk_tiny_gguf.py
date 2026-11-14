@@ -826,6 +826,48 @@ def dots3note_parameters(writer):
     writer.add_indexer_types([not swa for swa in D3_SWA])
 
 
+# Limite: six layers, the fourth global and NoPE, the others sliding (window 8) with a rope over half the head (llama.cpp's normal pairing);
+# value embeddings gated into V (layers 1 and 4), exclusive self attention (every layer but 2), per-head gates (all but 5), learned residual
+# scales and dense connections (MUDD) of three taps into layers 3 and 5. No norm weights.
+LIMITE_SWA = [True, True, True, False, True, True]
+LIMITE_TAPS = {3: [0, 1, 3], 5: [0, 2, 5]}
+LIMITE_MUDD_FFN = 8
+
+
+def limite_block(layer):
+    kv = KV_HEADS * HEAD_DIM
+    t = {"attn_q.weight": weight(HIDDEN, HIDDEN), "attn_k.weight": weight(kv, HIDDEN), "attn_v.weight": weight(kv, HIDDEN),
+         "attn_output.weight": weight(HIDDEN, HIDDEN), "ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN),
+         "ffn_down.weight": weight(HIDDEN, FFN), "attn_resid_scale.weight": (1.0 + 0.3 * rng.standard_normal(1)).astype(np.float32),
+         "ffn_resid_scale.weight": (1.0 + 0.3 * rng.standard_normal(1)).astype(np.float32)}
+    if layer != 5:
+        t["attn_gate.weight"] = weight(HEADS, HIDDEN) * 4
+    if layer in (1, 4):
+        t["attn_ve_gate.weight"] = weight(KV_HEADS, HIDDEN) * 4
+    if layer != 2:
+        t["attn_xsa_alpha.weight"] = np.tanh(rng.standard_normal(HEADS)).astype(np.float32)
+    if layer in LIMITE_TAPS:
+        n = len(LIMITE_TAPS[layer])
+        t.update({"mudd_down.weight": weight(LIMITE_MUDD_FFN, HIDDEN) * 4, "mudd_up.weight": weight(2 * n, LIMITE_MUDD_FFN) * 4,
+                  "mudd_up.bias": (0.5 + 0.3 * rng.standard_normal(2 * n)).astype(np.float32)})
+    return t
+
+
+def limite_parameters(writer):
+    writer.add_attention_scale(0.3)
+    writer.add_xsa_eps(1e-4)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern(LIMITE_SWA)
+    writer.add_final_logit_sigmoid_capping(23.0, 5.0, 7.5)
+    n = len(next(iter(LIMITE_TAPS.values())))
+    taps = [-1] * (len(LIMITE_SWA) * n)
+    for layer, layer_taps in LIMITE_TAPS.items():
+        taps[layer * n:(layer + 1) * n] = layer_taps
+    writer.add_mudd_feed_forward_length(LIMITE_MUDD_FFN)
+    writer.add_mudd_tap_count(n)
+    writer.add_mudd_tap_indices(taps)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -926,6 +968,9 @@ models = {
     "dots3note": lambda path: write_family(path, "dots3note", int(os.environ.get("D3_SEED", 49)), dots3note_block, parameters=dots3note_parameters,
                                            layers=len(D3_SWA), kv_heads=1, rope_dim=ROPE,
                                            heads=[D3_SLIDING["heads"] if swa else D3_FULL["heads"] for swa in D3_SWA]),
+    # Limite (llama.cpp after b11177): see limite_block; value embeddings scaled up so that their gate matters.
+    "limite": lambda path: write_family(path, "limite", 50, limite_block, parameters=limite_parameters, layers=len(LIMITE_SWA), rope_dim=HEAD_DIM // 2,
+                                        global_tensors=lambda vocab: {"output_norm.weight": None, "value_embd.weight": weight(vocab, KV_HEADS * HEAD_DIM) * 4}),
 }
 for name, write in models.items():
     if not only or name in only:

@@ -5,7 +5,8 @@ knows their original remote-code checkpoints: kimi_linear (KimiLinearForCausalLM
 BailingMoeV3ForCausalLM with the original config keys) and minimax (renamed MiniMaxText01ForCausalLM with the original layernorm_* / attn_type_list /
 rotary_dim keys; llama.cpp supports only equal alpha factors and beta factors of 1, so the checkpoint must be written with those) and
 minimax_m3_vl (the published sparse_attention_config / moe_layer_freq / n_shared_experts / scoring_func keys added) and glm5_next
-(the published linear_attn_config / mla_use_nope / first_k_dense_replace keys added).
+(the published linear_attn_config / mla_use_nope / first_k_dense_replace keys added). kimi_k3 (Kimi K3 / K3.1 in the published layout,
+mk_tiny_kimi_k3.py) is taken as it is.
 The converter is patched to take the GPT-2 style tokenizer.json of the tiny checkpoints.
 
     python convert_tiny_gguf.py <llama.cpp source> <checkpoint directory> <output .gguf>
@@ -140,6 +141,36 @@ with tempfile.TemporaryDirectory() as work:
             self.hparams["layer_types"] = ["full_attention" if t == "indexed_attention" else t for t in self.hparams["layer_types"]]
             base_parameters(self)
         qwen4exp.Qwen4ExpTextModel.set_gguf_parameters = set_gguf_parameters
+    elif kind == "kimi_k3":
+        from conversion import kimi_k3
+        kimi_k3.KimiK3Model.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer is not Kimi's tiktoken vocabulary
+    elif kind == "deepseek_v4":
+        # The converter reads the native checkpoint layout: unprefixed native tensor names (attn.kv_norm, hc_head_fn, embed), the
+        # compress_ratios / num_hash_layers keys and the compressed layers' yarn as rope_scaling. Its expert writer repacks FP4 experts to
+        # MXFP4; the tiny f32 experts are stacked as they are.
+        rates = config["compress_rates"]
+        config["compress_ratios"] = [rates.get(t, 0) for t in config["layer_types"]]
+        config["num_hash_layers"] = config["mlp_layer_types"].count("hash_moe")
+        config["num_nextn_predict_layers"] = 0
+        compress = config["rope_parameters"]["compress"]
+        config["rope_scaling"] = dict(type="yarn", factor=compress["factor"], beta_fast=compress["beta_fast"], beta_slow=compress["beta_slow"],
+                                      original_max_position_embeddings=compress["original_max_position_embeddings"])
+        def native(name):
+            name = name.removeprefix("model.")
+            name = {"embed_tokens.weight": "embed.weight", "hc_head.hc_fn": "hc_head_fn", "hc_head.hc_base": "hc_head_base",
+                    "hc_head.hc_scale": "hc_head_scale"}.get(name, name)
+            return name[:-len(".attn.norm.weight")] + ".attn.kv_norm.weight" if name.endswith(".attn.norm.weight") else name
+        rewrite(native)
+        from conversion import deepseek
+        import numpy as np
+        deepseek.DeepseekV4Model.set_vocab = lambda self: self._set_vocab_gpt2()
+        def stack_experts(self, bid, proj, tensor_key):
+            names = [f"layers.{bid}.ffn.experts.{e}.{proj}.weight" for e in range(self.hparams["n_routed_experts"])]
+            from conversion.base import LazyTorchTensor
+            data = np.stack([LazyTorchTensor.to_eager(self.model_tensors[n]()).float().numpy() for n in names])
+            self.gguf_writer.add_tensor(self.format_tensor_name(tensor_key, bid), data)
+            return names
+        deepseek.DeepseekV4Model._write_mxfp4_expert_tensor = stack_experts
     if kind in ("kimi_linear", "bailing_hybrid", "minimax", "minimax_m3_vl"):
         # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
         config["model_type"] = kind + "_original"
