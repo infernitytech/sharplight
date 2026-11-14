@@ -8,10 +8,13 @@ namespace Sharplight.Shaders.Lowering;
 public sealed partial class GraphLowerer
 {
     /// <summary>
-    /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/>: 16 for Q8_0,
-    /// 8 for the K-quants, whose GEMM already wins at 16 rows (Mistral-7B Q4_K_M batch 16: 12 vs 18 ms per step).
+    /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/> and depth
+    /// <paramref name="k"/>: 8, above which the skinny GEMM or gemm_cm2 win (K-quants: Mistral-7B Q4_K_M batch 16: 12 vs 18 ms
+    /// per step; Q8_0 [17408→5120] at 12 rows: 100 µs int-dot vs 72 µs skinny), and 16 for Q8_0 where the f16 tensor-core
+    /// path is not usable.
     /// </summary>
-    private static long IntDotMaxRows(DataType type) => DiagnosticSwitches.IntDotMaxRows ?? (type == ShaderTypes.Q8_0R || type == DataType.Q8_0 ? 16 : 8);
+    private long IntDotMaxRows(DataType type, long k) => DiagnosticSwitches.IntDotMaxRows
+        ?? ((type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !(DiagnosticSwitches.SkinnyGemm && CoopUsable(type, k)) ? 16 : 8);
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
     private const long IntDotTargetThreads = 128 * 1024;
@@ -55,7 +58,7 @@ public sealed partial class GraphLowerer
         var w = weights[0];
         long minRows = IntDotMinRows(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
-        long maxRows = IntDotMaxRows(w.Type);
+        long maxRows = IntDotMaxRows(w.Type, k);
         bool InRange(Bindings b) => rows(b) >= minRows && rows(b) <= maxRows;
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, maxRows);
 
@@ -86,8 +89,8 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// The quantized copy of <paramref name="x"/> (q8_1 for the int8 kernels, E4M3 for the fp8 GEMM), made by a
-    /// quantization launch that runs while x has <paramref name="minRows"/> to <paramref name="maxRows"/> rows; reused when
+    /// The quantized copy of <paramref name="x"/> (q8_1 for the int8 kernels, E4M3 for the fp8 GEMM, f16 rows for the f16
+    /// tensor-core GEMMs), made by a quantization launch that runs while x has <paramref name="minRows"/> to <paramref name="maxRows"/> rows; reused when
     /// an earlier matmul over the same rows (same root value, layout, row range, encoding and launch condition) already made one.
     /// </summary>
     private TensorRef QuantizedActivations(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, long k, long minRows,
@@ -103,7 +106,7 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, code == ActivationCode.Fp8 ? k + k / 32 : k + k / 4];
+        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, _ => k + k / 4 }];
         TensorRef quantized;
         if (shareable)
         {
@@ -124,11 +127,15 @@ public sealed partial class GraphLowerer
         }
 
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
-        var kernel = code == ActivationCode.Fp8
-            ? Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1)))
-            : Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1)));
-        Emit(code == ActivationCode.Fp8 ? $"{label} x→fp8" : $"{label} x→q8", nodes,
-            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, b => new Grid(Grid.Div(rows(b) * (k / 4), 256)))],
+        var kernel = code switch
+        {
+            ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1))),
+            ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
+            _ => Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
+        };
+        long valuesPerThread = code == ActivationCode.F16 ? 8 : 4;
+        Emit(code switch { ActivationCode.Fp8 => $"{label} x→fp8", ActivationCode.F16 => $"{label} x→f16", _ => $"{label} x→q8" }, nodes,
+            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256)))],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
         return quantized;
@@ -212,10 +219,10 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>The launch-condition guard that keeps the f32 matvec/GEMM launches off the int-dot row range.</summary>
-    private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType)
+    private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType, long k)
     {
         long minRows = IntDotMinRows(weightType);
-        long maxRows = IntDotMaxRows(weightType);
+        long maxRows = IntDotMaxRows(weightType, k);
         return b => Rows(b, x) * rowsPerLead is var r && (r < minRows || r > maxRows);
     }
 }

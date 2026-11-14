@@ -1450,3 +1450,153 @@ so two workgroups fit per multiprocessor: 609 → 520 µs.
 * **Chunked prefill with batch 512.** The 27B's default `--batch 512` cuts long prompts into 512-row passes. Each pass starts
   the chunked form from the carried state, which is correct, but the per-pass fixed costs (3 launches) are paid per 512
   rows.
+
+## 19. Small-batch decode: skinny tensor-core GEMM, fp8 / int8 GEMM from 17 / 33 rows, barrier batching (2026-11-14)
+
+Levers 1-3 of section 16.8, generic at kernel-selection level (no model-specific code). Kernels:
+`src/Sharplight.Shaders/Kernels/matmul_skinny.slang` (new, `gemm_sk`); lowering: `GraphLowerer.SkinnyGemm.cs` (new),
+`GraphLowerer.MatMul.cs`, `GraphLowerer.IntDot.cs`, `GraphLowerer.Mmq.cs`; recording: `HazardTracker.Order`,
+`VulkanSegment.Record`. Raw results: [`bench/results/s19/`](../bench/results/s19) (`batch/` BatchBench and per-kernel
+profiles, `spec/` SpecBench, serving at the top level, `disturbed/` a first pass that ran while a game used the GPU).
+
+### 19.1 What changed
+
+* **Skinny tensor-core GEMM (2-16 rows).** One workgroup owns 16-32 weight rows. Its 4-8 subgroups split K, each staging its
+  own A / B slices in shared memory (subgroup barriers only, next block prefetched into registers), and they sum their
+  partial 16x16 f32 tiles through shared memory at the end. Every weight is read once, with no split-K scratch and no
+  reduction launch. Weights are decoded to f16 by the gemm_cm2 decoders, so every format gemm_cm2 reads works (f16 direct,
+  bf16, FP8 with block / channel scales, NVFP4, Q8_0, K-quants, ...). The fused gate/up pair runs as one dual launch with
+  the SiLU·mul epilogue. Device requirements: `matrix_f16`, `float16`, 32-wide subgroups, K % 32 = 0. Otherwise, and with
+  `SHARPLIGHT_SKINNY_GEMM=0`, the previous kernels run.
+  * Formats without an int-dot matvec (f16, bf16, FP8, NVFP4, ...): 2-16 rows.
+  * Q8_0 and the K-quants: the rows above the int-dot matvec (9-16). Q8_0's int-dot range drops from 16 to 8 rows where the
+    tensor-core path is usable (Q8_0 [17408→5120] at 12 rows: 100 µs int-dot vs 72 µs skinny).
+  * Narrow matrices keep the split-K kernels, which spread K over more workgroups. The skinny grid has N / 16-32
+    workgroups and costs a fixed ~20 µs at K = 5120 (FP8 [5120→48] at 4 rows: 24 µs vs 8 µs for the split-K matvec). N <
+    1024: never; N < 4096: up to 8 rows.
+  * Activations: one f16 copy of x per input, shared by every matmul that reads it (Q/K/V, gate/up, the delta-rule input
+    projections) and by gemm_cm2 above 16 rows (`QuantizedActivations` with `ActivationCode.F16`). Reading f32 rows
+    instead (`SHARPLIGHT_SKINNY_X16=0`) is slower even at 2 rows (FP8 [17408→5120]: 75 vs 60 µs), because every workgroup
+    re-reads x.
+* **fp8 GEMM from 17 rows, int8 GEMM from 33 rows** (both were 65). `gemm_fp8` at 17-64 rows takes 67-80 µs on
+  [5120→17408] vs 76-116 µs for gemm_cm2. MMQ from 33 rows: IQ4_XS 145 vs 310 µs, Q8_0 about 10 % faster
+  (`SHARPLIGHT_FP8_GEMM_MIN_ROWS`, `SHARPLIGHT_MMQ_MIN_ROWS`).
+* **Barrier batching.** `HazardTracker.Order` fills each barrier batch with later launches that conflict neither with the
+  batch nor with launches deferred past it (32-launch lookahead), so the conversion / GEMM / reduction chains of sibling
+  matmuls share barriers. Every read-after-write, write-after-read and write-after-write order is kept. Split-K scratch now
+  rotates over three buffers; with one shared buffer the siblings serialised on it. `SHARPLIGHT_VK_REORDER=0` keeps
+  program order (profiling also keeps it).
+
+**Precision.** 2-16 rows now multiply f16 activations on tensor cores with f32 accumulation, as 9+ rows did before. FP8 at
+17-64 rows uses E4M3 activations with one f32 scale per 128 values, as 65+ rows did before (and as vLLM does at every batch
+size). Single rows keep the f32 matvec. Greedy CLI output (200 tokens, chat prompt) is token-identical before and after on
+both the FP8 checkpoint and the Q8_0 GGUF.
+
+### 19.2 Per-row-count step time, Qwen3.8-27B
+
+BatchBench, `--ctx 2048 --modes greedy`. Minimum GPU ms per step (timestamps) over 30 steps and 2 interleaved process runs
+per build; base = `main` before this section. The last column gives FP8 dispatches / barriers per step.
+
+| rows | FP8 base | FP8 new | speedup | Q8_0 base | Q8_0 new | speedup | FP8 dispatches / barriers, base → new |
+|---|---|---|---|---|---|---|---|
+| 1 | 23.8 | 23.0 | 1.04x | 23.3 | 22.3 | 1.05x | 901 / 596 → 901 / 596 |
+| 2 | 38.0 | 28.2 | 1.35x | 20.2 | 19.8 | 1.02x | 901 / 596 → 1206 / 853 |
+| 3 | 51.1 | 29.1 | 1.75x | 22.3 | 22.4 | 0.99x | |
+| 4 | 63.2 | 29.6 | 2.13x | 22.5 | 22.7 | 0.99x | |
+| 8 | 115.3 | 31.4 | 3.67x | 28.3 | 28.5 | 0.99x | |
+| 12 | 37.7 | 32.8 | 1.15x | 41.5 | 33.6 | 1.23x | 2022 / 1653 → 1334 / 917 |
+| 16 | 39.0 | 34.7 | 1.12x | 41.4 | 35.3 | 1.17x | |
+| 32 | 45.2 | 35.8 | 1.26x | 46.6 | 44.8 | 1.04x | 2022 / 1653 → 1830 / 1269 |
+| 64 | 65.0 | 48.0 | 1.35x | 63.7 | 51.3 | 1.24x | |
+
+The FP8 small-batch cliff is gone: the 8-row step went from 4.8x to 1.37x the 1-row step. Q8_0 up to 8 rows is unchanged
+(int-dot matvec). There, 2-row steps are faster than 1-row steps because single rows use the f32 matvec, which keeps the
+activations exact.
+
+GPU-time profile of the FP8 step (`batch/prof19_fp8_*.txt`, 20 steps, ms per step):
+
+| rows | build | dense GEMM / matvec | GEMM glue (to_f16 / quantize / split-K reduce) | recurrent | other | total |
+|---|---|---|---|---|---|---|
+| 4 | base | 61.9 | 0 | 0.9 | 1.9 | 64.7 |
+| 4 | new | 26.3 | 1.2 | 0.9 | 2.0 | 30.4 |
+| 16 | base | 32.7 | 3.8 | 2.1 | 2.3 | 40.9 |
+| 16 | new | 29.6 | 1.7 | 2.3 | 2.0 | 35.7 |
+| 64 | base | 44.5 | 4.6 | 12.2 | 3.9 | 65.2 |
+| 64 | new | 31.2 | 3.6 | 12.6 | 3.8 | 51.2 |
+
+At 4 rows the fused gate/up pair [5120→17408]x2 takes 125 µs (178 MB, 1.4 TB/s) and the down projection 92 µs (89 MB,
+1.0 TB/s); the 1-row matvec reaches 1.61 TB/s.
+
+### 19.3 Serving against vLLM, Qwen3.8-27B
+
+`bench/s16_serve.sh` as in section 16.4 (~250-token prompts, 128 output tokens, ignore_eos, 2 rounds). All runs fell in one
+period on an otherwise idle GPU (`*.gpu.txt`): Sharplight base and new on the FP8 checkpoint and the Q8_0 GGUF, and vLLM
+0.33 on the FP8 checkpoint (identical weights). Aggregate tok/s, median of 2 rounds; mean ITL in ms.
+
+| conc | vLLM FP8 | SL FP8 base | SL FP8 new | new / base | **new / vLLM** (§16.4) | SL Q8_0 base | SL Q8_0 new | FP8 ITL base → new | vLLM ITL |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 45 | 38 | 40 | 1.05x | 0.89x (0.88x) | 40 | 39 | 25.9 → 24.8 | 22.2 |
+| 4 | 157 | 59 | 123 | **2.08x** | **0.78x** (0.38x) | 153 | 149 | 66.6 → 31.2 | 24.4 |
+| 16 | 525 | 331 | 359 | 1.08x | 0.68x (0.61x) | 299 | 332 | 45.0 → 41.5 | 26.0 |
+| 64 | 1100 | 646 | 747 | 1.16x | 0.68x (0.54x) | 581 | 634 | 87.5 → 74.6 | 42.5 |
+
+* **c = 4 doubles.** Its steps are 4 decode rows plus prefill chunks.
+* **c = 16 / 64 gain less.** Their steps average 46 / 172 rows (decodes plus 250-row prompt chunks in the same step), so
+  most of their GEMM work runs on the prefill-sized kernels. The pure 64-row decode step is now 48 ms of GPU time against
+  vLLM's 42 ms ITL.
+* **Q8_0** gains 11 % at c = 16 and 9 % at c = 64 (9-16-row and 33-64-row steps). c = 1 / 4 are within run-to-run noise
+  (−1 to −3 %).
+* **Single stream is unchanged**, since 1-row steps keep the matvec. SpecBench k = 0 below gives 39.1 vs 40.4 tok/s at
+  depth 47 and 38.1 vs 38.7 at 4096; BatchBench gives 23.0 vs 23.8 ms per 1-row step.
+
+### 19.4 MTP speculative decoding on FP8
+
+SpecBench as in section 17.1 (natural-language prompt, greedy, tg = 128 / (t(129) − t(1)), median of 5), with base and new
+alternating per draft count on an idle GPU (`spec/`). vLLM column: section 16.5 (same checkpoint and prompt, earlier
+period).
+
+| k | base @d47 | new @d47 | new: speedup over k = 0 | base @d4096 | new @d4096 | acceptance (new, d47 / d4096) | vLLM @d47 |
+|---|---|---|---|---|---|---|---|
+| off | 40.4 | 39.1 | | 38.7 | 38.1 | | 38.4 |
+| 1 | 42.3 | 55.9 | 1.43x | 41.7 | 53.8 | 0.84 / 0.83 | 60.5 |
+| 2 | 38.7 | 70.4 | 1.80x | 40.1 | 61.2 | 0.74 / 0.72 | 70.6 |
+| 3 | 36.5 | **75.3** | **1.93x** | 36.5 | 68.7 | 0.62 / 0.61 | 74.7 |
+
+MTP now pays on FP8 weights as it does on Q8_0 (section 17.1). At k = 3 it reaches vLLM's MTP throughput on the same
+checkpoint (75.3 vs 74.7 tok/s); before, verification steps of 2-4 rows cost more than the accepted drafts saved.
+
+### 19.5 Commands and tests
+
+```bash
+dotnet build Sharplight.slnx -c Release && dotnet build bench/BatchBench -c Release && dotnet build bench/SpecBench -c Release
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 1,2,3,4,8,12,16,32,64
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 1,4,16,64 --profile 4,16,64 --profile-mode greedy
+python3 bench/profile_categories.py <profile output>
+bench/SpecBench/bin/Release/net11.0/SpecBench <Qwen3.8-27B-FP8 dir> --drafts 0,1,2,3 --depths 47,4096
+OUT_DIR=bench/results/s19 PORT=18190 bench/s16_serve.sh sharplight qwen27b-fp8-new <dir> "1 4 16 64"
+OUT_DIR=bench/results/s19 PORT=18190 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "1 4 16 64" --gpu-memory-utilization 0.5
+python3 bench/s16_summarize.py bench/results/s19; python3 -I bench/sanitize_results.py bench/results/s19
+# kernel microbenchmarks (rows, weight types, K,N shapes)
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_ROWS=4 SHARPLIGHT_BENCH_TYPES=f8e4m3_b128 SHARPLIGHT_BENCH_SHAPES="5120,17408;17408,5120" \
+  dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -method '*MatMulPrefill'
+```
+
+Tests: `MatMulTests` (FP8 b128 / b32, NVFP4 and the other formats at 1-64 rows; a shared f16 copy across three matmuls),
+`FusionTests` (dual gate/up, including f16 and FP8 at 16 rows), `QuantFormatTests` and `Fp8GemmTests` (17 and 40 rows).
+They pass on the NVIDIA GPU, on the AMD iGPU (no cooperative matrices, so the fallback paths) and on llvmpipe.
+
+### 19.6 Open issues
+
+* **17-64-row GEMM bandwidth.** At 64 rows the fp8 GEMM runs the gate/up pair as two split-K launches (88 µs each, about
+  1.0 TB/s) plus reductions. A dual fp8 GEMM with the SiLU·mul epilogue, in a stream-K or K-parallel layout like the
+  skinny kernel's, would approach the 1.6 TB/s roof. bf16 / f16 weights still use gemm_cm2 at 17-64 rows (~1.3 TB/s).
+* **Skinny GEMM at 1.0-1.4 TB/s.** Each workgroup re-reads the activations, and the subgroups' partial tiles go through
+  shared memory. Next steps: larger K blocks with multi-stage prefetch, and splitting K across two workgroups for narrow
+  matrices instead of falling back to split-K.
+* **Delta rule at 64 decode rows** is about a quarter of the FP8 step (232 µs per layer). 64 sequences read and write
+  3 MB of f32 state each per layer, at 1.7 TB/s. Only a smaller state type would reduce it (bf16 state, as an opt-in).
+* **Glue launches.** f16 copies and split-K reductions are 4-7 % of the batched step. Producing the f16 copy in the
+  preceding RmsNorm / elementwise epilogue would save one launch and one barrier per matmul input.
+* **Serving at 16-64 streams** is at 0.68x of vLLM. The decode step is close (48 vs ~42 ms at 64 rows); the rest of the gap
+  is in mixed prefill / decode steps, where a 512-row prompt chunk shares the step with the decodes (TTFT p95 4.6 s vs
+  vLLM's 2.4 s at c = 64).

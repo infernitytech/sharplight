@@ -23,7 +23,10 @@ public sealed partial class GraphLowerer
     private static readonly int NvTileColumns = DiagnosticSwitches.WorkgroupMatrixTile[1];
     private static readonly int NvTileK = DiagnosticSwitches.WorkgroupMatrixTile[2];
 
-    private BufferDecl? _splitScratch;
+    /// <summary>Split-K partial-sum buffers, used in rotation (see <see cref="SplitScratch"/>).</summary>
+    private readonly BufferDecl?[] _splitScratch = new BufferDecl?[3];
+
+    private int _splitScratchNext;
 
     /// <summary>
     /// Use the workgroup-scope matrix GEMM (<see cref="DeviceFeatures.MatrixWorkgroup"/>) for prefill matmuls when the
@@ -90,16 +93,30 @@ public sealed partial class GraphLowerer
         long fusedMaxRows = MatvecMaxRows;
         if (UseIntDotMatvec(weightA.Type, K))
         {
-            fusedMaxRows = Math.Max(MatvecMaxRows, IntDotMaxRows(weightA.Type));
+            fusedMaxRows = Math.Max(MatvecMaxRows, IntDotMaxRows(weightA.Type, K));
             string intDotSource = DualEpilogueSource(a, bNode, group, output, "mmvq.slang");
             EmitIntDotMatvec($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead,
                 [weightA, weightB], y, N, K,
                 intDotMacros => _compiler.Compile("mmvq_dual.slang", intDotSource, "mmvq", _opt.Target, intDotMacros, _opt.Cache));
-            var outsideIntDot = OutsideIntDotRange(x, rowsPerLead, weightA.Type);
+            var outsideIntDot = OutsideIntDotRange(x, rowsPerLead, weightA.Type, K);
             _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);
         }
 
         string source = DualEpilogueSource(a, bNode, group, output, "matmul.slang");
+        long dualSkinnyMin = UseIntDotMatvec(weightA.Type, K) ? fusedMaxRows + 1 : SkinnyMinRows;
+        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(weightA.Type, K) && SkinnyMaxRowsFor(N) >= dualSkinnyMin)
+        {
+            // Up to 16 rows (above the int-dot range for formats with one): both matrices on the skinny GEMM with the group as
+            // its epilogue.
+            var beforeSkinny = _launchCondition;
+            EmitSkinnyGemm(dualSkinnyMin, $"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x, xStride, rowsPerLead,
+                [weightA, weightB], y, N, K, macros,
+                skinnyMacros => _compiler.Compile("matmul_dual.slang", source, "gemm_sk", _opt.Target,
+                    new Dictionary<string, string>(skinnyMacros) { ["KERNEL_GEMM_SK"] = "1" }, _opt.Cache));
+            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(rows(b), N, dualSkinnyMin);
+            fusedMaxRows = Math.Max(fusedMaxRows, SkinnyMaxRowsFor(N));
+        }
+
         Emit($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group],
             MatvecVariants((entry, entryMacros) => _compiler.Compile("matmul_dual.slang", source, entry, _opt.Target,
                 new Dictionary<string, string>(entryMacros) { ["KERNEL_" + entry.ToUpperInvariant()] = "1" }, _opt.Cache), macros, N, K, rows),
@@ -218,15 +235,24 @@ public sealed partial class GraphLowerer
 
         var plan = PlanMatMul(n, x, w);
         var outer = _launchCondition;
-        if (UseIntDotMatvec(plan.W.Type, plan.K))
+        bool intDot = UseIntDotMatvec(plan.W.Type, plan.K);
+        bool mmq = UseMmq(plan.W.Type, plan.N, plan.K);
+        bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
+        bool skinny = UseSkinnyGemm(plan);
+        long skinnyMin = intDot ? Math.Max(MatvecMaxRows, IntDotMaxRows(plan.W.Type, plan.K)) + 1 : SkinnyMinRows;
+        bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N) >= skinnyMin;
+        // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
+        // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
+        var half = SharedHalfActivations(plan, intDot, skinny && !intDot, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows : null);
+        if (intDot)
         {
             EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
                 macros => Lib("mmvq.slang", "mmvq", macros));
-            var outsideIntDot = OutsideIntDotRange(plan.X, plan.RowsPerLead, plan.W.Type);
+            var outsideIntDot = OutsideIntDotRange(plan.X, plan.RowsPerLead, plan.W.Type, plan.K);
             _launchCondition = b => (outer?.Invoke(b) ?? true) && outsideIntDot(b);
         }
 
-        if (UseMmq(plan.W.Type, plan.N, plan.K))
+        if (mmq)
         {
             // Emitted under the outer condition only, so that matmuls reading the same rows share the q8 activations.
             var beforeMmq = _launchCondition;
@@ -234,20 +260,58 @@ public sealed partial class GraphLowerer
             EmitMmq(plan);
             _launchCondition = b => (beforeMmq?.Invoke(b) ?? true) && plan.RowCount(b) < MmqMinRows;
         }
-        else if (UseFp8Gemm(plan.W.Type, plan.K))
+        else if (fp8Gemm)
         {
             var beforeFp8 = _launchCondition;
             _launchCondition = outer;
             EmitFp8Gemm(plan);
-            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < MmqMinRows;
+            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows;
         }
 
-        EmitMatMulLaunches(plan);
+        if (skinnyHere)
+        {
+            // Up to 16 rows (above the int-dot range for formats with one): weights read once by the skinny GEMM; the launches below
+            // keep single rows (matvec) and larger batches (gemm_cm2).
+            var beforeSkinny = _launchCondition;
+            EmitSkinnyGemm(skinnyMin, MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K, plan.Macros,
+                macros => Lib("matmul.slang", "gemm_sk", macros), half);
+            _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, skinnyMin);
+        }
+
+        EmitMatMulLaunches(plan, half);
         _launchCondition = outer;
     }
 
-    /// <summary>The f32-activation launches of a planned matmul: matvec variants, GEMM (optionally on f16 activations), split-K.</summary>
-    private void EmitMatMulLaunches(MatMulPlan plan)
+    /// <summary>
+    /// The shared f16 copy of a matmul's activations for the row counts its f16 tensor-core launches serve: from 2 rows with the
+    /// skinny GEMM, else above the int-dot or matvec range, up to the first row count of the int8 / fp8 GEMM
+    /// (<paramref name="quantizedGemmMinRows"/>) when one serves larger batches. Null when no tensor-core launch reads f16 activations.
+    /// </summary>
+    private TensorRef? SharedHalfActivations(MatMulPlan p, bool intDot, bool skinny, long? quantizedGemmMinRows)
+    {
+        if (!p.Coop || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations)
+        {
+            return null;
+        }
+
+        long rowsMax = p.X.Shape[0] * p.RowsPerLead;
+        long minRows = intDot ? Math.Max(MatvecMaxRows, IntDotMaxRows(p.W.Type, p.K)) + 1
+            : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRows) + 1)
+            : MatvecMaxRows + 1;
+        long maxRows = quantizedGemmMinRows is { } gemmMin ? Math.Min(rowsMax, gemmMin - 1) : rowsMax;
+        if (minRows > maxRows)
+        {
+            return null;
+        }
+
+        return QuantizedActivations(MatMulLabel(p), [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, p.K, minRows, maxRows, ActivationCode.F16);
+    }
+
+    /// <summary>
+    /// The f32-activation launches of a planned matmul: matvec variants, GEMM (optionally on the f16 activations
+    /// <paramref name="half"/>), split-K.
+    /// </summary>
+    private void EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null)
     {
         var activations = plan.X;
         if (plan.Coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
@@ -255,7 +319,7 @@ public sealed partial class GraphLowerer
             // Tensor-core GEMMs (more than 8 rows) read an f16 copy of x made by a small conversion kernel: half the
             // bytes per tile load (x is re-read by every column tile). Matvecs keep reading f32 x. Separate launches,
             // since a launch's variants share one argument list; the ones not applicable to a binding are skipped.
-            var (halfActivations, halfMacros) = EmitHalfActivationMatMul(plan);
+            var (halfActivations, halfMacros) = EmitHalfActivationMatMul(plan, half);
             activations = halfActivations;
             plan = new MatMulPlan
             {
@@ -291,9 +355,7 @@ public sealed partial class GraphLowerer
         int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
         var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"));
 
-        // Tensor-core path needs f16 matrix MMA (+ f16 arithmetic) and the 32-wide subgroups gemm_cm is written for.
-        bool coop = _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && K % 32 == 0
-                    && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
+        bool coop = CoopUsable(w.Type, K);
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
         bool workgroupMatrix = coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
@@ -320,6 +382,15 @@ public sealed partial class GraphLowerer
             SplitRows = splitRows,
         };
     }
+
+    /// <summary>
+    /// True when the f16 tensor-core GEMMs serve weights of <paramref name="type"/> with reduction length <paramref name="k"/>:
+    /// f16 matrix MMA (+ f16 arithmetic), the 32-wide subgroups gemm_cm is written for, K in 32-value blocks, and reduced
+    /// precision allowed for f32 weights.
+    /// </summary>
+    private bool CoopUsable(DataType type, long k)
+        => _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && k % 32 == 0
+           && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
 
     private static string MatMulLabel(MatMulPlan p) => $"matmul {p.Node.Output.Name} [{p.K}→{p.N}] {p.W.Type}";
 
@@ -366,7 +437,7 @@ public sealed partial class GraphLowerer
     /// Emits the matvec launch, the f32→f16 activation conversion and the GEMM launch reading the f16 copy.
     /// Returns the f16 activations and the macros the GEMM variants were built from.
     /// </summary>
-    private (TensorRef Activations, Dictionary<string, string> Macros) EmitHalfActivationMatMul(MatMulPlan p)
+    private (TensorRef Activations, Dictionary<string, string> Macros) EmitHalfActivationMatMul(MatMulPlan p, TensorRef? shared)
     {
         var x = p.X;
         long K = p.K;
@@ -376,13 +447,17 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(p.W), Pointer(p.Y), TokenArg(x, rowsPerLead)],
             [x, p.W], [p.Y]);
 
-        long rowsMax = x.Shape[0] * rowsPerLead;
-        var half = Temp(DataType.F16, [rowsMax, K], x.Symbol);
-        Emit($"matmul {p.Node.Output.Name} x→f16", [p.Node],
-            [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
-                b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],
-            [Pointer(x), Pointer(half), TokenArg(x, rowsPerLead)],
-            [x], [half]);
+        var half = shared;
+        if (half is null)
+        {
+            long rowsMax = x.Shape[0] * rowsPerLead;
+            half = Temp(DataType.F16, [rowsMax, K], x.Symbol);
+            Emit($"matmul {p.Node.Output.Name} x→f16", [p.Node],
+                [new KernelVariant(b => p.RowCount(b) > MatvecMaxRows, Lib("data.slang", "to_f16", Macros(("K", K), ("X_STRIDE", p.XStride))),
+                    b => new Grid(Grid.Div(p.RowCount(b) * (K / 8), 256)))],
+                [Pointer(x), Pointer(half), TokenArg(x, rowsPerLead)],
+                [x], [half]);
+        }
 
         var halfMacros = new Dictionary<string, string>(p.Macros) { ["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture), ["X_F16"] = "1" };
         if (p.WorkgroupMatrix)
@@ -456,9 +531,8 @@ public sealed partial class GraphLowerer
             return;
         }
 
-        _splitScratch ??= NewBuffer(BufferKind.Activations, "splitk", 0);
-        _splitScratch.Bytes = Math.Max(_splitScratch.Bytes, scratchBytes);
-        var partial = new TensorRef(_splitScratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
+        var scratch = SplitScratch(scratchBytes);
+        var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var splitMacros = (int split) => new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) };
 
         var partialVariants = tiledSplits.Select(ts => p.WorkgroupMatrix
@@ -473,7 +547,7 @@ public sealed partial class GraphLowerer
                 b => Gemm2Grid(p, b, (uint)ts.Split)));
         Emit($"{MatMulLabel(p)} split-k", [p.Node],
             [.. partialVariants],
-            [Pointer(activations), Pointer(p.W), new PointerArg(_splitScratch, 0), TokenArg(activations, rowsPerLead)],
+            [Pointer(activations), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(activations, rowsPerLead)],
             [activations, p.W], [partial]);
 
         var reduceVariants = splits.Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
@@ -481,8 +555,21 @@ public sealed partial class GraphLowerer
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         Emit($"matmul {p.Node.Output.Name} split-k reduce", [p.Node],
             [.. reduceVariants],
-            [new PointerArg(_splitScratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(activations, rowsPerLead)],
+            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(activations, rowsPerLead)],
             [partial], [p.Y]);
+    }
+
+    /// <summary>
+    /// The split-K partial-sum buffer for the next matmul, grown to <paramref name="bytes"/>. Consecutive matmuls get different
+    /// buffers (three in rotation), so sibling matmuls of one dependency level (Q/K/V, gate/up) do not order each other through
+    /// the scratch and can share barriers.
+    /// </summary>
+    private BufferDecl SplitScratch(long bytes)
+    {
+        int slot = _splitScratchNext++ % _splitScratch.Length;
+        var buffer = _splitScratch[slot] ??= NewBuffer(BufferKind.Activations, "splitk" + slot, 0);
+        buffer.Bytes = Math.Max(buffer.Bytes, bytes);
+        return buffer;
     }
 
     /// <summary>

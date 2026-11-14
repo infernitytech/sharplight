@@ -8,12 +8,15 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 ## In progress
 
-- **Small-batch FP8 / bf16 decode (2–16 rows)**: read each weight once for all rows, as the Q8_0 path does. The 27B FP8
-  step costs 24/39/62/118 ms at 1/2/4/8 rows against Q8_0's 24/20/24/29 ms; this is the 0.38x serving gap at 4 streams
-  and why MTP does not pay on FP8 yet (§16, §17).
-- **9–64-row GEMM at full memory bandwidth**: 0.7–0.93 TB/s today against 1.61 TB/s peak, for 16 and 64 streams (§16).
-- **Fewer barriers and tiny launches per batched step**: about 2000 dispatches and 1650 barriers per step; f16
-  activation copies and split-K reductions take 7–19 % of GPU time. Fuse them into neighbouring kernels (§16).
+- **17–64-row GEMM at full memory bandwidth**: the fp8 GEMM runs at about 1.0 TB/s at 64 rows and bf16 / f16 still use
+  gemm_cm2 (~1.3 TB/s), against 1.61 TB/s peak. A dual (gate/up) fp8 GEMM in a K-parallel layout is next. The 27B FP8
+  serves 16 / 64 streams at 0.68x of vLLM (§19).
+- **Skinny GEMM (2–16 rows) beyond 1.0–1.4 TB/s**: deeper prefetch, and splitting K across workgroups for narrow
+  matrices (§19.6).
+- **Fewer glue launches per batched step**: f16 activation copies and split-K reductions are 4–7 % of GPU time. Produce
+  the f16 copy in the preceding norm / elementwise epilogue (§19.6).
+- **Mixed prefill / decode steps in serving**: a 512-row prompt chunk shares the step with the decodes (TTFT p95 4.6 s vs
+  vLLM's 2.4 s at 64 streams, §19.3).
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
   27B); verify drafts on the device instead of reading back 1 MB of logits per row; count rollback records and the draft
   head in `EstimateFootprint`; wire up DeepSeek-V3 and GLM-4.5 NextN heads.
@@ -45,7 +48,9 @@ CPU:
 
 ## Precision options
 
-Defaults keep near-f32 accuracy. `--reduced-precision` (`LlmLoadOptions.AllowReducedPrecision`,
+Defaults keep near-f32 accuracy, except that matmuls over 2+ activation rows multiply f16 activations on tensor cores
+(E4M3 with block scales for FP8 weights from 17 rows, as vLLM does); single-row decode stays on the f32 matvec (§19).
+`--reduced-precision` (`LlmLoadOptions.AllowReducedPrecision`,
 `CompileOptions.AllowReducedPrecision`) opts in to faster f16 paths, e.g. one f16 product instead of two in the chunked
 delta rule: about 3 % of 27B prefill, 10 % at FP8 with 512-token prompts, and no difference in greedy output in the tests
 of §18.

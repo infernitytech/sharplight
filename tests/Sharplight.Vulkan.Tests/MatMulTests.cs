@@ -6,18 +6,19 @@ public sealed class MatMulTests
 {
     public static IEnumerable<object[]> Cases()
     {
-        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k" })
+        foreach (var fmt in new[] { "f32", "f16", "bf16", "q8_0", "q4_0", "q4_k", "q5_k", "q6_k", "f8e4m3_b128", "f8e4m3_b32", "nvfp4" })
         {
-            foreach (var t in new[] { 1, 2, 8, 9, 20, 40, 64 })
+            foreach (var t in new[] { 1, 2, 3, 8, 9, 16, 17, 20, 33, 40, 64 })
             {
                 yield return [fmt, t];
             }
         }
     }
 
-    // The T > 8 path may use reduced-precision (tensor core) products; allow ~1% there, tight bounds for the matvec path.
-    private static double Atol(int t) => t > 8 ? 1.5e-1 : 2e-3;
-    private static double Rtol(int t) => t > 8 ? 1e-2 : 1e-3;
+    // Batches of two or more rows may use reduced-precision (tensor core, f16 activation) products: the skinny GEMM for 2-64
+    // rows, gemm_cm2 above. Allow ~1% there; single rows run on the f32 matvec and get tight bounds.
+    private static double Atol(int t) => t > 1 ? 1.5e-1 : 2e-3;
+    private static double Rtol(int t) => t > 1 ? 1e-2 : 1e-3;
 
     // Formats whose matvec may run on the integer-dot path. Its activations are quantized to 8 bits per 32-value block,
     // an absolute error proportional to the weight row's norm (large for these random weights: K-quant rows with
@@ -25,8 +26,12 @@ public sealed class MatMulTests
     // arithmetic itself tightly.
     private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_0", "q4_k", "q5_k", "q6_k"];
 
-    private static double Atol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? 3.0 : Atol(t);
-    private static double Rtol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? Rtol(9) : Rtol(t);
+    // Block-scaled E4M3 weights take the fp8 GEMM from 17 rows: activations quantized to E4M3 (4 significant bits), the
+    // bound of Fp8GemmTests.RandomActivations.
+    private static readonly HashSet<string> s_fp8GemmFormats = ["f8e4m3_b128", "f8e4m3_b32"];
+
+    private static double Atol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? 3.0 : s_fp8GemmFormats.Contains(fmt) && t > 16 ? 1.5 : Atol(t);
+    private static double Rtol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? Rtol(9) : s_fp8GemmFormats.Contains(fmt) && t > 16 ? 5e-2 : Rtol(t);
 
     [Theory]
     [MemberData(nameof(Cases))]
@@ -111,5 +116,29 @@ public sealed class MatMulTests
         var w2 = tg.RandW("w2", DataType.F16, 0.5f, 24, 8);
         tg.B.Output("y2", tg.B.MatMul(xp, w2));
         Diff.Check("MatMul.strided", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * 576, 3))), atol: Atol(t * 8), rtol: Rtol(t * 8), what: $"T={t}");
+    }
+
+    /// <summary>
+    /// Several matmuls reading the same rows (Q/K/V-like) share one f16 copy of the activations for the skinny GEMM and gemm_cm2;
+    /// each result must still match its own reference, across the int-dot, skinny and GEMM row ranges.
+    /// </summary>
+    [Theory]
+    [InlineData("f8e4m3_b128")]
+    [InlineData("f16")]
+    [InlineData("q8_0")]
+    public void SharedActivationRows(string fmt)
+    {
+        Gpu.Require();
+        foreach (var t in new[] { 1, 3, 12, 40 })
+        {
+            int K = 512;
+            var tg = new TG();
+            var x = tg.InF("x", TG.T, K);
+            var xn = tg.B.Mul(x, x);
+            tg.B.Output("q", tg.B.MatMul(xn, tg.RandW("wq", DataType.Get(fmt), 1f, 128, K)));
+            tg.B.Output("k", tg.B.MatMul(xn, tg.RandW("wk", DataType.Get(fmt), 1f, 64, K)));
+            tg.B.Output("v", tg.B.MatMul(xn, tg.RandW("wv", DataType.Get(fmt), 1f, 96, K)));
+            Diff.Check("MatMul.shared." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt, t), rtol: Rtol(fmt, t), what: $"T={t}");
+        }
     }
 }

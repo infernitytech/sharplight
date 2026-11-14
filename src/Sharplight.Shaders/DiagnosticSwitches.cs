@@ -22,24 +22,32 @@ namespace Sharplight.Shaders;
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
 /// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
-/// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 16 for
-/// Q8_0, 8 for the K-quants).</item>
+/// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
+/// Q8_0 on devices without the f16 tensor-core path).</item>
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
 /// <item><c>SHARPLIGHT_MMQ=0|all|fmt,fmt</c>: weight formats whose prefill matmuls use the int8 tensor-core GEMM (q8_1
 /// activations, <c>mmq.slang</c>) instead of the f16 one: none, every supported format (q8_0, q4_k, q5_k, q6_k, iq4_nl, iq4_xs),
 /// or a list (default: iq4_nl, iq4_xs, and q8_0 for matmuls with N and K of at least 4096; an explicit list drops that size
 /// limit). Disabling <c>matrix_int8</c> turns it off as well.</item>
-/// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 65).</item>
+/// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 33).</item>
 /// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
 /// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.
 /// <c>SHARPLIGHT_MMQ_BK=32|64|128</c>: preferred K step of the int8 GEMM (default 128, 64 for Q6_K).</item>
 /// <item><c>SHARPLIGHT_FP8_GEMM=0</c>: run prefill matmuls with block-scaled E4M3 weights on the f16 tensor-core GEMM instead of the
-/// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.</item>
+/// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.
+/// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG32</c>, <c>SHARPLIGHT_GEMM2_CFG64=wm,wn,fm,fn</c>: force the layout of the 32- and 64-token
 /// gemm_cm2 tiles.</item>
+/// <item><c>SHARPLIGHT_SKINNY_GEMM=0</c>: serve small-batch matmuls (2-16 rows for formats without an integer-dot matvec such
+/// as f16, bf16, FP8, NVFP4; 9-16 rows for Q8_0 and the K-quants) with the multi-row f32 matvec, the integer-dot matvec and
+/// gemm_cm2 (split-K) instead of the skinny tensor-core GEMM (<c>matmul_skinny.slang</c>: every weight read once, K split
+/// inside the workgroup; matrices with fewer than 1024 output rows, or 4096 above 8 rows, stay on the split-K kernels).
+/// <c>SHARPLIGHT_SKINNY_MAX_ROWS=n</c>: largest row count it serves at every width (default 16 for N of at least 4096, at most
+/// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
+/// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -111,7 +119,10 @@ internal static class DiagnosticSwitches
     public static string? MmqFormats { get; } = Read("SHARPLIGHT_MMQ");
 
     /// <summary>Activation rows from which the int8 GEMM serves a matmul.</summary>
-    public static long MmqMinRows { get; } = long.Parse(Read("SHARPLIGHT_MMQ_MIN_ROWS") ?? "65", CultureInfo.InvariantCulture);
+    public static long? MmqMinRows { get; } = Read("SHARPLIGHT_MMQ_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Activation rows from which the fp8 GEMM serves a matmul, or null for the default.</summary>
+    public static long? Fp8GemmMinRows { get; } = Read("SHARPLIGHT_FP8_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Forced layout of the 128-token int8 GEMM tile (warps M, warps N, fragments M, fragments N), or null.</summary>
     public static int[]? MmqLayout { get; } = Read("SHARPLIGHT_MMQ_CFG")?.Split(',').Select(int.Parse).ToArray();
@@ -142,6 +153,18 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced layout of the 64-token gemm_cm2 tile, or null.</summary>
     public static int[]? Gemm2Layout64 { get; } = Read("SHARPLIGHT_GEMM2_CFG64")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
+    public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
+
+    /// <summary>Forced largest row count of the skinny GEMM, or null for the default.</summary>
+    public static long? SkinnyGemmMaxRows { get; } = Read("SHARPLIGHT_SKINNY_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Forced skinny GEMM configuration (weight fragments, subgroups, K block), or null.</summary>
+    public static int[]? SkinnyGemmConfig { get; } = Read("SHARPLIGHT_SKINNY_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Forced activation source of the skinny GEMM (true: f16 copy, false: f32 rows), or null for the default.</summary>
+    public static bool? SkinnyGemmHalfActivations { get; } = Read("SHARPLIGHT_SKINNY_X16") is { } v ? v != "0" : null;
 
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);

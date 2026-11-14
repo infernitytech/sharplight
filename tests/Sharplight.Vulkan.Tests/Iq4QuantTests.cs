@@ -28,7 +28,10 @@ public sealed class Iq4QuantTests
         var x = tg.InF("x", TG.T, K);
         var w = tg.RandW("w", DataType.Get(type), 1f, N, K);
         tg.B.Output("y", tg.B.MatMul(x, w));
-        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))), atol: 0.25, rtol: 1e-2);   // f16 tensor-core path for T > 1: random 6-bit scales span a wide weight range
+        // f16 tensor-core path for T > 1: random 6-bit scales span a wide weight range. From 33 rows IQ4_NL / IQ4_XS run on the
+        // int8 GEMM (q8_1 activations), with the bound of MmqTests.
+        double atol = tokens >= 33 && type is "iq4_nl" or "iq4_xs" ? 3.0 : 0.25;
+        Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, Rnd.F((long)tokens * K, 3))), atol: atol, rtol: 1e-2);
     }
 
     [Theory]

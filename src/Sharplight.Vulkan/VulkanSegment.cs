@@ -634,37 +634,34 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         afterDispatch?.Invoke(-1, null!, null!);
-        int index = 0;
         var api = _dev.Api;
-        var hazards = new HazardTracker();
         byte* pc = stackalloc byte[(int)_dev.PushConstantSize];
         VkPipeline bound = VkPipeline.Null;
 
-        foreach (var launch in launches)
+        // Profiling serializes every launch (one timestamp delta per kernel) and keeps program order, as does bisecting.
+        bool reorder = afterDispatch is null && DiagnosticSwitches.MaxLaunches == int.MaxValue && DiagnosticSwitches.ReorderLaunches;
+        int skippedUpTo = 0;
+        foreach (var (launch, index, variant, barrierBefore) in HazardTracker.Order(launches, bindings, reorder))
         {
             if (firstIndex + index >= DiagnosticSwitches.MaxLaunches)
             {
                 break;
             }
 
-            var variant = launch.Select(bindings);
-            if (variant is null)
+            // Conditional launches not needed for these bindings (e.g. a fused small-batch kernel at large T).
+            for (; afterDispatch is not null && skippedUpTo < index; skippedUpTo++)
             {
-                // Conditional launch not needed for these bindings (e.g. a fused small-batch kernel at large T).
-                afterDispatch?.Invoke(index, launch, null!);
-                index++;
-                continue;
+                afterDispatch(skippedUpTo, launches[skippedUpTo], null!);
             }
+
+            skippedUpTo = Math.Max(skippedUpTo, index + 1);
             bool hazard = afterDispatch is not null // profiling: serialize so each timestamp delta is one kernel
-                       || hazards.Conflicts(launch);
+                       || barrierBefore;
             if (hazard && !DiagnosticSwitches.NoBarriers)
             {
                 Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite,
                     VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderRead | VkAccessFlags.ShaderWrite);
-                hazards.Clear();
             }
-
-            hazards.Add(launch);
 
             var pipe = _dev.Pipeline(variant.Kernel);
             if (pipe != bound)
@@ -699,12 +696,16 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             var g = variant.Grid(bindings);
             if (DiagnosticSwitches.ListLaunches)
             {
-                Console.Error.WriteLine($"[launch {firstIndex + index}] {launch.Name} {variant.Kernel.CacheKey} grid {g.X}x{g.Y}x{g.Z}");
+                Console.Error.WriteLine($"[launch {firstIndex + index}]{(hazard ? " (barrier)" : "")} {launch.Name} {variant.Kernel.CacheKey} grid {g.X}x{g.Y}x{g.Z}");
             }
 
             api.vkCmdDispatch(cb, g.X, g.Y, g.Z);
             afterDispatch?.Invoke(index, launch, variant);
-            index++;
+        }
+
+        for (; afterDispatch is not null && skippedUpTo < launches.Count && firstIndex + skippedUpTo < DiagnosticSwitches.MaxLaunches; skippedUpTo++)
+        {
+            afterDispatch(skippedUpTo, launches[skippedUpTo], null!);
         }
         // Make results visible to the host.
         Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite, VkPipelineStageFlags.Host, VkAccessFlags.HostRead);
@@ -777,26 +778,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// <summary>Launch order with the barriers <see cref="Execute(RunParameters)"/> places (for diagnostics).</summary>
     public List<(string Name, bool BarrierBefore)> Schedule(long tokens = 1)
     {
-        var list = new List<(string, bool)>();
-        var hazards = new HazardTracker();
         var bindings = new Bindings(_program.Symbols.ToDictionary(s => s, _ => tokens));
-        foreach (var l in _program.Launches)
-        {
-            if (l.Select(bindings) is null)
-            {
-                continue;
-            }
-
-            bool barrier = hazards.Conflicts(l);
-            if (barrier)
-            {
-                hazards.Clear();
-            }
-
-            hazards.Add(l);
-            list.Add((l.Name, barrier));
-        }
-        return list;
+        return [.. HazardTracker.Order(_program.Launches, bindings, DiagnosticSwitches.ReorderLaunches).Select(o => (o.Launch.Name, o.BarrierBefore))];
     }
 
     /// <inheritdoc />

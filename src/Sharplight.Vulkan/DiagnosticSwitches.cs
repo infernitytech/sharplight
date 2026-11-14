@@ -14,6 +14,8 @@ namespace Sharplight.Vulkan;
 /// memory, spills where the driver reports them) to stderr, through VK_KHR_pipeline_executable_properties.</item>
 /// <item><c>SHARPLIGHT_VK_TRACE=1</c>: log every command buffer recording and submission to stderr.</item>
 /// <item><c>SHARPLIGHT_VK_NO_BARRIERS=1</c>: drop inter-dispatch barriers (wrong results) to measure their cost.</item>
+/// <item><c>SHARPLIGHT_VK_REORDER=0</c>: record launches in program order instead of filling each barrier batch with later
+/// independent launches (<see cref="HazardTracker.Order"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
@@ -40,6 +42,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Drops barriers between dispatches (results become wrong).</summary>
     public static bool NoBarriers { get; } = IsSet("SHARPLIGHT_VK_NO_BARRIERS");
+
+    /// <summary>True when recording may move independent launches into earlier barrier batches.</summary>
+    public static bool ReorderLaunches { get; } = Read("SHARPLIGHT_VK_REORDER") != "0";
 
     /// <summary>Number of launches recorded per command buffer; <see cref="int.MaxValue"/> records all.</summary>
     public static int MaxLaunches { get; } = int.TryParse(Read("SHARPLIGHT_VK_MAX_LAUNCHES"), out int max) ? max : int.MaxValue;
