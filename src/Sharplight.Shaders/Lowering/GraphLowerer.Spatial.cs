@@ -633,6 +633,11 @@ public sealed partial class GraphLowerer
 
     private void LowerLayerNorm(Node n)
     {
+        if (TryLowerChannelStridedLayerNorm(n))
+        {
+            return;
+        }
+
         var x = RowsInput(n.Inputs[0], "layernorm", out long r1, out long s0, out long s1);
         var w = n.Inputs.Length > 1 ? AsDenseF32(Ref(n.Inputs[1]), "ln-w") : null;
         var bi = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "ln-b") : null;
@@ -657,6 +662,43 @@ public sealed partial class GraphLowerer
         Emit($"layernorm {n.Output.Name}", [n], variants,
             [Pointer(x), Pointer(wp), Pointer(bp), Pointer(y), TokenArg(x)],
             [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
+    }
+
+    /// <summary>
+    /// LayerNorm <paramref name="n"/> over a channel-strided view (rows adjacent in memory, their values a constant stride apart,
+    /// such as the channels-last Transpose of an NCHW tensor in ConvNeXt blocks) read in place by layernorm_cs, instead of a
+    /// dense copy of the view followed by the row kernel. False when the input is not such a view.
+    /// </summary>
+    private bool TryLowerChannelStridedLayerNorm(Node n)
+    {
+        if (DiagnosticSwitches.NoStridedLayerNorm)
+        {
+            return false;
+        }
+
+        var x = AsF32(Ref(n.Inputs[0]), "layernorm");
+        long valueStride = x.Strides[^1];
+        if (x.Rank < 2 || valueStride <= 1 || x.Shape[^1] < 2)
+        {
+            return false;
+        }
+
+        var unit = x with { Strides = [.. x.Strides[..^1], 1] };
+        if (!TryRows3(unit, out long r1, out long s0, out long s1) || (s1 != 1 && r1 > 1) || (r1 == 1 && s0 != 1))
+        {
+            return false;
+        }
+
+        var w = n.Inputs.Length > 1 ? AsDenseF32(Ref(n.Inputs[1]), "ln-w") : null;
+        var bi = n.Inputs.Length > 2 ? AsDenseF32(Ref(n.Inputs[2]), "ln-b") : null;
+        var y = Produce(n.Output);
+        var k = Lib("rows.slang", "layernorm_cs", Macros(("D", x.Shape[^1]), ("R1", r1), ("S0", s0), ("S1", r1 == 1 ? 1 : s1),
+            ("SI", valueStride), ("EPS", n.Attributes.Get<float>("eps")), ("HAS_W", w is not null), ("HAS_B", bi is not null)));
+        var tx = x;
+        Emit($"layernorm {n.Output.Name} channel-strided", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * r1, 32)))],
+            [Pointer(x), Pointer(w ?? x), Pointer(bi ?? x), Pointer(y), TokenArg(x)],
+            [.. new[] { x, w, bi }.Where(t => t is not null).Select(t => t!)], [y]);
+        return true;
     }
 
     /// <summary>Widest row reduced by one thread per row (rowreduce_narrow).</summary>
