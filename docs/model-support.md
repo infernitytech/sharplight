@@ -122,7 +122,7 @@ Next in line: M-RoPE + DeepStack in the decoder adapter (qwen2vl/qwen3vl/glm4v/p
 | `DIFF` | **Masked-diffusion decoding loop**. bidirectional transformer + iterative unmasking sampler (Dream, LLaDA, RND1). | 4 | 4 | L | missing: runtime feature, not graph |
 | `APOS` | **Learned absolute position embeddings**. GPT-2, StarCoder, BERT family: token + position (+ token-type) embedding sum. | 3 | 4 | S | Gather + Add exist; adapter lacks it |
 | `M1` | **Mamba-1 selective scan**. per-channel A [d_inner, d_state], dt_rank low-rank dt projection, x_proj; conv k=4; Mamba, Falcon-Mamba, Jamba, Codestral-Mamba. | 3 | 4 | M | missing: SelectiveScan1 op (CPU + Slang) and its chunked prefill path |
-| `SPECDEC` | **Speculative-decoding drafters (EAGLE3, DFlash, MTP assistants)**. draft graphs that consume target hidden states. | 3 | 3 | L | MTP weights are imported for qwen3_5 but no drafting loop is documented here |
+| `SPECDEC` | **Speculative-decoding drafters (EAGLE3, DFlash, MTP assistants)**. draft graphs that consume target hidden states. | 3 | 3 | L | partial: MTP for the qwen3_5 family (`MtpDraftHead` + `MtpSpeculator`, rollback of recurrent state); DeepSeek-V3 / GLM-4.5 NextN adapters and EAGLE3 / DFlash drafters missing |
 | `RELPOS` | **Relative-position bias buckets**. T5 style learned bucketed bias added to scores. | 2 | 3 | M | missing (same plumbing as ALIBI) |
 | `WKV6` | **RWKV-6 time-mix**. data-dependent decay with LoRA, WKV6 recurrence, token shift, group norm. | 2 | 3 | M | missing: Wkv6 op (WKV7 kernel can share structure) |
 | `LOOP` | **Weight-shared layer loops**. Nanbeige (num_loops), HRM-Text (H/L cycles): the same layer repeated with distinct KV slots. | 2 | 3 | S | graph feature: reuse weights, separate cache keys |

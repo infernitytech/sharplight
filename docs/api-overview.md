@@ -145,13 +145,28 @@ JSON-schema subset: see `JsonSchemaCompiler` (types, properties/required in orde
 ### Speculative decoding
 
 `EngineOptions.Speculator` proposes draft tokens that the target model verifies in one multi-row forward pass; a draft token
-is kept while it equals what the target samples at that position, so the output is exactly the non-speculative output.
-`NgramSpeculator` drafts by prompt lookup (continuations of the last n-gram earlier in the context), which pays off for edits,
-code and quoting. The decoder must be created with room for the verification rows
-(`CreateBatchDecoder(slots, maxLogitsRows: ...)`; `ChatModelOptions.Speculator` does that for hosted models) and must support
-rollback (`CanTruncate`): models with recurrent state (Mamba, RWKV, gated delta nets) run without speculation. A draft model
-or MTP heads plug in through the same `ISpeculator` interface (`Propose` for a batch of sequences, `Release` when a slot is
-freed); requests with an output constraint are not speculated.
+is kept while it equals what the target samples at that position. That is speculative rejection sampling for a point draft
+(accept with probability p(draft), else sample from p without the draft), so greedy output is token-identical and sampled
+output is distributed exactly as without speculation. Two speculators exist:
+
+- `NgramSpeculator` drafts by prompt lookup (continuations of the last n-gram earlier in the context), which pays off for
+  edits, code and quoting.
+- `MtpSpeculator` (`LlmModel.CreateMtpSpeculator(slots, draftTokens)`, when `LlmModel.HasDraftHead`) runs the model's own
+  multi-token-prediction head (the `mtp_draft` graph that adapters build from MTP / NextN layers, see `MtpDraftHead`): its
+  own multi-sequence decoder with one attention layer and KV cache per MTP layer, fed the target's hidden states
+  (`ISpeculator.UsesHiddenStates`, `Observe`; the decoder captures them through `IBatchDecoder.CaptureHiddenStates` /
+  `HiddenStates`). Drafts are the head's greedy choices, chained k times per step.
+
+The decoder must be created with room for the verification rows and the drafts
+(`CreateBatchDecoder(slots, maxLogitsRows: ..., draftTokens: k)`; `ChatModelOptions.Speculator` / `MtpDraftTokens` do that
+for hosted models). Attention-only models roll back any number of rows by truncation; models with recurrent state (gated
+delta nets, Mamba, RWKV, short convs) get their recurrent ops compiled in rollback form for `k + 1` rows
+(`Graph.RecurrentRollback`, `IBatchDecoder.MaxSpeculativeRows`): a speculative run records its per-row op inputs and leaves
+the state at the run start, `Truncate` picks how many rows to keep, and the slot's next run replays them inside the same
+kernel before its own rows. The engine speculates while at most `SpeculationMaxBatch` sequences decode and verifies at most
+`SpeculationMaxDraftRows` drafts per step (fewer per sequence as the batch grows); requests with an output constraint are not
+speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k`; `sharplight-convert precompile --drafts k` stores
+the kernels of the verifying decoders and the draft head.
 
 ### Several models
 
