@@ -103,7 +103,7 @@ public sealed partial class GraphLowerer
         }
 
         string source = DualEpilogueSource(a, bNode, group, output, "matmul.slang");
-        long dualSkinnyMin = UseIntDotMatvec(a, weightA.Type, K) ? fusedMaxRows + 1 : SkinnyMinRows;
+        long dualSkinnyMin = UseIntDotMatvec(a, weightA.Type, K) ? IntDotSkinnyMinRows(weightA.Type, K, N) : SkinnyMinRows;
         if (DiagnosticSwitches.SkinnyGemm && CoopUsable(a, weightA.Type, K) && SkinnyMaxRowsFor(N) >= dualSkinnyMin)
         {
             // Up to 16 rows (above the int-dot range for formats with one): both matrices on the skinny GEMM with the group as
@@ -281,7 +281,7 @@ public sealed partial class GraphLowerer
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
         bool skinny = UseSkinnyGemm(plan);
-        long skinnyMin = intDot ? Math.Max(MatvecMaxRows, IntDotMaxRows(plan.W.Type, plan.K)) + 1 : SkinnyMinRows;
+        long skinnyMin = intDot ? IntDotSkinnyMinRows(plan.W.Type, plan.K, plan.N) : SkinnyMinRows;
         bool skinnyHere = skinny && SkinnyMaxRowsFor(plan.N) >= skinnyMin;
         // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
         // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
@@ -337,7 +337,7 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
-        long minRows = intDot ? Math.Max(MatvecMaxRows, IntDotMaxRows(p.W.Type, p.K)) + 1
+        long minRows = intDot ? (UseSkinnyGemm(p) ? IntDotSkinnyMinRows(p.W.Type, p.K, p.N) : Math.Max(MatvecMaxRows, IntDotMaxRows(p.W.Type, p.K)) + 1)
             : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRows) + 1)
             : MatvecMaxRows + 1;
         long maxRows = quantizedGemmMinRows is { } gemmMin ? Math.Min(rowsMax, gemmMin - 1) : rowsMax;

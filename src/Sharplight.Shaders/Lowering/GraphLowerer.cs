@@ -201,6 +201,27 @@ public sealed partial class GraphLowerer
         => !DiagnosticSwitches.NoWeightRepack && DiagnosticSwitches.Mxfp4Repack && w.Type == DataType.MXFP4 && w.Shape.Rank == 3
            && w.Shape.Dims.All(d => !d.IsSymbolic) && w.Shape[1].Fixed % WeightRepacker.Mxfp4GroupRows == 0 && w.Shape[2].Fixed % 32 == 0;
 
+    /// <summary>
+    /// The aligned split layout for block-scaled FP8 weights (<see cref="WeightRepack.Fp8B32Split"/>,
+    /// <see cref="WeightRepack.Fp8B128Split"/>) when their rows are a multiple of 16 bytes, else null.
+    /// <c>SHARPLIGHT_REPACK_FP8=0</c> keeps the stored block layout.
+    /// </summary>
+    private static WeightRepack? Fp8SplitRepack(WeightInfo w)
+    {
+        if (DiagnosticSwitches.NoWeightRepack || !DiagnosticSwitches.Fp8Repack || w.Shape.Rank < 1 || w.Shape[-1].IsSymbolic)
+        {
+            return null;
+        }
+
+        long k = w.Shape[-1].Fixed;
+        if (w.Type == DataType.F8E4M3_B128 && k % 512 == 0)
+        {
+            return WeightRepack.Fp8B128Split;
+        }
+
+        return w.Type == DataType.F8E4M3_B32 && k % 128 == 0 ? WeightRepack.Fp8B32Split : null;
+    }
+
     /// <summary>Returns the tensor reference of a value, materializing leaves (weights, states, inputs) on demand.</summary>
 
     private TensorRef Ref(Value v)
@@ -228,6 +249,11 @@ public sealed partial class GraphLowerer
                         wb.Repack = WeightRepack.Mxfp4Split;
                         wb.RepackRowElements = w.Shape[-1].Fixed;
                     }
+                    else if (Fp8SplitRepack(w) is { } fp8Split)
+                    {
+                        wb.Repack = fp8Split;
+                        wb.RepackRowElements = w.Shape[-1].Fixed;
+                    }
                 }
                 r = Dense(wb, v);
                 if (wb.Repack == WeightRepack.Q8_0Split)
@@ -237,6 +263,14 @@ public sealed partial class GraphLowerer
                 else if (wb.Repack == WeightRepack.Mxfp4Split)
                 {
                     r = r with { Type = ShaderTypes.MXFP4R };
+                }
+                else if (wb.Repack == WeightRepack.Fp8B32Split)
+                {
+                    r = r with { Type = ShaderTypes.F8E4M3_B32R };
+                }
+                else if (wb.Repack == WeightRepack.Fp8B128Split)
+                {
+                    r = r with { Type = ShaderTypes.F8E4M3_B128R };
                 }
 
                 break;

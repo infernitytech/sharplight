@@ -239,6 +239,12 @@ internal sealed unsafe class PhysicalDeviceInfo
             feats.Add(DeviceFeatures.MatrixWorkgroup);
         }
 
+        // NVIDIA's cooperative matrices are its mma.sync fragments, whose element layout is fixed by the hardware.
+        if (VendorId == 0x10DE && feats.Contains(DeviceFeatures.MatrixF16) && SubgroupSize == 32)
+        {
+            feats.Add(DeviceFeatures.MatrixMmaLayout);
+        }
+
         Features = feats;
 
         void Need(bool ok, string what) { if (!ok) { MissingFeatures.Add(what); } }

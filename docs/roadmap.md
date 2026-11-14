@@ -12,11 +12,15 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
   The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
   above 64 rows where it is bit-identical to the separate launches (pp2048 +3 %, §22.2). Next: a fetch-efficient fp8
-  GEMM (~280 of ~520 TFLOPS without global loads, §20.2, §22.10).
-- **Skinny GEMM (2–16 rows)**: retuned to 1.2–1.55 TB/s at 4 rows and 0.95–1.1 TB/s at 16 rows (§22.1); FP8 steps of
-  2–8 rows are 6–11 % faster. The 16-row step (33.1 ms against vLLM's 24 ms ITL at 16 streams) is dominated by the dual
-  gate/up GEMM; next is keeping x in registers across fragments, or a cross-workgroup K split with the reduction fused
-  into the consumer.
+  GEMM (~280 of ~520 TFLOPS without global loads, §20.2, §22.10). The aligned split FP8 layout gives the GEMM 2–7 %
+  (274–297 TFLOPS on the 27B shapes at 512 rows, §23.2); that is within the noise end to end.
+- **Skinny GEMM (2–16 rows)**: on NVIDIA (`matrix_mma_layout`), operands now load straight into the MMA fragments
+  (§23.1). FP8 gate/up runs at 1.38 TB/s and [17408→5120] at 1.24 TB/s at 16 rows. The 16-row step dropped from 34.3 to
+  29.6 ms (FP8) and from 33.7 to 29.3 ms (Q8_0), against vLLM's 26.2 ms mean ITL at 16 streams. Next:
+  - close the remaining gap to f16's ~1.65 TB/s;
+  - fold the small [5120→48] split-K matmuls (~0.9 ms per step);
+  - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
+  - re-measure serving against vLLM.
 - **Reduced-precision delta-rule state** (opt-in, `--reduced-precision`): an f16 / bf16 recurrent state for the gated
   delta rule, about a quarter of the 64-row decode step (§19.6). Needs the state type through the op, its CPU
   reference, both kernels, rollback records and snapshots (§22.10).

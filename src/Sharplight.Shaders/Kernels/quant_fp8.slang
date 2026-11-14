@@ -2,20 +2,28 @@
 // FP8 (OCP E4M3FN / E5M2) weight decoders. Included by common.slang (after the FMT_* ids); the CPU reference is Quant.Fp8.cs.
 //  * f8e4m3 / f8e5m2: one code per byte, rows of K bytes.
 //  * f8e4m3_b32 / f8e4m3_b128: blocks of { f32 d; u8 q[B] } (36 / 132 bytes, 4-byte aligned) along the row, value = d * e4m3(q).
+//  * f8e4m3_b32r / f8e4m3_b128r (FP8_SPLIT): the same rows repacked on upload to [K codes][K / B f32 scales].
 //
 // Decoding goes through half bits, exact for every code: an E4M3 code's sign moved to bit 15 and its 7 exponent/mantissa bits
 // to bits 7..13 is the half code * 2^-8 (the exponent biases differ by 8; E4M3 subnormals m * 2^-9 become the half subnormals
 // m * 2^-17). E5M2 is the upper byte of a half. One multiply by 256 * d then applies the block scale. NaN codes stay NaN.
 
-#if defined(WFMT) && (WFMT == FMT_F8E4M3 || WFMT == FMT_F8E5M2 || WFMT == FMT_F8E4M3_B32 || WFMT == FMT_F8E4M3_B128)
+#if defined(WFMT) && (WFMT == FMT_F8E4M3 || WFMT == FMT_F8E5M2 || WFMT == FMT_F8E4M3_B32 || WFMT == FMT_F8E4M3_B128 \
+                      || WFMT == FMT_F8E4M3_B32R || WFMT == FMT_F8E4M3_B128R)
 #define WFMT_FP8 1
-#if WFMT == FMT_F8E4M3_B32
+#if WFMT == FMT_F8E4M3_B32 || WFMT == FMT_F8E4M3_B32R
 #define FP8_BLOCK 32
-#elif WFMT == FMT_F8E4M3_B128
+#elif WFMT == FMT_F8E4M3_B128 || WFMT == FMT_F8E4M3_B128R
 #define FP8_BLOCK 128
 #else
 #define FP8_BLOCK 0
 #endif
+#endif
+// FP8_SPLIT: rows in the aligned split layout [K codes][K / B f32 scales] (16-byte aligned codes).
+#if defined(WFMT) && (WFMT == FMT_F8E4M3_B32R || WFMT == FMT_F8E4M3_B128R)
+#define FP8_SPLIT 1
+#else
+#define FP8_SPLIT 0
 #endif
 
 // Two FP8 codes (bytes 0,1 of u, or bytes 2,3 when hi) as packed half bits: E4M3 as value * 2^-8, E5M2 exactly.
@@ -41,9 +49,15 @@ uint64_t fp8_group(uint8_t* base, uint64_t rowBytes, uint row, uint g, uint bloc
     }
 
     uint groupsPerBlock = blockValues / 8;
+#if FP8_SPLIT
+    // Codes first (rowBytes * B / (B + 4) of them), then one f32 scale per block.
+    multiplier *= asfloat(*(uint*)(at + rowBytes / (blockValues + 4) * blockValues + (g / groupsPerBlock) * 4));
+    return at + uint64_t(g) * 8;
+#else
     uint64_t block = at + uint64_t(g / groupsPerBlock) * (blockValues + 4);
     multiplier *= asfloat(*(uint*)block);
     return block + 4 + (g % groupsPerBlock) * 8;
+#endif
 }
 
 // The 8 values [8g, 8g + 8) of row `row` as f32.
@@ -101,7 +115,12 @@ void load16h_fp8(uint8_t* w, uint64_t rowBytes, uint row, uint g16, out uint4 lo
 {
     float s;
     uint* p = (uint*)fp8_group(w, rowBytes, row, g16 * 2, FP8_BLOCK, WFMT == FMT_F8E5M2, s);
-    lo = uint4(fp8x4_h(p[0], s), fp8x4_h(p[1], s));
-    hi = uint4(fp8x4_h(p[2], s), fp8x4_h(p[3], s));
+#if FP8_SPLIT || FP8_BLOCK == 0
+    uint4 q = *(uint4*)p;   // 16-byte aligned codes
+#else
+    uint4 q = uint4(p[0], p[1], p[2], p[3]);
+#endif
+    lo = uint4(fp8x4_h(q.x, s), fp8x4_h(q.y, s));
+    hi = uint4(fp8x4_h(q.z, s), fp8x4_h(q.w, s));
 }
 #endif

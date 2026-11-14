@@ -51,6 +51,8 @@ public sealed partial class GraphLowerer
         [DataType.F8E5M2] = 51,
         [DataType.F8E4M3_B32] = 52,
         [DataType.F8E4M3_B128] = 53,
+        [ShaderTypes.F8E4M3_B32R] = 152,
+        [ShaderTypes.F8E4M3_B128R] = 153,
     };
 
     /// <summary>Tells whether the lowering has a kernel for <paramref name="node"/> (and, if not, why), so callers can partition unsupported nodes to another provider.</summary>

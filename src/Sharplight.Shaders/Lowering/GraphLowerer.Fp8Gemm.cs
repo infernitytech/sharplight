@@ -14,7 +14,8 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool UseFp8Gemm(DataType type, long k)
         => DiagnosticSwitches.Fp8Gemm && _opt.Has(DeviceFeatures.MatrixFp8) && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32
-           && (type == DataType.F8E4M3_B128 || type == DataType.F8E4M3_B32) && k % 128 == 0;
+           && (type == DataType.F8E4M3_B128 || type == DataType.F8E4M3_B32 || type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R)
+           && k % 128 == 0;
 
     /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
@@ -81,6 +82,7 @@ public sealed partial class GraphLowerer
 
         return Macros(("KERNEL_GEMM_FP8", 1), ("WBLOCK", type.BlockSize), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", type.ByteSize(k) + "ull"),
             ("F8_WM", layout[0]), ("F8_WN", layout[1]), ("F8_FM", layout[2]), ("F8_FN", layout[3]), ("SPLITK", split),
-            ("F8_GENERIC_LAYOUT", DiagnosticSwitches.MmqGenericLayout));
+            ("F8_GENERIC_LAYOUT", DiagnosticSwitches.MmqGenericLayout),
+            ("F8_SPLIT", type == ShaderTypes.F8E4M3_B128R || type == ShaderTypes.F8E4M3_B32R ? 1 : 0));
     }
 }

@@ -17,4 +17,15 @@ public enum WeightRepack
     /// matrix. Kernels see the type <see cref="ShaderTypes.MXFP4R"/>.
     /// </summary>
     Mxfp4Split,
+    /// <summary>
+    /// Block-scaled FP8 rows (blocks of { f32 scale; B codes }, B = 32) → [K codes][K/B f32 scales]: the codes of every row
+    /// start 16-byte aligned, so kernels read them with 16-byte loads instead of 4-byte loads of 36-byte blocks. Requires
+    /// K % 128 == 0 (a row size divisible by 16). Kernels see <see cref="ShaderTypes.F8E4M3_B32R"/>.
+    /// </summary>
+    Fp8B32Split,
+    /// <summary>
+    /// The <see cref="Fp8B32Split"/> layout for 128-value blocks (132-byte blocks). Requires K % 512 == 0. Kernels see
+    /// <see cref="ShaderTypes.F8E4M3_B128R"/>.
+    /// </summary>
+    Fp8B128Split,
 }

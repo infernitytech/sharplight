@@ -1,0 +1,28 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [36 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [234 ms]
+Write a short poem about the sea.Compiling 211 / 211, 211 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 28.58 / 28.58 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' for 1 sequences x 2048 tokens in 3496 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 26.93 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Compiling 169 / 169, 169 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 0.45 / 0.45 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'mtp_draft' for 1 sequences, 3 drafts, in 273 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 3 groups, 0.43 GiB weights+state
+1 segment(s): [0@0: 37 nodes]
+Ready (mtp_draft)
+
+
+<think>
+The user wants a short poem about the sea. Let me think about what angle to take. There are countless ways to write about the sea - its power, its calm, its mystery, its colors, its sound, its vastness. Let me aim for something that captures a specific, evocative moment rather than being generic. I'll go for a quiet, contemplative tone - the sea at a particular time, maybe dusk or early morning. I want vivid imagery, a sense of rhythm that mirrors waves, and a small emotional resonance. Let me keep it short - maybe 8-12 lines. I'll focus on the sensory experience: the sound, the color, the movement, and a small turn at the end that gives it weight.
+</think>
+
+**Salt Hymn**
+
+The tide pulls back like a held breath,
+leaving the sand a dark, wet mirror
+where the sky forgets its own reflection.
+
+Then it returns—
+prompt: 8 tok in 92 ms (86.6 tok/s) | generated: 200 tok, 89.00 tok/s | mtp drafts: 123/222 accepted (55%)

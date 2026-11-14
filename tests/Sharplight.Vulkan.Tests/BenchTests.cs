@@ -74,6 +74,7 @@ public sealed class BenchTests
     [InlineData("iq4_xs")]
     [InlineData("f8e4m3_b128")]
     [InlineData("f8e4m3_b32")]
+    [InlineData("f8e4m3")]
     public void MatMulPrefill(string type)
     {
         RequireBench();

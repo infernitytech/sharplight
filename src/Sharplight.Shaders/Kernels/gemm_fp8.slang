@@ -20,7 +20,7 @@
 // silu(a) * b); a workgroup covers F8_BN / 2 outputs.
 //
 // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
-// F8_FM, F8_FN, SPLITK, DUAL, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE (quantize_fp8). Requires K % 128 == 0
+// F8_FM, F8_FN, SPLITK, DUAL, F8_SPLIT, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE (quantize_fp8). Requires K % 128 == 0
 // and 32-lane subgroups.
 #include "common.slang"
 using namespace linalg;
@@ -99,6 +99,11 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 #ifndef DUAL
 #define DUAL 0
 #endif
+// F8_SPLIT: weight rows in the aligned split layout [K codes][K / WBLOCK f32 scales] (WeightRepack.Fp8B32Split /
+// Fp8B128Split), fetched with 16-byte loads; otherwise blocks of { f32 d; u8 q[WBLOCK] }, fetched a word at a time.
+#ifndef F8_SPLIT
+#define F8_SPLIT 0
+#endif
 #if DUAL && (SPLITK != 1 || F8_FN % 2 != 0)
 #error "the dual fp8 GEMM needs SPLITK = 1 and an even F8_FN"
 #endif
@@ -114,7 +119,11 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 #define F8_RS (F8_BK / 4 + 4)
 // Prefetch items per thread: activation uint4s, weight words, weight block scales.
 #define F8_A_ITEMS ((F8_BM * F8_BK / 16 + F8_THREADS - 1) / F8_THREADS)
+#if F8_SPLIT
+#define F8_B_ITEMS ((F8_BN * F8_BK / 16 + F8_THREADS - 1) / F8_THREADS)
+#else
 #define F8_B_ITEMS ((F8_BN * F8_BK / 4 + F8_THREADS - 1) / F8_THREADS)
+#endif
 #define F8_BS_ITEMS ((F8_BN * F8_WBLOCKS + F8_THREADS - 1) / F8_THREADS)
 
 struct Params
@@ -175,9 +184,50 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
 
     uint4 xa[F8_A_ITEMS];
     float xs;
+#if F8_SPLIT
+    uint4 wq[F8_B_ITEMS];
+#else
     uint wq[F8_B_ITEMS];
+#endif
     float wsc[F8_BS_ITEMS];
 
+#if F8_SPLIT
+    // Codes: 16 per item at row + k; scale of block b at row + K + 4 b.
+    #define F8_SCALE_AT(b) (uint64_t(K) + uint64_t(b) * 4)
+    #define F8_FETCH_W(k0)                                                                              \
+    [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
+    {                                                                                                   \
+        uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
+        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));               \
+        if (idx < F8_BN * F8_BK / 16) wq[it] = *(uint4*)(row + (k0) + q * 16);                          \
+    }
+    #define F8_STAGE_W()                                                                                \
+    [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
+    {                                                                                                   \
+        uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 16), q = idx % (F8_BK / 16);               \
+        if (idx < F8_BN * F8_BK / 16)                                                                   \
+        {                                                                                               \
+            uint o = r * F8_RS + q * 4;                                                                 \
+            sB[o] = wq[it].x; sB[o + 1] = wq[it].y; sB[o + 2] = wq[it].z; sB[o + 3] = wq[it].w;         \
+        }                                                                                               \
+    }
+#else
+    #define F8_SCALE_AT(b) (uint64_t(b) * (WBLOCK + 4))
+    #define F8_FETCH_W(k0)                                                                              \
+    [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
+    {                                                                                                   \
+        uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 4), word = idx % (F8_BK / 4);              \
+        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));               \
+        uint blk = ((k0) + word * 4) / WBLOCK;                                                          \
+        if (idx < F8_BN * F8_BK / 4) wq[it] = *(uint*)(row + (uint64_t(blk) * (WBLOCK + 4) + 4 + ((k0) + word * 4) % WBLOCK)); \
+    }
+    #define F8_STAGE_W()                                                                                \
+    [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
+    {                                                                                                   \
+        uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 4), word = idx % (F8_BK / 4);              \
+        if (idx < F8_BN * F8_BK / 4) sB[r * F8_RS + word] = wq[it];                                     \
+    }
+#endif
     // Rows past T or N are clamped for loading (their results are never stored).
     #define FETCH(k0)                                                                                   \
     [ForceUnroll] for (uint it = 0; it < F8_A_ITEMS; it++)                                              \
@@ -187,18 +237,12 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
         if (idx < F8_BM * F8_BK / 16) xa[it] = *(uint4*)byteAt(p.x, uint64_t(t) * F8ROW + (k0) + q * 16); \
     }                                                                                                   \
     if (tid < F8_BM) xs = *(float*)byteAt(p.x, uint64_t(min(t0 + tid, p.T - 1)) * F8ROW + K + (k0) / 32); \
-    [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
-    {                                                                                                   \
-        uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 4), word = idx % (F8_BK / 4);              \
-        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));                              \
-        uint blk = ((k0) + word * 4) / WBLOCK;                                                          \
-        if (idx < F8_BN * F8_BK / 4) wq[it] = *(uint*)(row + (uint64_t(blk) * (WBLOCK + 4) + 4 + ((k0) + word * 4) % WBLOCK)); \
-    }                                                                                                   \
+    F8_FETCH_W(k0)                                                                                      \
     [ForceUnroll] for (uint it = 0; it < F8_BS_ITEMS; it++)                                             \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx % F8_BN, bl = idx / F8_BN;                            \
         uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));                              \
-        if (idx < F8_BN * F8_WBLOCKS) wsc[it] = *(float*)(row + uint64_t((k0) / WBLOCK + bl) * (WBLOCK + 4)); \
+        if (idx < F8_BN * F8_WBLOCKS) wsc[it] = *(float*)(row + F8_SCALE_AT((k0) / WBLOCK + bl));       \
     }
     #define STAGE()                                                                                     \
     [ForceUnroll] for (uint it = 0; it < F8_A_ITEMS; it++)                                              \
@@ -211,11 +255,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
         }                                                                                               \
     }                                                                                                   \
     if (tid < F8_BM) sAS[tid] = xs;                                                                     \
-    [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
-    {                                                                                                   \
-        uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 4), word = idx % (F8_BK / 4);              \
-        if (idx < F8_BN * F8_BK / 4) sB[r * F8_RS + word] = wq[it];                                     \
-    }                                                                                                   \
+    F8_STAGE_W()                                                                                        \
     [ForceUnroll] for (uint it = 0; it < F8_BS_ITEMS; it++)                                             \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS;                                                               \
@@ -309,6 +349,9 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     }
     #undef FETCH
     #undef STAGE
+    #undef F8_FETCH_W
+    #undef F8_STAGE_W
+    #undef F8_SCALE_AT
 
     [ForceUnroll]
     for (int i = 0; i < F8_FM; i++)

@@ -1,0 +1,27 @@
+Graph optimization (sharplight-ir/1): decode 1108 -> 1108 nodes, decode_embeddings 1107 -> 1107 nodes [38 ms]
+Loaded gpt-oss-20b (decoder): 460 tensors, 12.10 GB, vocab 201088 [334 ms]
+Uploading weights 12.10 / 12.10 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiling 116 / 116, 1 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 4220 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 26 groups, 11.36 GiB weights+state
+1 segment(s): [0@0: 1109 nodes]
+Ready (decode)
+--- rendered prompt ---
+<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.
+Knowledge cutoff: 2024-06
+Current date: 2026-11-14
+
+Reasoning: medium
+
+# Valid channels: analysis, commentary, final. Channel must be included for every message.<|end|><|start|>user<|message|>Write a short poem about the sea.<|end|><|start|>assistant
+-----------------------
+<|channel|>analysis<|message|>The user wants a short poem about the sea. We should produce a short poem. Probably 4-8 lines. Use imagery, maybe personification. Keep it concise. Let's produce something evocative.<|end|><|start|>assistant<|channel|>final<|message|>Beneath the moon’s soft silver sigh,  
+The sea hums a lullaby of waves,  
+Each ripple a whispered promise,  
+A tide that cradles secrets in its arms.  
+
+Its depths hold stories older than stars,  
+And foam that kisses shorelines with a sigh—  
+A restless heart that beats in salt and wind,  
+Forever turning, forever free.
+prompt: 75 tok in 55 ms (1357.1 tok/s) | generated: 129 tok, 274.25 tok/s

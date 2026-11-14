@@ -12,6 +12,8 @@ public static class WeightRepacker
     {
         WeightRepack.Q8_0Split => k / 32 * 34,
         WeightRepack.Mxfp4Split => Mxfp4GroupRows * (k / 32 * 17),
+        WeightRepack.Fp8B32Split => k / 32 * 36,
+        WeightRepack.Fp8B128Split => k / 128 * 132,
         _ => throw new ArgumentOutOfRangeException(nameof(r)),
     };
 
@@ -40,6 +42,17 @@ public static class WeightRepacker
             return;
         }
 
+        if (r is WeightRepack.Fp8B32Split or WeightRepack.Fp8B128Split)
+        {
+            int block = r == WeightRepack.Fp8B32Split ? 32 : 128;
+            for (int row = 0; row < src.Length / rowBytes; row++)
+            {
+                SplitFp8Row(src.Slice((int)(row * rowBytes), (int)rowBytes), dst.Slice((int)(row * rowBytes), (int)rowBytes), (int)(k / block), block);
+            }
+
+            return;
+        }
+
         for (int row = 0; row < src.Length / rowBytes; row++)
         {
             var s = src.Slice((int)(row * rowBytes), (int)rowBytes);
@@ -53,6 +66,19 @@ public static class WeightRepacker
                 scales[b * 2 + 1] = blk[1];
                 blk[2..].CopyTo(quants.Slice(b * 32, 32));
             }
+        }
+    }
+
+    // One row of { f32 d; u8 q[block] } blocks → all codes, then all scales.
+    private static void SplitFp8Row(ReadOnlySpan<byte> src, Span<byte> dst, int blocks, int block)
+    {
+        var codes = dst[..(blocks * block)];
+        var scales = dst[(blocks * block)..];
+        for (int b = 0; b < blocks; b++)
+        {
+            var blk = src.Slice(b * (block + 4), block + 4);
+            blk[..4].CopyTo(scales.Slice(b * 4, 4));
+            blk[4..].CopyTo(codes.Slice(b * block, block));
         }
     }
 

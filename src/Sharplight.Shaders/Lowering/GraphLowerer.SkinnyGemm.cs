@@ -1,6 +1,7 @@
 using System.Globalization;
 using Sharplight.Graph;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
@@ -116,7 +117,8 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length, SkinnySharedBytes);
+            bool direct = UseDirectSkinny(weights[0].Type, half, fm, k);
+            var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length, SkinnySharedBytes, direct);
             var macros = new Dictionary<string, string>(baseMacros)
             {
                 ["X_STRIDE"] = activationStride.ToString(CultureInfo.InvariantCulture),
@@ -125,6 +127,7 @@ public sealed partial class GraphLowerer
                 ["SK_FN"] = fn.ToString(CultureInfo.InvariantCulture),
                 ["SK_SG"] = sg.ToString(CultureInfo.InvariantCulture),
                 ["SK_BK"] = bk.ToString(CultureInfo.InvariantCulture),
+                ["SK_DIRECT"] = direct ? "1" : "0",
             };
             long low = previous;
             long high = bucketMax;
@@ -139,18 +142,47 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
+    /// True when the skinny GEMM launch for <paramref name="fm"/> token fragments loads its operands straight into the fragment
+    /// registers (<c>SK_DIRECT</c> in <c>matmul_skinny.slang</c>): the device's fragments have the MMA element layout
+    /// (<see cref="DeviceFeatures.MatrixMmaLayout"/>), one token fragment (up to 16 rows) reading the f16 copy of x, K divisible
+    /// by 64. Blackwell, FP8 at 16 rows: [5120→17408]x2 gate/up 141 → 127 µs, [17408→5120] 83 → 70 µs (with the aligned FP8
+    /// layout). Without the feature, or with <c>SHARPLIGHT_SKINNY_DIRECT=0</c>, the operands are staged in shared memory.
+    /// Only for <see cref="s_directSkinnyFormats"/>.
+    /// </summary>
+    private bool UseDirectSkinny(DataType type, bool half, int fm, long k)
+        => DiagnosticSwitches.SkinnyGemmDirect && _opt.Has(DeviceFeatures.MatrixMmaLayout) && s_directSkinnyFormats.Contains(type) && half && fm == 1
+           && k % 64 == 0;
+
+    /// <summary>
+    /// Weight formats the direct skinny GEMM serves: those it reads faster than the staged path (Blackwell, 16 rows: FP8
+    /// [17408→5120] 84 → 72 µs, Q8_0 80 → 67 µs). f16 / bf16 weights already stream near bandwidth when staged (no gain),
+    /// and the K-quants' decode is not tuned for it; they keep the staged path and its rounding.
+    /// </summary>
+    private static readonly HashSet<DataType> s_directSkinnyFormats =
+        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R];
+
+    /// <summary>
     /// Skinny GEMM configuration for <paramref name="fm"/> token fragments: weight fragments per workgroup, subgroups splitting
     /// K inside the workgroup and the K block. One weight fragment per workgroup except for wide single matrices, more
     /// subgroups when there are few workgroups, so the launch keeps enough loads in flight; never more subgroups than K blocks.
-    /// The K block shrinks (then the subgroups halve) until the staged slices fit <paramref name="sharedBytes"/>.
+    /// The K block shrinks (then the subgroups halve) until the staged slices fit <paramref name="sharedBytes"/>. With
+    /// <paramref name="direct"/>, one fragment and 8 subgroups (the K block is not used).
     /// </summary>
-    private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices, long sharedBytes)
+    private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices, long sharedBytes, bool direct)
     {
         int bk = k % 64 == 0 ? 64 : 32;
         int fn = matrices > 1 || fm > 2 || n < SkinnyTwoFragmentMinN ? 1 : 2;
         long workgroups = (n + fn * 16 - 1) / (fn * 16);
         int sg = 4;
-        while (sg < 8 && workgroups * sg < SkinnyTargetSubgroups && k / bk >= sg * 4)
+        if (direct)
+        {
+            // The direct path keeps no slices in shared memory, so it takes 8 subgroups for every shape: one fragment and 8
+            // subgroups was the best or within 3 % of the best configuration for every 27B shape at 4 and 16 rows (Blackwell).
+            fn = 1;
+            sg = (int)Math.Clamp(k / 64, 1, 8);
+        }
+
+        while (!direct && sg < 8 && workgroups * sg < SkinnyTargetSubgroups && k / bk >= sg * 4)
         {
             sg *= 2;
         }
@@ -160,8 +192,9 @@ public sealed partial class GraphLowerer
             (fn, sg, bk) = (forced[0], forced[1], k % forced[2] == 0 ? forced[2] : 32);
         }
 
-        // Shared memory: every subgroup stages fm + fn * matrices fragments of 16 rows x (bk + 8) halves.
-        while (sg * (fm + fn * matrices) * 16 * (bk + 8) * 2 > sharedBytes)
+        // Shared memory: every subgroup stages fm + fn * matrices fragments of 16 rows x (bk + 8) halves (the direct path only
+        // keeps the layout probe and the final reduction there).
+        while (!direct && sg * (fm + fn * matrices) * 16 * (bk + 8) * 2 > sharedBytes)
         {
             if (bk > 32)
             {
