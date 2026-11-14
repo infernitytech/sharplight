@@ -11,6 +11,9 @@ internal static class Diff
 {
     public static readonly ConcurrentDictionary<string, (double MaxAbs, double MaxScaled, int Cases)> Results = new();
 
+    /// <summary>Largest relative RMS error (sqrt(sum d^2 / sum ref^2) of one output in one step) per op and case.</summary>
+    public static readonly ConcurrentDictionary<string, double> RelativeRms = new();
+
     /// <summary>Features the CPU oracle runs without, so that it computes in f32 (the integer-dot matmuls quantize activations).</summary>
     private static readonly HashSet<string> s_exactOracle = [DeviceFeatures.IntDot];
 
@@ -20,7 +23,8 @@ internal static class Diff
         {
             try
             {
-                var lines = Results.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key,-40} cases={kv.Value.Cases,3} maxAbs={kv.Value.MaxAbs:E2} maxErr/tol={kv.Value.MaxScaled:F3}");
+                var lines = Results.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key,-40} cases={kv.Value.Cases,3} maxAbs={kv.Value.MaxAbs:E2} maxErr/tol={kv.Value.MaxScaled:F3}")
+                    .Concat(RelativeRms.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key,-60} relRms={kv.Value:E2}"));
                 File.WriteAllLines(Path.Combine(AppContext.BaseDirectory, "diff-summary.txt"), lines);
             }
             catch { }
@@ -136,8 +140,11 @@ internal static class Diff
                 var x = new float[n];
                 var y = new float[n];
                 vk.GetOutput<float>(name, x); cpu.GetOutput<float>(name, y);
+                double sumDiff = 0, sumRef = 0;
                 for (long i = 0; i < n; i++)
                 {
+                    sumDiff += ((double)x[i] - y[i]) * ((double)x[i] - y[i]);
+                    sumRef += (double)y[i] * y[i];
                     double d = Math.Abs((double)x[i] - y[i]);
                     double tol = atol + rtol * Math.Abs(y[i]);
                     if (double.IsNaN(x[i]) != double.IsNaN(y[i]) || (!double.IsNaN(y[i]) && d > tol))
@@ -151,6 +158,9 @@ internal static class Diff
                         maxScaled = Math.Max(maxScaled, d / tol);
                     }
                 }
+
+                double rel = sumRef > 0 ? Math.Sqrt(sumDiff / sumRef) : Math.Sqrt(sumDiff);
+                RelativeRms.AddOrUpdate($"{op} {what}", rel, (_, old) => Math.Max(old, rel));
             }
         }
         Results.AddOrUpdate(op, (maxAbs, maxScaled, 1), (_, o) => (Math.Max(o.MaxAbs, maxAbs), Math.Max(o.MaxScaled, maxScaled), o.Cases + 1));

@@ -53,6 +53,14 @@ namespace Sharplight.Shaders;
 /// row prefix (absorbed multi-head latent attention, <c>fa_mqa</c>); prefill and decode then use the generic kernels.</item>
 /// <item><c>SHARPLIGHT_DELTA_LPR</c>, <c>SHARPLIGHT_DELTA_DVB</c>, <c>SHARPLIGHT_SSM_LPR</c>: lanes per row and value-row
 /// block of the delta-rule and selective-scan kernels.</item>
+/// <item><c>SHARPLIGHT_DELTA_CHUNK=0</c>: run the gated delta rule token by token for every batch (no chunked tensor-core form,
+/// <c>chunked.slang</c>). <c>SHARPLIGHT_DELTA_CHUNK_MIN=n</c>: rows of a sequence from which the chunked form serves it (default
+/// 64). <c>SHARPLIGHT_DELTA_CHUNK_BV=16|32|64</c>: state columns per workgroup of its sequential pass,
+/// <c>SHARPLIGHT_DELTA_CHUNK_THREADS=128|256</c> its threads per workgroup.
+/// <c>SHARPLIGHT_DELTA_CHUNK_PARTS=1|2</c>: force one f16 product (reduced precision) or the two-part f16 split (near f32).</item>
+/// <item><c>SHARPLIGHT_CONV1D_PARALLEL=0</c>: run the causal conv1d of prefill batches token by token per channel (no
+/// token-parallel <c>conv1d_tokens</c> + <c>conv1d_state</c>). <c>SHARPLIGHT_CONV1D_TOKENS=n</c>: tokens per thread of the
+/// token-parallel form (default 8).</item>
 /// <item><c>SHARPLIGHT_MOE_MV_MAX</c>, <c>SHARPLIGHT_MOE_MMVQ_MAX</c>, <c>SHARPLIGHT_MOE_TILE</c>, <c>SHARPLIGHT_MOE_SCALAR_ROWS</c>,
 /// <c>SHARPLIGHT_MOE_NO_COOP=1</c>: expert-matmul tuning (see <c>GraphLowerer.Moe.cs</c>). <c>SHARPLIGHT_MOE_GEMM2=0</c>: run
 /// grouped expert matmuls on moe_gemm_cm instead of the expert-grouped gemm_cm2.</item>
@@ -170,6 +178,27 @@ internal static class DiagnosticSwitches
 
     /// <summary>Preferred state rows per workgroup of the gated delta rule.</summary>
     public static long DeltaRowsPerBlock { get; } = long.Parse(Read("SHARPLIGHT_DELTA_DVB") ?? "16", CultureInfo.CurrentCulture);
+
+    /// <summary>True when the gated delta rule may use its chunked tensor-core form for long runs.</summary>
+    public static bool DeltaChunked { get; } = IsNotZero("SHARPLIGHT_DELTA_CHUNK");
+
+    /// <summary>Rows of one sequence from which the chunked delta rule serves it.</summary>
+    public static int DeltaChunkMinRows { get; } = int.Parse(Read("SHARPLIGHT_DELTA_CHUNK_MIN") ?? "64", CultureInfo.CurrentCulture);
+
+    /// <summary>State columns per workgroup of the chunked delta rule's sequential pass (0 = chosen by the lowering).</summary>
+    public static int DeltaChunkColumns { get; } = int.Parse(Read("SHARPLIGHT_DELTA_CHUNK_BV") ?? "0", CultureInfo.CurrentCulture);
+
+    /// <summary>Forced operand parts of the chunked delta rule (1 or 2; 0 = from the precision policy).</summary>
+    public static int DeltaChunkParts { get; } = int.Parse(Read("SHARPLIGHT_DELTA_CHUNK_PARTS") ?? "0", CultureInfo.CurrentCulture);
+
+    /// <summary>Threads per workgroup (128 or 256) of the sequential pass of the chunked delta rule (0 = by column block).</summary>
+    public static int DeltaChunkThreads { get; } = int.Parse(Read("SHARPLIGHT_DELTA_CHUNK_THREADS") ?? "0", CultureInfo.CurrentCulture);
+
+    /// <summary>Whether prefill batches run the causal conv1d token-parallel (<c>SHARPLIGHT_CONV1D_PARALLEL=0</c> disables).</summary>
+    public static bool Conv1dParallel { get; } = IsNotZero("SHARPLIGHT_CONV1D_PARALLEL");
+
+    /// <summary>Tokens per thread of the token-parallel causal conv1d.</summary>
+    public static int Conv1dTokens { get; } = int.Parse(Read("SHARPLIGHT_CONV1D_TOKENS") ?? "8", CultureInfo.CurrentCulture);
 
     /// <summary>Preferred lanes per row of the selective scan.</summary>
     public static int SsmLanesPerRow { get; } = int.Parse(Read("SHARPLIGHT_SSM_LPR") ?? "8", CultureInfo.CurrentCulture);

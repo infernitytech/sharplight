@@ -10,7 +10,7 @@
 #define ROLLBACK 0
 #endif
 
-#ifdef KERNEL_CONV1D
+#if defined(KERNEL_CONV1D) || defined(KERNEL_CONV1D_TOKENS) || defined(KERNEL_CONV1D_STATE)
 // ---------------------------------------------------------------------------------------------
 // CausalConv1d: x [T, C] (row stride XS), weight [C, KS] f32, state [KS-1, C] f32 (oldest first),
 // y dense [T, C]. One thread per channel; walks tokens sequentially and updates the state.
@@ -94,6 +94,85 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     }
 }
 
+// Token-parallel form for prefill (the loop above walks every token of a run in turn and is latency bound):
+// conv1d_tokens computes TOK consecutive outputs of one channel per thread (grid y = token block, z = run) from x and the
+// old state; conv1d_state then writes the new state (the last KS-1 inputs of each run) after a barrier.
+#ifndef TOK
+#define TOK 8
+#endif
+
+// Input of channel c at run-local index i (negative: from the carried state, zero for a fresh sequence).
+float conv_in(ConvParams p, float* state, uint tBeg, bool fresh, int i, uint c)
+{
+    if (i >= 0) return p.x[uint64_t(tBeg + uint(i)) * XS + c];
+    return fresh ? 0.0 : state[uint64_t(KS - 1 + i) * C + c];
+}
+
+[shader("compute")]
+[numthreads(128, 1, 1)]
+void conv1d_tokens(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
+{
+    uint c = dtid.x;
+    if (c >= C) return;
+#if MULTI_SEQ
+    int4 run = int4(p.runs[(dtid.z) * 4], p.runs[(dtid.z) * 4 + 1], p.runs[(dtid.z) * 4 + 2], p.runs[(dtid.z) * 4 + 3]);
+    float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
+    uint tBeg = uint(run.y), n = uint(run.z);
+    bool fresh = run.w == 0;
+#else
+    float* state = p.state;
+    uint tBeg = 0, n = p.T;
+    bool fresh = false;
+#endif
+    uint i0 = dtid.y * TOK;
+    if (i0 >= n) return;
+    float win[KS];
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, tBeg, fresh, int(i0) - (KS - 1) + j, c);
+    float wk[KS];
+    [ForceUnroll] for (int j = 0; j < KS; j++) wk[j] = p.w[uint64_t(c) * KS + j];
+#if HAS_BIAS
+    float bias = p.bias[c];
+#endif
+    [ForceUnroll]
+    for (uint i = 0; i < TOK; i++)
+    {
+        if (i0 + i >= n) break;
+        uint t = tBeg + i0 + i;
+        win[KS - 1] = p.x[uint64_t(t) * XS + c];
+        float s = 0;
+        [ForceUnroll] for (int j = 0; j < KS; j++) s += win[j] * wk[j];
+#if HAS_BIAS
+        s += bias;
+#endif
+#if ACT_SILU
+        s = s / (1.0 + exp(-s));
+#endif
+        p.y[uint64_t(t) * C + c] = s;
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
+    }
+}
+
+[shader("compute")]
+[numthreads(128, 1, 1)]
+void conv1d_state(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
+{
+    uint c = dtid.x;
+    if (c >= C) return;
+#if MULTI_SEQ
+    int4 run = int4(p.runs[(dtid.z) * 4], p.runs[(dtid.z) * 4 + 1], p.runs[(dtid.z) * 4 + 2], p.runs[(dtid.z) * 4 + 3]);
+    float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
+    uint tBeg = uint(run.y), n = uint(run.z);
+    bool fresh = run.w == 0;
+#else
+    float* state = p.state;
+    uint tBeg = 0, n = p.T;
+    bool fresh = false;
+#endif
+    float win[KS - 1];
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, tBeg, fresh, int(n) - (KS - 1) + j, c);
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) state[uint64_t(j) * C + c] = win[j];
+}
+
 #endif
 
 #ifdef KERNEL_DELTA_RULE
@@ -104,7 +183,11 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 // q,k: [T, HK, DK] strides (QS0,QS1)/(KS0,KS1); v: [T, HV, DV] strides (VS0, VS1);
 // g, beta: [T, HV] dense; state [HV, DV, DK] f32; out dense [T, HV, DV].
 // Macros: HK, HV, DK, DV, QS0, QS1, KS0, KS1, VS0, VS1, SCALE, LPR (lanes per row, power of 2 <= SG),
-// DVB (state rows per workgroup; rows are independent, so a head is split over DV/DVB workgroups).
+// DVB (state rows per workgroup; rows are independent, so a head is split over DV/DVB workgroups),
+// SEQ_MAX_ROWS (multi-sequence: runs longer than this are left to the chunked form; 0 = serve every run).
+#ifndef SEQ_MAX_ROWS
+#define SEQ_MAX_ROWS 0
+#endif
 struct DeltaParams
 {
     float* q;
@@ -175,6 +258,9 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
 
 #if MULTI_SEQ
     int4 run = int4(p.runs[(gid.z) * 4], p.runs[(gid.z) * 4 + 1], p.runs[(gid.z) * 4 + 2], p.runs[(gid.z) * 4 + 3]);
+#if SEQ_MAX_ROWS
+    if (run.z > SEQ_MAX_ROWS) return;   // longer runs take the chunked form (chunked.slang)
+#endif
     float* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j) * DK + part;
     uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
     bool fresh = run.w == 0;   // a sequence starting at position 0 starts from zero state

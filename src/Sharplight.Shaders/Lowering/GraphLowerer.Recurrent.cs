@@ -5,6 +5,9 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
+    /// <summary>Rows of a sequence from which the causal conv1d runs token-parallel (shorter runs walk their tokens).</summary>
+    private const int Conv1dParallelMinRows = 16;
+
     // ---- recurrent ---------------------------------------------------------------------------
     private void LowerConv(Node n)
     {
@@ -29,13 +32,32 @@ public sealed partial class GraphLowerer
         TensorRef? cb = hasBias ? Ref(n.Inputs[3]) : null;
         var runs = RecurrentRuns(n, hasBias ? 4 : 3);
         var (commits, records, rollback) = RollbackBindings(n);
-        var k = Lib("recurrent.slang", "conv1d", Macros([("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
-            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null), .. rollback]));
+        int tok = Math.Max(1, DiagnosticSwitches.Conv1dTokens);
+        var macros = Macros([("C", C), ("KS", KS), ("XS", x.Strides[0]), ("ACT_SILU", n.Attributes.Get("activation", "none") == "silu"),
+            ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null), ("TOK", tok), .. rollback]);
+        var k = Lib("recurrent.slang", "conv1d", macros);
+        KernelArg[] args = [Pointer(x), Pointer(w), Pointer(st), Pointer(y), Pointer(cb ?? y), .. SeqArgs(runs, commits, records), TokenArg(x)];
+        TensorRef[] reads = [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. SequenceTables(runs, commits, records)];
+        uint Runs(Bindings b) => runs is null ? 1u : (uint)Rows(b, runs);
+        // The rollback form (replayed and recorded rows) keeps the per-channel walk.
+        if (!DiagnosticSwitches.Conv1dParallel || records is not null)
+        {
+            Emit($"conv1d {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(C, 128), 1, Runs(b)))], args, reads,
+                [y, st, .. records is null ? [] : (TensorRef[])[records]]);
+            return;
+        }
+
+        // Prefill: token-parallel outputs, then the state update (a run walks its tokens in turn only for short batches,
+        // where the extra launch would cost more than the walk).
+        Func<Bindings, bool> parallel = runs is null ? b => Rows(b, x) >= Conv1dParallelMinRows : b => Rows(b, x) - Rows(b, runs) + 1 >= Conv1dParallelMinRows;
+        var tokens = Lib("recurrent.slang", "conv1d_tokens", macros);
+        var state = Lib("recurrent.slang", "conv1d_state", macros);
         Emit($"conv1d {n.Output.Name}", [n],
-            [Always(k, b => new Grid(Grid.Div(C, 128), 1, runs is null ? 1u : (uint)Rows(b, runs)))],
-            [Pointer(x), Pointer(w), Pointer(st), Pointer(y),
-             Pointer(cb ?? y), .. SeqArgs(runs, commits, records), TokenArg(x)],
-            [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. SequenceTables(runs, commits, records)], [y, st, .. records is null ? [] : (TensorRef[])[records]]);
+            [new KernelVariant(parallel, tokens, b => new Grid(Grid.Div(C, 128), Grid.Div(Rows(b, x), tok), Runs(b))),
+             new KernelVariant(_ => true, k, b => new Grid(Grid.Div(C, 128), 1, Runs(b)))],
+            args, reads, [y, st]);
+        Emit($"conv1d {n.Output.Name}", [n], [new KernelVariant(parallel, state, b => new Grid(Grid.Div(C, 128), 1, Runs(b)))],
+            args, reads, [st]);
     }
 
     private void LowerDeltaRule(Node n)
@@ -62,6 +84,21 @@ public sealed partial class GraphLowerer
         long DK = q.Shape[2];
         long HV = v.Shape[1];
         long DV = v.Shape[2];
+        Node[] nodes = [.. new[] { normQ, normK }.OfType<Node>(), n];
+        // The rollback form (replayed and recorded rows) keeps the token-by-token kernel for every run.
+        var chunked = records is null ? ChunkedDeltaPlan(DK, DV) : null;
+        int chunkMin = Math.Max(1, DiagnosticSwitches.DeltaChunkMinRows);
+        var common = Macros(("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
+            ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("KS0", k.Strides[0]), ("KS1", k.Strides[1]), ("VS0", v.Strides[0]), ("VS1", v.Strides[1]),
+            ("SCALE", n.Attributes.Get<float>("scale")),
+            ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
+            ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
+            ("MULTI_SEQ", runs is not null));
+        if (chunked is { } plan)
+        {
+            EmitChunkedDeltaRule(nodes, plan, common, chunkMin, q, k, v, g, beta, st, o, runs);
+        }
+
         int lanesPerRow = Math.Min(DiagnosticSwitches.DeltaLanesPerRow, _opt.SubgroupSize);
         while ((DV * lanesPerRow > 1024 || DK % lanesPerRow != 0) && lanesPerRow > 1)
         {
@@ -71,14 +108,18 @@ public sealed partial class GraphLowerer
         // Split each head's DV state rows over several workgroups (rows are independent) for occupancy.
         long wantedRowsPerBlock = DiagnosticSwitches.DeltaRowsPerBlock;
         long dvb = DV % wantedRowsPerBlock == 0 ? wantedRowsPerBlock : DV;
-        var kern = Lib("recurrent.slang", "delta_rule", Macros([("HK", HK), ("HV", HV), ("DK", DK), ("DV", DV),
-            ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("KS0", k.Strides[0]), ("KS1", k.Strides[1]), ("VS0", v.Strides[0]), ("VS1", v.Strides[1]),
-            ("SCALE", n.Attributes.Get<float>("scale")), ("LPR", lanesPerRow), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
-            ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
-            ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
-            ("MULTI_SEQ", runs is not null), .. rollback]));
-        Emit($"delta_rule {n.Output.Name}", [.. new[] { normQ, normK }.OfType<Node>(), n],
-            [Always(kern, b => new Grid((uint)HV, (uint)(DV / dvb), runs is null ? 1u : (uint)Rows(b, runs)))],
+        // With the chunked form, the token-by-token kernel serves the short runs (multi-sequence) or the short batches.
+        var macros = new Dictionary<string, string>(common, StringComparer.Ordinal);
+        foreach (var (key, value) in Macros([("LPR", lanesPerRow), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
+                     ("SEQ_MAX_ROWS", chunked is not null && runs is not null ? chunkMin - 1 : 0), .. rollback]))
+        {
+            macros[key] = value;
+        }
+
+        var kern = Lib("recurrent.slang", "delta_rule", macros);
+        Func<Bindings, bool> when = chunked is null || runs is not null ? _ => true : b => Rows(b, q) < chunkMin;
+        Emit($"delta_rule {n.Output.Name}", nodes,
+            [new KernelVariant(when, kern, b => new Grid((uint)HV, (uint)(DV / dvb), runs is null ? 1u : (uint)Rows(b, runs)))],
             [Pointer(q), Pointer(k), Pointer(v),
              Pointer(g), Pointer(beta), Pointer(st),
              Pointer(o), .. SeqArgs(runs, commits, records), TokenArg(q)],
