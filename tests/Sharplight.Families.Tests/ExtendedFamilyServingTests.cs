@@ -49,6 +49,9 @@ public class ExtendedFamilyServingTests
             // probability, which the batched kernels' accumulation order flips on Vulkan. tiny-random-unlimited-ocr has the same layers.
             "hf/tiny-random-unlimited-ocr",
             "gguf/tiny-random-deepseek-ocr-f32.gguf",
+            // Round 9: per-token adapters (the router's KV cache next to the layers').
+            "hf/tiny-random-granite-switch",
+            "gguf/tiny-random-granite-switch-f32.gguf",
         ];
         foreach (string model in models)
         {

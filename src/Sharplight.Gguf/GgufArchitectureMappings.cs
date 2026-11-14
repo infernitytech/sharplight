@@ -18,6 +18,7 @@ internal static class GgufArchitectureMappings
         Register(new Rwkv6GgufMapping());
         Register(new LatentDecoderGgufMapping());
         Register(new Eagle3GgufMapping());
+        Register(new Gemma4AssistantGgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());
@@ -118,6 +119,7 @@ internal static class GgufArchitectureMappings
         yield return new LimiteGgufMapping();
         yield return new GroveMoeGgufMapping();
         yield return new K2HorizonGgufMapping();
+        yield return new GraniteSwitchGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>

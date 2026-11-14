@@ -11,6 +11,8 @@ internal sealed partial class HfConfig : IDisposable
 {
     private readonly JsonDocument _doc;
     private readonly Dictionary<string, JsonElement> _flat = new(StringComparer.Ordinal);
+    private readonly string? _modelType;     // a view's model type (AsModelType); null: from the document
+    private readonly bool _ownsDocument = true;
 
     /// <summary>The parsed root object of <c>config.json</c> (before merging <c>text_config</c>).</summary>
     public JsonElement Root => _doc.RootElement;
@@ -55,10 +57,26 @@ internal sealed partial class HfConfig : IDisposable
     /// <c>qwen3_moe</c>) get their own type.
     /// </summary>
     public string? ModelType
-        => Eagle3HfMapping.IsDrafter(this) ? "eagle3"
+        => _modelType ?? (Eagle3HfMapping.IsDrafter(this) ? "eagle3"
             : Architectures.Select(a => s_remoteCodeOverrides.GetValueOrDefault(a)).FirstOrDefault(t => t is not null) is { } overridden ? overridden
             : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
-            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null);
+            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null));
+
+    private HfConfig(HfConfig config, string modelType)
+    {
+        _doc = config._doc;
+        _flat = config._flat;
+        Directory = config.Directory;
+        _modelType = modelType;
+        _ownsDocument = false;
+    }
+
+    /// <summary>
+    /// A view of this config that reports <paramref name="modelType"/> as its <see cref="ModelType"/>: a drafter whose layers are another model type's
+    /// (a Gemma 4 assistant's are <c>gemma4_text</c> layers) maps them with that type's mapping. The view shares this config's document; disposing it does
+    /// nothing.
+    /// </summary>
+    public HfConfig AsModelType(string modelType) => new(this, modelType);
 
     // Remote-code causal-LM classes whose config.json may lack model_type.
     private static readonly Dictionary<string, string> s_remoteCodeModelTypes = new(StringComparer.Ordinal)
@@ -162,5 +180,11 @@ internal sealed partial class HfConfig : IDisposable
     private static KeyNotFoundException Missing(string[] keys) => new($"config.json: none of [{string.Join(", ", keys)}] is present.");
 
     /// <summary>Releases the parsed document; elements obtained from it must not be used afterwards.</summary>
-    public void Dispose() => _doc.Dispose();
+    public void Dispose()
+    {
+        if (_ownsDocument)
+        {
+            _doc.Dispose();
+        }
+    }
 }

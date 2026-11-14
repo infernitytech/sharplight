@@ -24,6 +24,7 @@ internal static class HfArchitectureMappings
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());
         Register(new Eagle3HfMapping());
+        Register(new Gemma4AssistantHfMapping());
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
         Register(new T5HfMapping());
@@ -98,6 +99,7 @@ internal static class HfArchitectureMappings
         yield return new SenseNovaU1HfMapping();
         yield return new GroveMoeHfMapping();
         yield return new K2HorizonHfMapping();
+        yield return new GraniteSwitchHfMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>

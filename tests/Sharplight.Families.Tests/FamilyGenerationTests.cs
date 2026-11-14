@@ -177,6 +177,8 @@ public class FamilyGenerationTests
         .. DeepseekOcrFamilyCases.All,
         // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
         .. MoeVariantFamilyCases.All,
+        // Bring-up round 9: per-token switched adapters (Granite Switch).
+        .. AdapterFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)

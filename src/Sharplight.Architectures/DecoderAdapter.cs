@@ -50,6 +50,10 @@ namespace Sharplight.Architectures;
 /// <c>moe.shared_scale</c> (factor on the shared expert, default 1); optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
 /// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
 /// before the attention norm, SmallThinker).</item>
+/// <item>Token-activated adapters (Granite Switch): <c>adapter_tokens.weight</c> [V, 8] (see <see cref="Models.AdapterTokenTable"/>) and
+/// <c>adapters.count</c> route every row to an adapter slot (<see cref="AdapterRouter"/>, a one-head causal attention with a KV cache of its own);
+/// the q/k/v/o/gate/up/down projections with <c>{projection}.lora_a</c> [S, R, K] / <c>{projection}.lora_b</c> [S, N, R] add the row's
+/// low-rank delta (<see cref="SwitchedLora"/>). No embeddings-input graph is built.</item>
 /// <item><c>attention.causal</c> (default true). False makes a bidirectional encoder out of the decoder's layers (EuroBERT, NeoBERT, ModernBERT,
 /// EmbeddingGemma, Llama embedding models): only <see cref="WellKnown.EmbedGraph"/> is built (mean pooling unless declared), every token attends to its
 /// whole sequence, sliding windows are symmetric (keys less than <c>attention.sliding_window</c> positions away on either side), no KV cache and no
@@ -123,14 +127,18 @@ public sealed class DecoderAdapter : IModelAdapter
     {
         var src = sources.Primary;
         var hp = DecoderHyperParameters.Read(src);
-        // An EAGLE-3 drafter: the decode graphs export the inputs of the layers it fuses, and it becomes the draft graph.
+        // A drafter becomes the draft graph. An EAGLE-3 drafter: the decode graphs export the inputs of the layers it fuses; a shared-KV drafter
+        // (Gemma 4 assistant): they export the final hidden state with the keys and values of the layers it attends.
         var drafter = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Draft);
-        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter))
+        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter) && !SharedKvDraftHead.IsDrafter(drafter))
         {
-            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3 drafter.");
+            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3 or shared-KV drafter.");
         }
 
-        var graphBuilder = new DecoderGraphBuilder(src, options, hp, drafter is null ? null : Eagle3DraftHead.TargetLayers(drafter));
+        var sharedKvDrafter = SharedKvDraftHead.IsDrafter(drafter) ? drafter : null;
+        var eagle = sharedKvDrafter is null ? drafter : null;
+        var graphBuilder = new DecoderGraphBuilder(src, options, hp, eagle is null ? null : Eagle3DraftHead.TargetLayers(eagle),
+            sharedKvDrafter is null ? null : SharedKvDraftHead.TargetKvLayers(sharedKvDrafter, hp));
         var graphs = graphBuilder.BuildGraphs();
 
         // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
@@ -159,24 +167,44 @@ public sealed class DecoderAdapter : IModelAdapter
 
         var states = graphBuilder.States;
         var draftProperties = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead));
-        if (drafter is not null)
+        if (eagle is not null)
         {
             var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
-            foreach (var (name, w) in Eagle3DraftHead.PrefixedWeights(drafter))
+            foreach (var (name, w) in Eagle3DraftHead.PrefixedWeights(eagle))
             {
                 merged[name] = w;
             }
 
             weights = merged;
-            owned.AddRange(drafter.OwnedResources);
-            var draftStates = Eagle3DraftHead.States(drafter, options);
+            owned.AddRange(eagle.OwnedResources);
+            var draftStates = Eagle3DraftHead.States(eagle, options);
             states = [.. states.Where(st => !st.Group.StartsWith("mtp.", StringComparison.Ordinal)), .. draftStates];
-            graphs[WellKnown.DraftGraph] = Eagle3DraftHead.Build(drafter, n => merged.GetValueOrDefault(n), hp.NEmbd, hp.PositionAxes, draftStates);
+            graphs[WellKnown.DraftGraph] = Eagle3DraftHead.Build(eagle, n => merged.GetValueOrDefault(n), hp.NEmbd, hp.PositionAxes, draftStates);
             draftProperties = new Dictionary<string, object> { [WellKnown.DraftLayers] = 1, [WellKnown.DraftHiddenSource] = Eagle3DraftHead.TapsOutput };
-            if (Eagle3DraftHead.TokenMap(drafter) is { } tokenMap)
+            if (Eagle3DraftHead.TokenMap(eagle) is { } tokenMap)
             {
                 draftProperties[WellKnown.DraftTokenMap] = tokenMap;
             }
+        }
+        else if (sharedKvDrafter is not null)
+        {
+            var draft = SharedKvDraftHead.Build(sharedKvDrafter, options, src.Weight("token_embedding.weight")!, hp);
+            var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
+            foreach (var w in draft.Weights)
+            {
+                merged[w.Name] = w;
+            }
+
+            weights = merged;
+            owned.AddRange(sharedKvDrafter.OwnedResources);
+            states = [.. states.Where(st => !st.Group.StartsWith("mtp.", StringComparison.Ordinal)), .. draft.States];
+            graphs[WellKnown.DraftGraph] = draft.Graph;
+            draftProperties = new Dictionary<string, object>
+            {
+                [WellKnown.DraftLayers] = draft.Layers,
+                [WellKnown.DraftHiddenSource] = SharedKvDraftHead.FeaturesOutput,
+                [WellKnown.DraftAnchored] = true,
+            };
         }
 
         var eos = new List<int>();

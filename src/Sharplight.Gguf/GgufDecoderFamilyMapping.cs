@@ -215,7 +215,7 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     }
 
     /// <inheritdoc/>
-    public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
+    public virtual WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
     {
         if (w.Shape.Rank == 1 && w.Name.EndsWith("mlp.shared.input_gate.weight", StringComparison.Ordinal))
         {
