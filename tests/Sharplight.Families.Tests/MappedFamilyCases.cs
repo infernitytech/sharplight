@@ -118,6 +118,10 @@ internal static class MappedFamilyCases
         // PhiMoE's 19th step and Kolibri-1's 18th differ by less than 0.01 between the top two logits.
         new("tiny-random-phimoe HF (phimoe layer norms, sparsemixer routing, sliding window, transformers)", "hf/tiny-random-phimoe", Prompt, "ids",
             [948, 961, 961, 539, 539, 107, 665, 150, 948, 217, 254, 973, 884, 1016, 100, 401, 358, 546], ""),
+        // The same checkpoint converted by llama.cpp's converter (architecture renamed to PhiMoEForCausalLM, original_max_position_embeddings added, GPT-2
+        // vocabulary; see tools/convert_phimoe_gguf.py). Checked against transformers: llama.cpp runs phimoe with RMS norms and softmax routing.
+        new("tiny-random-phimoe f32 GGUF (phimoe layer norms, sparsemixer routing, transformers)", "gguf/tiny-random-phimoe-f32.gguf", Prompt, "ids",
+            [948, 961, 961, 539, 539, 107, 665, 150, 948, 217, 254, 973, 884, 1016, 100, 401, 358, 546], ""),
         new("tiny-random-kolibri1 HF (kolibri1 logit selection bias, sandwich norms, NoPE global layer, transformers)", "hf/tiny-random-kolibri1", Prompt, "ids",
             [298, 196, 886, 442, 914, 489, 442, 661, 583, 292, 73, 997, 209, 829, 1003, 684, 935], ""),
         // Real checkpoints: bigcode/tiny_starcoder_py (gpt_bigcode, 164M) against transformers; inceptionai/jais-family-590m converted by llama.cpp's

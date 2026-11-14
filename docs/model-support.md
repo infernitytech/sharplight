@@ -208,7 +208,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `phi2` | Phi-1/1.5/2 | LN, parallel residual, partial rope, biased GELU MLP | **supported**| -| phi | gguf/phi-2, hf/tiny-random-PhiForCausalLM |
 | `phi3` | Phi-3/3.5/4-mini (longrope), Phi-4 | fused qkv/gate-up, RMS, SwiGLU, longrope, SWA opt | **supported** | - | phi3 | gguf/Phi-4-mini-instruct, hf/tiny-random-phi3 |
-| `phimoe` | Phi-3.5-MoE | LN, MoE with sparsemixer routing, longrope | **supported** (HF only: layer norms + sparsemixer routing vs transformers; llama.cpp runs it through the phi3 graph; GGUF mapping not done, llama.cpp's converter rejects the checkpoint) | - | phimoe | hf/tiny-random-phimoe (vs transformers) |
+| `phimoe` | Phi-3.5-MoE | LN, MoE with sparsemixer routing, longrope | **supported** (HF and GGUF: layer norms + sparsemixer routing vs transformers on CPU and Vulkan. Deviation: llama.cpp runs phimoe through its phi3 graph with RMS norms + bias and softmax top-2 routing, so its greedy ids differ from transformers and Sharplight; the GGUF mapping follows the model. llama.cpp's converter only takes the checkpoint renamed to `PhiMoEForCausalLM` with `original_max_position_embeddings`, see `tools/convert_phimoe_gguf.py`) | - | phimoe | hf/tiny-random-phimoe, gguf/tiny-random-phimoe-f32 (vs transformers) |
 
 ### Meta
 
