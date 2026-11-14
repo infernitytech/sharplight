@@ -22,7 +22,7 @@ public sealed partial class GraphLowerer
         if (D >= 1024)
         {
             // Wide rows (hidden-size norms): a workgroup per row with all loads in flight beats one subgroup per row.
-            EmitRowNormKernel($"{n.Op.Name} {n.Output.Name}", [n], x.Shape, x.Symbol, [x], [], "a0", [], [], [(y, "nrm")], w, mode, eps);
+            EmitRowNormKernel($"{n.Op.Name} {n.Output.Name}", [n], x.Shape, x.Symbol, [x], [], "a0", [], [], [(y, "nrm")], w, mode, eps, [n.Output]);
             return;
         }
 

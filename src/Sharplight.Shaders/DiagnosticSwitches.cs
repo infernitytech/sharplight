@@ -58,6 +58,9 @@ namespace Sharplight.Shaders;
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
 /// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
 /// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
+/// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
+/// <item><c>SHARPLIGHT_NORM_HALF_COPY=0</c>: row norms feeding matmuls do not also write the f16 activation copy the tensor-core
+/// GEMMs read; a separate conversion launch makes it.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -205,6 +208,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced activation source of the skinny GEMM (true: f16 copy, false: f32 rows), or null for the default.</summary>
     public static bool? SkinnyGemmHalfActivations { get; } = Read("SHARPLIGHT_SKINNY_X16") is { } v ? v != "0" : null;
+
+    /// <summary>Let row norms feeding tensor-core matmuls write the f16 activation copy too (no separate conversion launch).</summary>
+    public static bool NormHalfCopy { get; } = IsNotZero("SHARPLIGHT_NORM_HALF_COPY");
+
+    /// <summary>Let the dual fp8 gate / up GEMM use 128-row tiles above 64 rows.</summary>
+    public static bool Fp8DualGemmTall { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL_TALL");
 
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
