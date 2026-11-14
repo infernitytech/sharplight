@@ -121,7 +121,7 @@ internal sealed partial class OnnxTranslator
             return;
         }
 
-        if (irOp == "Div" && TryDecomposedLayerNorm(n))
+        if ((irOp == "Div" && TryDecomposedLayerNorm(n)) || (irOp == "Mul" && TryDecomposedGelu(n)))
         {
             return;
         }

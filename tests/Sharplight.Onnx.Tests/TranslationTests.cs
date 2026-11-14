@@ -177,6 +177,37 @@ public class TranslationTests
         Assert.Equal(1e-5f, ln.Attributes.Get("eps", 0f));
     }
 
+    /// <summary>x · 0.5 · (1 + erf(x / √2)) in the groupings HF exports use becomes one Gelu.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DecomposedGelu_BecomesGelu(bool halfLast)
+    {
+        var m = new TestModel().Opset(13).Input("x", "N", 8).Output("y", "N", 8)
+            .InitF32("s2", [], [1.4142135f]).InitF32("one", [], [1f]).InitF32("half", [], [0.5f])
+            .Node("Div", ["x", "s2"], ["z"]).Node("Erf", ["z"], ["e"]).Node("Add", ["e", "one"], ["a"]);
+        if (halfLast)
+        {
+            m.Node("Mul", ["x", "a"], ["p"]).Node("Mul", ["p", "half"], ["y"]);
+        }
+        else
+        {
+            m.Node("Mul", ["x", "half"], ["h"]).Node("Mul", ["h", "a"], ["y"]);
+        }
+
+        Assert.Equal(["Gelu"], Ops(m.Build()));
+    }
+
+    [Fact]
+    public void DecomposedGelu_WithOtherConstant_IsNotFused()
+    {
+        var def = new TestModel().Opset(13).Input("x", "N", 8).Output("y", "N", 8)
+            .InitF32("s2", [], [2f]).InitF32("one", [], [1f]).InitF32("half", [], [0.5f])
+            .Node("Div", ["x", "s2"], ["z"]).Node("Erf", ["z"], ["e"]).Node("Add", ["e", "one"], ["a"])
+            .Node("Mul", ["x", "a"], ["p"]).Node("Mul", ["p", "half"], ["y"]).Build();
+        Assert.DoesNotContain("Gelu", Ops(def));
+    }
+
     [Fact]
     public void DecomposedLayerNorm_OverOtherAxis_IsNotFused()
     {
