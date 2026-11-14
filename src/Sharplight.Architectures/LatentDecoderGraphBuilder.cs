@@ -13,8 +13,10 @@ internal sealed partial class LatentDecoderGraphBuilder
     private readonly ModelSource _src;
     private readonly LatentDecoderHyperParameters _hp;
     private readonly LatentAttention _attention;
+    private readonly ChannelDeltaAttention _delta;
     private readonly IMlpActivation _activation;
-    private readonly StateDefinition[] _caches;
+    private readonly StateDefinition?[] _caches;
+    private readonly (StateDefinition Conv, StateDefinition State)?[] _deltaStates;
     private readonly bool _longRope;
     private readonly Func<string, WeightInfo?>? _draft;
     private readonly StateDefinition? _draftCache;
@@ -29,7 +31,11 @@ internal sealed partial class LatentDecoderGraphBuilder
         int originalContext = _src.Arch("rope.original_context_length", 0);
         int runtimeContext = options.ContextLength > 0 ? options.ContextLength : _hp.ContextLength;
         _longRope = originalContext > 0 && runtimeContext > originalContext;
-        _caches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _attention.CreateCache($"layers.{il}", options.KvCacheType))];
+        // Delta-attention layers (Kimi-Linear, Ling 3) keep a convolution window and a recurrent state instead of a latent cache.
+        _delta = new ChannelDeltaAttention(_src);
+        _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
+            ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
+        _caches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _deltaStates[il] is null ? _attention.CreateCache($"layers.{il}", options.KvCacheType) : null)];
         // The NextN draft head (DeepSeek-V3: one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) with its own cache;
         // not with hyper-connections (the hidden state is several residual streams).
         _draft = _hp.HyperConnections is null ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
@@ -42,7 +48,32 @@ internal sealed partial class LatentDecoderGraphBuilder
     }
 
     /// <summary>The persistent states (one latent cache per layer, and the draft layer's).</summary>
-    public List<StateDefinition> States => _draftCache is null ? [.. _caches] : [.. _caches, _draftCache];
+    public List<StateDefinition> States
+    {
+        get
+        {
+            var states = new List<StateDefinition>();
+            for (int il = 0; il < _hp.LayerCount; il++)
+            {
+                if (_deltaStates[il] is { } delta)
+                {
+                    states.Add(delta.Conv);
+                    states.Add(delta.State);
+                }
+                else
+                {
+                    states.Add(_caches[il]!);
+                }
+            }
+
+            if (_draftCache is not null)
+            {
+                states.Add(_draftCache);
+            }
+
+            return states;
+        }
+    }
 
     /// <summary>Whether the model has a NextN draft head (<see cref="WellKnown.DraftGraph"/>).</summary>
     public bool HasDraftHead => _draft is not null;
@@ -56,7 +87,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         if (_draft is not null)
         {
             graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.HiddenSize, positionAxes: 1, _hp.Eps, layers: 1,
-                (b, x, j, positions) => Layer(b, x, $"mtp.layers.{j}.", _draftCache!, LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads), Rotation(b, positions),
+                (b, x, j, positions) => Layer(b, x, $"mtp.layers.{j}.", -1, LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads), Rotation(b, positions),
                     Temperature(b, positions)),
                 chainNormalized: true);
         }
@@ -104,7 +135,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         for (int il = 0; il < _hp.LayerCount; il++)
         {
             using var _ = b.Group($"layers.{il}");
-            x = Layer(b, x, $"layers.{il}.", _caches[il], headIds, rotate, temperature);
+            x = Layer(b, x, $"layers.{il}.", il, headIds, rotate, temperature);
         }
 
         using (b.Group("output"))
@@ -129,16 +160,16 @@ internal sealed partial class LatentDecoderGraphBuilder
         return b.Build();
     }
 
-    // One decoder layer: weights below p, latent cache `cache`.
-    private Value Layer(GraphBuilder b, Value x, string p, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature)
+    // One decoder layer: weights below p; il is the trunk layer (its latent cache or delta-attention states), -1 the draft layer.
+    private Value Layer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature)
     {
         if (_hp.HyperConnections is { } hc)
         {
-            return HyperConnectedLayer(b, x, p, cache, headIds, rotate, temperature, hc);
+            return HyperConnectedLayer(b, x, p, il, headIds, rotate, temperature, hc);
         }
 
         var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-        var attention = _attention.Build(b, h, p, cache, headIds, rotate, temperature);
+        var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
 
         h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
@@ -146,13 +177,19 @@ internal sealed partial class LatentDecoderGraphBuilder
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 
+    // The token mixer of a layer: delta attention for a trunk layer that has it, latent attention otherwise.
+    private Value Mixer(GraphBuilder b, Value h, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature)
+        => il >= 0 && _deltaStates[il] is { } delta
+            ? _delta.Build(b, h, p, delta.Conv, delta.State)
+            : _attention.Build(b, h, p, il < 0 ? _draftCache! : _caches[il]!, headIds, rotate, temperature);
+
     // The layer on hyper-connected residual streams [T, N·H] (StreamHyperConnections modules attention_hc / mlp_hc around the sub-layers).
-    private Value HyperConnectedLayer(GraphBuilder b, Value x, string p, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature,
+    private Value HyperConnectedLayer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature,
         StreamHyperConnectionOptions hc)
     {
         var (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "attention_hc.", hc, _hp.HiddenSize);
         var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-        var attention = _attention.Build(b, h, p, cache, headIds, rotate, temperature);
+        var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
         x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc.Streams, _hp.HiddenSize, $"{p}attn_residual");
 
         (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "mlp_hc.", hc, _hp.HiddenSize);
@@ -170,6 +207,11 @@ internal sealed partial class LatentDecoderGraphBuilder
     /// <summary>The rotary embedding of the rope parts ([T, heads, rope_dim]), with the frequency factors the context selects.</summary>
     private Func<Value, Value> Rotation(GraphBuilder b, Value positions)
     {
+        if (_hp.RopeStyle == "none")
+        {
+            return t => t;   // no positional rotation (Kimi-Linear's latent attention)
+        }
+
         var factors = b.TryWeight("rope.freq_factors");
         if (_longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors)
         {

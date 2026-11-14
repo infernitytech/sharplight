@@ -17,7 +17,8 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     public string Architecture => "latent_decoder";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4"];
+    public IReadOnlyList<string> ModelTypes { get; } =
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -68,9 +69,14 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             }
         }
 
-        if (c.GetInt("n_routed_experts") is { } experts)
+        if ((c.GetInt("n_routed_experts") ?? (IsDeltaHybrid(c) ? c.GetInt("num_experts") : null)) is { } experts)
         {
             AddMixtureOfExperts(md, a, c, experts);
+        }
+
+        if (IsDeltaHybrid(c))
+        {
+            AddDeltaHyperParameters(md, a, c);
         }
 
         AddTemperature(md, a, c);
@@ -175,10 +181,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         string modelType = c.ModelType ?? "";
         string topkMethod = c.GetString("topk_method") ?? (modelType == "deepseek_v2" ? "greedy" : "noaux_tc");
         bool sigmoid = (c.GetString("scoring_func") ?? (modelType is "deepseek_v2" or "mistral4" ? "softmax" : "sigmoid")) == "sigmoid";
-        bool normalize = c.GetBool("norm_topk_prob") ?? false;
+        bool normalize = c.GetBool("norm_topk_prob", "moe_renormalize") ?? false;
         double scale = c.GetDouble("routed_scaling_factor") ?? 1.0;
         md[a + "moe.expert_count"] = experts;
-        md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+        md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok", "num_experts_per_token");
         md[a + "moe.router_activation"] = sigmoid ? "sigmoid" : "softmax";
         md[a + "moe.normalize_weights"] = normalize;
 
@@ -186,8 +192,8 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         md[a + "moe.weights_scale"] = (float)(modelType == "deepseek_v2" && normalize ? 1.0 : scale);
         if (topkMethod is "group_limited_greedy" or "noaux_tc")
         {
-            md[a + "moe.group_count"] = c.GetInt("n_group") ?? 1;
-            md[a + "moe.group_used_count"] = c.GetInt("topk_group") ?? c.GetInt("n_group") ?? 1;
+            md[a + "moe.group_count"] = c.GetInt("n_group", "num_expert_group") ?? 1;
+            md[a + "moe.group_used_count"] = c.GetInt("topk_group") ?? c.GetInt("n_group", "num_expert_group") ?? 1;
             md[a + "moe.group_score"] = topkMethod == "noaux_tc" ? "top2_sum" : "max";
         }
     }
@@ -227,6 +233,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     {
         var collector = new HfWeightCollector();
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
+        var convolutions = new SortedDictionary<string, WeightInfo?[]>(StringComparer.Ordinal);
         int layers = c.Int("num_hidden_layers");
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
@@ -244,7 +251,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             }
 
             int layer = int.Parse(m.Groups[1].Value);
-            string suffix = m.Groups[2].Value;
+            string suffix = IsDeltaHybrid(c) ? NormalizeDeltaHybridSuffix(c, m.Groups[2].Value) : m.Groups[2].Value;
             // Multi-token-prediction (NextN) layers follow the trunk: an ordinary layer plus the NextN tensors, below mtp.layers.{j}.
             string prefix = layer < layers ? $"layers.{layer}." : $"mtp.layers.{layer - layers}.";
             if (layer >= layers && HfNextnTensors.Suffixes.TryGetValue(suffix, out var nextn))
@@ -253,6 +260,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
                 {
                     collector.Add(HfTransforms.Plain(w, prefix + nextn));
                 }
+            }
+            else if (layer < layers && IsDeltaHybrid(c) && IsDeltaLayer(c, layer) && TryMapDeltaLayer(c, prefix, suffix, w, collector, convolutions))
+            {
+                continue;
             }
             else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !(IsHyV4(c) && TryMapHyV4Layer(prefix, suffix, w, collector)))
             {
@@ -270,6 +281,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             collector.Add(WeightInfo.Stack($"{prefix}mlp.experts.{kind}.weight", [.. byIndex.Values]));
         }
 
+        AddJoinedConvolutions(convolutions, collector);
         AddRopeFactors(c, collector);
         collector.ThrowIfUnmapped(c.ModelType);
         return collector.Weights;
@@ -279,7 +291,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     {
         switch (name)
         {
-            case "model.embed_tokens.weight":
+            case "model.embed_tokens.weight" or "model.word_embeddings.weight":
                 collector.Add(HfTransforms.Plain(w, "token_embedding.weight"));
                 return true;
             case "model.norm.weight":
@@ -321,6 +333,9 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
         switch (suffix)
         {
+            case "self_attn.g_proj.weight":
+                collector.Add(HfTransforms.Plain(w, prefix + "attention.gate.weight"));
+                return true;
             case "mlp.gate.e_score_correction_bias":
                 collector.Add(HfTransforms.ToF32(w, prefix + "mlp.router_bias"));
                 return true;

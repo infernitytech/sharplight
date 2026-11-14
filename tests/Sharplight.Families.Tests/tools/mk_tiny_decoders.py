@@ -97,6 +97,28 @@ EXTRA = {
                                   num_attention_heads=4, num_key_value_heads=2, head_dim=16, num_local_experts=4, num_experts_per_tok=2,
                                   norm_topk_prob=True, max_position_embeddings=256, sliding_window=8,
                                   layer_types=["sliding_attention", "full_attention", "sliding_attention"])),
+    # Kimi-Linear: delta-attention layers with a per-channel decay (low-rank decay and output-gate projections, short q/k/v convolutions) and a
+    # latent-attention layer without rotary embedding (layer 3), sigmoid routing over 2 groups with a correction bias, a shared expert, a dense layer.
+    "kimi-linear-f32": ("kimi_linear", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=32, num_hidden_layers=4, num_attention_heads=4,
+                                            num_key_value_heads=4, kv_lora_rank=32, q_lora_rank=None, qk_nope_head_dim=16, qk_rope_head_dim=8,
+                                            v_head_dim=16, num_experts=8, num_experts_per_token=2, num_expert_group=2, topk_group=1,
+                                            num_shared_experts=1, first_k_dense_replace=1, max_position_embeddings=256,
+                                            linear_attn_config={"full_attn_layers": [3], "kda_layers": [1, 2, 4], "head_dim": 16, "num_heads": 4,
+                                                                "short_conv_kernel_size": 4})),
+    # Ling 3 (bailing_hybrid): delta attention with the bounded gate and full-rank decay / gate projections, latent attention with rope and a
+    # per-head output gate (every third layer), two dense layers, sigmoid routing over groups with a shared expert.
+    "bailing-hybrid": ("bailing_hybrid", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=32, num_hidden_layers=6, num_attention_heads=4,
+                                              num_key_value_heads=4, kv_lora_rank=32, qk_nope_head_dim=16, qk_rope_head_dim=8, v_head_dim=16, head_dim=16,
+                                              num_experts=8, num_experts_per_tok=2, n_group=2, topk_group=1, n_shared_experts=1,
+                                              first_k_dense_replace=2, layer_group_size=3, num_mtp_layers=0, max_position_embeddings=256,
+                                              rope_theta=10000.0)),
+    # MiniMax-01: lightning attention (decay-only linear attention with fixed per-head slopes) with a softmax layer every other layer, the
+    # residual taken from the normalized input with scales (alpha, beta), softmax-routed experts.
+    "minimax": ("minimax", dict(hidden_size=64, intermediate_size=48, num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=2, head_dim=16,
+                                num_local_experts=4, num_experts_per_tok=2, max_position_embeddings=256, block_size=8,
+                                layer_types=["linear_attention", "full_attention", "linear_attention", "full_attention"],
+                                full_attn_alpha_factor=1.5, full_attn_beta_factor=0.8, linear_attn_alpha_factor=1.3, linear_attn_beta_factor=0.9,
+                                mlp_alpha_factor=1.2, mlp_beta_factor=0.7)),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})

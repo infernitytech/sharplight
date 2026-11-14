@@ -167,6 +167,8 @@ public class FamilyGenerationTests
         .. TinyGgufFamilyCases.All,
         // Families brought up as importer mappings onto the existing adapters (Qwen2-MoE, ...).
         .. MappedFamilyCases.All,
+        // Linear-attention hybrids: delta attention with per-channel decay (Kimi-Linear, Ling 3) and lightning attention (MiniMax-01).
+        .. LinearAttentionFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
