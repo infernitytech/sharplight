@@ -130,6 +130,33 @@ with tempfile.TemporaryDirectory() as work:
         text["first_k_dense_replace"] = text["mlp_layer_types"].index("sparse")
         from conversion import glm
         glm.Glm5NextModel.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer has no GLM special tokens
+    elif kind == "deepseek_v4":
+        # The converter reads the native checkpoint layout: unprefixed native tensor names (attn.kv_norm, hc_head_fn, embed), the
+        # compress_ratios / num_hash_layers keys and the compressed layers' yarn as rope_scaling. Its expert writer repacks FP4 experts to
+        # MXFP4; the tiny f32 experts are stacked as they are.
+        rates = config["compress_rates"]
+        config["compress_ratios"] = [rates.get(t, 0) for t in config["layer_types"]]
+        config["num_hash_layers"] = config["mlp_layer_types"].count("hash_moe")
+        config["num_nextn_predict_layers"] = 0
+        compress = config["rope_parameters"]["compress"]
+        config["rope_scaling"] = dict(type="yarn", factor=compress["factor"], beta_fast=compress["beta_fast"], beta_slow=compress["beta_slow"],
+                                      original_max_position_embeddings=compress["original_max_position_embeddings"])
+        def native(name):
+            name = name.removeprefix("model.")
+            name = {"embed_tokens.weight": "embed.weight", "hc_head.hc_fn": "hc_head_fn", "hc_head.hc_base": "hc_head_base",
+                    "hc_head.hc_scale": "hc_head_scale"}.get(name, name)
+            return name[:-len(".attn.norm.weight")] + ".attn.kv_norm.weight" if name.endswith(".attn.norm.weight") else name
+        rewrite(native)
+        from conversion import deepseek
+        import numpy as np
+        deepseek.DeepseekV4Model.set_vocab = lambda self: self._set_vocab_gpt2()
+        def stack_experts(self, bid, proj, tensor_key):
+            names = [f"layers.{bid}.ffn.experts.{e}.{proj}.weight" for e in range(self.hparams["n_routed_experts"])]
+            from conversion.base import LazyTorchTensor
+            data = np.stack([LazyTorchTensor.to_eager(self.model_tensors[n]()).float().numpy() for n in names])
+            self.gguf_writer.add_tensor(self.format_tensor_name(tensor_key, bid), data)
+            return names
+        deepseek.DeepseekV4Model._write_mxfp4_expert_tensor = stack_experts
     if kind in ("kimi_linear", "bailing_hybrid", "minimax", "minimax_m3_vl"):
         # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
         config["model_type"] = kind + "_original"

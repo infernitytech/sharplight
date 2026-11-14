@@ -29,6 +29,11 @@ internal sealed partial class LatentDecoderGraphBuilder
     private Value? _logPositions;   // while a graph is built: ln(pos + 1) of every row for the SSMax factors
     private Value? _slidingHeadIds;   // while a graph is built: the head indices of the sliding-window layers
     private Func<Value, Value>? _slidingRotate;   // while a graph is built: the rotary embedding of the sliding-window layers
+    private readonly CompressedKvAttention? _compressedKv;   // DeepSeek-V4: windowed attention with compressed entries instead of the latent cache
+    private readonly CompressedKvLayerStates?[] _compressedStates;
+    private Value? _positions;   // while a graph is built: the row positions
+    private Value? _tokens;   // while a graph is built: the token ids (null for the embeddings graph), for hash routing
+    private Value? _groupIds;   // while a graph is built: the output group indices of compressed-KV attention
 
     /// <summary>Creates the builder and the latent cache state of every layer.</summary>
     public LatentDecoderGraphBuilder(ModelSource source, AdapterOptions options, LatentDecoderHyperParameters hyperParameters)
@@ -49,7 +54,17 @@ internal sealed partial class LatentDecoderGraphBuilder
         _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
             ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
         _caches = new StateDefinition?[_hp.LayerCount];
-        for (int il = 0; il < _hp.LayerCount; il++)
+        _compressedStates = new CompressedKvLayerStates?[_hp.LayerCount];
+        if (_hp.CompressedKv is { } compressedKv)
+        {
+            _compressedKv = new CompressedKvAttention(compressedKv, _hp.Attention.Heads, _hp.Attention.RopeDims, _hp.Eps);
+            for (int il = 0; il < _hp.LayerCount; il++)
+            {
+                _compressedStates[il] = _compressedKv.CreateStates(_src.Weight, $"layers.{il}.", $"layers.{il}", il, options.KvCacheType);
+            }
+        }
+
+        for (int il = 0; il < _hp.LayerCount && _compressedKv is null; il++)
         {
             // Layers without their own key-value projection (Mistral Large 4) attend the cache of their source layer.
             int kvSource = _hp.KvSourceOf(il);
@@ -58,12 +73,12 @@ internal sealed partial class LatentDecoderGraphBuilder
         }
 
         // DSA indexer: only when the context exceeds its budget (below it every row keeps every visible position, the dense attention).
-        if (_hp.Indexer is { } indexer && runtimeContext > indexer.TokenBudget)
+        if (_hp.Indexer is { } indexer && runtimeContext > indexer.TokenBudget && _compressedKv is null)
         {
             _indexer = new SparseAttentionIndexer(indexer);
         }
 
-        _indexerCaches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _indexer is not null && _caches[il] is not null
+        _indexerCaches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _indexer is not null && _caches[il] is not null && _compressedKv is null
             && SparseAttentionIndexer.IsPresent(_src.Weight, $"layers.{il}.")
                 ? _indexer.CreateKeyCache(_src.Weight, $"layers.{il}.", $"layers.{il}", options.KvCacheType)
                 : null)];
@@ -76,7 +91,9 @@ internal sealed partial class LatentDecoderGraphBuilder
             _draftCache = _attention.CreateCache("mtp.layers.0", options.KvCacheType);
         }
 
-        IncludeEmbeddingsGraph = options.IncludeAuxiliaryGraphs;
+        // Hash-routed experts need the token ids, which the embeddings graph does not have.
+        IncludeEmbeddingsGraph = options.IncludeAuxiliaryGraphs
+            && !Enumerable.Range(0, _hp.LayerCount).Any(il => _src.Weight($"layers.{il}.mlp.router.token_experts") is not null);
     }
 
     /// <summary>The persistent states (one latent cache per layer, and the draft layer's).</summary>
@@ -87,6 +104,12 @@ internal sealed partial class LatentDecoderGraphBuilder
             var states = new List<StateDefinition>();
             for (int il = 0; il < _hp.LayerCount; il++)
             {
+                if (_compressedStates[il] is { } compressed)
+                {
+                    states.AddRange(compressed.All());
+                    continue;
+                }
+
                 if (_deltaStates[il] is { } delta)
                 {
                     states.Add(delta.Conv);
@@ -121,6 +144,7 @@ internal sealed partial class LatentDecoderGraphBuilder
     public Dictionary<string, ComputeGraph> BuildGraphs()
     {
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = Build(WellKnown.DecodeGraph, embeddingsInput: false) };
+        _tokens = null;
         if (_draft is not null)
         {
             graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.HiddenSize, positionAxes: 1, _hp.Eps, layers: 1,
@@ -155,6 +179,7 @@ internal sealed partial class LatentDecoderGraphBuilder
             else
             {
                 var tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
+                _tokens = tokens;
                 x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
                 if (_hp.EmbeddingScale != 1f)
                 {
@@ -165,6 +190,8 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
         var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+        _positions = positions;
+        _groupIds = _compressedKv is null ? null : LatentAttention.HeadIndices(b, positions, _compressedKv.Options.OutputGroups, "_groups");
         var headIds = LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads);
         var rotate = Rotation(b, positions);
         var temperature = Temperature(b, positions);
@@ -241,6 +268,14 @@ internal sealed partial class LatentDecoderGraphBuilder
             return _delta.Build(b, h, p, delta.Conv, delta.State);
         }
 
+        if (il >= 0 && _compressedStates[il] is { } compressed)
+        {
+            // Sliding-only layers rotate with the main rope, layers with compressed entries with the compressed one.
+            bool main = _compressedKv!.Options.Ratios[il] == 0;
+            var rope = RopeAt(b, main ? _hp.RopeBase : _compressedKv.Options.CompressedRopeBase, main ? "rope.freq_factors" : "rope.freq_factors_compressed");
+            return _compressedKv.Build(b, h, p, il, compressed, _positions!, _groupIds!, rope);
+        }
+
         if (il >= 0 && _hp.IsSliding(il))
         {
             // Sliding-window layers (dots.3): their own geometry and rope base, dense attention over the window.
@@ -305,6 +340,14 @@ internal sealed partial class LatentDecoderGraphBuilder
     /// <summary>The indexer's rotary embedding: the attention's frequencies and magnitude with the indexer's pairing style.</summary>
     private Func<Value, Value> IndexerRotation(GraphBuilder b, Value positions)
         => RopeOf(b, positions, _indexer!.Options.RopeStyle, _hp.Attention.RopeMagnitude);
+
+    /// <summary>The model's rotary embedding of the rope parts at given positions, with a base and optional frequency factors.</summary>
+    private Func<Value, Value, Value> RopeAt(GraphBuilder b, float ropeBase, string factorsName)
+    {
+        var factors = b.TryWeight(factorsName);
+        var attributes = Attributes.From(("dims", _hp.Attention.RopeDims), ("base", ropeBase), ("style", _hp.RopeStyle));
+        return (t, positions) => b.Emit1("Rope", factors is null ? [t, positions] : [t, positions, factors], attributes);
+    }
 
     private Func<Value, Value> RopeOf(GraphBuilder b, Value positions, string style, float magnitude, float? ropeBase = null,
         string factorsName = "rope.freq_factors")
