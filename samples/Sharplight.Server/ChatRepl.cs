@@ -45,6 +45,7 @@ internal sealed class ChatRepl(RunSettings settings)
             ContextLength = runtime.ContextLength,
             MaxBatchTokens = runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,
+            AllowReducedPrecision = runtime.ReducedPrecision,
             Log = Console.Error.WriteLine,
         };
         // A multi-sequence decoder can roll its context back to the part the next turn's prompt shares (the template rewrites the

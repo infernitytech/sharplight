@@ -91,6 +91,7 @@ internal sealed class ModelHostBuilder
             ContextLength = spec.Ctx ?? runtime.ContextLength,
             MaxBatchTokens = spec.Batch ?? runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,
+            AllowReducedPrecision = runtime.ReducedPrecision,
             Log = log,
         };
     }

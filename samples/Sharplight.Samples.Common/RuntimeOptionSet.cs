@@ -5,7 +5,7 @@ namespace Sharplight.Samples;
 
 /// <summary>
 /// The device and sizing options shared by the LLM samples: <c>--cpu</c>, <c>--device</c>, <c>--ctx</c>, <c>--batch</c>,
-/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>.
+/// <c>--kv-type</c>, <c>--disable-features</c>, <c>--cpu-offload</c>, <c>--reduced-precision</c>.
 /// </summary>
 public sealed class RuntimeOptionSet
 {
@@ -42,6 +42,13 @@ public sealed class RuntimeOptionSet
         Description = "Run layers that do not fit in device memory, and ops the device cannot execute, on the CPU.",
     };
 
+    /// <summary><c>--reduced-precision</c>.</summary>
+    public Option<bool> ReducedPrecision { get; } = new("--reduced-precision")
+    {
+        Description = "Opt-in: faster kernels at reduced (f16) precision where the default keeps near-f32 accuracy "
+            + "(e.g. one f16 product in the chunked delta rule of Qwen3.5-style models).",
+    };
+
     /// <summary>Adds all options to <paramref name="command"/>.</summary>
     public void AddTo(Command command)
     {
@@ -52,6 +59,7 @@ public sealed class RuntimeOptionSet
         command.Options.Add(KvType);
         command.Options.Add(DisableFeatures);
         command.Options.Add(CpuOffload);
+        command.Options.Add(ReducedPrecision);
     }
 
     /// <summary>Reads the parsed values.</summary>
@@ -64,7 +72,8 @@ public sealed class RuntimeOptionSet
             parseResult.GetValue(Batch),
             DataType.Get(parseResult.GetValue(KvType)!),
             parseResult.GetValue(DisableFeatures) ?? [],
-            parseResult.GetValue(CpuOffload));
+            parseResult.GetValue(CpuOffload),
+            parseResult.GetValue(ReducedPrecision));
     }
 
     private static Option<string> CreateKvType()

@@ -118,6 +118,12 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 | `samples/Sharplight.PackageViewer` | `sharplight-viewer` | Avalonia viewer for `.slm` packages (graphs, IR, weights, artifacts) |
 | `samples/Sharplight.OnnxRun` | `sharplight-onnxrun` | Run an ONNX model on the CPU or Vulkan provider |
 
+Defaults keep near-f32 accuracy; `--reduced-precision` opts in to faster f16 kernel paths where they exist.
+
+## Roadmap
+
+What is in progress and the performance ideas still open: [docs/roadmap.md](docs/roadmap.md).
+
 ## License
 
 [MIT](LICENSE)

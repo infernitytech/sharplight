@@ -40,6 +40,7 @@ internal static class ModelLoader
             ContextLength = runtime.ContextLength,
             MaxBatchTokens = runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,
+            AllowReducedPrecision = runtime.ReducedPrecision,
             Log = Console.Error.WriteLine,
         };
 

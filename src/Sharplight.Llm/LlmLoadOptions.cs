@@ -31,6 +31,12 @@ public sealed class LlmLoadOptions
     public AdapterOptions Adapter { get; init; } = new();
     /// <summary>Device features (<see cref="DeviceFeatures"/>) not to use when compiling this model, e.g. "matrix_f16".</summary>
     public IReadOnlySet<string> DisabledFeatures { get; init; } = new HashSet<string>();
+    /// <summary>
+    /// Opt-in: let kernels trade precision for speed where the default keeps near-f32 accuracy (see
+    /// <see cref="CompileOptions.AllowReducedPrecision"/>), e.g. one f16 product instead of two in the chunked delta rule,
+    /// or f16 tensor-core matmuls on f32 weights. Off by default.
+    /// </summary>
+    public bool AllowReducedPrecision { get; init; }
     /// <summary>Auxiliary model files, e.g. ("mmproj", path) for a vision projector.</summary>
     public IReadOnlyList<(string Role, string Path)> Auxiliary { get; init; } = [];
     /// <summary>

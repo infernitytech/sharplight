@@ -210,6 +210,7 @@ public sealed class LlmModel : IDisposable
             ContextLength = contextLength,
             SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound },
             DisabledFeatures = _options.DisabledFeatures,
+            AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
         },
     };
