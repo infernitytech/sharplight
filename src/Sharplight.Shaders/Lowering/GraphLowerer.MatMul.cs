@@ -239,7 +239,7 @@ public sealed partial class GraphLowerer
         bool skinny = UseSkinnyGemm(plan) && !intDot;
         // One f16 copy of x for every f16 tensor-core launch of this matmul (skinny GEMM, gemm_cm2), emitted under the outer
         // condition so that the matmuls reading the same rows (Q/K/V, gate/up, ...) share it.
-        var half = SharedHalfActivations(plan, intDot, skinny, mmq || fp8Gemm);
+        var half = SharedHalfActivations(plan, intDot, skinny, mmq ? MmqMinRows : fp8Gemm ? Fp8GemmMinRows : null);
         if (intDot)
         {
             EmitIntDotMatvec(MatMulLabel(plan), [n], n.Inputs[0], plan.X, plan.XStride, plan.RowsPerLead, [plan.W], plan.Y, plan.N, plan.K,
@@ -261,7 +261,7 @@ public sealed partial class GraphLowerer
             var beforeFp8 = _launchCondition;
             _launchCondition = outer;
             EmitFp8Gemm(plan);
-            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < MmqMinRows;
+            _launchCondition = b => (beforeFp8?.Invoke(b) ?? true) && plan.RowCount(b) < Fp8GemmMinRows;
         }
 
         if (skinny)
@@ -280,10 +280,10 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// The shared f16 copy of a matmul's activations for the row counts its f16 tensor-core launches serve: from 2 rows with the
-    /// skinny GEMM, else above the int-dot or matvec range, up to the int8 / fp8 GEMM's range (<see cref="MmqMinRows"/>) when
-    /// one serves prefill. Null when no tensor-core launch reads f16 activations.
+    /// skinny GEMM, else above the int-dot or matvec range, up to the first row count of the int8 / fp8 GEMM
+    /// (<paramref name="quantizedGemmMinRows"/>) when one serves larger batches. Null when no tensor-core launch reads f16 activations.
     /// </summary>
-    private TensorRef? SharedHalfActivations(MatMulPlan p, bool intDot, bool skinny, bool quantizedGemm)
+    private TensorRef? SharedHalfActivations(MatMulPlan p, bool intDot, bool skinny, long? quantizedGemmMinRows)
     {
         if (!p.Coop || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations)
         {
@@ -294,7 +294,7 @@ public sealed partial class GraphLowerer
         long minRows = intDot ? Math.Max(MatvecMaxRows, IntDotMaxRows(p.W.Type)) + 1
             : skinny ? Math.Min(Math.Max(SkinnyMinRows, SkinnyHalfMinRows), Math.Max(MatvecMaxRows, SkinnyMaxRows) + 1)
             : MatvecMaxRows + 1;
-        long maxRows = quantizedGemm ? Math.Min(rowsMax, MmqMinRows - 1) : rowsMax;
+        long maxRows = quantizedGemmMinRows is { } gemmMin ? Math.Min(rowsMax, gemmMin - 1) : rowsMax;
         if (minRows > maxRows)
         {
             return null;

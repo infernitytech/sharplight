@@ -29,12 +29,13 @@ namespace Sharplight.Shaders;
 /// activations, <c>mmq.slang</c>) instead of the f16 one: none, every supported format (q8_0, q4_k, q5_k, q6_k, iq4_nl, iq4_xs),
 /// or a list (default: iq4_nl, iq4_xs, and q8_0 for matmuls with N and K of at least 4096; an explicit list drops that size
 /// limit). Disabling <c>matrix_int8</c> turns it off as well.</item>
-/// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 65).</item>
+/// <item><c>SHARPLIGHT_MMQ_MIN_ROWS=n</c>: activation rows from which the int8 GEMM serves a matmul (default 33).</item>
 /// <item><c>SHARPLIGHT_MMQ_CFG</c>, <c>SHARPLIGHT_MMQ_CFG64=wm,wn,fm,fn</c>: force the layout of the 128- and 64-token int8 GEMM
 /// tiles. <c>SHARPLIGHT_MMQ_GENERIC=1</c>: scale its accumulators through the per-element (layout independent) path.
 /// <c>SHARPLIGHT_MMQ_BK=32|64|128</c>: preferred K step of the int8 GEMM (default 128, 64 for Q6_K).</item>
 /// <item><c>SHARPLIGHT_FP8_GEMM=0</c>: run prefill matmuls with block-scaled E4M3 weights on the f16 tensor-core GEMM instead of the
-/// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.</item>
+/// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.
+/// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
@@ -117,7 +118,10 @@ internal static class DiagnosticSwitches
     public static string? MmqFormats { get; } = Read("SHARPLIGHT_MMQ");
 
     /// <summary>Activation rows from which the int8 GEMM serves a matmul.</summary>
-    public static long MmqMinRows { get; } = long.Parse(Read("SHARPLIGHT_MMQ_MIN_ROWS") ?? "65", CultureInfo.InvariantCulture);
+    public static long? MmqMinRows { get; } = Read("SHARPLIGHT_MMQ_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Activation rows from which the fp8 GEMM serves a matmul, or null for the default.</summary>
+    public static long? Fp8GemmMinRows { get; } = Read("SHARPLIGHT_FP8_GEMM_MIN_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Forced layout of the 128-token int8 GEMM tile (warps M, warps N, fragments M, fragments N), or null.</summary>
     public static int[]? MmqLayout { get; } = Read("SHARPLIGHT_MMQ_CFG")?.Split(',').Select(int.Parse).ToArray();

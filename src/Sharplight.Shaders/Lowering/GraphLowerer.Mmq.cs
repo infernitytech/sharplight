@@ -49,7 +49,17 @@ public sealed partial class GraphLowerer
     };
 
     /// <summary>Activation rows from which the int8 GEMM serves a matmul (smaller batches stay on the matvecs and skinny f16 tiles).</summary>
-    private static long MmqMinRows => DiagnosticSwitches.MmqMinRows;
+    private static long MmqMinRows => DiagnosticSwitches.MmqMinRows ?? 33;
+
+    /// <summary>
+    /// Activation rows from which the fp8 GEMM serves a matmul: from 17 rows (above the skinny GEMM) its E4M3 operands read the
+    /// weights at about the 1-row matvec's speed, ahead of gemm_cm2 on f16-decoded weights (Blackwell, FP8 [5120→17408] at
+    /// 64 rows: 80 vs 116 µs).
+    /// </summary>
+    private static long Fp8GemmMinRows => DiagnosticSwitches.Fp8GemmMinRows ?? 17;
+
+    /// <summary>First row count served by the 8-bit GEMM with activations encoded as <paramref name="code"/>.</summary>
+    private static long QuantizedGemmMinRows(ActivationCode code) => code == ActivationCode.Fp8 ? Fp8GemmMinRows : MmqMinRows;
 
     /// <summary>
     /// K values staged per step of the int8 GEMM: the largest of 128, 64 and 32 dividing K (longer steps amortize the
@@ -121,7 +131,7 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// Emits an 8-bit tensor-core GEMM (activations quantized to <paramref name="code"/>, 64- or 128-token tiles of the
     /// <see cref="MmqLayout"/> layouts, <paramref name="blockK"/> K values per staged step) with its split-K variants and
-    /// reduction for batches of at least <see cref="MmqMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
+    /// reduction for batches of at least <see cref="QuantizedGemmMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
     /// tile height and a K split.
     /// </summary>
     private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel)
@@ -129,14 +139,15 @@ public sealed partial class GraphLowerer
         long n = p.N;
         long k = p.K;
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
-        if (rowsMax < MmqMinRows)
+        long minRows = QuantizedGemmMinRows(code);
+        if (rowsMax < minRows)
         {
             return;
         }
 
         string label = MatMulLabel(p);
-        var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, k, MmqMinRows, rowsMax, code);
-        bool InRange(Bindings b) => p.RowCount(b) >= MmqMinRows;
+        var quantized = QuantizedActivations(label, [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, k, minRows, rowsMax, code);
+        bool InRange(Bindings b) => p.RowCount(b) >= minRows;
         int Split(Bindings b) => QuantizedGemmSplit(n, k, p.RowCount(b), blockK);
 
         var direct = new List<KernelVariant>();
@@ -155,7 +166,7 @@ public sealed partial class GraphLowerer
         // Split-K: the same tiles summing K ranges into partials, then the reduction of matmul.slang.
         var tiledSplits = new SortedSet<(int TileRows, int Split)>();
         long scratchBytes = 0;
-        for (long rows = MmqMinRows; rows <= rowsMax; rows = NextSplitProbe(rows, rowsMax))
+        for (long rows = minRows; rows <= rowsMax; rows = NextSplitProbe(rows, rowsMax))
         {
             int split = QuantizedGemmSplit(n, k, rows, blockK);
             if (split > 1)

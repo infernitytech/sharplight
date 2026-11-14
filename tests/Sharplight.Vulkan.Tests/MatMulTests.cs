@@ -26,8 +26,12 @@ public sealed class MatMulTests
     // arithmetic itself tightly.
     private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_0", "q4_k", "q5_k", "q6_k"];
 
-    private static double Atol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? 3.0 : Atol(t);
-    private static double Rtol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? Rtol(9) : Rtol(t);
+    // Block-scaled E4M3 weights take the fp8 GEMM from 17 rows: activations quantized to E4M3 (4 significant bits), the
+    // bound of Fp8GemmTests.RandomActivations.
+    private static readonly HashSet<string> s_fp8GemmFormats = ["f8e4m3_b128", "f8e4m3_b32"];
+
+    private static double Atol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? 3.0 : s_fp8GemmFormats.Contains(fmt) && t > 16 ? 1.5 : Atol(t);
+    private static double Rtol(string fmt, int t) => s_intDotFormats.Contains(fmt) ? Rtol(9) : s_fp8GemmFormats.Contains(fmt) && t > 16 ? 5e-2 : Rtol(t);
 
     [Theory]
     [MemberData(nameof(Cases))]

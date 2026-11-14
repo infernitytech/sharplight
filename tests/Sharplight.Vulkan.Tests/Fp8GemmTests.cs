@@ -15,7 +15,7 @@ public sealed class Fp8GemmTests
     {
         foreach (var fmt in s_formats)
         {
-            foreach (var (t, n) in new[] { (65, 96), (200, 100), (300, 520) })
+            foreach (var (t, n) in new[] { (17, 96), (40, 100), (65, 96), (200, 100), (300, 520) })
             {
                 yield return [fmt, t, n];
             }
