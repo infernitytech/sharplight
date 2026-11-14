@@ -164,9 +164,16 @@ void matvec(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
 #ifndef MV_SK_SG
 #define MV_SK_SG 8
 #endif
-groupshared float skPart[MV_COLS][MV_SK_SG];
+// MV_SK_ROWS: output rows per workgroup. Each thread applies every activation value it loads to that many weight rows, so x is
+// read from cache once per MV_SK_ROWS rows (in f32 it is up to four times the bytes of the weights it multiplies), and every
+// thread keeps MV_SK_ROWS weight loads in flight. A row's sum is the same at every MV_SK_ROWS: thread tid adds the groups tid,
+// tid + 256, ... in order, then the subgroup and workgroup sums run in the same order.
+#ifndef MV_SK_ROWS
+#define MV_SK_ROWS 1
+#endif
+groupshared float skPart[MV_SK_ROWS][MV_COLS][MV_SK_SG];
 #if DUAL
-groupshared float skPart2[MV_COLS][MV_SK_SG];
+groupshared float skPart2[MV_SK_ROWS][MV_COLS][MV_SK_SG];
 #endif
 
 [shader("compute")]
@@ -175,22 +182,30 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
 {
     GRID_BIND(p);
     uint tid = ltid.x, lane = tid % SG, sg = tid / SG;
-    uint row = gid.x;
-    float acc[MV_COLS];
-    [ForceUnroll] for (int c = 0; c < MV_COLS; c++) acc[c] = 0;
+    uint row0 = gid.x * MV_SK_ROWS;
+    float acc[MV_SK_ROWS][MV_COLS];
+    [ForceUnroll] for (int r = 0; r < MV_SK_ROWS; r++) [ForceUnroll] for (int c = 0; c < MV_COLS; c++) acc[r][c] = 0;
 #if DUAL
-    float acc2[MV_COLS];
-    [ForceUnroll] for (int c = 0; c < MV_COLS; c++) acc2[c] = 0;
+    float acc2[MV_SK_ROWS][MV_COLS];
+    [ForceUnroll] for (int r = 0; r < MV_SK_ROWS; r++) [ForceUnroll] for (int c = 0; c < MV_COLS; c++) acc2[r][c] = 0;
 #endif
     [unroll(MV_UNROLL)]
     for (uint g = tid; g < K / 8; g += SG * MV_SK_SG)
     {
-        float w[8];
-        load8(p.w, ROW_BYTES, row, g, w);
+        float w[MV_SK_ROWS][8];
 #if DUAL
-        float w2[8];
-        load8(p.w2, ROW_BYTES, row, g, w2);
+        float w2[MV_SK_ROWS][8];
 #endif
+        [ForceUnroll]
+        for (int r = 0; r < MV_SK_ROWS; r++)
+        {
+            // Rows past N (N % MV_SK_ROWS != 0) read the last row; their sums are not stored.
+            uint row = MV_SK_ROWS == 1 || N % MV_SK_ROWS == 0 ? row0 + r : min(row0 + r, uint(N) - 1);
+            load8(p.w, ROW_BYTES, row, g, w[r]);
+#if DUAL
+            load8(p.w2, ROW_BYTES, row, g, w2[r]);
+#endif
+        }
         [ForceUnroll]
         for (int c = 0; c < MV_COLS; c++)
         {
@@ -198,37 +213,49 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
             {
                 float4* xp = (float4*)(p.x + uint64_t(c) * X_STRIDE + g * 8);
                 float4 a = xp[0], b = xp[1];
-                acc[c] += dot8(w, a, b);
+                [ForceUnroll]
+                for (int r = 0; r < MV_SK_ROWS; r++)
+                {
+                    acc[r][c] += dot8(w[r], a, b);
 #if DUAL
-                acc2[c] += dot8(w2, a, b);
+                    acc2[r][c] += dot8(w2[r], a, b);
 #endif
+                }
             }
         }
     }
     [ForceUnroll]
-    for (int c = 0; c < MV_COLS; c++)
+    for (int r = 0; r < MV_SK_ROWS; r++)
     {
-        float s = WaveActiveSum(acc[c]);
-        if (lane == 0) skPart[c][sg] = s;
+        [ForceUnroll]
+        for (int c = 0; c < MV_COLS; c++)
+        {
+            float s = WaveActiveSum(acc[r][c]);
+            if (lane == 0) skPart[r][c][sg] = s;
 #if DUAL
-        float s2 = WaveActiveSum(acc2[c]);
-        if (lane == 0) skPart2[c][sg] = s2;
+            float s2 = WaveActiveSum(acc2[r][c]);
+            if (lane == 0) skPart2[r][c][sg] = s2;
 #endif
+        }
     }
     GroupMemoryBarrierWithGroupSync();
-    if (tid < MV_COLS && tid < p.T)
+    if (tid < MV_SK_ROWS * MV_COLS)
     {
-        float s = 0;
-        [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s += skPart[tid][i];
+        uint r = tid / MV_COLS, c = tid % MV_COLS, row = row0 + r;
+        if (c < p.T && row < N)
+        {
+            float s = 0;
+            [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s += skPart[r][c][i];
 #if DUAL
-        float s2 = 0;
-        [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s2 += skPart2[tid][i];
-        s = epi2(s, s2);
+            float s2 = 0;
+            [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s2 += skPart2[r][c][i];
+            s = epi2(s, s2);
 #endif
 #if BIAS
-        s = s + p.bias[row];
+            s = s + p.bias[row];
 #endif
-        p.y[uint64_t(tid) * Y_STRIDE + row] = s;
+            p.y[uint64_t(c) * Y_STRIDE + row] = s;
+        }
     }
 }
 #endif

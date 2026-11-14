@@ -57,6 +57,7 @@ public sealed partial class GraphLowerer
         // Decode (one token): split-K matvec, one workgroup per output row, K spread over enough threads that
         // each walks only a few 8-weight groups (keeps many loads in flight per row).
         int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+        long skRows = SplitKMatvecRows(N, K, int.Parse(m["WFMT"], CultureInfo.InvariantCulture), dual: m.TryGetValue("DUAL", out var dualMacro) && dualMacro == "1");
         if (InvariantRows > 0)
         {
             m = new Dictionary<string, string>(m) { ["MV_FMA_CHAIN"] = "1" };
@@ -67,9 +68,10 @@ public sealed partial class GraphLowerer
             var macros = new Dictionary<string, string>(m)
             {
                 ["MV_COLS"] = columns.ToString(CultureInfo.InvariantCulture), ["MV_SK_SG"] = skSg.ToString(CultureInfo.InvariantCulture),
+                ["MV_SK_ROWS"] = skRows.ToString(CultureInfo.InvariantCulture),
             };
             return K >= 1024
-                ? new KernelVariant(when, lib("matvec_sk", macros), b => new Grid((uint)N))
+                ? new KernelVariant(when, lib("matvec_sk", macros), b => new Grid(Grid.Div(N, skRows)))
                 : new KernelVariant(when, lib("matvec", macros), b => new Grid(Grid.Div(N, 4)));
         }
 
@@ -89,6 +91,26 @@ public sealed partial class GraphLowerer
             : new KernelVariant(b => rows(b) <= MatvecMaxRows, lib("matvec", m), b => new Grid(Grid.Div(N, 4))));
         return variants;
     }
+
+    /// <summary>
+    /// Output rows per workgroup of the single-row split-K matvec (<c>MV_SK_ROWS</c> in <c>matvec_sk</c>): 2 for single FP8 and
+    /// bf16 matrices with at least 1024 rows and K of at least 2048, else 1. Two rows per workgroup read each f32 activation from
+    /// cache once for both rows (in f32, x is four times the bytes of the FP8 weights it multiplies) and keep two weight loads in
+    /// flight per thread. Blackwell, FP8 at one row (µs): [17408→5120] 67 → 59, [5120→17408] 67 → 57, [5120→12288] 47 → 41,
+    /// [5120→6144] 24 → 22 (27B FP8 decode step 21.7-22.9 → 19.8-20.2 ms). The dual gate / up matvec (already two loads per
+    /// thread) and narrow matrices (fewer workgroups: [5120→48] 3.6 → 4.4) keep one row.
+    /// The kernel adds a row's products in the same order at either row count, but the driver may contract the products into
+    /// fused multiply-adds differently in the two variants, which changes the last bits: greedy output was unchanged for these
+    /// formats at K ≥ 2048 (27B FP8, Llama-3.2-1B, SmolLM3-3B bf16), but changed for bf16 at K = 1024 (Qwen3.5-0.8B) and for
+    /// Q8_0 at gpt-oss-20b's [4096→2880], which therefore keep one row. <c>SHARPLIGHT_MV_ROWS=n</c> forces n for every matrix
+    /// (1 restores one row everywhere).
+    /// </summary>
+    private static long SplitKMatvecRows(long n, long k, int format, bool dual)
+        => DiagnosticSwitches.SplitKMatvecRows ?? (dual || n < 1024 || k < 2048 || !s_twoRowMatvecFormats.Any(t => WeightFormat(t) == format) ? 1 : 2);
+
+    /// <summary>Weight formats whose single-row split-K matvec uses two rows per workgroup (see <see cref="SplitKMatvecRows"/>).</summary>
+    private static readonly DataType[] s_twoRowMatvecFormats =
+        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B32R, DataType.BF16];
 
     /// <summary>
     /// Makes x readable by the weight kernels: rows of 16-byte aligned f32 with a stride divisible by four, copying to a
@@ -193,12 +215,13 @@ public sealed partial class GraphLowerer
             var y = Produce(add.Output);
             int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
             int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+            long skRows = SplitKMatvecRows(N, K, format, dual: false);
             var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"),
-                ("MV_COLS", 1), ("MV_SK_SG", skSg), ("BIAS", 1));
+                ("MV_COLS", 1), ("MV_SK_SG", skSg), ("MV_SK_ROWS", skRows), ("BIAS", 1));
             var tx = x;
             Func<Bindings, long> rows = b => Rows(b, tx) * rowsPerLead;
             Emit($"matmul {matmul.Output.Name} [{K}→{N}] {w.Type} +bias", [matmul, add],
-                [new KernelVariant(b => rows(b) == 1, Lib("matmul.slang", "matvec_sk", macros), _ => new Grid((uint)N))],
+                [new KernelVariant(b => rows(b) == 1, Lib("matmul.slang", "matvec_sk", macros), _ => new Grid(Grid.Div(N, skRows)))],
                 [Pointer(x), Pointer(w), Pointer(y), Pointer(bias), TokenArg(x, rowsPerLead)],
                 [x, w, bias], [y]);
             _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) != 1;
