@@ -1,10 +1,9 @@
 using System.Diagnostics;
 using Sharplight.Llm;
 using Sharplight.Models;
-using Sharplight.Package;
 using Sharplight.Runtime;
 
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>
 /// Builds a model from its source through the registered importers (<see cref="ModelImporterRegistry"/>) and architecture

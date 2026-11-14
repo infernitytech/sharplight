@@ -1,7 +1,7 @@
 using Sharplight.Models;
 using Sharplight.Runtime;
 
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>How <see cref="PackagePrecompiler"/> compiles a package.</summary>
 public sealed class PrecompileOptions

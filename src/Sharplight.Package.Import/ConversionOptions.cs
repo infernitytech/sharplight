@@ -1,6 +1,6 @@
 using Sharplight.Tensors;
 
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>How <see cref="ModelConverter"/> builds the model before it is written as a package.</summary>
 public sealed class ConversionOptions

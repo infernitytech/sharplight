@@ -1,4 +1,4 @@
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>What <see cref="PackagePrecompiler"/> stored.</summary>
 /// <param name="Device">Description of the device the package was compiled on (or for).</param>

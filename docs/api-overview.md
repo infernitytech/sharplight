@@ -7,7 +7,7 @@ This is a short tour of the types an application uses. Every public type and mem
 |---|---|---|
 | `Sharplight.Llm` | Load models, generate, batch, host several models, embed and rerank | `LlmModel`, `InferenceSession`, `Generator`, `InferenceEngine`, `ModelService`, `ModelHost`, `EmbeddingModel`, `Reranker`, `VisionEncoder` |
 | `Sharplight.AspNetCore` | OpenAI- and Anthropic-compatible HTTP endpoints for ASP.NET Core | `AddSharplight`, `UseSharplight`, `MapSharplight`, `AddSharplightEmbeddings`, `AddSharplightReranker` |
-| `Sharplight.Packaging` | Convert models to `.slm` packages and precompile kernels into them | `ModelConverter`, `PackagePrecompiler` |
+| `Sharplight.Package.Import` | Convert models to `.slm` packages and precompile kernels into them | `ModelConverter`, `PackagePrecompiler` |
 | `Sharplight.Hub` | Search and pull Hugging Face models into a local store ([model-hub.md](model-hub.md)) | `HubClient`, `ModelPuller`, `ModelStore` |
 | `Sharplight.Extensions.AI` | `Microsoft.Extensions.AI` adapters | `SharplightChatClient`, `SharplightEmbeddingGenerator`, `AddSharplightChatClient`, `AddSharplightEmbeddingGenerator` |
 

@@ -3,10 +3,9 @@ using Sharplight.Graph;
 using Sharplight.Llm;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
-using Sharplight.Package;
 using Sharplight.Runtime;
 
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>
 /// Compiles every graph of a package on one device (or for a device profile, without the device) and appends the artifact sets

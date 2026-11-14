@@ -12,7 +12,7 @@
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
     <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
-    <Project Path="src/Sharplight.Packaging/Sharplight.Packaging.csproj" />
+    <Project Path="src/Sharplight.Package.Import/Sharplight.Package.Import.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />

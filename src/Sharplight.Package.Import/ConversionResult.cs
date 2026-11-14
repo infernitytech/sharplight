@@ -1,4 +1,4 @@
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>What <see cref="ModelConverter"/> wrote.</summary>
 /// <param name="PackagePath">The written package.</param>

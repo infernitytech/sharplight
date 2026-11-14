@@ -1,4 +1,4 @@
-namespace Sharplight.Packaging;
+namespace Sharplight.Package.Import;
 
 /// <summary>A graph without a language-model layout has a symbolic dimension that <see cref="PrecompileOptions.SymbolBounds"/> does not bound.</summary>
 public sealed class MissingSymbolBoundException : InvalidOperationException
