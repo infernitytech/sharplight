@@ -169,6 +169,9 @@ public sealed partial class GraphLowerer
 
     private sealed record ConvCfg(ConvTile Tile, int Split, long Kps);
 
+    /// <summary>Most output channels of a single-group convolution served by conv_narrow.</summary>
+    private const long ConvNarrowMaxOutputs = 8;
+
     private static ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
     {
         long NC = N * HW;
@@ -322,6 +325,16 @@ public sealed partial class GraphLowerer
             var k = ConvKernel("conv.slang", "conv_dw", Macros(common), epilogue);
             Emit(name, nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW, 256)))],
                 [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+                [.. bias is null ? [x, w] : new[] { x, w, bias }, .. resReads], [y]);
+            return;
+        }
+
+        // Few output channels (flow, depth and mask heads): the GEMM tiles would mostly compute padding.
+        if (G == 1 && O <= ConvNarrowMaxOutputs && !w.Type.IsQuantized && !DiagnosticSwitches.NoNarrowConv)
+        {
+            var k = ConvKernel("conv.slang", "conv_narrow", Macros(common), epilogue);
+            Emit(name + " narrow", nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * HW, 32)))],
+                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, HW)],
                 [.. bias is null ? [x, w] : new[] { x, w, bias }, .. resReads], [y]);
             return;
         }

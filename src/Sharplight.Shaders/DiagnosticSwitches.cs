@@ -16,6 +16,8 @@ namespace Sharplight.Shaders;
 /// own launch instead of in the convolution's store.</item>
 /// <item><c>SHARPLIGHT_NO_MATMUL_EPILOGUE=1</c>: run the elementwise group consuming a weight matmul (bias, activation, residual
 /// add) as its own launch instead of in the split-f16 GEMM's store.</item>
+/// <item><c>SHARPLIGHT_NO_NARROW_CONV=1</c>: run convolutions with up to 8 output channels through the implicit GEMMs instead of
+/// the per-pixel conv_narrow kernel.</item>
 /// <item><c>SHARPLIGHT_NO_STRIDED_LAYERNORM=1</c>: copy a channel-strided LayerNorm input (the channels-last view of an NCHW
 /// tensor) to a dense temporary instead of normalizing it in place.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
@@ -116,6 +118,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the convolution epilogue fusion (elementwise consumers of a conv computed in its store).</summary>
     public static bool NoConvEpilogue { get; } = IsSet("SHARPLIGHT_NO_CONV_EPILOGUE");
+
+    /// <summary>Runs convolutions with few output channels through the implicit GEMMs instead of conv_narrow.</summary>
+    public static bool NoNarrowConv { get; } = IsSet("SHARPLIGHT_NO_NARROW_CONV");
 
     /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
     public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
