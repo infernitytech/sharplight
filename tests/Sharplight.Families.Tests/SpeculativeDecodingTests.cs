@@ -109,6 +109,35 @@ public class SpeculativeDecodingTests
         Assert.Equal(resident, model.SharedWeights.ResidentBytes);
     }
 
+    /// <summary>
+    /// <see cref="LlmModel.EstimateFootprint"/> with speculation counts exactly the record states of the rollback form and the
+    /// draft head's own weights (not the ones it shares with the decoder).
+    /// </summary>
+    [Fact]
+    public void Footprint_Counts_RollbackRecords_And_DraftHead()
+    {
+        Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
+        using var device = OpenDevice(vulkan: false);
+        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64 });
+        var plain = model.EstimateFootprint(Slots, 512, maxLogitsRows: Slots * (Drafts + 1));
+        var spec = model.EstimateFootprint(Slots, 512, draftTokens: Drafts);
+        var withHead = model.EstimateFootprint(Slots, 512, draftTokens: Drafts, draftHead: true);
+
+        var ms = MultiSequence.Transform(model.Definition.Graph(WellKnown.DecodeGraph), Slots, 0, 0, Drafts + 1);
+        long records = ms.Graph.Nodes.SelectMany(n => n.Inputs).Select(v => v.State).OfType<StateDefinition>().Distinct()
+            .Where(s => s.Name.EndsWith(RecurrentRollback.RecordStateSuffix, StringComparison.Ordinal)).Sum(s => s.Type.ByteSize(s.Shape.Elements()));
+        Assert.True(records > 0);
+        Assert.Equal(plain.StateBytes + records, spec.StateBytes);
+        Assert.Equal(plain.WeightBytes, spec.WeightBytes);
+
+        var decodeSources = model.Definition.Graph(WellKnown.DecodeGraph).Nodes.SelectMany(n => n.Inputs).Where(v => v.Weight is not null)
+            .Select(v => v.Weight!.Source).ToHashSet<IWeightSource>(ReferenceEqualityComparer.Instance);
+        long headOwn = model.Definition.Graph(WellKnown.DraftGraph).Nodes.SelectMany(n => n.Inputs).Select(v => v.Weight).OfType<WeightInfo>()
+            .DistinctBy(w => w.Source, ReferenceEqualityComparer.Instance).Where(w => !decodeSources.Contains(w.Source)).Sum(w => w.ByteSize);
+        Assert.Equal(spec.WeightBytes + headOwn, withHead.WeightBytes);
+        Assert.True(withHead.StateBytes > spec.StateBytes, "the head's KV cache is counted");
+    }
+
     private static async Task<int[][]> Generate(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, SamplingParams sampling, CancellationToken ct)
         => (await GenerateWithMetrics(model, decoder, spec, prompts, sampling, ct)).Tokens;
 

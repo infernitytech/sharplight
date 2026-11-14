@@ -4,7 +4,7 @@
 // greedy decoding after a natural-language prompt (padded with random tokens to the depth), end-of-generation ignored;
 // tg = 128 / (t(129 new tokens) - t(1 new token)), median / min / max over --reps pairs. Per draft count it also reports the
 // draft acceptance (accepted / verified drafts) and the mean accepted length per verification step (1 + accepted / steps).
-// Draft count 0 is the plain decoder (no speculator).
+// Draft count 0 is the plain decoder (no speculator). "prompt + 1 token" is t(1 new token): prefill of the depth plus one step.
 using System.Diagnostics;
 using Sharplight.Gguf;
 using Sharplight.HuggingFace;
@@ -85,6 +85,6 @@ foreach (int k in drafts)
         var tg = t1.Zip(t129, (a, b) => 128 / (b - a)).ToList();
         long drafted = m1.DraftTokens - m0.DraftTokens, accepted = m1.AcceptedDraftTokens - m0.AcceptedDraftTokens;
         string acc = drafted > 0 ? $" acceptance {(double)accepted / drafted:F2} ({accepted}/{drafted})" : "";
-        Console.WriteLine($"{method} k={k} depth={d}: tg median {Median(tg):F1} min {tg.Min():F1} max {tg.Max():F1} tok/s{acc}");
+        Console.WriteLine($"{method} k={k} depth={d}: tg median {Median(tg):F1} min {tg.Min():F1} max {tg.Max():F1} tok/s, prompt + 1 token {Median(t1) * 1000:F0} ms (min {t1.Min() * 1000:F0}){acc}");
     }
 }

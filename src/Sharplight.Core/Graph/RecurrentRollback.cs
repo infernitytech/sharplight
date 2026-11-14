@@ -55,6 +55,32 @@ public static class RecurrentRollback
     public static int BaseInputCount(Node n) => IsRollbackForm(n) ? n.Inputs.Length - TrailingInputs : n.Inputs.Length;
 
     /// <summary>
+    /// Device bytes of the record states a rollback-form compilation of <paramref name="graph"/> adds: per recurrent op
+    /// [<paramref name="slots"/>, <see cref="Banks"/>, <paramref name="rows"/>, <see cref="RecordWidth"/>] f32.
+    /// </summary>
+    /// <param name="graph">The graph (single- or multi-sequence form).</param>
+    /// <param name="slots">Sequence slots.</param>
+    /// <param name="rows">Rollback rows K (draft tokens + 1).</param>
+    public static long RecordStateBytes(ComputeGraph graph, int slots, int rows)
+    {
+        if (rows <= 0)
+        {
+            return 0;
+        }
+
+        long bytes = 0;
+        foreach (var n in graph.Nodes)
+        {
+            if (s_ops.Contains(n.Op.Name))
+            {
+                bytes += (long)slots * Banks * rows * RecordWidth(n.Op.Name, n.Inputs) * sizeof(float);
+            }
+        }
+
+        return bytes;
+    }
+
+    /// <summary>
     /// Floats per record row of a recurrent op, from its token inputs: <c>CausalConv1d</c> C (x [T, C]); <c>GatedDeltaRule</c>
     /// HV · (DK + DV + 2) (k, v, g and beta per value head); <c>SelectiveScan</c> H · (P + 1) + G · N (x and dt per head, B);
     /// <c>Wkv7</c> 5 · H · N (w, k, v, a, b); <c>Wkv6</c> 3 · H · N (k, v, w).

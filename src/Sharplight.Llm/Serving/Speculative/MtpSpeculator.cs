@@ -54,6 +54,9 @@ public sealed class MtpSpeculator : ISpeculator
         _argmaxLogprobs = new float[draft.MaxLogitsRows];
     }
 
+    /// <summary>Device memory the draft head holds (its own weights, KV cache and buffers; weights shared with the decoder are not counted).</summary>
+    public long DeviceMemoryBytes => _draft.DeviceMemoryBytes;
+
     /// <summary>Runs the head on <see cref="_inputs"/> (one logits row each) and leaves each input's greedy token in <see cref="_argmax"/>.</summary>
     private void DraftStep()
     {

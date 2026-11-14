@@ -23,12 +23,18 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         try
         {
             ct.ThrowIfCancellationRequested();
-            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens);
+            // Speculation with the model's MTP head: rollback records, verification logits rows and the head itself. (A custom
+            // speculator's draft count is known only once it is created at load; its records are not reserved here.)
+            bool mtp = _chat.MtpDraftTokens > 0 && model.HasDraftHead;
+            int drafts = mtp ? _chat.MtpDraftTokens : 0;
+            int? rows = drafts > 0 ? _chat.Slots + Math.Min(_chat.Slots, _chat.Engine.SpeculationMaxBatch) * drafts : null;
+            var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, mtp, rows);
+            long headBytes = mtp ? fp.Total - model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens, drafts, false, rows).Total : 0;
             // The model is split over the pipeline devices in proportion to their weights (equal when unset).
             var devs = load.Devices;
             double sum = devs.Sum(d => d.Weight ?? 1);
             var reqs = devs.Select(d => new MemoryRequirement(new DeviceMemoryDomain(d.Device), (long)(fp.Total * ((d.Weight ?? 1) / sum)))).ToList();
-            return new Prepared(this, model, fp, reqs);
+            return new Prepared(this, model, fp, headBytes, reqs);
         }
         catch
         {
@@ -37,7 +43,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         }
     }
 
-    private sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
+    private sealed class Prepared(LlmChatModelLoader owner, LlmModel model, ModelFootprint fp, long headBytes, IReadOnlyList<MemoryRequirement> reqs) : IPreparedModel
     {
         private bool _consumed;
         public IReadOnlyList<MemoryRequirement> Requirements => reqs;
@@ -47,7 +53,8 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         public LoadedModel Load(long? primaryLimit)
         {
             // The limit covers the whole model on the primary device; placement only sees weights + state, so leave room for activations.
-            long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes) : null;
+            // The draft head (compiled first) takes its share of the limit too.
+            long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes - headBytes) : null;
             var chat = owner._chat;
             var speculator = chat.MtpDraftTokens > 0 && model.HasDraftHead
                 ? model.CreateMtpSpeculator(chat.Slots, chat.MtpDraftTokens, owner.Load.ContextLength, chat.KvCacheTokens)
@@ -74,7 +81,8 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
                 engine = new InferenceEngine(decoder, model.Tokenizer, options);
                 var service = new ModelService(engine, model.ChatTemplate, owner._chat.Service with { ModelName = owner.ModelName });
                 _consumed = true;   // the instance owns the model now
-                return new ChatModelInstance(model, engine, service, decoder.DeviceMemoryBytes);
+                long head = speculator is Speculative.MtpSpeculator mtp ? mtp.DeviceMemoryBytes : 0;
+                return new ChatModelInstance(model, engine, service, decoder.DeviceMemoryBytes + head);
             }
             catch
             {
