@@ -46,4 +46,9 @@ public sealed class BatchMatMulTests
     [Fact] public void SymbolicBatchDim4D() => Run("sym batch 4d", [1, 4, 11, 8], [1, 4, 13, 8], false, true, sym: 1, tvals: [2, 5]);
     [Fact] public void SymbolicRowsRank2() => Run("sym M", [1, 24], [24, 17], false, false, sym: 1, tvals: [1, 9, 31]);
     [Fact] public void SymbolicBBroadcastA() => Run("sym b", [4, 6], [1, 6, 5], false, false, sym: 2, tvals: [3]);
+
+    // Long K over few output tiles: K split across workgroups (partials summed by bmm_reduce, alpha applied there).
+    [Fact] public void SplitK() => Run("split-k", [2, 70, 1100], [2, 1100, 40], false, false, alpha: 0.5f);
+    [Fact] public void SplitKSymbolicBatch() => Run("split-k sym", [1, 30, 600], [1, 20, 600], false, true, sym: 1, tvals: [1, 3]);
+    [Fact] public void SplitKSymbolicRows() => Run("split-k sym M", [1, 700], [700, 9], false, false, sym: 1, tvals: [1, 5, 30]);
 }

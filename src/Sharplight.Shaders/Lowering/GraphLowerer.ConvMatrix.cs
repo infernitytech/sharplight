@@ -28,6 +28,12 @@ public sealed partial class GraphLowerer
     private const long ConvMatrixMinChannels = 32;
 
     /// <summary>
+    /// Smallest output pixel count (all images) worth a tensor-core tile: below one 64-pixel tile the padding is cheaper than
+    /// the SIMT conv (7x7 maps of deep layers, 49 pixels, still run 3-4x faster on the matrix units).
+    /// </summary>
+    private const long ConvMatrixMinColumns = 32;
+
+    /// <summary>
     /// Shared memory of conv_cm in bytes: one packed operand tile pair per part and the epilogue staging of
     /// 4 * <paramref name="warpsM"/> subgroups.
     /// </summary>
@@ -38,8 +44,11 @@ public sealed partial class GraphLowerer
     private int ConvMatrixWarpsM(long OG, ConvMatrixForm form)
         => OG >= 2 * ConvMatrixWarpRows && ConvMatrixSharedBytes(2, form) <= _opt.MaxSharedMemory ? 2 : 1;
 
-    /// <summary>Which conv_cm form applies (null: none), see the class remarks.</summary>
-    private ConvMatrixForm? ChooseConvMatrixForm(long K, long OG, long columns, int weightFormat)
+    /// <summary>
+    /// Which conv_cm form applies (null: none), see the class remarks. <paramref name="columns"/> is the output map size,
+    /// <paramref name="batchBound"/> the largest batch and <paramref name="groups"/> the conv groups.
+    /// </summary>
+    private ConvMatrixForm? ChooseConvMatrixForm(long K, long OG, long columns, int weightFormat, long batchBound = 1, long groups = 1)
     {
         if (_opt.SubgroupSize != 32 || weightFormat is not (0 or 1 or 2) || K < ConvMatrixMinK || OG < ConvMatrixMinChannels
             || DiagnosticSwitches.ConvNoMatrix)
@@ -49,10 +58,14 @@ public sealed partial class GraphLowerer
 
         bool bf16 = _opt.Has(DeviceFeatures.MatrixBF16) && _opt.Has(DeviceFeatures.BFloat16);
         bool f16 = _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16);
+        // Reduced precision: 128-pixel tiles, or 64 when the 128-pixel grid would not fill the device (small maps at batch 1).
+        // Those convs are bound by staging the im2col tile, not by the products, so fewer, wider tiles are slower even with a
+        // sixth of the products of the strict form.
+        long reducedColumns = (columns * Math.Max(1, batchBound) + 127) / 128 * ((OG + 127) / 128) * groups < TargetWorkgroups ? 64 : 128;
         ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
-            ? f16 ? new ConvMatrixForm(1, 128) : bf16 ? new ConvMatrixForm(2, 128) : null
+            ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
             : bf16 ? new ConvMatrixForm(3, 64) : null;
-        return form is { } f && columns >= f.TileColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
+        return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
 
     /// <summary>K split for conv_cm: aims for <see cref="TargetWorkgroups"/>, at least 4 K steps per split.</summary>
@@ -77,7 +90,8 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Lowers a (non-depthwise) conv through conv_cm when <see cref="ChooseConvMatrixForm"/> allows; false otherwise.</summary>
-    private bool TryLowerConvMatrix(Node n, TensorRef x, TensorRef w, TensorRef? bias, TensorRef y, (string, object)[] common, string name)
+    private bool TryLowerConvMatrix(Node n, Node[] nodes, ConvEpilogueCode? epilogue, TensorRef x, TensorRef w, TensorRef? bias, TensorRef y,
+        (string, object)[] common, string name)
     {
         long G = n.Attributes.Get("groups", 1L);
         long O = w.Shape[0];
@@ -86,7 +100,7 @@ public sealed partial class GraphLowerer
         long K = w.Shape[1] * w.Shape[2] * w.Shape[3];
         int format = WeightFormat(w.Type) ?? -1;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
-        if (ChooseConvMatrixForm(K, OG, HW, format) is not { } form)
+        if (ChooseConvMatrixForm(K, OG, HW, format, bound, G) is not { } form)
         {
             return false;
         }
@@ -115,14 +129,16 @@ public sealed partial class GraphLowerer
         macros.Add(("A_VEC", K % 8 == 0));
         var variants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
-            var kernel = Lib("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]));
+            var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
             return (kernel, batch => new Grid(Grid.Div(batch * HW, form.TileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
         });
         string label = $"{name} {form.Parts switch { 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
         var dst = ws ?? y;
-        Emit(useWorkspace ? label + " gemm" : label, [n], variants,
-            [Pointer(x), Pointer(w), Pointer(biasPointer), Pointer(dst), TokenArg(x)],
-            bias is null || useWorkspace ? [x, w] : [x, w, bias], [dst]);
+        var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
+        var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];
+        Emit(useWorkspace ? label + " gemm" : label, nodes, variants,
+            [Pointer(x), Pointer(w), Pointer(biasPointer), Pointer(dst), .. useWorkspace ? [] : resArgs, TokenArg(x)],
+            [.. bias is null || useWorkspace ? [x, w] : new[] { x, w, bias }, .. useWorkspace ? [] : resReads], [dst]);
         if (!useWorkspace)
         {
             return true;
@@ -130,12 +146,12 @@ public sealed partial class GraphLowerer
 
         var reduceVariants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
-            var kernel = Lib("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)));
+            var kernel = ConvKernel("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)), epilogue);
             return (kernel, batch => new Grid(Grid.Div(batch * O * HW, 256)));
         });
-        Emit(label + " reduce", [n], reduceVariants,
-            [Pointer(dst), Pointer(biasPointer), Pointer(y), CountArg(x, O * HW)],
-            bias is null ? [dst] : [dst, bias], [y]);
+        Emit(label + " reduce", nodes, reduceVariants,
+            [Pointer(dst), Pointer(biasPointer), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+            [.. bias is null ? [dst] : new[] { dst, bias }, .. resReads], [y]);
         return true;
     }
 }

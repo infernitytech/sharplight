@@ -312,6 +312,148 @@ void gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     }
 }
 
+#ifdef KERNEL_GEMM_WIDE
+// ---------------------------------------------------------------------------------------------
+// Wide SIMT GEMM for large f32 grids: 128 tokens x 128 weight rows per workgroup of 256 threads, 8 x 8 outputs per thread
+// (two 4-wide strips per axis, 64 apart, so every shared read is a conflict-free float4), K in steps of WBK = 16 through
+// two shared buffers: the next step's global loads are in registers while this step's products run, one barrier per step.
+// GEMM_SPLITK > 1 as in gemm. Needs K % 8 == 0 (load8 groups).
+#define WBM 128
+#define WBN 128
+#define WBK 16
+
+groupshared float4 wX[2][WBK][WBM / 4];
+groupshared float4 wW[2][WBK][WBN / 4];
+
+#if WFMT == FMT_F32
+// f32 weights: thread loads float4 j of the step for tile rows tid / 4 + 64 j, K quad tid % 4: four threads read one row's
+// 64 contiguous bytes, so a warp touches 8 rows per load instead of 32.
+void wide_fetch(Params p, uint t0, uint n0, uint k0, uint tid, out float xv[8], out float wv[8])
+{
+    uint q = tid % 4;
+    [ForceUnroll]
+    for (uint j = 0; j < 2; j++)
+    {
+        uint r = tid / 4 + 64 * j;
+        float4 a = 0, b = 0;
+        if (t0 + r < p.T && k0 + q * 4 < K) a = *(float4*)(p.x + uint64_t(t0 + r) * X_STRIDE + k0 + q * 4);
+        if (n0 + r < N && k0 + q * 4 < K) b = *(float4*)((float*)p.w + uint64_t(n0 + r) * K + k0 + q * 4);
+        xv[j * 4 + 0] = a.x; xv[j * 4 + 1] = a.y; xv[j * 4 + 2] = a.z; xv[j * 4 + 3] = a.w;
+        wv[j * 4 + 0] = b.x; wv[j * 4 + 1] = b.y; wv[j * 4 + 2] = b.z; wv[j * 4 + 3] = b.w;
+    }
+}
+
+void wide_stage(uint buf, uint tid, float xv[8], float wv[8])
+{
+    uint q = tid % 4;
+    [ForceUnroll]
+    for (uint j = 0; j < 2; j++)
+    {
+        uint r = tid / 4 + 64 * j;
+        [ForceUnroll] for (uint c = 0; c < 4; c++) { wX[buf][q * 4 + c][r >> 2][r & 3] = xv[j * 4 + c]; wW[buf][q * 4 + c][r >> 2][r & 3] = wv[j * 4 + c]; }
+    }
+}
+#else
+// Other weight formats: thread decodes 8 values (load8 group tid / 128) of tile row tid % 128.
+void wide_fetch(Params p, uint t0, uint n0, uint k0, uint tid, out float xv[8], out float wv[8])
+{
+    uint r = tid % 128, gq = tid / 128;
+    uint t = t0 + r;
+    [ForceUnroll] for (int i = 0; i < 8; i++) { xv[i] = 0; wv[i] = 0; }
+    if (t < p.T && k0 / 8 + gq < K / 8)
+    {
+        float4* xp = (float4*)(p.x + uint64_t(t) * X_STRIDE + k0 + gq * 8);
+        float4 a = xp[0], b = xp[1];
+        xv[0] = a.x; xv[1] = a.y; xv[2] = a.z; xv[3] = a.w; xv[4] = b.x; xv[5] = b.y; xv[6] = b.z; xv[7] = b.w;
+    }
+    if (n0 + r < N && k0 / 8 + gq < K / 8) load8(p.w, ROW_BYTES, n0 + r, k0 / 8 + gq, wv);
+}
+
+void wide_stage(uint buf, uint tid, float xv[8], float wv[8])
+{
+    uint r = tid % 128, gq = tid / 128;
+    [ForceUnroll] for (int i = 0; i < 8; i++) { wX[buf][gq * 8 + i][r >> 2][r & 3] = xv[i]; wW[buf][gq * 8 + i][r >> 2][r & 3] = wv[i]; }
+}
+#endif
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void gemm_wide(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    GRID_BIND(p);
+    uint tid = ltid.x;
+    uint n0 = gid.x * WBN;
+    uint t0 = gid.y * WBM;
+    uint tx = tid % 16, ty = tid / 16;
+#ifndef GEMM_SPLITK
+#define GEMM_SPLITK 1
+#endif
+#if GEMM_SPLITK > 1
+    const uint kShare = ((K + WBK - 1) / WBK + GEMM_SPLITK - 1) / GEMM_SPLITK * WBK;
+    uint kBegin = gid.z * kShare;
+    uint kEnd = min(uint(K), kBegin + kShare);
+    float* yb = p.y + uint64_t(gid.z) * p.T * N;
+    const uint yStride = N;
+#else
+    uint kBegin = 0;
+    uint kEnd = K;
+    float* yb = p.y;
+    const uint yStride = Y_STRIDE;
+#endif
+    float acc[8][8];
+    [ForceUnroll] for (int i = 0; i < 8; i++) [ForceUnroll] for (int j = 0; j < 8; j++) acc[i][j] = 0;
+
+    float xv[8], wv[8];
+    if (kBegin < kEnd)
+    {
+        wide_fetch(p, t0, n0, kBegin, tid, xv, wv);
+        wide_stage(0, tid, xv, wv);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    // Two K steps per iteration so both shared buffers are addressed with constants.
+#define WIDE_STEP(CUR)                                                                                       \
+    {                                                                                                        \
+        bool more = k0 + WBK < kEnd;                                                                         \
+        if (more) { wide_fetch(p, t0, n0, k0 + WBK, tid, xv, wv); }                                          \
+        [ForceUnroll]                                                                                        \
+        for (int kk = 0; kk < WBK; kk++)                                                                     \
+        {                                                                                                    \
+            float4 a0 = wX[CUR][kk][ty], a1 = wX[CUR][kk][16 + ty];                                          \
+            float4 b0 = wW[CUR][kk][tx], b1 = wW[CUR][kk][16 + tx];                                          \
+            float a[8] = { a0.x, a0.y, a0.z, a0.w, a1.x, a1.y, a1.z, a1.w };                                 \
+            float b[8] = { b0.x, b0.y, b0.z, b0.w, b1.x, b1.y, b1.z, b1.w };                                 \
+            [ForceUnroll] for (int i = 0; i < 8; i++) [ForceUnroll] for (int j = 0; j < 8; j++) acc[i][j] += a[i] * b[j]; \
+        }                                                                                                    \
+        if (more) { wide_stage(1 - CUR, tid, xv, wv); }                                                      \
+        GroupMemoryBarrierWithGroupSync();                                                                   \
+    }
+    for (uint k0 = kBegin; k0 < kEnd; k0 += WBK)
+    {
+        WIDE_STEP(0)
+        k0 += WBK;
+        if (k0 >= kEnd)
+        {
+            break;
+        }
+        WIDE_STEP(1)
+    }
+#undef WIDE_STEP
+
+    [ForceUnroll]
+    for (int i = 0; i < 8; i++)
+    {
+        uint t = t0 + (i < 4 ? ty * 4 + i : 64 + ty * 4 + i - 4);
+        if (t >= p.T) continue;
+        [ForceUnroll]
+        for (int j = 0; j < 8; j++)
+        {
+            uint n = n0 + (j < 4 ? tx * 4 + j : 64 + tx * 4 + j - 4);
+            if (n < N) yb[uint64_t(t) * yStride + n] = acc[i][j];
+        }
+    }
+}
+#endif
+
 #ifdef KERNEL_GEMM_CM
 // ---------------------------------------------------------------------------------------------
 // Tensor-core GEMM (VK_KHR_cooperative_matrix, 16x16x16 f16 x f16 + f32). Workgroup = 8 subgroups

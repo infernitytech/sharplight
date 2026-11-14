@@ -31,13 +31,20 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   head in `EstimateFootprint`; wire up DeepSeek-V3 and GLM-4.5 NextN heads.
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
-- **ONNX operator coverage**: control flow (Loop, If, Scan), sequences, NonMaxSuppression and the rest of the opset.
-- **ONNX latency parity with onnxruntime** (§21): conv / matmul epilogues, prepacked weights, decomposed LayerNorm and
-  GELU translation and block-quantized MatMulNBits are in. Open gaps:
-  - CPU convolution GEMM efficiency (resnet50, segformer, mobilesam);
-  - Vulkan f32 GEMMs at 200-1600 rows against ORT's TF32 (vit, whisper);
-  - NonMaxSuppression and RoiAlign on the GPU (CPU fallback segments today);
-  - reduced-precision mode, which is slower than the default at batch 1 and loses the device on two encoders.
+- **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
+- **ONNX latency parity with onnxruntime** (§21, §25). Done:
+  - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
+    translation, block-quantized MatMulNBits;
+  - the 128x128 SIMT GEMM, bmm split-K, the CPU conv as one implicit GEMM (with a shifted stride-1 form);
+  - Vulkan NMS / RoiAlign / MaxPool indices / NonZero;
+  - the reduced-precision device loss and its batch-1 slowness.
+
+  Open gaps:
+  - Vulkan f32 GEMMs against ORT's TF32: vit, whisper, bert b8 and raft at 1.6-2.6x;
+  - no flash-style fusion of the decomposed attention (MatMul → Softmax → MatMul) on either provider;
+  - CPU convolution at 1.4-2x behind ORT on resnet50: NHWC / blocked layouts with propagation, Winograd;
+  - CPU GEMM at ~200 rows (vit) and CPU attention for batched encoders;
+  - detection models round-trip each data-dependent count through the host (R-CNN: 100 ms wall, 34 ms GPU).
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
 
 ## Performance ideas
@@ -59,10 +66,10 @@ GPU (Vulkan):
 
 CPU:
 
-- Single-pass LayerNorm, polynomial `exp`; fold the attention scale (`Div` after Q·Kᵀ) into the BatchMatMul alpha.
-  Conv / MatMul bias, residual and activation epilogues are done (§21).
-- Conv GEMM: the 8x32 microkernel reaches roughly 10-15 % of the 9950X's f32 peak inside ONNX CNNs. Next: pack A (the
-  weights) once per conv, block over output channels per thread, and run batch > 1 as one GEMM over N·H·W (§21).
+- Single-pass LayerNorm, polynomial `exp`. Conv / MatMul epilogues (§21) and the attention-scale fold (§25) are done.
+- Conv GEMM: one implicit GEMM over N·H·W with in-task packing and a shifted stride-1 form reaches 1.6-2.2 TFLOPS per
+  conv (§25). Next: NHWC / blocked layouts chosen per op with layout propagation, Winograd F(2,3) for 3x3 stride 1 behind
+  an accuracy check, and cheaper b1 pooling / global-mean ops.
 - 128-bit GEMM kernels for CPUs without AVX-512; ARM64 (NEON / SVE) kernels.
 
 ## Precision options

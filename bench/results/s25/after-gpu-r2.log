@@ -1,0 +1,30 @@
+r0 resnet50 b1 sl-vulkan: ok min 0.823 med 0.888 parity True 
+r0 resnet50 b1 sl-vulkan-rp: ok min 0.713 med 0.733 parity False 
+r0 resnet50 b8 sl-vulkan: ok min 3.099 med 3.117 parity True 
+r0 resnet50 b8 sl-vulkan-rp: ok min 1.931 med 1.989 parity False 
+r0 mobilenetv2 b1 sl-vulkan: ok min 0.425 med 0.69 parity True 
+r0 mobilenetv2 b1 sl-vulkan-rp: ok min 0.387 med 0.422 parity False 
+r0 mobilenetv2 b8 sl-vulkan: ok min 0.731 med 0.747 parity True 
+r0 mobilenetv2 b8 sl-vulkan-rp: ok min 0.675 med 0.79 parity False 
+r0 yolov8n b1 sl-vulkan: ok min 1.434 med 1.772 parity True 
+r0 yolov8n b1 sl-vulkan-rp: ok min 1.409 med 1.549 parity False 
+r0 ssd-10 (NMS) b1 sl-vulkan: ok min 18.273 med 19.656 parity False 
+r0 ssd-10 (NMS) b1 sl-vulkan-rp: ok min 10.666 med 11.526 parity False 
+r0 bert-base (16 tok) b1 sl-vulkan: ok min 1.302 med 1.326 parity True 
+r0 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.295 med 1.504 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan: ok min 4.396 med 5.462 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan-rp: ok min 3.615 med 4.122 parity True 
+r0 vit-base b1 sl-vulkan: ok min 2.608 med 2.643 parity True 
+r0 vit-base b1 sl-vulkan-rp: ok min 2.171 med 2.275 parity False 
+r0 vit-base b8 sl-vulkan: ok min 10.13 med 11.026 parity True 
+r0 vit-base b8 sl-vulkan-rp: ok min 5.188 med 5.282 parity False 
+r0 whisper-tiny-encoder b1 sl-vulkan: ok min 2.456 med 2.804 parity True 
+r0 whisper-tiny-encoder b1 sl-vulkan-rp: ok min 2.022 med 2.085 parity False 
+r0 segformer-b0 b1 sl-vulkan: ok min 3.434 med 3.894 parity True 
+r0 segformer-b0 b1 sl-vulkan-rp: ok min 3.006 med 3.88 parity True 
+r0 segformer-b0 b8 sl-vulkan: ok min 22.955 med 24.358 parity True 
+r0 segformer-b0 b8 sl-vulkan-rp: ok min 20.831 med 21.394 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.647 med 4.155 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 2.476 med 3.044 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 4.548 med 4.662 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 3.764 med 4.533 parity False 

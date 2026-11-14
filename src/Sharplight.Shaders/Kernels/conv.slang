@@ -6,6 +6,7 @@
 // x [N, C, H, W] with strides (XS_N, XS_C, XS_H, XS_W); w [O, CG, KH, KW] dense (format WFMT); y dense [N, O, HO, WO].
 // Common macros: C H W O HO WO CG OG G KH KW SH SW PH PW DH DW XS_* WFMT ROW_BYTES HAS_BIAS NOPAD
 #include "common.slang"
+#include "conv_epilogue.slang"
 
 #define KHW (KH * KW)
 #define KTOT (CG * KH * KW)
@@ -18,6 +19,9 @@ struct ConvParams
     uint8_t* w;
     float* bias;
     float* y;
+#if EPI_RES
+    float* res;
+#endif
     uint N;
 };
 
@@ -155,10 +159,14 @@ void conv_gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Co
             if (m >= OG) continue;
             uint o = g * OG + m;
             float v = acc[i][j];
-#if HAS_BIAS && SPLITK == 1
+            uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
+#if SPLITK == 1
+#if HAS_BIAS
             v += p.bias[o];
 #endif
-            p.y[outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix] = v;
+            CONV_EPI(v, idx);
+#endif
+            p.y[idx] = v;
         }
     }
 }
@@ -166,7 +174,16 @@ void conv_gemm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Co
 
 #ifdef KERNEL_CONV_SPLITK_REDUCE
 // Macros: SPLITK O HW HAS_BIAS
-struct ReduceParams { float* ws; float* bias; float* y; uint total; };
+struct ReduceParams
+{
+    float* ws;
+    float* bias;
+    float* y;
+#if EPI_RES
+    float* res;
+#endif
+    uint total;
+};
 
 [shader("compute")]
 [numthreads(256, 1, 1)]
@@ -179,12 +196,23 @@ void conv_splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform ReduceParams p
 #if HAS_BIAS
     s += p.bias[(i / HW) % O];
 #endif
+    CONV_EPI(s, i);
     p.y[i] = s;
 }
 #endif
 
 #ifdef KERNEL_CONV_DW
-struct DwParams { float* x; uint8_t* w; float* bias; float* y; uint total; };
+struct DwParams
+{
+    float* x;
+    uint8_t* w;
+    float* bias;
+    float* y;
+#if EPI_RES
+    float* res;
+#endif
+    uint total;
+};
 
 float dw_weight(uint8_t* base, uint idx)
 {
@@ -233,6 +261,7 @@ void conv_dw(uint3 dtid : SV_DispatchThreadID, uniform DwParams p)
 #if HAS_BIAS
     acc += p.bias[o];
 #endif
+    CONV_EPI(acc, idx);
     p.y[idx] = acc;
 }
 #endif

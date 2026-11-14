@@ -219,6 +219,33 @@ public sealed partial class GraphLowerer
     }
 
     // ---- concat ------------------------------------------------------------------------------
+    /// <summary>
+    /// Concatenation along a symbolic axis 0 (e.g. the detections of several NonMaxSuppression ops): each input is copied at the
+    /// run-time sum of the extents before it, a push constant evaluated from the bindings.
+    /// </summary>
+    private void LowerConcatSymbolic(Node n, TensorRef y)
+    {
+        Dim offset = 0;
+        foreach (var input in n.Inputs)
+        {
+            var src = Ref(input);
+            string type = RawType(src.Type);
+            var coords = Enumerable.Range(0, src.Rank).Select(Dn).ToArray();
+            var scalars = new List<(string, KernelArg)>();
+            string start = $"{offset.Fixed}u";
+            if (offset.IsSymbolic)
+            {
+                scalars.Add(("offset", new SymbolArg(offset.Symbol!, 1)));
+                start = "p.offset";
+            }
+
+            var target = coords.Select((c, k) => k == 0 ? $"{c} + {start}" : c).ToArray();
+            EmitGen($"concat {n.Output.Name}", [n], src.Shape, src.Symbol, [src], [y], $"  p.out0[{Lin(y, target)}] = p.in0[{Lin(src, coords)}];",
+                [type], [type], scalars: scalars);
+            offset += input.Shape[0];
+        }
+    }
+
     private void LowerConcat(Node n)
     {
         var y = Produce(n.Output);
@@ -226,6 +253,12 @@ public sealed partial class GraphLowerer
         if (axis < 0)
         {
             axis += y.Rank;
+        }
+
+        if (axis == 0 && n.Output.Shape[0].IsSymbolic && n.Inputs.Any(i => i.Shape[0] != n.Output.Shape[0]))
+        {
+            LowerConcatSymbolic(n, y);
+            return;
         }
 
         long start = 0;

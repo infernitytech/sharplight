@@ -102,8 +102,15 @@ internal static class Diff
         {
             var s = steps[si];
             var p = Params(s);
+            var vkParameters = Params(s);
             Feed(vk, s); Feed(cpu, s);
-            vk.Run(p); cpu.Run(p);
+            vk.Run(vkParameters); cpu.Run(p);
+            // Data-dependent ops (NonMaxSuppression, ...) publish their counts: both devices must find the same.
+            foreach (var (symbol, value) in p.Symbols)
+            {
+                long found = vkParameters.Symbols.GetValueOrDefault(symbol, -1);
+                Assert.True(found == value, $"{op} {what} step {si}: symbol {symbol} is {found} on vulkan, {value} on cpu");
+            }
             foreach (var (name, v) in g.Outputs)
             {
                 long n = v.Shape.Elements(p.Symbols);

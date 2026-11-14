@@ -1,3 +1,4 @@
+using System.Text;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -212,8 +213,66 @@ public sealed partial class GraphLowerer
         return new ConvCfg(best, (int)split, kps);
     }
 
-    private void LowerConv2d(Node n)
+    /// <summary>
+    /// The kernel <paramref name="entry"/> of a convolution file, with <paramref name="epilogue"/>'s group applied in its
+    /// final store when given (<c>conv_epilogue.slang</c>).
+    /// </summary>
+    private CompiledKernel ConvKernel(string file, string entry, Dictionary<string, string> macros, ConvEpilogueCode? epilogue)
     {
+        if (epilogue is null)
+        {
+            return Lib(file, entry, macros);
+        }
+
+        var m = new Dictionary<string, string>(macros)
+        {
+            ["KERNEL_" + entry.ToUpperInvariant()] = "1",
+            ["EPI"] = "1",
+            ["EPI_RES"] = epilogue.Residual is null ? "0" : "1",
+        };
+        return _compiler.Compile(file.Replace(".slang", "_epi.slang", StringComparison.Ordinal), epilogue.Source + $"#include \"{file}\"\n", entry, _opt.Target, m, _opt.Cache);
+    }
+
+    /// <summary>Generated <c>conv_epi</c> source of a fused group and its residual input (dense f32 of y's shape), if any.</summary>
+    private sealed record ConvEpilogueCode(string Source, TensorRef? Residual);
+
+    /// <summary>The <c>conv_epi(m0, r0)</c> function computing <paramref name="epilogue"/>'s group from the conv value m0.</summary>
+    private ConvEpilogueCode EpilogueCode(Node conv, ConvEpilogue epilogue)
+    {
+        var name = new Dictionary<Value, string> { [conv.Output] = "m0" };
+        var inGroup = epilogue.Group.Select(n => n.Output).ToHashSet();
+        var residual = epilogue.Group.SelectMany(n => n.Inputs).FirstOrDefault(v => v != conv.Output && !inGroup.Contains(v));
+        if (residual is not null)
+        {
+            name[residual] = "r0";
+        }
+
+        var src = new StringBuilder();
+        src.AppendLine("#include \"math_ext.slang\"");
+        src.AppendLine("float conv_epi(float m0, float r0) {");
+        foreach (var node in epilogue.Group)
+        {
+            var local = "v" + name.Count;
+            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            name[node.Output] = local;
+        }
+
+        src.AppendLine($"  return {name[epilogue.Output]};");
+        src.AppendLine("}");
+        return new ConvEpilogueCode(src.ToString(), residual is null ? null : AsDenseF32(Ref(residual), "conv-res"));
+    }
+
+    /// <summary>
+    /// Lowers a 2-D convolution: depthwise, cooperative-matrix implicit GEMM, or the SIMT implicit GEMM (split-K through a
+    /// workspace and a reduce). With <paramref name="fused"/>, the final store applies that elementwise group and writes its output.
+    /// </summary>
+    private void LowerConv2d(Node n, ConvEpilogue? fused = null)
+    {
+        var epilogue = fused is null ? null : EpilogueCode(n, fused);
+        Node[] nodes = fused is null ? [n] : [n, .. fused.Group];
+        string fusedLabel = fused is null ? "" : $" fused[{string.Join(",", fused.Group.Select(g => g.Op.Name))}]";
+        var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
+        var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];
         var x = AsF32(Ref(n.Inputs[0]), "conv-x");
         var w = Ref(n.Inputs[1]);
         if (!w.IsDense)
@@ -239,7 +298,7 @@ public sealed partial class GraphLowerer
         long KH = w.Shape[2];
         long KW = w.Shape[3];
         long OG = O / G;
-        var y = Produce(n.Output);
+        var y = Produce(fused?.Output ?? n.Output);
         long HO = y.Shape[2];
         long WO = y.Shape[3];
         long HW = HO * WO;
@@ -255,20 +314,19 @@ public sealed partial class GraphLowerer
         };
         var xr = x;
         var biasPtr = bias ?? x;
-        string name = $"conv {n.Output.Name} [{C}→{O} {KH}x{KW} s{st[0]} g{G}] {w.Type}";
+        string name = $"conv {n.Output.Name} [{C}→{O} {KH}x{KW} s{st[0]} g{G}] {w.Type}{fusedLabel}";
 
         // Depthwise (channel multiplier OG) on float weights.
         if (G == C && CG == 1 && !w.Type.IsQuantized)
         {
-            var k = Lib("conv.slang", "conv_dw", Macros(common));
-            Emit(name, [n], [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW, 256)))],
-                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y),
-                 CountArg(x, O * HW)],
-                bias is null ? [x, w] : [x, w, bias], [y]);
+            var k = ConvKernel("conv.slang", "conv_dw", Macros(common), epilogue);
+            Emit(name, nodes, [Always(k, b => new Grid(Grid.Div(Rows(b, xr) * O * HW, 256)))],
+                [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+                [.. bias is null ? [x, w] : new[] { x, w, bias }, .. resReads], [y]);
             return;
         }
 
-        if (TryLowerConvMatrix(n, x, w, bias, y, common, name))
+        if (TryLowerConvMatrix(n, nodes, epilogue, x, w, bias, y, common, name))
         {
             return;
         }
@@ -293,14 +351,15 @@ public sealed partial class GraphLowerer
         var gemmVariants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
             var t = cfg.Tile;
-            var k = Lib("conv.slang", "conv_gemm", Macros([.. common.Where(c => c.Item1 != "HAS_BIAS"), ("HAS_BIAS", bias is not null && !useWs),
-                ("BM", t.BM), ("BN", t.BN), ("BK", ConvBK), ("TM", t.TM), ("TN", t.TN), ("NT", t.NT), ("A_VEC", aVec), ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]));
+            var k = ConvKernel("conv.slang", "conv_gemm", Macros([.. common.Where(c => c.Item1 != "HAS_BIAS"), ("HAS_BIAS", bias is not null && !useWs),
+                ("BM", t.BM), ("BN", t.BN), ("BK", ConvBK), ("TM", t.TM), ("TN", t.TN), ("NT", t.NT), ("A_VEC", aVec), ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]),
+                useWs ? null : epilogue);
             return (k, Nv => new Grid(Grid.Div(Nv * HW, t.BN), Grid.Div(OG, t.BM), (uint)(G * cfg.Split)));
         });
         var dst = ws ?? y;
-        Emit(useWs ? name + " gemm" : name, [n], gemmVariants,
-            [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(dst), TokenArg(x)],
-            bias is null || useWs ? [x, w] : [x, w, bias], [dst]);
+        Emit(useWs ? name + " gemm" : name, nodes, gemmVariants,
+            [Pointer(x), Pointer(w), Pointer(biasPtr), Pointer(dst), .. useWs ? [] : resArgs, TokenArg(x)],
+            [.. bias is null || useWs ? [x, w] : new[] { x, w, bias }, .. useWs ? [] : resReads], [dst]);
         if (!useWs)
         {
             return;
@@ -308,12 +367,12 @@ public sealed partial class GraphLowerer
 
         var redVariants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
-            var k = Lib("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)));
+            var k = ConvKernel("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)), epilogue);
             return (k, Nv => new Grid(Grid.Div(Nv * O * HW, 256)));
         });
-        Emit(name + " reduce", [n], redVariants,
-            [Pointer(dst), Pointer(biasPtr), Pointer(y), CountArg(x, O * HW)],
-            bias is null ? [dst] : [dst, bias], [y]);
+        Emit(name + " reduce", nodes, redVariants,
+            [Pointer(dst), Pointer(biasPtr), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+            [.. bias is null ? [dst] : new[] { dst, bias }, .. resReads], [y]);
     }
 
     // ---- Pool --------------------------------------------------------------------------------
@@ -389,10 +448,16 @@ public sealed partial class GraphLowerer
     }
 
     // ---- BatchMatMul -------------------------------------------------------------------------
-    private sealed record BmmTile(int BM, int BN, int TM, int TN, int BK)
+    private sealed record BmmTile(int BM, int BN, int TM, int TN, int BK, int Split = 1, long Kps = 0)
     {
         public int NT => (BM / TM) * (BN / TN);
     }
+
+    /// <summary>Smallest K worth splitting across workgroups in bmm (each split keeps at least <see cref="BmmMinKPerSplit"/>).</summary>
+    private const long BmmSplitMinK = 512;
+
+    /// <summary>K values per bmm split at least.</summary>
+    private const long BmmMinKPerSplit = 256;
 
     private void LowerBatchMatMul(Node n)
     {
@@ -442,25 +507,60 @@ public sealed partial class GraphLowerer
             long wgs32 = batches * ((mm + 31) / 32) * ((N + 31) / 32);
             // Small grids (attention P·V at batch 1: 12 heads x 7 x 2 tiles) are latency-bound with 64-thread groups;
             // 2x2 outputs per thread give each group 256 threads for the same tile.
-            return wgs64 >= 120 ? new BmmTile(64, 64, 4, 4, 16) : wgs32 >= 512 ? new BmmTile(32, 32, 4, 4, 16) : new BmmTile(32, 32, 2, 2, 16);
+            var tile = wgs64 >= 120 ? new BmmTile(64, 64, 4, 4, 16) : wgs32 >= 512 ? new BmmTile(32, 32, 4, 4, 16) : new BmmTile(32, 32, 2, 2, 16);
+            // Few tiles over a long K (P·V of long sequences: whisper's 1500 keys, 6 heads x 24 tiles) leave most of the
+            // device idle: split K towards TargetWorkgroups, the partials summed by bmm_reduce.
+            long tiles = batches * ((mm + tile.BM - 1) / tile.BM) * ((N + tile.BN - 1) / tile.BN);
+            long split = K < BmmSplitMinK || tiles >= TargetWorkgroups / 2 ? 1 : Math.Min(Math.Min((TargetWorkgroups + tiles - 1) / tiles, K / BmmMinKPerSplit), 8);
+            if (split <= 1)
+            {
+                return tile;
+            }
+
+            long kSteps = (K + tile.BK - 1) / tile.BK;
+            long kps = (kSteps + split - 1) / split * tile.BK;
+            return tile with { Split = (int)((K + kps - 1) / kps), Kps = kps };
         };
         long bound = y.Symbol is null ? 1 : Bound(Dim.Sym(y.Symbol));
+        int maxSplit = 1;
+        for (long v = y.Symbol is null ? bound : 1; v <= bound; v++)
+        {
+            maxSplit = Math.Max(maxSplit, choose(v).Split);
+        }
+
+        bool useWs = maxSplit > 1;
+        long wsStride = y.MaxElements;
+        var dst = useWs ? Temp(DataType.F32, [maxSplit * wsStride], null) : y;
         var variants = ChooseVariants(y.Symbol, bound, choose, t =>
         {
             var k = Lib("bmm.slang", "bmm", Macros(("M", M), ("N", N), ("K", K), ("NB", nb), ("BSH", IntList(bsh)), ("BSA", IntList(bsa)), ("BSB", IntList(bsb)),
                 ("SAM", sam), ("SAK", sak), ("SBK", sbk), ("SBN", sbn), ("ALPHA", alpha), ("M_DYN", mdyn),
-                ("BM", t.BM), ("BN", t.BN), ("BK", t.BK), ("TM", t.TM), ("TN", t.TN), ("NT", t.NT)));
+                ("BM", t.BM), ("BN", t.BN), ("BK", t.BK), ("TM", t.TM), ("TN", t.TN), ("NT", t.NT),
+                ("SPLITK", t.Split), ("KPS", t.Split > 1 ? t.Kps : K), ("WS_STRIDE", useWs ? wsStride + "ull" : "0"), ("PARTIAL", useWs)));
             return (k, dyn =>
             {
                 long mm = mdyn ? dyn : Mb;
                 long batches = nb == 0 ? 1 : (y.Symbol is not null ? dyn * batchesInner : y.Shape.Take(nb).Aggregate(1L, (p, q) => p * q));
-                return new Grid(Grid.Div(N, t.BN), Grid.Div(mm, t.BM), (uint)batches);
+                return new Grid(Grid.Div(N, t.BN), Grid.Div(mm, t.BM), (uint)(batches * t.Split));
             }
             );
         });
         KernelArg dynArg = mdyn ? new SymbolArg(y.Symbol!) : new UIntArg(0);
-        Emit($"bmm {n.Output.Name} [{M}x{K}x{N}]", [n], variants,
-            [Pointer(a), Pointer(b), Pointer(y), dynArg], [a, b], [y]);
+        string name = $"bmm {n.Output.Name} [{M}x{K}x{N}]";
+        Emit(useWs ? name + " split-k" : name, [n], variants,
+            [Pointer(a), Pointer(b), Pointer(dst), dynArg], [a, b], [dst]);
+        if (!useWs)
+        {
+            return;
+        }
+
+        long inner = y.MaxElements / Math.Max(1, y.Shape[0]);
+        var reduceVariants = ChooseVariants(y.Symbol, bound, choose, t =>
+        {
+            var k = Lib("bmm.slang", "bmm_reduce", Macros(("SPLITK", t.Split), ("KPS", K), ("WS_STRIDE", wsStride + "ull"), ("PARTIAL", 1), ("ALPHA", alpha)));
+            return (k, dyn => new Grid(Grid.Div((y.Symbol is null ? y.Shape[0] : dyn) * inner, 256)));
+        });
+        Emit(name + " reduce", [n], reduceVariants, [Pointer(dst), Pointer(y), CountArg(y, inner)], [dst], [y]);
     }
 
     // ---- Pad ---------------------------------------------------------------------------------
@@ -527,8 +627,7 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(y), TokenArg(x)], [x], [y]);
     }
 
-    // LayerNorm rows served by one workgroup each (up to this many rows, of 512 to 16384 values).
-    private const long LayerNormWorkgroupMaxRows = 64;
+    // LayerNorm rows of 512 to 16384 values are served by one workgroup each.
     private const long LayerNormWorkgroupMinWidth = 512;
     private const long LayerNormWorkgroupMaxWidth = 16384;
 
@@ -545,10 +644,12 @@ public sealed partial class GraphLowerer
         var wp = w ?? x;
         var bp = bi ?? x;
         List<KernelVariant> variants = [];
-        // Few wide rows (decode): a workgroup per row instead of a subgroup, which is latency bound on long rows.
+        // Wide rows: a workgroup per row with the row in registers instead of a subgroup walking it three times, which is
+        // latency bound (vit-base's 768-wide rows: 12 us -> 4 us at 197 rows, 12 -> 6 us at 1576), up to the portable
+        // workgroup count limit.
         if (x.Shape[^1] >= LayerNormWorkgroupMinWidth && x.Shape[^1] <= LayerNormWorkgroupMaxWidth)
         {
-            variants.Add(new KernelVariant(b => Rows(b, tx) * r1 <= LayerNormWorkgroupMaxRows, Lib("rows.slang", "layernorm_wg", macros),
+            variants.Add(new KernelVariant(b => Rows(b, tx) * r1 <= ushort.MaxValue, Lib("rows.slang", "layernorm_wg", macros),
                 b => new Grid((uint)Math.Max(1, Rows(b, tx) * r1))));
         }
 

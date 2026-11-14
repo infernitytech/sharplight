@@ -42,6 +42,11 @@ public sealed partial class GraphLowerer
         }
 
         FoldScatterChains(units, consumers);
+        if (!DiagnosticSwitches.NoConvEpilogue)
+        {
+            FoldConvEpilogues(units, consumers);
+        }
+
         FindFusedOutputs(units, consumers);
         return units;
     }
@@ -374,6 +379,64 @@ public sealed partial class GraphLowerer
 
             matmulUnit.BiasAdd = add;
             removed.Add(unit);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// A plain elementwise group whose inputs are one Conv output (read nowhere else) and at most one other value of the
+    /// same shape (a residual) becomes the conv's store epilogue: e.g. Relu, or Add(conv, shortcut) + Relu in ResNets.
+    /// The conv then runs at the group's place, so no unit in between may write state.
+    /// </summary>
+    private void FoldConvEpilogues(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var position = new Dictionary<Node, int>();
+        for (int i = 0; i < units.Count; i++)
+        {
+            if (units[i].Node is { Op.Name: "Conv" } conv)
+            {
+                position[conv] = i;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        for (int j = 0; j < units.Count; j++)
+        {
+            var unit = units[j];
+            if (unit.Fused is not { } group || unit.Dual is not null || unit.NormHead is not null || unit.NormTail is not null
+                || unit.Gathers is not null || unit.Absorbed is not null)
+            {
+                continue;
+            }
+
+            var inGroup = group.ToHashSet();
+            var external = group.SelectMany(n => n.Inputs).Where(v => v.Producer is null || !inGroup.Contains(v.Producer)).Distinct().ToList();
+            var conv = external.Select(v => v.Producer).OfType<Node>().FirstOrDefault(p => p.Op.Name == "Conv" && position.ContainsKey(p));
+            if (conv is null || external.Count > 2 || _segmentOutputs.Contains(conv.Output) || conv.Output.Type != DataType.F32
+                || conv.Output.Shape.Rank != 4 || consumers[conv.Output].Any(c => !inGroup.Contains(c)))
+            {
+                continue;
+            }
+
+            var shape = conv.Output.Shape;
+            if (external.Any(v => v != conv.Output && (v.Type != DataType.F32 || !v.Shape.Equals(shape)))
+                || group.Any(n => !n.Output.Shape.Equals(shape)))
+            {
+                continue;
+            }
+
+            var withConv = new HashSet<Node>(inGroup) { conv };
+            var escaping = group.Select(n => n.Output).Where(v => EscapesGroup(v, consumers, withConv)).ToList();
+            int at = position[conv];
+            if (escaping.Count != 1 || at > j || removed.Contains(units[at])
+                || units.Skip(at + 1).Take(j - at - 1).Any(u => u.Nodes.Any(n => !n.Writes.IsEmpty)))
+            {
+                continue;
+            }
+
+            unit.ConvHead = conv;
+            removed.Add(units[at]);
         }
 
         units.RemoveAll(removed.Contains);
