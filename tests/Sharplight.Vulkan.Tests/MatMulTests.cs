@@ -141,4 +141,25 @@ public sealed class MatMulTests
             Diff.Check("MatMul.shared." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: Atol(fmt, t), rtol: Rtol(fmt, t), what: $"T={t}");
         }
     }
+
+    /// <summary>
+    /// Large row counts with a K long enough for the split-K tensor-core GEMM (f32 weights under reduced precision, as in the
+    /// fc2 projection of transformer encoders): 1500 rows end in a partial 128-row tile. A static [1, T, K] input flattens to
+    /// T rows per leading row: the split-K launches must take their row count from the input, not from its f16 copy.
+    /// </summary>
+    [Theory]
+    [InlineData("f32", 1500, 1536, 384, true, false)]
+    [InlineData("f32", 1500, 1536, 384, true, true)]
+    [InlineData("f16", 1500, 1536, 384, false, true)]
+    [InlineData("f32", 1500, 1536, 384, false, true)]
+    public void LargeRowsSplitK(string fmt, int t, int K, int N, bool reduced, bool staticRows)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = staticRows ? tg.InF("x", 1, t, K) : tg.InF("x", TG.T, K);
+        var w = tg.RandW("w", DataType.Get(fmt), 1f, N, K);
+        tg.B.Output("y", tg.B.MatMul(x, w));
+        Diff.Check("MatMul.splitk." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3))), atol: 0.5, rtol: 1e-2,
+            maxTokens: t, what: $"T={t} K={K} N={N} reduced={reduced} static={staticRows}", allowReducedPrecision: reduced);
+    }
 }
