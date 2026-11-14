@@ -61,8 +61,9 @@ public enum InputRole
     /// </summary>
     EncoderOutput,
     /// <summary>
-    /// <see cref="WellKnown.ScoreSpansGraph"/>: per-question table [<see cref="WellKnown.QuestionSymbol"/>, 4] i32 of (first row, row
-    /// count, kind, sequence index) of each question span in the packed rows; kind is a <c>SpanQuestionKind</c> value.
+    /// <see cref="WellKnown.ScoreSpansGraph"/>: per-question table [<see cref="WellKnown.QuestionSymbol"/>, 6] i32 of (first row, row
+    /// count, kind, sequence index, first option, option count) of each question span in the packed rows; kind is a <c>SpanQuestionKind</c>
+    /// value, and the options of a question are consecutive rows of the <see cref="OptionSpans"/> table.
     /// </summary>
     QuestionSpans,
     /// <summary>

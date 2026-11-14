@@ -121,10 +121,12 @@ public static class WellKnown
     public const string DiffusionShiftLogits = "diffusion.shift_logits";
     /// <summary>
     /// Span scoring (decision models: a prompt holds questions and their options, the head gives every option a score): the packed-sequence
-    /// inputs of <see cref="EmbedGraph"/> plus <see cref="InputRole.QuestionSpans"/> [<see cref="QuestionSymbol"/>, 4] and
+    /// inputs of <see cref="EmbedGraph"/> plus <see cref="InputRole.QuestionSpans"/> [<see cref="QuestionSymbol"/>, 6] and
     /// <see cref="InputRole.OptionSpans"/> [<see cref="OptionSymbol"/>, 3], which mark spans of the packed rows; output
     /// <see cref="ScoresOutput"/> [<see cref="OptionSymbol"/>, 1], one score per option (the options of a question are compared by a softmax
-    /// over their scores). How the head reads the spans is the model's (<see cref="SpanHeadType"/>).
+    /// over their scores). How the head reads the spans is the model's (<see cref="SpanHeadType"/>). Recurrent and hybrid models whose layers
+    /// keep state instead have the inputs of <see cref="DecodeGraph"/> (tokens, positions, the <see cref="PastScalar"/> offset and their
+    /// states) plus <see cref="InputRole.SequenceSpans"/> and the span tables: one sequence per run, started at offset 0 from reset states.
     /// </summary>
     public const string ScoreSpansGraph = "score_spans";
     /// <summary>Name of the output of <see cref="ScoreSpansGraph"/>: one score per option.</summary>

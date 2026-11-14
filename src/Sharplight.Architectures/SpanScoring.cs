@@ -11,12 +11,14 @@ namespace Sharplight.Architectures;
 /// <list type="bullet">
 /// <item><c>endpoint</c> (<see cref="EndpointSpanHead"/>, vllm-sr Decision 2.0): the last row of each option against the last row of its
 /// question.</item>
+/// <item><c>joint_schema</c> (<see cref="JointSchemaSpanHead"/>, Cloudflare Clef): pooled spans read by cross-attention layers, all questions
+/// decided jointly (<c>span_head.head_count</c>, <c>span_head.routing_layer_count</c>, <c>span_head.layer_count</c>).</item>
 /// </list>
 /// The LayerNorm epsilon of the head is <c>span_head.norm_eps</c> (default 1e-5).
 /// </summary>
 internal static class SpanScoring
 {
-    /// <summary>Name of the question table input [Q, 4].</summary>
+    /// <summary>Name of the question table input [Q, 6].</summary>
     public const string QuestionSpansInput = "question_spans";
     /// <summary>Name of the option table input [O, 3].</summary>
     public const string OptionSpansInput = "option_spans";
@@ -27,15 +29,16 @@ internal static class SpanScoring
     /// <summary>The head type (<c>span_head.type</c>).</summary>
     public static string HeadType(ModelSource src) => src.Get<string>(CanonicalKeys.SpanHeadType);
 
-    /// <summary>Declares the question [Q, 4] and option [O, 3] tables and splits their columns.</summary>
+    /// <summary>Declares the question [Q, 6] and option [O, 3] tables and splits their columns.</summary>
     public static SpanScoringInputs Declare(GraphBuilder b)
     {
-        var questions = b.Input(QuestionSpansInput, InputRole.QuestionSpans, DataType.I32, new Shape(Dim.Sym(WellKnown.QuestionSymbol), 4));
+        var questions = b.Input(QuestionSpansInput, InputRole.QuestionSpans, DataType.I32, new Shape(Dim.Sym(WellKnown.QuestionSymbol), 6));
         var options = b.Input(OptionSpansInput, InputRole.OptionSpans, DataType.I32, new Shape(Dim.Sym(WellKnown.OptionSymbol), 3));
         return new SpanScoringInputs(
             b.Contiguous(b.Slice(questions, 1, 0, 2)),
             b.Reshape(b.Contiguous(b.Slice(questions, 1, 2, 1)), 0),
             b.Reshape(b.Contiguous(b.Slice(questions, 1, 3, 1)), 0),
+            b.Contiguous(b.Slice(questions, 1, 4, 2)),
             b.Contiguous(b.Slice(options, 1, 0, 2)),
             b.Reshape(b.Contiguous(b.Slice(options, 1, 2, 1)), 0));
     }
@@ -46,15 +49,21 @@ internal static class SpanScoring
     /// <param name="b">The graph builder.</param>
     /// <param name="src">The model source (head type and settings).</param>
     /// <param name="hidden">Final hidden states [T, H].</param>
+    /// <param name="tokens">Token ids [T].</param>
+    /// <param name="sequenceSpans">Sequence spans [B, 2].</param>
     /// <param name="spans">The span tables.</param>
+    /// <param name="outputEmbedding">Name of the model's output embedding weight [V, H] (the LM head, or the tied token embedding).</param>
     /// <exception cref="NotSupportedException">The head type is unknown.</exception>
-    public static void Output(GraphBuilder b, ModelSource src, Value hidden, SpanScoringInputs spans)
+    public static void Output(GraphBuilder b, ModelSource src, Value hidden, Value tokens, Value sequenceSpans, SpanScoringInputs spans, string outputEmbedding)
     {
         float eps = src.Get(CanonicalKeys.SpanHeadNormEps, 1e-5f);
         var scores = HeadType(src) switch
         {
             "endpoint" => EndpointSpanHead.Build(b, hidden, spans, eps),
-            var t => throw new NotSupportedException($"Unknown span head type '{t}' (endpoint)."),
+            "joint_schema" => JointSchemaSpanHead.Build(b, hidden, tokens, sequenceSpans, spans, new JointSchemaSpanHeadSettings(eps,
+                src.Get<int>(CanonicalKeys.SpanHeadHeadCount), src.Get<int>(CanonicalKeys.SpanHeadRoutingLayerCount),
+                src.Get<int>(CanonicalKeys.SpanHeadLayerCount), outputEmbedding)),
+            var t => throw new NotSupportedException($"Unknown span head type '{t}' (endpoint, joint_schema)."),
         };
         b.Output(WellKnown.ScoresOutput, scores);
     }

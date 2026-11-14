@@ -80,11 +80,17 @@ public static class CanonicalKeys
 
     /// <summary>
     /// Type of the span scoring head of a decision model (string; see <see cref="WellKnown.ScoreSpansGraph"/>): "endpoint" (vllm-sr
-    /// Decision 2.0). Its weights are below <c>span_head.</c>.
+    /// Decision 2.0) or "joint_schema" (Cloudflare Clef). Its weights are below <c>span_head.</c>.
     /// </summary>
     public const string SpanHeadType = "span_head.type";
     /// <summary>LayerNorm epsilon of the span scoring head (float, default 1e-5).</summary>
     public const string SpanHeadNormEps = "span_head.norm_eps";
+    /// <summary>Attention heads of the layers of a "joint_schema" span scoring head (int).</summary>
+    public const string SpanHeadHeadCount = "span_head.head_count";
+    /// <summary>Routing layers (options attending to the prompt) of a "joint_schema" span scoring head (int).</summary>
+    public const string SpanHeadRoutingLayerCount = "span_head.routing_layer_count";
+    /// <summary>Joint layers (questions attending to each other and to the prompt) of a "joint_schema" span scoring head (int).</summary>
+    public const string SpanHeadLayerCount = "span_head.layer_count";
 
     /// <summary>Pooling an embedding model was trained with: "mean", "cls", "last" or "none" (string).</summary>
     public const string EmbeddingPooling = "embedding.pooling";

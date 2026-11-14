@@ -6,7 +6,10 @@ namespace Sharplight.Llm.Scoring;
 /// <param name="Options">The option spans, in prompt order; each refers to its question by index.</param>
 public sealed record SpanPrompt(int[] Tokens, IReadOnlyList<SpanQuestion> Questions, IReadOnlyList<SpanOption> Options)
 {
-    /// <summary>Checks that the spans lie inside the tokens, have tokens and that every question has an option.</summary>
+    /// <summary>
+    /// Checks that the spans lie inside the tokens and have tokens, that every question has an option and that the options of a question are
+    /// consecutive (options are listed question by question).
+    /// </summary>
     /// <exception cref="ArgumentException">A span is invalid.</exception>
     public void Validate()
     {
@@ -21,6 +24,7 @@ public sealed record SpanPrompt(int[] Tokens, IReadOnlyList<SpanQuestion> Questi
             CheckSpan(q.Start, q.Length, "question");
         }
 
+        int previous = -1;
         foreach (var o in Options)
         {
             CheckSpan(o.Start, o.Length, "option");
@@ -28,6 +32,13 @@ public sealed record SpanPrompt(int[] Tokens, IReadOnlyList<SpanQuestion> Questi
             {
                 throw new ArgumentException($"An option refers to question {o.Question}; the prompt has {Questions.Count}.");
             }
+
+            if (o.Question != previous && answered[o.Question])
+            {
+                throw new ArgumentException($"The options of question {o.Question} are not consecutive.");
+            }
+
+            previous = o.Question;
 
             answered[o.Question] = true;
         }

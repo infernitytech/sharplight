@@ -99,6 +99,13 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 HfDecisionPackage.AddHyperParameters(md);
             }
 
+            // Cloudflare Clef: a joint schema head beside the checkpoint.
+            bool jointHead = HfJointSchemaHead.IsPresent(dir);
+            if (jointHead)
+            {
+                HfJointSchemaHead.AddHyperParameters(md, dir);
+            }
+
             // EAGLE-3 drafters ship without a tokenizer: they use their target's.
             if (!Eagle3HfMapping.IsDrafter(config) || File.Exists(Path.Combine(dir, "tokenizer.json")))
             {
@@ -110,6 +117,11 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             if (decision != null)
             {
                 weights = weights.Concat(decision.HeadWeights(owned)).ToDictionary(StringComparer.Ordinal);
+            }
+
+            if (jointHead)
+            {
+                weights = weights.Concat(HfJointSchemaHead.Weights(dir, owned)).ToDictionary(StringComparer.Ordinal);
             }
 
             var dense = HfSentenceTransformers.DenseWeights(dir, owned);

@@ -86,8 +86,13 @@ public sealed class SpanScorer : IDisposable
     /// spans; an option belongs to the last question before it, or to the first question after it when it comes before any question (a prompt
     /// that lists the options before the question, such as Decision 2.0's).
     /// </summary>
+    /// <param name="segments">The prompt, segment by segment.</param>
+    /// <param name="parseSpecial">
+    /// Whether special-token text (e.g. <c>&lt;|im_start|&gt;</c>) in the segments becomes the special token, as Hugging Face tokenizers do by default
+    /// and the reference encoders of decision models expect. Pass false for untrusted text.
+    /// </param>
     /// <exception cref="ArgumentException">A segment is empty after tokenization, or the spans are invalid.</exception>
-    public SpanPrompt Encode(IReadOnlyList<PromptSegment> segments)
+    public SpanPrompt Encode(IReadOnlyList<PromptSegment> segments, bool parseSpecial = true)
     {
         var tokens = new List<int>();
         if (Tokenizer.AddBos && Tokenizer.BosId is { } bos)
@@ -100,7 +105,7 @@ public sealed class SpanScorer : IDisposable
         var pending = new List<int>();   // options seen before the first question
         foreach (var s in segments)
         {
-            var ids = Tokenizer.Encode(s.Text, addSpecial: false, parseSpecial: false);
+            var ids = Tokenizer.Encode(s.Text, addSpecial: false, parseSpecial: parseSpecial);
             if (s.Role != PromptSegmentRole.Text && ids.Length == 0)
             {
                 throw new ArgumentException($"The {s.Role.ToString().ToLowerInvariant()} segment \"{s.Text}\" has no tokens.");

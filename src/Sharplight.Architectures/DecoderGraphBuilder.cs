@@ -399,7 +399,7 @@ internal sealed partial class DecoderGraphBuilder
         var x = PackedLayers(b, inp);
         using (b.Group("output"))
         {
-            SpanScoring.Output(b, _src, OutputNorm(b, x), spans);
+            SpanScoring.Output(b, _src, OutputNorm(b, x), inp.Tokens, inp.SequenceSpans, spans, _src.Weight("lm_head.weight") is null ? "token_embedding.weight" : "lm_head.weight");
         }
 
         return b.Build();

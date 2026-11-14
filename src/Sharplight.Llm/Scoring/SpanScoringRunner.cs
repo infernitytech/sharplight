@@ -7,12 +7,16 @@ namespace Sharplight.Llm.Scoring;
 
 /// <summary>
 /// Runs a model's <see cref="WellKnown.ScoreSpansGraph"/> on one prompt per forward pass: the prompt is a single packed sequence, its question
-/// and option spans fill the span tables, and the scores of the options come back in option order. Not thread-safe; callers serialize.
+/// and option spans fill the span tables, and the scores of the options come back in option order. A graph with states (a recurrent or hybrid
+/// trunk) is run from reset states at offset 0. Not thread-safe; callers serialize.
 /// </summary>
 internal sealed class SpanScoringRunner : IDisposable
 {
     private readonly CompiledModel _compiled;
-    private readonly Value _tokens, _positions, _rowSpans, _seqSpans, _questions, _options;
+    private readonly Value _tokens, _positions, _questions, _options;
+    private readonly Value? _rowSpans, _seqSpans;
+    private readonly int _positionAxes;
+    private readonly bool _stateful;
     private readonly RunParameters _run = new();
 
     /// <summary>Most tokens per prompt.</summary>
@@ -28,8 +32,10 @@ internal sealed class SpanScoringRunner : IDisposable
         var g = compiled.Graph;
         _tokens = g.Input(InputRole.TokenIds);
         _positions = g.Input(InputRole.Positions);
-        _rowSpans = g.Input(InputRole.RowSpans);
-        _seqSpans = g.Input(InputRole.SequenceSpans);
+        _rowSpans = g.Inputs.FirstOrDefault(v => v.Input!.Role == InputRole.RowSpans);
+        _seqSpans = g.Inputs.FirstOrDefault(v => v.Input!.Role == InputRole.SequenceSpans);
+        _positionAxes = (int)_positions.Shape[-1].Fixed;
+        _stateful = g.States.Any();
         _questions = g.Input(InputRole.QuestionSpans);
         _options = g.Input(InputRole.OptionSpans);
         MaxTokens = maxTokens;
@@ -48,7 +54,7 @@ internal sealed class SpanScoringRunner : IDisposable
             Compile = new CompileOptions
             {
                 MaxTokens = o.MaxBatchTokens,
-                ContextLength = 1,
+                ContextLength = def.Graph(WellKnown.ScoreSpansGraph).States.Any() ? o.MaxBatchTokens : 1,
                 SymbolBounds = new Dictionary<string, long>
                 {
                     [WellKnown.SequenceSymbol] = 1, [WellKnown.QuestionSymbol] = o.MaxQuestions, [WellKnown.OptionSymbol] = o.MaxOptions,
@@ -72,21 +78,39 @@ internal sealed class SpanScoringRunner : IDisposable
                 + $"{MaxTokens}, {MaxQuestions} and {MaxOptions} fit.");
         }
 
-        var positions = new int[n];
+        // Text positions; of several rope axes (M-RoPE) the first three carry the position.
+        var positions = new int[n * _positionAxes];
         var rows = new int[n * 2];
         for (int t = 0; t < n; t++)
         {
-            positions[t] = t;
+            for (int a = 0; a < _positionAxes; a++)
+            {
+                positions[t * _positionAxes + a] = a < 3 ? t : 0;
+            }
+
             rows[t * 2 + 1] = n;
         }
 
-        var questions = new int[prompt.Questions.Count * 4];
+        // The options of a question are consecutive (checked by SpanPrompt.Validate).
+        var questions = new int[prompt.Questions.Count * 6];
         for (int i = 0; i < prompt.Questions.Count; i++)
         {
             var q = prompt.Questions[i];
-            questions[i * 4] = q.Start;
-            questions[i * 4 + 1] = q.Length;
-            questions[i * 4 + 2] = (int)q.Kind;
+            questions[i * 6] = q.Start;
+            questions[i * 6 + 1] = q.Length;
+            questions[i * 6 + 2] = (int)q.Kind;
+            questions[i * 6 + 4] = -1;
+        }
+
+        for (int i = 0; i < prompt.Options.Count; i++)
+        {
+            int q = prompt.Options[i].Question * 6;
+            if (questions[q + 4] < 0)
+            {
+                questions[q + 4] = i;
+            }
+
+            questions[q + 5]++;
         }
 
         var options = new int[prompt.Options.Count * 3];
@@ -100,14 +124,28 @@ internal sealed class SpanScoringRunner : IDisposable
 
         _compiled.SetInput<int>(_tokens, prompt.Tokens);
         _compiled.SetInput<int>(_positions, positions);
-        _compiled.SetInput<int>(_rowSpans, rows);
-        _compiled.SetInput<int>(_seqSpans, [0, n]);
+        if (_rowSpans is not null)
+        {
+            _compiled.SetInput<int>(_rowSpans, rows);
+        }
+
+        if (_seqSpans is not null)
+        {
+            _compiled.SetInput<int>(_seqSpans, [0, n]);
+        }
+
         _compiled.SetInput<int>(_questions, questions);
         _compiled.SetInput<int>(_options, options);
         _run.Symbols[WellKnown.TokenSymbol] = n;
         _run.Symbols[WellKnown.SequenceSymbol] = 1;
         _run.Symbols[WellKnown.QuestionSymbol] = prompt.Questions.Count;
         _run.Symbols[WellKnown.OptionSymbol] = prompt.Options.Count;
+        if (_stateful)
+        {
+            _compiled.ResetState();
+            _run.Scalars[WellKnown.PastScalar] = 0;
+        }
+
         _compiled.Run(_run);
         var scores = new float[prompt.Options.Count];
         _compiled.GetOutput<float>(WellKnown.ScoresOutput, scores);

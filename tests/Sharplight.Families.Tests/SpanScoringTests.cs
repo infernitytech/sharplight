@@ -30,6 +30,8 @@ public class SpanScoringTests
         [
             ("gguf/tiny-random-vllm-decision2-f32.gguf", "hf/tiny-random-vllm-decision2"),
             ("hf/tiny-random-vllm-decision2", "hf/tiny-random-vllm-decision2"),
+            ("gguf/tiny-random-clef-f32.gguf", "hf/tiny-random-clef"),
+            ("hf/tiny-random-clef", "hf/tiny-random-clef"),
         ];
         foreach (var (model, reference) in models)
         {
@@ -68,7 +70,13 @@ public class SpanScoringTests
                     $"option {i}: expected {expected[i]}, got {result.Scores[i]}");
             }
 
-            Assert.Equal(Array.IndexOf(expected, expected.Max()), result.Best(0));
+            // The best option of every question (options are listed question by question).
+            int[] perQuestion = p.TryGetProperty("options_per_question", out var counts) ? [.. counts.EnumerateArray().Select(e => e.GetInt32())] : [expected.Length];
+            for (int q = 0, first = 0; q < perQuestion.Length; first += perQuestion[q], q++)
+            {
+                var own = expected.AsSpan(first, perQuestion[q]).ToArray();
+                Assert.Equal(first + Array.IndexOf(own, own.Max()), result.Best(q));
+            }
         }
     }
 
