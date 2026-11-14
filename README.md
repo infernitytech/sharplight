@@ -155,8 +155,13 @@ A desktop app (Avalonia) to search and download Hugging Face models and convert 
 resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
 APIs. It also records per-model speed and latency statistics.
 
+On Linux, download the AppImage from the [releases](https://github.com/infernitytech/sharplight/releases), make it
+executable and run it; nothing else needs to be installed (a `.tar.gz` of the same self-contained app is attached too).
+From source:
+
 ```sh
 dotnet run -c Release --project apps/Sharplight.Studio
+packaging/linux/build-appimage.sh <version>   # builds the AppImage into artifacts/studio
 ```
 
 ![Sharplight Studio](docs/images/studio/studio-chat.png)

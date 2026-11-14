@@ -19,7 +19,7 @@ internal static class Program
         };
         var root = new RootCommand("Sharplight Studio: find, download, convert, chat with and serve local models.") { modelsDir };
         var parsed = root.Parse(args);
-        if (parsed.Errors.Count > 0 || args.Contains("--help") || args.Contains("-h"))
+        if (parsed.Errors.Count > 0 || args.Any(arg => arg is "--help" or "-h" or "-?" or "--version"))
         {
             return parsed.Invoke();
         }

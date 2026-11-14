@@ -1,0 +1,8 @@
+#!/bin/sh
+# Entry point of the Sharplight Studio AppImage: runs the self-contained .NET app from the mounted image.
+HERE="$(dirname "$(readlink -f "$0")")"
+# .NET needs ICU for culture data; run culture-invariant on systems without it rather than failing to start.
+if ! ldconfig -p 2>/dev/null | grep -q 'libicuuc\.so'; then
+    export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+fi
+exec "$HERE/usr/lib/sharplight-studio/sharplight-studio" "$@"
