@@ -1,5 +1,6 @@
 using Sharplight.Graph;
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Runtime;
 
@@ -137,6 +138,9 @@ public static class PlacementPlanner
         return groupDevice;
     }
 
+    /// <summary>Nodes reading or writing host-only values (strings).</summary>
+    private static bool IsHostOnly(Node n) => n.Inputs.Concat(n.Outputs).Any(v => v.Type.Kind == DataTypeKind.String);
+
     /// <summary>Device of every node: its group's device, the fallback for ops that device cannot run, and views follow their input.</summary>
     private static int[] AssignNodes(ComputeGraph graph, List<DeviceSlot> slots, Dictionary<string, int> groupDevice, int fallbackSlot)
     {
@@ -157,6 +161,13 @@ public static class PlacementPlanner
                 }
             }
 
+            if (IsHostOnly(n) && slots[s].Device.Info.Kind != DeviceKind.Cpu)
+            {
+                s = fallbackSlot >= 0 && slots[fallbackSlot].Device.Info.Kind == DeviceKind.Cpu && slots[fallbackSlot].Device.Supports(n).IsSupported
+                    ? fallbackSlot
+                    : throw new NotSupportedException($"Op {n.Op.Name} (node {n.Id}) handles strings, which only a CPU device can hold, and no CPU fallback runs it.");
+            }
+
             nodeSlot[i] = s;
         }
 
@@ -169,7 +180,7 @@ public static class PlacementPlanner
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
             var n = graph.Nodes[i];
-            if (n.Op.Category == OpCategory.View && n.Inputs[0].Producer is { } p)
+            if (n.Op.Category == OpCategory.View && n.Inputs[0].Producer is { } p && !IsHostOnly(n))
             {
                 nodeSlot[i] = nodeSlot[IndexOf(graph, p)];
             }

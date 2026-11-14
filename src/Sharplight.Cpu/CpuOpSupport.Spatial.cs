@@ -116,11 +116,6 @@ internal static partial class CpuOpSupport
             return OpSupport.No("Pool with symbolic H/W");
         }
 
-        if (mode == "avg" && a.Get("dilations", new long[] { 1, 1 }).Any(d => d != 1))
-        {
-            return OpSupport.No("avg Pool with dilations != 1");
-        }
-
         return CheckSpatialAttributes("Pool", a);
     }
 

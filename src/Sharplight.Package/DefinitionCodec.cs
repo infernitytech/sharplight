@@ -10,9 +10,20 @@ namespace Sharplight.Package;
 /// op's type inference — a stored graph is validated against the current op definitions when loaded.
 /// Weights are referenced by name.
 /// </summary>
+/// <remarks>
+/// Layout 2 (section name <see cref="SectionName"/>) adds, per node, the subgraph attributes of control-flow nodes (each a nested
+/// graph record) and, per graph, its data-dependent symbols. Layout 1 (section name empty, packages up to version 2) has neither.
+/// </remarks>
 internal static class DefinitionCodec
 {
+    /// <summary>The name of a DEFN section in layout 2.</summary>
+    public const string SectionName = "ir.2";
+
     private enum Rec : byte { Input = 1, Weight, State, Constant, Node, End }
+
+    /// <summary>The graph and the subgraphs held in attributes of its nodes, recursively.</summary>
+    public static IEnumerable<ComputeGraph> WithSubgraphs(ComputeGraph g)
+        => g.Nodes.SelectMany(n => n.Attributes.Select(a => a.Value).OfType<ComputeGraph>()).SelectMany(WithSubgraphs).Prepend(g);
 
     public static void Write(BinaryWriter w, ModelDefinition def)
     {
@@ -34,8 +45,13 @@ internal static class DefinitionCodec
         }
     }
 
-    public static ModelDefinition Read(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, IReadOnlyList<IDisposable> owned)
+    /// <param name="r">Reader positioned at the section.</param>
+    /// <param name="weights">The package weights.</param>
+    /// <param name="owned">Resources the definition owns.</param>
+    /// <param name="sectionName">The DEFN section name, which selects the layout.</param>
+    public static ModelDefinition Read(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, IReadOnlyList<IDisposable> owned, string sectionName)
     {
+        int layout = sectionName == SectionName ? 2 : sectionName.Length == 0 ? 1 : throw new InvalidDataException($"Unknown package definition layout '{sectionName}'.");
         string arch = MetadataCodec.ReadString(r);
         string name = MetadataCodec.ReadString(r);
         var props = MetadataCodec.Read(r);
@@ -53,7 +69,7 @@ internal static class DefinitionCodec
         for (int i = 0; i < ng; i++)
         {
             var key = MetadataCodec.ReadString(r);
-            graphs[key] = ReadGraph(r, weights, stateByName);
+            graphs[key] = ReadGraph(r, weights, stateByName, layout);
         }
         return new ModelDefinition
         {
@@ -88,11 +104,6 @@ internal static class DefinitionCodec
 
     private static void WriteGraph(BinaryWriter w, ComputeGraph g, ModelDefinition def)
     {
-        if (g.DynamicSymbols.Count > 0)
-        {
-            throw new NotSupportedException($"Graph {g.Name} has data-dependent shapes ({string.Join(", ", g.DynamicSymbols.Select(s => s.Key))}), which packages cannot store yet.");
-        }
-
         MetadataCodec.WriteString(w, g.Name);
         var index = new Dictionary<Value, int>();
         int next = 0;
@@ -150,7 +161,15 @@ internal static class DefinitionCodec
             w.Write((byte)Rec.Node);
             MetadataCodec.WriteString(w, n.Op.Name);
             MetadataCodec.WriteString(w, n.Group);
-            MetadataCodec.Write(w, n.Attributes);
+            var subgraphs = n.Attributes.Where(a => a.Value is ComputeGraph).OrderBy(a => a.Key, StringComparer.Ordinal).ToList();
+            MetadataCodec.Write(w, n.Attributes.Where(a => a.Value is not ComputeGraph).ToDictionary(a => a.Key, a => a.Value, StringComparer.Ordinal));
+            w.Write(subgraphs.Count);
+            foreach (var (key, subgraph) in subgraphs)
+            {
+                MetadataCodec.WriteString(w, key);
+                WriteGraph(w, (ComputeGraph)subgraph, def);
+            }
+
             w.Write(ins.Length);
             foreach (var i in ins)
             {
@@ -195,9 +214,16 @@ internal static class DefinitionCodec
         {
             MetadataCodec.WriteString(w, s);
         }
+
+        w.Write(g.DynamicSymbols.Count);
+        foreach (var (name, bound) in g.DynamicSymbols)
+        {
+            MetadataCodec.WriteString(w, name);
+            MetadataCodec.WriteString(w, bound.ToString());
+        }
     }
 
-    private static ComputeGraph ReadGraph(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, Dictionary<string, StateDefinition> states)
+    private static ComputeGraph ReadGraph(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, Dictionary<string, StateDefinition> states, int layout)
     {
         var b = new GraphBuilder(MetadataCodec.ReadString(r), n => weights.GetValueOrDefault(n));
         var values = new List<Value>();
@@ -238,6 +264,13 @@ internal static class DefinitionCodec
                     var op = MetadataCodec.ReadString(r);
                     var group = MetadataCodec.ReadString(r);
                     var attrs = Attributes.From([.. MetadataCodec.Read(r).Select(kv => (kv.Key, kv.Value))]);
+                    int subgraphs = layout >= 2 ? r.ReadInt32() : 0;
+                    for (int k = 0; k < subgraphs; k++)
+                    {
+                        var key = MetadataCodec.ReadString(r);
+                        attrs = attrs.With(key, ReadGraph(r, weights, states, layout));
+                    }
+
                     var ins = ReadRefs(r, values);
                     var writes = ReadRefs(r, values);
                     string? name = r.ReadBoolean() ? MetadataCodec.ReadString(r) : null;
@@ -275,6 +308,13 @@ internal static class DefinitionCodec
         for (int i = 0; i < nsc; i++)
         {
             b.RuntimeScalar(MetadataCodec.ReadString(r));
+        }
+
+        int ndyn = layout >= 2 ? r.ReadInt32() : 0;
+        for (int i = 0; i < ndyn; i++)
+        {
+            var name = MetadataCodec.ReadString(r);
+            b.DeclareDynamicSymbol(name, Dim.Sym(MetadataCodec.ReadString(r)));
         }
 
         return b.Build();

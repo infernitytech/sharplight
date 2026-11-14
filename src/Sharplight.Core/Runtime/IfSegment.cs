@@ -1,5 +1,4 @@
 using Sharplight.Graph;
-using Sharplight.Tensors;
 
 namespace Sharplight.Runtime;
 
@@ -105,8 +104,6 @@ internal sealed class IfSegment : ICompiledSegment
     private bool Condition()
     {
         var cond = _node.Inputs[0];
-        var bytes = _inputs[cond];
-        int size = (int)cond.Type.ByteSize(1);
-        return cond.Type == DataType.F32 ? BitConverter.ToSingle(bytes, 0) != 0 : bytes.AsSpan(0, size).IndexOfAnyExcept((byte)0) >= 0;
+        return HostScalars.IsTrue(cond.Type, _inputs[cond]);
     }
 }

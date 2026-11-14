@@ -75,7 +75,9 @@ internal sealed partial class OnnxTranslator
 
             y = pieces.Count == 1 ? pieces[0] : _b.Concat(axis, pieces.ToArray());
         }
-        SetDyn(n, 0, Emit("Reshape", [y], Attributes.From(("shape", outDims)), Nm(n)));
+        bool scalar = outDims.Length == 0;   // a scalar index into a vector: an ONNX scalar, carried as [1]
+        SetDyn(n, 0, Emit("Reshape", [y], Attributes.From(("shape", scalar ? [1L] : outDims)), Nm(n)));
+        _env[n.Outputs[0]].Scalar = scalar;
     }
 
     private void GatherElements(OnnxNode n, TranslatedTensor?[] ins)

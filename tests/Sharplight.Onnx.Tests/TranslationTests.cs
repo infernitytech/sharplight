@@ -58,11 +58,11 @@ public class TranslationTests
     public void UnsupportedOps_AreAllListedInOneError()
     {
         var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4)
-            .Node("STFT", ["x"], ["a"]).Node("Bernoulli", ["a"], ["b"]).Node("MelWeightMatrix", ["b"], ["c"]).Node("Relu", ["c"], ["y"]);
+            .Node("StringSplit", ["x"], ["a"]).Node("ImageDecoder", ["a"], ["b"]).Node("NotAnOnnxOp", ["b"], ["c"]).Node("Relu", ["c"], ["y"]);
         var e = Assert.Throws<NotSupportedException>(() => m.Build());
-        Assert.Contains("STFT", e.Message);
-        Assert.Contains("Bernoulli", e.Message);
-        Assert.Contains("MelWeightMatrix", e.Message);
+        Assert.Contains("StringSplit", e.Message);
+        Assert.Contains("ImageDecoder", e.Message);
+        Assert.Contains("NotAnOnnxOp", e.Message);
         Assert.DoesNotContain("Relu", e.Message);
     }
 
@@ -252,10 +252,10 @@ public class TranslationTests
     }
 
     [Fact]
-    public void ConstantGraphOutput_IsRejected()
+    public void ConstantGraphOutput_IsMaterialized()
     {
         var m = new TestModel().Input("x", "N", 4).Output("y", "N", 4).Output("k", 1).InitF32("c", [1], [1f]).Node("Relu", ["x"], ["y"]).Node("Identity", ["c"], ["k"]);
-        Assert.Throws<NotSupportedException>(() => m.Build());
+        Assert.Equal(1L, m.Build().Graph("main").Outputs["k"].Shape[0].Fixed);
     }
 
     [Fact]

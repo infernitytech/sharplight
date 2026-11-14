@@ -12,6 +12,7 @@ public sealed class CompiledModel : IDisposable
     private readonly ICompiledSegment[] _segments;
     private static readonly HashSet<Value> s_noSkips = [];
     private readonly Dictionary<Value, byte[]> _hostValues = [];
+    private readonly Dictionary<Value, string[]> _stringInputs = [];
     private RunParameters? _lastRun;
 
     /// <summary>The graph that was compiled.</summary>
@@ -57,9 +58,12 @@ public sealed class CompiledModel : IDisposable
             foreach (var seg in plan.Segments)
             {
                 ct.ThrowIfCancellationRequested();
-                compiled.Add(seg.Nodes is [{ Op.Category: OpCategory.ControlFlow }]
-                    ? new IfSegment(seg, placement)
-                    : plan.Slots[seg.DeviceSlot].Device.Compile(seg, segmentOptions));
+                compiled.Add(seg.Nodes switch
+                {
+                    [{ Op.Name: "Loop", Op.Category: OpCategory.ControlFlow }] => new LoopSegment(seg, placement),
+                    [{ Op.Category: OpCategory.ControlFlow }] => new IfSegment(seg, placement),
+                    _ => plan.Slots[seg.DeviceSlot].Device.Compile(seg, segmentOptions),
+                });
                 progress?.NextSegment();
             }
         }
@@ -132,6 +136,34 @@ public sealed class CompiledModel : IDisposable
         => SetInput(input, MemoryMarshal.AsBytes(data));
 
     /// <summary>
+    /// Supplies a string graph input (<see cref="Tensors.DataType.Str"/>) for the next <see cref="Run"/>, in row-major order. The strings are
+    /// added to <see cref="RunParameters.Strings"/> when the run starts.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="input"/> is not a string value.</exception>
+    public void SetInput(Value input, ReadOnlySpan<string> strings)
+    {
+        if (input.Type != Tensors.DataType.Str)
+        {
+            throw new ArgumentException($"Input '{input.Name}' is {input.Type}, not a string tensor.", nameof(input));
+        }
+
+        _stringInputs[input] = strings.ToArray();
+    }
+
+    /// <summary>Reads a string graph output (<see cref="Tensors.DataType.Str"/>) after <see cref="Run"/>, in row-major order.</summary>
+    /// <exception cref="InvalidOperationException">Called before <see cref="Run"/>.</exception>
+    public void GetOutput(string name, Span<string> destination)
+    {
+        var run = _lastRun ?? throw new InvalidOperationException("GetOutput called before Run.");
+        var handles = new int[destination.Length];
+        GetOutput(name, MemoryMarshal.AsBytes(handles.AsSpan()));
+        for (int i = 0; i < handles.Length; i++)
+        {
+            destination[i] = run.Strings[handles[i]];
+        }
+    }
+
+    /// <summary>
     /// Executes all segments in order, forwarding boundary activations through host memory. Not thread-safe: one run at a time per instance.
     /// </summary>
     /// <param name="parameters">
@@ -141,6 +173,18 @@ public sealed class CompiledModel : IDisposable
     public void Run(RunParameters parameters)
     {
         _lastRun = parameters;
+        parameters.Strings.Clear();
+        foreach (var (input, strings) in _stringInputs)
+        {
+            var handles = new int[strings.Length];
+            for (int i = 0; i < strings.Length; i++)
+            {
+                handles[i] = parameters.Strings.Add(strings[i]);
+            }
+
+            SetInput(input, MemoryMarshal.AsBytes(handles.AsSpan()));
+        }
+
         for (int i = 0; i < _segments.Length; i++)
         {
             var seg = _segments[i];

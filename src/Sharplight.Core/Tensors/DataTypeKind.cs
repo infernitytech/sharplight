@@ -14,4 +14,10 @@ public enum DataTypeKind
 
     /// <summary>Block-quantized: several logical elements share scales and are stored in fixed-size blocks.</summary>
     Quantized,
+
+    /// <summary>
+    /// Text: each element is a 32-bit handle into the <see cref="Sharplight.Runtime.StringHeap"/> of the run. Host-only: values of this kind are
+    /// placed on CPU devices.
+    /// </summary>
+    String,
 }

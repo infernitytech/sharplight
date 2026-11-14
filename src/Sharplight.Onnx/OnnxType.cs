@@ -18,6 +18,9 @@ internal static class OnnxType
 
     public static bool IsFloat(int t) => t is Float or Float16 or Double or BFloat16;
 
+    /// <summary>Signed or unsigned integer types (not bool).</summary>
+    public static bool IsInteger(int t) => t is UInt8 or Int8 or UInt16 or Int16 or Int32 or Int64 or UInt32 or UInt64;
+
     public static string Name(int t) => t switch
     {
         Float => "float",

@@ -103,24 +103,6 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, Emit("Add", [y, ConstValue(sh, null)], null, Nm(n)));
     }
 
-    private void LpPool(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        long p = n.Int("p", 2);
-        if (p is not (1 or 2))
-        {
-            throw new NotSupportedException("LpPool with p other than 1 or 2");
-        }
-
-        var x = X(ins, 0);
-        var kernel = n.Ints("kernel_shape")!;
-        var strides = n.Ints("strides") ?? [1, 1];
-        var pads = n.Ints("pads") ?? [0, 0, 0, 0];
-        var inp = p == 1 ? _b.Unary("Abs", x) : _b.Mul(x, x);
-        var avg = Emit("Pool", [inp], Attributes.From(("mode", "avg"), ("kernel", kernel), ("strides", strides), ("pads", pads), ("dilations", L(1, 1)), ("ceil_mode", n.Int("ceil_mode", 0) != 0), ("count_include_pad", true)));
-        var s = _b.Scale(avg, kernel[0] * kernel[1]);
-        SetDyn(n, 0, p == 1 ? s : Emit("Sqrt", [s], null, Nm(n)));
-    }
-
     private void DepthSpace(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
@@ -166,6 +148,12 @@ internal sealed partial class OnnxTranslator
         }
 
         string mode = n.Str("mode", "constant");
+        if (mode == "wrap")
+        {
+            SetDyn(n, 0, WrapPad(x, pads, Nm(n)));
+            return;
+        }
+
         if (mode is not ("constant" or "reflect" or "edge"))
         {
             throw new NotSupportedException($"Pad mode '{mode}'");
@@ -215,6 +203,12 @@ internal sealed partial class OnnxTranslator
     private void Conv(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x0 = X(ins, 0);
+        if (x0.Rank == 5)
+        {
+            ConvVolume(n, ins, transposed: false);
+            return;
+        }
+
         var weightIn = ConstIn(ins, 1, "Conv weight");
         var biasIn = ins.Length > 2 && ins[2] is not null ? ConstIn(ins, 2, "Conv bias") : null;
         bool oneD = x0.Rank == 3;
@@ -296,42 +290,18 @@ internal sealed partial class OnnxTranslator
         return (foldedWeight, foldedBias);
     }
 
-    private void Pool(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        CheckUnusedOutputs(n, 1);
-        var x0 = X(ins, 0);
-        bool oneD = x0.Rank == 3;
-        var x = To4D(x0);
-        var kernel = oneD ? [1, n.Ints("kernel_shape")![0]] : n.Ints("kernel_shape")!;
-        var strides = ExpandSpatial(n.Ints("strides"), 1, oneD);
-        var dilations = ExpandSpatial(n.Ints("dilations"), 1, oneD);
-        var pads = ResolvePads(n, x, kernel, strides, dilations, oneD);
-        bool max = n.OpType == "MaxPool";
-        var attributes = Attributes.From(("mode", max ? "max" : "avg"), ("kernel", kernel), ("strides", strides), ("pads", pads), ("dilations", dilations),
-            ("ceil_mode", n.Int("ceil_mode", 0) != 0), ("count_include_pad", n.Int("count_include_pad", 0) != 0));
-        var y = Emit("Pool", [x], attributes, oneD ? Nm(n) + ".2d" : Nm(n));
-        if (oneD)
-        {
-            y = Rs(y, 0, y.Shape[1].Fixed, y.Shape[3].Fixed);
-        }
-
-        SetDyn(n, 0, y);
-    }
-
-    private void GlobalPool(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        var x = X(ins, 0);
-        var axes = Enumerable.Range(2, Math.Max(0, x.Rank - 2)).Select(i => (long)i).ToArray();
-        string mode = n.OpType == "GlobalAveragePool" ? "mean" : "max";
-        SetDyn(n, 0, Emit("Reduce", [x], Attributes.From(("mode", mode), ("axes", axes), ("keepdims", true)), Nm(n)));
-    }
-
     private void GridSample(OnnxNode n, TranslatedTensor?[] ins)
     {
         string mode = n.Str("mode", "bilinear");
         mode = mode == "bilinear" ? "linear" : mode == "bicubic" ? "cubic" : mode;
+        var x = X(ins, 0);
+        if (x.Rank is not (4 or 5) || (x.Rank == 5 && mode == "cubic"))
+        {
+            throw new NotSupportedException($"GridSample mode {mode} on a rank-{x.Rank} input (ONNX defines 2-D and volumetric non-cubic sampling)");
+        }
+
         var attributes = Attributes.From(("mode", mode), ("padding", n.Str("padding_mode", "zeros")), ("align_corners", n.Int("align_corners", 0) != 0));
-        SetDyn(n, 0, Emit("GridSample", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
+        SetDyn(n, 0, Emit("GridSample", [x, X(ins, 1)], attributes, Nm(n)));
     }
 
     private void RoiAlign(OnnxNode n, TranslatedTensor?[] ins)
@@ -347,6 +317,12 @@ internal sealed partial class OnnxTranslator
     private void ConvTranspose(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x0 = X(ins, 0);
+        if (x0.Rank == 5)
+        {
+            ConvVolume(n, ins, transposed: true);
+            return;
+        }
+
         var weightIn = ConstIn(ins, 1, "ConvTranspose weight");
         var bias = ins.Length > 2 && ins[2] is not null ? ConstIn(ins, 2, "ConvTranspose bias") : null;
         bool oneD = x0.Rank == 3;
@@ -375,7 +351,10 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, y);
     }
 
-    /// <summary>Pads of a transposed convolution; derived from output_shape or auto_pad when given.</summary>
+    /// <summary>
+    /// Pads of a transposed convolution; derived from output_shape or auto_pad when given. An output_shape larger than the full
+    /// transposed extent grows <paramref name="outputPadding"/> instead (negative pads are not representable).
+    /// </summary>
     private static long[] ConvTransposePads(OnnxNode n, Value x4D, long[] weightDims, long[] strides, long[] dilations, long[] outputPadding, bool oneD)
     {
         string autoPad = n.Str("auto_pad", "NOTSET");
@@ -392,6 +371,13 @@ internal sealed partial class OnnxTranslator
         for (int i = 0; i < 2; i++)
         {
             long total = strides[i] * (x4D.Shape[2 + i].Fixed - 1) + outputPadding[i] + (weightDims[2 + i] - 1) * dilations[i] + 1 - want[i];
+            if (total < 0)
+            {
+                // An output_shape beyond the full transposed extent appends zeros at the end, which is extra output padding.
+                outputPadding[i] -= total;
+                continue;
+            }
+
             bool upper = autoPad == "SAME_UPPER" || (outputShape is not null && autoPad != "SAME_LOWER");
             long small = total / 2;
             long big = total - small;

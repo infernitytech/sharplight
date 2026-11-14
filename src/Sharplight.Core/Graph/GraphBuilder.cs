@@ -137,6 +137,23 @@ public sealed class GraphBuilder
         return name;
     }
 
+    /// <summary>
+    /// Declares a data-dependent symbol under an exact name, as recorded in <see cref="ComputeGraph.DynamicSymbols"/> of a graph being
+    /// rebuilt (e.g. by a deserializer); new graphs use <see cref="DynamicSymbol"/>, which makes names unique.
+    /// </summary>
+    /// <param name="name">The symbol name.</param>
+    /// <param name="bound">Upper bound of the value; may be an expression over other symbols.</param>
+    /// <exception cref="ArgumentException">The graph already has a dynamic symbol of that name.</exception>
+    public void DeclareDynamicSymbol(string name, Dim bound)
+    {
+        if (_dynamicSymbols.Any(s => s.Key == name))
+        {
+            throw new ArgumentException($"Dynamic symbol '{name}' is declared twice.", nameof(name));
+        }
+
+        _dynamicSymbols.Add(new(name, bound));
+    }
+
     /// <summary>Declares a runtime scalar (e.g. <c>n_past</c>) used by ops of this graph.</summary>
     public void RuntimeScalar(string name) => _scalars.Add(name);
 

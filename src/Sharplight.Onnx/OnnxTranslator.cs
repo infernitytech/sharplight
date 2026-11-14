@@ -19,6 +19,7 @@ internal sealed partial class OnnxTranslator
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
     private readonly HashSet<OnnxNode> _skip = [];
+    private readonly Dictionary<OnnxNode, IReadOnlyList<string>> _reads = [];
     private readonly HashSet<string> _graphOutputs;
     private GraphBuilder _b = null!;
     private IDisposable? _groupScope;
@@ -44,7 +45,7 @@ internal sealed partial class OnnxTranslator
         _b = new GraphBuilder(graphName, n => _weights.GetValueOrDefault(n));
 
         var initializerNames = RegisterInitializers();
-        var order = Order(_graph.Nodes, initializerNames);
+        var order = Order(_graph.Nodes, initializerNames, Reads);
         var live = Liveness(order);
         CheckSupport(live);
         IndexConsumers(live);
@@ -56,11 +57,6 @@ internal sealed partial class OnnxTranslator
             {
                 DeclareInput(input);
             }
-        }
-
-        if (_graph.Inputs.All(i => initializerNames.Contains(i.Name) || _opts.ConstantInputs.ContainsKey(i.Name)))
-        {
-            throw new NotSupportedException("The ONNX graph has no dynamic inputs.");
         }
 
         foreach (var node in live)
@@ -86,7 +82,7 @@ internal sealed partial class OnnxTranslator
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var tensor in _graph.Initializers)
         {
-            if (tensor.Source is null)
+            if (tensor.Source is null && tensor.Strings is null)
             {
                 continue;
             }
@@ -103,7 +99,7 @@ internal sealed partial class OnnxTranslator
     {
         foreach (var node in live)
         {
-            foreach (var input in node.Inputs)
+            foreach (var input in Reads(node))
             {
                 if (input == "")
                 {
@@ -124,32 +120,76 @@ internal sealed partial class OnnxTranslator
 
     private void DeclareInput(OnnxValueInfo info)
     {
+        if (info.Kind == OnnxValueKind.Optional)
+        {
+            if (_opts.AbsentInputs.Contains(info.Name))
+            {
+                _env[info.Name] = TranslatedTensor.None();
+                return;
+            }
+
+            info = NamedType(info.Element, info.Name);
+        }
+
+        if (info.Kind == OnnxValueKind.Sequence)
+        {
+            int length = _opts.SequenceInputLengths.TryGetValue(info.Name, out var l) ? l : throw new NotSupportedException(
+                $"Graph input '{info.Name}' is a sequence; give its length through OnnxImportOptions.SequenceInputLengths.");
+            var element = info.Element is { Kind: OnnxValueKind.Tensor } e ? e : throw new NotSupportedException($"Graph input '{info.Name}' is a sequence of non-tensors.");
+            var elements = Enumerable.Range(0, length).Select(k => DeclareTensorInput(NamedType(element, OnnxGraphAdapter.SequenceElementName(info.Name, k)))).ToList();
+            _env[info.Name] = TranslatedTensor.Seq(elements);
+            return;
+        }
+
+        _env[info.Name] = DeclareTensorInput(info);
+    }
+
+    /// <summary>A copy of a sequence's or optional's element type under the given name.</summary>
+    private static OnnxValueInfo NamedType(OnnxValueInfo? type, string name)
+        => type is null
+            ? throw new NotSupportedException($"Graph input '{name}' has no element type.")
+            : new OnnxValueInfo { Name = name, Kind = type.Kind, ElemType = type.ElemType, Shape = type.Shape, Element = type.Element };
+
+    private TranslatedTensor DeclareTensorInput(OnnxValueInfo info)
+    {
+        if (info.Kind != OnnxValueKind.Tensor)
+        {
+            throw new NotSupportedException($"Graph input '{info.Name}' is a {info.Kind.ToString().ToLowerInvariant()} value.");
+        }
+
         if (_opts.ConstantInputs.TryGetValue(info.Name, out var pinned))
         {
             long[] dims = _opts.InputShapes.GetValueOrDefault(info.Name) ?? info.Shape!.Select(d => d.Value ?? 1).ToArray();
             var constant = OnnxType.IsFloat(info.ElemType)
                 ? OnnxConst.FromFloats(info.ElemType, dims, pinned, info.Name)
                 : OnnxConst.FromInts(info.ElemType, dims, pinned.Select(v => (long)v).ToArray(), info.Name);
-            _env[info.Name] = TranslatedTensor.Const(constant);
-            return;
+            return TranslatedTensor.Const(constant);
         }
 
         var shape = InputShape(info);
-        bool isInt = info.ElemType is OnnxType.Int64 or OnnxType.Int32;
+        if (info.ElemType == OnnxType.String)
+        {
+            // Strings travel as handles into the run's string heap (see StandardOps.Text).
+            return TranslatedTensor.Dyn(_b.Input(info.Name, InputRole.Other, DataType.Str, shape));
+        }
+
+        // Integer inputs of every width travel as i32 and float inputs of every precision as f32 (see docs/onnx-support.md, "Types").
+        bool isInt = OnnxType.IsInteger(info.ElemType);
         if (!OnnxType.IsFloat(info.ElemType) && !isInt && info.ElemType != OnnxType.Bool)
         {
-            throw new NotSupportedException($"Graph input '{info.Name}' has type {OnnxType.Name(info.ElemType)}; only float, int32/int64 and bool inputs are supported.");
+            throw new NotSupportedException($"Graph input '{info.Name}' has type {OnnxType.Name(info.ElemType)}; only float, integer and bool inputs are supported.");
         }
 
         bool image = !isInt && shape.Rank == 4 && shape[1].Fixed is 1 or 3 or 4;
         var role = image ? InputRole.Media : isInt ? InputRole.TokenIds : InputRole.Other;
         var value = _b.Input(info.Name, role, isInt ? DataType.I32 : DataType.F32, shape);
         var tensor = TranslatedTensor.Dyn(value);
-        _env[info.Name] = tensor;
         if ((_opts.InputShapes.GetValueOrDefault(info.Name)?.Length ?? info.Shape?.Count) == 0)
         {
             tensor.Scalar = true;
         }
+
+        return tensor;
     }
 
     /// <summary>Translates one node, adding the node identity to errors that do not carry it yet.</summary>
@@ -176,14 +216,27 @@ internal sealed partial class OnnxTranslator
             throw new InvalidDataException($"Graph output '{output.Name}' is never produced.");
         }
 
-        if (tensor.C is not null)
+        if (tensor.Sequence is { } elements)
         {
-            throw new NotSupportedException($"Graph output '{output.Name}' is a compile-time constant; outputs must depend on an input.");
+            for (int k = 0; k < elements.Count; k++)
+            {
+                DeclareTensorOutput(OnnxGraphAdapter.SequenceElementName(output.Name, k), elements[k]);
+            }
+
+            return;
         }
 
-        var value = OutputCopy(tensor.V!, output.Name);
+        if (!tensor.IsNone)
+        {
+            DeclareTensorOutput(output.Name, tensor);
+        }
+    }
 
-        _b.Output(output.Name, value);
+    private void DeclareTensorOutput(string name, TranslatedTensor tensor)
+    {
+        // A constant-folded output (Shape, Size, ConstantOfShape of pinned shapes, ...) is materialized as a constant and copied out.
+        var source = tensor.V ?? (OnnxType.IsInteger(tensor.C!.ElemType) ? Idx(tensor) : ConstValue(tensor.C, name + ".constant"));
+        _b.Output(name, OutputCopy(source, name));
     }
 
     // ---- inputs ------------------------------------------------------------------------------------
@@ -217,7 +270,7 @@ internal sealed partial class OnnxTranslator
     }
 
     // ---- scheduling / analysis -----------------------------------------------------------------------
-    private static List<OnnxNode> Order(IReadOnlyList<OnnxNode> nodes, HashSet<string> initNames)
+    private static List<OnnxNode> Order(IReadOnlyList<OnnxNode> nodes, HashSet<string> initNames, Func<OnnxNode, IReadOnlyList<string>> reads)
     {
         // ONNX requires topological order, but be tolerant: Kahn's algorithm keeping the original order stable.
         var produced = new HashSet<string>(initNames, StringComparer.Ordinal);
@@ -235,7 +288,7 @@ internal sealed partial class OnnxTranslator
         bool ok = true;
         foreach (var n in nodes)
         {
-            if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+            if (reads(n).Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
             {
                 ok = false;
                 break;
@@ -257,7 +310,7 @@ internal sealed partial class OnnxTranslator
             for (int k = 0; k < pending.Count; k++)
             {
                 var n = pending[k];
-                if (n.Inputs.Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
+                if (reads(n).Any(i => i != "" && producers.Contains(i) && !produced.Contains(i)))
                 {
                     continue;
                 }
@@ -308,7 +361,7 @@ internal sealed partial class OnnxTranslator
                 continue;
             }
 
-            foreach (var i in n.Inputs)
+            foreach (var i in Reads(n))
             {
                 if (i != "")
                 {
@@ -317,6 +370,18 @@ internal sealed partial class OnnxTranslator
             }
         }
         return order.Where(live.Contains).ToList();
+    }
+
+    /// <summary>The values a node reads: its inputs and the enclosing-scope values its subgraphs capture (cached per node).</summary>
+    private IReadOnlyList<string> Reads(OnnxNode n)
+    {
+        if (!_reads.TryGetValue(n, out var reads))
+        {
+            var captured = n.Attributes.Values.Where(a => a.G is not null).SelectMany(a => FreeVariables(a.G!)).Except(n.Inputs, StringComparer.Ordinal);
+            _reads[n] = reads = [.. n.Inputs, .. captured.OrderBy(name => name, StringComparer.Ordinal)];
+        }
+
+        return reads;
     }
 
     private void CheckSupport(List<OnnxNode> live)
@@ -330,7 +395,9 @@ internal sealed partial class OnnxTranslator
     }
 
     private static bool IsSupportedNode(OnnxNode n)
-        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType) : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
+        => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType)
+            : n.Domain == "ai.onnx.ml" ? s_mlOps.Contains(n.OpType)
+            : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
 
     // ---- group handling --------------------------------------------------------------------------------
     private void NextGroup()
@@ -466,6 +533,11 @@ internal sealed partial class OnnxTranslator
             ins[i] = n.Inputs[i] == "" ? null : Get(n.Inputs[i]);
         }
 
+        if (TrySequenceOp(n, ins))
+        {
+            return;
+        }
+
         bool allConst = ins.All(t => t is null || t.IsConst);
         if (allConst && !BuildsSymbolicExtent(n, ins) && OnnxFold.ShouldFold(n, ins.Select(t => t?.C).ToList()))
         {
@@ -487,7 +559,7 @@ internal sealed partial class OnnxTranslator
             return;
         }
 
-        int leadingUnits = ins.Max(t => t?.LeadingUnits ?? 0);
+        int leadingUnits = ins.Select(t => t?.LeadingUnits ?? 0).DefaultIfEmpty().Max();   // generators (RandomNormal) have no inputs
         bool indicesOnly = n.OpType == "Gather" && ins[0]!.LeadingUnits == 0 && n.Int("axis", 0) == 0;   // [1, count] indices into axis 0
         if (leadingUnits > 0 && !indicesOnly && !s_leadingUnitAware.Contains(n.OpType) && !s_unary.ContainsKey(n.OpType) && !s_binary.ContainsKey(n.OpType))
         {
