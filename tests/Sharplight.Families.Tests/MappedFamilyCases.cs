@@ -18,6 +18,7 @@ internal static class MappedFamilyCases
     private static readonly int[] Qwen2VlIds = [29748, 94318, 1328, 41714, 62760, 29185, 64018, 7892, 30722, 97510, 94694, 82309, 131534, 138164, 47340, 95434, 13334, 130984, 129733, 130287, 133750, 15219, 58636, 17515];
     private static readonly int[] Qwen25VlIds = [100505, 114647, 51648, 47348, 40605, 114014, 91380, 37734, 64948, 108835, 14851, 135520, 147170, 30162, 144562, 54336, 51142, 56149, 112305, 102190, 111473, 102928, 23433, 99645];
     private static readonly int[] PaddleOcrVlIds = [99062, 55574, 46677, 32238, 1295, 91525, 78870, 20180, 85000, 17957, 7947, 12389, 34887, 41762, 70708, 19790, 68134, 57003, 97493, 25135, 64129, 48776, 76918, 100341];
+    private static readonly int[] Gemma3nIds = [229263, 79300, 9819, 9819, 6714, 95609, 93586, 7779, 4699, 141656, 141656, 34880, 96518, 16959, 81769, 244910, 172013, 49641, 209259, 90671, 56071, 126215, 107049, 22];
     private static readonly int[] MellumIds = [284, 372, 193, 882, 837, 650, 835, 351, 351, 194, 713, 284, 713, 284, 936, 571, 936, 533, 533, 701, 533, 434, 777, 602];
     private static readonly int[] DbrxIds = [127, 66, 518, 974, 553, 697, 900, 55, 121, 457, 1001, 456, 637, 454, 413, 646, 60, 651, 884, 519, 44, 766, 848, 2];
     private static readonly int[] Mistral4Ids = [505, 539, 72, 499, 752, 892, 325, 610, 338, 241, 662, 957, 502, 902, 979, 752, 892, 443, 713, 752, 892, 433, 43, 471];
@@ -69,6 +70,16 @@ internal static class MappedFamilyCases
         // (convert_hf_to_gguf.py, paddleocr) matches llama.cpp 11139 (d79953103, Unsloth build); b11177 lacks the architecture.
         new("tiny-random-paddleocr-vl HF (paddleocr_vl, transformers)", "hf/tiny-random-paddleocr-vl", Prompt, "ids", PaddleOcrVlIds, ""),
         new("tiny-random-paddleocr-vl f32 GGUF (paddleocr, llama.cpp)", "gguf/tiny-random-paddleocr-vl-f32.gguf", Prompt, "ids", PaddleOcrVlIds, ""),
+        // Gemma 3n language model: four AltUp streams, LAuReL, per-layer embeddings, activation sparsity in the first two layers, KV sharing
+        // (tools/mk_tiny_gemma3n.py, float32 with wider weights than the published bfloat16 tiny model).
+        new("tiny-random-gemma-3n-wide HF (gemma3n_text, transformers)", "hf/tiny-random-gemma-3n-wide", Prompt, "ids", Gemma3nIds, ""),
+        // The same checkpoint converted with convert_hf_to_gguf.py (gemma3n: stacked AltUp projections, sparsity as Φ⁻¹ cutoffs). llama.cpp cannot load
+        // it (it fixes the per-layer input width at 256 and the LAuReL rank at 64), so the GGUF is checked against the transformers ids and the real
+        // E2B checkpoint below against llama.cpp b11177.
+        new("tiny-random-gemma-3n-wide f32 GGUF (gemma3n, transformers ids)", "gguf/tiny-random-gemma-3n-wide-f32.gguf", Prompt, "ids", Gemma3nIds, ""),
+        // A prompt whose greedy continuation has log-probability margins of at least 2.4 in llama.cpp ("The capital of France is" turns on 0.19).
+        new("gemma-3n-E2B-it Q4_K_M GGUF (gemma3n, llama.cpp)", "gguf/gemma-3n-E2B-it/gemma-3n-E2B-it-Q4_K_M.gguf", "Water boils at a temperature of", "ids",
+            [236743, 236770, 236771, 236771, 237366, 236780, 568, 236778, 236770, 236778, 237366, 236811, 236768, 657], ""),
         // Hunyuan v4: latent attention with output gate and sinks, indexer in its dense regime, clamped SwiGLU experts, hyper-connections (3 streams).
         new("tiny-random-hy-v4 HF (hy_v4, transformers)", "hf/tiny-random-hy-v4", Prompt, "ids",
             [954, 350, 912, 711, 295, 223, 710, 662, 175, 970, 611, 547, 737, 462, 661, 35, 414, 81, 604, 808, 906, 627, 420, 522], ""),
