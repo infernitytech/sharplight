@@ -118,7 +118,14 @@ public sealed class DecoderAdapter : IModelAdapter
     {
         var src = sources.Primary;
         var hp = DecoderHyperParameters.Read(src);
-        var graphBuilder = new DecoderGraphBuilder(src, options, hp);
+        // An EAGLE-3 drafter: the decode graphs export the inputs of the layers it fuses, and it becomes the draft graph.
+        var drafter = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Draft);
+        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter))
+        {
+            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3 drafter.");
+        }
+
+        var graphBuilder = new DecoderGraphBuilder(src, options, hp, drafter is null ? null : Eagle3DraftHead.TargetLayers(drafter));
         var graphs = graphBuilder.BuildGraphs();
 
         // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
@@ -145,6 +152,28 @@ public sealed class DecoderAdapter : IModelAdapter
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
         }
 
+        var states = graphBuilder.States;
+        var draftProperties = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead));
+        if (drafter is not null)
+        {
+            var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
+            foreach (var (name, w) in Eagle3DraftHead.PrefixedWeights(drafter))
+            {
+                merged[name] = w;
+            }
+
+            weights = merged;
+            owned.AddRange(drafter.OwnedResources);
+            var draftStates = Eagle3DraftHead.States(drafter, options);
+            states = [.. states.Where(st => !st.Group.StartsWith("mtp.", StringComparison.Ordinal)), .. draftStates];
+            graphs[WellKnown.DraftGraph] = Eagle3DraftHead.Build(drafter, n => merged.GetValueOrDefault(n), hp.NEmbd, hp.PositionAxes, draftStates);
+            draftProperties = new Dictionary<string, object> { [WellKnown.DraftLayers] = 1, [WellKnown.DraftHiddenSource] = Eagle3DraftHead.TapsOutput };
+            if (Eagle3DraftHead.TokenMap(drafter) is { } tokenMap)
+            {
+                draftProperties[WellKnown.DraftTokenMap] = tokenMap;
+            }
+        }
+
         var eos = new List<int>();
         if (src.Has(CanonicalKeys.TokenizerEosId))
         {
@@ -156,7 +185,7 @@ public sealed class DecoderAdapter : IModelAdapter
             eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
         }
 
-        var props = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead))
+        var props = new Dictionary<string, object>(draftProperties)
         {
             [WellKnown.VocabSize] = hp.Vocab,
             [WellKnown.ContextLength] = hp.ContextLength,
@@ -181,7 +210,7 @@ public sealed class DecoderAdapter : IModelAdapter
             Name = src.Get(CanonicalKeys.Name, src.Architecture),
             Weights = weights,
             Graphs = graphs,
-            States = graphBuilder.States,
+            States = states,
             SourceMetadata = src.Metadata,
             OwnedResources = owned,
             Properties = props,

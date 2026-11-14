@@ -292,7 +292,8 @@ public sealed class LlmModel : IDisposable
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged);
         _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
-        return new Serving.Speculative.MtpSpeculator(dec, draftTokens);
+        var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
+        return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap);
     }
 
     private const long DefaultReserve = 1L << 30;

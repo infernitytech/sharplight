@@ -50,10 +50,12 @@ internal sealed partial class HfConfig : IDisposable
 
     /// <summary>
     /// The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's, then to the model type of a
-    /// remote-code <c>architectures</c> class whose configs omit it (e.g. <c>BailingMoeV2ForCausalLM</c>).
+    /// remote-code <c>architectures</c> class whose configs omit it (e.g. <c>BailingMoeV2ForCausalLM</c>). EAGLE-3 drafters, whose configs say
+    /// <c>llama</c>, are <c>eagle3</c>.
     /// </summary>
     public string? ModelType
-        => Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
+        => Eagle3HfMapping.IsDrafter(this) ? "eagle3"
+            : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
             : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null);
 
     // Remote-code causal-LM classes whose config.json may lack model_type.

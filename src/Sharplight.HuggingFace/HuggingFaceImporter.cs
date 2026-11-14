@@ -91,7 +91,11 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 md[k] = v;
             }
 
-            HfTokenizerTranslator.AddTo(md, dir, config);
+            // EAGLE-3 drafters ship without a tokenizer: they use their target's.
+            if (!Eagle3HfMapping.IsDrafter(config) || File.Exists(Path.Combine(dir, "tokenizer.json")))
+            {
+                HfTokenizerTranslator.AddTo(md, dir, config);
+            }
             HfSentenceTransformers.AddTo(md, dir, config);
 
             var weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options);

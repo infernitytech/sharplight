@@ -29,10 +29,12 @@ internal sealed class MtpRowBuffer(int hiddenSize)
 
     /// <summary>
     /// Appends rows at <paramref name="position"/>: rows from that position on are replaced; a gap (or a position before the
-    /// buffer) restarts the buffer there.
+    /// buffer) restarts the buffer there. Rows of <paramref name="hidden"/> are <paramref name="width"/> wide (default the buffer's row width);
+    /// narrower ones fill the start of each buffered row and leave the rest zero.
     /// </summary>
-    public void Append(int position, ReadOnlySpan<int> successors, ReadOnlySpan<float> hidden)
+    public void Append(int position, ReadOnlySpan<int> successors, ReadOnlySpan<float> hidden, int width = 0)
     {
+        width = width == 0 ? hiddenSize : width;
         if (Count > 0 && position >= Start && position <= End)
         {
             Count = position - Start;
@@ -56,7 +58,20 @@ internal sealed class MtpRowBuffer(int hiddenSize)
         }
 
         successors.CopyTo(_tokens.AsSpan(Count));
-        hidden[..(n * hiddenSize)].CopyTo(_hidden.AsSpan(Count * hiddenSize));
+        if (width == hiddenSize)
+        {
+            hidden[..(n * hiddenSize)].CopyTo(_hidden.AsSpan(Count * hiddenSize));
+        }
+        else
+        {
+            for (int i = 0; i < n; i++)
+            {
+                var row = _hidden.AsSpan((Count + i) * hiddenSize, hiddenSize);
+                hidden.Slice(i * width, width).CopyTo(row);
+                row[width..].Clear();
+            }
+        }
+
         Count += n;
     }
 
