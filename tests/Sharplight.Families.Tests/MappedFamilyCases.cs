@@ -94,6 +94,21 @@ internal static class MappedFamilyCases
         // The glm-dsa GGUF is checked against transformers: llama.cpp b11177 leaves these ids at the 4th token (margin 0.15) on this file, while its
         // deepseek32 graph agrees on the same weights; the cause was not identified.
         new("tiny-random-glm-moe-dsa f32 GGUF (glm-dsa, transformers ids)", "gguf/tiny-random-glm-moe-dsa-f32.gguf", Prompt, "ids", DsaIds, ""),
+        // The sparse regime of the DSA indexer: the same checkpoints with index_topk 8 and 16 indexer heads (re-initialized so that no two scores
+        // tie at the top-k boundary, which torch.topk breaks arbitrarily; smallest relative boundary gap 4e-4), so every row past the 8th attends only
+        // to the 8 positions its indexer picks (IndexerTopK + CachedAttention with a selection); Hunyuan v4's third layer reuses the second's selection.
+        new("tiny-random-deepseek-v32-sparse HF (deepseek_v32, index_topk 8, transformers)", "hf/tiny-random-deepseek-v32-sparse", Prompt, "ids",
+            [432, 38, 701, 723, 524, 44, 416, 348, 234, 912, 335, 150, 765, 136, 158, 693, 241, 437, 57, 116, 868, 354, 889, 888], ""),
+        new("tiny-random-glm-moe-dsa-sparse HF (glm_moe_dsa, index_topk 8, transformers)", "hf/tiny-random-glm-moe-dsa-sparse", Prompt, "ids",
+            [717, 621, 1015, 82, 265, 324, 308, 701, 53, 752, 524, 692, 333, 974, 403, 528, 794, 52, 972, 438, 878, 691, 848, 912], ""),
+        // The sparse GGUFs (tools/convert_tiny_gguf.py): llama.cpp b11177 gives exactly the transformers ids on deepseek32; on glm-dsa it leaves them at
+        // the 6th token, as on the dense file above, so that one is checked against transformers.
+        new("tiny-random-deepseek-v32-sparse f32 GGUF (deepseek32, index_topk 8, llama.cpp)", "gguf/tiny-random-deepseek-v32-sparse-f32.gguf", Prompt,
+            "ids", [432, 38, 701, 723, 524, 44, 416, 348, 234, 912, 335, 150, 765, 136, 158, 693, 241, 437, 57, 116, 868, 354, 889, 888], ""),
+        new("tiny-random-glm-moe-dsa-sparse f32 GGUF (glm-dsa, index_topk 8, transformers ids)", "gguf/tiny-random-glm-moe-dsa-sparse-f32.gguf", Prompt,
+            "ids", [717, 621, 1015, 82, 265, 324, 308, 701, 53, 752, 524, 692, 333, 974, 403, 528, 794, 52, 972, 438, 878, 691, 848, 912], ""),
+        new("tiny-random-hy-v4-sparse HF (hy_v4, index_topk 8, shared indexer layer, transformers)", "hf/tiny-random-hy-v4-sparse", Prompt, "ids",
+            [527, 990, 126, 774, 644, 916, 723, 114, 388, 619, 770, 900, 223, 123, 432, 571, 708, 48, 271, 531, 758, 432, 658, 911], ""),
         // The same model with DeepSeek-V4's manifold-constrained hyper-connections (Sinkhorn stream mixing, tools/mk_tiny_hy_v4_mhc.py).
         new("tiny-random-hy-v4-mhc HF (hy_v4 + DeepSeek-V4 mHC, transformers)", "hf/tiny-random-hy-v4-mhc", Prompt, "ids",
             [954, 513, 60, 245, 773, 761, 713, 734, 7, 830, 644, 813, 624, 367, 165, 189, 509, 806, 825, 99, 784, 652, 986, 21], ""),
