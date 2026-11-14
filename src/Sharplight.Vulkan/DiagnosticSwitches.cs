@@ -21,6 +21,8 @@ namespace Sharplight.Vulkan;
 /// <item><c>SHARPLIGHT_VK_SPIRV_PORTABILITY=0</c>: on portability-subset devices (MoltenVK), create pipelines from the
 /// kernels as compiled instead of applying <see cref="SpirvPortability.Rewrite"/>; <c>=all</c> applies the rewrite on
 /// every device (to check the rewritten kernels on a native driver).</item>
+/// <item><c>SHARPLIGHT_VK_PORTABILITY_FAST_MATH=1</c>: on macOS, keep MoltenVK's default Metal fast math instead of turning it off
+/// at instance creation.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
 /// <c>submission_budget_ms</c> device setting wins over it.</item>
@@ -63,6 +65,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when kernels for portability-subset devices get <see cref="SpirvPortability.Rewrite"/> (the default).</summary>
     public static bool PortabilityRewrite { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") != "0";
+
+    /// <summary>True when MoltenVK's fast math is turned off on macOS (the default; <c>SHARPLIGHT_VK_PORTABILITY_FAST_MATH=1</c> keeps it).</summary>
+    public static bool PortabilityStrictMath { get; } = Read("SHARPLIGHT_VK_PORTABILITY_FAST_MATH") != "1";
 
     /// <summary>True when <see cref="SpirvPortability.Rewrite"/> applies on every device (<c>SHARPLIGHT_VK_SPIRV_PORTABILITY=all</c>).</summary>
     public static bool PortabilityRewriteAll { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") == "all";

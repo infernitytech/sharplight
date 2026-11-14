@@ -48,13 +48,32 @@ internal sealed unsafe class VulkanInstance
             exts.Add(Marshal.StringToHGlobalAnsi("VK_KHR_portability_enumeration"));
         }
 
+        // MoltenVK compiles its MSL with Metal fast math, which may reassociate sums (row-dependent results) and assume
+        // finite values (the -inf of masked softmax scores). It is turned off through VK_EXT_layer_settings on macOS.
+        bool layerSettings = OperatingSystem.IsMacOS() && DiagnosticSwitches.PortabilityStrictMath
+            && extProps.Any(e => Name(e) == "VK_EXT_layer_settings");
+        if (layerSettings)
+        {
+            exts.Add(Marshal.StringToHGlobalAnsi("VK_EXT_layer_settings"));
+        }
+
         try
         {
             fixed (nint* pl = layers.ToArray())
             fixed (nint* pe = exts.ToArray())
+            fixed (byte* layerName = "MoltenVK\0"u8)
+            fixed (byte* fastMath = "MVK_CONFIG_FAST_MATH_ENABLED\0"u8)
+            fixed (byte* fastMathShort = "FAST_MATH_ENABLED\0"u8)
             {
+                // MVK_CONFIG_FAST_MATH_NEVER; MoltenVK versions differ in whether the setting name carries the prefix.
+                int never = 0;
+                var settings = stackalloc VkLayerSettingEXT[2];
+                settings[0] = new VkLayerSettingEXT { pLayerName = layerName, pSettingName = fastMath, type = VkLayerSettingTypeEXT.Int32, valueCount = 1, pValues = &never };
+                settings[1] = new VkLayerSettingEXT { pLayerName = layerName, pSettingName = fastMathShort, type = VkLayerSettingTypeEXT.Int32, valueCount = 1, pValues = &never };
+                var settingsInfo = new VkLayerSettingsCreateInfoEXT { settingCount = 2, pSettings = settings };
                 var ci = new VkInstanceCreateInfo
                 {
+                    pNext = layerSettings ? &settingsInfo : null,
                     pApplicationInfo = &app,
                     enabledLayerCount = (uint)layers.Count,
                     ppEnabledLayerNames = (byte**)pl,

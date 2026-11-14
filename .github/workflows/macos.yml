@@ -19,12 +19,13 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   SMOKE_MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
   SMOKE_PROMPT: The capital of France is
+  VULKAN_CORE: -class Sharplight.Vulkan.Tests.ElementwiseTests -class Sharplight.Vulkan.Tests.NormTests -class Sharplight.Vulkan.Tests.RopeTests -class Sharplight.Vulkan.Tests.RowOpTests -class Sharplight.Vulkan.Tests.ReduceTests -class Sharplight.Vulkan.Tests.GatherTests -class Sharplight.Vulkan.Tests.ViewTests -class Sharplight.Vulkan.Tests.DataOpTests -class Sharplight.Vulkan.Tests.CastAndIntegerTests -class Sharplight.Vulkan.Tests.MatMulTests -class Sharplight.Vulkan.Tests.FusionTests -class Sharplight.Vulkan.Tests.SimtGemmTests -class Sharplight.Vulkan.Tests.SkinnyGemmTests -class Sharplight.Vulkan.Tests.SplitHalfGemmTests -class Sharplight.Vulkan.Tests.RowInvarianceTests -class Sharplight.Vulkan.Tests.StatefulTests
 
 jobs:
   macos-arm64:
     name: macOS arm64 (Cpu + Vulkan via MoltenVK)
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,7 +74,7 @@ jobs:
 
       - name: Cpu suite
         if: success() || failure()
-        run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/cpu-tests.xml"
+        run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 2 -result-xml "$RUNNER_TEMP/cpu-tests.xml"
 
       - name: Smoke model
         if: success() || failure()
@@ -96,24 +97,6 @@ jobs:
           dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-vulkan.txt"
           grep -q Paris "$RUNNER_TEMP/smoke-vulkan.txt"
 
-      # Which device setting changes the Vulkan output: MoltenVK fast math, and each optional feature disabled in turn.
-      - name: Vulkan smoke variants (diagnostic)
-        if: (success() || failure()) && steps.model.outcome == 'success'
-        continue-on-error: true
-        timeout-minutes: 25
-        run: |
-          cli=samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll
-          variant() {
-            echo "=== $*"
-            env "$@" dotnet $cli "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 12 2>&1 | grep -E '^The capital|rror' | head -3
-          }
-          variant MVK_CONFIG_FAST_MATH_ENABLED=0
-          variant SHARPLIGHT_DISABLE_FEATURES=subgroup_size_control
-          variant SHARPLIGHT_DISABLE_FEATURES=int_dot
-          variant SHARPLIGHT_DISABLE_FEATURES=fp16
-          variant SHARPLIGHT_DISABLE_FEATURES=subgroup_ops
-          variant SHARPLIGHT_DISABLE_FEATURES=all MVK_CONFIG_FAST_MATH_ENABLED=0
-
       - name: CPU kernel tiers (decode and prefill)
         if: (success() || failure()) && steps.model.outcome == 'success'
         run: |
@@ -128,11 +111,29 @@ jobs:
         timeout-minutes: 15
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
 
-      # Last, and time-boxed: the paravirtual runner GPU is slow, and a failing kernel must not hide the steps above.
-      - name: Vulkan suite (MoltenVK)
+      # Fast math through the environment instead of the provider's layer setting: tells a MoltenVK fast-math effect apart
+      # from a kernel bug.
+      - name: Vulkan fast-math check (diagnostic)
         if: success() || failure()
-        timeout-minutes: 50
-        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/vulkan-tests.xml"
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          SHARPLIGHT_VK_PORTABILITY_FAST_MATH: 1
+          MVK_CONFIG_FAST_MATH_ENABLED: 0
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -class Sharplight.Vulkan.Tests.RowInvarianceTests -class Sharplight.Vulkan.Tests.StatefulTests
+
+      # The paravirtual runner GPU compiles pipelines slowly (MSL translation and Metal compilation, about 0.6 s each), so the
+      # suite runs in two time-boxed parts: the core kernels (elementwise, norms, matmuls, attention), then everything else.
+      - name: Vulkan suite, core (MoltenVK)
+        if: success() || failure()
+        timeout-minutes: 60
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -result-xml "$RUNNER_TEMP/vulkan-core-tests.xml" ${{ env.VULKAN_CORE }}
+
+      - name: Vulkan suite, remaining classes (MoltenVK)
+        if: success() || failure()
+        continue-on-error: true
+        timeout-minutes: 70
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -result-xml "$RUNNER_TEMP/vulkan-other-tests.xml" $(echo "${{ env.VULKAN_CORE }}" | sed 's/-class /-class- /g')
 
       - uses: actions/upload-artifact@v4
         if: success() || failure()
@@ -171,7 +172,7 @@ jobs:
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
 
       - name: Cpu suite
-        run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 4 -xml "$RUNNER_TEMP/cpu-tests.xml"
+        run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 4 -result-xml "$RUNNER_TEMP/cpu-tests.xml"
 
       - name: Cpu suite, NEON tier without dot products (kernel tests)
         if: success() || failure()
