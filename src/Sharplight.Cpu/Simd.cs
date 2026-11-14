@@ -7,6 +7,26 @@ namespace Sharplight.Cpu;
 /// <summary>Low level SIMD helpers (AVX-512 / AVX2 / scalar fallbacks).</summary>
 internal static unsafe class Simd
 {
+    /// <summary>dst[i] = src[2i] for i &lt; n; reads no element past src[2(n - 1)].</summary>
+    public static void CompressEven(float* src, float* dst, int n)
+    {
+        int i = 0;
+        if (CpuIsa.Use512 && Avx512F.IsSupported)
+        {
+            // Lanes 0, 2, ..., 14 of src[2i, 2i + 16) and 1, 3, ..., 15 of src[2i + 15, 2i + 31): the last read is src[2i + 30].
+            var even = Vector512.Create(0, 2, 4, 6, 8, 10, 12, 14, 17, 19, 21, 23, 25, 27, 29, 31);
+            for (; i + 16 <= n; i += 16)
+            {
+                Avx512F.PermuteVar16x32x2(Vector512.Load(src + 2 * i), even, Vector512.Load(src + 2 * i + 15)).Store(dst + i);
+            }
+        }
+
+        for (; i < n; i++)
+        {
+            dst[i] = src[2 * i];
+        }
+    }
+
     // ---- float dot products -------------------------------------------------------------------
     public static float Dot(float* a, float* b, long n)
     {

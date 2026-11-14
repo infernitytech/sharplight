@@ -85,7 +85,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
             CompiledModel? compiled = null;
             try
             {
-                var options = new OnnxImportOptions { AllowHalfBlockScales = arguments.ReducedPrecision };
+                var options = new OnnxImportOptions { AllowHalfBlockScales = arguments.ReducedPrecision, FuseProjections = !arguments.NoProjectionFusion };
                 foreach (var (name, values) in manifest.Constants)
                 {
                     options.ConstantInputs[name] = values;

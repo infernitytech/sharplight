@@ -50,6 +50,7 @@ public class BenchTests
     [InlineData("q8_0", 4), InlineData("q4_k", 4), InlineData("q8_0", 16), InlineData("q4_k", 16), InlineData("q8_0", 32), InlineData("q4_k", 32), InlineData("q6_k", 32), InlineData("q8_0", 128), InlineData("q4_k", 128), InlineData("q6_k", 128)]
     [InlineData("f32", 128), InlineData("q8_0", 512), InlineData("q4_k", 512)]
     [InlineData("q8_0", 1, 1024, 1024), InlineData("q8_0", 1, 3072, 1024), InlineData("q4_k", 1, 3072, 1024)]
+    [InlineData("f32", 197, 3072, 768), InlineData("f32", 197, 768, 3072), InlineData("f32", 197, 2304, 768), InlineData("f32", 1576, 3072, 768)]
     public void MatMulThroughput(string type, int tokens, int N = 17408, int K = 5120)
     {
         Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
@@ -83,7 +84,7 @@ public class BenchTests
             m.Run(p);
         }
 
-        int iters = tokens <= 16 ? (N * (long)K < 1 << 24 ? 3000 : 300) : 10;
+        int iters = tokens <= 16 ? (N * (long)K < 1 << 24 ? 3000 : 300) : 2.0 * tokens * N * K < 1e10 ? 300 : 10;
         var times = new double[iters];
         for (int i = 0; i < iters; i++)
         {

@@ -12,7 +12,7 @@ public sealed partial class GraphLowerer
 {
     private static string[] GeneralOpNames =>
         ["Expand", "Tile", "GatherAxis", "GatherElements", "GatherND", "ScatterElements", "ScatterND", "CumSum", "ArgReduce", "TopK",
-         "GroupNorm", "ConvTranspose", "Trilu", "OneHot", "GridSample", "Fill"];
+         "GroupNorm", "ConvTranspose", "Trilu", "OneHot", "GridSample", "Fill", "Det", "Inverse"];
     private static readonly HashSet<string> s_generalOps = [.. GeneralOpNames];
 
     private static bool IsDataType(DataType t) => !t.IsQuantized && (t == DataType.F32 || t == DataType.F16 || t == DataType.BF16 || t == DataType.I32 || t == DataType.I64 || t == DataType.U32);
@@ -32,6 +32,14 @@ public sealed partial class GraphLowerer
 
         switch (op)
         {
+            case "Det":
+            case "Inverse":
+                if (!IsFloatType(node.Inputs[0].Type) || (node.Inputs[0].Rank == 2 && node.Inputs[0].Shape.Symbol is not null))
+                {
+                    return OpSupport.No($"{op} of {node.Inputs[0].Type} {node.Inputs[0].Shape}");
+                }
+
+                break;
             case "Fill":
                 return node.Output.Type == DataType.F32 || node.Output.Type == DataType.I32 ? OpSupport.Yes : OpSupport.No($"Fill of {node.Output.Type}");
             case "TopK" when node.Attributes.Has("k_symbol") && NormAxis(a.Get("axis", -1L), node.Inputs[0].Rank) != 0:
@@ -75,6 +83,8 @@ public sealed partial class GraphLowerer
                 }
 
                 break;
+            case "CumSum" when node.Inputs[0].Type == DataType.I64:
+                break;
             case "CumSum":
             case "GroupNorm":
             case "ConvTranspose":
@@ -93,9 +103,14 @@ public sealed partial class GraphLowerer
             return OpSupport.No("ConvTranspose weight type");
         }
 
-        if (op == "GridSample" && node.Inputs[0].Rank != 4)
+        if (op == "GridSample" && node.Inputs[0].Rank is not (4 or 5))
         {
-            return OpSupport.No("volumetric GridSample");
+            return OpSupport.No($"GridSample of rank {node.Inputs[0].Rank}");
+        }
+
+        if (op == "GridSample" && node.Inputs[0].Rank == 5 && a.Get("mode", "linear") == "cubic")
+        {
+            return OpSupport.No("volumetric cubic GridSample");
         }
 
         if (op == "GridSample" && !(a.Get("mode", "linear") is "linear" or "nearest" or "cubic"))
@@ -135,6 +150,8 @@ public sealed partial class GraphLowerer
             case "OneHot": LowerOneHot(n); return true;
             case "GridSample": LowerGridSample(n); return true;
             case "Fill": LowerFill(n); return true;
+            case "Det": LowerDet(n); return true;
+            case "Inverse": LowerInverse(n); return true;
         }
         return false;
     }
@@ -464,7 +481,9 @@ public sealed partial class GraphLowerer
     // ---- scans / arg-reductions / top-k ------------------------------------------------------------
     private void LowerCumSum(Node n)
     {
-        var x = AsF32(Ref(n.Inputs[0]), "cumsum");
+        var source = Ref(n.Inputs[0]);
+        bool integer = source.Type == DataType.I32 || source.Type == DataType.I64;   // read directly, converted per element
+        var x = integer ? source : AsF32(source, "cumsum");
         var y = Produce(n.Output);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), x.Rank);
         bool excl = n.Attributes.Get("exclusive", false), rev = n.Attributes.Get("reverse", false);
@@ -476,7 +495,7 @@ public sealed partial class GraphLowerer
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
         string step = product ? "acc *= v;" : "acc += v;";
         string body = $"  float acc = {(product ? "1.0" : "0.0")};\n  for (uint i = 0; i < {len}u; i++) {{\n    uint j = {(rev ? $"{len - 1}u - i" : "i")};\n" +
-            $"    float v = p.in0[{Lin(x, cj)}];\n" +
+            $"    float v = {(integer ? $"float(p.in0[{Lin(x, cj)}])" : $"p.in0[{Lin(x, cj)}]")};\n" +
             (excl ? $"    p.out0[{Lin(y, cj)}] = acc; {step}\n" : $"    {step} p.out0[{Lin(y, cj)}] = acc;\n") + "  }";
         EmitGen(product ? "cumprod" : "cumsum", [n], iter, x.Symbol, [x], [y], body);
     }
@@ -618,6 +637,12 @@ public sealed partial class GraphLowerer
 
     private void LowerGridSample(Node n)
     {
+        if (n.Inputs[0].Rank == 5)
+        {
+            LowerGridSample3D(n);
+            return;
+        }
+
         var x = AsF32(Ref(n.Inputs[0]), "gridsample");
         var g = AsDenseF32(Ref(n.Inputs[1]), "gridsample-grid");
         var y = Produce(n.Output);
@@ -632,5 +657,24 @@ public sealed partial class GraphLowerer
         var tx = x;
         Emit($"grid_sample {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * C * HO * WO, 256)))],
             [Pointer(x), Pointer(g), Pointer(y), CountArg(x, C * HO * WO)], [x, g], [y]);
+    }
+
+    /// <summary>Volumetric GridSample: x [N, C, D, H, W], grid [N, DO, HO, WO, 3], trilinear or nearest.</summary>
+    private void LowerGridSample3D(Node n)
+    {
+        var x = AsF32(Ref(n.Inputs[0]), "gridsample");
+        var g = AsDenseF32(Ref(n.Inputs[1]), "gridsample-grid");
+        var y = Produce(n.Output);
+        var a = n.Attributes;
+        long C = x.Shape[1];
+        long outer = C * y.Shape[2] * y.Shape[3] * y.Shape[4];
+        int mode = a.Get("mode", "linear") == "nearest" ? 1 : 0;
+        int pad = a.Get("padding", "zeros") switch { "zeros" => 0, "border" => 1, _ => 2 };
+        var k = Lib("general.slang", "grid_sample3d", Macros(("C", C), ("D", x.Shape[2]), ("H", x.Shape[3]), ("W", x.Shape[4]),
+            ("DO", y.Shape[2]), ("HO", y.Shape[3]), ("WO", y.Shape[4]), ("XS_N", x.Strides[0]), ("XS_C", x.Strides[1]), ("XS_D", x.Strides[2]),
+            ("XS_H", x.Strides[3]), ("XS_W", x.Strides[4]), ("MODE", mode), ("PAD", pad), ("ALIGN", a.Get("align_corners", false))));
+        var tx = x;
+        Emit($"grid_sample3d {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(Rows(b, tx) * outer, 256)))],
+            [Pointer(x), Pointer(g), Pointer(y), CountArg(x, outer)], [x, g], [y]);
     }
 }

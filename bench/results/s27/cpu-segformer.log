@@ -1,0 +1,8 @@
+r0 segformer-b0 b1 sl-cpu: ok min 38.731 med 41.857 parity True 
+r0 segformer-b0 b1 ort-cpu: ok min 42.624 med 44.015 parity None 
+r0 segformer-b0 b8 sl-cpu: ok min 251.127 med 273.262 parity True 
+r0 segformer-b0 b8 ort-cpu: ok min 480.674 med 499.501 parity None 
+r1 segformer-b0 b1 sl-cpu: ok min 39.821 med 44.899 parity True 
+r1 segformer-b0 b1 ort-cpu: ok min 42.087 med 45.388 parity None 
+r1 segformer-b0 b8 sl-cpu: ok min 249.468 med 267.644 parity True 
+r1 segformer-b0 b8 ort-cpu: ok min 483.807 med 492.024 parity None 

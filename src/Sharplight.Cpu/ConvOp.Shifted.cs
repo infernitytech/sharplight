@@ -3,11 +3,15 @@ namespace Sharplight.Cpu;
 // The shifted form of stride-1 convolutions: no im2col. The input is copied once per run into a zero-padded buffer of
 // Hp x Wp planes (Hp = HO + (KH-1)*DH, Wp = WO + (KW-1)*DW). Output pixel (oh, ow) becomes the virtual column v = oh*Wp + ow,
 // and tap (fh, fw) of input channel c reads xpad[c][v + fh*DH*Wp + fw*DW]: for every tap the B rows of all input channels
-// are the padded planes themselves, shifted by a constant and one plane apart, so the micro-kernel reads B in place. A KxK conv
+// are the padded planes themselves, shifted by a constant and one plane apart, so the micro-kernel reads B in place (per tap
+// through the strided kernel, or for few channels per group through the gather kernel over the per-k offsets). A KxK conv
 // is KH*KW accumulated 1x1 GEMMs; the columns of the pad region (ow >= WO) are computed and dropped when the C block is
 // written out. Tiles stay inside one image.
 internal sealed unsafe partial class ConvOp
 {
+    /// <summary>Channels per group from which a tap's B rows go through the strided micro-kernel instead of the gather kernel.</summary>
+    private const int MinStridedChannels = 16;
+
     private int _hp;
     private int _wp;
     private long _plane;
@@ -132,7 +136,21 @@ internal sealed unsafe partial class ConvOp
                 for (int p = p0; p < p1; p++)
                 {
                     float* bias = acc || biasGroup == null ? null : biasGroup + (long)p * MR;
-                    Gemm.TileGather(aGroup + ((long)p * kg + kb) * MR, b, _kOffsets + kb, ct + (long)(p - p0) * MR * ldc, ldc, kc, bias, acc);
+                    float* a = aGroup + ((long)p * kg + kb) * MR;
+                    float* c = ct + (long)(p - p0) * MR * ldc;
+                    if (_cg < MinStridedChannels)
+                    {
+                        Gemm.TileGather(a, b, _kOffsets + kb, c, ldc, kc, bias, acc);
+                        continue;
+                    }
+
+                    // Within a tap the B rows are one plane apart: the strided kernel per tap segment.
+                    for (int k = kb; k < kb + kc;)
+                    {
+                        int len = Math.Min(kb + kc, (k / _cg + 1) * _cg) - k;
+                        Gemm.Tile(a + (long)(k - kb) * MR, b + _kOffsets[k], _plane, c, ldc, len, k == kb ? bias : null, acc || k > kb);
+                        k += len;
+                    }
                 }
             }
         }
@@ -166,8 +184,14 @@ internal sealed unsafe partial class ConvOp
                 float* dst = y + (img * _o + (long)g * _mg + rowStart) * _hw + oh * _wo + ow;
                 for (int r = rowStart; r < rowEnd; r++)
                 {
-                    new ReadOnlySpan<float>(src, len).CopyTo(new Span<float>(dst, len));
-                    _epilogue?.Apply(dst, dst - y, len);
+                    if (_epilogue is null)
+                    {
+                        new ReadOnlySpan<float>(src, len).CopyTo(new Span<float>(dst, len));
+                    }
+                    else
+                    {
+                        _epilogue.ApplyFrom(src, dst, dst - y, len);
+                    }
                     src += ldc;
                     dst += _hw;
                 }
