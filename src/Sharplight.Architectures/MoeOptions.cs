@@ -31,10 +31,12 @@ namespace Sharplight.Architectures;
 /// (<c>moe.selection_bias_on_logits</c>, Kolibri-1: top-k of logit + bias, weights = sigmoid of the unbiased logits).</param>
 /// <param name="RouterSoftCap">Soft cap of the router logits, cap · tanh(logit / cap) (<c>moe.router_logit_softcap</c>, 0 = off; Grok).</param>
 /// <param name="SparseMixerJitter">The ε of <see cref="MoeScoreFunction.SparseMixer"/> routing (<c>moe.sparsemixer_jitter</c>, default 0.01).</param>
+/// <param name="NormEps">Epsilon of the latent input norm (<c>norm_eps</c>).</param>
+/// <param name="PostNormEps">Epsilon of the expert output norm (<c>post_norm_eps</c>, default <c>norm_eps</c>).</param>
 internal sealed record MoeOptions(
     int Experts, int ExpertsUsed, MoeScoreFunction ScoreFunction, bool NormalizeWeights, float WeightsScale,
     int Groups = 1, int GroupsUsed = 1, MoeGroupScore GroupScore = MoeGroupScore.TopTwoSum, bool WeightsBeforeExperts = false, float SharedScale = 1f,
-    bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f)
+    bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f, float NormEps = 1e-5f, float PostNormEps = 1e-5f)
 {
     /// <summary>Reads the <c>moe.*</c> keys of <paramref name="source"/>.</summary>
     /// <param name="source">The model source.</param>
@@ -73,7 +75,9 @@ internal sealed record MoeOptions(
             SharedScale: source.Arch("moe.shared_scale", 1f),
             SelectionBiasOnLogits: source.Arch("moe.selection_bias_on_logits", false),
             RouterSoftCap: source.Arch("moe.router_logit_softcap", 0f),
-            SparseMixerJitter: source.Arch("moe.sparsemixer_jitter", 0.01f));
+            SparseMixerJitter: source.Arch("moe.sparsemixer_jitter", 0.01f),
+            NormEps: source.Arch("norm_eps", 1e-5f),
+            PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)));
     }
 
     /// <summary>Whether the counts describe a usable configuration.</summary>

@@ -35,7 +35,10 @@ namespace Sharplight.Architectures;
 /// and is non-parametric when the weight is absent, OLMo 1); <c>pre_norm</c> (default true; false = no norm in front of the sub-layers, OLMo 2 / EXAONE 4 normalize their outputs instead);
 /// <c>residual.parallel</c> (default false: attention and MLP both read the layer input, x + attn(norm(x)) + mlp(norm'(x)); the MLP uses <c>post_attention_norm</c> when the layer has one and shares the attention norm otherwise);
 /// <c>residual.scale</c> (factor on every sub-layer output before the residual add, muP); <c>residual.norm_preserving</c> (Beam: the i-th residual sum,
-/// counting both sub-layers of every layer from i = 2, is out/√i + x·√((i−1)/i)); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
+/// counting both sub-layers of every layer from i = 2, is out/√i + x·√((i−1)/i)); per-sub-layer learned residual weights
+/// <c>layers.{i}.attention.residual_alpha</c> / <c>residual_beta</c> and <c>layers.{i}.mlp.residual_alpha</c> / <c>residual_beta</c> [H] (Muse Spark: α·x + β·out);
+/// <c>attention.out_head_norm</c> (weight-less RMS norm of every head's attention output before the gate); <c>post_norm.weight_first</c>
+/// (the sub-layer output norms multiply by their weight before normalizing); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
 /// <c>attention.clip_qkv</c> (clamp of the q/k/v projections, OLMo 1); <c>attention.layer_head_counts</c> (per-layer query heads, OpenELM).
 /// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>embedding_norm.weight</c> (+ <c>.bias</c>: the model's norm of the token embeddings, BLOOM), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>; routing and expert weights are those of <see cref="MoeBlock"/>):

@@ -191,6 +191,11 @@ internal sealed partial class DecoderGraphBuilder
     private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int heads, int valueDim)
     {
         var scaled = _hp.ValueScale != 1f ? b.Scale(attention, _hp.ValueScale, 0f) : attention;
+        if (_hp.AttentionHeadNorm)
+        {
+            scaled = b.RmsNorm(b.Reshape(scaled, 0, heads, valueDim), null, _hp.Eps);   // weight-less norm of every head's output (Muse Spark)
+        }
+
         if (b.HasWeight(p + "attention.gate.weight"))
         {
             bool perHead = b.Weight(p + "attention.gate.weight").Shape[0].Fixed == heads;

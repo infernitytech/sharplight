@@ -215,7 +215,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `muse-glimmer` | Muse Glimmer 30B | sandwich norms, sigmoid attn gate, SWA + NoPE, softcap | **supported** | - | muse_glimmer | - |
-| `muse-spark` | Muse Spark | gated attn, norm-preserving residual, MoE in latent space | **partial** | `MOELATENT`, `RBIAS` | - | - |
+| `muse-spark` | Muse Spark | gated attn, norm-preserving residual, MoE in latent space | **supported** (GGUF, tiny random vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan, b11177 predates it; the 816B checkpoint was not run) | - | - | gguf/tiny-random-muse-spark-f32 |
 
 ### NVIDIA
 

@@ -581,6 +581,30 @@ def beam_parameters(writer):
     writer.add_final_logit_softcapping(20.0)
 
 
+def muse_spark_block():
+    # Every layer routes in a latent space (selection bias, latent input norm, expert output norm); per-channel gate, learned residual weights.
+    t = qk_norm_block(lambda: moe_block(shared=0), attn_gate__weight=lambda: weight(HIDDEN, HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN),
+                      attn_resid_alpha__weight=lambda: norm(HIDDEN), attn_resid_beta__weight=lambda: norm(HIDDEN), ffn_resid_alpha__weight=lambda: norm(HIDDEN),
+                      ffn_resid_beta__weight=lambda: norm(HIDDEN), exp_probs_b__bias=lambda: bias(EXPERTS), ffn_pre_exp_norm__weight=lambda: norm(LATENT),
+                      ffn_post_exp_norm__weight=lambda: norm(LATENT))
+    t.update({"ffn_latent_down.weight": weight(LATENT, HIDDEN), "ffn_latent_up.weight": weight(HIDDEN, LATENT),
+              "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT), "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT),
+              "ffn_down_exps.weight": weight(EXPERTS, LATENT, EXPERT_FFN)})
+    return t
+
+
+def muse_spark_parameters(writer):
+    moe_parameters(shared=0, scale=1.5, norm_weights=True)(writer)
+    writer.add_uint32("muse-spark.expert_gating_func", 2)
+    writer.add_moe_latent_size(LATENT)
+    writer.add_post_norm_eps(1e-6)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, True, False])
+    writer.add_rope_freq_base_swa(1000.0)
+    writer.add_logit_scale(0.8)
+    writer.add_final_logit_softcapping(20.0)
+
+
 def bidirectional(extra=None):
     # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
     def parameters(writer):
@@ -712,6 +736,7 @@ models = {
                                       kv_heads=[0 if kind == "conv" else KV_HEADS for kind in LFM3_KINDS], rope_dim=LFM3_HEAD, global_tensors=lfm3_globals),
     "maion-coder": lambda path: write_family(path, "maion-coder", 35, maion_coder_block, parameters=maion_coder_parameters, layers=4),
     "beam": lambda path: write_family(path, "beam", 36, beam_block, parameters=beam_parameters),
+    "muse-spark": lambda path: write_family(path, "muse-spark", 37, lambda layer: muse_spark_block(), parameters=muse_spark_parameters),
     # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
     "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
                                           global_tensors=lambda vocab: {"output.weight": None}),
