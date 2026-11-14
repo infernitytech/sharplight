@@ -140,6 +140,11 @@ public sealed partial class GraphLowerer
         {
             LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
         }
+        else if (unit.BiasAdd is { } biasAdd)
+        {
+            LowerMatMulBias(unit.Node!, biasAdd);
+            FreeTemps();
+        }
         else
         {
             LowerNode(unit.Node!);

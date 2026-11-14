@@ -30,6 +30,11 @@ public sealed partial class GraphLowerer
             FoldDualMatMuls(units, consumers);
         }
 
+        if (!DiagnosticSwitches.NoBiasFold)
+        {
+            FoldMatMulBiases(units, consumers);
+        }
+
         AbsorbIntoConsumers(units, consumers);
         if (!DiagnosticSwitches.NoGatherFold)
         {
@@ -300,6 +305,61 @@ public sealed partial class GraphLowerer
             unit.Dual = (a, b);
             removed.Add(unitA);
             removed.Add(unitB);
+        }
+
+        units.RemoveAll(removed.Contains);
+    }
+
+    /// <summary>
+    /// A single-node Add group that adds a constant f32 row vector (weight, [N]) to the output of a weight MatMul, the Add being
+    /// that output's only reader, joins the matmul's unit (<see cref="LoweringUnit.BiasAdd"/>): e.g. the q / k / v / o biases of
+    /// attention projections.
+    /// </summary>
+    private void FoldMatMulBiases(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not null)
+            {
+                unitOf[unit.Node] = unit;
+            }
+        }
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Fused is not [{ Op.Name: "Add" } add] || unit.NormHead is not null || unit.NormTail is not null || unit.Dual is not null
+                || unit.Gathers is not null)
+            {
+                continue;
+            }
+
+            int slot = add.Inputs[0].Producer is { Op.Name: "MatMul" } ? 0 : add.Inputs[1].Producer is { Op.Name: "MatMul" } ? 1 : -1;
+            if (slot < 0)
+            {
+                continue;
+            }
+
+            var product = add.Inputs[slot];
+            var bias = add.Inputs[1 - slot];
+            var matmul = product.Producer!;
+            if (!unitOf.TryGetValue(matmul, out var matmulUnit) || matmulUnit.BiasAdd is not null || matmulUnit.Absorbed is not null
+                || _segmentOutputs.Contains(product) || !consumers.TryGetValue(product, out var readers) || readers.Count != 1)
+            {
+                continue;
+            }
+
+            var w = matmul.Inputs[1];
+            if (w.Kind != ValueKind.Weight || w.Shape.Rank != 2 || w.Shape[0].IsSymbolic || WeightFormat(w.Type) is null
+                || bias.Kind != ValueKind.Weight || bias.Type != DataType.F32 || bias.Shape.Rank != 1 || !bias.Shape[0].Equals(w.Shape[0])
+                || !add.Output.Shape.Equals(product.Shape) || add.Output.Type != DataType.F32)
+            {
+                continue;
+            }
+
+            matmulUnit.BiasAdd = add;
+            removed.Add(unit);
         }
 
         units.RemoveAll(removed.Contains);

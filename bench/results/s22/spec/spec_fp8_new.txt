@@ -1,0 +1,8 @@
+mtp k=0 depth=47: tg median 40.2 min 40.0 max 40.4 tok/s, prompt + 1 token 34 ms (min 33)
+mtp k=0 depth=4096: tg median 39.4 min 38.7 max 39.7 tok/s, prompt + 1 token 1238 ms (min 1235)
+mtp k=1 depth=47: tg median 59.3 min 56.0 max 59.8 tok/s, prompt + 1 token 32 ms (min 32) acceptance 0.86 (295/344)
+mtp k=1 depth=4096: tg median 55.0 min 53.8 max 56.7 tok/s, prompt + 1 token 1284 ms (min 1279) acceptance 0.81 (284/352)
+mtp k=2 depth=47: tg median 72.0 min 69.1 max 79.2 tok/s, prompt + 1 token 32 ms (min 32) acceptance 0.77 (385/502)
+mtp k=2 depth=4096: tg median 64.7 min 61.5 max 75.4 tok/s, prompt + 1 token 1281 ms (min 1275) acceptance 0.70 (372/528)
+mtp k=3 depth=47: tg median 70.0 min 63.6 max 73.0 tok/s, prompt + 1 token 32 ms (min 32) acceptance 0.56 (399/709)
+mtp k=3 depth=4096: tg median 66.0 min 61.6 max 90.7 tok/s, prompt + 1 token 1348 ms (min 1324) acceptance 0.57 (402/707)

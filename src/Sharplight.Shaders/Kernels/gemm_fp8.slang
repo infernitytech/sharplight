@@ -250,8 +250,9 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             }
         }
 
-        // One output column fragment at a time: the block accumulator holds F8_FM fragments rather than F8_FM x F8_FN, which
-        // frees registers (10-13 % faster from 256 rows) at the cost of reloading the A fragments per column fragment.
+        // The block products are added with an explicit fused multiply-add, so the dual kernel (DUAL) and the single one round
+        // alike whatever the compiler would contract in each. One output column fragment at a time: the block accumulator
+        // holds F8_FM fragments rather than F8_FM x F8_FN, which frees registers (10-13 % faster from 256 rows) at the cost of reloading the A fragments per column fragment.
         [MaxIters(F8_WBLOCKS)] [loop]
         for (uint wb = 0; wb < F8_WBLOCKS; wb++)
         {
@@ -288,12 +289,12 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
                     {
                         if (PAIR)
                         {
-                            acc[i][j][e] += c[i][e] * (xr[i][e >> 2] * ws[e & 3]);
+                            acc[i][j][e] = fma(c[i][e], xr[i][e >> 2] * ws[e & 3], acc[i][j][e]);
                         }
                         else
                         {
                             uint r = uint(index[e]) >> 4, col = uint(index[e]) & 15;
-                            acc[i][j][e] += c[i][e] * (sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col]);
+                            acc[i][j][e] = fma(c[i][e], sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col], acc[i][j][e]);
                         }
                     }
                 }

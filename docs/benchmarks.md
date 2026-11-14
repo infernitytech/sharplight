@@ -2080,3 +2080,221 @@ dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_M
   * NMS needs data-dependent output counts on the device.
   * CumSum and GridSample already have Vulkan kernels.
 * **Reduced precision**: slower than strict at b1, and `DEVICE_LOST` on two encoders (21.4).
+
+## 22. Skinny GEMM retune, dual fp8 gate/up above 64 rows, matmul bias in the matvec (2026-11-14)
+
+Follow-up to section 20.9. All changes are kernel-selection or fusion rules that apply to every model:
+
+* `GraphLowerer.SkinnyGemm.cs`: the tile configuration of the skinny tensor-core GEMM (2-16 rows).
+* `GraphLowerer.Fp8Gemm.cs`, `gemm_fp8.slang`: the dual fp8 gate/up GEMM above 64 rows.
+* `GraphLowerer.Fusion.cs` (`FoldMatMulBiases`), `GraphLowerer.MatMul.cs` (`LowerMatMulBias`), `matmul.slang` (`BIAS`):
+  a weight bias added in the single-row matvec.
+
+Base is `main` at `eac6efe`, built side by side; base and new runs alternate. The GPU was shared during all runs: the
+user's other applications (one holding about 3.4 GB) and other agents' test suites were active during parts of them, so
+the tables use minimum GPU times or best-of-N values, and each `*.gpu.txt` records what else ran. Raw results:
+[`bench/results/s22/`](../bench/results/s22).
+
+### 22.1 Skinny GEMM (2-16 rows)
+
+The skinny GEMM gives each workgroup `fn` 16-column weight fragments and splits K over `sg` subgroups. Section 19 used
+two fragments for most shapes and targeted 2048 subgroups in flight, within 32 KB of shared memory. A sweep over the 27B
+and Mistral shapes (`SHARPLIGHT_SKINNY_CFG=fn,sg,bk`) with cold weights (22.8) gave the new rule:
+
+* one fragment per workgroup below N = 10240, which doubles the workgroups and the loads in flight;
+* 8 subgroups per workgroup while the grid has fewer than 1536 subgroups and K has at least 4 blocks per subgroup;
+* the device's shared-memory limit (`maxComputeSharedMemorySize`) up to 48 KB, instead of a fixed 32 KB. Smaller devices
+  shrink the K block, then the subgroup count, as before.
+
+Kernel time in µs (minimum of 400 iterations, 4 weight copies so that every launch reads from DRAM) and weight bandwidth:
+
+| weights, rows | shape [K→N] | base µs | new µs | TB/s base → new |
+|---|---|---|---|---|
+| FP8, 4 | [17408→5120] | 92 | 70 | 0.97 → 1.27 |
+| FP8, 4 | [6144→5120] | 31 | 23 | 1.01 → 1.37 |
+| FP8, 4 | [14336→4096] | 72 | 49 | 0.82 → 1.20 |
+| FP8, 4 | [4096→14336] | 59 | 47 | 1.00 → 1.25 |
+| FP8, 4 | [5120→12288] | 68 | 54 | 0.93 → 1.17 |
+| FP8, 16 | [17408→5120] | 95 | 82 | 0.94 → 1.09 |
+| FP8, 16 | [5120→6144] | 39 | 31 | 0.81 → 1.01 |
+| FP8, 16 | [14336→4096] | 74 | 62 | 0.79 → 0.95 |
+| f16, 4 | [5120→6144] | 68 | 45 | 0.93 → 1.40 |
+| f16, 4 | [4096→14336] | 102 | 76 | 1.15 → 1.55 |
+
+The dual gate/up configuration (one fragment, 4 subgroups, K block 64) was already the best of the sweep and is unchanged.
+Tried and not faster:
+
+* loading the cooperative-matrix operands directly from global memory, without staging in shared memory;
+* a K block of 128 or more (register spills);
+* splitting K across workgroups (at most ~15 % on the kernel, before the extra reduction launch).
+
+27B decode steps (BatchBench `--ctx 2048 --sizes 1,2,4,8,16,32,64`), minimum GPU ms per step over 2 interleaved process
+runs per build (`batch/rows_*`):
+
+| rows | FP8 base | FP8 new | | Q8_0 base | Q8_0 new | |
+|---|---|---|---|---|---|---|
+| 1 | 22.8 | 22.4 | 0.97x | 22.3 | 22.5 | 1.04x |
+| 2 | 27.8 | 25.1 | **1.11x** | 19.7 | 20.4 | 0.97x |
+| 4 | 28.6 | 25.8 | **1.11x** | 22.6 | 22.2 | 1.02x |
+| 8 | 30.4 | 28.8 | 1.06x | 27.3 | 28.5 | 0.96x |
+| 16 | 33.3 | 33.1 | 1.01x | 34.3 | 33.1 | 1.04x |
+| 32 | 33.4 | 33.7 | 0.99x | 42.4 | 43.1 | 0.98x |
+| 64 | 43.5 | 43.9 | 0.99x | 49.5 | 49.1 | 1.01x |
+
+* **FP8 at 2-8 rows** (MTP verification, 2-8 streams) is 6-11 % faster: those steps run every projection on the skinny
+  GEMM.
+* **FP8 at 16 rows** barely moves. Its down projection went from 95.6 to 83.4 µs, but the step is dominated by the dual
+  gate/up GEMM (139-143 µs per layer), whose configuration was already the best.
+* **Q8_0** runs its 2-16-row steps on the int-dot matvec and the int8 GEMM, so its column is a control: ±4 % noise.
+* 1 row runs the f32 matvec in both builds; 32 / 64 rows run the fp8 GEMM.
+
+### 22.2 Dual fp8 gate/up above 64 rows
+
+Section 20.2 kept the dual fp8 GEMM at 17-64 rows because above that its fused epilogue rounded differently from the two
+separate GEMMs plus SiLU·mul. The difference had two sources, and both are removed:
+
+* **Accumulation.** The driver contracted the separate GEMM's `acc += c * (x * w)` to an FMA, but not the dual GEMM's.
+  Both now write `fma(c, x * w, acc)` explicitly. The separate GEMM's output is bit-identical to before (same hash of a
+  probe run), and the dual one now matches it.
+* **Split-K.** Where the separate GEMMs split K (small grids), their partial sums round differently from the dual GEMM's
+  single pass. Above 64 rows the dual GEMM now runs only where `QuantizedGemmSplit` would not split the separate GEMMs.
+
+`Fp8GemmTests.DualMatchesSeparateBitwise` checks bit equality at 512 and 636 rows. `SHARPLIGHT_FP8_DUAL_MAX_ROWS=64`
+restores section 20's rule. Greedy output is unchanged (22.7).
+
+27B FP8 prefill (`sharplight --bench N --batch N`), best of 3 interleaved runs, tok/s (`prefill/`):
+
+| | base | new | | vLLM (§16.3) | new / vLLM |
+|---|---|---|---|---|---|
+| pp512 | 4310 | 4317 | 1.00x | 5171 | 0.83x |
+| pp2048 | 4149 | 4268 | **1.03x** | 5944 | 0.72x |
+
+The dual GEMM runs at 651 µs (~280 TFLOPS) per layer at 512 rows, the same rate as the separate GEMMs. It saves one
+launch, one activation read and the elementwise pass. The 400+ TFLOPS target needs a different fetch scheme (20.2).
+
+### 22.3 Matmul bias in the single-row matvec
+
+Models with projection biases (gpt-oss q/k/v/o and router, Qwen2 q/k/v) ran each biased projection as a matmul plus an
+elementwise add. `FoldMatMulBiases` now folds an f32 `[N]` weight bias into a weight matmul whose output it alone reads.
+Single-row steps add the bias in the store of the split-K matvec (`BIAS`). Other row counts, and weight types that decode
+on the int-dot matvec, keep two launches. `SHARPLIGHT_NO_BIAS_FOLD=1` disables the fold.
+
+On gpt-oss-20b MXFP4 decode, dispatches per step go from 629 to 533 and barriers from 436 to 364.
+
+### 22.4 Single stream against llama.cpp
+
+`sharplight --bench 512 --batch 512` (512-token prefill, then decode), best of 2 interleaved runs per build; then
+`llama-bench -ngl 99 -fa 1 -p 512 -n 64 -d 0,512 -r 3` (b11177, CUDA) on the same GPU. Values are tok/s (`single/`,
+`llama/`). llama.cpp prefill is at depth 0 and its decode at depth 512, which matches the Sharplight run.
+
+| model | prefill base | prefill new | llama.cpp | decode base | decode new | llama.cpp | decode new / llama.cpp |
+|---|---|---|---|---|---|---|---|
+| gpt-oss-20b MXFP4 | 13596 | 12752 | 14144 | 307 | **322** | 314 | 1.03x |
+| OLMoE-1B-7B Q4_K_M | 28485 | 28443 | 25406 | 772 | 775 | 746 | 1.04x |
+| ERNIE-4.5-21B-A3B Q4_K_M | 11195 | 11425 | 9252 | 332 | 333 | 309 | 1.08x |
+| Nemotron-3-Nano-30B-A3B Q4_K_M | 9356 | 9348 | 8372 | 313 | 313 | 306 | 1.02x |
+| Ministral-3-3B Q4_K_M | 19034 | 19733 | 15609 | 382 | 377 | 359 | 1.05x |
+| Mistral-7B Q4_K_M | 10371 | 9759 | 11334 | 242 | 242 | 234 | 1.03x |
+
+* **gpt-oss decode is 5 % faster** from the bias fold (best GPU ms per step 3.17 → 3.03). The other models have no
+  projection biases, or decode on the int-dot matvec; their differences are noise. Prefill is unchanged for all of them
+  (they do not use the fp8 GEMM), so the prefill differences are noise as well.
+* **The llama.cpp column is low.** Another agent's test suite used the GPU during these runs, and the README's quiet
+  runs had gpt-oss decode at 345 and ERNIE at 365 tok/s. An earlier quieter llama.cpp run during this work gave 340-347
+  decode and 17.3k pp512 on gpt-oss. The README comparison therefore stays the reference, with gpt-oss decode updated to
+  322 (0.93x of 345).
+
+### 22.5 MTP
+
+SpecBench as in section 20.6 (natural-language prompt, greedy, median of 5, tok/s), base and new back to back (`spec/`):
+
+| k | FP8 base @d47 | FP8 new @d47 | FP8 base @d4096 | FP8 new @d4096 | Q8_0 base @d47 | Q8_0 new @d47 | Q8_0 base @d4096 | Q8_0 new @d4096 |
+|---|---|---|---|---|---|---|---|---|
+| off | 37.8 | 40.2 | 36.2 | 39.4 | 39.6 | 39.7 | 38.8 | 39.0 |
+| 1 | 56.6 | 59.3 | 54.2 | 55.0 | 76.6 | 76.0 | 71.9 | 73.2 |
+| 2 | 69.6 | 72.0 | 56.1 | 64.7 | 85.6 | 86.3 | 80.1 | 75.9 |
+| 3 | 70.3 | 70.0 | 67.6 | 66.0 | 91.9 | 93.0 | 91.3 | 96.0 |
+
+* The accepted-draft counts are identical between the builds for every k and depth (e.g. FP8 k = 3: 399/709 and
+  402/707), as greedy identity requires.
+* FP8 verification steps (2-4 rows) run the retuned skinny GEMM. k = 1 / 2 gain 1-5 %, the non-speculative baseline
+  ~6 %. k = 3 is flat within the spread of this busy period: per-run values ranged 63-91 tok/s.
+* Q8_0 verification runs the int-dot matvec, which is unchanged, so its column differs only by noise.
+
+### 22.6 Serving against vLLM
+
+`bench/s16_serve.sh` as in section 20.5 (~250-token prompts, 128 output tokens, ignore_eos, a 64-slot server, 2 rounds,
+a fresh server per concurrency, base and new alternating, then vLLM 0.33 with `--gpu-memory-utilization 0.5`). Values
+are the mean of 2 rounds: aggregate tok/s, TTFT P50 / P95 in ms and mean ITL in ms.
+
+| conc | vLLM FP8 | SL base | SL new | new / base | SL new / vLLM | TTFT SL base → new | vLLM TTFT | ITL SL base → new | vLLM ITL |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 45 | 40 | 39 | 0.99x | 0.87x | 80 / 80 → 80 / 87 | 60 / 68 | 24.8 → 25.0 | 22.7 |
+| 4 | 162 | 124 | 130 | **1.05x** | 0.80x | 220 / 252 → 217 / 251 | 186 / 197 | 31.0 → 29.3 | 23.5 |
+| 16 | 514 | 346 | 335 | 0.97x | 0.65x | 302 / 1071 → 348 / 997 | 642 / 778 | 43.1 → 44.6 | 26.2 |
+| 64 | 1155 | 741 | 741 | 1.00x | 0.64x | 529 / 4812 → 506 / 4891 | 2070 / 2291 | 74.9 → 74.8 | 40.7 |
+
+* **c = 4 is 5 % faster**, with ITL down by 1.7 ms: its decode steps have 4 rows and run the retuned skinny GEMM (22.1).
+* **c = 1** decodes on the f32 matvec, and **c = 16 / 64** on steps whose time the dual gate/up GEMM and the fp8 GEMM
+  decide; neither changed, and the ±3 % differences are within the spread of single rounds (c = 16: 327-352 tok/s for
+  either build). The GPU ran at its 300 W limit and 87 °C during the c = 16 / 64 runs.
+* vLLM measured 2-5 % higher than in section 20.5, so the ratios are slightly lower for the same code.
+
+### 22.7 Correctness
+
+Greedy CLI output, 200 tokens, base vs new (`ident/` holds the generated text):
+
+| model | 636-token prompt | short prompt | chat prompt | MTP k = 3 vs non-speculative (new) |
+|---|---|---|---|---|
+| Qwen3.8-27B FP8 | identical | identical | identical | identical (636-token and short) |
+| Qwen3.8-27B Q8_0 | identical | identical | identical | identical (636-token and short) |
+| gpt-oss-20b MXFP4 | | | identical | |
+| Qwen2.5-0.5B Q8_0 | | | identical | |
+
+SpecBench accepted-draft counts are equal between the builds for every k and depth (22.5).
+
+Tests: `FusionTests.MatMulBias` (the bias fold at one and several rows), `Fp8GemmTests.DualMatchesSeparateBitwise`, and
+the `MatMulTests`, `Fp8GemmTests` and `FusionTests` classes. On the branch rebased onto `main` (after section 21), the Cpu,
+Vulkan, Families, Serving and Studio suites pass, run one at a time. One Serving run failed `EngineFeatureTests.FairQueuing_LightTenantOvertakesHeavyTenantsBacklog`
+(an admission-order assertion) while other agents loaded the machine; it passed on 3 isolated reruns and on a full rerun.
+The 636-token FP8 output of the rebased build is identical to the outputs above.
+
+### 22.8 Benchmark options
+
+`BenchTests.MatMulPrefill` (Vulkan tests, `SHARPLIGHT_BENCH=1`) gained three options:
+
+* `SHARPLIGHT_BENCH_COPIES=n`: n copies of each weight, used in turn, with the time divided by n. Below about 64 MB a
+  single weight stays in the 128 MB L2 between launches, which overstated the skinny GEMM's bandwidth by up to 2x.
+* `SHARPLIGHT_BENCH_ITERS=n` (default 50). 400 gives stable minima, because the GPU clock ramps up over the first
+  hundred launches.
+* `SHARPLIGHT_BENCH_DUAL=1`: also time the dual gate/up launch for each shape.
+
+### 22.9 Commands
+
+```bash
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_TYPES=f8e4m3_b128 SHARPLIGHT_BENCH_ROWS=4 SHARPLIGHT_BENCH_COPIES=4 \
+  SHARPLIGHT_BENCH_ITERS=400 SHARPLIGHT_BENCH_SHAPES="17408,5120;14336,4096" \
+  dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -class Sharplight.Vulkan.Tests.BenchTests
+#   add SHARPLIGHT_SKINNY_CFG=fn,sg,bk to force a skinny GEMM configuration
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 1,2,4,8,16,32,64
+samples/Sharplight.Cli/bin/Release/net11.0/sharplight <model> --bench 512 --ctx 768 --batch 512
+LD_LIBRARY_PATH=$LLAMA_DIR $LLAMA_DIR/llama-bench -m <gguf> -ngl 99 -fa 1 -p 512 -n 64 -d 0,512 -r 3 -o jsonl
+bench/SpecBench/bin/Release/net11.0/SpecBench <model> --drafts 0,1,2,3 --depths 47,4096
+OUT_DIR=bench/results/s22 PORT=18321 SLOTS=64 bench/s16_serve.sh sharplight qwen27b-fp8-new-c16 <dir> "16"  # one concurrency per server
+OUT_DIR=bench/results/s22 PORT=18321 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "1 4 16 64" --gpu-memory-utilization 0.5
+```
+
+### 22.10 Open issues
+
+* **16-row decode step.** The skinny GEMM reaches 0.95-1.1 TB/s at 16 rows (1.2-1.55 TB/s at 4 rows), and the 16-row
+  FP8 step is dominated by the dual gate/up GEMM. Reaching ~1.5 TB/s needs fewer re-reads of x per workgroup (x kept in
+  registers across fragments) or a cross-workgroup K split with the reduction fused into the consumer.
+* **FP8 prefill GEMM** is still at ~280 TFLOPS. The dual GEMM above 64 rows removes launches, not fetch cost; 400+ needs
+  an asynchronous-copy or larger-MMA fetch scheme (20.9).
+* **Not attempted in this round:** K-quant MMQ, gpt-oss MoE prefill (0.68-0.74x of llama.cpp), MoE gate/up fusion for
+  decode, and the opt-in reduced-precision delta-rule state. The state option has to reach the `GatedDeltaRule` op, its
+  CPU reference, the chunked and token-serial kernels, the rollback records and the state snapshots. The delta rule takes
+  ~232 µs per layer at 64 decode rows, a quarter of that step.
+* **Single-user TTFT** (~82 ms against vLLM's 60 ms for ~250-token prompts) is GPU time: the 250-row prefill step profiles
+  at 69 ms. Command-buffer recording (20-50 ms for a new row count) happens only for the first shapes of a run, so TTFT
+  follows the per-row prefill cost.

@@ -88,16 +88,30 @@ public sealed class BenchTests
         {
             var tg = new TG();
             var x = tg.InF("x", TG.T, K);
-            var w = tg.RandW("w", DataType.Get(type), 0.05f, N, K);
-            tg.B.Output("y", tg.B.MatMul(x, w));
+            int copies = TestSwitches.BenchmarkWeightCopies;
+            for (int c = 0; c < copies; c++)
+            {
+                var w = tg.RandW("w" + c, DataType.Get(type), 0.05f, N, K);
+                if (TestSwitches.BenchmarkDual)
+                {
+                    var up = tg.RandW("u" + c, DataType.Get(type), 0.05f, N, K);
+                    tg.B.Output("y" + c, tg.B.Mul(tg.B.Silu(tg.B.MatMul(x, w)), tg.B.MatMul(x, up)));
+                }
+                else
+                {
+                    tg.B.Output("y" + c, tg.B.MatMul(x, w));
+                }
+            }
+
             using var m = Compile(tg.B.Build(), rows);
             Feed(m, x, (long)rows * K);
-            var (ms, rep) = Profile(m, rows, iters: 50);
+            var (ms, rep) = Profile(m, rows, iters: TestSwitches.BenchmarkIterations);
+            ms /= copies;
             if (TestSwitches.BenchmarkReports)
             {
                 Console.WriteLine(rep);
             }
-            double gflop = 2.0 * rows * K * N * 1e-9;
+            double gflop = (TestSwitches.BenchmarkDual ? 4.0 : 2.0) * rows * K * N * 1e-9;
             Console.WriteLine($"BENCH matmul {type} T={rows} {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s");
         }
     }

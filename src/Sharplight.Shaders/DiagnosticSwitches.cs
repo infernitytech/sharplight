@@ -11,6 +11,7 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_COMPILE_THREADS=n</c>: number of kernels compiled with Slang at the same time (default: half the processor
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
+/// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -37,7 +38,8 @@ namespace Sharplight.Shaders;
 /// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.
 /// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).
 /// <c>SHARPLIGHT_FP8_DUAL=0</c>: run gate/up style matmul pairs as two fp8 GEMMs plus the elementwise launch instead of one
-/// dual fp8 GEMM with the elementwise group as its epilogue.</item>
+/// dual fp8 GEMM with the elementwise group as its epilogue. <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=n</c>: largest batch it serves
+/// (default: every batch for which the separate GEMMs would not split K, and 17-64 rows).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
@@ -89,6 +91,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
+
+    /// <summary>Disables adding matmul biases in the single-row matvec (separate Add launches instead).</summary>
+    public static bool NoBiasFold { get; } = IsSet("SHARPLIGHT_NO_BIAS_FOLD");
 
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
@@ -143,6 +148,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>False runs fused matmul pairs (gate/up) as two fp8 GEMMs and an elementwise launch instead of one dual fp8 GEMM.</summary>
     public static bool Fp8DualGemm { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL");
+
+    /// <summary>Largest batch above 64 rows the dual fp8 GEMM serves, or null for no limit.</summary>
+    public static long? Fp8DualGemmMaxRows { get; } = Read("SHARPLIGHT_FP8_DUAL_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");

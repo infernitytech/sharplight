@@ -81,6 +81,37 @@ public sealed class FusionTests
             maxTokens: Math.Max(64, t), what: $"T={t}");
     }
 
+    /// <summary>
+    /// Matmul + bias row (q / k / v / o projections with biases): single rows add the bias in the split-K matvec's store, other
+    /// row counts run the matmul and the Add; a bias added to a matmul output that is also read elsewhere is not folded.
+    /// </summary>
+    [Theory]
+    [InlineData("f32", 1)]
+    [InlineData("f16", 1)]
+    [InlineData("q8_0", 1)]
+    [InlineData("q4_k", 1)]
+    [InlineData("f8e4m3_b128", 1)]
+    [InlineData("f16", 3)]
+    [InlineData("q8_0", 20)]
+    public void MatMulBias(string fmt, int t)
+    {
+        Gpu.Require();
+        int K = 1024, N = 160;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var q = tg.B.Add(tg.B.MatMul(x, tg.RandW("wq", DataType.Get(fmt), 0.1f, N, K)), tg.RandW("bq", DataType.F32, 0.5f, N));
+        var k = tg.B.Add(tg.RandW("bk", DataType.F32, 0.5f, 64), tg.B.MatMul(x, tg.RandW("wk", DataType.Get(fmt), 0.1f, 64, K)));
+        var shared = tg.B.MatMul(x, tg.RandW("wv", DataType.Get(fmt), 0.1f, 64, K));
+        tg.B.Output("q", tg.B.Silu(q));
+        tg.B.Output("k", k);
+        tg.B.Output("v", tg.B.Add(shared, tg.RandW("bv", DataType.F32, 0.5f, 64)));
+        tg.B.Output("raw", shared);
+        bool intDot = fmt is "q8_0" or "q4_k";
+        double atol = intDot ? 6e-1 : t > 1 ? 1e-1 : 2e-3, rtol = intDot || t > 1 ? 1e-2 : 1e-3;
+        Diff.Check("Fusion.bias." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 5))), atol: atol, rtol: rtol,
+            maxTokens: Math.Max(32, t), what: $"T={t}");
+    }
+
     [Theory]
     [InlineData(2, 4, 32, 16)]
     [InlineData(1, 2, 128, 128)]

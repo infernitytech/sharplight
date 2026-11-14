@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -61,6 +62,54 @@ public sealed class Fp8GemmTests
         const int K = 256;
         const int T = 1000;
         Run(fmt, T, 3000, K, Rnd.ExactFp8((long)T * K, 7), atol: 2e-3, rtol: 1e-3);
+    }
+
+    /// <summary>
+    /// The dual fp8 GEMM (gate / up with the SiLU·mul epilogue) serves prefill batches above 64 rows where the separate GEMMs
+    /// would not split K, and must give bit-identical results to them there (greedy output of a prompt must not depend on the
+    /// fusion). The second graph also outputs the gate product, which keeps its pair on the separate GEMMs.
+    /// </summary>
+    [Theory]
+    [InlineData(512)]
+    [InlineData(636)]
+    public void DualMatchesSeparateBitwise(int t)
+    {
+        Gpu.Require();
+        const int K = 1024, N = 8192;
+        float[] Run(bool exposeGate)
+        {
+            var tg = new TG();
+            var x = tg.InF("x", TG.T, K);
+            var g = tg.B.MatMul(x, tg.RandW("wg", DataType.Get("f8e4m3_b128"), 0.05f, N, K));
+            var u = tg.B.MatMul(x, tg.RandW("wu", DataType.Get("f8e4m3_b128"), 0.05f, N, K));
+            tg.B.Output("y", tg.B.Mul(tg.B.Silu(g), u));
+            if (exposeGate)
+            {
+                tg.B.Output("g", g);
+            }
+
+            using var m = CompiledModel.Compile(tg.B.Build(), new PlacementOptions
+            {
+                Devices = [new DeviceSlot { Device = Gpu.Vulkan! }],
+                Compile = new CompileOptions { MaxTokens = t },
+                ReservePerDevice = 0,
+            });
+            m.SetInput(x, MemoryMarshal.AsBytes(Rnd.F((long)t * K, 9).AsSpan()));
+            var p = new RunParameters();
+            p.Symbols["T"] = t;
+            m.Run(p);
+            var y = new float[(long)t * N];
+            m.GetOutput<float>("y", y);
+            return y;
+        }
+
+        var dual = Run(exposeGate: false);
+        var separate = Run(exposeGate: true);
+        for (int i = 0; i < dual.Length; i++)
+        {
+            Assert.True(BitConverter.SingleToInt32Bits(dual[i]) == BitConverter.SingleToInt32Bits(separate[i]),
+                $"T={t}: element {i} differs ({dual[i]:R} vs {separate[i]:R})");
+        }
     }
 
     /// <summary>With <c>matrix_fp8</c> disabled the same batches run on the f16 tensor-core GEMM.</summary>

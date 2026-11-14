@@ -10,11 +10,16 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 - **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
   (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
-  The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). Next: a fetch-efficient fp8 GEMM (282 of
-  ~520 TFLOPS without global loads, §20.2), and a dual gate/up fp8 GEMM above 64 rows whose epilogue rounds like the
-  separate launches (worth 4–6 % of prefill, §20.2).
-- **Skinny GEMM (2–16 rows) beyond 0.8–1.4 TB/s**: every workgroup re-reads x; deeper prefetch, and splitting K across
-  workgroups for narrow matrices. The 16-row step is 33.9 ms against vLLM's 24 ms ITL at 16 streams (§19.6, §20.9).
+  The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). The dual gate/up fp8 GEMM now also runs
+  above 64 rows where it is bit-identical to the separate launches (pp2048 +3 %, §22.2). Next: a fetch-efficient fp8
+  GEMM (~280 of ~520 TFLOPS without global loads, §20.2, §22.10).
+- **Skinny GEMM (2–16 rows)**: retuned to 1.2–1.55 TB/s at 4 rows and 0.95–1.1 TB/s at 16 rows (§22.1); FP8 steps of
+  2–8 rows are 6–11 % faster. The 16-row step (33.1 ms against vLLM's 24 ms ITL at 16 streams) is dominated by the dual
+  gate/up GEMM; next is keeping x in registers across fragments, or a cross-workgroup K split with the reduction fused
+  into the consumer.
+- **Reduced-precision delta-rule state** (opt-in, `--reduced-precision`): an f16 / bf16 recurrent state for the gated
+  delta rule, about a quarter of the 64-row decode step (§19.6). Needs the state type through the op, its CPU
+  reference, both kernels, rollback records and snapshots (§22.10).
 - **Fewer glue launches per batched step**: f16 activation copies, fp8 quantization and split-K reductions are 3–7 % of
   GPU time. Produce the copy in the preceding norm / elementwise epilogue (§19.6).
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
@@ -35,10 +40,11 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 GPU (Vulkan):
 
-- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.81x / 0.69x of vLLM at 512 / 2048 tokens (§20.4).
+- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.83x / 0.72x of vLLM at 512 / 2048 tokens (§22.2).
 - **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K only ties the f16 path today and stays opt-in (§13).
   27B Q4_K_M prefill is still 2–4 % behind llama.cpp CUDA (§18).
-- **MoE expert GEMMs**: gpt-oss prefill is at 11079 tok/s against a 17432 target (§14).
+- **MoE expert GEMMs**: gpt-oss prefill is at 11079 tok/s against a 17432 target (§14). gpt-oss decode is at 0.93x of
+  llama.cpp CUDA after the matmul-bias fusion (§22.3); a fused MoE gate/up for decode is next.
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).
