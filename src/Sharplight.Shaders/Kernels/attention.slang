@@ -1515,6 +1515,129 @@ void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 }
 #endif
 
+#ifdef KERNEL_FES
+// ---------------------------------------------------------------------------------------------
+// Flash attention for bidirectional encoders without matrix units (the f32 counterpart of `fe`, same forms: FULL_ATTN with
+// optional HAS_MASK, SEQ_ROWS, CROSS_ATTN, FA_KSPLIT). A workgroup of FS_BR threads handles FS_BR queries of one head, one per
+// thread: the scaled query and the output accumulators stay in registers, and the K/V tiles of FS_BC keys pass through shared
+// memory, where every thread reads the same row (broadcast). f32 throughout (strict precision). D, DV <= 64, multiples of 8.
+#define FS_BR 64
+#define FS_BC 32
+#define FS_KC (D / 8)
+#define FS_VC (DV / 8)
+groupshared float4 fsK[FS_BC * D / 4];
+groupshared float4 fsV[FS_BC * DV / 4];
+
+[shader("compute")]
+[numthreads(FS_BR, 1, 1)]
+void fes(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    uint h = gid.x, tid = ltid.x;
+    uint hk = h / (HQ / HKV);
+#if SEQ_ROWS
+    uint seq = gid.z / FA_KSPLIT;
+    uint qT = SEQ_ROWS, qRow0 = seq * SEQ_ROWS, keyBase = seq * SEQ_KEYS, L = SEQ_KEYS;
+#elif CROSS_ATTN
+    uint qT = p.T, qRow0 = 0, keyBase = 0, L = p.S;
+#else
+    uint qT = p.T, qRow0 = 0, keyBase = 0, L = p.T;
+#endif
+    uint64_t kvRow = uint64_t(keyBase) * HKV;
+    uint ksplit = gid.z % FA_KSPLIT;
+    uint kPer = ((L + FA_KSPLIT - 1) / FA_KSPLIT + FS_BC - 1) / FS_BC * FS_BC;
+    uint jStart = min(L, ksplit * kPer), jStop = min(L, jStart + kPer);
+    uint tq = gid.y * FS_BR + tid;
+    bool rowValid = tq < qT;
+    uint tr = qRow0 + min(tq, qT - 1);
+
+    float4 q[D / 4];
+    float* qr = p.q + uint64_t(tr) * QS0 + uint64_t(h) * QS1;
+    [ForceUnroll] for (uint i = 0; i < D / 4; i++) q[i] = float4(qr[i * 4], qr[i * 4 + 1], qr[i * 4 + 2], qr[i * 4 + 3]) * SCALE;
+#if HAS_MASK
+#if CROSS_ATTN
+    float* maskRow = p.mask + mask_row(p.T, p.S, tr) + keyBase;
+#else
+    float* maskRow = p.mask + mask_row(p.T, 0, tr) + keyBase;
+#endif
+#endif
+    float4 acc[DV / 4];
+    [ForceUnroll] for (uint i = 0; i < DV / 4; i++) acc[i] = float4(0.0);
+    float m = -1e30, l = 0;
+
+    for (uint j0 = jStart; j0 < jStop; j0 += FS_BC)
+    {
+        GroupMemoryBarrierWithGroupSync();   // the previous tile is no longer read
+        for (uint i = tid; i < FS_BC * FS_KC; i += FS_BR)
+        {
+            uint r = i / FS_KC, c = (i % FS_KC) * 8;
+            float v[8];
+            unpack_kv8(j0 + r < jStop ? load_kv8(p.kc, K_ELEM(kv_row(kvRow, j0 + r), hk) + c) : zero_kv8(), v);
+            fsK[(r * D + c) / 4] = float4(v[0], v[1], v[2], v[3]);
+            fsK[(r * D + c) / 4 + 1] = float4(v[4], v[5], v[6], v[7]);
+        }
+        for (uint i = tid; i < FS_BC * FS_VC; i += FS_BR)
+        {
+            uint r = i / FS_VC, c = (i % FS_VC) * 8;
+            float v[8];
+            unpack_kv8(j0 + r < jStop ? load_kv8(p.vc, V_ELEM(kv_row(kvRow, j0 + r), hk) + c) : zero_kv8(), v);
+            fsV[(r * DV + c) / 4] = float4(v[0], v[1], v[2], v[3]);
+            fsV[(r * DV + c) / 4 + 1] = float4(v[4], v[5], v[6], v[7]);
+        }
+        GroupMemoryBarrierWithGroupSync();
+
+        float sc[FS_BC];
+        float mx = -1e30;
+        [ForceUnroll]
+        for (uint c = 0; c < FS_BC; c++)
+        {
+            float4 d4 = float4(0.0);
+            [ForceUnroll] for (uint i = 0; i < D / 4; i++) d4 = fma(q[i], fsK[c * (D / 4) + i], d4);
+            float v = d4.x + d4.y + d4.z + d4.w;
+#if HAS_MASK
+            if (j0 + c < jStop) v += maskRow[j0 + c];
+#endif
+            sc[c] = j0 + c < jStop ? v : -1e30;
+            mx = max(mx, sc[c]);
+        }
+        float mNew = max(m, mx);
+        float corr = exp(m - mNew);
+        m = mNew;
+        l *= corr;
+        [ForceUnroll] for (uint i = 0; i < DV / 4; i++) acc[i] *= corr;
+        [ForceUnroll]
+        for (uint c = 0; c < FS_BC; c++)
+        {
+            float pc = sc[c] > -1e29 ? exp(sc[c] - m) : 0.0;
+            l += pc;
+            [ForceUnroll] for (uint i = 0; i < DV / 4; i++) acc[i] = fma(float4(pc), fsV[c * (DV / 4) + i], acc[i]);
+        }
+    }
+
+    if (!rowValid)
+    {
+        return;
+    }
+#if FA_KSPLIT > 1
+    float* orow = p.part + ((uint64_t(ksplit) * p.T + qRow0 + tq) * HQ + h) * (DV + 2);
+    orow[DV] = m;
+    orow[DV + 1] = l;
+    float f = 1.0;
+#else
+    float* orow = p.o + (uint64_t(qRow0 + tq) * HQ + h) * DV;
+    float f = l > 0 ? 1.0 / l : 0.0;
+#endif
+    [ForceUnroll]
+    for (uint i = 0; i < DV / 4; i++)
+    {
+        float4 v = acc[i] * f;
+        orow[i * 4] = v.x;
+        orow[i * 4 + 1] = v.y;
+        orow[i * 4 + 2] = v.z;
+        orow[i * 4 + 3] = v.w;
+    }
+}
+#endif
+
 #ifdef KERNEL_FA_MQA
 // ---------------------------------------------------------------------------------------------
 // Flash attention on tensor cores for many query heads per key head whose values are the first DV entries of the key rows

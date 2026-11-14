@@ -263,6 +263,9 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
 
+    /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
+    public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
+
     /// <summary>
     /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation allows it
     /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> keeps them on the f32 SIMT GEMM.
