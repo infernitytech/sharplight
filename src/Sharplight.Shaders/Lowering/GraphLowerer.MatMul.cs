@@ -42,22 +42,42 @@ public sealed partial class GraphLowerer
     /// </summary>
     public static bool PreferWorkgroupMatrixGemm { get; set; } = DiagnosticSwitches.WorkgroupMatrixGemm;
 
-    /// <summary>Matrix-vector variants for up to 8 rows of x (memory bound: decode, small batches).</summary>
-    private static List<KernelVariant> MatvecVariants(Func<string, Dictionary<string, string>, CompiledKernel> lib, Dictionary<string, string> m,
+    /// <summary>
+    /// Matrix-vector variants for up to 8 rows of x (memory bound: decode, small batches). Rows up to <see cref="InvariantRows"/>
+    /// run the single-row kernel and K split with more columns, so each row's sum is computed exactly as for one row.
+    /// </summary>
+    private List<KernelVariant> MatvecVariants(Func<string, Dictionary<string, string>, CompiledKernel> lib, Dictionary<string, string> m,
         long N, long K, Func<Bindings, long> rows)
     {
         // Decode (one token): split-K matvec, one workgroup per output row, K spread over enough threads that
         // each walks only a few 8-weight groups (keeps many loads in flight per row).
         int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
-        var singleRow = new Dictionary<string, string>(m) { ["MV_COLS"] = "1", ["MV_SK_SG"] = skSg.ToString(CultureInfo.InvariantCulture) };
-        var decode = K >= 1024
-            ? new KernelVariant(b => rows(b) == 1, lib("matvec_sk", singleRow), b => new Grid((uint)N))
-            : new KernelVariant(b => rows(b) == 1, lib("matvec", singleRow), b => new Grid(Grid.Div(N, 4)));
+        KernelVariant SingleRowKernel(Func<Bindings, bool> when, long columns)
+        {
+            var macros = new Dictionary<string, string>(m)
+            {
+                ["MV_COLS"] = columns.ToString(CultureInfo.InvariantCulture), ["MV_SK_SG"] = skSg.ToString(CultureInfo.InvariantCulture),
+            };
+            return K >= 1024
+                ? new KernelVariant(when, lib("matvec_sk", macros), b => new Grid((uint)N))
+                : new KernelVariant(when, lib("matvec", macros), b => new Grid(Grid.Div(N, 4)));
+        }
+
+        List<KernelVariant> variants = [SingleRowKernel(b => rows(b) == 1, 1)];
+        for (long columns = 2; columns <= MatvecMaxRows; columns *= 2)
+        {
+            if (InvariantBucket(columns))
+            {
+                long bucket = columns;
+                variants.Add(SingleRowKernel(b => rows(b) <= bucket, bucket));
+            }
+        }
+
         // Small N: one split-K workgroup per row, otherwise one subgroup per row.
-        var smallBatch = N <= 2048 && K >= 1024
+        variants.Add(N <= 2048 && K >= 1024
             ? new KernelVariant(b => rows(b) <= MatvecMaxRows, lib("matvec_sk", m), b => new Grid((uint)N))
-            : new KernelVariant(b => rows(b) <= MatvecMaxRows, lib("matvec", m), b => new Grid(Grid.Div(N, 4)));
-        return [decode, smallBatch];
+            : new KernelVariant(b => rows(b) <= MatvecMaxRows, lib("matvec", m), b => new Grid(Grid.Div(N, 4))));
+        return variants;
     }
 
     /// <summary>

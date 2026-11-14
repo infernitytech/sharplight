@@ -178,8 +178,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// Only used by models with recurrent state (attention-only models roll back any number of rows).
     /// </param>
     /// <param name="hiddenOutput">The graph output a draft head reads as hidden states (default <see cref="WellKnown.HiddenOutput"/>).</param>
+    /// <param name="invariantRows">
+    /// Steps of up to this many rows compute every row bit-identically to a single-row step (<see cref="CompileOptions.RowInvariantRows"/>):
+    /// speculative verification rows then reproduce the logits of plain decoding.
+    /// </param>
     internal static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement, bool deviceSampling,
-        long kvCacheTokens = 0, int rollbackRows = 0, string? hiddenOutput = null)
+        long kvCacheTokens = 0, int rollbackRows = 0, string? hiddenOutput = null, int invariantRows = 0)
     {
         int blockSize = kvCacheTokens > 0 ? DefaultKvBlockSize : 0;
         int blocksPerSlot = blockSize > 0 ? (contextLength + blockSize - 1) / blockSize : 0;
@@ -205,6 +209,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 SymbolBounds = bounds,
                 DisabledFeatures = c.DisabledFeatures,
                 AllowReducedPrecision = c.AllowReducedPrecision,
+                RowInvariantRows = Math.Max(c.RowInvariantRows, invariantRows),
                 CacheFor = c.CacheFor,
                 Progress = c.Progress,
                 CancellationToken = c.CancellationToken,

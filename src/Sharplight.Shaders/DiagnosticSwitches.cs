@@ -23,6 +23,8 @@ namespace Sharplight.Shaders;
 /// and scales, <c>WeightRepack.Mxfp4Split</c>).</item>
 /// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
+/// <item><c>SHARPLIGHT_ROW_INVARIANT=n</c>: rows up to which a step computes every row like a single-row step, overriding
+/// <c>CompileOptions.RowInvariantRows</c> (speculative decoding sets it to the verification rows; 0 turns it off).</item>
 /// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
@@ -131,6 +133,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
+
+    /// <summary>Forced row-invariance bound (<c>SHARPLIGHT_ROW_INVARIANT</c>), or null for the compile option.</summary>
+    public static long? RowInvariantRows { get; } = Read("SHARPLIGHT_ROW_INVARIANT") is { } r ? long.Parse(r, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Forced largest activation row count served by the integer-dot matvec, or null for the per-format default.</summary>
     public static long? IntDotMaxRows { get; } = Read("SHARPLIGHT_MMVQ_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;

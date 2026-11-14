@@ -26,7 +26,7 @@ public sealed partial class GraphLowerer
     private long IntDotSkinnyMinRows(DataType type, long k, long n)
     {
         long cap = IntDotMaxRows(type, k);
-        return (cap < MatvecMaxRows && SkinnyMaxRowsFor(n) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1;
+        return Math.Max((cap < MatvecMaxRows && SkinnyMaxRowsFor(n) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1, InvariantRows + 1);
     }
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
@@ -76,7 +76,7 @@ public sealed partial class GraphLowerer
         long n, long k, Func<Dictionary<string, string>, CompiledKernel> compile)
     {
         var w = weights[0];
-        long minRows = IntDotMinRows(w.Type);
+        long minRows = IntDotFirstRow(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         long maxRows = IntDotMaxRows(w.Type, k);
         bool InRange(Bindings b) => rows(b) >= minRows && rows(b) <= maxRows;
@@ -92,7 +92,8 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            var layout = IntDotLayout(columns, n, chunks);
+            // Buckets with row-invariant rows keep the single-row layout (same K split per row).
+            var layout = IntDotLayout(InvariantBucket(columns) ? 1 : columns, n, chunks);
             var macros = Macros(("WFMT", format), ("K", k), ("N", n), ("Y_STRIDE", n), ("ROW_BYTES", w.Type.ByteSize(k) + "ull"),
                 ("MQ_COLS", columns), ("MQ_ROWS", layout.Rows), ("MQ_SG", layout.Subgroups), ("MQ_LPR", layout.LanesPerRow),
                 ("DUAL", weights.Length - 1), ("KERNEL_MMVQ", 1));
@@ -258,7 +259,7 @@ public sealed partial class GraphLowerer
     /// <summary>The launch-condition guard that keeps the f32 matvec/GEMM launches off the int-dot row range.</summary>
     private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType, long k)
     {
-        long minRows = IntDotMinRows(weightType);
+        long minRows = IntDotFirstRow(weightType);
         long maxRows = IntDotMaxRows(weightType, k);
         return b => Rows(b, x) * rowsPerLead is var r && (r < minRows || r > maxRows);
     }
