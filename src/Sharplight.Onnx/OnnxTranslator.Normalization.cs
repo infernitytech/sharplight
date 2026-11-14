@@ -53,68 +53,179 @@ internal sealed partial class OnnxTranslator
         _ = Nm(n);
     }
 
+    /// <summary>
+    /// LayerNormalization over the axes from <c>axis</c> on (flattened into one row for the IR LayerNorm), with constant or runtime scale and
+    /// bias of the normalized shape (or broadcast to it), and the optional Mean / InvStdDev outputs (keepdims shape).
+    /// </summary>
     private void LayerNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
-        CheckUnusedOutputs(n, 1);
         var x = X(ins, 0);
         int axis = NormalizeAxis(n.Int("axis", -1), x.Rank);
-        if (axis == 0 && Sym(x))
+        float eps = n.Float("epsilon", 1e-5f);
+        var (rows, d) = NormalizedRows(x, axis, "LayerNormalization");
+        var scale = RowParameter(ins, 1, d, Nm(n) + ".scale");
+        var bias = RowParameter(ins, 2, d, Nm(n) + ".bias");
+        var args = new List<Value> { rows };
+        if (scale.Row is not null)
         {
-            throw new NotSupportedException("LayerNormalization over the batch axis");
+            args.Add(scale.Row);
+            if (bias.Row is not null)
+            {
+                args.Add(bias.Row);
+            }
         }
 
-        var sc = ConstIn(ins, 1, "LayerNormalization scale");
-        var bi = OptConst(ins, 2, "LayerNormalization bias");
+        bool plain = rows == x && scale.Broadcast is null && bias.Broadcast is null && (bias.Row is null || scale.Row is not null);
+        var y = Emit("LayerNorm", [.. args], Attributes.From(("eps", eps)), plain ? Nm(n) : null);
+        if (!plain)
+        {
+            y = rows == x ? y : Rs(y, Fixed(x));
+            if (scale.Broadcast is not null)
+            {
+                y = _b.Mul(y, scale.Broadcast);
+            }
+
+            if (bias.Broadcast is not null || (bias.Row is not null && scale.Row is null))
+            {
+                y = _b.Add(y, bias.Broadcast ?? bias.Row!);
+            }
+        }
+
+        SetDyn(n, 0, y);
+        bool wantsMean = n.Outputs.Count > 1 && n.Outputs[1] != "";
+        bool wantsInvStdDev = n.Outputs.Count > 2 && n.Outputs[2] != "";
+        if (!wantsMean && !wantsInvStdDev)
+        {
+            return;
+        }
+
+        long[] statShape = [.. Fixed(x).Take(axis), .. Enumerable.Repeat(1L, x.Rank - axis)];
+        var mean = Emit("Reduce", [rows], Attributes.From(("mode", "mean"), ("axes", L(-1)), ("keepdims", true)));
+        if (wantsMean)
+        {
+            SetDyn(n, 1, Rs(mean, statShape));
+        }
+
+        if (wantsInvStdDev)
+        {
+            var sumSquares = Emit("Reduce", [_b.Sub(rows, mean)], Attributes.From(("mode", "sumsquare"), ("axes", L(-1)), ("keepdims", true)));
+            SetDyn(n, 2, Rs(_b.Unary("Rsqrt", _b.Scale(sumSquares, 1f / d, eps)), statShape));
+        }
+    }
+
+    /// <summary>x viewed as rows over the normalized axes [axis, rank): [outer dims..., D].</summary>
+    private (Value Rows, long D) NormalizedRows(Value x, int axis, string op)
+    {
+        if (axis == 0 && Sym(x))
+        {
+            throw new NotSupportedException($"{op} over the batch axis");
+        }
+
         long d = 1;
         for (int i = axis; i < x.Rank; i++)
         {
             d *= x.Shape[i].Fixed;
         }
 
-        var xin = x;
-        bool flatten = axis != x.Rank - 1;
-        if (flatten)
+        // A single row keeps a leading unit axis: providers treat the outer axis of a row op as the row count.
+        return (axis == x.Rank - 1 ? x : Rs(x, axis == 0 ? [1, d] : [.. Fixed(x).Take(axis), d]), d);
+    }
+
+    /// <summary>
+    /// A per-element normalization parameter (scale or bias): a [D] row when it covers the normalized shape, otherwise the value to
+    /// broadcast against the output (a parameter of fewer elements, broadcast numpy-style); both null when absent.
+    /// </summary>
+    private (Value? Row, Value? Broadcast) RowParameter(TranslatedTensor?[] ins, int index, long d, string name)
+    {
+        if (Opt(ins, index) is not { } t)
         {
-            long[] flat = [.. x.Shape.Dims.Take(axis).Select(q => q.IsSymbolic ? 0L : q.Fixed), d];
-            xin = Rs(x, flat);
-        }
-        var ws = new List<Value> { xin, ConstValue(sc.Reshaped([d]), Nm(n) + ".scale") };
-        if (bi is not null)
-        {
-            ws.Add(ConstValue(bi.Reshaped([d]), Nm(n) + ".bias"));
+            return (null, null);
         }
 
-        var y = Emit("LayerNorm", [.. ws], Attributes.From(("eps", n.Float("epsilon", 1e-5f))), flatten ? null : Nm(n));
-        if (flatten)
+        if (t.C is { } c)
         {
-            y = Emit("Reshape", [y], Attributes.From(("shape", x.Shape.Dims.Select(q => q.IsSymbolic ? 0L : q.Fixed).ToArray())), Nm(n));
+            return c.Count == d ? (ConstValue(c.Reshaped([d]), name), null) : (null, ConstValue(c, name));
         }
 
-        SetDyn(n, 0, y);
+        var v = AsValue(t);
+        return !Sym(v) && v.Shape.Elements() == d ? (Rs(v, d), null) : (null, v);
+    }
+
+    /// <summary>
+    /// BatchNormalization with runtime parameters or in training mode (batch statistics over all axes but the channel axis; outputs #1
+    /// and #2 are the running mean and variance updated with <c>momentum</c>).
+    /// </summary>
+    private void BatchNormRuntime(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        bool training = n.Int("training_mode", 0) != 0;
+        CheckUnusedOutputs(n, training ? 3 : 1);
+        var x = X(ins, 0);
+        long channels = x.Shape[1].Fixed;
+        long[] perChannel = [channels, .. Enumerable.Repeat(1L, x.Rank - 2)];
+        Value Parameter(int i) => Rs(X(ins, i), perChannel);
+        float eps = n.Float("epsilon", 1e-5f);
+        Value mean, variance;
+        if (training)
+        {
+            long[] axes = [0, .. Enumerable.Range(2, x.Rank - 2).Select(a => (long)a)];
+            mean = Emit("Reduce", [x], Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true)));
+            var centered = _b.Sub(x, mean);
+            variance = Emit("Reduce", [_b.Mul(centered, centered)], Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true)));
+        }
+        else
+        {
+            mean = Parameter(3);
+            variance = Parameter(4);
+        }
+
+        var normalized = _b.Mul(_b.Sub(x, mean), _b.Unary("Rsqrt", _b.Scale(variance, 1f, eps)));
+        SetDyn(n, 0, _b.Add(_b.Mul(normalized, Parameter(1)), Parameter(2), Nm(n)));
+        if (!training)
+        {
+            return;
+        }
+
+        float momentum = n.Float("momentum", 0.9f);
+        Value Running(int input, Value batch) => _b.Add(_b.Scale(X(ins, input), momentum), _b.Scale(Rs(batch, channels), 1f - momentum));
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            SetDyn(n, 1, Running(3, mean));
+        }
+
+        if (n.Outputs.Count > 2 && n.Outputs[2] != "")
+        {
+            SetDyn(n, 2, Running(4, variance));
+        }
     }
 
     private void InstanceNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
-        var sc = ConstIn(ins, 1, "InstanceNormalization scale");
-        var bi = ConstIn(ins, 2, "InstanceNormalization bias");
-        SetDyn(n, 0, Emit("GroupNorm", [x, ConstValue(sc, Nm(n) + ".scale"), ConstValue(bi, Nm(n) + ".bias")],
+        SetDyn(n, 0, Emit("GroupNorm", [x, X(ins, 1, Nm(n) + ".scale"), X(ins, 2, Nm(n) + ".bias")],
             Attributes.From(("groups", x.Shape[1].Fixed), ("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
     }
 
+    /// <summary>GroupNormalization with constant or runtime scale and bias, per channel or (before opset 21) per group.</summary>
     private void GroupNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
         long g = n.Int("num_groups", 1);
         long c = x.Shape[1].Fixed;
-        var sc = ConstIn(ins, 1, "GroupNormalization scale");
-        var bi = ConstIn(ins, 2, "GroupNormalization bias");
-        if (sc.Count == g && g != c)
+        Value PerChannel(int i, string suffix)
         {
-            sc = Repeat(sc, c / g);
-            bi = Repeat(bi, c / g);
+            var t = ins[i]!;
+            long count = t.IsConst ? t.C!.Count : t.V!.Shape.Elements();
+            if (count != g || g == c)
+            {
+                return X(ins, i, Nm(n) + suffix);
+            }
+
+            return t.IsConst
+                ? ConstValue(Repeat(t.C!, c / g), Nm(n) + suffix)
+                : Rs(Emit("Expand", [Rs(X(ins, i), g, 1)], Attributes.From(("shape", L(g, c / g)))), c);
         }
-        SetDyn(n, 0, Emit("GroupNorm", [x, ConstValue(sc, Nm(n) + ".scale"), ConstValue(bi, Nm(n) + ".bias")], Attributes.From(("groups", g), ("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
+
+        SetDyn(n, 0, Emit("GroupNorm", [x, PerChannel(1, ".scale"), PerChannel(2, ".bias")], Attributes.From(("groups", g), ("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
     }
 
     private static OnnxConst Repeat(OnnxConst c, long r)
@@ -123,17 +234,24 @@ internal sealed partial class OnnxTranslator
         return OnnxConst.FromFloats(OnnxType.Float, [f.Length * r], f.SelectMany(v => Enumerable.Repeat(v, (int)r)).ToArray(), c.Name + ".rep");
     }
 
+    /// <summary>RMSNormalization over the axes from <c>axis</c> on, with a constant or runtime scale.</summary>
     private void RmsNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
+        CheckUnusedOutputs(n, 1);
         var x = X(ins, 0);
         int axis = NormalizeAxis(n.Int("axis", -1), x.Rank);
-        if (axis != x.Rank - 1)
+        var (rows, d) = NormalizedRows(x, axis, "RMSNormalization");
+        var scale = RowParameter(ins, 1, d, Nm(n) + ".scale");
+        var attributes = Attributes.From(("eps", n.Float("epsilon", 1e-5f)));
+        bool plain = rows == x && scale.Broadcast is null;
+        var y = Emit("RmsNorm", scale.Row is null ? [rows] : [rows, scale.Row], attributes, plain ? Nm(n) : null);
+        y = rows == x ? y : Rs(y, Fixed(x));
+        if (scale.Broadcast is not null)
         {
-            throw new NotSupportedException("RMS normalization over more than the last axis");
+            y = _b.Mul(y, scale.Broadcast);
         }
 
-        CheckUnusedOutputs(n, 1);
-        SetDyn(n, 0, Emit("RmsNorm", [x, ConstValue(ConstIn(ins, 1, "scale"), Nm(n) + ".scale")], Attributes.From(("eps", n.Float("epsilon", 1e-5f))), Nm(n)));
+        SetDyn(n, 0, y);
     }
 
     private void LocalResponseNorm(OnnxNode n, TranslatedTensor?[] ins)
@@ -167,7 +285,10 @@ internal sealed partial class OnnxTranslator
         long axis = NormalizeAxis(n.Int("axis", -1), x.Rank);
         long p = n.Int("p", 2);
         var norm = Emit("Reduce", [x], Attributes.From(("mode", p == 1 ? "l1" : "l2"), ("axes", L(axis)), ("keepdims", true)));
-        SetDyn(n, 0, Emit("Div", [x, norm], null, Nm(n)));
+        // A zero norm means a zero slice: divide by 1 there so the result is 0 instead of NaN.
+        var one = ConstValue(OnnxConst.Scalar(1f), Nm(n) + ".one");
+        var safeNorm = Emit("Where", [_b.Binary("Equal", norm, ConstValue(OnnxConst.Scalar(0f), Nm(n) + ".zero")), one, norm]);
+        SetDyn(n, 0, Emit("Div", [x, safeNorm], null, Nm(n)));
     }
 
     private void MeanVarianceNorm(OnnxNode n, TranslatedTensor?[] ins)

@@ -25,6 +25,12 @@ internal sealed partial class OnnxTranslator
         "RandomNormal", "RandomUniform", "RandomNormalLike", "RandomUniformLike", "Bernoulli", "Multinomial",
         "TfIdfVectorizer",
         "StringNormalizer", "StringConcat", "RegexFullMatch",
+        "Attention", "RotaryEmbedding", "NegativeLogLikelihoodLoss", "SoftmaxCrossEntropyLoss", "SwiGLU", "Shrink", "CumProd",
+        "ReverseSequence",
+        "Det",
+        "CausalConvWithState",
+        "LinearAttention",
+        "TensorScatter",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -32,6 +38,9 @@ internal sealed partial class OnnxTranslator
         "Gelu", "BiasGelu", "FastGelu", "QuickGelu", "FusedConv", "FusedMatMul", "SkipLayerNormalization", "SkipSimplifiedLayerNormalization",
         "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits", "GroupQueryAttention", "RotaryEmbedding",
     ];
+
+    // ai.onnx.preview operators.
+    private static readonly HashSet<string> s_previewOps = ["FlexAttention"];
 
     // Contrib ops that onnxruntime also registers in the default domain (onnxruntime-genai exports use it).
     private static readonly HashSet<string> s_contribInDefaultDomain = ["SimplifiedLayerNormalization"];
@@ -41,6 +50,7 @@ internal sealed partial class OnnxTranslator
         => s_dynamicOps.Concat(OnnxFold.Ops).Concat(s_contribInDefaultDomain)
             .Concat(s_contribOps.Concat(s_quantContrib).Select(op => "com.microsoft." + op))
             .Concat(s_mlOps.Select(op => "ai.onnx.ml." + op))
+            .Concat(s_previewOps.Select(op => "ai.onnx.preview." + op))
             .Distinct().Order(StringComparer.Ordinal);
 
     public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
@@ -51,6 +61,12 @@ internal sealed partial class OnnxTranslator
         if (n.Domain == "com.microsoft" || s_contribInDefaultDomain.Contains(n.OpType))
         {
             TranslateContrib(n, ins);
+            return;
+        }
+
+        if (n.Domain == "ai.onnx.preview")
+        {
+            FlexAttention(n, ins);
             return;
         }
 
@@ -355,8 +371,50 @@ internal sealed partial class OnnxTranslator
                 TfIdfVectorizer(n, ins);
                 break;
 
+            // Transformer, loss and new-opset operators.
+            case "Attention":
+                OnnxAttention(n, ins);
+                break;
+            case "RotaryEmbedding":
+                OnnxRotaryEmbedding(n, ins);
+                break;
+            case "NegativeLogLikelihoodLoss":
+                NegativeLogLikelihoodLoss(n, ins);
+                break;
+            case "SoftmaxCrossEntropyLoss":
+                SoftmaxCrossEntropyLoss(n, ins);
+                break;
+            case "Swish":
+                Swish(n, ins);
+                break;
+            case "SwiGLU":
+                SwiGlu(n, ins);
+                break;
+            case "Shrink":
+                Shrink(n, ins);
+                break;
+            case "CumProd":
+                CumProd(n, ins);
+                break;
+            case "ReverseSequence":
+                ReverseSequence(n, ins);
+                break;
+
+            case "Det":
+                Det(n, ins);
+                break;
+            case "CausalConvWithState":
+                CausalConvWithState(n, ins);
+                break;
+            case "LinearAttention":
+                OnnxLinearAttention(n, ins);
+                break;
+            case "TensorScatter":
+                TensorScatter(n, ins);
+                break;
             case "EyeLike":
-                throw new NotSupportedException($"{op} of a runtime-dependent tensor has a data-dependent shape");
+                EyeLike(n, ins);
+                break;
             default:
                 throw new NotSupportedException($"{op} on a runtime-dependent tensor is not supported (only constant-foldable uses are).");
         }

@@ -1329,7 +1329,8 @@ internal static partial class OnnxFold
         int axis = NormalizeAxis(n.Int("axis", 0), x.Rank);
         var sizes = n.Has("split") ? n.Ints("split")! : splitIn?.Ints();
         int outs = n.Outputs.Count;
-        sizes ??= Enumerable.Repeat(x.Dims[axis] / outs, outs).ToArray();
+        long chunk = (x.Dims[axis] + outs - 1) / outs;   // opset 18 num_outputs: the last chunk may be smaller
+        sizes ??= Enumerable.Range(0, outs).Select(i => Math.Min(chunk, x.Dims[axis] - i * chunk)).ToArray();
         var result = new List<OnnxConst>();
         long start = 0;
         foreach (var sz in sizes)

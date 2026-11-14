@@ -28,6 +28,13 @@ public sealed class OnnxImportOptions
     /// <summary>Optional-typed graph inputs that are empty; every other optional input holds a value (a tensor or a sequence).</summary>
     public HashSet<string> AbsentInputs { get; init; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Declared upper bounds of the values of integer graph inputs (all values in <c>[0, bound]</c>), e.g. <c>["text_lengths"] = 512</c>.
+    /// They let a <c>Range</c> whose limit is computed from such an input get a bounded dynamic length; a value outside the
+    /// declared range at run time yields a truncated result.
+    /// </summary>
+    public Dictionary<string, long> InputValueBounds { get; init; } = new(StringComparer.Ordinal);
+
     /// <summary>Makes the outermost dimension of every input symbolic ("N") even if it is fixed in the file.</summary>
     public bool ForceSymbolicBatch { get; init; }
 

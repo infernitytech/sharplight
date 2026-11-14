@@ -90,7 +90,7 @@ public static partial class StandardOps
         return [new(i[0].Type, new Shape(dims))];
     });
 
-    /// <summary>Cumulative sum along <c>axis</c>; attrs <c>exclusive</c>, <c>reverse</c> (bool).</summary>
+    /// <summary>Cumulative sum along <c>axis</c>; attrs <c>exclusive</c>, <c>reverse</c> (bool), <c>product</c> (bool: cumulative product instead).</summary>
     public static readonly OpSchema CumSum = new("CumSum", OpCategory.Reduction, 1, 1, SameF32);
 
     /// <summary>

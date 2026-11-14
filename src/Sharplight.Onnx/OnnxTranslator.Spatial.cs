@@ -88,11 +88,13 @@ internal sealed partial class OnnxTranslator
 
     private void BatchNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
-        CheckUnusedOutputs(n, 1);
-        for (int i = 1; i < 5; i++)
+        if (n.Int("training_mode", 0) != 0 || ins.Skip(1).Take(4).Any(t => t is not { IsConst: true }))
         {
-            ConstIn(ins, i, "BatchNormalization parameter");
+            BatchNormRuntime(n, ins);
+            return;
         }
+
+        CheckUnusedOutputs(n, 1);
 
         var x = X(ins, 0);
         var (s, t) = BatchNormParams(n);
@@ -121,8 +123,10 @@ internal sealed partial class OnnxTranslator
         }
         else
         {
+            // DCR (default): channel (bh·b + bw)·C + c; CRD (opset 28 mode): c·b² + bh·b + bw.
+            bool crd = n.Str("mode", "DCR") == "CRD";
             y = Rs(x, 0, c, h / b, b, w / b, b);
-            y = _b.Permute(y, [0, 3, 5, 1, 2, 4]);
+            y = _b.Permute(y, crd ? [0, 1, 3, 5, 2, 4] : [0, 3, 5, 1, 2, 4]);
             y = Emit("Reshape", [y], Attributes.From(("shape", L(0, c * b * b, h / b, w / b))), Nm(n));
         }
         SetDyn(n, 0, y);
@@ -132,7 +136,8 @@ internal sealed partial class OnnxTranslator
     {
         var x = X(ins, 0);
         long[] pads = n.Has("pads") ? n.Ints("pads")! : ConstIn(ins, 1, "Pad pads").Ints();
-        float value = n.Has("value") ? n.Float("value", 0) : OptConst(ins, 2, "Pad constant_value") is { } cv ? cv.ScalarF32() : 0f;
+        Value? runtimeValue = !n.Has("value") && ins.Length > 2 && ins[2] is { IsConst: false } valueIn ? valueIn.V! : null;
+        float value = n.Has("value") ? n.Float("value", 0) : runtimeValue is null && OptConst(ins, 2, "Pad constant_value") is { } cv ? cv.ScalarF32() : 0f;
         if (OptConst(ins, 3, "Pad axes") is { } axesC)
         {
             var full = new long[2 * x.Rank];
@@ -164,7 +169,52 @@ internal sealed partial class OnnxTranslator
             SetDyn(n, 0, x);
             return;
         }
+        if (runtimeValue is not null && mode == "constant")
+        {
+            var zeroPadded = Emit("Pad", [x], Attributes.From(("pads", pads), ("mode", mode), ("value", 0f)));
+            SetDyn(n, 0, Emit("Where", [PadInterior(x, pads, Nm(n)), zeroPadded, runtimeValue], null, Nm(n)));
+            return;
+        }
+
         SetDyn(n, 0, Emit("Pad", [x], Attributes.From(("pads", pads), ("mode", mode), ("value", value)), Nm(n)));
+    }
+
+    /// <summary>
+    /// Constant 0/1 mask of a padded tensor's shape that is 1 where the source elements land (used to fill the border with
+    /// a runtime value). A symbolic outer axis must not be padded; the mask then omits it and broadcasts over it.
+    /// </summary>
+    private Value PadInterior(Value x, long[] pads, string name)
+    {
+        int rank = x.Rank;
+        int first = Sym(x) ? 1 : 0;
+        if (first == 1 && (pads[0] != 0 || pads[rank] != 0))
+        {
+            throw new NotSupportedException("Pad of the symbolic outer axis with a runtime constant_value");
+        }
+
+        var dims = new long[rank - first];
+        for (int d = first; d < rank; d++)
+        {
+            dims[d - first] = x.Shape[d].Fixed + pads[d] + pads[d + rank];
+        }
+
+        long total = dims.Aggregate(1L, (a, b) => a * b);
+        var mask = new double[total];
+        for (long i = 0; i < total; i++)
+        {
+            long rest = i;
+            bool inside = true;
+            for (int d = dims.Length - 1; d >= 0; d--)
+            {
+                long coordinate = rest % dims[d] - pads[d + first];
+                rest /= dims[d];
+                inside &= coordinate >= 0 && coordinate < x.Shape[d + first].Fixed;
+            }
+
+            mask[i] = inside ? 1 : 0;
+        }
+
+        return ConstValue(OnnxConst.FromFloats(OnnxType.Float, dims, mask, name + ".interior"), name + ".interior");
     }
 
     /// <summary>Lifts a 1-D spatial attribute to the 2-D form used by the IR ([1, v] for 1-D operators, a default pair when absent).</summary>
@@ -202,6 +252,12 @@ internal sealed partial class OnnxTranslator
 
     private void Conv(OnnxNode n, TranslatedTensor?[] ins)
     {
+        if (ins[1] is { IsConst: false } || (ins.Length > 2 && ins[2] is { IsConst: false }))
+        {
+            ConvRuntimeWeight(n, ins);
+            return;
+        }
+
         var x0 = X(ins, 0);
         if (x0.Rank == 5)
         {
