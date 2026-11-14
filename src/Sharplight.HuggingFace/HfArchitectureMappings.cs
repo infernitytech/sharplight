@@ -12,6 +12,7 @@ internal static class HfArchitectureMappings
         Register(new Qwen35HfMapping());
         Register(new Qwen3VlHfMapping());
         Register(new Qwen2VlHfMapping());
+        Register(new PaddleOcrVlHfMapping());
         Register(new NemotronHHfMapping());
         Register(new GraniteHybridHfMapping());
         Register(new FalconH1HfMapping());

@@ -313,6 +313,12 @@ internal sealed partial class DecoderGraphBuilder
         int deepstackLayers = deepstack is null ? 0 : (int)(deepstack.Shape[-1].Fixed / _hp.NEmbd);
         var packedKv = new Dictionary<int, (Value K, Value V)>();
         var embeddings = x;
+        int streams = _hp.AltUpStreams;
+        if (streams > 0)
+        {
+            x = AltUp.Expand(b, x, streams, _hp.NEmbd);
+        }
+
         for (int logical = 0; logical < _hp.LogicalLayers; logical++)
         {
             int il = logical % _hp.NLayer;
@@ -324,6 +330,12 @@ internal sealed partial class DecoderGraphBuilder
             using var _ = b.Group($"layers.{logical}");
             string p = $"layers.{il}.";
             var slot = new LayerSlot(il, logical);
+            if (streams > 0)
+            {
+                x = AltUpLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings, perLayer);
+                continue;
+            }
+
             x = _hp.ParallelResidual
                 ? ParallelLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
                 : SequentialLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
@@ -335,7 +347,7 @@ internal sealed partial class DecoderGraphBuilder
 
             if (perLayer is not null && b.TryWeight(p + "per_layer.gate.weight") is not null)
             {
-                x = PerLayerResidual(b, x, perLayer, p, il);
+                x = b.Add(x, PerLayerDelta(b, x, perLayer, p, il), $"{p}per_layer_out");
             }
 
             if (b.TryWeight(p + "output_scale") is { } oscale)
@@ -349,7 +361,32 @@ internal sealed partial class DecoderGraphBuilder
             }
         }
 
-        return x;
+        return streams > 0 ? AltUp.Collapse(b, x, streams, _hp.NEmbd) : x;
+    }
+
+    // One layer over AltUp streams [T, S·H] (Gemma 3n): the streams are mixed into predictions, the active prediction runs through the
+    // sequential layer, its output corrects every prediction. The per-layer embedding contribution, gated by the active corrected stream
+    // (times altup.correct_output_scale), is added to the other streams only.
+    private Value AltUpLayer(GraphBuilder b, Value x, string p, LayerSlot slot, Value positions, Value? freqFactors, Value? rowSpans,
+        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings, Value? perLayer)
+    {
+        int streams = _hp.AltUpStreams;
+        int hidden = _hp.NEmbd;
+        var predictions = AltUp.Predict(b, x, p, streams, hidden, _hp.Eps);
+        var output = SequentialLayer(b, AltUp.Stream(b, predictions, 0, hidden), p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
+        var corrected = AltUp.Correct(b, predictions, output, p, streams, hidden, _hp.Eps);
+        if (perLayer is null || !b.HasWeight(p + "per_layer.gate.weight"))
+        {
+            return corrected;
+        }
+
+        var active = AltUp.Stream(b, corrected, 0, hidden);
+        if (b.TryWeight(p + "altup.correct_output_scale") is { } scale)
+        {
+            active = b.Mul(active, scale);
+        }
+
+        return AltUp.AddToInactive(b, corrected, PerLayerDelta(b, active, perLayer, p, slot.Layer), streams, hidden, $"{p}per_layer_out");
     }
 
     // Residual topology "sequential": x += attention(norm(x)); x += mlp(norm(x)). A layer without attention weights skips the attention
@@ -366,6 +403,10 @@ internal sealed partial class DecoderGraphBuilder
                 ? Attention(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
                 : b.Linear(h, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
             x = ResidualAdd(b, SubLayerOutput(b, attention, p + "attention.out_norm.weight"), residual, 2 * (slot.Layer + 1), p + "attention.", $"{p}attn_residual");
+            if (b.HasWeight(p + "laurel.left.weight"))
+            {
+                x = Laurel(b, x, h, p);
+            }
         }
 
         if (!HasFeedForward(b, p))
@@ -384,6 +425,14 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         return output;
+    }
+
+    // LAuReL (Gemma 3n): a low-rank residual of the attention input h next to the attention, (x + h + norm(right(left(h)))) / √2.
+    private Value Laurel(GraphBuilder b, Value x, Value h, string p)
+    {
+        var lowRank = b.Linear(b.Linear(h, p + "laurel.left.weight"), p + "laurel.right.weight");
+        var laurel = b.Add(h, _norm.Apply(b, lowRank, p + "laurel.norm.weight", _hp.Eps), $"{p}laurel");
+        return b.Scale(b.Add(x, laurel), 1f / MathF.Sqrt(2f), 0, $"{p}attn_laurel");
     }
 
     // Residual topology "parallel": x += attention(norm(x)) + mlp(norm'(x)), both branches reading the layer input. The MLP uses
@@ -439,13 +488,12 @@ internal sealed partial class DecoderGraphBuilder
 
     private static bool HasFeedForward(GraphBuilder b, string p) => b.HasWeight(p + "mlp.up.weight") || b.HasWeight(p + "mlp.router.weight");
 
-    // Gated per-layer-embedding contribution that ends a layer (see the DecoderAdapter remarks).
-    private Value PerLayerResidual(GraphBuilder b, Value x, Value perLayer, string p, int il)
+    // Gated per-layer-embedding contribution that ends a layer (see the DecoderAdapter remarks), gated by x.
+    private Value PerLayerDelta(GraphBuilder b, Value x, Value perLayer, string p, int il)
     {
         var gated = b.Mul(ActOf(b, b.Linear(x, p + "per_layer.gate.weight"), p),
                           b.Slice(perLayer, 1, (long)il * _hp.PerLayerSize, _hp.PerLayerSize));
-        var delta = b.RmsNorm(b.Linear(gated, p + "per_layer.projection.weight"), b.Weight(p + "per_layer.norm.weight"), _hp.Eps);
-        return b.Add(x, delta, $"{p}per_layer_out");
+        return b.RmsNorm(b.Linear(gated, p + "per_layer.projection.weight"), b.Weight(p + "per_layer.norm.weight"), _hp.Eps);
     }
 
     // Per-layer embeddings: [T, L*P] (see the DecoderAdapter remarks).

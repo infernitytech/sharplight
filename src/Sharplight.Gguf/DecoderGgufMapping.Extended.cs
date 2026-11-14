@@ -1,9 +1,15 @@
+using Sharplight.Models;
+using Sharplight.Tensors;
+
 namespace Sharplight.Gguf;
 
-/// <summary>llama.cpp <c>gemma4</c>, <c>muse-glimmer</c> and <c>flint</c>: the generic decoder plus per-layer head sizes, KV sharing, per-layer embeddings, NoPE layers, ...</summary>
+/// <summary>
+/// llama.cpp <c>gemma4</c>, <c>gemma3n</c>, <c>muse-glimmer</c> and <c>flint</c>: the generic decoder plus per-layer head sizes, KV sharing, per-layer
+/// embeddings, NoPE layers, AltUp streams, LAuReL, activation sparsity, ...
+/// </summary>
 internal sealed partial class DecoderGgufMapping
 {
-    private static bool IsExtended(string architecture) => architecture is "gemma4" or "muse-glimmer";
+    private static bool IsExtended(string architecture) => architecture is "gemma4" or "gemma3n" or "muse-glimmer";
 
     /// <summary>Per-layer tensors of the extended architectures, GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_extended = new(StringComparer.Ordinal)
@@ -13,7 +19,36 @@ internal sealed partial class DecoderGgufMapping
         ["post_norm.weight"] = "per_layer.norm.weight",
         ["layer_output_scale.weight"] = "output_scale",
         ["attn_gate.weight"] = "attention.gate.weight",
+        // Gemma 3n: AltUp and LAuReL.
+        ["altup_correct_scale.weight"] = "altup.correct_output_scale",
+        ["altup_correct_coef.weight"] = "altup.correction_coefs.weight",
+        ["altup_predict_coef.weight"] = "altup.prediction_coefs.weight",
+        ["altup_router.weight"] = "altup.router.weight",
+        ["altup_router_norm.weight"] = "altup.router_norm.weight",
+        ["laurel_l.weight"] = "laurel.left.weight",
+        ["laurel_r.weight"] = "laurel.right.weight",
+        ["laurel_post_norm.weight"] = "laurel.norm.weight",
     };
+
+    /// <summary>
+    /// Gemma 3n stores the AltUp (un)embedding projections of streams 1 … S−1 stacked [S−1, H, H]; canonical weights are one [H, H] matrix per stream.
+    /// </summary>
+    private static IReadOnlyList<WeightInfo>? SplitAltUpProjections(string name, WeightInfo t)
+    {
+        string? canonical = name switch
+        {
+            "altup_proj.weight" => "altup.projections",
+            "altup_unembd_proj.weight" => "altup.unembed_projections",
+            _ => null,
+        };
+        if (canonical is null)
+        {
+            return null;
+        }
+
+        var matrix = new Shape(t.Shape[1], t.Shape[2]);
+        return Enumerable.Range(0, (int)t.Shape[0].Fixed).Select(s => t.RowSlice("", s, 1).As($"{canonical}.{s}.weight", matrix)).ToList();
+    }
 
     /// <summary>Per-layer-embedding tensors of the extended architectures that sit outside the layers.</summary>
     private static readonly Dictionary<string, string> s_extendedGlobal = new(StringComparer.Ordinal)
@@ -184,6 +219,27 @@ internal sealed partial class DecoderGgufMapping
         if (g.Int("embedding_length_per_layer_input", 0) is var perLayerSize and > 0)
         {
             md[a + "per_layer.size"] = perLayerSize;
+        }
+
+        if (g.Int("altup.num_inputs", 0) is var streams and > 1)
+        {
+            if (g.Int("altup.active_idx", 0) != 0)
+            {
+                throw new NotSupportedException("gemma3n: only AltUp with active stream 0 is supported.");
+            }
+
+            md[a + "altup.streams"] = streams;
+        }
+
+        // llama.cpp stores the gate cutoff in standard deviations, Φ⁻¹(sparsity) (−∞ for dense layers); canonical is the sparsity itself.
+        if (g.Raw("activation_sparsity_scale") is Array cutoffs && cutoffs.Length == layerCount)
+        {
+            var sparsity = Enumerable.Range(0, layerCount)
+                .Select(i => Convert.ToDouble(cutoffs.GetValue(i)) is var z && double.IsFinite(z) ? (float)NormalDistribution.Cdf(z) : 0f).ToArray();
+            if (sparsity.Any(s => s > 0))
+            {
+                md[a + "mlp.activation_sparsity"] = sparsity;
+            }
         }
 
         return md;

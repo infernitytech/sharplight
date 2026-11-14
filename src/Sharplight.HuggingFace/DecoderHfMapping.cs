@@ -22,7 +22,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } =
     [
         "llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe",
-        "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "muse_glimmer", "flint",
+        "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "gemma3n", "gemma3n_text", "muse_glimmer", "flint",
     ];
 
     private static bool IsGemma(string? modelType) => modelType is "gemma2" or "gemma3_text" or "gemma3";
@@ -57,7 +57,8 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         }
 
         string type = StringProperty(ropeParameters, "rope_type") ?? StringProperty(ropeParameters, "type") ?? "default";
-        return type == "default" ? null : new Scaling(type, ropeParameters);
+        // "mrope" (older Qwen2-VL configs) only carries the M-RoPE sections, no frequency scaling.
+        return type is "default" or "mrope" ? null : new Scaling(type, ropeParameters);
     }
 
     private static string? StringProperty(JsonElement element, string key)
@@ -151,7 +152,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     {
         string a = Architecture + ".";
         string? type = c.ModelType;
-        if (type is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text")
+        if (IsGemma4(type) || IsGemma3n(type))
         {
             return Gemma4Hyper(c);
         }
@@ -409,6 +410,10 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
             case "model.per_layer_projection_norm.weight" when context.Extended:
                 collector.Add(HfTransforms.Plain(w, "per_layer.projection_norm.weight"));
                 return true;
+            case var altup when context.Extended && altup.StartsWith("model.altup_", StringComparison.Ordinal):
+                // Gemma 3n: model.altup_projections.{i} / model.altup_unembed_projections.{i}.
+                collector.Add(HfTransforms.Plain(w, "altup." + altup["model.altup_".Length..]));
+                return true;
             case "model.norm.weight":
                 collector.Add(c.ModelType == "muse_glimmer" ? HfTransforms.Plain(w, "output_norm.weight") : context.Norm(w, "output_norm.weight"));
                 return true;
@@ -481,6 +486,14 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         else if (context.Gemma && suffix == "post_feedforward_layernorm.weight")
         {
             collector.Add(context.Norm(w, prefix + "mlp.out_norm.weight"));
+        }
+        else if (suffix == "altup.correct_output_scale")
+        {
+            // Gemma 3n: the scale of the active corrected stream that gates the per-layer embedding (unused unless altup_correct_scale).
+            if (c.GetBool("altup_correct_scale") ?? true)
+            {
+                collector.Add(HfTransforms.Plain(w, prefix + suffix));
+            }
         }
         else if (context.Extended && s_extended.TryGetValue(suffix, out var extendedName))
         {

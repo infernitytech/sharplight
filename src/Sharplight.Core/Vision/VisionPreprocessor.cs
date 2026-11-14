@@ -4,7 +4,7 @@ namespace Sharplight.Vision;
 /// Turns raw RGB pixels into the inputs of a model's vision encoder, driven only by the canonical
 /// <see cref="VisionParameters"/>: aspect-preserving "smart" resize to a multiple of patch_size·merge_size within the
 /// pixel bounds (antialiased bicubic), per-channel normalization, patchification (the still image is repeated to fill
-/// temporal_patch_size frames) in spatial-merge-window order, plus the position inputs (row/col per patch and the
+/// temporal_patch_size frames) in spatial-merge-window order (window by window when the tower has windowed attention), plus the position inputs (row/col per patch and the
 /// bilinear taps into the learned position grid, align_corners semantics).
 /// </summary>
 public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? limits = null)
@@ -96,31 +96,33 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
 
         var patches = new float[checked(n * k)];
         var positions = new int[n * 2];
-        int idx = 0;
-        for (int br = 0; br < gh / m; br++)
+        var (units, spans, order) = MergeUnitOrder(gh / m, gw / m);
+        int unitPatches = m * m;
+        for (int u = 0; u < units.Length; u++)
         {
-            for (int bc = 0; bc < gw / m; bc++)
+            int br = units[u] / (gw / m);
+            int bc = units[u] % (gw / m);
+            for (int ir = 0; ir < m; ir++)
             {
-                for (int ir = 0; ir < m; ir++)
+                for (int ic = 0; ic < m; ic++)
                 {
-                    for (int ic = 0; ic < m; ic++, idx++)
+                    int idx = u * unitPatches + ir * m + ic;
+                    int row = br * m + ir;
+                    int col = bc * m + ic;
+                    positions[idx * 2] = row;
+                    positions[idx * 2 + 1] = col;
+                    var dst = patches.AsSpan(checked(idx * k), k);
+                    int o = 0;
+                    for (int c = 0; c < 3; c++)
                     {
-                        int row = br * m + ir;
-                        int col = bc * m + ic;
-                        positions[idx * 2] = row; positions[idx * 2 + 1] = col;
-                        var dst = patches.AsSpan(checked(idx * k), k);
-                        int o = 0;
-                        for (int c = 0; c < 3; c++)
+                        for (int t = 0; t < tp; t++)
                         {
-                            for (int t = 0; t < tp; t++)
+                            for (int y = 0; y < ps; y++)
                             {
-                                for (int y = 0; y < ps; y++)
+                                int src = ((row * ps + y) * tw + col * ps) * 3 + c;
+                                for (int x = 0; x < ps; x++, src += 3)
                                 {
-                                    int src = ((row * ps + y) * tw + col * ps) * 3 + c;
-                                    for (int x = 0; x < ps; x++, src += 3)
-                                    {
-                                        dst[o++] = rgb[src];
-                                    }
+                                    dst[o++] = rgb[src];
                                 }
                             }
                         }
@@ -129,12 +131,70 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             }
         }
 
+        var patchSpans = Array.Empty<int>();
+        if (spans.Length > 0)
+        {
+            patchSpans = new int[n * 2];
+            for (int u = 0; u < units.Length; u++)
+            {
+                for (int j = 0; j < unitPatches; j++)
+                {
+                    patchSpans[(u * unitPatches + j) * 2] = spans[u * 2] * unitPatches;
+                    patchSpans[(u * unitPatches + j) * 2 + 1] = spans[u * 2 + 1] * unitPatches;
+                }
+            }
+        }
+
         var (ei, ew) = PositionTaps(positions, gh, gw);
         return new PreprocessedImage
         {
             Width = tw, Height = th, GridHeight = gh, GridWidth = gw, MergedHeight = gh / m, MergedWidth = gw / m,
-            Patches = patches, Positions = positions, EmbeddingIndex = ei, EmbeddingWeight = ew,
+            Patches = patches, Positions = positions, EmbeddingIndex = ei, EmbeddingWeight = ew, WindowSpans = patchSpans, WindowOrder = order,
         };
+    }
+
+    /// <summary>
+    /// Order of the merged tokens (merge units) of a mh × mw grid in the patch sequence: raster order, or with windowed attention window by
+    /// window (windows in raster order, units in raster order inside each window). Returns the raster index of each sequence slot, with
+    /// windows also each slot's window as (first slot, slot count) and, per raster index, its slot; both empty without windows.
+    /// </summary>
+    private (int[] Units, int[] Spans, int[] Order) MergeUnitOrder(int mh, int mw)
+    {
+        var units = new int[mh * mw];
+        int ws = p.WindowSize;
+        if (ws <= 0)
+        {
+            for (int i = 0; i < units.Length; i++)
+            {
+                units[i] = i;
+            }
+
+            return (units, [], []);
+        }
+
+        var spans = new int[units.Length * 2];
+        var order = new int[units.Length];
+        int slot = 0;
+        for (int wy = 0; wy < mh; wy += ws)
+        {
+            for (int wx = 0; wx < mw; wx += ws)
+            {
+                int first = slot;
+                int count = Math.Min(ws, mh - wy) * Math.Min(ws, mw - wx);
+                for (int y = wy; y < Math.Min(wy + ws, mh); y++)
+                {
+                    for (int x = wx; x < Math.Min(wx + ws, mw); x++, slot++)
+                    {
+                        units[slot] = y * mw + x;
+                        order[y * mw + x] = slot;
+                        spans[slot * 2] = first;
+                        spans[slot * 2 + 1] = count;
+                    }
+                }
+            }
+        }
+
+        return (units, spans, order);
     }
 
     /// <summary>Bilinear taps (align_corners) resampling the learned g×g position grid to the image grid, per patch.</summary>

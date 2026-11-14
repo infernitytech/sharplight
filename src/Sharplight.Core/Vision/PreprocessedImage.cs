@@ -15,7 +15,7 @@ public sealed class PreprocessedImage
     public required int MergedHeight { get; init; }
     /// <summary>Number of output token columns after spatial merging.</summary>
     public required int MergedWidth { get; init; }
-    /// <summary>Normalized patch values [N, PatchDim], merge-window order, each patch flattened in (channel, frame, row, col) order.</summary>
+    /// <summary>Normalized patch values [N, PatchDim], merge-window order (window by window with windowed attention), each patch flattened in (channel, frame, row, col) order.</summary>
     public required float[] Patches { get; init; }
     /// <summary>(row, col) of each patch in the patch grid [N, 2].</summary>
     public required int[] Positions { get; init; }
@@ -23,6 +23,10 @@ public sealed class PreprocessedImage
     public required int[] EmbeddingIndex { get; init; }
     /// <summary>The weights of the taps in <see cref="EmbeddingIndex"/> [N, 4].</summary>
     public required float[] EmbeddingWeight { get; init; }
+    /// <summary>Windowed attention only (else empty): first patch and patch count of each patch's attention window [N, 2].</summary>
+    public int[] WindowSpans { get; init; } = [];
+    /// <summary>Windowed attention only (else empty): for each output token in merge-window raster order, its index in window order [M].</summary>
+    public int[] WindowOrder { get; init; } = [];
 
     /// <summary>Number of patches (N).</summary>
     public int PatchCount => GridHeight * GridWidth;

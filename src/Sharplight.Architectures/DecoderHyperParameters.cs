@@ -19,7 +19,8 @@ internal sealed record DecoderHyperParameters(
     int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
-    bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved)
+    bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved,
+    int AltUpStreams, float[] ActivationSparsity)
 {
     /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
     public const int MRopeAxes = 4;
@@ -105,7 +106,9 @@ internal sealed record DecoderHyperParameters(
             AttentionHeadNorm: src.Arch("attention.out_head_norm", false),
             PostNormWeightFirst: src.Arch("post_norm.weight_first", false),
             RopeSections: src.Arch("rope.sections", Array.Empty<int>()),
-            RopeSectionsInterleaved: src.Arch("rope.sections_interleaved", false));
+            RopeSectionsInterleaved: src.Arch("rope.sections_interleaved", false),
+            AltUpStreams: src.Arch("altup.streams", 0),
+            ActivationSparsity: src.Arch("mlp.activation_sparsity", Array.Empty<float>()));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {
@@ -130,6 +133,16 @@ internal sealed record DecoderHyperParameters(
             throw new InvalidDataException("decoder: mlp.swiglu_clamp and moe.swiglu_clamp must have layer_count entries.");
         }
 
+        if (hp.ActivationSparsity.Length != 0 && hp.ActivationSparsity.Length != hp.NLayer)
+        {
+            throw new InvalidDataException("decoder: mlp.activation_sparsity must have layer_count entries.");
+        }
+
+        if (hp.AltUpStreams == 1 || hp.AltUpStreams < 0)
+        {
+            throw new InvalidDataException("decoder: altup.streams must be 0 (none) or at least 2.");
+        }
+
         if (hp.LayerLoops < 1)
         {
             throw new InvalidDataException("decoder: layer_loops must be at least 1.");
@@ -149,7 +162,8 @@ internal sealed record DecoderHyperParameters(
     /// </summary>
     public bool UniformLayers => LayerHeadDims.Length == 0 && LayerHeadCounts.Length == 0 && LayerKvHeads.Length == 0 && KvSource.Length == 0
         && RopeLayers.Length == 0 && SlidingLayers.Length == 0 && QkNormLayers.Length == 0 && TemperatureLayers.Length == 0
-        && ChunkLayers.Length == 0 && PerLayerSize == 0 && SwigluClamp.Length == 0 && MoeSwigluClamp.Length == 0 && LayerLoops == 1;
+        && ChunkLayers.Length == 0 && PerLayerSize == 0 && SwigluClamp.Length == 0 && MoeSwigluClamp.Length == 0 && LayerLoops == 1
+        && AltUpStreams == 0 && ActivationSparsity.Length == 0;
 
     /// <summary>Head dimension of layer <paramref name="il"/>.</summary>
     public int HeadDimOf(int il) => LayerHeadDims.Length > 0 ? LayerHeadDims[il] : HeadDim;
@@ -194,6 +208,9 @@ internal sealed record DecoderHyperParameters(
 
     /// <summary>SwiGLU clamp limit of the routed experts of layer <paramref name="il"/> (0 = none).</summary>
     public float MoeSwigluClampOf(int il) => MoeSwigluClamp.Length > 0 ? MoeSwigluClamp[il] : 0f;
+
+    /// <summary>Target activation sparsity of the MLP gate of layer <paramref name="il"/> (0 = dense).</summary>
+    public float ActivationSparsityOf(int il) => il < ActivationSparsity.Length ? ActivationSparsity[il] : 0f;
 
     /// <summary>Number of logical layers: the physical layers run <see cref="LayerLoops"/> times with shared weights.</summary>
     public int LogicalLayers => NLayer * LayerLoops;

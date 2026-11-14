@@ -9,8 +9,8 @@ namespace Sharplight.Architectures;
 /// Emits the <see cref="WellKnown.VisionEncodeGraph"/> of a ViT-style vision tower described by the canonical
 /// <see cref="VisionParameters"/> and <c>vision.*</c> weights (documented on <see cref="VisionParameters"/>):
 /// patch embedding (a MatMul over the patchified input) + learned position embedding (bilinear taps) → pre-norm
-/// transformer blocks (LayerNorm, fused-QKV bidirectional multi-head attention with axial 2-D rotary embedding, MLP)
-/// → patch merger (LayerNorm, m×m merge, 2-layer MLP) producing embeddings of the language model's hidden size. DeepStack towers
+/// transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary embedding, over
+/// the whole image or within windows (Qwen2.5-VL), plain or gated MLP) → patch merger (norm, m×m merge, 2-layer MLP) producing embeddings of the language model's hidden size. DeepStack towers
 /// (Qwen3-VL) also merge the outputs of selected layers (m×m merge, LayerNorm, 2-layer MLP each) and append them to the embedding row.
 /// Shared by every architecture that uses such a tower; it does not know which file the weights came from.
 /// </summary>
@@ -23,17 +23,24 @@ internal static class VisionTowerGraph
         int H = p.HiddenSize;
         int heads = p.HeadCount;
         int D = p.HeadDim;
-        float eps = p.NormEps;
 
         Value x;
         Value positions;
         Value embIndex, embWeight;
+        Value? windowSpans = null;
+        Value? windowOrder = null;
         using (b.Group("input"))
         {
             var patches = b.Input(VisionParameters.PatchesInput, InputRole.Media, DataType.F32, new Shape(N, p.PatchDim));
             positions = b.Input(VisionParameters.PositionsInput, InputRole.Positions, DataType.I32, new Shape(N, 2));
             embIndex = b.Input(VisionParameters.EmbeddingIndexInput, InputRole.Other, DataType.I32, new Shape(N, 4));
             embWeight = b.Input(VisionParameters.EmbeddingWeightInput, InputRole.Other, DataType.F32, new Shape(N, 4));
+            if (p.WindowSize > 0)
+            {
+                windowSpans = b.Input(VisionParameters.WindowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(N, 2));
+                windowOrder = b.Input(VisionParameters.WindowOrderInput, InputRole.Other, DataType.I32, new Shape(Dim.Sym(VisionParameters.MergedSymbol)));
+            }
+
             x = b.Linear(patches, "vision.patch_embed.weight", "vision.patch_embed.bias", "patch_embed");
         }
 
@@ -63,9 +70,23 @@ internal static class VisionTowerGraph
         {
             using var _ = b.Group($"vision.layers.{il}");
             string w = $"vision.layers.{il}.";
-            var h = LayerNorm(b, x, w + "input_norm", eps);
-            var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
-            var qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), 0, 2 * heads, D);                       // [N, 2·heads, D]
+            var h = Norm(b, p, x, w + "input_norm");
+            Value qk;
+            Value v;
+            if (b.HasWeight(w + "attention.qkv.weight"))
+            {
+                var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
+                qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), 0, 2 * heads, D);                       // [N, 2·heads, D]
+                v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), 0, heads, D);
+            }
+            else
+            {
+                var q0 = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), 0, heads, D);
+                var k0 = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), 0, heads, D);
+                qk = b.Concat(1, q0, k0);
+                v = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), 0, heads, D);
+            }
+
             if (cos is not null)
             {
                 qk = Rotate(b, qk, cos, sinSigned!, D);
@@ -73,19 +94,22 @@ internal static class VisionTowerGraph
 
             var q = b.Slice(qk, 1, 0, heads);
             var k = b.Slice(qk, 1, heads, heads);
-            var v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), 0, heads, D);
-            var attn = b.Emit1("Attention", [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+            bool windowed = windowSpans is not null && Array.IndexOf(p.FullAttentionLayers, il) < 0;
+            var attn = b.Emit1("Attention", windowed ? [q, k, v, windowSpans!] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
             var o = b.Linear(b.Reshape(attn, 0, H), w + "attention.o.weight", w + "attention.o.bias");
             x = b.Add(x, o, $"{w}attn_residual");
 
-            h = LayerNorm(b, x, w + "post_attention_norm", eps);
+            h = Norm(b, p, x, w + "post_attention_norm");
             var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
-            var down = b.Linear(Activation(b, up, p.Activation), w + "mlp.down.weight", w + "mlp.down.bias");
+            var act = b.HasWeight(w + "mlp.gate.weight")
+                ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
+                : Activation(b, up, p.Activation);
+            var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
             x = b.Add(x, down, $"{w}l_out");
             if (Array.IndexOf(p.DeepstackLayers, il) >= 0)
             {
                 string d = $"vision.deepstack.{il}.";
-                var merged = LayerNorm(b, Merge(b, x, p), d + "norm", eps);
+                var merged = Norm(b, p, Merge(b, x, p), d + "norm");
                 var dsUp = b.Linear(merged, d + "up.weight", d + "up.bias");
                 deepstack.Add(b.Linear(Activation(b, dsUp, p.MergerActivation), d + "down.weight", d + "down.bias", $"{d}out"));
             }
@@ -93,10 +117,12 @@ internal static class VisionTowerGraph
 
         using (b.Group("merger"))
         {
-            var h = Merge(b, LayerNorm(b, x, "vision.merger.norm", eps), p);
+            var h = Merge(b, Norm(b, p, x, "vision.merger.norm"), p);
             var up = b.Linear(h, "vision.merger.up.weight", "vision.merger.up.bias");
             var down = b.Linear(Activation(b, up, p.MergerActivation), "vision.merger.down.weight", "vision.merger.down.bias", VisionParameters.EmbeddingsOutput);
-            b.Output(VisionParameters.EmbeddingsOutput, deepstack.Count == 0 ? down : b.Concat(1, [down, .. deepstack]));
+            var rows = deepstack.Count == 0 ? down : b.Concat(1, [down, .. deepstack]);
+            // Windowed towers run window by window; the output goes back to merge-window raster order.
+            b.Output(VisionParameters.EmbeddingsOutput, windowOrder is null ? rows : b.Gather(rows, windowOrder));
         }
         return b.Build();
     }
@@ -105,14 +131,16 @@ internal static class VisionTowerGraph
     private static Value Merge(GraphBuilder b, Value x, VisionParameters p) => p.MergeUnit == 1 ? x
         : b.Emit1("Reshape", [x], Attributes.From(("shape", new long[] { 0, (long)p.MergeUnit * p.HiddenSize }), ("outer_symbol", VisionParameters.MergedSymbol)));
 
-    private static Value LayerNorm(GraphBuilder b, Value x, string name, float eps)
-        => b.Emit1("LayerNorm", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps)));
+    private static Value Norm(GraphBuilder b, VisionParameters p, Value x, string name) => p.NormType == "rms"
+        ? b.RmsNorm(x, b.Weight(name + ".weight"), p.NormEps)
+        : b.Emit1("LayerNorm", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", p.NormEps)));
 
     private static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
     {
         "gelu_tanh" => b.Unary("GeluTanh", x),
         "gelu" => b.Unary("Gelu", x),
         "silu" => b.Silu(x),
+        "quick_gelu" => b.Mul(x, b.Unary("Sigmoid", b.Scale(x, 1.702f))),
         _ => throw new NotSupportedException($"Vision activation '{kind}'."),
     };
 

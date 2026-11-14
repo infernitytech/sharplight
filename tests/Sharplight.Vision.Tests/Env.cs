@@ -18,6 +18,12 @@ internal static class Env
     public static readonly string GgufVl2b = Path.Combine(Home, "models/gguf/Qwen3-VL-2B-Instruct/Qwen3VL-2B-Instruct-Q4_K_M.gguf");
     public static readonly string MmprojVl2b = Path.Combine(Home, "models/gguf/Qwen3-VL-2B-Instruct/mmproj-Qwen3VL-2B-Instruct-F16.gguf");
     public static readonly string HfVl2b = Path.Combine(Home, "models/hf/Qwen3-VL-2B-Instruct");
+    public static readonly string HfQwen2Vl2b = Path.Combine(Home, "models/hf/Qwen2-VL-2B-Instruct");
+    public static readonly string GgufQwen2Vl2b = Path.Combine(Home, "models/gguf/Qwen2-VL-2B-Instruct/Qwen2-VL-2B-Instruct-Q4_K_M.gguf");
+    public static readonly string MmprojQwen2Vl2b = Path.Combine(Home, "models/gguf/Qwen2-VL-2B-Instruct/mmproj-Qwen2-VL-2B-Instruct-f16.gguf");
+    public static readonly string HfQwen25Vl3b = Path.Combine(Home, "models/hf/Qwen2.5-VL-3B-Instruct");
+    public static readonly string GgufQwen25Vl3b = Path.Combine(Home, "models/gguf/Qwen2.5-VL-3B-Instruct/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf");
+    public static readonly string MmprojQwen25Vl3b = Path.Combine(Home, "models/gguf/Qwen2.5-VL-3B-Instruct/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf");
 
     static Env()
     {

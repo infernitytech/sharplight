@@ -3,12 +3,17 @@ using Sharplight.Models;
 
 namespace Sharplight.HuggingFace;
 
-/// <summary>Gemma 4, Muse Glimmer and Flint: the generic decoder plus per-layer head sizes, KV sharing, per-layer embeddings, NoPE layers, ...</summary>
+/// <summary>
+/// Gemma 4, Gemma 3n, Muse Glimmer and Flint: the generic decoder plus per-layer head sizes, KV sharing, per-layer embeddings, NoPE layers,
+/// AltUp streams, LAuReL and activation sparsity, ...
+/// </summary>
 internal sealed partial class DecoderHfMapping
 {
     private static bool IsGemma4(string? modelType) => modelType is "gemma4" or "gemma4_text" or "gemma4_unified" or "gemma4_unified_text";
 
-    private static bool IsGemma4OrMuse(string? modelType) => IsGemma4(modelType) || modelType == "muse_glimmer";
+    private static bool IsGemma3n(string? modelType) => modelType is "gemma3n" or "gemma3n_text";
+
+    private static bool IsGemma4OrMuse(string? modelType) => IsGemma4(modelType) || IsGemma3n(modelType) || modelType == "muse_glimmer";
 
     /// <summary>Vision / audio towers and their projectors live in other canonical sources.</summary>
     private static bool IsNonTextTensor(string name)
@@ -27,6 +32,13 @@ internal sealed partial class DecoderHfMapping
         ["per_layer_projection.weight"] = "per_layer.projection.weight",
         ["post_per_layer_input_norm.weight"] = "per_layer.norm.weight",
         ["layer_scalar"] = "output_scale",
+        ["altup.router_norm.weight"] = "altup.router_norm.weight",
+        ["altup.modality_router.weight"] = "altup.router.weight",
+        ["altup.prediction_coefs.weight"] = "altup.prediction_coefs.weight",
+        ["altup.correction_coefs.weight"] = "altup.correction_coefs.weight",
+        ["laurel.linear_left.weight"] = "laurel.left.weight",
+        ["laurel.linear_right.weight"] = "laurel.right.weight",
+        ["laurel.post_laurel_norm.weight"] = "laurel.norm.weight",
     };
 
     /// <summary>The <c>rope_parameters</c> object of one layer type (<c>full_attention</c> / <c>sliding_attention</c>), or null.</summary>
@@ -127,11 +139,13 @@ internal sealed partial class DecoderHfMapping
         var types = LayerTypes(c, layerCount);
         var fullRope = LayerTypeRope(c, "full_attention");
         var slidingRope = LayerTypeRope(c, "sliding_attention");
+        // Gemma 3n lists the MLP width per layer; hub configs carry rope_theta / rope_local_base_freq instead of per-type rope parameters.
+        int ffnLength = c.Get("intermediate_size") is { ValueKind: JsonValueKind.Array } widths ? widths.EnumerateArray().Max(e => e.GetInt32()) : c.Int("intermediate_size");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "layer_count"] = layerCount,
             [a + "hidden_size"] = hidden,
-            [a + "ffn_hidden_size"] = c.Int("intermediate_size"),
+            [a + "ffn_hidden_size"] = ffnLength,
             [a + "norm_eps"] = (float)(c.GetDouble("rms_norm_eps") ?? 1e-6),
             [a + "attention.head_count"] = headCount,
             [a + "attention.kv_head_count"] = kvHeadCount,
@@ -144,8 +158,8 @@ internal sealed partial class DecoderHfMapping
             [a + "attention.sliding_layers"] = HfMappingHelpers.SlidingFlags(types),
             [a + "rope.dim"] = globalDim,
             [a + "rope.local_dim"] = headDim,
-            [a + "rope.base"] = (float)HfMappingHelpers.NumberOr(fullRope, "rope_theta", 1000000.0),
-            [a + "rope.local_base"] = (float)HfMappingHelpers.NumberOr(slidingRope, "rope_theta", DefaultRopeBase),
+            [a + "rope.base"] = (float)HfMappingHelpers.NumberOr(fullRope, "rope_theta", c.GetDouble("rope_theta") ?? 1000000.0),
+            [a + "rope.local_base"] = (float)HfMappingHelpers.NumberOr(slidingRope, "rope_theta", c.GetDouble("rope_local_base_freq") ?? DefaultRopeBase),
             [a + "rope.style"] = "neox",
             [a + "mlp.activation"] = Activation(c),
             [a + "embedding_scale"] = MathF.Sqrt(hidden),
@@ -166,6 +180,21 @@ internal sealed partial class DecoderHfMapping
         if (c.GetInt("hidden_size_per_layer_input") is { } perLayerSize and > 0)
         {
             md[a + "per_layer.size"] = perLayerSize;
+        }
+
+        if (c.GetInt("altup_num_inputs") is { } streams and > 1)
+        {
+            if ((c.GetInt("altup_active_idx") ?? 0) != 0)
+            {
+                throw new NotSupportedException("Gemma 3n: only AltUp with active stream 0 is supported.");
+            }
+
+            md[a + "altup.streams"] = streams;
+        }
+
+        if (c.Get("activation_sparsity_pattern") is { ValueKind: JsonValueKind.Array } sparsity && sparsity.EnumerateArray().Any(e => e.GetDouble() > 0))
+        {
+            md[a + "mlp.activation_sparsity"] = sparsity.EnumerateArray().Select(e => (float)e.GetDouble()).ToArray();
         }
 
         return md;

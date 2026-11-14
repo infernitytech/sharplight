@@ -6,8 +6,10 @@ using Sharplight.Tensors;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// Vision tower of Hugging Face Qwen3-VL and Qwen3.5 checkpoints (<c>vision_config</c> + <c>preprocessor_config.json</c> +
+/// Vision tower of Hugging Face Qwen2-VL, Qwen2.5-VL, Qwen3-VL and Qwen3.5 checkpoints (<c>vision_config</c> + <c>preprocessor_config.json</c> +
 /// <c>model.visual.*</c> tensors) → the canonical vision vocabulary documented on <c>Sharplight.Vision.VisionParameters</c>.
+/// Qwen2-VL's config names the tower width <c>embed_dim</c> and the output width <c>hidden_size</c> (MLP width embed_dim·mlp_ratio, quick GELU);
+/// Qwen2.5-VL uses RMS norms, a gated MLP and windowed attention (<c>window_size</c> in pixels, <c>fullatt_block_indexes</c>).
 /// Qwen3-VL's DeepStack mergers (<c>deepstack_merger_list.{j}</c>, fed by tower layer <c>deepstack_visual_indexes[j]</c>) become
 /// <c>vision.deepstack.{layer}.*</c>.
 /// </summary>
@@ -47,16 +49,33 @@ internal static partial class QwenVisionHfMapping
         }
 
         md[a + "layer_count"] = Int("depth");
-        md[a + "hidden_size"] = Int("hidden_size");
-        md[a + "ffn_hidden_size"] = Int("intermediate_size");
+        if (vc.TryGetProperty("embed_dim", out var embed) && embed.ValueKind == JsonValueKind.Number)
+        {
+            // Qwen2-VL: embed_dim is the tower width, hidden_size the language model's.
+            md[a + "hidden_size"] = embed.GetInt32();
+            md[a + "ffn_hidden_size"] = embed.GetInt32() * IntOr("mlp_ratio", 4);
+            md[a + "out_hidden_size"] = Int("hidden_size");
+        }
+        else
+        {
+            md[a + "hidden_size"] = Int("hidden_size");
+            md[a + "ffn_hidden_size"] = Int("intermediate_size");
+            md[a + "out_hidden_size"] = Int("out_hidden_size");
+        }
+
         md[a + "head_count"] = Int("num_heads");
         md[a + "norm_eps"] = 1e-6f; // fixed in the reference implementation
-        string act = vc.TryGetProperty("hidden_act", out var ha) ? ha.GetString() ?? "gelu_pytorch_tanh" : "gelu_pytorch_tanh";
+        bool qwen25 = (c.ModelType ?? "").StartsWith("qwen2_5_vl", StringComparison.Ordinal);
+        md[a + "norm.type"] = qwen25 ? "rms" : "layer";
+        // Defaults of the reference configs when vision_config omits hidden_act: quick GELU (Qwen2-VL), SiLU (Qwen2.5-VL), tanh GELU (later towers).
+        string defaultAct = qwen25 ? "silu" : (c.ModelType ?? "").StartsWith("qwen2", StringComparison.Ordinal) ? "quick_gelu" : "gelu_pytorch_tanh";
+        string act = vc.TryGetProperty("hidden_act", out var ha) ? ha.GetString() ?? defaultAct : defaultAct;
         md[a + "activation"] = act switch
         {
             "gelu_pytorch_tanh" or "gelu_new" or "gelu_fast" => "gelu_tanh",
             "gelu" => "gelu",
             "silu" or "swish" => "silu",
+            "quick_gelu" => "quick_gelu",
             _ => throw new NotSupportedException($"vision_config.hidden_act '{act}' is not supported."),
         };
         md[a + "patch_size"] = Int("patch_size");
@@ -64,7 +83,22 @@ internal static partial class QwenVisionHfMapping
         md[a + "in_channels"] = IntOr("in_channels", 3);
         md[a + "spatial_merge_size"] = IntOr("spatial_merge_size", 1);
         md[a + "position_embedding_count"] = IntOr("num_position_embeddings", 0);
-        md[a + "out_hidden_size"] = Int("out_hidden_size");
+        if (qwen25 && IntOr("window_size", 0) is int window and > 0)
+        {
+            md[a + "attention.window"] = window / IntOr("spatial_merge_size", 1) / Int("patch_size");
+            md[a + "attention.full_layers"] = vc.TryGetProperty("fullatt_block_indexes", out var full) && full.ValueKind == JsonValueKind.Array
+                ? full.EnumerateArray().Select(e => e.GetInt32()).ToArray() : Array.Empty<int>();
+        }
+
+        if ((c.ModelType ?? "").StartsWith("qwen2", StringComparison.Ordinal))
+        {
+            // Qwen2-VL processor defaults (OpenAI CLIP statistics), used when the checkpoint has no preprocessor_config.json.
+            md[a + "image_mean"] = new[] { 0.48145466f, 0.4578275f, 0.40821073f };
+            md[a + "image_std"] = new[] { 0.26862954f, 0.26130258f, 0.27577711f };
+            md[a + "min_pixels"] = 3136L;
+            md[a + "max_pixels"] = 12845056L;
+        }
+
         md[a + "merger.activation"] = "gelu"; // the patch merger uses the exact (erf) GELU
         float theta = 10000f;
         if (vc.TryGetProperty("rope_parameters", out var rp) && rp.ValueKind == JsonValueKind.Object && rp.TryGetProperty("rope_theta", out var rt))
@@ -141,6 +175,13 @@ internal static partial class QwenVisionHfMapping
         ["visual.merger.linear_fc1.bias"] = "vision.merger.up.bias",
         ["visual.merger.linear_fc2.weight"] = "vision.merger.down.weight",
         ["visual.merger.linear_fc2.bias"] = "vision.merger.down.bias",
+        // Qwen2-VL / Qwen2.5-VL merger
+        ["visual.merger.ln_q.weight"] = "vision.merger.norm.weight",
+        ["visual.merger.ln_q.bias"] = "vision.merger.norm.bias",
+        ["visual.merger.mlp.0.weight"] = "vision.merger.up.weight",
+        ["visual.merger.mlp.0.bias"] = "vision.merger.up.bias",
+        ["visual.merger.mlp.2.weight"] = "vision.merger.down.weight",
+        ["visual.merger.mlp.2.bias"] = "vision.merger.down.bias",
     };
 
     /// <summary>Per-block vision tensors, HF suffix to canonical suffix.</summary>
@@ -158,6 +199,18 @@ internal static partial class QwenVisionHfMapping
         ["mlp.linear_fc1.bias"] = "mlp.up.bias",
         ["mlp.linear_fc2.weight"] = "mlp.down.weight",
         ["mlp.linear_fc2.bias"] = "mlp.down.bias",
+        // Qwen2-VL
+        ["mlp.fc1.weight"] = "mlp.up.weight",
+        ["mlp.fc1.bias"] = "mlp.up.bias",
+        ["mlp.fc2.weight"] = "mlp.down.weight",
+        ["mlp.fc2.bias"] = "mlp.down.bias",
+        // Qwen2.5-VL (gated)
+        ["mlp.gate_proj.weight"] = "mlp.gate.weight",
+        ["mlp.gate_proj.bias"] = "mlp.gate.bias",
+        ["mlp.up_proj.weight"] = "mlp.up.weight",
+        ["mlp.up_proj.bias"] = "mlp.up.bias",
+        ["mlp.down_proj.weight"] = "mlp.down.weight",
+        ["mlp.down_proj.bias"] = "mlp.down.bias",
     };
 
     /// <summary>Norm weights and biases (vectors) are held as f32; matrices stay in their stored type.</summary>

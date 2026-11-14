@@ -4,9 +4,9 @@ namespace Sharplight.HuggingFace;
 
 /// <summary>
 /// Qwen2-VL and Qwen2.5-VL language models (HF <c>qwen2_vl</c>, <c>qwen2_5_vl</c> and their <c>_text</c> configs) → canonical <c>decoder</c>:
-/// Qwen2 (q/k/v biases) with sectioned, non-interleaved M-RoPE (<c>rope.sections</c> from <c>mrope_section</c>, padded to 4 axes). Only the
-/// language model is imported: the vision tower (<c>visual.*</c>, 2-D rotary patches, windowed attention in 2.5) is not mapped, so the
-/// model runs text-only, where every position axis is equal and M-RoPE is plain RoPE.
+/// Qwen2 (q/k/v biases) with sectioned, non-interleaved M-RoPE (<c>rope.sections</c> from <c>mrope_section</c>, padded to 4 axes). The vision
+/// tower (<c>visual.*</c>: 2-D rotary patches, quick-GELU MLP in Qwen2-VL; RMS norms, gated MLP and windowed attention in Qwen2.5-VL) is mapped
+/// by <see cref="QwenVisionHfMapping"/> into the same source.
 /// </summary>
 internal sealed class Qwen2VlHfMapping : IHfArchitectureMapping
 {
@@ -35,6 +35,7 @@ internal sealed class Qwen2VlHfMapping : IHfArchitectureMapping
             md[Architecture + ".rope.sections_interleaved"] = false;
         }
 
+        QwenVisionHfMapping.AddVisionHyperParameters(config, md, Architecture);
         return md;
     }
 
@@ -48,6 +49,18 @@ internal sealed class Qwen2VlHfMapping : IHfArchitectureMapping
                 t => t.Key.StartsWith(LanguageModelPrefix, StringComparison.Ordinal) ? "model." + t.Key[LanguageModelPrefix.Length..] : t.Key,
                 t => t.Value,
                 StringComparer.Ordinal);
-        return _text.MapWeights(config, text, options);
+        var weights = new Dictionary<string, WeightInfo>(_text.MapWeights(config, text, options), StringComparer.Ordinal);
+        if (QwenVisionHfMapping.VisionConfig(config) is not null)
+        {
+            foreach (var (name, tensor) in tensors)
+            {
+                if (QwenVisionHfMapping.IsVisionTensor(name) && QwenVisionHfMapping.MapVisionTensor(config, name, tensor) is { } w)
+                {
+                    weights[w.Name] = w;
+                }
+            }
+        }
+
+        return weights;
     }
 }
