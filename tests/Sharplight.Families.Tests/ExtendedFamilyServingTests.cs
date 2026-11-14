@@ -9,7 +9,7 @@ using Sharplight.Vulkan;
 namespace Sharplight.Families.Tests;
 
 /// <summary>
-/// The families of bring-up rounds 7 and 8 (<see cref="ExtendedFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts of
+/// The families of bring-up rounds 7 to 9 (<see cref="ExtendedFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts of
 /// different lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone.
 /// </summary>
 public class ExtendedFamilyServingTests
@@ -44,6 +44,9 @@ public class ExtendedFamilyServingTests
             "gguf/tiny-random-glm5-next-sparse-f32.gguf",
             "gguf/tiny-random-mistral-large4-f32.gguf",
             "gguf/tiny-random-dots3note-f32.gguf",
+            // Round 9: Kimi K3 (attention residuals per row, delta attention, latent MoE).
+            "hf/tiny-random-kimi-k3-f32",
+            "gguf/tiny-random-kimi-k3-f32.gguf",
         ];
         foreach (string model in models)
         {

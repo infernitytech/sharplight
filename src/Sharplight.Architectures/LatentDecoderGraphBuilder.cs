@@ -23,6 +23,7 @@ internal sealed partial class LatentDecoderGraphBuilder
     private readonly Func<string, WeightInfo?>? _draft;
     private readonly StateDefinition? _draftCache;
     private readonly SparseAttentionIndexer? _indexer;
+    private readonly AttentionResiduals? _residuals;   // Kimi K3: block attention residuals instead of the running residual sum
     private readonly StateDefinition?[] _indexerCaches;
     private Value? _previousSelection;   // while a graph is built: the last indexer selection, which layers without their own indexer reuse
     private Func<Value, Value>? _indexerRotate;   // while a graph is built: the indexer's rotary embedding
@@ -40,12 +41,13 @@ internal sealed partial class LatentDecoderGraphBuilder
         var sliding = new LatentAttention(_hp.SlidingAttention);
         _attentions = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _hp.IsSliding(il) ? sliding : _hp.HasRope(il) ? _attention : nope)];
         _ssmax = Enumerable.Range(0, _hp.LayerCount).Any(il => _src.Weight($"layers.{il}.attention.ssmax.weight") is not null);
-        _activation = MlpActivations.Create(_hp.Activation);
+        _activation = MlpActivations.Create(_hp.Activation, _src);
         int originalContext = _src.Arch("rope.original_context_length", 0);
         int runtimeContext = options.ContextLength > 0 ? options.ContextLength : _hp.ContextLength;
         _longRope = originalContext > 0 && runtimeContext > originalContext;
         // Delta-attention layers (Kimi-Linear, Ling 3) keep a convolution window and a recurrent state instead of a latent cache.
         _delta = new ChannelDeltaAttention(_src);
+        _residuals = AttentionResiduals.Read(_src, _hp.Eps);
         _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
             ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
         _caches = new StateDefinition?[_hp.LayerCount];
@@ -70,7 +72,8 @@ internal sealed partial class LatentDecoderGraphBuilder
         // The NextN draft head (DeepSeek-V3: one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) with its own cache;
         // not with hyper-connections (the hidden state is several residual streams).
         // Not with two attention geometries either (dots.3's NextN layer has the sliding one, which llama.cpp does not run).
-        _draft = _hp.HyperConnections is null && _hp.SlidingLayers.Length == 0 ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
+        // Not with attention residuals either (the draft layer's residual would need the trunk's banked checkpoints).
+        _draft = _hp.HyperConnections is null && _residuals is null && _hp.SlidingLayers.Length == 0 ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
         if (_draft is not null)
         {
             _draftCache = _attention.CreateCache("mtp.layers.0", options.KvCacheType);
@@ -170,6 +173,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         var temperature = Temperature(b, positions);
         _previousSelection = null;
         _indexerRotate = _indexer is null ? null : IndexerRotation(b, positions);
+        _residuals?.Reset();
         _logPositions = _ssmax ? ScalableSoftmax.LogPositions(b, positions) : null;
         _slidingHeadIds = _hp.SlidingAttention.Heads == _hp.Attention.Heads ? headIds : LatentAttention.HeadIndices(b, positions, _hp.SlidingAttention.Heads, "_sliding");
         _slidingRotate = _hp.SlidingLayers.Length == 0 ? null : RopeOf(b, positions, _hp.RopeStyle, 1f, _hp.SlidingRopeBase, "rope.freq_factors_sliding");
@@ -186,6 +190,11 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         using (b.Group("output"))
         {
+            if (_residuals is not null)
+            {
+                x = _residuals.Mix(b, x, "output_res.score.weight", _hp.HiddenSize, "output_res");
+            }
+
             if (_hp.HyperConnections is { } streams)
             {
                 // A learned head collapses the streams with its own weights; without one (GLM-5.3-Flash) they are averaged.
@@ -221,6 +230,11 @@ internal sealed partial class LatentDecoderGraphBuilder
         if (_hp.HyperConnections is { } hc)
         {
             return HyperConnectedLayer(b, x, p, il, headIds, rotate, temperature, hc);
+        }
+
+        if (_residuals is not null && il >= 0)
+        {
+            return ResidualAttentionLayer(b, x, p, il, headIds, rotate, temperature, _residuals);
         }
 
         var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
@@ -283,6 +297,28 @@ internal sealed partial class LatentDecoderGraphBuilder
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
         var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
         return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc.Streams, _hp.HiddenSize, $"{p}l_out");
+    }
+
+    // The layer with block attention residuals: x is the running sum of the current block; each sub-layer reads the mix of the banked
+    // checkpoints and that sum, and a layer that starts a block banks its input and restarts the sum from its mixer's output.
+    private Value ResidualAttentionLayer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature,
+        AttentionResiduals residuals)
+    {
+        var input = residuals.Mix(b, x, p + "attention_res.score.weight", _hp.HiddenSize, $"{p}attn_res");
+        bool restart = residuals.StartsBlock(il);
+        if (restart)
+        {
+            residuals.Push(b, x, _hp.HiddenSize);
+        }
+
+        var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
+        var attention = ResidualBranch(b, Mixer(b, h, p, il, headIds, rotate, temperature));
+        x = restart ? attention : b.Add(attention, x, $"{p}attn_residual");
+
+        input = residuals.Mix(b, x, p + "mlp_res.score.weight", _hp.HiddenSize, $"{p}mlp_res");
+        h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
+        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 
     /// <summary>The query temperature of every row (Mistral 4 / Mistral Large 3), or null when the model has none.</summary>

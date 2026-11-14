@@ -18,7 +18,8 @@ namespace Sharplight.Architectures;
 /// added to the selected experts' projections.</item>
 /// <item>Optional latent space (Maion-Coder, Muse Spark): with <c>latent_down.weight</c> [L, H] the routed experts read the rows projected to the
 /// latent size L (their weights are then [E, I, L] and [E, L, I]) and their weighted sum is projected back by <c>latent_up.weight</c> [H, L]; the
-/// router and the shared expert read the full rows. An optional <c>latent_in_norm.weight</c> [L] RMS-normalizes the latent rows (Muse Spark).</item>
+/// router and the shared expert read the full rows. An optional <c>latent_in_norm.weight</c> [L] RMS-normalizes the latent rows (Muse Spark), an
+/// optional <c>latent_out_norm.weight</c> [L] the weighted expert sum before its up-projection (Kimi K3).</item>
 /// <item>Optional <c>experts.out_norm.weight</c> [H or L]: every selected expert's output is multiplied by it and then RMS-normalized
 /// (epsilon <c>post_norm_eps</c>) before the routing weights apply (Muse Spark).</item>
 /// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
@@ -73,6 +74,11 @@ internal static class MoeBlock
         var routed = b.Reshape(summed, 0, width);
         if (latentDown is not null)
         {
+            if (b.TryWeight(prefix + "latent_out_norm.weight") is { } latentOutNorm)
+            {
+                routed = b.RmsNorm(routed, latentOutNorm, options.NormEps);
+            }
+
             routed = b.Linear(routed, prefix + "latent_up.weight", name: $"{prefix}latent_out");                                   // [T, H]
         }
 
