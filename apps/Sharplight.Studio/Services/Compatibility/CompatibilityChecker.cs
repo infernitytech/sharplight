@@ -21,10 +21,17 @@ internal static class CompatibilityChecker
     /// <summary>Tensor types named in a reason before the rest are summarized.</summary>
     private const int ListedTypes = 6;
 
-    /// <summary>The verdict for GGUF metadata and, when the whole tensor table was read, its tensor types.</summary>
+    /// <summary>Problems named in a reason before the rest are summarized.</summary>
+    private const int ListedProblemCharacters = 600;
+
+    /// <summary>
+    /// The verdict for GGUF metadata and, when the whole tensor table was read (of every shard), its tensors: their types must be known
+    /// and have kernels, and the importer's mapping must accept the file (<see cref="GgufSupport.Validate"/>: its hyper-parameters and
+    /// features and the name of every tensor). Without the tensors the verdict is on the architecture alone.
+    /// </summary>
     /// <param name="metadata">Key/values as <see cref="GgufHeaderProbe.ReadMetadata"/> returns them.</param>
-    /// <param name="tensorTypes">ggml type id → tensor count (see <see cref="GgufHeaderProbe.ReadTensorTypes"/>), or null when not read.</param>
-    public static ModelCompatibility FromGguf(IReadOnlyDictionary<string, object> metadata, IReadOnlyDictionary<int, int>? tensorTypes)
+    /// <param name="tensors">The tensor table of every shard (see <see cref="GgufHeaderProbe.ReadTensorTable"/>), or null when not read.</param>
+    public static ModelCompatibility FromGguf(IReadOnlyDictionary<string, object> metadata, IReadOnlyList<GgufTensorEntry>? tensors)
     {
         if (!metadata.TryGetValue("general.architecture", out var value) || value is not string architecture)
         {
@@ -44,6 +51,7 @@ internal static class CompatibilityChecker
                 $"No importer mapping exists for the GGUF architecture '{architecture}', so importing it fails.");
         }
 
+        var tensorTypes = tensors is null ? null : GgufHeaderProbe.CountTypes(tensors);
         if (tensorTypes is not null && UnsupportedTensorType(tensorTypes) is { } unsupported)
         {
             return new ModelCompatibility(CompatibilityState.UnsupportedWeightFormat, unsupported.Name,
@@ -51,20 +59,40 @@ internal static class CompatibilityChecker
                 + $"Tensor types: {DescribeTypes(tensorTypes)}.");
         }
 
+        if (tensors is not null)
+        {
+            var check = GgufSupport.Validate(metadata, tensors);
+            if (check.Problems.Count > 0)
+            {
+                return new ModelCompatibility(CompatibilityState.UnsupportedVariant, architecture,
+                    $"The GGUF architecture '{architecture}' is mapped, but importing this file fails: {Shorten(string.Join(" ", check.Problems))}");
+            }
+
+            if (!check.IsComplete)
+            {
+                return ModelCompatibility.Unknown(
+                    $"The GGUF architecture '{architecture}' is mapped, but part of the import needs the weights themselves, so it is checked when the model is imported.");
+            }
+        }
+
         string types = tensorTypes is null
-            ? "Tensor types were not read (the tensor table lies beyond the bytes read before downloading)."
-            : $"Tensor types: {DescribeTypes(tensorTypes)}, all with kernels.";
+            ? "The tensors are read when this quantization is selected."
+            : $"All {tensors!.Count} tensors map to the importer, with kernels for every type: {DescribeTypes(tensorTypes)}.";
         return level == SupportLevel.Partial
             ? new ModelCompatibility(CompatibilityState.Partial, architecture,
-                $"The GGUF architecture '{architecture}' is partially supported: {GgufSupport.GetPartialSupportNote(architecture)}. {types}", tensorTypes is not null)
+                $"The GGUF architecture '{architecture}' is partially supported: {GgufSupport.GetPartialSupportNote(architecture)}. {types}", tensors is not null)
             : new ModelCompatibility(CompatibilityState.Supported, architecture,
-                $"The GGUF architecture '{architecture}' is supported. {types}", tensorTypes is not null);
+                $"The GGUF architecture '{architecture}' is supported. {types}", tensors is not null);
     }
 
     /// <summary>The verdict for a Hugging Face checkpoint's configuration.</summary>
     /// <param name="configJson">The text of <c>config.json</c>.</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> (ModelOpt), or null.</param>
-    public static ModelCompatibility FromConfig(string configJson, string? quantizationConfigJson = null)
+    /// <param name="validate">
+    /// Also run the importer mapping's checks of the hyper-parameters and features (<see cref="HfSupport.Validate"/>); false for a
+    /// configuration that holds only the model type and quantization (from the search summary).
+    /// </param>
+    public static ModelCompatibility FromConfig(string configJson, string? quantizationConfigJson = null, bool validate = true)
     {
         if (HfSupport.GetModelType(configJson) is not { } modelType)
         {
@@ -77,7 +105,16 @@ internal static class CompatibilityChecker
         }
 
         var quantization = HfSupport.GetQuantizationSupport(configJson, quantizationConfigJson);
-        return WithQuantization(modelType, quantization.Method, quantization.Level);
+        var verdict = WithQuantization(modelType, quantization.Method, quantization.Level);
+        // Only a verdict that says the checkpoint imports is checked against the importer (an unknown one stays unknown).
+        if (!validate || verdict.State is not (CompatibilityState.Supported or CompatibilityState.Partial)
+            || HfSupport.Validate(configJson) is not { Count: > 0 } problems)
+        {
+            return verdict;
+        }
+
+        return new ModelCompatibility(CompatibilityState.UnsupportedVariant, modelType,
+            $"The model type '{modelType}' is mapped, but importing this checkpoint fails: {Shorten(string.Join(" ", problems))}");
     }
 
     /// <summary>The verdict for an ONNX model: its opset imports are reported; operators are checked at import.</summary>
@@ -124,7 +161,7 @@ internal static class CompatibilityChecker
                 config["quantization_config"] = method == "mlx" ? new JsonObject { ["bits"] = 4 } : new JsonObject { ["quant_method"] = method };
             }
 
-            var verdict = FromConfig(config.ToJsonString());
+            var verdict = FromConfig(config.ToJsonString(), validate: false);
             return verdict.IsUnsupported ? verdict : verdict with { WeightsChecked = false };
         }
 
@@ -188,4 +225,6 @@ internal static class CompatibilityChecker
     public static string TypeName(DataType type) => type.Name.ToUpperInvariant();
 
     private static string Count(int count, string noun) => count == 1 ? $"1 {noun} is" : $"{count} {noun}s are";
+
+    private static string Shorten(string text) => text.Length <= ListedProblemCharacters ? text : text[..ListedProblemCharacters] + "…";
 }

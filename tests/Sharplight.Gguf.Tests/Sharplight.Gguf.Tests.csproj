@@ -11,4 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -66,7 +66,10 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     /// A model source named after the directory. It owns the memory-mapped shards; dispose it to unmap them.
     /// </returns>
     /// <exception cref="FileNotFoundException"><paramref name="path"/> is neither a directory nor a <c>.safetensors</c> file, or the checkpoint has no shards.</exception>
-    /// <exception cref="NotSupportedException">Tensors have no canonical mapping.</exception>
+    /// <exception cref="NotSupportedException">
+    /// Tensors have no canonical mapping, or the mapping rejects the checkpoint's hyper-parameters or features (as
+    /// <see cref="HfSupport.Validate"/> reports them).
+    /// </exception>
     /// <exception cref="UnsupportedArchitectureException">The <c>model_type</c> has no mapping.</exception>
     /// <exception cref="UnsupportedWeightFormatException">The checkpoint is quantized with a method the importer does not read (see <see cref="HfSupport.GetQuantizationSupport"/>).</exception>
     public static ModelSource Open(string path, HfImportOptions? options = null)
@@ -82,6 +85,10 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 $"Hugging Face model_type '{config.ModelType}' ({string.Join(", ", config.Architectures)}) is not supported. " +
                 $"Supported: {string.Join(", ", HfArchitectureMappings.All.SelectMany(m => m.ModelTypes))}.");
         RejectUnsupportedQuantization(config, dir);
+        if (mapping.Validate(config).ToList() is { Count: > 0 } problems)
+        {
+            throw new NotSupportedException($"{dir}: {string.Join(" ", problems)}");
+        }
 
         var checkpoint = SafetensorsCheckpoint.Open(weightsDir);
         List<IDisposable> owned = [checkpoint];

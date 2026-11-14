@@ -20,6 +20,10 @@ internal sealed partial class HubResultViewModel : ObservableObject
     [ObservableProperty]
     public partial CompatibilityBadgeViewModel Compatibility { get; set; }
 
+    /// <summary>This repository's details are shown (highlight cards mark it).</summary>
+    [ObservableProperty]
+    public partial bool IsSelected { get; set; }
+
     /// <summary>The Hub's data.</summary>
     public HubModelSummary Summary { get; }
 

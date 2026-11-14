@@ -29,6 +29,15 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             : Enumerable.Repeat(g.Int("attention.head_count_kv", 0), layerCount).ToArray();
 
     /// <inheritdoc/>
+    public IEnumerable<string> Validate(GgufMetadataView gguf)
+    {
+        if (gguf.Bool("ssm.dt_b_c_rms", false))
+        {
+            yield return "mamba: weight-less RMS norms of dt, B and C (Falcon-Mamba) are not supported yet.";
+        }
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";
@@ -53,11 +62,6 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             md[a + "ssm.group_count"] = g.Int("ssm.group_count");
             md[a + "ssm.head_count"] = ssmHeads;
             md[a + "ssm.head_dim"] = g.Int("ssm.inner_size") / ssmHeads;
-        }
-
-        if (g.Bool("ssm.dt_b_c_rms", false))
-        {
-            throw new NotSupportedException("mamba: weight-less RMS norms of dt, B and C (Falcon-Mamba) are not supported yet.");
         }
 
         if (g.Has("shortconv.l_cache"))

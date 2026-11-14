@@ -37,7 +37,7 @@ internal sealed class StudioHost : IDisposable
         var paths = StudioPaths.Default();
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory);
         var runtime = new EngineModelRuntime(() => settings.Current.Residency, name => ResolveOnDemand(settings, name));
-        var hub = new HubService(settings);
+        var hub = new HubService(settings, paths.HighlightsFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);
         var server = new KestrelApiServer(runtime.Host);
