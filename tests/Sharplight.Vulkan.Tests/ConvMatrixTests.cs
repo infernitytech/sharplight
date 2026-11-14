@@ -31,6 +31,7 @@ public sealed class ConvMatrixTests
     [InlineData(64, 17, 64, 3, 2, 1, 2, "f32", false)]    // groups, stride 2
     [InlineData(256, 14, 128, 1, 1, 0, 1, "f32", true)]   // 1x1
     [InlineData(32, 33, 48, 3, 1, 1, 1, "f16", true)]     // f16 weights, partial channel tile
+    [InlineData(256, 7, 128, 3, 1, 1, 1, "f32", true)]    // 7x7 map: 49 pixels, less than one 64-pixel tile
     public void StrictMatchesF32(int c, int hw, int o, int k, int stride, int pad, int groups, string weightType, bool bias)
     {
         var tg = new TG();
@@ -70,12 +71,17 @@ public sealed class ConvMatrixTests
         Diff.Check("Conv.matrix.large", g, new Step(1, 0, (x, data)), atol: 20, rtol: 1e-4, maxTokens: 1);
     }
 
-    [Fact]
-    public void ReducedPrecisionF16()
+    /// <summary>Reduced precision: 128-pixel tiles for large maps, 64-pixel tiles for small grids, a 7x7 map below one tile.</summary>
+    [Theory]
+    [InlineData(64, 20, 96)]
+    [InlineData(64, 56, 64)]
+    [InlineData(256, 7, 128)]
+    public void ReducedPrecisionF16(int c, int hw, int o)
     {
         var tg = new TG();
-        var x = tg.InF("x", TG.T, 64, 20, 20);
-        var g = Graph(tg, x, 64, 96, 3, 1, 1, 1, "f32", true);
-        Diff.Check("Conv.matrix.f16", g, new Step(1, 0, (x, Rnd.F(64 * 20 * 20, 51))), atol: 2e-2, rtol: 1e-2, maxTokens: 1, allowReducedPrecision: true);
+        var x = tg.InF("x", TG.T, c, hw, hw);
+        var g = Graph(tg, x, c, o, 3, 1, 1, 1, "f32", true);
+        Diff.Check("Conv.matrix.f16", g, new Step(1, 0, (x, Rnd.F((long)c * hw * hw, 51))), atol: 2e-2, rtol: 1e-2, maxTokens: 1,
+            allowReducedPrecision: true, what: $"C={c} {hw}x{hw} O={o}");
     }
 }
