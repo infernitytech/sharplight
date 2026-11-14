@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Models;
 
 namespace Sharplight.Architectures;
 
@@ -17,9 +18,25 @@ internal sealed partial class DecoderGraphBuilder
         var up = b.Linear(h, p + "mlp.up.weight", p + "mlp.up.bias");
         var activation = DenseActivationOf(il);
         var act = _hp.Gated
-            ? activation.ActivateGated(b, b.Linear(h, p + "mlp.gate.weight", p + "mlp.gate.bias"), up, p)
+            ? activation.ActivateGated(b, SparseGate(b, b.Linear(h, p + "mlp.gate.weight", p + "mlp.gate.bias"), il, p), up, p)
             : activation.Activate(b, up, p);
         return b.Linear(SubNorm(b, act, p + "mlp.sub_norm.weight"), p + "mlp.down.weight", p + "mlp.down.bias", $"{p}ffn_out");
+    }
+
+    // Activation sparsity (Gemma 3n): with a target sparsity s for the layer, the gate keeps only what exceeds its row's
+    // mean + std · Φ⁻¹(s) (population std), shifted down by that cutoff: relu(g − mean − std · Φ⁻¹(s)).
+    private Value SparseGate(GraphBuilder b, Value gate, int il, string p)
+    {
+        if (il >= _hp.NLayer || _hp.ActivationSparsityOf(il) is not (> 0f and var sparsity))
+        {
+            return gate;
+        }
+
+        float inverse = 1f / gate.Shape[-1].Fixed;
+        var centered = b.Sub(gate, b.Scale(b.Emit1("ReduceSum", [gate]), inverse));
+        var std = b.Unary("Sqrt", b.Scale(b.Emit1("ReduceSum", [b.Mul(centered, centered)]), inverse));
+        var cutoff = b.Scale(std, (float)NormalDistribution.Quantile(sparsity));
+        return b.Unary("Relu", b.Sub(centered, cutoff), $"{p}sparse_gate");
     }
 
     // The activation of the dense MLP and the shared expert of layer il: SwiGLU clamped to mlp.swiglu_clamp when the layer has a limit.
