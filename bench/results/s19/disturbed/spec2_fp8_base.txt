@@ -1,0 +1,12 @@
+mtp k=0 depth=47: tg median 16.8 min 15.6 max 18.8 tok/s
+mtp k=0 depth=4096: tg median 17.1 min 16.2 max 31.4 tok/s
+89 %
+mtp k=1 depth=47: tg median 22.1 min 18.8 max 34.6 tok/s acceptance 0.82 (288/350)
+mtp k=1 depth=4096: tg median 17.9 min 15.6 max 56.1 tok/s acceptance 0.83 (290/348)
+10 %
+mtp k=2 depth=47: tg median 17.3 min 16.8 max 21.4 tok/s acceptance 0.71 (375/526)
+mtp k=2 depth=4096: tg median 18.5 min 17.6 max 43.8 tok/s acceptance 0.72 (375/524)
+97 %
+mtp k=3 depth=47: tg median 19.2 min 15.5 max 35.2 tok/s acceptance 0.58 (404/697)
+mtp k=3 depth=4096: tg median 16.3 min 15.8 max 20.2 tok/s acceptance 0.61 (411/677)
+99 %

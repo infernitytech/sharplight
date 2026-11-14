@@ -1,0 +1,8 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 92 %, 84658 MiB, 288.31 W, 2145 MHz, 13365 MHz, 86, P1
+2752, kwin_wayland, 612 MiB
+4944, chrome
+82584, rider, 343 MiB
+484390, S:\steamapps\common\Warhammer, 1218 MiB
+516695, llama-server, 36016 MiB
+516785, dotnet, 2170 MiB
+517177, scratchp
