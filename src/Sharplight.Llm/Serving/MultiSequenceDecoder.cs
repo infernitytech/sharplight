@@ -238,15 +238,32 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
     /// <summary>
     /// Sets an attention-only slot's length without computing anything: rows up to <paramref name="length"/> keep whatever the
-    /// cache holds. For draft heads, whose cache only affects draft quality (a gap after a reused prefix), never on recurrent
-    /// models or paged caches.
+    /// cache holds (a paged cache takes blocks for them). For draft heads, whose cache only affects draft quality (a gap after a
+    /// reused prefix), never on recurrent models.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The decoder has recurrent state, or the paged cache has too few free blocks.</exception>
     internal void SetLength(int slot, int length)
     {
         Check(slot);
-        if (!CanTruncate || _pool is not null || length < 0 || length > ContextLength)
+        if (!CanTruncate || length < 0 || length > ContextLength)
         {
-            throw new InvalidOperationException("SetLength needs an attention-only decoder with a contiguous cache.");
+            throw new InvalidOperationException("SetLength needs an attention-only decoder.");
+        }
+
+        if (length < _length[slot])
+        {
+            Truncate(slot, length);
+            return;
+        }
+
+        if (_pool is not null)
+        {
+            if (KvBlocksNeeded(slot, length - _length[slot]) > _pool.Free)
+            {
+                throw new InvalidOperationException("Not enough free KV blocks.");
+            }
+
+            GrowBlocks(slot, length);
         }
 
         _length[slot] = length;

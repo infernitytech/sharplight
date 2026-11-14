@@ -104,6 +104,7 @@ internal sealed class ModelHostBuilder
             KvCacheTokens = _settings.KvCacheTokens,
             Engine = new EngineOptions { MaxQueue = _settings.MaxQueue, PrefillChunk = _settings.PrefillChunk, MaxBatchTokens = _settings.StepTokens ?? 0 },
             Speculator = _settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(_settings.NgramDraftTokens) : null,
+            MtpDraftTokens = _settings.MtpDraftTokens,
             Service = new ModelServiceOptions { ChatTemplate = templatePath is not null ? ReadTemplate(templatePath) : null },
         };
     }

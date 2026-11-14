@@ -45,7 +45,7 @@ internal static class ModelLoader
 
         var model = LlmModel.Load(modelPath, loadOptions);
         var graph = settings.ImagePaths.Count > 0 ? WellKnown.DecodeMultimodalGraph : WellKnown.DecodeGraph;
-        return new LoadedModel(model, model.CreateSession(graph), slots, fallback);
+        return new LoadedModel(model, graph, slots, fallback);
     }
 
     private static DeviceSlot OpenCpuFallback()

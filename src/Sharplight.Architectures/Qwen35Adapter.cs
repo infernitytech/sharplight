@@ -9,8 +9,9 @@ namespace Sharplight.Architectures;
 /// Qwen3.5 / Qwen3.6 / Qwen3.8 hybrid architecture, dense and MoE, and Qwen3-Next (canonical arch <c>qwen3_5</c>):
 /// every <c>full_attention_interval</c>-th layer is gated softmax attention with partial (interleaved M-)RoPE; all others are
 /// Gated DeltaNet linear-attention layers with a short causal conv. The feed-forward block is a dense SwiGLU MLP or routed
-/// experts plus a sigmoid-gated shared expert (<see cref="MoeBlock"/>). Optional MTP layers are exposed as an auxiliary draft
-/// graph later.
+/// experts plus a sigmoid-gated shared expert (<see cref="MoeBlock"/>). MTP layers, when present, form the
+/// <see cref="WellKnown.DraftGraph"/> (<see cref="MtpDraftHead"/>, hidden states after the final norm, chained after
+/// <c>mtp.output_norm</c>), each a gated-attention layer with its own KV cache.
 /// </summary>
 /// <remarks>
 /// Canonical description consumed (importers translate their formats into exactly this):
@@ -198,6 +199,31 @@ public sealed class Qwen35Adapter : IModelAdapter
         {
             [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false),
         };
+        // MTP draft head (not with hyper-connections: their hidden state is several residual streams).
+        int draftLayers = nextn > 0 && hp.Streams == 0 && MtpDraftHead.IsPresent(Lookup) ? nextn : 0;
+        if (draftLayers > 0)
+        {
+            var mtpK = new StateDefinition[draftLayers];
+            var mtpV = new StateDefinition[draftLayers];
+            for (int j = 0; j < draftLayers; j++)
+            {
+                string g = $"mtp.layers.{j}";
+                states.Add(mtpK[j] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.KeyCache, Group = g });
+                states.Add(mtpV[j] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
+            }
+
+            graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(Lookup, hp.NEmbd, positionAxes, hp.Eps, draftLayers, (b, x, j, positions) =>
+            {
+                string p = $"mtp.layers.{j}.";
+                var residual = x;
+                var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), hp.Eps, $"{p}attn_norm");
+                x = b.Add(FullAttention(b, h, p, positions, b.State(mtpK[j]), b.State(mtpV[j])), residual, $"{p}attn_residual");
+                var ffnResidual = x;
+                h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), hp.Eps, $"{p}post_attn_norm");
+                return b.Add(FeedForward(b, h, p), ffnResidual, $"{p}l_out");
+            }, chainNormalized: true);
+        }
+
         // The n-gram embedding hashes token ids, so a graph fed with embeddings only cannot run it.
         if (options.IncludeAuxiliaryGraphs && hp.NGram is null)
         {
@@ -230,6 +256,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             [WellKnown.EosTokenIds] = eos.ToArray(),
             ["n_layer"] = hp.NLayer,
             ["mtp_layers"] = nextn,
+            [WellKnown.DraftLayers] = draftLayers,
         };
         if (vision is not null)
         {

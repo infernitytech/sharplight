@@ -147,6 +147,42 @@ public sealed class LlmModel : IDisposable
         return dec;
     }
 
+    /// <summary>
+    /// True when the model ships a multi-token-prediction draft head (<see cref="WellKnown.DraftGraph"/>), so
+    /// <see cref="CreateMtpSpeculator"/> works.
+    /// </summary>
+    public bool HasDraftHead => Definition.Graphs.ContainsKey(WellKnown.DraftGraph);
+
+    /// <summary>
+    /// Compiles the model's multi-token-prediction head (<see cref="WellKnown.DraftGraph"/>) into a speculator for an
+    /// <see cref="Serving.InferenceEngine"/> (<see cref="Serving.EngineOptions.Speculator"/>) over a decoder from
+    /// <see cref="CreateBatchDecoder"/> with the same <paramref name="slots"/>, context and <paramref name="draftTokens"/>. The head
+    /// has its own KV cache (one attention layer per MTP layer) and its own copy of the embedding and LM head.
+    /// </summary>
+    /// <param name="slots">Slots of the target decoder.</param>
+    /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
+    /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
+    /// <param name="kvCacheTokens">The target decoder's paged KV cache size, or null for a contiguous cache.</param>
+    /// <exception cref="NotSupportedException">The model has no draft head.</exception>
+    public Serving.Speculative.MtpSpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
+    {
+        if (!HasDraftHead)
+        {
+            throw new NotSupportedException($"{Definition.Name} has no multi-token-prediction head.");
+        }
+
+        ArgumentOutOfRangeException.ThrowIfLessThan(draftTokens, 1);
+        int ctx = contextLength ?? _options.ContextLength;
+        var sw = Stopwatch.StartNew();
+        var graph = Definition.Graph(WellKnown.DraftGraph);
+        var placement = PlacementFor(null, ctx, rowBound: slots);
+        // A paged head cache gets a block per slot more than the target's: its rows run up to draftTokens past the target's.
+        long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, deviceSampling: false, paged);
+        _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        return new Serving.Speculative.MtpSpeculator(dec, draftTokens);
+    }
+
     private const long DefaultReserve = 1L << 30;
 
     /// <summary>

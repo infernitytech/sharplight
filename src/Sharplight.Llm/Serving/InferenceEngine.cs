@@ -88,6 +88,7 @@ public sealed class InferenceEngine : IDisposable
     // Speculative decoding (null when off or unsupported by the decoder).
     private readonly ISpeculator? _speculator;
     private readonly List<SpeculationRequest> _specBatch = [];
+    private int[] _observeTokens = new int[64];
     private readonly SpeculationRequest[] _specRequests;
     private readonly ContextView[] _specViews;
 
@@ -132,7 +133,7 @@ public sealed class InferenceEngine : IDisposable
         _specViews = new ContextView[decoder.SlotCount];
         if (_opt.Speculator is { } spec)
         {
-            if (decoder.MaxSpeculativeRows > 1 && decoder.MaxLogitsRows > 1)
+            if (decoder.MaxSpeculativeRows > 1 && decoder.MaxLogitsRows > 1 && (!spec.UsesHiddenStates || decoder.HiddenSize > 0))
             {
                 _speculator = spec;
                 for (int i = 0; i < _specRequests.Length; i++)
@@ -144,7 +145,7 @@ public sealed class InferenceEngine : IDisposable
             else
             {
                 // Without rollback of rejected drafts (recurrent state compiled without rollback rows) or spare logits rows nothing
-                // can be verified.
+                // can be verified; a draft head needs the decoder's hidden states.
                 spec.Dispose();
             }
         }
@@ -700,14 +701,68 @@ public sealed class InferenceEngine : IDisposable
             return;
         }
 
+        // A draft head reads the target's hidden states, while speculation is on (small batches).
+        bool observe = _speculator is { UsesHiddenStates: true } && _active.Count <= _opt.SpeculationMaxBatch;
+        if (_speculator is { UsesHiddenStates: true })
+        {
+            _decoder.CaptureHiddenStates = observe;
+        }
+
         long t0 = Stopwatch.GetTimestamp();
         var results = PrepareDeviceSampling()
             ? _deviceSampler!.Step(_inputs, _deviceRows, _sampledTokens, _sampledLogprobs)
             : _decoder.Step(_inputs);
         Metrics.Step(_budget - budget.Tokens, _inputs.Count, Stopwatch.GetElapsedTime(t0));
         ProcessResults(results);
+        if (observe)
+        {
+            ObserveHiddenStates();
+        }
+
         UpdateKvGauges();
     }
+
+    /// <summary>
+    /// Hands the speculator the rows each input kept (all fed rows, or for a verified input the pending token plus the accepted
+    /// drafts) with their hidden states and the token that follows each row.
+    /// </summary>
+    private void ObserveHiddenStates()
+    {
+        for (int i = 0; i < _inputs.Count; i++)
+        {
+            var s = _stepSeqs[i];
+            if (s.Finished != 0 || s.Slot is not { } slot)
+            {
+                continue;
+            }
+
+            var input = _inputs[i];
+            int rows = input.OutputRows;
+            int kept = rows > 1 ? 1 + _outcomes[i].Accepted : input.Tokens.Length;
+            int start = slot.Tokens.Count - kept;
+            if (kept <= 0 || start < 0)
+            {
+                continue;
+            }
+
+            if (_observeTokens.Length < kept)
+            {
+                _observeTokens = new int[Math.Max(kept, 2 * _observeTokens.Length)];
+            }
+
+            for (int j = 0; j < kept; j++)
+            {
+                int p = start + j + 1;
+                _observeTokens[j] = p < slot.Tokens.Count ? slot.Tokens[p] : NextInputToken(s);
+            }
+
+            _speculator!.Observe(slot.Index, start, _observeTokens.AsSpan(0, kept), _decoder.HiddenStates(i, kept).Span);
+        }
+    }
+
+    /// <summary>The token a sequence feeds next: replay, prompt, or the pending sampled token.</summary>
+    private static int NextInputToken(EngineSequence s)
+        => s.Replay is { } replay ? replay[s.ReplayPos] : s.Prefilling ? s.Prompt[s.PromptPos] : s.Pending;
 
     /// <summary>
     /// Decode first: the pending token (plus drafts) of every running sequence, rotating the start when the budget cannot cover

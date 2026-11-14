@@ -1,11 +1,18 @@
+using System.Diagnostics;
 using Sharplight.Llm;
+using Sharplight.Llm.Serving;
+using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Samples;
 using Sharplight.Templating;
 using Sharplight.Vision;
 
 namespace Sharplight.Cli;
 
-/// <summary>Generates text for a prompt (optionally with images) and streams it to the console with timing statistics.</summary>
+/// <summary>
+/// Generates text for a prompt (optionally with images) and streams it to the console with timing statistics. With speculative
+/// decoding (<see cref="GenerationSettings.DraftTokens"/>) the text prompt runs through a one-slot <see cref="InferenceEngine"/>
+/// whose decoder verifies the drafts.
+/// </summary>
 internal sealed class TextGenerator
 {
     private const int SamplingSeed = 42;
@@ -22,6 +29,12 @@ internal sealed class TextGenerator
 
     public void Run(IReadOnlyList<ImageInput> images, TextWriter output, TextWriter log, CancellationToken cancellationToken)
     {
+        if (_settings.DraftTokens > 0 && images.Count == 0)
+        {
+            RunSpeculative(output, log, cancellationToken);
+            return;
+        }
+
         using var vision = images.Count > 0 ? _loaded.Model.CreateVisionEncoder() : null;
         var generator = new Generator(_loaded.Session, _loaded.Model.Tokenizer, vision);
         var options = CreateOptions();
@@ -34,6 +47,71 @@ internal sealed class TextGenerator
 
         output.WriteLine();
         PrintStatistics(generator, images.Count, log);
+    }
+
+    private void RunSpeculative(TextWriter output, TextWriter log, CancellationToken cancellationToken)
+    {
+        var model = _loaded.Model;
+        int drafts = _settings.DraftTokens;
+        bool mtp = _settings.SpeculateMtp > 0;
+        if (mtp && !model.HasDraftHead)
+        {
+            throw new SampleException("The model has no multi-token-prediction head (--speculate-mtp).");
+        }
+
+        int[] prompt;
+        if (_settings.UseChatTemplate)
+        {
+            prompt = RenderChatPrompt(output);
+        }
+        else
+        {
+            output.Write(_settings.Prompt);
+            prompt = model.Tokenizer.Encode(_settings.Prompt);
+        }
+
+        var decoder = model.CreateBatchDecoder(1, maxLogitsRows: drafts + 1, draftTokens: drafts);
+        ISpeculator speculator = mtp ? model.CreateMtpSpeculator(1, drafts) : new NgramSpeculator(drafts);
+        using var engine = new InferenceEngine(decoder, model.Tokenizer, new EngineOptions { Speculator = speculator });
+        if (!engine.Speculates)
+        {
+            log.WriteLine("speculative decoding is not available for this model; decoding without it");
+        }
+
+        float temperature = _settings.Temperature;
+        var request = new GenerationRequest
+        {
+            PromptTokens = prompt,
+            MaxTokens = _settings.MaxNewTokens,
+            Sampling = temperature <= 0 ? SamplingParams.GreedyDefault : new SamplingParams { Temperature = temperature, Seed = SamplingSeed },
+        };
+        var sw = Stopwatch.StartNew();
+        TimeSpan? firstToken = null;
+        GenerationUsage usage = default;
+        foreach (var chunk in engine.Submit(request, cancellationToken).ReadAllAsync(cancellationToken).ToBlockingEnumerable(cancellationToken))
+        {
+            firstToken ??= sw.Elapsed;
+            output.Write(chunk.Text);
+            if (chunk.Usage is { } u)
+            {
+                usage = u;
+            }
+
+            if (chunk.Error is { } error)
+            {
+                throw new SampleException(error);
+            }
+        }
+
+        output.WriteLine();
+        var total = sw.Elapsed;
+        var prefill = firstToken ?? total;
+        var m = engine.GetMetrics();
+        double decodeSeconds = (total - prefill).TotalSeconds;
+        log.WriteLine(
+            $"prompt: {usage.PromptTokens} tok in {prefill.TotalMilliseconds:F0} ms ({usage.PromptTokens / Math.Max(1e-9, prefill.TotalSeconds):F1} tok/s)"
+            + $" | generated: {usage.CompletionTokens} tok, {Math.Max(0, usage.CompletionTokens - 1) / Math.Max(1e-9, decodeSeconds):F2} tok/s"
+            + $" | {(mtp ? "mtp" : "n-gram")} drafts: {m.AcceptedDraftTokens}/{m.DraftTokens} accepted ({m.DraftAcceptanceRate:P0})");
     }
 
     private GenerationOptions CreateOptions()

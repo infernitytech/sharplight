@@ -47,7 +47,10 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         {
             // The limit covers the whole model on the primary device; placement only sees weights + state, so leave room for activations.
             long? limit = primaryLimit is { } l ? Math.Max(0, l - fp.ActivationBytes) : null;
-            var speculator = owner._chat.Speculator?.Invoke(model);
+            var chat = owner._chat;
+            var speculator = chat.MtpDraftTokens > 0 && model.HasDraftHead
+                ? model.CreateMtpSpeculator(chat.Slots, chat.MtpDraftTokens, owner.Load.ContextLength, chat.KvCacheTokens)
+                : chat.Speculator?.Invoke(model);
             var options = owner._chat.Engine with { Speculator = speculator ?? owner._chat.Engine.Speculator };
             int? logitsRows = options.Speculator is { } spec
                 ? owner._chat.Slots + Math.Min(owner._chat.Slots, options.SpeculationMaxBatch) * spec.MaxDraftTokens
