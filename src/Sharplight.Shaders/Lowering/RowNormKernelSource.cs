@@ -42,6 +42,12 @@ internal sealed class RowNormKernelSource
     /// <summary>Outputs written in pass 2.</summary>
     public required List<(TensorRef Ref, string Expr)> Pass2Outputs { get; init; }
 
+    /// <summary>
+    /// Pass-2 outputs (by index) written only while the step's row count is in the given range; others are always written.
+    /// f16 outputs store the value rounded as <c>f32tof16</c> does.
+    /// </summary>
+    public IReadOnlyDictionary<int, (long Min, long Max)> Pass2RowRanges { get; init; } = new Dictionary<int, (long Min, long Max)>();
+
     /// <summary>True when a per-column f32 weight scales the normalized value.</summary>
     public required bool HasWeight { get; init; }
 
@@ -95,9 +101,9 @@ internal sealed class RowNormKernelSource
         }
 
         _sb.AppendLine("  float* w;");
-        for (int i = 0; i < OutputCount; i++)
+        foreach (var (output, i) in Pass1Outputs.Concat(Pass2Outputs).Select((o, i) => (o.Ref, i)))
         {
-            _sb.AppendLine($"  float* out{i};");
+            _sb.AppendLine($"  {ElementwiseCodegen.PointerType(output.Type)}* out{i};");
         }
 
         _sb.AppendLine("  uint rows;");
@@ -238,7 +244,9 @@ internal sealed class RowNormKernelSource
 
         for (int i = 0; i < Pass2Outputs.Count; i++)
         {
-            sb.AppendLine($"    p.out{Pass1Outputs.Count + i}[{ElementwiseCodegen.Offset(Pass2Outputs[i].Ref, Shape)}] = {Pass2Outputs[i].Expr};");
+            string guard = Pass2RowRanges.TryGetValue(i, out var range) ? $"if (p.rows >= {range.Min}u && p.rows <= {range.Max}u) " : "";
+            var (output, expression) = Pass2Outputs[i];
+            sb.AppendLine($"    {guard}p.out{Pass1Outputs.Count + i}[{ElementwiseCodegen.Offset(output, Shape)}] = {ElementwiseCodegen.Store(output.Type, expression)};");
         }
     }
 }

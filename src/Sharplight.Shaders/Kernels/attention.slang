@@ -292,7 +292,8 @@ uint64_t kv_row(uint64_t base, uint j)
 // Multi-sequence: every row has its own context length. Partials: part[split][t][h][DEC_PS] (acc, m, l).
 // Macros: HPW (divisor of HQ/HKV), KLANES (lanes sharing a key/value row, power of two <= SG), DEC_WG (threads), DEC_R
 // (rows per lane group and batch), DEC_BC (keys per batch = DEC_R * DEC_WG / KLANES), DEC_MAX_SPLITS, DEC_MIN_KEYS
-// (multiple of DEC_BC), DEC_TARGET_WG (workgroups the split count aims for).
+// (multiple of DEC_BC), DEC_TARGET_WG (workgroups the split count aims for), DEC_INVARIANT_ROWS (optional: launches of up to
+// this many rows split like single-row launches, so every row's result equals that of a launch of its own).
 #if defined(KERNEL_DECODE) || defined(KERNEL_DECODE_COMBINE) || defined(KERNEL_FA_MQA)
 #ifndef DEC_GROUPS
 #define DEC_GROUPS (HKV * (HQ / HKV / HPW))   // workgroups per (row, split)
@@ -305,6 +306,12 @@ uint decode_max_splits(uint T)
     if (T > DEC_SPLIT_ROWS)
     {
         return 1;
+    }
+#endif
+#ifdef DEC_INVARIANT_ROWS
+    if (T <= DEC_INVARIANT_ROWS)
+    {
+        T = 1;   // row-invariant launches: every row splits its keys as in a single-row launch
     }
 #endif
     return clamp(uint(DEC_TARGET_WG) / max(T * DEC_GROUPS, 1u), 1u, uint(DEC_MAX_SPLITS));

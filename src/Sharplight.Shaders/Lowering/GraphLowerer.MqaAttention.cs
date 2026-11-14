@@ -50,6 +50,11 @@ public sealed partial class GraphLowerer
             macros[name] = value.ToString(CultureInfo.InvariantCulture);
         }
 
+        if (InvariantRows > 1)
+        {
+            macros["DEC_INVARIANT_ROWS"] = InvariantRows.ToString(CultureInfo.InvariantCulture);
+        }
+
         var q = plan.Q;
         return new DecodeAttentionPlan
         {
@@ -58,6 +63,7 @@ public sealed partial class GraphLowerer
             MaxRows = splitRows,
             TargetWorkgroups = cfg[0],
             MaxSplitCount = cfg[2],
+            InvariantRows = InvariantRows,
             When = b => Rows(b, q) <= splitRows,
         };
     }

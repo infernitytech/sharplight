@@ -23,6 +23,8 @@ namespace Sharplight.Shaders;
 /// and scales, <c>WeightRepack.Mxfp4Split</c>).</item>
 /// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
+/// <item><c>SHARPLIGHT_ROW_INVARIANT=n</c>: rows up to which a step computes every row like a single-row step, overriding
+/// <c>CompileOptions.RowInvariantRows</c> (speculative decoding sets it to the verification rows; 0 turns it off).</item>
 /// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
@@ -56,6 +58,9 @@ namespace Sharplight.Shaders;
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
 /// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
 /// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
+/// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
+/// <item><c>SHARPLIGHT_NORM_HALF_COPY=0</c>: row norms feeding matmuls do not also write the f16 activation copy the tensor-core
+/// GEMMs read; a separate conversion launch makes it.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -132,6 +137,9 @@ internal static class DiagnosticSwitches
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
 
+    /// <summary>Forced row-invariance bound (<c>SHARPLIGHT_ROW_INVARIANT</c>), or null for the compile option.</summary>
+    public static long? RowInvariantRows { get; } = Read("SHARPLIGHT_ROW_INVARIANT") is { } r ? long.Parse(r, CultureInfo.InvariantCulture) : null;
+
     /// <summary>Forced largest activation row count served by the integer-dot matvec, or null for the per-format default.</summary>
     public static long? IntDotMaxRows { get; } = Read("SHARPLIGHT_MMVQ_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
 
@@ -200,6 +208,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced activation source of the skinny GEMM (true: f16 copy, false: f32 rows), or null for the default.</summary>
     public static bool? SkinnyGemmHalfActivations { get; } = Read("SHARPLIGHT_SKINNY_X16") is { } v ? v != "0" : null;
+
+    /// <summary>Let row norms feeding tensor-core matmuls write the f16 activation copy too (no separate conversion launch).</summary>
+    public static bool NormHalfCopy { get; } = IsNotZero("SHARPLIGHT_NORM_HALF_COPY");
+
+    /// <summary>Let the dual fp8 gate / up GEMM use 128-row tiles above 64 rows.</summary>
+    public static bool Fp8DualGemmTall { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL_TALL");
 
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);

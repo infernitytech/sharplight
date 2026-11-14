@@ -43,9 +43,24 @@ struct Params
     uint T;
 };
 
+// MV_FMA_CHAIN (row-invariant compiles): the products of one 8-weight group in a fixed order of fused multiply-adds, so
+// that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
+// contracts per variant (on the NVIDIA driver mostly, but not always, into this same chain). The dual matvecs keep the
+// plain sum, which the driver contracts alike in all of their variants.
 float dot8(float w[8], float4 a, float4 b)
 {
+#if DUAL || !defined(MV_FMA_CHAIN)
     return w[0] * a.x + w[1] * a.y + w[2] * a.z + w[3] * a.w + w[4] * b.x + w[5] * b.y + w[6] * b.z + w[7] * b.w;
+#else
+    float s = w[0] * a.x;
+    s = fma(w[1], a.y, s);
+    s = fma(w[2], a.z, s);
+    s = fma(w[3], a.w, s);
+    s = fma(w[4], b.x, s);
+    s = fma(w[5], b.y, s);
+    s = fma(w[6], b.z, s);
+    return fma(w[7], b.w, s);
+#endif
 }
 
 // ---------------------------------------------------------------------------------------------

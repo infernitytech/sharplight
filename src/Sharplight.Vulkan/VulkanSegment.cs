@@ -344,9 +344,14 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
 
+            long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
             cbs = RecordStep(key, bindings, skipDownloads);
             _recorded[key] = cbs;
             _recordOrder.Enqueue(key);
+            if (DiagnosticSwitches.Trace)
+            {
+                Console.Error.WriteLine($"[vk] recorded {key} in {System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds:F1} ms ({_recorded.Count} recordings)");
+            }
         }
 
         var fence = _fence;

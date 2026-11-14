@@ -28,6 +28,12 @@ public sealed partial class GraphLowerer
     private const long DualFp8AlwaysMaxRows = 64;
 
     /// <summary>
+    /// Rows above which the dual fp8 GEMM may use 128-row tiles. Below, the 64-row tiles' larger grid wins (Blackwell, 27B
+    /// gate / up: 128 rows 44.7 vs 49.9 ms per mixed step, 171 rows 71.0 vs 80.0 ms; at 384 / 512 rows the tall tiles save 3-4 %).
+    /// </summary>
+    private const long DualFp8TallMinRows = 256;
+
+    /// <summary>
     /// True when the dual fp8 GEMM serves <paramref name="rows"/> activation rows of an [<paramref name="k"/>→<paramref name="n"/>]
     /// pair: from <see cref="Fp8GemmMinRows"/> to 64 rows always; above, only where the separate fp8 GEMMs run without split-K.
     /// There each output element sums its K blocks in the same order as the separate launch (the accumulation is an explicit
@@ -44,7 +50,10 @@ public sealed partial class GraphLowerer
     /// launch reads the E4M3 activations once, multiplies both weight matrices (their 16-row fragments alternate in the B tile)
     /// and stores the fused elementwise group <paramref name="epilogueSource"/> defines as <c>epi2</c>, instead of two GEMMs
     /// (with split-K partials and reductions at small batches) and an elementwise launch. No split-K: a workgroup covers half as
-    /// many outputs, so the grid has twice the column tiles of a single matmul. Returns false when it does not apply.
+    /// many outputs, so the grid has twice the column tiles of a single matmul. Above <see cref="DualFp8TallMinRows"/> rows it
+    /// uses 128-row tiles where they pad no more rows than 64-row tiles (half the weight passes; each output still sums its K
+    /// blocks in the same order, so the result does not depend on the tile height; <c>SHARPLIGHT_FP8_DUAL_TALL=0</c> keeps
+    /// 64-row tiles). Returns false when it does not apply.
     /// </summary>
     private bool EmitDualFp8Gemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef weightA,
         TensorRef weightB, TensorRef y, long n, long k, string epilogueSource)
@@ -59,15 +68,21 @@ public sealed partial class GraphLowerer
 
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, rowsMax, ActivationCode.Fp8);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
-        const int tileRows = (int)DualFp8AlwaysMaxRows;
-        int outputs = MmqColumns(tileRows) / 2;
-        var macros = Fp8GemmMacros(weightA.Type, n, k, tileRows, 1);
-        macros["DUAL"] = "1";
-        macros["KERNEL_GEMM_FP8"] = "1";
-        var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
-        var variant = new KernelVariant(b => DualFp8Serves(rows(b), n, k), kernel,
-            b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs)));
-        Emit($"{label} fp8", nodes, [variant], [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
+        bool tall = DiagnosticSwitches.Fp8DualGemmTall && rowsMax > DualFp8AlwaysMaxRows && MmqLayout(128)[3] % 2 == 0;
+        int TileRows(long r) => tall && r > DualFp8TallMinRows && (r + 127) / 128 * 2 == (r + 63) / 64 ? 128 : (int)DualFp8AlwaysMaxRows;
+        var variants = new List<KernelVariant>();
+        foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])
+        {
+            int outputs = MmqColumns(tileRows) / 2;
+            var macros = Fp8GemmMacros(weightA.Type, n, k, tileRows, 1);
+            macros["DUAL"] = "1";
+            macros["KERNEL_GEMM_FP8"] = "1";
+            var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
+            variants.Add(new KernelVariant(b => DualFp8Serves(rows(b), n, k) && TileRows(rows(b)) == tileRows, kernel,
+                b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs))));
+        }
+
+        Emit($"{label} fp8", nodes, variants, [Pointer(quantized), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [quantized, weightA, weightB], [y]);
         return true;
     }

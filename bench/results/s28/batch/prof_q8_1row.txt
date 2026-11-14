@@ -1,0 +1,22 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 248320, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 1 | 90.4 | 901 / 596 | 27.25 / 31.25, 26.87 |
+--- profile batch 1 (greedy)
+GPU time 633.16 ms
+   202.842 ms  32.0%   1280x  min    114.2 us  matmul2 [5120→17408]x2 q8_0r fused[Silu,Mul] matvec_sk T=1,1,1
+   130.045 ms  20.5%   1280x  min     67.0 us  matmul [17408→5120] q8_0r matvec_sk T=1,1,1
+    65.378 ms  10.3%    960x  min     39.1 us  matmul [5120→10240] q8_0r matvec_sk T=1,1,1
+    44.803 ms   7.1%   1280x  min     24.7 us  matmul [6144→5120] q8_0r matvec_sk T=1,1,1
+    40.066 ms   6.3%    960x  min     24.8 us  matmul [5120→6144] q8_0r matvec_sk T=1,1,1
+    29.909 ms   4.7%     20x  min   1010.8 us  matmul [5120→248320] q8_0r matvec_sk T=1,1,1
+    22.485 ms   3.6%    320x  min     45.9 us  matmul [5120→12288] q8_0r matvec_sk T=1,1,1
+    22.434 ms   3.5%   2560x  min      3.8 us  fused[Add]+RmsNorm main T=1,1,1
+    15.602 ms   2.5%   1920x  min      3.4 us  matmul [5120→48] q8_0r matvec_sk T=1,1,1
+    11.722 ms   1.9%    320x  min     20.1 us  attention decode T=1,1,1
+     9.691 ms   1.5%    960x  min      4.0 us  conv1d conv1d T=1,1,1
+     9.269 ms   1.5%    960x  min      6.1 us  delta_rule delta_rule T=1,1,1
+     7.121 ms   1.1%    640x  min      7.5 us  matmul [5120→1024] q8_0r matvec_sk T=1,1,1
+     5.182 ms   0.8%    960x  min      2.0 us  RmsNorm+fused[Silu,Mul] main T=1,1,1
+

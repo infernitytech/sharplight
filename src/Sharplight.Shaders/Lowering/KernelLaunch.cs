@@ -15,6 +15,13 @@ public sealed class KernelLaunch
     public required IReadOnlyList<BufferRange> Reads { get; init; }
     /// <summary>Ranges written by the launch.</summary>
     public required IReadOnlyList<BufferRange> Writes { get; init; }
+    /// <summary>
+    /// Launches sharing a non-null group write disjoint elements of the ranges they both write (e.g. one output split
+    /// between two launches by tile height), so they need no barrier between them for those writes; reads still order
+    /// against their writes.
+    /// </summary>
+    public object? WriteGroup { get; init; }
+
     /// <summary>Graph node(s) implemented by this launch (for debugging / profiling).</summary>
     public IReadOnlyList<Node> Nodes { get; init; } = [];
 

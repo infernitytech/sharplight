@@ -443,6 +443,9 @@ public sealed partial class GraphLowerer
     /// <summary>Extra condition for launches emitted while set (conditional fallback launches).</summary>
     private Func<Bindings, bool>? _launchCondition;
 
+    /// <summary>Write group of the launches emitted while set (see <see cref="KernelLaunch.WriteGroup"/>).</summary>
+    private object? _writeGroup;
+
     private void Emit(string name, IEnumerable<Node> nodes, IReadOnlyList<KernelVariant> variants, IReadOnlyList<KernelArg> args,
         IEnumerable<TensorRef> reads, IEnumerable<TensorRef> writes)
     {
@@ -459,6 +462,7 @@ public sealed partial class GraphLowerer
             Reads = [.. reads.Select(Range)],
             Writes = [.. writes.Select(Range)],
             Nodes = [.. nodes],
+            WriteGroup = _writeGroup,
         });
     }
 
