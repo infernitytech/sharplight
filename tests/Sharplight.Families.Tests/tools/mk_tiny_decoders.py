@@ -119,6 +119,12 @@ EXTRA = {
                                 layer_types=["linear_attention", "full_attention", "linear_attention", "full_attention"],
                                 full_attn_alpha_factor=1.5, full_attn_beta_factor=0.8, linear_attn_alpha_factor=1.3, linear_attn_beta_factor=0.9,
                                 mlp_alpha_factor=1.2, mlp_beta_factor=0.7)),
+    # The same in the form llama.cpp's minimax-01 supports (one residual scale, beta factors 1), for convert_linear_hybrids_gguf.py.
+    "minimax-llamacpp": ("minimax", dict(hidden_size=64, intermediate_size=48, num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=2,
+                                         head_dim=16, num_local_experts=4, num_experts_per_tok=2, max_position_embeddings=256, block_size=8,
+                                         layer_types=["linear_attention", "full_attention", "linear_attention", "linear_attention"],
+                                         full_attn_alpha_factor=1.3, full_attn_beta_factor=1.0, linear_attn_alpha_factor=1.3,
+                                         linear_attn_beta_factor=1.0, mlp_alpha_factor=1.3, mlp_beta_factor=1.0)),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})
