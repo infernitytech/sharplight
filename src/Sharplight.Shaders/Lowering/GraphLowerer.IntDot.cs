@@ -126,7 +126,7 @@ public sealed partial class GraphLowerer
         }
 
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, _ => k + k / 4 }];
+        long[] shape = [rowsMax, code switch { ActivationCode.Fp8 => k + k / 32, ActivationCode.F16 => 2 * k, ActivationCode.SplitF16 => 4 * k + 16, _ => k + k / 4 }];
         TensorRef quantized;
         if (shareable)
         {
@@ -151,11 +151,16 @@ public sealed partial class GraphLowerer
         {
             ActivationCode.Fp8 => Lib("gemm_fp8.slang", "quantize_fp8", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_FP8", 1))),
             ActivationCode.F16 => Lib("data.slang", "to_f16", Macros(("K", k), ("X_STRIDE", xStride))),
+            ActivationCode.SplitF16 => Lib("data.slang", "split_rows", Macros(("K", k), ("X_STRIDE", xStride))),
             _ => Lib("mmvq.slang", "quantize_q8_1", Macros(("K", k), ("X_STRIDE", xStride), ("KERNEL_QUANTIZE_Q8_1", 1))),
         };
         long valuesPerThread = code == ActivationCode.F16 ? 8 : 4;
-        Emit(code switch { ActivationCode.Fp8 => $"{label} x→fp8", ActivationCode.F16 => $"{label} x→f16", _ => $"{label} x→q8" }, nodes,
-            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256)))],
+        Func<Bindings, Grid> grid = code == ActivationCode.SplitF16
+            ? b => new Grid((uint)rows(b))
+            : b => new Grid(Grid.Div(rows(b) * (k / valuesPerThread), 256));
+        string what = code switch { ActivationCode.Fp8 => "fp8", ActivationCode.F16 => "f16", ActivationCode.SplitF16 => "split f16", _ => "q8" };
+        Emit($"{label} x→{what}", nodes,
+            [new KernelVariant(b => rows(b) >= minRows && rows(b) <= maxRows, kernel, grid)],
             [Pointer(x), Pointer(quantized), TokenArg(x, rowsPerLead)],
             [x], [quantized]);
         return quantized;

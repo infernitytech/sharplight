@@ -184,3 +184,47 @@ void to_f16(uint3 dtid : SV_DispatchThreadID, uniform ToF16Params p)
     ((uint4*)(p.y + row * K + c))[0] = u;
 }
 #endif
+
+#ifdef KERNEL_SPLIT_ROWS
+// Rows of f32 (row stride X_STRIDE elements) -> the split f16 form of the split-f16 GEMM (common.slang): per row
+// 4K + 16 bytes holding K hi halves, K lo halves and 1 / split_scale of the row's largest magnitude (the row was multiplied
+// by split_scale before splitting). One workgroup per row, 8 values per thread and step.
+struct SplitRowsParams
+{
+    float* x;
+    uint8_t* y;
+    uint T;
+};
+
+groupshared float gSplitMax[8];
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void split_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform SplitRowsParams p)
+{
+    uint row = gid.x, tid = ltid.x;
+    float* xr = p.x + uint64_t(row) * X_STRIDE;
+    float m = 0;
+    for (uint c = tid * 8; c < K; c += 2048)
+    {
+        float4 a = ((float4*)(xr + c))[0], b = ((float4*)(xr + c))[1];
+        m = max(m, max(max(max(abs(a.x), abs(a.y)), max(abs(a.z), abs(a.w))), max(max(abs(b.x), abs(b.y)), max(abs(b.z), abs(b.w)))));
+    }
+    m = WaveActiveMax(m);
+    if (tid % 32 == 0) gSplitMax[tid / 32] = m;
+    GroupMemoryBarrierWithGroupSync();
+    m = max(max(max(gSplitMax[0], gSplitMax[1]), max(gSplitMax[2], gSplitMax[3])), max(max(gSplitMax[4], gSplitMax[5]), max(gSplitMax[6], gSplitMax[7])));
+    float s = split_scale(m);
+    uint64_t yr = uint64_t(p.y) + uint64_t(row) * (4 * uint64_t(K) + 16);
+    for (uint c = tid * 8; c < K; c += 2048)
+    {
+        float4 a = ((float4*)(xr + c))[0], b = ((float4*)(xr + c))[1];
+        float v[8] = { a.x, a.y, a.z, a.w, b.x, b.y, b.z, b.w };
+        uint4 lo;
+        uint4 hi = split8_scaled(v, s, lo);
+        *(uint4*)(yr + uint64_t(c) * 2) = hi;
+        *(uint4*)(yr + (uint64_t(K) + c) * 2) = lo;
+    }
+    if (tid == 0) *(float*)(yr + 4 * uint64_t(K)) = 1.0 / s;
+}
+#endif
