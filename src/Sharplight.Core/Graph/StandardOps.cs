@@ -199,14 +199,20 @@ public static partial class StandardOps
     /// through its prefix, as value).
     /// Attribute <c>selection</c> (bool): sparse attention. The input after V (and after the sinks when present) is i32 [T, K] or [T, Hs, K]: the key positions
     /// query row t attends (per selection head; query head h uses selection head h / (Hq / Hs)) (as positions of its own sequence, e.g. from <see cref="IndexerTopK"/>); entries below 0 and positions the row cannot
-    /// see are skipped. Not combined with <c>window</c> or <c>chunk</c>.
+    /// see are skipped. Not combined with <c>window</c> or <c>chunk</c> (unless the selection lists compressed entries, below).
+    /// Attribute <c>compression</c> (int r &gt; 1): compressed attention. The input after V (and after the sinks when present) is a compressed KV
+    /// cache (<see cref="Models.StateDefinition.Compression"/> = r; rows laid out like the K cache, values read like V, so with <c>v_dims</c> their
+    /// prefix): a query at position p attends its visible rows of the K/V caches (with <c>window</c>, the last <c>window</c> positions) and,
+    /// in the same softmax, the compressed entries [0, (p + 1) / r) (complete windows only). With <c>selection</c> the selection lists compressed
+    /// entries instead of cache positions (the K/V caches are then attended densely).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks and selection) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
     /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
-    /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B.
+    /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B. A compressed cache with r
+    /// positions per row keeps ceil(B / r) rows per block: entry e of slot s is row table[s, e·r / B] · ceil(B / r) + (e·r mod B) / r.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 8, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 9, (i, a) =>
     {
         var q = i[0].Shape;
         var v = i[2].Shape;
@@ -239,6 +245,8 @@ public static partial class StandardOps
     /// Attribute <c>local</c> (int, default 0): the row's latest <c>local</c> groups (its own and the ones before it) are always picked.
     /// Attribute <c>per_head</c> (bool): there is no w input; every head selects for itself with the score <c>q[t, h] · key[j]</c> (no relu) and
     /// the output is [T, H, width] (one selection per head, e.g. per key-value group for <see cref="CachedAttention"/>).
+    /// Attribute <c>compression</c> (int r &gt; 1, plain selection only): the key cache is a compressed cache (<see cref="Models.StateDefinition.Compression"/>)
+    /// and a query at position p scores its entries [0, (p + 1) / r); the output lists entries.
     /// Multi-sequence and paged forms as <see cref="CachedAttention"/> (sequence rows [T, 4], runs [U, 4], optional block table; attributes
     /// <c>slots</c>, <c>block_size</c>): row t sees the positions [0, position] of its slot.
     /// </summary>
@@ -274,6 +282,8 @@ public static partial class StandardOps
     /// Inputs: state, x. Attribute: offset (runtime scalar name, default "n_past"). No outputs; side effect.
     /// Multi-sequence form: third input = sequence rows [T, 4], attribute <c>slots</c>; row t goes to row (slot · Ctx/S + position).
     /// Paged form: attribute <c>block_size</c> and a fourth input, the block table (see <see cref="CachedAttention"/>).
+    /// Attribute <c>compression</c> (int r &gt; 1): the state is a compressed cache (<see cref="Models.StateDefinition.Compression"/>); only the rows at
+    /// positions p with (p + 1) mod r = 0 are written, to entry (p + 1) / r − 1 (the other rows are ignored).
     /// </summary>
     public static readonly OpSchema CacheWrite = new("CacheWrite", OpCategory.Data, 2, 4, (i, a) => []);
 
@@ -298,6 +308,22 @@ public static partial class StandardOps
     /// Rollback form (<see cref="RecurrentRollback"/>): then the commits table and the record state.
     /// </summary>
     public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 9, (i, a) => [new(DataType.F32, i[2].Shape)]);
+
+    /// <summary>
+    /// Softmax-gated pooling of windows of positions with carried state (the compressor of compressed KV caches). Inputs: values [T, C] f32,
+    /// scores [T, C] f32, position bias [r, C] f32, positions i32 [T, A] (axis 0 is used), state State [P, 2C]. Attributes <c>ratio</c> (r) and
+    /// <c>overlap</c> (bool). Window w covers positions [w·r, (w + 1)·r); the row at a position p with (p + 1) mod r = 0 closes window
+    /// w = (p + 1) / r − 1 and outputs, per channel d, <c>Σ_q softmax_q(scores[q, d] + bias[q mod r, d]) · values[q, d]</c> over its positions q;
+    /// every other row outputs zeros. Output [T, C] f32. With <c>overlap</c> the windows overlap by r positions and the output is [T, C/2]: channel
+    /// d of window w pools channel d of the positions [(w − 1)·r, w·r) together with channel C/2 + d of [w·r, (w + 1)·r) in one softmax over 2r
+    /// entries (positions before 0 are left out). The state is a ring of the last P = r (2r with <c>overlap</c>) rows: row q mod P holds
+    /// [values[q] | scores[q] + bias[q mod r]] of position q, so a window can span several passes; the rows of a pass continue the positions of
+    /// the previous one.
+    /// Multi-sequence form (<see cref="MultiSequence"/>): then sequence rows [T, 4] and runs [U, 4]; the state is [S, P, 2C] and a run reads the
+    /// ring of its slot for the positions before its first one.
+    /// </summary>
+    public static readonly OpSchema WindowPool = new("WindowPool", OpCategory.Composite, 5, 7, (i, a) =>
+        [new(DataType.F32, new Shape(i[0].Shape[0], a.Get("overlap", false) ? i[0].Shape[1].FloorDiv(2) : i[0].Shape[1]))]);
 
     /// <summary>
     /// Pools consecutive row ranges of x [T, D] (packed sequences): spans i32 [B, 2] of (first row, row count) → [B, D] f32.
