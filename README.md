@@ -23,8 +23,8 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 131 are supported end to end, 3 partially and
-38 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+Of the 172 architectures llama.cpp knows, 134 are supported end to end, 3 partially and
+35 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
@@ -46,6 +46,7 @@ Of the 172 architectures llama.cpp knows, 131 are supported end to end, 3 partia
 | SSM | `mamba`, `mamba2`, `jamba`, `falcon-h1`, `granitehybrid`, `plamo2` |
 | RNN | `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7` |
 | Hybrid conv | `lfm2`, `lfm2moe`, `lfm3` |
+| Linear-attention hybrid | `kimi-linear`, `bailingmoe3`, `minimax-01` |
 | Encoder-decoder | `t5` (plus the Hugging Face-only `bart`, `mbart`) |
 | Encoder | `t5encoder`, `bert`, `nomic-bert`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `eurobert` |
 | Multimodal | `clip` |
