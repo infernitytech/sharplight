@@ -130,6 +130,16 @@ with tempfile.TemporaryDirectory() as work:
         text["first_k_dense_replace"] = text["mlp_layer_types"].index("sparse")
         from conversion import glm
         glm.Glm5NextModel.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer has no GLM special tokens
+    elif kind == "qwen4_exp":
+        # transformers renames the published "full_attention" layer type to "indexed_attention", which the converter does not know
+        # (it would write no QSA compress ratio for the trunk layers).
+        from conversion import qwen4exp
+        base_parameters = qwen4exp.Qwen4ExpTextModel.set_gguf_parameters
+
+        def set_gguf_parameters(self):
+            self.hparams["layer_types"] = ["full_attention" if t == "indexed_attention" else t for t in self.hparams["layer_types"]]
+            base_parameters(self)
+        qwen4exp.Qwen4ExpTextModel.set_gguf_parameters = set_gguf_parameters
     if kind in ("kimi_linear", "bailing_hybrid", "minimax", "minimax_m3_vl"):
         # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
         config["model_type"] = kind + "_original"

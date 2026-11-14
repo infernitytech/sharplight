@@ -40,8 +40,10 @@ namespace Sharplight.Architectures;
 /// and <c>output_hc.*</c> replaces <c>output_norm</c>, see <see cref="HyperConnections"/>); <c>ngram_embedding.*</c> with
 /// <c>layers.{i}.ngram.*</c> (see <see cref="NGramOptions"/> and <see cref="NGramEmbedding"/>);
 /// <c>linear_attention.gate_activation</c> ("silu" default, or "sigmoid"); <c>attention.indexer.{head_count, head_dim,
-/// block_size, token_budget}</c> with <c>layers.{i}.attention.indexer.{q,k,q_norm,k_norm}.weight</c> (QSA block selection;
-/// only the dense regime is implemented, which caps the context, see <see cref="DenseIndexerContext"/>).</item>
+/// block_size, token_budget}</c> with <c>layers.{i}.attention.indexer.{q,k,q_norm,k_norm}.weight</c> (QSA block selection: the
+/// raw indexer keys are cached, each complete block of <c>block_size</c> keys is scored by its mean key, RMS-normed and rotated at
+/// the block start, and the attention sees the best <c>token_budget / block_size</c> blocks plus the incomplete last block, see
+/// <see cref="IndexerSelect"/>).</item>
 /// <item>Optional vision tower (image input): hyper-parameters <c>qwen3_5.vision.*</c> and weights <c>vision.*</c> exactly as
 /// documented on <see cref="VisionParameters"/>, found either in the primary source (e.g. Hugging Face checkpoints) or in an
 /// auxiliary source with role <see cref="AuxiliaryRoles.Mmproj"/> (e.g. a separate projector file); the adapter does not care
@@ -76,19 +78,27 @@ public sealed class Qwen35Adapter : IModelAdapter
     }
 
     /// <summary>
-    /// The longest context for which a QSA block indexer (<c>attention.indexer.*</c>) selects every visible token, so dense
-    /// attention is exact: up to <c>token_budget / block_size</c> complete blocks plus the incomplete tail block. Block
-    /// selection beyond that is not implemented yet, so the usable context is capped there; no limit without an indexer.
+    /// QSA block selection of one attention layer: caches the raw indexer key of every row and returns the positions each query row
+    /// attends, i32 [T, budget + block − 1] (IndexerTopK, group score "mean"). Queries are the RMS-normed indexer query heads rotated
+    /// like the attention queries; a block's key is the mean of its raw keys, RMS-normed with <c>k_norm</c> and rotated at the block's
+    /// first position; its score is <c>Σ_h relu(q_h · key) / sqrt(D)</c>.
     /// </summary>
-    private static int DenseIndexerContext(ModelSource src)
+    private static Value IndexerSelect(GraphBuilder b, Value h, string p, Value positions, StateDefinition keyCache, Attributes rope,
+        int ropeDims, float ropeBase, float eps, int budget, int block)
     {
-        if (!src.Has($"{src.Architecture}.attention.indexer.token_budget"))
-        {
-            return int.MaxValue;
-        }
+        int dims = (int)b.Weight(p + "attention.indexer.k.weight").Shape[0].Fixed;
+        int heads = (int)(b.Weight(p + "attention.indexer.q.weight").Shape[0].Fixed / dims);
+        var q = b.Reshape(b.Linear(h, p + "attention.indexer.q.weight", name: $"{p}indexer_q"), 0, heads, dims);
+        q = b.Emit1("Rope", [b.RmsNorm(q, b.Weight(p + "attention.indexer.q_norm.weight"), eps), positions], rope);
+        var keys = b.State(keyCache);
+        b.CacheWrite(keys, b.Reshape(b.Linear(h, p + "attention.indexer.k.weight", name: $"{p}indexer_k"), 0, 1, dims));
 
-        int block = src.Arch("attention.indexer.block_size", 1);
-        return src.Arch<int>("attention.indexer.token_budget") / block * block + block - 1;
+        // Unweighted head sum: every head weighs 1/sqrt(D) (a [T, heads] constant derived from q so it follows the row count).
+        var weights = b.Scale(b.Reshape(b.Slice(q, 2, 0, 1), 0, heads), 0f, 1f / MathF.Sqrt(dims), $"{p}indexer_w");
+        b.RuntimeScalar(WellKnown.PastScalar);
+        var attributes = Attributes.From(("k", (long)budget), ("offset", WellKnown.PastScalar), ("group", (long)block), ("group_score", "mean"),
+            ("tail", true), ("pool_norm_eps", eps), ("pool_rope_dims", (long)ropeDims), ("pool_rope_base", ropeBase));
+        return b.Emit1("IndexerTopK", [q, keys, weights, b.Weight(p + "attention.indexer.k_norm.weight")], attributes, $"{p}indexer_topk");
     }
 
     /// <inheritdoc/>
@@ -115,7 +125,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             SsmInner: src.Arch<int>("linear_attention.value_head_dim") * valueHeads,
             FullAttnInterval: src.Arch("full_attention_interval", 4),
             Vocab: src.Weight("token_embedding.weight")!.Shape[0].IsSymbolic ? 0 : (int)src.Weight("token_embedding.weight")!.Shape[0].Fixed,
-            ContextLength: Math.Min(src.Arch("context_length", 32768), DenseIndexerContext(src)),
+            ContextLength: src.Arch("context_length", 32768),
             MRope: src.Has($"{src.Architecture}.rope.sections"),
             GroupedValueHeads: src.Arch("linear_attention.grouped_value_heads", false),
             Moe: MoeOptions.Read(src, normalizeDefault: true),
@@ -139,6 +149,9 @@ public sealed class Qwen35Adapter : IModelAdapter
         var states = new List<StateDefinition>();
         var kCache = new Dictionary<int, StateDefinition>();
         var vCache = new Dictionary<int, StateDefinition>();
+        var indexerCache = new Dictionary<int, StateDefinition>();
+        int indexerBudget = src.Arch("attention.indexer.token_budget", 0);
+        int indexerBlock = src.Arch("attention.indexer.block_size", 1);
         var convState = new Dictionary<int, StateDefinition>();
         var ssmState = new Dictionary<int, StateDefinition>();
         var ngramStates = new Dictionary<int, (StateDefinition Window, StateDefinition Conv)>();
@@ -156,6 +169,12 @@ public sealed class Qwen35Adapter : IModelAdapter
             {
                 states.Add(kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.KeyCache, Group = g });
                 states.Add(vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = options.KvCacheTypeFor(hp.HeadDim), Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), hp.NHeadKv, hp.HeadDim), Kind = StateKind.ValueCache, Group = g });
+                if (indexerBudget > 0 && src.Weight($"{g}.attention.indexer.k.weight") is { } indexerKeys)
+                {
+                    // Raw (un-normed, unrotated) indexer keys [ctx, 1, D]: blocks are pooled and normed when scored.
+                    var kvType = options.KvCacheTypeFor(hp.HeadDim);
+                    states.Add(indexerCache[il] = new StateDefinition { Name = $"{g}.indexer_key_cache", Type = kvType == DataType.F32 ? DataType.F32 : DataType.F16, Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), 1, indexerKeys.Shape[0].Fixed), Kind = StateKind.KeyCache, Group = g });
+                }
             }
 
             if (hp.NGram?.Layer == il)
@@ -340,7 +359,7 @@ public sealed class Qwen35Adapter : IModelAdapter
 
                 Value attnOut = IsRecurrent(il)
                     ? LinearAttention(b, h, p, b.State(convState[il]), b.State(ssmState[il]))
-                    : FullAttention(b, h, p, positions, b.State(kCache[il]), b.State(vCache[il]));
+                    : FullAttention(b, h, p, positions, b.State(kCache[il]), b.State(vCache[il]), indexerCache.GetValueOrDefault(il));
 
                 x = b.Add(attnOut, residual, $"{p}attn_residual");
                 var ffnResidual = x;
@@ -375,14 +394,14 @@ public sealed class Qwen35Adapter : IModelAdapter
             var (h, inject) = HyperConnections.Mix(b, x, p + "attention_hc.", hp.Streams, hp.NEmbd, hp.Eps);
             Value attnOut = IsRecurrent(il)
                 ? LinearAttention(b, h, p, b.State(convState[il]), b.State(ssmState[il]))
-                : FullAttention(b, h, p, positions, b.State(kCache[il]), b.State(vCache[il]));
+                : FullAttention(b, h, p, positions, b.State(kCache[il]), b.State(vCache[il]), indexerCache.GetValueOrDefault(il));
             x = HyperConnections.Inject(b, x, attnOut, inject!, hp.Streams, hp.NEmbd, $"{p}attn_residual");
 
             (h, inject) = HyperConnections.Mix(b, x, p + "ffn_hc.", hp.Streams, hp.NEmbd, hp.Eps);
             return HyperConnections.Inject(b, x, FeedForward(b, h, p), inject!, hp.Streams, hp.NEmbd, $"{p}l_out");
         }
 
-        Value FullAttention(GraphBuilder b, Value h, string p, Value positions, Value kc, Value vc)
+        Value FullAttention(GraphBuilder b, Value h, string p, Value positions, Value kc, Value vc, StateDefinition? indexerKeys = null)
         {
             int D = hp.HeadDim;
             // Joint query + output-gate projection, interleaved per head: [q(D), gate(D)] × heads.
@@ -402,7 +421,19 @@ public sealed class Qwen35Adapter : IModelAdapter
 
             b.CacheWrite(kc, k);
             b.CacheWrite(vc, v);
-            var attn = b.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D), name: $"{p}attn");
+            Value attn;
+            if (indexerKeys is null)
+            {
+                attn = b.CachedAttention(q, kc, vc, 1f / MathF.Sqrt(D), name: $"{p}attn");
+            }
+            else
+            {
+                var selection = IndexerSelect(b, h, p, positions, indexerKeys, rope, hp.RopeDims, hp.RopeBase, hp.Eps, indexerBudget, indexerBlock);
+                b.RuntimeScalar(WellKnown.PastScalar);
+                attn = b.Emit1("CachedAttention", [q, kc, vc, selection],
+                    Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("offset", WellKnown.PastScalar), ("selection", true)), $"{p}attn");
+            }
+
             attn = b.Mul(attn, b.Sigmoid(gate), $"{p}attn_gated");
             return b.Linear(b.Reshape(attn, 0, hp.NHead * D), p + "attention.o.weight", name: $"{p}attn_out");
         }

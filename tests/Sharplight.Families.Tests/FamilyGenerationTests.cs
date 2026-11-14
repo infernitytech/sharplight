@@ -173,6 +173,7 @@ public class FamilyGenerationTests
         .. ExtendedFamilyCases.All,
         // Bring-up round 9: per-token switched adapters (Granite Switch).
         .. AdapterFamilyCases.All,
+        .. SparseQsaCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)

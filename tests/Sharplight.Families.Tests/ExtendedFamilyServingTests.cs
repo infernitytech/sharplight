@@ -47,6 +47,9 @@ public class ExtendedFamilyServingTests
             // Round 9: per-token adapters (the router's KV cache next to the layers').
             "hf/tiny-random-granite-switch",
             "gguf/tiny-random-granite-switch-f32.gguf",
+            // Round 9: QSA block selection in its sparse regime (budget of two blocks of 4 plus the tail).
+            "hf/tiny-random-qwen3.8-flash-next-sparse",
+            "gguf/tiny-random-qwen3.8-flash-next-sparse-f32.gguf",
         ];
         foreach (string model in models)
         {
