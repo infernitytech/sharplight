@@ -44,7 +44,8 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Matrix-vector variants for up to 8 rows of x (memory bound: decode, small batches). Rows up to <see cref="InvariantRows"/>
-    /// run the single-row kernel and K split with more columns, so each row's sum is computed exactly as for one row.
+    /// run the single-row kernel and K split with more columns, and every variant sums each 8-weight group as one explicit
+    /// fma chain (<c>MV_FMA_CHAIN</c>), so each row's sum is computed exactly as for one row.
     /// </summary>
     private List<KernelVariant> MatvecVariants(Func<string, Dictionary<string, string>, CompiledKernel> lib, Dictionary<string, string> m,
         long N, long K, Func<Bindings, long> rows)
@@ -52,6 +53,11 @@ public sealed partial class GraphLowerer
         // Decode (one token): split-K matvec, one workgroup per output row, K spread over enough threads that
         // each walks only a few 8-weight groups (keeps many loads in flight per row).
         int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+        if (InvariantRows > 0)
+        {
+            m = new Dictionary<string, string>(m) { ["MV_FMA_CHAIN"] = "1" };
+        }
+
         KernelVariant SingleRowKernel(Func<Bindings, bool> when, long columns)
         {
             var macros = new Dictionary<string, string>(m)
