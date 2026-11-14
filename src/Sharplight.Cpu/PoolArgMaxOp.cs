@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -40,6 +41,7 @@ internal sealed unsafe class PoolArgMaxOp : CpuOp
         CpuParallel.For((int)Math.Min(planes, int.MaxValue), plane => Plane(plane));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Plane(long plane)
     {
         float* xp = (float*)_x.P + plane * _h * _w;

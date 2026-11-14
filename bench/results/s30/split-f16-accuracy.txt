@@ -1,0 +1,11 @@
+[768 -> 2048] w~0.03 x~1: relative rms f32 SIMT 3.52E-007, split-f16 1.57E-007, f16 2.65E-004
+[384 -> 1536] w~0.03 x~1: relative rms f32 SIMT 1.81E-007, split-f16 1.50E-007, f16 2.64E-004
+[3072 -> 768] w~0.03 x~1: relative rms f32 SIMT 4.98E-007, split-f16 1.72E-007, f16 2.64E-004
+[768 -> 2304] w~0.03 x~1: relative rms f32 SIMT 1.84E-007, split-f16 1.84E-007, f16 1.84E-007
+[96 -> 200] w~1 x~1: relative rms f32 SIMT 1.76E-007, split-f16 1.76E-007, f16 1.76E-007
+[768 -> 1024] w~1E-07 x~1000000: relative rms f32 SIMT 2.52E-007, split-f16 1.55E-007, f16 NaN
+[768 -> 1024] w~1000 x~1E-06: relative rms f32 SIMT 2.52E-007, split-f16 1.54E-007, f16 3.00E-002
+[768 -> 1024] w~0.03 x~1 wide: relative rms f32 SIMT 1.21E-007, split-f16 1.29E-007, f16 NaN
+[37m   Sharplight.Vulkan.Tests  Total: 8, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 4.660s
+
+[exited with code 0]

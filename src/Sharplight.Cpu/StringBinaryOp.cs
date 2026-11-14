@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -7,6 +8,7 @@ internal sealed unsafe class StringBinaryOp(TRef a, TRef b, TRef y, bool equal) 
 {
     public override string Name => equal ? "StringEqual" : "StringConcat";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         int rank = y.Rank;
@@ -50,6 +52,7 @@ internal sealed unsafe class StringBinaryOp(TRef a, TRef b, TRef y, bool equal) 
     }
 
     /// <summary>Element strides of a dense operand aligned to the output's trailing dims; 0 along broadcast dims.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long[] BroadcastStrides(TRef t, int rank, RunParameters p)
     {
         var strides = new long[rank];

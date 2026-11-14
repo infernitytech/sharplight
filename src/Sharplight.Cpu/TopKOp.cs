@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -45,6 +46,7 @@ internal sealed unsafe class TopKOp : CpuOp
         CpuParallel.For(ch, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         long s = chunk * _per;

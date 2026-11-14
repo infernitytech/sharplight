@@ -4,8 +4,8 @@ usage:
   parity_bench.py run <out.jsonl> [--rounds R] [--engines e1,e2,...] [--models m1,m2,...] [--runs N]
   parity_bench.py table <out.jsonl> [<before.jsonl>]
 
-Engines: sl-cpu, ort-cpu, sl-vulkan, sl-vulkan-rp (AllowReducedPrecision), sl-vulkan-split (SplitHalfMatMul: split-f16
-tensor-core f32 matmuls), ort-cuda (TF32 allowed, the EP default), ort-cuda-strict (use_tf32=0). Every measurement is its own process. The engines of one model run back to back and the
+Engines: sl-cpu, ort-cpu, sl-vulkan, sl-vulkan-rp (AllowReducedPrecision), sl-vulkan-simt (strict with SplitHalfMatMul off: f32
+SIMT GEMMs instead of the split-f16 tensor-core GEMM), ort-cuda (TF32 allowed, the EP default), ort-cuda-strict (use_tf32=0). Every measurement is its own process. The engines of one model run back to back and the
 rounds repeat the whole set, so A/B pairs are interleaved in time; the table reports the minimum over the rounds of each
 process's min-of-N and the median over the rounds of its median.
 
@@ -41,8 +41,10 @@ MODELS = {
     "segformer-b0": ("segformer-b0.json", [1, 8]),
     "mobilesam-encoder": ("zoo/mobilesam-encoder.json", [1]),
     "raft-large": ("zoo/raft-large.json", [1]),
+    "fasterrcnn-12 (counts)": ("survey/fasterrcnn-12.json", [1]),
+    "maskrcnn-12 (counts)": ("survey/maskrcnn-12.json", [1]),
 }
-ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-split", "ort-cuda", "ort-cuda-strict"]
+ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-simt", "ort-cuda", "ort-cuda-strict"]
 CPU_ENGINES = {"sl-cpu", "ort-cpu"}
 
 
@@ -64,8 +66,8 @@ def command(engine, manifest, batch, runs, threads):
         cmd = ["dotnet", dll, manifest, provider, "--runs", str(runs), "--batch", str(batch)]
         if engine == "sl-vulkan-rp":
             cmd.append("--reduced-precision")
-        if engine == "sl-vulkan-split":
-            cmd.append("--split-f16")
+        if engine == "sl-vulkan-simt":
+            cmd.append("--no-split-f16")
     else:
         python = os.environ.get("ORT_PYTHON", "python3")
         cmd = [python, os.path.join(HERE, "ort_latency.py"), manifest, engine[4:], "--runs", str(runs), "--batch", str(batch), "--threads", str(threads)]

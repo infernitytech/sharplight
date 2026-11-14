@@ -42,7 +42,7 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
-- **ONNX latency parity with onnxruntime** (§21, §25, §26, §27). Done:
+- **ONNX latency parity with onnxruntime** (§21, §25-§27, §30). Done:
   - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
     translation, block-quantized MatMulNBits;
   - the 128x128 SIMT GEMM, bmm split-K, the CPU conv as one implicit GEMM (with a shifted stride-1 form);
@@ -50,19 +50,25 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - the reduced-precision device loss and its batch-1 slowness;
   - fused encoder attention (decomposed MatMul → Softmax → MatMul and com.microsoft Attention / MultiHeadAttention)
     on the CPU tiled kernel and a Vulkan flash kernel with split-f16 products in strict precision;
-  - an opt-in split-f16 tensor-core GEMM for f32 matmuls (`SplitHalfMatMul`, not f32-exact);
+  - the split-f16 tensor-core GEMM and conv at f32 accuracy (row / block scales, promoted tensor-core sums) as the
+    strict default for f32 weights (`SplitHalfMatMul`, §30);
   - CPU conv task planning by operand traffic, subsampled strided 1x1 convs, row-form max pooling, core-affine
     parallel loops; fused sibling (Q / K / V) projections; Vulkan Det / Inverse / volumetric GridSample / int64
-    CumSum (§27).
+    CumSum (§27);
+  - CPU channels-last (NHWC) convs, depthwise convs and pooling with layout propagation; Vulkan attention over strided
+    K / V; data-dependent counts grouped by level with device-side forwarding (R-CNN wall 119 → 12 ms);
+    LinearAttention / DeformConv / Unique / TfIdf / tree ensembles / SVM on Vulkan; AggressiveOptimization on the
+    CPU kernels for package consumers (§30).
 
   Open gaps:
-  - Vulkan f32 GEMMs against ORT's TF32 in strict precision: vit, raft, whisper, resnet50 / convnext b8 at 1.5-2.4x;
-    split f16 at f32-level accuracy (subnormal lo parts), split f16 for convs and bmm, the SIMT GEMM;
-  - Vulkan attention over strided K / V (the fused projections add two copies per layer);
-  - CPU convolution at b8 and depthwise convs (resnet50 b8 1.5x, mobilenetv2 / efficientnet 1.2-1.6x): a blocked
-    NCHWc / NHWC layout with propagation, and Winograd on top of it;
-  - CPU encoder GEMMs stream each layer's weights from DRAM (vit [3072 → 768]: 640 µs in the model, 400 µs warm);
-  - detection models round-trip each data-dependent count through the host (R-CNN: 100 ms wall, 34 ms GPU).
+  - Vulkan transformer encoders against ORT's TF32: vit 1.7-2.0x, whisper 1.5x, bert b8 1.3x. The split GEMM is bound
+    by staging its tiles: fuse the activation split into the producing LayerNorm / GELU, and speed up the tensor-core
+    main loop (one f16 product runs at about 100 TFLOPS);
+  - split f16 for bmm (raft's correlation, 1.15 ms SIMT) and the f32 SIMT GEMM for devices without f16 matrices;
+  - detection: new count values re-record the command buffers (1-6 ms per new image); read counts from device memory
+    with indirect dispatch;
+  - CPU Winograd on the channels-last layout for 64 / 128-channel 3x3 convs; encoder GEMMs stream each layer's weights
+    from DRAM.
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
 
 ## Performance ideas

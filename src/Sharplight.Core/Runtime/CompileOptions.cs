@@ -23,13 +23,14 @@ public sealed class CompileOptions
     public bool AllowReducedPrecision { get; init; }
 
     /// <summary>
-    /// Allow f32-weight matmuls on f16 tensor cores in the error-compensated split form: each value becomes an f16 hi part plus
-    /// an f16 lo part and each product hi·hi + hi·lo + lo·hi, accumulated in f32. Much closer to f32 than f16 or TF32 products
-    /// (about 2^-22 relative error per value; values below 2^-3 lose some bits to f16 subnormals), yet not bit-for-bit f32,
-    /// so it is opt-in. Ignored where <see cref="AllowReducedPrecision"/> already permits plain f16 products, and on devices
-    /// without f16 matrix products (<see cref="DeviceFeatures.MatrixF16"/>).
+    /// Allow f32-weight matmuls on f16 tensor cores in the error-compensated split form (default: true): each row of the
+    /// activations and of the weights is scaled by a power of two, each value becomes an f16 hi part plus an f16 lo part, and
+    /// each product is hi·hi + hi·lo + lo·hi, summed in f32. The scaling keeps both parts in f16's normal range, so the pair
+    /// holds 22-23 significant bits of every value, and the error against an f64 reference is at or below that of the f32
+    /// SIMT GEMM. Set to false to keep f32 matmuls on the SIMT GEMM. Ignored where <see cref="AllowReducedPrecision"/>
+    /// already permits plain f16 products, and on devices without f16 matrix products (<see cref="DeviceFeatures.MatrixF16"/>).
     /// </summary>
-    public bool SplitHalfMatMul { get; init; }
+    public bool SplitHalfMatMul { get; init; } = true;
 
     /// <summary>
     /// Steps of up to this many activation rows compute every row bit-identically to a step of that row alone (0: no such

@@ -249,10 +249,22 @@ internal static class DiagnosticSwitches
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
 
     /// <summary>
-    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation asks for it
+    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation allows it
     /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> keeps them on the f32 SIMT GEMM.
     /// </summary>
     public static bool GemmSplitHalf { get; } = IsNotZero("SHARPLIGHT_GEMM_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when strict-precision convs with constant f32 weights may run in the split-f16 form of conv_cm
+    /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_CONV_SPLIT_F16=0</c> keeps them on the three-part bf16 form.
+    /// </summary>
+    public static bool ConvSplitHalf { get; } = IsNotZero("SHARPLIGHT_CONV_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when bidirectional attention reads strided f32 K / V (slices of a fused projection) in place;
+    /// <c>SHARPLIGHT_ATTN_STRIDED_KV=0</c> copies them to dense rows first.
+    /// </summary>
+    public static bool AttentionStridedKv { get; } = IsNotZero("SHARPLIGHT_ATTN_STRIDED_KV");
 
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");

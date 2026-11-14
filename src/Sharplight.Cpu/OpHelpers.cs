@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -62,6 +63,7 @@ internal static unsafe class OpHelpers
     /// <summary>Reads element <paramref name="i"/> of a dense i32/i64 index tensor.</summary>
     public static long Idx(TRef t, long i) => t.Type == DataType.I64 ? ((long*)t.P)[i] : ((int*)t.P)[i];
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static long[] Dims(TRef t, RunParameters p)
     {
         var d = new long[t.Rank];
@@ -73,6 +75,7 @@ internal static unsafe class OpHelpers
         return d;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static long Prod(long[] d, int from, int to)
     {
         long n = 1;
@@ -84,6 +87,7 @@ internal static unsafe class OpHelpers
         return n;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static long[] Strides(long[] d)
     {
         var s = new long[d.Length];
@@ -118,6 +122,7 @@ internal static unsafe class OpHelpers
     }
 
     /// <summary>Broadcast element strides of t aligned to the output rank (0 on broadcast axes).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static long[] Align(TRef t, int outRank)
     {
         var s = new long[outRank];

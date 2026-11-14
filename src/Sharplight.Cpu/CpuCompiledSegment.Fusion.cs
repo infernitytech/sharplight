@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 
 namespace Sharplight.Cpu;
@@ -21,6 +22,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// <summary>Nodes computed by the epilogue of an earlier op; lowering skips them.</summary>
     private readonly HashSet<Node> _absorbed = [];
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void IndexConsumers()
     {
         foreach (var node in _segment.Nodes)
@@ -55,6 +57,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// computed dense tensor; then one unary activation, each the sole consumer of the previous value. The absorbed nodes'
     /// outputs alias <paramref name="y"/>. Returns null when nothing can be fused.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private OutputEpilogue? AbsorbEpilogue(Value output, TRef y, bool columnBias = false)
     {
         TRef? biasVector = null;
@@ -78,7 +81,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         if (SoleConsumer(current) is { Op.Name: "Add" } add)
         {
             var other = add.Inputs[0] == current ? add.Inputs[1] : add.Inputs[0];
-            if (_refs.TryGetValue(other, out var r) && r.Type == Tensors.DataType.F32 && r.IsDense && r.Sym == y.Sym
+            if (_refs.TryGetValue(other, out var r) && r.Type == Tensors.DataType.F32 && (r.IsDense && y.IsDense || r.Strides.AsSpan().SequenceEqual(y.Strides)) && r.Sym == y.Sym
                 && r.Dims.AsSpan().SequenceEqual(y.Dims) && add.Output.Shape.Equals(output.Shape))
             {
                 residual = r;

@@ -12,6 +12,7 @@ internal static unsafe partial class Quant
     private static readonly float[] s_ue4m3 = BuildUe4m3();
 
     /// <summary>UE4M3 scale byte (4 exponent bits, bias 7, 3 mantissa bits) decoded as ggml does: halved, and 0 / 0x7F (NaN) read as zero.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildUe4m3()
     {
         var table = new float[256];
@@ -40,6 +41,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>MXFP4: 32 values = { u8 e; u8 qs[16] } (17 bytes); value j&lt;16: fp4(low nibble of qs[j]), j&gt;=16: fp4(high nibble of qs[j-16]), times the E8M0 scale.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void MXFP4(byte* p, long nb, float* dst)
     {
         var table = Vector128.Create(0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12).AsSByte();
@@ -54,6 +56,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>NVFP4: 64 values = { u8 d[4]; u8 qs[32] } (36 bytes); four 16-value sub-blocks with a UE4M3 scale each, laid out like MXFP4 halves (low nibbles first).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void NVFP4(byte* p, long nb, float* dst)
     {
         fixed (float* scaleTable = s_ue4m3)

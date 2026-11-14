@@ -11,4 +11,10 @@ public sealed class PlacementOptions
     public long ReservePerDevice { get; init; } = 1L << 30;
     /// <summary>Bounds and feature switches used to compile every segment.</summary>
     public required CompileOptions Compile { get; init; }
+    /// <summary>
+    /// Whether nodes are ordered by data-dependent count level, so that the independent counts a device computes (e.g. the
+    /// per-class NonZero and NonMaxSuppression of a detection head) share one segment and one round trip to the host instead of
+    /// ending a segment each. Default true; <c>SHARPLIGHT_COUNT_LEVELS=0</c> also turns it off.
+    /// </summary>
+    public bool GroupDataDependentCounts { get; init; } = true;
 }

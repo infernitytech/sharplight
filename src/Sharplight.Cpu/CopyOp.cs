@@ -1,8 +1,12 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Materializes (possibly strided) data into a dense destination; also implements Contiguous.</summary>
+/// <summary>
+/// Materializes (possibly strided) data into a dense destination; also implements Contiguous. Large copies run in
+/// parallel, split along the outer axis or, when it is short (batch 1), along the largest other axis.
+/// </summary>
 internal sealed unsafe class CopyOp : CpuOp
 {
     private readonly TRef _x;
@@ -10,6 +14,8 @@ internal sealed unsafe class CopyOp : CpuOp
     private readonly Action<int> _body;
     private long _chunkRows;
     private long _d0;
+    private int _split;
+    private long _splitDim;
     public override string Name => "Copy";
     public CopyOp(TRef x, TRef y)
     {
@@ -18,6 +24,7 @@ internal sealed unsafe class CopyOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long d0 = _x.Rank == 0 ? 1 : _x.Dim(0, p);
@@ -30,12 +37,26 @@ internal sealed unsafe class CopyOp : CpuOp
 
         if (_x.Rank >= 2 && total > 65536)
         {
-            int chunks = (int)Math.Min(d0, CpuParallel.Chunks(total, 32768));
-            _chunkRows = (d0 + chunks - 1) / chunks;
+            int want = CpuParallel.Chunks(total, 32768);
+            _split = 0;
+            _splitDim = d0;
+            for (int k = 1; k < _x.Rank && _splitDim < want; k++)
+            {
+                if (_x.Dims[k] > _splitDim)
+                {
+                    _split = k;
+                    _splitDim = _x.Dims[k];
+                }
+            }
+
+            int chunks = (int)Math.Min(_splitDim, want);
+            _chunkRows = (_splitDim + chunks - 1) / chunks;
             CpuParallel.For(chunks, _body);
         }
         else
         {
+            _split = 0;
+            _splitDim = d0;
             _chunkRows = d0;
             Body(0);
         }
@@ -49,13 +70,23 @@ internal sealed unsafe class CopyOp : CpuOp
             return;
         }
         long s = c * _chunkRows;
-        long e = Math.Min(_d0, s + _chunkRows);
+        long e = Math.Min(_splitDim, s + _chunkRows);
         if (s >= e)
         {
             return;
         }
 
         int es = _x.ElemSize;
-        Mem.CopyStrided(_x.P + s * _x.Strides[0] * es, _x.Strides, _y.P + s * _y.Strides[0] * es, _y.Strides, _x.Dims, e - s, es);
+        byte* src = _x.P + s * _x.Strides[_split] * es;
+        byte* dst = _y.P + s * _y.Strides[_split] * es;
+        if (_split == 0)
+        {
+            Mem.CopyStrided(src, _x.Strides, dst, _y.Strides, _x.Dims, e - s, es);
+            return;
+        }
+
+        var dims = (long[])_x.Dims.Clone();
+        dims[_split] = e - s;
+        Mem.CopyStrided(src, _x.Strides, dst, _y.Strides, dims, _d0, es);
     }
 }

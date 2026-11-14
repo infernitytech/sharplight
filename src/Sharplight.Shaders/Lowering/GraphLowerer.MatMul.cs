@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -33,6 +34,9 @@ public sealed partial class GraphLowerer
     private readonly BufferDecl?[] _splitScratch = new BufferDecl?[3];
 
     private int _splitScratchNext;
+
+    /// <summary>Split-f16 parts and row scales per constant weight (see <see cref="SplitWeights"/>).</summary>
+    private readonly Dictionary<Value, (TensorRef Parts, TensorRef Scales)> _splitWeights = [];
 
     /// <summary>
     /// Use the workgroup-scope matrix GEMM (<see cref="DeviceFeatures.MatrixWorkgroup"/>) for prefill matmuls when the
@@ -255,7 +259,9 @@ public sealed partial class GraphLowerer
     {
         bool split = m.TryGetValue("GEMM_SPLIT", out var splitMacro) && splitMacro == "1";
         bool wideK = !split && DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
-        int[] layout = Gemm2Layout(tileRows, large, wideK);
+        // The split form keeps two accumulator sets live (the step's products, then the f32 sums): the 8-warp layout's
+        // 64x32 subgroup tiles leave registers for them, the 4-warp layout's 64x64 tiles spill (vit [768 → 3072]: 151 against 196 us).
+        int[] layout = Gemm2Layout(tileRows, large || split, wideK);
         int threads = layout[0] * layout[1] * 32;
         int columns = layout[1] * layout[3] * 16;
         int blockK = wideK ? 64 : 32;
@@ -412,12 +418,99 @@ public sealed partial class GraphLowerer
                 SplitRows = plan.SplitRows,
             };
         }
+        else if (plan.SplitHalf)
+        {
+            activations = EmitSplitHalfMatMul(plan);
+        }
         else
         {
             EmitDirectMatMul(plan);
         }
 
         EmitSplitKMatMul(plan, activations);
+    }
+
+    /// <summary>
+    /// Emits the f32 matvec launch, the split of x into row-scaled f16 hi / lo parts (shared by the matmuls reading the same
+    /// rows) and the split-f16 GEMM. Returns the split activations.
+    /// </summary>
+    private TensorRef EmitSplitHalfMatMul(MatMulPlan p)
+    {
+        if (MinRows(p.X) * p.RowsPerLead <= MatvecMaxRows)
+        {
+            Emit(MatMulLabel(p), [p.Node],
+                MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), WithoutSplit(p.Macros), p.N, p.K, p.RowCount),
+                [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
+                [p.X, p.W], [p.Y]);
+        }
+
+        var split = QuantizedActivations(MatMulLabel(p), [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, p.K, MatvecMaxRows + 1,
+            p.X.Shape[0] * p.RowsPerLead, ActivationCode.SplitF16);
+        Emit(MatMulLabel(p), [p.Node], Gemm2Variants(p, p.Macros, b => p.RowCount(b) > MatvecMaxRows),
+            [Pointer(split), Pointer(p.WeightParts!), Pointer(p.Y), Pointer(p.WeightScales!), TokenArg(p.X, p.RowsPerLead)],
+            [split, p.WeightParts!, p.WeightScales!], [p.Y]);
+        return split;
+    }
+
+    /// <summary>
+    /// The fewest rows <paramref name="r"/> can have: its fixed extent, a lone symbol at 1 (0 rows need no launch), 0 for other
+    /// expressions. Matmuls whose rows always exceed the matvec range need no matvec launch (nor, for split f16, the f32 weights).
+    /// </summary>
+    private static long MinRows(TensorRef r)
+        => r.Symbol is null ? r.Shape[0] : SymbolicExpression.Parse(r.Symbol).IsSymbol ? 1 : 0;
+
+    /// <summary>The macros without GEMM_SPLIT (the f32 matvecs and the split-K reduction of a split-f16 matmul).</summary>
+    private static Dictionary<string, string> WithoutSplit(Dictionary<string, string> m)
+    {
+        var copy = new Dictionary<string, string>(m);
+        copy.Remove("GEMM_SPLIT");
+        return copy;
+    }
+
+    /// <summary>
+    /// The split f16 form of the constant f32 weights <paramref name="weight"/> ([N, K] or a conv's [O, CG, KH, KW], read as
+    /// <paramref name="w"/>) for the split-f16 GEMM and conv (<see cref="SplitScaleTable"/>): the hi / lo parts and the per-row scales, both computed on the host when
+    /// the weights are uploaded. Null when the weights are not a constant of the graph.
+    /// </summary>
+    private (TensorRef Parts, TensorRef Scales)? SplitWeights(Value weight, TensorRef w)
+    {
+        if (w.Type != DataType.F32 || w.ByteOffset != 0 || w.Shape.Length < 2 || weight.Kind is not (ValueKind.Weight or ValueKind.Constant))
+        {
+            return null;
+        }
+
+        if (_splitWeights.TryGetValue(weight, out var cached))
+        {
+            return cached;
+        }
+
+        // Rows are the leading dimension (matmul [N, K], conv [O, CG, KH, KW]); the rest is one reduction row.
+        long rows = w.Shape[0];
+        long k = w.Shape.Skip(1).Aggregate(1L, (a, b) => a * b);
+        byte[] Source()
+        {
+            if (weight.Kind == ValueKind.Constant)
+            {
+                return weight.ConstantData!;
+            }
+
+            var bytes = new byte[rows * k * 4];
+            weight.Weight!.Source.Read(0, bytes);
+            return bytes;
+        }
+
+        (WeightInfo Parts, WeightInfo Scales) Create()
+            => (Transient(weight.Name + ":split-f16", DataType.F16, new Shape(rows, 2 * k), () => SplitScaleTable.Split(Source(), rows, k)),
+                Transient(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k)));
+        static WeightInfo Transient(string name, DataType type, Shape shape, Func<byte[]> produce)
+            => new() { Name = name, Type = type, Shape = shape, Source = new TransientWeightSource(type.ByteSize(shape.Elements()), produce) };
+
+        // Model weights: one derived pair per source tensor, so shared-weight registries upload it once for every compilation.
+        var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, Create) : Create();
+        var parts = new TensorRef(NewBuffer(BufferKind.Weight, partsInfo.Name, partsInfo.ByteSize, w: partsInfo), 0, DataType.F16, [rows, 2 * k], [2 * k, 1], null);
+        var scales = new TensorRef(NewBuffer(BufferKind.Weight, scalesInfo.Name, scalesInfo.ByteSize, w: scalesInfo), 0, DataType.F32, [rows], [1], null);
+        _splitWeights[weight] = (parts, scales);
+        return (parts, scales);
     }
 
     /// <summary>Resolves operands, kernel format macros and which GEMM family applies to a MatMul node.</summary>
@@ -441,7 +534,13 @@ public sealed partial class GraphLowerer
         // f32 weights under strict precision: the split-f16 tensor-core GEMM when allowed (CompileOptions.SplitHalfMatMul), on
         // grids large enough for tensor cores to beat the f32 SIMT GEMM.
         long rowsBound = (x.Symbol is null ? x.Shape[0] : _opt.Compile.Bound(x.Symbol)) * rowsPerLead;
-        bool splitHalf = !coop && SplitHalfGemmUsable(n, w.Type, K) && !SmallCoopGrid(N, K, rowsBound);
+        (TensorRef Parts, TensorRef Scales)? splitWeights = null;
+        if (!coop && SplitHalfGemmUsable(n, w.Type, K) && !SmallCoopGrid(N, K, rowsBound))
+        {
+            splitWeights = SplitWeights(n.Inputs[1], w);
+        }
+
+        bool splitHalf = splitWeights is not null;
         if (splitHalf)
         {
             coop = true;
@@ -470,16 +569,18 @@ public sealed partial class GraphLowerer
             RowsPerLead = rowsPerLead,
             Macros = macros,
             Coop = coop,
-            SplitHalf = splitHalf,
+            WeightParts = splitWeights?.Parts,
+            WeightScales = splitWeights?.Scales,
             WorkgroupMatrix = workgroupMatrix,
             SplitRows = splitRows,
         };
     }
 
     /// <summary>
-    /// True when matmul <paramref name="n"/> with f32 weights runs on the split-f16 tensor-core GEMM (gemm_cm2 with GEMM_SPLIT):
-    /// requested by <see cref="CompileOptions.SplitHalfMatMul"/>, not needed because reduced precision is allowed, on devices
-    /// with f16 matrix products and 32-wide subgroups, K in 32-value blocks; <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> disables it.
+    /// True when matmul <paramref name="n"/> with f32 weights may run on the split-f16 tensor-core GEMM (gemm_cm2 with GEMM_SPLIT):
+    /// allowed by <see cref="CompileOptions.SplitHalfMatMul"/> (the default), not needed because reduced precision is allowed, on
+    /// devices with f16 matrix products and 32-wide subgroups, K in 32-value blocks; <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> disables
+    /// it. The weights must also be graph constants (<see cref="SplitWeights"/>).
     /// </summary>
     private bool SplitHalfGemmUsable(Node n, DataType type, long k)
         => type == DataType.F32 && _opt.Compile.SplitHalfMatMul && !_opt.Compile.AllowReducedPrecision && DiagnosticSwitches.GemmSplitHalf
@@ -655,7 +756,7 @@ public sealed partial class GraphLowerer
 
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
-        var splitMacros = (int split) => new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) };
+        var splitMacros = (int split) => new Dictionary<string, string>(WithoutSplit(p.Macros)) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) };
 
         var partialVariants = tiledSplits.Select(ts => p.WorkgroupMatrix
             ? new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split,
@@ -667,17 +768,19 @@ public sealed partial class GraphLowerer
                     ["SPLITK"] = ts.Split.ToString(CultureInfo.InvariantCulture),
                 }),
                 b => Gemm2Grid(p, b, (uint)ts.Split)));
+        KernelArg[] scaleArgs = p.WeightScales is { } weightScales ? [Pointer(weightScales)] : [];
+        TensorRef[] scaleReads = p.WeightScales is { } scaleRead ? [scaleRead] : [];
         Emit($"{MatMulLabel(p)} split-k", [p.Node],
             [.. partialVariants],
-            [Pointer(activations), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, rowsPerLead)],
-            [activations, p.W], [partial]);
+            [Pointer(activations), Pointer(p.WeightParts ?? p.W), new PointerArg(scratch, 0), .. scaleArgs, TokenArg(p.X, rowsPerLead)],
+            [activations, p.WeightParts ?? p.W, .. scaleReads], [partial]);
 
         var reduceVariants = splits.Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
             Lib("matmul.slang", "splitk_reduce", splitMacros(split)),
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         Emit($"matmul {p.Node.Output.Name} split-k reduce", [p.Node],
             [.. reduceVariants],
-            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, rowsPerLead)],
+            [new PointerArg(scratch, 0), Pointer(p.WeightParts ?? p.W), Pointer(p.Y), TokenArg(p.X, rowsPerLead)],   // w: unused by the reduction
             [partial], [p.Y]);
     }
 

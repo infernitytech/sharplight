@@ -68,6 +68,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>Q8_0 { f16 d; i8 q[32] }: u = q + 128, value = d * u - 128 * d.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeQ8_0(byte* p, long nb, byte* u, float* a, float* b)
     {
         var flip = Vector128.Create((byte)0x80);
@@ -81,6 +82,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>Q4_0 { f16 d; u8 qs[16] } (value d * (q - 8)) and Q4_1 { f16 d; f16 m; u8 qs[16] } (value d * q + m).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeQ4(byte* p, long nb, byte* u, float* a, float* b, bool hasMin)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -97,6 +99,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>Q5_0 { f16 d; u32 qh; u8 qs[16] } (value d * (q - 16)) and Q5_1 { f16 d; f16 m; u32 qh; u8 qs[16] } (value d * q + m).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeQ5(byte* p, long nb, byte* u, float* a, float* b, bool hasMin)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -120,6 +123,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>Q4_K { f16 d; f16 dmin; u8 scales[12]; u8 qs[128] }: eight 32-value sub-blocks, value d * sc * q - dmin * m.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeQ4_K(byte* p, long nb, byte* u, float* a, float* b)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -144,6 +148,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>Q5_K { f16 d; f16 dmin; u8 scales[12]; u8 qh[32]; u8 qs[128] }: like Q4_K with a fifth bit from qh.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeQ5_K(byte* p, long nb, byte* u, float* a, float* b)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -182,6 +187,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>Q6_K { u8 ql[128]; u8 qh[64]; i8 scales[16]; f16 d }: value d * sc * (q - 32), one scale per 16 values in order.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeQ6_K(byte* p, long nb, byte* u, float* a, float* b)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -217,6 +223,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>IQ4_NL { f16 d; u8 qs[16] }: a nibble indexes the non-linear codebook, value d * kvalues[q].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeIq4Nl(byte* p, long nb, byte* u, float* a, float* b)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -231,6 +238,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>IQ4_XS { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] }: eight IQ4_NL-like sub-blocks with 6-bit scales (ls - 32).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeIq4Xs(byte* p, long nb, byte* u, float* a, float* b)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -251,6 +259,7 @@ internal static unsafe partial class IntDot
     }
 
     /// <summary>MXFP4 { u8 e; u8 qs[16] }: a nibble indexes the doubled E2M1 values, value fp4[q] * 2^(e-127) / 2.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeMxfp4(byte* p, long nb, byte* u, float* a, float* b)
     {
         var mask = Vector128.Create((byte)0x0F);

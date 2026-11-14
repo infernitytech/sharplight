@@ -337,6 +337,7 @@ internal static unsafe partial class Quant
         return BitConverter.UInt32BitsToSingle(((h & 0x8000) << 16) | (((h & 0x7FFF) << 13) + 0x38000000));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q8_0(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 34, dst += 32)
@@ -347,6 +348,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q4_0(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -364,6 +366,7 @@ internal static unsafe partial class Quant
     private static readonly sbyte[] s_kvalues = [-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113];
 
     /// <summary>IQ4_NL: 32 values = { f16 d; u8 qs[16] }; value j&lt;16: d·kvalues[lo nibble of qs[j]], j&gt;=16: d·kvalues[hi nibble of qs[j-16]].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ4_NL(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 18, dst += 32)
@@ -378,6 +381,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>IQ4_XS: 256 values = { f16 d; u16 scales_h; u8 scales_l[4]; u8 qs[128] }: eight 32-value sub-blocks with 6-bit scales (ls - 32), each laid out like IQ4_NL.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void IQ4_XS(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 136, dst += 256)
@@ -398,6 +402,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q4_1(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -411,6 +416,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q5_0(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -430,6 +436,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q5_1(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -465,6 +472,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q4_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -493,6 +501,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q5_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -529,6 +538,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q6_K(byte* p, long nb, float* dst)
     {
         var mask = Vector128.Create((byte)0x0F);
@@ -569,6 +579,7 @@ internal static unsafe partial class Quant
     private static readonly float[] s_signLut = BuildSignLut();     // [256][8]: bit i of the byte -> +1 / -1
     private static readonly float[] s_codeLut = BuildCodeLut();     // [256][4]: 2-bit code i of the byte -> code-1
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildSignLut()
     {
         var t = new float[256 * 8];
@@ -583,6 +594,7 @@ internal static unsafe partial class Quant
         return t;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildCodeLut()
     {
         var t = new float[256 * 4];
@@ -597,6 +609,7 @@ internal static unsafe partial class Quant
         return t;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q1_0(byte* p, long nb, float* dst)
     {
         fixed (float* lut = s_signLut)
@@ -613,6 +626,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>2-bit codes, <paramref name="qBytes"/> code bytes per block after the f16 scale.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q2_0(byte* p, long nb, float* dst, int qBytes)
     {
         fixed (float* lut = s_codeLut)
@@ -628,6 +642,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Tern1(byte* p, long nb, float* dst)
     {
         for (long b = 0; b < nb; b++, p += 28, dst += 128)
@@ -677,6 +692,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DotQ8_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
     {
         var a0 = Vector512<float>.Zero;
@@ -708,6 +724,7 @@ internal static unsafe partial class Quant
         return Vector512.FusedMultiplyAdd(s, Vector512.Create(H(p)), acc);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DotQ4_0x4(float* x, byte* r0, byte* r1, byte* r2, byte* r3, long nb, float* res)
     {
         var a0 = Vector512<float>.Zero;

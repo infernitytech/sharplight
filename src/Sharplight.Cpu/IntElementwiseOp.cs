@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -58,6 +59,7 @@ internal sealed unsafe class IntElementwiseOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         int rank = _y.Rank;
@@ -144,6 +146,7 @@ internal sealed unsafe class IntElementwiseOp : CpuOp
         return !fmod && r != 0 && (r < 0) != (b < 0) ? r + b : r;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static int Pow(int a, int e)
     {
         if (e < 0)

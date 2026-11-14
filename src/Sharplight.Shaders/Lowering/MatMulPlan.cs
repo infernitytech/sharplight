@@ -39,10 +39,17 @@ internal sealed class MatMulPlan
     public required bool Coop { get; init; }
 
     /// <summary>
-    /// True when the tensor-core GEMM serves f32 weights and activations in the split-f16 form (GEMM_SPLIT: hi and lo f16 parts,
-    /// three products, near-f32 accuracy); such matmuls read f32 x directly (no shared f16 copy, no skinny GEMM).
+    /// True when the tensor-core GEMM serves f32 weights and activations in the split-f16 form (GEMM_SPLIT: row-scaled hi and lo
+    /// f16 parts, three products, f32 accuracy); such matmuls read x in the split form of <c>split_rows</c> (no shared f16
+    /// copy, no skinny GEMM) and the weight row scales <see cref="WeightScales"/>.
     /// </summary>
-    public bool SplitHalf { get; init; }
+    public bool SplitHalf => WeightScales is not null;
+
+    /// <summary>The split-f16 hi / lo parts of the row-scaled <see cref="W"/> (f16 [N, 2K]: per row K hi, then K lo), else null.</summary>
+    public TensorRef? WeightParts { get; init; }
+
+    /// <summary>The per-row power-of-two scales of <see cref="W"/> for the split-f16 GEMM (f32 [N]), else null.</summary>
+    public TensorRef? WeightScales { get; init; }
 
     /// <summary>True when the workgroup-matrix GEMM replaces gemm_cm2 for prefill.</summary>
     public required bool WorkgroupMatrix { get; init; }

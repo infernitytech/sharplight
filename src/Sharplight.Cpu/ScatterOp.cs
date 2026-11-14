@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -50,6 +51,7 @@ internal sealed unsafe class ScatterOp : CpuOp
         1 => a + b, 2 => a * b, 3 => T.Max(a, b), 4 => T.Min(a, b), _ => b,
     };
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Go<T>(RunParameters p) where T : unmanaged, INumber<T>
     {
         var yd = OpHelpers.Dims(_x, p);

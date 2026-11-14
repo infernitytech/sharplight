@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 namespace Sharplight.Cpu;
 
 // The shifted form of stride-1 convolutions: no im2col. The input is copied once per run into a zero-padded buffer of
@@ -23,6 +24,7 @@ internal sealed unsafe partial class ConvOp
     private long _xpadFloats;
 
     /// <summary>Geometry of the padded input and the per-tap read offsets.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void InitShifted()
     {
         int NR = Gemm.NR;
@@ -53,6 +55,7 @@ internal sealed unsafe partial class ConvOp
     }
 
     /// <summary>The dense [O][CG][KH*KW] weights reordered to [O][KH*KW][CG] (caller frees).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private float* TapMajorWeights(float* wDense)
     {
         int taps = _kh * _kw;
@@ -92,6 +95,7 @@ internal sealed unsafe partial class ConvOp
     }
 
     /// <summary>Copies plane <paramref name="task"/> (image * C + channel) of x into its zero-padded plane.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PadBody(int task)
     {
         float* src = (float*)_x.P + (long)task * _h * _w;
@@ -116,6 +120,7 @@ internal sealed unsafe partial class ConvOp
     /// Weight panels [p0, p1) over tiles [t0, t1) of group <paramref name="g"/> into the C block: K chunks span taps, each B row
     /// found through the per-k offset table.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void ShiftedGemm(int g, int p0, int p1, int t0, int t1, float* cbuf, long ldc)
     {
         int MR = Gemm.MR;
@@ -157,6 +162,7 @@ internal sealed unsafe partial class ConvOp
     }
 
     /// <summary>Writes the valid outputs of the C block (virtual columns with ow &lt; WO) to y through the epilogue.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void ShiftedCopyOut(int g, int p0, int p1, int t0, int t1, float* cbuf, long ldc)
     {
         int MR = Gemm.MR;

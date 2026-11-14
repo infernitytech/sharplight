@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 namespace Sharplight.Cpu;
 
 /// <summary>Best-effort host description read from <c>/proc</c> (Linux); every query degrades to a neutral value elsewhere.</summary>
@@ -13,6 +14,7 @@ internal static class HostCpuInfo
     public static string Vendor() => ReadCpuInfoField("vendor_id") ?? "";
 
     /// <summary>Reads a /proc/meminfo field in bytes (Linux); null elsewhere.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static long? MemInfo(string key)
     {
         try
@@ -39,6 +41,7 @@ internal static class HostCpuInfo
         return null;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static string? ReadCpuInfoField(string field)
     {
         try

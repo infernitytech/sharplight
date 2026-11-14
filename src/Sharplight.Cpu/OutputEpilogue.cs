@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Sharplight.Cpu;
@@ -83,6 +84,7 @@ internal sealed unsafe class OutputEpilogue
     }
 
     /// <summary>Applies the epilogue to whole output rows [<paramref name="row0"/>, <paramref name="row1"/>) of a dense [rows, <see cref="Columns"/>] output.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void ApplyRows(float* y, long row0, long row1)
     {
         for (long r = row0; r < row1; r++)
@@ -94,6 +96,7 @@ internal sealed unsafe class OutputEpilogue
     private static void AddInPlace(float* y, float* r, long n) => Add(y, r, y, n);
 
     /// <summary>d[i] = a[i] + b[i]; <paramref name="d"/> may alias <paramref name="a"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Add(float* a, float* b, float* d, long n)
     {
         long i = 0;

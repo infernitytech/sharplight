@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -119,6 +120,7 @@ internal sealed unsafe class CastOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long s = c * _per;

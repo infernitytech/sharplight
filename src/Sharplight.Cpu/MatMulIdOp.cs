@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -76,6 +77,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         Mem.Free((byte*)_yrows);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long items = _ids.Dim(0, p) * _slots;
@@ -123,6 +125,7 @@ internal sealed unsafe class MatMulIdOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long u0 = c * _per;

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 namespace Sharplight.Cpu;
 
 // Liveness-based packing of all activation buffers into one arena allocation.
@@ -7,6 +8,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// Assigns every arena buffer an offset: buffers are placed in order of first use, reusing (best fit) the
     /// space of buffers whose last use has passed; pinned buffers (inputs, outputs) live for the whole run.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void AllocateArena()
     {
         int end = _steps.Count;
@@ -68,6 +70,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>Best-fit placement in the free list; otherwise grows the arena (extending a trailing free block when possible).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void PlaceBuffer(Buf buf, List<(long Off, long Size)> free, ref long top)
     {
         int best = -1;

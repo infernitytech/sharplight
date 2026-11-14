@@ -11,4 +11,10 @@ internal enum ActivationCode
 
     /// <summary>Dense f16 rows of K values (<c>to_f16</c>, the f16 tensor-core GEMMs).</summary>
     F16,
+
+    /// <summary>
+    /// Per row K f16 hi parts, K f16 lo parts and the f32 inverse of the row's power-of-two scale, 4K + 16 bytes
+    /// (<c>split_rows</c>, the split-f16 GEMM).
+    /// </summary>
+    SplitF16,
 }

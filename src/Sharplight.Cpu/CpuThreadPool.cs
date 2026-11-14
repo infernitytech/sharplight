@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace Sharplight.Cpu;
 
@@ -43,6 +44,7 @@ internal sealed class CpuThreadPool
     /// Runs <paramref name="body"/>(0..<paramref name="count"/>-1) on the caller and up to <paramref name="helpers"/> workers.
     /// Not reentrant: callers serialize through <see cref="CpuParallel"/>.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Run(int count, int helpers, Action<int> body)
     {
         var job = new CpuThreadJob(body, count, Math.Min(helpers, _workers));
@@ -63,6 +65,7 @@ internal sealed class CpuThreadPool
         job.Error?.Throw();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void WorkerLoop(int id)
     {
         long seen = 0;
@@ -78,6 +81,7 @@ internal sealed class CpuThreadPool
     }
 
     /// <summary>Spins for the configured time after the last job, then blocks until the generation changes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private long WaitForJob(long seen)
     {
         long start = Stopwatch.GetTimestamp();

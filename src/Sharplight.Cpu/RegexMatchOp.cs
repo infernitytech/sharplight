@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Sharplight.Runtime;
 
@@ -10,6 +11,7 @@ internal sealed unsafe class RegexMatchOp(TRef x, TRef y, string pattern) : CpuO
 
     public override string Name => "RegexMatch";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long n = x.Elements(p);
