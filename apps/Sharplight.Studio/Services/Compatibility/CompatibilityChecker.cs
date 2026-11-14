@@ -67,6 +67,11 @@ internal static class CompatibilityChecker
         if (tensors is not null)
         {
             var check = GgufSupport.Validate(metadata, tensors);
+            if (check.IsDraftModel)
+            {
+                return DraftModel(architecture, $"multi-token-prediction layers of GGUF architecture '{architecture}'");
+            }
+
             if (check.Problems.Count > 0)
             {
                 return new ModelCompatibility(CompatibilityState.UnsupportedVariant, architecture,

@@ -105,7 +105,14 @@ public static class GgufSupport
                 return new GgufImportCheck(problems, IsComplete: true);
             }
 
-            GgufImporter.Map("", metadata, infos, mapping, view);
+            var (_, _, weights) = GgufImporter.Map("", metadata, infos, mapping, view);
+            if (IsDraftLayersOnly(weights.Keys))
+            {
+                return new GgufImportCheck(
+                    ["The file holds only multi-token-prediction layers (an MTP draft file): it is loaded as the draft source of the model it was made for."],
+                    IsComplete: true, IsDraftModel: true);
+            }
+
             return new GgufImportCheck([], IsComplete: true);
         }
         catch (GgufHeaderOnlyDataException)
@@ -117,5 +124,22 @@ public static class GgufSupport
             // Every other failure of these steps fails the import the same way.
             return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true);
         }
+    }
+
+    /// <summary>Canonical weights with multi-token-prediction layers (<c>mtp.layers.*</c>) but no trunk layers (<c>layers.*</c>).</summary>
+    private static bool IsDraftLayersOnly(IEnumerable<string> canonicalNames)
+    {
+        bool draft = false;
+        foreach (string name in canonicalNames)
+        {
+            if (name.StartsWith("layers.", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            draft |= name.StartsWith("mtp.layers.", StringComparison.Ordinal);
+        }
+
+        return draft;
     }
 }

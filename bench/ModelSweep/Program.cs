@@ -280,6 +280,11 @@ namespace ModelSweep
 
             // The importer mapping run on the header (hyper-parameters, features, every tensor name).
             var validation = GgufSupport.Validate(header.Metadata, header.Tensors);
+            if (validation.IsDraftModel)
+            {
+                return "draft model";
+            }
+
             if (validation.Problems.Count > 0)
             {
                 return "mapping: " + OneLine(string.Join("; ", validation.Problems));

@@ -28,6 +28,24 @@ public class GgufSweepFixtureTests
         Assert.True(check.IsAccepted, string.Join(" ", check.Problems));
     }
 
+    /// <summary>
+    /// Unsloth's split MTP file of Qwen3.8-27B (<c>MTP/mtp-Qwen3.8-27B-Q4_0.gguf</c>, architecture qwen35) holds only the
+    /// multi-token-prediction layers: the check reports a draft model, as the importer does, instead of accepting it.
+    /// </summary>
+    [Fact]
+    public void MtpOnlyHeader_IsADraftModel()
+    {
+        var header = File.ReadAllBytes(Fixture("mtp-Qwen3.8-27B-Q4_0"));
+
+        var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
+
+        Assert.True(check.IsDraftModel);
+        Assert.False(check.IsAccepted);
+        Assert.Contains("multi-token-prediction", Assert.Single(check.Problems), StringComparison.Ordinal);
+        Assert.False(GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(File.ReadAllBytes(Fixture("Qwen3.8-Flash-Next-UD-IQ1_M"))),
+            GgufHeaderProbe.ReadTensorTable(File.ReadAllBytes(Fixture("Qwen3.8-Flash-Next-UD-IQ1_M")))!).IsDraftModel);
+    }
+
     [Fact]
     public void InterleavedQ4_0Header_ImportsFromItsSparseFile()
     {
