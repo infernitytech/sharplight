@@ -303,7 +303,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `maion-coder` | Maion-Coder | SWA + NoPE, MoE latent | **supported** (GGUF, tiny random vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan, b11177 predates it; not run on a real model) | - | - | gguf/tiny-random-maion-coder-f32 |
 | `mellum` | Mellum (JetBrains) | SWA + MoE, MTP | **supported** | - | mellum | hf/tiny-random-mellum, hf/tiny-random-mellum-llamacpp, gguf/tiny-random-mellum-llamacpp-f32.gguf |
 | `k2-horizon` | K2-Horizon | MoVA value experts, MoE sigmoid + shared, yarn | **missing** | `MOVA`, `RGRP` | - | - |
-| `beam` | Beam | SWA + NoPE, attn temp, softcap, MoE sigmoid | **partial** | `TMP`, `RBIAS`, `MAP` | - | - |
+| `beam` | Beam | SWA + NoPE, attn temp (power form), biased per-head gate, norm-preserving residual, softcap, MoE sigmoid | **supported** (GGUF, tiny random vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan, b11177 predates it; not run on a real model) | - | - | gguf/tiny-random-beam-f32 |
 | `kolibri1` | Kolibri1 | SWA + NoPE, MoE sigmoid + shared | **supported** | - | - | gguf/tiny-random-kolibri1-f32 (tiny GGUF vs a newer llama.cpp build (b11177 lacks it) greedy ids), hf/tiny-random-kolibri1 (vs transformers) |
 | `flint` | Flint | SWA/NoPE, sigmoid MoE + shared, sinks | **supported** | - | flint | - |
 | `cohere2moe` | Command-A MoE | SWA + NoPE, MoE sigmoid + shared, parallel residual, LN | **supported** | - | cohere2_moe | hf/tiny-random-cohere2-moe, gguf/tiny-random-cohere2-moe-f32.gguf |

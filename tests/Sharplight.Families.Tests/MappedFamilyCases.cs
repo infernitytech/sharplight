@@ -115,6 +115,9 @@ internal static class MappedFamilyCases
         new("tiny-random-maion-coder f32 GGUF (maion-coder NoPE full layers, sandwich norms, experts in a latent space, llama.cpp 8ca5a80)",
             "gguf/tiny-random-maion-coder-f32.gguf", Prompt, "ids",
             [625, 315, 49, 387, 716, 49, 49, 592, 233, 638, 130, 730, 135, 930], ""),   // cut before step 14, where llama.cpp's top two differ by 3e-4
+        new("tiny-random-beam f32 GGUF (beam norm-preserving residual, power temperature on NoPE layers, biased head gate, sigmoid experts, softcap, llama.cpp 8ca5a80)",
+            "gguf/tiny-random-beam-f32.gguf", Prompt, "ids",
+            [98, 914, 609, 904, 75, 768, 564, 364, 698, 436, 939, 861, 967, 389, 520, 36, 578, 726, 620, 98, 903, 655, 27, 243], ""),
         new("LFM3-1.7B Q8_0 GGUF (lfm3, llama.cpp 8ca5a80)", "gguf/LFM3-1.7B/LFM3-1.7B-Q8_0.gguf", "The capital of France is", "ids",
             [4741, 63908, 597, 5205, 302, 3888, 355, 18943, 63908, 597, 5205, 302, 5881, 355, 2076, 59405, 63908, 597, 5205, 302, 5177, 355, 36038, 63908], ""),
         new("tiny-random-step35 f32 GGUF (step35 per-layer heads, half rope on full layers, head gate, sigmoid experts, clamped SwiGLU, llama.cpp)", "gguf/tiny-random-step35-f32.gguf", Prompt, "ids",

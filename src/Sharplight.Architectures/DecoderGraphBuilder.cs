@@ -340,7 +340,7 @@ internal sealed partial class DecoderGraphBuilder
             var attention = b.HasWeight(p + "attention.q.weight")
                 ? Attention(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
                 : b.Linear(h, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
-            x = b.Add(SubLayerOutput(b, attention, p + "attention.out_norm.weight"), residual, $"{p}attn_residual");
+            x = ResidualAdd(b, SubLayerOutput(b, attention, p + "attention.out_norm.weight"), residual, 2 * (slot.Layer + 1), $"{p}attn_residual");
         }
 
         if (!HasFeedForward(b, p))
@@ -351,7 +351,7 @@ internal sealed partial class DecoderGraphBuilder
         var ffnResidual = x;
         var normed = PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm");
         var ffn = SubLayerOutput(b, FeedForward(b, normed, p, slot.Layer, residual), p + "mlp.out_norm.weight");
-        var output = b.Add(ffn, ffnResidual, $"{p}l_out");
+        var output = ResidualAdd(b, ffn, ffnResidual, 2 * (slot.Layer + 1) + 1, $"{p}l_out");
         if (b.HasWeight(p + "moe_norm.weight"))
         {
             var experts = MoeMlp(b, _norm.Apply(b, residual, p + "moe_norm.weight", _hp.Eps, $"{p}moe_norm"), p, slot.Layer, residual);
@@ -372,6 +372,14 @@ internal sealed partial class DecoderGraphBuilder
         var ffn = SubLayerOutput(b, FeedForward(b, ffnInput, p, slot.Layer, x), p + "mlp.out_norm.weight");
         return b.Add(b.Add(attnOut, x, $"{p}attn_residual"), ffn, $"{p}l_out");
     }
+
+    // The residual sum of a sequential layer's sub-layer output and its input. With residual.norm_preserving (Beam) the i-th sum (i = 2 for the
+    // first attention, counting both sub-layers of every layer) is output / sqrt(i) + residual · sqrt((i − 1) / i), which keeps the expected
+    // norm of the stream when the sub-layer outputs are normalized.
+    private Value ResidualAdd(GraphBuilder b, Value output, Value residual, int i, string name)
+        => _hp.NormPreservingResidual
+            ? b.Add(b.Scale(output, (float)(1.0 / Math.Sqrt(i))), b.Scale(residual, (float)Math.Sqrt((i - 1.0) / i)), name)
+            : b.Add(output, residual, name);
 
     // Norm in front of a sub-layer; models with post-norms only (OLMo 2) declare pre_norm = false. A bidirectional layer without its norm weight
     // has none (ModernBERT's first layer reads the normed embeddings directly).

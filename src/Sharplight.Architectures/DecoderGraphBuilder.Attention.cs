@@ -22,7 +22,7 @@ internal sealed partial class DecoderGraphBuilder
         q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), il, heads, headDim, rotate);
         if (_hp.TemperatureOn(il))
         {
-            q = b.Mul(q, AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength, _hp.TemperatureOffset), $"{p}q_tempered");
+            q = b.Mul(q, AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength, _hp.TemperatureOffset, _hp.TemperaturePower), $"{p}q_tempered");
         }
 
         int sourceSlot = slot.Slot - il + _hp.KvSourceOf(il);
@@ -185,17 +185,24 @@ internal sealed partial class DecoderGraphBuilder
 
     /// <summary>
     /// Applies the optional value scale and output gate to the attention output and projects it. The gate is a projection of the layer input
-    /// through the sigmoid (default) or softplus; a gate as wide as the head count has one scalar per head, a wider one a scalar per channel.
+    /// through the sigmoid (default) or softplus; a gate as wide as the head count has one scalar per head, a wider one a scalar per channel;
+    /// an optional <c>attention.gate.bias</c> is added before the activation (one entry per head is shared by the head's channels).
     /// </summary>
     private Value AttentionOutput(GraphBuilder b, Value attention, Value layerInput, string p, int heads, int valueDim)
     {
         var scaled = _hp.ValueScale != 1f ? b.Scale(attention, _hp.ValueScale, 0f) : attention;
         if (b.HasWeight(p + "attention.gate.weight"))
         {
-            var projection = b.Linear(layerInput, p + "attention.gate.weight");
-            var gate = _hp.GateActivation == "softplus" ? b.Softplus(projection) : b.Sigmoid(projection);
             bool perHead = b.Weight(p + "attention.gate.weight").Shape[0].Fixed == heads;
-            scaled = b.Mul(scaled, perHead ? b.Reshape(gate, 0, heads, 1) : b.Reshape(gate, 0, heads, valueDim));
+            var projection = perHead ? b.Reshape(b.Linear(layerInput, p + "attention.gate.weight"), 0, heads, 1)
+                : b.Reshape(b.Linear(layerInput, p + "attention.gate.weight"), 0, heads, valueDim);
+            if (b.TryWeight(p + "attention.gate.bias") is { } gateBias)
+            {
+                // A bias with one entry per head (Beam) is shared by the head's channels.
+                projection = b.Add(projection, gateBias.Shape[0].Fixed == heads ? b.Reshape(gateBias, heads, 1) : b.Reshape(gateBias, heads, perHead ? 1 : valueDim));
+            }
+
+            scaled = b.Mul(scaled, _hp.GateActivation == "softplus" ? b.Softplus(projection) : b.Sigmoid(projection));
         }
 
         var flat = b.Reshape(scaled, 0, heads * valueDim);

@@ -34,7 +34,8 @@ namespace Sharplight.Architectures;
 /// <item>Building blocks of the generic layer: <c>norm.type</c> ("rms" (default) or "layer": mean-centred layer norm that also adds the sibling <c>*.bias</c> weights when present
 /// and is non-parametric when the weight is absent, OLMo 1); <c>pre_norm</c> (default true; false = no norm in front of the sub-layers, OLMo 2 / EXAONE 4 normalize their outputs instead);
 /// <c>residual.parallel</c> (default false: attention and MLP both read the layer input, x + attn(norm(x)) + mlp(norm'(x)); the MLP uses <c>post_attention_norm</c> when the layer has one and shares the attention norm otherwise);
-/// <c>residual.scale</c> (factor on every sub-layer output before the residual add, muP); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
+/// <c>residual.scale</c> (factor on every sub-layer output before the residual add, muP); <c>residual.norm_preserving</c> (Beam: the i-th residual sum,
+/// counting both sub-layers of every layer from i = 2, is out/√i + x·√((i−1)/i)); <c>attention.qk_norm_after_rope</c> (q/k norms after the rotary embedding, Hunyuan);
 /// <c>attention.clip_qkv</c> (clamp of the q/k/v projections, OLMo 1); <c>attention.layer_head_counts</c> (per-layer query heads, OpenELM).
 /// Optional weights: <c>position_embedding.weight</c> [positions, H] (learned absolute positions added to the token embeddings, GPT-2), <c>embedding_norm.weight</c> (+ <c>.bias</c>: the model's norm of the token embeddings, BLOOM), <c>lm_head.bias</c>, <c>*_norm.bias</c> (layer norm).</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>; routing and expert weights are those of <see cref="MoeBlock"/>):
@@ -52,7 +53,7 @@ namespace Sharplight.Architectures;
 /// (+ <c>.bias</c>) project the pooled embedding (sentence-transformers Dense modules).</item>
 /// <item>Attention temperature (Llama 4, Mistral 3): <c>attention.temperature_scale</c> (β, 0 = off), <c>attention.temperature_length</c> (L),
 /// <c>attention.temperature_offset</c> (o, default 0) and optional <c>attention.temperature_layers</c> (int[layer_count], default all): queries of
-/// those layers are multiplied by log(floor((pos + o) / L) + 1)·β + 1. <c>attention.qk_norm_layers</c> (int[layer_count]) limits the
+/// those layers are multiplied by log(floor((pos + o) / L) + 1)·β + 1, or with <c>attention.temperature_power</c> (Beam) by (1 + (pos + o) / L)^β. <c>attention.qk_norm_layers</c> (int[layer_count]) limits the
 /// unweighted q/k norm to the flagged layers. Chunked attention <c>attention.chunk_size</c> with <c>attention.chunk_layers</c> (Llama 4)
 /// limits each query to the keys of its own chunk. <c>rope.local_freq_factors</c> (bool): sliding layers use <c>rope.freq_factors</c> too (gpt-oss).</item>
 /// <item><c>embedding_scale</c> (token embeddings are multiplied by it, default 1; Gemma sqrt(hidden_size)),
@@ -76,7 +77,8 @@ namespace Sharplight.Architectures;
 /// (norm of the attention output before the residual add), <c>post_attention_norm.weight</c> (in front of the MLP),
 /// <c>mlp.{gate,up,down}.weight</c> (+ optional <c>.bias</c>; no gate when not gated), optional <c>mlp.out_norm.weight</c>,
 /// optional <c>attention.sinks</c> (f32 [head_count]: a learned per-head logit that joins the softmax denominator without a value),
-/// optional <c>attention.gate.weight</c> (sigmoid output gate of the attention: a separate projection of the layer input),
+/// optional <c>attention.gate.weight</c> (sigmoid output gate of the attention: a separate projection of the layer input, with an optional
+/// <c>attention.gate.bias</c>, one entry per head or per channel),
 /// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it), optional BitNet sub-norms <c>attention.sub_norm.weight</c> /
 /// <c>mlp.sub_norm.weight</c> (RMS norms of the inputs of the attention output and MLP down projections). A layer without <c>attention.v.weight</c> uses the
 /// key projection (before its norm) as value (Gemma 4 attention_k_eq_v).

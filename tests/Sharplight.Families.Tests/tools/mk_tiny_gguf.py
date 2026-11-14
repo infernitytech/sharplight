@@ -562,6 +562,25 @@ def maion_coder_parameters(writer):
     writer.add_sliding_window_pattern([True, True, True, False])
 
 
+def beam_block(layer):
+    # A dense first layer, then experts with a selection bias; q/k norms, a per-channel gate with one bias per head, sandwich norms.
+    t = qk_norm_block(llama_block if layer == 0 else lambda: moe_block(shared=0), attn_gate__weight=lambda: weight(HIDDEN, HIDDEN),
+                      attn_gate__bias=lambda: bias(HEADS), post_attention_norm__weight=lambda: norm(HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN))
+    if layer:
+        t["exp_probs_b.bias"] = bias(EXPERTS)
+    return t
+
+
+def beam_parameters(writer):
+    moe_parameters(shared=0, dense_lead=1, scale=2.5, norm_weights=True)(writer)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, True, False])
+    writer.add_rope_freq_base_swa(1000.0)
+    writer.add_float32("beam.attention.temperature_scale", 0.5)
+    writer.add_uint32("beam.attention.temperature_length", 4)
+    writer.add_final_logit_softcapping(20.0)
+
+
 def bidirectional(extra=None):
     # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
     def parameters(writer):
@@ -692,6 +711,7 @@ models = {
     "lfm3": lambda path: write_family(path, "lfm3", 34, lfm3_block, parameters=lfm3_parameters, layers=len(LFM3_KINDS),
                                       kv_heads=[0 if kind == "conv" else KV_HEADS for kind in LFM3_KINDS], rope_dim=LFM3_HEAD, global_tensors=lfm3_globals),
     "maion-coder": lambda path: write_family(path, "maion-coder", 35, maion_coder_block, parameters=maion_coder_parameters, layers=4),
+    "beam": lambda path: write_family(path, "beam", 36, beam_block, parameters=beam_parameters),
     # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
     "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
                                           global_tensors=lambda vocab: {"output.weight": None}),
