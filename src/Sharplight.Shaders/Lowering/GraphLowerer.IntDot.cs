@@ -36,10 +36,17 @@ public sealed partial class GraphLowerer
     /// True when the integer-dot matvec (<c>mmvq.slang</c>, <see cref="DeviceFeatures.IntDot"/>) handles weights of
     /// <paramref name="type"/> with reduction length <paramref name="k"/>: q8-quantized activations, int8 dot products.
     /// </summary>
-    private bool UseIntDotMatvec(DataType type, long k)
-        => _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps)
+    private bool UseIntDotMatvec(Node n, DataType type, long k)
+        => QuantizedActivationsAllowed(n) && _opt.Has(DeviceFeatures.IntDot) && _opt.Has(DeviceFeatures.SubgroupOps)
            && (k % 256 == 0 && (type == ShaderTypes.Q8_0R || type == DataType.Q4_K || type == DataType.Q5_K || type == DataType.Q6_K)
                || k % 32 == 0 && DiagnosticSwitches.IntDotBlockFormats && s_intDotBlockFormats.Contains(type));
+
+    /// <summary>
+    /// False for matmuls marked <see cref="StandardOps.F32ActivationsAttribute"/> (unless the compile allows reduced
+    /// precision): their activations must not be quantized to int8 (int-dot matvec, int8 GEMM).
+    /// </summary>
+    private bool QuantizedActivationsAllowed(Node n)
+        => _opt.Compile.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false);
 
     /// <summary>32-value block formats of the integer-dot matvec (one block per chunk).</summary>
     private static readonly HashSet<DataType> s_intDotBlockFormats = [DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R];

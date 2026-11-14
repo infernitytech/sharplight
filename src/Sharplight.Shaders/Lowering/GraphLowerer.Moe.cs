@@ -124,7 +124,7 @@ public sealed partial class GraphLowerer
                     && (w.Type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
         // Items up to which the per-item matvec is used (tensor-core GEMMs win from a few rows, the scalar tiled GEMM much
         // later, the int-dot matvec only from about 16 items per expert).
-        bool intDot = UseIntDotMatvec(w.Type, K);
+        bool intDot = UseIntDotMatvec(n, w.Type, K);
         long mv = intDot ? DiagnosticSwitches.MoeIntDotMaxItems
             : coop ? DiagnosticSwitches.MoeMatvecMaxItems : Math.Max(DiagnosticSwitches.MoeMatvecMaxItems, DiagnosticSwitches.MoeScalarRows * E);
         string label = $"matmul-id {n.Output.Name} [{E}x{K}→{N}] {w.Type}";
