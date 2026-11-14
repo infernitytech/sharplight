@@ -44,9 +44,12 @@ public sealed class SharplightChatClient : IChatClient
         _metadata = new ChatClientMetadata("sharplight", null, _options.ModelName ?? backend.ModelName);
     }
 
-    /// <summary>Wraps a loaded model (one generation at a time). The model is not disposed with the client unless <paramref name="ownsModel"/>.</summary>
+    /// <summary>
+    /// Wraps a loaded model (one generation at a time): a <see cref="SessionGenerationBackend"/>, or a <see cref="DiffusionGenerationBackend"/>
+    /// for a masked-diffusion model. The model is not disposed with the client unless <paramref name="ownsModel"/>.
+    /// </summary>
     public SharplightChatClient(LlmModel model, SharplightChatClientOptions? options = null, bool ownsModel = false)
-        : this(new SessionGenerationBackend(model, ownsModel), options, ownsBackend: true) { }
+        : this(model.IsDiffusion ? new DiffusionGenerationBackend(model, ownsModel) : new SessionGenerationBackend(model, ownsModel), options, ownsBackend: true) { }
 
     /// <summary>Loads a model and returns a client owning it (importers must be registered, e.g. <c>GgufImporter.Register()</c>).</summary>
     public static SharplightChatClient Load(string path, LlmLoadOptions load, SharplightChatClientOptions? options = null)
