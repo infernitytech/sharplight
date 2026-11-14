@@ -144,9 +144,20 @@ internal sealed partial class DecoderGraphBuilder
         return normWeight is null && _hp.QkNormUnweightedOn(il) ? QkNorm(b, x, null, null) : x;
     }
 
-    // One q/k norm over the head dimension: RMS norm, or a mean-centred layer norm when attention.qk_norm_type is "layer".
+    // One q/k norm over the head dimension: RMS norm, or a mean-centred layer norm when attention.qk_norm_type is "layer". With
+    // attention.qk_norm_groups = G the RMS norm runs over G equal parts of each head separately (SenseNova-U1's temporal and spatial halves),
+    // the weight still covering the whole head.
     private Value QkNorm(GraphBuilder b, Value x, Value? weight, Value? bias)
     {
+        if (_hp.QkNormType != "layer" && _hp.QkNormGroups > 1)
+        {
+            int heads = checked((int)x.Shape[1].Fixed);
+            int headDim = checked((int)x.Shape[2].Fixed);
+            var parts = b.RmsNorm(b.Reshape(x, 0, heads * _hp.QkNormGroups, headDim / _hp.QkNormGroups), null, _hp.QkNormEps);
+            var normed = b.Reshape(parts, 0, heads, headDim);
+            return weight is null ? normed : b.Mul(normed, weight);
+        }
+
         if (_hp.QkNormType != "layer")
         {
             return b.RmsNorm(x, weight, _hp.QkNormEps);

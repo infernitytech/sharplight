@@ -30,6 +30,8 @@ public class CrossLayerFamilyServingTests
         [
             "hf/tiny-random-hrm-text",
             "gguf/tiny-random-hrm-text-f32.gguf",
+            "hf/tiny-random-sensenova-u1",
+            "gguf/tiny-random-sensenova-u1-f32.gguf",
         ];
         foreach (string model in models)
         {

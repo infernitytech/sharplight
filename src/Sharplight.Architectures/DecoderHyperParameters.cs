@@ -20,7 +20,7 @@ internal sealed record DecoderHyperParameters(
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
     bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved,
-    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, HierarchicalCycleOptions? Cycles = null)
+    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, HierarchicalCycleOptions? Cycles = null, int QkNormGroups = 1)
 {
     /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
     public const int MRopeAxes = 4;
@@ -112,11 +112,17 @@ internal sealed record DecoderHyperParameters(
             QkNormType: src.Arch("attention.qk_norm_type", "rms"),
             QkNormEps: src.Arch("attention.qk_norm_eps", src.Arch("norm_eps", 1e-5f)),
             SuppressedTokenRanges: src.Arch("logits.suppressed_ranges", Array.Empty<int>()),
-            Cycles: HierarchicalCycleOptions.Read(src, src.Arch<int>("layer_count")));
+            Cycles: HierarchicalCycleOptions.Read(src, src.Arch<int>("layer_count")),
+            QkNormGroups: src.Arch("attention.qk_norm_groups", 1));
 
         if (hp.QkNormType is not ("rms" or "layer"))
         {
             throw new InvalidDataException($"decoder: unknown attention.qk_norm_type '{hp.QkNormType}' (rms, layer).");
+        }
+
+        if (hp.QkNormGroups < 1 || hp.HeadDim % hp.QkNormGroups != 0)
+        {
+            throw new InvalidDataException("decoder: attention.qk_norm_groups must divide attention.head_dim.");
         }
 
         if (hp.SuppressedTokenRanges.Length % 2 != 0)

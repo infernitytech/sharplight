@@ -4,8 +4,8 @@ using System.Text.Json;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// A checkpoint's <c>config.json</c>. Like llama.cpp's converter, the nested <c>text_config</c> (if any)
-/// is merged over the root object (text_config wins), so hyper-parameters are looked up flat.
+/// A checkpoint's <c>config.json</c>. Like llama.cpp's converter, the nested <c>text_config</c> (if any; else <c>llm_config</c>, as
+/// SenseNova-U1 names it) is merged over the root object (the nested config wins), so hyper-parameters are looked up flat.
 /// </summary>
 internal sealed partial class HfConfig : IDisposable
 {
@@ -26,7 +26,7 @@ internal sealed partial class HfConfig : IDisposable
             _flat[p.Name] = p.Value;
         }
 
-        if (doc.RootElement.TryGetProperty("text_config", out var tc) && tc.ValueKind == JsonValueKind.Object)
+        if ((doc.RootElement.TryGetProperty("text_config", out var tc) || doc.RootElement.TryGetProperty("llm_config", out tc)) && tc.ValueKind == JsonValueKind.Object)
         {
             foreach (var p in tc.EnumerateObject())
             {
