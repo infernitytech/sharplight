@@ -1181,3 +1181,223 @@ min(k, 16 / decoding sequences): k = 3 up to 5 sequences, 1 at 16, none above 16
   device-side multi-row greedy / compare kernel would remove both from the speculative step.
 * Drafting is greedy only; drafting from the head's distribution with min(1, p/q) acceptance would raise acceptance for sampled
   requests (vLLM does not do this for MTP either).
+
+## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
+
+Levers 6 and 7 of section 16.8. Kernels: `src/Sharplight.Shaders/Kernels/chunked.slang` (new), `recurrent.slang`
+(`conv1d_tokens`, `conv1d_state`); lowering: `GraphLowerer.DeltaChunk.cs`, `GraphLowerer.Recurrent.cs`. Script:
+[`bench/s18_prefill.sh`](../bench/s18_prefill.sh), raw output in [`bench/results/s18/`](../bench/results/s18).
+
+### 18.1 Design
+
+**Delta rule.** The `GatedDeltaRule` op (every model that lowers to it: Qwen3.5 / 3.6 / 3.8, qwen3next) gets the chunked
+WY / UT form of FLA's `chunk_gated_delta_rule` on f16 cooperative matrices with f32 accumulation. Per value head and 64-token
+chunk, with G the chunk-local inclusive cumulative log decay:
+
+```
+L  = strictly lower (beta_t exp(G_t - G_s) k_t.k_s)      X = (I + L)^-1      Tb = X diag(beta)
+P  = lower incl. diagonal (scale exp(G_t - G_s) q_t.k_s)
+U  = Tb (V - diag(exp(G)) K S^T)
+O  = scale diag(exp(G)) Q S^T + P U
+S^T <- exp(G_last) S^T + K^T diag(exp(G_last - G)) U
+```
+
+(checked against the token recurrence in float64 to 1e-16). Three launches:
+
+* `delta_chunk_qk`: L2-normalised q / k rows (the op's absorbed `L2Norm`) as f16 planes.
+* `delta_chunk_prep`: one workgroup per (head, chunk), all chunks in parallel. It computes K Kᵀ and Q Kᵀ on tensor cores and
+  X by forward substitution in f32. Each of 64 threads solves one column in registers, so the solve needs no workgroup
+  barriers; the first version took one barrier per row and the kernel ran at 291 µs instead of 172 µs on the 27B at T = 2048.
+* `delta_chunk_state`: one workgroup per (head, 32 state columns, sequence run). It walks the run's chunks in order. The
+  state stays in f32 accumulators for the whole run, is read and written once in the existing `[HV, DV, DK]` layout, and the
+  outputs are written per chunk.
+
+Behaviour, limits and switches:
+
+* **Multi-sequence batches.** Runs of ≥ 64 rows (`SHARPLIGHT_DELTA_CHUNK_MIN`) take the chunked form. Shorter runs take the
+  token-by-token kernel in the same step, which now skips the long runs (`SEQ_MAX_ROWS`). A run starting at position 0
+  starts from zero state.
+* **Single sequences and decode.** Single sequences below 64 rows, and decode, stay on the token-by-token kernel.
+* **Scratch.** Scratch is indexed by global row, so runs never collide. For the 27B at T = 2048 it is 2 × 2 × 2112 × 16 ×
+  128 f16 for q / k (35 MB), 2 × 2 × 2112 × 48 × 64 f16 for Tb / P (52 MB), plus G: about 87 MB with two parts and half
+  that with one, shared by all layers.
+* **Device requirements.** The device needs `matrix_f16`, `float16`, subgroup ops with 32-wide subgroups,
+  DK, DV % 16 = 0, DK ≤ 256 and the tiles within shared memory (47 KB at 32 columns and two parts). Otherwise the
+  token-by-token kernel runs everywhere (`SHARPLIGHT_DELTA_CHUNK=0` forces that). The CPU provider is unchanged.
+* **Precision.**
+  * `PARTS = 2` (default unless `CompileOptions.AllowReducedPrecision`) splits every operand into f16 hi + lo, with lo
+    scaled by 2048 so it does not flush as a subnormal. It runs three MMAs per product, about 22 mantissa bits.
+  * `PARTS = 1` runs one f16 product with f32 accumulation, the precision class of FLA's bf16 / f16 kernels in vLLM.
+  * `SHARPLIGHT_DELTA_CHUNK_PARTS=1|2` overrides the choice.
+* **Driver finding (NVIDIA 610).** The compiler folds `float(half(x))` round trips, including those through
+  cooperative-matrix conversions, so `x - float(half(x))` became 0 and the "split" had no lo part (rel. error 4e-4, the
+  same as f16). The split therefore rounds hi with integer arithmetic on the f32 bits, and the state is staged through f32
+  shared memory and split in scalar code.
+
+**conv1d.** `conv1d` walked all tokens of a run per channel in one thread. 10240 channels gave 80 workgroups, each issuing
+T dependent-latency loads, so the cost grew with T times the load latency. Prefill batches with a run of ≥ 16 rows now run
+two launches:
+
+* `conv1d_tokens`: 8 consecutive outputs of one channel per thread, from x and the old state (grid: channel block × token
+  block × run).
+* `conv1d_state`: after a barrier, writes each run's last KS-1 inputs as the new state.
+
+Short batches and decode keep the old kernel (`SHARPLIGHT_CONV1D_PARALLEL=0` forces it everywhere). The results are bitwise
+identical to the old kernel (model logits relRms 0.0).
+
+**State layout:** unchanged (delta-rule state `[slot, HV, DV, DK]` f32, conv state `[slot, KS-1, C]` f32).
+
+**Rollback form (section 17).** Graphs built with `MultiSequence.Transform(..., rollbackRows)` have a commits table and
+record banks, and their recurrent ops keep the token-by-token `delta_rule` and the per-channel `conv1d`, which replay and
+record rows. The chunked delta rule and the token-parallel conv1d serve only the plain single- and multi-sequence forms.
+Honouring the commits table in the chunked kernels (replay the committed rows first, record tentative rows, skip the
+state store) is an open item. Verify batches are short (k + 1 rows per sequence), but a decoder with speculation
+enabled runs prompt prefill through the same rollback-form graph, so its prefill does not get the gains of this section yet.
+A natural split: the token-by-token kernel replays the committed rows (a few per slot) in a first launch, then the chunked
+form serves non-tentative long runs from the replayed state.
+
+### 18.2 Accuracy
+
+**Op level** (`ChunkedDeltaRuleTests`, Vulkan vs the CPU oracle over all outputs and the final state, max relative rms
+per step).
+
+The batches are `[150, 1, 64, 3, 63, 200, 1]` rows. They mix the chunked and token-by-token kernels and pass the state back
+and forth, and include partial chunks. The multi-sequence variant mixes long and short runs in one step and has a slot
+restart. Head shapes: (HK, HV, DK, DV) = (1, 3, 128, 128), (2, 4, 64, 32), (4, 4, 32, 64), (2, 2, 16, 48), (2, 6, 128, 128),
+with q / k normalised in the graph or beforehand and decays of 0.01-0.5.
+
+| kernel | relRms |
+|---|---|
+| token-by-token `delta_rule` (reference) | 3.1e-7 |
+| chunked, two parts (default) | 3.6e-7 - 1.8e-6 |
+| chunked, one f16 part | 5.1e-4 |
+| `conv1d_tokens` + `conv1d_state` | ≤ 1e-7 (identical to `conv1d`) |
+
+**Model level.** The prompt is 636 tokens (the first 2600 characters of `docs/code-style.md` plus an instruction): 512-row
+prefill chunks plus a 124-row chunk, then 48 greedy tokens. The table compares the last-prompt-token logits and the
+greedy text of the chunked forms against the token-by-token kernels on the same build.
+
+| model | logits relRms two parts / one part | top-1 | greedy text (48 tokens) | noise floor: GPU token-by-token vs CPU |
+|---|---|---|---|---|
+| Qwen3.5-0.8B bf16 | 8.3e-4 / 8.0e-4 | same | identical / identical | 5.6e-4 |
+| Qwen3.8-27B FP8 | 3.3e-2 / 3.6e-2 | same | identical / identical | |
+| Qwen3.8-27B Q8_0 | 1.6e-2 / 1.4e-2 | same | identical / identical | 1.3e-2 |
+| Qwen3.8-27B Q4_K_M | 1.9e-3 / 2.0e-3 | same | near tie at token ~45 (two parts) / identical | |
+| Qwen3.6-35B-A3B Q4_K_M | 3.5e-2 / 3.1e-2 | same | identical / identical | |
+| Qwen3-Coder-Next Q4_K_M (qwen3next) | 2.5e-2 / 3.0e-2 | same | near tie at token 2 / near tie at token 2 | |
+
+The two forms are indistinguishable at model level, even though they are 3 orders of magnitude apart at op level. Any
+perturbation, however small, re-draws the f16 / fp8 / int8 rounding of the activations in the following GEMMs. The
+model-level difference therefore sits at the engine's own noise floor: the same GPU kernels against the CPU provider differ
+by as much, and the 0.8B's GPU-vs-CPU distance is 5.6e-4 (token-by-token), 6.9e-4 (two parts) and 6.5e-4 (one part).
+
+Both divergences are near ties of the token-by-token run itself:
+
+* **Qwen3-Coder-Next.** After "… three sentences: what is", the top two logits are "enforced" 15.26 and "the" 15.24.
+* **27B Q4_K_M.** At "Code style …" the four leading candidates lie within 0.8 and the variants move them by ≤ 0.013.
+
+The family tests (`Sharplight.Families.Tests`) pass; see 18.5.
+
+### 18.3 Prefill throughput, Qwen3.8-27B
+
+`bench/s18_prefill.sh prefill`: one prefill chunk of N rows (`--bench N --ctx N+256 --batch N`), best of the CLI's
+repetitions, tok/s. "before" is the same build with `SHARPLIGHT_DELTA_CHUNK=0 SHARPLIGHT_CONV1D_PARALLEL=0`, which is
+exactly the kernel set of `main` before this change. The GPU was free apart from short-lived test processes of other
+agents (logged per row). llama.cpp b11177 CUDA: `llama-bench -p 512,2048,8192 -n 0 -r 3 -ngl 99 -fa 1` (default batch 2048 /
+ubatch 512).
+
+| weights | N | before | after, two parts (default) | after, one part | gain (default) | llama.cpp CUDA |
+|---|---|---|---|---|---|---|
+| FP8 | 512 | 2989 | 3733 | 4127 | +25 % | |
+| | 2048 | 3401 | 3797 | 3735 | +12 % | |
+| | 8192 | 3106 | 3393 | 3387 | +9 % | |
+| Q8_0 | 512 | 2672 | 2863 | 2934 | +7 % | 2922 |
+| | 2048 | 2734 | 2949 | 3000 | +8 % | 2919 |
+| | 8192 | 2635 | 2853 | 2927 | +8 % | 2799 |
+| Q4_K_M | 512 | 2490 | 2623 | 2690 | +5 % | 2706 |
+| | 2048 | 2418 | 2592 | 2573 | +7 % | 2708 |
+| | 8192 | 2282 | 2467 | 2366 | +8 % | 2512 |
+
+Decode is unchanged (single-token steps keep the token-by-token kernels): 41-43 tok/s best in every row.
+
+With these changes:
+
+* **Q8_0.** Sharplight is level with llama.cpp CUDA at 512 and ahead at 2048 / 8192.
+* **Q4_K_M.** Sharplight is 2-4 % behind; the K-quant GEMM is the remainder.
+
+### 18.4 Kernel GPU time, 27B FP8
+
+`SHARPLIGHT_VK_PROFILE=1`, min per launch, µs per layer (48 delta-net layers); raw output in `profile_fp8.txt`.
+
+| N | delta rule before | chunked two parts (qk + prep + state) | chunked one part | conv1d before | conv1d after (tokens + state) | step GPU time before → after (two parts / one part) |
+|---|---|---|---|---|---|---|
+| 512 | 372 | 194 (6 + 59 + 129) | 109 (4 + 41 + 64) | 143 | 14 (12 + 2) | 176.4 → 140.3 / 135.5 ms |
+| 2048 | 1537 | 717 (25 + 170 + 522) | 377 (14 + 121 + 242) | 791 | 81 (79 + 2) | 596.2 → 530.2 / 514.6 ms |
+| 8192 | 6228 | 2929 (177 + 621 + 2131) | 1572 (123 + 436 + 1013) | 3128 | 408 (406 + 2) | 2549.9 → 2350.8 / 2271.0 ms |
+
+Effect on the kernels:
+
+* **Delta rule, two parts.** 2.1x faster than the token-by-token kernel at every length.
+* **Delta rule, one part.** 3.4-4.1x faster.
+* **conv1d.** 9.8-10.2x faster. It is now bandwidth bound: 8192 × 10240 f32 read and written in 406 µs ≈ 1.65 TB/s. It
+  scales linearly; the old kernel was not superlinear but latency bound (one dependent load chain per channel and 80
+  workgroups).
+* **Share of prefill at T = 2048.** The delta-net share fell from 18.7 % to 7.2 % (two parts).
+
+The sequential `delta_chunk_state` pass dominates. Each workgroup walks 32 (T = 2048) chunks in order with
+seven barrier-separated phases. With 192 workgroups (48 heads × 4 column blocks) on 188 multiprocessors it is latency bound,
+not tensor-core bound.
+
+Things that did not help:
+
+* Software-pipelining the next chunk's loads.
+* 16-column blocks: more workgroups, but each phase is just as long.
+
+The two-part form runs 3 MMAs per product. With four subgroups (128 threads) its register count drops from 236 to about 128,
+so two workgroups fit per multiprocessor: 609 → 520 µs.
+
+### 18.5 Tests
+
+* `Sharplight.Vulkan.Tests`: all pass, including the new `ChunkedDeltaRuleTests` (6 single-sequence shapes, 2
+  multi-sequence scripts, and the token-by-token fallback with `matrix_f16` disabled). Its graphs also carry a 136-channel
+  conv1d, so the token-parallel conv and its state hand-over are covered on the same batches.
+* After rebasing onto `main` with the MTP / rollback merge: `Sharplight.Vulkan.Tests` 951 (17 skipped),
+  `Sharplight.Cpu.Tests` 1133 (27 skipped), `Sharplight.Families.Tests` including `RecurrentRollbackTests`: pass.
+
+### 18.6 Reuse for other linear-recurrent ops (design notes, not implemented)
+
+* **Mamba-2 SSD** (`SelectiveScan` with a scalar decay per head) is the same chunk algebra with β = 1 and no delta
+  correction: there is no L and no triangular inverse, so `Tb` = I and U = V. A chunked SSD would be a prep kernel without
+  the solve (only P = C Bᵀ ⊙ decay mask) plus the existing sequential pass with step 4 dropped. The kernels take the decay
+  only through G, so this needs no new decay handling. It was not implemented here because the SSD models in the tests are
+  small (mamba2-130m, Falcon-H1-0.5B, granite-4.0-h-350m). The token-by-token selective scan is not the bottleneck of their
+  prefill.
+* **RWKV-7** uses a per-channel (vector) decay and a generalised delta rule, S ← S diag(w) + S a bᵀ + v kᵀ. The per-channel
+  decay breaks the scalar `exp(G_t − G_s)` factorisation. Following FLA's `chunk_rwkv7` / `chunk_dplr`, it would need
+  decay-scaled K / Q (k̃ = k ⊙ exp(G), q̃ = q ⊙ exp(−G) within the chunk, numerically safe only with sub-chunks of 16) and a
+  low-rank (a, b) term in L. The prep and state kernels could reuse their tiling and the hi / lo split, but not the scalar
+  G path.
+* **ONNX `LinearAttention`** (the ONNX agent's CPU-only IR op). When it is a gated / ungated delta rule or plain linear
+  attention with scalar per-head decay, it can lower to `GatedDeltaRule` on Vulkan:
+  * Plain decayed linear attention, S ← e^g S + v kᵀ, has no delta correction: U = V and Tb = I, the SSD case above.
+  * A missing decay is g = 0.
+  * A missing L2 norm is `NORM_Q` / `NORM_K` = 0.
+
+  The chunked kernels then serve it unchanged, with the token-by-token kernel as fallback. ONNX graphs default to f32
+  without `AllowReducedPrecision`, so they get the two-part (near-f32) form. The only addition would be a macro for the
+  β-free / identity-T variant to skip the solve.
+
+### 18.7 Open issues
+
+* **Default precision.**
+  * The two-part split is the default because `AllowReducedPrecision` is off for LLMs, and the state is the analogue of
+    f32 weights.
+  * At model level the one-part form is indistinguishable (18.2) and saves a further 340 µs per layer at T = 2048 on the
+    27B (≈ 3 % of prefill, +8 % at T = 512 on FP8).
+  * Making it the default for LLM graphs is a policy decision.
+* **Sequential pass latency.** FLA's split would shorten the sequential chain to two products per chunk (`W Sᵀ` and the state
+  update) by moving the output products into a chunk-parallel kernel. The cost is storing the per-chunk states: 32 × 48 ×
+  64 KB = 100 MB at T = 2048, 400 MB at 8192. The estimated gain is about 1-2 % of 27B prefill.
+* **Chunked prefill with batch 512.** The 27B's default `--batch 512` cuts long prompts into 512-row passes. Each pass starts
+  the chunked form from the carried state, which is correct, but the per-pass fixed costs (3 launches) are paid per 512
+  rows.
