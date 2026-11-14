@@ -183,6 +183,12 @@ public sealed unsafe class GgufFile : IDisposable
             var (name, type, ne, offset) = headers[i];
             var dataType = GgmlTypes.GetDataType(type);
             long size = ComputeByteSize(dataType, ne, name);
+            long rows = size / dataType.BlockBytes * dataType.BlockSize / Math.Max(1, ne[0]);
+            if (GgmlTypes.TryGetQ4_0Interleave(type, out int interleavedRows, out _) && rows % interleavedRows != 0)
+            {
+                throw new InvalidDataException($"Tensor '{name}': {rows} rows are not a multiple of the {interleavedRows} rows its type interleaves.");
+            }
+
             long absoluteOffset = DataOffset + offset;
             if (absoluteOffset < 0 || absoluteOffset + size > FileLength)
             {

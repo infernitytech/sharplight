@@ -32,6 +32,22 @@ internal sealed class GgufWriter
         return this;
     }
 
+    /// <summary>
+    /// Adds a tensor stored under an explicit ggml type id whose bytes have the size of <paramref name="layoutType"/> (ids without a
+    /// type of their own, such as the interleaved Q4_0 types); ggml-order dimensions.
+    /// </summary>
+    public GgufWriter AddTensorNe(string name, int ggmlType, DataType layoutType, ReadOnlyMemory<byte> data, params long[] ne)
+    {
+        long expected = GgufFile.ComputeByteSize(layoutType, ne, name);
+        if (data.Length != expected)
+        {
+            throw new ArgumentException($"Tensor '{name}': expected {expected} bytes, got {data.Length}.");
+        }
+
+        _tensors.Add((name, ggmlType, ne, data));
+        return this;
+    }
+
     /// <summary>Adds a tensor given its row-major (outermost-first) dimensions.</summary>
     public GgufWriter AddTensor(string name, DataType type, ReadOnlyMemory<byte> data, params long[] dims)
         => AddTensorNe(name, type, data, dims.Reverse().ToArray());
