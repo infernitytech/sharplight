@@ -64,11 +64,10 @@ internal static class MappedFamilyCases
         new("tiny-random-cohere2-moe HF (cohere2_moe, transformers)", "hf/tiny-random-cohere2-moe", Prompt, "ids", Cohere2MoeIds, ""),
         new("tiny-random-cohere2-moe f32 GGUF (cohere2moe, llama.cpp)", "gguf/tiny-random-cohere2-moe-f32.gguf", Prompt, "ids", Cohere2MoeIds, ""),
         // llama.cpp-only families: tiny random GGUF files from tools/mk_tiny_gguf.py (llama.cpp tensor names and keys), greedy ids of llama.cpp b11177 (CPU).
-        // ALiBi (Refact, Jais, Baichuan-13B) runs on the CPU provider when a GPU is used.
         new("tiny-random-refact f32 GGUF (refact ALiBi, llama.cpp)", "gguf/tiny-random-refact-f32.gguf", Prompt, "ids",
-            [673, 918, 695, 714, 45, 621, 140, 303, 638, 159, 173, 52, 228, 500, 159, 217, 403, 329, 934, 450, 13, 44, 157, 627], "", NeedsCpuFallback: true),
+            [673, 918, 695, 714, 45, 621, 140, 303, 638, 159, 173, 52, 228, 500, 159, 217, 403, 329, 934, 450, 13, 44, 157, 627], ""),
         new("tiny-random-jais f32 GGUF (jais ALiBi, llama.cpp)", "gguf/tiny-random-jais-f32.gguf", Prompt, "ids",
-            [15, 756, 745, 845, 745, 845, 745, 281, 692, 845, 845, 745, 281, 692, 845, 845, 745, 281, 692, 219, 845, 15, 845, 15], "", NeedsCpuFallback: true),
+            [15, 756, 745, 845, 745, 845, 745, 281, 692, 845, 845, 745, 281, 692, 845, 845, 745, 281, 692, 219, 845, 15, 845, 15], ""),
         new("tiny-random-orion f32 GGUF (orion, llama.cpp)", "gguf/tiny-random-orion-f32.gguf", Prompt, "ids",
             [104, 837, 472, 487, 153, 487, 472, 861, 652, 572, 476, 95, 472, 861, 215, 76, 81, 568, 564, 664, 104, 104, 104, 447], ""),
         new("tiny-random-codeshell f32 GGUF (codeshell, embedding through the output head, llama.cpp)", "gguf/tiny-random-codeshell-f32.gguf", Prompt, "ids",
@@ -86,7 +85,7 @@ internal static class MappedFamilyCases
         new("tiny-random-baichuan f32 GGUF (baichuan 32 layers rotary, llama.cpp)", "gguf/tiny-random-baichuan-f32.gguf", Prompt, "ids",
             [1004, 786, 523, 263, 550, 862, 713, 331, 802, 17, 567, 668, 567, 806, 213, 725, 862, 564, 932, 626, 892, 959, 978, 942], ""),
         new("tiny-random-baichuan-alibi f32 GGUF (baichuan 40 layers ALiBi, llama.cpp)", "gguf/tiny-random-baichuan-alibi-f32.gguf", Prompt, "ids",
-            [4, 915, 261, 657, 362, 921, 107, 576, 822, 573, 200, 646, 881, 1015, 607, 419, 999, 1018, 116, 22, 28, 1006, 875, 799], "", NeedsCpuFallback: true),
+            [4, 915, 261, 657, 362, 921, 107, 576, 822, 573, 200, 646, 881, 1015, 607, 419, 999, 1018, 116, 22, 28, 1006, 875, 799], ""),
         // 23 tokens: llama.cpp's 24th is a near tie (log-prob margin 0.001).
         new("tiny-random-deepseek f32 GGUF (deepseek V1 dense lead, shared expert, unnormalized scaled top-k, llama.cpp)", "gguf/tiny-random-deepseek-f32.gguf", Prompt, "ids",
             [593, 248, 303, 176, 746, 405, 657, 36, 658, 237, 613, 780, 765, 958, 427, 467, 96, 383, 720, 246, 784, 804, 625], ""),
@@ -95,12 +94,41 @@ internal static class MappedFamilyCases
         // PLM: llama.cpp b11177 needs -fa off for it (its flash-attention path fails on value heads narrower than the key heads).
         new("tiny-random-plm f32 GGUF (plm latent attention, squared ReLU, llama.cpp)", "gguf/tiny-random-plm-f32.gguf", Prompt, "ids",
             [963, 201, 799, 975, 558, 169, 855, 545, 234, 639, 43, 975, 909, 201, 903, 855, 381, 331, 934, 826, 104, 652, 558, 903], ""),
+        new("tiny-random-talkie f32 GGUF (talkie weight-less norms, per-head q gain after rope, embedding skip, logit scale, llama.cpp)", "gguf/tiny-random-talkie-f32.gguf", Prompt, "ids",
+            [69, 593, 233, 498, 328, 862, 557, 872, 505, 302, 527, 842, 524, 90, 642, 25, 288, 324, 949, 603, 621, 595, 339, 419], ""),
+        new("tiny-random-nanbeige f32 GGUF (nanbeige two layer loops with the output norm between them, llama.cpp)", "gguf/tiny-random-nanbeige-f32.gguf", Prompt, "ids",
+            [944, 185, 39, 453, 183, 365, 572, 160, 339, 530, 834, 848, 834, 642, 715, 715, 230, 585, 344, 262, 715, 838, 502, 619], ""),
+        new("tiny-random-arctic f32 GGUF (arctic dense MLP plus a separately normed expert branch, llama.cpp)", "gguf/tiny-random-arctic-f32.gguf", Prompt, "ids",
+            [106, 184, 220, 695, 488, 192, 1022, 140, 112, 904, 524, 4, 368, 735, 1005, 15, 184, 97, 781, 225, 1009, 626, 195, 488], ""),
+        new("tiny-random-deci f32 GGUF (deci per-layer heads and widths, linear-attention and attention-free layers, llama.cpp)", "gguf/tiny-random-deci-f32.gguf", Prompt, "ids",
+            [828, 449, 523, 730, 172, 528, 15, 810, 229, 642, 855, 1017, 953, 452, 402, 901, 503, 573, 108, 495, 1014, 108, 379, 1017], ""),
+        new("tiny-random-grok f32 GGUF (grok scaled soft-capped attention, sandwich norms, GELU experts plus dense MLP, logit cap, llama.cpp)", "gguf/tiny-random-grok-f32.gguf", Prompt, "ids",
+            [546, 813, 108, 853, 841, 470, 224, 546, 800, 241, 118, 118, 546, 285, 747, 632, 632, 377, 853, 800, 904, 800, 904, 964], ""),
+        // Maple, Kolibri-1 and Ricursive: a newer llama.cpp (b11177 lacks the latter two and clamps Maple's experts the Step-3.5 way); its text
+        // output, matched byte for byte by these ids.
+        new("tiny-random-maple f32 GGUF (maple NoPE global layers, sliding window, clamped SwiGLU experts, llama.cpp)", "gguf/tiny-random-maple-f32.gguf", Prompt, "ids",
+            [883, 210, 498, 883, 498, 94, 579, 498, 498, 498, 878, 498, 878, 498, 878, 498, 878, 498, 216, 498, 216, 498, 216, 498], ""),
+        new("tiny-random-step35 f32 GGUF (step35 per-layer heads, half rope on full layers, head gate, sigmoid experts, clamped SwiGLU, llama.cpp)", "gguf/tiny-random-step35-f32.gguf", Prompt, "ids",
+            [817, 475, 244, 560, 259, 346, 19, 862, 229, 587, 978, 519, 142, 725, 987, 180, 765, 891, 519, 162, 138, 168, 903, 41], ""),
+        new("tiny-random-kolibri1 f32 GGUF (kolibri1 logit selection bias, sigmoid experts, NoPE global layers, sandwich norms, llama.cpp)", "gguf/tiny-random-kolibri1-f32.gguf", Prompt, "ids",
+            [431, 327, 402, 402, 77, 77, 25, 402, 773, 773, 767, 767, 960, 887, 888, 674, 455, 999, 333, 582, 938, 71, 164, 527], ""),
+        new("tiny-random-ricursive f32 GGUF (ricursive value residual, channel gate, NoPE global layer, clamped SwiGLU, llama.cpp)", "gguf/tiny-random-ricursive-f32.gguf", Prompt, "ids",
+            [169, 627, 119, 886, 874, 601, 729, 631, 100, 407, 503, 590, 1004, 961, 503, 797, 224, 719, 850, 503, 193, 193, 700, 231], ""),
+        // Transformers references (ids and last-prompt-position logits) of tiny checkpoints from mk_tiny_decoders.py, cut before a close call:
+        // PhiMoE's 19th step and Kolibri-1's 18th differ by less than 0.01 between the top two logits.
+        new("tiny-random-phimoe HF (phimoe layer norms, sparsemixer routing, sliding window, transformers)", "hf/tiny-random-phimoe", Prompt, "ids",
+            [948, 961, 961, 539, 539, 107, 665, 150, 948, 217, 254, 973, 884, 1016, 100, 401, 358, 546], ""),
+        new("tiny-random-kolibri1 HF (kolibri1 logit selection bias, sandwich norms, NoPE global layer, transformers)", "hf/tiny-random-kolibri1", Prompt, "ids",
+            [298, 196, 886, 442, 914, 489, 442, 661, 583, 292, 73, 997, 209, 829, 1003, 684, 935], ""),
         // Real checkpoints: bigcode/tiny_starcoder_py (gpt_bigcode, 164M) against transformers; inceptionai/jais-family-590m converted by llama.cpp's
         // converter (f16, muP scales folded into the embedding and the output head) against llama.cpp b11177.
         new("tiny_starcoder_py HF (gpt_bigcode, transformers)", "hf/tiny_starcoder_py", "def fibonacci(n):", "ids",
             [284, 415, 310, 610, 225, 34, 44, 291, 442, 225, 34, 284, 813, 44, 291, 442, 28176, 34682, 26, 96, 31, 35, 27, 474], ""),
         new("jais-family-590m f16 GGUF (jais ALiBi, llama.cpp)", "gguf/jais-family-590m/jais-family-590m-f16.gguf", "The capital of France is", "ids",
-            [330, 5199, 371, 14707, 14, 1248, 455, 330, 10308, 371, 330, 15309, 371, 330, 1824, 725, 13, 417, 13, 18913, 932, 14, 1248, 455], "",
-            NeedsCpuFallback: true),
+            [330, 5199, 371, 14707, 14, 1248, 455, 330, 10308, 371, 330, 15309, 371, 330, 1824, 725, 13, 417, 13, 18913, 932, 14, 1248, 455], ""),
+        // Nanbeige4.2-3B: 22 layers looped twice (44 KV slots) with the output norm between the loops; llama.cpp b11177 text up to the first
+        // close call (after " Pluto." the top two differ by 0.2 nats; on "The capital of France is" two llama.cpp runs with different thread counts already part at token 10).
+        new("Nanbeige4.2-3B Q4_K_M GGUF (nanbeige layer loops, llama.cpp)", "gguf/Nanbeige4.2-3B/Nanbeige_Nanbeige4.2-3B-Q4_K_M.gguf",
+            "The planets of the solar system in order from the Sun are Mercury, Venus, Earth, Mars,", "text", [], " Jupiter, Saturn, Uranus, Neptune, and Pluto.", Tokens: 11),
     ];
 }

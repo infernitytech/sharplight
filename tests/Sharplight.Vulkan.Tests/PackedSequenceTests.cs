@@ -31,6 +31,22 @@ public sealed class PackedSequenceTests
     [InlineData(false, 6, 2, 32, 32, new[] { 100, 3, 50 })]
     [InlineData(true, 8, 2, 64, 64, new[] { 29, 31, 2, 90 })]
     public void AttentionWithinSpans(bool causal, int Hq, int Hkv, int D, int Dv, int[] lengths)
+        => CheckSpans(causal, Hq, Hkv, D, Dv, lengths, window: 0, alibiSlopes: null);
+
+    /// <summary>Sliding windows (symmetric when bidirectional) and ALiBi biases within packed sequences, on the scalar and flash kernels.</summary>
+    [Theory]
+    [InlineData(false, 3, false, new[] { 3, 1, 2 })]
+    [InlineData(true, 3, false, new[] { 3, 1, 2 })]
+    [InlineData(false, 0, true, new[] { 3, 1, 2 })]
+    [InlineData(false, 9, false, new[] { 7, 40, 1, 33, 64, 19 })]
+    [InlineData(true, 9, false, new[] { 7, 40, 1, 33, 64, 19 })]
+    [InlineData(false, 0, true, new[] { 7, 40, 1, 33, 64, 19 })]
+    [InlineData(true, 0, true, new[] { 7, 40, 1, 33, 64, 19 })]
+    [InlineData(false, 17, true, new[] { 29, 31, 2, 90 })]
+    public void AttentionWithinSpansWindowAlibi(bool causal, int window, bool alibi, int[] lengths)
+        => CheckSpans(causal, 8, 4, 64, 64, lengths, window, alibi ? [0.5f, 0.25f, 0.125f, 0.0625f, 0.03125f, 0.7f, 0.35f, 0.09f] : null);
+
+    private static void CheckSpans(bool causal, int Hq, int Hkv, int D, int Dv, int[] lengths, int window, float[]? alibiSlopes)
     {
         int T = lengths.Sum();
         var tg = new TG();
@@ -39,10 +55,22 @@ public sealed class PackedSequenceTests
         var k = tg.InF("k", Tm, Hkv, D);
         var v = tg.InF("v", Tm, Hkv, Dv);
         var s = tg.In("spans", DataType.I32, Tm, 2);
-        tg.B.Output("o", tg.B.Emit1("Attention", [q, k, v, s], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", causal))));
+        var attrs = new List<(string, object)> { ("scale", 1f / MathF.Sqrt(D)), ("causal", causal) };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        if (alibiSlopes is not null)
+        {
+            attrs.Add(("alibi_slopes", alibiSlopes));
+        }
+
+        tg.B.Output("o", tg.B.Emit1("Attention", [q, k, v, s], Attributes.From([.. attrs])));
         var step = new Step(T, 0, (q, Rnd.F(T * Hq * D, 1)), (k, Rnd.F(T * Hkv * D, 2)), (v, Rnd.F(T * Hkv * Dv, 3)), (s, RowSpans(lengths)));
         // The flash kernel runs Q/K/P in f16.
-        Diff.Check("Attention.spans", tg.B.Build(), step, atol: 3e-3, rtol: 1e-2, maxTokens: 256, what: $"causal={causal} Hq={Hq} Hkv={Hkv} D={D} [{string.Join(",", lengths)}]");
+        Diff.Check("Attention.spans", tg.B.Build(), step, atol: 3e-3, rtol: 1e-2, maxTokens: 256,
+            what: $"causal={causal} Hq={Hq} Hkv={Hkv} D={D} window={window} alibi={alibiSlopes is not null} [{string.Join(",", lengths)}]");
     }
 
     [Theory]

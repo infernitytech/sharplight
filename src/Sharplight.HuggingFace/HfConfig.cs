@@ -103,12 +103,26 @@ internal sealed partial class HfConfig : IDisposable
         => Get("rope_parameters", "rope_scaling") is { ValueKind: JsonValueKind.Object } v ? v : null;
 
     /// <summary>
-    /// Looks up a RoPE parameter in <c>rope_parameters</c> first, then at the config's top level
-    /// (older checkpoints keep <c>rope_theta</c> / <c>partial_rotary_factor</c> there).
+    /// The rope parameters of the global-attention layers: <see cref="RopeParameters"/>, or its <c>full_attention</c> entry when the config
+    /// keeps one object per layer type (Gemma 3, ModernBERT as transformers 5 saves them; <see cref="LayerTypeRopeDouble"/> reads the others).
+    /// </summary>
+    public JsonElement? GlobalRopeParameters
+        => RopeParameters is { } v && v.TryGetProperty("full_attention", out var full) && full.ValueKind == JsonValueKind.Object ? full : RopeParameters;
+
+    /// <summary>A RoPE parameter of one layer type (e.g. <c>sliding_attention</c>) in a per-layer-type <c>rope_parameters</c> object, or null.</summary>
+    public double? LayerTypeRopeDouble(string layerType, string key)
+        => Get("rope_parameters") is { ValueKind: JsonValueKind.Object } parameters && parameters.TryGetProperty(layerType, out var type)
+           && type.ValueKind == JsonValueKind.Object && type.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetDouble()
+            : null;
+
+    /// <summary>
+    /// Looks up a RoPE parameter in the global-attention <c>rope_parameters</c> (<see cref="GlobalRopeParameters"/>) first, then at the config's top
+    /// level (older checkpoints keep <c>rope_theta</c> / <c>partial_rotary_factor</c> there).
     /// </summary>
     public double? RopeDouble(string rope, params string[] topLevel)
     {
-        if (RopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Number)
+        if (GlobalRopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Number)
         {
             return v.GetDouble();
         }
@@ -116,9 +130,9 @@ internal sealed partial class HfConfig : IDisposable
         return GetDouble(topLevel);
     }
 
-    /// <summary>An integer array from <c>rope_parameters</c> (e.g. <c>mrope_section</c>), or null.</summary>
+    /// <summary>An integer array from the global-attention <c>rope_parameters</c> (e.g. <c>mrope_section</c>), or null.</summary>
     public int[]? RopeIntArray(string rope)
-        => RopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Array
+        => GlobalRopeParameters is { } rp && rp.TryGetProperty(rope, out var v) && v.ValueKind == JsonValueKind.Array
             ? v.EnumerateArray().Select(x => x.GetInt32()).ToArray() : null;
 
     /// <summary>A string-array value, or null when absent or not an array.</summary>

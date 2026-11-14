@@ -7,7 +7,8 @@ from ~/models/hf/tiny-random-falcon with convert_hf_to_gguf.py.
 
     PYTHONPATH=<llama.cpp>/gguf-py python mk_tiny_gguf.py <tokenizer gguf> <output directory> [name ...]
 
-Files: <output directory>/tiny-random-{qwen1,xverse,chatglm,arwkv7,arwkv7-nogate,rwkv6qwen2,plamo2}-f32.gguf (only the named ones when names are given). Norm weights
+Files: <output directory>/tiny-random-<name>-f32.gguf for every name of the models table below (only the named ones when names are given). The
+bidirectional embedding families (eurobert, neo-bert, llama-embed, gemma-embedding, modern-bert, jina-bert-v2) get their references from llamacpp_embeddings.py. Norm weights
 and biases are randomized so that every tensor matters.
 """
 import os, sys
@@ -241,10 +242,12 @@ def write_plamo2(path, tokenizer_path, seed):
     print("wrote", path)
 
 
-def write_family(path, arch, seed, layer_tensors, parameters=None, layers=LAYERS, kv_heads=KV_HEADS, layer_norm=False, global_tensors=None, rope_dim=HEAD_DIM):
+def write_family(path, arch, seed, layer_tensors, parameters=None, layers=LAYERS, kv_heads=KV_HEADS, layer_norm=False, global_tensors=None, rope_dim=HEAD_DIM,
+                 heads=HEADS, ffn=FFN):
     # The llama-like families of the later bring-up rounds: one seed per model (independent of which models are written), the shared keys, an
     # RMS (or biased layer) output norm and an untied output head; layer_tensors(layer) returns the tensors of one block, global_tensors(vocab) any
-    # replacement of the global ones (a None value drops a tensor) and parameters(writer) the family's own keys.
+    # replacement of the global ones (a None value drops a tensor) and parameters(writer) the family's own keys. heads, kv_heads and ffn may be
+    # per-layer lists.
     global rng
     rng = np.random.default_rng(seed)
     reader = GGUFReader(tokenizer)
@@ -254,8 +257,8 @@ def write_family(path, arch, seed, layer_tensors, parameters=None, layers=LAYERS
     writer.add_context_length(CONTEXT)
     writer.add_embedding_length(HIDDEN)
     writer.add_block_count(layers)
-    writer.add_feed_forward_length(FFN)
-    writer.add_head_count(HEADS)
+    writer.add_feed_forward_length(ffn)
+    writer.add_head_count(heads)
     writer.add_head_count_kv(kv_heads)
     if layer_norm:
         writer.add_layer_norm_eps(1e-5)
@@ -397,6 +400,184 @@ def plm_parameters(writer):
     writer.add_value_length(VALUE)
 
 
+def qk_norm_block(block=None, **extra):
+    # A block with per-head q/k norms (and any extra tensors, "__" standing for ".").
+    t = (block or llama_block)()
+    t.update({"attn_q_norm.weight": norm(HEAD_DIM), "attn_k_norm.weight": norm(HEAD_DIM)})
+    for name, make in extra.items():
+        t[name.replace("__", ".")] = make()
+    return t
+
+
+def talkie_block():
+    # No norm weights at all; a per-head scalar q gain ([heads, 1]) and the per-layer embedding skip scale.
+    t = {name: value for name, value in llama_block().items() if not name.endswith("norm.weight")}
+    t.update({"attn_q_norm.weight": norm(HEADS).reshape(HEADS, 1), "layer_output_scale.weight": (0.5 * rng.standard_normal(1)).astype(np.float32)})
+    return t
+
+
+def arctic_block():
+    # A dense SwiGLU MLP of hidden width next to softmax-routed experts of FFN width behind their own norm.
+    t = {name: value for name, value in moe_block(shared=0).items() if "exps" not in name}
+    t.update({"ffn_gate.weight": weight(HIDDEN, HIDDEN), "ffn_up.weight": weight(HIDDEN, HIDDEN), "ffn_down.weight": weight(HIDDEN, HIDDEN),
+              "ffn_norm_exps.weight": norm(HIDDEN), "ffn_gate_exps.weight": weight(EXPERTS, FFN, HIDDEN), "ffn_up_exps.weight": weight(EXPERTS, FFN, HIDDEN),
+              "ffn_down_exps.weight": weight(EXPERTS, HIDDEN, FFN)})
+    return t
+
+
+DECI_HEADS, DECI_KV, DECI_FFN = [4, 4, 0, 4], [2, 0, 0, 4], [128, 96, 64, 128]
+
+
+def deci_block(layer):
+    # Layer 1 replaces attention by one linear map, layer 2 has no attention; the feed-forward width varies.
+    heads, kv, ffn = DECI_HEADS[layer], DECI_KV[layer], DECI_FFN[layer]
+    t = {"ffn_norm.weight": norm(HIDDEN), "ffn_gate.weight": weight(ffn, HIDDEN), "ffn_up.weight": weight(ffn, HIDDEN), "ffn_down.weight": weight(HIDDEN, ffn)}
+    if heads:
+        t.update({"attn_norm.weight": norm(HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN)})
+    if kv:
+        t.update({"attn_q.weight": weight(HIDDEN, HIDDEN), "attn_k.weight": weight(kv * HEAD_DIM, HIDDEN), "attn_v.weight": weight(kv * HEAD_DIM, HIDDEN)})
+    return t
+
+
+def grok_block():
+    # GELU experts plus a dense GELU MLP, sandwich norms around both sub-layers.
+    t = moe_block(shared=0)
+    t.update({"ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN),
+              "attn_output_norm.weight": norm(HIDDEN), "layer_output_norm.weight": norm(HIDDEN)})
+    return t
+
+
+def grok_parameters(writer):
+    moe_parameters(shared=0)(writer)
+    writer.add_float32("grok.attention.output_scale", 0.2)
+    writer.add_embedding_scale(2.0)
+    writer.add_logit_scale(0.6)
+    writer.add_final_logit_softcapping(20.0)
+
+
+def sliding_parameters(writer, base_swa=1000.0):
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, False, True])
+    if base_swa:
+        writer.add_rope_freq_base_swa(base_swa)
+
+
+def maple_parameters(writer):
+    moe_parameters(shared=0)(writer)
+    sliding_parameters(writer)
+    writer.add_swiglu_clamp_exp([0.8, 0.0, 1.2])
+
+
+STEP_HEADS, STEP_KV = [4, 4, 2], [2, 2, 1]
+
+
+def step35_block(layer):
+    # A dense first layer, then experts with a selection bias and a shared expert; per-layer head counts and a per-head output gate.
+    heads, kv = STEP_HEADS[layer], STEP_KV[layer]
+    t = llama_block() if layer == 0 else moe_block()
+    t.update({"attn_q.weight": weight(heads * HEAD_DIM, HIDDEN), "attn_k.weight": weight(kv * HEAD_DIM, HIDDEN), "attn_v.weight": weight(kv * HEAD_DIM, HIDDEN),
+              "attn_output.weight": weight(HIDDEN, heads * HEAD_DIM), "attn_q_norm.weight": norm(HEAD_DIM), "attn_k_norm.weight": norm(HEAD_DIM),
+              "attn_gate.weight": weight(heads, HIDDEN)})
+    if layer:
+        t["exp_probs_b.bias"] = bias(EXPERTS)
+    return t
+
+
+def step35_parameters(writer):
+    moe_parameters(dense_lead=1)(writer)
+    writer.add_expert_shared_feed_forward_length(EXPERT_FFN)
+    writer.add_key_length(HEAD_DIM)
+    writer.add_value_length(HEAD_DIM)
+    sliding_parameters(writer)
+    writer.add_rope_dimension_count_swa(HEAD_DIM)
+    writer.add_swiglu_clamp_exp([0.0, 1.0, 0.9])
+    writer.add_swiglu_clamp_shexp([1.1, 0.7, 0.0])
+
+
+def kolibri1_parameters(writer):
+    moe_parameters(norm_weights=True)(writer)
+    writer.add_expert_shared_feed_forward_length(EXPERT_FFN)
+    writer.add_uint32("kolibri1.expert_gating_func", 2)
+    sliding_parameters(writer, base_swa=None)
+
+
+def ricursive_parameters(writer):
+    writer.add_sliding_window(8)
+    writer.add_embedding_scale(2.0)
+    writer.add_swiglu_clamp([0.8, 0.0, 1.0, 0.9, 0.7])
+
+
+def bidirectional(extra=None):
+    # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
+    def parameters(writer):
+        writer.add_causal_attention(False)
+        if extra:
+            extra(writer)
+    return parameters
+
+
+def neo_bert_block():
+    # Fused q/k/v, fused SwiGLU up projection (gate rows first), RMS norms.
+    return {"attn_norm.weight": norm(HIDDEN), "attn_qkv.weight": weight(3 * HIDDEN, HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN),
+            "ffn_norm.weight": norm(HIDDEN), "ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+
+
+def gemma_embedding_block():
+    return {"attn_norm.weight": norm(HIDDEN), "attn_q.weight": weight(HIDDEN, HIDDEN), "attn_k.weight": weight(HEAD_DIM, HIDDEN),
+            "attn_v.weight": weight(HEAD_DIM, HIDDEN), "attn_q_norm.weight": norm(HEAD_DIM), "attn_k_norm.weight": norm(HEAD_DIM),
+            "attn_output.weight": weight(HIDDEN, HIDDEN), "post_attention_norm.weight": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN),
+            "ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN),
+            "post_ffw_norm.weight": norm(HIDDEN)}
+
+
+DENSE = 96
+
+
+def gemma_embedding_parameters(writer):
+    # Window 8 is symmetric (keys at most 4 positions away); layers 0-4 slide, layer 5 is global; Dense 64 -> 96 -> 64 after pooling.
+    writer.add_sliding_window(8)
+    writer.add_rope_freq_base_swa(10000.0)
+    writer.add_uint32("gemma-embedding.dense_2_feat_in", HIDDEN)
+    writer.add_uint32("gemma-embedding.dense_2_feat_out", DENSE)
+    writer.add_uint32("gemma-embedding.dense_3_feat_in", DENSE)
+    writer.add_uint32("gemma-embedding.dense_3_feat_out", HIDDEN)
+
+
+def modern_bert_block(layer):
+    # Bias-free layer norms, no norm in front of the first attention, fused q/k/v and GeGLU up projection (activated half first).
+    t = {"attn_qkv.weight": weight(3 * HIDDEN, HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN), "ffn_norm.weight": norm(HIDDEN),
+         "ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+    if layer != 0:
+        t["attn_norm.weight"] = norm(HIDDEN)
+    return t
+
+
+def modern_bert_parameters(writer):
+    # Local window 8, every third layer global from the first.
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern(3)
+    writer.add_rope_freq_base_swa(10000.0)
+    writer.add_string("modern-bert.hidden_act", "gelu")
+
+
+def jina_bert_v2_block():
+    # Post-norm BERT layer with whole-projection q/k layer norms, a second attention norm and a fused GeGLU up projection (activated half
+    # first); every linear has a bias except the q/k/v ones of real checkpoints, which have them too.
+    t = {}
+    for name, rows in [("attn_q", HIDDEN), ("attn_k", HIDDEN), ("attn_v", HIDDEN), ("attn_output", HIDDEN)]:
+        t[f"{name}.weight"] = weight(rows, HIDDEN)
+        t[f"{name}.bias"] = bias(rows)
+    for name in ["attn_q_norm", "attn_k_norm", "attn_output_norm", "attn_norm_2", "layer_output_norm"]:
+        t[f"{name}.weight"] = norm(HIDDEN)
+        t[f"{name}.bias"] = bias(HIDDEN)
+    t.update({"ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_up.bias": bias(2 * FFN), "ffn_down.weight": weight(HIDDEN, FFN), "ffn_down.bias": bias(HIDDEN)})
+    return t
+
+
+def jina_bert_v2_parameters(writer):
+    writer.add_token_type_count(2)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -436,6 +617,43 @@ models = {
     # PLM: latent attention without query compression, squared-ReLU MLP, output head tied to the embedding.
     "plm": lambda path: write_family(path, "plm", 24, lambda layer: plm_block(), parameters=plm_parameters, rope_dim=ROPE, kv_heads=HEADS,
                                      global_tensors=lambda vocab: {"output.weight": None}),
+    # Talkie: weight-less norms, a per-head q gain after rope, the embedding skip and a logit scale.
+    "talkie": lambda path: write_family(path, "talkie", 25, lambda layer: talkie_block(), parameters=lambda w: w.add_logit_scale(0.7),
+                                        global_tensors=lambda vocab: {"output_norm.weight": None}),
+    # Nanbeige: the three layers run twice with the output norm in between.
+    "nanbeige": lambda path: write_family(path, "nanbeige", 26, lambda layer: llama_block(), parameters=lambda w: w.add_uint32("nanbeige.num_loops", 2)),
+    "arctic": lambda path: write_family(path, "arctic", 27, lambda layer: arctic_block(), parameters=moe_parameters(shared=0)),
+    "deci": lambda path: write_family(path, "deci", 28, deci_block, layers=4, heads=DECI_HEADS, kv_heads=DECI_KV, ffn=DECI_FFN),
+    "grok": lambda path: write_family(path, "grok", 29, lambda layer: grok_block(), parameters=grok_parameters),
+    "maple": lambda path: write_family(path, "maple", 30, lambda layer: qk_norm_block(lambda: moe_block(shared=0)), parameters=maple_parameters),
+    "step35": lambda path: write_family(path, "step35", 31, step35_block, parameters=step35_parameters, heads=STEP_HEADS, kv_heads=STEP_KV),
+    "kolibri1": lambda path: write_family(path, "kolibri1", 32, lambda layer: qk_norm_block(moe_block, exp_probs_b__bias=lambda: bias(EXPERTS),
+                                          post_attention_norm__weight=lambda: norm(HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN)), parameters=kolibri1_parameters),
+    # Ricursive: five layers with the default pattern (layer 4 global and NoPE), value residual, per-channel gate, sandwich norms.
+    "ricursive": lambda path: write_family(path, "ricursive", 33, lambda layer: qk_norm_block(llama_block, attn_gate__weight=lambda: weight(HIDDEN, HIDDEN),
+                                           attn_vres_lambda__weight=lambda: bias(1), post_attention_norm__weight=lambda: norm(HIDDEN),
+                                           post_ffw_norm__weight=lambda: norm(HIDDEN)), parameters=ricursive_parameters, layers=5),
+    # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
+    "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
+                                          global_tensors=lambda vocab: {"output.weight": None}),
+    "neo-bert": lambda path: write_family(path, "neo-bert", 41, lambda layer: neo_bert_block(), parameters=bidirectional(), kv_heads=HEADS,
+                                          global_tensors=lambda vocab: {"output.weight": None, "output_norm.weight": None, "enc.output_norm.weight": norm(HIDDEN)}),
+    "llama-embed": lambda path: write_family(path, "llama-embed", 42, lambda layer: llama_block(), parameters=bidirectional(),
+                                             global_tensors=lambda vocab: {"output.weight": None}),
+    "gemma-embedding": lambda path: write_family(path, "gemma-embedding", 43, lambda layer: gemma_embedding_block(), layers=6, kv_heads=1,
+                                                 parameters=bidirectional(gemma_embedding_parameters),
+                                                 global_tensors=lambda vocab: {"output.weight": None, "dense_2.weight": weight(DENSE, HIDDEN),
+                                                                               "dense_3.weight": weight(HIDDEN, DENSE)}),
+    "modern-bert": lambda path: write_family(path, "modern-bert", 44, modern_bert_block, layers=4, kv_heads=HEADS, layer_norm=True,
+                                             parameters=bidirectional(modern_bert_parameters),
+                                             global_tensors=lambda vocab: {"output.weight": None, "output_norm.bias": None,
+                                                                           "token_embd_norm.weight": norm(HIDDEN)}),
+    # JinaBERT v2: no positions (ALiBi, llama.cpp's fixed maximum bias 8), two token types of which row 0 is added.
+    "jina-bert-v2": lambda path: write_family(path, "jina-bert-v2", 45, lambda layer: jina_bert_v2_block(), kv_heads=HEADS, layer_norm=True,
+                                              parameters=bidirectional(jina_bert_v2_parameters),
+                                              global_tensors=lambda vocab: {"output.weight": None, "output_norm.weight": None, "output_norm.bias": None,
+                                                                            "token_types.weight": weight(2, HIDDEN), "token_embd_norm.weight": norm(HIDDEN),
+                                                                            "token_embd_norm.bias": bias(HIDDEN)}),
 }
 for name, write in models.items():
     if not only or name in only:

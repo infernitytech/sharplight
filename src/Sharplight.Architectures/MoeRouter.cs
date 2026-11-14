@@ -31,9 +31,14 @@ internal static class MoeRouter
         }
 
         var logits = b.Linear(h, prefix + "router.weight", prefix + "router.bias");
+        if (options.RouterSoftCap > 0f)
+        {
+            logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / options.RouterSoftCap)), options.RouterSoftCap, 0f, $"{prefix}router_capped");
+        }
+
         var scores = Scores(b, logits, prefix, options.ScoreFunction);
         var bias = b.TryWeight(prefix + "router_bias");
-        var selection = bias is null ? scores : b.Add(scores, bias);
+        var selection = bias is null ? scores : b.Add(options.SelectionBiasOnLogits ? logits : scores, bias);
         if (options.IsGroupLimited)
         {
             selection = LimitToBestGroups(b, selection, prefix, options);
@@ -42,6 +47,11 @@ internal static class MoeRouter
         var top = b.Emit("TopK", [selection], Attributes.From(("k", (long)options.ExpertsUsed)), $"{prefix}router_topk");
         var ids = top[1];
         var weights = bias is null && !options.IsGroupLimited ? top[0] : PickScores(b, scores, ids, prefix, options);
+        if (options.ScoreFunction == MoeScoreFunction.SparseMixer)
+        {
+            weights = SparseMixerWeights(b, logits, weights, ids, prefix, options);
+        }
+
         if (options.ScoreFunction == MoeScoreFunction.SoftmaxSelected)
         {
             weights = b.Emit1("Softmax", [weights], null, $"{prefix}router_weights");
@@ -64,7 +74,7 @@ internal static class MoeRouter
     private static Value Scores(GraphBuilder b, Value logits, string prefix, MoeScoreFunction function) => function switch
     {
         MoeScoreFunction.Sigmoid => b.Sigmoid(logits, $"{prefix}router_probs"),
-        MoeScoreFunction.SoftmaxSelected => logits,
+        MoeScoreFunction.SoftmaxSelected or MoeScoreFunction.SparseMixer => logits,
         MoeScoreFunction.SqrtSoftplus => b.Unary("Sqrt", b.Softplus(logits), $"{prefix}router_probs"),
         _ => b.Emit1("Softmax", [logits], null, $"{prefix}router_probs"),
     };
@@ -85,6 +95,27 @@ internal static class MoeRouter
         var chosen = b.Reshape(OneHotCount(b, bestGroups, groups, options.GroupsUsed, $"{prefix}group_iota"), 0, groups, 1);    // [T, G, 1]
         var masked = b.Emit1("Where", [chosen, grouped, ScalarConstant(b, $"{prefix}group_masked", MaskedScore)]);
         return b.Reshape(masked, 0, options.Experts);
+    }
+
+    /// <summary>
+    /// Mixing weights of sparse-mixer routing (Phi-3.5-MoE, inference form): slot i holds the expert with logit m_i; its weight is
+    /// 1 / Σ exp(s − m_i) over the experts s that no earlier slot chose and that lie within the jitter band
+    /// (m_i − s) ≤ 2ε·max(|s|, m_i). The band is the training-time mask of the routing; the selected expert itself is always in it.
+    /// </summary>
+    private static Value SparseMixerWeights(GraphBuilder b, Value logits, Value selected, Value ids, string prefix, MoeOptions options)
+    {
+        int experts = options.Experts;
+        int k = options.ExpertsUsed;
+        var all = b.Reshape(logits, 0, 1, experts);                                                                             // [T, 1, E]
+        var chosen = b.Reshape(selected, 0, k, 1);                                                                              // [T, k, 1]
+        var gap = b.Sub(chosen, all);                                                                                           // m_i − s [T, k, E]
+        var band = b.Scale(b.Binary("Max", b.Unary("Abs", all), chosen), 2f * options.SparseMixerJitter);
+        var inBand = b.Binary("LessEqual", gap, band);
+        var earlier = b.Emit1("CumSum", [OneHot(b, ids, experts, k, $"{prefix}mixer_iota")], Attributes.From(("axis", 1L), ("exclusive", true)));
+        var kept = b.Mul(inBand, b.Scale(earlier, -1f, 1f));
+        // exp(s − m_i) for the kept experts; s ≤ m_i for all of them, so exp(−relu(m_i − s)) equals it without overflowing elsewhere.
+        var terms = b.Mul(kept, b.Unary("Exp", b.Scale(b.Unary("Relu", gap), -1f)));
+        return b.Reshape(b.Unary("Recip", b.Emit1("ReduceSum", [terms])), 0, k);
     }
 
     // The scores [T, E] of the selected experts ids [T, k]: one-hot pick (ids == iota) instead of a gather along the expert axis.

@@ -87,6 +87,16 @@ EXTRA = {
                                         num_attention_heads=4, num_key_value_heads=2, head_dim=16, num_experts=4, num_experts_per_tok=2,
                                         num_shared_experts=1, max_position_embeddings=256, sliding_window=8, first_k_dense_replace=1,
                                         logit_scale=0.5)),
+    # PhiMoE: layer norms with biases, biased attention and head, a sliding window, top-2 sparsemixer routing (jitter 0.01).
+    "phimoe": ("phimoe", dict(hidden_size=64, intermediate_size=48, num_hidden_layers=3, num_attention_heads=4, num_key_value_heads=2,
+                              num_local_experts=4, num_experts_per_tok=2, max_position_embeddings=256, sliding_window=8, attention_bias=True,
+                              lm_head_bias=True, tie_word_embeddings=False)),
+    # Kolibri-1: sandwich norms, q/k norms, sliding rotary layers and a global NoPE layer, sigmoid routing selected on the biased logits,
+    # renormalized, plus a shared expert.
+    "kolibri1": ("kolibri1", dict(hidden_size=64, moe_intermediate_size=48, shared_expert_intermediate_size=80, num_hidden_layers=3,
+                                  num_attention_heads=4, num_key_value_heads=2, head_dim=16, num_local_experts=4, num_experts_per_tok=2,
+                                  norm_topk_prob=True, max_position_embeddings=256, sliding_window=8,
+                                  layer_types=["sliding_attention", "full_attention", "sliding_attention"])),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})

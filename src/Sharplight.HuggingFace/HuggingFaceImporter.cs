@@ -78,6 +78,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 $"Supported: {string.Join(", ", HfArchitectureMappings.All.SelectMany(m => m.ModelTypes))}.");
 
         var checkpoint = SafetensorsCheckpoint.Open(dir);
+        List<IDisposable> owned = [checkpoint];
         try
         {
             var md = new Dictionary<string, object>(StringComparer.Ordinal)
@@ -93,19 +94,30 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             HfTokenizerTranslator.AddTo(md, dir, config);
             HfSentenceTransformers.AddTo(md, dir, config);
 
+            var weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options);
+            var dense = HfSentenceTransformers.DenseWeights(dir, owned);
+            if (dense.Count > 0)
+            {
+                weights = weights.Concat(dense).ToDictionary(StringComparer.Ordinal);
+            }
+
             return new ModelSource
             {
                 Format = "hf",
                 Architecture = mapping.Architecture,
                 Metadata = md,
-                Weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options),
-                OwnedResources = [checkpoint],
+                Weights = weights,
+                OwnedResources = owned,
                 Path = path,
             };
         }
         catch
         {
-            checkpoint.Dispose();
+            foreach (var resource in owned)
+            {
+                resource.Dispose();
+            }
+
             throw;
         }
     }

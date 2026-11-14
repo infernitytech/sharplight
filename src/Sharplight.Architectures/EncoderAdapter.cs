@@ -14,15 +14,16 @@ namespace Sharplight.Architectures;
 /// <c>norm_eps</c> (LayerNorm epsilon), <c>context_length</c> (longest sequence; for learned positions at most the table size),
 /// <c>mlp.activation</c> ("gelu" (erf, default), "gelu_tanh", "relu", "silu"), <c>mlp.gated</c> (default false: act(up); true:
 /// up · act(gate), SwiGLU), <c>rope.base</c> / <c>rope.dim</c> / <c>rope.style</c> (rotary positions when there is no position table;
-/// "neox" default).
+/// "neox" default), <c>attention.alibi_max_bias</c> (ALiBi instead of positions when positive; JinaBERT v2).
 /// Embedding behaviour comes from the canonical <see cref="CanonicalKeys.EmbeddingPooling"/> (default "cls") and
 /// <see cref="CanonicalKeys.EmbeddingNormalize"/> (default true) keys; <see cref="AdapterOptions.EmbeddingPooling"/> /
 /// <see cref="AdapterOptions.EmbeddingNormalize"/> override them.
 /// <para>Weights: <c>token_embedding.weight</c> [V, H]; optional <c>position_embedding.weight</c> [P, H] (row p is position p, counted
 /// from 0 in every sequence — offsets such as RoBERTa's padding_idx + 1 are removed by the importer); optional
 /// <c>token_type_embedding.weight</c> [types, H]; <c>embedding_norm.{weight,bias}</c> (LayerNorm of the summed embeddings);
-/// per layer <c>layers.{i}.</c>: <c>attention.{q,k,v,o}.weight</c> (+ optional <c>.bias</c>), <c>attention_norm.{weight,bias}</c>
-/// (LayerNorm of residual + attention output), <c>mlp.up.weight</c>, optional <c>mlp.gate.weight</c> (gated), <c>mlp.down.weight</c>
+/// per layer <c>layers.{i}.</c>: <c>attention.{q,k,v,o}.weight</c> (+ optional <c>.bias</c>), optional <c>attention.{q,k}_norm.{weight,bias}</c>
+/// (LayerNorm of the whole q / k projection), <c>attention_norm.{weight,bias}</c> (LayerNorm of residual + attention output), optional
+/// <c>attention_norm_2.{weight,bias}</c> (LayerNorm of that plus the layer input once more), <c>mlp.up.weight</c>, optional <c>mlp.gate.weight</c> (gated), <c>mlp.down.weight</c>
 /// (+ optional biases), <c>mlp_norm.{weight,bias}</c> (LayerNorm of residual + MLP output). Optional classifier head on the first
 /// row (cls): <c>classifier.pre.{weight,bias}</c> (dense + tanh; BERT pooler / RoBERTa head dense) and <c>classifier.out.{weight,bias}</c>
 /// [labels, H].</para>
@@ -45,7 +46,8 @@ public sealed class EncoderAdapter : IModelAdapter
         float eps = src.Arch("norm_eps", 1e-12f);
         string act = src.Arch("mlp.activation", "gelu");
         var posTable = src.Weight("position_embedding.weight");
-        bool rope = posTable is null;
+        float[]? alibi = AlibiSlopes.Of(nHead, src.Arch("attention.alibi_max_bias", 0f));
+        bool rope = posTable is null && alibi is null;
         int ropeDim = src.Arch("rope.dim", headDim);
         float ropeBase = src.Arch("rope.base", 10000f);
         string ropeStyle = src.Arch("rope.style", "neox");
@@ -118,8 +120,8 @@ public sealed class EncoderAdapter : IModelAdapter
             {
                 using var _ = b.Group($"layers.{il}");
                 string p = $"layers.{il}.";
-                var q = b.Reshape(b.Linear(x, p + "attention.q.weight", p + "attention.q.bias"), 0, nHead, headDim);
-                var k = b.Reshape(b.Linear(x, p + "attention.k.weight", p + "attention.k.bias"), 0, nHead, headDim);
+                var q = b.Reshape(ProjectionNorm(b, b.Linear(x, p + "attention.q.weight", p + "attention.q.bias"), p + "attention.q_norm"), 0, nHead, headDim);
+                var k = b.Reshape(ProjectionNorm(b, b.Linear(x, p + "attention.k.weight", p + "attention.k.bias"), p + "attention.k_norm"), 0, nHead, headDim);
                 var v = b.Reshape(b.Linear(x, p + "attention.v.weight", p + "attention.v.bias"), 0, nHead, headDim);
                 if (rope)
                 {
@@ -127,9 +129,14 @@ public sealed class EncoderAdapter : IModelAdapter
                     q = b.Emit1("Rope", [q, inp.Positions], ra);
                     k = b.Emit1("Rope", [k, inp.Positions], ra);
                 }
-                var attn = PackedSequences.Attention(b, q, k, v, inp.RowSpans, 1f / MathF.Sqrt(headDim), causal: false, name: $"{p}attn");
+                var attn = PackedSequences.Attention(b, q, k, v, inp.RowSpans, 1f / MathF.Sqrt(headDim), causal: false, name: $"{p}attn", alibiSlopes: alibi);
                 var o = b.Linear(b.Reshape(attn, 0, nEmbd), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+                var layerInput = x;
                 x = LayerNorm(b, b.Add(x, o), p + "attention_norm");
+                if (b.HasWeight(p + "attention_norm_2.weight"))
+                {
+                    x = LayerNorm(b, b.Add(x, layerInput), p + "attention_norm_2");
+                }
 
                 var up = b.Linear(x, p + "mlp.up.weight", p + "mlp.up.bias");
                 var h = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(up, Act(b, b.Linear(x, p + "mlp.gate.weight", p + "mlp.gate.bias"))) : Act(b, up);
@@ -158,6 +165,9 @@ public sealed class EncoderAdapter : IModelAdapter
 
         Value LayerNorm(GraphBuilder b, Value v, string name)
             => b.Emit1("LayerNorm", [v, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps)));
+
+        // The optional LayerNorm of a whole q or k projection (before the split into heads).
+        Value ProjectionNorm(GraphBuilder b, Value v, string name) => b.HasWeight(name + ".weight") ? LayerNorm(b, v, name) : v;
 
         Value Act(GraphBuilder b, Value t) => act switch
         {

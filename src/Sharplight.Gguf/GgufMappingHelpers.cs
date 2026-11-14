@@ -6,6 +6,25 @@ internal static class GgufMappingHelpers
     /// <summary>Default RoPE base frequency when the file does not store one.</summary>
     public const float DefaultRopeBase = 10000f;
 
+    /// <summary>
+    /// Canonical pooling of llama.cpp's <c>pooling_type</c> (0 none, 1 mean, 2 cls, 3 last, 4 rank, which reads the cls row); null when the
+    /// file has no (or an unknown) pooling type.
+    /// </summary>
+    public static string? Pooling(GgufMetadataView g) => g.Int("pooling_type", -1) switch
+    {
+        0 => "none",
+        1 => "mean",
+        2 or 4 => "cls",
+        3 => "last",
+        _ => null,
+    };
+
+    /// <summary>
+    /// The canonical (exclusive) bound of llama.cpp's symmetric sliding window: <c>n_swa</c> keys around the query, i.e. at most
+    /// <c>n_swa / 2</c> positions away.
+    /// </summary>
+    public static int SymmetricWindow(int slidingWindow) => slidingWindow / 2 + 1;
+
     /// <summary>Adds <c>{prefix}context_length</c> when the file states a training context.</summary>
     public static void AddContextLength(Dictionary<string, object> md, string prefix, GgufMetadataView g)
     {
@@ -41,5 +60,30 @@ internal static class GgufMappingHelpers
         }
 
         return Enumerable.Range(0, layerCount).Select(il => pattern == 0 || il % pattern != 0 ? 1 : 0).ToArray();
+    }
+
+    /// <summary>
+    /// An integer key that llama.cpp reads with <c>get_key_or_arr</c>: the per-layer array when the file stores one (the first
+    /// <paramref name="layerCount"/> entries), otherwise the scalar repeated; <paramref name="fallback"/> repeated when the key is absent.
+    /// </summary>
+    public static int[] PerLayer(GgufMetadataView g, string key, int layerCount, int? fallback = null)
+    {
+        if (g.Raw(key) is Array values)
+        {
+            return values.Cast<object>().Take(layerCount).Select(Convert.ToInt32).ToArray();
+        }
+
+        return Enumerable.Repeat(fallback is { } value ? g.Int(key, value) : g.Int(key), layerCount).ToArray();
+    }
+
+    /// <summary>A float key that llama.cpp reads with <c>get_key_or_arr</c>: the per-layer array, or the scalar repeated (zeros when absent).</summary>
+    public static float[] PerLayerFloat(GgufMetadataView g, string key, int layerCount)
+    {
+        if (g.Raw(key) is Array values)
+        {
+            return values.Cast<object>().Take(layerCount).Select(Convert.ToSingle).ToArray();
+        }
+
+        return Enumerable.Repeat(g.Float(key, 0f), layerCount).ToArray();
     }
 }

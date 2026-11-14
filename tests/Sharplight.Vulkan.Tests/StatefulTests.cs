@@ -61,12 +61,15 @@ public sealed class StatefulTests
         Diff.Check("CachedAttention", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: chunks.Max(), ctx: ctx, what: $"{cacheType} D={D} Hq={Hq} Hkv={Hkv}");
     }
 
+    /// <summary>Sliding window, soft cap and ALiBi biases on the scalar, split-K decode and flash kernels.</summary>
     [Theory]
-    [InlineData(4, 0f)]
-    [InlineData(0, 20f)]
-    [InlineData(5, 30f)]
-    [InlineData(150, 0f)]
-    public void CachedAttentionWindowAndSoftcap(int window, float softcap)
+    [InlineData(4, 0f, false)]
+    [InlineData(0, 20f, false)]
+    [InlineData(5, 30f, false)]
+    [InlineData(150, 0f, false)]
+    [InlineData(0, 0f, true)]
+    [InlineData(5, 0f, true)]
+    public void CachedAttentionWindowAndSoftcap(int window, float softcap, bool alibi)
     {
         Gpu.Require();
         int Hq = 4;
@@ -95,6 +98,11 @@ public sealed class StatefulTests
             attrs.Add(("softcap", softcap));
         }
 
+        if (alibi)
+        {
+            attrs.Add(("alibi_slopes", new[] { 0.25f, 0.0625f, 0.015625f, 0.5f }));
+        }
+
         tg.B.RuntimeScalar("n_past");
         tg.B.Output("o", tg.B.Emit1("CachedAttention", [qi, kc, vc], Attributes.From([.. attrs])));
         var q = Rnd.F(total * Hq * D, 1).Select(x => x * 4).ToArray();
@@ -108,7 +116,7 @@ public sealed class StatefulTests
             past += c;
         }
         // f16 caches may run on the tensor-core flash kernel (f16 Q and P).
-        Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap}");
+        Diff.Check("CachedAttention.window", tg.B.Build(), steps, atol: 1e-3, rtol: 3e-3, maxTokens: 192, ctx: ctx, what: $"window={window} softcap={softcap} alibi={alibi}");
     }
 
     /// <summary>

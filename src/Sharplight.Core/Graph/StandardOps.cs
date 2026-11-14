@@ -181,7 +181,8 @@ public static partial class StandardOps
     /// (default "n_past"). Attributes: scale; optional <c>window</c> (int &gt; 0: a query only sees its last <c>window</c> keys,
     /// sliding-window attention), <c>chunk</c> (int &gt; 0: a query at position p only sees keys [p − p mod chunk, p], chunked
     /// attention) and <c>softcap</c> (float &gt; 0: scores = softcap · tanh(scores / softcap)).
-    /// Attribute <c>alibi_slopes</c> (float[Hq]): ALiBi, every score gets <c>slopes[h] · (key position − query position)</c> added before the softmax (BLOOM, MPT).
+    /// Attribute <c>alibi_slopes</c> (float[Hq]): ALiBi, every score gets <c>−slopes[h] · |key position − query position|</c> added before the softmax (BLOOM, MPT;
+    /// the bidirectional form serves jina-bert-v2).
     /// Attribute <c>sinks</c> (bool): the input after V is <c>sinks</c> (f32 [Hq]), a learned per-head logit that joins the softmax denominator but has no value (attention sinks).
     /// Attribute <c>v_dims</c> (int &gt; 0): the values are the first <c>v_dims</c> entries of each vcache row, so Dv = v_dims and
     /// vcache may be the very same state as kcache (multi-head latent attention: one latent row per token serves as key and,
@@ -207,7 +208,9 @@ public static partial class StandardOps
 
     /// <summary>
     /// Bidirectional/causal attention without cache (e.g. vision encoders): q [T,Hq,D], k [S,Hkv,D], v [S,Hkv,Dv].
-    /// Attributes: scale, causal (bool), optional softcap (float &gt; 0) and <c>alibi_slopes</c> (float[Hq], see <see cref="CachedAttention"/>; with i32 spans).
+    /// Attributes: scale, causal (bool), optional softcap (float &gt; 0), <c>alibi_slopes</c> (float[Hq], see <see cref="CachedAttention"/>; with i32 spans
+    /// the distances are row distances) and <c>window</c> (int &gt; 0: a query only sees keys less than <c>window</c> positions away; with <c>causal</c> that
+    /// is its last <c>window</c> keys, without it the symmetric window of bidirectional sliding-window encoders such as ModernBERT and EmbeddingGemma).
     /// Optional fourth input, by type:
     /// <list type="bullet">
     /// <item>f32 [T, S]: additive mask added to the scaled scores.</item>

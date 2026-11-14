@@ -14,10 +14,10 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly TRef? _mask;
     private readonly TRef? _sinks;
     private readonly float _scale;
-    private readonly int _window;       // > 0: sliding window (a query sees only its last _window keys)
+    private readonly int _window;       // > 0: sliding window (keys closer than _window positions to the query; causal: its last _window keys)
     private readonly int _chunk;        // > 0: chunked attention (a query at p sees only keys [p - p % _chunk, p])
     private readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
-    private readonly float[]? _alibiSlopes;   // ALiBi: per query head slope of the key-minus-query position added to the scores
+    private readonly float[]? _alibiSlopes;   // ALiBi: per query head slope; scores get -slope * |key - query position|
     private readonly string? _offsetScalar;   // non-null => cached attention
     private readonly bool _causal;
     private readonly int _hq;
@@ -190,11 +190,13 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 long kvBase = 0;
                 int slot = -1;   // paged: the query's slot
                 long j0 = 0;
+                long queryPosition;   // the query's position on the key axis (window and ALiBi distances)
                 if (_spans is not null)
                 {
                     int* sp = (int*)_spans.P + t * 2;
                     j0 = sp[0];
                     n = sp[0] + (long)sp[1];
+                    queryPosition = t;   // packed self-attention: query row t is key row t
                     if (_causal)
                     {
                         n = Math.Min(n, t + 1);
@@ -206,11 +208,20 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     kvBase = rw[0] * _slotCtx;
                     slot = _pages is null ? -1 : rw[0];
                     n = rw[1] + 1;
+                    queryPosition = rw[1];
                 }
                 else
                 {
+                    queryPosition = _offsetScalar is not null ? _past + t : t + _s - _t;
                     n = _offsetScalar is not null ? _past + t + 1
                        : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
+                }
+
+                if (_window > 0)
+                {
+                    // Keys closer than _window positions; for causal attention only the end before the query remains.
+                    j0 = Math.Max(j0, queryPosition - _window + 1);
+                    n = Math.Min(n, queryPosition + _window);
                 }
 
                 float* q = _q.F(task);
@@ -223,11 +234,6 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
                 float* mrow = _mask is null ? null : (float*)_mask.P + t * _mask.Strides[0];
                 long mstride = _mask is null ? 0 : _mask.Strides[1];
-                if (_window > 0)
-                {
-                    j0 = Math.Max(j0, n - _window);
-                }
-
                 if (_chunk > 0)
                 {
                     j0 = Math.Max(j0, (n - 1) / _chunk * _chunk);
@@ -257,7 +263,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
                     if (_alibiSlopes is not null)
                     {
-                        dot += _alibiSlopes[h] * (j - (n - 1));   // the query sits at the last visible key
+                        dot -= _alibiSlopes[h] * Math.Abs(j - queryPosition);
                     }
 
                     if (mrow != null)

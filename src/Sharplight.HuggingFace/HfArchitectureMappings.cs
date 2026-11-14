@@ -31,6 +31,8 @@ internal static class HfArchitectureMappings
     {
         yield return new MixtralHfMapping();
         yield return new AfmoeHfMapping();
+        yield return new PhimoeHfMapping();
+        yield return new Kolibri1HfMapping();
         yield return new MiMoV2FlashHfMapping();
         yield return new LagunaHfMapping();
         yield return new BloomHfMapping();
@@ -77,6 +79,8 @@ internal static class HfArchitectureMappings
         yield return new ApertusHfMapping();
         yield return new ArceeHfMapping();
         yield return new Gemma1HfMapping();
+        yield return new EuroBertHfMapping();
+        yield return new ModernBertHfMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>

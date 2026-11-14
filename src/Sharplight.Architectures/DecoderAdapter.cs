@@ -17,8 +17,7 @@ namespace Sharplight.Architectures;
 /// <item><c>attention.value_dim</c> (value head size when it differs from the key head size, default <c>attention.head_dim</c>; the value cache and the
 /// output projection input follow it, MiMo-V2) and <c>attention.value_scale</c> (constant factor on the attention output before the output projection, default 1).</item>
 /// <item><c>attention.alibi_max_bias</c> (default 0 = off): ALiBi, every score gets the slope of its head times the key-minus-query distance added (BLOOM, MPT use 8; the
-/// slopes are the ALiBi geometric sequence). Models with ALiBi have no rotary embedding (<c>rope.layers</c> all 0). The attention kernels of the Vulkan provider do not implement
-/// it: those layers run on the CPU provider (the model needs a CPU fallback device).</item>
+/// slopes are the ALiBi geometric sequence). Models with ALiBi have no rotary embedding (<c>rope.layers</c> all 0).</item>
 /// <item><c>rope.dim</c> (rotated dims, partial rotary when less than head_dim), <c>rope.base</c>, <c>rope.style</c>
 /// ("neox" = rotate-half pairs (i, i+dim/2), the default; "gptj" = interleaved pairs), <c>rope.local_base</c> (base of sliding layers,
 /// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor of the rotated dimensions, e.g. yarn; like the frequency factors it applies to the layers that are not sliding).
@@ -46,6 +45,11 @@ namespace Sharplight.Architectures;
 /// <c>moe.shared_scale</c> (factor on the shared expert, default 1); optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
 /// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
 /// before the attention norm, SmallThinker).</item>
+/// <item><c>attention.causal</c> (default true). False makes a bidirectional encoder out of the decoder's layers (EuroBERT, NeoBERT, ModernBERT,
+/// EmbeddingGemma, Llama embedding models): only <see cref="WellKnown.EmbedGraph"/> is built (mean pooling unless declared), every token attends to its
+/// whole sequence, sliding windows are symmetric (keys less than <c>attention.sliding_window</c> positions away on either side), no KV cache and no
+/// draft head; a layer without <c>input_norm.weight</c> has no norm in front of its attention. Optional <c>embedding_projection.{i}.weight</c>
+/// (+ <c>.bias</c>) project the pooled embedding (sentence-transformers Dense modules).</item>
 /// <item>Attention temperature (Llama 4, Mistral 3): <c>attention.temperature_scale</c> (β, 0 = off), <c>attention.temperature_length</c> (L),
 /// <c>attention.temperature_offset</c> (o, default 0) and optional <c>attention.temperature_layers</c> (int[layer_count], default all): queries of
 /// those layers are multiplied by log(floor((pos + o) / L) + 1)·β + 1. <c>attention.qk_norm_layers</c> (int[layer_count]) limits the
@@ -126,7 +130,7 @@ public sealed class DecoderAdapter : IModelAdapter
                 ["n_layer"] = hp.NLayer,
                 [WellKnown.EmbeddingPooling] = graphBuilder.Pooling,
                 [WellKnown.EmbeddingNormalize] = graphBuilder.Normalize,
-                [WellKnown.CausalAttention] = true,
+                [WellKnown.CausalAttention] = hp.Causal,
                 [WellKnown.ClassifierLabels] = hp.Vocab,
             },
         };

@@ -1,3 +1,5 @@
+using Sharplight.Models;
+
 namespace Sharplight.Gguf;
 
 /// <summary>The hyper-parameters every llama.cpp decoder-only architecture shares, as canonical <c>decoder.*</c> keys.</summary>
@@ -8,7 +10,9 @@ internal static class GgufDecoderHyperParameters
 
     /// <summary>
     /// Layer / hidden / feed-forward sizes, head counts and head size, rotary dimension, base and pairing, norm epsilon, context length
-    /// and the MLP activation. The norm epsilon comes from the RMS key, or from the layer-norm key for layer-norm models.
+    /// and the MLP activation. The norm epsilon comes from the RMS key, or from the layer-norm key for layer-norm models. A file that declares
+    /// <c>attention.causal</c> = false (bidirectional embedding models) gets canonical <c>attention.causal</c> = false, and llama.cpp's
+    /// <c>pooling_type</c> (mean, cls, last; rank pools the cls row) becomes <see cref="CanonicalKeys.EmbeddingPooling"/>.
     /// </summary>
     /// <param name="g">The GGUF metadata.</param>
     /// <param name="activation">Canonical activation name.</param>
@@ -39,6 +43,16 @@ internal static class GgufDecoderHyperParameters
         }
 
         GgufMappingHelpers.AddContextLength(md, Prefix, g);
+        if (!g.Bool("attention.causal", true))
+        {
+            md[Prefix + "attention.causal"] = false;
+        }
+
+        if (GgufMappingHelpers.Pooling(g) is { } pooling and not "none")
+        {
+            md[CanonicalKeys.EmbeddingPooling] = pooling;
+        }
+
         return md;
     }
 

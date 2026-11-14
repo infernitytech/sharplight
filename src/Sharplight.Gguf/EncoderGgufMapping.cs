@@ -5,7 +5,9 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp bidirectional encoders (<c>bert</c> (BERT, MiniLM, bge, e5, and XLM-RoBERTa rerankers such as bge-reranker-v2-m3),
-/// <c>nomic-bert</c> (rotary, SwiGLU, fused qkv)) → canonical <c>encoder</c> (vocabulary documented on <c>EncoderAdapter</c>).
+/// <c>nomic-bert</c> (rotary, SwiGLU, fused qkv), <c>jina-bert-v2</c> (ALiBi with llama.cpp's fixed maximum bias 8, optional q/k projection
+/// norms and second attention norm, GeGLU whose fused up projection holds the activated half first)) → canonical <c>encoder</c> (vocabulary
+/// documented on <c>EncoderAdapter</c>).
 /// llama.cpp's <c>pooling_type</c> becomes <see cref="CanonicalKeys.EmbeddingPooling"/>; the classifier head of ranking models
 /// (<c>cls</c> dense + <c>cls.output</c>) maps to <c>classifier.pre</c> / <c>classifier.out</c>. The converter already removed
 /// RoBERTa's position offset, so position row p is position p.
@@ -13,11 +15,15 @@ namespace Sharplight.Gguf;
 internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["bert", "nomic-bert"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["bert", "nomic-bert", "jina-bert-v2"];
     /// <inheritdoc/>
     public string Architecture => "encoder";
 
+    private const float JinaAlibiMaxBias = 8f;
+
     private static bool IsNomic(GgufMetadataView g) => g.GgufArchitecture == "nomic-bert";
+
+    private static bool IsJina(GgufMetadataView g) => g.GgufArchitecture == "jina-bert-v2";
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
@@ -42,15 +48,18 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
             md[a + "rope.style"] = "neox";
         }
 
+        if (IsJina(g))
+        {
+            md[a + "attention.alibi_max_bias"] = JinaAlibiMaxBias;
+        }
+
         GgufMappingHelpers.AddContextLength(md, a, g);
 
         if (g.Bool("attention.causal", false))
         {
             throw new NotSupportedException($"GGUF {g.GgufArchitecture}: causal encoders are not supported.");
         }
-        // llama.cpp pooling_type: 0 none, 1 mean, 2 cls, 3 last, 4 rank (classifier on the cls row).
-        string? pooling = g.Int("pooling_type", -1) switch { 0 => "none", 1 => "mean", 2 or 4 => "cls", 3 => "last", _ => null };
-        if (pooling is not null)
+        if (GgufMappingHelpers.Pooling(g) is { } pooling)
         {
             md[CanonicalKeys.EmbeddingPooling] = pooling;
         }
@@ -66,6 +75,9 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
         ["attn_v"] = "attention.v",
         ["attn_output"] = "attention.o",
         ["attn_output_norm"] = "attention_norm",
+        ["attn_q_norm"] = "attention.q_norm",
+        ["attn_k_norm"] = "attention.k_norm",
+        ["attn_norm_2"] = "attention_norm_2",
         ["ffn_up"] = "mlp.up",
         ["ffn_gate"] = "mlp.gate",
         ["ffn_down"] = "mlp.down",
@@ -114,11 +126,32 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
         => w.Shape.Rank == 1 && w.Name is "token_type_embedding.weight" or "classifier.out.weight" ? w.As(w.Name, new Shape(1, w.Shape[0].Fixed)) : w;
 
-    /// <summary>nomic-bert stores q/k/v as one tensor (q rows first).</summary>
+    /// <summary>
+    /// nomic-bert stores q/k/v as one tensor (q rows first); jina-bert-v2's GeGLU stores gate and up as one <c>ffn_up</c> of twice the
+    /// feed-forward length (activated rows first).
+    /// </summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
         var m = GgufTensorNames.Block().Match(name);
-        if (!m.Success || !m.Groups[2].Value.StartsWith("attn_qkv.", StringComparison.Ordinal))
+        if (!m.Success)
+        {
+            return null;
+        }
+
+        if (m.Groups[2].Value is "ffn_up.weight" or "ffn_up.bias")
+        {
+            int ffn = g.Int("feed_forward_length");
+            if (t.Shape[0].Fixed != 2 * ffn)
+            {
+                return null;
+            }
+
+            string mlp = $"layers.{m.Groups[1].Value}.mlp.";
+            string kind = m.Groups[2].Value["ffn_up".Length..];
+            return [t.RowSlice(mlp + "gate" + kind, 0, ffn), t.RowSlice(mlp + "up" + kind, ffn, ffn)];
+        }
+
+        if (!m.Groups[2].Value.StartsWith("attn_qkv.", StringComparison.Ordinal))
         {
             return null;
         }

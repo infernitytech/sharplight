@@ -17,7 +17,8 @@ internal sealed record DecoderHyperParameters(
     string NormType, bool PreNorm, bool ParallelResidual, float ResidualScale, float SwigluAlpha, float SwigluLimit,
     float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts,
     int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
-    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias)
+    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
+    float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal)
 {
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
@@ -84,7 +85,14 @@ internal sealed record DecoderHyperParameters(
             ValueScale: src.Arch("attention.value_scale", 1f),
             RopeAttentionScale: ropeAttn,
             GateActivation: src.Arch("attention.gate_activation", "sigmoid"),
-            AlibiMaxBias: src.Arch("attention.alibi_max_bias", 0f));
+            AlibiMaxBias: src.Arch("attention.alibi_max_bias", 0f),
+            SwigluClamp: src.Arch("mlp.swiglu_clamp", Array.Empty<float>()),
+            SwigluClampInput: src.Arch("mlp.swiglu_clamp_input", false),
+            MoeSwigluClamp: src.Arch("moe.swiglu_clamp", Array.Empty<float>()),
+            MoeSwigluClampInput: src.Arch("moe.swiglu_clamp_input", false),
+            LayerLoops: src.Arch("layer_loops", 1),
+            LoopNorm: src.Arch("loop_norm", true),
+            Causal: src.Arch("attention.causal", true));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {
@@ -104,6 +112,16 @@ internal sealed record DecoderHyperParameters(
             }
         }
 
+        if ((hp.SwigluClamp.Length != 0 && hp.SwigluClamp.Length != hp.NLayer) || (hp.MoeSwigluClamp.Length != 0 && hp.MoeSwigluClamp.Length != hp.NLayer))
+        {
+            throw new InvalidDataException("decoder: mlp.swiglu_clamp and moe.swiglu_clamp must have layer_count entries.");
+        }
+
+        if (hp.LayerLoops < 1)
+        {
+            throw new InvalidDataException("decoder: layer_loops must be at least 1.");
+        }
+
         if (hp.TemperatureScale != 0f && hp.TemperatureLength <= 0f)
         {
             throw new InvalidDataException("decoder: attention.temperature_scale needs a positive attention.temperature_length.");
@@ -118,7 +136,7 @@ internal sealed record DecoderHyperParameters(
     /// </summary>
     public bool UniformLayers => LayerHeadDims.Length == 0 && LayerHeadCounts.Length == 0 && LayerKvHeads.Length == 0 && KvSource.Length == 0
         && RopeLayers.Length == 0 && SlidingLayers.Length == 0 && QkNormLayers.Length == 0 && TemperatureLayers.Length == 0
-        && ChunkLayers.Length == 0 && PerLayerSize == 0;
+        && ChunkLayers.Length == 0 && PerLayerSize == 0 && SwigluClamp.Length == 0 && MoeSwigluClamp.Length == 0 && LayerLoops == 1;
 
     /// <summary>Head dimension of layer <paramref name="il"/>.</summary>
     public int HeadDimOf(int il) => LayerHeadDims.Length > 0 ? LayerHeadDims[il] : HeadDim;
@@ -130,24 +148,7 @@ internal sealed record DecoderHyperParameters(
     /// ALiBi slopes of <paramref name="heads"/> query heads (the geometric sequence of the ALiBi paper, as BLOOM and llama.cpp compute it for the
     /// largest power of two of heads and the interleaved halves beyond it), or null when <c>attention.alibi_max_bias</c> is 0.
     /// </summary>
-    public float[]? AlibiSlopes(int heads)
-    {
-        if (AlibiMaxBias <= 0f)
-        {
-            return null;
-        }
-
-        int powerOfTwo = 1 << (int)Math.Floor(Math.Log2(heads));
-        float first = MathF.Pow(2f, -AlibiMaxBias / powerOfTwo);
-        float second = MathF.Pow(2f, -AlibiMaxBias / 2f / powerOfTwo);
-        var slopes = new float[heads];
-        for (int head = 0; head < heads; head++)
-        {
-            slopes[head] = head < powerOfTwo ? MathF.Pow(first, head + 1) : MathF.Pow(second, 2 * (head - powerOfTwo) + 1);
-        }
-
-        return slopes;
-    }
+    public float[]? AlibiSlopes(int heads) => Architectures.AlibiSlopes.Of(heads, AlibiMaxBias);
 
     /// <summary>Number of query heads of layer <paramref name="il"/>.</summary>
     public int HeadsOf(int il) => LayerHeadCounts.Length > 0 ? LayerHeadCounts[il] : NHead;
@@ -174,6 +175,15 @@ internal sealed record DecoderHyperParameters(
 
     /// <summary>Whether layer <paramref name="il"/> attends only within its chunk of <c>attention.chunk_size</c> positions.</summary>
     public bool Chunked(int il) => ChunkSize > 0 && (ChunkLayers.Length == 0 || ChunkLayers[il] != 0);
+
+    /// <summary>SwiGLU clamp limit of the dense MLP and shared expert of layer <paramref name="il"/> (0 = none).</summary>
+    public float SwigluClampOf(int il) => SwigluClamp.Length > 0 ? SwigluClamp[il] : 0f;
+
+    /// <summary>SwiGLU clamp limit of the routed experts of layer <paramref name="il"/> (0 = none).</summary>
+    public float MoeSwigluClampOf(int il) => MoeSwigluClamp.Length > 0 ? MoeSwigluClamp[il] : 0f;
+
+    /// <summary>Number of logical layers: the physical layers run <see cref="LayerLoops"/> times with shared weights.</summary>
+    public int LogicalLayers => NLayer * LayerLoops;
 
     /// <summary>Whether attention of layer <paramref name="il"/> is limited to the sliding window.</summary>
     public bool Windowed(int il) => Window > 0 && (SlidingLayers.Length == 0 || SlidingLayers[il] != 0);

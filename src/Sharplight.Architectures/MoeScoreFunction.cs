@@ -17,4 +17,11 @@ internal enum MoeScoreFunction
 
     /// <summary>"sqrt_softplus": sqrt(softplus(logit)) per expert (DeepSeek-V4).</summary>
     SqrtSoftplus,
+
+    /// <summary>
+    /// "sparsemixer": Phi-3.5-MoE's inference-time sparse mixer. The experts are chosen by their logits (top-k); the weight of the
+    /// expert in slot i is the softmax of its logit m_i over the experts not chosen in an earlier slot whose logit s lies within the
+    /// jitter band (m_i − s) ≤ 2·ε·max(|s|, m_i) (<c>moe.sparsemixer_jitter</c> = ε).
+    /// </summary>
+    SparseMixer,
 }

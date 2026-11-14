@@ -46,13 +46,77 @@ internal static class HfSentenceTransformers
             }
             else if (type.EndsWith(".Dense", StringComparison.Ordinal))
             {
-                throw new NotSupportedException($"{dir}: sentence-transformers Dense modules after pooling are not supported.");
+                CheckDense(dir, path);
             }
         }
 
         if (!md.ContainsKey(CanonicalKeys.EmbeddingNormalize))
         {
             md[CanonicalKeys.EmbeddingNormalize] = false;
+        }
+    }
+
+    /// <summary>
+    /// The sentence-transformers Dense modules (in <c>modules.json</c> order) as canonical <c>embedding_projection.{i}.weight</c> / <c>.bias</c>
+    /// weights, read from each module's <c>model.safetensors</c>; the opened files are added to <paramref name="owned"/>.
+    /// </summary>
+    /// <exception cref="NotSupportedException">A Dense module has a non-identity activation or no safetensors weights.</exception>
+    public static IReadOnlyDictionary<string, WeightInfo> DenseWeights(string dir, List<IDisposable> owned)
+    {
+        var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
+        string modules = Path.Combine(dir, "modules.json");
+        if (!File.Exists(modules))
+        {
+            return weights;
+        }
+
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(modules));
+        int index = 0;
+        foreach (var module in doc.RootElement.EnumerateArray())
+        {
+            string type = module.TryGetProperty("type", out var typeElement) ? typeElement.GetString() ?? "" : "";
+            if (!type.EndsWith(".Dense", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string path = Path.Combine(dir, module.GetProperty("path").GetString() ?? "");
+            CheckDense(dir, path);
+            var file = SafetensorsFile.Open(Path.Combine(path, "model.safetensors"));
+            owned.Add(file);
+            foreach (var (name, tensor) in file.Tensors)
+            {
+                string parameter = name.EndsWith("weight", StringComparison.Ordinal) ? "weight" : name.EndsWith("bias", StringComparison.Ordinal) ? "bias"
+                    : throw new NotSupportedException($"{path}: unexpected Dense tensor '{name}'.");
+                weights[$"embedding_projection.{index}.{parameter}"] = HfTransforms.Plain(tensor.ToWeightInfo(), $"embedding_projection.{index}.{parameter}");
+            }
+
+            index++;
+        }
+
+        return weights;
+    }
+
+    /// <summary>A Dense module must be linear (identity activation) and stored as safetensors.</summary>
+    private static void CheckDense(string dir, string modulePath)
+    {
+        string module = Path.Combine(dir, modulePath);
+        if (!File.Exists(Path.Combine(module, "model.safetensors")))
+        {
+            throw new NotSupportedException($"{module}: sentence-transformers Dense modules are only read from model.safetensors.");
+        }
+
+        string config = Path.Combine(module, "config.json");
+        if (!File.Exists(config))
+        {
+            return;
+        }
+
+        using var doc = JsonDocument.Parse(File.ReadAllBytes(config));
+        string activation = doc.RootElement.TryGetProperty("activation_function", out var a) ? a.GetString() ?? "" : "";
+        if (activation.Length > 0 && !activation.EndsWith("Identity", StringComparison.Ordinal))
+        {
+            throw new NotSupportedException($"{module}: Dense activation '{activation}' is not supported (only Identity).");
         }
     }
 
