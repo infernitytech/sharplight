@@ -26,6 +26,7 @@ public sealed partial class GraphLowerer
     private readonly Dictionary<Value, TensorRef> _outputRefs = [];
     private readonly HashSet<Value> _segmentOutputs;
     private readonly Dictionary<string, int> _scalarSlots = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TensorRef> _producedSymbols = new(StringComparer.Ordinal);
     private readonly BufferDecl _arena;
     private readonly BufferDecl _runtime;
     private readonly ActivationAllocator _alloc = new();
@@ -89,6 +90,7 @@ public sealed partial class GraphLowerer
             RuntimeBuffer = _runtime,
             ScalarSlots = _scalarSlots,
             Symbols = CollectSymbols(),
+            ProducedSymbols = _producedSymbols,
         };
     }
 
@@ -164,9 +166,21 @@ public sealed partial class GraphLowerer
         }
     }
 
-    /// <summary>Symbolic dimensions (other than the context length) the segment's tensors depend on.</summary>
+    /// <summary>Symbolic dimensions (other than the context length and the counts the segment computes itself) the segment's tensors depend on.</summary>
     private List<string> CollectSymbols()
-        => [.. _seg.Nodes.SelectMany(n => n.Outputs.Concat(n.Inputs)).Select(v => v.Shape.Symbol).OfType<string>().Where(s => s != WellKnown.ContextSymbol).Distinct()];
+        => [.. _seg.Nodes.SelectMany(n => n.Outputs.Concat(n.Inputs)).Select(v => v.Shape.Symbol).OfType<string>()
+            .Where(s => s != WellKnown.ContextSymbol && !_producedSymbols.ContainsKey(s)).Distinct()];
+
+    /// <summary>
+    /// A host-readable i32 slot into which a kernel writes the value of the data-dependent symbol <paramref name="symbol"/>
+    /// (see <see cref="KernelProgram.ProducedSymbols"/>).
+    /// </summary>
+    private TensorRef ProduceSymbol(string symbol)
+    {
+        var slot = new TensorRef(NewBuffer(BufferKind.Output, "count:" + symbol, 16), 0, DataType.I32, [1], [1], null);
+        _producedSymbols[symbol] = slot;
+        return slot;
+    }
 
     private Value RootOf(Value v) => _root.TryGetValue(v, out var r) ? r : v;
 

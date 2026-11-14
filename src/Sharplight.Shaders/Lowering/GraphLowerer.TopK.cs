@@ -18,6 +18,12 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void LowerTopK(Node n)
     {
+        if (n.Attributes.Get("k_symbol", "") is { Length: > 0 } kSymbol)
+        {
+            LowerTopKDynamic(n, kSymbol);
+            return;
+        }
+
         long K = n.Attributes.Get<long>("k");
         long sortSlots = TopKSortSlots(K);
         bool subgroup = K <= TopKSubgroupMaxK && _opt.Has(DeviceFeatures.SubgroupOps);
@@ -51,6 +57,28 @@ public sealed partial class GraphLowerer
         Emit($"topk {n.Outputs[0].Name}", [n],
             [Always(kernel, b => TopKGrid(TopKRows(b, tx, axis, rowsPerBatch)))],
             [Pointer(x), Pointer(vals), Pointer(idxs), TopKRowCount(x, axis, rowsPerBatch)], [x], [vals, idxs]);
+    }
+
+    /// <summary>
+    /// Top-k with a symbolic k (e.g. <c>min(200, detections)</c>) along the outermost axis, whose length may be symbolic too: the
+    /// workgroup kernel (or, for k bounds beyond its shared-memory sort, the serial one) reads k and the length as push constants.
+    /// </summary>
+    private void LowerTopKDynamic(Node n, string kSymbol)
+    {
+        var x = AsDenseF32(Ref(n.Inputs[0]), "topk");
+        var vals = Produce(n.Outputs[0]);
+        var idxs = Produce(n.Outputs[1]);
+        long kBound = Math.Max(1, _opt.Compile.Bound(kSymbol));
+        long sortSlots = TopKSortSlots(kBound);
+        bool serial = sortSlots * 8 + 4 * 1024 > _opt.MaxSharedMemory;
+        long inner = x.MaxElements / x.Shape[0];
+        var macros = Macros(("LEN", x.Shape[0]), ("K", kBound), ("INNER", inner), ("LARGEST", n.Attributes.Get("largest", true)),
+            ("WG", TopKWorkgroup), ("P2", sortSlots), ("DYNAMIC", 1));
+        var kernel = Lib("topk.slang", serial ? "topk_serial" : "topk_rows", macros);
+        KernelArg length = x.Symbol is null ? new UIntArg((uint)x.Shape[0]) : new SymbolArg(x.Symbol, 1);
+        var grid = serial ? new Grid(Grid.Div(inner, 64)) : TopKGrid(inner);
+        Emit($"topk {n.Outputs[0].Name}", [n], [Always(kernel, _ => grid)],
+            [Pointer(x), Pointer(vals), Pointer(idxs), new UIntArg((uint)inner), length, new SymbolArg(kSymbol, 1)], [x], [vals, idxs]);
     }
 
     /// <summary>Power-of-two slot count of the bitonic sort for <paramref name="k"/> results.</summary>

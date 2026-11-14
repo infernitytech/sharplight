@@ -34,8 +34,8 @@ public sealed partial class GraphLowerer
         {
             case "Fill":
                 return node.Output.Type == DataType.F32 || node.Output.Type == DataType.I32 ? OpSupport.Yes : OpSupport.No($"Fill of {node.Output.Type}");
-            case "TopK" when node.Attributes.Has("k_symbol"):
-                return OpSupport.No("TopK with a data-dependent k");
+            case "TopK" when node.Attributes.Has("k_symbol") && NormAxis(a.Get("axis", -1L), node.Inputs[0].Rank) != 0:
+                return OpSupport.No("TopK with a symbolic k along an inner axis");
             case "GatherAxis":
             case "GatherElements":
             case "GatherND":

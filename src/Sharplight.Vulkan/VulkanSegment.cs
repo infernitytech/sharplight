@@ -260,7 +260,43 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                 : throw new ArgumentException($"Runtime scalar '{name}' not provided.");
         }
 
-        var bindings = new Bindings(parameters.Symbols);
+        var bindings = new Bindings(RecordingSymbols(parameters));
+        ExecuteBound(bindings, skipDownloads);
+        PublishProducedSymbols(parameters);
+    }
+
+    /// <summary>
+    /// The caller's symbol bindings, plus the data-dependent symbols this segment computes at their compile-time bounds: only the
+    /// producing launch's own output depends on them, so recording them at the bound keeps one recording for every count.
+    /// </summary>
+    private IReadOnlyDictionary<string, long> RecordingSymbols(RunParameters parameters)
+    {
+        if (_program.ProducedSymbols.Count == 0)
+        {
+            return parameters.Symbols;
+        }
+
+        var symbols = new Dictionary<string, long>(parameters.Symbols);
+        foreach (var symbol in _program.ProducedSymbols.Keys)
+        {
+            symbols[symbol] = _options.Bound(symbol);
+        }
+
+        return symbols;
+    }
+
+    /// <summary>Reads back the data-dependent counts computed by the execution and binds them for the later segments and the caller.</summary>
+    private void PublishProducedSymbols(RunParameters parameters)
+    {
+        foreach (var (symbol, slot) in _program.ProducedSymbols)
+        {
+            int count = *(int*)(_staging[slot.Buffer].Mapped + slot.ByteOffset);
+            parameters.Symbols[symbol] = Math.Clamp(count, 0, _options.Bound(symbol));
+        }
+    }
+
+    private void ExecuteBound(Bindings bindings, IReadOnlySet<Value> skipDownloads)
+    {
         if (Profile)
         {
             ExecuteProfiled(bindings, skipDownloads);
@@ -757,6 +793,11 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             }
 
             Copy(cb, _alloc[r.Buffer], _staging[r.Buffer], (ulong)r.ByteOffset, UsedBytes(r, b));
+        }
+
+        foreach (var slot in _program.ProducedSymbols.Values)
+        {
+            Copy(cb, _alloc[slot.Buffer], _staging[slot.Buffer], (ulong)slot.ByteOffset, sizeof(int));
         }
 
         Barrier(cb, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferWrite, VkPipelineStageFlags.Host, VkAccessFlags.HostRead);
