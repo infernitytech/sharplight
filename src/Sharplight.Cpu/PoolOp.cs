@@ -1,8 +1,13 @@
+using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>2-D max / average pooling over dense [N, C, H, W]; parallel over (n, c) planes.</summary>
+/// <summary>
+/// 2-D max / average pooling over dense [N, C, H, W]. Undilated max pooling runs per block of output rows: a vectorized
+/// max over the window's input rows into a padded row buffer, then the horizontal window (vectorized for stride 1), in
+/// parallel over (plane, row block). The general form is parallel over (n, c) planes.
+/// </summary>
 internal sealed unsafe class PoolOp : CpuOp
 {
     private readonly TRef _x;
@@ -24,8 +29,13 @@ internal sealed unsafe class PoolOp : CpuOp
     private readonly int _dh;
     private readonly int _dw;
     private readonly Action<int> _body;
+    private readonly Action<int> _rowBody;
+    private readonly bool _rowForm;
+    private readonly int _rowWidth;
     private long _planes;
     private long _per;
+    private int _rowBlocks;
+    private int _rowsPerBlock;
     public override string Name => _max ? "Pool.max" : "Pool.avg";
 
     public PoolOp(TRef x, TRef y, bool max, int[] kernel, int[] strides, int[] pads, int[] dil, bool countIncludePad)
@@ -49,6 +59,9 @@ internal sealed unsafe class PoolOp : CpuOp
         _dh = dil[0];
         _dw = dil[1];
         _body = Body;
+        _rowBody = RowBody;
+        _rowForm = max && _dh == 1 && _dw == 1;
+        _rowWidth = Math.Max((_wo - 1) * _sw + _kw, _pl + _w) + Vector256<float>.Count;
     }
 
     public override void Run(RunParameters p)
@@ -56,6 +69,17 @@ internal sealed unsafe class PoolOp : CpuOp
         _planes = _x.Dim(0, p) * _x.Dims[1];
         if (_planes == 0)
         {
+            return;
+        }
+
+        if (_rowForm)
+        {
+            long work = _planes * _ho * _wo * _kh * _kw;
+            long tasks = Math.Max(1, Math.Min(CpuParallel.Threads * 4L, work / 32768));
+            _rowBlocks = (int)Math.Clamp((tasks + _planes - 1) / _planes, 1, _ho);
+            _rowsPerBlock = (_ho + _rowBlocks - 1) / _rowBlocks;
+            _rowBlocks = (_ho + _rowsPerBlock - 1) / _rowsPerBlock;
+            CpuParallel.For((int)(_planes * _rowBlocks), _rowBody);
             return;
         }
 
@@ -124,6 +148,85 @@ internal sealed unsafe class PoolOp : CpuOp
                         yp[oh * _wo + ow] = cnt > 0 ? sum / cnt : 0f;
                     }
                 }
+            }
+        }
+    }
+
+    /// <summary>Undilated max pooling of one block of output rows of one plane.</summary>
+    private void RowBody(int task)
+    {
+        long plane = task / _rowBlocks;
+        int oh0 = task % _rowBlocks * _rowsPerBlock;
+        int oh1 = Math.Min(_ho, oh0 + _rowsPerBlock);
+        float* xp = (float*)_x.P + plane * _h * _w;
+        float* yp = (float*)_y.P + plane * _ho * _wo;
+        float* vm = (float*)ThreadScratch.Get(ThreadScratch.Worker, (long)_rowWidth * 4);
+        new Span<float>(vm, _rowWidth).Fill(float.NegativeInfinity);
+        float* vx = vm + _pl;
+        int vec = Vector256<float>.Count;
+        for (int oh = oh0; oh < oh1; oh++)
+        {
+            int hs = oh * _sh - _pt;
+            int r0 = Math.Max(0, hs);
+            int r1 = Math.Min(_h, hs + _kh);
+            float* yr = yp + (long)oh * _wo;
+            if (r0 >= r1)
+            {
+                new Span<float>(yr, _wo).Fill(float.NegativeInfinity);
+                continue;
+            }
+
+            // Vertical max of the window's input rows into vx[0, W).
+            float* first = xp + (long)r0 * _w;
+            int i = 0;
+            for (; i + vec <= _w; i += vec)
+            {
+                var m = Vector256.Load(first + i);
+                for (int r = r0 + 1; r < r1; r++)
+                {
+                    m = Vector256.MaxNative(Vector256.Load(xp + (long)r * _w + i), m);
+                }
+
+                m.Store(vx + i);
+            }
+
+            for (; i < _w; i++)
+            {
+                float m = first[i];
+                for (int r = r0 + 1; r < r1; r++)
+                {
+                    m = float.MaxNative(xp[(long)r * _w + i], m);
+                }
+
+                vx[i] = m;
+            }
+
+            // Horizontal window over the padded row (-inf outside the input).
+            int ow = 0;
+            if (_sw == 1)
+            {
+                for (; ow + vec <= _wo; ow += vec)
+                {
+                    var m = Vector256.Load(vm + ow);
+                    for (int f = 1; f < _kw; f++)
+                    {
+                        m = Vector256.MaxNative(Vector256.Load(vm + ow + f), m);
+                    }
+
+                    m.Store(yr + ow);
+                }
+            }
+
+            for (; ow < _wo; ow++)
+            {
+                float* w = vm + (long)ow * _sw;
+                float m = w[0];
+                for (int f = 1; f < _kw; f++)
+                {
+                    m = float.MaxNative(w[f], m);
+                }
+
+                yr[ow] = m;
             }
         }
     }

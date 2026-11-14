@@ -53,6 +53,35 @@ internal sealed unsafe class OutputEpilogue
         }
     }
 
+    /// <summary>
+    /// Writes the epilogue of <paramref name="n"/> raw outputs at <paramref name="src"/> to <paramref name="y"/>, element
+    /// <paramref name="offset"/> of the output tensor, in one pass where it can (a copy-out of a GEMM's C block).
+    /// </summary>
+    public void ApplyFrom(float* src, float* y, long offset, long n)
+    {
+        float* from = src;
+        if (ColumnBias is { } bias)
+        {
+            Add(from, (float*)bias.P + offset % Columns, y, n);
+            from = y;
+        }
+
+        if (Residual is { } residual)
+        {
+            Add(from, (float*)residual.P + offset, y, n);
+            from = y;
+        }
+
+        if (Activation is { } kind)
+        {
+            ScalarMath.Unary(kind, from, y, n, Scale, Bias);
+        }
+        else if (from != y)
+        {
+            new ReadOnlySpan<float>(from, (int)n).CopyTo(new Span<float>(y, (int)n));
+        }
+    }
+
     /// <summary>Applies the epilogue to whole output rows [<paramref name="row0"/>, <paramref name="row1"/>) of a dense [rows, <see cref="Columns"/>] output.</summary>
     public void ApplyRows(float* y, long row0, long row1)
     {
@@ -62,14 +91,17 @@ internal sealed unsafe class OutputEpilogue
         }
     }
 
-    private static void AddInPlace(float* y, float* r, long n)
+    private static void AddInPlace(float* y, float* r, long n) => Add(y, r, y, n);
+
+    /// <summary>d[i] = a[i] + b[i]; <paramref name="d"/> may alias <paramref name="a"/>.</summary>
+    private static void Add(float* a, float* b, float* d, long n)
     {
         long i = 0;
         if (CpuIsa.Use512)
         {
             for (; i + 16 <= n; i += 16)
             {
-                (Vector512.Load(y + i) + Vector512.Load(r + i)).Store(y + i);
+                (Vector512.Load(a + i) + Vector512.Load(b + i)).Store(d + i);
             }
         }
 
@@ -77,13 +109,13 @@ internal sealed unsafe class OutputEpilogue
         {
             for (; i + 8 <= n; i += 8)
             {
-                (Vector256.Load(y + i) + Vector256.Load(r + i)).Store(y + i);
+                (Vector256.Load(a + i) + Vector256.Load(b + i)).Store(d + i);
             }
         }
 
         for (; i < n; i++)
         {
-            y[i] += r[i];
+            d[i] = a[i] + b[i];
         }
     }
 }

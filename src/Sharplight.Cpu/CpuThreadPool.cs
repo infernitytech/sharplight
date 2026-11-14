@@ -53,7 +53,7 @@ internal sealed class CpuThreadPool
             Monitor.PulseAll(_gate);
         }
 
-        job.Work();
+        job.Work(0);
         var spinner = new SpinWait();
         while (!job.IsComplete)
         {
@@ -72,7 +72,7 @@ internal sealed class CpuThreadPool
             var job = Volatile.Read(ref _job);
             if (job is not null && id < job.Participants)
             {
-                job.Work();
+                job.Work(id + 1);
             }
         }
     }

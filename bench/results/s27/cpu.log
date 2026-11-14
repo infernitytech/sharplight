@@ -1,0 +1,92 @@
+r0 resnet50 b1 sl-cpu: ok min 5.871 med 6.641 parity True 
+r0 resnet50 b1 ort-cpu: ok min 6.168 med 6.54 parity None 
+r0 resnet50 b8 sl-cpu: ok min 34.74 med 47.798 parity True 
+r0 resnet50 b8 ort-cpu: ok min 23.134 med 24.618 parity None 
+r0 convnext-tiny b1 sl-cpu: ok min 14.674 med 20.569 parity True 
+r0 convnext-tiny b1 ort-cpu: ok min 13.55 med 17.719 parity None 
+r0 convnext-tiny b8 sl-cpu: ok min 81.502 med 101.347 parity True 
+r0 convnext-tiny b8 ort-cpu: ok min 84.135 med 93.267 parity None 
+r0 efficientnet-lite4 b1 sl-cpu: ok min 6.916 med 8.766 parity True 
+r0 efficientnet-lite4 b1 ort-cpu: ok min 4.358 med 4.534 parity None 
+r0 mobilenetv2 b1 sl-cpu: ok min 2.036 med 2.802 parity True 
+r0 mobilenetv2 b1 ort-cpu: ok min 6.271 med 13.403 parity None 
+r0 mobilenetv2 b8 sl-cpu: ok min 11.861 med 18.771 parity True 
+r0 mobilenetv2 b8 ort-cpu: ok min 7.722 med 18.758 parity None 
+r0 yolov8n b1 sl-cpu: ok min 9.755 med 16.641 parity True 
+r0 yolov8n b1 ort-cpu: ok min 14.564 med 15.942 parity None 
+r0 yolov10n b1 sl-cpu: ok min 12.068 med 16.672 parity True 
+r0 yolov10n b1 ort-cpu: ok min 15.841 med 18.164 parity None 
+r0 ssd-10 (NMS) b1 sl-cpu: ok min 180.12 med 195.472 parity True 
+r0 ssd-10 (NMS) b1 ort-cpu: ok min 228.739 med 245.505 parity None 
+r0 bert-base (16 tok) b1 sl-cpu: ok min 10.041 med 11.891 parity True 
+r0 bert-base (16 tok) b1 ort-cpu: ok min 12.175 med 14.917 parity None 
+r0 bert-base (16 tok) b8 sl-cpu: ok min 20.497 med 26.188 parity True 
+r0 bert-base (16 tok) b8 ort-cpu: ok min 30.228 med 34.912 parity None 
+r0 vit-base b1 sl-cpu: ok min 20.999 med 27.566 parity True 
+r0 vit-base b1 ort-cpu: ok min 23.035 med 25.758 parity None 
+r0 vit-base b8 sl-cpu: ok min 132.853 med 166.587 parity True 
+r0 vit-base b8 ort-cpu: ok min 144.544 med 153.848 parity None 
+r0 whisper-tiny-encoder b1 sl-cpu: ok min 22.054 med 24.457 parity True 
+r0 whisper-tiny-encoder b1 ort-cpu: ok min 44.009 med 49.422 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cpu: ok min 18.06 med 23.318 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cpu: ok min 21.63 med 34.237 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-cpu: ok min 45.751 med 52.522 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cpu: ok min 54.653 med 61.693 parity None 
+r0 segformer-b0 b1 sl-cpu: crash min None med None parity None d memory. This is often an indication that other memory is corrupt.
+   at System.SpanHelpers.Memmove(Byte ByRef, Byte ByRef, UIntPtr)
+   at Sharplight
+r0 segformer-b0 b1 ort-cpu: ok min 46.443 med 51.558 parity None 
+r0 segformer-b0 b8 sl-cpu: crash min None med None parity None Fatal error.
+System.AccessViolationException: Attempted to read or write protected memory. This is often an indication that other memory is corrupt.
+ 
+r0 segformer-b0 b8 ort-cpu: ok min 527.782 med 571.518 parity None 
+r0 mobilesam-encoder b1 sl-cpu: ok min 143.352 med 169.549 parity True 
+r0 mobilesam-encoder b1 ort-cpu: ok min 219.09 med 239.74 parity None 
+r0 raft-large b1 sl-cpu: ok min 1230.481 med 1271.004 parity True 
+r0 raft-large b1 ort-cpu: ok min 1767.962 med 1927.812 parity None 
+r1 resnet50 b1 sl-cpu: ok min 6.076 med 6.903 parity True 
+r1 resnet50 b1 ort-cpu: ok min 6.792 med 12.484 parity None 
+r1 resnet50 b8 sl-cpu: ok min 34.22 med 43.465 parity True 
+r1 resnet50 b8 ort-cpu: ok min 22.164 med 24.949 parity None 
+r1 convnext-tiny b1 sl-cpu: ok min 14.024 med 21.114 parity True 
+r1 convnext-tiny b1 ort-cpu: ok min 13.918 med 16.114 parity None 
+r1 convnext-tiny b8 sl-cpu: ok min 87.757 med 103.457 parity True 
+r1 convnext-tiny b8 ort-cpu: ok min 89.263 med 99.946 parity None 
+r1 efficientnet-lite4 b1 sl-cpu: ok min 7.166 med 8.791 parity True 
+r1 efficientnet-lite4 b1 ort-cpu: ok min 4.359 med 9.797 parity None 
+r1 mobilenetv2 b1 sl-cpu: ok min 1.982 med 2.053 parity True 
+r1 mobilenetv2 b1 ort-cpu: ok min 1.611 med 1.814 parity None 
+r1 mobilenetv2 b8 sl-cpu: ok min 10.779 med 14.221 parity True 
+r1 mobilenetv2 b8 ort-cpu: ok min 7.044 med 7.704 parity None 
+r1 yolov8n b1 sl-cpu: ok min 11.143 med 15.234 parity True 
+r1 yolov8n b1 ort-cpu: ok min 13.858 med 15.075 parity None 
+r1 yolov10n b1 sl-cpu: ok min 13.165 med 17.165 parity True 
+r1 yolov10n b1 ort-cpu: ok min 16.53 med 21.15 parity None 
+r1 ssd-10 (NMS) b1 sl-cpu: ok min 184.364 med 195.257 parity True 
+r1 ssd-10 (NMS) b1 ort-cpu: ok min 219.941 med 236.867 parity None 
+r1 bert-base (16 tok) b1 sl-cpu: ok min 9.608 med 11.284 parity True 
+r1 bert-base (16 tok) b1 ort-cpu: ok min 12.223 med 14.57 parity None 
+r1 bert-base (16 tok) b8 sl-cpu: ok min 21.305 med 28.609 parity True 
+r1 bert-base (16 tok) b8 ort-cpu: ok min 27.7 med 31.875 parity None 
+r1 vit-base b1 sl-cpu: ok min 19.772 med 25.573 parity True 
+r1 vit-base b1 ort-cpu: ok min 23.284 med 26.031 parity None 
+r1 vit-base b8 sl-cpu: ok min 160.282 med 180.562 parity True 
+r1 vit-base b8 ort-cpu: ok min 139.726 med 154.824 parity None 
+r1 whisper-tiny-encoder b1 sl-cpu: ok min 21.991 med 32.422 parity True 
+r1 whisper-tiny-encoder b1 ort-cpu: ok min 43.347 med 46.135 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cpu: ok min 17.609 med 21.551 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cpu: ok min 23.413 med 38.405 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-cpu: ok min 66.065 med 98.999 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cpu: ok min 65.699 med 109.375 parity None 
+r1 segformer-b0 b1 sl-cpu: crash min None med None parity None d memory. This is often an indication that other memory is corrupt.
+   at System.SpanHelpers.Memmove(Byte ByRef, Byte ByRef, UIntPtr)
+   at Sharplight
+r1 segformer-b0 b1 ort-cpu: ok min 50.409 med 91.798 parity None 
+r1 segformer-b0 b8 sl-cpu: crash min None med None parity None Fatal error.
+System.AccessViolationException: Attempted to read or write protected memory. This is often an indication that other memory is corrupt.
+ 
+r1 segformer-b0 b8 ort-cpu: ok min 691.022 med 988.183 parity None 
+r1 mobilesam-encoder b1 sl-cpu: ok min 258.571 med 390.447 parity True 
+r1 mobilesam-encoder b1 ort-cpu: ok min 254.372 med 358.538 parity None 
+r1 raft-large b1 sl-cpu: ok min 1857.422 med 2321.196 parity True 
+r1 raft-large b1 ort-cpu: ok min 1971.988 med 2765.34 parity None 

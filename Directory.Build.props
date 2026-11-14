@@ -37,6 +37,14 @@
   <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/'))">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
   </ItemGroup>
+  <!--
+    Methods with loops (the CPU kernels) are compiled fully optimized on first use instead of starting as tier-0 code with
+    on-stack replacement: otherwise the first runs of a model, and every short benchmark, run unoptimized kernels until
+    tiering catches up (a 64-channel 3x3 conv measured 0.66 instead of 0.11 ms). Only executables read this setting.
+  -->
+  <PropertyGroup>
+    <TieredCompilationQuickJitForLoops>false</TieredCompilationQuickJitForLoops>
+  </PropertyGroup>
   <!-- Tests and samples are not public API: no XML documentation requirement. -->
   <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('/samples/'))">
     <NoWarn>$(NoWarn);CS1591</NoWarn>
