@@ -57,7 +57,8 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         }
 
         string type = StringProperty(ropeParameters, "rope_type") ?? StringProperty(ropeParameters, "type") ?? "default";
-        return type == "default" ? null : new Scaling(type, ropeParameters);
+        // "mrope" (older Qwen2-VL configs) only carries the M-RoPE sections, no frequency scaling.
+        return type is "default" or "mrope" ? null : new Scaling(type, ropeParameters);
     }
 
     private static string? StringProperty(JsonElement element, string key)

@@ -5,7 +5,7 @@ namespace Sharplight.Gguf;
 /// <summary>
 /// llama.cpp <c>qwen3vl</c> / <c>qwen3vlmoe</c> (Qwen3-VL language models) → canonical <c>decoder</c>: Qwen3 (or Qwen3-MoE) with
 /// interleaved M-RoPE (<c>rope.sections</c> from <c>rope.dimension_sections</c>). <c>qwen2vl</c> (Qwen2-VL and Qwen2.5-VL language models) is
-/// Qwen2 with the same sections, not interleaved (each section a contiguous run of rotary pairs); its projector is not supported, so it runs text-only. Images come from the projector file (an auxiliary
+/// Qwen2 with the same sections, not interleaved (each section a contiguous run of rotary pairs). Images come from the projector file (an auxiliary
 /// <c>clip</c> source with DeepStack layers, see <c>ClipGgufMapping</c>); the DeepStack blocks are added after the first layers.
 /// </summary>
 internal sealed class Qwen3VlGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping

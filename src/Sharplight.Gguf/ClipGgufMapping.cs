@@ -7,9 +7,12 @@ namespace Sharplight.Gguf;
 /// <summary>
 /// llama.cpp vision projector files ("mmproj", GGUF architecture <c>clip</c>) → the canonical vision vocabulary documented on
 /// <c>Sharplight.Vision.VisionParameters</c>. The file's <c>clip.projector_type</c> selects the tower layout and the text
-/// architecture it belongs to; supported: <c>qwen3vl_merger</c> (Qwen3-VL / Qwen3.5 family ViT with 2×2 patch merger). A tower with
-/// DeepStack layers (<c>clip.vision.is_deepstack_layers</c>, Qwen3-VL) belongs to the canonical <c>decoder</c> (the Qwen3-VL language
-/// model), one without to <c>qwen3_5</c>.
+/// architecture it belongs to; supported: <c>qwen3vl_merger</c> (Qwen3-VL / Qwen3.5 family ViT with 2×2 patch merger), <c>qwen2vl_merger</c>
+/// (Qwen2-VL: no learned positions, quick-GELU MLP) and <c>qwen2.5vl_merger</c> (Qwen2.5-VL: RMS norms, gated SiLU MLP, windowed attention with a
+/// full-attention layer every <c>clip.vision.n_wa_pattern</c> layers). A <c>qwen3vl_merger</c> tower with DeepStack layers
+/// (<c>clip.vision.is_deepstack_layers</c>, Qwen3-VL) belongs to the canonical <c>decoder</c> (the Qwen3-VL language model), one without to
+/// <c>qwen3_5</c>; Qwen2-VL and Qwen2.5-VL towers belong to <c>decoder</c>. Older files store separate q/k/v projections and some swap the
+/// names of the MLP's up and down projections (recognised by their shapes, as llama.cpp does).
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -22,12 +25,15 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     public string Architecture => "clip";
 
     /// <summary>Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to and the processor defaults the file omits.</summary>
-    private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase);
+    private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh", string NormType = "layer", bool LearnedPositions = true);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
     {
         ["qwen3vl_merger"] = new("qwen3_5", TemporalPatchSize: 2, MinPixels: 65536, MaxPixels: 16777216, RopeBase: 10000f),
+        // llama.cpp's default MLP activation (neither clip.use_gelu nor clip.use_silu) is the quick GELU of Qwen2-VL.
+        ["qwen2vl_merger"] = new("decoder", TemporalPatchSize: 2, MinPixels: 3136, MaxPixels: 12845056, RopeBase: 10000f, DefaultActivation: "quick_gelu", LearnedPositions: false),
+        ["qwen2.5vl_merger"] = new("decoder", TemporalPatchSize: 2, MinPixels: 3136, MaxPixels: 12845056, RopeBase: 10000f, DefaultActivation: "quick_gelu", NormType: "rms", LearnedPositions: false),
     };
 
     private static Projector Find(GgufMetadataView g)
@@ -60,13 +66,15 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             [a + "ffn_hidden_size"] = g.Int("vision.feed_forward_length"),
             [a + "head_count"] = g.Int("vision.attention.head_count"),
             [a + "norm_eps"] = g.Float("vision.attention.layer_norm_epsilon", 1e-6f),
-            [a + "activation"] = g.Raw("use_silu") is true ? "silu" : "gelu_tanh", // ggml's GELU is the tanh approximation
+            // ggml's GELU is the tanh approximation.
+            [a + "activation"] = g.Raw("use_silu") is true ? "silu" : g.Raw("use_gelu") is true ? "gelu_tanh" : p.DefaultActivation,
+            [a + "norm.type"] = p.NormType,
             [a + "patch_size"] = patch,
             [a + "temporal_patch_size"] = p.TemporalPatchSize,
             [a + "in_channels"] = 3,
             [a + "spatial_merge_size"] = g.Int("vision.spatial_merge_size", 2),
             // The learned position grid is (image_size / patch_size)² entries.
-            [a + "position_embedding_count"] = (int)Math.Pow(g.Int("vision.image_size") / patch, 2),
+            [a + "position_embedding_count"] = p.LearnedPositions ? (int)Math.Pow(g.Int("vision.image_size") / patch, 2) : 0,
             [a + "rope.base"] = p.RopeBase,
             [a + "out_hidden_size"] = g.Int("vision.projection_dim"),
             [a + "merger.activation"] = "gelu",
@@ -77,6 +85,15 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         {
             md[a + "deepstack_layers"] = deepstack;
         }
+
+        if (g.Has("vision.n_wa_pattern") && g.Int("vision.n_wa_pattern") is int pattern and > 0)
+        {
+            // Windows of window_size pixels (default 112, the Qwen2.5-VL value); layers il with (il + 1) % pattern == 0 attend to the whole image.
+            int windowPixels = g.Has("vision.window_size") ? g.Int("vision.window_size") : 112;
+            md[a + "attention.window"] = windowPixels / patch / g.Int("vision.spatial_merge_size", 2);
+            md[a + "attention.full_layers"] = Enumerable.Range(0, g.Int("vision.block_count")).Where(il => (il + 1) % pattern == 0).ToArray();
+        }
+
 
         if (g.Raw("vision.image_mean") is Array mean)
         {
@@ -108,6 +125,14 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         ["ln2.bias"] = "post_attention_norm.bias",
         ["attn_qkv.weight"] = "attention.qkv.weight",
         ["attn_qkv.bias"] = "attention.qkv.bias",
+        ["attn_q.weight"] = "attention.q.weight",
+        ["attn_q.bias"] = "attention.q.bias",
+        ["attn_k.weight"] = "attention.k.weight",
+        ["attn_k.bias"] = "attention.k.bias",
+        ["attn_v.weight"] = "attention.v.weight",
+        ["attn_v.bias"] = "attention.v.bias",
+        ["ffn_gate.weight"] = "mlp.gate.weight",
+        ["ffn_gate.bias"] = "mlp.gate.bias",
         ["attn_out.weight"] = "attention.o.weight",
         ["attn_out.bias"] = "attention.o.bias",
         ["ffn_up.weight"] = "mlp.up.weight",
@@ -158,6 +183,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <inheritdoc/>
     public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
     {
+        SwapLegacyMlpNames(weights, g);
         int frames = Find(g).TemporalPatchSize;
         var parts = new WeightInfo[frames];
         for (int t = 0; t < frames; t++)
@@ -198,5 +224,38 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
 
             return dst;
         });
+    }
+
+    /// <summary>
+    /// Files written by the old Qwen2-VL conversion scripts call the MLP's first projection <c>ffn_down</c> and its second <c>ffn_up</c>. As in
+    /// llama.cpp, a "down" projection that reads hidden-size inputs is recognised as such and the two (with their biases) trade names.
+    /// </summary>
+    private static void SwapLegacyMlpNames(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
+    {
+        long hidden = g.Int("vision.embedding_length");
+        for (int il = 0; weights.ContainsKey($"vision.layers.{il}.mlp.down.weight"); il++)
+        {
+            string up = $"vision.layers.{il}.mlp.up.";
+            string down = $"vision.layers.{il}.mlp.down.";
+            if (!weights.TryGetValue(up + "weight", out var upWeight) || weights[down + "weight"].Shape[1].Fixed != hidden || upWeight.Shape[1].Fixed == hidden)
+            {
+                continue;
+            }
+
+            foreach (string kind in new[] { "weight", "bias" })
+            {
+                bool hasUp = weights.Remove(up + kind, out var u);
+                bool hasDown = weights.Remove(down + kind, out var d);
+                if (hasDown)
+                {
+                    weights[up + kind] = d!.As(up + kind, d.Shape);
+                }
+
+                if (hasUp)
+                {
+                    weights[down + kind] = u!.As(down + kind, u.Shape);
+                }
+            }
+        }
     }
 }
