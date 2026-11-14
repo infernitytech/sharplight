@@ -24,9 +24,36 @@ internal static class MoeRouter
     /// <see cref="MoeOptions.NormEps"/>) instead of h (Gemma 4). With the optional per-expert output scale <c>{prefix}experts.output_scale</c> [E]
     /// each selected expert's mixing weight is multiplied by its scale, last (Gemma 4's per-expert scale).
     /// </summary>
+    /// <remarks>
+    /// Hash routing (DeepSeek-V4's first layers): with the table <c>{prefix}router.token_experts</c> (i32 [V, k]) the experts of a row are
+    /// the table row of its token, fixed instead of chosen by score; the mixing weights are the scores of those experts (then renormalized
+    /// and scaled like learned routing). It needs the token ids of the rows.
+    /// </remarks>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="h">Rows [T, H] the router reads.</param>
+    /// <param name="prefix">Weight-name prefix of the block.</param>
+    /// <param name="options">Routing configuration.</param>
+    /// <param name="tokens">Token ids i32 [T] of the rows, required by hash routing; null otherwise.</param>
     /// <returns>Mixing weights f32 [T, k] and expert indices i32 [T, k].</returns>
-    /// <exception cref="InvalidDataException">The options do not describe a usable configuration.</exception>
-    public static (Value Weights, Value Ids) Route(GraphBuilder b, Value h, string prefix, MoeOptions options)
+    /// <exception cref="InvalidDataException">The options do not describe a usable configuration, or hash routing has no token ids.</exception>
+    public static (Value Weights, Value Ids) Route(GraphBuilder b, Value h, string prefix, MoeOptions options, Value? tokens = null)
+    {
+        var (weights, ids, _) = RouteWithLogits(b, h, prefix, options, tokens);
+        return (weights, ids);
+    }
+
+    /// <summary>
+    /// <see cref="Route"/>, also returning the router logits [T, E] (with the logit bias and soft cap applied) for consumers of the full
+    /// distribution, e.g. routing entropy or confidence signals.
+    /// </summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="h">Rows [T, H] the router reads.</param>
+    /// <param name="prefix">Weight-name prefix of the block.</param>
+    /// <param name="options">Routing configuration.</param>
+    /// <param name="tokens">Token ids i32 [T] of the rows, required by hash routing; null otherwise.</param>
+    /// <returns>Mixing weights f32 [T, k], expert indices i32 [T, k] and the router logits f32 [T, E].</returns>
+    /// <exception cref="InvalidDataException">The options do not describe a usable configuration, or hash routing has no token ids.</exception>
+    public static (Value Weights, Value Ids, Value Logits) RouteWithLogits(GraphBuilder b, Value h, string prefix, MoeOptions options, Value? tokens = null)
     {
         if (!options.IsValid)
         {
@@ -46,6 +73,17 @@ internal static class MoeRouter
         }
 
         var scores = Scores(b, logits, prefix, options.ScoreFunction);
+        if (b.TryWeight(prefix + "router.token_experts") is { } table)
+        {
+            if (tokens is null)
+            {
+                throw new InvalidDataException($"{prefix}: hash routing (router.token_experts) needs the token ids of the rows.");
+            }
+
+            var hashed = b.Emit1("GatherAxis", [table, tokens], Attributes.From(("axis", 0L)), $"{prefix}router_hash_ids");      // [T, k]
+            return (FinishWeights(b, PickScores(b, scores, hashed, prefix, options), hashed, prefix, options), hashed, logits);
+        }
+
         var bias = b.TryWeight(prefix + "router_bias");
         var selection = bias is null ? scores : b.Add(options.SelectionBiasOnLogits ? logits : scores, bias);
         if (options.IsGroupLimited)
@@ -66,6 +104,12 @@ internal static class MoeRouter
             weights = b.Emit1("Softmax", [weights], null, $"{prefix}router_weights");
         }
 
+        return (FinishWeights(b, weights, ids, prefix, options), ids, logits);
+    }
+
+    // Renormalization and scaling of the selected weights [T, k] of the experts ids [T, k], last the optional per-expert output scale.
+    private static Value FinishWeights(GraphBuilder b, Value weights, Value ids, string prefix, MoeOptions options)
+    {
         if (options.NormalizeWeights)
         {
             weights = b.Binary("Div", weights, b.Scale(b.Emit1("ReduceSum", [weights]), 1f, NormalizeEpsilon));
@@ -81,7 +125,7 @@ internal static class MoeRouter
             weights = b.Mul(weights, PickExpertScales(b, expertScale, ids, prefix, options), $"{prefix}router_scaled_weights");
         }
 
-        return (weights, ids);
+        return weights;
     }
 
     // Expert scores [T, E] from the router logits. Softmax-after-top-k keeps the logits: the softmax runs on the selected ones.

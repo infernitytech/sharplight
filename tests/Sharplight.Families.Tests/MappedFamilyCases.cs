@@ -34,6 +34,9 @@ internal static class MappedFamilyCases
 
     public static readonly Case[] All =
     [
+        // Llama with a head size of 12 (not a multiple of 8): Vulkan runs attention on its per-head kernel, without a CPU fallback (tools/mk_tiny_decoders.py llama-hd12).
+        new("tiny-random-llama-hd12 HF (head size 12, transformers)", "hf/tiny-random-llama-hd12", Prompt, "ids",
+            [894, 723, 729, 83, 930, 188, 768, 711, 401, 711, 633, 140, 801, 334, 360, 913, 644, 491, 491, 491, 491, 493, 219, 50], ""),
         // Qwen2-MoE: softmax routing without renormalisation, sigmoid-gated shared expert, a dense layer between MoE layers.
         new("tiny-random-qwen2-moe HF (qwen2_moe, transformers)", "hf/tiny-random-qwen2-moe", Prompt, "ids",
             [563, 919, 1022, 411, 411, 411, 298, 567, 434, 411, 1013, 949, 74, 490, 74, 490, 444, 711, 812, 74, 613, 711, 115, 382], ""),

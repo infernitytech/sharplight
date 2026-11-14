@@ -263,7 +263,8 @@ internal sealed partial class DecoderGgufMapping
 
     /// <summary>
     /// For KV-sharing models the last <paramref name="sharedKvLayers"/> layers reuse the KV cache of the last earlier
-    /// layer with the same attention kind (sliding or global); every other layer is its own source.
+    /// layer with the same attention kind (sliding or global); every other layer is its own source. When no earlier layer has the kind (every
+    /// layer shares, as in a Gemma 4 assistant, whose keys and values come from its target), the first layer of the kind is the source.
     /// </summary>
     private static int[] KvSourceLayers(int layerCount, int sharedKvLayers, int[] sliding)
     {
@@ -271,7 +272,9 @@ internal sealed partial class DecoderGgufMapping
         var source = new int[layerCount];
         for (int il = 0; il < layerCount; il++)
         {
-            source[il] = il < firstSharedLayer ? il : Enumerable.Range(0, firstSharedLayer).Last(j => sliding[j] == sliding[il]);
+            source[il] = il < firstSharedLayer ? il
+                : Enumerable.Range(0, firstSharedLayer).LastOrDefault(j => sliding[j] == sliding[il], -1) is var earlier and >= 0 ? earlier
+                : Array.IndexOf(sliding, sliding[il]);
         }
 
         return source;

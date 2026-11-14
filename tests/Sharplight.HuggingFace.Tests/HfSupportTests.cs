@@ -20,9 +20,10 @@ public sealed class HfSupportTests : IDisposable
     [Theory]
     [InlineData("llama", SupportLevel.Supported)]
     [InlineData("qwen3_5_moe", SupportLevel.Supported)]
-    [InlineData("qwen4_exp", SupportLevel.Partial)]
-    [InlineData("qwen4_exp_text", SupportLevel.Partial)]
-    [InlineData("hrm_text", SupportLevel.Unsupported)]
+    [InlineData("qwen4_exp", SupportLevel.Supported)]
+    [InlineData("qwen4_exp_text", SupportLevel.Supported)]
+    [InlineData("hrm_text", SupportLevel.Supported)]
+    [InlineData("qwen3_tts", SupportLevel.Unsupported)]
     [InlineData(null, SupportLevel.Unsupported)]
     public void ArchitectureSupport_FollowsTheMappings(string? modelType, SupportLevel expected)
     {
@@ -52,6 +53,8 @@ public sealed class HfSupportTests : IDisposable
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "mxfp4"}}""", "mxfp4", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "float", "num_bits": 8}}}}}""", "compressed-tensors (float 8-bit)", SupportLevel.Supported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "int", "num_bits": 4}}}}}""", "compressed-tensors (int 4-bit)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "kimi_k3", "quantization_config": {"quant_method": "compressed-tensors", "format": "mxfp4-pack-quantized", "config_groups": {"g": {"format": "mxfp4-pack-quantized", "weights": {"type": "float", "num_bits": 4}}}}}""", "compressed-tensors (mxfp4)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "float", "num_bits": 4}}}}}""", "compressed-tensors (float 4-bit)", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "modelopt", "quant_algo": "NVFP4"}}""", "modelopt NVFP4", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "something-new"}}""", "something-new", null)]
     public void Quantization_ReadOrNot(string config, string? method, SupportLevel? expected)
@@ -77,12 +80,13 @@ public sealed class HfSupportTests : IDisposable
         Assert.SkipUnless(names.All(name => File.Exists(Path.Combine(s_models, name, "config.json"))), "test configs not found");
         string Read(string name) => File.ReadAllText(Path.Combine(s_models, name, "config.json"));
 
-        Assert.Equal(SupportLevel.Unsupported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-hrm-text"))));
-        Assert.Equal(SupportLevel.Unsupported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-kimi-k3"))));
-        // Kimi-K3's experts are MXFP4 packed by compressed-tensors, which is not read either.
-        Assert.Equal(SupportLevel.Unsupported, HfSupport.GetQuantizationSupport(Read("tiny-random-kimi-k3")).Level);
+        Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-hrm-text"))));
+        Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-kimi-k3"))));
+        // Kimi-K3's experts are MXFP4 packed by compressed-tensors (HfMxfp4Weights).
+        Assert.Equal(("compressed-tensors (mxfp4)", SupportLevel.Supported),
+            (HfSupport.GetQuantizationSupport(Read("tiny-random-kimi-k3")).Method, HfSupport.GetQuantizationSupport(Read("tiny-random-kimi-k3")).Level));
         Assert.Equal(SupportLevel.Supported, HfSupport.GetQuantizationSupport(Read("tiny-random-gpt-oss-mxfp4")).Level);
-        Assert.Equal(SupportLevel.Partial, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-qwen3.8-flash-next"))));
+        Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-qwen3.8-flash-next"))));
         Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("Qwen3-0.6B"))));
         Assert.Equal(new HfQuantizationSupport(null, SupportLevel.Supported), HfSupport.GetQuantizationSupport(Read("Qwen3-0.6B")));
     }
@@ -99,8 +103,8 @@ public sealed class HfSupportTests : IDisposable
     [Fact]
     public void Import_UnknownModelType_NamesIt()
     {
-        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "hrm_text", "architectures": ["HrmTextForCausalLM"]}""");
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen3_tts", "architectures": ["Qwen3TTSForConditionalGeneration"]}""");
         var error = Assert.Throws<UnsupportedArchitectureException>(() => HuggingFaceImporter.Open(_dir));
-        Assert.Equal("hrm_text", error.Architecture);
+        Assert.Equal("qwen3_tts", error.Architecture);
     }
 }

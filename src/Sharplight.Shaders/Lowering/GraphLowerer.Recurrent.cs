@@ -9,6 +9,42 @@ public sealed partial class GraphLowerer
     private const int Conv1dParallelMinRows = 16;
 
     // ---- recurrent ---------------------------------------------------------------------------
+    /// <summary>
+    /// Window pooling (WindowPool, kernels in window_pool.slang): the pooled windows of the rows that close one, then the ring update with the
+    /// last rows of every run (a separate launch: the pooling reads the ring rows of earlier passes).
+    /// </summary>
+    private void LowerWindowPool(Node n)
+    {
+        var values = EnsureDense(AsF32(Ref(n.Inputs[0]), "pool-values"), "pool-values");
+        var scores = EnsureDense(AsF32(Ref(n.Inputs[1]), "pool-scores"), "pool-scores");
+        var bias = EnsureDense(AsF32(Ref(n.Inputs[2]), "pool-bias"), "pool-bias");
+        var positions = Ref(n.Inputs[3]);
+        var ring = Ref(n.Inputs[4]);
+        var seq = n.Inputs.Length > 5 ? DenseInput(n.Inputs[5], "seq-rows") : null;
+        var runs = n.Inputs.Length > 6 ? DenseInput(n.Inputs[6], "seq-runs") : null;
+        if (ring.Type != DataType.F32)
+        {
+            throw new NotSupportedException("WindowPool: the ring state must be f32.");
+        }
+
+        var y = Produce(n.Output);
+        long ratio = n.Attributes.Get("ratio", 1L);
+        bool overlap = n.Attributes.Get("overlap", false);
+        long c = values.Shape[1];
+        long oc = overlap ? c / 2 : c;
+        long ringRows = overlap ? 2 * ratio : ratio;
+        var macros = Macros([("C", c), ("OC", oc), ("RATIO", ratio), ("OVERLAP", overlap), ("P", ringRows), ("PS", positions.Strides[0]),
+            ("MULTI_SEQ", seq is not null)]);
+        KernelArg[] args = [Pointer(values), Pointer(scores), Pointer(bias), Pointer(positions), Pointer(ring), Pointer(y), .. SeqArgs(seq, runs),
+            TokenArg(values), runs is null ? new UIntArg(1) : TokenArg(runs)];
+        TensorRef[] reads = [values, scores, bias, positions, ring, .. PresentTables(seq, runs)];
+        Emit($"window_pool {n.Output.Name}", [n],
+            [Always(Lib("window_pool.slang", "window_pool", macros), b => new Grid(Grid.Div(Rows(b, values) * oc, 128)))], args, reads, [y]);
+        Emit($"window_pool ring {n.Output.Name}", [n],
+            [Always(Lib("window_pool.slang", "window_pool_ring", macros), b => new Grid(Grid.Div(ringRows * c, 128), runs is null ? 1u : (uint)Rows(b, runs)))],
+            args, [values, scores, bias, positions, .. PresentTables(seq, runs)], [ring]);
+    }
+
     private void LowerConv(Node n)
     {
         var x = Ref(n.Inputs[0]);

@@ -15,7 +15,7 @@ namespace Sharplight.HuggingFace;
 /// </summary>
 internal sealed partial class LatentDecoderHfMapping
 {
-    private static bool IsKimiLinear(HfConfig c) => c.ModelType == "kimi_linear";
+    private static bool IsKimiLinear(HfConfig c) => c.ModelType == "kimi_linear" || IsKimiK3(c);
 
     private static bool IsBailingHybrid(HfConfig c) => c.ModelType == "bailing_hybrid";
 
@@ -154,7 +154,10 @@ internal sealed partial class LatentDecoderHfMapping
                 collector.Add(HfTransforms.ToF32(w, prefix + "linear_attention.dt_bias", new Shape(w.Shape.Elements())));
                 return true;
             case "self_attn.A_log":
-                collector.Add(HfTransforms.ToF32(w, prefix + "linear_attention.a", new Shape(LinearHeads(c)), static v => -MathF.Exp(v)));
+                // One rate per head, or (Kimi K3) one per key channel shared by the heads.
+                collector.Add(w.Shape.Elements() == LinearHeads(c)
+                    ? HfTransforms.ToF32(w, prefix + "linear_attention.a", new Shape(LinearHeads(c)), static v => -MathF.Exp(v))
+                    : ChannelDecayRates(c, w, prefix + "linear_attention.a"));
                 return true;
             default:
                 if (s_delta.TryGetValue(suffix, out var canonical))

@@ -175,7 +175,9 @@ public static partial class StandardOps
     /// Rotary position embedding on x [T, H, D] with positions i32 [T, A] (A position axes; A=1 for
     /// plain RoPE, &gt;1 for multi-axis / M-RoPE). Attributes:
     /// <c>dims</c> (rotated dims, ≤ D), <c>base</c>, <c>style</c> ("neox" pairs (i, i+dims/2), "gptj" pairs (2i, 2i+1)),
-    /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style),
+    /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style), <c>sections_per_element</c>
+    /// (bool, XD-RoPE: the sections partition the rotated elements two by two rather than the rotation pairs, element e taking the axis of
+    /// pair section e / 2, so the two elements of a neox pair can follow different axes),
     /// <c>freq_scale</c> (float, default 1), <c>attn_factor</c> (float, default 1: cos and sin of the rotated dimensions are multiplied by it, the YaRN magnitude; dimensions beyond <c>dims</c> stay unscaled). Optional third input: f32 [dims/2] per-frequency divisors
     /// (θᵢ = position · base^(-2i/dims) · freq_scale / factorᵢ; llama3 / yarn / longrope scaling, see <c>RopeScaling</c>).
     /// </summary>
@@ -199,14 +201,20 @@ public static partial class StandardOps
     /// through its prefix, as value).
     /// Attribute <c>selection</c> (bool): sparse attention. The input after V (and after the sinks when present) is i32 [T, K] or [T, Hs, K]: the key positions
     /// query row t attends (per selection head; query head h uses selection head h / (Hq / Hs)) (as positions of its own sequence, e.g. from <see cref="IndexerTopK"/>); entries below 0 and positions the row cannot
-    /// see are skipped. Not combined with <c>window</c> or <c>chunk</c>.
+    /// see are skipped. Not combined with <c>window</c> or <c>chunk</c> (unless the selection lists compressed entries, below).
+    /// Attribute <c>compression</c> (int r &gt;= 1, its presence enables it): compressed attention. The input after V (and after the sinks when
+    /// present) is a compressed KV cache (<see cref="Models.StateDefinition.Compression"/> = r; r = 1: an ordinary cache of one entry per position; rows laid out like the K cache, values read like V, so with <c>v_dims</c> their
+    /// prefix): a query at position p attends its visible rows of the K/V caches (with <c>window</c>, the last <c>window</c> positions) and,
+    /// in the same softmax, the compressed entries [0, (p + 1) / r) (complete windows only). With <c>selection</c> the selection lists compressed
+    /// entries instead of cache positions (the K/V caches are then attended densely).
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
     /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks and selection) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
     /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
-    /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B.
+    /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B. A compressed cache with r
+    /// positions per row keeps ceil(B / r) rows per block: entry e of slot s is row table[s, e·r / B] · ceil(B / r) + (e·r mod B) / r.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 8, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 9, (i, a) =>
     {
         var q = i[0].Shape;
         var v = i[2].Shape;
@@ -235,14 +243,25 @@ public static partial class StandardOps
     /// pools each group to one key, per channel d <c>Σ_i softmax_i(gate[i, d] + position_gate[i, d]) · key[i, d]</c> over its members; only
     /// complete groups are candidates. Attribute <c>tail</c> (bool) appends the row's visible positions of its incomplete group (G − 1 entries,
     /// −1 padded), so the output is [T, k + G − 1] (GLM-5.3 k-pool indexer).</item>
+    /// <item><c>group_score</c> "mean": a group's key is the mean of its members' cache rows, RMS-normed when attribute <c>pool_norm_eps</c> &gt; 0
+    /// (then an extra input after w, the norm weight [D] f32) and, with <c>pool_rope_dims</c> = R &gt; 0, its first R channels rotated (neox
+    /// pairs, base <c>pool_rope_base</c>) at the group's first position; only complete groups are candidates, <c>tail</c> as for "pooled"
+    /// (Qwen QSA block selection).</item>
     /// </list>
     /// Attribute <c>local</c> (int, default 0): the row's latest <c>local</c> groups (its own and the ones before it) are always picked.
     /// Attribute <c>per_head</c> (bool): there is no w input; every head selects for itself with the score <c>q[t, h] · key[j]</c> (no relu) and
     /// the output is [T, H, width] (one selection per head, e.g. per key-value group for <see cref="CachedAttention"/>).
+    /// Attribute <c>compression</c> (int r &gt; 1, plain selection only): the key cache is a compressed cache (<see cref="Models.StateDefinition.Compression"/>)
+    /// and a query at position p scores its entries [0, (p + 1) / r); the output lists entries.
+    /// Attribute <c>candidate_group</c> (int C &gt; 0, plain selection): an extra input after w, the candidates i32 [T, M] (M a multiple of C), a
+    /// group selection's output (the positions of picked aligned groups of C positions, −1 for positions the row cannot see; every listed group
+    /// starts with a visible one). Only the visible positions of the listed groups are candidates: the output is the plain selection over
+    /// them (the k best, or all of them in ascending order followed by −1 when there are at most k), e.g. DeepSeek-V4.1's second-level
+    /// selection inside an earlier layer's candidate blocks.
     /// Multi-sequence and paged forms as <see cref="CachedAttention"/> (sequence rows [T, 4], runs [U, 4], optional block table; attributes
     /// <c>slots</c>, <c>block_size</c>): row t sees the positions [0, position] of its slot.
     /// </summary>
-    public static readonly OpSchema IndexerTopK = new("IndexerTopK", OpCategory.Composite, 2, 7, (i, a) =>
+    public static readonly OpSchema IndexerTopK = new("IndexerTopK", OpCategory.Composite, 2, 8, (i, a) =>
     {
         var selection = IndexerSelection.From(a);
         var rows = i[0].Shape[0];
@@ -279,6 +298,8 @@ public static partial class StandardOps
     /// Inputs: state, x. Attribute: offset (runtime scalar name, default "n_past"). No outputs; side effect.
     /// Multi-sequence form: third input = sequence rows [T, 4], attribute <c>slots</c>; row t goes to row (slot · Ctx/S + position).
     /// Paged form: attribute <c>block_size</c> and a fourth input, the block table (see <see cref="CachedAttention"/>).
+    /// Attribute <c>compression</c> (int r &gt; 1): the state is a compressed cache (<see cref="Models.StateDefinition.Compression"/>); only the rows at
+    /// positions p with (p + 1) mod r = 0 are written, to entry (p + 1) / r − 1 (the other rows are ignored).
     /// </summary>
     public static readonly OpSchema CacheWrite = new("CacheWrite", OpCategory.Data, 2, 4, (i, a) => []);
 
@@ -305,6 +326,22 @@ public static partial class StandardOps
     public static readonly OpSchema GatedDeltaRule = new("GatedDeltaRule", OpCategory.Composite, 6, 9, (i, a) => [new(DataType.F32, i[2].Shape)]);
 
     /// <summary>
+    /// Softmax-gated pooling of windows of positions with carried state (the compressor of compressed KV caches). Inputs: values [T, C] f32,
+    /// scores [T, C] f32, position bias [r, C] f32, positions i32 [T, A] (axis 0 is used), state State [P, 2C]. Attributes <c>ratio</c> (r) and
+    /// <c>overlap</c> (bool). Window w covers positions [w·r, (w + 1)·r); the row at a position p with (p + 1) mod r = 0 closes window
+    /// w = (p + 1) / r − 1 and outputs, per channel d, <c>Σ_q softmax_q(scores[q, d] + bias[q mod r, d]) · values[q, d]</c> over its positions q;
+    /// every other row outputs zeros. Output [T, C] f32. With <c>overlap</c> the windows overlap by r positions and the output is [T, C/2]: channel
+    /// d of window w pools channel d of the positions [(w − 1)·r, w·r) together with channel C/2 + d of [w·r, (w + 1)·r) in one softmax over 2r
+    /// entries (positions before 0 are left out). The state is a ring of the last P = r (2r with <c>overlap</c>) rows: row q mod P holds
+    /// [values[q] | scores[q] + bias[q mod r]] of position q, so a window can span several passes; the rows of a pass continue the positions of
+    /// the previous one.
+    /// Multi-sequence form (<see cref="MultiSequence"/>): then sequence rows [T, 4] and runs [U, 4]; the state is [S, P, 2C] and a run reads the
+    /// ring of its slot for the positions before its first one.
+    /// </summary>
+    public static readonly OpSchema WindowPool = new("WindowPool", OpCategory.Composite, 5, 7, (i, a) =>
+        [new(DataType.F32, new Shape(i[0].Shape[0], a.Get("overlap", false) ? i[0].Shape[1].FloorDiv(2) : i[0].Shape[1]))]);
+
+    /// <summary>
     /// Pools consecutive row ranges of x [T, D] (packed sequences): spans i32 [B, 2] of (first row, row count) → [B, D] f32.
     /// Attribute <c>mode</c>: "mean" (default), "sum", "max", "first", "last". An empty span yields zeros.
     /// </summary>
@@ -313,11 +350,12 @@ public static partial class StandardOps
 
     /// <summary>
     /// Hashed n-gram row ids (n-gram hash embeddings). Input: window f32 [T, N]: per token, column j holds the token j positions
-    /// back plus one (column 0 is the token itself; 0 = no token, e.g. before the sequence start). A missing predecessor, an
-    /// end-of-sequence predecessor and everything before it read as the stop token. For every order n = 2..N and each of its
+    /// back plus one (column 0 is the token itself; 0 = no token, e.g. before the sequence start or a token without a hash id). A missing
+    /// token, an end-of-sequence (stop token) predecessor and everything before them read as the stop token; with <c>stop_cuts</c> false
+    /// (default true) a stop-token predecessor is hashed like any other token and only missing tokens cut the window. For every order n = 2..N and each of its
     /// <c>heads_per_order</c> heads h: mixed = XOR over j &lt; n of (token_j · multipliers[j]) in uint64 arithmetic, and
     /// id = mixed mod head_sizes[h] + head_offsets[h]. Attributes: <c>multipliers</c> (long[N]), <c>head_sizes</c> and
-    /// <c>head_offsets</c> (long[(N-1)·heads_per_order]), <c>heads_per_order</c> (long), <c>stop_token</c> (long).
+    /// <c>head_offsets</c> (long[(N-1)·heads_per_order]), <c>heads_per_order</c> (long), <c>stop_token</c> (long), <c>stop_cuts</c> (bool).
     /// Output i32 [T, (N-1)·heads_per_order], heads of order 2 first.
     /// </summary>
     public static readonly OpSchema NGramHash = new("NGramHash", OpCategory.Data, 1, 1, (i, a) =>

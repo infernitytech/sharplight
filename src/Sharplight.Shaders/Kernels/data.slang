@@ -40,8 +40,8 @@ void gather(uint3 dtid : SV_DispatchThreadID, uniform GatherParams p)
 // ---------------------------------------------------------------------------------------------
 // Cache write: x [T, R1, INNER] with strides (S0, S1) → state rows [n_past + t] (dense rows of
 // R1*INNER elements) converting to f16 when DST_F16; `cache_write_q` quantizes to the GGUF block format DST_FMT
-// (FMT_Q8_0 / FMT_Q4_0, INNER a multiple of 32).
-// Macros: R1, INNER, S0, S1, DST_F16 / DST_FMT
+// (FMT_Q8_0 / FMT_Q4_0, INNER a multiple of 32). KV_COMP > 1 (`cache_write` only): a compressed cache, see seq_row_c.
+// Macros: R1, INNER, S0, S1, DST_F16 / DST_FMT, KV_COMP / COMP_SLOT_CTX
 struct CacheParams
 {
     float* x;
@@ -66,7 +66,20 @@ void cache_write(uint3 dtid : SV_DispatchThreadID, uniform CacheParams p)
     uint t = id / ROW, r = id % ROW;
     uint r1 = r / INNER, i = r % INNER;
     float v = p.x[uint64_t(t) * S0 + uint64_t(r1) * S1 + i];
+#if KV_COMP > 1
+    // Compressed cache: only the rows that close a window are written, to their window's entry.
 #if MULTI_SEQ
+    uint pos = uint(p.seq[t * 4 + 1]);
+#else
+    uint pos = p.rt[RT_N_PAST] + t;
+#endif
+    if ((pos + 1) % KV_COMP != 0) return;
+#if MULTI_SEQ
+    uint64_t di = seq_row_c(SEQ_PAGES(p), uint(p.seq[t * 4]), (pos + 1) / KV_COMP - 1) * ROW + r;
+#else
+    uint64_t di = uint64_t((pos + 1) / KV_COMP - 1) * ROW + r;
+#endif
+#elif MULTI_SEQ
     uint64_t di = seq_row(SEQ_PAGES(p), uint(p.seq[t * 4]), uint(p.seq[t * 4 + 1])) * ROW + r;
 #else
     uint64_t di = uint64_t(p.rt[RT_N_PAST] + t) * ROW + r;

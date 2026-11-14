@@ -53,6 +53,10 @@ namespace Sharplight.Architectures;
 /// (Gemma 4 MoE): the dense MLP on the normed rows with its output normed by <c>mlp.dense_out_norm.weight</c>, the experts on
 /// routed_in_norm(x) with their sum normed by <c>mlp.routed_out_norm.weight</c>, the router on x (with <c>mlp.router.input_scale</c>), and
 /// <c>mlp.out_norm.weight</c> applied to the sum of both branches.</item>
+/// <item>Token-activated adapters (Granite Switch): <c>adapter_tokens.weight</c> [V, 8] (see <see cref="Models.AdapterTokenTable"/>) and
+/// <c>adapters.count</c> route every row to an adapter slot (<see cref="AdapterRouter"/>, a one-head causal attention with a KV cache of its own);
+/// the q/k/v/o/gate/up/down projections with <c>{projection}.lora_a</c> [S, R, K] / <c>{projection}.lora_b</c> [S, N, R] add the row's
+/// low-rank delta (<see cref="SwitchedLora"/>). No embeddings-input graph is built.</item>
 /// <item><c>attention.causal</c> (default true). False makes a bidirectional encoder out of the decoder's layers (EuroBERT, NeoBERT, ModernBERT,
 /// EmbeddingGemma, Llama embedding models): only <see cref="WellKnown.EmbedGraph"/> is built (mean pooling unless declared), every token attends to its
 /// whole sequence, sliding windows are symmetric (keys less than <c>attention.sliding_window</c> positions away on either side), no KV cache and no
@@ -74,12 +78,18 @@ namespace Sharplight.Architectures;
 /// <c>rope.layers</c> (1 = rotary on, 0 = NoPE layer; default all 1), <c>rope.local_dim</c> (rotated dims of sliding layers, default rope.dim).
 /// <c>rope.sections</c> (int[4]: M-RoPE, the rotated frequencies are split over the position axes time, row, column, extra; the decode graphs then
 /// take positions [T, 4]) with <c>rope.sections_interleaved</c> (default false: contiguous sections, Qwen2-VL; true: frequencies cycle through the
-/// axes, Qwen3-VL).
+/// axes, Qwen3-VL) or <c>rope.sections_per_element</c> (default false; true: the sections partition the rotated elements two by two instead of the
+/// rotation pairs, so the two elements of a pair can follow different axes: XD-RoPE, Hunyuan-VL).
 /// <c>attention.qk_norm_unweighted</c> (bool: q/k get a weight-less RMS norm when the layer has no q/k norm weight),
 /// <c>attention.v_norm</c> (bool: v gets a weight-less RMS norm), <c>post_norm_eps</c> (epsilon of attention.out_norm / mlp.out_norm, default norm_eps).
 /// <c>attention.qk_norm_type</c> ("rms" (default) or "layer": the q/k norms are mean-centred layer norms that add <c>attention.{q,k}_norm.bias</c> when present)
 /// with <c>attention.qk_norm_eps</c> (default norm_eps); a q/k norm weight of shape [heads, head_dim] gives every head its own gain and bias (Chameleon).
-/// <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs: those token ids get the lowest float as logit, Chameleon's image tokens).</item>
+/// <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs: those token ids get the lowest float as logit, Chameleon's image tokens).
+/// <c>norm.groups</c> (RMS norms of the residual stream normalize G equal slices of the hidden size separately before the full-width weight,
+/// default 1; K2-Horizon); <c>attention.gate_softplus_beta</c> (β of the softplus output gate, softplus(β·x)/β, default 1).</item>
+/// <item>Routed value experts (MoVA, K2-Horizon): layers with <c>attention.value_experts.weight</c> [E, kv_heads · head_dim, H] compute their values as
+/// Σ_k w_k·silu(W_k·h) over the experts their router picks (<see cref="ValueExperts"/>, keys <c>attention.value_experts.*</c> of
+/// <see cref="ValueExpertOptions"/>) instead of the value projection.</item>
 /// <item>Block-sparse attention (MiniMax-M3): <c>attention.block_indexer.*</c> (<see cref="BlockSparseIndexerOptions"/>) and per layer the weights
 /// <c>attention.block_indexer.{q,k,q_norm,k_norm}.weight</c> (see <see cref="BlockSparseIndexer"/>): those layers attend only the key blocks their
 /// indexer picks per key-value group. When the context does not exceed the budget the indexer is left out (every block would be picked).</item>
@@ -100,9 +110,11 @@ namespace Sharplight.Architectures;
 /// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it), optional BitNet sub-norms <c>attention.sub_norm.weight</c> /
 /// <c>mlp.sub_norm.weight</c> (RMS norms of the inputs of the attention output and MLP down projections). A layer without <c>attention.v.weight</c> uses the
 /// key projection (before its norm) as value (Gemma 4 attention_k_eq_v).
-/// Optional vision tower (image input; requires <c>rope.sections</c>): hyper-parameters <c>decoder.vision.*</c> and weights <c>vision.*</c> as documented on
+/// Optional vision tower (image input; requires <c>rope.sections</c>, except a two-stage tower of fixed-size views (<see cref="SamParameters"/>), whose
+/// image rows take consecutive positions): hyper-parameters <c>decoder.vision.*</c> and weights <c>vision.*</c> as documented on
 /// <see cref="VisionParameters"/>, in the primary source or an auxiliary <see cref="AuxiliaryRoles.Mmproj"/> source. The definition then has the
-/// <see cref="WellKnown.VisionEncodeGraph"/> and <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (DeepStack blocks of the tower are added after
+/// <see cref="WellKnown.VisionEncodeGraph"/> (and for a two-stage tower with tiles <see cref="SamParameters.TileGraph"/>) and
+/// <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (DeepStack blocks of the tower are added after
 /// the first layers) and prompts are assembled by <see cref="Qwen35Multimodal"/>.
 /// Semantics: RMS norm weights multiply directly (any "1 + w" convention is folded in by the importer); q/k rows are in
 /// rotate-half (neox) order per head, whatever <c>rope.style</c> says about the pairing the rope op uses on them is the
@@ -121,14 +133,18 @@ public sealed class DecoderAdapter : IModelAdapter
     {
         var src = sources.Primary;
         var hp = DecoderHyperParameters.Read(src);
-        // An EAGLE-3 drafter: the decode graphs export the inputs of the layers it fuses, and it becomes the draft graph.
+        // A drafter becomes the draft graph. An EAGLE-3 drafter: the decode graphs export the inputs of the layers it fuses; a shared-KV drafter
+        // (Gemma 4 assistant): they export the final hidden state with the keys and values of the layers it attends.
         var drafter = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Draft);
-        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter))
+        if (drafter is not null && !Eagle3DraftHead.IsDrafter(drafter) && !SharedKvDraftHead.IsDrafter(drafter))
         {
-            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3 drafter.");
+            throw new NotSupportedException($"The draft source '{drafter.Path}' is a '{drafter.Architecture}' model, not an EAGLE-3 or shared-KV drafter.");
         }
 
-        var graphBuilder = new DecoderGraphBuilder(src, options, hp, drafter is null ? null : Eagle3DraftHead.TargetLayers(drafter));
+        var sharedKvDrafter = SharedKvDraftHead.IsDrafter(drafter) ? drafter : null;
+        var eagle = sharedKvDrafter is null ? drafter : null;
+        var graphBuilder = new DecoderGraphBuilder(src, options, hp, eagle is null ? null : Eagle3DraftHead.TargetLayers(eagle),
+            sharedKvDrafter is null ? null : SharedKvDraftHead.TargetKvLayers(sharedKvDrafter, hp));
         var graphs = graphBuilder.BuildGraphs();
 
         // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
@@ -151,30 +167,62 @@ public sealed class DecoderAdapter : IModelAdapter
                 owned.AddRange(visionSrc.OwnedResources);
             }
 
-            graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
+            if (vision.Sam is { } sam)
+            {
+                // Fixed-size views: the global view and, when it differs, the local tile each get their own static graph.
+                graphs[WellKnown.VisionEncodeGraph] = SamTowerGraph.Build(vision, visionSrc.Weight, WellKnown.VisionEncodeGraph, sam.GlobalSize);
+                if (sam.TileSize != sam.GlobalSize)
+                {
+                    graphs[SamParameters.TileGraph] = SamTowerGraph.Build(vision, visionSrc.Weight, SamParameters.TileGraph, sam.TileSize);
+                }
+            }
+            else
+            {
+                graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
+            }
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
         }
 
         var states = graphBuilder.States;
         var draftProperties = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead));
-        if (drafter is not null)
+        if (eagle is not null)
         {
             var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
-            foreach (var (name, w) in Eagle3DraftHead.PrefixedWeights(drafter))
+            foreach (var (name, w) in Eagle3DraftHead.PrefixedWeights(eagle))
             {
                 merged[name] = w;
             }
 
             weights = merged;
-            owned.AddRange(drafter.OwnedResources);
-            var draftStates = Eagle3DraftHead.States(drafter, options);
+            owned.AddRange(eagle.OwnedResources);
+            var draftStates = Eagle3DraftHead.States(eagle, options);
             states = [.. states.Where(st => !st.Group.StartsWith("mtp.", StringComparison.Ordinal)), .. draftStates];
-            graphs[WellKnown.DraftGraph] = Eagle3DraftHead.Build(drafter, n => merged.GetValueOrDefault(n), hp.NEmbd, hp.PositionAxes, draftStates);
+            graphs[WellKnown.DraftGraph] = Eagle3DraftHead.Build(eagle, n => merged.GetValueOrDefault(n), hp.NEmbd, hp.PositionAxes, draftStates);
             draftProperties = new Dictionary<string, object> { [WellKnown.DraftLayers] = 1, [WellKnown.DraftHiddenSource] = Eagle3DraftHead.TapsOutput };
-            if (Eagle3DraftHead.TokenMap(drafter) is { } tokenMap)
+            if (Eagle3DraftHead.TokenMap(eagle) is { } tokenMap)
             {
                 draftProperties[WellKnown.DraftTokenMap] = tokenMap;
             }
+        }
+        else if (sharedKvDrafter is not null)
+        {
+            var draft = SharedKvDraftHead.Build(sharedKvDrafter, options, src.Weight("token_embedding.weight")!, hp);
+            var merged = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
+            foreach (var w in draft.Weights)
+            {
+                merged[w.Name] = w;
+            }
+
+            weights = merged;
+            owned.AddRange(sharedKvDrafter.OwnedResources);
+            states = [.. states.Where(st => !st.Group.StartsWith("mtp.", StringComparison.Ordinal)), .. draft.States];
+            graphs[WellKnown.DraftGraph] = draft.Graph;
+            draftProperties = new Dictionary<string, object>
+            {
+                [WellKnown.DraftLayers] = draft.Layers,
+                [WellKnown.DraftHiddenSource] = SharedKvDraftHead.FeaturesOutput,
+                [WellKnown.DraftAnchored] = true,
+            };
         }
 
         var eos = new List<int>();
@@ -201,9 +249,20 @@ public sealed class DecoderAdapter : IModelAdapter
             [WellKnown.CausalAttention] = hp.Causal,
             [WellKnown.ClassifierLabels] = hp.Vocab,
         };
+        if (SpanScoring.IsPresent(src))
+        {
+            props[WellKnown.SpanHeadType] = SpanScoring.HeadType(src);
+        }
+
         if (graphBuilder.IsDiffusion)
         {
             props[WellKnown.DiffusionShiftLogits] = src.Arch("diffusion.shift_logits", false);
+        }
+
+        if (hp.RopeSectionsPerElement)
+        {
+            // XD-RoPE rotates text tokens on every axis, the extra one included.
+            props[WellKnown.TextPositionAxes] = DecoderHyperParameters.MRopeAxes;
         }
 
         vision?.WriteProperties(props);
@@ -227,9 +286,10 @@ public sealed class DecoderAdapter : IModelAdapter
             throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
         }
 
-        if (hp.RopeSections.Length == 0)
+        if (hp.RopeSections.Length == 0 && vision.Sam is null && vision.ImagePositions != VisionParameters.GroupedImagePositions)
         {
-            throw new NotSupportedException("decoder: image input needs M-RoPE (rope.sections); the image prompt layout places image rows on a 2-D position grid.");
+            throw new NotSupportedException(
+                "decoder: image input needs M-RoPE (rope.sections) unless the tower's image positions are grouped; the image prompt layout places image rows on a 2-D position grid.");
         }
 
         if (vision.OutHiddenSize != hp.NEmbd)

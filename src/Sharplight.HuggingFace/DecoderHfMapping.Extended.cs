@@ -57,34 +57,6 @@ internal sealed partial class DecoderHfMapping
     private static string[] LayerTypes(HfConfig c, int layerCount)
         => c.GetStringArray("layer_types") ?? Enumerable.Repeat("full_attention", layerCount).ToArray();
 
-    /// <summary>
-    /// The head size of the full-attention layers: <c>global_head_dim</c>, else the <c>head_dim</c> of the first full layer in
-    /// <c>per_layer_config</c> (how transformers 5 writes a configuration made with <c>global_head_dim</c>), else <c>head_dim</c>.
-    /// </summary>
-    private static int GlobalHeadDim(HfConfig c)
-    {
-        if (c.GetInt("global_head_dim") is { } global)
-        {
-            return global;
-        }
-
-        if (c.Get("per_layer_config") is { ValueKind: JsonValueKind.Object } perLayer)
-        {
-            var types = LayerTypes(c, c.Int("num_hidden_layers"));
-            for (int il = 0; il < types.Length; il++)
-            {
-                if (types[il] == "full_attention"
-                    && perLayer.TryGetProperty(il.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry)
-                    && entry.TryGetProperty("head_dim", out var dim))
-                {
-                    return dim.GetInt32();
-                }
-            }
-        }
-
-        return c.Int("head_dim");
-    }
-
     /// <summary>Per-frequency divisors of the global layers' rope (Gemma 4 proportional rotary), or null.</summary>
     private static float[]? ExtendedRopeFactors(HfConfig c)
     {
@@ -98,7 +70,7 @@ internal sealed partial class DecoderHfMapping
             return null;
         }
 
-        int dim = GlobalHeadDim(c);
+        int dim = Gemma4GlobalHeadDim(c);
         int angles = (int)(HfMappingHelpers.NumberOr(full, "partial_rotary_factor", 1.0) * dim / 2);
         return RopeScaling.Proportional(dim, angles, (float)HfMappingHelpers.NumberOr(full, "factor", 1.0)).Factors;
     }
@@ -165,10 +137,15 @@ internal sealed partial class DecoderHfMapping
         int headCount = c.Int("num_attention_heads");
         int hidden = c.Int("hidden_size");
         int headDim = c.Int("head_dim");
-        int globalDim = GlobalHeadDim(c);
+        int globalDim = Gemma4GlobalHeadDim(c);
         int kvHeadCount = c.GetInt("num_key_value_heads") ?? headCount;
         int globalKvHeadCount = c.GetBool("attention_k_eq_v") == true ? c.GetInt("num_global_key_value_heads") ?? kvHeadCount : kvHeadCount;
         var types = LayerTypes(c, layerCount);
+        if (FirstLayerConfig(c, types, "full_attention") is { } fullLayer && fullLayer.TryGetProperty("num_key_value_heads", out var fullKvHeads))
+        {
+            globalKvHeadCount = fullKvHeads.GetInt32();
+        }
+
         var fullRope = LayerTypeRope(c, "full_attention");
         var slidingRope = LayerTypeRope(c, "sliding_attention");
         // Gemma 3n lists the MLP width per layer; hub configs carry rope_theta / rope_local_base_freq instead of per-type rope parameters.
@@ -244,7 +221,8 @@ internal sealed partial class DecoderHfMapping
 
     /// <summary>
     /// For KV-sharing models the last <paramref name="sharedKvLayers"/> layers reuse the KV cache of the last earlier
-    /// layer of the same type; every other layer is its own source.
+    /// layer of the same type; every other layer is its own source. When no earlier layer has the type (every layer shares, as in a Gemma 4
+    /// assistant, whose keys and values come from its target), the first layer of the type is the source.
     /// </summary>
     private static int[] KvSourceLayers(int layerCount, int sharedKvLayers, string[] layerTypes)
     {
@@ -252,10 +230,35 @@ internal sealed partial class DecoderHfMapping
         var source = new int[layerCount];
         for (int il = 0; il < layerCount; il++)
         {
-            source[il] = il < firstSharedLayer ? il : Enumerable.Range(0, firstSharedLayer).Last(j => layerTypes[j] == layerTypes[il]);
+            source[il] = il < firstSharedLayer ? il
+                : Enumerable.Range(0, firstSharedLayer).LastOrDefault(j => layerTypes[j] == layerTypes[il], -1) is var earlier and >= 0 ? earlier
+                : Array.IndexOf(layerTypes, layerTypes[il]);
         }
 
         return source;
+    }
+
+    /// <summary>
+    /// The head size of Gemma 4's full-attention layers: <c>global_head_dim</c>, else the <c>head_dim</c> of the first full-attention layer's
+    /// <c>per_layer_config</c> entry (configs saved by newer transformers releases), else <c>head_dim</c>.
+    /// </summary>
+    private static int Gemma4GlobalHeadDim(HfConfig c)
+    {
+        if (c.GetInt("global_head_dim") is { } global)
+        {
+            return global;
+        }
+
+        var types = LayerTypes(c, c.Int("num_hidden_layers"));
+        return FirstLayerConfig(c, types, "full_attention") is { } layer && layer.TryGetProperty("head_dim", out var dim) ? dim.GetInt32() : c.Int("head_dim");
+    }
+
+    /// <summary>The <c>per_layer_config</c> entry (keyed by the layer index as a string) of the first layer of <paramref name="layerType"/>, or null.</summary>
+    private static JsonElement? FirstLayerConfig(HfConfig c, string[] types, string layerType)
+    {
+        int il = Array.IndexOf(types, layerType);
+        return il >= 0 && c.Get("per_layer_config") is { ValueKind: JsonValueKind.Object } perLayer
+            && perLayer.TryGetProperty(il.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry) ? entry : null;
     }
 
     private IReadOnlyDictionary<string, object> MuseHyper(HfConfig c)

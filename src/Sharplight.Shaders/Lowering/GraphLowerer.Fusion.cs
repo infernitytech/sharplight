@@ -540,6 +540,7 @@ public sealed partial class GraphLowerer
         {
             if (unit.Node is { Op.Name: "CacheWrite" } cacheWrite && cacheWrite.Inputs[1] is var cv && cv.Producer is { Op.Name: "Rope" } rope
                 && SingleUse(cv) && unitOfNode.TryGetValue(rope, out var ropeUnit) && !IsQuantizedKv(cacheWrite.Inputs[0].Type)
+                && cacheWrite.Attributes.Get("compression", 1L) == 1
                 && cacheWrite.Inputs[0].Shape.Rank == 3 && cv.Shape.Rank == 3
                 && cacheWrite.Inputs[0].Shape[1].Equals(cv.Shape[1]) && cacheWrite.Inputs[0].Shape[2].Equals(cv.Shape[2]))
             {

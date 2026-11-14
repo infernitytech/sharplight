@@ -19,6 +19,10 @@ public sealed class MultimodalPrompt
     public required int PositionAxes { get; init; }
     /// <summary>Rope position of the next text token after this prompt.</summary>
     public required int NextPosition { get; init; }
+    /// <summary>
+    /// Per row: whether it goes through the language model's media weight set (<see cref="Models.InputRole.MediaWeightMask"/>); null = the image rows.
+    /// </summary>
+    public bool[]? MediaWeights { get; init; }
     /// <summary>Number of rows.</summary>
     public int Length => Tokens.Length;
 }
