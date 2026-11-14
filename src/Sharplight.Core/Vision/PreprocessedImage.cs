@@ -37,8 +37,14 @@ public sealed class PreprocessedImage
     /// <summary>Two-stage towers only: rows of the local tile grid, 0 without tiles.</summary>
     public int TileRows { get; init; }
 
+    /// <summary>
+    /// Towers with row separators or boundary rows only (else empty): for each output row, its row in the encoder's table [merged rows | separator |
+    /// begin | end] (<see cref="VisionParameters.LayoutInput"/>).
+    /// </summary>
+    public int[] Layout { get; init; } = [];
+
     /// <summary>Number of patches (N).</summary>
     public int PatchCount => GridHeight * GridWidth;
     /// <summary>Number of embeddings the encoder produces (and language-model positions the image occupies as rows).</summary>
-    public int TokenCount => MergedHeight * MergedWidth;
+    public int TokenCount => Layout.Length > 0 ? Layout.Length : MergedHeight * MergedWidth;
 }

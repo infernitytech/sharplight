@@ -82,6 +82,7 @@ internal sealed partial class HfConfig : IDisposable
     private static readonly Dictionary<string, string> s_remoteCodeModelTypes = new(StringComparer.Ordinal)
     {
         ["BailingMoeV2ForCausalLM"] = "bailing_moe_v2",
+        ["CogVLMForCausalLM"] = "cogvlm",
     };
 
     // Remote-code causal-LM classes whose config.json names another family's model_type (GroveMoE says qwen3_moe): the class decides.

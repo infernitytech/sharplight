@@ -15,12 +15,12 @@ internal sealed partial class DecoderGraphBuilder
 
     private Value Mlp(GraphBuilder b, Value h, string p, int il)
     {
-        var up = Project(b, h, p + "mlp.up.weight", p + "mlp.up.bias");
+        var up = ProjectSets(b, h, p, "mlp.up");
         var activation = DenseActivationOf(il);
         var act = _hp.Gated
-            ? activation.ActivateGated(b, SparseGate(b, Project(b, h, p + "mlp.gate.weight", p + "mlp.gate.bias"), il, p), up, p)
+            ? activation.ActivateGated(b, SparseGate(b, ProjectSets(b, h, p, "mlp.gate"), il, p), up, p)
             : activation.Activate(b, up, p);
-        return Project(b, SubNorm(b, act, p + "mlp.sub_norm.weight"), p + "mlp.down.weight", p + "mlp.down.bias", $"{p}ffn_out");
+        return ProjectSets(b, SubNorm(b, act, p + "mlp.sub_norm.weight"), p, "mlp.down", $"{p}ffn_out");
     }
 
     // Activation sparsity (Gemma 3n): with a target sparsity s for the layer, the gate keeps only what exceeds its row's

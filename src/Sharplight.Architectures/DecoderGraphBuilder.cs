@@ -24,6 +24,7 @@ internal sealed partial class DecoderGraphBuilder
     private Func<string, WeightInfo?>? _draft;
     private readonly int[] _taps;                                 // layers whose inputs the decode graphs export (an EAGLE-3 drafter's features)
     private Dictionary<int, Value>? _tapValues;                   // while a trunk graph is built: the tapped layer inputs
+    private Value? _mediaMask;                                     // while the multimodal graph is built: the per-row media weight-set mask
     private Value? _valueEmbeddings;                              // while a graph with token inputs is built: value_embedding rows [T, KvH·D]
     private readonly int[] _kvExports;                            // layers whose keys and values the decode graphs export (a shared-KV drafter's)
     private Dictionary<int, (Value K, Value V)>? _kvExportValues; // while a trunk graph is built: the exported keys and values by layer
@@ -216,7 +217,8 @@ internal sealed partial class DecoderGraphBuilder
     /// <summary>
     /// The <see cref="WellKnown.DecodeMultimodalGraph"/>: token ids plus an embeddings input [T, H·(1 + <paramref name="deepstackLayers"/>)] and
     /// a row mask [T, 1]. Rows with mask 1 take their input from the first H columns instead of the token embedding; the k-th further block
-    /// of H columns (DeepStack, zero on text rows) is added to the hidden state after layer k.
+    /// of H columns (DeepStack, zero on text rows) is added to the hidden state after layer k. Layers with a media weight set (<see cref="TokenWeightSets"/>,
+    /// CogVLM's visual experts) also take the <see cref="InputRole.MediaWeightMask"/> input; every other graph uses their text weights only.
     /// </summary>
     public ComputeGraph BuildMultimodal(int deepstackLayers) => BuildTrunk(WellKnown.DecodeMultimodalGraph, embeddingsInput: false, deepstackLayers);
 
@@ -251,6 +253,10 @@ internal sealed partial class DecoderGraphBuilder
                 var media = deepstackLayers == 0 ? emb : b.Slice(emb, 1, 0, _hp.NEmbd);
                 x = b.Add(b.Mul(x, b.Scale(mask, -1f, 1f)), b.Mul(media, mask), "inp_mixed");
                 deepstack = deepstackLayers == 0 ? null : b.Slice(emb, 1, _hp.NEmbd, (long)_hp.NEmbd * deepstackLayers);
+                if (TokenWeightSets.Present(b, _hp.NLayer, "attention.q", "attention.k", "attention.v", "attention.o", "mlp.up", "mlp.gate", "mlp.down"))
+                {
+                    _mediaMask = TokenWeightSets.DeclareMask(b, T);
+                }
             }
 
             x = AddPositionEmbeddings(b, x, positions);
@@ -288,6 +294,7 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         _tapValues = null;
+        _mediaMask = null;
         _kvExportValues = null;
         _adapterSlots = null;
 
@@ -364,6 +371,20 @@ internal sealed partial class DecoderGraphBuilder
     {
         var projected = b.Linear(x, weight, bias, name);
         return _adapterSlots is null ? projected : SwitchedLora.AddDelta(b, projected, x, weight, _adapterSlots);
+    }
+
+    // The projection {prefix}{module} (Project), mixed per row with the layer's media weight set (TokenWeightSets) while the multimodal
+    // graph is built.
+    private Value ProjectSets(GraphBuilder b, Value x, string prefix, string module, string? name = null)
+    {
+        string text = prefix + module;
+        if (_mediaMask is null || !TokenWeightSets.Has(b, prefix, module))
+        {
+            return Project(b, x, text + ".weight", text + ".bias", name);
+        }
+
+        string media = prefix + TokenWeightSets.MediaInfix + module;
+        return TokenWeightSets.Mix(b, Project(b, x, text + ".weight", text + ".bias"), b.Linear(x, media + ".weight", media + ".bias"), _mediaMask, name);
     }
 
     private ComputeGraph BuildPacked(string name, bool classify)

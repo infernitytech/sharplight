@@ -220,4 +220,45 @@ public class LlamaCppReferenceTests
         Check("tiny paddleocr-vl rainbow 56", Encode(model, Rainbow(56), 56), 4, 64, RainbowTinyPaddleOcr56, tolerance: 3e-3, sumTolerance: 1e-3);
         Check("tiny paddleocr-vl rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, RainbowTinyPaddleOcr, tolerance: 3e-2, sumTolerance: 1e-3);
     }
+
+    // The tiny random HunyuanOCR (tools/mk_tiny_hunyuan_vl.py), its tower converted by llama.cpp 8ca5a80 (tools/convert_tiny_mmproj.py, projector
+    // type hunyuanvl): rainbow 128 (the 8×8 learned grid) and 256, 4×4 and 8×8 merged tokens laid out as begin, rows + newline, end (22 and 74 rows
+    // of 64). The corner rows are the begin / end rows, the sums cover the grid.
+    private static readonly Expected RainbowTinyHunyuanVl128 = new(-41.017681f, [-0.9619f, -0.6089f, 0.0212f], [1.0161f, -1.9559f, -0.8365f], [-1.6948f, -0.0750f, -1.4260f], [-0.0261f, -0.4545f, -0.3607f]);
+    private static readonly Expected RainbowTinyHunyuanVl256 = new(-127.309135f, [-0.9619f, -0.6089f, 0.0212f], [1.0161f, -1.9559f, -0.8365f], [-1.6948f, -0.0750f, -1.4260f], [-0.0261f, -0.4545f, -0.3607f]);
+
+    /// <summary>HunyuanOCR's tower (half-pixel bilinear position grid, perceiver projector with newline column and begin / end rows) from an f32 mmproj.</summary>
+    [Fact]
+    public void Tiny_hunyuan_vl_tower_matches_llama_cpp()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string gguf = Path.Combine(home, "models/gguf/tiny-random-hunyuan-vl-f32.gguf");
+        string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-hunyuan-vl-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny HunyuanOCR GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        // Sharplight follows transformers (TinyQwenVlImageTests), where llama.cpp deviates: it resamples the learned position grid with scale
+        // (n + 0.1) / grid (the reference to exactly n), which shifts the grid slightly even at the native size, and its GELUs are the tanh
+        // approximation.
+        Check("tiny hunyuan-vl rainbow 128", Encode(model, Rainbow(128), 128), 22, 64, RainbowTinyHunyuanVl128, tolerance: 3e-2, sumTolerance: 1e-3);
+        Check("tiny hunyuan-vl rainbow 256", Encode(model, Rainbow(256), 256), 74, 64, RainbowTinyHunyuanVl256, tolerance: 3e-2, sumTolerance: 1e-3);
+    }
+
+    // The tiny random CogVLM (tools/mk_tiny_cogvlm.py), its tower converted by llama.cpp 8ca5a80 (tools/convert_tiny_cogvlm.py, projector type
+    // cogvlm): rainbow 56, 4×4 patches laid out as begin, patches, end (18 rows of 64). The numbers are the checkpoint's remote code on the raw
+    // image: llama.cpp appends the class token after the patches but adds the position table in stored order, so its patches take rows 0..15
+    // where the reference gives row 0 to the class token and rows 1..16 to the patches. llama.cpp prints sum -74.648819; the remote code with its
+    // position rows reordered that way gives -74.278 (the rest is llama.cpp's tanh GELU and f16 attention).
+    private static readonly Expected RainbowTinyCogVlm56 = new(-94.305923f, [0.1655f, 0.5325f, 1.2474f], [-0.7662f, 0.0513f, -1.1712f], [-2.0403f, -0.3213f, -0.1377f], [-0.3040f, 0.3847f, 0.6089f]);
+
+    /// <summary>CogVLM's EVA2-CLIP tower (class token, post-norm blocks, GLU projector, begin / end rows) from an f32 mmproj.</summary>
+    [Fact]
+    public void Tiny_cogvlm_mmproj_tower_matches_remote_code()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string gguf = Path.Combine(home, "models/gguf/tiny-random-cogvlm-f32.gguf");
+        string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-cogvlm-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny CogVLM GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        Check("tiny cogvlm rainbow 56", Encode(model, Rainbow(56), 56), 18, 64, RainbowTinyCogVlm56, tolerance: 2e-4, sumTolerance: 1e-5);
+    }
 }

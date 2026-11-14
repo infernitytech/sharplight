@@ -14,20 +14,35 @@ namespace Sharplight.Vision;
 /// <list type="bullet">
 /// <item><c>layer_count</c>, <c>hidden_size</c>, <c>ffn_hidden_size</c>, <c>head_count</c>, <c>norm_eps</c> (ViT trunk);
 /// <c>activation</c> (<c>gelu_tanh</c> | <c>gelu</c> | <c>silu</c> | <c>quick_gelu</c> = x·sigmoid(1.702·x); trunk MLP, the gate's activation when the MLP is gated);
-/// <c>norm.type</c> (<c>layer</c>, the default: LayerNorm with weight and bias | <c>rms</c>: RMS norm with a weight; every norm of the tower and merger);</item>
+/// <c>norm.type</c> (<c>layer</c>, the default: LayerNorm with weight and bias | <c>rms</c>: RMS norm with a weight; every norm of the tower and merger);
+/// <c>norm.placement</c> (<c>pre</c>, the default: x + attn(input_norm(x)), x + mlp(post_attention_norm(x)) | <c>post</c>: x + input_norm(attn(x)),
+/// x + post_attention_norm(mlp(x)); EVA2-CLIP, CogVLM); <c>class_token</c> (bool: a learned class row, <c>vision.class_embedding</c> plus
+/// <c>vision.class_position_embedding</c>, joins the patches in the trunk; it is not part of the output);</item>
 /// <item><c>attention.window</c> (side of the square attention windows in merged tokens; 0 = none, the default) with <c>attention.full_layers</c>
 /// (int[], ascending layers that attend over the whole image): windowed attention (Qwen2.5-VL). The merged-token grid is cut into windows of
 /// window×window merged tokens (the last row/column of windows is smaller when the grid is not a multiple), patches are ordered window by
 /// window and a patch of a windowed layer only attends to the patches of its window;</item>
+/// <item><c>image_size</c> (side of the square every image is resized to, ignoring its aspect ratio; 0, the default: the aspect-preserving
+/// resize within <c>min_pixels</c> / <c>max_pixels</c>);</item>
 /// <item><c>patch_size</c>, <c>temporal_patch_size</c> (frames per patch; a still image is repeated), <c>in_channels</c>,
 /// <c>spatial_merge_size</c> (m: m×m neighbouring patches are merged into one output token);</item>
 /// <item><c>position_embedding_count</c> (learned absolute position grid of g×g entries, g² = count, resampled to the image grid; 0 = none),
-/// <c>position_embedding.interpolation</c> (<c>bilinear</c>, the default: align_corners, 4 taps | <c>bicubic</c>: PyTorch grid_sample of the
-/// patch centres, 16 taps), <c>rope.base</c> (axial 2-D rotary position
-/// embedding over (row, col), 0 = none);</item>
+/// <c>position_embedding.interpolation</c> (<c>bilinear</c>, the default: align_corners, 4 taps | <c>bilinear_half_pixel</c>: PyTorch's bilinear
+/// resize with align_corners off, the patch centres sampled, 4 taps | <c>bicubic</c>: PyTorch grid_sample of the patch centres, 16 taps),
+/// <c>rope.base</c> (axial 2-D rotary position embedding over (row, col), 0 = none);</item>
 /// <item><c>out_hidden_size</c> (width of the produced embeddings = hidden size of the language model),
-/// <c>merger.activation</c> (<c>gelu</c> | <c>gelu_tanh</c> | <c>silu</c>), <c>merger.norm_eps</c> (epsilon of the merger norm; default
-/// <c>norm_eps</c>);</item>
+/// <c>merger.activation</c> (<c>gelu</c> | <c>gelu_tanh</c> | <c>silu</c>), <c>merger.norm_eps</c> (epsilon of the merger norms; default
+/// <c>norm_eps</c>), <c>merger.norm.type</c> (kind of the merger norms; default <c>norm.type</c>);</item>
+/// <item><c>merger.row_separator</c> (bool: a learned row is appended after every row of merged tokens, HunyuanVL's newline column) and
+/// <c>merger.boundary</c> (bool: learned begin and end rows frame the image); the image then occupies
+/// <see cref="OutputTokenCount"/> rows of the language model, in the order begin, each grid row followed by its separator, end;</item>
+/// <item><c>image_positions</c>: the language model's M-RoPE positions of an image's rows. <c>mrope</c> (the default, Qwen-VL): row r, column c
+/// of an image starting at position p get (p, p + r, p + c, 0) and the text after it continues at p + max(rows, columns); <c>sequential</c>
+/// (HunyuanVL's XD-RoPE): every row advances the first axis by one like text, a grid row (separators included, at column = columns) gets
+/// (column, row, image ordinal) on the other three axes, the begin and end rows carry their sequential position on every axis; <c>grouped</c>
+/// (CogVLM): the begin row, all grid rows together and the end row take one position each, on every axis;</item>
+/// <item><c>media_weight_rows</c>: which rows of an image use the language model's media weight set (layers with <c>media.</c> weights, visual
+/// experts): <c>all</c> (the default) | <c>all_but_last</c> (CogVLM: the end row uses the text weights);</item>
 /// <item><c>image_token</c> (text of the prompt placeholder that expands to the image rows; default <c>&lt;|image_pad|&gt;</c>);</item>
 /// <item><c>deepstack_layers</c> (int[], ascending tower layer indices; default none): DeepStack (Qwen3-VL). The output of each listed
 /// layer is merged like the final hidden states and projected by its own merger; the results are appended to the embedding row, which is
@@ -38,7 +53,8 @@ namespace Sharplight.Vision;
 /// </list>
 /// <para><b>Weights</b> (<c>.weight</c>/<c>.bias</c> pairs unless noted; linear weights are [out, in]):
 /// <c>vision.patch_embed.{weight,bias}</c> — weight [hidden, in_channels·temporal_patch_size·patch_size²], the patch
-/// convolution flattened in (channel, frame, row, col) order; <c>vision.position_embedding.weight</c> [count, hidden];
+/// convolution flattened in (channel, frame, row, col) order; <c>vision.position_embedding.weight</c> [count, hidden]; with <c>class_token</c>
+/// <c>vision.class_embedding</c> and <c>vision.class_position_embedding</c> [hidden] (their sum is the class row);
 /// per layer <c>vision.layers.{i}.</c>: <c>input_norm</c> and <c>post_attention_norm</c> (LayerNorm weight+bias),
 /// <c>attention.qkv</c> (fused [3·hidden, hidden], rows ordered q | k | v, each head-major) or separate <c>attention.q</c>, <c>attention.k</c>,
 /// <c>attention.v</c>, then <c>attention.o</c>, <c>mlp.up</c>, <c>mlp.down</c> and optionally <c>mlp.gate</c> (gated MLP: act(gate)·up); norms
@@ -46,7 +62,10 @@ namespace Sharplight.Vision;
 /// the trunk output, before the merger); the patch merger: optionally <c>vision.merger.norm</c> (applied per patch before merging, epsilon
 /// <c>merger.norm_eps</c>), optionally <c>vision.merger.downsample</c> [out_hidden, m²·hidden] (a linear map of the merged row, with bias) and
 /// <c>vision.merger.proj</c> + <c>vision.merger.proj_norm</c> (linear, LayerNorm with weight and bias, exact GELU), then the MLP
-/// <c>vision.merger.up</c>, optional <c>vision.merger.gate</c> (gated: act(gate)·up) and <c>vision.merger.down</c>; the Qwen merger has
+/// <c>vision.merger.up</c>, optional <c>vision.merger.gate</c> (gated: act(gate)·up) and <c>vision.merger.down</c>, then optionally
+/// <c>vision.merger.row_separator</c> [width of down's output] (with <c>merger.row_separator</c>), <c>vision.merger.out</c> (a linear map to
+/// out_hidden, with bias, applied to the merged rows and the separator), <c>vision.merger.begin</c> and <c>vision.merger.end</c> [out_hidden]
+/// (with <c>merger.boundary</c>) and <c>vision.merger.out_norm</c> (a norm of every output row, merger norm type and epsilon); the Qwen merger has
 /// <c>vision.merger.up</c> [m²·hidden, m²·hidden] and <c>vision.merger.down</c> [out_hidden, m²·hidden]; per DeepStack layer i
 /// <c>vision.deepstack.{i}.norm</c> (LayerNorm over m²·hidden, applied after merging), <c>vision.deepstack.{i}.up</c> and
 /// <c>vision.deepstack.{i}.down</c> (shapes of the merger's; same activation).</para>
@@ -54,7 +73,11 @@ namespace Sharplight.Vision;
 /// <see cref="PositionsInput"/> i32 [N, 2] (row, col), <see cref="EmbeddingIndexInput"/> i32 [N, taps],
 /// <see cref="EmbeddingWeightInput"/> f32 [N, taps] (<see cref="PositionTaps"/>), and with windowed attention <see cref="WindowSpansInput"/> i32 [N, 2] (first patch and patch count
 /// of each patch's window) and <see cref="WindowOrderInput"/> i32 [M] (for each output row in merge-window raster order, its row in window order); symbols <c>N</c> = patches, <c>M</c> = N / m² (the merger reshapes N → M); output <see cref="EmbeddingsOutput"/> f32 [M, <see cref="EmbeddingWidth"/>]. Patches are ordered in merge-window
-/// order, or window by window with windowed attention (see <see cref="VisionPreprocessor"/>); the output rows are always in merge-window raster order. Inputs are produced by <see cref="VisionPreprocessor"/>.</para>
+/// order, or window by window with windowed attention (see <see cref="VisionPreprocessor"/>); the output rows are always in merge-window raster order.
+/// With a row separator or boundary rows the graph also takes <see cref="LayoutInput"/> i32 [R] (symbol <see cref="OutputSymbol"/>): for each output
+/// row, its row in the table [merged rows (M) | class row | separator | begin | end] (the entries the model has, in that order); the output is then
+/// [R, width].
+/// Inputs are produced by <see cref="VisionPreprocessor"/>.</para>
 /// </remarks>
 public sealed record VisionParameters
 {
@@ -71,6 +94,8 @@ public sealed record VisionParameters
     public const string WindowSpansInput = "window_spans";
     /// <summary>Name of the window-order input, i32 [M]: the window-ordered row of each output row (merge-window raster order).</summary>
     public const string WindowOrderInput = "window_order";
+    /// <summary>Name of the output-layout input, i32 [R]: per output row, its row in [merged rows | separator | begin | end].</summary>
+    public const string LayoutInput = "output_layout";
     /// <summary>Name of the output of the vision-encode graph, f32 [M, <see cref="EmbeddingWidth"/>].</summary>
     public const string EmbeddingsOutput = "embeddings";
     /// <summary>The image placeholder of the Qwen-VL chat templates, the default <see cref="ImageToken"/>.</summary>
@@ -79,6 +104,18 @@ public sealed record VisionParameters
     public const string PatchSymbol = "N";
     /// <summary>Symbol of the merged token count M (N divided by <see cref="MergeUnit"/>).</summary>
     public const string MergedSymbol = "M";
+    /// <summary>Symbol of the output row count R of a tower with a <see cref="LayoutInput"/>.</summary>
+    public const string OutputSymbol = "R";
+    /// <summary>The Qwen-VL M-RoPE image positions, the default <see cref="ImagePositions"/>.</summary>
+    public const string MropeImagePositions = "mrope";
+    /// <summary>HunyuanVL's sequential image positions (see <see cref="ImagePositions"/>).</summary>
+    public const string SequentialImagePositions = "sequential";
+    /// <summary>CogVLM's grouped image positions (see <see cref="ImagePositions"/>).</summary>
+    public const string GroupedImagePositions = "grouped";
+    /// <summary>Every row of an image uses the media weight set, the default <see cref="MediaWeightRows"/>.</summary>
+    public const string AllMediaWeightRows = "all";
+    /// <summary>Every row of an image but its last uses the media weight set (CogVLM, see <see cref="MediaWeightRows"/>).</summary>
+    public const string AllButLastMediaWeightRows = "all_but_last";
 
     /// <summary>Number of transformer layers in the tower.</summary>
     public int LayerCount { get; init; }
@@ -94,6 +131,12 @@ public sealed record VisionParameters
     public string Activation { get; init; } = "gelu_tanh";
     /// <summary>Kind of every norm of the tower and merger: "layer" (LayerNorm with bias) or "rms".</summary>
     public string NormType { get; init; } = "layer";
+    /// <summary>Where the trunk's norms sit: "pre" (normed sub-layer input) or "post" (normed sub-layer output, EVA2-CLIP).</summary>
+    public string NormPlacement { get; init; } = "pre";
+    /// <summary>Whether a learned class row joins the patches in the trunk (dropped before the merger output).</summary>
+    public bool ClassToken { get; init; }
+    /// <summary>Side of the fixed square images are resized to, or 0 for the aspect-preserving resize within the pixel bounds.</summary>
+    public int ImageSize { get; init; }
     /// <summary>Side of the square attention windows in merged tokens, or 0 for attention over the whole image in every layer.</summary>
     public int WindowSize { get; init; }
     /// <summary>With <see cref="WindowSize"/>: the layers that attend over the whole image (ascending).</summary>
@@ -109,7 +152,8 @@ public sealed record VisionParameters
     /// <summary>Entries of the learned absolute position grid (a perfect square), or 0 for none.</summary>
     public int PositionEmbeddingCount { get; init; }
     /// <summary>
-    /// How the learned position grid is resampled to the image grid: "bilinear" (align_corners, 4 taps per patch) or "bicubic" (PyTorch
+    /// How the learned position grid is resampled to the image grid: "bilinear" (align_corners, 4 taps per patch), "bilinear_half_pixel"
+    /// (PyTorch's bilinear resize to the patch grid with align_corners off, 4 taps per patch; HunyuanVL) or "bicubic" (PyTorch
     /// grid_sample at the patch centres, align_corners off, border padding, A = −0.75; 16 taps per patch; GLM-4V).
     /// </summary>
     public string PositionInterpolation { get; init; } = "bilinear";
@@ -121,8 +165,21 @@ public sealed record VisionParameters
     public int[] DeepstackLayers { get; init; } = [];
     /// <summary>Activation of the patch merger MLP: "gelu", "gelu_tanh" or "silu".</summary>
     public string MergerActivation { get; init; } = "gelu";
-    /// <summary>Epsilon of the patch merger's norm; null = <see cref="NormEps"/>.</summary>
+    /// <summary>Epsilon of the patch merger's norms; null = <see cref="NormEps"/>.</summary>
     public float? MergerNormEps { get; init; }
+    /// <summary>Kind of the patch merger's norms ("layer" or "rms"); null = <see cref="NormType"/>.</summary>
+    public string? MergerNormType { get; init; }
+    /// <summary>Whether a learned row follows every row of merged tokens in the output (HunyuanVL).</summary>
+    public bool RowSeparator { get; init; }
+    /// <summary>Whether learned begin and end rows frame the image's output (HunyuanVL).</summary>
+    public bool ImageBoundary { get; init; }
+    /// <summary>
+    /// How the language model positions an image's rows: <see cref="MropeImagePositions"/>, <see cref="SequentialImagePositions"/> or
+    /// <see cref="GroupedImagePositions"/>.
+    /// </summary>
+    public string ImagePositions { get; init; } = MropeImagePositions;
+    /// <summary>Which image rows use the language model's media weight set: <see cref="AllMediaWeightRows"/> or <see cref="AllButLastMediaWeightRows"/>.</summary>
+    public string MediaWeightRows { get; init; } = AllMediaWeightRows;
     /// <summary>Text of the prompt placeholder that expands to one row per merged image token.</summary>
     public string ImageToken { get; init; } = DefaultImageToken;
     /// <summary>Per-channel mean of the input normalization.</summary>
@@ -145,6 +202,15 @@ public sealed record VisionParameters
     public int HeadDim => HiddenSize / HeadCount;
     /// <summary>Values per patch: in_channels · temporal_patch_size · patch_size².</summary>
     public int PatchDim => InChannels * TemporalPatchSize * PatchSize * PatchSize;
+    /// <summary>Whether the output rows are composed through <see cref="LayoutInput"/> (row separators or boundary rows).</summary>
+    public bool HasLayout => RowSeparator || ImageBoundary;
+
+    /// <summary>Rows an image of <paramref name="mergedHeight"/> × <paramref name="mergedWidth"/> merged tokens occupies in the language model.</summary>
+    /// <param name="mergedHeight">Rows of merged tokens.</param>
+    /// <param name="mergedWidth">Columns of merged tokens.</param>
+    public int OutputTokenCount(int mergedHeight, int mergedWidth)
+        => mergedHeight * (mergedWidth + (RowSeparator ? 1 : 0)) + (ImageBoundary ? 2 : 0);
+
     /// <summary>Taps per patch of the position-embedding resampling (<see cref="PositionInterpolation"/>): 4 or 16.</summary>
     public int PositionTaps => PositionInterpolation == "bicubic" ? 16 : 4;
     /// <summary>Side of the learned position grid.</summary>
@@ -170,6 +236,9 @@ public sealed record VisionParameters
             NormEps = Get("norm_eps", 1e-6f),
             Activation = Get("activation", "gelu_tanh"),
             NormType = Get("norm.type", "layer"),
+            NormPlacement = Get("norm.placement", "pre"),
+            ClassToken = Get("class_token", false),
+            ImageSize = Get("image_size", 0),
             WindowSize = Get("attention.window", 0),
             FullAttentionLayers = Get("attention.full_layers", Array.Empty<int>()),
             PatchSize = Get<int>("patch_size", 0),
@@ -182,6 +251,11 @@ public sealed record VisionParameters
             OutHiddenSize = Get<int>("out_hidden_size", 0),
             MergerActivation = Get("merger.activation", "gelu"),
             MergerNormEps = md.ContainsKey(prefix + "merger.norm_eps") ? Get("merger.norm_eps", 0f) : null,
+            MergerNormType = md.ContainsKey(prefix + "merger.norm.type") ? Get("merger.norm.type", "layer") : null,
+            RowSeparator = Get("merger.row_separator", false),
+            ImageBoundary = Get("merger.boundary", false),
+            ImagePositions = Get("image_positions", MropeImagePositions),
+            MediaWeightRows = Get("media_weight_rows", AllMediaWeightRows),
             ImageToken = Get("image_token", DefaultImageToken),
             DeepstackLayers = Get("deepstack_layers", Array.Empty<int>()),
             ImageMean = Get("image_mean", new[] { 0.5f, 0.5f, 0.5f }),
@@ -213,6 +287,21 @@ public sealed record VisionParameters
         Set("norm_eps", NormEps);
         Set("activation", Activation);
         Set("norm.type", NormType);
+        if (NormPlacement != "pre")
+        {
+            Set("norm.placement", NormPlacement);
+        }
+
+        if (ClassToken)
+        {
+            Set("class_token", true);
+        }
+
+        if (ImageSize > 0)
+        {
+            Set("image_size", ImageSize);
+        }
+
         if (WindowSize > 0)
         {
             Set("attention.window", WindowSize);
@@ -234,6 +323,31 @@ public sealed record VisionParameters
         if (MergerNormEps is float mergerEps)
         {
             Set("merger.norm_eps", mergerEps);
+        }
+
+        if (MergerNormType is { } mergerNormType)
+        {
+            Set("merger.norm.type", mergerNormType);
+        }
+
+        if (RowSeparator)
+        {
+            Set("merger.row_separator", true);
+        }
+
+        if (ImageBoundary)
+        {
+            Set("merger.boundary", true);
+        }
+
+        if (ImagePositions != MropeImagePositions)
+        {
+            Set("image_positions", ImagePositions);
+        }
+
+        if (MediaWeightRows != AllMediaWeightRows)
+        {
+            Set("media_weight_rows", MediaWeightRows);
         }
 
         if (ImageToken != DefaultImageToken)
@@ -282,9 +396,35 @@ public sealed record VisionParameters
             }
         }
 
-        if (NormType is not ("layer" or "rms"))
+        if (NormType is not ("layer" or "rms") || MergerNormType is not (null or "layer" or "rms"))
         {
-            throw new InvalidDataException($"vision: norm.type '{NormType}' is not supported (layer, rms).");
+            throw new InvalidDataException($"vision: norm.type '{NormType}' / merger.norm.type '{MergerNormType}' is not supported (layer, rms).");
+        }
+
+        if (ImagePositions is not (MropeImagePositions or SequentialImagePositions or GroupedImagePositions))
+        {
+            throw new InvalidDataException(
+                $"vision: image_positions '{ImagePositions}' is not supported ({MropeImagePositions}, {SequentialImagePositions}, {GroupedImagePositions}).");
+        }
+
+        if (MediaWeightRows is not (AllMediaWeightRows or AllButLastMediaWeightRows))
+        {
+            throw new InvalidDataException($"vision: media_weight_rows '{MediaWeightRows}' is not supported ({AllMediaWeightRows}, {AllButLastMediaWeightRows}).");
+        }
+
+        if (NormPlacement is not ("pre" or "post") || ImageSize < 0)
+        {
+            throw new InvalidDataException($"vision: norm.placement '{NormPlacement}' is not supported (pre, post) or image_size {ImageSize} is negative.");
+        }
+
+        if (ClassToken && (!HasLayout || WindowSize > 0 || RopeBase > 0))
+        {
+            throw new InvalidDataException("vision: a class token needs an output layout (boundary rows or row separators), no windowed attention and no rotary embedding.");
+        }
+
+        if (HasLayout && DeepstackLayers.Length > 0)
+        {
+            throw new InvalidDataException("vision: row separators and boundary rows are not supported together with DeepStack layers.");
         }
 
         if (WindowSize < 0 || FullAttentionLayers.Any(l => l < 0 || l >= LayerCount))
@@ -292,9 +432,9 @@ public sealed record VisionParameters
             throw new InvalidDataException("vision: attention.window must be >= 0 and attention.full_layers tower layer indices.");
         }
 
-        if (PositionInterpolation is not ("bilinear" or "bicubic"))
+        if (PositionInterpolation is not ("bilinear" or "bilinear_half_pixel" or "bicubic"))
         {
-            throw new InvalidDataException($"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bicubic).");
+            throw new InvalidDataException($"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bilinear_half_pixel, bicubic).");
         }
 
         if (PositionEmbeddingCount > 0 && PositionGridSide * PositionGridSide != PositionEmbeddingCount)

@@ -83,6 +83,14 @@ public static class WellKnown
     /// Property: number of position axes the positions input carries (1 for plain RoPE, more for multi-axis RoPE) (int).
     /// </summary>
     public const string PositionAxes = "position_axes";
+    /// <summary>
+    /// Property: with several position axes, how many leading axes carry a text token's position; the others are 0 (int, default
+    /// <see cref="DefaultTextPositionAxes"/>: time, row and column of M-RoPE). Models whose extra axis rotates text tokens too (XD-RoPE) set it
+    /// to the axis count.
+    /// </summary>
+    public const string TextPositionAxes = "text_position_axes";
+    /// <summary>Default of <see cref="TextPositionAxes"/>.</summary>
+    public const int DefaultTextPositionAxes = 3;
     /// <summary>Property: token ids that end generation (int[]).</summary>
     public const string EosTokenIds = "eos_token_ids";
     /// <summary>Pooling of <see cref="EmbedGraph"/>: "mean", "cls" (first row), "last", "none" (string).</summary>

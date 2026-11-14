@@ -21,7 +21,7 @@ internal sealed partial class DecoderGraphBuilder
         int heads = _hp.HeadsOf(il);
         var rotate = RotationOf(b, il, positions, freqFactors);
 
-        var q = ClipQkv(b, Project(b, h, p + "attention.q.weight", p + "attention.q.bias"));
+        var q = ClipQkv(b, ProjectSets(b, h, p, "attention.q"));
         q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), b.TryWeight(p + "attention.q_norm.bias"), il, heads, headDim, rotate);
         if (_hp.TemperatureOn(il))
         {
@@ -122,6 +122,10 @@ internal sealed partial class DecoderGraphBuilder
         {
             // M-RoPE over (time, row, column, extra); the packed-sequence graphs carry one position axis (text: every axis equal, plain RoPE).
             rope = rope.With("sections", _hp.RopeSections).With("interleaved", _hp.RopeSectionsInterleaved);
+            if (_hp.RopeSectionsPerElement)
+            {
+                rope = rope.With("sections_per_element", true);
+            }
         }
 
         bool scaled = !sliding || _hp.RopeLocalFreqFactors;
@@ -207,11 +211,11 @@ internal sealed partial class DecoderGraphBuilder
     {
         int headDim = _hp.HeadDimOf(il);
         int kvHeads = _hp.KvHeadsOf(il);
-        var keyProjection = ClipQkv(b, Project(b, h, p + "attention.k.weight", p + "attention.k.bias"));
+        var keyProjection = ClipQkv(b, ProjectSets(b, h, p, "attention.k"));
         string valueExperts = p + "attention.value_experts.";
         var valueProjection = ValueExperts.IsPresent(b, valueExperts)
             ? ValueExperts.Build(b, valueInput, valueExperts, _hp.ValueExperts ?? throw new InvalidDataException($"{valueExperts}weight needs attention.value_experts.count."))
-            : b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, Project(b, valueInput, p + "attention.v.weight", p + "attention.v.bias")) : keyProjection;
+            : b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, ProjectSets(b, valueInput, p, "attention.v")) : keyProjection;
         var v = b.Reshape(valueProjection, 0, kvHeads, _hp.ValueDimOf(il));
         if (b.TryWeight(p + "attention.value_embedding_gate.weight") is not null)
         {
@@ -303,7 +307,7 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         var flat = b.Reshape(scaled, 0, heads * valueDim);
-        return Project(b, SubNorm(b, flat, p + "attention.sub_norm.weight"), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+        return ProjectSets(b, SubNorm(b, flat, p + "attention.sub_norm.weight"), p, "attention.o", $"{p}attn_out");
     }
 
     // softplus(β·x)/β with β = attention.gate_softplus_beta (K2-Horizon: ln 2, i.e. log2(1 + 2^x)); plain softplus for β = 1.

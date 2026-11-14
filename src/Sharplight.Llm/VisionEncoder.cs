@@ -7,7 +7,8 @@ namespace Sharplight.Llm;
 
 /// <summary>
 /// A compiled <see cref="WellKnown.VisionEncodeGraph"/> plus the generic image preprocessing driven by the model's
-/// canonical <see cref="VisionParameters"/>: raw RGB pixels in, one embedding row per merged image patch out.
+/// canonical <see cref="VisionParameters"/>: raw RGB pixels in, one embedding row per merged image patch out (plus separator and boundary
+/// rows for towers that have them, see <see cref="PreprocessedImage.TokenCount"/>).
 /// Create with <see cref="LlmModel.CreateVisionEncoder"/>.
 /// </summary>
 public sealed class VisionEncoder : IDisposable
@@ -16,7 +17,7 @@ public sealed class VisionEncoder : IDisposable
     private readonly CompiledModel? _tile;
     private readonly RunParameters _run = new();
     private readonly Value? _patches, _positions, _embIndex, _embWeight;
-    private readonly Value? _windowSpans, _windowOrder;
+    private readonly Value? _windowSpans, _windowOrder, _layout;
     private readonly string _output = VisionParameters.EmbeddingsOutput;
 
     /// <summary>The model the encoder belongs to.</summary>
@@ -62,7 +63,13 @@ public sealed class VisionEncoder : IDisposable
             {
                 MaxTokens = maxPatches,
                 ContextLength = 1,
-                SymbolBounds = new Dictionary<string, long> { [VisionParameters.PatchSymbol] = maxPatches, [VisionParameters.MergedSymbol] = maxTokens },
+                SymbolBounds = new Dictionary<string, long>
+                {
+                    [VisionParameters.PatchSymbol] = maxPatches,
+                    [VisionParameters.MergedSymbol] = maxTokens,
+                    // At most one separator per merged token plus the two boundary rows.
+                    [VisionParameters.OutputSymbol] = 2L * maxTokens + 2,
+                },
                 DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
                 CacheFor = cacheFor,
             },
@@ -86,6 +93,7 @@ public sealed class VisionEncoder : IDisposable
         _embWeight = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingWeightInput)!;
         _windowSpans = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowSpansInput);
         _windowOrder = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowOrderInput);
+        _layout = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.LayoutInput);
     }
 
     /// <summary>Width of one embedding row: the language model's hidden size, times 1 + the number of DeepStack layers.</summary>
@@ -128,10 +136,23 @@ public sealed class VisionEncoder : IDisposable
             _compiled.SetInput<int>(_windowOrder, image.WindowOrder);
         }
 
+        int rows = merged;
+        if (_layout is not null)
+        {
+            if (image.Layout.Length == 0)
+            {
+                throw new ArgumentException("The image was not preprocessed for this encoder's output layout (row separators / boundary rows).", nameof(image));
+            }
+
+            _compiled.SetInput<int>(_layout, image.Layout);
+            rows = image.Layout.Length;
+            _run.Symbols[VisionParameters.OutputSymbol] = rows;
+        }
+
         _run.Symbols[VisionParameters.PatchSymbol] = n;
         _run.Symbols[VisionParameters.MergedSymbol] = merged;
         _compiled.Run(_run);
-        var result = new float[(long)merged * EmbeddingSize];
+        var result = new float[(long)rows * EmbeddingSize];
         _compiled.GetOutput<float>(_output, result);
         return result;
     }

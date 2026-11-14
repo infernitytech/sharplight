@@ -71,4 +71,9 @@ public enum InputRole
     /// question index) of each option span in the packed rows; an option belongs to one question.
     /// </summary>
     OptionSpans,
+    /// <summary>
+    /// Per-row selector [T, 1] f32 of a graph whose layers have a second (media) weight set: 1 = the row goes through the media weights
+    /// (CogVLM's visual experts), 0 = through the text weights. Rows of text tokens are always 0.
+    /// </summary>
+    MediaWeightMask,
 }

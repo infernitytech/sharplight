@@ -3,10 +3,11 @@ namespace Sharplight.Vision;
 /// <summary>
 /// Turns raw RGB pixels into the inputs of a model's vision encoder, driven only by the canonical
 /// <see cref="VisionParameters"/>: aspect-preserving "smart" resize to a multiple of patch_size·merge_size within the
-/// pixel bounds (antialiased bicubic), per-channel normalization, patchification (the still image is repeated to fill
+/// pixel bounds, or to the fixed square <c>image_size</c> (antialiased bicubic), per-channel normalization, patchification (the still image is repeated to fill
 /// temporal_patch_size frames) in spatial-merge-window order (window by window when the tower has windowed attention), plus the position inputs (row/col per patch and the
-/// bilinear taps into the learned position grid, align_corners semantics). Two-stage towers of fixed-size views (<see cref="VisionParameters.Sam"/>)
-/// get a global view and local tiles instead (see <see cref="PreprocessedImage.TileColumns"/>).
+/// bilinear taps into the learned position grid, align_corners semantics) and, for towers with row separators or boundary rows, the output
+/// layout. Two-stage towers of fixed-size views (<see cref="VisionParameters.Sam"/>) get a global view and local tiles instead (see
+/// <see cref="PreprocessedImage.TileColumns"/>).
 /// </summary>
 public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? limits = null)
 {
@@ -16,6 +17,12 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     /// <summary>Target size in pixels for an input size (smart resize).</summary>
     internal (int Width, int Height) TargetSize(int width, int height)
     {
+        if (p.ImageSize > 0)
+        {
+            // A fixed square (CogVLM), whatever the aspect ratio.
+            return (p.ImageSize, p.ImageSize);
+        }
+
         int factor = p.PatchSize * p.SpatialMergeSize;
         long unit = (long)factor * factor;
         long minPixels = limits?.MinTokens is int mt ? mt * unit : p.MinPixels;
@@ -156,7 +163,49 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         {
             Width = tw, Height = th, GridHeight = gh, GridWidth = gw, MergedHeight = gh / m, MergedWidth = gw / m,
             Patches = patches, Positions = positions, EmbeddingIndex = ei, EmbeddingWeight = ew, WindowSpans = patchSpans, WindowOrder = order,
+            Layout = OutputLayout(gh / m, gw / m),
         };
+    }
+
+    /// <summary>
+    /// The output rows of a tower with row separators or boundary rows (else empty), as rows of the table
+    /// [merged rows | class row | separator | begin | end]: begin, each row of merged tokens followed by the separator, end (the class row is not output).
+    /// </summary>
+    private int[] OutputLayout(int mh, int mw)
+    {
+        if (!p.HasLayout)
+        {
+            return [];
+        }
+
+        int merged = mh * mw;
+        int separator = merged + (p.ClassToken ? 1 : 0);
+        int begin = separator + (p.RowSeparator ? 1 : 0);
+        var layout = new List<int>(p.OutputTokenCount(mh, mw));
+        if (p.ImageBoundary)
+        {
+            layout.Add(begin);
+        }
+
+        for (int r = 0; r < mh; r++)
+        {
+            for (int c = 0; c < mw; c++)
+            {
+                layout.Add(r * mw + c);
+            }
+
+            if (p.RowSeparator)
+            {
+                layout.Add(separator);
+            }
+        }
+
+        if (p.ImageBoundary)
+        {
+            layout.Add(begin + 1);
+        }
+
+        return [.. layout];
     }
 
     /// <summary>
@@ -222,9 +271,12 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             return (index, weight);
         }
 
-        static void Axis(int pos, int count, int side, out int i0, out int i1, out float w0, out float w1)
+        bool halfPixel = p.PositionInterpolation == "bilinear_half_pixel";
+        // align_corners: the grid's corners on the image's corner patches; half pixel (PyTorch's resize, align_corners off): source coordinate
+        // (pos + 0.5)·side/count − 0.5, clamped at 0.
+        static void Axis(int pos, int count, int side, bool halfPixel, out int i0, out int i1, out float w0, out float w1)
         {
-            double f = count > 1 ? pos * (side - 1.0) / (count - 1) : 0;
+            double f = halfPixel ? Math.Max(0.0, (pos + 0.5) * side / count - 0.5) : count > 1 ? pos * (side - 1.0) / (count - 1) : 0;
             i0 = Math.Min((int)Math.Floor(f), side - 1);
             i1 = Math.Min(i0 + 1, side - 1);
             w1 = (float)(f - i0);
@@ -232,8 +284,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         }
         for (int i = 0; i < n; i++)
         {
-            Axis(positions[i * 2], gh, side, out int r0, out int r1, out float wr0, out float wr1);
-            Axis(positions[i * 2 + 1], gw, side, out int c0, out int c1, out float wc0, out float wc1);
+            Axis(positions[i * 2], gh, side, halfPixel, out int r0, out int r1, out float wr0, out float wr1);
+            Axis(positions[i * 2 + 1], gw, side, halfPixel, out int c0, out int c1, out float wc0, out float wc1);
             index[i * 4 + 0] = r0 * side + c0; weight[i * 4 + 0] = wr0 * wc0;
             index[i * 4 + 1] = r0 * side + c1; weight[i * 4 + 1] = wr0 * wc1;
             index[i * 4 + 2] = r1 * side + c0; weight[i * 4 + 2] = wr1 * wc0;
