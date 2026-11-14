@@ -54,4 +54,10 @@ internal interface IGgufArchitectureMapping
 
     /// <summary>The files of this architecture are multimodal projectors (mmproj), loaded next to a language model, not models of their own.</summary>
     public bool IsProjector => false;
+
+    /// <summary>
+    /// The files of this architecture are speculative-decoding drafters (EAGLE-3, Gemma 4 assistants), loaded as the draft source of their target
+    /// model, not models of their own.
+    /// </summary>
+    public bool IsDraftModel => false;
 }

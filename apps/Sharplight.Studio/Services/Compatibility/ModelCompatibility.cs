@@ -18,6 +18,7 @@ internal sealed record ModelCompatibility(CompatibilityState State, string? Subj
         CompatibilityState.UnsupportedArchitecture => $"Unsupported architecture {Subject}",
         CompatibilityState.UnsupportedWeightFormat => $"Unsupported weight format {Subject}",
         CompatibilityState.Projector => "Projector",
+        CompatibilityState.DraftModel => "Draft model",
         CompatibilityState.CheckedAtImport => "Checked at import",
         _ => "Unknown",
     };

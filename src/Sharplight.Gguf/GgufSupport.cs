@@ -38,6 +38,13 @@ public static class GgufSupport
     public static bool IsProjector(string? ggufArchitecture) => GgufArchitectureMappings.Find(ggufArchitecture)?.IsProjector == true;
 
     /// <summary>
+    /// Files of this architecture are speculative-decoding drafters (EAGLE-3, Gemma 4 assistants, e.g. the <c>MTP/</c> files of a GGUF repository):
+    /// they are loaded as the draft source of the model they were trained for, not as models of their own.
+    /// </summary>
+    /// <param name="ggufArchitecture">The <c>general.architecture</c> value.</param>
+    public static bool IsDraftModel(string? ggufArchitecture) => GgufArchitectureMappings.Find(ggufArchitecture)?.IsDraftModel == true;
+
+    /// <summary>
     /// The element type of a ggml tensor type id, or null when the id is unknown to this version (or was removed from ggml); files
     /// with such tensors do not import. A known type may still lack compute kernels (e.g. <c>Q8_K</c>, an activation-only type).
     /// </summary>

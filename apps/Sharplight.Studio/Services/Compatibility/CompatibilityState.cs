@@ -21,6 +21,9 @@ internal enum CompatibilityState
     /// <summary>A multimodal projector (mmproj): loaded with its language model, not a model of its own.</summary>
     Projector,
 
+    /// <summary>A speculative-decoding drafter (EAGLE-3, a Gemma 4 assistant): loaded with the model it drafts for, not a model of its own.</summary>
+    DraftModel,
+
     /// <summary>An ONNX model: its operators are checked when it is imported.</summary>
     CheckedAtImport,
 }

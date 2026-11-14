@@ -39,7 +39,8 @@ internal static class VariantProbe
             metadata = GgufHeaderProbe.ReadMetadata(prefix);
             shape = ModelShapeReader.FromGguf(GgufHeaderProbe.ShapeOf(metadata));
             types = readWeightFormats ? GgufHeaderProbe.ReadTensorTypes(prefix) : null;
-            bool settled = CompatibilityChecker.FromGguf(metadata, null).State is CompatibilityState.UnsupportedArchitecture or CompatibilityState.Projector;
+            bool settled = CompatibilityChecker.FromGguf(metadata, null).State is CompatibilityState.UnsupportedArchitecture or CompatibilityState.Projector
+                or CompatibilityState.DraftModel;
             if (prefix.Length < target || settled || (shape is not null && (!readWeightFormats || types is not null)))
             {
                 break;

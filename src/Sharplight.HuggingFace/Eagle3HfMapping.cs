@@ -15,6 +15,9 @@ internal sealed class Eagle3HfMapping : IHfArchitectureMapping
     public string Architecture => "eagle3";
 
     /// <inheritdoc/>
+    public bool IsDraftModel => true;
+
+    /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["eagle3"];
 
     /// <summary>Whether <paramref name="c"/> describes an EAGLE-3 drafter (llama.cpp's test: a draft vocabulary and a single layer, or the class name).</summary>

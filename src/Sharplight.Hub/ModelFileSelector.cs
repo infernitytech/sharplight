@@ -113,7 +113,11 @@ public static class ModelFileSelector
 
     private static bool IsRootFile(string path) => RepoPath.IsRoot(path);
 
-    private static bool IsGgufModel(string path) => GgufFileName.IsGguf(path) && !GgufFileName.IsProjector(path);
+    /// <summary>
+    /// A GGUF language model: not a vision projector or a speculative-decoding drafter (both are loaded next to a model), nor an importance matrix.
+    /// </summary>
+    private static bool IsGgufModel(string path)
+        => GgufFileName.IsGguf(path) && !GgufFileName.IsProjector(path) && !GgufFileName.IsDraft(path) && !GgufFileName.IsImportanceMatrix(path);
 
     private static bool IsCheckpoint(IReadOnlyList<string> paths)
     {

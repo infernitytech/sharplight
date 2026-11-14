@@ -31,4 +31,10 @@ internal interface IHfArchitectureMapping
     /// </summary>
     /// <param name="modelType">One of <see cref="ModelTypes"/>.</param>
     public string? PartialSupport(string modelType) => null;
+
+    /// <summary>
+    /// Checkpoints of this mapping are speculative-decoding drafters (EAGLE-3, Gemma 4 assistants), loaded as the draft source of their target
+    /// model, not models of their own. Default: false.
+    /// </summary>
+    public bool IsDraftModel => false;
 }

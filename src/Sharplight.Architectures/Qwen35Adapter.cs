@@ -31,7 +31,10 @@ namespace Sharplight.Architectures;
 /// <c>mlp.{gate,up,down}</c> or the MoE weights documented on <see cref="MoeBlock"/> below <c>mlp.</c>; attention layers <c>attention.{q,k,v,o,q_norm,k_norm}</c> (q rows interleave
 /// [query | output gate] per head); linear-attention layers <c>linear_attention.{qkv,z,beta,alpha,out,norm,conv1d}</c>
 /// (all <c>.weight</c>), <c>linear_attention.a</c> (A = -exp(A_log)) and <c>linear_attention.dt_bias</c>.
-/// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>.</item>
+/// MTP: <c>mtp.layers.{j}.*</c> (same per-layer names), <c>mtp.{fc,embedding_norm,hidden_norm,output_norm}.weight</c>. Files without them
+/// (e.g. GGUFs whose converter strips the NextN layers) take them from an auxiliary <see cref="AuxiliaryRoles.Draft"/> source of the same
+/// architecture that holds only the MTP layers (an "MTP sidecar", such as unsloth's <c>MTP/mtp-*.gguf</c>); its <c>mtp.*</c> weights and
+/// <c>mtp.layer_count</c> are used, everything else (embedding, LM head) comes from the primary source. Such a sidecar on its own is not a model.</item>
 /// <item>Semantics: RMS norm weights multiply directly (any "1 + w" convention already folded in); value heads in
 /// tiled order (value head h reads key head h mod key_head_count), or grouped by key head (h / (value/key heads)) when
 /// <c>linear_attention.grouped_value_heads</c> is set (Qwen3-Next files whose out projection cannot be reordered); conv1d
@@ -55,7 +58,36 @@ namespace Sharplight.Architectures;
 /// </remarks>
 public sealed class Qwen35Adapter : IModelAdapter
 {
+    private const string MtpPrefix = "mtp.";
     private static readonly IMlpActivation s_silu = MlpActivations.Create("silu");
+
+    /// <summary>A source with MTP layers but no trunk layers: the NextN layers of a model stored on their own.</summary>
+    private static bool IsMtpSidecar(ModelSource source)
+        => source.Weights.Keys.Any(k => k.StartsWith(MtpPrefix + "layers.", StringComparison.Ordinal))
+           && !source.Weights.Keys.Any(k => k.StartsWith("layers.", StringComparison.Ordinal));
+
+    /// <summary>
+    /// The MTP sidecar to take the draft layers from: the auxiliary draft source when the primary has no MTP layers of its own and the draft source
+    /// is a sidecar of the same architecture and width; null otherwise (a draft source of another kind is not this adapter's).
+    /// </summary>
+    private static ModelSource? MtpSidecar(ModelSourceSet sources)
+    {
+        var src = sources.Primary;
+        if (sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Draft) is not { } draft || !IsMtpSidecar(draft)
+            || src.Weights.Keys.Any(k => k.StartsWith(MtpPrefix, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        if (!string.Equals(draft.Architecture, src.Architecture, StringComparison.OrdinalIgnoreCase)
+            || draft.Arch<int>("hidden_size") != src.Arch<int>("hidden_size"))
+        {
+            throw new NotSupportedException($"The MTP draft file '{draft.Path}' ({draft.Architecture}, width {draft.Arch<int>("hidden_size")}) does not belong to "
+                + $"'{src.Path}' ({src.Architecture}, width {src.Arch<int>("hidden_size")}).");
+        }
+
+        return draft;
+    }
 
     /// <inheritdoc/>
     public string Name => "Qwen3.5 hybrid (Gated DeltaNet + gated attention)";
@@ -106,7 +138,14 @@ public sealed class Qwen35Adapter : IModelAdapter
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
     {
         var src = sources.Primary;
-        int nextn = src.Arch("mtp.layer_count", 0);
+        if (IsMtpSidecar(src))
+        {
+            throw new NotSupportedException($"'{src.Path}' holds only multi-token-prediction layers (an MTP draft file), not a model of its own: load it as the "
+                + $"'{AuxiliaryRoles.Draft}' auxiliary source of the model it was made for.");
+        }
+
+        var sidecar = MtpSidecar(sources);
+        int nextn = sidecar?.Arch("mtp.layer_count", 0) ?? src.Arch("mtp.layer_count", 0);
         int valueHeads = src.Arch<int>("linear_attention.value_head_count");
         var hp = new HParams(
             NLayer: src.Arch<int>("layer_count"),
@@ -196,7 +235,7 @@ public sealed class Qwen35Adapter : IModelAdapter
 
         var allWeights = src.Weights;
         bool mergeVision = vision is not null && !ReferenceEquals(visionSrc, src);
-        if (mergeVision || hp.NGram is not null)
+        if (mergeVision || hp.NGram is not null || sidecar is not null)
         {
             var merged = new Dictionary<string, WeightInfo>(src.Weights, StringComparer.Ordinal);
             if (mergeVision)
@@ -204,6 +243,17 @@ public sealed class Qwen35Adapter : IModelAdapter
                 foreach (var (k, w) in visionSrc.Weights)
                 {
                     merged[k] = w;
+                }
+            }
+
+            if (sidecar is not null)
+            {
+                foreach (var (k, w) in sidecar.Weights)
+                {
+                    if (k.StartsWith(MtpPrefix, StringComparison.Ordinal))
+                    {
+                        merged[k] = w;
+                    }
                 }
             }
 
