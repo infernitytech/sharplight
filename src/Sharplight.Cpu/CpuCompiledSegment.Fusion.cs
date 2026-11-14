@@ -78,7 +78,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         if (SoleConsumer(current) is { Op.Name: "Add" } add)
         {
             var other = add.Inputs[0] == current ? add.Inputs[1] : add.Inputs[0];
-            if (_refs.TryGetValue(other, out var r) && r.Type == Tensors.DataType.F32 && r.IsDense && r.Sym == y.Sym
+            if (_refs.TryGetValue(other, out var r) && r.Type == Tensors.DataType.F32 && (r.IsDense && y.IsDense || r.Strides.AsSpan().SequenceEqual(y.Strides)) && r.Sym == y.Sym
                 && r.Dims.AsSpan().SequenceEqual(y.Dims) && add.Output.Shape.Equals(output.Shape))
             {
                 residual = r;

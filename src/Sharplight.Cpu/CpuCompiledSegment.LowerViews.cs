@@ -104,6 +104,11 @@ internal sealed unsafe partial class CpuCompiledSegment
             axis += n.Output.Rank;
         }
 
+        if (TryLowerChannelsLastConcat(n, axis))
+        {
+            return;
+        }
+
         var xs = n.Inputs.Select(Ref).ToArray();
         var y = NewDense(n.Output);
         AddStep(new ConcatOp(xs, y, axis), [.. xs, y]);

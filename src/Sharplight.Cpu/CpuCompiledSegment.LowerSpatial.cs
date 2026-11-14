@@ -7,6 +7,11 @@ internal sealed unsafe partial class CpuCompiledSegment
 {
     private void LowerConv(Node n)
     {
+        if (TryLowerChannelsLastConv(n))
+        {
+            return;
+        }
+
         var a = n.Attributes;
         var ins = n.Inputs;
         var x = Dense(RefF32(ins[0]));
@@ -41,6 +46,11 @@ internal sealed unsafe partial class CpuCompiledSegment
 
     private void LowerPool(Node n)
     {
+        if (TryLowerChannelsLastPool(n))
+        {
+            return;
+        }
+
         var a = n.Attributes;
         var x = Dense(RefF32(n.Inputs[0]));
         var y = NewDense(n.Output);
@@ -53,6 +63,11 @@ internal sealed unsafe partial class CpuCompiledSegment
 
     private void LowerReduce(Node n)
     {
+        if (TryLowerChannelsLastReduce(n))
+        {
+            return;
+        }
+
         var a = n.Attributes;
         var x = RefF32(n.Inputs[0]);
         var y = NewDense(n.Output);
@@ -90,8 +105,10 @@ internal sealed unsafe partial class CpuCompiledSegment
     private void LowerResize(Node n)
     {
         var a = n.Attributes;
-        var x = Dense(RefF32(n.Inputs[0]));
-        var y = NewDense(n.Output);
+        var input = RefF32(n.Inputs[0]);
+        bool channelsLast = ChannelsLastEnabled && ChannelsLast.IsView(input) && n.Output.Shape.Rank == 4;
+        var x = channelsLast ? input : Dense(input);
+        var y = channelsLast ? NewChannelsLast(n.Output) : NewDense(n.Output);
         AddStep(new ResizeOp(x, y, a.Get("mode", "nearest"), a.Get("coord", "half_pixel"), a.Get("nearest_mode", "round_prefer_floor")), x, y);
         _refs[n.Output] = y;
     }

@@ -32,6 +32,31 @@ internal static unsafe class Mem
             Buffer.MemoryCopy(src, dst, es, es);
             return;
         }
+        if (rank >= 3 && (srcStrides[rank - 1] != 1 || dstStrides[rank - 1] != 1) && UnitAxis(srcStrides, dstStrides, dims) is int unit and > 0)
+        {
+            // An inner axis is contiguous on both sides (e.g. the channels of channels-last views): copy along it, walking the
+            // other axes in their order (for channels-last, row by row).
+            var ss2 = new long[rank];
+            var ds2 = new long[rank];
+            var dims2 = new long[rank];
+            for (int k = 0, j = 0; k < rank; k++)
+            {
+                if (k != unit)
+                {
+                    ss2[j] = srcStrides[k];
+                    ds2[j] = dstStrides[k];
+                    dims2[j] = dims[k];
+                    j++;
+                }
+            }
+
+            ss2[rank - 1] = 1;
+            ds2[rank - 1] = 1;
+            dims2[rank - 1] = dims[unit];
+            CopyStrided(src, ss2, dst, ds2, dims2, dim0, es);
+            return;
+        }
+
         Span<long> dm = stackalloc long[rank];
         dims.CopyTo(dm);
         dm[0] = dim0;
@@ -90,6 +115,20 @@ internal static unsafe class Mem
                 idx[k] = 0;
             }
         }
+    }
+
+    /// <summary>An axis in [1, rank - 1) with unit stride on both sides and more than one index, or -1.</summary>
+    private static int UnitAxis(long[] srcStrides, long[] dstStrides, long[] dims)
+    {
+        for (int k = dims.Length - 2; k >= 1; k--)
+        {
+            if (srcStrides[k] == 1 && dstStrides[k] == 1 && dims[k] > 1)
+            {
+                return k;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>Tile edge of the blocked transpose copy (a 16 x 16 tile of both sides stays in L1).</summary>

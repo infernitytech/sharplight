@@ -71,7 +71,8 @@ internal sealed class CpuDevice : IComputeDevice
 
     /// <summary>
     /// Provider-neutral features of the host: <see cref="DeviceFeatures.IntDot"/> when the kernels have packed int8 dot products
-    /// (AVX2 <c>vpmaddubsw</c> or VNNI), which enables the quantized-activation matmul for quantized weights.
+    /// (AVX2 <c>vpmaddubsw</c> or VNNI), which enables the quantized-activation matmul for quantized weights, and
+    /// <see cref="DeviceFeatures.ChannelsLast"/> with 256-bit or wider vectors (the channels-last conv kernels).
     /// </summary>
     private static HashSet<string> DetectFeatures()
     {
@@ -79,6 +80,11 @@ internal sealed class CpuDevice : IComputeDevice
         if (CpuIsa.Level >= CpuIsaLevel.Avx2)
         {
             features.Add(DeviceFeatures.IntDot);
+        }
+
+        if (CpuIsa.Use256)
+        {
+            features.Add(DeviceFeatures.ChannelsLast);
         }
 
         return features;
