@@ -37,10 +37,19 @@ internal static class PackedSequences
         return new PackedSequenceInputs(tokens, positions, rows, seqs, types);
     }
 
-    /// <summary>Self-attention confined to each packed sequence (optionally causal within it).</summary>
-    public static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value rowSpans, float scale, bool causal, float softcap = 0, string? name = null, float[]? alibiSlopes = null)
+    /// <summary>
+    /// Self-attention confined to each packed sequence (optionally causal within it), with an optional sliding window (keys less than
+    /// <paramref name="window"/> positions away; symmetric when not causal) and ALiBi slopes.
+    /// </summary>
+    public static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value rowSpans, float scale, bool causal, float softcap = 0, string? name = null,
+        float[]? alibiSlopes = null, int window = 0)
     {
         var attrs = new List<(string, object)> { ("scale", scale), ("causal", causal) };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
         if (softcap > 0)
         {
             attrs.Add(("softcap", softcap));
@@ -63,10 +72,19 @@ internal static class PackedSequences
         _ => throw new NotSupportedException($"Unknown embedding pooling '{pooling}' (mean, cls, last, none)."),
     };
 
-    /// <summary>Emits <see cref="WellKnown.EmbeddingsOutput"/>: pooled per sequence ([B, H]) or per token for pooling "none" ([T, H]), L2-normalized if asked.</summary>
+    /// <summary>
+    /// Emits <see cref="WellKnown.EmbeddingsOutput"/>: pooled per sequence ([B, H]) or per token for pooling "none" ([T, H]), then the optional
+    /// projections <c>embedding_projection.{i}.weight</c> [out, in] (+ <c>.bias</c>), i = 0, 1, ... in order (sentence-transformers Dense modules
+    /// after pooling, EmbeddingGemma), L2-normalized if asked.
+    /// </summary>
     public static void EmbeddingsOutput(GraphBuilder b, Value hidden, Value sequenceSpans, string pooling, bool normalize)
     {
         var e = pooling == "none" ? hidden : Pool(b, hidden, sequenceSpans, pooling, "pooled");
+        for (int i = 0; b.HasWeight($"embedding_projection.{i}.weight"); i++)
+        {
+            e = b.Linear(e, $"embedding_projection.{i}.weight", $"embedding_projection.{i}.bias", $"projected_{i}");
+        }
+
         if (normalize)
         {
             e = b.L2Norm(e, 1e-24f, "normalized");

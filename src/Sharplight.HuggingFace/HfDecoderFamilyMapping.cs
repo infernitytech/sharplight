@@ -120,6 +120,9 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     /// <summary>The canonical norm weight for a checkpoint norm tensor (default: unchanged; models with a <c>1 + w</c> convention fold it).</summary>
     protected virtual WeightInfo NormWeight(WeightInfo w, string name) => HfTransforms.Plain(w, name);
 
+    /// <summary>A tensor name that marks a base-model checkpoint stored without the <c>model.</c> prefix (the prefix is then added to every name).</summary>
+    protected virtual string BareTrunkMarker => "embed_tokens.weight";
+
     /// <summary>Tensors that are neither mapped nor an error (buffers, unused heads).</summary>
     protected virtual bool IsIgnored(string name) => name.EndsWith("rotary_emb.inv_freq", StringComparison.Ordinal);
 
@@ -203,8 +206,11 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     {
         var collector = new HfWeightCollector();
         bool tied = c.GetBool("tie_word_embeddings") ?? false;
-        foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
+        // Base-model checkpoints (embedding models saved without their head, e.g. as EuroBertModel) store the trunk without the "model." prefix.
+        bool bare = !tensors.Keys.Any(k => k.StartsWith("model.", StringComparison.Ordinal)) && tensors.ContainsKey(BareTrunkMarker);
+        foreach (var (rawName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
+            string name = bare && !rawName.StartsWith("lm_head.", StringComparison.Ordinal) ? "model." + rawName : rawName;
             if (IsIgnored(name))
             {
                 continue;

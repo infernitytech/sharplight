@@ -251,14 +251,28 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
             md[a + "final_logit_softcap"] = (float)finalSoftcap;
         }
 
-        if (c.GetInt("sliding_window") is not { } window || window <= 0)
+        // EmbeddingGemma: a bidirectional Gemma 3 whose sliding window becomes symmetric. transformers turns the configured window w into
+        // the exclusive bound w / 2 + 1 (keys at most w / 2 positions away), as llama.cpp does.
+        bool bidirectional = c.GetBool("use_bidirectional_attention") == true;
+        if (bidirectional)
+        {
+            md[a + "attention.causal"] = false;
+        }
+
+        if (c.GetInt("sliding_window") is not { } configuredWindow || configuredWindow <= 0)
+        {
+            return;
+        }
+
+        int window = bidirectional ? configuredWindow / 2 + 1 : configuredWindow;
+        if (window <= 0)
         {
             return;
         }
 
         md[a + "attention.sliding_window"] = window;
         md[a + "attention.sliding_layers"] = GemmaSlidingLayers(c, type, layerCount);
-        if (c.GetDouble("rope_local_base_freq") is { } localBase)
+        if ((c.GetDouble("rope_local_base_freq") ?? c.LayerTypeRopeDouble("sliding_attention", "rope_theta")) is { } localBase)
         {
             md[a + "rope.local_base"] = (float)localBase;
         }

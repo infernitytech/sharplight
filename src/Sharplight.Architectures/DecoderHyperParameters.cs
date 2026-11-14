@@ -17,7 +17,8 @@ internal sealed record DecoderHyperParameters(
     string NormType, bool PreNorm, bool ParallelResidual, float ResidualScale, float SwigluAlpha, float SwigluLimit,
     float XieluBeta, float XieluEps, float ClipQkv, bool QkNormAfterRope, int[] LayerHeadCounts,
     int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
-    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias)
+    int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
+    bool Causal)
 {
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
@@ -84,7 +85,8 @@ internal sealed record DecoderHyperParameters(
             ValueScale: src.Arch("attention.value_scale", 1f),
             RopeAttentionScale: ropeAttn,
             GateActivation: src.Arch("attention.gate_activation", "sigmoid"),
-            AlibiMaxBias: src.Arch("attention.alibi_max_bias", 0f));
+            AlibiMaxBias: src.Arch("attention.alibi_max_bias", 0f),
+            Causal: src.Arch("attention.causal", true));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {

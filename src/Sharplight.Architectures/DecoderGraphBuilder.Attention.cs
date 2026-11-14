@@ -39,9 +39,10 @@ internal sealed partial class DecoderGraphBuilder
 
         if (rowSpans is not null)
         {
-            // Packed sequences: causal within each sequence; sliding windows are not applied (inputs are short).
+            // Packed sequences: causal within each sequence unless the model is bidirectional (then a sliding window is symmetric).
             var (packedK, packedV) = packedKv[_hp.KvSourceOf(il)];
-            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, causal: true, _hp.SoftCap, $"{p}attn", _hp.AlibiSlopes(heads));
+            var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, _hp.Causal, _hp.SoftCap, $"{p}attn", _hp.AlibiSlopes(heads),
+                _hp.Windowed(il) ? _hp.Window : 0);
             return AttentionOutput(b, packed, h, p, heads, _hp.ValueDimOf(il));
         }
 

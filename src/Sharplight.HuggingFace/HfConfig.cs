@@ -98,9 +98,21 @@ internal sealed partial class HfConfig : IDisposable
     /// <summary>Like <see cref="GetDouble"/> but throws <see cref="KeyNotFoundException"/> when no key is present.</summary>
     public double Double(params string[] keys) => GetDouble(keys) ?? throw Missing(keys);
 
-    /// <summary>The (merged) <c>rope_parameters</c> / legacy <c>rope_scaling</c> object, or null.</summary>
+    /// <summary>
+    /// The (merged) <c>rope_parameters</c> / legacy <c>rope_scaling</c> object, or null. Configs with one object per layer type (Gemma 3, ModernBERT
+    /// as transformers 5 saves them) yield the <c>full_attention</c> one; <see cref="LayerTypeRopeDouble"/> reads the others.
+    /// </summary>
     public JsonElement? RopeParameters
-        => Get("rope_parameters", "rope_scaling") is { ValueKind: JsonValueKind.Object } v ? v : null;
+        => Get("rope_parameters", "rope_scaling") is { ValueKind: JsonValueKind.Object } v
+            ? v.TryGetProperty("full_attention", out var full) && full.ValueKind == JsonValueKind.Object ? full : v
+            : null;
+
+    /// <summary>A RoPE parameter of one layer type (e.g. <c>sliding_attention</c>) in a per-layer-type <c>rope_parameters</c> object, or null.</summary>
+    public double? LayerTypeRopeDouble(string layerType, string key)
+        => Get("rope_parameters") is { ValueKind: JsonValueKind.Object } parameters && parameters.TryGetProperty(layerType, out var type)
+           && type.ValueKind == JsonValueKind.Object && type.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Number
+            ? value.GetDouble()
+            : null;
 
     /// <summary>
     /// Looks up a RoPE parameter in <c>rope_parameters</c> first, then at the config's top level

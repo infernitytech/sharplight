@@ -38,8 +38,9 @@ internal sealed partial class DecoderGraphBuilder
         States = [];
         // A NextN draft head (one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) when the layers are uniform: the
         // MTP layer is built like a trunk layer with index NLayer and has its own KV cache.
-        _draft = _hp.UniformLayers && _hp.NormType == "rms" && _hp.PreNorm ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
-        int layers = _hp.NLayer + (_draft is null ? 0 : 1);
+        _draft = _hp.UniformLayers && _hp.NormType == "rms" && _hp.PreNorm && _hp.Causal ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
+        // Bidirectional models (attention.causal = false) only run the packed-sequence graphs: no KV caches.
+        int layers = !_hp.Causal ? 0 : _hp.NLayer + (_draft is null ? 0 : 1);
         _kCache = new StateDefinition[layers];
         _vCache = new StateDefinition[layers];
         for (int il = 0; il < layers; il++)
@@ -82,6 +83,16 @@ internal sealed partial class DecoderGraphBuilder
     /// <summary>Builds every graph the model supports, keyed by graph name.</summary>
     public Dictionary<string, ComputeGraph> BuildGraphs()
     {
+        _pooling = PackedSequences.NormalizePooling(_options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(_src.Get<string?>(CanonicalKeys.EmbeddingPooling, null))
+            ?? (_hp.Causal ? "last" : "mean");
+        _normalize = _options.EmbeddingNormalize ?? _src.Get(CanonicalKeys.EmbeddingNormalize, true);
+        if (!_hp.Causal)
+        {
+            // Bidirectional encoders with a decoder's layers (EuroBERT, NeoBERT, ModernBERT, EmbeddingGemma, Llama embedding models): every token
+            // sees the whole sequence, so there is nothing to decode token by token; the embedding graph is the model.
+            return new Dictionary<string, ComputeGraph> { [WellKnown.EmbedGraph] = BuildPacked(WellKnown.EmbedGraph, classify: false) };
+        }
+
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false) };
         if (_draft is not null)
         {
@@ -114,8 +125,6 @@ internal sealed partial class DecoderGraphBuilder
         // Packed-sequence graphs (embedding models such as Qwen3-Embedding, yes/no rerankers such as Qwen3-Reranker): causal attention
         // within each sequence, no KV cache. Last-token pooling unless the model declares otherwise. Not built for models with
         // attention sinks (the packed attention has none).
-        _pooling = PackedSequences.NormalizePooling(_options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(_src.Get<string?>(CanonicalKeys.EmbeddingPooling, null)) ?? "last";
-        _normalize = _options.EmbeddingNormalize ?? _src.Get(CanonicalKeys.EmbeddingNormalize, true);
         bool packable = !Enumerable.Range(0, _hp.NLayer).Any(il => _src.Weight($"layers.{il}.attention.sinks") is not null);
         if (_options.IncludeAuxiliaryGraphs && packable)
         {
@@ -322,9 +331,10 @@ internal sealed partial class DecoderGraphBuilder
         return b.Add(b.Add(attnOut, x, $"{p}attn_residual"), ffn, $"{p}l_out");
     }
 
-    // Norm in front of a sub-layer; models with post-norms only (OLMo 2) declare pre_norm = false.
+    // Norm in front of a sub-layer; models with post-norms only (OLMo 2) declare pre_norm = false. A bidirectional layer without its norm weight
+    // has none (ModernBERT's first layer reads the normed embeddings directly).
     private Value PreNorm(GraphBuilder b, Value x, string weightName, string name)
-        => _hp.PreNorm ? _norm.Apply(b, x, weightName, _hp.Eps, name) : x;
+        => _hp.PreNorm && (_hp.Causal || b.HasWeight(weightName)) ? _norm.Apply(b, x, weightName, _hp.Eps, name) : x;
 
     // Optional norm of a sub-layer's output (sandwich / post norms), then the residual-branch scale (muP).
     private Value SubLayerOutput(GraphBuilder b, Value output, string outNormWeight)
