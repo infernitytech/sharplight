@@ -50,6 +50,18 @@ Defaults keep near-f32 accuracy. `--reduced-precision` (`LlmLoadOptions.AllowRed
 delta rule: about 3 % of 27B prefill, 10 % at FP8 with 512-token prompts, and no difference in greedy output in the tests
 of §18.
 
+## Multi-node inference
+
+- **Pipeline parallel across a cluster**: run one model too large for a single machine across several nodes. Placement
+  already splits a graph into per-device segments in pipeline order (`PlacementOptions.Devices`); a remote segment
+  worker on each node loads only its own layers from its local `.slm` copy, keeps the KV cache of those layers, and
+  exchanges only the boundary activations (`d_model` x 2 bytes per token, about 14 KB for DeepSeek-V3; well under 1 ms
+  per token over 10 GbE for 4 nodes). Exposed as a provider whose devices are remote segments, so other providers can
+  implement it. Single-stream decode gains capacity, not speed; throughput scales with nodes by keeping several
+  micro-batches in flight through the multi-sequence decoder.
+- Later: tensor and expert parallel across nodes for RDMA networks (InfiniBand / RoCE) and large MoE models; over TCP the
+  per-layer all-reduces cost several milliseconds per token.
+
 ## Other
 
 - `optimize` command for `.slm` packages.
