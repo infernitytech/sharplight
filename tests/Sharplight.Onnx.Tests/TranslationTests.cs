@@ -198,6 +198,29 @@ public class TranslationTests
         Assert.Equal(["Gelu"], Ops(m.Build()));
     }
 
+    /// <summary>Attention scores scaled after the product (Div(Q·Kᵀ, c) or Mul by c) become one BatchMatMul with the scale as alpha.</summary>
+    [Theory]
+    [InlineData("Div", 8f, 0.125f)]
+    [InlineData("Mul", 0.25f, 0.25f)]
+    public void ScaledProduct_FoldsIntoAlpha(string op, float c, float alpha)
+    {
+        var def = new TestModel().Opset(13).Input("q", "N", 4, 6, 8).Input("k", "N", 4, 8, 6).Output("y", "N", 4, 6, 6)
+            .InitF32("c", [], [c]).Node("MatMul", ["q", "k"], ["s"]).Node(op, ["s", "c"], ["y"]).Build();
+        var nodes = def.Graph("main").Nodes;
+        Assert.True(nodes.Count == 1, string.Join(", ", nodes.Select(x => x.Op.Name)));
+        Assert.Equal("BatchMatMul", nodes[0].Op.Name);
+        Assert.Equal(alpha, nodes[0].Attributes.Get("alpha", 1f));
+    }
+
+    /// <summary>A product with a second reader keeps its own Div (the unscaled value is still needed).</summary>
+    [Fact]
+    public void ScaledProduct_WithSecondReader_IsNotFolded()
+    {
+        var def = new TestModel().Opset(13).Input("q", "N", 4, 6, 8).Input("k", "N", 4, 8, 6).Output("y", "N", 4, 6, 6).Output("s", "N", 4, 6, 6)
+            .InitF32("c", [], [8f]).Node("MatMul", ["q", "k"], ["s"]).Node("Div", ["s", "c"], ["y"]).Build();
+        Assert.Contains("Div", Ops(def));
+    }
+
     [Fact]
     public void DecomposedGelu_WithOtherConstant_IsNotFused()
     {
