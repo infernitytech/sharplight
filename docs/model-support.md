@@ -385,7 +385,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `lfm2` | LFM2/LFM2.5 350M-2.6B | gated short-conv (k=3) + GQA attn, QK-norm | **supported** | - | lfm2 | gguf/LFM2.5-1.2B-Instruct, hf/LFM2.5-1.2B-Instruct, hf/tiny-random-lfm2 |
 | `lfm2moe` | LFM2-8B-A1B, LFM2.5-8B-A1B | lfm2 + MoE sigmoid bias | **supported** | - | lfm2_moe | gguf/LFM2.5-8B-A1B, hf/tiny-random-lfm2-moe |
-| `lfm3` | LFM3 | gated conv + gated attention | **partial** | `CONV`, `MAP` | - | gguf/LFM2-VL-450M (+mmproj) |
+| `lfm3` | LFM3-1.7B, LFM3-VL/Omni (text part) | gated conv + sliding/full attention (own rope bases, partial rope via `rope_freqs`), QK-norm, per-head sigmoid gate, sandwich norms | **supported** (GGUF: tiny random and real LFM3-1.7B Q8_0 vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan; b11177 predates lfm3. The non-causal "d1" decision variant (bidirectional full-attention layers, no cache) is not supported; no transformers class) | - | - | gguf/LFM3-1.7B, gguf/tiny-random-lfm3-f32 |
 
 ### Linear attn
 

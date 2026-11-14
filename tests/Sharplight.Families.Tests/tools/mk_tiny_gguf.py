@@ -507,6 +507,38 @@ def ricursive_parameters(writer):
     writer.add_swiglu_clamp([0.8, 0.0, 1.0, 0.9, 0.7])
 
 
+LFM3_KINDS, LFM3_HEAD = ["conv", "sliding", "conv", "full"], 24
+
+
+def lfm3_block(layer):
+    # Gated short convolution, or attention with q/k norms, a head size other than hidden / heads and a per-head sigmoid gate; sandwich norms.
+    t = {"attn_norm.weight": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN), "post_attention_norm.weight": norm(HIDDEN), "post_ffw_norm.weight": norm(HIDDEN),
+         "ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+    if LFM3_KINDS[layer] == "conv":
+        t.update({"shortconv.conv.weight": weight(HIDDEN, 3), "shortconv.in_proj.weight": weight(3 * HIDDEN, HIDDEN),
+                  "shortconv.out_proj.weight": weight(HIDDEN, HIDDEN)})
+    else:
+        q, kv = HEADS * LFM3_HEAD, KV_HEADS * LFM3_HEAD
+        t.update({"attn_q.weight": weight(q, HIDDEN), "attn_k.weight": weight(kv, HIDDEN), "attn_v.weight": weight(kv, HIDDEN), "attn_output.weight": weight(HIDDEN, q),
+                  "attn_q_norm.weight": norm(LFM3_HEAD), "attn_k_norm.weight": norm(LFM3_HEAD), "attn_gate.weight": weight(HEADS, HIDDEN)})
+    return t
+
+
+def lfm3_parameters(writer):
+    writer.add_shortconv_l_cache(3)
+    writer.add_key_length(LFM3_HEAD)
+    writer.add_value_length(LFM3_HEAD)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([kind == "sliding" for kind in LFM3_KINDS])
+    writer.add_rope_freq_base_swa(1000.0)
+
+
+def lfm3_globals(vocab):
+    # The converter expresses the partial rotation (factor 0.5) of the full-attention layers as frequency factors that stop the upper pairs.
+    pairs = LFM3_HEAD // 2
+    return {"rope_freqs.weight": np.array([1.0] * (pairs // 2) + [1e30] * (pairs - pairs // 2), dtype=np.float32)}
+
+
 def bidirectional(extra=None):
     # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
     def parameters(writer):
@@ -633,6 +665,9 @@ models = {
     "ricursive": lambda path: write_family(path, "ricursive", 33, lambda layer: qk_norm_block(llama_block, attn_gate__weight=lambda: weight(HIDDEN, HIDDEN),
                                            attn_vres_lambda__weight=lambda: bias(1), post_attention_norm__weight=lambda: norm(HIDDEN),
                                            post_ffw_norm__weight=lambda: norm(HIDDEN)), parameters=ricursive_parameters, layers=5),
+    # LFM3 (llama.cpp after b11177): conv / sliding attention / conv / full attention, see lfm3_block.
+    "lfm3": lambda path: write_family(path, "lfm3", 34, lfm3_block, parameters=lfm3_parameters, layers=len(LFM3_KINDS),
+                                      kv_heads=[0 if kind == "conv" else KV_HEADS for kind in LFM3_KINDS], rope_dim=LFM3_HEAD, global_tensors=lfm3_globals),
     # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
     "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
                                           global_tensors=lambda vocab: {"output.weight": None}),

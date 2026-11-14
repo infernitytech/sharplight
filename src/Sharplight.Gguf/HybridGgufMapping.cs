@@ -4,15 +4,17 @@ using Sharplight.Tensors;
 namespace Sharplight.Gguf;
 
 /// <summary>
-/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), <c>plamo2</c> (PLaMo-2: its own Mamba layout, fused q/k/v and gate+up, sandwich norms), <c>lfm2</c> (gated short convolutions + attention) and <c>lfm2moe</c> (the same with sigmoid-routed experts after the leading dense layers) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
+/// llama.cpp <c>granitehybrid</c> (Granite-4.0-H), <c>falcon-h1</c>, <c>mamba2</c>, <c>mamba</c> and <c>jamba</c> (Mamba-1 layers), <c>plamo2</c> (PLaMo-2: its own Mamba layout, fused q/k/v and gate+up, sandwich norms), <c>lfm2</c> (gated short convolutions + attention), <c>lfm2moe</c> (the same with sigmoid-routed experts after the leading dense layers) and <c>lfm3</c> (LFM2 layers with
+/// sliding-window attention layers on their own rotary base, partial rotation of the full-attention layers expressed as frequency factors, a per-head
+/// sigmoid output gate and optional sandwich norms) → canonical <c>hybrid</c> (documented on <c>HybridAdapter</c>).
 /// A layer has attention when its GGUF key/value head count is positive; every layer of these models has the Mamba-2 mixer except the attention-only
 /// layers of Granite-4.0-H (Falcon-H1 has both mixers in every layer, recognised by the SSM weights being present).
 /// </summary>
 internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "lfm2moe", "mamba", "jamba", "plamo2"];
-    private static bool IsLfm2(GgufMetadataView g) => g.GgufArchitecture is "lfm2" or "lfm2moe";
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["granitehybrid", "falcon-h1", "mamba2", "lfm2", "lfm2moe", "lfm3", "mamba", "jamba", "plamo2"];
+    private static bool IsLfm2(GgufMetadataView g) => g.GgufArchitecture is "lfm2" or "lfm2moe" or "lfm3";
     private static bool IsPlamo2(GgufMetadataView g) => g.GgufArchitecture == "plamo2";
 
     // llama.cpp expert_gating_func: 1 = softmax, 2 = sigmoid.
@@ -77,6 +79,13 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             md[a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase);
             // Granite-4.0-H attention is position-less (NoPE) unless the checkpoint is flagged as rope-finetuned; Falcon-H1 and LFM2 always rotate.
             md[a + "attention.rope"] = g.GgufArchitecture is "falcon-h1" or "plamo2" || IsLfm2(g) || g.Bool("rope.scaling.finetuned", false);
+        }
+
+        if (g.Int("attention.sliding_window", 0) is > 0 and var window && g.Raw("attention.sliding_window_pattern") is Array pattern)
+        {
+            md[a + "attention.sliding_window"] = window;
+            md[a + "attention.sliding_layers"] = Enumerable.Range(0, layerCount).Select(i => Convert.ToBoolean(pattern.GetValue(i)) ? 1 : 0).ToArray();
+            md[a + "rope.local_base"] = g.Float("rope.freq_base_swa", g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase));
         }
 
         if (g.Has("embedding_scale"))
@@ -167,6 +176,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             return globalName;
         }
 
+        if (name == "rope_freqs.weight")
+        {
+            return "rope.freq_factors";
+        }
+
         var m = GgufTensorNames.Block().Match(name);
         if (!m.Success)
         {
@@ -174,6 +188,11 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMa
         }
 
         string suffix = m.Groups[2].Value;
+        if (g.GgufArchitecture == "lfm3" && s_lfm3Layer.TryGetValue(suffix, out var lfm3Name))
+        {
+            return $"layers.{m.Groups[1].Value}.{lfm3Name}";
+        }
+
         if (IsPlamo2(g) && s_plamo2Layer.TryGetValue(suffix, out var plamoName))
         {
             return $"layers.{m.Groups[1].Value}.{plamoName}";
@@ -181,6 +200,14 @@ internal sealed class HybridGgufMapping : IGgufArchitectureMapping, IGgufSplitMa
 
         return s_layer.TryGetValue(suffix, out var c) ? $"layers.{m.Groups[1].Value}.{c}" : null;
     }
+
+    /// <summary>LFM3 tensors on top of the shared table: the per-head output gate and the sandwich norms after the mixer and the feed-forward block.</summary>
+    private static readonly Dictionary<string, string> s_lfm3Layer = new(StringComparer.Ordinal)
+    {
+        ["attn_gate.weight"] = "attention.gate.weight",
+        ["post_attention_norm.weight"] = "post_mixer_norm.weight",
+        ["post_ffw_norm.weight"] = "mlp.out_norm.weight",
+    };
 
     /// <summary>PLaMo-2 tensors that differ from the shared table: the joint (B, C, dt) projection and the sandwich norms around the mixer and the feed-forward block.</summary>
     private static readonly Dictionary<string, string> s_plamo2Layer = new(StringComparer.Ordinal)
