@@ -108,7 +108,7 @@ def forward(ids):
         f = rms(x)
         f = (silu(f @ W[p + "ffn_gate.weight"].T) * (f @ W[p + "ffn_up.weight"].T)) @ W[p + "ffn_down.weight"].T
         x = x * W[p + "ffn_resid_scale.weight"] + f
-    logits = rms(x[-1]) @ W["output.weight"].T
+    logits = rms(x[-1]) @ W.get("output.weight", W["token_embd.weight"]).T
     if cap is not None and cap[0] != 0 and cap[2] != 0:
         logits = cap[0] * sigmoid((logits + cap[1]) / cap[2])
     return logits

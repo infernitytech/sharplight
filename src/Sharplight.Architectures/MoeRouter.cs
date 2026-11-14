@@ -35,6 +35,23 @@ internal static class MoeRouter
     /// <exception cref="InvalidDataException">The options do not describe a usable configuration, or hash routing has no token ids.</exception>
     public static (Value Weights, Value Ids) Route(GraphBuilder b, Value h, string prefix, MoeOptions options, Value? tokens = null)
     {
+        var (weights, ids, _) = RouteWithLogits(b, h, prefix, options, tokens);
+        return (weights, ids);
+    }
+
+    /// <summary>
+    /// <see cref="Route"/>, also returning the router logits [T, E] (with the logit bias and soft cap applied) for consumers of the full
+    /// distribution, e.g. routing entropy or confidence signals.
+    /// </summary>
+    /// <param name="b">The graph builder.</param>
+    /// <param name="h">Rows [T, H] the router reads.</param>
+    /// <param name="prefix">Weight-name prefix of the block.</param>
+    /// <param name="options">Routing configuration.</param>
+    /// <param name="tokens">Token ids i32 [T] of the rows, required by hash routing; null otherwise.</param>
+    /// <returns>Mixing weights f32 [T, k], expert indices i32 [T, k] and the router logits f32 [T, E].</returns>
+    /// <exception cref="InvalidDataException">The options do not describe a usable configuration, or hash routing has no token ids.</exception>
+    public static (Value Weights, Value Ids, Value Logits) RouteWithLogits(GraphBuilder b, Value h, string prefix, MoeOptions options, Value? tokens = null)
+    {
         if (!options.IsValid)
         {
             throw new InvalidDataException($"{prefix}: MoE weights present but moe.expert_count / moe.expert_used_count / moe.group_count are missing or inconsistent.");
@@ -55,7 +72,7 @@ internal static class MoeRouter
             }
 
             var hashed = b.Emit1("GatherAxis", [table, tokens], Attributes.From(("axis", 0L)), $"{prefix}router_hash_ids");      // [T, k]
-            return (FinishWeights(b, PickScores(b, scores, hashed, prefix, options), options), hashed);
+            return (FinishWeights(b, PickScores(b, scores, hashed, prefix, options), options), hashed, logits);
         }
 
         var bias = b.TryWeight(prefix + "router_bias");
@@ -78,7 +95,7 @@ internal static class MoeRouter
             weights = b.Emit1("Softmax", [weights], null, $"{prefix}router_weights");
         }
 
-        return (FinishWeights(b, weights, options), ids);
+        return (FinishWeights(b, weights, options), ids, logits);
     }
 
     // Renormalization and scaling of the selected weights [T, k].

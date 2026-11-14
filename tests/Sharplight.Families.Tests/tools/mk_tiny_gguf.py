@@ -868,6 +868,85 @@ def limite_parameters(writer):
     writer.add_mudd_tap_indices(taps)
 
 
+# Metis 1.6: three physical layers (Mamba-2, attention, Mamba-2) run in two passes over three parallel residual streams, with a per-token depth
+# memory written after every attention layer and at the end of every pass, routing features feeding a latent expert router, and a continuation head.
+METIS_KINDS = ["ssm", "attn", "ssm"]
+METIS = dict(passes=2, streams=3, mem=24, route=8, rank=8, latent=32, experts=8, used=2, eff=40, sheff=36, ssm_heads=8, ssm_head_dim=16,
+             state=16, groups=2, conv=4, limit=2.0)
+
+
+def metis16_block(layer):
+    m = METIS
+    if layer >= len(METIS_KINDS):
+        return {}   # the later passes reuse the physical layers' tensors
+    S, P, L, E, R, F = m["streams"], m["passes"], m["latent"], m["experts"], m["route"], m["eff"]
+    inner = m["ssm_heads"] * m["ssm_head_dim"]
+    conv_dim = inner + 2 * m["groups"] * m["state"]
+
+    def mix():
+        return (np.eye(S)[None] + 0.3 * rng.standard_normal((P, S, S))).astype(np.float32)
+
+    def read():
+        return (1.0 / S + 0.2 * rng.standard_normal((P, S))).astype(np.float32)
+
+    t = {"attn_norm.weight": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN),
+         "hc_attn_mix.weight": mix(), "hc_attn_read.weight": read(), "hc_attn_write.weight": norm(P * S).reshape(P, S),
+         "hc_ffn_mix.weight": mix(), "hc_ffn_read.weight": read(), "hc_ffn_write.weight": norm(P * S).reshape(P, S),
+         "ffn_latent_down.weight": weight(L, HIDDEN), "ffn_latent_up.weight": weight(HIDDEN, L),
+         "ffn_gate_inp.weight": weight(E, L + R) * 3, "ffn_gate_inp.bias": bias(E), "exp_probs_b.bias": bias(E), "ffn_exp_embd.weight": weight(E, R) * 4,
+         "ffn_gate_up_exps.weight": weight(E, 2 * F, L), "ffn_down_exps.weight": weight(E, L, F),
+         "ffn_gate_shexp.weight": weight(m["sheff"], L), "ffn_up_shexp.weight": weight(m["sheff"], L), "ffn_down_shexp.weight": weight(L, m["sheff"])}
+    if METIS_KINDS[layer] == "ssm":
+        nh = m["ssm_heads"]
+        t.update({"ssm_in.weight": weight(2 * inner + 2 * m["groups"] * m["state"] + nh, HIDDEN), "ssm_conv1d.weight": weight(conv_dim, m["conv"]) * 2,
+                  "ssm_conv1d.bias": bias(conv_dim), "ssm_dt.bias": bias(nh), "ssm_norm.weight": norm(inner).reshape(m["groups"], inner // m["groups"]),
+                  "ssm_out.weight": weight(HIDDEN, inner), "ssm_a": (-np.exp(0.5 * rng.standard_normal((nh, 1)))).astype(np.float32),
+                  "ssm_d": norm(nh).reshape(nh, 1)})
+    else:
+        qkv = (HEADS + 2 * KV_HEADS) * HEAD_DIM
+        t.update({"attn_qkv.weight": weight(qkv, HIDDEN), "attn_output.weight": weight(HIDDEN, HEADS * HEAD_DIM),
+                  "attn_pass_lora_down.weight": weight(m["rank"], HIDDEN) * 2, "attn_pass_lora_up.weight": weight(qkv, m["rank"]) * 2,
+                  "attn_pass_gate.weight": np.tanh(rng.standard_normal(P)).astype(np.float32)})
+    return t
+
+
+def metis16_globals(vocab):
+    m = METIS
+    S, M, R, n_attn = m["streams"], m["mem"], m["route"], METIS_KINDS.count("attn")
+    return {"stream_embd.weight": weight(HIDDEN, S) * 3,
+            "depth_mem_state_write.weight": weight(M, HIDDEN), "depth_mem_meta_write.weight": weight(M, R + 3),
+            "depth_mem_entry_bias.weight": bias(m["passes"] * (n_attn + 1) * M).reshape(-1, M),
+            "depth_mem_query.weight": weight(M, HIDDEN) * 2, "depth_mem_query.bias": bias(M), "depth_mem_key.weight": weight(M, M) * 2,
+            "depth_mem_key.bias": bias(M), "depth_mem_value.weight": weight(M, M), "depth_mem_value.bias": bias(M),
+            "depth_mem_out.weight": weight(HIDDEN, M) * 3, "depth_mem_out.bias": bias(HIDDEN),
+            "depth_mem_route_state.weight": weight(R, HIDDEN), "depth_mem_route_retr.weight": weight(R, HIDDEN), "depth_mem_route_diff.weight": weight(R, HIDDEN),
+            "depth_mem_route_hist.weight": weight(R, R) * 2, "depth_mem_route.bias": bias(R),
+            "depth_mem_stream_gate.weight": weight(S, HIDDEN), "depth_mem_stream_gate.bias": bias(S),
+            "cont_hidden_state.weight": weight(R, HIDDEN), "cont_hidden_retr.weight": weight(R, HIDDEN), "cont_hidden_diff.weight": weight(R, HIDDEN),
+            "cont_hidden_route.weight": weight(R, R), "cont_hidden.bias": bias(R), "cont_output.weight": weight(1, R) * 4, "cont_output.bias": bias(1)}
+
+
+def metis16_parameters(writer):
+    m, a = METIS, "metis16"
+    writer.add_expert_count(m["experts"])
+    writer.add_expert_used_count(m["used"])
+    writer.add_expert_feed_forward_length(m["eff"])
+    writer.add_uint32(f"{a}.expert_shared_feed_forward_length", m["sheff"])
+    writer.add_uint32(f"{a}.moe_latent_size", m["latent"])
+    writer.add_uint32(f"{a}.hyper_connection.count", m["streams"])
+    writer.add_uint32(f"{a}.metis.pass_count", m["passes"])
+    writer.add_uint32(f"{a}.metis.memory_length", m["mem"])
+    writer.add_uint32(f"{a}.metis.route_length", m["route"])
+    writer.add_float32(f"{a}.metis.continuation_logit_limit", m["limit"])
+    writer.add_uint32(f"{a}.attention.pass_lora_rank", m["rank"])
+    writer.add_ssm_conv_kernel(m["conv"])
+    writer.add_ssm_inner_size(m["ssm_heads"] * m["ssm_head_dim"])
+    writer.add_ssm_state_size(m["state"])
+    writer.add_ssm_time_step_rank(m["ssm_heads"])
+    writer.add_ssm_group_count(m["groups"])
+    writer.add_float32(f"{a}.ssm.norm_epsilon", 1e-5)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -971,6 +1050,9 @@ models = {
     # Limite (llama.cpp after b11177): see limite_block; value embeddings scaled up so that their gate matters.
     "limite": lambda path: write_family(path, "limite", 50, limite_block, parameters=limite_parameters, layers=len(LIMITE_SWA), rope_dim=HEAD_DIM // 2,
                                         global_tensors=lambda vocab: {"output_norm.weight": None, "value_embd.weight": weight(vocab, KV_HEADS * HEAD_DIM) * 4}),
+    # Metis 1.6 (llama.cpp after b11177): see metis16_block; block_count counts the virtual layers of both passes.
+    "metis16": lambda path: write_family(path, "metis16", int(os.environ.get("METIS_SEED", 58)), metis16_block, parameters=metis16_parameters, layers=METIS["passes"] * len(METIS_KINDS),
+                                         kv_heads=[0 if kind == "ssm" else KV_HEADS for kind in METIS_KINDS] * METIS["passes"], global_tensors=metis16_globals),
 }
 for name, write in models.items():
     if not only or name in only:
