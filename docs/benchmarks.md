@@ -707,7 +707,7 @@ epilogue (7 % of resnet50); the decomposed LayerNorm of convnext still runs as 5
 
 ## 13. FP8 checkpoints, the fp8 tensor-core GEMM and the int8 GEMM rework (2026-11-13)
 
-Conditions: the GPU was shared with a running game and with other benchmark agents for the whole session, so end-to-end
+Conditions: the GPU was shared with another application and with other benchmark agents for the whole session, so end-to-end
 `--bench` numbers fluctuate by up to 40 % between back-to-back runs. The tables therefore report kernel minima (min of 50,
 `BenchTests.MatMulPrefill`, T = 512) and `SHARPLIGHT_VK_PROFILE=1` prefill sums of per-kernel minimum × launch count
 (contention-free GPU time; host overhead excluded), with the best end-to-end runs as a cross-check.
@@ -805,7 +805,7 @@ GPU timestamps (`SHARPLIGHT_VK_PROFILE=1`, min per launch over 3 process runs, p
 | qwen3.6-35b-a3b-q4km | 7.1 → 6.0 ms | |
 | gpt-oss-20b-mxfp4 pp2048 (4 × 512) | 28.1 → 19.4 ms per 512 chunk | |
 
-Wall clock (`sharplight MODEL --bench 512 --ctx 768`, best of 3 alternating process runs). These runs shared the GPU with a game
+Wall clock (`sharplight MODEL --bench 512 --ctx 768`, best of 3 alternating process runs). These runs shared the GPU with another application
 and another agent's model (90 % utilization at the 300 W cap before starting), so absolute numbers are low and noisy; the
 section-11 column was measured on a quieter GPU. The first gpt-oss row is from a quieter period.
 
@@ -858,7 +858,7 @@ about 52 GB/s) for both engines.
 Measurement only (nothing under `src/` or `tests/` changed). Goal: a like-for-like comparison with vLLM after the work of
 sections 8-15, a kernel-level attribution of Sharplight's batched step, and a ranked list of levers. Raw results:
 [`bench/results/s16/`](../bench/results/s16) (`profiles/` for BatchBench and per-kernel profiles, `disturbed/` for runs that
-were repeated because a game was running on the GPU).
+were repeated because another application was using the GPU).
 
 ### 16.1 Setup
 
@@ -870,7 +870,7 @@ were repeated because a game was running on the GPU).
   load the FP8 checkpoint and ran the 27B as Q8_0 GGUF; Sharplight on that GGUF is listed for reference.
 * **Conditions.** The GPU sat at its 300 W limit and 85-89 °C during the long serving runs (SM clock 1.75-2.3 GHz), so absolute
   numbers are 10-20 % below the cooler runs of section 2 for *both* engines (vLLM 27B decode 48.5 → 39.5 tok/s). Each comparison
-  below was measured in the same period. A game (~1.2 GB, Proton) ran on the GPU from the vLLM small-model single-stream runs to
+  below was measured in the same period. Another application (~1.2 GB) used the GPU from the vLLM small-model single-stream runs to
   the end of the first Sharplight 27B serving pass; everything it overlapped was repeated afterwards (old files in
   `disturbed/`) except the OLMoE serving rows and the vLLM MTP single-stream rows, which are marked. Another agent's processes
   (up to 16 GB, mostly idle) appear in a few snapshots (`*.gpu.txt`).
@@ -955,7 +955,7 @@ the wall time at every point, so the engine thread is never idle between steps. 
 | | 4 | 903 (860..903) | 1359 (1309..1377) | 0.66x | 19 / 22 | 15 / 18 | 4.33 / 6.0 | 2.85 / 4.3 | 4.37 (11.7) |
 | | 16 | 4170 (3807..4179) | 4743 (4234..4743) | 0.88x | 22 / 76 | 46 / 49 | 3.59 / 11.6 | 3.08 / 4.5 | 3.73 (46.0) |
 | | 64 | 8964 (8674..9019) | 13595 (12559..13722) | 0.66x | 40 / 360 | 130 / 179 | 6.19 / 15.3 | 3.78 / 16.9 | 6.44 (171.5) |
-| OLMoE bf16 (game running) | 1 | 386 (356..386) | 346 (345..356) | 1.12x | 16 / 18 | 15 / 18 | 2.49 / 3.6 | 2.79 / 4.1 | 2.57 (2.9) |
+| OLMoE bf16 (GPU shared) | 1 | 386 (356..386) | 346 (345..356) | 1.12x | 16 / 18 | 15 / 18 | 2.49 / 3.6 | 2.79 / 4.1 | 2.57 (2.9) |
 | | 4 | 548 (449..575) | 663 (648..696) | 0.83x | 29 / 41 | 30 / 40 | 7.15 / 15.3 | 5.80 / 8.7 | 6.87 (10.6) |
 | | 16 | 1336 (1324..1399) | 1629 (1535..1636) | 0.82x | 46 / 147 | 72 / 85 | 11.5 / 24.3 | 9.33 / 12.9 | 11.5 (46.0) |
 | | 64 | 3311 (3203..3381) | 4011 (3986..4154) | 0.83x | 82 / 727 | 203 / 263 | 17.3 / 31.6 | 14.5 / 29.3 | 17.3 (171.5) |
@@ -980,7 +980,7 @@ its host work per step is small (16.6), so neither of these is where its gap com
 
 The checkpoint ships one MTP layer (`mtp.*`, FP8); vLLM 0.33 runs it with `speculative_config={"method": "mtp",
 "num_speculative_tokens": k}` (the layer is reused for k > 1). Natural-language prompt (an essay instruction), temperature 0.
-The single-stream rows ran while the game was on the GPU (baseline 38.4 instead of 39.5), so read the ratios.
+The single-stream rows ran while another application used the GPU (baseline 38.4 instead of 39.5), so read the ratios.
 
 | k | single stream tok/s @d47 (speedup) | acceptance | mean accepted length | @d4096 (speedup) | acceptance |
 |---|---|---|---|---|---|
@@ -1213,7 +1213,7 @@ on an 8-token prompt, 140 tokens on a 636-token prompt that goes through the chu
 Serving runs before/after show identical step counts and accepted drafts (e.g. c = 16: 292 steps, 3648 / 4462 accepted).
 
 **Measurements.** The GPU was shared during all of these runs (another agent's 27B process at ~100 % utilisation for most
-of them, plus a game), so absolute numbers are about half of 17.1 / 17.2 and only interleaved A/B comparisons mean
+of them, plus another application), so absolute numbers are about half of 17.1 / 17.2 and only interleaved A/B comparisons mean
 anything. Raw output: `bench/results/s17b/`.
 
 Serving c = 4, `--speculate-mtp 3`, three interleaved rounds (aggregate tok/s, mean inter-token latency):
@@ -1459,7 +1459,7 @@ Levers 1-3 of section 16.8, generic at kernel-selection level (no model-specific
 `src/Sharplight.Shaders/Kernels/matmul_skinny.slang` (new, `gemm_sk`); lowering: `GraphLowerer.SkinnyGemm.cs` (new),
 `GraphLowerer.MatMul.cs`, `GraphLowerer.IntDot.cs`, `GraphLowerer.Mmq.cs`; recording: `HazardTracker.Order`,
 `VulkanSegment.Record`. Raw results: [`bench/results/s19/`](../bench/results/s19) (`batch/` BatchBench and per-kernel
-profiles, `spec/` SpecBench, serving at the top level, `disturbed/` a first pass that ran while a game used the GPU).
+profiles, `spec/` SpecBench, serving at the top level, `disturbed/` a first pass that ran while another application used the GPU).
 
 ### 19.1 What changed
 
