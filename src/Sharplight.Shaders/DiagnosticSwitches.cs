@@ -22,8 +22,8 @@ namespace Sharplight.Shaders;
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
 /// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
-/// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 16 for
-/// Q8_0, 8 for the K-quants).</item>
+/// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
+/// Q8_0 on devices without the f16 tensor-core path).</item>
 /// <item><c>SHARPLIGHT_MMVQ_LAYOUT=rows,subgroups</c>: force the integer-dot matvec's weight rows and subgroups per workgroup.</item>
 /// <item><c>SHARPLIGHT_MMQ=0|all|fmt,fmt</c>: weight formats whose prefill matmuls use the int8 tensor-core GEMM (q8_1
 /// activations, <c>mmq.slang</c>) instead of the f16 one: none, every supported format (q8_0, q4_k, q5_k, q6_k, iq4_nl, iq4_xs),
@@ -41,12 +41,13 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG32</c>, <c>SHARPLIGHT_GEMM2_CFG64=wm,wn,fm,fn</c>: force the layout of the 32- and 64-token
 /// gemm_cm2 tiles.</item>
-/// <item><c>SHARPLIGHT_SKINNY_GEMM=0</c>: serve 2-16-row matmuls of weight formats without an integer-dot matvec (f16, bf16,
-/// FP8, NVFP4, ...) with the multi-row f32 matvec and gemm_cm2 (split-K) instead of the skinny tensor-core GEMM
-/// (<c>matmul_skinny.slang</c>: every weight read once, K split inside the workgroup).
-/// <c>SHARPLIGHT_SKINNY_MAX_ROWS=n</c>: largest row count it serves (default 16, at most 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its
-/// weight fragments per workgroup, subgroups per workgroup and K block. <c>SHARPLIGHT_SKINNY_X16=0|1</c>: read an f16 copy of the
-/// activations instead of converting f32 rows while staging.</item>
+/// <item><c>SHARPLIGHT_SKINNY_GEMM=0</c>: serve small-batch matmuls (2-16 rows for formats without an integer-dot matvec such
+/// as f16, bf16, FP8, NVFP4; 9-16 rows for Q8_0 and the K-quants) with the multi-row f32 matvec, the integer-dot matvec and
+/// gemm_cm2 (split-K) instead of the skinny tensor-core GEMM (<c>matmul_skinny.slang</c>: every weight read once, K split
+/// inside the workgroup; matrices with fewer than 1024 output rows, or 4096 above 8 rows, stay on the split-K kernels).
+/// <c>SHARPLIGHT_SKINNY_MAX_ROWS=n</c>: largest row count it serves at every width (default 16 for N of at least 4096, at most
+/// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
+/// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
