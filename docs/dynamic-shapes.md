@@ -94,10 +94,13 @@ The executor needs no new mechanism. A data-dependent op is a node like any othe
 
 * **On the CPU** the count is known as soon as the op returns, so a CPU segment can contain the producer and its
   consumers.
-* **On Vulkan** the providers have no data-dependent kernels. `NonZero`, `NonMaxSuppression`, `Unique`, `TopK` with a
-  dynamic `k` and friends are not supported there, so the placement planner puts them on the fallback device (CPU). The
-  segment boundary this creates is also the point where the host learns the count. The next Vulkan segment then sees
-  the bound symbol when it records its command buffer. Vulkan caches one recording per distinct binding of its symbols;
+* **On Vulkan** `NonZero` and `NonMaxSuppression` have kernels that also write their count into a 4-byte slot of the
+  segment's output staging (`KernelProgram.ProducedSymbols`). The segment reads it back after it ran and publishes it in
+  `RunParameters.Symbols`, and the planner ends a Vulkan segment after every node that publishes a count, so the count
+  is known on the host before anything that depends on it is recorded. Ops without a Vulkan kernel (`Unique`, ...) run
+  on the fallback device (CPU), where the segment boundary is the point the host learns the count. Either way the next
+  Vulkan segment sees the bound symbol when it records its command buffer. Vulkan caches one recording per distinct
+  binding of its symbols;
   the cache is capped (LRU), so a stream of different counts re-records but does not grow without limit.
 
 This makes "sync at the data-dependent op" the rule, and it is the only correct choice without indirect dispatch. The
@@ -108,17 +111,17 @@ selection) or at the front of a model (masks → indices). See "Performance" bel
 
 | IR op | Output | Bound | CPU | Vulkan |
 |---|---|---|---|---|
-| `NonZero` x | i32 `[nnz, rank]` (transposed ONNX layout) | elements of x | yes | fallback |
-| `NonMaxSuppression` boxes, scores | i32 `[selected, 3]` | batches·classes·min(boxes, max_per_class) | yes | fallback |
+| `NonZero` x | i32 `[nnz, rank]` (transposed ONNX layout) | elements of x | yes | yes |
+| `NonMaxSuppression` boxes, scores | i32 `[selected, 3]` | batches·classes·min(boxes, max_per_class) | yes | yes |
 | `Unique` x (flattened, sorted or first-occurrence order) | values/first indices/counts `[u]`, inverse `[n]` | elements of x | yes | fallback |
-| `TopK` with `k_symbol` | `[k, ...]` along the symbolic axis | `k` expression | yes | fallback |
+| `TopK` with `k_symbol` | `[k, ...]` along the symbolic axis | `k` expression | yes | yes (axis 0) |
 | `Fill` (start, delta, outer expr, inner dims) | `start + i·delta` along axis 0 | — (not data dependent) | yes | yes |
-| `RoiAlign` x, rois `[R, 4]`, batch indices `[R]` | f32 `[R, C, oh, ow]` (R usually data dependent) | R | yes | fallback |
+| `RoiAlign` x, rois `[R, 4]`, batch indices `[R]` | f32 `[R, C, oh, ow]` (R usually data dependent) | R | yes | yes |
 
 Consumers of a data-dependent (or any symbolic) outer axis:
 
 * `Concat` along the outer axis has the sum expression as extent (`nms_1+nms_2+...`). The CPU kernel places each input at
-  its run-time offset; Vulkan declines the node (its copies use compile-time offsets), so it runs on the fallback device.
+  its run-time offset; on Vulkan each input's copy takes its offset as a push constant evaluated from the bindings.
 * `Slice` of a prefix of the outer axis (`x[:1000]`, the "top-k proposals" pattern) is a view with extent `min(n,1000)`
   on both providers.
 * `NonMaxSuppression` also accepts one batch and class with a symbolic box count: ONNX `[1, S, 4]` / `[1, 1, S]` are
