@@ -16,7 +16,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     public IReadOnlyList<string> GgufArchitectures { get; } =
     [
         "llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4", "gemma3n", "muse-glimmer", "flint",
-        "llada-moe", "rnd1",
+        "llada-moe", "rnd1", "gemma-embedding2",
     ];
 
     /// <inheritdoc/>
@@ -36,6 +36,8 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
             case "gemma4":
             case "gemma3n":
                 return Gemma4Hyper(g);
+            case "gemma-embedding2":
+                return EmbeddingGemma2Hyper(g);
             case "muse-glimmer":
                 return MuseHyper(g);
             case "flint":
@@ -235,6 +237,11 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (name == "output.weight" && g.GgufArchitecture == "gemma-embedding2")
+        {
+            return "embedding_projection.0.weight";   // the projection of the final hidden state to the embedding size, not a vocabulary head
+        }
+
         if (GgufTensorNames.MapGlobal(name) is { } globalName)
         {
             return globalName;
