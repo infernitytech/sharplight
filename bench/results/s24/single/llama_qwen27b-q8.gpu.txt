@@ -1,0 +1,1 @@
+gpu before: 0 %, 9570 MiB, 105.99 W, 2340 MHz

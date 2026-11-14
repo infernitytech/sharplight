@@ -2478,10 +2478,10 @@ bench/SpecBench/bin/Release/net11.0/SpecBench <model> --drafts 0,1,3 --depths 47
 * **Not attempted in this round:** the FP8 prefill GEMM memory pipeline (400+ TFLOPS), MoE grouped GEMM and fused gate/up,
   K-quant MMQ, and the opt-in reduced-precision delta-rule state.
 
-## 24. MoE: raw MXFP4 expert fetch, split expert tiles, dual gate/up and slot-sum expert matvecs (2026-11-14)
+## 24. MoE: raw MXFP4 expert fetch, split expert tiles, dual gate/up and slot-sum expert matvecs; opt-in bf16 delta-rule state (2026-11-14)
 
-Follow-up to sections 14 and 22 (gpt-oss-20b prefill at 0.68x and decode at 0.93x of llama.cpp CUDA). All changes are
-kernel or fusion rules for every MoE model (MatMulId):
+Follow-up to sections 14 and 22 (gpt-oss-20b prefill at 0.68x and decode at 0.93x of llama.cpp CUDA). The MoE changes
+are kernel or fusion rules for every MoE model (MatMulId):
 
 * `matmul.slang` (`gemm_cm2`, `MOE`), `common.slang`, `WeightRepacker.cs`: MXFP4 experts in the expert-grouped GEMM are
   fetched as raw codes and scales one step ahead and decoded after the MMAs; the aligned MXFP4 layout stores its scales
@@ -2490,7 +2490,9 @@ kernel or fusion rules for every MoE model (MatMulId):
 * `GraphLowerer.Fusion.cs` (`FoldDualMatMuls`, `FoldExpertSums`), `GraphLowerer.Moe.cs` (`LowerDualMatMulId`,
   `LowerExpertSum`), `mmvq.slang` (`moe_mmvq`, `DUAL`, `SLOT_SUM`): decode fusions on the integer-dot expert matvec.
 
-Base is `main` (`95cc0a2` for 24.1-24.3, `d0d3ea6` for the correctness runs), built side by side; base and new runs
+Plus an opt-in bf16 state for the gated delta rule (24.6) and the re-runs against vLLM (24.5) and llama.cpp (24.7).
+
+Base is `main` (`95cc0a2` for 24.1-24.3, `4b20f55` for the correctness runs), built side by side; base and new runs
 alternate. The GPU was shared with the user's applications and other agents, so the tables use best-of-N or minimum GPU
 times. Raw results: [`bench/results/s24/`](../bench/results/s24).
 
@@ -2606,7 +2608,69 @@ round each at c = 4 and c = 16 was disturbed again (91 and 261 tok/s); the table
 The undisturbed rounds match section 22.6 (40 / 130 / 381 / 741-752): this round does not change the dense 27B
 path. The gap to vLLM at 16-64 streams remains the batched decode step (sections 19-23).
 
-### 24.6 Correctness
+### 24.6 Opt-in bf16 delta-rule state
+
+With `--reduced-precision` (`LlmLoadOptions.AllowReducedPrecision`), the gated delta rule's recurrent state is stored as
+bf16 instead of f32 (`AdapterOptions.RecurrentStateType` / `LlmLoadOptions.RecurrentStateType`, Qwen3.5-style models;
+`SHARPLIGHT_RECURRENT_STATE=f32|bf16|f16` overrides it). Compute stays f32 in registers (`state16.slang`):
+
+* The token-by-token kernel rounds the state after every token row, including replayed rollback rows. Output therefore
+  does not depend on how rows are batched, and MTP verification matches plain decode under the opt-in.
+* The chunked prefill kernel widens the state once per run and rounds it at the end.
+* The CPU reference rounds per row.
+
+Rollback records hold per-token inputs, not the state, so they are unchanged. State buffers and resets follow the
+declared type. Conv, Mamba and RWKV states stay f32.
+
+27B FP8, BatchBench `--ctx 2048 --modes greedy --sizes 16,64 --reps 40`, three interleaved rounds, the state type set
+by the env switch (isolating it from the other reduced-precision paths), minimum step GPU time:
+
+| rows | f32 | bf16 | f16 |
+|---|---:|---:|---:|
+| 16 | 37.69 ms | 36.66 ms (-2.7 %) | 37.90 ms |
+| 64 | 61.70 ms | **56.40 ms (-8.6 %)** | 60.86 ms (-1.4 %) |
+
+`delta_rule` itself drops from 225.8 to 108.0 µs per layer at 64 rows and from 36.2 to 25.9 µs at 16 rows. f16 is more
+accurate, but its conversion cost removes most of the gain, so the opt-in uses bf16.
+
+Teacher-forced against the f32 state (193 positions, `RecurrentStateAccuracyTests`, `SHARPLIGHT_TEST_LARGE=1`):
+
+| state | top-1 agreement | mean KL | max logit difference / logit spread |
+|---|---|---:|---:|
+| bf16 | 193/193 | 1.4e-5 | 7.1e-3 |
+| f16 | 193/193 | 2.4e-7 | 6.4e-4 |
+
+Greedy output with the opt-in:
+
+* Identical to f32 on Q8_0 (both prompts) and on FP8 with the short prompt.
+* On FP8 with the 788-token prompt it diverges after about 100 tokens and stays coherent.
+* MTP k = 3 matches non-speculative output under the opt-in (FP8, bf16 and f16).
+
+The default state is f32, and its output is unchanged.
+
+### 24.7 Single stream against llama.cpp (README table)
+
+`sharplight --bench 512` and `--bench 16`, 3 runs each, then `llama-bench -ngl 99 -fa 1 -p 512 -n 128 -r 3` right after,
+on this branch (rebased on `main` `4b20f55`). The table is in the README. Prefill 512 / decode ratios:
+
+| model | pp512 | decode |
+|---|---:|---:|
+| Llama-3.2-1B Q8_0 | 1.09x | 1.03x |
+| Gemma-3-1B Q8_0 | 1.28x | 1.09x |
+| Ministral-3-3B Q4_K_M | 1.03x | 1.02x |
+| Mistral-7B Q4_K_M | 0.91x | 1.13x |
+| Qwen3.8-27B Q8_0 | 1.11x | 0.90x |
+| OLMoE-1B-7B Q4_K_M | 1.04x | 1.01x |
+| ERNIE-4.5-21B-A3B Q4_K_M | 1.21x | 1.00x |
+| Nemotron-3-Nano-30B-A3B Q4_K_M | 1.23x | 1.05x |
+| gpt-oss-20b MXFP4 (24.3) | 0.95x | 0.97x |
+
+These llama.cpp means are lower than the 2026-11-13 README values for some rows (e.g. Llama-1B pp512 54082 vs 58918,
+27B Q8_0 2921 vs 3058). llama.cpp's samples varied by up to 10 % within a run, so the ratios carry that uncertainty.
+In this run gpt-oss measured 14848 (Sharplight) against 11640 (llama.cpp, samples 10711-12746) at pp512, with disturbed
+llama.cpp decode samples (133-333 tok/s). The README uses the interleaved 24.3 numbers instead.
+
+### 24.8 Correctness
 
 Greedy CLI output, 200 tokens, long (~650-token) and short prompts, against `main` at `d0d3ea6`: identical for gpt-oss-20b,
 OLMoE, Qwen3.6-35B-A3B, Qwen2.5-0.5B, Mistral-7B Q4_K_M, the 27B Q4_K_M, Q8_0 and FP8. MTP k = 3 against
@@ -2616,6 +2680,34 @@ split) gives the same output with and without split tiles.
 Tests: new `MoeTests.RoutedExpertBlock` (gate/up with per-expert biases, activation, down with bias, router weights and
 slot sum; mxfp4 / q4_k / q8_0; 1-70 tokens; S = 2, 4, 8) on the dual and slot-sum launches and the prefill path;
 `MoeTests` and `FusionTests` pass on the NVIDIA GPU, `MoeTests` on llvmpipe.
+
+### 24.9 Commands
+
+```bash
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_MOE="32,4,2880,2880" dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll \
+  -method '*MoePrefill'                                          # expert GEMM block, mxfp4 / q4_k / q8_0
+samples/Sharplight.Cli/bin/Release/net11.0/sharplight <model> --bench 512 --ctx 768 --batch 512   # + SHARPLIGHT_VK_PROFILE=1
+#   SHARPLIGHT_MOE_SPLIT_TILES=0, SHARPLIGHT_NO_EXPERT_SUM=1 turn the new paths off
+LD_LIBRARY_PATH=$LLAMA_DIR $LLAMA_DIR/llama-bench -m <gguf> -ngl 99 -fa 1 -p 512,2048 -n 128 -r 3 -o jsonl
+OUT_DIR=bench/results/s24/serve PORT=18337 SLOTS=64 bench/s16_serve.sh sharplight qwen27b-fp8 <dir> "1 4 16 64"
+OUT_DIR=bench/results/s24/serve PORT=18337 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "1 4 16 64" --gpu-memory-utilization 0.5
+SHARPLIGHT_RECURRENT_STATE=bf16 bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 16,64 --reps 40
+```
+
+### 24.10 Open issues
+
+* **gpt-oss pp512** is at 0.95x of llama.cpp's mean (0.88x of its best sample). The expert GEMM is still bound by the
+  weight fetch. Next steps: K-quant experts in the raw-fetch scheme without the register spill seen at 128-row tiles,
+  and one launch for both tile heights (the split costs a barrier).
+* **Batched MoE decode** (2-16 tokens through the int-dot matvec) gets the dual and slot-sum launches. Above 128 items
+  the expert GEMM keeps separate gate, up, activation, down and sum launches.
+* **K-quant MMQ** and the **FP8 GEMM memory pipeline**: no gain this round (24.4).
+* **Serving against vLLM** is unchanged at 0.65-0.93x (24.5).
+* **bf16 delta-rule state**: the chunked prefill rounds once per run, while the token-by-token kernel rounds per row, so
+  the two differ slightly under the opt-in (relative RMS up to 1.3e-2 in the tests).
+* **MTP on Q8_0**: the state agent's prompts (a 788-token essay prompt) showed MTP k = 3 output differing from
+  non-speculative output on the 27B Q8_0, already on `main`. This section's prompts and section 23's are identical. This
+  needs a look at the Q8_0 verification path (int-dot matvec at 2-4 rows against the 1-row path).
 
 ## 25. ONNX parity round 2: reduced-precision device loss, conv epilogues on Vulkan, wide SIMT GEMM, CPU conv as one implicit GEMM, detection ops on the GPU (2026-11-14)
 

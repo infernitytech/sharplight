@@ -20,10 +20,11 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - close the remaining gap to f16's ~1.65 TB/s;
   - fold the small [5120→48] split-K matmuls (~0.9 ms per step);
   - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
-  - re-measure serving against vLLM.
-- **Reduced-precision delta-rule state** (opt-in, `--reduced-precision`): an f16 / bf16 recurrent state for the gated
-  delta rule, about a quarter of the 64-row decode step (§19.6). Needs the state type through the op, its CPU
-  reference, both kernels, rollback records and snapshots (§22.10).
+  - serving against vLLM (§24.5): 0.93x / 0.85x / 0.73x / 0.65x at 1 / 4 / 16 / 64 streams; the batched decode step
+    is the gap.
+- **Reduced-precision delta-rule state**: done as an opt-in (`--reduced-precision` stores it as bf16; 64-row step
+  -8.6 %, 16-row -2.7 % on the 27B FP8, §24.6). Next: round the chunked prefill per chunk like the token-by-token
+  kernel, and 16-bit states for Mamba / RWKV.
 - **Fewer glue launches per batched step**: f16 activation copies, fp8 quantization and split-K reductions are 3–7 % of
   GPU time. Produce the copy in the preceding norm / elementwise epilogue (§19.6).
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
