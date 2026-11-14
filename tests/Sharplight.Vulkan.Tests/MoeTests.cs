@@ -258,4 +258,39 @@ public sealed class MoeTests
         Diff.Check("MatMulId.bias", tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, S, E))),
             atol: Atol(t * S), rtol: Rtol(t * S), maxTokens: 128, what: $"T={t}");
     }
+
+    /// <summary>
+    /// A whole routed-expert block: gate and up products with per-expert biases and their activation (the dual expert matvec at
+    /// decode sizes), the down product with its bias, scaled by the router weights and summed over the slots (the slot-sum expert
+    /// matvec), on decode and prefill batch sizes.
+    /// </summary>
+    [Theory]
+    [InlineData("mxfp4", 4, 1)]
+    [InlineData("mxfp4", 4, 3)]
+    [InlineData("mxfp4", 4, 70)]
+    [InlineData("q4_k", 8, 1)]
+    [InlineData("q4_k", 8, 9)]
+    [InlineData("q8_0", 2, 5)]
+    public void RoutedExpertBlock(string fmt, int s, int t)
+    {
+        Gpu.Require();
+        const int E = 12;
+        const int N = 256;
+        const int K = 512;
+        var tg = new TG();
+        var type = DataType.Get(fmt);
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, s);
+        var weights = tg.InF("weights", TG.T, s, 1);
+        Value Bias(string name, int n) => tg.B.Emit1("GatherAxis", [tg.RandW(name, DataType.F32, 0.5f, E, n), ids], Attributes.From(("axis", 0L)));
+        var gate = tg.B.Add(tg.B.Emit1("MatMulId", [x, tg.RandW("gate", type, 0.1f, E, N, K), ids]), Bias("gate_b", N));
+        var up = tg.B.Add(tg.B.Emit1("MatMulId", [x, tg.RandW("up", type, 0.1f, E, N, K), ids]), Bias("up_b", N));
+        var act = tg.B.Mul(tg.B.Silu(gate), up);                                                                    // [T, S, N]
+        var down = tg.B.Add(tg.B.Emit1("MatMulId", [act, tg.RandW("down", type, 0.1f, E, K, N), ids]), Bias("down_b", K));
+        var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, weights), 0, 2, 1)]);                    // [T, K, 1]
+        tg.B.Output("y", summed);
+        Diff.Check("MatMulId.routed." + fmt, tg.B.Build(),
+            new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (ids, Ids("random", t, s, E)), (weights, Rnd.F((long)t * s, 5))),
+            atol: 2.0, rtol: 5e-2, maxTokens: 128, what: $"S={s} T={t}");
+    }
 }

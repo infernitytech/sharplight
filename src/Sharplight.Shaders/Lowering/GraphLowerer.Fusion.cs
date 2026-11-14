@@ -41,6 +41,11 @@ public sealed partial class GraphLowerer
             FoldRowGathers(units, consumers);
         }
 
+        if (!DiagnosticSwitches.NoExpertSum)
+        {
+            FoldExpertSums(units, consumers);
+        }
+
         FoldScatterChains(units, consumers);
         if (!DiagnosticSwitches.NoConvEpilogue)
         {
@@ -295,12 +300,16 @@ public sealed partial class GraphLowerer
 
             var inGroup = group.ToHashSet();
             var external = group.SelectMany(n => n.Inputs).Where(v => !inGroup.Contains(v.Producer!)).Distinct().ToList();
-            if (external.Count != 2 || external[0].Producer is not { Op.Name: "MatMul" } a || external[1].Producer is not { Op.Name: "MatMul" } b)
+            var products = external.Where(v => v.Producer is { Op.Name: "MatMul" or "MatMulId" }).ToList();
+            if (products.Count != 2 || products[0].Producer is not { } a || products[1].Producer is not { } b || a.Op.Name != b.Op.Name)
             {
                 continue;
             }
 
-            if (!AreDualMatMulPair(a, b))
+            // Expert pairs may also read per-expert rows (the experts' biases) through the same routing in their epilogue.
+            var gathers = external.Except(products).Select(v => v.Producer).ToList();
+            if (a.Op.Name == "MatMul" ? external.Count != 2 || !AreDualMatMulPair(a, b)
+                : !AreDualExpertPair(a, b) || gathers.Any(g => g is null || !IsExpertEpilogueGather(g, a) || !unitOf.ContainsKey(g)))
             {
                 continue;
             }
@@ -324,6 +333,15 @@ public sealed partial class GraphLowerer
             unit.Dual = (a, b);
             removed.Add(unitA);
             removed.Add(unitB);
+            if (a.Op.Name == "MatMulId" && gathers.Count > 0)
+            {
+                unit.Gathers = [.. gathers!];
+                foreach (var gather in gathers)
+                {
+                    _foldedGathers[gather!.Output] = gather;
+                    removed.Add(unitOf[gather]);
+                }
+            }
         }
 
         units.RemoveAll(removed.Contains);
@@ -442,6 +460,21 @@ public sealed partial class GraphLowerer
         units.RemoveAll(removed.Contains);
     }
 
+    /// <summary>Two expert products (MatMulId) of the same x and routing over expert weights of one type and shape.</summary>
+    private static bool AreDualExpertPair(Node a, Node b)
+    {
+        var w = a.Inputs[1];
+        return a.Inputs[0] == b.Inputs[0] && a.Inputs[2] == b.Inputs[2] && w.Type == b.Inputs[1].Type && w.Shape.Equals(b.Inputs[1].Shape)
+               && w.Kind == ValueKind.Weight && b.Inputs[1].Kind == ValueKind.Weight && w.Shape.Rank == 3 && w.Shape.Dims.All(d => !d.IsSymbolic)
+               && WeightFormat(w.Type) is not null && SupportsMoe(a).IsSupported;
+    }
+
+    /// <summary>A row gather of an f32 [E, N] table by the routing of expert product <paramref name="product"/>, N its output width.</summary>
+    private bool IsExpertEpilogueGather(Node gather, Node product)
+        => gather.Op.Name == "GatherAxis" && IsFoldableRowGather(gather) && gather.Inputs[1] == product.Inputs[2] && gather.Inputs[0].Type == DataType.F32
+           && gather.Inputs[0].Kind == ValueKind.Weight && gather.Inputs[0].Shape[1].Fixed == product.Inputs[1].Shape[1].Fixed
+           && gather.Output.Shape.Equals(product.Output.Shape) && !_segmentOutputs.Contains(gather.Output);
+
     /// <summary>Two weight matmuls of the same x, weight type and shape that one dual kernel can compute.</summary>
     private static bool AreDualMatMulPair(Node a, Node b)
     {
@@ -553,6 +586,78 @@ public sealed partial class GraphLowerer
         }
 
         units.RemoveAll(u => u.Node is not null && folded.Contains(u.Node));
+    }
+
+    /// <summary>
+    /// The routed-expert output of a MoE block: ReduceSum(Permute(group(MatMulId(x, W, ids), ...), 0, 2, 1)), the group an
+    /// elementwise chain over the [T, S, N] expert outputs that may also read per-expert rows by the same ids (folded gathers) and
+    /// per-slot scalars [T, S, 1] (the router weights). The group's unit takes the product, the permute and the sum
+    /// (<see cref="LoweringUnit.ExpertSum"/>).
+    /// </summary>
+    private void FoldExpertSums(List<LoweringUnit> units, Dictionary<Value, List<Node>> consumers)
+    {
+        var unitOf = new Dictionary<Node, LoweringUnit>();
+        foreach (var unit in units)
+        {
+            foreach (var node in unit.Fused ?? (unit.Node is null ? [] : [unit.Node]))
+            {
+                unitOf[node] = unit;
+            }
+        }
+
+        bool OnlyReader(Value v, Node reader) => !_segmentOutputs.Contains(v) && consumers.TryGetValue(v, out var r) && r.All(c => c == reader);
+
+        var removed = new HashSet<LoweringUnit>();
+        foreach (var unit in units)
+        {
+            if (unit.Node is not { Op.Name: "ReduceSum" } reduce || reduce.Inputs[0].Producer is not { Op.Name: "Permute" } permute
+                || permute.Attributes.Get<int[]>("perm") is not [0, 2, 1] || !OnlyReader(reduce.Inputs[0], reduce))
+            {
+                continue;
+            }
+
+            var summed = permute.Inputs[0];
+            if (summed.Producer is not { } last || !unitOf.TryGetValue(last, out var group) || group.Fused is not { } fused || group.Dual is not null
+                || group.NormHead is not null || group.NormTail is not null || group.ExpertSum is not null || group.ConvHead is not null
+                || !OnlyReader(summed, permute)
+                || !unitOf.TryGetValue(permute, out var permuteUnit))
+            {
+                continue;
+            }
+
+            var inGroup = fused.ToHashSet();
+            if (fused.Any(n => n.Output != summed && EscapesGroup(n.Output, consumers, inGroup)))
+            {
+                continue;
+            }
+
+            var gathered = (group.Gathers ?? []).Select(g => g.Output).ToHashSet();
+            var external = fused.SelectMany(n => n.Inputs).Where(v => !inGroup.Contains(v.Producer!) && !gathered.Contains(v)).Distinct().ToList();
+            var products = external.Where(v => v.Producer is { Op.Name: "MatMulId" }).ToList();
+            if (products is not [var product] || product.Producer is not { } matmul || !unitOf.TryGetValue(matmul, out var matmulUnit)
+                || matmulUnit.Node != matmul || matmulUnit.Absorbed is not null || _segmentOutputs.Contains(product)
+                || consumers[product].Any(c => !inGroup.Contains(c)) || product.Shape.Rank != 3 || !summed.Shape.Equals(product.Shape)
+                || !fused[0].Output.Shape.Equals(product.Shape) || SupportsMoe(matmul) is not { IsSupported: true })
+            {
+                continue;
+            }
+
+            // Other inputs: per-slot f32 scalars [T, S, 1].
+            bool PerSlotScalar(Value v) => v.Type == DataType.F32 && v.Shape.Rank == 3 && v.Shape[0].Equals(product.Shape[0])
+                                           && v.Shape[1].Equals(product.Shape[1]) && v.Shape[2] is { IsSymbolic: false, Fixed: 1 };
+            if (external.Any(v => v != product && !PerSlotScalar(v))
+                || (group.Gathers ?? []).Any(g => g.Inputs[1] != matmul.Inputs[2] || g.Inputs[0].Type != DataType.F32))
+            {
+                continue;
+            }
+
+            group.ExpertSum = (matmul, permute, reduce);
+            removed.Add(matmulUnit);
+            removed.Add(permuteUnit);
+            removed.Add(unit);
+        }
+
+        units.RemoveAll(removed.Contains);
     }
 
     /// <summary>True for a GatherAxis on axis 0 of a static [rows, N] float table with integer indices.</summary>

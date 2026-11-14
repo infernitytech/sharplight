@@ -93,6 +93,12 @@ internal static class DiagnosticSwitches
     /// <summary>Degree of parallelism of kernel compilation.</summary>
     public static int CompileThreads { get; } = int.Parse(Read("SHARPLIGHT_COMPILE_THREADS") ?? Math.Clamp(Environment.ProcessorCount / 2, 2, 8).ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Disables the expert slot-sum fusion (the down projection of a MoE block, its elementwise group and the sum over the
+    /// slots in one decode launch).
+    /// </summary>
+    public static bool NoExpertSum { get; } = IsSet("SHARPLIGHT_NO_EXPERT_SUM");
+
     /// <summary>Disables the dual (gate/up) matvec fusion.</summary>
     public static bool NoDualMatMul { get; } = IsSet("SHARPLIGHT_NO_DUAL");
 
@@ -290,6 +296,12 @@ internal static class DiagnosticSwitches
     /// (shared by the projections reading the same x) instead of gathering and converting f32 rows in every column tile.
     /// </summary>
     public static bool MoeSortedHalfActivations { get; } = IsNotZero("SHARPLIGHT_MOE_X16");
+
+    /// <summary>
+    /// True when the expert-grouped gemm_cm2 with 64- or 128-row tiles leaves the tiles of at most half that many rows (an
+    /// expert's last, partly filled tile) to a second launch with half-height tiles, which multiplies less padding.
+    /// </summary>
+    public static bool MoeSplitTiles { get; } = IsNotZero("SHARPLIGHT_MOE_SPLIT_TILES");
 
     /// <summary>Disables the tensor-core expert matmul.</summary>
     public static bool MoeNoCoop { get; } = IsSet("SHARPLIGHT_MOE_NO_COOP");

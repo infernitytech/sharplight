@@ -821,6 +821,12 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     if (tile >= p.scratch[0]) return;
     uint expert = p.scratch[1 + 3 * tile], rowOff = p.scratch[2 + 3 * tile];
     uint tileRows = p.scratch[3 + 3 * tile];
+#ifdef MOE_MIN_ROWS
+    if (tileRows < MOE_MIN_ROWS) return;   // left to the half-height launch (MOE_MAX_ROWS)
+#endif
+#ifdef MOE_MAX_ROWS
+    if (tileRows > MOE_MAX_ROWS) return;
+#endif
     uint8_t* wbase = rowStart(p.w, EXPERT_BYTES, expert);
     for (uint r = tid; r < GBM; r += GTHREADS) gItem[r] = r < tileRows ? p.scratch[1 + 3 * MAXTILES + rowOff + r] : 0xFFFFFFFFu;
     GroupMemoryBarrierWithGroupSync();

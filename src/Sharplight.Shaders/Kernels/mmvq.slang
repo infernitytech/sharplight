@@ -500,13 +500,34 @@ void mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 // row(item) = PER_SLOT ? item : t. Grid: (N / MOE_GROUP_ROWS, items). Macros as above plus E, S, PER_SLOT, EXPERT_BYTES;
 // MQ_LPR lanes per row group, no split across subgroups.
 // Every MQ_LPR lanes own MQ_ROWS rows of one item: MQ_THREADS / MQ_LPR row groups per workgroup.
+// DUAL: a second expert matrix w2 of the same shape (gate / up) is multiplied with the same x and routing, and the stored value
+// is MOE_EPI(m0, m1, e, n), defined by the including generated source (the fused elementwise group; it may read per-expert
+// rows of tables declared by MOE_EPI_FIELDS, e.g. the experts' biases).
+// SLOT_SUM: one workgroup row per token instead of per item, and one subgroup per slot (MQ_SG == S); each slot's product
+// goes through MOE_EPI1(m, e, n, t, s) (defined by the including generated source) and the workgroup stores the sum in slot
+// order: y[t, n] = (((0 + v0) + v1) + ...), the order of the narrow ReduceSum. The values pass through shared memory, so
+// no multiply of the group is contracted into the sum.
+#ifndef SLOT_SUM
+#define SLOT_SUM 0
+#endif
 #define MOE_GROUP_ROWS (MQ_THREADS / MQ_LPR * MQ_ROWS)
+#if SLOT_SUM
+// MQ_SG == S: the slot values of a workgroup's SLOT_ROWS rows, summed in slot order once all are stored.
+#define SLOT_ROWS (SG / MQ_LPR * MQ_ROWS)
+groupshared float slotPart[S][SLOT_ROWS];
+#endif
 struct MoeParams
 {
     uint8_t* xq;
     uint8_t* w;
+#if DUAL
+    uint8_t* w2;
+#endif
     uint* ids;
     float* y;
+#ifdef MOE_EPI_FIELDS
+    MOE_EPI_FIELDS
+#endif
     uint T;
 };
 
@@ -516,6 +537,50 @@ void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Moe
 {
     uint tid = ltid.x;
     uint lane = tid % SG;
+#if SLOT_SUM
+    {
+        // Subgroup s computes slot s of the workgroup's rows; the slot values meet in shared memory.
+        uint t = gid.y;
+        uint s = tid / SG;
+        uint rg = lane / MQ_LPR;
+        uint row0 = gid.x * SLOT_ROWS + rg * MQ_ROWS;
+        uint e = p.ids[t * S + s];
+        float acc[MQ_ROWS];
+        [ForceUnroll] for (int r = 0; r < MQ_ROWS; r++) acc[r] = 0;
+        if (e < E)
+        {
+            uint8_t* wb = rowStart(p.w, EXPERT_BYTES, e);
+            uint8_t* xr = p.xq + uint64_t(PER_SLOT ? t * S + s : t) * QROW;
+            [unroll(MQ_UNROLL)]
+            for (uint ch = lane % MQ_LPR; ch < CHUNKS; ch += MQ_LPR)
+            {
+                XChunk xc = load_xchunk(xr, ch);
+                [ForceUnroll]
+                for (int r = 0; r < MQ_ROWS; r++)
+                {
+                    acc[r] += dot_chunk(load_chunk(wb, min(row0 + r, uint(N - 1)), ch), xc, ch);
+                }
+            }
+        }
+        [ForceUnroll]
+        for (int r = 0; r < MQ_ROWS; r++)
+        {
+            float m = row_group_sum(acc[r], lane);
+            if (lane % MQ_LPR == 0)
+            {
+                slotPart[s][rg * MQ_ROWS + r] = MOE_EPI1(m, min(e, uint(E - 1)), min(row0 + r, uint(N - 1)), t, s);
+            }
+        }
+        GroupMemoryBarrierWithGroupSync();
+        if (tid < SLOT_ROWS && gid.x * SLOT_ROWS + tid < N)
+        {
+            float total = 0;
+            [ForceUnroll] for (uint i = 0; i < S; i++) total += slotPart[i][tid];
+            p.y[uint64_t(t) * N + gid.x * SLOT_ROWS + tid] = total;
+        }
+        return;
+    }
+#endif
     uint item = gid.y;
     uint row0 = gid.x * MOE_GROUP_ROWS + (tid / MQ_LPR) * MQ_ROWS;
     uint e = p.ids[item];
@@ -529,9 +594,16 @@ void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Moe
         return;
     }
     uint8_t* wb = rowStart(p.w, EXPERT_BYTES, e);
+#if DUAL
+    uint8_t* wb2 = rowStart(p.w2, EXPERT_BYTES, e);
+#endif
     uint8_t* xr = p.xq + uint64_t(PER_SLOT ? item : item / S) * QROW;
     float acc[MQ_ROWS];
     [ForceUnroll] for (int r = 0; r < MQ_ROWS; r++) acc[r] = 0;
+#if DUAL
+    float acc2[MQ_ROWS];
+    [ForceUnroll] for (int r = 0; r < MQ_ROWS; r++) acc2[r] = 0;
+#endif
     [unroll(MQ_UNROLL)]
     for (uint ch = lane % MQ_LPR; ch < CHUNKS; ch += MQ_LPR)
     {
@@ -540,12 +612,19 @@ void moe_mmvq(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Moe
         for (int r = 0; r < MQ_ROWS; r++)
         {
             acc[r] += dot_chunk(load_chunk(wb, min(row0 + r, uint(N - 1)), ch), xc, ch);
+#if DUAL
+            acc2[r] += dot_chunk(load_chunk(wb2, min(row0 + r, uint(N - 1)), ch), xc, ch);
+#endif
         }
     }
     [ForceUnroll]
     for (int r = 0; r < MQ_ROWS; r++)
     {
         float s = row_group_sum(acc[r], lane);
+#if DUAL
+        float s2 = row_group_sum(acc2[r], lane);
+        if (lane % MQ_LPR == 0 && row0 + r < N) s = MOE_EPI(s, s2, e, row0 + r);
+#endif
         if (lane % MQ_LPR == 0 && row0 + r < N) p.y[uint64_t(item) * N + row0 + r] = s;
     }
 }
