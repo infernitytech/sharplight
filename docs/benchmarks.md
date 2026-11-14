@@ -2447,9 +2447,12 @@ Tests:
 * The NVFP4 dual case gets a wider bound (atol 3). Its random rows give products above 100, and the generic f16 GEMM
   (`SHARPLIGHT_SKINNY_GEMM=0`) deviates from the CPU reference by the same amount.
 * `MatMulTests`, `FusionTests`, `Fp8GemmTests`, `QuantFormatTests` and `MoeTests` pass with the repack.
-* On the branch rebased onto `main` (`5f3c3cf`), run one at a time, these suites pass: Cpu, Vulkan, Families, Serving,
-  Studio and Vision. The first Families run was killed by a system-wide OOM caused by another application; it passed on
-  the rerun.
+* On the branch rebased onto `main` (`2d65fd0`), run one at a time, these suites pass: Cpu, Vulkan, Families, Serving and
+  Vision.
+  * Families was OOM-killed twice while the machine was short of memory (once with its process at 42 GB). It passed on
+    a run alone, at a peak RSS of 16.8 GB.
+  * Studio's `DownloadsViewModelTests.Download_ReportsProgress_PersistsTheQueue_AndAnnouncesTheModel` fails
+    intermittently: in 2 of 3 runs on this branch and in 1 of 4 on `main` (`5f3c3cf`). This change does not touch Studio.
 
 ### 23.6 Commands
 
