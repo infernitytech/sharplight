@@ -11,6 +11,9 @@ namespace Sharplight.Vision.Tests;
 /// language model receives, the prompt logits of an image prompt and the greedy continuation, on the CPU and on Vulkan. The global view alone
 /// uses reference_image_global.json, the global view with a 3 × 2 grid of tiles reference_image.json. tiny-random-deepseek-ocr has the
 /// Unlimited-OCR weights in DeepSeek-OCR's remote-code config (whose layout code is the same), so it is checked against the Unlimited-OCR files.
+/// The "-sam12" checkpoints have a 12-layer SAM with llama.cpp's global layers (references from tiny-random-unlimited-ocr-sam12); their llama.cpp
+/// conversion (text GGUF plus mmproj, ~/models/gguf/tiny-random-deepseek-ocr-sam12-f32.gguf and mmproj-tiny-random-deepseek-ocr-sam12-f32.gguf)
+/// loads through the GGUF importer and is checked against the same references.
 /// </summary>
 public class TinyDeepseekOcrImageTests
 {
@@ -23,11 +26,20 @@ public class TinyDeepseekOcrImageTests
     [InlineData("tiny-random-unlimited-ocr", "reference_image.json", true)]
     [InlineData("tiny-random-deepseek-ocr", "reference_image.json", false)]
     [InlineData("tiny-random-deepseek-ocr", "reference_image.json", true)]
+    [InlineData("tiny-random-deepseek-ocr-sam12", "reference_image_global.json", false)]
+    [InlineData("tiny-random-deepseek-ocr-sam12", "reference_image.json", false)]
+    [InlineData("tiny-random-deepseek-ocr-sam12.gguf", "reference_image_global.json", false)]
+    [InlineData("tiny-random-deepseek-ocr-sam12.gguf", "reference_image_global.json", true)]
+    [InlineData("tiny-random-deepseek-ocr-sam12.gguf", "reference_image.json", false)]
+    [InlineData("tiny-random-deepseek-ocr-sam12.gguf", "reference_image.json", true)]
     public void Tiny_deepseek_ocr_image_prompt_matches_transformers(string name, string reference, bool gpu)
     {
-        string dir = Path.Combine(Home, "models/hf", name);
-        string refPath = Path.Combine(Home, "models/hf/tiny-random-unlimited-ocr", reference);
-        Assert.SkipUnless(Directory.Exists(dir) && File.Exists(refPath), $"{name} or {refPath} not available");
+        bool gguf = name.EndsWith(".gguf", StringComparison.Ordinal);
+        string stem = gguf ? name[..^".gguf".Length] : name;
+        string dir = gguf ? Path.Combine(Home, "models/gguf", stem + "-f32.gguf") : Path.Combine(Home, "models/hf", name);
+        string mmproj = Path.Combine(Home, "models/gguf", "mmproj-" + stem + "-f32.gguf");
+        string refPath = Path.Combine(Home, stem.EndsWith("-sam12", StringComparison.Ordinal) ? "models/hf/tiny-random-unlimited-ocr-sam12" : "models/hf/tiny-random-unlimited-ocr", reference);
+        Assert.SkipUnless((gguf ? File.Exists(dir) && File.Exists(mmproj) : Directory.Exists(dir)) && File.Exists(refPath), $"{name} or {refPath} not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
         using var doc = JsonDocument.Parse(File.ReadAllBytes(refPath));
@@ -38,7 +50,7 @@ public class TinyDeepseekOcrImageTests
         int rows = r.GetProperty("rows").GetInt32();
         var expected = r.GetProperty("embeddings").EnumerateArray().Select(e => e.GetSingle()).ToArray();
 
-        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 1024 });
+        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 1024, Auxiliary = gguf ? [(AuxiliaryRoles.Mmproj, mmproj)] : [] });
         using var vision = model.CreateVisionEncoder();
         var tiles = new List<float[]>();
         if (columns * rows > 1)
@@ -62,7 +74,8 @@ public class TinyDeepseekOcrImageTests
         var embeddings = vision.Encode(image);
         var (maxAbs, _, rms) = Env.Compare(embeddings, expected);
         Console.Error.WriteLine($"{name} {reference} ({(gpu ? "Vulkan" : "CPU")}): embeddings max |diff| {maxAbs:E2}, relative rms {rms:E2}");
-        Assert.True(maxAbs < (gpu ? 2e-3f : 2e-4f), $"embeddings differ by {maxAbs}");
+        // The 12-layer SAM's rows reach ~40 (the 2-layer one's ~5).
+        Assert.True(maxAbs < (gpu ? 2e-3f : 5e-4f), $"embeddings differ by {maxAbs}");
 
         // The reference prompt has one <image> per row; the assembly expands a single placeholder.
         var promptIds = r.GetProperty("prompt_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
@@ -193,6 +206,61 @@ public class TinyDeepseekOcrImageTests
             .Select(t => t.Id).ToArray();
         Assert.Equal(r.GetProperty("prompt_ids").GetArrayLength(), session.Position - ids.Length + 1);
         Assert.Equal(expected, ids);
+    }
+
+    /// <summary>
+    /// The global view of the GGUF conversion against llama-mtmd-cli (llama.cpp 8ca5a80, CPU, <c>--no-mmproj-offload</c>,
+    /// <c>MTMD_DEBUG_EMBEDDINGS</c>) on the 1024 × 1024 test pattern, which neither resizes (its tiles are not compared: llama.cpp resizes them
+    /// differently and resamples the CLIP position grid without skipping the class row). llama.cpp's rows are 2e-3 (relative rms) from
+    /// transformers' and Sharplight's (4e-6 from each other): its SAM MLP uses the tanh GELU and its CPU GELU an f16 table; on Vulkan 5e-3.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Tiny_deepseek_ocr_global_view_matches_llama_cpp(bool gpu)
+    {
+        string gguf = Path.Combine(Home, "models/gguf/tiny-random-deepseek-ocr-sam12-f32.gguf");
+        string mmproj = Path.Combine(Home, "models/gguf/mmproj-tiny-random-deepseek-ocr-sam12-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny DeepSeek-OCR GGUF or mmproj not available");
+        var slot = gpu ? Env.Vulkan() : Env.Cpu();
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [slot!], ContextLength = 512, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)] });
+        using var vision = model.CreateVisionEncoder();
+        const int size = 1024;
+        var view = new float[3 * size * size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                int o = y * size + x;
+                view[o] = (7 * x + 13 * y) % 256 / 127.5f - 1;
+                view[size * size + o] = (3 * x + 5 * y + 80) % 256 / 127.5f - 1;
+                view[2 * size * size + o] = x * y / 64 % 256 / 127.5f - 1;
+            }
+        }
+
+        var e = vision.Encode(ViewPreprocessor.Views(vision.Parameters, view, [], 0, 0));
+        Assert.Equal(273 * 64, e.Length);
+        double sum = e.Sum(v => (double)v);
+        double sumSq = e.Sum(v => (double)v * v);
+        Console.Error.WriteLine($"tiny deepseek-ocr global view ({(gpu ? "Vulkan" : "CPU")}): sum {sum:F2} (llama.cpp -18709.45), sum of squares {sumSq:F0} (llama.cpp 2531811)");
+        Assert.True(Math.Abs(sum + 18709.45) < 40, $"sum {sum}");
+        Assert.True(Math.Abs(sumSq - 2531811) / 2531811 < 1e-2, $"sum of squares {sumSq}");
+        // Rows 0 and 100 (image rows), 271 (the newline), 272 (the view separator): first four values.
+        var rows = new (int Row, float[] Values, float Tolerance)[]
+        {
+            (0, [3.2140f, 11.5484f, -17.2103f, -7.9288f], 0.15f),
+            (100, [6.6945f, 8.9233f, -13.0624f, -5.9688f], 0.15f),
+            (271, [0.0189f, -0.0058f, 0.0306f, 0.0686f], 1e-4f),
+            (272, [0.0377f, -0.1343f, 0.2879f, 0.0740f], 1e-4f),
+        };
+        foreach (var (row, values, tolerance) in rows)
+        {
+            for (int i = 0; i < values.Length; i++)
+            {
+                Assert.True(Math.Abs(e[row * 64 + i] - values[i]) < tolerance, $"row {row}[{i}]: {e[row * 64 + i]} vs llama.cpp {values[i]}");
+            }
+        }
     }
 
     /// <summary>The synthetic normalized image of hf_ocr_image_reference.py, channels first.</summary>
