@@ -155,7 +155,15 @@ output is distributed exactly as without speculation. Two speculators exist:
   multi-token-prediction head (the `mtp_draft` graph that adapters build from MTP / NextN layers, see `MtpDraftHead`): its
   own multi-sequence decoder with one attention layer and KV cache per MTP layer, fed the target's hidden states
   (`ISpeculator.UsesHiddenStates`, `Observe`; the decoder captures them through `IBatchDecoder.CaptureHiddenStates` /
-  `HiddenStates`). Drafts are the head's greedy choices, chained k times per step.
+  `HiddenStates`). Drafts are the head's greedy choices, chained k times per step. Heads: Qwen3.5 / Qwen3-Next MTP layers,
+  and the NextN layer of DeepSeek-V3 (`latent_decoder`) and GLM-4.5 (`decoder`, any family whose checkpoint carries a NextN
+  layer after uniform layers; `MtpDraftHead.FirstNextnModule`). The head compiles against `LlmModel.SharedWeights`, so its
+  embedding and LM head are the decoder's buffers (only its own layer adds device memory).
+
+Verification runs on the device when the decoder samples there (`LlmLoadOptions.DeviceSampling`, `IDeviceSamplingDecoder`):
+every verification row is sampled (greedy or from the sequence's seeded stream at that row's position) by the sampling head,
+and the step reads back one token and log-probability per row instead of logits rows. The decoder downloads hidden states
+only for the rows the draft head asks for (`HiddenStates(input, rows)`), and not at all when nothing captures them.
 
 The decoder must be created with room for the verification rows and the drafts
 (`CreateBatchDecoder(slots, maxLogitsRows: ..., draftTokens: k)`; `ChatModelOptions.Speculator` / `MtpDraftTokens` do that
@@ -166,7 +174,17 @@ the state at the run start, `Truncate` picks how many rows to keep, and the slot
 kernel before its own rows. The engine speculates while at most `SpeculationMaxBatch` sequences decode and verifies at most
 `SpeculationMaxDraftRows` drafts per step (fewer per sequence as the batch grows); requests with an output constraint are not
 speculated. CLI and server: `--speculate-mtp k`, `--speculate-ngram k`; `sharplight-convert precompile --drafts k` stores
-the kernels of the verifying decoders and the draft head.
+the kernels of the verifying decoders and the draft head. `LlmModel.EstimateFootprint(slots, ctx, kvCacheTokens, draftTokens,
+draftHead, maxLogitsRows)` counts the rollback record states, the verification logits rows and (with `draftHead`) the head's
+own weights, KV cache and activations; the hosted loader uses it for admission when `MtpDraftTokens` is set.
+
+### Weight sharing between compiled models
+
+`CompileOptions.SharedWeights` (a `SharedWeights` registry) lets compiled models of the same `ModelSource` use one device
+buffer per weight: buffers are keyed by device, weight source, type, size and the provider's layout (repack), reference
+counted, filled by the first holder and freed with the last. Providers opt in through `IComputeDevice.SharesWeights` (CPU and
+Vulkan do); placement does not count weights already resident. `LlmModel` passes its registry (`LlmModel.SharedWeights`) to
+every decoder and draft head it compiles.
 
 ### Several models
 

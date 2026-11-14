@@ -31,7 +31,20 @@ public class SpeculativeDecodingTests
     [InlineData(true, "mtp", true)]
     [InlineData(true, "ngram", true)]
     public async Task GreedyOutput_Matches_NonSpeculativeDecoding(bool vulkan, string speculator, bool deviceSampling)
-        => await Matches_NonSpeculativeDecoding(vulkan, speculator, deviceSampling, SamplingParams.GreedyDefault);
+        => await Matches_NonSpeculativeDecoding(ModelPath, vulkan, speculator, deviceSampling, SamplingParams.GreedyDefault);
+
+    /// <summary>
+    /// NextN heads (DeepSeek-V3 on the latent decoder, GLM-4.5 on the generic decoder, imported from the checkpoint's trailing MTP
+    /// layer): one draft layer, and greedy output with it is token-identical.
+    /// </summary>
+    [Theory]
+    [InlineData("tiny-random-deepseek-v3.1", false)]
+    [InlineData("tiny-random-deepseek-v3.1", true)]
+    [InlineData("tiny-random-glm-4.5", false)]
+    [InlineData("tiny-random-glm-4.5", true)]
+    public async Task NextnHead_GreedyOutput_Matches_NonSpeculativeDecoding(string model, bool vulkan)
+        => await Matches_NonSpeculativeDecoding(Path.Combine(Path.GetDirectoryName(ModelPath)!, model), vulkan, "mtp", vulkan, SamplingParams.GreedyDefault,
+            m => Assert.Equal(1, m.Definition.Properties[WellKnown.DraftLayers]));
 
     /// <summary>
     /// Seeded sampling verified on the device: every verification row draws from the sequence's random stream at the position it
@@ -41,17 +54,19 @@ public class SpeculativeDecodingTests
     [InlineData("mtp")]
     [InlineData("ngram")]
     public async Task SeededSampling_OnDevice_Matches_NonSpeculativeDecoding(string speculator)
-        => await Matches_NonSpeculativeDecoding(true, speculator, true, new SamplingParams { Temperature = 0.5f, TopK = 4, Seed = 5 });
+        => await Matches_NonSpeculativeDecoding(ModelPath, true, speculator, true, new SamplingParams { Temperature = 0.5f, TopK = 4, Seed = 5 });
 
-    private static async Task Matches_NonSpeculativeDecoding(bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling)
+    private static async Task Matches_NonSpeculativeDecoding(string modelPath, bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling,
+        Action<LlmModel>? check = null)
     {
-        Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
+        Assert.SkipUnless(Directory.Exists(modelPath), $"{modelPath} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions
+        using var model = LlmModel.Load(modelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = deviceSampling,
         });
         Assert.True(model.HasDraftHead);
+        check?.Invoke(model);
         var rng = new Random(11);
         // Repetitive prompts give the n-gram speculator something to find; the random model's own output repeats too.
         int[][] prompts = [.. Enumerable.Range(0, 4).Select(i =>

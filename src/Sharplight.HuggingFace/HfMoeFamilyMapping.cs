@@ -8,8 +8,8 @@ namespace Sharplight.HuggingFace;
 /// <summary>
 /// Base of the Hugging Face mixture-of-experts decoders that map onto the canonical <c>decoder</c> MoE block (routing documented on
 /// <c>MoeOptions</c>). It knows the router, selection-bias, shared-expert and expert tensor names these checkpoints use, stacks
-/// per-expert tensors into rank-3 weights, drops the multi-token-prediction layers that follow the decoder layers, and writes the
-/// canonical <c>moe.*</c> keys from a <see cref="MoeRouting"/> description.
+/// per-expert tensors into rank-3 weights (also of the multi-token-prediction layers that follow the decoder layers, see
+/// <see cref="HfDecoderFamilyMapping"/>), and writes the canonical <c>moe.*</c> keys from a <see cref="MoeRouting"/> description.
 /// </summary>
 internal abstract partial class HfMoeFamilyMapping : HfDecoderFamilyMapping
 {
@@ -56,9 +56,6 @@ internal abstract partial class HfMoeFamilyMapping : HfDecoderFamilyMapping
     [GeneratedRegex(@"^(?:mlp|block_sparse_moe)\.experts\.(\d+)\.(\w+)\.weight$")]
     private static partial Regex PerExpertName();
 
-    [GeneratedRegex(@"^layers\.(\d+)\.$")]
-    private static partial Regex LayerPrefix();
-
     /// <summary>The routing of this checkpoint, or null for a checkpoint without experts.</summary>
     protected abstract MoeRouting? Routing(HfConfig c);
 
@@ -83,11 +80,6 @@ internal abstract partial class HfMoeFamilyMapping : HfDecoderFamilyMapping
     /// <inheritdoc/>
     protected sealed override bool TryMapSpecialLayerTensor(HfConfig c, string layerPrefix, string suffix, WeightInfo w, HfWeightCollector collector)
     {
-        if (int.Parse(LayerPrefix().Match(layerPrefix).Groups[1].Value) >= LayerCount(c))
-        {
-            return true;   // multi-token-prediction layers after the decoder are not used
-        }
-
         if (TryMapFamilyTensor(c, layerPrefix, suffix, w, collector))
         {
             return true;

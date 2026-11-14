@@ -53,15 +53,11 @@ public static class WellKnown
     public const string DraftLayers = "draft_layers";
     /// <summary>
     /// Name of the decode-graph output a model's <see cref="DraftGraph"/> reads as its hidden states (string property; absent:
-    /// <see cref="HiddenOutput"/>, the state after the final norm). DeepSeek-V3 / GLM-4.5 NextN heads read the residual stream
-    /// before the final norm (<see cref="ResidualOutput"/>).
+    /// <see cref="HiddenOutput"/>, the state after the final norm, which the MTP heads of Qwen3.5 / Qwen3-Next and the NextN heads
+    /// of DeepSeek-V3 / GLM-4.5 read). For a head trained on another tap of the decoder (e.g. an EAGLE-style head on a
+    /// pre-norm or intermediate state), the adapter adds that output to the decode graph and names it here.
     /// </summary>
     public const string DraftHiddenSource = "draft_hidden_source";
-    /// <summary>
-    /// Name of the residual-stream output [T, H] (the hidden state before the final norm) of decoder graphs whose draft head
-    /// reads it (see <see cref="DraftHiddenSource"/>).
-    /// </summary>
-    public const string ResidualOutput = "residual";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 

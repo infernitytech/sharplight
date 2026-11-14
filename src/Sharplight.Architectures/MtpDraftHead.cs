@@ -16,16 +16,60 @@ namespace Sharplight.Architectures;
 /// <c>mtp.lm_head.weight</c> (default: the trunk's <c>token_embedding.weight</c> and <c>lm_head.weight</c>, else the tied
 /// embedding) and the layers' weights below <c>mtp.layers.{j}.</c>.
 /// <para>
-/// The graph's <see cref="WellKnown.HiddenOutput"/> is what the next chained draft step feeds back as its hidden input: after the
-/// output norm (Qwen3.5 / Qwen3-Next, vLLM's convention for these models) or before it (DeepSeek-V3 / GLM-4.5 NextN, whose
-/// target hidden is the pre-norm residual stream); see the <c>chainNormalized</c> argument of <see cref="Build"/>.
+/// The target's hidden state is its <see cref="WellKnown.HiddenOutput"/> (after the final norm), and the graph's own
+/// <see cref="WellKnown.HiddenOutput"/>, which the next chained draft step feeds back, is taken after the output norm too
+/// (<c>chainNormalized</c>): Qwen3.5 / Qwen3-Next and the NextN heads of DeepSeek-V3 / GLM-4.5 alike (vLLM, SGLang and llama.cpp
+/// feed these heads the normed states).
 /// </para>
 /// </remarks>
 public static class MtpDraftHead
 {
+    private const string FirstModule = "mtp.layers.0.";
+    private static readonly string[] s_moduleWeights = ["fc.weight", "embedding_norm.weight", "hidden_norm.weight", "output_norm.weight"];
+
     /// <summary>True when <paramref name="lookup"/> has the shared MTP weights (fc and the two input norms).</summary>
     public static bool IsPresent(Func<string, WeightInfo?> lookup)
         => lookup("mtp.fc.weight") is not null && lookup("mtp.embedding_norm.weight") is not null && lookup("mtp.hidden_norm.weight") is not null;
+
+    /// <summary>
+    /// The NextN layout (DeepSeek-V3, GLM-4.5): every MTP module <c>j</c> is one decoder layer with its own fc, input norms and
+    /// optional output norm, all below <c>mtp.layers.{j}.</c> (<c>fc.weight</c>, <c>embedding_norm.weight</c>,
+    /// <c>hidden_norm.weight</c>, <c>output_norm.weight</c>, else the trunk's <c>output_norm.weight</c>). A single module is a complete
+    /// draft step (chained for further drafts, as vLLM and llama.cpp do); this returns a lookup that serves module 0 under the shared
+    /// names <see cref="Build"/> reads, for a head of one layer (weights below <c>mtp.layers.0.</c>), or null when the model has no
+    /// such module. The embedding and LM head stay the trunk's: the modules share them with the main model (the copies a checkpoint
+    /// carries per module are not used, so no second copy is loaded).
+    /// </summary>
+    /// <param name="lookup">Weight lookup of the model.</param>
+    public static Func<string, WeightInfo?>? FirstNextnModule(Func<string, WeightInfo?> lookup)
+    {
+        if (s_moduleWeights.Take(3).Any(n => lookup(FirstModule + n) is null))
+        {
+            return null;
+        }
+
+        return name =>
+        {
+            if (name is "mtp.token_embedding.weight" or "mtp.lm_head.weight")
+            {
+                return null;
+            }
+
+            string suffix = name.StartsWith("mtp.", StringComparison.Ordinal) ? name["mtp.".Length..] : "";
+            if (!s_moduleWeights.Contains(suffix))
+            {
+                return lookup(name);
+            }
+
+            return lookup(FirstModule + suffix) ?? (suffix == "output_norm.weight" ? lookup("output_norm.weight") : null);
+        };
+    }
+
+    /// <summary>Model properties of a NextN head (<see cref="FirstNextnModule"/>): one draft layer; empty without a head.</summary>
+    /// <param name="present">Whether the model has the head.</param>
+    public static IReadOnlyDictionary<string, object> NextnProperties(bool present) => present
+        ? new Dictionary<string, object> { [WellKnown.DraftLayers] = 1 }
+        : new Dictionary<string, object>();
 
     /// <summary>Builds the draft graph.</summary>
     /// <param name="lookup">Weight lookup of the model.</param>

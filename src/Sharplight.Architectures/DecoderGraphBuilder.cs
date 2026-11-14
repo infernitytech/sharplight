@@ -19,6 +19,7 @@ internal sealed partial class DecoderGraphBuilder
     private readonly IMlpActivation _activation;
     private readonly StateDefinition[] _kCache;
     private readonly StateDefinition[] _vCache;
+    private Func<string, WeightInfo?>? _draft;
     private string _pooling = "last";
     private bool _normalize = true;
 
@@ -35,11 +36,15 @@ internal sealed partial class DecoderGraphBuilder
         int runtimeCtx = _options.ContextLength > 0 ? _options.ContextLength : _hp.ContextLength;
         _longRope = UseLongRope(origCtx, runtimeCtx);
         States = [];
-        _kCache = new StateDefinition[_hp.NLayer];
-        _vCache = new StateDefinition[_hp.NLayer];
-        for (int il = 0; il < _hp.NLayer; il++)
+        // A NextN draft head (one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) when the layers are uniform: the
+        // MTP layer is built like a trunk layer with index NLayer and has its own KV cache.
+        _draft = _hp.UniformLayers && _hp.NormType == "rms" && _hp.PreNorm ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
+        int layers = _hp.NLayer + (_draft is null ? 0 : 1);
+        _kCache = new StateDefinition[layers];
+        _vCache = new StateDefinition[layers];
+        for (int il = 0; il < layers; il++)
         {
-            string g = $"layers.{il}";
+            string g = il < _hp.NLayer ? $"layers.{il}" : $"mtp.layers.{il - _hp.NLayer}";
             int srcLayer = _hp.KvSourceOf(il);
             if (srcLayer != il)
             {
@@ -62,6 +67,9 @@ internal sealed partial class DecoderGraphBuilder
     /// <summary>The persistent states (KV caches) the graphs use.</summary>
     public List<StateDefinition> States { get; }
 
+    /// <summary>Whether the model has a NextN draft head (<see cref="WellKnown.DraftGraph"/>); valid after <see cref="BuildGraphs"/>.</summary>
+    public bool HasDraftHead => _draft is not null;
+
     /// <summary>Pooling of the packed-sequence embedding graph; valid after <see cref="BuildGraphs"/>.</summary>
     public string Pooling => _pooling;
 
@@ -75,6 +83,29 @@ internal sealed partial class DecoderGraphBuilder
     public Dictionary<string, ComputeGraph> BuildGraphs()
     {
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false) };
+        if (_draft is not null)
+        {
+            try
+            {
+                graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.NEmbd, positionAxes: 1, _hp.Eps, layers: 1, (b, x, j, positions) =>
+                {
+                    string p = $"mtp.layers.{j}.";
+                    int il = _hp.NLayer + j;
+                    var packedKv = new Dictionary<int, (Value K, Value V)>();
+                    return _hp.ParallelResidual
+                        ? ParallelLayer(b, x, p, il, positions, FrequencyFactors(b), null, packedKv)
+                        : SequentialLayer(b, x, p, il, positions, FrequencyFactors(b), null, packedKv);
+                }, chainNormalized: true);
+            }
+            catch (KeyNotFoundException)
+            {
+                // The checkpoint's MTP layer lacks weights a trunk layer has (an importer that does not know the family's MTP tensors):
+                // no draft head.
+                _draft = null;
+                States.RemoveAll(s => s.Group == "mtp.layers.0");
+            }
+        }
+
         if (_options.IncludeAuxiliaryGraphs)
         {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);

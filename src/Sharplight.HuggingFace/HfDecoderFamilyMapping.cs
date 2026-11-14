@@ -222,7 +222,9 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
             }
 
             var match = LayerName.Match(name);
-            if (!match.Success || !TryMapLayerTensor(c, match.Groups[1].Value, match.Groups[2].Value, w, collector))
+            // A multi-token-prediction layer's tensor this family does not know is dropped (the head is then not built, or drafts
+            // worse; verification keeps the output exact) instead of failing the import, which never needed those layers.
+            if (!match.Success || (!TryMapLayerTensor(c, match.Groups[1].Value, match.Groups[2].Value, w, collector) && !IsMtpLayer(c, match.Groups[1].Value)))
             {
                 collector.AddUnmapped(name);
             }
@@ -234,9 +236,27 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
         return collector.Weights;
     }
 
+    private bool IsMtpLayer(HfConfig c, string layer)
+        => c.GetInt("num_hidden_layers") is not null && int.TryParse(layer, out int index) && index >= LayerCount(c);
+
     private bool TryMapLayerTensor(HfConfig c, string layer, string suffix, WeightInfo w, HfWeightCollector collector)
     {
+        // Multi-token-prediction (NextN) layers after the decoder's: an ordinary layer plus the NextN tensors, below mtp.layers.{j}.
         string prefix = $"layers.{layer}.";
+        if (IsMtpLayer(c, layer))
+        {
+            prefix = $"mtp.layers.{int.Parse(layer) - LayerCount(c)}.";
+            if (HfNextnTensors.Suffixes.TryGetValue(suffix, out var nextn))
+            {
+                if (nextn is not null)
+                {
+                    collector.Add(IsNorm(nextn) ? NormWeight(w, prefix + nextn) : HfTransforms.Plain(w, prefix + nextn));
+                }
+
+                return true;
+            }
+        }
+
         if (TryMapSpecialLayerTensor(c, prefix, suffix, w, collector))
         {
             return true;

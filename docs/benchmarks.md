@@ -1248,13 +1248,13 @@ identical to the old kernel (model logits relRms 0.0).
 **State layout:** unchanged (delta-rule state `[slot, HV, DV, DK]` f32, conv state `[slot, KS-1, C]` f32).
 
 **Rollback form (section 17).** Graphs built with `MultiSequence.Transform(..., rollbackRows)` have a commits table and
-record banks, and their recurrent ops keep the token-by-token `delta_rule` and the per-channel `conv1d`, which replay and
-record rows. The chunked delta rule and the token-parallel conv1d serve only the plain single- and multi-sequence forms.
-Honouring the commits table in the chunked kernels (replay the committed rows first, record tentative rows, skip the
-state store) is an open item. Verify batches are short (k + 1 rows per sequence), but a decoder with speculation
-enabled runs prompt prefill through the same rollback-form graph, so its prefill does not get the gains of this section yet.
-A natural split: the token-by-token kernel replays the committed rows (a few per slot) in a first launch, then the chunked
-form serves non-tentative long runs from the replayed state.
+record banks. Their recurrent ops run the token-by-token `delta_rule` / per-channel `conv1d` first: every run replays its
+committed rows (from the read bank) into the slot's state, and short runs (tentative verification runs, decode) then
+process, record and store as before. Runs longer than the threshold (64 rows for the delta rule, 16 for conv1d, at least
+k + 1 so a tentative run never qualifies) stop after the replay and store the replayed state; the chunked delta rule and
+`conv1d_tokens` / `conv1d_state` then serve them from that state, after a barrier. So a decoder with speculation enabled
+gets this section's prefill gains too (17.4). `RecurrentRollbackTests` covers a partially kept speculative round followed
+by a 64-row run against the reference.
 
 ### 18.2 Accuracy
 
