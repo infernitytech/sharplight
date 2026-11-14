@@ -1,3 +1,4 @@
+using Sharplight.Hub;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Chat;
@@ -42,6 +43,7 @@ internal sealed class ModelHostBuilder
             MaxLoadedModels = _plan.MaxLoadedModels,
             IdleTimeout = ToTimeout(_plan.IdleTimeoutSeconds),
             Log = Console.Error.WriteLine,
+            Resolve = _plan.OnDemand ? ResolveStored : null,
         });
 
         foreach (var spec in _plan.Models)
@@ -49,8 +51,34 @@ internal sealed class ModelHostBuilder
             host.Register(CreateRegistration(spec));
         }
 
+        if (_plan.OnDemand)
+        {
+            // Listed in /v1/models right away; models stored later are found by name on their first request.
+            foreach (var manifest in new ModelStore(_settings.StoreRoot).List().Where(manifest => !host.Contains(manifest.Name)))
+            {
+                host.Register(CreateRegistration(OnDemandSpec(manifest.Name, manifest.PackagePath)));
+            }
+        }
+
         return host;
     }
+
+    /// <summary>The registration of a stored model requested by name (<c>owner/name[:tag]</c> or <c>alias[:tag]</c>), or null.</summary>
+    private ModelRegistration? ResolveStored(string name)
+    {
+        try
+        {
+            return new ModelStore(_settings.StoreRoot).Find(name) is { } manifest && File.Exists(manifest.PackagePath)
+                ? CreateRegistration(OnDemandSpec(name, manifest.PackagePath))
+                : null;
+        }
+        catch (HubException)
+        {
+            return null;   // ambiguous name
+        }
+    }
+
+    private static ModelSpec OnDemandSpec(string name, string path) => new() { Name = name, Path = path, Lazy = true };
 
     private static TimeSpan? ToTimeout(double? seconds)
     {

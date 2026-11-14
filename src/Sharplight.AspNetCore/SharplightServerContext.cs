@@ -26,6 +26,16 @@ internal sealed class SharplightServerContext
     public SharplightServerOptions Options { get; }
     internal bool ModelsMapped;
 
+    /// <summary>True when the endpoints expose <paramref name="name"/> (<see cref="SharplightServerOptions.ModelFilter"/>).</summary>
+    public bool IsServed(string name) => Options.ModelFilter?.Invoke(name) ?? true;
+
+    /// <summary>The registered models the endpoints expose.</summary>
+    public IReadOnlyList<ModelInfo> ListModels() => Options.ModelFilter is null ? Host.List() : [.. Host.List().Where(m => IsServed(m.Name))];
+
+    /// <summary>The first exposed model of <paramref name="kind"/>, used when a request names none.</summary>
+    public string? DefaultName(ModelKind kind = ModelKind.Chat)
+        => Options.ModelFilter is null ? Host.DefaultName(kind) : ListModels().FirstOrDefault(m => m.Kind == kind)?.Name;
+
     /// <summary>The default chat model's service (loads it if needed); for code written for a single model. Prefer <see cref="AcquireAsync"/>.</summary>
     public ModelService Model
     {
@@ -45,14 +55,19 @@ internal sealed class SharplightServerContext
     public async Task<ModelLease> AcquireAsync(HttpContext http, string? requested, ModelKind kind = ModelKind.Chat)
     {
         string? name = requested;
-        if (string.IsNullOrEmpty(name) || (Options.UnknownModelFallsBackToDefault && !Host.Contains(name)))
+        if (string.IsNullOrEmpty(name) || (Options.UnknownModelFallsBackToDefault && !(Host.Contains(name) && IsServed(name))))
         {
-            name = Host.DefaultName(kind);
+            name = DefaultName(kind);
         }
 
         if (name is null)
         {
             throw ModelNotFound(http, $"No {kind.ToString().ToLowerInvariant()} model is available.");
+        }
+
+        if (!IsServed(name))
+        {
+            throw ModelNotFound(http, $"The model '{name}' does not exist.");
         }
 
         try

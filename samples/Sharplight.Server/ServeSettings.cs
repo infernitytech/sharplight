@@ -29,6 +29,7 @@ namespace Sharplight.Server;
 /// <param name="MaxLoadedModels">Resident model limit; null defers to the config file.</param>
 /// <param name="Lazy">Load models on first request.</param>
 /// <param name="IdleTimeoutSeconds">Idle unload timeout; null defers to the config file.</param>
+/// <param name="OnDemand">Also serve every model of the store by name, loading it on its first request.</param>
 /// <param name="StoreRoot">The model store that model names are looked up in.</param>
 /// <param name="Pull">How models missing from the store are pulled.</param>
 internal sealed record ServeSettings(
@@ -57,5 +58,6 @@ internal sealed record ServeSettings(
     int? MaxLoadedModels,
     bool Lazy,
     double? IdleTimeoutSeconds,
+    bool OnDemand,
     string StoreRoot,
     PullSettings Pull);

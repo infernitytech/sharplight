@@ -67,6 +67,7 @@ Python: `openai.OpenAI(base_url="http://localhost:8080/v1", api_key="x")` or `an
 | `--kv-tokens N`, `--kv-type T` | Paged KV cache: one pool of N tokens (K/M suffixes) shared by all slots, each growing to `--ctx` as needed, so many short chats fit in the memory of a few long ones; requests are admitted by free cache blocks, the newest running sequences are preempted and recomputed when the pool runs out, and common prompt prefixes are shared between requests. Default: each slot reserves `--ctx` tokens. KV element type f16 (default), f32, q8_0 or q4_0. See [docs/kv-cache.md](../../docs/kv-cache.md). |
 | `--vram-reserve SIZE`, `--vram-budget SIZE`, `--max-loaded N` | Memory kept free (1G), total cap, resident model limit with LRU eviction. |
 | `--lazy`, `--idle-timeout SECONDS` | Load on first request; unload idle models (they reload on demand). |
+| `--on-demand` | Also serve every model of the model store by name (ollama-style): listed in `/v1/models`, loaded on its first request; combine with `--idle-timeout`, `--max-loaded` and `--vram-reserve` for TTL and LRU eviction. |
 | `--chat-template FILE`, `--temp T`, `--mmproj FILE` | Template override, default temperature (0.7), vision projector. |
 
 Models that do not fit in free device memory are refused with a clear error (or, with `--cpu-offload`, partly run on the CPU);

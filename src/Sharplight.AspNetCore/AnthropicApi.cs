@@ -32,7 +32,7 @@ internal static class AnthropicApi
 
     internal static JsonNode ModelList(SharplightServerContext ctx)
     {
-        var l = ctx.Host.List();
+        var l = ctx.ListModels();
         return new JsonObject { ["data"] = new JsonArray(l.Select(m => ModelObject(m)).ToArray()), ["has_more"] = false, ["first_id"] = l.FirstOrDefault()?.Name, ["last_id"] = l.LastOrDefault()?.Name };
     }
 

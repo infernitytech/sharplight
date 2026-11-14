@@ -7,10 +7,12 @@ namespace Sharplight.Server;
 /// <param name="MaxLoadedModels">Resident model limit; zero means unlimited.</param>
 /// <param name="LazyByDefault">Models without their own <c>lazy</c> setting load on first request.</param>
 /// <param name="IdleTimeoutSeconds">Idle unload timeout; null or zero disables it.</param>
+/// <param name="OnDemand">Serve every stored model by name, loading it on its first request.</param>
 internal sealed record ServerPlan(
     IReadOnlyList<ModelSpec> Models,
     long ReserveBytes,
     long? BudgetBytes,
     int MaxLoadedModels,
     bool LazyByDefault,
-    double? IdleTimeoutSeconds);
+    double? IdleTimeoutSeconds,
+    bool OnDemand = false);

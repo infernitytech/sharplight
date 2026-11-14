@@ -18,6 +18,9 @@ internal sealed class ServerConfig
     /// <summary>Unload models idle for this many seconds.</summary>
     public double? IdleTimeout { get; set; }
 
+    /// <summary>Also serve every model of the store by name, loading it on its first request.</summary>
+    public bool? OnDemand { get; set; }
+
     /// <summary>The served models.</summary>
     public List<ModelSpec>? Models { get; set; }
 }

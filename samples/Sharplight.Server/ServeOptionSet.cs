@@ -122,6 +122,12 @@ internal sealed class ServeOptionSet
         Description = "Unload models that served nothing for this long; they reload on demand.",
     };
 
+    private readonly Option<bool> _onDemand = new("--on-demand")
+    {
+        Description = "Also serve every model of the model store by name (ollama-style): it loads on its first request; "
+            + "combine with --idle-timeout and --max-loaded / --vram-reserve to unload idle and least recently used models.",
+    };
+
     public ServeOptionSet(StoreOptionSet store)
     {
         _store = store;
@@ -156,6 +162,7 @@ internal sealed class ServeOptionSet
         command.Options.Add(_maxLoaded);
         command.Options.Add(_lazy);
         command.Options.Add(_idleTimeout);
+        command.Options.Add(_onDemand);
         _pull.AddTo(command);
         command.Validators.Add(ValidateModelSource);
         command.SetAction(HubGuard.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
@@ -165,10 +172,11 @@ internal sealed class ServeOptionSet
     {
         bool hasModel = result.GetValue(_positional) is { Length: > 0 }
             || result.GetValue(_models) is { Length: > 0 }
-            || result.GetValue(_config) is not null;
+            || result.GetValue(_config) is not null
+            || result.GetValue(_onDemand);
         if (!hasModel)
         {
-            result.AddError("Give a model to serve: one or more positional <model>, --model NAME=MODEL, or --config FILE.");
+            result.AddError("Give a model to serve: one or more positional <model>, --model NAME=MODEL, --config FILE, or --on-demand.");
             return;
         }
 
@@ -209,6 +217,7 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_maxLoaded),
             parseResult.GetValue(_lazy),
             parseResult.GetValue(_idleTimeout),
+            parseResult.GetValue(_onDemand),
             _store.ReadRoot(parseResult),
             pull);
     }

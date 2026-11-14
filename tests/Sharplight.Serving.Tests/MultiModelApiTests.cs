@@ -174,6 +174,50 @@ public sealed class MultiModelApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ModelFilter_HidesModels_FromListsAndRequests()
+    {
+        await DisposeAsync();
+        await Start(o => o.ModelFilter = name => name == "model-b");
+        var list = JsonDocument.Parse(await _client.GetStringAsync("/v1/models", TestContext.Current.CancellationToken)).RootElement;
+        Assert.Equal(["model-b"], list.GetProperty("data").EnumerateArray().Select(m => m.GetProperty("id").GetString()));
+        var (hidden, _) = await Post("/v1/chat/completions", Chat("model-a"));
+        Assert.Equal(HttpStatusCode.NotFound, hidden);
+        var (served, body) = await Post("/v1/chat/completions", Chat("model-b"));
+        Assert.Equal(HttpStatusCode.OK, served);
+        Assert.Equal("I am B", body.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString());
+        Assert.Equal(0, _a.Loads);
+    }
+
+    [Fact]
+    public async Task StoppingTheServer_KeepsTheModelsUsable_WhenDrainingIsOff()
+    {
+        await DisposeAsync();
+        var pool = new FakePool("gpu", 10L << 30);
+        var loader = new FakeLoader(pool, 1L << 30) { Reply = "still here" };
+        using var host = new ModelHost(new ModelHostOptions { ReserveBytes = 0 });
+        host.Register(new ModelRegistration { Name = "m", Loader = loader });
+        for (int run = 0; run < 2; run++)
+        {
+            var b = WebApplication.CreateBuilder();
+            b.WebHost.UseTestServer();
+            b.Logging.ClearProviders();
+            b.Services.AddSharplight(host, o => o.DrainModelsOnStop = false);
+            await using var app = b.Build();
+            app.UseSharplight();
+            app.MapSharplight();
+            await app.StartAsync(TestContext.Current.CancellationToken);
+            using var client = app.GetTestClient();
+            using var response = await client.PostAsync("/v1/chat/completions", new StringContent(Chat("m"), Encoding.UTF8, "application/json"),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            await app.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(1, loader.Loads);
+        await Start(o => { });   // for DisposeAsync
+    }
+
+    [Fact]
     public async Task HealthAndMetrics_CoverEveryModel()
     {
         await Post("/v1/chat/completions", Chat("model-a"));

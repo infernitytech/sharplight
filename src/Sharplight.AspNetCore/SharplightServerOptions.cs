@@ -35,4 +35,15 @@ public sealed class SharplightServerOptions
     public bool UnknownModelFallsBackToDefault { get; set; }
     /// <summary>Serve the admin endpoints (<c>GET /admin/models</c>, <c>POST /admin/models/{name}/load|unload</c>). They need an API key when keys are configured, else a loopback caller.</summary>
     public bool Admin { get; set; } = true;
+    /// <summary>
+    /// Which models of the host the endpoints expose (null = all): models it rejects are not listed and are answered like unknown
+    /// names, so one <c>ModelHost</c> can be shared with other code (e.g. a desktop app's chat) while only some models are served.
+    /// Evaluated per request. On-demand names (<c>ModelHostOptions.Resolve</c>) are passed through it before they are loaded.
+    /// </summary>
+    public Func<string, bool>? ModelFilter { get; set; }
+    /// <summary>
+    /// Drain the host's models when the server stops (default). Turn off when the <c>ModelHost</c> outlives the server and keeps
+    /// being used (an embedding application that starts and stops the endpoints): draining stops the models' schedulers for good.
+    /// </summary>
+    public bool DrainModelsOnStop { get; set; } = true;
 }

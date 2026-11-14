@@ -315,4 +315,80 @@ public class ModelHostTests
         host.Dispose();
         Assert.Equal(0, pool.Ours);
     }
+
+    [Fact]
+    public async Task Resolve_RegistersUnknownNamesOnDemand()
+    {
+        var pool = new FakePool("gpu", 10 * GiB);
+        var loader = new FakeLoader(pool, GiB);
+        var asked = new List<string>();
+        using var host = new ModelHost(new ModelHostOptions
+        {
+            ReserveBytes = 0,
+            Resolve = name =>
+            {
+                lock (asked)
+                {
+                    asked.Add(name);
+                }
+
+                return name == "stored" ? Reg(name, loader) : null;
+            },
+        });
+
+        Assert.False(host.Contains("stored"));
+        using (var lease = await host.AcquireAsync("stored", ct: TestContext.Current.CancellationToken))
+        {
+            Assert.Equal("stored", lease.Name);
+        }
+
+        Assert.True(host.Contains("stored"));
+        Assert.Equal(ModelState.Loaded, host.Get("stored")!.State);
+        await Assert.ThrowsAsync<ModelNotFoundException>(() => host.AcquireAsync("missing", ct: TestContext.Current.CancellationToken));
+        using (await host.AcquireAsync("stored", ct: TestContext.Current.CancellationToken))
+        {
+        }
+
+        Assert.Equal(["stored", "missing"], asked);   // a registered name is not resolved again
+        Assert.Equal(1, loader.Loads);
+    }
+
+    [Fact]
+    public async Task Unregister_UnloadsAndForgetsTheModel()
+    {
+        var pool = new FakePool("gpu", 10 * GiB);
+        var loader = new FakeLoader(pool, 2 * GiB);
+        using var host = Host();
+        host.Register(Reg("a", loader, pinned: true));
+        await host.LoadAsync("a", TestContext.Current.CancellationToken);
+        Assert.Equal(2 * GiB, pool.Ours);
+
+        Assert.True(await host.UnregisterAsync("a"));
+        Assert.False(host.Contains("a"));
+        Assert.Equal(0, pool.Ours);
+        Assert.Empty(host.List());
+        Assert.False(await host.UnregisterAsync("a"));
+        host.Register(Reg("a", loader));   // the name is free again
+    }
+
+    [Fact]
+    public async Task ModelsChanged_IsRaisedForRegistrationAndStateChanges()
+    {
+        var pool = new FakePool("gpu", 10 * GiB);
+        using var host = Host();
+        int raised = 0;
+        var signal = new SemaphoreSlim(0);   // not disposed: events may still arrive while the host is disposed
+        host.ModelsChanged += (_, _) =>
+        {
+            Interlocked.Increment(ref raised);
+            signal.Release();
+        };
+
+        host.Register(Reg("a", new FakeLoader(pool, GiB)));
+        Assert.True(await signal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        int afterRegister = Volatile.Read(ref raised);
+        await host.LoadAsync("a", TestContext.Current.CancellationToken);
+        Assert.True(await signal.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.True(Volatile.Read(ref raised) > afterRegister);
+    }
 }

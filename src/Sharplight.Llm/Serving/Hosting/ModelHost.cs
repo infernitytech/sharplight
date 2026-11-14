@@ -81,6 +81,31 @@ public sealed class ModelHost : IDisposable
     /// <summary>The host's policy.</summary>
     public ModelHostOptions Options => _opt;
 
+    /// <summary>
+    /// Raised after a model was registered or removed, changed its state, or gained or lost a lease. Raised on a thread-pool thread
+    /// (never under the host's locks), possibly coalesced and out of order: handlers re-read <see cref="List"/>. Exceptions of
+    /// handlers are logged (<see cref="ModelHostOptions.Log"/>) and otherwise ignored.
+    /// </summary>
+    public event EventHandler? ModelsChanged;
+
+    private void RaiseChanged()
+    {
+        if (ModelsChanged is { } handler)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    handler(this, EventArgs.Empty);
+                }
+                catch (Exception e)
+                {
+                    _opt.Log?.Invoke("ModelsChanged handler failed: " + e.Message);
+                }
+            });
+        }
+    }
+
     // ---- registry ---------------------------------------------------------------------------------------------------
 
     /// <summary>Registers a model; it is loaded on first use (or at startup, see <see cref="ModelRegistration.LoadAtStartup"/>).</summary>
@@ -102,6 +127,7 @@ public sealed class ModelHost : IDisposable
 
             _order.Add(registration.Name);
         }
+        RaiseChanged();
         if (registration.IdleTimeout is not null)
         {
             EnsureTimer();
@@ -196,11 +222,9 @@ public sealed class ModelHost : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!_entries.TryGetValue(name, out e!))
-            {
-                throw new ModelNotFoundException(name);
-            }
+            _entries.TryGetValue(name, out e!);
         }
+        e ??= ResolveEntry(name) ?? throw new ModelNotFoundException(name);
         if (kind is { } k && e.Reg.Kind != k)
         {
             throw new ModelKindMismatchException(name, e.Reg.Kind, k);
@@ -238,6 +262,64 @@ public sealed class ModelHost : IDisposable
         }
     }
 
+    /// <summary>Registers <paramref name="name"/> through <see cref="ModelHostOptions.Resolve"/>; null when it cannot be resolved.</summary>
+    private Entry? ResolveEntry(string name)
+    {
+        if (_opt.Resolve?.Invoke(name) is not { } registration)
+        {
+            return null;
+        }
+
+        if (registration.Name != name)
+        {
+            throw new InvalidOperationException($"The resolver returned a registration named '{registration.Name}' for '{name}'.");
+        }
+
+        try
+        {
+            Register(registration);
+        }
+        catch (InvalidOperationException)
+        {
+            // Registered concurrently by another request: use that one.
+        }
+
+        lock (_gate)
+        {
+            return _entries.GetValueOrDefault(name);
+        }
+    }
+
+    /// <summary>
+    /// Unloads a model like <see cref="UnloadAsync"/> (pinned ones too) and removes its registration, so the name is unknown again
+    /// (or resolved anew through <see cref="ModelHostOptions.Resolve"/>). Returns false when it was not registered.
+    /// </summary>
+    /// <exception cref="ModelBusyException">Requests did not finish in time and <paramref name="force"/> is false.</exception>
+    public async Task<bool> UnregisterAsync(string name, TimeSpan? drainTimeout = null, bool force = false)
+    {
+        Entry? e;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(name, out e))
+            {
+                return false;
+            }
+        }
+
+        await UnloadAsync(name, drainTimeout, force || e.Reg.Pinned).ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (_entries.TryGetValue(name, out var current) && current == e && e.State is ModelState.Unloaded or ModelState.Failed)
+            {
+                _entries.Remove(name);
+                _order.Remove(name);
+            }
+        }
+
+        RaiseChanged();
+        return true;
+    }
+
     private void Release(Entry e)
     {
         lock (_gate)
@@ -259,6 +341,7 @@ public sealed class ModelHost : IDisposable
         var old = e.Changed;
         e.Changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         old.TrySetResult();
+        RaiseChanged();
     }
 
     // ---- loading ----------------------------------------------------------------------------------------------------
