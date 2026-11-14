@@ -43,4 +43,25 @@ public sealed class SimtGemmTests
         Diff.Check("MatMul.simt." + format, tg.B.Build(), steps, atol: 2e-3, rtol: 1e-3, maxTokens: 128, what: format,
             disabledFeatures: new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixWorkgroup, DeviceFeatures.IntDot });
     }
+
+    /// <summary>
+    /// Large grids take the 128 x 128 gemm_wide (unsplit and split over K): partial row and column tiles, K not a multiple of
+    /// its 16-value step, and the same tiles for a non-f32 weight format (load8 path) without matrix features.
+    /// </summary>
+    [Theory]
+    [InlineData("f32", 768, 3072)]
+    [InlineData("f32", 200, 520)]
+    [InlineData("f32", 1544, 300)]
+    [InlineData("f16", 768, 384)]
+    public void WideTiles(string format, int k, int n)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, k);
+        var w = tg.RandW("w", DataType.Get(format), 0.05f, n, k);
+        tg.B.Output("y", tg.B.MatMul(x, w));
+        int[] rows = [512, 600, 1576];
+        var steps = rows.Select((t, i) => new Step(t, 0, (x, Rnd.F((long)t * k, 40 + i)))).ToArray();
+        Diff.Check("MatMul.simt.wide." + format, tg.B.Build(), steps, atol: 1e-4, rtol: 1e-4, maxTokens: 1576, what: $"{format} K={k} N={n}",
+            disabledFeatures: format == "f32" ? null : new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixWorkgroup, DeviceFeatures.IntDot });
+    }
 }

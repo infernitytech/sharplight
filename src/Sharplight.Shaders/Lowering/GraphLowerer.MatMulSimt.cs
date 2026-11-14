@@ -5,8 +5,8 @@ namespace Sharplight.Shaders.Lowering;
 
 /// <summary>
 /// Weight matmuls without tensor cores (f32 weights under strict precision, devices without matrix features): the tiled
-/// SIMT <c>gemm</c> with 16-token tiles for few rows and 64-token tiles otherwise, split over K when its grid would leave
-/// most of the GPU idle.
+/// SIMT <c>gemm</c> with 16-token tiles for few rows and 64-token tiles otherwise, and the 128 x 128 <c>gemm_wide</c> for large
+/// grids, split over K when the grid would leave most of the GPU idle.
 /// </summary>
 public sealed partial class GraphLowerer
 {
@@ -23,8 +23,19 @@ public sealed partial class GraphLowerer
     /// <summary>Largest K split of the SIMT gemm.</summary>
     private const int SimtMaxSplit = 16;
 
-    /// <summary>Token rows per SIMT gemm tile for <paramref name="rows"/> activation rows.</summary>
-    private static long SimtTileRows(long rows) => rows <= SimtSmallTileMaxRows ? 16 : 64;
+    /// <summary>Smallest row count and output width served by the 128 x 128 <c>gemm_wide</c> tile.</summary>
+    private const long SimtWideMinRows = 512;
+    private const long SimtWideMinColumns = 256;
+
+    /// <summary>Tile edge (tokens and weight rows) and K step of <c>gemm_wide</c>.</summary>
+    private const long SimtWideTile = 128;
+    private const long SimtWideTileK = 16;
+
+    /// <summary>True when <paramref name="rows"/> rows of an <paramref name="n"/>-wide output use <c>gemm_wide</c>.</summary>
+    private static bool SimtWide(long rows, long n) => rows >= SimtWideMinRows && n >= SimtWideMinColumns && DiagnosticSwitches.WideSimtGemm;
+
+    /// <summary>Token rows per SIMT gemm tile for <paramref name="rows"/> activation rows of an <paramref name="n"/>-wide output.</summary>
+    private static long SimtTileRows(long rows, long n) => SimtWide(rows, n) ? SimtWideTile : rows <= SimtSmallTileMaxRows ? 16 : 64;
 
     private Dictionary<string, string> SimtMacros(MatMulPlan p, long tileRows, int split) => new(p.Macros)
     {
@@ -32,18 +43,23 @@ public sealed partial class GraphLowerer
         ["GEMM_SPLITK"] = split.ToString(CultureInfo.InvariantCulture),
     };
 
+    /// <summary>The SIMT kernel for tiles of <paramref name="tileRows"/> tokens: <c>gemm_wide</c> for 128, else <c>gemm</c>.</summary>
+    private CompiledKernel SimtKernel(MatMulPlan p, long tileRows, int split)
+        => tileRows == SimtWideTile ? Lib("matmul.slang", "gemm_wide", SimtMacros(p, tileRows, split)) : Lib("matmul.slang", "gemm", SimtMacros(p, tileRows, split));
+
     private static Grid SimtGrid(MatMulPlan p, Bindings b, uint split)
     {
         long rows = p.RowCount(b);
-        return new Grid(Grid.Div(p.N, SimtTileColumns), Grid.Div(rows, SimtTileRows(rows)), split);
+        long tileRows = SimtTileRows(rows, p.N);
+        long tileColumns = tileRows == SimtWideTile ? SimtWideTile : SimtTileColumns;
+        return new Grid(Grid.Div(p.N, tileColumns), Grid.Div(rows, tileRows), split);
     }
 
-    /// <summary>The unsplit SIMT gemm for both tile heights (rows beyond the matvecs).</summary>
+    /// <summary>The unsplit SIMT gemm for every tile height (rows beyond the matvecs).</summary>
     private List<KernelVariant> SimtGemmVariants(MatMulPlan p) =>
     [
-        new KernelVariant(b => p.RowCount(b) <= SimtSmallTileMaxRows && p.Split(b) == 1, Lib("matmul.slang", "gemm", SimtMacros(p, 16, 1)),
-            b => SimtGrid(p, b, 1)),
-        new KernelVariant(b => p.Split(b) == 1, Lib("matmul.slang", "gemm", SimtMacros(p, 64, 1)), b => SimtGrid(p, b, 1)),
+        .. new long[] { SimtWideTile, 16, 64 }.Select(tileRows => new KernelVariant(
+            b => SimtTileRows(p.RowCount(b), p.N) == tileRows && p.Split(b) == 1, SimtKernel(p, tileRows, 1), b => SimtGrid(p, b, 1))),
     ];
 
     /// <summary>
@@ -57,11 +73,17 @@ public sealed partial class GraphLowerer
             return 1;
         }
 
-        long tileRows = SimtTileRows(rows);
-        long tiles = (N + SimtTileColumns - 1) / SimtTileColumns * ((rows + tileRows - 1) / tileRows);
-        long steps = (K + SimtTileK - 1) / SimtTileK;
+        long tileRows = SimtTileRows(rows, N);
+        bool wide = tileRows == SimtWideTile;
+        long tileColumns = wide ? SimtWideTile : SimtTileColumns;
+        long tiles = (N + tileColumns - 1) / tileColumns * ((rows + tileRows - 1) / tileRows);
+        long steps = (K + (wide ? SimtWideTileK : SimtTileK) - 1) / (wide ? SimtWideTileK : SimtTileK);
+        // A wide workgroup does four times the work of a 64 x 64 one: a quarter of the workgroups fills the GPU, and each
+        // split keeps at least four 16-value K steps.
+        long target = wide ? SimtTargetWorkgroups / 4 : SimtTargetWorkgroups;
+        long minSteps = wide ? 4 : 2;
         int split = 1;
-        while (split < SimtMaxSplit && tiles * split < SimtTargetWorkgroups && steps / (split * 2) >= 2)
+        while (split < SimtMaxSplit && tiles * split < target && steps / (split * 2) >= minSteps)
         {
             split *= 2;
         }
@@ -90,7 +112,7 @@ public sealed partial class GraphLowerer
             int split = p.SplitRows(probe);
             if (probe > MatvecMaxRows && split > 1)
             {
-                configs.Add((SimtTileRows(probe), split));
+                configs.Add((SimtTileRows(probe, N), split));
                 scratchBytes = Math.Max(scratchBytes, split * probe * N * 4);
             }
         }
@@ -103,11 +125,11 @@ public sealed partial class GraphLowerer
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         bool Selected(Bindings b, long tileRows, int split)
-            => p.RowCount(b) > MatvecMaxRows && SimtTileRows(p.RowCount(b)) == tileRows && p.Split(b) == split;
+            => p.RowCount(b) > MatvecMaxRows && SimtTileRows(p.RowCount(b), p.N) == tileRows && p.Split(b) == split;
 
         Emit($"{MatMulLabel(p)} split-k", [p.Node],
             [.. configs.Select(c => new KernelVariant(b => Selected(b, c.TileRows, c.Split),
-                Lib("matmul.slang", "gemm", SimtMacros(p, c.TileRows, c.Split)), b => SimtGrid(p, b, (uint)c.Split)))],
+                SimtKernel(p, c.TileRows, c.Split), b => SimtGrid(p, b, (uint)c.Split)))],
             [Pointer(p.X), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, p.RowsPerLead)],
             [p.X, p.W], [partial]);
 

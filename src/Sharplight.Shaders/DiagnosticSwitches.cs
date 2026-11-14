@@ -41,6 +41,7 @@ namespace Sharplight.Shaders;
 /// dual fp8 GEMM with the elementwise group as its epilogue. <c>SHARPLIGHT_FP8_DUAL_MAX_ROWS=n</c>: largest batch it serves
 /// (default: every batch for which the separate GEMMs would not split K, and 17-64 rows).</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
+/// <item><c>SHARPLIGHT_GEMM_WIDE=0</c>: keep large SIMT (f32) matmuls on the 64 x 64 gemm tile instead of the 128 x 128 gemm_wide.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG32</c>, <c>SHARPLIGHT_GEMM2_CFG64=wm,wn,fm,fn</c>: force the layout of the 32- and 64-token
@@ -155,6 +156,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Largest batch above 64 rows the dual fp8 GEMM serves, or null for no limit.</summary>
     public static long? Fp8DualGemmMaxRows { get; } = Read("SHARPLIGHT_FP8_DUAL_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>False keeps large SIMT matmuls on the 64 x 64 gemm tile (no gemm_wide).</summary>
+    public static bool WideSimtGemm { get; } = IsNotZero("SHARPLIGHT_GEMM_WIDE");
 
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");
