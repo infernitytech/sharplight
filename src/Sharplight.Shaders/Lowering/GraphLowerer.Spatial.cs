@@ -627,8 +627,7 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(y), TokenArg(x)], [x], [y]);
     }
 
-    // LayerNorm rows served by one workgroup each (up to this many rows, of 512 to 16384 values).
-    private const long LayerNormWorkgroupMaxRows = 64;
+    // LayerNorm rows of 512 to 16384 values are served by one workgroup each.
     private const long LayerNormWorkgroupMinWidth = 512;
     private const long LayerNormWorkgroupMaxWidth = 16384;
 
@@ -645,10 +644,12 @@ public sealed partial class GraphLowerer
         var wp = w ?? x;
         var bp = bi ?? x;
         List<KernelVariant> variants = [];
-        // Few wide rows (decode): a workgroup per row instead of a subgroup, which is latency bound on long rows.
+        // Wide rows: a workgroup per row with the row in registers instead of a subgroup walking it three times, which is
+        // latency bound (vit-base's 768-wide rows: 12 us -> 4 us at 197 rows, 12 -> 6 us at 1576), up to the portable
+        // workgroup count limit.
         if (x.Shape[^1] >= LayerNormWorkgroupMinWidth && x.Shape[^1] <= LayerNormWorkgroupMaxWidth)
         {
-            variants.Add(new KernelVariant(b => Rows(b, tx) * r1 <= LayerNormWorkgroupMaxRows, Lib("rows.slang", "layernorm_wg", macros),
+            variants.Add(new KernelVariant(b => Rows(b, tx) * r1 <= ushort.MaxValue, Lib("rows.slang", "layernorm_wg", macros),
                 b => new Grid((uint)Math.Max(1, Rows(b, tx) * r1))));
         }
 
