@@ -5,7 +5,7 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp decoder-only architectures (<c>llama</c> (Llama, Mistral, SmolLM, ...), <c>qwen2</c>, <c>qwen3</c>,
-/// <c>gemma2</c>, <c>gemma3</c>, <c>phi3</c> (fused qkv / gate+up are split), <c>olmoe</c> and <c>qwen3moe</c> (mixture of experts)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>).
+/// <c>gemma2</c>, <c>gemma3</c>, <c>phi3</c> (fused qkv / gate+up are split), <c>olmoe</c> and <c>qwen3moe</c> (mixture of experts), <c>llada-moe</c> and <c>rnd1</c> (Qwen3-MoE layers as masked-diffusion models)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>).
 /// llama.cpp's "normal"-rope checkpoints (<c>llama</c>) store q/k rows permuted for interleaved rotation; they are
 /// un-permuted lazily so canonical weights equal those of a Hugging Face import.
 /// The Gemma 4 / Muse Glimmer / Flint variants live in <c>DecoderGgufMapping.Extended.cs</c>.
@@ -16,6 +16,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     public IReadOnlyList<string> GgufArchitectures { get; } =
     [
         "llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4", "gemma3n", "muse-glimmer", "flint",
+        "llada-moe", "rnd1",
     ];
 
     /// <inheritdoc/>
@@ -47,9 +48,15 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         int headDim = g.Int("attention.key_length", embeddingLength / headCount);
         var md = GgufDecoderHyperParameters.Common(g, IsGemma(architecture) ? "gelu_tanh" : "silu", "neox", layerNorm: false);
 
-        if (architecture is "olmoe" or "qwen3moe")
+        if (architecture is "olmoe" or "qwen3moe" or "llada-moe" or "rnd1")
         {
-            AddMixtureOfExperts(md, a, g, normalizeWeights: architecture == "qwen3moe");
+            AddMixtureOfExperts(md, a, g, normalizeWeights: architecture is "qwen3moe" or "rnd1");
+        }
+
+        if (architecture is "llada-moe" or "rnd1")
+        {
+            // Masked-diffusion Qwen3-MoE layers: LLaDA-MoE declares unshifted logits, RND1 predicts the next position (its sampler shifts).
+            DreamGgufMapping.AddDiffusion(md, g, shiftByDefault: architecture == "rnd1");
         }
         else if (architecture == "llama" && g.Int("expert_count", 0) > 0)
         {

@@ -9,7 +9,7 @@ using Sharplight.Vulkan;
 namespace Sharplight.Families.Tests;
 
 /// <summary>
-/// Masked-diffusion decoding (Dream, LLaDA) of tiny random checkpoints against the greedy references <c>tools/mk_tiny_diffusion.py</c> writes
+/// Masked-diffusion decoding (Dream, LLaDA, RND1, LLaDA-MoE) of tiny random checkpoints against the greedy references <c>tools/mk_tiny_diffusion.py</c> writes
 /// next to them (<c>reference_diffusion.json</c>: transformers' forward pass with an all-visible mask and the reference unmasking loops). The
 /// GGUF conversions (<c>tools/convert_tiny_gguf.py</c>) are checked against the same reference. Cases skip when the files are absent.
 /// </summary>
@@ -34,6 +34,13 @@ public class DiffusionGenerationTests
         { "hf/tiny-random-llada", "hf/tiny-random-llada", true },
         { "gguf/tiny-random-llada-f32.gguf", "hf/tiny-random-llada", false },
         { "gguf/tiny-random-llada-f32.gguf", "hf/tiny-random-llada", true },
+        { "hf/tiny-random-rnd1", "hf/tiny-random-rnd1", false },
+        { "hf/tiny-random-rnd1", "hf/tiny-random-rnd1", true },
+        { "gguf/tiny-random-rnd1-f32.gguf", "hf/tiny-random-rnd1", false },
+        { "gguf/tiny-random-rnd1-f32.gguf", "hf/tiny-random-rnd1", true },
+        // LLaDA-MoE reuses LLaDA's model type in its original checkpoints, so only the GGUF path is mapped.
+        { "gguf/tiny-random-llada-moe-f32.gguf", "hf/tiny-random-llada-moe", false },
+        { "gguf/tiny-random-llada-moe-f32.gguf", "hf/tiny-random-llada-moe", true },
     };
 
     /// <summary>The generated ids equal the reference's.</summary>

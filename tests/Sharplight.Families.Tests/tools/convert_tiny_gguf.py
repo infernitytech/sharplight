@@ -43,6 +43,17 @@ with tempfile.TemporaryDirectory() as work:
             if kind == "llada":
                 self.gguf_writer.add_mask_token_id(self.hparams["mask_token_id"])
         model_class.set_gguf_parameters = diffusion_parameters
+    if kind == "llada_moe":
+        # LLaDA-MoE's converter writes the original vocabulary's mask token id; the tiny checkpoint's comes from its config.
+        from conversion import llada
+        base_moe = llada.LLaDAMoEModel.set_gguf_parameters
+        def moe_parameters(self, base=base_moe):
+            add = self.gguf_writer.add_mask_token_id
+            self.gguf_writer.add_mask_token_id = lambda token: None
+            base(self)
+            self.gguf_writer.add_mask_token_id = add
+            add(self.hparams["mask_token_id"])
+        llada.LLaDAMoEModel.set_gguf_parameters = moe_parameters
     if kind in ("deepseek_v32", "glm_moe_dsa"):
         config.setdefault("scoring_func", "sigmoid")   # transformers' default, which the converter does not assume
     if kind == "deepseek_v32":

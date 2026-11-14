@@ -6,6 +6,10 @@ Builds tiny random masked-diffusion checkpoints in the original remote-code layo
   tiny-random-llada  LLaDA (LLaDAModelLM, model_type "llada"): Llama layers with bidirectional attention under LLaDA's
                      model.transformer.blocks.* names, unshifted logits; decoded block by block with low-confidence remasking
                      (LLaDA's generate.py, temperature 0).
+  tiny-random-rnd1   RND1 (model_type "rnd1"): Qwen3-MoE layers (normalized top-k) under Qwen3-MoE names, logits shifted by one position;
+                     decoded like Dream.
+  tiny-random-llada-moe  LLaDA-MoE (LLaDAMoEModelLM): Qwen3-MoE layers (unnormalized top-k) under Qwen3-MoE names, unshifted logits; decoded
+                     like LLaDA. Its model type is "llada_moe" here (the original reuses "llada"), as only the GGUF conversion reads it.
 
 The forward pass is transformers' Qwen2 / Llama model run with an all-visible attention mask; the decoding loop is written out here from the
 two reference implementations. Each directory gets reference_diffusion.json with the prompt ids, the settings and the generated ids.
@@ -15,7 +19,7 @@ two reference implementations. Each directory gets reference_diffusion.json with
 import json, os, shutil, sys
 import torch
 from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, LlamaConfig, Qwen2Config
+from transformers import AutoModelForCausalLM, LlamaConfig, Qwen2Config, Qwen3MoeConfig
 
 root = os.path.expanduser(sys.argv[1])
 tokenizer_dir = os.path.join(root, "tiny-random-GPTNeoXForCausalLM")
@@ -140,3 +144,27 @@ ids = llada(llama, PROMPT, SPAN, **settings)
 json.dump(dict(prompt=PROMPT, span=SPAN, block_length=settings["block"], steps=settings["steps"], eps=0.0, ids=ids),
           open(os.path.join(out, "reference_diffusion.json"), "w"))
 print("llada", ids)
+
+# RND1 and LLaDA-MoE: Qwen3-MoE layers (q/k norms, softmax top-k routing) saved under Qwen3-MoE's names.
+moe = dict(common, head_dim=16, num_experts=8, num_experts_per_tok=2, moe_intermediate_size=32, decoder_sparse_step=1, mlp_only_layers=[])
+for name, seed, normalize, extra in [("rnd1", 3, True, dict(architectures=["RND1"], model_type="rnd1")),
+                                     ("llada-moe", 4, False, dict(architectures=["LLaDAMoEModelLM"], model_type="llada_moe",
+                                                                  expert_intermediate_size=32))]:
+    model = AutoModelForCausalLM.from_config(Qwen3MoeConfig(**moe, norm_topk_prob=normalize)).eval()
+    randomize(model, seed)
+    out = os.path.join(root, f"tiny-random-{name}")
+    model.save_pretrained(out, safe_serialization=True)
+    config = json.load(open(os.path.join(out, "config.json")))
+    config.update(mask_token_id=MASK, **extra)
+    json.dump(config, open(os.path.join(out, "config.json"), "w"), indent=1)
+    copy_tokenizer(out)
+    if name == "rnd1":
+        settings = dict(steps=12, eps=1e-3)
+        ids = dream(model, PROMPT, SPAN, **settings)
+        record = dict(prompt=PROMPT, span=SPAN, block_length=0, ids=ids, **settings)
+    else:
+        settings = dict(steps=12, block=8)
+        ids = llada(model, PROMPT, SPAN, **settings)
+        record = dict(prompt=PROMPT, span=SPAN, block_length=8, steps=12, eps=0.0, ids=ids)
+    json.dump(record, open(os.path.join(out, "reference_diffusion.json"), "w"))
+    print(name, ids)
