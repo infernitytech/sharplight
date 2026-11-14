@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 
@@ -9,6 +10,7 @@ internal sealed unsafe partial class ConvOp
     /// <summary>Interior outputs per row from which the depthwise rows use the vector loops instead of one AXPY per tap.</summary>
     private const int DwVectorMinWidth = 16;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void DwBody(int chunk)
     {
         long s = chunk * _perChunk;
@@ -85,6 +87,7 @@ internal sealed unsafe partial class ConvOp
     }
 
     /// <summary>Interior outputs [owLo, owHi) in steps of 16 (stride 1, or 2 by an even-lane permute); returns the first one left.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private int DwRow512(float* yr, float* row0, Vector512<float>* w, float bias, int fh0, int fh1, int owLo, int owHi)
     {
         var even = Vector512.Create(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30);
@@ -111,6 +114,7 @@ internal sealed unsafe partial class ConvOp
     }
 
     /// <summary>Interior outputs [owLo, owHi) in steps of 8, stride 1 (weights splatted in <paramref name="w"/>, or from <paramref name="wt"/> when null); returns the first one left.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private int DwRow256(float* yr, float* row0, Vector256<float>* w, float* wt, float bias, int fh0, int fh1, int owLo, int owHi)
     {
         int ow = owLo;
@@ -137,6 +141,7 @@ internal sealed unsafe partial class ConvOp
     /// One output row as one AXPY per tap over the valid output range (rows too narrow for the interior vector loop, strides
     /// above 2, or no 256-bit vectors).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void DwAxpyRow(float* yr, float* row0, float* wt, float bias, int fh0, int fh1)
     {
         new Span<float>(yr, _wo).Fill(bias);
@@ -170,6 +175,7 @@ internal sealed unsafe partial class ConvOp
     }
 
     /// <summary>Outputs [ow0, ow1) of one row with bounds checks (borders and remainders of the vector loops).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void DwScalar(float* yr, float* row0, float* wt, float bias, int fh0, int fh1, int ow0, int ow1)
     {
         for (int ow = ow0; ow < ow1; ow++)

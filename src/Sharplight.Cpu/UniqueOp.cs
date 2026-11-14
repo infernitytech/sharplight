@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -11,6 +12,7 @@ internal sealed unsafe class UniqueOp(TRef x, TRef values, TRef firstIndices, TR
 {
     public override string Name => "Unique";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long total = x.Elements(p);

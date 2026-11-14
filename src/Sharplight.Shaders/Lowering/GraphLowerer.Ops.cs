@@ -107,7 +107,7 @@ public sealed partial class GraphLowerer
         }
     }
 
-    /// <summary>Ops outside the dedicated lowerings: general ops, standalone elementwise nodes, spatial ops, then detection ops.</summary>
+    /// <summary>Ops outside the dedicated lowerings: general ops, standalone elementwise nodes, spatial ops, detection ops, then the generated per-node kernels.</summary>
     private void LowerOtherOp(Node n)
     {
         if (LowerGeneral(n))
@@ -127,6 +127,11 @@ public sealed partial class GraphLowerer
         }
 
         if (LowerDetection(n))
+        {
+            return;
+        }
+
+        if (LowerExtended(n))
         {
             return;
         }

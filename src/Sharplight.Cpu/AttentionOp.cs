@@ -1,6 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
-using Sharplight.Tensors;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -110,6 +111,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     /// <summary>The block format of a quantized KV cache (q8_0 / q4_0, rows of whole 32-value blocks), or null.</summary>
     private static WeightFormat? QuantizedFormat(DataType type) => Quant.FormatOf(type) is { } f && Quant.CanQuantize(f) ? f : null;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _t = _q.Dim(0, p);
@@ -180,6 +182,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long s = c * _per;
@@ -375,6 +378,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     /// <paramref name="visible"/>), in a per-thread buffer that stays valid until the next call on the thread. A rank-3 selection [T, Hs, K] has
     /// one row per selection head; query head h reads the row of selection head h / (Hq / Hs).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private long* SelectedPositions(long t, int h, long visible, out long count)
     {
         bool perHead = _selection!.Dims.Length == 3;

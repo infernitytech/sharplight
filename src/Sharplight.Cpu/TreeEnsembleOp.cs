@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 
@@ -73,6 +74,7 @@ internal sealed unsafe class TreeEnsembleOp : CpuOp
         CpuParallel.For(rows, r => Predict((float*)x + ((long)r * _features), (float*)y + ((long)r * _targets), (float*)hits + ((long)r * _targets)));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Predict(float* row, float* output, float* hits)
     {
         Span<double> score = stackalloc double[_targets];
@@ -103,6 +105,7 @@ internal sealed unsafe class TreeEnsembleOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private int FindLeaf(float* row, int node)
     {
         while (_mode[node] != Leaf)

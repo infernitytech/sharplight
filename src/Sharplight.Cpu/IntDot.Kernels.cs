@@ -8,6 +8,7 @@ namespace Sharplight.Cpu;
 // sum(b * groupSum) separately. The 8-bit sign trick (|w| * sign(q, w) with w = u - 128) keeps vpmaddubsw exact for codes up to 255.
 internal static unsafe partial class IntDot
 {
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotScalar(byte* u, float* a, float* b, Q8Row x, int k)
     {
         float acc = 0f;
@@ -27,6 +28,7 @@ internal static unsafe partial class IntDot
         return acc;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotVector128(byte* u, float* a, float* b, Q8Row x, int k)
     {
         float acc = 0f;
@@ -43,6 +45,7 @@ internal static unsafe partial class IntDot
         return acc;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotAvx2(byte* u, float* a, float* b, bool smallCodes, Q8Row x, int k)
     {
         if (!Avx2.IsSupported || !Fma.IsSupported)
@@ -94,6 +97,7 @@ internal static unsafe partial class IntDot
     /// <summary>
     /// sum(b * groupSum) over the row; with the sign trick the codes were used as u - 128, which moves 128 * a into the offset.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float Offsets256(float* a, float* b, bool smallCodes, Q8Row x, int k)
     {
         int groups = k / GroupSize;
@@ -116,6 +120,7 @@ internal static unsafe partial class IntDot
         return s;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotAvxVnni(byte* u, float* a, float* b, Q8Row x, int k)
     {
         if (!AvxVnni.IsSupported || !Fma.IsSupported)
@@ -148,6 +153,7 @@ internal static unsafe partial class IntDot
         return Vector256.FusedMultiplyAdd(Vector256.ConvertToSingle(lanes), scale, acc);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotAvx512(byte* u, float* a, float* b, bool smallCodes, Q8Row x, int k)
     {
         if (!Avx512BW.IsSupported || !Avx512F.IsSupported || !Avx2.IsSupported || !Fma.IsSupported)
@@ -190,6 +196,7 @@ internal static unsafe partial class IntDot
         return Vector512.Sum(acc) + Vector256.Sum(tail) + Offsets512(a, b, smallCodes, x, k);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DotAvx512Vnni(byte* u, float* a, float* b, Q8Row x, int k)
     {
         if (!AvxVnni.V512.IsSupported || !Avx512F.IsSupported)
@@ -237,6 +244,7 @@ internal static unsafe partial class IntDot
     private static Vector512<float> Spread4(float* a, Vector512<int> spread) =>
         Avx512F.PermuteVar16x32(Vector128.Load(a).ToVector256Unsafe().ToVector512Unsafe(), spread);
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float Offsets512(float* a, float* b, bool smallCodes, Q8Row x, int k)
     {
         int groups = k / GroupSize;

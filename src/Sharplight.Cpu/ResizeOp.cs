@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -57,6 +58,7 @@ internal sealed unsafe class ResizeOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private (int[], int[], float[]) Axis(int lenIn, int lenOut)
     {
         var i0 = new int[lenOut];
@@ -102,6 +104,7 @@ internal sealed unsafe class ResizeOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         long s = chunk * _per;

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Sharplight.Cpu;
@@ -24,6 +25,7 @@ internal static unsafe class Mem
     }
 
     /// <summary>N-d strided copy into a row-major (or strided) destination. Effective dims[0] is <paramref name="dim0"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void CopyStrided(byte* src, long[] srcStrides, byte* dst, long[] dstStrides, long[] dims, long dim0, int es)
     {
         int rank = dims.Length;
@@ -100,6 +102,7 @@ internal static unsafe class Mem
     /// <c>a</c> (a transposed view): copies 2-D tiles of (axis a, last axis) for every index of the other axes, reading
     /// and writing whole cache lines instead of one element per line. False when no source axis has unit stride.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool TryCopyTransposed(byte* src, long[] srcStrides, byte* dst, long[] dstStrides, Span<long> dims)
     {
         int rank = dims.Length;

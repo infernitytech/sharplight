@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 
 namespace Sharplight.Cpu;
@@ -51,6 +52,7 @@ internal static class SamplingReference
         return token;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static int ArgMax(ReadOnlySpan<float> x, out float max)
     {
         int am = 0;
@@ -67,6 +69,7 @@ internal static class SamplingReference
         return am;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static int SampleFiltered(ReadOnlySpan<float> x, in SamplingRow row, float m, int am)
     {
         float temp = row.Temperature;
@@ -101,6 +104,7 @@ internal static class SamplingReference
         return SampleNucleus(x, row, m, invT, stream, kthKey, am);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static int SampleNucleus(ReadOnlySpan<float> x, in SamplingRow row, float m, float invT, uint stream, uint kthKey, int am)
     {
         var candidates = new List<int>();
@@ -177,6 +181,7 @@ internal static class SamplingReference
     }
 
     /// <summary>Key of the k-th largest value (1-based).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static uint KthLargestKey(ReadOnlySpan<float> x, int k)
     {
         var heap = new PriorityQueue<uint, uint>(k + 1);
@@ -196,6 +201,7 @@ internal static class SamplingReference
         return heap.Peek();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float Logprob(ReadOnlySpan<float> x, int token, float m)
     {
         double sum = 0;

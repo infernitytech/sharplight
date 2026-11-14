@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 
 namespace Sharplight.Cpu;
@@ -52,6 +53,7 @@ internal sealed class CpuThreadJob
     public ExceptionDispatchInfo? Error => Volatile.Read(ref _error);
 
     /// <summary>Runs items of participant <paramref name="participant"/>'s own range, then of the other ranges, until none are left.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Work(int participant)
     {
         int own = participant % _ranges;

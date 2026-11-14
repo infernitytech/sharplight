@@ -405,14 +405,14 @@ SHARPLIGHT_CONFORMANCE_REPORT=report.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cpu,
 
 | | before | after |
 |---|---|---|
-| ai.onnx ops: all tests pass (cpu / vulkan / vulkan without CPU fallback) | 134 / 133 / 121 of 192 | 161 / 161 / 147 of 192 |
+| ai.onnx ops: all tests pass (cpu / vulkan / vulkan without CPU fallback) | 134 / 133 / 121 of 192 | 161 / 161 / 158 of 192 |
 | ai.onnx.preview.training ops passing | 0 / 3 | 3 / 3 |
 | com.microsoft ops imported (all / common set) | 22 / 22 | 53 / 52 |
 | com.microsoft ops with all tests passing | 7 / 47 | 45 / 47 |
 | node tests, cpu | 1800 / 1884 (95.5%) | 1829 / 1884 (97.1%) |
-| node tests, vulkan | 1790 (95.0%), 1706 (90.6%) without fallback | 1829 (97.1%), 1778 (94.4%) without fallback |
+| node tests, vulkan | 1790 (95.0%), 1706 (90.6%) without fallback | 1829 (97.1%), 1809 (96.0%) without fallback |
 | extra tests, cpu | 108 / 172 (62.8%) | 170 / 172 (98.8%) |
-| extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 128 (74.4%) without fallback |
+| extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 158 (91.9%) without fallback |
 
 The remaining node-test failures are the same on CPU and Vulkan:
 
@@ -427,32 +427,32 @@ The remaining node-test failures are the same on CPU and Vulkan:
 
 The extra-suite failures are com.microsoft MurmurHash3 and WordConvEmbedding, which are not implemented.
 
-These ops run on Vulkan only through the CPU fallback: LinearAttention, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels.
+These ops run on Vulkan only through the CPU fallback: the string ops (StringConcat, StringNormalizer, RegexFullMatch, string Cast / Equal, CategoryMapper and string LabelEncoder maps) and Cast to FLOAT8E8M0. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels, and so, since ONNX round 5, do LinearAttention (all four update rules), DeformConv, Unique (flattened, up to 65536 elements; the kernels compare every pair), TfIdfVectorizer, the tree ensembles, SVM one-vs-one voting and probability coupling, numeric LabelEncoder and DFTs longer than the importer's basis matmul.
 
 Operator schemas of onnx 1.23.2 (ai.onnx opset 28) and onnxruntime's com.microsoft contrib schemas.
 
 | domain | operators | importer | cpu: all tests pass | vulkan: all tests pass | vulkan: without CPU fallback |
 |---|---|---|---|---|---|
-| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 152 |
-| ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 9 |
+| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 158 |
+| ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 12 |
 | ai.onnx.preview | 1 | 1 | 1 / 1 with tests | 1 / 1 with tests | 1 |
 | ai.onnx.preview.training | 4 | 3 | 3 / 3 with tests | 3 / 3 with tests | 3 |
-| com.microsoft | 136 | 53 | 45 / 47 with tests | 45 / 47 with tests | 44 |
-| com.microsoft (common set) | 61 | 52 | 44 / 46 with tests | 44 / 46 with tests | 43 |
+| com.microsoft | 136 | 53 | 45 / 47 with tests | 45 / 47 with tests | 45 |
+| com.microsoft (common set) | 61 | 52 | 44 / 46 with tests | 44 / 46 with tests | 44 |
 
 Node tests:
 
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
 | cpu | 1884 | 1829 (97.1%) | 1829 (97.1%) | 8 | 47 | 0 | 0 | 0 |
-| vulkan | 1884 | 1829 (97.1%) | 1772 (94.1%) | 8 | 47 | 0 | 0 | 0 |
+| vulkan | 1884 | 1829 (97.1%) | 1809 (96.0%) | 8 | 47 | 0 | 0 | 0 |
 
 Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
 | cpu | 172 | 170 (98.8%) | 170 (98.8%) | 0 | 2 | 0 | 0 | 0 |
-| vulkan | 172 | 170 (98.8%) | 127 (73.8%) | 0 | 2 | 0 | 0 | 0 |
+| vulkan | 172 | 170 (98.8%) | 158 (91.9%) | 0 | 2 | 0 | 0 | 0 |
 
 
 #### ai.onnx
@@ -502,11 +502,11 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | Cosh | 9, 22 | yes | 2/2 | 2/2 |  |
 | CumProd | 26 | yes | 9/9 | 9/9 |  |
 | CumSum | 11, 14 | yes | 9/9 | 9/9 |  |
-| DFT | 17, 20 | yes | 12/12 | 12/12 (2 via CPU) |  |
-| DeformConv | 19, 22 | yes | 4/4 | 4/4 (4 via CPU) |  |
+| DFT | 17, 20 | yes | 12/12 | 12/12 |  |
+| DeformConv | 19, 22 | yes | 4/4 | 4/4 |  |
 | DepthToSpace | 1, 11, 13, 28 | yes | 2/2 | 2/2 |  |
 | DequantizeLinear | 10, 13, 19, 21, 23, 24, 25, 28 | yes | 14/14 | 14/14 |  |
-| Det | 11, 22 | yes | 2/2 | 2/2 (2 via CPU) |  |
+| Det | 11, 22 | yes | 2/2 | 2/2 |  |
 | Div | 1, 6, 7, 13, 14 | yes | 250/250 | 250/250 |  |
 | Dropout | 1, 6, 7, 10, 12, 13, 22 | yes | 8/12 | 8/12 |  |
 | DynamicQuantizeLinear | 11 | yes | 3/3 | 3/3 |  |
@@ -530,7 +530,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | GlobalMaxPool | 1, 22 | yes | 2/2 | 2/2 |  |
 | Greater | 1, 7, 9, 13 | yes | 16/19 | 16/19 |  |
 | GreaterOrEqual | 12, 16 | yes | 9/9 | 9/9 |  |
-| GridSample | 16, 20, 22 | yes | 18/18 | 18/18 (4 via CPU) |  |
+| GridSample | 16, 20, 22 | yes | 18/18 | 18/18 |  |
 | GroupNormalization | 18, 21 | yes | 2/2 | 2/2 |  |
 | HammingWindow | 17 | yes | 2/2 | 2/2 |  |
 | HannWindow | 17 | yes | 2/2 | 2/2 |  |
@@ -549,7 +549,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | LeakyRelu | 1, 6, 16 | yes | 3/3 | 3/3 |  |
 | Less | 1, 7, 9, 13 | yes | 76/76 | 76/76 |  |
 | LessOrEqual | 12, 16 | yes | 18/18 | 18/18 |  |
-| LinearAttention | 27 | yes | 14/14 | 14/14 (14 via CPU) |  |
+| LinearAttention | 27 | yes | 14/14 | 14/14 |  |
 | Log | 1, 6, 13 | yes | 30/32 | 30/32 |  |
 | LogSoftmax | 1, 11, 13 | yes | 41/41 | 41/41 |  |
 | Loop | 1, 11, 13, 16, 19, 21, 23, 24, 25 | yes | 13/13 | 13/13 |  |
@@ -611,7 +611,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | RoiAlign | 10, 16, 22 | yes | 3/3 | 3/3 |  |
 | RotaryEmbedding | 23 | yes | 8/8 | 8/8 |  |
 | Round | 11, 22 | yes | 4/4 | 4/4 |  |
-| STFT | 17 | yes | 3/3 | 3/3 (1 via CPU) |  |
+| STFT | 17 | yes | 3/3 | 3/3 |  |
 | Scan | 8, 9, 11, 16, 19, 21, 23, 24, 25 | yes | 18/18 | 18/18 |  |
 | Scatter | 9, 11 | yes | 2/2 | 2/2 |  |
 | ScatterElements | 11, 13, 16, 18 | yes | 7/7 | 7/7 |  |
@@ -651,13 +651,13 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | Tan | 7, 22 | yes | 2/2 | 2/2 |  |
 | Tanh | 1, 6, 13 | yes | 17/17 | 17/17 |  |
 | TensorScatter | 24 | yes | 3/3 | 3/3 |  |
-| TfIdfVectorizer | 9 | yes | 8/8 | 8/8 (8 via CPU) |  |
+| TfIdfVectorizer | 9 | yes | 8/8 | 8/8 (1 via CPU) |  |
 | ThresholdedRelu | 10, 22 | yes | 3/3 | 3/3 |  |
 | Tile | 1, 6, 13 | yes | 2/2 | 2/2 |  |
 | TopK | 1, 10, 11, 24 | yes | 7/7 | 7/7 |  |
 | Transpose | 1, 13, 21, 23, 24, 25 | yes | 176/176 | 176/176 |  |
 | Trilu | 14 | yes | 16/18 | 16/18 |  |
-| Unique | 11, 28 | yes | 4/7 | 4/7 (4 via CPU) |  |
+| Unique | 11, 28 | yes | 4/7 | 4/7 |  |
 | Unsqueeze | 1, 11, 13, 21, 23, 24, 25 | yes | 141/141 | 141/141 |  |
 | Upsample | 1, 7, 9, 10 | yes | 1/1 | 1/1 |  |
 | Where | 9, 16 | yes | 129/129 | 129/129 |  |
@@ -674,17 +674,17 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | DictVectorizer | 1 | no | - | - |  |
 | FeatureVectorizer | 1 | yes | 1/1 | 1/1 |  |
 | Imputer | 1 | yes | 2/2 | 2/2 |  |
-| LabelEncoder | 1, 2, 4 | yes | 11/11 | 11/11 (11 via CPU) |  |
+| LabelEncoder | 1, 2, 4 | yes | 11/11 | 11/11 (7 via CPU) |  |
 | LinearClassifier | 1 | yes | 7/7 | 7/7 (1 via CPU) |  |
 | LinearRegressor | 1 | yes | 1/1 | 1/1 |  |
 | Normalizer | 1 | yes | 3/3 | 3/3 |  |
 | OneHotEncoder | 1 | yes | 1/1 | 1/1 |  |
-| SVMClassifier | 1 | yes | 7/7 | 7/7 (6 via CPU) |  |
+| SVMClassifier | 1 | yes | 7/7 | 7/7 |  |
 | SVMRegressor | 1 | yes | 5/5 | 5/5 |  |
 | Scaler | 1 | yes | 2/2 | 2/2 |  |
-| TreeEnsemble | 5 | yes | 6/6 | 6/6 (6 via CPU) |  |
-| TreeEnsembleClassifier | 1, 3, 5 | yes | 10/10 | 10/10 (10 via CPU) |  |
-| TreeEnsembleRegressor | 1, 3, 5 | yes | 4/4 | 4/4 (4 via CPU) |  |
+| TreeEnsemble | 5 | yes | 6/6 | 6/6 |  |
+| TreeEnsembleClassifier | 1, 3, 5 | yes | 10/10 | 10/10 (1 via CPU) |  |
+| TreeEnsembleRegressor | 1, 3, 5 | yes | 4/4 | 4/4 |  |
 | ZipMap | 1 | no | - | - |  |
 
 #### ai.onnx.preview
@@ -732,7 +732,7 @@ The common set (`COMMON_CONTRIB` in tools/onnx-coverage.py) and every other cont
 | GemmFastGelu | 1 | yes | 1/1 | 1/1 |  |
 | GroupNorm | 1 | yes | 3/3 | 3/3 |  |
 | GroupQueryAttention | 1 | yes | 13/13 | 13/13 |  |
-| Inverse | 1 | yes | 1/1 | 1/1 (1 via CPU) |  |
+| Inverse | 1 | yes | 1/1 | 1/1 |  |
 | MatMulInteger16 | 1 | yes | 1/1 | 1/1 |  |
 | MatMulIntegerToFloat | 1 | yes | 1/1 | 1/1 |  |
 | MatMulNBits | 1 | yes | 6/6 | 6/6 |  |

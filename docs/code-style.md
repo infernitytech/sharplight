@@ -60,6 +60,12 @@ public static class TensorExtensions
 - One statement per line; no dense multi-assignment lines. Long expressions are split with named locals.
 - Comments explain *why*, not *what*.
 
+## Performance
+
+- In `Sharplight.Cpu`, every method or local function with a loop carries `[MethodImpl(MethodImplOptions.AggressiveOptimization)]`
+  (methods marked `AggressiveInlining` excepted), so kernels run optimized from their first call regardless of the application's
+  tiering settings (see the conventions in api-overview.md). Lambdas with loops are not used there: pass a method group instead.
+
 ## Samples
 
 Samples are documentation. They must read like production code:

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -22,6 +23,7 @@ internal sealed unsafe class SequencePoolOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long b = _spans.Dim(0, p);
@@ -41,6 +43,7 @@ internal sealed unsafe class SequencePoolOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int i)
     {
         int* sp = (int*)_spans.P + i * 2;

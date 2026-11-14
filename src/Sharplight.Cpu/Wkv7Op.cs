@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Sharplight.Cpu;
 
@@ -27,6 +28,7 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
         _y = y;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     protected override void RunRows(float* state, long t0, long t1, int head, int row0, int row1)
     {
         int n = Size;
@@ -51,6 +53,7 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
     }
 
     // Record row per head: w, k, v, a, b (N each).
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     protected override void ReplayRow(float* state, float* record, int head, int row0, int row1)
     {
         int n = Size;
@@ -66,6 +69,7 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     protected override void RecordRow(float* record, long t, int head, int row0, int row1, bool first)
     {
         int n = Size;
@@ -86,6 +90,7 @@ internal sealed unsafe class Wkv7Op : HeadRecurrenceOp
     }
 
     /// <summary>row = row·w + vi·k + sa·b; returns dot(row, r).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float UpdateDot(float* row, float* w, float* k, float* b, float* r, float vi, float sa, long n)
     {
         long j = 0;

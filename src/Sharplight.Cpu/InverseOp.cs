@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -15,6 +16,7 @@ internal sealed unsafe class InverseOp : CpuOp
         _y = y;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         var d = OpHelpers.Dims(_x, p);
@@ -43,6 +45,7 @@ internal sealed unsafe class InverseOp : CpuOp
     }
 
     /// <summary>Reduces <paramref name="a"/> to the identity, applying the same row operations to <paramref name="inverse"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Invert(double[] a, double[] inverse, int m)
     {
         for (int col = 0; col < m; col++)
