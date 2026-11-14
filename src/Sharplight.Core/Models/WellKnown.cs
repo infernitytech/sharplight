@@ -63,6 +63,13 @@ public static class WellKnown
     /// pre-norm or intermediate state), the adapter adds that output to the decode graph and names it here.
     /// </summary>
     public const string DraftHiddenSource = "draft_hidden_source";
+    /// <summary>
+    /// Whether a <see cref="DraftGraph"/> drafts every token of a step from the same position (bool property; absent: false). Such a head
+    /// (Gemma 4 assistants: the queries of the pending token's position against the target's keys and values) keeps one row per verified target
+    /// row; a further draft replaces the head's last row instead of adding one, with that row's hidden-state input except for the first
+    /// <see cref="HiddenOutput"/>-wide part, which carries the head's previous output.
+    /// </summary>
+    public const string DraftAnchored = "draft_anchored";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 
@@ -76,6 +83,14 @@ public static class WellKnown
     /// Property: number of position axes the positions input carries (1 for plain RoPE, more for multi-axis RoPE) (int).
     /// </summary>
     public const string PositionAxes = "position_axes";
+    /// <summary>
+    /// Property: with several position axes, how many leading axes carry a text token's position; the others are 0 (int, default
+    /// <see cref="DefaultTextPositionAxes"/>: time, row and column of M-RoPE). Models whose extra axis rotates text tokens too (XD-RoPE) set it
+    /// to the axis count.
+    /// </summary>
+    public const string TextPositionAxes = "text_position_axes";
+    /// <summary>Default of <see cref="TextPositionAxes"/>.</summary>
+    public const int DefaultTextPositionAxes = 3;
     /// <summary>Property: token ids that end generation (int[]).</summary>
     public const string EosTokenIds = "eos_token_ids";
     /// <summary>Pooling of <see cref="EmbedGraph"/>: "mean", "cls" (first row), "last", "none" (string).</summary>
@@ -112,4 +127,25 @@ public static class WellKnown
     /// autoregressive model); false: it predicts position i (LLaDA).
     /// </summary>
     public const string DiffusionShiftLogits = "diffusion.shift_logits";
+    /// <summary>
+    /// Span scoring (decision models: a prompt holds questions and their options, the head gives every option a score): the packed-sequence
+    /// inputs of <see cref="EmbedGraph"/> plus <see cref="InputRole.QuestionSpans"/> [<see cref="QuestionSymbol"/>, 6] and
+    /// <see cref="InputRole.OptionSpans"/> [<see cref="OptionSymbol"/>, 3], which mark spans of the packed rows; output
+    /// <see cref="ScoresOutput"/> [<see cref="OptionSymbol"/>, 1], one score per option (the options of a question are compared by a softmax
+    /// over their scores). How the head reads the spans is the model's (<see cref="SpanHeadType"/>). Recurrent and hybrid models whose layers
+    /// keep state instead have the inputs of <see cref="DecodeGraph"/> (tokens, positions, the <see cref="PastScalar"/> offset and their
+    /// states) plus <see cref="InputRole.SequenceSpans"/> and the span tables: one sequence per run, started at offset 0 from reset states.
+    /// </summary>
+    public const string ScoreSpansGraph = "score_spans";
+    /// <summary>Name of the output of <see cref="ScoreSpansGraph"/>: one score per option.</summary>
+    public const string ScoresOutput = "scores";
+    /// <summary>Symbol of the question count of <see cref="ScoreSpansGraph"/>.</summary>
+    public const string QuestionSymbol = "Q";
+    /// <summary>Symbol of the option count of <see cref="ScoreSpansGraph"/>.</summary>
+    public const string OptionSymbol = "O";
+    /// <summary>
+    /// Property of models with a <see cref="ScoreSpansGraph"/> (string): the head type, e.g. "endpoint" (the last token of each option against
+    /// the last token of its question) or "joint_schema" (pooled spans read by cross-attention layers, all questions decided jointly).
+    /// </summary>
+    public const string SpanHeadType = "span_head_type";
 }

@@ -14,7 +14,8 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     private readonly TRef _q;
     private readonly TRef _keys;
     private readonly TRef? _weights;     // [T, H] head weights (null: per-head selection)
-    private readonly TRef? _positionGate; // pooled groups: [G, D] gate offset per member
+    private readonly TRef? _poolInput;   // pooled groups: [G, D] gate offset per member; mean groups with a norm: the norm weight [D]
+    private readonly double[]? _poolInvFreq; // mean groups with rotated keys: base^(-2i/R) per rotated pair
     private readonly TRef _y;
     private readonly IndexerSelection _selection;
     private readonly int _heads;
@@ -26,6 +27,8 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, position, ...) per query row
     private readonly long _slotContext;  // multi-sequence: cache rows per slot
     private readonly KvPages? _pages;    // paged multi-sequence cache
+    private readonly long _compression;  // positions per key cache row (compressed cache: a row at position p sees entries [0, (p + 1) / r))
+    private readonly TRef? _candidates;  // candidate groups: [T, M] positions of picked groups of CandidateGroup positions
     private readonly Action<int> _body;
     private long _past;
     private long _per;
@@ -33,16 +36,27 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     [ThreadStatic] private static float[]? s_scores;
     [ThreadStatic] private static float[]? s_sorted;
     [ThreadStatic] private static float[]? s_pooled;
+    [ThreadStatic] private static long[]? s_positions;
 
     public override string Name => "IndexerTopK";
 
-    public IndexerTopKOp(TRef q, TRef keys, TRef? weights, TRef? positionGate, TRef y, IndexerSelection selection, string offsetScalar, TRef? rows = null,
-        int slots = 1, KvPages? pages = null)
+    public IndexerTopKOp(TRef q, TRef keys, TRef? weights, TRef? poolInput, TRef y, IndexerSelection selection, string offsetScalar, TRef? rows = null,
+        int slots = 1, KvPages? pages = null, long compression = 1, TRef? candidates = null)
     {
+        _compression = Math.Max(1, compression);
+        _candidates = candidates;
         _q = q;
         _keys = keys;
         _weights = weights;
-        _positionGate = positionGate;
+        _poolInput = poolInput;
+        if (selection.Mean && selection.PoolRopeDims > 0)
+        {
+            _poolInvFreq = new double[selection.PoolRopeDims / 2];
+            for (int i = 0; i < _poolInvFreq.Length; i++)
+            {
+                _poolInvFreq[i] = Math.Pow(selection.PoolRopeBase, -2.0 * i / selection.PoolRopeDims);
+            }
+        }
         _y = y;
         _selection = selection;
         _heads = (int)q.Dims[1];
@@ -78,7 +92,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
                 throw new InvalidOperationException($"Runtime scalar '{_offsetScalar}' was not provided.");
             }
 
-            if (_past < 0 || _past + t > _keys.Dims[0])
+            if (_past < 0 || (_past + t) / _compression > _keys.Dims[0])
             {
                 throw new InvalidOperationException($"Indexer key cache overflow: n_past {_past} + T {t} > context {_keys.Dims[0]}.");
             }
@@ -91,12 +105,12 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
             {
                 if (_pages is not null)
                 {
-                    for (long pos = rw[row * 4 + 1]; pos >= 0; pos -= _pages.BlockSize)
+                    for (long entry = Visible(rw[row * 4 + 1]) - 1; entry >= 0; entry -= Math.Max(1, _pages.BlockSize / _compression))
                     {
-                        _pages.Check(rw[row * 4], pos, _keys.Dims[0]);
+                        _pages.Check(rw[row * 4], entry, _keys.Dims[0]);
                     }
                 }
-                else if ((uint)rw[row * 4] >= slots || (uint)rw[row * 4 + 1] >= _slotContext)
+                else if ((uint)rw[row * 4] >= slots || Visible(rw[row * 4 + 1]) > _slotContext)
                 {
                     throw new InvalidOperationException($"Sequence row {row}: slot {rw[row * 4]} / position {rw[row * 4 + 1]} out of range.");
                 }
@@ -127,20 +141,26 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         if (_rows is not null)
         {
             int* rw = (int*)_rows.P + t * 4;
-            visible = rw[1] + 1L;
+            visible = Visible(rw[1]);
             rowBase = rw[0] * _slotContext;
             slot = _pages is null ? -1 : rw[0];
         }
         else
         {
-            visible = _past + t + 1;
+            visible = Visible(_past + t);
         }
 
         int group = _selection.Group;
         int budget = _selection.Budget / group;
-        long candidates = _selection.Pooled ? visible / group : (visible + group - 1) / group;
+        long candidates = _selection.CompleteGroups ? visible / group : (visible + group - 1) / group;
         int* y = (int*)_y.P + (t * _selectionHeads + head) * _width;
         new Span<int>(y, _width).Fill(-1);
+        if (_candidates is not null)
+        {
+            SelectCandidates(t, y, visible, rowBase, slot);
+            return;
+        }
+
         if (_selection.Tail)
         {
             for (int i = 0; i < group - 1 && candidates * group + i < visible; i++)
@@ -208,6 +228,84 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         }
     }
 
+    // Plain selection among the visible positions of the groups the candidates row lists (ascending; ties to lower positions).
+    private void SelectCandidates(long t, int* y, long visible, long rowBase, int slot)
+    {
+        int size = _selection.CandidateGroup;
+        long width = _candidates!.Dims[1];
+        int* row = (int*)_candidates.P + t * _candidates.Strides[0];
+        var groups = new SortedSet<long>();
+        for (long i = 0; i < width; i += size)
+        {
+            if (row[i * _candidates.Strides[1]] is int first and >= 0)
+            {
+                groups.Add(first / size);
+            }
+        }
+
+        long most = groups.Count * (long)size;
+        var positions = s_positions;
+        if (positions is null || positions.Length < most || s_scores is null || s_scores.Length < most)
+        {
+            s_positions = positions = new long[Math.Max(most, 1024)];
+            s_scores = new float[positions.Length];
+            s_sorted = new float[positions.Length];
+        }
+
+        int count = 0;
+        foreach (long g in groups)
+        {
+            for (long j = g * size; j < Math.Min(visible, (g + 1) * size); j++)
+            {
+                positions[count++] = j;
+            }
+        }
+
+        int budget = _selection.Budget;
+        if (count <= budget)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                y[i] = (int)positions[i];
+            }
+
+            return;
+        }
+
+        var scores = s_scores!;
+        for (int i = 0; i < count; i++)
+        {
+            scores[i] = KeyScore(t, 0, KeyRow(positions[i], rowBase, slot));
+        }
+
+        var sorted = s_sorted!;
+        scores.AsSpan(0, count).CopyTo(sorted);
+        sorted.AsSpan(0, count).Sort();
+        float threshold = sorted[count - budget];
+        int above = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (scores[i] > threshold)
+            {
+                above++;
+            }
+        }
+
+        int slotAbove = 0;
+        int slotEqual = above;
+        for (int i = 0; i < count && (slotAbove < above || slotEqual < budget); i++)
+        {
+            if (scores[i] > threshold)
+            {
+                y[slotAbove++] = (int)positions[i];
+            }
+            else if (scores[i] == threshold && slotEqual < budget)
+            {
+                y[slotEqual++] = (int)positions[i];
+            }
+        }
+    }
+
     // Lists the visible positions of group g in entries [index · G, (index + 1) · G) of the selection row.
     private void Expand(int* y, int index, int g, long visible)
     {
@@ -226,6 +324,11 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         if (_selection.Pooled)
         {
             return KeyScore(t, head, PooledKey(g, rowBase, slot));
+        }
+
+        if (_selection.Mean)
+        {
+            return KeyScore(t, head, MeanKey(g, rowBase, slot));
         }
 
         float best = float.NegativeInfinity;
@@ -288,14 +391,14 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         max.Fill(float.NegativeInfinity);
         new Span<float>(sum, _dims).Clear();
         new Span<float>(acc, _dims).Clear();
-        float* offsets = (float*)_positionGate!.P;
+        float* offsets = (float*)_poolInput!.P;
         for (int i = 0; i < group; i++)
         {
             long row = slot >= 0 ? _pages!.Row(slot, g * group + i) : rowBase + g * group + i;
             for (int d = 0; d < _dims; d++)
             {
                 float key = CacheValue(row, d);
-                float logit = CacheValue(row, _dims + d) + offsets[i * _positionGate.Strides[0] + d];
+                float logit = CacheValue(row, _dims + d) + offsets[i * _poolInput.Strides[0] + d];
                 if (logit > max[d])
                 {
                     float rescale = MathF.Exp(max[d] - logit);
@@ -318,6 +421,64 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         return new KeyRef(-1, (float*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref pooled[0]));
     }
 
+    // The mean key of group g: the mean of its members' rows, RMS-normed (times the norm weight) and its first R channels rotated as neox pairs
+    // at the group's first position, when the selection asks for it.
+    private KeyRef MeanKey(long g, long rowBase, int slot)
+    {
+        int group = _selection.Group;
+        var pooled = s_pooled;
+        if (pooled is null || pooled.Length < _dims)
+        {
+            s_pooled = pooled = GC.AllocateUninitializedArray<float>(_dims, pinned: true);   // pinned: its address is handed out
+        }
+
+        float* key = (float*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref pooled[0]);
+        new Span<float>(key, _dims).Clear();
+        for (int i = 0; i < group; i++)
+        {
+            long row = slot >= 0 ? _pages!.Row(slot, g * group + i) : rowBase + g * group + i;
+            for (int d = 0; d < _dims; d++)
+            {
+                key[d] += CacheValue(row, d);
+            }
+        }
+
+        float squares = 0f;
+        for (int d = 0; d < _dims; d++)
+        {
+            key[d] /= group;
+            squares += key[d] * key[d];
+        }
+
+        if (_selection.PoolNormEps > 0f)
+        {
+            float scale = 1f / MathF.Sqrt(squares / _dims + _selection.PoolNormEps);
+            float* weight = (float*)_poolInput!.P;
+            for (int d = 0; d < _dims; d++)
+            {
+                key[d] = key[d] * scale * weight[d];
+            }
+        }
+
+        if (_poolInvFreq is not null)
+        {
+            int half = _poolInvFreq.Length;
+            long position = g * group;
+            for (int i = 0; i < half; i++)
+            {
+                double theta = position * _poolInvFreq[i];
+                float cos = (float)Math.Cos(theta);
+                float sin = (float)Math.Sin(theta);
+                float x0 = key[i];
+                float x1 = key[i + half];
+                key[i] = x0 * cos - x1 * sin;
+                key[i + half] = x1 * cos + x0 * sin;
+            }
+        }
+
+        return new KeyRef(-1, key);
+    }
+
     private float CacheValue(long row, int index)
         => _keysHalf ? Simd.HalfToFloat(((ushort*)_keys.P)[row * _keys.Strides[0] + index]) : ((float*)_keys.P)[row * _keys.Strides[0] + index];
 
@@ -328,4 +489,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
 
         public float* Pooled { get; } = pooled;
     }
+
+    // Key rows a query at this position sees: positions [0, position], or the complete windows of a compressed cache.
+    private long Visible(long position) => (position + 1) / _compression;
 }

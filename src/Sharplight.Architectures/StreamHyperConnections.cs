@@ -12,10 +12,12 @@ namespace Sharplight.Architectures;
 /// module (collapse | expansion), 2N + N² with a mixing matrix, and N for the final head (collapse only, <c>scale</c> [1]). With
 /// m = fn · rms_norm(X) (unweighted, over all N·H values of a token):
 /// <list type="bullet">
-/// <item>collapse weights pre = sigmoid(m[0:N]·scale[0] + base[0:N]) + eps, block input Σ_s pre_s·X_s;</item>
+/// <item>collapse weights pre = sigmoid(m[0:N]·scale[0] + base[0:N]) + pre_eps, block input Σ_s pre_s·X_s;</item>
 /// <item>expansion weights post = magnitude·sigmoid(m[N:2N]·scale[1] + base[N:2N]) + post_offset;</item>
-/// <item>optional mixing matrix C = sinkhorn(softmax_rows(m[2N:]·scale[2] + base[2N:]) + eps) (doubly stochastic, DeepSeek-V4);</item>
-/// <item>after the block: X'_k = post_k·y + Σ_j C[j, k]·X_j (or + X_k without a mixing matrix).</item>
+/// <item>optional mixing matrix C = sinkhorn(softmax_rows(clamp(m[2N:]·scale[2] + base[2N:])) + mixing_eps) (doubly stochastic,
+/// DeepSeek-V4; Xing4.0 clamps the logits to ±30 and adds no mixing_eps);</item>
+/// <item>after the block: X'_k = post_k·y + Σ_j C[j, k]·X_j, or Σ_j C[k, j]·X_j when the matrix is transposed (Xing4.0), or + X_k without a
+/// mixing matrix.</item>
 /// </list>
 /// The final head collapses the streams with its own pre weights before the output norm, or averages them (<see cref="Mean"/>) when the
 /// model has no head.
@@ -31,11 +33,22 @@ internal static class StreamHyperConnections
     /// </summary>
     public static (Value Input, Value Post, Value? Mixing) Collapse(GraphBuilder b, Value x, string prefix, StreamHyperConnectionOptions o, int hidden)
     {
+        var (pre, post, mixing) = Weigh(b, x, prefix, o);
+        return (Apply(b, x, pre, o, hidden, $"{prefix}input"), post, mixing);
+    }
+
+    /// <summary>
+    /// The collapse weights [T, N], expansion weights [T, N, 1] and optional mixing matrix [T, N, N] of the module below <paramref name="prefix"/>,
+    /// computed from the streams x [T, N·H] (<see cref="Collapse"/> applies the collapse weights to the same streams; with
+    /// <see cref="StreamHyperConnectionOptions.LaggedCollapse"/> they collapse the input of the next block instead).
+    /// </summary>
+    public static (Value Pre, Value Post, Value? Mixing) Weigh(GraphBuilder b, Value x, string prefix, StreamHyperConnectionOptions o)
+    {
         int n = o.Streams;
         var m = Mixes(b, x, prefix, o);
         var scale = b.Weight(prefix + "scale");
         var bias = b.Weight(prefix + "base");
-        var pre = Weights(b, m, scale, bias, 0, n, 1f, o.Eps);
+        var pre = Weights(b, m, scale, bias, 0, n, 1f, o.PreEps);
         var post = b.Reshape(Weights(b, m, scale, bias, 1, n, o.Magnitude, o.PostOffset), 0, n, 1);
         Value? mixing = null;
         if (o.SinkhornIterations > 0)
@@ -43,18 +56,31 @@ internal static class StreamHyperConnections
             mixing = Sinkhorn(b, m, scale, bias, o);
         }
 
-        return (Sum(b, x, pre, n, hidden, $"{prefix}input"), post, mixing);
+        return (pre, post, mixing);
     }
 
+    /// <summary>The streams x [T, N·H] collapsed with the weights <paramref name="pre"/> [T, N] into [T, H].</summary>
+    public static Value Apply(GraphBuilder b, Value x, Value pre, StreamHyperConnectionOptions o, int hidden, string name)
+        => Sum(b, x, pre, o.Streams, hidden, name);
+
+    /// <summary>Stream <paramref name="stream"/> of x [T, N·H] as [T, H] (the collapse of the first block with lagged collapse weights).</summary>
+    public static Value Stream(GraphBuilder b, Value x, int stream, int hidden) => b.Slice(x, 1, (long)stream * hidden, hidden);
+
     /// <summary>The streams after a block: every stream gets the block output y [T, H] times its expansion weight, plus the (mixed) old streams.</summary>
-    public static Value Merge(GraphBuilder b, Value x, Value y, Value post, Value? mixing, int streams, int hidden, string? name = null)
+    public static Value Merge(GraphBuilder b, Value x, Value y, Value post, Value? mixing, StreamHyperConnectionOptions o, int hidden, string? name = null)
     {
+        int streams = o.Streams;
         var streamsOf = b.Reshape(x, 0, streams, hidden);
         var expanded = b.Mul(post, b.Reshape(y, 0, 1, hidden));                                                          // [T, N, H]
         Value residual = streamsOf;
         if (mixing is not null)
         {
-            // Σ_j C[j, k]·X_j: [T, j, k, 1] · [T, j, 1, H] summed over j.
+            // Σ_j C[j, k]·X_j: [T, j, k, 1] · [T, j, 1, H] summed over j (C transposed first for Σ_j C[k, j]·X_j).
+            if (o.MixingTransposed)
+            {
+                mixing = b.Permute(mixing, 0, 2, 1);
+            }
+
             var products = b.Mul(b.Reshape(mixing, 0, streams, streams, 1), b.Reshape(x, 0, streams, 1, hidden));          // [T, j, k, H]
             residual = b.Reshape(b.Emit1("ReduceSum", [b.Permute(products, 0, 2, 3, 1)]), 0, streams, hidden);
         }
@@ -66,7 +92,7 @@ internal static class StreamHyperConnections
     public static Value Head(GraphBuilder b, Value x, string prefix, StreamHyperConnectionOptions o, int hidden)
     {
         var m = Mixes(b, x, prefix, o);
-        var pre = Weights(b, m, b.Weight(prefix + "scale"), b.Weight(prefix + "base"), 0, o.Streams, 1f, o.Eps);
+        var pre = Weights(b, m, b.Weight(prefix + "scale"), b.Weight(prefix + "base"), 0, o.Streams, 1f, o.PreEps);
         return Sum(b, x, pre, o.Streams, hidden, $"{prefix}output");
     }
 
@@ -92,13 +118,23 @@ internal static class StreamHyperConnections
         return b.Reshape(b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]), 0, hidden);
     }
 
-    // DeepSeek-V4: C = softmax_rows(logits) + eps, then columns, (rows, columns) × (iterations − 1) normalized to sum 1 (+ eps).
+    // DeepSeek-V4: C = softmax_rows(logits) + mixing_eps, then columns, (rows, columns) × (iterations − 1) normalized to sum 1 (+ eps).
     private static Value Sinkhorn(GraphBuilder b, Value m, Value scale, Value bias, StreamHyperConnectionOptions o)
     {
         int n = o.Streams;
         var logits = b.Add(b.Mul(b.Reshape(b.Slice(m, 1, 2L * n, (long)n * n), 0, n, n), b.Slice(scale, 0, 2, 1)),
             b.Reshape(b.Slice(bias, 0, 2L * n, (long)n * n), n, n));
-        var c = b.Scale(b.Emit1("Softmax", [logits]), 1f, o.Eps);
+        if (o.MixingClamp > 0f)
+        {
+            logits = b.Emit1("Clip", [logits], Attributes.From(("min", -o.MixingClamp), ("max", o.MixingClamp)));
+        }
+
+        var c = b.Emit1("Softmax", [logits]);
+        if (o.MixingEps != 0f)
+        {
+            c = b.Scale(c, 1f, o.MixingEps);
+        }
+
         c = NormalizeColumns(b, c, n, o.Eps);
         for (int i = 1; i < o.SinkhornIterations; i++)
         {

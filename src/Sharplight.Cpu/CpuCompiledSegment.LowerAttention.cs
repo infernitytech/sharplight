@@ -17,7 +17,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         var rope = new RopeOp(
             x, positions, frequencyFactors, y, a.Get("dims", 0), a.Get("base", 10000f), a.Get("style", "neox"),
-            IntArray(a, "sections"), a.Get("interleaved", false), a.Get("freq_scale", 1f), a.Get("attn_factor", 1f));
+            IntArray(a, "sections"), a.Get("interleaved", false), a.Get("sections_per_element", false), a.Get("freq_scale", 1f), a.Get("attn_factor", 1f));
         AddStep(rope, Touched(x, positions, frequencyFactors, y));
         _refs[n.Output] = y;
     }
@@ -34,11 +34,12 @@ internal sealed unsafe partial class CpuCompiledSegment
             var rows = Dense(Ref(ins[2]));
             var table = ins.Length > 3 ? Dense(Ref(ins[3])) : null;
             var pages = table is null ? null : new KvPages(table, a.Get("block_size", 0L));
-            AddStep(new CacheWriteOp(cache, x, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L), pages), Touched(cache, x, rows, table));
+            AddStep(new CacheWriteOp(cache, x, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L), pages, a.Get("compression", 1L)),
+                Touched(cache, x, rows, table));
             return;
         }
 
-        AddStep(new CacheWriteOp(cache, x, a.Get("offset", WellKnown.PastScalar)), cache, x);
+        AddStep(new CacheWriteOp(cache, x, a.Get("offset", WellKnown.PastScalar), compression: a.Get("compression", 1L)), cache, x);
     }
 
     private void LowerCachedAttention(Node n)
@@ -51,8 +52,11 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         bool hasSinks = a.Get("sinks", false);
         bool hasSelection = a.Get("selection", false);
+        long compression = a.Get("compression", 1L);
         TRef? sinks = hasSinks ? Ref(ins[3]) : null;
-        int extra = (hasSinks ? 1 : 0) + (hasSelection ? 1 : 0);   // inputs: q, k, v, [sinks], [selection], [rows, runs, [block table]]
+        TRef? compressed = a.Has("compression") ? Ref(ins[3 + (hasSinks ? 1 : 0)]) : null;
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
+        int extra = (hasSinks ? 1 : 0) + (compressed is null ? 0 : 1) + (hasSelection ? 1 : 0);
         TRef? selection = hasSelection ? Dense(Ref(ins[2 + extra])) : null;
         TRef? rows = ins.Length > 3 + extra ? Dense(Ref(ins[3 + extra])) : null;
         TRef? table = ins.Length > 5 + extra ? Dense(Ref(ins[5 + extra])) : null;
@@ -60,12 +64,13 @@ internal sealed unsafe partial class CpuCompiledSegment
             q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
             rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0),
             alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)),
-            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0), selection: selection);
-        AddStep(attention, Touched(q, k, v, sinks, selection, rows, table, y));
+            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0), selection: selection,
+            compressed: compressed is null ? null : new CompressedKv(compressed, compression));
+        AddStep(attention, Touched(q, k, v, sinks, compressed, selection, rows, table, y));
         _refs[n.Output] = y;
     }
 
-    /// <summary>Lightning-indexer key selection: q, key cache, [head weights], [position gate], [rows, runs, [block table]].</summary>
+    /// <summary>Lightning-indexer key selection: q, key cache, [head weights], [position gate or pool norm], [rows, runs, [block table]].</summary>
     private void LowerIndexerTopK(Node n)
     {
         var a = n.Attributes;
@@ -74,14 +79,16 @@ internal sealed unsafe partial class CpuCompiledSegment
         var q = RowContig(Ref(ins[0]));
         var keys = Ref(ins[1]);
         TRef? weights = selection.PerHead ? null : RowContig(Ref(ins[2]));
-        TRef? positionGate = selection.Pooled ? RowContig(RefF32(ins[selection.TableInput - 1])) : null;
+        TRef? poolInput = selection.HasPoolInput ? RowContig(RefF32(ins[selection.CandidateInput - 1])) : null;
+        TRef? candidates = selection.CandidateGroup > 0 ? Ref(ins[selection.CandidateInput]) : null;
         var y = NewDense(n.Output);
         int tables = selection.TableInput;
         TRef? rows = ins.Length > tables ? Dense(Ref(ins[tables])) : null;
         TRef? table = ins.Length > tables + 2 ? Dense(Ref(ins[tables + 2])) : null;
-        var select = new IndexerTopKOp(q, keys, weights, positionGate, y, selection, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L),
-            table is null ? null : new KvPages(table, a.Get("block_size", 0L)));
-        AddStep(select, Touched(q, keys, weights, positionGate, rows, table, y));
+        long compression = a.Get("compression", 1L);
+        var select = new IndexerTopKOp(q, keys, weights, poolInput, y, selection, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L),
+            table is null ? null : new KvPages(table, a.Get("block_size", 0L), compression), compression, candidates);
+        AddStep(select, Touched(q, keys, weights, poolInput, candidates, rows, table, y));
         _refs[n.Output] = y;
     }
 

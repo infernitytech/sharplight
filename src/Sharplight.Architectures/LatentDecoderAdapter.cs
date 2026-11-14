@@ -11,7 +11,8 @@ namespace Sharplight.Architectures;
 /// <remarks>
 /// Hyper-parameters (<c>latent_decoder.*</c>):
 /// <list type="bullet">
-/// <item><c>layer_count</c>, <c>hidden_size</c>, <c>context_length</c>, <c>norm_eps</c> (RMS norm epsilon, also of the compressed query and latent).</item>
+/// <item><c>layer_count</c>, <c>hidden_size</c>, <c>context_length</c>, <c>norm_eps</c> (RMS norm epsilon, also of the compressed query and latent
+/// unless <c>attention.latent_norm_eps</c> sets theirs).</item>
 /// <item>Attention: <c>attention.head_count</c>, <c>attention.q_rank</c> (query compression rank, 0 = direct projection), <c>attention.latent_rank</c>
 /// (compressed key/value rank), <c>attention.nope_dim</c> / <c>attention.rope_dim</c> (non-rotary / rotary query-key dimensions per head; 0 rotary
 /// dimensions cache the latent alone),
@@ -20,7 +21,11 @@ namespace Sharplight.Architectures;
 /// rotate-half), <c>rope.attention_scale</c> (factor on the rotated parts, yarn cos/sin magnitude, default 1); frequency scaling arrives as
 /// the weight <c>rope.freq_factors</c> (f32 [rope_dim/2], θ is divided by it), longrope additionally as <c>rope.freq_factors_long</c> with
 /// <c>rope.original_context_length</c> (the long factors apply when the configured context exceeds it).</item>
-/// <item>MLP: <c>mlp.activation</c> ("silu" default, "relu2", "gelu"), <c>mlp.gated</c> (default true: act(gate)·up).</item>
+/// <item>MLP: <c>mlp.activation</c> ("silu" default, "relu2", "gelu", "situ" with <c>mlp.situ_beta</c> / <c>mlp.situ_linear_beta</c>, see
+/// <see cref="SituActivation"/>), <c>mlp.gated</c> (default true: act(gate)·up).</item>
+/// <item>Block attention residuals (Kimi K3): <c>attention_residuals.block_size</c> (layers per block, 0 = plain residual sum) with the score weights
+/// <c>layers.{i}.attention_res.score.weight</c>, <c>layers.{i}.mlp_res.score.weight</c> and <c>output_res.score.weight</c> (see
+/// <see cref="AttentionResiduals"/>); no draft head with them.</item>
 /// <item>Mixture of experts (a layer is MoE when it has <c>mlp.router.weight</c>; the first layers are usually dense):
 /// <c>moe.expert_count</c>, <c>moe.expert_used_count</c>, <c>moe.router_activation</c> ("softmax" default or "sigmoid"),
 /// <c>moe.normalize_weights</c> (renormalize the selected weights to sum 1, default false), <c>moe.weights_scale</c> (default 1),
@@ -38,7 +43,7 @@ namespace Sharplight.Architectures;
 /// <c>attention.indexer.k_norm.{weight,bias}</c> (pooled keys also <c>attention.indexer.{pool_gate,pool_position}.weight</c>; see
 /// <see cref="SparseAttentionIndexer"/>); a layer without them reuses the previous indexed layer's selection. When the context does not exceed the
 /// budget the indexer is left out (every row would keep every visible position).</item>
-/// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
+/// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC, Xing4.0): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
 /// modules <c>layers.{i}.attention_hc.*</c> and <c>layers.{i}.mlp_hc.*</c> around the two sub-layers and the head <c>output_hc.*</c> before the
 /// output norm (weights on <see cref="StreamHyperConnections"/>; without <c>output_hc.*</c> the streams are averaged). No draft head with
 /// hyper-connections.</item>

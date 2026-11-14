@@ -127,7 +127,7 @@ public sealed class LlmModel : IDisposable
         }
 
         ReportReady(graph);
-        return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0));
+        return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0), TextPositionAxes);
     }
 
     /// <summary>
@@ -248,7 +248,7 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged,
-            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0);
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DecodeGraph);
@@ -263,6 +263,9 @@ public sealed class LlmModel : IDisposable
 
     /// <summary>The decode-graph output the draft head reads as hidden states (<see cref="WellKnown.DraftHiddenSource"/>).</summary>
     private string DraftHiddenSource => Definition.Properties.TryGetValue(WellKnown.DraftHiddenSource, out var v) && v is string s ? s : WellKnown.HiddenOutput;
+
+    /// <summary>Leading position axes that carry a text token's position (<see cref="WellKnown.TextPositionAxes"/>).</summary>
+    private int TextPositionAxes => Definition.Property(WellKnown.TextPositionAxes, WellKnown.DefaultTextPositionAxes);
 
     /// <summary>
     /// Compiles the model's multi-token-prediction head (<see cref="WellKnown.DraftGraph"/>) into a speculator for an
@@ -291,11 +294,12 @@ public sealed class LlmModel : IDisposable
         // A paged head cache gets a block per slot more than the target's: its rows run up to draftTokens past the target's.
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
         // With a device sampling head the draft tokens (greedy) are chosen on the device: only token ids come back.
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged);
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged, textPositionAxes: TextPositionAxes);
         _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
         var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
-        return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap);
+        bool anchored = Definition.Properties.TryGetValue(WellKnown.DraftAnchored, out var a) && a is true;
+        return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap, anchored);
     }
 
     private const long DefaultReserve = 1L << 30;

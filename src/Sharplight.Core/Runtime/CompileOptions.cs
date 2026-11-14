@@ -66,6 +66,13 @@ public sealed class CompileOptions
     /// </summary>
     public SharedWeights? SharedWeights { get; init; }
 
+    /// <summary>
+    /// Identifies the compiled graph a segment belongs to (set by <see cref="CompiledModel.Compile"/>, one object per graph): the segments
+    /// compiled with the same scope on one device hold a single buffer per state, so nodes of a state that the placement splits into several
+    /// segments of that device (other devices' nodes between them) see the same state. Null: every segment keeps its own states.
+    /// </summary>
+    public object? StateScope { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -103,7 +110,10 @@ public sealed class CompileOptions
     /// <summary>A copy reporting to <paramref name="progress"/>.</summary>
     internal CompileOptions WithProgress(IProgress<LoadProgress>? progress) => Copy(SymbolBounds, progress);
 
-    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress) => new()
+    /// <summary>A copy with the state scope <paramref name="scope"/>.</summary>
+    internal CompileOptions WithStateScope(object scope) => Copy(SymbolBounds, Progress, scope);
+
+    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null) => new()
     {
         MaxTokens = MaxTokens,
         ContextLength = ContextLength,
@@ -116,5 +126,6 @@ public sealed class CompileOptions
         Progress = progress,
         CancellationToken = CancellationToken,
         SharedWeights = SharedWeights,
+        StateScope = stateScope ?? StateScope,
     };
 }

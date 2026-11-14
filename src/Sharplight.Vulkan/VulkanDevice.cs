@@ -328,6 +328,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         return Code.CreateProfile(Info, properties);
     }
 
+    /// <summary>
+    /// State buffers per compiled graph (<see cref="CompileOptions.StateScope"/>): the first segment of the graph that uses a state allocates
+    /// (and frees) its buffer, the later ones reuse it.
+    /// </summary>
+    internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<Models.StateDefinition, Allocation>> SharedStates { get; } = new();
+
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options)
     {
         var cache = options.CacheFor?.Invoke(this);

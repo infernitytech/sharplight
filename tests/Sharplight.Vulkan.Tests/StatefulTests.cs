@@ -16,6 +16,8 @@ public sealed class StatefulTests
     [InlineData("q8_0", 128, 128, 4, 2)]
     [InlineData("q4_0", 128, 128, 4, 2)]
     [InlineData("q4_0", 64, 96, 6, 3)]
+    [InlineData("f16", 12, 12, 4, 2)]   // head sizes that are not a multiple of 8: the per-head kernel with one key element per load
+    [InlineData("f32", 20, 12, 6, 3)]
     public void CachedAttentionAcrossSteps(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [5, 3, 1, 1, 7, 1], 40);
 
@@ -27,6 +29,7 @@ public sealed class StatefulTests
     [InlineData("f32", 128, 128, 4, 2)]
     [InlineData("q8_0", 128, 128, 8, 2)]
     [InlineData("q4_0", 256, 256, 4, 1)]
+    [InlineData("f16", 12, 12, 4, 2)]
     public void CachedAttentionLongPrefill(string cacheType, int D, int Dv, int Hq, int Hkv)
         => CachedAttention(cacheType, D, Dv, Hq, Hkv, [70, 33, 1, 5], 120);
 

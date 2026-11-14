@@ -7,15 +7,17 @@ namespace Sharplight.Llm;
 
 /// <summary>
 /// A compiled <see cref="WellKnown.VisionEncodeGraph"/> plus the generic image preprocessing driven by the model's
-/// canonical <see cref="VisionParameters"/>: raw RGB pixels in, one embedding row per merged image patch out.
+/// canonical <see cref="VisionParameters"/>: raw RGB pixels in, one embedding row per merged image patch out (plus separator and boundary
+/// rows for towers that have them, see <see cref="PreprocessedImage.TokenCount"/>).
 /// Create with <see cref="LlmModel.CreateVisionEncoder"/>.
 /// </summary>
 public sealed class VisionEncoder : IDisposable
 {
     private readonly CompiledModel _compiled;
+    private readonly CompiledModel? _tile;
     private readonly RunParameters _run = new();
-    private readonly Value _patches, _positions, _embIndex, _embWeight;
-    private readonly Value? _windowSpans, _windowOrder;
+    private readonly Value? _patches, _positions, _embIndex, _embWeight;
+    private readonly Value? _windowSpans, _windowOrder, _layout;
     private readonly string _output = VisionParameters.EmbeddingsOutput;
 
     /// <summary>The model the encoder belongs to.</summary>
@@ -37,6 +39,20 @@ public sealed class VisionEncoder : IDisposable
         IReadOnlySet<string>? disabledFeatures = null, Func<IComputeDevice, ICompilationCache?>? cacheFor = null)
     {
         var p = VisionParameters.Of(def) ?? throw new NotSupportedException("This model has no vision tower (for GGUF models pass the projector file as the \"mmproj\" auxiliary file).");
+        if (p.Sam is not null)
+        {
+            // Fixed-size views: static graphs, one run per view.
+            CompiledModel CompileView(string graph) => CompiledModel.Compile(def.Graph(graph), new PlacementOptions
+            {
+                Devices = devices,
+                Fallback = fallback,
+                Compile = new CompileOptions { MaxTokens = 1, ContextLength = 1, DisabledFeatures = disabledFeatures ?? new HashSet<string>(), CacheFor = cacheFor },
+            });
+            var global = CompileView(WellKnown.VisionEncodeGraph);
+            var tile = def.Graphs.ContainsKey(SamParameters.TileGraph) ? CompileView(SamParameters.TileGraph) : null;
+            return new VisionEncoder(def, p, global, tile, new VisionPreprocessor(p), 0);
+        }
+
         int maxTokens = limits?.MaxTokens ?? 1024;
         int maxPatches = maxTokens * p.MergeUnit;
         var compiled = CompiledModel.Compile(def.Graph(WellKnown.VisionEncodeGraph), new PlacementOptions
@@ -47,29 +63,37 @@ public sealed class VisionEncoder : IDisposable
             {
                 MaxTokens = maxPatches,
                 ContextLength = 1,
-                SymbolBounds = new Dictionary<string, long> { [VisionParameters.PatchSymbol] = maxPatches, [VisionParameters.MergedSymbol] = maxTokens },
+                SymbolBounds = new Dictionary<string, long>
+                {
+                    [VisionParameters.PatchSymbol] = maxPatches,
+                    [VisionParameters.MergedSymbol] = maxTokens,
+                    // At most one separator per merged token plus the two boundary rows.
+                    [VisionParameters.OutputSymbol] = 2L * maxTokens + 2,
+                },
                 DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
                 CacheFor = cacheFor,
             },
         });
         var pre = new VisionPreprocessor(p, new ImageTokenLimits(limits?.MinTokens, maxTokens));
-        return new VisionEncoder(def, p, compiled, pre, maxPatches);
+        return new VisionEncoder(def, p, compiled, null, pre, maxPatches);
     }
 
-    private VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, VisionPreprocessor pre, int maxPatches)
+    private VisionEncoder(ModelDefinition def, VisionParameters p, CompiledModel compiled, CompiledModel? tile, VisionPreprocessor pre, int maxPatches)
     {
         Definition = def;
         Parameters = p;
         _compiled = compiled;
+        _tile = tile;
         Preprocessor = pre;
         MaxPatches = maxPatches;
         var g = compiled.Graph;
-        _patches = g.Inputs.First(v => v.Input!.Name == VisionParameters.PatchesInput);
-        _positions = g.Inputs.First(v => v.Input!.Name == VisionParameters.PositionsInput);
+        _patches = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.PatchesInput);
+        _positions = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.PositionsInput);
         _embIndex = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingIndexInput)!;
         _embWeight = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingWeightInput)!;
         _windowSpans = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowSpansInput);
         _windowOrder = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowOrderInput);
+        _layout = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.LayoutInput);
     }
 
     /// <summary>Width of one embedding row: the language model's hidden size, times 1 + the number of DeepStack layers.</summary>
@@ -85,6 +109,11 @@ public sealed class VisionEncoder : IDisposable
     /// <exception cref="InvalidOperationException">The image has more patches than the encoder was compiled for.</exception>
     public float[] Encode(PreprocessedImage image)
     {
+        if (Parameters.Sam is not null)
+        {
+            return EncodeViews(image);
+        }
+
         int n = image.PatchCount;
         int merged = n / Parameters.MergeUnit;
         if (n > MaxPatches)
@@ -92,10 +121,10 @@ public sealed class VisionEncoder : IDisposable
             throw new InvalidOperationException($"The image has {n} patches but the encoder was compiled for at most {MaxPatches}; lower the image resolution or raise the image token limit.");
         }
 
-        _compiled.SetInput<float>(_patches, image.Patches);
-        _compiled.SetInput<int>(_positions, image.Positions);
-        _compiled.SetInput<int>(_embIndex, image.EmbeddingIndex);
-        _compiled.SetInput<float>(_embWeight, image.EmbeddingWeight);
+        _compiled.SetInput<float>(_patches!, image.Patches);
+        _compiled.SetInput<int>(_positions!, image.Positions);
+        _compiled.SetInput<int>(_embIndex!, image.EmbeddingIndex);
+        _compiled.SetInput<float>(_embWeight!, image.EmbeddingWeight);
         if (_windowSpans is not null && _windowOrder is not null)
         {
             if (image.WindowSpans.Length != 2 * n || image.WindowOrder.Length != merged)
@@ -107,14 +136,118 @@ public sealed class VisionEncoder : IDisposable
             _compiled.SetInput<int>(_windowOrder, image.WindowOrder);
         }
 
+        int rows = merged;
+        if (_layout is not null)
+        {
+            if (image.Layout.Length == 0)
+            {
+                throw new ArgumentException("The image was not preprocessed for this encoder's output layout (row separators / boundary rows).", nameof(image));
+            }
+
+            _compiled.SetInput<int>(_layout, image.Layout);
+            rows = image.Layout.Length;
+            _run.Symbols[VisionParameters.OutputSymbol] = rows;
+        }
+
         _run.Symbols[VisionParameters.PatchSymbol] = n;
         _run.Symbols[VisionParameters.MergedSymbol] = merged;
         _compiled.Run(_run);
-        var result = new float[(long)merged * EmbeddingSize];
+        var result = new float[(long)rows * EmbeddingSize];
         _compiled.GetOutput<float>(_output, result);
         return result;
     }
 
+    /// <summary>
+    /// Two-stage towers: encodes the global view and each tile, then lays the rows out (see <see cref="SamParameters"/>): the tiles stitched
+    /// into one grid with a newline after each row, the global grid with a newline after each row, the view separator; without newlines
+    /// (<see cref="SamParameters.Newlines"/>) the tiles' rows one tile after the other, the global view's, the separator.
+    /// </summary>
+    private float[] EncodeViews(PreprocessedImage image)
+    {
+        var sam = Parameters.Sam!;
+        int width = EmbeddingSize;
+        int globalLen = 3 * sam.GlobalSize * sam.GlobalSize;
+        int tileLen = 3 * sam.TileSize * sam.TileSize;
+        int tiles = image.TileColumns * image.TileRows;
+        if (image.Patches.Length != globalLen + tiles * tileLen || image.TokenCount != image.MergedWidth || image.MergedHeight != 1)
+        {
+            throw new ArgumentException("The image was not preprocessed for this encoder's views (global view and tiles).", nameof(image));
+        }
+
+        var result = new float[(long)image.TokenCount * width];
+        int row = 0;
+        var newline = new float[width];
+        var separator = new float[width];
+        if (tiles > 0)
+        {
+            var model = _tile ?? _compiled;
+            int ft = sam.FeatureSide(sam.TileSize, Parameters.PatchSize);
+            var views = new float[tiles][];
+            for (int t = 0; t < tiles; t++)
+            {
+                views[t] = RunView(model, image.Patches.AsSpan(globalLen + t * tileLen, tileLen), ft * ft, newline, separator);
+            }
+
+            if (!sam.Newlines)
+            {
+                foreach (var v in views)
+                {
+                    v.CopyTo(result.AsSpan(row * width));
+                    row += ft * ft;
+                }
+            }
+
+            for (int tr = 0; tr < image.TileRows && sam.Newlines; tr++)
+            {
+                for (int y = 0; y < ft; y++)
+                {
+                    for (int tc = 0; tc < image.TileColumns; tc++)
+                    {
+                        views[tr * image.TileColumns + tc].AsSpan(y * ft * width, ft * width).CopyTo(result.AsSpan(row * width));
+                        row += ft;
+                    }
+
+                    newline.CopyTo(result.AsSpan(row++ * width));
+                }
+            }
+        }
+
+        int f = sam.FeatureSide(sam.GlobalSize, Parameters.PatchSize);
+        var globalRows = RunView(_compiled, image.Patches.AsSpan(0, globalLen), f * f, newline, separator);
+        for (int y = 0; y < f; y++)
+        {
+            globalRows.AsSpan(y * f * width, f * width).CopyTo(result.AsSpan(row * width));
+            row += f;
+            if (sam.Newlines)
+            {
+                newline.CopyTo(result.AsSpan(row++ * width));
+            }
+        }
+
+        separator.CopyTo(result.AsSpan(row++ * width));
+        return result;
+    }
+
+    private float[] RunView(CompiledModel model, ReadOnlySpan<float> pixels, int rows, float[] newline, float[] separator)
+    {
+        var input = model.Graph.Inputs.First(v => v.Input!.Name == SamParameters.PixelsInput);
+        model.SetInput<float>(input, pixels);
+        model.Run(_run);
+        var embeddings = new float[(long)rows * EmbeddingSize];
+        model.GetOutput<float>(VisionParameters.EmbeddingsOutput, embeddings);
+        if (Parameters.Sam!.Newlines)
+        {
+            model.GetOutput<float>(SamParameters.NewlineOutput, newline);
+        }
+
+        model.GetOutput<float>(SamParameters.SeparatorOutput, separator);
+        return embeddings;
+    }
+
     /// <summary>Releases the device memory of the encoder.</summary>
-    public void Dispose() => _compiled.Dispose();
+    public void Dispose()
+    {
+        _compiled.Dispose();
+        _tile?.Dispose();
+    }
 }
