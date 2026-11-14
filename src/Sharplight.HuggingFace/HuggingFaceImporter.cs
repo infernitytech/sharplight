@@ -71,13 +71,16 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     {
         options ??= HfImportOptions.Default;
         string dir = ResolveDirectory(path) ?? throw new FileNotFoundException($"'{path}' is neither a directory nor a .safetensors file.");
-        using var config = HfConfig.Load(dir);
+        // A Decision 2.0 package keeps the backbone checkpoint in a subdirectory and the span scoring head beside it.
+        var decision = HfDecisionPackage.Find(dir);
+        string weightsDir = decision?.BackboneDirectory ?? dir;
+        using var config = HfConfig.Load(weightsDir);
         var mapping = HfArchitectureMappings.Find(config.ModelType)
             ?? throw new NotSupportedException(
                 $"Hugging Face model_type '{config.ModelType}' ({string.Join(", ", config.Architectures)}) is not supported. " +
                 $"Supported: {string.Join(", ", HfArchitectureMappings.All.SelectMany(m => m.ModelTypes))}.");
 
-        var checkpoint = SafetensorsCheckpoint.Open(dir);
+        var checkpoint = SafetensorsCheckpoint.Open(weightsDir);
         List<IDisposable> owned = [checkpoint];
         try
         {
@@ -91,14 +94,24 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 md[k] = v;
             }
 
+            if (decision != null)
+            {
+                HfDecisionPackage.AddHyperParameters(md);
+            }
+
             // EAGLE-3 drafters ship without a tokenizer: they use their target's.
             if (!Eagle3HfMapping.IsDrafter(config) || File.Exists(Path.Combine(dir, "tokenizer.json")))
             {
-                HfTokenizerTranslator.AddTo(md, dir, config);
+                HfTokenizerTranslator.AddTo(md, File.Exists(Path.Combine(dir, "tokenizer.json")) ? dir : weightsDir, config);
             }
             HfSentenceTransformers.AddTo(md, dir, config);
 
             var weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options);
+            if (decision != null)
+            {
+                weights = weights.Concat(decision.HeadWeights(owned)).ToDictionary(StringComparer.Ordinal);
+            }
+
             var dense = HfSentenceTransformers.DenseWeights(dir, owned);
             if (dense.Count > 0)
             {

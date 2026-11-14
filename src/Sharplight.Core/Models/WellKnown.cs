@@ -119,4 +119,23 @@ public static class WellKnown
     /// autoregressive model); false: it predicts position i (LLaDA).
     /// </summary>
     public const string DiffusionShiftLogits = "diffusion.shift_logits";
+    /// <summary>
+    /// Span scoring (decision models: a prompt holds questions and their options, the head gives every option a score): the packed-sequence
+    /// inputs of <see cref="EmbedGraph"/> plus <see cref="InputRole.QuestionSpans"/> [<see cref="QuestionSymbol"/>, 4] and
+    /// <see cref="InputRole.OptionSpans"/> [<see cref="OptionSymbol"/>, 3], which mark spans of the packed rows; output
+    /// <see cref="ScoresOutput"/> [<see cref="OptionSymbol"/>, 1], one score per option (the options of a question are compared by a softmax
+    /// over their scores). How the head reads the spans is the model's (<see cref="SpanHeadType"/>).
+    /// </summary>
+    public const string ScoreSpansGraph = "score_spans";
+    /// <summary>Name of the output of <see cref="ScoreSpansGraph"/>: one score per option.</summary>
+    public const string ScoresOutput = "scores";
+    /// <summary>Symbol of the question count of <see cref="ScoreSpansGraph"/>.</summary>
+    public const string QuestionSymbol = "Q";
+    /// <summary>Symbol of the option count of <see cref="ScoreSpansGraph"/>.</summary>
+    public const string OptionSymbol = "O";
+    /// <summary>
+    /// Property of models with a <see cref="ScoreSpansGraph"/> (string): the head type, e.g. "endpoint" (the last token of each option against
+    /// the last token of its question) or "joint_schema" (pooled spans read by cross-attention layers, all questions decided jointly).
+    /// </summary>
+    public const string SpanHeadType = "span_head_type";
 }

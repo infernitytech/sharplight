@@ -119,6 +119,7 @@ internal static class GgufArchitectureMappings
         yield return new LimiteGgufMapping();
         yield return new GroveMoeGgufMapping();
         yield return new K2HorizonGgufMapping();
+        yield return new VllmDecision2GgufMapping();
         yield return new GraniteSwitchGgufMapping();
     }
 

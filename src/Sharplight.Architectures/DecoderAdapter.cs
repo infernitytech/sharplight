@@ -231,6 +231,11 @@ public sealed class DecoderAdapter : IModelAdapter
             [WellKnown.CausalAttention] = hp.Causal,
             [WellKnown.ClassifierLabels] = hp.Vocab,
         };
+        if (SpanScoring.IsPresent(src))
+        {
+            props[WellKnown.SpanHeadType] = SpanScoring.HeadType(src);
+        }
+
         if (graphBuilder.IsDiffusion)
         {
             props[WellKnown.DiffusionShiftLogits] = src.Arch("diffusion.shift_logits", false);

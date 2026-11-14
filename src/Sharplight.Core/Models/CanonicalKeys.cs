@@ -78,6 +78,14 @@ public static class CanonicalKeys
     /// <summary>Longest input in tokens the model was trained for (int; embedding / reranking models).</summary>
     public const string TokenizerMaxLength = "tokenizer.max_length";
 
+    /// <summary>
+    /// Type of the span scoring head of a decision model (string; see <see cref="WellKnown.ScoreSpansGraph"/>): "endpoint" (vllm-sr
+    /// Decision 2.0). Its weights are below <c>span_head.</c>.
+    /// </summary>
+    public const string SpanHeadType = "span_head.type";
+    /// <summary>LayerNorm epsilon of the span scoring head (float, default 1e-5).</summary>
+    public const string SpanHeadNormEps = "span_head.norm_eps";
+
     /// <summary>Pooling an embedding model was trained with: "mean", "cls", "last" or "none" (string).</summary>
     public const string EmbeddingPooling = "embedding.pooling";
     /// <summary>Whether the embedding model's output is L2-normalized (bool).</summary>
