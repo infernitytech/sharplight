@@ -32,10 +32,11 @@ internal static class Diff
     }
 
     private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx, IReadOnlySet<string>? disabledFeatures = null,
-        bool allowReducedPrecision = false)
+        bool allowReducedPrecision = false, bool cpuFallback = false)
         => CompiledModel.Compile(g, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = dev }],
+            Fallback = cpuFallback ? new DeviceSlot { Device = Gpu.Cpu } : null,
             Compile = new CompileOptions
             {
                 MaxTokens = maxTokens,
@@ -103,13 +104,15 @@ internal static class Diff
     /// Runs all steps on both devices (state persists across steps) and compares every graph output.
     /// Returns the largest |a-b| seen. <paramref name="disabledFeatures"/> are turned off for the Vulkan compilation
     /// (to exercise the portable fallback kernels on a device that has the features); <paramref name="allowReducedPrecision"/>
-    /// lets the Vulkan compilation use reduced-precision products.
+    /// lets the Vulkan compilation use reduced-precision products. <paramref name="cpuFallback"/> places the nodes Vulkan does not support on the CPU
+    /// (a mixed compilation), and <paramref name="inspect"/> sees the Vulkan-side model before the first step.
     /// </summary>
     public static double Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
-        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false)
+        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false, bool cpuFallback = false, Action<CompiledModel>? inspect = null)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision);
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision, cpuFallback);
+        inspect?.Invoke(vk);
         CompiledModel cpu;
         try
         {
