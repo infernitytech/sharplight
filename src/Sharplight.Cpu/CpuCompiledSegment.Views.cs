@@ -61,6 +61,11 @@ internal sealed unsafe partial class CpuCompiledSegment
     private static bool TryReshapeStrides(long[] oldDims, long[] oldStrides, long[] newDims, out long[] newStrides)
     {
         newStrides = new long[newDims.Length];
+        if (oldDims.Aggregate(1L, (a, d) => a * d) != newDims.Aggregate(1L, (a, d) => a * d))
+        {
+            return false;   // not a reshape of these axes (e.g. the inner axes when the symbolic axis merges with them)
+        }
+
         var keptDims = new List<long>();
         var keptStrides = new List<long>();
         for (int i = 0; i < oldDims.Length; i++)
@@ -151,10 +156,9 @@ internal sealed unsafe partial class CpuCompiledSegment
                 return View(source, newDims, newStrides, 0, symbol);
             }
 
-            // The symbolic axis merges with (or splits into) inner axes, e.g. [B, S, D] slice → [B·S, H, Dh]: both views lead with
-            // the symbolic axis and the leading stride of a view does not depend on its count, so the strides computed for the
-            // bounds hold for every count.
-            if (TryReshapeStrides(source.Dims, source.Strides, newDims, out newStrides))
+            // The symbolic axis merges with the next source axes, e.g. a [B, S, D] slice → [B·S, H, Dh]: the merged axes must be
+            // contiguous with each other, the new leading stride is the last merged axis's, and the rest is reshaped on its own.
+            if (TryMergeLeading(source, newDims, out newStrides))
             {
                 return View(source, newDims, newStrides, 0, symbol);
             }
@@ -166,6 +170,35 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         var copy = Materialize(source);
         return View(copy, newDims, TRef.RowMajor(newDims), 0, symbol);
+    }
+
+    /// <summary>
+    /// Strides of <paramref name="newDims"/> when its leading (symbolic) axis is the source's leading axis merged with the
+    /// source axes 1..j (contiguous with each other) and its other axes reshape the remaining source axes.
+    /// </summary>
+    private static bool TryMergeLeading(TRef source, long[] newDims, out long[] newStrides)
+    {
+        newStrides = [];
+        long merged = source.Dims[0];
+        for (int j = 1; j < source.Rank && merged < newDims[0]; j++)
+        {
+            if (source.Strides[j - 1] != source.Dims[j] * source.Strides[j])
+            {
+                return false;
+            }
+
+            merged *= source.Dims[j];
+            if (merged == newDims[0] && j + 1 < source.Rank
+                && TryReshapeStrides(source.Dims[(j + 1)..], source.Strides[(j + 1)..], newDims[1..], out var inner))
+            {
+                newStrides = new long[newDims.Length];
+                newStrides[0] = source.Strides[j];
+                inner.CopyTo(newStrides, 1);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static int NormalizeAxis(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
