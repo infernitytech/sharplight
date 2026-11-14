@@ -114,6 +114,7 @@ internal static class GgufArchitectureMappings
         yield return new ModernBertGgufMapping();
         yield return new HrmTextGgufMapping();
         yield return new SenseNovaU1GgufMapping();
+        yield return new LimiteGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>

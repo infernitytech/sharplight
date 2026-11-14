@@ -24,6 +24,7 @@ internal sealed partial class DecoderGraphBuilder
     private Func<string, WeightInfo?>? _draft;
     private readonly int[] _taps;                                 // layers whose inputs the decode graphs export (an EAGLE-3 drafter's features)
     private Dictionary<int, Value>? _tapValues;                   // while a trunk graph is built: the tapped layer inputs
+    private Value? _valueEmbeddings;                              // while a graph with token inputs is built: value_embedding rows [T, KvH·D]
     private string _pooling = "last";
     private bool _normalize = true;
 
@@ -166,7 +167,8 @@ internal sealed partial class DecoderGraphBuilder
             }
         }
 
-        if (_options.IncludeAuxiliaryGraphs)
+        // Value embeddings are looked up by token id: no embeddings-input graph.
+        if (_options.IncludeAuxiliaryGraphs && _src.Weight(ValueEmbeddingWeight) is null)
         {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
         }
@@ -318,6 +320,7 @@ internal sealed partial class DecoderGraphBuilder
     // Token embedding lookup followed by the optional scale and weight-less norm some models apply to it.
     private Value TokenEmbeddings(GraphBuilder b, Value tokens)
     {
+        _valueEmbeddings = b.TryWeight(ValueEmbeddingWeight) is { } valueTable ? b.Gather(valueTable, tokens, "inp_value_embd") : null;
         var x = b.Gather(b.Weight("token_embedding.weight"), tokens, "inp_embd");
         if (_hp.EmbeddingScale != 1f)
         {
@@ -372,6 +375,12 @@ internal sealed partial class DecoderGraphBuilder
         {
             logits = b.Scale(logits, _hp.LogitScale);
         }
+        if (_hp.LogitSigmoidCap is { } cap)
+        {
+            // scale · sigmoid((logits + shift) / temperature) (Limite).
+            logits = b.Scale(b.Sigmoid(b.Scale(logits, 1f / cap[2], cap[1] / cap[2])), cap[0], 0, "logits_capped");
+        }
+
         if (_hp.FinalSoftCap > 0)
         {
             logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / _hp.FinalSoftCap)), _hp.FinalSoftCap, 0, "logits_capped");
@@ -393,6 +402,7 @@ internal sealed partial class DecoderGraphBuilder
         int deepstackLayers = deepstack is null ? 0 : (int)(deepstack.Shape[-1].Fixed / _hp.NEmbd);
         var packedKv = new Dictionary<int, (Value K, Value V)>();
         var embeddings = x;
+        var history = _hp.DenseConnections is null ? null : new List<Value>();
         int streams = _hp.AltUpStreams;
         if (streams > 0)
         {
@@ -417,9 +427,19 @@ internal sealed partial class DecoderGraphBuilder
                 continue;
             }
 
+            Value? attentionInput = null;
+            history?.Add(x);
+            if (history is not null && _hp.DenseConnections!.TapsOf(il) is { } taps && DenseConnections.IsPresent(b, p))
+            {
+                // Dense connections (MUDD): the attention reads one mixture of earlier layer inputs, the residual stream another.
+                var mixtures = DenseConnections.Mix(b, history, x, taps, p, _hp.Eps, mixtures: 2);
+                attentionInput = mixtures[0];
+                x = mixtures[1];
+            }
+
             x = _hp.ParallelResidual
                 ? ParallelLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
-                : SequentialLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
+                : SequentialLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings, attentionInput);
 
             if (b.TryWeight(p + "embedding_skip.weight") is { } skipScale)
             {
@@ -499,13 +519,14 @@ internal sealed partial class DecoderGraphBuilder
     // Residual topology "sequential": x += attention(norm(x)); x += mlp(norm(x)). A layer without attention weights skips the attention
     // (Deci); one whose attention is a single linear map (attention.o without q/k/v) adds o(norm(x)). A layer with moe_norm.weight adds a
     // mixture-of-experts branch that reads the layer input (moe(moe_norm(x)), Arctic) next to its dense MLP; a layer without MLP weights has none.
+    // attentionInput: what the attention block reads instead of x (dense connections), x staying the residual stream.
     private Value SequentialLayer(GraphBuilder b, Value x, string p, LayerSlot slot, Value positions, Value? freqFactors, Value? rowSpans,
-        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings)
+        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings, Value? attentionInput = null)
     {
         var residual = x;
         if (b.HasWeight(p + "attention.o.weight"))
         {
-            var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
+            var h = PreNorm(b, attentionInput ?? x, p + "input_norm.weight", $"{p}attn_norm");
             var attention = b.HasWeight(p + "attention.q.weight")
                 ? Attention(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
                 : b.Linear(h, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
@@ -557,12 +578,13 @@ internal sealed partial class DecoderGraphBuilder
     // The residual sum of a sequential layer's sub-layer output and its input. With residual.norm_preserving (Beam) the i-th sum (i = 2 for the
     // first attention, counting both sub-layers of every layer) is output / sqrt(i) + residual · sqrt((i − 1) / i), which keeps the expected
     // norm of the stream when the sub-layer outputs are normalized. A sub-layer with learned residual_alpha / residual_beta weights [H] (Muse Spark)
-    // sums alpha · residual + beta · output instead.
+    // sums alpha · residual + beta · output instead (output alone without residual_beta, Limite).
     private Value ResidualAdd(GraphBuilder b, Value output, Value residual, int i, string block, string name)
     {
         if (b.TryWeight(block + "residual_alpha") is { } alpha)
         {
-            return b.Add(b.Mul(residual, alpha), b.Mul(output, b.Weight(block + "residual_beta")), name);
+            var scaledOutput = b.TryWeight(block + "residual_beta") is { } beta ? b.Mul(output, beta) : output;
+            return b.Add(b.Mul(residual, alpha), scaledOutput, name);
         }
 
         return _hp.NormPreservingResidual

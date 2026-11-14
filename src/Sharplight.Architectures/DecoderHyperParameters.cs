@@ -20,7 +20,8 @@ internal sealed record DecoderHyperParameters(
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
     bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved,
-    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, HierarchicalCycleOptions? Cycles = null, int QkNormGroups = 1)
+    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, HierarchicalCycleOptions? Cycles = null, int QkNormGroups = 1,
+    DenseConnectionOptions? DenseConnections = null, float ExclusiveAttentionEps = 0f, float[]? LogitSigmoidCap = null)
 {
     /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
     public const int MRopeAxes = 4;
@@ -113,7 +114,10 @@ internal sealed record DecoderHyperParameters(
             QkNormEps: src.Arch("attention.qk_norm_eps", src.Arch("norm_eps", 1e-5f)),
             SuppressedTokenRanges: src.Arch("logits.suppressed_ranges", Array.Empty<int>()),
             Cycles: HierarchicalCycleOptions.Read(src, src.Arch<int>("layer_count")),
-            QkNormGroups: src.Arch("attention.qk_norm_groups", 1));
+            QkNormGroups: src.Arch("attention.qk_norm_groups", 1),
+            DenseConnections: DenseConnectionOptions.Read(src, src.Arch<int>("layer_count")),
+            ExclusiveAttentionEps: src.Arch("attention.exclusive_eps", 0f),
+            LogitSigmoidCap: src.Arch<float[]?>("logits.sigmoid_cap", null));
 
         if (hp.QkNormType is not ("rms" or "layer"))
         {
@@ -123,6 +127,11 @@ internal sealed record DecoderHyperParameters(
         if (hp.QkNormGroups < 1 || hp.HeadDim % hp.QkNormGroups != 0)
         {
             throw new InvalidDataException("decoder: attention.qk_norm_groups must divide attention.head_dim.");
+        }
+
+        if (hp.LogitSigmoidCap is { } cap && (cap.Length != 3 || cap[2] == 0f))
+        {
+            throw new InvalidDataException("decoder: logits.sigmoid_cap must hold (scale, shift, temperature) with a nonzero temperature.");
         }
 
         if (hp.SuppressedTokenRanges.Length % 2 != 0)
@@ -183,7 +192,7 @@ internal sealed record DecoderHyperParameters(
     public bool UniformLayers => LayerHeadDims.Length == 0 && LayerHeadCounts.Length == 0 && LayerKvHeads.Length == 0 && KvSource.Length == 0
         && RopeLayers.Length == 0 && SlidingLayers.Length == 0 && QkNormLayers.Length == 0 && TemperatureLayers.Length == 0
         && ChunkLayers.Length == 0 && PerLayerSize == 0 && SwigluClamp.Length == 0 && MoeSwigluClamp.Length == 0 && LayerLoops == 1
-        && AltUpStreams == 0 && ActivationSparsity.Length == 0 && Cycles is null;
+        && AltUpStreams == 0 && ActivationSparsity.Length == 0 && Cycles is null && DenseConnections is null;
 
     /// <summary>Head dimension of layer <paramref name="il"/>.</summary>
     public int HeadDimOf(int il) => LayerHeadDims.Length > 0 ? LayerHeadDims[il] : HeadDim;
