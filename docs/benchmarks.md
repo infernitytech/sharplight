@@ -2298,3 +2298,171 @@ OUT_DIR=bench/results/s22 PORT=18321 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp
 * **Single-user TTFT** (~82 ms against vLLM's 60 ms for ~250-token prompts) is GPU time: the 250-row prefill step profiles
   at 69 ms. Command-buffer recording (20-50 ms for a new row count) happens only for the first shapes of a run, so TTFT
   follows the per-row prefill cost.
+
+## 23. Direct-fragment skinny GEMM, aligned FP8 weight layout (2026-11-14)
+
+Follow-up to section 22.10 (the 16-row decode step). All changes are kernel or layout rules that apply to every model:
+
+* `matmul_skinny.slang` (`SK_DIRECT`), `GraphLowerer.SkinnyGemm.cs` (`UseDirectSkinny`): a variant of the skinny GEMM
+  (2-16 rows) that loads its operands straight into the MMA fragment registers.
+* `DeviceFeatures.MatrixMmaLayout` (`matrix_mma_layout`): the device feature that gates the variant.
+* `WeightRepacker.cs`, `ShaderTypes.cs` (`f8e4m3_b128r`, `f8e4m3_b32r`), `quant_fp8.slang`, `gemm_fp8.slang`: a
+  16-byte-aligned split layout for block-scaled FP8 weights.
+
+Base is `main` at `5f3c3cf`, built side by side. Base and new runs alternate. The GPU was shared with the user's other
+applications and other agents, so the tables use minimum GPU times (BatchBench, kernels) or the best median over
+repeated runs (SpecBench). Raw results are in [`bench/results/s23/`](../bench/results/s23).
+
+### 23.1 The direct skinny GEMM
+
+The section-22 skinny GEMM stages x and the weights in a private shared-memory slice per subgroup, then loads the
+cooperative-matrix fragments from there. At 16 rows its FP8 gate/up launch reached about 1.1 TB/s.
+
+`SK_DIRECT` (one token fragment, f16 x, K % 64 == 0) skips shared memory in the K loop:
+
+* **Fragment layout.** On NVIDIA, a 16x16x16 f16 fragment is two 16x8x16 MMA operands. Lane (g = lane / 4,
+  c = lane % 4) holds rows (A) or columns (B) g and g + 8, at K slots 2c, 2c + 1, 2c + 8 and 2c + 9. The kernel builds the
+  fragments element by element from registers.
+* **K permutation.** A dot product may visit K in any order, as long as A and B agree. So each lane's slots for the four
+  MMAs of a 64-value block map to 16 contiguous values of its row. A lane then reads x and the weights with 16-byte
+  loads, and the four lanes of a row cover 64 contiguous values.
+* **FP8 loads.** FP8 codes are prefetched one block ahead as raw words and decoded to f16 just before their MMAs.
+* **Reduction.** The subgroups still split K inside the workgroup (8 subgroups) and reduce through shared memory once at
+  the end.
+* **Layout check.** The layout comes from the hardware, not from the Vulkan specification, so the lowering only picks
+  the variant when `matrix_mma_layout` is detected (NVIDIA, `matrix_f16`, 32-wide subgroups). The kernel verifies the
+  layout once with a probe matrix and writes NaN if it differs, so a wrong detection fails tests instead of producing
+  plausible output.
+* **Disabling.** `SHARPLIGHT_SKINNY_DIRECT=0`, or `--disable-features matrix_mma_layout`, keeps the staged path.
+* **Separate variants.** Compiling both paths into one kernel costs the direct path 60 registers (188 against 128) and
+  most of its gain, so they are separate compile-time variants.
+
+Kernel times (`BenchTests.MatMulPrefill`, minimum over 300 launches, 4 weight copies so that nothing stays in L2;
+`micro/`), Qwen3.8-27B shapes:
+
+| rows | [17408→5120] FP8, staged → direct | [5120→17408]x2 gate/up FP8, staged → direct |
+|---|---|---|
+| 2 | 69.6 → 63.5 µs | 139.3 → 124.9 µs |
+| 4 | 71.7 → 65.5 µs | 141.3 → 126.9 µs |
+| 8 | 75.8 → 67.6 µs | 145.4 → 126.9 µs |
+| 16 | 84.0 → 71.6 µs (1.24 TB/s) | 155.7 → 129.0 µs (1.38 TB/s) |
+
+Q8_0 [17408→5120] at 16 rows: 79.6 → 67.3 µs. Single and dual f16 matmuls are unchanged (112.6 / 215 µs at 16 rows,
+1.58-1.66 TB/s), because their staged loads already run near bandwidth.
+
+Things that did not help (measured on intermediate builds):
+
+* hardware E4M3 → f16 conversion;
+* half-width (16x8x16) MMAs;
+* a 128-value K block;
+* giving each subgroup one contiguous K range instead of interleaved 64-value blocks, which was far slower: DRAM pages
+  are better served by 8 subgroups that read neighbouring blocks.
+
+A constant (fake) scale per block saved about 5 %, so the remaining cost is mostly on the memory side.
+
+### 23.2 Aligned split FP8 layout
+
+Block-scaled FP8 rows were stored as {f32 scale, 128 codes} blocks of 132 bytes, so codes were only 4-byte aligned.
+Rows with K % 512 == 0 (b128) or K % 128 == 0 (b32) are now repacked at upload into two parts:
+
+* first all codes of the row;
+* then all its scales.
+
+Codes become 16-byte aligned. The fp8 GEMM, the matvec and the skinny GEMM read the new layout. The prefill GEMM's
+arithmetic is unchanged (same products and sums), so outputs are bit-identical. `SHARPLIGHT_REPACK_FP8=0` keeps the
+file layout.
+
+fp8 GEMM at T = 512 (`micro/`), without → with the repack:
+
+| shape | time | TFLOPS |
+|---|---|---|
+| [5120→17408] | 315.4 → 307.2 µs | 289 → 297 |
+| [17408→5120] (split-K) | 343.9 → 333.7 µs | 266 → 274 |
+| [5120→6144] | 178.2 → 165.8 µs | 181 → 194 |
+| [5120→10240] | 198.7 → 192.4 µs | 270 → 279 |
+
+* **End-to-end prefill.** 27B FP8 pp512 / pp2048 does not change measurably: 4040-4260 vs 4040-4180 tok/s at 512 and
+  4170-4193 vs 3948-4188 tok/s at 2048, three interleaved runs each (`prefill/repack_ab_*`). The roughly 3 % GEMM gain is
+  inside the run-to-run noise of a shared GPU.
+* **Staged skinny GEMM.** The repack makes the staged path 3-6 % slower (its word loads straddle the split differently).
+  It applies on devices without `matrix_mma_layout`. The direct path is equal or slightly faster with the repack.
+
+### 23.3 Decode steps (BatchBench)
+
+BatchBench, `--ctx 2048 --modes greedy`, minimum GPU ms per step over 2 interleaved process runs per build (`batch/`):
+
+| rows | FP8 base | FP8 new | | Q8_0 base | Q8_0 new | |
+|---|---|---|---|---|---|---|
+| 1 | 23.17 | 22.42 | (same path) | 22.15 | 23.08 | (same path) |
+| 2 | 25.58 | 24.22 | 1.06x | 19.73 | 19.76 | int-dot |
+| 3 | 26.14 | 24.44 | 1.07x | 22.34 | 22.42 | int-dot |
+| 4 | 26.50 | 25.15 | 1.05x | 21.95 | 22.63 | int-dot |
+| 8 | 28.75 | 26.42 | 1.09x | 27.75 | 28.47 | int-dot |
+| 12 | 30.30 | 28.29 | 1.07x | 31.30 | 26.57 | **1.18x** |
+| 16 | 34.30 | 29.61 | **1.16x** | 33.70 | 29.34 | **1.15x** |
+| 32 | 33.77 | 33.04 | 1.02x | 42.88 | 43.10 | 1.00x |
+| 64 | 43.94 | 43.02 | 1.02x | 49.46 | 49.71 | 1.00x |
+
+* **Unchanged rows.** Single rows, and Q8_0 up to 8 rows (int-dot matvec), run the same kernels in both builds, so their
+  differences are noise; base runs alone differ by up to 1.6 ms.
+* **Against vLLM.** The 16-row FP8 step goes from 34.3 to 29.6 ms. vLLM's mean ITL at 16 streams is 26.2 ms (22.6), which
+  also includes its prefill steps, so the step now runs at about 0.89x of that, up from 0.76x.
+* **Q8_0 at 5-8 rows.** `SHARPLIGHT_MMVQ_MAX_ROWS=4` moves these rows from the int-dot matvec to the direct skinny GEMM.
+  The step drops from 27.7 / 28.1 / 28.7 ms to 24.0 / 25.6 / 25.3 ms at 5 / 6 / 8 rows. It also changes the rounding of
+  those rows, and with it the greedy MTP k = 3 output of the short Q8_0 prompt
+  (`ident/q8_poem_mtp3_with_mmvq_cap4.txt`). So the default stays at 8, and the setting is a diagnostic switch. The
+  lowering now lets the skinny GEMM, rather than the f32 matvec, take the rows above a lowered int-dot limit.
+
+### 23.4 Speculative decoding (SpecBench)
+
+SpecBench as in section 22.5 (natural-language prompt, greedy, depth 47), tok/s, best median of 3 runs per build
+(`spec/`):
+
+| model | k = 0 | k = 1 | k = 3 |
+|---|---|---|---|
+| 27B FP8 base → new | 40.5 → 40.4 | 63.3 → 68.5 (1.08x) | 87.6 → 94.4 (1.08x) |
+| 27B Q8_0 base → new | 41.3 → 40.8 | 79.6 → 79.2 | 104.3 → 104.6 |
+
+Accepted-draft counts are equal between the builds. Q8_0 verification (2-4 rows) stays on the int-dot matvec.
+
+### 23.5 Correctness
+
+Greedy CLI output, 200 tokens (`ident/`):
+
+* Compared with `main`'s outputs in `bench/results/s22/ident`: 27B FP8 and Q8_0 (636-token, short and chat prompts),
+  gpt-oss-20b and Qwen2.5-0.5B are identical. The recorded gpt-oss file in s22 is cut off after its 18th line; `main`
+  at `a548393`, rebuilt, prints the same full text as this branch.
+* MTP k = 3 against non-speculative: identical for FP8 and Q8_0, 636-token and short prompts.
+
+Tests:
+
+* New `SkinnyGemmTests`: single and dual (SiLU·mul) matmuls over f16, bf16, FP8 b128 / b32, NVFP4 and Q8_0 at 2, 5 and
+  16 rows. They run on the NVIDIA GPU with the direct path and with `SHARPLIGHT_SKINNY_DIRECT=0`, on the integrated GPU
+  and on llvmpipe (`SHARPLIGHT_TEST_DEVICE=1` / `2`, staged path).
+* The NVFP4 dual case gets a wider bound (atol 3). Its random rows give products above 100, and the generic f16 GEMM
+  (`SHARPLIGHT_SKINNY_GEMM=0`) deviates from the CPU reference by the same amount.
+* `MatMulTests`, `FusionTests`, `Fp8GemmTests`, `QuantFormatTests` and `MoeTests` pass with the repack.
+
+### 23.6 Commands
+
+```bash
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_TYPES=f8e4m3_b128 SHARPLIGHT_BENCH_ROWS=16 SHARPLIGHT_BENCH_COPIES=4 \
+  SHARPLIGHT_BENCH_ITERS=300 SHARPLIGHT_BENCH_DUAL=1 SHARPLIGHT_BENCH_SHAPES="5120,17408" \
+  dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -method '*MatMulPrefill'
+#   SHARPLIGHT_SKINNY_DIRECT=0 / SHARPLIGHT_REPACK_FP8=0 for the staged path / file layout
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 1,2,3,4,8,12,16,32,64
+samples/Sharplight.Cli/bin/Release/net11.0/sharplight <model> --bench 512 --ctx 768 --batch 512
+bench/SpecBench/bin/Release/net11.0/SpecBench <model> --drafts 0,1,3 --depths 47
+```
+
+### 23.7 Open issues
+
+* **16-row step.** The FP8 dual gate/up GEMM is at 1.38 TB/s and [17408→5120] at 1.24 TB/s, against about 1.65 TB/s
+  for f16 weights and the lm_head. The rest of the step is spread out: the delta rule, attention, and glue launches such
+  as f16 copies and the small [5120→48] split-K matmuls (about 0.9 ms per step).
+* **Staged path with the repack** is 3-6 % slower. That is the path for devices without `matrix_mma_layout` (AMD,
+  Intel, llvmpipe), and the repack's prefill gain has not been measured on them.
+* **Q8_0 at 5-8 rows** would gain 10-13 % on the direct GEMM, but it changes greedy MTP output (23.3).
+* **Serving against vLLM** was not re-run in this round. The decode-step gains apply to its c = 4 / 16 decode steps.
+* **Not attempted in this round:** the FP8 prefill GEMM memory pipeline (400+ TFLOPS), MoE grouped GEMM and fused gate/up,
+  K-quant MMQ, and the opt-in reduced-precision delta-rule state.

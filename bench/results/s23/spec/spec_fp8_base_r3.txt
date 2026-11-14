@@ -1,0 +1,3 @@
+mtp k=0 depth=47: tg median 40.5 min 40.3 max 40.6 tok/s, prompt + 1 token 33 ms (min 33)
+mtp k=1 depth=47: tg median 63.3 min 62.4 max 65.0 tok/s, prompt + 1 token 32 ms (min 32) acceptance 0.87 (297/341)
+mtp k=3 depth=47: tg median 87.6 min 85.7 max 94.6 tok/s, prompt + 1 token 32 ms (min 32) acceptance 0.70 (433/616)

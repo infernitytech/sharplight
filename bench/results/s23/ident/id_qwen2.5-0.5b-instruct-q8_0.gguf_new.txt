@@ -1,0 +1,36 @@
+Graph optimization (sharplight-ir/1): decode 604 -> 604 nodes, decode_embeddings 603 -> 603 nodes, embed 556 -> 556 nodes, classify 556 -> 556 nodes [15 ms]
+Loaded qwen2.5-0.5b-instruct (decoder): 291 tensors, 0.67 GB, vocab 151936 [160 ms]
+Uploading weights 0.67 / 0.67 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiling 74 / 74, 1 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 2401 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 26 groups, 0.65 GiB weights+state
+1 segment(s): [0@0: 605 nodes]
+Ready (decode)
+--- rendered prompt ---
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+<|im_start|>user
+Write a short poem about the sea.<|im_end|>
+<|im_start|>assistant
+
+-----------------------
+The sea, a vast and deep,
+A place of endless blue,
+A place where the waves dance,
+A place where the winds blow.
+
+It's a place of mystery,
+A place of wonder,
+A place where the sun sets,
+A place where the stars shine.
+
+It's a place of peace,
+A place of calm,
+A place where the sea calls,
+A place where the sea sings.
+
+The sea, a place of beauty,
+A place of beauty,
+A place where the sea laughs,
+A place where the sea sings.
+prompt: 37 tok in 35 ms (1066.8 tok/s) | generated: 108 tok, 846.62 tok/s

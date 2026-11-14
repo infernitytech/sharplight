@@ -97,6 +97,9 @@ PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physi
 | llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
 
 Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
+The latest round (section 23) loads the operands of small-batch matmuls straight into the tensor-core fragments. A decode step
+of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
+MTP speculative decoding on the FP8 model is 8 % faster.
 
 ## Building
 

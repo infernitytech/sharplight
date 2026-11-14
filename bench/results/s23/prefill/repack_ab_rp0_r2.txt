@@ -1,0 +1,10 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes, decode_multimodal 2040 -> 2040 nodes, vision_encode 773 -> 773 nodes [53 ms]
+Loaded Qwen3.8-27B-FP8 (qwen3_5): 1199 tensors, 31.64 GB, vocab 248320 [362 ms]
+Compiling 195 / 195, 195 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 30.23 / 30.23 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 5628 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 28.35 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+segment 0: 901 dispatches, 596 barriers per step
+prefill 512 tok: best 127 ms = 4039.9 tok/s | decode: best 41.80, median 39.54, mean 39.65 tok/s | GPU ms/step: best 23.73, median 25.11, wall best 23.92

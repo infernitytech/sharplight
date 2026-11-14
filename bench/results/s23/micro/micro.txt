@@ -1,0 +1,136 @@
+== rep1 rows=2 direct=1 repack=1
+    80.188 ms  94.6%   1200x  min     63.5 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=2
+   154.509 ms  96.7%   1200x  min    124.9 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=2
+== rep1 rows=2 direct=1 repack=0
+    81.492 ms  94.7%   1200x  min     65.5 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=2
+   153.820 ms  96.7%   1200x  min    124.9 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=2
+== rep1 rows=2 direct=0 repack=1
+    87.083 ms  95.0%   1200x  min     69.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=2
+   173.238 ms  97.1%   1200x  min    139.2 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=2
+== rep1 rows=2 direct=0 repack=0
+    83.249 ms  94.8%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=2
+   166.895 ms  97.0%   1200x  min    135.1 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=2
+== rep1 rows=2 q8_0 direct=1
+== rep1 rows=2 q8_0 direct=0
+== rep1 rows=4 direct=1 repack=1
+    80.603 ms  94.6%   1200x  min     65.5 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+   155.866 ms  96.7%   1200x  min    126.9 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=4
+== rep1 rows=4 direct=1 repack=0
+    82.251 ms  94.7%   1200x  min     65.5 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=4
+   154.867 ms  96.7%   1200x  min    124.9 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=4
+== rep1 rows=4 direct=0 repack=1
+    89.810 ms  95.1%   1200x  min     71.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+   175.429 ms  97.1%   1200x  min    141.3 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=4
+== rep1 rows=4 direct=0 repack=0
+    85.921 ms  94.9%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=4
+   168.930 ms  97.0%   1200x  min    137.2 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=4
+== rep1 rows=4 q8_0 direct=1
+== rep1 rows=4 q8_0 direct=0
+== rep1 rows=8 direct=1 repack=1
+    82.631 ms  94.7%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=8
+   175.705 ms  97.1%   1200x  min    126.9 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=8
+== rep1 rows=8 direct=1 repack=0
+    84.615 ms  94.8%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=8
+   158.923 ms  96.8%   1200x  min    129.0 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=8
+== rep1 rows=8 direct=0 repack=1
+    95.229 ms  95.4%   1200x  min     75.7 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=8
+   180.636 ms  97.2%   1200x  min    145.4 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=8
+== rep1 rows=8 direct=0 repack=0
+    91.954 ms  95.2%   1200x  min     71.7 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=8
+   173.295 ms  97.1%   1200x  min    139.2 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=8
+== rep1 rows=8 q8_0 direct=1
+== rep1 rows=8 q8_0 direct=0
+== rep1 rows=16 direct=1 repack=1
+    89.547 ms  95.4%   1200x  min     71.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+   160.629 ms  97.2%   1200x  min    129.0 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== rep1 rows=16 direct=1 repack=0
+    90.240 ms  95.4%   1200x  min     71.7 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=16
+   163.906 ms  97.2%   1200x  min    133.1 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=16
+== rep1 rows=16 direct=0 repack=1
+   107.025 ms  96.1%   1200x  min     84.0 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+   195.356 ms  97.7%   1200x  min    155.7 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== rep1 rows=16 direct=0 repack=0
+   103.671 ms  96.0%   1200x  min     79.9 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=16
+   187.476 ms  97.6%   1200x  min    149.5 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=16
+== rep1 rows=16 q8_0 direct=1
+    86.930 ms  95.2%   1200x  min     69.2 us  matmul [17408→5120] q8_0r skinny gemm_sk T=16
+== rep1 rows=16 q8_0 direct=0
+   103.677 ms  96.0%   1200x  min     83.6 us  matmul [17408→5120] q8_0r skinny gemm_sk T=16
+== rep1 prefill T=512 repack=1
+   401.729 ms  97.7%   1200x  min    307.2 us  matmul [5120→17408] f8e4m3_b128r fp8 gemm_fp8 T=512
+   427.735 ms  91.7%   1200x  min    337.8 us  matmul [17408→5120] f8e4m3_b128r fp8 split-k gemm_fp8 T=512
+   202.016 ms  97.1%   1200x  min    165.9 us  matmul [5120→6144] f8e4m3_b128r fp8 gemm_fp8 T=512
+   247.879 ms  97.2%   1200x  min    192.5 us  matmul [5120→10240] f8e4m3_b128r fp8 gemm_fp8 T=512
+== rep1 prefill T=512 repack=0
+   408.776 ms  97.7%   1200x  min    315.4 us  matmul [5120→17408] f8e4m3_b128 fp8 gemm_fp8 T=512
+   438.748 ms  92.1%   1200x  min    346.0 us  matmul [17408→5120] f8e4m3_b128 fp8 split-k gemm_fp8 T=512
+   216.875 ms  97.3%   1200x  min    178.2 us  matmul [5120→6144] f8e4m3_b128 fp8 gemm_fp8 T=512
+   254.155 ms  97.7%   1200x  min    198.5 us  matmul [5120→10240] f8e4m3_b128 fp8 gemm_fp8 T=512
+== rep2 rows=2 direct=1 repack=1
+    80.023 ms  94.6%   1200x  min     63.5 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=2
+   173.356 ms  97.1%   1200x  min    124.9 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=2
+== rep2 rows=2 direct=1 repack=0
+    81.475 ms  94.7%   1200x  min     65.5 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=2
+   153.502 ms  96.7%   1200x  min    124.9 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=2
+== rep2 rows=2 direct=0 repack=1
+    87.429 ms  95.0%   1200x  min     69.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=2
+   173.441 ms  97.1%   1200x  min    139.3 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=2
+== rep2 rows=2 direct=0 repack=0
+    83.730 ms  94.8%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=2
+   166.109 ms  97.0%   1200x  min    133.1 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=2
+== rep2 rows=2 q8_0 direct=1
+== rep2 rows=2 q8_0 direct=0
+== rep2 rows=4 direct=1 repack=1
+    81.214 ms  94.6%   1200x  min     65.5 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+   155.475 ms  96.7%   1200x  min    126.9 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=4
+== rep2 rows=4 direct=1 repack=0
+    82.890 ms  94.8%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=4
+   155.168 ms  96.7%   1200x  min    124.9 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=4
+== rep2 rows=4 direct=0 repack=1
+    90.828 ms  95.2%   1200x  min     71.7 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+   175.557 ms  97.1%   1200x  min    141.3 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=4
+== rep2 rows=4 direct=0 repack=0
+    85.903 ms  94.9%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=4
+   169.670 ms  97.0%   1200x  min    137.2 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=4
+== rep2 rows=4 q8_0 direct=1
+== rep2 rows=4 q8_0 direct=0
+== rep2 rows=8 direct=1 repack=1
+    82.970 ms  94.7%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=8
+   157.572 ms  96.8%   1200x  min    126.9 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=8
+== rep2 rows=8 direct=1 repack=0
+    84.392 ms  94.8%   1200x  min     67.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=8
+   158.238 ms  96.8%   1200x  min    126.9 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=8
+== rep2 rows=8 direct=0 repack=1
+    95.827 ms  95.4%   1200x  min     75.8 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=8
+   181.042 ms  97.2%   1200x  min    145.4 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=8
+== rep2 rows=8 direct=0 repack=0
+    93.052 ms  95.3%   1200x  min     71.7 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=8
+   173.667 ms  97.1%   1200x  min    139.3 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=8
+== rep2 rows=8 q8_0 direct=1
+== rep2 rows=8 q8_0 direct=0
+== rep2 rows=16 direct=1 repack=1
+    89.609 ms  95.4%   1200x  min     71.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+   159.365 ms  97.2%   1200x  min    129.0 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== rep2 rows=16 direct=1 repack=0
+    90.491 ms  95.4%   1200x  min     69.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=16
+   163.888 ms  97.2%   1200x  min    131.1 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=16
+== rep2 rows=16 direct=0 repack=1
+   105.733 ms  96.0%   1200x  min     84.0 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+   197.318 ms  97.7%   1200x  min    155.7 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== rep2 rows=16 direct=0 repack=0
+   103.578 ms  95.9%   1200x  min     79.9 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=16
+   185.452 ms  97.5%   1200x  min    147.5 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=16
+== rep2 rows=16 q8_0 direct=1
+    85.883 ms  95.2%   1200x  min     67.3 us  matmul [17408→5120] q8_0r skinny gemm_sk T=16
+== rep2 rows=16 q8_0 direct=0
+   102.953 ms  95.9%   1200x  min     79.6 us  matmul [17408→5120] q8_0r skinny gemm_sk T=16
+== rep2 prefill T=512 repack=1
+   401.323 ms  97.8%   1200x  min    307.2 us  matmul [5120→17408] f8e4m3_b128r fp8 gemm_fp8 T=512
+   450.995 ms  91.9%   1200x  min    333.7 us  matmul [17408→5120] f8e4m3_b128r fp8 split-k gemm_fp8 T=512
+   201.582 ms  97.1%   1200x  min    165.8 us  matmul [5120→6144] f8e4m3_b128r fp8 gemm_fp8 T=512
+   247.818 ms  97.3%   1200x  min    192.4 us  matmul [5120→10240] f8e4m3_b128r fp8 gemm_fp8 T=512
+== rep2 prefill T=512 repack=0
+   413.090 ms  97.4%   1200x  min    315.4 us  matmul [5120→17408] f8e4m3_b128 fp8 gemm_fp8 T=512
+   441.591 ms  91.7%   1200x  min    343.9 us  matmul [17408→5120] f8e4m3_b128 fp8 split-k gemm_fp8 T=512
+   216.910 ms  97.3%   1200x  min    178.2 us  matmul [5120→6144] f8e4m3_b128 fp8 gemm_fp8 T=512
+   254.652 ms  97.7%   1200x  min    198.7 us  matmul [5120→10240] f8e4m3_b128 fp8 gemm_fp8 T=512
