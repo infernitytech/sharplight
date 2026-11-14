@@ -104,8 +104,6 @@ public sealed partial class GraphLowerer
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
             _ when s_elementwise.Contains(op) => SupportsElementwise(node),
-            "Concat" when node.Output.Shape[0].IsSymbolic && node.Inputs.Any(i => i.Shape[0] != node.Output.Shape[0])
-                => OpSupport.No("Concat along the symbolic axis (offsets known only at run time)"),
             _ => OpSupport.Yes,
         };
         if (!opSpecific.IsSupported)

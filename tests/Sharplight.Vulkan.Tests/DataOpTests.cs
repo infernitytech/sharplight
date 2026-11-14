@@ -116,6 +116,26 @@ public sealed class DataOpTests
         Diff.Check("ScatterElements", tg.B.Build(), new Step(1, 0, (x, Rnd.F(24, 1)), (idx, iv), (u, Rnd.F(12, 2))), atol: 1e-5, what: $"{red} axis {axis}");
     }
 
+    /// <summary>Concatenation along a symbolic axis 0: the offsets of the later inputs are run-time sums of the earlier extents.</summary>
+    [Theory]
+    [InlineData(5, 3)]
+    [InlineData(1, 17)]
+    public void ConcatSymbolicAxis(int rowsT, int rowsR)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var a = tg.InF("a", TG.T, 4);
+        var b = tg.InF("b", 3, 4);
+        var c = tg.InF("c", Dim.Sym("R"), 4);
+        var ia = tg.In("ia", DataType.I32, TG.T, 2);
+        var ic = tg.In("ic", DataType.I32, Dim.Sym("R"), 2);
+        tg.B.Output("y", tg.B.Concat(0, a, b, c));
+        tg.B.Output("iy", tg.B.Concat(0, ic, ia, ic));
+        var step = new Step(rowsT, 0, (a, Rnd.F(rowsT * 4L, 1)), (b, Rnd.F(12, 2)), (c, Rnd.F(rowsR * 4L, 3)), (ia, Rnd.I(rowsT * 2L, 4, 100)),
+            (ic, Rnd.I(rowsR * 2L, 5, 100))) { R = rowsR };
+        Diff.Check("Concat.symbolic", tg.B.Build(), step, atol: 0, rtol: 0, what: $"T={rowsT} R={rowsR}");
+    }
+
     /// <summary>
     /// Scatter along a symbolic axis 0 (rows of per-level results scattered into a symbolic number of detections, as in multi-scale
     /// RoI pooling): the row count and the data extent are run-time values; negative indices wrap with the run-time extent.

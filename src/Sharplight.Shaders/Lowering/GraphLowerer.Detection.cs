@@ -4,10 +4,13 @@ using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
-/// <summary>Lowerings for detection ops: NonMaxSuppression, RoiAlign and max-pooling argmax indices (kernels in detection.slang).</summary>
+/// <summary>
+/// Lowerings for detection ops: NonMaxSuppression, RoiAlign and max-pooling argmax indices (kernels in detection.slang), and NonZero
+/// (nonzero.slang), whose data-dependent counts NonMaxSuppression usually consumes.
+/// </summary>
 public sealed partial class GraphLowerer
 {
-    private static string[] DetectionOpNames => ["NonMaxSuppression", "RoiAlign", "PoolArgMax"];
+    private static string[] DetectionOpNames => ["NonMaxSuppression", "RoiAlign", "PoolArgMax", "NonZero"];
     private static readonly HashSet<string> s_detectionOps = [.. DetectionOpNames];
 
     /// <summary>Threads per workgroup of the NonMaxSuppression kernels (one bit-mask word per 32 candidates of a block).</summary>
@@ -34,6 +37,10 @@ public sealed partial class GraphLowerer
                 }
 
                 return node.Inputs[0].Rank == 4 ? OpSupport.Yes : OpSupport.No("RoiAlign expects a 4-D feature map");
+            case "NonZero":
+                return node.Inputs[0].Type is { IsQuantized: false, Kind: not DataTypeKind.String } x && x.ElementSize is 1 or 2 or 4 or 8 && node.Inputs[0].Rank >= 1
+                    ? OpSupport.Yes
+                    : OpSupport.No($"NonZero of {node.Inputs[0].Type}");
             default:
                 return node.Inputs[0].Type is { IsQuantized: false } t && (t == DataType.F32 || t == DataType.F16 || t == DataType.BF16) && node.Inputs[0].Rank == 4
                     ? OpSupport.Yes
@@ -53,6 +60,9 @@ public sealed partial class GraphLowerer
                 return true;
             case "PoolArgMax":
                 LowerPoolArgMax(n);
+                return true;
+            case "NonZero":
+                LowerNonZero(n);
                 return true;
         }
 
@@ -112,6 +122,26 @@ public sealed partial class GraphLowerer
         Emit($"nms_gather {n.Output.Name}", [n], [Always(gatherKernel, _ => new Grid(1))],
             [Pointer(keptIds), Pointer(keptCount), Pointer(offsets), Pointer(y), Pointer(count), groups],
             [keptIds, keptCount], [offsets, y, count]);
+    }
+
+    /// <summary>NonZero as one workgroup (an ordered compaction) that also writes the number of rows, the op's data-dependent count.</summary>
+    private void LowerNonZero(Node n)
+    {
+        var x = EnsureDense(Ref(n.Inputs[0]), "nonzero");
+        var y = Produce(n.Output);
+        var count = ProduceSymbol(n.Attributes.Get<string>("count_symbol"));
+        bool isFloat = x.Type == DataType.F32 || x.Type == DataType.F16 || x.Type == DataType.BF16;
+        string mask = x.Type.ElementSize switch
+        {
+            1 => "0xFFu",
+            2 => isFloat ? "0x7FFFu" : "0xFFFFu",
+            4 => isFloat ? "0x7FFFFFFFu" : "0xFFFFFFFFu",
+            _ => "0xFFFFFFFFFFFFFFFFull",
+        };
+        string inner = x.Rank == 1 ? "1" : string.Join(",", x.Shape.Skip(1));
+        var kernel = Lib("nonzero.slang", "nonzero", Macros(("RAW", RawType(x.Type)), ("MASK", mask), ("RANK", x.Rank), ("DIMS", inner), ("WG", 256)));
+        Emit($"nonzero {n.Output.Name}", [n], [Always(kernel, _ => new Grid(1))], [Pointer(x), Pointer(y), Pointer(count), CountArg(x, x.MaxElements / x.Shape[0])],
+            [x], [y, count]);
     }
 
     private void LowerRoiAlign(Node n)
