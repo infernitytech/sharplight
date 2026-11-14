@@ -38,12 +38,40 @@ internal static class DemoData
     [
         new HubModelSummary("Qwen/Qwen3-4B-GGUF", 268_000, 640, false, "gguf", "text-generation", 4_020_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
             GgufArchitecture: "qwen3"),
-        new HubModelSummary("example-lab/HRM-Text-1B-GGUF", 41_000, 210, false, "gguf", "text-generation", 1_100_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
-            GgufArchitecture: "hrm_text"),
+        new HubModelSummary("example-lab/Toy-Unmapped-1B-GGUF", 41_000, 210, false, "gguf", "text-generation", 1_100_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
+            GgufArchitecture: "toy_unmapped"),
         new HubModelSummary("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", 96_000, 120, false, "transformers", "text-generation", 7_610_000_000, [ModelFormat.Safetensors], [],
             ModelType: "qwen2", QuantizationMethod: "gptq"),
         new HubModelSummary("Qwen/Qwen3-4B", 1_120_000, 450, false, "transformers", "text-generation", 4_020_000_000, [ModelFormat.Safetensors], [],
             ModelType: "qwen3"),
+    ];
+
+    /// <summary>Highlighted models for Discover before anything is searched.</summary>
+    public static IReadOnlyList<HighlightSection> Highlights { get; } =
+    [
+        new HighlightSection(HighlightKind.Trending,
+        [
+            new HubModelSummary("Qwen/Qwen3-8B-GGUF", 612_000, 1_240, false, "gguf", "text-generation", 8_190_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q5_K_M", "Q8_0"],
+                GgufArchitecture: "qwen3"),
+            new HubModelSummary("example-lab/Phi-4-mini-instruct", 1_480_000, 2_310, false, "transformers", "text-generation", 3_840_000_000, [ModelFormat.Safetensors], [],
+                ModelType: "phi3"),
+            new HubModelSummary("example-lab/Llama-3.2-3B-Instruct-GGUF", 287_000, 530, false, "gguf", "text-generation", 3_210_000_000, [ModelFormat.Gguf],
+                ["Q4_K_M", "Q6_K", "Q8_0"], GgufArchitecture: "llama"),
+        ]),
+        new HighlightSection(HighlightKind.New,
+        [
+            new HubModelSummary("Qwen/Qwen3-4B-Instruct-2507", 342_000, 610, false, "transformers", "text-generation", 4_020_000_000, [ModelFormat.Safetensors], [],
+                ModelType: "qwen3"),
+            new HubModelSummary("example-lab/SmolLM3-3B-GGUF", 58_000, 190, false, "gguf", "text-generation", 3_080_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q8_0"],
+                GgufArchitecture: "smollm3"),
+        ]),
+        new HighlightSection(HighlightKind.Popular,
+        [
+            new HubModelSummary("Qwen/Qwen2.5-0.5B-Instruct", 4_900_000, 420, false, "transformers", "text-generation", 494_000_000, [ModelFormat.Safetensors], [],
+                ModelType: "qwen2"),
+            new HubModelSummary("example-lab/Mistral-7B-Instruct-v0.3-GGUF", 1_020_000, 880, false, "gguf", "text-generation", 7_250_000_000, [ModelFormat.Gguf],
+                ["Q4_K_M", "Q5_K_M", "Q8_0"], GgufArchitecture: "llama"),
+        ]),
     ];
 
     public static async Task FillAsync(TestServices services)
@@ -167,6 +195,7 @@ internal static class DemoData
             new HubModelSummary("onnx-community/Qwen3-0.6B-ONNX", 18_400, 75, false, "transformers.js", "text-generation", 600_000_000, [ModelFormat.Onnx], ["model_q4f16", "model_fp16"]),
         ]);
 
+        services.Hub.Highlights.AddRange(Highlights);
         services.Settings.ApplicationRoot = "/opt/sharplight-studio/data";
         services.Hub.FirstUpdate = new PullUpdate(PullPhase.Downloading, "Pulling Qwen/Qwen3-8B-GGUF:Q4_K_M", Received: 2_140_000_000, Total: 5_030_000_000,
             File: "Qwen3-8B-Q4_K_M.gguf", FileReceived: 2_140_000_000, FileSize: 5_030_000_000);

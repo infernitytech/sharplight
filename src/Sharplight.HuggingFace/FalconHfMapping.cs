@@ -81,13 +81,17 @@ internal sealed partial class FalconHfMapping : HfDecoderFamilyMapping
     }
 
     /// <inheritdoc/>
+    public override IEnumerable<string> Validate(HfConfig config)
+    {
+        if (config.GetBool("alibi") == true)
+        {
+            yield return "falcon: ALiBi position biases are not supported.";
+        }
+    }
+
+    /// <inheritdoc/>
     protected override void AddHyperParameters(Dictionary<string, object> md, HfConfig c)
     {
-        if (c.GetBool("alibi") == true)
-        {
-            throw new NotSupportedException("falcon: ALiBi position biases are not supported.");
-        }
-
         bool newArchitecture = c.GetBool("new_decoder_architecture") == true;
         md["decoder.residual.parallel"] = newArchitecture || (c.GetBool("parallel_attn") ?? true);
     }

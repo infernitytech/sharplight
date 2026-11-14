@@ -13,7 +13,10 @@ namespace Sharplight.Architectures;
 /// <list type="bullet">
 /// <item>Optional selection bias <c>router_bias</c> [E] (see <see cref="MoeRouter"/>); optional hash-routing table <c>router.token_experts</c>
 /// (i32 [V, k], the fixed experts of every token).</item>
-/// <item><c>router.weight</c> [E, H] with an optional logit bias <c>router.bias</c> [E] (gpt-oss).</item>
+/// <item><c>router.weight</c> [E, H] with an optional logit bias <c>router.bias</c> [E] (gpt-oss), and an optional router input scale
+/// <c>router.input_scale</c> [H]: the router then reads rms_norm(rows) · H^(-1/2) · input_scale (Gemma 4).</item>
+/// <item>Optional per-expert output scale <c>experts.output_scale</c> [E]: each selected expert's output is multiplied by its scale (applied
+/// to its mixing weight, Gemma 4).</item>
 /// <item>Experts, rank 3: <c>experts.up.weight</c> [E, I, H], <c>experts.down.weight</c> [E, H, I] and either
 /// <c>experts.gate.weight</c> [E, I, H] or the fused <c>experts.gate_up.weight</c> [E, 2I, H] (gate rows first). Without a gate the
 /// experts are ungated MLPs (act(up)). Optional per-expert biases (gpt-oss) <c>experts.{gate,up,gate_up,down}.bias</c> [E, N] are

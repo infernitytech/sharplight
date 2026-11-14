@@ -15,6 +15,15 @@ internal interface IHfArchitectureMapping
     /// <summary>HF <c>model_type</c> values handled.</summary>
     public IReadOnlyList<string> ModelTypes { get; }
 
+    /// <summary>
+    /// The hyper-parameters or features of this checkpoint that the mapping (or the adapter it maps to) does not run, as one reason each;
+    /// none when it accepts the checkpoint. The importer rejects a checkpoint with reasons before mapping it, and
+    /// <see cref="HfSupport.Validate"/> reports them from <c>config.json</c> before the checkpoint is downloaded, so a mapping names a
+    /// variant it rejects here instead of throwing while it maps. Only the configuration may be read. Default: none.
+    /// </summary>
+    /// <param name="config">The checkpoint's configuration.</param>
+    public IEnumerable<string> Validate(HfConfig config) => [];
+
     /// <summary>Canonical <c>{arch}.*</c> hyper-parameters (full keys, including the architecture prefix).</summary>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig config, HfImportOptions options);
 

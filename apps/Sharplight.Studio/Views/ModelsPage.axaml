@@ -43,9 +43,7 @@
         </TabItem.Header>
         <DockPanel DataContext="{Binding Downloads}" x:DataType="mvm:DownloadsViewModel" Margin="0,0,0,16">
           <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <Button DockPanel.Dock="Right" Classes="small" Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
-            <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap"
-                       Text="Downloads run in parallel and survive restarts: a paused or interrupted download continues where it stopped. After downloading, models are converted to a .slm package and their GPU kernels compiled." />
+            <Button HorizontalAlignment="Right" Classes="small" Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
           </DockPanel>
           <Panel>
             <StackPanel IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">

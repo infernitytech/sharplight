@@ -19,6 +19,12 @@ internal sealed partial class DecoderGgufMapping
         ["post_norm.weight"] = "per_layer.norm.weight",
         ["layer_output_scale.weight"] = "output_scale",
         ["attn_gate.weight"] = "attention.gate.weight",
+        // Gemma 4 MoE layers: routed experts next to the dense MLP, each branch with its own norms; the router's input scale and the per-expert scale.
+        ["pre_ffw_norm_2.weight"] = "mlp.routed_in_norm.weight",
+        ["post_ffw_norm_1.weight"] = "mlp.dense_out_norm.weight",
+        ["post_ffw_norm_2.weight"] = "mlp.routed_out_norm.weight",
+        ["ffn_gate_inp.scale"] = "mlp.router.input_scale",
+        ["ffn_down_exps.scale"] = "mlp.experts.output_scale",
         // Gemma 3n: AltUp and LAuReL.
         ["altup_correct_scale.weight"] = "altup.correct_output_scale",
         ["altup_correct_coef.weight"] = "altup.correction_coefs.weight",
@@ -214,6 +220,16 @@ internal sealed partial class DecoderGgufMapping
         if (sharedKvLayers > 0)
         {
             md[a + "attention.kv_source_layers"] = KvSourceLayers(layerCount, sharedKvLayers, sliding);
+        }
+
+        // Gemma 4 MoE (26B-A4B): softmax routing over expert_count experts, the selected weights renormalized (then scaled per expert).
+        if (g.Int("expert_count", 0) is var experts and > 0)
+        {
+            md[a + "moe.expert_count"] = experts;
+            md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
+            md[a + "moe.ffn_hidden_size"] = g.Int("expert_feed_forward_length");
+            md[a + "moe.router_activation"] = "softmax";
+            md[a + "moe.normalize_weights"] = true;
         }
 
         if (g.Int("embedding_length_per_layer_input", 0) is var perLayerSize and > 0)

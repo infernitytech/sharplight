@@ -27,6 +27,7 @@ internal sealed class CompatibilityBadgeViewModel
         CompatibilityState.Partial => "Partial",
         CompatibilityState.UnsupportedArchitecture => "Unsupported architecture",
         CompatibilityState.UnsupportedWeightFormat => $"Unsupported {Compatibility.Subject}",
+        CompatibilityState.UnsupportedVariant => "Unsupported variant",
         CompatibilityState.CheckedAtImport => "ONNX",
         _ => Compatibility.Text,
     };

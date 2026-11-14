@@ -43,4 +43,72 @@ public static class GgufSupport
     /// </summary>
     /// <param name="ggmlType">The type id as the tensor table stores it.</param>
     public static DataType? GetTensorType(int ggmlType) => GgmlTypes.TryGetDataType(ggmlType);
+
+    /// <summary>
+    /// Checks a GGUF file against its importer mapping from its header alone (e.g. read before the file is downloaded): the mapping's
+    /// feature checks (<c>Validate</c>), its hyper-parameters, and the canonical name of every tensor, the same steps the importer runs.
+    /// Tensor data is never read; a step that would need it leaves the check incomplete.
+    /// </summary>
+    /// <param name="metadata">The metadata of the (first) file, as <see cref="GgufHeaderProbe.ReadMetadata"/> returns it.</param>
+    /// <param name="tensors">The tensor table of every shard of the model (see <see cref="GgufHeaderProbe.ReadTensorTable"/>).</param>
+    public static GgufImportCheck Validate(IReadOnlyDictionary<string, object> metadata, IReadOnlyList<GgufTensorEntry> tensors)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        ArgumentNullException.ThrowIfNull(tensors);
+        if (metadata.GetValueOrDefault("general.architecture") is not string architecture)
+        {
+            return new GgufImportCheck(["The GGUF metadata names no general.architecture."], IsComplete: true);
+        }
+
+        if (GgufArchitectureMappings.Find(architecture) is not { } mapping)
+        {
+            return new GgufImportCheck([$"GGUF architecture '{architecture}' has no canonical mapping."], IsComplete: true);
+        }
+
+        var infos = new List<GgufTensorInfo>(tensors.Count);
+        var unknownTypes = new SortedSet<int>();
+        foreach (var tensor in tensors)
+        {
+            if (GgmlTypes.TryGetDataType(tensor.GgmlType) is { } type)
+            {
+                infos.Add(GgufTensorInfo.FromHeader(tensor, type));
+            }
+            else
+            {
+                unknownTypes.Add(tensor.GgmlType);
+            }
+        }
+
+        if (unknownTypes.Count > 0)
+        {
+            return new GgufImportCheck([$"Tensors use ggml type ids unknown to this version: {string.Join(", ", unknownTypes)}."], IsComplete: true);
+        }
+
+        var byName = new Dictionary<string, GgufTensorInfo>(StringComparer.Ordinal);
+        foreach (var info in infos)
+        {
+            byName.TryAdd(info.Name, info);
+        }
+
+        var view = new GgufMetadataView(metadata, architecture, name => byName.GetValueOrDefault(name));
+        try
+        {
+            if (mapping.Validate(view).ToList() is { Count: > 0 } problems)
+            {
+                return new GgufImportCheck(problems, IsComplete: true);
+            }
+
+            GgufImporter.Map("", metadata, infos, mapping, view);
+            return new GgufImportCheck([], IsComplete: true);
+        }
+        catch (GgufHeaderOnlyDataException)
+        {
+            return new GgufImportCheck([], IsComplete: false);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            // Every other failure of these steps fails the import the same way.
+            return new GgufImportCheck([error.Message.TrimStart(':', ' ')], IsComplete: true);
+        }
+    }
 }

@@ -6,6 +6,7 @@
     <IsPackable>false</IsPackable>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon>Assets/Icons/sharplight-studio.ico</ApplicationIcon>
     <Description>Sharplight Studio: desktop app to find, download, convert, run, chat with and serve local models.</Description>
   </PropertyGroup>
   <ItemGroup>
@@ -36,6 +37,10 @@
     <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
     <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
     <ProjectReference Include="../../src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Window, taskbar and sidebar icon, rendered from packaging/linux/sharplight-studio.svg by packaging/make-studio-icons.py -->
+    <AvaloniaResource Include="Assets/Icons/*.png" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Studio.Tests" />
