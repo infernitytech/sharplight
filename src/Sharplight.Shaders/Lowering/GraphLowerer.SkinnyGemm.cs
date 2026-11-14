@@ -1,6 +1,7 @@
 using System.Globalization;
 using Sharplight.Graph;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Shaders.Lowering;
 
@@ -116,7 +117,7 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            bool direct = UseDirectSkinny(half, fm, k);
+            bool direct = UseDirectSkinny(weights[0].Type, half, fm, k);
             var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length, SkinnySharedBytes, direct);
             var macros = new Dictionary<string, string>(baseMacros)
             {
@@ -146,9 +147,19 @@ public sealed partial class GraphLowerer
     /// (<see cref="DeviceFeatures.MatrixMmaLayout"/>), one token fragment (up to 16 rows) reading the f16 copy of x, K divisible
     /// by 64. Blackwell, FP8 at 16 rows: [5120→17408]x2 gate/up 141 → 127 µs, [17408→5120] 83 → 70 µs (with the aligned FP8
     /// layout). Without the feature, or with <c>SHARPLIGHT_SKINNY_DIRECT=0</c>, the operands are staged in shared memory.
+    /// Only for <see cref="s_directSkinnyFormats"/>.
     /// </summary>
-    private bool UseDirectSkinny(bool half, int fm, long k)
-        => DiagnosticSwitches.SkinnyGemmDirect && _opt.Has(DeviceFeatures.MatrixMmaLayout) && half && fm == 1 && k % 64 == 0;
+    private bool UseDirectSkinny(DataType type, bool half, int fm, long k)
+        => DiagnosticSwitches.SkinnyGemmDirect && _opt.Has(DeviceFeatures.MatrixMmaLayout) && s_directSkinnyFormats.Contains(type) && half && fm == 1
+           && k % 64 == 0;
+
+    /// <summary>
+    /// Weight formats the direct skinny GEMM serves: those it reads faster than the staged path (Blackwell, 16 rows: FP8
+    /// [17408→5120] 84 → 72 µs, Q8_0 80 → 67 µs). f16 / bf16 weights already stream near bandwidth when staged (no gain),
+    /// and the K-quants' decode is not tuned for it; they keep the staged path and its rounding.
+    /// </summary>
+    private static readonly HashSet<DataType> s_directSkinnyFormats =
+        [DataType.F8E4M3_B128, DataType.F8E4M3_B32, ShaderTypes.F8E4M3_B128R, ShaderTypes.F8E4M3_B32R, DataType.Q8_0, ShaderTypes.Q8_0R];
 
     /// <summary>
     /// Skinny GEMM configuration for <paramref name="fm"/> token fragments: weight fragments per workgroup, subgroups splitting

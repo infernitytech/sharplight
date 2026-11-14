@@ -10,8 +10,8 @@
 // Two ways to feed the MMAs:
 //  * Staged (any device): each subgroup stages its own A (SK_FM x 16 token rows) and B slices of SK_BK values into a private
 //    part of shared memory and loads the fragments from there, so the K loop has subgroup barriers only.
-//  * Direct (SK_DIRECT, one token fragment, f16 x): the operands go from memory straight into the fragment registers, with
-//    no shared memory and no barriers in the K loop. A lane holds the K slots 2c, 2c + 1, 2c + 8, 2c + 9 (c = lane % 4) of
+//  * Direct (SK_DIRECT, one token fragment, f16 x; the lowering uses it for block FP8 and Q8_0 weights): the operands go
+//    from memory straight into the fragment registers, with no shared memory and no barriers in the K loop. A lane holds the K slots 2c, 2c + 1, 2c + 8, 2c + 9 (c = lane % 4) of
 //    the A rows / B columns g and g + 8 (g = lane / 4), the element layout of the 16x8x16 MMA instructions behind the
 //    16x16x16 fragments on NVIDIA GPUs. Since a dot product may visit K in any order, as long as A and B agree, each lane's
 //    slots are mapped to 16 contiguous values of its rows instead (sk_direct), so a lane loads x and the weights with 16-byte

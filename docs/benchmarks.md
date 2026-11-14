@@ -2318,7 +2318,7 @@ repeated runs (SpecBench). Raw results are in [`bench/results/s23/`](../bench/re
 The section-22 skinny GEMM stages x and the weights in a private shared-memory slice per subgroup, then loads the
 cooperative-matrix fragments from there. At 16 rows its FP8 gate/up launch reached about 1.1 TB/s.
 
-`SK_DIRECT` (one token fragment, f16 x, K % 64 == 0) skips shared memory in the K loop:
+`SK_DIRECT` (one token fragment, f16 x, K % 64 == 0, block FP8 or Q8_0 weights) skips shared memory in the K loop:
 
 * **Fragment layout.** On NVIDIA, a 16x16x16 f16 fragment is two 16x8x16 MMA operands. Lane (g = lane / 4,
   c = lane % 4) holds rows (A) or columns (B) g and g + 8, at K slots 2c, 2c + 1, 2c + 8 and 2c + 9. The kernel builds the
@@ -2347,8 +2347,13 @@ Kernel times (`BenchTests.MatMulPrefill`, minimum over 300 launches, 4 weight co
 | 8 | 75.8 → 67.6 µs | 145.4 → 126.9 µs |
 | 16 | 84.0 → 71.6 µs (1.24 TB/s) | 155.7 → 129.0 µs (1.38 TB/s) |
 
-Q8_0 [17408→5120] at 16 rows: 79.6 → 67.3 µs. Single and dual f16 matmuls are unchanged (112.6 / 215 µs at 16 rows,
+Q8_0 [17408→5120] at 16 rows: 79.6 → 67.3 µs. f16 matmuls showed no gain (112.6 / 215 µs single / dual at 16 rows,
 1.58-1.66 TB/s), because their staged loads already run near bandwidth.
+
+The direct path therefore serves only block FP8 and Q8_0 weights. f16 / bf16 gain nothing, and the K-quants' decode is
+not tuned for it. These formats keep the staged path and its rounding. An earlier build also took the K-quants direct,
+and that flipped a near-tied token in the pythia-160m Q4_K_M reference test (`FamilyGenerationTests`, llama.cpp's
+first 12 tokens).
 
 Things that did not help (measured on intermediate builds):
 
@@ -2442,6 +2447,9 @@ Tests:
 * The NVFP4 dual case gets a wider bound (atol 3). Its random rows give products above 100, and the generic f16 GEMM
   (`SHARPLIGHT_SKINNY_GEMM=0`) deviates from the CPU reference by the same amount.
 * `MatMulTests`, `FusionTests`, `Fp8GemmTests`, `QuantFormatTests` and `MoeTests` pass with the repack.
+* On the branch rebased onto `main` (`5f3c3cf`), run one at a time, these suites pass: Cpu, Vulkan, Families, Serving,
+  Studio and Vision. The first Families run was killed by a system-wide OOM caused by another application; it passed on
+  the rerun.
 
 ### 23.6 Commands
 
