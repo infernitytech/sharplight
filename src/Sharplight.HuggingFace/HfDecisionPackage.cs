@@ -42,8 +42,9 @@ internal sealed class HfDecisionPackage
             return null;
         }
 
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions { AllowTrailingCommas = true });
-        var root = doc.RootElement;
+        // The config parser tolerates what Python's json module writes (bare Infinity / NaN, trailing commas).
+        using var config = HfConfig.Load(dir);
+        var root = config.Root;
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("decision_format", out var format) || format.GetString() != Format)
         {
             return null;
