@@ -26,6 +26,9 @@ internal sealed class HfWeightCollector
         }
     }
 
+    /// <summary>Removes and returns the weight added under <paramref name="name"/> (a staging name a mapping resolves later), or null.</summary>
+    public WeightInfo? Take(string name) => _weights.Remove(name, out var weight) ? weight : null;
+
     /// <summary>Records a checkpoint tensor that has no canonical mapping.</summary>
     public void AddUnmapped(string tensorName) => _unmapped.Add(tensorName);
 

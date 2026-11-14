@@ -97,6 +97,7 @@ internal static class HfArchitectureMappings
         yield return new ModernBertHfMapping();
         yield return new HrmTextHfMapping();
         yield return new SenseNovaU1HfMapping();
+        yield return new LimiteHfMapping();
         yield return new GroveMoeHfMapping();
         yield return new K2HorizonHfMapping();
         yield return new GraniteSwitchHfMapping();
