@@ -98,7 +98,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             }
             HfSentenceTransformers.AddTo(md, dir, config);
 
-            var weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options);
+            var weights = mapping.MapWeights(config, HfMxfp4Weights.Resolve(config, HfFp8Weights.Resolve(config, checkpoint.Tensors)), options);
             var dense = HfSentenceTransformers.DenseWeights(dir, owned);
             if (dense.Count > 0)
             {

@@ -13,7 +13,11 @@ namespace Sharplight.Families.Tests;
 /// query and latent with <c>rms_norm_eps</c>. Its reference ids are those of llama.cpp with the prompt decoded token by token (the C API, f32 KV
 /// cache, CPU), which are also those of the remote code evaluated with these semantics (<c>tools/kimi_k3_gguf_reference.py</c>; smallest top-2
 /// margin 0.005). llama.cpp's batched prefill differs from both by up to 0.05 in the logits (checked with a constant <c>A_log</c>, where the two
-/// semantics coincide) and so picks another token at step 22 for K3 and at step 2 for K3.1. Every case skips when its files are missing.
+/// semantics coincide) and so picks another token at step 22 for K3 and at step 2 for K3.1. The shared variant has the indexer on layer 4 only, so
+/// layer 8 reuses its selection (llama.cpp's attention.indexer.types false; the reference does the same). The original tiny-random/kimi-k3
+/// checkpoint is checked as published (bfloat16, compressed-tensors MXFP4 experts, tiktoken tokenizer) against its remote code and tokenizer
+/// (<c>tools/kimi_k3_checkpoint_reference.py</c>); its logits are small (largest 0.14) with margins of 0.001 to 0.01, so only the first eight
+/// ids are compared. Every case skips when its files are missing.
 /// </summary>
 internal static class KimiK3FamilyCases
 {
@@ -22,6 +26,9 @@ internal static class KimiK3FamilyCases
     private static readonly int[] KimiK3Ids = [346, 523, 71, 552, 122, 312, 12, 640, 591, 98, 655, 870, 976, 737, 851, 212, 256, 529, 403, 336, 134, 521, 1001, 541];
     private static readonly int[] KimiK31Ids = [177, 981, 219, 875, 38, 616, 596, 701, 850, 197, 261, 66, 140, 212, 568, 342, 763, 139, 947, 926, 1019, 370, 58, 779];
     private static readonly int[] KimiK31GgufIds = [653, 512, 629, 945, 474, 560, 527, 892, 876, 913, 89, 715, 349, 707, 92, 218, 656, 525, 952, 571, 306, 721, 574, 412];
+    private static readonly int[] KimiK31SharedIds = [121, 312, 415, 708, 1014, 720, 478, 737, 313, 455, 1002, 620, 893, 277, 226, 999, 218, 145, 356, 872, 107, 49, 444, 550];
+    private static readonly int[] KimiK31SharedGgufIds = [156, 316, 33, 482, 550, 467, 836, 255, 34, 152, 828, 835, 877, 644, 200, 954, 272, 1002, 1011, 928, 286, 927, 313, 813];
+    private static readonly int[] KimiK3CheckpointIds = [37309, 37309, 37309, 37309, 37309, 37309, 37309, 37309];
     private static readonly int[] KimiK3GgufIds = [669, 479, 704, 37, 203, 715, 472, 169, 237, 280, 214, 757, 669, 779, 520, 513, 1002, 966, 1, 251, 581, 521, 921, 744];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
@@ -35,5 +42,13 @@ internal static class KimiK3FamilyCases
         new("tiny-random-kimi-k31-f32 HF (kimi_k3 with dsa_config, transformers)", "hf/tiny-random-kimi-k31-f32", Prompt, "ids", KimiK31Ids, ""),
         new("tiny-random-kimi-k31 f32 GGUF (kimi-k31, llama.cpp token by token)", "gguf/tiny-random-kimi-k31-f32.gguf", Prompt, "ids",
             KimiK31GgufIds, ""),
+        // K3.1 with the indexer on layer 4 only: layer 8 reuses its selection (GGUF attention.indexer.types false there).
+        new("tiny-random-kimi-k31-shared-f32 HF (kimi_k3, dsa_layers [4], transformers)", "hf/tiny-random-kimi-k31-shared-f32", Prompt, "ids",
+            KimiK31SharedIds, ""),
+        new("tiny-random-kimi-k31-shared f32 GGUF (kimi-k31, indexer.types false on layer 8, llama.cpp token by token)",
+            "gguf/tiny-random-kimi-k31-shared-f32.gguf", Prompt, "ids", KimiK31SharedGgufIds, ""),
+        // The published tiny-random/kimi-k3 checkpoint as it is: 17 layers of width 8, bfloat16, routed experts in compressed-tensors MXFP4,
+        // Kimi's tiktoken tokenizer (vocabulary 163840).
+        new("tiny-random-kimi-k3 HF (kimi_k3, MXFP4 experts, tiktoken, transformers)", "hf/tiny-random-kimi-k3", Prompt, "ids", KimiK3CheckpointIds, ""),
     ];
 }

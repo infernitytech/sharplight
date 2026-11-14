@@ -11,6 +11,8 @@ reference_logits.json) with kimi_k3_reference.py:
   tiny-random-kimi-k31-f32   the same with a DSA indexer (16 heads, index_topk 8) on both latent-attention layers, so that the prompt runs in
                          the sparse regime; the indexer weights come from the seed with the largest greedy margin among those whose
                          top-k boundary gap is not tiny.
+  tiny-random-kimi-k31-shared-f32  K3.1 with the indexer on layer 4 only: layer 8 has none and reuses layer 4's selection (as in llama.cpp,
+                         whose GGUF marks it with attention.indexer.types false), with a fixed indexer seed (see INDEXER_SEEDS).
 
     python mk_tiny_kimi_k3.py <models/hf directory> <Kimi-K3 remote code directory> [name ...]
 
@@ -44,7 +46,12 @@ dsa = dict(dsa_layers=[4, 8], index_num_heads=16, index_head_dim=16, index_topk=
 variants = {
     "kimi-k3": ("KimiK3ForConditionalGeneration", text),
     "kimi-k31": ("KimiK31ForConditionalGeneration", dict(text, dsa_config=dsa)),
+    "kimi-k31-shared": ("KimiK31ForConditionalGeneration", dict(text, dsa_config=dict(dsa, dsa_layers=[4]))),
 }
+# kimi-k31-shared: the seed is fixed to one that also leaves the GGUF semantics (kimi_k3_gguf_reference.py) clear of rounding: relative
+# boundary gap 5.4e-4 and smallest margin 0.020 there (the best seed by this script's own criterion has a gap of 2.4e-4 there, which the
+# f16 rounding of the indexer keys crosses).
+INDEXER_SEEDS = {"kimi-k31-shared": [24]}
 tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
 prompt_ids = tokenizer(PROMPT).input_ids
 
@@ -123,7 +130,7 @@ for name, (architecture, config) in variants.items():
                         p.copy_(torch.randn(p.shape, generator=gen) * 0.3)
 
         best = (-1.0, None)
-        for seed in range(1, 31):
+        for seed in INDEXER_SEEDS.get(name, range(1, 31)):
             set_indexer(seed)
             generated, margins, _ = generate(model)
             gap = boundary_gap(model, prompt_ids + generated, config["dsa_config"]["index_topk"])

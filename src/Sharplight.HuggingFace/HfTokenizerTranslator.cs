@@ -6,8 +6,8 @@ namespace Sharplight.HuggingFace;
 /// Translates a Hugging Face tokenizer (<c>tokenizer.json</c>, <c>tokenizer_config.json</c>, <c>config.json</c>,
 /// chat template files) into the canonical <c>tokenizer.*</c> metadata, following llama.cpp's
 /// <c>TextModel._set_vocab_gpt2</c> / <c>get_vocab_base</c> and gguf-py's <c>SpecialVocab</c>.
-/// Supported model types: byte-level BPE ("gpt2"), SentencePiece-style BPE with byte fallback, WordPiece and Unigram.
-/// The per-model work lives in the partial files <c>.Bpe</c>, <c>.SentencePiece</c> and <c>.Vocabulary</c>; special tokens in
+/// Supported model types: byte-level BPE ("gpt2", also Kimi's tiktoken files), SentencePiece-style BPE with byte fallback, WordPiece and Unigram.
+/// The per-model work lives in the partial files <c>.Bpe</c>, <c>.Tiktoken</c>, <c>.SentencePiece</c> and <c>.Vocabulary</c>; special tokens in
 /// <see cref="HfSpecialVocab"/>.
 /// </summary>
 internal static partial class HfTokenizerTranslator
@@ -26,10 +26,16 @@ internal static partial class HfTokenizerTranslator
     /// <param name="md">The canonical metadata being built.</param>
     /// <param name="dir">The checkpoint directory (holds <c>tokenizer.json</c> and optional companions).</param>
     /// <param name="config">The checkpoint's <c>config.json</c>; supplies <c>vocab_size</c> and special-token id fallbacks.</param>
-    /// <exception cref="NotSupportedException">There is no <c>tokenizer.json</c> or its model type is not supported.</exception>
+    /// <exception cref="NotSupportedException">There is no <c>tokenizer.json</c> (nor a Kimi <c>tiktoken.model</c>) or its model type is not supported.</exception>
     public static void AddTo(IDictionary<string, object> md, string dir, HfConfig config)
     {
         string tokenizerPath = Path.Combine(dir, "tokenizer.json");
+        if (!File.Exists(tokenizerPath) && IsKimiTiktoken(dir))
+        {
+            AddKimiTiktoken(md, dir, config);
+            return;
+        }
+
         if (!File.Exists(tokenizerPath))
         {
             throw new NotSupportedException($"{dir}: no tokenizer.json (SentencePiece-only tokenizers are not supported yet).");
