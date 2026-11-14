@@ -23,16 +23,16 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 102 are supported end to end, 22 partially and
-48 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+Of the 172 architectures llama.cpp knows, 118 are supported end to end, 12 partially and
+42 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
-| Llama-like | `llama`, `llama4`, `mistral3`, `llama-embed` |
+| Llama-like | `llama`, `llama4`, `mistral3`, `llama-embed`, `deci` |
 | Qwen | `qwen`, `qwen2`, `qwen2moe`, `qwen3`, `qwen3moe` |
 | Qwen hybrid | `qwen3next`, `qwen35`, `qwen35moe` |
 | Gemma | `gemma`, `gemma2`, `gemma3`, `gemma4`, `gemma-embedding` |
-| Phi | `phi2`, `phi3` |
+| Phi | `phi2`, `phi3`, `phimoe` |
 | Meta | `muse-glimmer` |
 | NVIDIA | `nemotron`, `nemotron_h`, `nemotron_h_moe` |
 | Cohere | `command-r`, `cohere2` |
@@ -40,8 +40,8 @@ Of the 172 architectures llama.cpp knows, 102 are supported end to end, 22 parti
 | Granite | `granite`, `granitemoe`, `granite_swa` |
 | GLM | `chatglm`, `glm4`, `glm4moe` |
 | MLA/DeepSeek-like | `mistral4`, `minicpm3`, `deepseek`, `deepseek2`, `plm` |
-| MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `mimo2`, `mellum`, `flint`, `cohere2moe` |
-| Other dense | `plamo`, `plamo3`, `internlm2`, `minicpm`, `openelm`, `bitnet`, `exaone`, `exaone4`, `arcee`, `ernie4_5`, `hunyuan-dense`, `smollm3`, `seed_oss`, `apertus`, `pangu-embedded`, `spark2_5`, `maincoder` |
+| MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `mimo2`, `mellum`, `flint`, `cohere2moe`, `arctic`, `grok`, `step35`, `kolibri1`, `maple` |
+| Other dense | `plamo`, `plamo3`, `internlm2`, `minicpm`, `openelm`, `bitnet`, `exaone`, `exaone4`, `arcee`, `ernie4_5`, `hunyuan-dense`, `smollm3`, `seed_oss`, `apertus`, `pangu-embedded`, `spark2_5`, `maincoder`, `talkie`, `nanbeige`, `ricursive` |
 | GPT-style | `starcoder`, `starcoder2`, `gpt2`, `gptj`, `gptneox`, `falcon`, `mpt`, `bloom`, `refact`, `baichuan`, `stablelm`, `codeshell`, `orion`, `xverse`, `jais`, `jais2` |
 | SSM | `mamba`, `mamba2`, `jamba`, `falcon-h1`, `granitehybrid`, `plamo2` |
 | RNN | `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7` |

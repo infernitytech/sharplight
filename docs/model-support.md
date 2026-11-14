@@ -14,12 +14,12 @@ llama.cpp lists **172** architecture names (`LLM_ARCH_NAMES`, excluding `(unknow
 
 | Status | Architectures |
 |---|---|
-| supported | 102 |
-| partial | 22 |
-| missing | 48 |
+| supported | 118 |
+| partial | 12 |
+| missing | 42 |
 | total | 172 |
 
-Counts as of 2026-11-14, recounted from the matrix in section 4 (the survey started at 15 / 90 / 67; before the 2026-11-14 round the matrix stood at 79 / 39 / 54, the summary had not been updated). Of the 48 missing ones, 3 are TTS/audio-codec decoders that are out of scope for a text runtime (qwen3tts, pockettts, wavtokenizer-dec). The 2026-11-14 round moved 23 rows to supported: qwen2moe, starcoder, refact, jais, jais2, orion, codeshell, plamo, plamo3, pangu-embedded, maincoder, spark2_5, baichuan, granite_swa, mellum, dbrx, deepseek, bailingmoe, mistral4, plm and cohere2moe (importer mappings, `moe.shared_scale`, latent-decoder query temperature; tiny random models checked against transformers logits/greedy ids and llama.cpp b11177 greedy ids, `tests/Sharplight.Families.Tests/MappedFamilyCases.cs`), plus bert and nomic-bert, which the encoder adapter already ran (`Sharplight.Embeddings.Tests`).
+Counts as of 2026-11-14, recounted from the matrix in section 4 (the survey started at 15 / 90 / 67; before the first 2026-11-14 round the matrix stood at 79 / 39 / 54, the summary had not been updated). Of the 42 missing ones, 3 are TTS/audio-codec decoders that are out of scope for a text runtime (qwen3tts, pockettts, wavtokenizer-dec). The 2026-11-14 round moved 23 rows to supported: qwen2moe, starcoder, refact, jais, jais2, orion, codeshell, plamo, plamo3, pangu-embedded, maincoder, spark2_5, baichuan, granite_swa, mellum, dbrx, deepseek, bailingmoe, mistral4, plm and cohere2moe (importer mappings, `moe.shared_scale`, latent-decoder query temperature; tiny random models checked against transformers logits/greedy ids and llama.cpp b11177 greedy ids, `tests/Sharplight.Families.Tests/MappedFamilyCases.cs`), plus bert and nomic-bert, which the encoder adapter already ran (`Sharplight.Embeddings.Tests`). The second 2026-11-14 round moved 16 more: the embedding families eurobert, neo-bert, llama-embed, gemma-embedding, modern-bert and jina-bert-v2 (bidirectional decoder layers with symmetric sliding windows and Dense projections after pooling, encoder ALiBi; tiny models vs transformers and llama-server `/embedding`, real ModernBERT-base and EuroBERT-210m vs transformers and jina-embeddings-v2-small-en vs llama.cpp, `tests/Sharplight.Families.Tests/EmbeddingFamilyTests.cs`), and talkie, nanbeige, arctic, deci, grok, maple, step35, kolibri1, ricursive and phimoe (clamped SwiGLU, sparsemixer routing, layer loops, value residual, embedding skip, attention-free and MLP-free layers; tiny GGUFs vs llama.cpp greedy ids, real Nanbeige4.2-3B). ALiBi now runs in the Vulkan attention kernels, so bloom, mpt, refact, jais and Baichuan-13B no longer fall back to the CPU.
 
 Headline findings:
 
@@ -161,7 +161,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `llama` | Llama 1-3.x, Mistral 7B, Mixtral (experts under this arch), SmolLM2, Yi, Falcon3 | GQA, RMS, SwiGLU, rope; Mixtral: MoE softmax top-2 | **supported** | - | llama, mistral, mixtral | hf/tiny-random-MixtralForCausalLM |
 | `llama4` | Llama 4 Scout/Maverick | GQA, RMS, chunked-local attn + NoPE layers, qk-l2norm, MoE sigmoid + shared, attn temperature | **supported** | - (vision tower not imported) | llama4_text | hf/tiny-random-llama-4 (incl. a 160-token prompt across the 128-token chunk) |
-| `deci` | Llama-3.x-Nemotron-51B (NAS) | per-layer GQA/skip-attn/ffn-mult, RMS | **partial** | `MAP`, `LAYERVAR` | deci | - |
+| `deci` | Llama-3.x-Nemotron-51B (NAS) | per-layer GQA/skip-attn/ffn-mult, RMS | **supported** (per-layer heads / kv heads / ffn widths, linear-replacement and attention-free layers; a layer without MLP keeps its attention residual as in HF, llama.cpp drops it) | - | deci | gguf/tiny-random-deci-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
 | `mistral3` | Ministral-3, Mistral-Small-3.x (+pixtral mmproj) | GQA, RMS, SwiGLU, yarn, llama4-style attn temperature | **supported** | `MMPROJ` (Pixtral) | mistral3 / ministral3 | gguf/Ministral-3-3B-Instruct-2512 (+mmproj), hf/tiny-random-mistral-3, hf/tiny-random-ministral3 |
 | `llama-embed` | Llama embedding models (pooled) | llama graph + pooling head | **supported** (causal unless the file declares `attention.causal` = false, as in llama.cpp) | - | - | gguf/tiny-random-llama-embed-f32 (bidirectional, vs llama-server /embedding; tests/Sharplight.Families.Tests/EmbeddingFamilyTests.cs) |
 
@@ -208,7 +208,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `phi2` | Phi-1/1.5/2 | LN, parallel residual, partial rope, biased GELU MLP | **supported**| -| phi | gguf/phi-2, hf/tiny-random-PhiForCausalLM |
 | `phi3` | Phi-3/3.5/4-mini (longrope), Phi-4 | fused qkv/gate-up, RMS, SwiGLU, longrope, SWA opt | **supported** | - | phi3 | gguf/Phi-4-mini-instruct, hf/tiny-random-phi3 |
-| `phimoe` | Phi-3.5-MoE | LN, MoE with sparsemixer routing, longrope | **missing** | `LN`, `SPARSEMIXER` | phimoe | hf/tiny-random-phi-moe |
+| `phimoe` | Phi-3.5-MoE | LN, MoE with sparsemixer routing, longrope | **supported** (HF only: layer norms + sparsemixer routing vs transformers; llama.cpp runs it through the phi3 graph; GGUF mapping not done, llama.cpp's converter rejects the checkpoint) | - | phimoe | hf/tiny-random-phimoe (vs transformers) |
 
 ### Meta
 
@@ -280,8 +280,8 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `dbrx` | DBRX | LN, clip_qkv, MoE softmax top-4 fused experts | **supported** | - | dbrx | hf/tiny-random-dbrx, gguf/tiny-random-dbrx-f32.gguf |
-| `arctic` | Snowflake Arctic | dense FFN + parallel MoE residual | **partial** | `PAR`, `MAP` | - | - |
-| `grok` | Grok-1 | MoE softmax top-2, attn softcap, escale/lscale, sandwich norms | **partial** | `MAP`, `RES` | grok-1 | - |
+| `arctic` | Snowflake Arctic | dense FFN + parallel MoE residual | **supported** (dense MLP next to a separately normed expert branch, `moe_norm`) | - | - | gguf/tiny-random-arctic-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
+| `grok` | Grok-1 | MoE softmax top-2, attn softcap, escale/lscale, sandwich norms | **supported** (router logit soft cap applied as in the reference implementation; llama.cpp reads it but does not apply it) | - | grok-1 | gguf/tiny-random-grok-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
 | `exaone-moe` | EXAONE-MoE (K-EXAONE) | exaone4 + MoE sigmoid bias + shared, MTP | **supported** | - (GGUF mapping not verified on a real file) | exaone_moe | hf/tiny-random-exaone-moe |
 | `bailingmoe` | Ling-lite, Ling-plus | MoE softmax + shared, dense lead | **supported** | - | - | gguf/tiny-random-bailingmoe-f32.gguf |
 | `bailingmoe2` | Ling-mini-2.0, Ling-flash-2.0, Ring | QK-norm, MoE sigmoid + bias + groups + shared, MTP | **supported** | - | bailing_moe_v2 | hf/tiny-random-bailing-moe-v2-llamacpp (+ its f32 GGUF, vs llama.cpp) |
@@ -299,12 +299,12 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `grovemoe` | GroveMoE | adjugate/chunk experts, QK-norm | **missing** | `GROVE` | - | - |
 | `minimax-m2` | MiniMax-M2/M2.5 | full-width QK-norm, partial rope, MoE sigmoid + bias | **supported** | - (GGUF mapping not verified on a real file) | minimax_m2 | hf/tiny-random-minimax-m2 |
 | `mimo2` | MiMo-V2-Flash | SWA + sinks, value head size < key head size, value scale, MoE sigmoid bias, MTP | **supported** (MTP layers ignored; not run on a real model) | - | mimo_v2_flash | hf/tiny-random-mimo-v2-flash, gguf/tiny-random-mimo-v2-flash-f32 |
-| `step35` | Step-3.5-Flash | SWA, gated attn, MoE sigmoid + shared | **partial** | `RBIAS`, `MAP` | - | - |
+| `step35` | Step-3.5-Flash | SWA, gated attn, MoE sigmoid + shared | **supported** (clamped SwiGLU, per-layer heads, per-head gate; MTP draft layers not used; not run on a real model, 196B) | - | - | gguf/tiny-random-step35-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
 | `maion-coder` | Maion-Coder | SWA + NoPE, MoE latent | **partial** | `MAP`, `MOELATENT` | - | - |
 | `mellum` | Mellum (JetBrains) | SWA + MoE, MTP | **supported** | - | mellum | hf/tiny-random-mellum, hf/tiny-random-mellum-llamacpp, gguf/tiny-random-mellum-llamacpp-f32.gguf |
 | `k2-horizon` | K2-Horizon | MoVA value experts, MoE sigmoid + shared, yarn | **missing** | `MOVA`, `RGRP` | - | - |
 | `beam` | Beam | SWA + NoPE, attn temp, softcap, MoE sigmoid | **partial** | `TMP`, `RBIAS`, `MAP` | - | - |
-| `kolibri1` | Kolibri1 | SWA + NoPE, MoE sigmoid + shared | **partial** | `RBIAS`, `MAP` | - | - |
+| `kolibri1` | Kolibri1 | SWA + NoPE, MoE sigmoid + shared | **supported** | - | - | gguf/tiny-random-kolibri1-f32 (tiny GGUF vs a newer llama.cpp build (b11177 lacks it) greedy ids), hf/tiny-random-kolibri1 (vs transformers) |
 | `flint` | Flint | SWA/NoPE, sigmoid MoE + shared, sinks | **supported** | - | flint | - |
 | `cohere2moe` | Command-A MoE | SWA + NoPE, MoE sigmoid + shared, parallel residual, LN | **supported** | - | cohere2_moe | hf/tiny-random-cohere2-moe, gguf/tiny-random-cohere2-moe-f32.gguf |
 
@@ -333,10 +333,10 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `paddleocr` | PaddleOCR-VL | ernie-like + M-RoPE | **partial** | `MROPE`, `MMPROJ` | - | - |
 | `spark2_5` | Spark 2.5 | SWA pattern, gated attn, GeGLU | **supported** | - | - | gguf/tiny-random-spark2_5-f32.gguf |
 | `maincoder` | Maincoder | QK-norm llama-like | **supported** | - | - | gguf/tiny-random-maincoder-f32.gguf |
-| `talkie` | Talkie | QK-norm after rope, logit scale | **partial** | `MAP` | - | - |
-| `nanbeige` | Nanbeige4/4.1/4.2-3B | looped layers (shared weights, per-loop KV) | **partial** | `LOOP`, `MAP` | - | gguf/Nanbeige4.2-3B |
-| `ricursive` | Ricursive | SWA/NoPE, value residual, gated attn, swiglu clamp | **partial** | `MAP` | - | - |
-| `maple` | Maple | SWA pattern, QK-norm, MoE | **partial** | `MAP` | - | - |
+| `talkie` | Talkie | QK-norm after rope, logit scale | **supported** (weight-less norms, per-head q gain, embedding skip) | - | - | gguf/tiny-random-talkie-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
+| `nanbeige` | Nanbeige4/4.1/4.2-3B | looped layers (shared weights, per-loop KV) | **supported** (layer loops with per-loop KV caches) | - | - | gguf/Nanbeige4.2-3B Q4_K_M (vs llama.cpp b11177 text), gguf/tiny-random-nanbeige-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
+| `ricursive` | Ricursive | SWA/NoPE, value residual, gated attn, swiglu clamp | **supported** (value residual, clamped SwiGLU, NoPE global layers) | - | - | gguf/tiny-random-ricursive-f32 (tiny GGUF vs a newer llama.cpp build (b11177 lacks it) greedy ids) |
+| `maple` | Maple | SWA pattern, QK-norm, MoE | **supported** (matches the newer llama.cpp build, which clamps the gate before silu; b11177's ids differ) | - | - | gguf/tiny-random-maple-f32 (tiny GGUF vs a newer llama.cpp build (b11177 lacks it) greedy ids) |
 
 ### GPT-style
 
