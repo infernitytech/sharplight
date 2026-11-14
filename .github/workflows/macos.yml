@@ -111,17 +111,6 @@ jobs:
         timeout-minutes: 15
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
 
-      # Fast math through the environment instead of the provider's layer setting: tells a MoltenVK fast-math effect apart
-      # from a kernel bug.
-      - name: Vulkan fast-math check (diagnostic)
-        if: success() || failure()
-        continue-on-error: true
-        timeout-minutes: 20
-        env:
-          SHARPLIGHT_VK_PORTABILITY_FAST_MATH: 1
-          MVK_CONFIG_FAST_MATH_ENABLED: 0
-        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -class Sharplight.Vulkan.Tests.RowInvarianceTests -class Sharplight.Vulkan.Tests.StatefulTests
-
       # The paravirtual runner GPU compiles pipelines slowly (MSL translation and Metal compilation, about 0.6 s each), so the
       # suite runs in two time-boxed parts: the core kernels (elementwise, norms, matmuls, attention), then everything else.
       - name: Vulkan suite, core (MoltenVK)
