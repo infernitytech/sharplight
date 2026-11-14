@@ -79,21 +79,24 @@
           <Button DockPanel.Dock="Right" Classes="ghost icon" Command="{Binding ToggleSettingsCommand}" ToolTip.Tip="Chat settings">
             <Path Classes="icon large" Data="{StaticResource IconSidebar}" />
           </Button>
-          <StackPanel Orientation="Horizontal" Spacing="12">
-            <ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}" MinWidth="280" PlaceholderText="Load a model to chat"
-                      IsEnabled="{Binding HasModels}">
+          <DockPanel>
+            <views:CapabilityBadgesView DockPanel.Dock="Right" Margin="12,0" DataContext="{Binding SelectedBadges}" VerticalAlignment="Center" />
+            <!-- Fills the rest up to MaxWidth: long model ids and device names are trimmed instead of running under the drop-down
+                 arrow, and the picker shrinks before the badges do when the header is narrow. -->
+            <ComboBox HorizontalAlignment="Left" ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}" MinWidth="200" MaxWidth="520"
+                      PlaceholderText="Load a model to chat" IsEnabled="{Binding HasModels}">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:ModelOptionViewModel">
-                  <StackPanel Orientation="Horizontal" Spacing="10">
-                    <Path Classes="icon accent" Data="{StaticResource IconModels}" Width="14" Height="14" />
-                    <TextBlock Text="{Binding Id}" FontWeight="Medium" VerticalAlignment="Center" />
-                    <TextBlock Classes="caption" Text="{Binding Detail}" VerticalAlignment="Center" />
-                  </StackPanel>
+                  <DockPanel ToolTip.Tip="{Binding Id}">
+                    <Path DockPanel.Dock="Left" Classes="icon accent" Data="{StaticResource IconModels}" Width="14" Height="14" Margin="0,0,10,0" />
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding Id}" FontWeight="Medium" VerticalAlignment="Center" MaxWidth="300"
+                               TextTrimming="CharacterEllipsis" Margin="0,0,10,0" />
+                    <TextBlock Classes="caption" Text="{Binding Detail}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
                 </DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
-            <views:CapabilityBadgesView DataContext="{Binding SelectedBadges}" VerticalAlignment="Center" />
-          </StackPanel>
+          </DockPanel>
         </DockPanel>
       </Border>
 

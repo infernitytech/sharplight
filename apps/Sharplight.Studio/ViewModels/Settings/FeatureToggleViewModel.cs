@@ -7,11 +7,10 @@ internal sealed partial class FeatureToggleViewModel : ObservableObject
 {
     private readonly Action _changed;
 
-    public FeatureToggleViewModel(string name, string description, string detectedOn, bool enabled, Action changed)
+    public FeatureToggleViewModel(string name, string description, bool enabled, Action changed)
     {
         Name = name;
         Description = description;
-        DetectedOn = detectedOn;
         _changed = changed;
         IsEnabled = enabled;
     }
@@ -21,9 +20,6 @@ internal sealed partial class FeatureToggleViewModel : ObservableObject
 
     /// <summary>What it is.</summary>
     public string Description { get; }
-
-    /// <summary>The devices that have it, or "not detected".</summary>
-    public string DetectedOn { get; }
 
     /// <summary>Allowed (not in the disable list).</summary>
     [ObservableProperty]

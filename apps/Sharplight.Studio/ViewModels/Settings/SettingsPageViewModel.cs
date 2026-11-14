@@ -14,15 +14,15 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 {
     private static readonly Dictionary<string, string> s_featureDescriptions = new(StringComparer.Ordinal)
     {
-        [DeviceFeatures.MatrixF16] = "Tensor-core f16 matrix multiply (cooperative matrices)",
-        [DeviceFeatures.MatrixBF16] = "Tensor-core bf16 matrix multiply",
-        [DeviceFeatures.MatrixInt8] = "Tensor-core int8 matrix multiply",
-        [DeviceFeatures.MatrixFp8] = "Tensor-core fp8 (E4M3) matrix multiply",
-        [DeviceFeatures.MatrixWorkgroup] = "Workgroup-wide matrix multiply with tensor addressing",
+        [DeviceFeatures.MatrixF16] = "Accelerated f16 matrix multiply",
+        [DeviceFeatures.MatrixBF16] = "Accelerated bf16 matrix multiply",
+        [DeviceFeatures.MatrixInt8] = "Accelerated int8 matrix multiply",
+        [DeviceFeatures.MatrixFp8] = "Accelerated fp8 (E4M3) matrix multiply",
+        [DeviceFeatures.MatrixWorkgroup] = "Workgroup-wide matrix multiply",
         [DeviceFeatures.Float16] = "Native f16 arithmetic in kernels",
         [DeviceFeatures.BFloat16] = "Native bf16 types in kernels",
         [DeviceFeatures.Float8] = "Native 8-bit float types in kernels",
-        [DeviceFeatures.IntDot] = "Packed int8 dot products (dp4a)",
+        [DeviceFeatures.IntDot] = "Packed int8 dot products",
         [DeviceFeatures.SubgroupOps] = "Subgroup reductions and shuffles",
         [DeviceFeatures.SubgroupSizeControl] = "Pinned subgroup size",
         [DeviceFeatures.MemoryBudget] = "Live memory budget including other processes",
@@ -332,9 +332,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         var disabled = settings.DisabledFeatures.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var feature in DeviceFeatures.All)
         {
-            var on = Devices.Where(device => device.Features.Contains(feature)).Select(device => device.Name).ToList();
-            Features.Add(new FeatureToggleViewModel(feature, s_featureDescriptions.GetValueOrDefault(feature, feature),
-                on.Count == 0 ? "Not detected" : string.Join(", ", on), !disabled.Contains(feature), Save));
+            Features.Add(new FeatureToggleViewModel(feature, s_featureDescriptions.GetValueOrDefault(feature, feature), !disabled.Contains(feature), Save));
         }
 
         RefreshStore();

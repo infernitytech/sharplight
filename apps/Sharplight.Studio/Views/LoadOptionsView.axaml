@@ -82,7 +82,7 @@
         <StackPanel Spacing="2">
           <ToggleSwitch Content="Reduced precision (opt-in)" IsChecked="{Binding AllowReducedPrecision}" />
           <TextBlock Classes="caption" TextWrapping="Wrap"
-                     Text="Faster f16 kernel paths where the default keeps near-f32 accuracy (e.g. one f16 product instead of two in the chunked delta rule, f16 tensor-core matmuls on f32 weights). Results may differ slightly." />
+                     Text="Faster f16 kernel paths where the default keeps near-f32 accuracy (e.g. one f16 product instead of two in the chunked delta rule, f16 matrix multiplies on f32 weights). Results may differ slightly." />
         </StackPanel>
       </StackPanel>
     </ScrollViewer>

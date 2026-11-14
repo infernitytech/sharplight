@@ -312,7 +312,7 @@
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="BorderThickness" Value="0" />
   </Style>
-  <Style Selector="Border.reasoning">
+  <Style Selector="Border.reasoning:not(.badge)">
     <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
     <Setter Property="BorderThickness" Value="2,0,0,0" />
     <Setter Property="Padding" Value="12,2,0,2" />
