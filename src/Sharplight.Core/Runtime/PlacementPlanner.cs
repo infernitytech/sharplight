@@ -63,7 +63,8 @@ public static class PlacementPlanner
 
             foreach (var v in n.Inputs)
             {
-                if (v.Weight is { } w && seenWeights.Add(w))
+                // A weight another compiled model already holds (shared weights) takes no new memory.
+                if (v.Weight is { } w && seenWeights.Add(w) && compile.SharedWeights?.IsResident(w) != true)
                 {
                     bytes[n.Group] += w.ByteSize;
                 }

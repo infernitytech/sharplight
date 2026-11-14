@@ -44,6 +44,13 @@ public sealed class LlmModel : IDisposable
     public ITokenizer Tokenizer { get; }
     /// <summary>The Jinja chat template stored in the model file (<c>tokenizer.chat_template</c>), or null if it has none.</summary>
     public string? ChatTemplate { get; }
+    /// <summary>
+    /// Weight buffers shared by everything compiled from this model (sessions, batch decoders, the draft head): on devices that
+    /// support it (<see cref="IComputeDevice.SharesWeights"/>) each tensor is uploaded once per device, so e.g. the MTP head reuses
+    /// the decoder's embedding and LM head.
+    /// </summary>
+    public SharedWeights SharedWeights => _sharedWeights;
+    private readonly SharedWeights _sharedWeights = new();
     private readonly LlmLoadOptions _options;
     private readonly CompilationArtifacts _artifacts;
 
@@ -166,7 +173,8 @@ public sealed class LlmModel : IDisposable
     /// Compiles the model's multi-token-prediction head (<see cref="WellKnown.DraftGraph"/>) into a speculator for an
     /// <see cref="Serving.InferenceEngine"/> (<see cref="Serving.EngineOptions.Speculator"/>) over a decoder from
     /// <see cref="CreateBatchDecoder"/> with the same <paramref name="slots"/>, context and <paramref name="draftTokens"/>. The head
-    /// has its own KV cache (one attention layer per MTP layer) and its own copy of the embedding and LM head.
+    /// has its own KV cache (one attention layer per MTP layer); its embedding and LM head are the decoder's buffers on devices that
+    /// share weights (<see cref="SharedWeights"/>).
     /// </summary>
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
@@ -223,6 +231,7 @@ public sealed class LlmModel : IDisposable
             CacheFor = CacheFor,
             Progress = _options.Progress,
             CancellationToken = _options.CancellationToken,
+            SharedWeights = _sharedWeights,
         },
     };
 

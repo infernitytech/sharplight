@@ -204,6 +204,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 CacheFor = c.CacheFor,
                 Progress = c.Progress,
                 CancellationToken = c.CancellationToken,
+                SharedWeights = c.SharedWeights,
             },
         });
         bool recurrent = ms.States.Keys.Any(s => !MultiSequence.IsKvState(s));

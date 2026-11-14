@@ -26,6 +26,9 @@ internal sealed class CpuDevice : IComputeDevice
 
     public IReadOnlySet<string> EnabledFeatures { get; }
 
+    /// <summary>Weights from mapped files are used in place anyway; copies (non-mapped sources, f32 conversions) are shared.</summary>
+    public bool SharesWeights => true;
+
     public long AvailableMemory
     {
         get

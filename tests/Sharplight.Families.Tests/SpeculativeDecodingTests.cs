@@ -1,8 +1,10 @@
 using Sharplight.Cpu;
+using Sharplight.Graph;
 using Sharplight.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;
+using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
 
@@ -55,6 +57,39 @@ public class SpeculativeDecodingTests
 
         Assert.True(metrics.DraftTokens > 0, "no drafts were verified");
         TestContext.Current.SendDiagnosticMessage($"{speculator}: {metrics.AcceptedDraftTokens} of {metrics.DraftTokens} drafts accepted");
+    }
+
+    /// <summary>
+    /// The draft head shares the embedding / LM head buffers of the decoder (<see cref="LlmModel.SharedWeights"/>): compiling it
+    /// adds exactly its own weights to the device, and disposing it gives them back.
+    /// </summary>
+    [Fact]
+    public void DraftHead_Reuses_DecoderWeights()
+    {
+        Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
+        using var device = OpenDevice(vulkan: true);
+        Assert.True(device.SharesWeights);
+        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions
+        {
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false,
+        });
+        static HashSet<IWeightSource> Sources(ComputeGraph g)
+            => g.Nodes.SelectMany(n => n.Inputs).Where(v => v.Weight is not null).Select(v => v.Weight!.Source).ToHashSet<IWeightSource>(ReferenceEqualityComparer.Instance);
+        var decodeSources = Sources(model.Definition.Graph(WellKnown.DecodeGraph));
+        var draftWeights = model.Definition.Graph(WellKnown.DraftGraph).Nodes.SelectMany(n => n.Inputs).Where(v => v.Weight is not null)
+            .Select(v => v.Weight!).DistinctBy(w => w.Source, ReferenceEqualityComparer.Instance).ToList();
+        long draftOnly = draftWeights.Where(w => !decodeSources.Contains(w.Source)).Sum(w => w.ByteSize);
+        long reused = draftWeights.Where(w => decodeSources.Contains(w.Source)).Sum(w => w.ByteSize);
+        Assert.True(reused > draftOnly, $"the head should mostly reuse the decoder's weights ({reused} reused, {draftOnly} own)");
+
+        using var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
+        long resident = model.SharedWeights.ResidentBytes;
+        using (var spec = model.CreateMtpSpeculator(Slots, Drafts))
+        {
+            Assert.Equal(resident + draftOnly, model.SharedWeights.ResidentBytes);
+        }
+
+        Assert.Equal(resident, model.SharedWeights.ResidentBytes);
     }
 
     private static async Task<int[][]> Generate(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, CancellationToken ct)

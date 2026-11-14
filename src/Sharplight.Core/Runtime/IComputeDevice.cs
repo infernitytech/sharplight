@@ -22,6 +22,11 @@ public interface IComputeDevice : IDisposable
         long avail = AvailableMemory;
         return new DeviceMemoryInfo(total, total, Math.Max(0, total - avail), Math.Max(0, total - avail), false);
     }
+    /// <summary>
+    /// Whether compilations on this device share weight buffers through <see cref="CompileOptions.SharedWeights"/> (see
+    /// <see cref="Runtime.SharedWeights"/> for the provider contract). False (the default): each compiled segment holds its own copy.
+    /// </summary>
+    public bool SharesWeights => false;
     /// <summary>Whether the device can execute the node; unsupported nodes go to the placement fallback.</summary>
     public OpSupport Supports(Node node);
     /// <summary>

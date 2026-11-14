@@ -17,6 +17,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly VulkanDevice _dev;
     private readonly KernelProgram _program;
     private readonly Dictionary<BufferDecl, Allocation> _alloc = [];
+    /// <summary>Weight buffers held through <see cref="CompileOptions.SharedWeights"/> (their allocations are freed by the lease).</summary>
+    private readonly Dictionary<BufferDecl, SharedWeightLease<Allocation>> _leases = [];
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -93,6 +95,17 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             foreach (var b in program.Buffers)
             {
                 ulong size = (ulong)Math.Max(16, b.Bytes);
+                if (b.Kind == BufferKind.Weight && b.Weight is { } w && options.SharedWeights is { } shared)
+                {
+                    // Weights shared with the other compiled models of this source on the device (e.g. a draft head's LM head).
+                    var lease = shared.Acquire(dev, WeightBufferKey.For(w, LayoutName(b)), b.Bytes,
+                        () => dev.Memory.Allocate(size, MemoryUsage.Device), dev.Memory.Free);
+                    _leases[b] = lease;
+                    _alloc[b] = lease.Buffer;
+                    bytes += lease.MustFill ? b.Bytes : 0;
+                    continue;
+                }
+
                 _alloc[b] = dev.Memory.Allocate(size, MemoryUsage.Device);
                 bytes += b.Bytes;
                 if (b.Kind is BufferKind.Input or BufferKind.Runtime)
@@ -142,45 +155,62 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     // ---- weights ---------------------------------------------------------------------------
     private void UploadWeights()
     {
-        var weights = _program.Buffers.Where(b => b.Kind == BufferKind.Weight).ToList();
-        if (weights.Count == 0)
-        {
-            return;
-        }
-
-        using var uploader = new WeightUploader(_dev, _pool);
+        // Shared weights another compilation holds are uploaded by that one. A cancelled or failed upload leaves this segment's
+        // filling leases unfilled; disposing the segment (the constructor does on any exception) marks them failed, so other
+        // holders waiting for them throw instead of hanging, and the next acquirer allocates and fills a fresh buffer.
+        var weights = _program.Buffers.Where(b => b.Kind == BufferKind.Weight && (!_leases.TryGetValue(b, out var l) || l.MustFill)).ToList();
         var ct = _options.CancellationToken;
-        var materialized = WeightCopier.MaterializeInBackground(weights, ct);
-        var progress = new LoadProgressCounter(_options.Progress, LoadStage.Uploading, weights.Sum(b => b.Bytes), _dev.Info.Name);
-        try
+        if (weights.Count > 0)
         {
-            foreach (var buffer in weights)
-            {
-                // A cancelled upload still completes the copies in flight before the staging buffers are released.
-                if (ct.IsCancellationRequested)
-                {
-                    break;
-                }
-
-                uploader.Upload(buffer, _alloc[buffer]);
-                progress.Add(buffer.Bytes);
-            }
-
-            uploader.Complete();
-            ct.ThrowIfCancellationRequested();
-        }
-        finally
-        {
+            using var uploader = new WeightUploader(_dev, _pool);
+            var materialized = WeightCopier.MaterializeInBackground(weights, ct);
+            var progress = new LoadProgressCounter(_options.Progress, LoadStage.Uploading, weights.Sum(b => b.Bytes), _dev.Info.Name);
             try
             {
-                materialized.Wait(CancellationToken.None);
+                foreach (var buffer in weights)
+                {
+                    // A cancelled upload still completes the copies in flight before the staging buffers are released.
+                    if (ct.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    uploader.Upload(buffer, _alloc[buffer]);
+                    progress.Add(buffer.Bytes);
+                }
+
+                uploader.Complete();
+                ct.ThrowIfCancellationRequested();
             }
-            catch (AggregateException) when (ct.IsCancellationRequested)
+            finally
             {
-                // The background reads stopped because of the cancellation.
+                try
+                {
+                    materialized.Wait(CancellationToken.None);
+                }
+                catch (AggregateException) when (ct.IsCancellationRequested)
+                {
+                    // The background reads stopped because of the cancellation.
+                }
             }
         }
+
+        foreach (var lease in _leases.Values)
+        {
+            if (lease.MustFill)
+            {
+                lease.Filled();
+            }
+        }
+
+        foreach (var lease in _leases.Values)
+        {
+            lease.WaitFilled(ct);
+        }
     }
+
+    /// <summary>Device layout of a weight buffer in <see cref="WeightBufferKey"/>: empty for the bytes as stored, else the repack.</summary>
+    private static string LayoutName(BufferDecl b) => b.Repack == WeightRepack.None ? "" : $"vulkan:{b.Repack}:{b.RepackRowElements}";
 
     // ---- I/O ---------------------------------------------------------------------------------
     /// <inheritdoc />
@@ -795,11 +825,20 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         _plans.Clear();
-        foreach (var a in _alloc.Values)
+        foreach (var (b, a) in _alloc)
         {
-            _dev.Memory.Free(a);
+            if (!_leases.ContainsKey(b))
+            {
+                _dev.Memory.Free(a);
+            }
         }
 
+        foreach (var lease in _leases.Values)
+        {
+            lease.Dispose();
+        }
+
+        _leases.Clear();
         _alloc.Clear();
         foreach (var a in _staging.Values)
         {

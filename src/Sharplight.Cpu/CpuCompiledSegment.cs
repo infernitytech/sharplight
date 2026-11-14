@@ -27,6 +27,9 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
     private readonly List<Buf> _bufs = [];
     private readonly List<TRef> _allRefs = [];
     private readonly List<nint> _owned = [];
+    /// <summary>Weight memory held through <see cref="CompileOptions.SharedWeights"/> (freed with the last holder).</summary>
+    private readonly List<IDisposable> _leases = [];
+    private readonly CpuDevice _device;
     private readonly List<(Buf State, long Bytes)> _stateBufs = [];
     private readonly Dictionary<string, long> _symbolBounds = new(StringComparer.Ordinal);
     private byte* _arena;
@@ -40,6 +43,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
     {
         _segment = segment;
         _options = options;
+        _device = device;
         _features = options.FeaturesFor(device);
         try
         {
@@ -212,6 +216,12 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
         }
 
         _owned.Clear();
+        foreach (var lease in _leases)
+        {
+            lease.Dispose();
+        }
+
+        _leases.Clear();
         _bufs.Clear();
         _steps.Clear();
     }
