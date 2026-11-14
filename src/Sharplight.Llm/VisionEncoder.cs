@@ -15,6 +15,7 @@ public sealed class VisionEncoder : IDisposable
     private readonly CompiledModel _compiled;
     private readonly RunParameters _run = new();
     private readonly Value _patches, _positions, _embIndex, _embWeight;
+    private readonly Value? _windowSpans, _windowOrder;
     private readonly string _output = VisionParameters.EmbeddingsOutput;
 
     /// <summary>The model the encoder belongs to.</summary>
@@ -67,6 +68,8 @@ public sealed class VisionEncoder : IDisposable
         _positions = g.Inputs.First(v => v.Input!.Name == VisionParameters.PositionsInput);
         _embIndex = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingIndexInput)!;
         _embWeight = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingWeightInput)!;
+        _windowSpans = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowSpansInput);
+        _windowOrder = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.WindowOrderInput);
     }
 
     /// <summary>Width of one embedding row: the language model's hidden size, times 1 + the number of DeepStack layers.</summary>
@@ -93,6 +96,17 @@ public sealed class VisionEncoder : IDisposable
         _compiled.SetInput<int>(_positions, image.Positions);
         _compiled.SetInput<int>(_embIndex, image.EmbeddingIndex);
         _compiled.SetInput<float>(_embWeight, image.EmbeddingWeight);
+        if (_windowSpans is not null && _windowOrder is not null)
+        {
+            if (image.WindowSpans.Length != 2 * n || image.WindowOrder.Length != merged)
+            {
+                throw new ArgumentException("The image was not preprocessed for this encoder's windowed attention (window spans and order missing).", nameof(image));
+            }
+
+            _compiled.SetInput<int>(_windowSpans, image.WindowSpans);
+            _compiled.SetInput<int>(_windowOrder, image.WindowOrder);
+        }
+
         _run.Symbols[VisionParameters.PatchSymbol] = n;
         _run.Symbols[VisionParameters.MergedSymbol] = merged;
         _compiled.Run(_run);
