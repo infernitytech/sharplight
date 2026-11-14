@@ -52,6 +52,12 @@ internal static class DiagnosticSwitches
     /// <summary>Prints each recorded launch.</summary>
     public static bool ListLaunches { get; } = IsSet("SHARPLIGHT_VK_LIST_LAUNCHES");
 
+    /// <summary>
+    /// False (<c>SHARPLIGHT_DEVICE_FORWARDING=0</c>) when segments on the same device pass boundary values through host memory
+    /// instead of copying them on the device (<see cref="Runtime.IDeviceForwardingSegment"/>).
+    /// </summary>
+    public static bool DeviceForwarding { get; } = Read("SHARPLIGHT_DEVICE_FORWARDING") is not ("0" or "false");
+
     /// <summary>Prints load-phase timings.</summary>
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");
 

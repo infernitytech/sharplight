@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Sharplight.Cpu;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Onnx;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Vulkan;
 
 namespace OnnxBench;
@@ -122,6 +124,8 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
                 result["segments"] = compiled.Plan.Segments.Count;
                 result["fallbackSegments"] = compiled.Plan.Segments.Count(s => s.DeviceSlot != 0);
                 result["fallbackOps"] = FallbackOps(compiled.Plan, device);
+                result["segmentEnds"] = compiled.Plan.Segments.Take(compiled.Plan.Segments.Count - 1).GroupBy(s => s.Nodes[^1].Op.Name)
+                    .ToDictionary(g => g.Key, g => g.Count());
                 result["fixedBatch"] = fixBatch;
                 return (definition, graph, compiled);
             }
@@ -158,6 +162,29 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
             }
 
             compiled.SetInput(value, bytes);
+            if (value.Type == DataType.F32)
+            {
+                floatInputs.Add((value, bytes));
+            }
+        }
+    }
+
+    /// <summary>The f32 inputs as fed by <see cref="SetInputs"/> (for <see cref="BenchArguments.VaryInput"/>).</summary>
+    private readonly List<(Value Value, byte[] Bytes)> floatInputs = [];
+
+    /// <summary>Feeds the f32 reference inputs scaled per element by a random factor in [0.8, 1.2] drawn with <paramref name="seed"/>.</summary>
+    private void SetVariedInputs(CompiledModel compiled, int seed)
+    {
+        var random = new Random(seed);
+        foreach (var (value, bytes) in floatInputs)
+        {
+            var values = MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] *= 0.8f + 0.4f * random.NextSingle();
+            }
+
+            compiled.SetInput<float>(value, values);
         }
     }
 
@@ -215,6 +242,11 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         var watch = new Stopwatch();
         while (wall.Count < arguments.Runs && (wall.Count < MinRuns || total.Elapsed.TotalSeconds < arguments.BudgetSeconds))
         {
+            if (arguments.VaryInput)
+            {
+                SetVariedInputs(compiled, wall.Count + 1);
+            }
+
             watch.Restart();
             compiled.Run(run);
             foreach (var (name, buffer) in buffers)
