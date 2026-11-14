@@ -120,6 +120,20 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 
 Defaults keep near-f32 accuracy; `--reduced-precision` opts in to faster f16 kernel paths where they exist.
 
+## Sharplight Studio
+
+A desktop app (Avalonia) to search and download Hugging Face models and convert them automatically. It chats with several
+resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
+APIs. It also records per-model speed and latency statistics.
+
+```sh
+dotnet run -c Release --project apps/Sharplight.Studio
+```
+
+![Sharplight Studio](docs/images/studio/studio-chat.png)
+
+Details and screenshots: [docs/studio.md](docs/studio.md).
+
 ## Roadmap
 
 What is in progress and the performance ideas still open: [docs/roadmap.md](docs/roadmap.md).

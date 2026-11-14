@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             x:Class="Sharplight.Studio.Views.DownloadItemView"
+             x:DataType="mvm:DownloadItemViewModel">
+  <Border Classes="card" Padding="14,12">
+    <StackPanel Spacing="6">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+          <Button Classes="ghost icon" ToolTip.Tip="Pause (resume continues where it stopped)" Command="{Binding PauseCommand}" IsVisible="{Binding CanPause}">
+            <Path Classes="icon" Data="{StaticResource IconPause}" />
+          </Button>
+          <Button Classes="ghost icon" ToolTip.Tip="Resume" Command="{Binding ResumeCommand}" IsVisible="{Binding CanResume}">
+            <Path Classes="icon accent" Data="{StaticResource IconPlay}" />
+          </Button>
+          <Button Classes="ghost icon danger" ToolTip.Tip="Cancel and delete the downloaded parts" Command="{Binding CancelCommand}" IsVisible="{Binding !IsFinished}">
+            <Path Classes="icon" Data="{StaticResource IconClose}" />
+          </Button>
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+            <Border Classes="badge accent">
+              <TextBlock Text="{Binding PhaseText}" />
+            </Border>
+            <TextBlock Classes="caption" Text="{Binding BytesText}" VerticalAlignment="Center" />
+            <TextBlock Classes="caption" Text="{Binding SpeedText}" VerticalAlignment="Center" />
+            <TextBlock Classes="caption" Text="{Binding EtaText}" VerticalAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+      </DockPanel>
+      <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" IsIndeterminate="{Binding IsIndeterminate}" IsVisible="{Binding IsActive}" />
+      <DockPanel IsVisible="{Binding FileText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <ProgressBar DockPanel.Dock="Right" Classes="thin" Width="120" Minimum="0" Maximum="1" Value="{Binding FileProgress}" VerticalAlignment="Center" />
+        <TextBlock Classes="caption" Text="{Binding FileText}" TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+      <TextBlock Classes="caption" Text="{Binding Message}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+    </StackPanel>
+  </Border>
+</UserControl>

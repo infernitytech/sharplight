@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.Studio.ViewModels"
+             x:Class="Sharplight.Studio.Views.CapabilityBadgesView"
+             x:DataType="vm:CapabilityBadges">
+  <StackPanel Orientation="Horizontal" Spacing="5">
+    <Border Classes="badge vision" IsVisible="{Binding Vision}" ToolTip.Tip="Reads images: the engine runs this model's vision tower">
+      <TextBlock Text="Vision" />
+    </Border>
+    <Border Classes="badge" IsVisible="{Binding TextOnly}" ToolTip.Tip="Text only: images cannot be attached">
+      <TextBlock Text="Text only" />
+    </Border>
+    <Border Classes="badge reasoning" IsVisible="{Binding Reasoning}" ToolTip.Tip="Thinks before answering (reasoning block)">
+      <TextBlock Text="Reasoning" />
+    </Border>
+    <Border Classes="badge tools" IsVisible="{Binding Tools}" ToolTip.Tip="The chat template supports tool calls">
+      <TextBlock Text="Tools" />
+    </Border>
+    <Border Classes="badge accent" IsVisible="{Binding DraftHead}" ToolTip.Tip="Has a multi-token-prediction head for self-speculative decoding">
+      <TextBlock Text="MTP" />
+    </Border>
+    <Border Classes="badge" IsVisible="{Binding Embedding}">
+      <TextBlock Text="Embedding" />
+    </Border>
+  </StackPanel>
+</UserControl>

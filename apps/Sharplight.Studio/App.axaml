@@ -1,0 +1,40 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Sharplight.Studio.Views"
+             xmlns:chat="using:Sharplight.Studio.ViewModels.Chat"
+             xmlns:models="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:server="using:Sharplight.Studio.ViewModels.Server"
+             xmlns:stats="using:Sharplight.Studio.ViewModels.Stats"
+             xmlns:settings="using:Sharplight.Studio.ViewModels.Settings"
+             x:Class="Sharplight.Studio.App"
+             RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://sharplight-studio/Themes/Colors.axaml" />
+        <ResourceInclude Source="avares://sharplight-studio/Themes/Icons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+  <Application.DataTemplates>
+    <DataTemplate DataType="chat:ChatPageViewModel">
+      <views:ChatPage />
+    </DataTemplate>
+    <DataTemplate DataType="models:ModelsPageViewModel">
+      <views:ModelsPage />
+    </DataTemplate>
+    <DataTemplate DataType="server:ServerPageViewModel">
+      <views:ServerPage />
+    </DataTemplate>
+    <DataTemplate DataType="stats:StatsPageViewModel">
+      <views:StatsPage />
+    </DataTemplate>
+    <DataTemplate DataType="settings:SettingsPageViewModel">
+      <views:SettingsPage />
+    </DataTemplate>
+  </Application.DataTemplates>
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://sharplight-studio/Themes/Styles.axaml" />
+  </Application.Styles>
+</Application>

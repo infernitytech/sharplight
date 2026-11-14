@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:views="using:Sharplight.Studio.Views"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.ModelsPage"
+             x:DataType="mvm:ModelsPageViewModel">
+  <DockPanel Margin="28,22,28,0">
+    <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
+      <TextBlock Classes="h1" Text="Models" />
+      <TextBlock Classes="muted" Text="Find models on Hugging Face, keep them in your library, and load several at once on any device." />
+    </StackPanel>
+    <TabControl Classes="pills" SelectedIndex="{Binding SelectedTab}" Padding="0,12,0,0">
+      <TabItem Header="Discover">
+        <views:DiscoverView DataContext="{Binding Discover}" />
+      </TabItem>
+      <TabItem Header="Library">
+        <views:LibraryView DataContext="{Binding Library}" />
+      </TabItem>
+      <TabItem>
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="Resident" VerticalAlignment="Center" />
+            <Border Classes="badge accent" IsVisible="{Binding !Resident.IsEmpty}">
+              <TextBlock Text="{Binding Resident.Models.Count}" />
+            </Border>
+          </StackPanel>
+        </TabItem.Header>
+        <views:ResidentView DataContext="{Binding Resident}" />
+      </TabItem>
+      <TabItem>
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="Downloads" VerticalAlignment="Center" />
+            <Border Classes="badge accent" IsVisible="{Binding Downloads.ActiveCount, Converter={x:Static conv:PositiveConverter.Instance}}">
+              <TextBlock Text="{Binding Downloads.ActiveCount}" />
+            </Border>
+          </StackPanel>
+        </TabItem.Header>
+        <DockPanel DataContext="{Binding Downloads}" x:DataType="mvm:DownloadsViewModel" Margin="0,0,0,16">
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button DockPanel.Dock="Right" Classes="small" Content="Clear finished" Command="{Binding ClearFinishedCommand}" />
+            <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap"
+                       Text="Downloads run in parallel and survive restarts: a paused or interrupted download continues where it stopped. After downloading, models are converted to a .slm package and their GPU kernels compiled." />
+          </DockPanel>
+          <Panel>
+            <StackPanel IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+              <Path Classes="icon huge" Data="{StaticResource IconDownload}" HorizontalAlignment="Center" />
+              <TextBlock Classes="muted" Text="No downloads. Start one from Discover." />
+            </StackPanel>
+            <ScrollViewer>
+              <ItemsControl ItemsSource="{Binding Items}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mvm:DownloadItemViewModel">
+                    <views:DownloadItemView Margin="0,0,0,10" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Panel>
+        </DockPanel>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</UserControl>

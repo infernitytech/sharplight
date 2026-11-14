@@ -17,6 +17,9 @@
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
   </Folder>
+  <Folder Name="/apps/">
+    <Project Path="apps/Sharplight.Studio/Sharplight.Studio.csproj" />
+  </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/Sharplight.Samples.Common/Sharplight.Samples.Common.csproj" />
     <Project Path="samples/Sharplight.Samples.Hub/Sharplight.Samples.Hub.csproj" />
@@ -42,6 +45,7 @@
     <Project Path="tests/Sharplight.PackageViewer.Tests/Sharplight.PackageViewer.Tests.csproj" />
     <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
+    <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />
     <Project Path="tests/Sharplight.Tokenizers.Tests/Sharplight.Tokenizers.Tests.csproj" />
     <Project Path="tests/Sharplight.Vulkan.Tests/Sharplight.Vulkan.Tests.csproj" />
     <Project Path="tests/Sharplight.Vision.Tests/Sharplight.Vision.Tests.csproj" />

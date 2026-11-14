@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>sharplight-studio</AssemblyName>
+    <RootNamespace>Sharplight.Studio</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Description>Sharplight Studio: desktop app to find, download, convert, run, chat with and serve local models.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The OpenAI / Anthropic endpoints run in-process on Kestrel. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Markdig" />
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sharplight.Llm/Sharplight.Llm.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Hub/Sharplight.Hub.csproj" />
+    <ProjectReference Include="../../src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Package/Sharplight.Package.csproj" />
+    <!-- Composition root: the providers and importers the app registers at startup. -->
+    <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Sharplight.Studio.Tests" />
+  </ItemGroup>
+</Project>

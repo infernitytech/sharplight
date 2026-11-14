@@ -1,0 +1,185 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:svm="using:Sharplight.Studio.ViewModels.Server"
+             x:Class="Sharplight.Studio.Views.ServerPage"
+             x:DataType="svm:ServerPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28,22,28,24" Spacing="16">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Classes="accent" Command="{Binding StartCommand}" IsVisible="{Binding !IsRunning}" IsEnabled="{Binding !IsBusy}" Padding="18,8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon" Data="{StaticResource IconPlay}" Width="12" Height="12" />
+              <TextBlock Text="Start server" />
+            </StackPanel>
+          </Button>
+          <Button Classes="danger" Command="{Binding StopCommand}" IsVisible="{Binding IsRunning}" IsEnabled="{Binding !IsBusy}" Padding="18,8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon" Data="{StaticResource IconStop}" Width="12" Height="12" />
+              <TextBlock Text="Stop" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="h1" Text="Local server" />
+          <TextBlock Classes="muted" Text="OpenAI- and Anthropic-compatible endpoints for your tools, editors and agents. Requests route by their model field." />
+        </StackPanel>
+      </DockPanel>
+
+      <!-- Status -->
+      <Border Classes="card" Padding="18,14">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsRunning}">
+            <TextBlock Classes="mono" Text="{Binding BaseUrl}" VerticalAlignment="Center" />
+            <Button Classes="ghost icon" ToolTip.Tip="Copy" Command="{Binding CopyCommand}" CommandParameter="{Binding BaseUrl}">
+              <Path Classes="icon" Data="{StaticResource IconCopy}" />
+            </Button>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Ellipse Classes="dot" Classes.ok="{Binding IsRunning}" Classes.pulse="{Binding IsRunning}" VerticalAlignment="Center" />
+            <StackPanel>
+              <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" />
+              <TextBlock Classes="caption" Text="{Binding RequestCount, StringFormat='{}{0} requests answered'}" />
+            </StackPanel>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+      <Border Classes="warn" IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <TextBlock Text="{Binding Error}" TextWrapping="Wrap" />
+      </Border>
+
+      <Grid ColumnDefinitions="*,16,*">
+        <!-- Settings -->
+        <Border Classes="card">
+          <StackPanel Spacing="12">
+            <TextBlock Classes="h3" Text="Settings" />
+            <Grid ColumnDefinitions="*,10,130">
+              <StackPanel>
+                <TextBlock Classes="label" Text="Host" />
+                <TextBox Text="{Binding Host}" ToolTip.Tip="127.0.0.1 for this computer only, 0.0.0.0 for the network" />
+              </StackPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Classes="label" Text="Port" />
+                <NumericUpDown Value="{Binding Port}" Minimum="1" Maximum="65535" FormatString="0" />
+              </StackPanel>
+            </Grid>
+            <StackPanel>
+              <TextBlock Classes="label" Text="API key (empty = no authentication)" />
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Classes="small" Content="Generate" Command="{Binding GenerateKeyCommand}" Margin="6,0,0,0" />
+                <TextBox Classes="mono" Text="{Binding ApiKey}" PasswordChar="•" RevealPassword="{Binding #RevealKey.IsChecked}" />
+              </DockPanel>
+              <CheckBox x:Name="RevealKey" Content="Show" Margin="0,4,0,0" />
+            </StackPanel>
+            <StackPanel>
+              <TextBlock Classes="label" Text="CORS origins (comma separated, * for any, empty = off)" />
+              <TextBox Text="{Binding CorsOrigins}" />
+            </StackPanel>
+            <ToggleSwitch Content="OpenAI-compatible API" IsChecked="{Binding OpenAi}" />
+            <ToggleSwitch Content="Anthropic-compatible API" IsChecked="{Binding Anthropic}" />
+            <StackPanel Spacing="2">
+              <ToggleSwitch Content="Load library models on demand" IsChecked="{Binding LoadOnDemand}" />
+              <TextBlock Classes="caption" TextWrapping="Wrap" Text="A request naming a library model that is not resident loads it first; idle models are unloaded and the least recently used one evicted when memory runs out (see Settings → Residency)." />
+            </StackPanel>
+            <TextBlock Classes="caption" Text="Address, key, CORS and API switches apply the next time the server starts; served models and on-demand loading apply at once." TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <!-- Models -->
+        <Border Grid.Column="2" Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h3" Text="Served models" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" Text="Resident models answer under their name. Switch one off to hide it from /v1/models and refuse its requests." />
+            <TextBlock Classes="muted" Text="No model is resident yet: load one on the Models page." IsVisible="{Binding !HasModels}" />
+            <ItemsControl ItemsSource="{Binding Models}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="svm:ServedModelViewModel">
+                  <DockPanel Margin="0,4">
+                    <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsServed}" OnContent="" OffContent="" />
+                    <StackPanel>
+                      <TextBlock Text="{Binding Id}" FontWeight="SemiBold" />
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="caption" Text="{Binding Device}" />
+                        <TextBlock Classes="caption" Text="{Binding State}" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DockPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <Grid ColumnDefinitions="*,16,*">
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="h3" Text="Endpoints" />
+            <ItemsControl ItemsSource="{Binding Endpoints}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="svm:EndpointInfo">
+                  <Grid ColumnDefinitions="56,Auto,*" Margin="0,3">
+                    <Border Classes="badge accent" HorizontalAlignment="Left">
+                      <TextBlock Text="{Binding Method}" />
+                    </Border>
+                    <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Path}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Description}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="2" Classes="card">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+              <Button DockPanel.Dock="Right" Classes="ghost small" Command="{Binding CopyCommand}" CommandParameter="{Binding CurlExample}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Classes="icon" Data="{StaticResource IconCopy}" Width="12" Height="12" />
+                  <TextBlock Text="Copy" />
+                </StackPanel>
+              </Button>
+              <TextBlock Classes="h3" Text="Try it" VerticalAlignment="Center" />
+            </DockPanel>
+            <Border Classes="inset">
+              <SelectableTextBlock Classes="mono" Text="{Binding CurlExample}" TextWrapping="Wrap" />
+            </Border>
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <!-- Log -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="ghost small" Content="Clear" Command="{Binding ClearLogCommand}" />
+            <TextBlock Classes="h3" Text="Request log" VerticalAlignment="Center" />
+          </DockPanel>
+          <Grid ColumnDefinitions="80,64,*,64,80,140" Margin="0,0,0,2">
+            <TextBlock Classes="section" Text="TIME" />
+            <TextBlock Grid.Column="1" Classes="section" Text="METHOD" />
+            <TextBlock Grid.Column="2" Classes="section" Text="PATH" />
+            <TextBlock Grid.Column="3" Classes="section" Text="STATUS" />
+            <TextBlock Grid.Column="4" Classes="section" Text="TIME" />
+            <TextBlock Grid.Column="5" Classes="section" Text="CLIENT" />
+          </Grid>
+          <TextBlock Classes="muted" Text="No requests yet." IsVisible="{Binding !Log.Count}" />
+          <ItemsControl ItemsSource="{Binding Log}" MaxHeight="360">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="svm:HttpLogRowViewModel">
+                <Grid ColumnDefinitions="80,64,*,64,80,140" Margin="0,3">
+                  <TextBlock Classes="caption mono" Text="{Binding Time}" />
+                  <TextBlock Grid.Column="1" Classes="mono" Text="{Binding Method}" />
+                  <TextBlock Grid.Column="2" Classes="mono" Text="{Binding Path}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="3" Classes="mono" Classes.accent="{Binding IsSuccess}" Classes.danger="{Binding IsServerError}" Text="{Binding Status}" />
+                  <TextBlock Grid.Column="4" Classes="caption mono" Text="{Binding Duration}" />
+                  <TextBlock Grid.Column="5" Classes="caption mono" Text="{Binding Client}" TextTrimming="CharacterEllipsis" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

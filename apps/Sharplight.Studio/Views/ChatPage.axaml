@@ -1,0 +1,354 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Sharplight.Studio.ViewModels"
+             xmlns:chat="using:Sharplight.Studio.ViewModels.Chat"
+             xmlns:models="using:Sharplight.Studio.Models"
+             xmlns:c="using:Sharplight.Studio.Controls"
+             xmlns:views="using:Sharplight.Studio.Views"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.ChatPage"
+             x:DataType="chat:ChatPageViewModel">
+  <UserControl.Styles>
+    <Style Selector="ListBoxItem StackPanel.hover-actions">
+      <Setter Property="Opacity" Value="0" />
+    </Style>
+    <Style Selector="ListBoxItem:pointerover StackPanel.hover-actions, ListBoxItem:selected StackPanel.hover-actions">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="StackPanel.msg-actions">
+      <Setter Property="Opacity" Value="0.55" />
+    </Style>
+    <Style Selector="StackPanel.msg-actions:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid ColumnDefinitions="264,*,Auto">
+    <!-- Conversations -->
+    <Border Classes="panel" BorderThickness="0,0,1,0">
+      <DockPanel Margin="12,16,12,12">
+        <DockPanel DockPanel.Dock="Top" Margin="4,0,0,12">
+          <Button DockPanel.Dock="Right" Classes="accent small" Command="{Binding NewChatCommand}" ToolTip.Tip="New chat">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Path Classes="icon" Data="{StaticResource IconPlus}" Width="12" Height="12" />
+              <TextBlock Text="New" />
+            </StackPanel>
+          </Button>
+          <TextBlock Classes="h2" Text="Chats" VerticalAlignment="Center" />
+        </DockPanel>
+        <TextBox DockPanel.Dock="Top" PlaceholderText="Search chats" Text="{Binding FilterText}" Margin="0,0,0,10">
+          <TextBox.InnerLeftContent>
+            <Path Classes="icon" Data="{StaticResource IconSearch}" Width="13" Height="13" Margin="10,0,0,0" />
+          </TextBox.InnerLeftContent>
+        </TextBox>
+        <ListBox Classes="plain" ItemsSource="{Binding Conversations}" SelectedItem="{Binding SelectedConversation}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="chat:ConversationItemViewModel">
+              <DockPanel Margin="10,8">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Classes="hover-actions" VerticalAlignment="Center">
+                  <Button Classes="ghost icon" Padding="4" ToolTip.Tip="Rename"
+                          Command="{Binding $parent[ListBox].((chat:ChatPageViewModel)DataContext).RenameCommand}" CommandParameter="{Binding}">
+                    <Path Classes="icon" Data="{StaticResource IconEdit}" Width="12" Height="12" />
+                  </Button>
+                  <Button Classes="ghost icon danger" Padding="4" ToolTip.Tip="Delete"
+                          Command="{Binding $parent[ListBox].((chat:ChatPageViewModel)DataContext).DeleteConversationCommand}" CommandParameter="{Binding}">
+                    <Path Classes="icon" Data="{StaticResource IconTrash}" Width="12" Height="12" />
+                  </Button>
+                </StackPanel>
+                <StackPanel Spacing="2">
+                  <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding !IsRenaming}">
+                    <Ellipse Classes="dot busy pulse" Width="7" Height="7" IsVisible="{Binding IsGenerating}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Title}" FontWeight="Medium" TextTrimming="CharacterEllipsis" MaxWidth="170" />
+                  </StackPanel>
+                  <TextBox Text="{Binding Title}" IsVisible="{Binding IsRenaming}" x:Name="RenameBox" Padding="6,3"
+                           KeyDown="OnRenameKeyDown" LostFocus="OnRenameLostFocus" />
+                  <TextBlock Classes="caption" Text="{Binding When}" />
+                </StackPanel>
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- Conversation -->
+    <DockPanel Grid.Column="1">
+      <!-- Header: model picker -->
+      <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,0,1" Padding="20,10">
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="ghost icon" Command="{Binding ToggleSettingsCommand}" ToolTip.Tip="Chat settings">
+            <Path Classes="icon large" Data="{StaticResource IconSidebar}" />
+          </Button>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <ComboBox ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}" MinWidth="280" PlaceholderText="Load a model to chat"
+                      IsEnabled="{Binding HasModels}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ModelOptionViewModel">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Path Classes="icon accent" Data="{StaticResource IconModels}" Width="14" Height="14" />
+                    <TextBlock Text="{Binding Id}" FontWeight="Medium" VerticalAlignment="Center" />
+                    <TextBlock Classes="caption" Text="{Binding Detail}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <views:CapabilityBadgesView DataContext="{Binding SelectedBadges}" VerticalAlignment="Center" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- No model -->
+      <Border DockPanel.Dock="Top" Classes="hint" Margin="20,14,20,0" IsVisible="{Binding !HasModels}">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+            <Button Classes="small" Content="Library" Command="{Binding OpenLibraryCommand}" />
+            <Button Classes="accent small" Content="Find a model" Command="{Binding OpenDiscoverCommand}" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <Path Classes="icon accent" Data="{StaticResource IconInfo}" />
+            <TextBlock Text="No model is loaded. Load one from the library or download one from Hugging Face." VerticalAlignment="Center" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <!-- Composer -->
+      <Panel DockPanel.Dock="Bottom" DataContext="{Binding Current}" x:DataType="chat:ConversationViewModel">
+        <StackPanel MaxWidth="860" Margin="24,8,24,16" Spacing="6">
+          <Border Classes="warn" IsVisible="{Binding ImageNotSupported}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon" Stroke="{DynamicResource WarningBrush}" Data="{StaticResource IconWarning}" />
+              <TextBlock Text="The selected model cannot read images (it has no vision tower the engine runs). Pick a vision model or remove the image." TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <TextBlock Classes="caption" Text="{Binding Notice}" IsVisible="{Binding HasNotice}" TextWrapping="Wrap" />
+          <Border x:Name="Composer" Classes="composer" DragDrop.AllowDrop="True">
+            <StackPanel Spacing="6">
+              <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <WrapPanel />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="chat:AttachmentViewModel">
+                    <Border Classes="inset" Padding="6" Margin="0,0,6,6">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Border CornerRadius="6" ClipToBounds="True" Width="40" Height="40" IsVisible="{Binding IsImage}">
+                          <Image Source="{Binding ImageData, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=96}" Stretch="UniformToFill" />
+                        </Border>
+                        <Path Classes="icon accent large" Data="{StaticResource IconDocument}" IsVisible="{Binding IsDocument}" Margin="4,0" />
+                        <StackPanel VerticalAlignment="Center">
+                          <TextBlock Text="{Binding Name}" FontSize="12.5" MaxWidth="180" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="caption" Text="{Binding EstimatedTokens, StringFormat='~{0} tokens'}" IsVisible="{Binding IsDocument}" />
+                        </StackPanel>
+                        <Button Classes="ghost icon" Padding="3" ToolTip.Tip="Remove"
+                                Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).RemoveAttachmentCommand}" CommandParameter="{Binding}">
+                          <Path Classes="icon" Data="{StaticResource IconClose}" Width="11" Height="11" />
+                        </Button>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBox x:Name="Input" Classes="bare" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="220" MinHeight="44"
+                       PlaceholderText="Message the model. Enter sends, Shift+Enter adds a line. Drop or paste images and documents." />
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="4">
+                  <Button Classes="ghost icon" Command="{Binding AttachCommand}" ToolTip.Tip="Attach images or documents (PDF, DOCX, Markdown, text, code)">
+                    <Path Classes="icon" Data="{StaticResource IconAttach}" />
+                  </Button>
+                  <ToggleButton Classes="ghost" IsChecked="{Binding EnableThinking}" IsVisible="{Binding SupportsThinking}" Padding="8,5" ToolTip.Tip="Let the model reason before it answers">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Classes="icon" Data="{StaticResource IconThink}" Width="14" Height="14" />
+                      <TextBlock Text="Think" FontSize="12.5" />
+                    </StackPanel>
+                  </ToggleButton>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10">
+                  <StackPanel VerticalAlignment="Center" Spacing="3" ToolTip.Tip="Context used by this conversation">
+                    <TextBlock Classes="caption" Text="{Binding ContextText}" HorizontalAlignment="Right" />
+                    <ProgressBar Classes="thin" Width="110" Minimum="0" Maximum="1" Value="{Binding ContextFraction}" />
+                  </StackPanel>
+                  <Button Classes="accent" Command="{Binding SendCommand}" IsVisible="{Binding !IsGenerating}" Padding="12,8" ToolTip.Tip="Send (Enter)">
+                    <Path Classes="icon" Data="{StaticResource IconSend}" />
+                  </Button>
+                  <Button Command="{Binding StopCommand}" IsVisible="{Binding IsGenerating}" Padding="12,8" ToolTip.Tip="Stop generating">
+                    <Path Classes="icon" Data="{StaticResource IconStop}" Fill="{DynamicResource TextPrimaryBrush}" />
+                  </Button>
+                </StackPanel>
+                <Panel />
+              </DockPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Panel>
+
+      <!-- Messages -->
+      <Panel DataContext="{Binding Current}" x:DataType="chat:ConversationViewModel">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="14" MaxWidth="560" IsVisible="{Binding IsEmpty}">
+          <Border Width="56" Height="56" CornerRadius="16" Background="{DynamicResource AccentGradientBrush}" HorizontalAlignment="Center">
+            <Path Data="{StaticResource IconLogo}" Fill="White" Stretch="Uniform" Width="24" Height="24" />
+          </Border>
+          <TextBlock Classes="h1" Text="What can I help with?" HorizontalAlignment="Center" />
+          <TextBlock Classes="muted" TextAlignment="Center" TextWrapping="Wrap"
+                     Text="Runs entirely on this machine. Attach images (vision models) or documents; switch models any time from the picker above." />
+          <WrapPanel HorizontalAlignment="Center" Margin="0,6,0,0">
+            <Button Classes="small" Margin="4" Content="Explain how attention works"
+                    Command="{Binding UseSuggestionCommand}" CommandParameter="Explain how attention in transformers works, with a small example." />
+            <Button Classes="small" Margin="4" Content="Write a Python function"
+                    Command="{Binding UseSuggestionCommand}" CommandParameter="Write a Python function that merges overlapping intervals, with tests." />
+            <Button Classes="small" Margin="4" Content="Summarize a document"
+                    Command="{Binding UseSuggestionCommand}" CommandParameter="Summarize the attached document in five bullet points." />
+            <Button Classes="small" Margin="4" Content="Plan a weekend trip"
+                    Command="{Binding UseSuggestionCommand}" CommandParameter="Plan a relaxed weekend trip to the mountains, with a packing list." />
+          </WrapPanel>
+        </StackPanel>
+
+        <ScrollViewer x:Name="MessagesScroll" IsVisible="{Binding !IsEmpty}">
+          <ItemsControl ItemsSource="{Binding Messages}" MaxWidth="860" Margin="24,20,24,8">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="chat:MessageViewModel">
+                <StackPanel Margin="0,0,0,22">
+                  <!-- User -->
+                  <StackPanel IsVisible="{Binding IsUser}" HorizontalAlignment="Right" Spacing="6">
+                    <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}" HorizontalAlignment="Right">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="chat:AttachmentViewModel">
+                          <Border Margin="4,0,0,4">
+                            <Panel>
+                              <Border CornerRadius="10" ClipToBounds="True" MaxWidth="220" MaxHeight="180" IsVisible="{Binding IsImage}">
+                                <Image Source="{Binding ImageData, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=440}" Stretch="Uniform" />
+                              </Border>
+                              <Border Classes="inset" Padding="10,6" IsVisible="{Binding IsDocument}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                  <Path Classes="icon accent" Data="{StaticResource IconDocument}" />
+                                  <TextBlock Text="{Binding Name}" FontSize="12.5" />
+                                </StackPanel>
+                              </Border>
+                            </Panel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Border Classes="bubble-user" IsVisible="{Binding !IsEditing}">
+                      <SelectableTextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="14.5" LineHeight="22" />
+                    </Border>
+                    <Border Classes="card" Padding="10" IsVisible="{Binding IsEditing}" MinWidth="420">
+                      <StackPanel Spacing="8">
+                        <TextBox Text="{Binding EditText}" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="260" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                          <Button Classes="small" Content="Cancel" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).CancelEditCommand}" CommandParameter="{Binding}" />
+                          <Button Classes="accent small" Content="Save &amp; send" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).SaveEditCommand}" CommandParameter="{Binding}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </Border>
+                    <StackPanel Classes="msg-actions" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="2" IsVisible="{Binding ShowActions}">
+                      <views:VersionSwitcher />
+                      <Button Classes="ghost icon" ToolTip.Tip="Edit (creates a new branch)" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).EditCommand}" CommandParameter="{Binding}">
+                        <Path Classes="icon" Data="{StaticResource IconEdit}" Width="13" Height="13" />
+                      </Button>
+                      <Button Classes="ghost icon" ToolTip.Tip="Copy" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
+                        <Path Classes="icon" Data="{StaticResource IconCopy}" Width="13" Height="13" />
+                      </Button>
+                    </StackPanel>
+                  </StackPanel>
+
+                  <!-- Assistant -->
+                  <DockPanel IsVisible="{Binding IsAssistant}">
+                    <Border DockPanel.Dock="Left" Classes="avatar" VerticalAlignment="Top" Margin="0,2,14,0">
+                      <Path Data="{StaticResource IconLogo}" Fill="White" Stretch="Uniform" Width="12" Height="12" />
+                    </Border>
+                    <StackPanel Spacing="8">
+                      <TextBlock Classes="caption" Text="{Binding ModelName}" FontWeight="Medium" />
+                      <StackPanel Spacing="6" IsVisible="{Binding HasReasoning}">
+                        <ToggleButton Classes="ghost" IsChecked="{Binding IsReasoningExpanded}" Padding="6,3" HorizontalAlignment="Left">
+                          <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Path Classes="icon" Data="{StaticResource IconThink}" Width="13" Height="13" />
+                            <TextBlock Classes="muted" Text="{Binding ReasoningHeader}" FontSize="12.5" />
+                            <Ellipse Classes="dot busy pulse" Width="6" Height="6" IsVisible="{Binding IsThinking}" VerticalAlignment="Center" />
+                          </StackPanel>
+                        </ToggleButton>
+                        <Border Classes="reasoning" IsVisible="{Binding IsReasoningExpanded}">
+                          <SelectableTextBlock Classes="muted" Text="{Binding Reasoning}" TextWrapping="Wrap" FontSize="13" LineHeight="20" />
+                        </Border>
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding IsWaiting}" Margin="0,6">
+                        <Ellipse Classes="dot busy pulse" />
+                        <Ellipse Classes="dot busy pulse" />
+                        <Ellipse Classes="dot busy pulse" />
+                      </StackPanel>
+                      <c:MarkdownView Markdown="{Binding Content}" />
+                      <Border Classes="warn" IsVisible="{Binding HasError}">
+                        <SelectableTextBlock Text="{Binding Error}" TextWrapping="Wrap" />
+                      </Border>
+                      <StackPanel Classes="msg-actions" Orientation="Horizontal" Spacing="2" IsVisible="{Binding ShowActions}">
+                        <Button Classes="ghost icon" ToolTip.Tip="Copy" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).CopyCommand}" CommandParameter="{Binding}">
+                          <Path Classes="icon" Data="{StaticResource IconCopy}" Width="13" Height="13" />
+                        </Button>
+                        <Button Classes="ghost icon" ToolTip.Tip="Regenerate (keeps the previous answer as a version)" Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).RegenerateCommand}" CommandParameter="{Binding}">
+                          <Path Classes="icon" Data="{StaticResource IconRefresh}" Width="13" Height="13" />
+                        </Button>
+                        <views:VersionSwitcher />
+                        <TextBlock Classes="caption" Text="{Binding StatsText}" ToolTip.Tip="{Binding StatsTooltip}" IsVisible="{Binding HasStats}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DockPanel>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Panel>
+    </DockPanel>
+
+    <!-- Chat settings -->
+    <Border Grid.Column="2" Classes="panel" BorderThickness="1,0,0,0" Width="300" IsVisible="{Binding IsSettingsOpen}">
+      <ScrollViewer DataContext="{Binding Current}" x:DataType="chat:ConversationViewModel">
+        <StackPanel Margin="18,16" Spacing="14">
+          <TextBlock Classes="h2" Text="Chat settings" />
+          <StackPanel>
+            <TextBlock Classes="label" Text="System prompt" />
+            <TextBox Text="{Binding SystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="90" MaxHeight="220" />
+          </StackPanel>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Preset" />
+            <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" HorizontalAlignment="Stretch" PlaceholderText="Custom">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="models:SamplingPreset">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </StackPanel>
+          <views:SliderRow Label="Temperature" Minimum="0" Maximum="2" SmallChange="0.05" Value="{Binding Temperature}" Format="0.00" />
+          <views:SliderRow Label="Top P" Minimum="0" Maximum="1" SmallChange="0.01" Value="{Binding TopP}" Format="0.00" />
+          <views:SliderRow Label="Top K" Minimum="0" Maximum="200" SmallChange="1" Value="{Binding TopK}" Format="0" />
+          <views:SliderRow Label="Min P" Minimum="0" Maximum="1" SmallChange="0.01" Value="{Binding MinP}" Format="0.00" />
+          <views:SliderRow Label="Repetition penalty" Minimum="1" Maximum="2" SmallChange="0.01" Value="{Binding RepetitionPenalty}" Format="0.00" />
+          <StackPanel>
+            <TextBlock Classes="label" Text="Max answer tokens (0 = until the context is full)" />
+            <NumericUpDown Value="{Binding MaxTokens}" Minimum="0" Maximum="131072" Increment="256" FormatString="0" />
+          </StackPanel>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Seed (empty = random)" />
+            <TextBox Text="{Binding SeedText}" />
+          </StackPanel>
+          <ToggleSwitch Content="Thinking" IsChecked="{Binding EnableThinking}" IsVisible="{Binding SupportsThinking}" />
+          <Border Classes="divider" />
+          <StackPanel Spacing="6">
+            <TextBlock Classes="label" Text="Save these settings as a preset" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="small" Content="Save" Command="{Binding SavePresetCommand}" Margin="6,0,0,0" />
+              <TextBox Text="{Binding NewPresetName}" PlaceholderText="Preset name" />
+            </DockPanel>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>
