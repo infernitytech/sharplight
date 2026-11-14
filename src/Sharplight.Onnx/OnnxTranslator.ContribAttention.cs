@@ -11,10 +11,17 @@ internal sealed partial class OnnxTranslator
     /// of a group are adjacent (head h reads key/value head h / (Hq / Hkv)), so grouped heads share K/V by folding a group into rows.
     /// <paramref name="bias"/> is additive and broadcastable to [B, Hq, S, T]; <paramref name="sink"/> (logits broadcastable to
     /// [1, Hq, 1, 1]) adds a virtual key with zero value to every softmax row. Also returns the scaled scores (before softcap and bias)
-    /// and the probabilities.
+    /// and the probabilities. When neither is needed (<paramref name="needScores"/> false) and the operands fit, the core is one fused
+    /// Attention op (<see cref="FusedAttention"/>) and both returned score values are the output.
     /// </summary>
-    private (Value Output, Value Scores, Value Probabilities) MultiHeadCore(Value q, Value k, Value v, float scale, Value? bias, float softcap, Value? sink, string name)
+    private (Value Output, Value Scores, Value Probabilities) MultiHeadCore(Value q, Value k, Value v, float scale, Value? bias, float softcap, Value? sink, string name,
+        bool needScores = true)
     {
+        if (!needScores && softcap <= 0 && sink is null && FusedAttention(q, k, v, scale, bias) is { } fused)
+        {
+            return (fused, fused, fused);
+        }
+
         long hq = q.Shape[1].Fixed;
         long s = q.Shape[2].Fixed;
         long d = q.Shape[3].Fixed;
@@ -205,7 +212,7 @@ internal sealed partial class OnnxTranslator
             bias = bias is null ? X(ins, 5) : _b.Add(bias, X(ins, 5));
         }
 
-        var (y, _, _) = MultiHeadCore(q, k, v, scale, bias, 0f, null, name);
+        var (y, _, _) = MultiHeadCore(q, k, v, scale, bias, 0f, null, name, needScores: false);
         SetDyn(n, 0, MergeHeads(y, name));
     }
 
@@ -296,7 +303,8 @@ internal sealed partial class OnnxTranslator
             maskBias = maskBias is null ? X(ins, 5) : _b.Add(maskBias, X(ins, 5));
         }
 
-        var (y, scores, _) = MultiHeadCore(qh, kh, vh, scale, maskBias, 0f, null, name);
+        bool scoresRequested = n.Outputs.Count > 3 && n.Outputs[3] != "";
+        var (y, scores, _) = MultiHeadCore(qh, kh, vh, scale, maskBias, 0f, null, name, needScores: scoresRequested);
         SetDyn(n, 0, MergeHeads(y, name));
         if (n.Outputs.Count > 3 && n.Outputs[3] != "")
         {

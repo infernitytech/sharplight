@@ -95,12 +95,17 @@ internal static partial class CpuOpSupport
 
         if (ins.Length > 3)
         {
-            bool isMask = ins[3].Type == DataType.F32 && ins[3].Rank == 2;
+            bool isMask = ins[3].Type == DataType.F32 && ins[3].Rank is 1 or 2;
             bool isSpans = ins[3].Type == DataType.I32 && ins[3].Rank == 2 && ins[3].Shape[1] == 2;
             if (!isMask && !isSpans)
             {
-                return OpSupport.No("Attention fourth input must be an f32 [T, S] mask or i32 [T, 2] spans");
+                return OpSupport.No("Attention fourth input must be an f32 [T, S] or [S] mask or i32 [T, 2] spans");
             }
+        }
+
+        if (BatchedAttention.SequenceRows(node) > 0 && !BatchedAttention.IsValid(node))
+        {
+            return OpSupport.No("Batched Attention needs sequence_keys > 0 and no spans, causal mask, window or position bias");
         }
 
         return OpSupport.Yes;

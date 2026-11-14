@@ -235,10 +235,22 @@ public sealed partial class GraphLowerer
 
         var inputs = node.Inputs;
         bool spans = inputs.Length == 4 && inputs[3].Type == DataType.I32 && inputs[3].Rank == 2 && inputs[3].Shape[1] == 2;
+        bool mask = inputs.Length == 4 && inputs[3].Type == DataType.F32 && inputs[3].Rank is 1 or 2;
         bool causal = node.Attributes.Get("causal", false);
-        if (inputs.Length != 3 && !spans)
+        if (inputs.Length != 3 && !spans && !mask)
         {
-            return OpSupport.No("Attention: an f32 mask input is not implemented (i32 spans are)");
+            return OpSupport.No("Attention: the fourth input must be i32 spans [T, 2] or an f32 mask [T, S] or [S]");
+        }
+
+        if (BatchedAttention.SequenceRows(node) > 0 && !BatchedAttention.IsValid(node))
+        {
+            return OpSupport.No("Attention: the batched form needs sequence_keys > 0 and no spans, causal mask, window or position bias");
+        }
+
+        bool scoreTerms = causal || node.Attributes.Has("alibi_slopes") || node.Attributes.Has("position_bias") || node.Attributes.Get("window", 0) > 0;
+        if (mask && scoreTerms)
+        {
+            return OpSupport.No("Attention: an f32 mask cannot be combined with causal, window or position biases");
         }
 
         bool headsMatch = inputs[1].Shape[1] == inputs[2].Shape[1];
