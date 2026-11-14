@@ -19,6 +19,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private readonly Dictionary<BufferDecl, Allocation> _alloc = [];
     /// <summary>Weight buffers held through <see cref="CompileOptions.SharedWeights"/> (their allocations are freed by the lease).</summary>
     private readonly Dictionary<BufferDecl, SharedWeightLease<Allocation>> _leases = [];
+    private readonly HashSet<BufferDecl> _borrowedStates = [];   // state buffers another segment of the same graph allocated (and frees)
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
@@ -106,7 +107,18 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                     continue;
                 }
 
+                // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
+                var sharedStates = b.Kind == BufferKind.State && b.State is not null && options.StateScope is { } scope
+                    ? dev.SharedStates.GetOrCreateValue(scope) : null;
+                if (sharedStates is not null && sharedStates.TryGetValue(b.State!, out var existing))
+                {
+                    _alloc[b] = existing;
+                    _borrowedStates.Add(b);
+                    continue;
+                }
+
                 _alloc[b] = dev.Memory.Allocate(size, MemoryUsage.Device);
+                sharedStates?.Add(b.State!, _alloc[b]);
                 bytes += b.Bytes;
                 if (b.Kind is BufferKind.Input or BufferKind.Runtime)
                 {
@@ -851,7 +863,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _plans.Clear();
         foreach (var (b, a) in _alloc)
         {
-            if (!_leases.ContainsKey(b))
+            if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
             {
                 _dev.Memory.Free(a);
             }

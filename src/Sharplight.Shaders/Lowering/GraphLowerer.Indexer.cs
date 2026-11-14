@@ -28,7 +28,8 @@ public sealed partial class GraphLowerer
         var q = EnsureDense(AsF32(Ref(n.Inputs[0]), "indexer-q"), "indexer-q");
         var keys = Ref(n.Inputs[1]);
         var weights = selection.PerHead ? null : EnsureDense(AsF32(Ref(n.Inputs[2]), "indexer-w"), "indexer-w");
-        var gate = selection.HasPoolInput ? EnsureDense(AsF32(Ref(n.Inputs[selection.TableInput - 1]), "indexer-gate"), "indexer-gate") : null;
+        var gate = selection.HasPoolInput ? EnsureDense(AsF32(Ref(n.Inputs[selection.CandidateInput - 1]), "indexer-gate"), "indexer-gate") : null;
+        var candidates = selection.CandidateGroup > 0 ? DenseInput(n.Inputs[selection.CandidateInput], "indexer-candidates") : null;
         var output = Produce(n.Output);
         int tableInput = selection.TableInput;
         var seq = n.Inputs.Length > tableInput ? DenseInput(n.Inputs[tableInput], "seq-rows") : null;
@@ -36,7 +37,9 @@ public sealed partial class GraphLowerer
         long heads = q.Shape[1];
         long dims = q.Shape[2];
         long selectionHeads = selection.PerHead ? heads : 1;
-        long context = pages is not null ? pages.Shape[1] * n.Attributes.Get("block_size", 0L) : seq is not null ? SlotContext(n, keys) : keys.Shape[0];
+        long compression = n.Attributes.Get("compression", 1L);
+        long blockSize = n.Attributes.Get("block_size", 0L);
+        long context = pages is not null ? pages.Shape[1] * ((blockSize + compression - 1) / compression) : seq is not null ? SlotContext(n, keys) : keys.Shape[0];
         long groups = (context + selection.Group - 1) / selection.Group;
         long rowBytes = selectionHeads * groups * 4;
         long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
@@ -51,23 +54,26 @@ public sealed partial class GraphLowerer
             ("GROUP_MEAN", selection.Mean), ("POOL_NORM", selection.PoolNormEps > 0f), ("POOL_EPS", selection.PoolNormEps), ("POOL_ROPE", selection.PoolRopeDims),
             ("POOL_BASE", selection.PoolRopeBase),
             ("LOCAL", selection.Local), ("TAIL", selection.Tail), ("PER_HEAD", selection.PerHead), ("WIDTH", selection.Width), ("CTX", context),
-            ("KEY_F16", keys.Type == DataType.F16), ("WG", IndexerWorkgroup), ("RT_N_PAST", seq is null ? Slot(n) : 0)]);
+            ("KEY_F16", keys.Type == DataType.F16), ("WG", IndexerWorkgroup), ("RT_N_PAST", seq is null ? Slot(n) : 0),
+            ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compression == 1 ? 0 : SlotContext(n, keys)),
+            .. candidates is null ? [] : (IEnumerable<(string, object)>)[("CAND_GROUP", (long)selection.CandidateGroup), ("CAND_M", candidates.Shape[^1])]]);
         var scoreKernel = Lib("indexer.slang", "index_scores", macros);
         var selectKernel = Lib("indexer.slang", "index_select", macros);
         for (long firstRow = 0; firstRow < maxRows; firstRow += sliceRows)
         {
             long first = firstRow;
-            KernelArg[] args = [Pointer(q), Pointer(keys), Pointer(weights ?? q), Pointer(gate ?? q), Pointer(scores), Pointer(output),
+            KernelArg[] args = [Pointer(q), Pointer(keys), Pointer(weights ?? q), Pointer(gate ?? q), Pointer(candidates ?? q), Pointer(scores), Pointer(output),
                 new PointerArg(_runtime, 0), .. SeqArgs(seq, pages), TokenArg(q), new UIntArg((uint)first)];
             TensorRef[] tables = PresentTables(seq, pages);
-            TensorRef[] inputs = [q, keys, .. weights is null ? [] : (TensorRef[])[weights], .. gate is null ? [] : (TensorRef[])[gate], .. tables];
+            TensorRef[] inputs = [q, keys, .. weights is null ? [] : (TensorRef[])[weights], .. gate is null ? [] : (TensorRef[])[gate],
+                .. candidates is null ? [] : (TensorRef[])[candidates], .. tables];
             Func<Bindings, long> rows = b => Math.Min(sliceRows, Rows(b, q) - first);
             Emit($"indexer scores {n.Output.Name}", [n],
                 [new KernelVariant(b => Rows(b, q) > first, scoreKernel, b => new Grid(Grid.Div(groups, IndexerWorkgroup), (uint)rows(b)))],
                 args, inputs, [scores]);
             Emit($"indexer select {n.Output.Name}", [n],
                 [new KernelVariant(b => Rows(b, q) > first, selectKernel, b => new Grid((uint)(rows(b) * selectionHeads)))],
-                args, [scores, .. tables], [output]);
+                args, [scores, .. candidates is null ? [] : (TensorRef[])[candidates], .. tables], [output]);
         }
     }
 }

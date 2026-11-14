@@ -77,6 +77,9 @@ public sealed partial class GraphLowerer
             case "IndexerTopK":
                 LowerIndexerTopK(n);
                 break;
+            case "WindowPool":
+                LowerWindowPool(n);
+                break;
             case "CausalConv1d":
                 LowerConv(n);
                 break;

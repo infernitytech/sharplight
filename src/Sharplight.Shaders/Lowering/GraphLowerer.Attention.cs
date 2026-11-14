@@ -90,8 +90,15 @@ public sealed partial class GraphLowerer
 
         var seq = n.Inputs.Length > 2 ? DenseInput(n.Inputs[2], "seq-rows") : null;
         var pages = PageTable(n, 3);
+        long compression = n.Attributes.Get("compression", 1L);
+        if (compression > 1 && quantized)
+        {
+            throw new NotSupportedException("A compressed cache must be f32 or f16.");
+        }
+
         var macros = Macros([("R1", r1), ("INNER", inner), ("S0", s0), ("S1", s1), ("DST_F16", f16), ("RT_N_PAST", seq is null ? Slot(n) : 0),
-            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, state)), .. PageMacros(n, pages)]);
+            ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null || compression > 1 ? 0 : SlotContext(n, state)), .. PageMacros(n, pages),
+            ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compression == 1 ? 0 : SlotContext(n, state))]);
         macros["DST_FMT"] = KvFormat(state.Type).ToString(CultureInfo.InvariantCulture);
         var k = Lib("data.slang", quantized ? "cache_write_q" : "cache_write", macros);
         long perThread = quantized ? 32 : 1;   // the quantizing kernel writes one 32-value block per thread
@@ -105,7 +112,7 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
-        if (plan.Selection is not null)
+        if (plan.Selection is not null || plan.Compressed is not null)
         {
             EmitSelectedAttention(plan);
             return;
@@ -214,8 +221,12 @@ public sealed partial class GraphLowerer
         var output = Produce(n.Output);
         bool hasSinks = !full && n.Attributes.Get("sinks", false);
         bool hasSelection = !full && n.Attributes.Get("selection", false);
-        int sinksInputs = (hasSinks ? 1 : 0) + (hasSelection ? 1 : 0);   // inputs: q, k, v, [sinks], [selection], [rows, runs]
+        long compression = full ? 1 : n.Attributes.Get("compression", 1L);
+        bool hasCompressed = !full && n.Attributes.Has("compression");
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
+        int sinksInputs = (hasSinks ? 1 : 0) + (hasCompressed ? 1 : 0) + (hasSelection ? 1 : 0);
         TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
+        TensorRef? compressed = hasCompressed ? Ref(n.Inputs[hasSinks ? 4 : 3]) : null;   // compressed cache [entries, HKV, VRS]
         TensorRef? selection = hasSelection ? DenseInput(n.Inputs[2 + sinksInputs], "attn-selection") : null;   // sparse attention: [T, K] or [T, Hs, K] key positions
         long HQ = q.Shape[1];
         long D = q.Shape[2];
@@ -257,7 +268,13 @@ public sealed partial class GraphLowerer
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
-            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1), .. AlibiMacros(n)]);
+            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1), .. AlibiMacros(n),
+            ("COMP_ATTN", compressed is not null), ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compressed is null ? 0 : SlotContext(n, compressed))]);
+        if (compressed is not null && compressed.Type != k.Type)
+        {
+            throw new NotSupportedException("The compressed cache must have the key cache's type.");
+        }
+
         return new AttentionPlan
         {
             Node = n,
@@ -272,6 +289,7 @@ public sealed partial class GraphLowerer
             Pages = pages,
             Spans = spans,
             Selection = selection,
+            Compressed = compressed,
             Cross = cross,
             HQ = HQ,
             HKV = HKV,
@@ -477,14 +495,14 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed)],
             split ? [o, part] : [o]);
     }
 
     /// <summary>
     /// Sparse attention (a selection input): the per-(head, query) kernel visits only the selected key positions, so its cost follows the selection
-    /// width instead of the context. Long batches are sliced like the scalar kernel's on devices with a submission budget.
+    /// width instead of the context. Compressed attention (a window of keys plus compressed entries) runs on the same kernel. Long batches are sliced like the scalar kernel's on devices with a submission budget.
     /// </summary>
     private void EmitSelectedAttention(AttentionPlan plan)
     {
@@ -493,7 +511,10 @@ public sealed partial class GraphLowerer
         long sliceRows = maxRows;
         if (_opt.SubmissionBudgetMs > 0)
         {
-            long workPerRow = Math.Max(1, plan.HQ * plan.Selection!.Shape[^1] * (plan.D + plan.DV));
+            long entries = plan.Selection?.Shape[^1] ?? 0;
+            long keys = plan.Compressed is null ? entries : entries + plan.Node.Attributes.Get("window", 0)
+                + (plan.Selection is null ? plan.Compressed.Shape[0] : 0);
+            long workPerRow = Math.Max(1, plan.HQ * Math.Max(1, keys) * (plan.D + plan.DV));
             sliceRows = Math.Clamp((long)(_opt.SubmissionBudgetMs * 3e6) / workPerRow, Math.Min(8, maxRows), maxRows);
         }
 

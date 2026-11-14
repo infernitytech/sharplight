@@ -13,8 +13,9 @@ namespace Sharplight.Graph;
 /// <param name="PoolNormEps">Epsilon of the RMS norm of a mean-pooled key (attribute <c>pool_norm_eps</c>; 0 = no norm, otherwise a norm weight input).</param>
 /// <param name="PoolRopeDims">Leading channels of a mean-pooled key rotated (neox pairs) at its group's first position (attribute <c>pool_rope_dims</c>, 0 = none).</param>
 /// <param name="PoolRopeBase">Rotary base of the pooled keys (attribute <c>pool_rope_base</c>).</param>
+/// <param name="CandidateGroup">Positions per candidate group of the candidates input (attribute <c>candidate_group</c>); 0 without one.</param>
 internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int Local, bool Tail, bool PerHead, bool Mean = false, float PoolNormEps = 0f,
-    int PoolRopeDims = 0, float PoolRopeBase = 10000f)
+    int PoolRopeDims = 0, float PoolRopeBase = 10000f, int CandidateGroup = 0)
 {
     /// <summary>Output entries per selection row: the budget plus the tail's G − 1 entries.</summary>
     public int Width => Budget + (Tail ? Group - 1 : 0);
@@ -25,8 +26,11 @@ internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int 
     /// <summary>Whether an input follows the head weights: the position gate (pooled) or the pool norm weight (mean with a norm).</summary>
     public bool HasPoolInput => Pooled || (Mean && PoolNormEps > 0f);
 
-    /// <summary>Index of the first input after the fixed ones (q, key cache, [head weights], [position gate or pool norm]): the multi-sequence tables.</summary>
-    public int TableInput => 2 + (PerHead ? 0 : 1) + (HasPoolInput ? 1 : 0);
+    /// <summary>Index of the candidates input (after q, key cache, [head weights], [position gate or pool norm]).</summary>
+    public int CandidateInput => 2 + (PerHead ? 0 : 1) + (HasPoolInput ? 1 : 0);
+
+    /// <summary>Index of the first input after the fixed ones (q, key cache, [head weights], [position gate or pool norm], [candidates]): the multi-sequence tables.</summary>
+    public int TableInput => CandidateInput + (CandidateGroup > 0 ? 1 : 0);
 
     /// <summary>Reads and validates the attributes of an IndexerTopK node.</summary>
     /// <exception cref="ArgumentException">The attributes are inconsistent.</exception>
@@ -36,7 +40,8 @@ internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int 
         long group = a.Get("group", 1L);
         string score = a.Get("group_score", "max");
         var selection = new IndexerSelection((int)budget, (int)group, score == "pooled", (int)a.Get("local", 0L), a.Get("tail", false), a.Get("per_head", false),
-            score == "mean", a.Get("pool_norm_eps", 0f), (int)a.Get("pool_rope_dims", 0L), a.Get("pool_rope_base", 10000f));
+            score == "mean", a.Get("pool_norm_eps", 0f), (int)a.Get("pool_rope_dims", 0L), a.Get("pool_rope_base", 10000f),
+            (int)a.Get("candidate_group", 0L));
         if (budget < 1 || group < 1 || budget % group != 0)
         {
             throw new ArgumentException($"IndexerTopK needs k >= 1 as a multiple of group (k {budget}, group {group}).");
@@ -50,6 +55,11 @@ internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int 
         if (selection.PoolRopeDims < 0 || selection.PoolRopeDims % 2 != 0)
         {
             throw new ArgumentException($"IndexerTopK: pool_rope_dims {selection.PoolRopeDims} must be even.");
+        }
+
+        if (selection.CandidateGroup < 0 || (selection.CandidateGroup > 0 && (group != 1 || selection.PerHead || selection.Local > 0)))
+        {
+            throw new ArgumentException("IndexerTopK: candidate_group needs a plain selection (group 1, head weights, no local groups).");
         }
 
         return selection;

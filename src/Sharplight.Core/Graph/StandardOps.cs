@@ -202,8 +202,8 @@ public static partial class StandardOps
     /// Attribute <c>selection</c> (bool): sparse attention. The input after V (and after the sinks when present) is i32 [T, K] or [T, Hs, K]: the key positions
     /// query row t attends (per selection head; query head h uses selection head h / (Hq / Hs)) (as positions of its own sequence, e.g. from <see cref="IndexerTopK"/>); entries below 0 and positions the row cannot
     /// see are skipped. Not combined with <c>window</c> or <c>chunk</c> (unless the selection lists compressed entries, below).
-    /// Attribute <c>compression</c> (int r &gt; 1): compressed attention. The input after V (and after the sinks when present) is a compressed KV
-    /// cache (<see cref="Models.StateDefinition.Compression"/> = r; rows laid out like the K cache, values read like V, so with <c>v_dims</c> their
+    /// Attribute <c>compression</c> (int r &gt;= 1, its presence enables it): compressed attention. The input after V (and after the sinks when
+    /// present) is a compressed KV cache (<see cref="Models.StateDefinition.Compression"/> = r; r = 1: an ordinary cache of one entry per position; rows laid out like the K cache, values read like V, so with <c>v_dims</c> their
     /// prefix): a query at position p attends its visible rows of the K/V caches (with <c>window</c>, the last <c>window</c> positions) and,
     /// in the same softmax, the compressed entries [0, (p + 1) / r) (complete windows only). With <c>selection</c> the selection lists compressed
     /// entries instead of cache positions (the K/V caches are then attended densely).
@@ -253,10 +253,15 @@ public static partial class StandardOps
     /// the output is [T, H, width] (one selection per head, e.g. per key-value group for <see cref="CachedAttention"/>).
     /// Attribute <c>compression</c> (int r &gt; 1, plain selection only): the key cache is a compressed cache (<see cref="Models.StateDefinition.Compression"/>)
     /// and a query at position p scores its entries [0, (p + 1) / r); the output lists entries.
+    /// Attribute <c>candidate_group</c> (int C &gt; 0, plain selection): an extra input after w, the candidates i32 [T, M] (M a multiple of C), a
+    /// group selection's output (the positions of picked aligned groups of C positions, −1 for positions the row cannot see; every listed group
+    /// starts with a visible one). Only the visible positions of the listed groups are candidates: the output is the plain selection over
+    /// them (the k best, or all of them in ascending order followed by −1 when there are at most k), e.g. DeepSeek-V4.1's second-level
+    /// selection inside an earlier layer's candidate blocks.
     /// Multi-sequence and paged forms as <see cref="CachedAttention"/> (sequence rows [T, 4], runs [U, 4], optional block table; attributes
     /// <c>slots</c>, <c>block_size</c>): row t sees the positions [0, position] of its slot.
     /// </summary>
-    public static readonly OpSchema IndexerTopK = new("IndexerTopK", OpCategory.Composite, 2, 7, (i, a) =>
+    public static readonly OpSchema IndexerTopK = new("IndexerTopK", OpCategory.Composite, 2, 8, (i, a) =>
     {
         var selection = IndexerSelection.From(a);
         var rows = i[0].Shape[0];
@@ -340,11 +345,12 @@ public static partial class StandardOps
 
     /// <summary>
     /// Hashed n-gram row ids (n-gram hash embeddings). Input: window f32 [T, N]: per token, column j holds the token j positions
-    /// back plus one (column 0 is the token itself; 0 = no token, e.g. before the sequence start). A missing predecessor, an
-    /// end-of-sequence predecessor and everything before it read as the stop token. For every order n = 2..N and each of its
+    /// back plus one (column 0 is the token itself; 0 = no token, e.g. before the sequence start or a token without a hash id). A missing
+    /// token, an end-of-sequence (stop token) predecessor and everything before them read as the stop token; with <c>stop_cuts</c> false
+    /// (default true) a stop-token predecessor is hashed like any other token and only missing tokens cut the window. For every order n = 2..N and each of its
     /// <c>heads_per_order</c> heads h: mixed = XOR over j &lt; n of (token_j · multipliers[j]) in uint64 arithmetic, and
     /// id = mixed mod head_sizes[h] + head_offsets[h]. Attributes: <c>multipliers</c> (long[N]), <c>head_sizes</c> and
-    /// <c>head_offsets</c> (long[(N-1)·heads_per_order]), <c>heads_per_order</c> (long), <c>stop_token</c> (long).
+    /// <c>head_offsets</c> (long[(N-1)·heads_per_order]), <c>heads_per_order</c> (long), <c>stop_token</c> (long), <c>stop_cuts</c> (bool).
     /// Output i32 [T, (N-1)·heads_per_order], heads of order 2 first.
     /// </summary>
     public static readonly OpSchema NGramHash = new("NGramHash", OpCategory.Data, 1, 1, (i, a) =>

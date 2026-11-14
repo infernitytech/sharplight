@@ -54,7 +54,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         bool hasSelection = a.Get("selection", false);
         long compression = a.Get("compression", 1L);
         TRef? sinks = hasSinks ? Ref(ins[3]) : null;
-        TRef? compressed = compression > 1 ? Ref(ins[3 + (hasSinks ? 1 : 0)]) : null;
+        TRef? compressed = a.Has("compression") ? Ref(ins[3 + (hasSinks ? 1 : 0)]) : null;
         // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
         int extra = (hasSinks ? 1 : 0) + (compressed is null ? 0 : 1) + (hasSelection ? 1 : 0);
         TRef? selection = hasSelection ? Dense(Ref(ins[2 + extra])) : null;
@@ -79,15 +79,16 @@ internal sealed unsafe partial class CpuCompiledSegment
         var q = RowContig(Ref(ins[0]));
         var keys = Ref(ins[1]);
         TRef? weights = selection.PerHead ? null : RowContig(Ref(ins[2]));
-        TRef? poolInput = selection.HasPoolInput ? RowContig(RefF32(ins[selection.TableInput - 1])) : null;
+        TRef? poolInput = selection.HasPoolInput ? RowContig(RefF32(ins[selection.CandidateInput - 1])) : null;
+        TRef? candidates = selection.CandidateGroup > 0 ? Ref(ins[selection.CandidateInput]) : null;
         var y = NewDense(n.Output);
         int tables = selection.TableInput;
         TRef? rows = ins.Length > tables ? Dense(Ref(ins[tables])) : null;
         TRef? table = ins.Length > tables + 2 ? Dense(Ref(ins[tables + 2])) : null;
         long compression = a.Get("compression", 1L);
         var select = new IndexerTopKOp(q, keys, weights, poolInput, y, selection, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L),
-            table is null ? null : new KvPages(table, a.Get("block_size", 0L), compression), compression);
-        AddStep(select, Touched(q, keys, weights, poolInput, rows, table, y));
+            table is null ? null : new KvPages(table, a.Get("block_size", 0L), compression), compression, candidates);
+        AddStep(select, Touched(q, keys, weights, poolInput, candidates, rows, table, y));
         _refs[n.Output] = y;
     }
 

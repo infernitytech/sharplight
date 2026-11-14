@@ -3,6 +3,7 @@ using Sharplight.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
+using Sharplight.Vulkan;
 
 namespace Sharplight.Families.Tests;
 
@@ -18,13 +19,13 @@ public class CompressedKvServingTests
     static CompressedKvServingTests() => HuggingFaceImporter.Register();
 
     [Theory]
-    [InlineData("tiny-random-deepseek-v4")]
-    public async Task Batched_GreedyOutput_Matches_SingleSequence(string name)
+    [InlineData("tiny-random-deepseek-v4", false)]
+    [InlineData("tiny-random-deepseek-v4", true)]
+    public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan)
     {
         string path = Path.Combine(Models, name);
         Assert.SkipUnless(Directory.Exists(path), $"{path} not present");
-        var cpu = new CpuExecutionProvider();
-        using var device = cpu.OpenDevice(cpu.GetDevices()[0]);
+        using var device = OpenDevice(vulkan);
         using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 16 });
         var rng = new Random(5);
         int[][] prompts = [.. new[] { 6, 23, 45, 141 }.Select(n => Enumerable.Range(0, n).Select(_ => rng.Next(10, 1000)).ToArray())];
@@ -57,5 +58,21 @@ public class CompressedKvServingTests
         }
 
         return [.. results.Select(r => r.Logprobs.Select(l => l.TokenId).ToArray())];
+    }
+
+    private static IComputeDevice OpenDevice(bool vulkan)
+    {
+        if (!vulkan)
+        {
+            var cpu = new CpuExecutionProvider();
+            return cpu.OpenDevice(cpu.GetDevices()[0]);
+        }
+
+        var p = new VulkanProvider();
+        Assert.SkipUnless(p.CheckAvailability().IsAvailable, "Vulkan is not available");
+        var devs = p.GetDevices();
+        var dev = devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
+        Assert.SkipWhen(dev is null, "no Vulkan device");
+        return p.OpenDevice(dev!);
     }
 }
