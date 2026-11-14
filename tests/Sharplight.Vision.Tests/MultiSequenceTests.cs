@@ -133,7 +133,13 @@ public class MultiSequenceTests
                     // short chunk runs the f32 matvec.
                     bool kQuant = device == "vulkan" && path.Contains("Q4_K", StringComparison.OrdinalIgnoreCase);
                     bool loose = kQuant || model.StartsWith("mamba", StringComparison.Ordinal) || model.StartsWith("rwkv", StringComparison.Ordinal);
-                    Assert.True(rms < (device == "cpu" ? 1e-3 : loose ? 1e-2 : 5e-3), $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
+                    // CPU, Qwen2.5: the GEMM (8+ rows) vs the row dots and the tiled vs the general attention kernel pick different
+                    // summation orders depending on how many rows a step has (about 5e-6 apart with an f32 KV cache). Rounding K/V to
+                    // the f16 cache turns that into occasional one-ulp flips (2^-11), and this model is sensitive to them: the f16
+                    // cache alone moves its logits about 2e-3 against an f32 cache, for the batch and the sessions alike (scalar
+                    // tier too), so batch and sessions are each within f16 rounding of the f32-cache result but up to ~2e-3 apart.
+                    double cpuTolerance = model == "qwen2.5-0.5b" ? 5e-3 : 1e-3;
+                    Assert.True(rms < (device == "cpu" ? cpuTolerance : loose ? 1e-2 : 5e-3), $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
                     int wantTop = ArgMax(want), gotTop = ArgMax(row);
                     Assert.True(wantTop == gotTop,
                         $"step {s} slot {key.Item1}: top token {gotTop} vs {wantTop} (logits {row[gotTop]:G4} / {row[wantTop]:G4}, reference {want[gotTop]:G4} / {want[wantTop]:G4}, rms {rms:G3})");
