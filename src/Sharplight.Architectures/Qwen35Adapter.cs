@@ -150,7 +150,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             if (IsRecurrent(il))
             {
                 states.Add(convState[il] = RecurrentStates.ConvWindow(g, hp.ConvKernel - 1, convChannels));
-                states.Add(ssmState[il] = RecurrentStates.Scan(g, hp.SsmDtRank, headVDim, hp.SsmState));
+                states.Add(ssmState[il] = RecurrentStates.Scan(g, hp.SsmDtRank, headVDim, hp.SsmState, options.RecurrentStateType));
             }
             else
             {

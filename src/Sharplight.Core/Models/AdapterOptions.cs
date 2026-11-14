@@ -28,6 +28,13 @@ public sealed class AdapterOptions
     public bool OptimizeGraphs { get; init; } = true;
 
     /// <summary>
+    /// Element type of the recurrent state matrices of ops that can keep their state in 16 bits (currently the gated delta rule):
+    /// f32 (default), or bf16 / f16, which halve the state memory and its traffic in decode at reduced precision (the ops still
+    /// compute in f32 and round the state after every token row). States of other ops stay f32.
+    /// </summary>
+    public Tensors.DataType RecurrentStateType { get; init; } = Tensors.DataType.F32;
+
+    /// <summary>
     /// The type of a KV cache whose rows (per position and head) hold <paramref name="rowLength"/> values: <see cref="KvCacheType"/>,
     /// or f16 when that type is block-quantized and the row is not a whole number of blocks.
     /// </summary>
@@ -44,9 +51,16 @@ public sealed class AdapterOptions
     public AdapterOptions WithContext(int contextLength) => With(KvCacheType, contextLength);
 
     /// <summary>Returns a copy of these options with another <see cref="KvCacheType"/> and <see cref="ContextLength"/>.</summary>
-    public AdapterOptions With(Tensors.DataType kvCacheType, int contextLength) => new()
+    public AdapterOptions With(Tensors.DataType kvCacheType, int contextLength) => With(kvCacheType, contextLength, RecurrentStateType);
+
+    /// <summary>
+    /// Returns a copy of these options with another <see cref="KvCacheType"/>, <see cref="ContextLength"/> and
+    /// <see cref="RecurrentStateType"/>.
+    /// </summary>
+    public AdapterOptions With(Tensors.DataType kvCacheType, int contextLength, Tensors.DataType recurrentStateType) => new()
     {
         KvCacheType = kvCacheType, IncludeAuxiliaryGraphs = IncludeAuxiliaryGraphs, ContextLength = contextLength,
         EmbeddingPooling = EmbeddingPooling, EmbeddingNormalize = EmbeddingNormalize, OptimizeGraphs = OptimizeGraphs,
+        RecurrentStateType = recurrentStateType,
     };
 }
