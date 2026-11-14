@@ -15,6 +15,8 @@ internal static class MappedFamilyCases
     // Reference ids shared by a Hugging Face case and the GGUF converted from it (transformers and llama.cpp agree). Declared before All, which reads them.
     private static readonly int[] BigCodeIds = [66, 85, 139, 469, 469, 469, 469, 469, 799, 469, 469, 469, 469, 799, 901, 469, 469, 469, 469, 469, 469, 799, 194, 937];
     private static readonly int[] Jais2Ids = [102, 955, 428, 102, 955, 1009, 899, 1009, 38, 102, 633, 428, 831, 535, 75, 38, 955, 1009, 899, 1009, 393, 393, 899, 102];
+    private static readonly int[] MellumIds = [284, 372, 193, 882, 837, 650, 835, 351, 351, 194, 713, 284, 713, 284, 936, 571, 936, 533, 533, 701, 533, 434, 777, 602];
+    private static readonly int[] DbrxIds = [127, 66, 518, 974, 553, 697, 900, 55, 121, 457, 1001, 456, 637, 454, 413, 646, 60, 651, 884, 519, 44, 766, 848, 2];
     private static readonly int[] GraniteMoeSwaIds = [571, 412, 744, 569, 985, 115, 180, 319, 399, 186, 551, 455, 264, 553, 952, 760, 172, 635, 585, 53, 799, 91, 819, 245];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
@@ -37,6 +39,16 @@ internal static class MappedFamilyCases
             [279, 531, 430, 882, 826, 179, 383, 108, 831, 753, 113, 961, 355, 615, 355, 974, 214, 686, 686, 686, 686, 262, 859, 859], ""),
         new("tiny-random-granitemoe-swa HF (granitemoe_swa, shared expert, transformers)", "hf/tiny-random-granitemoe-swa", Prompt, "ids", GraniteMoeSwaIds, ""),
         new("tiny-random-granitemoe-swa f32 GGUF (granite_swa, llama.cpp)", "gguf/tiny-random-granitemoe-swa-f32.gguf", Prompt, "ids", GraniteMoeSwaIds, ""),
+        // Mellum 2: Qwen3-MoE layers with sliding layers on their own rope base and a dense layer (mlp_layer_types). The GGUF is checked against
+        // transformers: llama.cpp b11177 rotates the sliding layers with the global base despite rope.freq_base_swa (it matches transformers once
+        // both bases are equal).
+        new("tiny-random-mellum HF (mellum, transformers)", "hf/tiny-random-mellum", Prompt, "ids",
+            [246, 167, 157, 666, 163, 44, 265, 867, 271, 850, 234, 534, 465, 534, 813, 241, 866, 696, 371, 696, 805, 850, 716, 368], ""),
+        new("tiny-random-mellum-llamacpp HF (mellum all-MoE, transformers)", "hf/tiny-random-mellum-llamacpp", Prompt, "ids", MellumIds, ""),
+        new("tiny-random-mellum-llamacpp f32 GGUF (mellum, llama.cpp)", "gguf/tiny-random-mellum-llamacpp-f32.gguf", Prompt, "ids", MellumIds, ""),
+        // DBRX: layer norms without bias, fused q/k/v clamped to +-clip_qkv, fused [E*F, H] experts.
+        new("tiny-random-dbrx HF (dbrx, transformers)", "hf/tiny-random-dbrx", Prompt, "ids", DbrxIds, ""),
+        new("tiny-random-dbrx f32 GGUF (dbrx, llama.cpp)", "gguf/tiny-random-dbrx-f32.gguf", Prompt, "ids", DbrxIds, ""),
         // llama.cpp-only families: tiny random GGUF files from tools/mk_tiny_gguf.py (llama.cpp tensor names and keys), greedy ids of llama.cpp b11177 (CPU).
         // ALiBi (Refact, Jais, Baichuan-13B) runs on the CPU provider when a GPU is used.
         new("tiny-random-refact f32 GGUF (refact ALiBi, llama.cpp)", "gguf/tiny-random-refact-f32.gguf", Prompt, "ids",

@@ -61,6 +61,17 @@ EXTRA = {
                                               num_attention_heads=4, num_key_value_heads=2, num_local_experts=4, num_experts_per_tok=2,
                                               max_position_embeddings=256, sliding_window=8, embedding_multiplier=2.0, residual_multiplier=0.5,
                                               attention_multiplier=0.2, logits_scaling=2.0)),
+    # Mellum 2: Qwen3-MoE layers, sliding layers with their own rope base, a dense layer (mlp_layer_types); the llama.cpp variant is all-MoE.
+    "mellum": ("mellum", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=48, num_hidden_layers=4, num_attention_heads=4,
+                              num_key_value_heads=2, head_dim=16, num_local_experts=4, num_experts_per_tok=2, max_position_embeddings=256, sliding_window=8,
+                              layer_types=["sliding_attention"] * 3 + ["full_attention"], mlp_layer_types=["dense", "sparse", "sparse", "sparse"])),
+    "mellum-llamacpp": ("mellum", dict(hidden_size=64, moe_intermediate_size=48, num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=2,
+                                       head_dim=16, num_local_experts=4, num_experts_per_tok=2, max_position_embeddings=256, sliding_window=8,
+                                       layer_types=["sliding_attention"] * 3 + ["full_attention"])),
+    # DBRX: layer norms without bias, fused q/k/v clamped to +-clip_qkv, softmax routing renormalized, fused [E*F, H] experts.
+    "dbrx": ("dbrx", dict(d_model=64, n_heads=4, n_layers=3, max_seq_len=256,
+                          attn_config=dict(kv_n_heads=2, clip_qkv=0.6, rope_theta=10000.0),
+                          ffn_config=dict(ffn_hidden_size=48, moe_num_experts=4, moe_top_k=2))),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})
