@@ -1,0 +1,32 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes, decode_multimodal 2040 -> 2040 nodes, vision_encode 773 -> 773 nodes [55 ms]
+Loaded Qwen3.8-27B-FP8 (qwen3_5): 1199 tensors, 31.64 GB, vocab 248320 [385 ms]
+Write a short poem about the sea.Compiling 197 / 197, 197 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 30.23 / 30.23 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' for 1 sequences x 2048 tokens in 7180 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 28.46 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Compiling 149 / 149, 149 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 0.49 / 0.49 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'mtp_draft' for 1 sequences, 3 drafts, in 315 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 3 groups, 0.46 GiB weights+state
+1 segment(s): [0@0: 37 nodes]
+Ready (mtp_draft)
+
+
+<think>
+The user wants a short poem about the sea. Let me think about what angle to take. There are countless ways to write about the sea - its power, its calm, its mystery, its colors, its sound, its vastness. Let me aim for something that captures a specific, evocative moment rather than being generic. I'll focus on the sea's duality - its quiet persistence and its power. I'll keep it short, maybe 8-12 lines, with some imagery that feels fresh rather than cliché. Let me go for a contemplative tone, focusing on the sea as something ancient and patient, with a sense of rhythm that mirrors waves.
+</think>
+
+**Salt Memory**
+
+The sea keeps its own calendar—
+no months, no names,
+just the slow arithmetic of tides
+pulling the shore back,
+pulling it back,
+pulling it back.
+
+It has been rehearsing this
+longer than
+prompt: 8 tok in 95 ms (83.8 tok/s) | generated: 200 tok, 73.46 tok/s | mtp drafts: 119/237 accepted (50%)

@@ -1,0 +1,41 @@
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [26 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [138 ms]
+Compiling 96 / 96, 96 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 4.21 / 4.21 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 879 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 18 groups, 4.17 GiB weights+state
+1 segment(s): [0@0: 517 nodes]
+Ready (decode)
+Write a short poem about the sea.
+
+The Sea
+
+The sea is vast and deep,
+A vast and endless sea,
+A place of mystery and wonder,
+A place where dreams come true.
+
+The sea is full of life,
+A place of endless strife,
+A place where creatures play,
+And creatures that must prey.
+
+The sea is a place of beauty,
+A place of peace and serenity,
+A place where the sun shines bright,
+And the waves gently sway.
+
+The sea is a place of power,
+A place of strength and might,
+A place where the tides ebb and flow,
+And the winds howl with might.
+
+The sea is a place of wonder,
+A place of endless delight,
+A place where the sea meets the sky,
+And the world comes alive.
+
+The sea is a place of wonder,
+A place of endless delight,
+A place where the sea
+prompt: 8 tok in 27 ms (299.0 tok/s) | generated: 200 tok, 763.70 tok/s

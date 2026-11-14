@@ -1,0 +1,19 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [36 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [251 ms]
+Compiling 220 / 220, 220 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 28.58 / 28.58 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 3544 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 26.89 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Write a short poem about the sea.
+
+<think>
+The user wants a short poem about the sea. Let me think about what angle to take. There are countless ways to write about the sea - its power, its calm, its mystery, its colors, its sound, its vastness. Let me aim for something that captures a specific, evocative moment rather than being generic. I'll go for something that plays with the duality of the sea - its stillness and its motion, its silence and its sound. Let me keep it short - maybe 8-12 lines. I'll aim for a natural rhythm without forcing a strict rhyme scheme, though some loose rhyme could add musicality. Let me draft:
+
+I want to capture the sea as both ancient and ever-present, the way it holds memory, the way it speaks in a language older than words. Let me write something with sensory detail - the sound, the color, the feeling of standing at the edge.
+
+Let me try:
+
+The sea
+prompt: 8 tok in 80 ms (100.0 tok/s) | generated: 200 tok, 42.66 tok/s

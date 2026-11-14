@@ -2478,6 +2478,128 @@ bench/SpecBench/bin/Release/net11.0/SpecBench <model> --drafts 0,1,3 --depths 47
 * **Not attempted in this round:** the FP8 prefill GEMM memory pipeline (400+ TFLOPS), MoE grouped GEMM and fused gate/up,
   K-quant MMQ, and the opt-in reduced-precision delta-rule state.
 
+## 24. MoE: raw MXFP4 expert fetch, split expert tiles, dual gate/up and slot-sum expert matvecs (2026-11-14)
+
+Follow-up to sections 14 and 22 (gpt-oss-20b prefill at 0.68x and decode at 0.93x of llama.cpp CUDA). All changes are
+kernel or fusion rules for every MoE model (MatMulId):
+
+* `matmul.slang` (`gemm_cm2`, `MOE`), `common.slang`, `WeightRepacker.cs`: MXFP4 experts in the expert-grouped GEMM are
+  fetched as raw codes and scales one step ahead and decoded after the MMAs; the aligned MXFP4 layout stores its scales
+  block-major per 16-row group.
+* `GraphLowerer.Moe.cs`: tiles of at most half the tile height run in a second launch on half-height tiles.
+* `GraphLowerer.Fusion.cs` (`FoldDualMatMuls`, `FoldExpertSums`), `GraphLowerer.Moe.cs` (`LowerDualMatMulId`,
+  `LowerExpertSum`), `mmvq.slang` (`moe_mmvq`, `DUAL`, `SLOT_SUM`): decode fusions on the integer-dot expert matvec.
+
+Base is `main` (`95cc0a2` for 24.1-24.3, `d0d3ea6` for the correctness runs), built side by side; base and new runs
+alternate. The GPU was shared with the user's applications and other agents, so the tables use best-of-N or minimum GPU
+times. Raw results: [`bench/results/s24/`](../bench/results/s24).
+
+### 24.1 Expert GEMM for prefill
+
+The grouped expert GEMM (`gemm_cm2` with `MOE`, 64-row tiles at gpt-oss pp512) took 340 µs for one gpt-oss projection
+(32 experts, [2880→2880], 2048 routed rows, skewed routing; `BenchTests.MoePrefill`). Ablations of that kernel:
+
+| variant | µs (min) |
+|---|---:|
+| as on `main` | 340 |
+| no MXFP4 decode (codes used as halves) | 291 |
+| no weight loads | 172 |
+| no MMAs | 203 |
+| no activation loads | 322 |
+| constant scales | 266 |
+
+So the weight fetch and its decode, not the MMAs, set the time. Changes, each measured on its own:
+
+* **Raw fetch, deferred decode** (MXFP4 only): the K step's code words and scale bytes are loaded into registers one step
+  ahead and decoded to f16 only when staged, after the MMAs of the current step (-30 µs). The K-quant and Q8_0 variants
+  of the same scheme were slower (q4_k 1.37 → 1.42-1.46 ms per block, q8_0 1.28 → 1.65 ms) or spilled at 128-row tiles,
+  so they keep the old path.
+* **Block-major scales**: the aligned MXFP4 layout stores a 16-row group's scales as `[block][row]` instead of
+  `[row][block]`, so the 16 rows of a staged block read 16 consecutive bytes (-8 µs).
+* **Hoisted row addresses** for weights and sorted activations (-26 µs), and a prefetch depth of two steps (about -3 %).
+
+Result: 340 → 279 µs, the whole gate/up/down block 1.072 → 0.89 ms. Dense GEMMs are unchanged (f16 and q4_k A/B).
+
+**Split tiles.** With skewed routing, 64-row tiles are only 65 % full (32-row tiles 83 %, 128-row 43 %): each expert's last
+tile is partly empty. The 64- and 128-row launches now skip routing tiles of at most half their height, and a second
+launch runs those on 32- / 64-row tiles. Every output row keeps its K order, so the result does not change. In the model
+(profile at pp512): one projection 260-272 µs → 178 + 68 µs. `SHARPLIGHT_MOE_SPLIT_TILES=0` turns it off.
+
+| gpt-oss-20b, best of 3 interleaved runs | split off | split on |
+|---|---:|---:|
+| pp512 tok/s | 15893 | 16023 |
+| pp2048 ms | 115 | 110 |
+
+Qwen3.6-35B-A3B (256 experts, 32-row tiles at pp512) is unchanged.
+
+### 24.2 Decode: dual gate/up and slot-sum expert matvecs
+
+Up to 128 (token, slot) items, MatMulId runs the integer-dot expert matvec (`moe_mmvq`, q8_1 activations). A gpt-oss MoE
+layer took 8 launches per decode step: quantize x, up, gate, the activation group, quantize the activation, down, the
+bias and router-weight group, and the slot sum (`ReduceSum` over `Permute(·, 0, 2, 1)`).
+
+* **Dual gate/up** (`FoldDualMatMuls` now also pairs MatMulId products with the same x, ids and weight shape): one launch
+  computes both products and applies the elementwise group, including per-expert bias rows read in place
+  (`GatherAxis(bias, ids)`). 2 × 13.1 µs + 2.2 µs → 24.5 µs.
+* **Slot-sum** (`FoldExpertSums`): the down product, its group (bias, router weight [T, S, 1]) and the slot sum fold into
+  one launch. One subgroup computes each slot of a workgroup's rows; the slot values meet in shared memory and are summed
+  in slot order starting from zero, as the narrow `ReduceSum` does, so the result is bit-identical. A first version that
+  summed the slots in registers was not: the compiler contracted the router-weight multiply into the sum (a fused
+  multiply-add). The shared-memory hand-off prevents that. A version with one subgroup computing all slots of a row had a
+  quarter of the threads and took 17.4 µs; one subgroup per slot takes 14.3 µs, against 13.3 + 3.6 + 2.0 µs before.
+  `SHARPLIGHT_NO_EXPERT_SUM=1` turns it off.
+
+gpt-oss decode: 8 → 4 launches per MoE layer; GPU time over 64 decode steps (profile) 243.9 → 230.9 ms.
+
+### 24.3 Against llama.cpp CUDA
+
+`sharplight --bench N` best of 3 runs per build (decode = best of the 64 steps after the prompt), then `llama-bench -ngl 99
+-fa 1 -p 512,2048 -n 128 -r 3` right after (mean of 3, best sample in parentheses):
+
+| model | | Sharplight `main` | Sharplight new | llama.cpp CUDA | new / llama.cpp |
+|---|---|---:|---:|---:|---:|
+| gpt-oss-20b MXFP4 | pp512 | 14154 | **16276** | 17081 (18489) | 0.95x |
+| | pp2048 | 17144 | **19023** | 17309 (17515) | **1.10x** |
+| | tg | 327 | **331** | 342 (343) | 0.97x |
+| OLMoE-1B-7B Q4_K_M | pp512 | 30596 | 30911 | 27839 (30468) | 1.11x |
+| | pp2048 | 43345 | 42995 | 27338 (28922) | 1.57x |
+| | tg | 773 | **822** | 812 (834) | 1.01x |
+| Qwen3.6-35B-A3B Q4_K_M | pp512 | 10938 | 10907 | 7175 (7652) | 1.52x |
+| | pp2048 | 14460 | 14473 | 6623 (6700) | 2.19x |
+| | tg | 267 | **277** | 238 (247) | 1.16x |
+
+Earlier in this round, with the GPU about half busy, llama.cpp measured gpt-oss pp512 at 12440 (best 14560), so its pp512
+samples vary by up to 25 % on this machine; 18489 is the best sample seen. gpt-oss pp2048 is now ahead of llama.cpp and
+pp512 within its run-to-run spread; decode went from 0.93x to 0.97x.
+
+### 24.4 K-quant MMQ and the FP8 GEMM memory pipeline
+
+Neither produced a change in this round:
+
+* **K-quant MMQ** (`SHARPLIGHT_MMQ=q4_k,q5_k,q6_k`) is still slower than the f16 path on the 27B Q4_K_M at pp512: GPU time
+  201.0 vs 190.1 ms. [5120→6144] q4_k takes 308 vs 229 µs, [17408→5120] q6_k 902 vs 620 µs; only the largest q4_k shape is
+  close (510 vs 499 µs). The per-32-block scaling (section 13) still costs about as much as the MMAs. Folding the 6-bit
+  sub-block scales into integer accumulation needs one activation scale per 256 values, a precision change. Any int8
+  path also changes greedy output against the f16 default, so it could only be an opt-in.
+* **FP8 GEMM on workgroup-scope matrices** (`VK_NV_cooperative_matrix2`, `matrix_workgroup`): a prototype loaded the E4M3
+  activations and weights through tensor layouts (32x32x32 shapes, 128 x 128 tiles, 128-value K steps) and scaled each
+  block's product with `MapElement`. On [5120→10240] at 512 rows it took 311 µs against 190 µs for `gemm_fp8`, and still
+  258 µs with the scaling removed. The device-side loads are slower than the kernel's own register-prefetched staging,
+  so the prototype was dropped. Also, `MapElement` plus an add rounds differently from the fused multiply-add of
+  `gemm_fp8`, so outputs would not be bit-identical either. Vulkan reports 48 KB of shared memory per workgroup on this
+  driver, which limits the stages a kernel-managed pipeline can hold.
+
+### 24.5 Correctness
+
+Greedy CLI output, 200 tokens, long (~650-token) and short prompts, against `main` at `d0d3ea6`: identical for gpt-oss-20b,
+OLMoE, Qwen3.6-35B-A3B, Qwen2.5-0.5B, Mistral-7B Q4_K_M, the 27B Q4_K_M, Q8_0 and FP8. MTP k = 3 against
+non-speculative output on the 27B Q8_0 and FP8: identical. A 1921-token prompt on gpt-oss (128-row expert tiles,
+split) gives the same output with and without split tiles.
+
+Tests: new `MoeTests.RoutedExpertBlock` (gate/up with per-expert biases, activation, down with bias, router weights and
+slot sum; mxfp4 / q4_k / q8_0; 1-70 tokens; S = 2, 4, 8) on the dual and slot-sum launches and the prefill path;
+`MoeTests` and `FusionTests` pass on the NVIDIA GPU, `MoeTests` on llvmpipe.
+
 ## 25. ONNX parity round 2: reduced-precision device loss, conv epilogues on Vulkan, wide SIMT GEMM, CPU conv as one implicit GEMM, detection ops on the GPU (2026-11-14)
 
 This is the second round of section 21: the same 15 models, machine, harness (`bench/onnx/parity_bench.py`) and engines.

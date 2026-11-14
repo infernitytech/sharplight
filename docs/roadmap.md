@@ -51,11 +51,15 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 GPU (Vulkan):
 
-- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.83x / 0.72x of vLLM at 512 / 2048 tokens (§22.2).
-- **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K only ties the f16 path today and stays opt-in (§13).
-  27B Q4_K_M prefill is still 2–4 % behind llama.cpp CUDA (§18).
-- **MoE expert GEMMs**: gpt-oss prefill is at 11079 tok/s against a 17432 target (§14). gpt-oss decode is at 0.93x of
-  llama.cpp CUDA after the matmul-bias fusion (§22.3); a fused MoE gate/up for decode is next.
+- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.83x / 0.72x of vLLM at 512 / 2048 tokens (§22.2). A
+  workgroup-scope matrix (`VK_NV_cooperative_matrix2`) version was 1.6x slower than `gemm_fp8` (§24.4); the fetch
+  needs a deeper kernel-managed pipeline within the 48 KB of shared memory Vulkan exposes.
+- **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K is still 6 % slower than the f16 path on the 27B
+  Q4_K_M (§24.4) and stays opt-in; any int8 path changes greedy output against the f16 default. 27B Q4_K_M prefill
+  is still 2–4 % behind llama.cpp CUDA (§18).
+- **MoE expert GEMMs**: gpt-oss is at 0.95x / 1.10x of llama.cpp CUDA at pp512 / pp2048 and 0.97x in decode (§24).
+  Left: the expert GEMM's weight fetch (64-row tiles still about 65 % full before the split launch), and the
+  dual gate/up and slot-sum fusions for the batched expert GEMM (they cover the int-dot matvec only).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).

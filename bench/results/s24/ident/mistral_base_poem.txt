@@ -1,0 +1,34 @@
+Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [24 ms]
+Loaded Mistral-7B-Instruct-v0.3 (decoder): 291 tensors, 4.37 GB, vocab 32768 [88 ms]
+Compiling 141 / 141, 141 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 4.37 / 4.37 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 955 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 34 groups, 4.32 GiB weights+state
+1 segment(s): [0@0: 709 nodes]
+Ready (decode)
+Write a short poem about the sea.
+
+The sea, a vast and endless expanse,
+A realm of mystery and romance.
+Its waves crash upon the shore,
+A symphony of nature's lore.
+
+The sun sets on its shimmering face,
+A sight that never loses grace.
+The moonlight dances on its crest,
+A sight that leaves one in the least.
+
+The sea, a treasure trove of life,
+A home to creatures of all strife.
+From the smallest plankton to the whale,
+The sea is a world that never fails.
+
+Its depths are dark and full of fear,
+A place where many a sailor steers.
+But still, it calls to those who dare,
+To explore its secrets, far and rare.
+
+The sea, a symbol of the unknown,
+A place where dreams are often sown.
+Its beauty and its power,
+prompt: 9 tok in 40 ms (224.4 tok/s) | generated: 200 tok, 218.91 tok/s
