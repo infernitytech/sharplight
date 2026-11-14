@@ -1,3 +1,5 @@
+using System.Globalization;
+using Sharplight.Models;
 using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
@@ -10,7 +12,8 @@ namespace Sharplight.Architectures;
 /// (p, p + r, p + c, 0); the text after the image continues at p + max(nx, ny). Text tokens use the same position on the
 /// first three axes. The same layout serves the generic <c>decoder</c> with a vision tower (Qwen2-VL, Qwen2.5-VL, Qwen3-VL and PaddleOCR-VL,
 /// whose M-RoPE image positions are those of Qwen3.5; the placeholder is the tower's <see cref="VisionParameters.ImageToken"/>, PaddleOCR-VL's
-/// <c>&lt;|IMAGE_PLACEHOLDER|&gt;</c>); DeepStack blocks travel in the image rows' embeddings.
+/// <c>&lt;|IMAGE_PLACEHOLDER|&gt;</c>); DeepStack blocks travel in the image rows' embeddings. A model with one position axis (DeepSeek-OCR, whose
+/// placeholder is <c>&lt;image&gt;</c>) gets consecutive positions for all rows instead.
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
@@ -42,6 +45,11 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         foreach (var im in images)
         {
             rows += im.TokenCount;
+        }
+
+        if (context.Model.Properties.TryGetValue(WellKnown.PositionAxes, out var axesValue) && Convert.ToInt32(axesValue, CultureInfo.InvariantCulture) == 1)
+        {
+            return Sequential(tokens, images, imagePad, rows, startPosition);
         }
 
         var toks = new int[rows];
@@ -76,5 +84,39 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
             img++;
         }
         return new MultimodalPrompt { Tokens = toks, ImageIndex = imageIndex, ImageRow = imageRow, Positions = pos, PositionAxes = Axes, NextPosition = next };
+    }
+
+    /// <summary>One position axis: every row, text or image, takes the next position.</summary>
+    private static MultimodalPrompt Sequential(ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int imagePad, int rows, int startPosition)
+    {
+        var toks = new int[rows];
+        var imageIndex = new int[rows];
+        var imageRow = new int[rows];
+        var pos = new int[rows];
+        int r = 0;
+        int img = 0;
+        foreach (var t in tokens)
+        {
+            if (t != imagePad)
+            {
+                toks[r] = t;
+                imageIndex[r] = -1;
+                imageRow[r] = -1;
+                pos[r] = startPosition + r;
+                r++;
+                continue;
+            }
+
+            for (int i = 0; i < images[img].TokenCount; i++, r++)
+            {
+                imageIndex[r] = img;
+                imageRow[r] = i;
+                pos[r] = startPosition + r;
+            }
+
+            img++;
+        }
+
+        return new MultimodalPrompt { Tokens = toks, ImageIndex = imageIndex, ImageRow = imageRow, Positions = pos, PositionAxes = 1, NextPosition = startPosition + rows };
     }
 }
