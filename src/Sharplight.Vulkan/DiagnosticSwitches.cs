@@ -15,7 +15,7 @@ namespace Sharplight.Vulkan;
 /// <item><c>SHARPLIGHT_VK_TRACE=1</c>: log every command buffer recording and submission to stderr.</item>
 /// <item><c>SHARPLIGHT_VK_NO_BARRIERS=1</c>: drop inter-dispatch barriers (wrong results) to measure their cost.</item>
 /// <item><c>SHARPLIGHT_VK_REORDER=0</c>: record launches in program order instead of filling each barrier batch with later
-/// independent launches (<see cref="HazardTracker.Order"/>).</item>
+/// independent launches (<see cref="HazardTracker.Order(System.Collections.Generic.IReadOnlyList{Shaders.Lowering.KernelLaunch}, Shaders.Lowering.Bindings, bool)"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
