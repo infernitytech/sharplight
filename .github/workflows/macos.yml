@@ -1,0 +1,219 @@
+name: macOS and ARM64
+
+# macOS round 1 (docs/macos.md): Apple Silicon through the bundled MoltenVK, the ARM64 (NEON) CPU kernels, and the
+# Sharplight Studio .app bundle. Runs only for the macos/round-1 branch or by hand; main's workflows are unaffected.
+#
+# Runners are small (macos-15: 3 cores, 7 GB; ubuntu-24.04-arm: 4 cores, 16 GB), so the suites run with few threads and
+# the LLM smoke test uses Qwen2.5-0.5B-Instruct Q4_K_M (0.5 GB).
+
+on:
+  push:
+    branches: ['macos/round-1']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  SMOKE_MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
+  SMOKE_PROMPT: The capital of France is
+
+jobs:
+  macos-arm64:
+    name: macOS arm64 (Cpu + Vulkan via MoltenVK)
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the version height
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Host
+        run: |
+          sw_vers
+          uname -m
+          sysctl -n machdep.cpu.brand_string
+          sysctl hw.ncpu hw.memsize
+          sysctl hw.optional.arm.FEAT_DotProd hw.optional.arm.FEAT_I8MM hw.optional.arm.FEAT_FP16 hw.optional.arm.FEAT_BF16 hw.optional.arm.FEAT_SME 2>/dev/null || true
+          system_profiler SPDisplaysDataType | grep -E 'Chipset|Metal|Cores|Vendor' || true
+
+      - name: Build
+        run: |
+          dotnet build tests/Sharplight.Cpu.Tests -c Release
+          dotnet build tests/Sharplight.Vulkan.Tests -c Release
+          dotnet build samples/Sharplight.Cli -c Release
+
+      - name: Bundled MoltenVK
+        run: |
+          lib=tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/libMoltenVK.dylib
+          ls -l "$lib"
+          lipo -info "$lib"
+          shasum -a 256 "$lib"
+
+      - name: Devices and features (MoltenVK)
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
+
+      - name: vulkaninfo through the bundled MoltenVK
+        continue-on-error: true
+        run: |
+          brew install --quiet vulkan-tools
+          lib="$PWD/tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/libMoltenVK.dylib"
+          printf '{"file_format_version":"1.0.0","ICD":{"library_path":"%s","api_version":"1.4.0","is_portability_driver":true}}' "$lib" > "$RUNNER_TEMP/MoltenVK_icd.json"
+          export VK_DRIVER_FILES="$RUNNER_TEMP/MoltenVK_icd.json"
+          vulkaninfo --summary
+          vulkaninfo > "$RUNNER_TEMP/vulkaninfo.txt" 2>&1 || true
+          grep -A40 'VkPhysicalDevicePortabilitySubsetFeaturesKHR' "$RUNNER_TEMP/vulkaninfo.txt" | head -20 || true
+          grep -iE 'shaderIntegerDotProduct|cooperativeMatrix|shaderFloat16|bufferDeviceAddress|subgroupSize|vulkanMemoryModel|shaderInt64' "$RUNNER_TEMP/vulkaninfo.txt" | sort -u || true
+
+      - name: Cpu suite
+        if: success() || failure()
+        run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/cpu-tests.xml"
+
+      - name: Vulkan suite (MoltenVK)
+        if: success() || failure()
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/vulkan-tests.xml"
+
+      - name: Smoke model
+        if: success() || failure()
+        id: model
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/smoke.gguf" "$SMOKE_MODEL_URL"
+          echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
+
+      - name: LLM smoke test (CPU)
+        if: steps.model.outcome == 'success'
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32
+
+      - name: LLM smoke test (Vulkan via MoltenVK)
+        if: steps.model.outcome == 'success'
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32
+
+      - name: CPU kernel tiers (decode and prefill)
+        if: steps.model.outcome == 'success'
+        run: |
+          for isa in scalar v128 neon neondot; do
+            echo "=== SHARPLIGHT_CPU_ISA=$isa"
+            SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
+          done
+
+      - name: Vulkan benchmark (MoltenVK)
+        if: steps.model.outcome == 'success'
+        continue-on-error: true
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
+
+      - uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: macos-arm64-test-results
+          path: ${{ runner.temp }}/*.xml
+          if-no-files-found: ignore
+
+  linux-arm64:
+    name: Linux arm64 (Cpu)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Host
+        run: |
+          uname -m
+          lscpu | grep -E 'Model name|^CPU\(s\)|Vendor'
+          grep -m1 -o -E '\b(asimddp|i8mm|asimdhp|bf16|sve|sve2)\b' /proc/cpuinfo | sort -u | tr '\n' ' ' || true
+          echo; grep -m1 Features /proc/cpuinfo
+          free -g
+
+      - name: Build
+        run: |
+          dotnet build tests/Sharplight.Cpu.Tests -c Release
+          dotnet build samples/Sharplight.Cli -c Release
+
+      - name: Devices
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll --devices
+
+      - name: Cpu suite
+        run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 4 -xml "$RUNNER_TEMP/cpu-tests.xml"
+
+      - name: Cpu suite, NEON tier without dot products (kernel tests)
+        if: success() || failure()
+        env:
+          SHARPLIGHT_CPU_ISA: neon
+        run: >
+          dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 4
+          -class Sharplight.Cpu.Tests.IntDotTests -class Sharplight.Cpu.Tests.QuantTests -class Sharplight.Cpu.Tests.BatchMatMulTests
+          -class Sharplight.Cpu.Tests.ConvTests -class Sharplight.Cpu.Tests.EndToEndTests -class Sharplight.Cpu.Tests.MatMulEpilogueTests
+
+      - name: Smoke model
+        if: success() || failure()
+        id: model
+        run: |
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/smoke.gguf" "$SMOKE_MODEL_URL"
+          echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
+
+      - name: LLM smoke test (CPU)
+        if: steps.model.outcome == 'success'
+        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32
+
+      - name: CPU kernel tiers (decode and prefill)
+        if: steps.model.outcome == 'success'
+        run: |
+          for isa in scalar v128 neon neondot; do
+            echo "=== SHARPLIGHT_CPU_ISA=$isa"
+            SHARPLIGHT_CPU_ISA=$isa dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu --bench 128 2>&1 | tail -4
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: linux-arm64-test-results
+          path: ${{ runner.temp }}/*.xml
+          if-no-files-found: ignore
+
+  studio-app:
+    name: Sharplight Studio.app (osx-arm64)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Version
+        id: nbgv
+        uses: dotnet/nbgv@v0.4
+        with:
+          setAllVars: true
+
+      - name: Build the app bundle
+        run: packaging/macos/build-app.sh "${{ steps.nbgv.outputs.NuGetPackageVersion }}" artifacts/studio
+
+      - name: Check the bundle
+        run: |
+          app="artifacts/studio/Sharplight Studio.app"
+          plutil -lint "$app/Contents/Info.plist"
+          ls -l "$app/Contents/MacOS/sharplight-studio" "$app/Contents/Frameworks/libMoltenVK.dylib" "$app/Contents/Resources/sharplight-studio.icns"
+          "$app/Contents/MacOS/sharplight-studio" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sharplight-studio-${{ steps.nbgv.outputs.NuGetPackageVersion }}-macos-arm64
+          path: artifacts/studio/*.zip
+          if-no-files-found: error
