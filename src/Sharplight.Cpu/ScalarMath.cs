@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Sharplight.Cpu;
@@ -6,6 +7,7 @@ namespace Sharplight.Cpu;
 internal static unsafe class ScalarMath
 {
     /// <summary>erf in double precision (series for small |x|, continued fraction for the tail).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static double Erf(double x)
     {
         double ax = Math.Abs(x);
@@ -97,6 +99,7 @@ internal static unsafe class ScalarMath
 
     // Vector prefixes of the simple unary kinds; each returns the number of elements done (the caller finishes the tail).
     // Relu selects instead of Max so NaN and -0 map to 0 exactly like the scalar loop.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long ReluVector(float* x, float* y, long n)
     {
         long i = 0;
@@ -127,6 +130,7 @@ internal static unsafe class ScalarMath
         return i;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long NegVector(float* x, float* y, long n)
     {
         long i = 0;
@@ -147,6 +151,7 @@ internal static unsafe class ScalarMath
         return i;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long SquareVector(float* x, float* y, long n)
     {
         long i = 0;
@@ -169,6 +174,7 @@ internal static unsafe class ScalarMath
         return i;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Unary(UnaryKind k, float* x, float* y, long n, float scale, float bias)
     {
         long i = 0;

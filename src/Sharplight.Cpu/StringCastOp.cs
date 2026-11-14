@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -9,6 +10,7 @@ internal sealed unsafe class StringCastOp(TRef x, TRef y) : CpuOp
 {
     public override string Name => "StringCast";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long n = x.Elements(p);

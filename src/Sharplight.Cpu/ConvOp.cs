@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -247,6 +248,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
     }
 
     /// <summary>Copies the bias into the zero-padded per-panel layout the micro-kernel initializes its accumulators from.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void FillBiasPanels()
     {
         if (_bias0 == null)
@@ -305,6 +307,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
     /// The one with less operand traffic wins; small batches of late layers, where the weights are much larger than the
     /// activations, take the second.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PlanTasks(int tiles, long bBytes)
     {
         int threads = CpuParallel.Threads;
@@ -357,6 +360,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
     }
 
     /// <summary>Strided 1x1 convs: copies the sampled pixels of input plane <paramref name="task"/> (image * C + channel).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void SubsampleBody(int task)
     {
         float* src = (float*)_x.P + (long)task * _h * _w;
@@ -405,6 +409,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
     /// GEMM task: weight panels [p0, p1) of one group over output tiles [t0, t1), all of K, into the task's C block; then the
     /// block's valid part goes to y through the epilogue.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void GemmBody(int task)
     {
         int MR = Gemm.MR;
@@ -489,6 +494,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
     /// Fills rows [k0, k1) of the im2col micro-panel of output columns [col0, col0 + NR) of group <paramref name="g"/> into
     /// <paramref name="panel"/> ([k1 - k0][NR]); columns past the last output are zero.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PackColumns(int g, long col0, int k0, int k1, float* panel)
     {
         int NR = Gemm.NR;
@@ -619,6 +625,7 @@ internal sealed unsafe partial class ConvOp : CpuOp
     /// Writes the valid rows (output channels) and columns (pixels of each image) of a task's C block to y, applying the
     /// epilogue to each contiguous output row segment.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void CopyOut(int g, int p0, int p1, int t0, int t1, float* cbuf, long ldc)
     {
         int MR = Gemm.MR;

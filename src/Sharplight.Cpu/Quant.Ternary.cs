@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Sharplight.Cpu;
@@ -8,6 +9,7 @@ internal static unsafe partial class Quant
     /// <summary>The base-3 digit n of byte b, ((b * 3^n mod 256) * 3) >> 8, minus one, for n in 0..4: [n * 256 + b].</summary>
     private static readonly sbyte[] s_trits = BuildTrits();
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static sbyte[] BuildTrits()
     {
         var table = new sbyte[5 * 256];
@@ -27,6 +29,7 @@ internal static unsafe partial class Quant
     /// TQ1_0: 256 values = { u8 qs[48]; u8 qh[4]; f16 d } (54 bytes): five base-3 digits per byte. qs[0..32) gives values n*32+m (digit n of
     /// byte m), qs[32..48) gives 160+n*16+m, and the four qh bytes give 240+n*4+j (digits 0..3).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void TQ1_0(byte* p, long nb, float* dst)
     {
         fixed (sbyte* trits = s_trits)
@@ -60,6 +63,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>TQ2_0: 256 values = { u8 qs[64]; f16 d } (66 bytes); value (j*4 + l)*32 + m = ((qs[j*32 + m] >> 2l) &amp; 3) - 1, times d, for j in 0..1.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void TQ2_0(byte* p, long nb, float* dst)
     {
         var three = Vector128.Create((byte)3);

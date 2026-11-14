@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -8,6 +9,7 @@ namespace Sharplight.Cpu;
 // Buffers and value references: how graph values map onto TRef views.
 internal sealed unsafe partial class CpuCompiledSegment
 {
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long ElementCount(long[] dims)
     {
         long elements = 1;
@@ -39,6 +41,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>Compile-time dimensions of a shape, with symbolic dimensions replaced by their bound.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private long[] DimsOf(Shape shape)
     {
         var dims = new long[shape.Rank];
@@ -140,6 +143,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         return buf;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void ReadWeight(IWeightSource source, byte* destination, long bytes)
     {
         const long chunk = 1L << 30;

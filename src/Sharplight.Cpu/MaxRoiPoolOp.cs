@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -40,6 +41,7 @@ internal sealed unsafe class MaxRoiPoolOp : CpuOp
         CpuParallel.For((int)Math.Min(count * _c, int.MaxValue), job => Bin(job / _c, job % _c, batches));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Bin(long roi, int channel, long batches)
     {
         float* r = (float*)_rois.P + roi * 5;

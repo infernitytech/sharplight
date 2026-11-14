@@ -287,3 +287,9 @@ The default backend runs one generation at a time. To let many concurrent caller
 - Options are immutable records or `init`-only classes with defaults that work; only `Devices` is required.
 - Failures that a caller can act on are typed exceptions: `EngineException` and its subclasses for admission, `ModelHostException`
   and its subclasses for hosting.
+- The CPU provider's kernels do not depend on the application's JIT settings. By default .NET first compiles a method with loops as
+  unoptimized tier-0 code and switches to optimized code only after on-stack replacement and tiering catch up, so the first runs of a
+  model (and short benchmarks) would measure unoptimized kernels. Every method with a loop in `Sharplight.Cpu` is marked
+  `MethodImplOptions.AggressiveOptimization` and compiled fully optimized on first use, whatever `TieredCompilationQuickJitForLoops`
+  the application sets. In an application with the .NET defaults, runs 1-5 of resnet50 on the CPU averaged about 48 ms without the
+  attribute and 10 ms with it.

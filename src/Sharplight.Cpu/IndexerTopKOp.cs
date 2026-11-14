@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -63,6 +64,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long t = _q.Dim(0, p);
@@ -109,6 +111,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long first = c * _per;
@@ -119,6 +122,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void SelectRow(long t, int head)
     {
         long visible;
@@ -209,6 +213,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     }
 
     // Lists the visible positions of group g in entries [index · G, (index + 1) · G) of the selection row.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Expand(int* y, int index, int g, long visible)
     {
         int group = _selection.Group;
@@ -220,6 +225,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     }
 
     // Score of group g: its pooled key's score, or the largest score of its visible positions.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private float GroupScore(long t, int head, long g, long visible, long rowBase, int slot)
     {
         int group = _selection.Group;
@@ -243,6 +249,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     }
 
     // Σ_h w[t, h] · relu(q[t, h] · key), or q[t, head] · key with per-head selection; key is a cache row (f32 or f16) or a pooled f32 key.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private float KeyScore(long t, int head, KeyRef key)
     {
         if (_weights is null)
@@ -273,6 +280,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     private KeyRef KeyRow(long position, long rowBase, int slot) => new(slot >= 0 ? _pages!.Row(slot, position) : rowBase + position, null);
 
     // The pooled key of group g: per channel d, Σ_i softmax_i(gate[i, d] + positionGate[i, d]) · key[i, d] over the group's G members.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private KeyRef PooledKey(long g, long rowBase, int slot)
     {
         int group = _selection.Group;

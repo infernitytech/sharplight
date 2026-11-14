@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -14,6 +15,7 @@ internal sealed unsafe class DftOp(TRef x, TRef y, int length, int outBins, bool
 
     public override string Name => "Dft";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long rows = x.Elements(p) / (_inLength * _inComponents);
@@ -40,6 +42,7 @@ internal sealed unsafe class DftOp(TRef x, TRef y, int length, int outBins, bool
     }
 
     /// <summary>The row as a length-L complex signal: truncated or zero-padded, or the Hermitian extension of a one-sided spectrum.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Load(float* row, Span<Complex> buffer)
     {
         buffer.Clear();

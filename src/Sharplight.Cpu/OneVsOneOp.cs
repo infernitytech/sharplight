@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -9,6 +10,7 @@ internal sealed unsafe class OneVsOneOp(TRef decisions, TRef winner, TRef? proba
 
     public override string Name => "OneVsOne";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long rows = decisions.Dim(0, p);
@@ -70,6 +72,7 @@ internal sealed unsafe class OneVsOneOp(TRef decisions, TRef winner, TRef? proba
     }
 
     /// <summary>libsvm's multiclass_probability (Wu, Lin and Weng 2004, method 2).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Couple(double[,] r, double[] p)
     {
         int k = classes;

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
@@ -32,6 +33,7 @@ internal sealed unsafe class BinaryOp : CpuOp
         _sb = Align(b, y);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long[] Align(TRef t, TRef y)
     {
         int r = y.Rank;
@@ -55,6 +57,7 @@ internal sealed unsafe class BinaryOp : CpuOp
         return s;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _p = p;
@@ -99,6 +102,7 @@ internal sealed unsafe class BinaryOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long s = c * _perChunk;
@@ -133,6 +137,7 @@ internal sealed unsafe class BinaryOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Apply(BinaryKind k, float* a, long sa, float* b, long sb, float* y, long n, bool fmod)
     {
         long i = 0;

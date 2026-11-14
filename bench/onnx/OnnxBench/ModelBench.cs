@@ -58,7 +58,9 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
 
         result["stage"] = "run";
         SetInputs(compiledModel, graph, run, batch);
+        var first = Stopwatch.StartNew();
         compiledModel.Run(run);
+        result["firstRunMs"] = Math.Round(first.Elapsed.TotalMilliseconds, 3);
         CheckParity(compiledModel, graph, run, batch);
         Time(compiledModel, graph, run);
         if (arguments.Profile)
@@ -229,6 +231,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
             }
         }
 
+        result["earlyRunsMs"] = wall.Take(5).Select(ms => Math.Round(ms, 3)).ToArray();
         wall.Sort();
         result["minMs"] = Math.Round(wall[0], 3);
         result["medMs"] = Math.Round(wall[wall.Count / 2], 3);

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
@@ -55,6 +56,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
 
     public override void Dispose() => Mem.Free((byte*)_wT);
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Transpose()
     {
         float* w = (float*)_w.P;
@@ -79,6 +81,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
         return (r[0], r[1], r[2]);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         if (!_staticWeight || !_transposed)
@@ -151,6 +154,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
     }
 
     /// <summary>state := last K-1 rows of [state; x[r0 .. r0+t)].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void UpdateState(float* st, long r0, long t)
     {
         long km1 = _k - 1;
@@ -176,6 +180,7 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int ch)
     {
         long c0 = ch * _per;

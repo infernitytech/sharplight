@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -140,6 +141,7 @@ internal sealed unsafe class GridSampleOp : CpuOp
         c[3] = CC2(2f - t);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         long s = chunk * _per;
@@ -209,6 +211,7 @@ internal sealed unsafe class GridSampleOp : CpuOp
     private float Vx(float* vol, int z, int r, int c) =>
         (uint)z < (uint)_d && (uint)r < (uint)_h && (uint)c < (uint)_w ? vol[((long)z * _h + r) * _w + c] : 0f;
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void VolumeBody(int chunk)
     {
         long s = chunk * _per;

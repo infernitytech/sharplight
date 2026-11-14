@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -24,6 +25,7 @@ internal sealed unsafe class StringNormalizeOp : CpuOp
 
     public override string Name => "StringNormalize";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long n = _x.Elements(p);
