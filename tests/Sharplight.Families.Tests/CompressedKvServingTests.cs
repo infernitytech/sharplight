@@ -1,4 +1,5 @@
 using Sharplight.Cpu;
+using Sharplight.Gguf;
 using Sharplight.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
@@ -10,23 +11,34 @@ namespace Sharplight.Families.Tests;
 /// <summary>
 /// Compressed-KV attention (DeepSeek-V4) behind the continuous-batching engine: the window pools, compressed caches and indexer selection of the
 /// tiny V4 model go through their multi-sequence form (rows, runs and pages). Greedy output of prompts of different lengths, one of them long
-/// enough for the 128-position entries, decoded together and prefilled in small chunks, is token-identical to decoding each prompt alone.
+/// enough for the 128-position entries, decoded together and prefilled in small chunks, is token-identical to decoding each prompt alone. The
+/// tiny V4.1 GGUF adds layers sharing an earlier layer's caches and selection, candidate blocks and the Engram window state; its indexer has
+/// near-ties, so its caches stay in f32.
 /// </summary>
 public class CompressedKvServingTests
 {
-    private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "hf");
+    private static readonly string Models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
 
-    static CompressedKvServingTests() => HuggingFaceImporter.Register();
+    static CompressedKvServingTests()
+    {
+        GgufImporter.Register();
+        HuggingFaceImporter.Register();
+    }
 
     [Theory]
-    [InlineData("tiny-random-deepseek-v4", false)]
-    [InlineData("tiny-random-deepseek-v4", true)]
-    public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan)
+    [InlineData("hf/tiny-random-deepseek-v4", false, false)]
+    [InlineData("hf/tiny-random-deepseek-v4", true, false)]
+    [InlineData("gguf/tiny-random-deepseek-v41.gguf", false, true)]
+    [InlineData("gguf/tiny-random-deepseek-v41.gguf", true, true)]
+    public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan, bool f32Kv)
     {
         string path = Path.Combine(Models, name);
-        Assert.SkipUnless(Directory.Exists(path), $"{path} not present");
+        Assert.SkipUnless(Directory.Exists(path) || File.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 16 });
+        using var model = LlmModel.Load(path, new LlmLoadOptions
+        {
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 16, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
+        });
         var rng = new Random(5);
         int[][] prompts = [.. new[] { 6, 23, 45, 141 }.Select(n => Enumerable.Range(0, n).Select(_ => rng.Next(10, 1000)).ToArray())];
         var ct = TestContext.Current.CancellationToken;
