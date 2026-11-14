@@ -1,11 +1,12 @@
 """
-Converts the tiny transformers checkpoints of the linear-attention hybrids (written by mk_tiny_decoders.py) to GGUF with llama.cpp's converter,
-which only knows the original remote-code checkpoints: kimi_linear (KimiLinearForCausalLM, as is), bailing_hybrid (renamed
+Converts tiny transformers checkpoints (written by mk_tiny_decoders.py) to f32 GGUF with llama.cpp's converter. Families the converter takes as
+they are (deepseek_v32, glm_moe_dsa, ...) only need its tokenizer check relaxed; the linear-attention hybrids need more, as the converter only
+knows their original remote-code checkpoints: kimi_linear (KimiLinearForCausalLM, as is), bailing_hybrid (renamed
 BailingMoeV3ForCausalLM with the original config keys) and minimax (renamed MiniMaxText01ForCausalLM with the original layernorm_* / attn_type_list /
 rotary_dim keys; llama.cpp supports only equal alpha factors and beta factors of 1, so the checkpoint must be written with those).
 The converter is patched to take the GPT-2 style tokenizer.json of the tiny checkpoints.
 
-    python convert_linear_hybrids_gguf.py <llama.cpp source> <checkpoint directory> <output .gguf>
+    python convert_tiny_gguf.py <llama.cpp source> <checkpoint directory> <output .gguf>
 """
 import json, os, shutil, sys, tempfile
 
@@ -32,6 +33,14 @@ with tempfile.TemporaryDirectory() as work:
     import convert_hf_to_gguf
     from conversion.base import TextModel
     TextModel.get_vocab_base_pre = lambda self, tokenizer: "gpt-2"
+    if kind in ("deepseek_v32", "glm_moe_dsa"):
+        config.setdefault("scoring_func", "sigmoid")   # transformers' default, which the converter does not assume
+    if kind == "deepseek_v32":
+        from conversion import deepseek
+        deepseek.DeepseekV32Model.set_vocab = lambda self: self._set_vocab_gpt2()   # skips the add_bos_token assertion
+    elif kind == "glm_moe_dsa":
+        from conversion import glm
+        glm.GlmMoeDsaModel.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer has no GLM special tokens
 
     if kind in ("kimi_linear", "bailing_hybrid"):
         config["score_function"] = "sigmoid"
@@ -73,8 +82,9 @@ with tempfile.TemporaryDirectory() as work:
                 name = name.replace(f".block_sparse_moe.{part}.", f".mlp.{part}.")
             return name
         rewrite(dense)
-    # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
-    config["model_type"] = kind + "_original"
+    if kind in ("kimi_linear", "bailing_hybrid", "minimax"):
+        # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
+        config["model_type"] = kind + "_original"
     json.dump(config, open(path, "w"), indent=1)
 
     sys.argv = [sys.argv[0], work, "--outtype", "f32", "--outfile", output]

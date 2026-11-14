@@ -26,6 +26,8 @@ internal static class MappedFamilyCases
     private static readonly int[] GraniteMoeSwaIds = [571, 412, 744, 569, 985, 115, 180, 319, 399, 186, 551, 455, 264, 553, 952, 760, 172, 635, 585, 53, 799, 91, 819, 245];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
+    private static readonly int[] DsaIds = [797, 710, 6, 158, 893, 342, 675, 701, 336, 569, 354, 701, 470, 1006, 29, 127, 912, 553, 529, 496, 24, 396, 571, 59];
+
     public static readonly Case[] All =
     [
         // Qwen2-MoE: softmax routing without renormalisation, sigmoid-gated shared expert, a dense layer between MoE layers.
@@ -83,6 +85,15 @@ internal static class MappedFamilyCases
         // Hunyuan v4: latent attention with output gate and sinks, indexer in its dense regime, clamped SwiGLU experts, hyper-connections (3 streams).
         new("tiny-random-hy-v4 HF (hy_v4, transformers)", "hf/tiny-random-hy-v4", Prompt, "ids",
             [954, 350, 912, 711, 295, 223, 710, 662, 175, 970, 611, 547, 737, 462, 661, 35, 414, 81, 604, 808, 906, 627, 420, 522], ""),
+        // DeepSeek-V3.2 and GLM-5 (DSA): latent attention with the sparse-attention indexer, whose budget (64) covers the whole sequence, so it
+        // keeps every visible token (the dense regime). Both checkpoints have the same weights (tools/mk_tiny_decoders.py); the GGUFs come from
+        // tools/convert_tiny_gguf.py (index_head_dim 64: llama.cpp's indexer Hadamard rotation starts at 64).
+        new("tiny-random-deepseek-v32 HF (deepseek_v32, transformers)", "hf/tiny-random-deepseek-v32", Prompt, "ids", DsaIds, ""),
+        new("tiny-random-deepseek-v32 f32 GGUF (deepseek32, llama.cpp)", "gguf/tiny-random-deepseek-v32-f32.gguf", Prompt, "ids", DsaIds, ""),
+        new("tiny-random-glm-moe-dsa HF (glm_moe_dsa, transformers)", "hf/tiny-random-glm-moe-dsa", Prompt, "ids", DsaIds, ""),
+        // The glm-dsa GGUF is checked against transformers: llama.cpp b11177 leaves these ids at the 4th token (margin 0.15) on this file, while its
+        // deepseek32 graph agrees on the same weights; the cause was not identified.
+        new("tiny-random-glm-moe-dsa f32 GGUF (glm-dsa, transformers ids)", "gguf/tiny-random-glm-moe-dsa-f32.gguf", Prompt, "ids", DsaIds, ""),
         // The same model with DeepSeek-V4's manifold-constrained hyper-connections (Sinkhorn stream mixing, tools/mk_tiny_hy_v4_mhc.py).
         new("tiny-random-hy-v4-mhc HF (hy_v4 + DeepSeek-V4 mHC, transformers)", "hf/tiny-random-hy-v4-mhc", Prompt, "ids",
             [954, 513, 60, 245, 773, 761, 713, 734, 7, 830, 644, 813, 624, 367, 165, 189, 509, 806, 825, 99, 784, 652, 986, 21], ""),

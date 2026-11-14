@@ -27,7 +27,7 @@ internal static class LinearAttentionFamilyCases
         new("tiny-random-bailing-hybrid HF (bailing_hybrid, transformers)", "hf/tiny-random-bailing-hybrid", Prompt, "ids", BailingHybridIds, ""),
         // MiniMax-01: lightning attention every other layer, residuals from the normalized input with (alpha, beta) scales, softmax-routed experts.
         new("tiny-random-minimax HF (minimax, transformers)", "hf/tiny-random-minimax", Prompt, "ids", MiniMaxIds, ""),
-        // The GGUF files (tools/convert_linear_hybrids_gguf.py) give the same greedy ids in llama.cpp b11177 (CPU) as transformers does on the checkpoints.
+        // The GGUF files (tools/convert_tiny_gguf.py) give the same greedy ids in llama.cpp b11177 (CPU) as transformers does on the checkpoints.
         new("tiny-random-kimi-linear f32 GGUF (kimi-linear, llama.cpp)", "gguf/tiny-random-kimi-linear-f32.gguf", Prompt, "ids", KimiLinearIds, ""),
         new("tiny-random-bailing-hybrid f32 GGUF (bailingmoe3, llama.cpp)", "gguf/tiny-random-bailing-hybrid.gguf", Prompt, "ids", BailingHybridIds, ""),
         // MiniMax-01 in the form llama.cpp supports (one residual scale, beta factors 1, the layer pattern written as attention.recurrent_layers).

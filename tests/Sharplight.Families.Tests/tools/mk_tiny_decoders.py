@@ -119,12 +119,24 @@ EXTRA = {
                                 layer_types=["linear_attention", "full_attention", "linear_attention", "full_attention"],
                                 full_attn_alpha_factor=1.5, full_attn_beta_factor=0.8, linear_attn_alpha_factor=1.3, linear_attn_beta_factor=0.9,
                                 mlp_alpha_factor=1.2, mlp_beta_factor=0.7)),
-    # The same in the form llama.cpp's minimax-01 supports (one residual scale, beta factors 1), for convert_linear_hybrids_gguf.py.
+    # The same in the form llama.cpp's minimax-01 supports (one residual scale, beta factors 1), for convert_tiny_gguf.py.
     "minimax-llamacpp": ("minimax", dict(hidden_size=64, intermediate_size=48, num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=2,
                                          head_dim=16, num_local_experts=4, num_experts_per_tok=2, max_position_embeddings=256, block_size=8,
                                          layer_types=["linear_attention", "full_attention", "linear_attention", "linear_attention"],
                                          full_attn_alpha_factor=1.3, full_attn_beta_factor=1.0, linear_attn_alpha_factor=1.3,
                                          linear_attn_beta_factor=1.0, mlp_alpha_factor=1.3, mlp_beta_factor=1.0)),
+    # DeepSeek-V3.2 and GLM-5 (DSA): latent attention with the sparse-attention indexer. index_topk 64 covers the Families prompt plus the
+    # generated tokens, so the indexer keeps every visible token (the dense regime Sharplight implements).
+    "deepseek-v32": ("deepseek_v32", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=32, num_hidden_layers=3, num_attention_heads=4,
+                                          num_key_value_heads=4, q_lora_rank=48, kv_lora_rank=32, qk_nope_head_dim=16, qk_rope_head_dim=8,
+                                          v_head_dim=16, n_routed_experts=8, num_experts_per_tok=2, n_group=2, topk_group=1, n_shared_experts=1,
+                                          first_k_dense_replace=1, routed_scaling_factor=2.5, index_topk=64, index_head_dim=64, index_n_heads=4,
+                                          max_position_embeddings=256, rope_theta=10000.0)),
+    "glm-moe-dsa": ("glm_moe_dsa", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=32, num_hidden_layers=3, num_attention_heads=4,
+                                        num_key_value_heads=4, q_lora_rank=48, kv_lora_rank=32, qk_nope_head_dim=16, qk_rope_head_dim=8,
+                                        v_head_dim=16, n_routed_experts=8, num_experts_per_tok=2, n_group=2, topk_group=1, n_shared_experts=1,
+                                        first_k_dense_replace=1, routed_scaling_factor=2.5, index_topk=64, index_head_dim=64, index_n_heads=4,
+                                        max_position_embeddings=256, rope_theta=10000.0)),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})

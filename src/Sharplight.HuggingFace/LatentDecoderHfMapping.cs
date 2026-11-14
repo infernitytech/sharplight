@@ -18,7 +18,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
-        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid"];
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -84,9 +84,19 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         {
             AddHyV4HyperParameters(md, a, c);
         }
+        else if (HasIndexer(c))
+        {
+            md[a + "attention.indexer.token_budget"] = c.Int("index_topk");
+        }
 
         return md;
     }
+
+    /// <summary>
+    /// DeepSeek-V3.2 and GLM-5 (DSA): a sparse-attention indexer picks <c>index_topk</c> tokens per query. Only its dense regime is implemented
+    /// (the context is capped at the budget, where every visible token is kept).
+    /// </summary>
+    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa";
 
     /// <summary>DeepSeek-V2 lays the rotary dimensions out in interleaved pairs; V3-style configs say so with rope_interleave (default true).</summary>
     private static bool Interleaved(HfConfig c) => !IsMiniCpm(c) && !IsHyV4(c) && (c.GetBool("rope_interleave") ?? true);
@@ -264,6 +274,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             else if (layer < layers && IsDeltaHybrid(c) && IsDeltaLayer(c, layer) && TryMapDeltaLayer(c, prefix, suffix, w, collector, convolutions))
             {
                 continue;
+            }
+            else if (HasIndexer(c) && suffix.StartsWith("self_attn.indexer.", StringComparison.Ordinal))
+            {
+                continue;   // only the dense regime of the indexer is implemented: it keeps every visible token, its weights are not needed
             }
             else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !(IsHyV4(c) && TryMapHyV4Layer(prefix, suffix, w, collector)))
             {
