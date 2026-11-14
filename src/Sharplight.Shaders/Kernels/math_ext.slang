@@ -82,7 +82,18 @@ float round_even(float x)
 }
 float sign_f(float x) { return x != x ? x : (x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0)); }
 float asinh_f(float x) { float a = abs(x); float r = log(a + sqrt(a * a + 1.0)); return x < 0.0 ? -r : r; }
-float mod_py(float a, float b) { float r = fmod(a, b); return (r != 0.0 && ((r < 0.0) != (b < 0.0))) ? r + b : r; }
+// Python-style remainder (sign of the divisor). An infinite divisor leaves a finite dividend of its sign unchanged and yields the divisor
+// for the other sign (as numpy does); fmod alone would compute a - b·trunc(a/b) = NaN on GPUs.
+float mod_py(float a, float b)
+{
+    if (isinf(b) && !isinf(a) && a == a)
+    {
+        return (a == 0.0 || ((a < 0.0) == (b < 0.0))) ? a : b;
+    }
+
+    float r = fmod(a, b);
+    return (r != 0.0 && ((r < 0.0) != (b < 0.0))) ? r + b : r;
+}
 
 // ---- narrow formats and exact integer arithmetic (graph ops Narrow, integer Add/Div/Mod/..., bitwise ops) ----
 
@@ -109,7 +120,8 @@ int idiv(int a, int b) { return b == 0 ? 0 : (b == -1 ? -a : a / b); }
 int imod(int a, int b, bool cStyle)
 {
     if (b == 0 || b == -1) return 0;
-    int r = a % b;
+    // Remainder by the truncating division: `%` on int may lower to an unsigned modulo.
+    int r = a - (a / b) * b;
     return (!cStyle && r != 0 && ((r < 0) != (b < 0))) ? r + b : r;
 }
 int ipow(int a, int b)
