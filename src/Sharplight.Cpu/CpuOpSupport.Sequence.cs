@@ -140,12 +140,17 @@ internal static partial class CpuOpSupport
     private static OpSupport CheckGatedDeltaRule(Node node)
     {
         var ins = node.Inputs;
-        foreach (var v in ins.Take(6))
+        foreach (var v in ins.Take(5))
         {
             if (v.Type != DataType.F32)
             {
-                return OpSupport.No($"GatedDeltaRule needs f32 inputs and state, got {v.Type}");
+                return OpSupport.No($"GatedDeltaRule needs f32 inputs, got {v.Type}");
             }
+        }
+
+        if (ins[5].Type != DataType.F32 && ins[5].Type != DataType.BF16 && ins[5].Type != DataType.F16)
+        {
+            return OpSupport.No($"GatedDeltaRule state must be f32, bf16 or f16, got {ins[5].Type}");
         }
 
         if (ins.Length > 6 && ins[6].Type != DataType.I32)

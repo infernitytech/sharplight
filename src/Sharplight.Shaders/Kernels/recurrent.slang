@@ -253,7 +253,8 @@ void conv1d_state(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 // ADDITIVE (gated linear attention, no delta correction): delta_j = v_j * beta.
 // q,k: [T, HK, DK] strides (QS0,QS1)/(KS0,KS1); v: [T, HV, DV] strides (VS0, VS1);
 // g: dense [T, HV] (time stride G_TS = HV), [HV] (time-invariant, G_TS = 0) or, with CHANNEL_DECAY, [T, HV, DK] (one log decay per
-// key channel: M_j <- exp(g) ⊙ M_j); beta: dense [T, HV] (B_TS = HV) or [HV] (B_TS = 0); state [HV, DV, DK] f32; out dense [T, HV, DV].
+// key channel: M_j <- exp(g) ⊙ M_j); beta: dense [T, HV] (B_TS = HV) or [HV] (B_TS = 0); state [HV, DV, DK] f32 (or 16-bit, STATE_FMT in state16.slang: rounded
+// after every token row); out dense [T, HV, DV].
 // Macros: HK, HV, DK, DV, QS0, QS1, KS0, KS1, VS0, VS1, SCALE, LPR (lanes per row, power of 2 <= SG),
 // DVB (state rows per workgroup; rows are independent, so a head is split over DV/DVB workgroups),
 // SEQ_MAX_ROWS (multi-sequence: runs longer than this are left to the chunked form; 0 = serve every run).
@@ -279,6 +280,7 @@ void conv1d_state(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 #endif
 // Floats per value head in a record row: k [DK], v [DV], g [GW], beta.
 #define RH (DK + DV + GW + 1)
+#include "state16.slang"
 struct DeltaParams
 {
     float* q;
@@ -286,7 +288,7 @@ struct DeltaParams
     float* v;
     float* g;
     float* beta;
-    float* state;
+    STATE_T* state;
     float* o;
 #if MULTI_SEQ
     int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, HV, DV, DK]
@@ -360,19 +362,19 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
 #elif SEQ_MAX_ROWS
     if (run.z > SEQ_MAX_ROWS) return;   // longer runs take the chunked form (chunked.slang)
 #endif
-    float* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j) * DK + part;
+    STATE_T* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j) * DK + part;
     uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
 #if SEQ_MAX_ROWS && ROLLBACK
     if (handoff) tEnd = tBeg;
 #endif
     bool fresh = run.w == 0;   // a sequence starting at position 0 starts from zero state
 #else
-    float* st = p.state + (uint64_t(h) * DV + j) * DK + part;
+    STATE_T* st = p.state + (uint64_t(h) * DV + j) * DK + part;
     uint tBeg = 0, tEnd = p.T;
     bool fresh = false;
 #endif
     float M[EPL];
-    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : st[e * LPR];
+    [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : state_load(st[e * LPR]);
 #if ROLLBACK
     // Rows r < replay come from the read bank (replayed, no outputs); row r >= replay is token tBeg + r - replay.
     int4 cm = int4(p.commits[gid.z * 4], p.commits[gid.z * 4 + 1], p.commits[gid.z * 4 + 2], p.commits[gid.z * 4 + 3]);
@@ -495,7 +497,7 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             // A tentative run leaves the slot's state as it is after the replay.
             if (tentative && r0 + tt == replay)
             {
-                [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+                [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = state_store(M[e]);
             }
 #endif
 #if NORM_Q
@@ -531,12 +533,15 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             float oa[4] = { 0, 0, 0, 0 };
             [ForceUnroll] for (int e = 0; e < EPL; e++) { M[e] += kv[e] * dk; oa[e % 4] += M[e] * sq[base + e * LPR]; }
             float od = row_sum((oa[0] + oa[1]) + (oa[2] + oa[3])) * qn;
+#if STATE_FMT
+            [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = state_round(M[e]);
+#endif
             if (part == 0 && r0 + tt >= replay) p.o[(uint64_t(tBeg + r0 + tt - replay) * HV + h) * DV + j] = od * SCALE;
         }
     }
     if (!tentative)
     {
-        [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+        [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = state_store(M[e]);
     }
 }
 #endif

@@ -83,7 +83,12 @@ Defaults keep near-f32 accuracy, except that matmuls over 2+ activation rows mul
 `--reduced-precision` (`LlmLoadOptions.AllowReducedPrecision`,
 `CompileOptions.AllowReducedPrecision`) opts in to faster f16 paths, e.g. one f16 product instead of two in the chunked
 delta rule: about 3 % of 27B prefill, 10 % at FP8 with 512-token prompts, and no difference in greedy output in the tests
-of §18.
+of §18. It also stores the gated delta rule's recurrent state in bf16 (`LlmLoadOptions.RecurrentStateType`, diagnostic
+override `SHARPLIGHT_RECURRENT_STATE=f32|bf16|f16`): the token-by-token kernel rounds the state after every row (so MTP
+verification still matches plain decoding), the chunked prefill once per run. On the 27B FP8 it halves the `delta_rule`
+kernel (226 → 108 us per layer at 64 decode rows) and cuts the step GPU time by about 3 % at 16 rows and 9 % at 64. f16 is
+more accurate but its integer round-to-nearest-even conversion eats most of the gain (−1.4 % at 64 rows). Open: rounding the
+chunked form per chunk instead of per run, and 16-bit states for the other recurrences (`SelectiveScan`, `Wkv6/7`).
 
 ## Multi-node inference
 

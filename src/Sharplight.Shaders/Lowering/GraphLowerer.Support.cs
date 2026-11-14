@@ -100,6 +100,7 @@ public sealed partial class GraphLowerer
         {
             "CachedAttention" => SupportsCachedAttention(node),
             "IndexerTopK" => SupportsIndexerTopK(node),
+            "GatedDeltaRule" => SupportsDeltaRule(node),
             "CacheWrite" => SupportsKvRows(node.Inputs[0]),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
@@ -128,6 +129,19 @@ public sealed partial class GraphLowerer
         }
 
         return OpSupport.Yes;
+    }
+
+    /// <summary>Gated delta rule: f32 activations, an f32, f16 or bf16 state.</summary>
+    private static OpSupport SupportsDeltaRule(Node node)
+    {
+        if (node.Inputs.Take(5).FirstOrDefault(v => v.Type != DataType.F32) is { } input)
+        {
+            return OpSupport.No($"GatedDeltaRule needs f32 inputs, got {input.Type}");
+        }
+
+        var state = node.Inputs[5].Type;
+        return state == DataType.F32 || state == DataType.F16 || state == DataType.BF16
+            ? OpSupport.Yes : OpSupport.No($"GatedDeltaRule state must be f32, f16 or bf16, got {state}");
     }
 
     private static OpSupport SupportsIndexerTopK(Node node)

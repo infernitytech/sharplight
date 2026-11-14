@@ -4,6 +4,7 @@ using Sharplight.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Vulkan;
 
 namespace Sharplight.Families.Tests;
@@ -48,7 +49,18 @@ public class RecurrentRollbackTests
     [MemberData(nameof(Models))]
     public void Vulkan_RolledBackState_Matches_NonSpeculativeDecoding(string path, string ops) => Run(path, ops, vulkan: true);
 
-    private static void Run(string relativePath, string ops, bool vulkan)
+    /// <summary>
+    /// The same with the delta rule's state in 16 bits (rounded after every token row, also when replaying committed rows), on
+    /// the CPU and on Vulkan.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "bf16")]
+    [InlineData(true, "bf16")]
+    [InlineData(true, "f16")]
+    public void RolledBack16BitDeltaState_Matches_NonSpeculativeDecoding(bool vulkan, string stateType)
+        => Run("hf/tiny-random-qwen3.5-mtp", "GatedDeltaRule, CausalConv1d", vulkan, DataType.Get(stateType));
+
+    private static void Run(string relativePath, string ops, bool vulkan, DataType? recurrentStateType = null)
     {
         string path = Path.Combine(Home, "models", relativePath);
         Assert.SkipUnless(File.Exists(path) || Directory.Exists(path), $"{path} not present");
@@ -56,7 +68,7 @@ public class RecurrentRollbackTests
         using var model = LlmModel.Load(path, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 256, MaxBatchTokens = 64, DeviceSampling = false,
-            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
+            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, RecurrentStateType = recurrentStateType,
         });
         using var speculative = model.CreateBatchDecoder(2, maxLogitsRows: 2 * (DraftTokens + 1), draftTokens: DraftTokens);
         using var reference = model.CreateBatchDecoder(2, maxLogitsRows: 2);

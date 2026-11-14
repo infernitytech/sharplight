@@ -3,6 +3,7 @@ using Sharplight.Graph;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Tokenizers;
 using Sharplight.Vision;
 
@@ -83,7 +84,7 @@ public sealed class LlmModel : IDisposable
         ct.ThrowIfCancellationRequested();
         var building = new LoadProgressCounter(options.Progress, LoadStage.Building, 1);
         var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
-            options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength);
+            options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength, RecurrentStateType(options));
         var def = ModelAdapterRegistry.Build(sources, adapter, options.Log);
         var kvStates = def.States.Where(st => st.Kind is StateKind.KeyCache or StateKind.ValueCache).ToList();
         int kept = kvStates.Count(st => st.Type != adapter.KvCacheType);
@@ -97,6 +98,11 @@ public sealed class LlmModel : IDisposable
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
         return new LlmModel(def, sources.Primary, tok, options);
     }
+
+    /// <summary>The recurrent state type of <see cref="LlmLoadOptions.RecurrentStateType"/>, after the diagnostic override.</summary>
+    private static DataType RecurrentStateType(LlmLoadOptions options)
+        => DiagnosticSwitches.RecurrentState ?? options.RecurrentStateType
+           ?? (options.AllowReducedPrecision ? DataType.BF16 : options.Adapter.RecurrentStateType);
 
     /// <summary>
     /// Compiles the decoder onto the configured devices and returns a fresh single-sequence session. The session owns device

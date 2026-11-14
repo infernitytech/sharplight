@@ -37,6 +37,13 @@ public sealed class LlmLoadOptions
     /// or f16 tensor-core matmuls on f32 weights. Off by default.
     /// </summary>
     public bool AllowReducedPrecision { get; init; }
+    /// <summary>
+    /// Element type of 16-bit-capable recurrent states (the gated delta rule's state matrices), overriding
+    /// <see cref="AdapterOptions.RecurrentStateType"/> of <see cref="Adapter"/>: f32, bf16 or f16. Null: bf16 when
+    /// <see cref="AllowReducedPrecision"/> is set, otherwise the adapter setting (default f32). The environment variable
+    /// <c>SHARPLIGHT_RECURRENT_STATE</c> (f32, bf16, f16) overrides both. Has no effect on prebuilt packages.
+    /// </summary>
+    public DataType? RecurrentStateType { get; init; }
     /// <summary>Auxiliary model files, e.g. ("mmproj", path) for a vision projector.</summary>
     public IReadOnlyList<(string Role, string Path)> Auxiliary { get; init; } = [];
     /// <summary>

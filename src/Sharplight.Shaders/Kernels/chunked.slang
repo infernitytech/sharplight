@@ -23,9 +23,12 @@
 //   tp  half [PARTS][2 (Tb, P)][SROWS][HV][64]
 //   gc  float [SROWS][HV]                  (chunk-local cumulative log decay G)
 // Macros: HK HV DK DV QS0 QS1 KS0 KS1 VS0 VS1 SCALE NORM_Q EPS_Q NORM_K EPS_K MULTI_SEQ PARTS BV SROWS CHUNK_MIN
-// STATE_THREADS (128 or 256: subgroups of delta_chunk_state).
+// STATE_THREADS (128 or 256: subgroups of delta_chunk_state), STATE_FMT (state16.slang: a 16-bit state is widened through the
+// f32 staging tile at the run start and rounded once at its end; within a run it stays f32, unlike the token-by-token kernel,
+// which rounds it after every row).
 // Requires 32-wide subgroups, DK % 16 == 0, DV % BV == 0, BV % 16 == 0.
 #include "common.slang"
+#include "state16.slang"
 using namespace linalg;
 
 #define CH 64
@@ -78,7 +81,7 @@ struct ChunkParams
     float* v;
     float* g;
     float* beta;
-    float* state;
+    STATE_T* state;
     float* o;
     half* qk;
     half* tp;
@@ -362,9 +365,21 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
     uint n = uint(run.z);
     if (n == 0 || n < CHUNK_MIN) return;
     bool fresh = run.w != 0;
-    float* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j0) * DK;   // S^T(i, j) at st[j * DK + i]
+    STATE_T* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j0) * DK;   // S^T(i, j) at st[j * DK + i]
 
     MC S[S_ROWS][CB];
+#if STATE_FMT
+    // 16-bit state: widened into the f32 staging tile as S^T [DK][BV] (fX is free until step 1).
+    if (!fresh)
+    {
+        for (uint e = tid; e < DK * BV; e += NTC)
+        {
+            uint i = e % DK, j = e / DK;
+            fX[i * XS + j] = state_load(st[j * DK + i]);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+#endif
     [ForceUnroll]
     for (uint m = 0; m < S_ROWS; m++)
     {
@@ -372,9 +387,16 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
         [ForceUnroll]
         for (uint ci = 0; ci < CB; ci++)
         {
+#if STATE_FMT
+            S[m][ci] = fresh || ri >= RB ? MC(0.0) : MC.Load<CoopMatMatrixLayout.RowMajor>(fX, ri * 16 * XS + ci * 16, XS);
+#else
             S[m][ci] = fresh || ri >= RB ? MC(0.0) : MC.Load<CoopMatMatrixLayout.ColumnMajor>(st, ci * 16 * DK + ri * 16, DK);
+#endif
         }
     }
+#if STATE_FMT
+    GroupMemoryBarrierWithGroupSync();   // fX is rewritten by step 1
+#endif
 
     const uint64_t qkStride = uint64_t(HK) * DK;
     const uint64_t tpStride = uint64_t(HV) * CH;
@@ -596,8 +618,21 @@ void delta_chunk_state(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, un
         [ForceUnroll]
         for (uint ci = 0; ci < CB; ci++)
         {
+#if STATE_FMT
+            S[m][ci].Store<CoopMatMatrixLayout.RowMajor>(fX, ri * 16 * XS + ci * 16, XS);
+#else
             S[m][ci].Store<CoopMatMatrixLayout.ColumnMajor>(st, ci * 16 * DK + ri * 16, DK);
+#endif
         }
     }
+#if STATE_FMT
+    // 16-bit state: narrowed from the staging tile, rounded once for the whole run.
+    GroupMemoryBarrierWithGroupSync();
+    for (uint e = tid; e < DK * BV; e += NTC)
+    {
+        uint i = e % DK, j = e / DK;
+        st[j * DK + i] = state_store(state_round(fX[i * XS + j]));
+    }
+#endif
 }
 #endif
