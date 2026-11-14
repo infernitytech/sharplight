@@ -5,7 +5,7 @@
              x:DataType="vm:WeightsViewModel">
   <Grid ColumnDefinitions="*,8,360" RowDefinitions="Auto,*" Margin="0,8,0,0">
     <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,4">
-      <TextBox Watermark="Filter (name, type, shape)" Text="{Binding Filter}" />
+      <TextBox PlaceholderText="Filter (name, type, shape)" Text="{Binding Filter}" />
       <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Text="{Binding Summary}" />
     </Grid>
     <DataGrid Grid.Row="1" ItemsSource="{Binding Weights}" IsReadOnly="True" GridLinesVisibility="Horizontal">

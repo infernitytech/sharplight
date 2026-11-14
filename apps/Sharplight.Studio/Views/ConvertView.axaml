@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             x:Class="Sharplight.Studio.Views.ConvertView"
+             x:DataType="mvm:ConvertViewModel">
+  <DockPanel>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+      <Button DockPanel.Dock="Right" Classes="ghost icon" Command="{Binding CloseCommand}">
+        <Path Classes="icon" Data="{StaticResource IconClose}" />
+      </Button>
+      <StackPanel>
+        <TextBlock Classes="h2" Text="Convert to .slm" />
+        <TextBlock Classes="caption" Text="GGUF, safetensors checkpoints or ONNX into a Sharplight package." TextWrapping="Wrap" />
+      </StackPanel>
+    </DockPanel>
+    <Button DockPanel.Dock="Bottom" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Convert" Command="{Binding ConvertCommand}" Margin="0,12,0,0" />
+    <StackPanel Spacing="12">
+      <StackPanel>
+        <TextBlock Classes="label" Text="Source file or checkpoint folder" />
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="small" Content="Folder…" Command="{Binding BrowseSourceFolderCommand}" Margin="6,0,0,0" />
+          <Button DockPanel.Dock="Right" Classes="small" Content="File…" Command="{Binding BrowseSourceCommand}" Margin="6,0,0,0" />
+          <TextBox Text="{Binding Source}" />
+        </DockPanel>
+      </StackPanel>
+      <StackPanel>
+        <TextBlock Classes="label" Text="Vision projector (mmproj, optional)" />
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="small" Content="File…" Command="{Binding BrowseProjectorCommand}" Margin="6,0,0,0" />
+          <TextBox Text="{Binding Projector}" />
+        </DockPanel>
+      </StackPanel>
+      <StackPanel>
+        <TextBlock Classes="label" Text="Destination .slm" />
+        <DockPanel>
+          <Button DockPanel.Dock="Right" Classes="small" Content="Save as…" Command="{Binding BrowseDestinationCommand}" Margin="6,0,0,0" />
+          <TextBox Text="{Binding Destination}" />
+        </DockPanel>
+      </StackPanel>
+      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsConverting}" />
+      <Border Classes="inset" MaxHeight="220">
+        <ScrollViewer>
+          <SelectableTextBlock Classes="mono caption" Text="{Binding Log}" TextWrapping="Wrap" />
+        </ScrollViewer>
+      </Border>
+    </StackPanel>
+  </DockPanel>
+</UserControl>

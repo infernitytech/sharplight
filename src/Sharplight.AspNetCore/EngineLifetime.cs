@@ -6,5 +6,11 @@ namespace Sharplight.AspNetCore;
 internal sealed class EngineLifetime(SharplightServerContext ctx) : IHostedService
 {
     public Task StartAsync(CancellationToken ct) => Task.CompletedTask;
-    public async Task StopAsync(CancellationToken ct) => await ctx.Host.DrainAsync(ctx.Options.DrainTimeout);
+    public async Task StopAsync(CancellationToken ct)
+    {
+        if (ctx.Options.DrainModelsOnStop)
+        {
+            await ctx.Host.DrainAsync(ctx.Options.DrainTimeout);
+        }
+    }
 }

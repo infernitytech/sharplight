@@ -460,6 +460,30 @@ public class EngineTests
     }
 
     [Fact]
+    public async Task FinishedRequest_ReportsUsageTimingsAndTenant()
+    {
+        var d = new FakeBatchDecoder(1) { StepDelay = TimeSpan.FromMilliseconds(2) };
+        d.Script("hello");
+        var finished = new TaskCompletionSource<FinishedRequest>();
+        using var e = Engine(d, new EngineOptions { RequestFinished = r => finished.TrySetResult(r) });
+        GenerationChunk? last = null;
+        await foreach (var c in e.GenerateAsync(Req("hi") with { Tenant = "studio" }, TestContext.Current.CancellationToken))
+        {
+            last = c;
+        }
+
+        var report = await finished.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Equal("studio", report.Tenant);
+        Assert.Equal(FinishReason.Stop, report.Finish);
+        Assert.Equal(new GenerationUsage(3, 5, 0), report.Usage);
+        Assert.Equal(report.Timings, last!.Timings);
+        var t = report.Timings;
+        Assert.True(t.Prefill > TimeSpan.Zero && t.Decode > TimeSpan.Zero, $"{t}");
+        Assert.True(t.QueueWait + t.Prefill + t.Decode <= t.Total + TimeSpan.FromMilliseconds(1), $"{t}");
+        Assert.Equal(t.QueueWait + t.Prefill, t.TimeToFirstToken);
+    }
+
+    [Fact]
     public async Task GenerateAsync_AbandonedEnumeration_CancelsRequest()
     {
         var d = new FakeBatchDecoder(1) { StepDelay = TimeSpan.FromMilliseconds(2) };

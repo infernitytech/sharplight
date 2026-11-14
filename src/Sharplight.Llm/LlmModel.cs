@@ -67,7 +67,13 @@ public sealed class LlmModel : IDisposable
     public static LlmModel Load(string path, LlmLoadOptions options)
     {
         var sw = Stopwatch.StartNew();
+        var ct = options.CancellationToken;
+        ct.ThrowIfCancellationRequested();
+        var reading = new LoadProgressCounter(options.Progress, LoadStage.Reading, 1, path);
         var sources = ModelImporterRegistry.OpenSet(path, [.. options.Auxiliary]);
+        reading.Complete();
+        ct.ThrowIfCancellationRequested();
+        var building = new LoadProgressCounter(options.Progress, LoadStage.Building, 1);
         var adapter = options.Adapter.With(options.KvCacheType ?? options.Adapter.KvCacheType,
             options.Adapter.ContextLength > 0 ? options.Adapter.ContextLength : options.ContextLength);
         var def = ModelAdapterRegistry.Build(sources, adapter, options.Log);
@@ -79,6 +85,7 @@ public sealed class LlmModel : IDisposable
         }
 
         var tok = TokenizerFactory.Create(TokenizerData.FromMetadata(def.SourceMetadata));
+        building.Complete();
         options.Log?.Invoke($"Loaded {def.Name} ({def.Architecture}): {def.Weights.Count} tensors, {def.Weights.Values.Sum(w => w.ByteSize) / 1e9:F2} GB, vocab {tok.VocabSize} [{sw.ElapsedMilliseconds} ms]");
         return new LlmModel(def, sources.Primary, tok, options);
     }
@@ -95,6 +102,7 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
         var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
+        ReportReady(graph);
         return new InferenceSession(compiled);
     }
 
@@ -144,6 +152,7 @@ public sealed class LlmModel : IDisposable
             rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(WellKnown.DecodeGraph);
         return dec;
     }
 
@@ -212,8 +221,12 @@ public sealed class LlmModel : IDisposable
             DisabledFeatures = _options.DisabledFeatures,
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
+            Progress = _options.Progress,
+            CancellationToken = _options.CancellationToken,
         },
     };
+
+    private void ReportReady(string graph) => new LoadProgressCounter(_options.Progress, LoadStage.Ready, 1, graph).Complete();
 
     /// <summary>
     /// Caps the first (primary) device's share of the model at <paramref name="memoryLimit"/> bytes (layers beyond it go to

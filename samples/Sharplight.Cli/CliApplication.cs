@@ -26,7 +26,7 @@ internal static class CliApplication
 
         // Image decoding happens before the (slow) model load so a bad path fails fast.
         var images = ImageLoader.Load(settings.ImagePaths);
-        using var loaded = ModelLoader.Load(settings, modelPath);
+        using var loaded = ModelLoader.Load(settings, modelPath, cancellationToken);
 
         if (settings.SavePath is { } savePath)
         {

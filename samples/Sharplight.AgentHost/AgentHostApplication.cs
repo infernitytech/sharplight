@@ -44,11 +44,13 @@ internal static class AgentHostApplication
     {
         var provider = SampleRuntime.SelectProvider(settings.UseCpu);
         var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, settings.DeviceIndex));
+        var progress = new ConsoleLoadProgress();
         return new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }],
             ContextLength = settings.ContextLength,
-            Log = Console.Error.WriteLine,
+            Log = progress.Log,
+            Progress = progress,
         };
     }
 }

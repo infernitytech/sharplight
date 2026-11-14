@@ -1,0 +1,99 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:models="using:Sharplight.Studio.Models"
+             xmlns:views="using:Sharplight.Studio.Views"
+             x:Class="Sharplight.Studio.Views.LibraryView"
+             x:DataType="mvm:LibraryViewModel">
+  <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,16">
+    <DockPanel>
+      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+          <Button Classes="small" Command="{Binding RefreshCommand}" ToolTip.Tip="List again">
+            <Path Classes="icon" Data="{StaticResource IconRefresh}" Width="13" Height="13" />
+          </Button>
+          <Button Classes="small" Command="{Binding OpenStoreFolderCommand}" Content="Open folder" />
+          <Button Classes="small" Command="{Binding OpenConvertCommand}" Content="Convert…" />
+          <Button Classes="accent small" Command="{Binding AddFileCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Path Classes="icon" Data="{StaticResource IconPlus}" Width="12" Height="12" />
+              <TextBlock Text="Add file" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Classes="caption" Text="{Binding StoreRoot, StringFormat='Model store: {0}'}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="caption" Text="{Binding Status}" />
+        </StackPanel>
+      </DockPanel>
+      <Panel>
+        <Border Classes="card" IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32">
+          <StackPanel Spacing="10" HorizontalAlignment="Center">
+            <Path Classes="icon huge accent" Data="{StaticResource IconModels}" HorizontalAlignment="Center" />
+            <TextBlock Classes="h2" Text="Your library is empty" HorizontalAlignment="Center" />
+            <TextBlock Classes="muted" Text="Download a model from Hugging Face, or add a .gguf, .slm or .onnx file." HorizontalAlignment="Center" />
+            <Button Classes="accent" Content="Discover models" Command="{Binding OpenDiscoverCommand}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+          </StackPanel>
+        </Border>
+        <ScrollViewer IsVisible="{Binding !IsEmpty}">
+          <ItemsControl ItemsSource="{Binding Entries}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="mvm:LibraryEntryViewModel">
+                <Border Classes="card" Margin="0,0,0,10" Padding="16,14">
+                  <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <Border Classes="badge tools" IsVisible="{Binding IsLoaded}">
+                        <TextBlock Text="Resident" />
+                      </Border>
+                      <Button Classes="accent small" Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).LoadCommand}" CommandParameter="{Binding}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Path Classes="icon" Data="{StaticResource IconPlay}" Width="11" Height="11" />
+                          <TextBlock Text="Load" />
+                        </StackPanel>
+                      </Button>
+                      <Button Classes="ghost icon danger" ToolTip.Tip="Delete (click twice)" Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).DeleteCommand}" CommandParameter="{Binding}">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                          <Path Classes="icon" Data="{StaticResource IconTrash}" Width="13" Height="13" />
+                          <TextBlock Text="Confirm" FontSize="12" IsVisible="{Binding ConfirmDelete}" />
+                        </StackPanel>
+                      </Button>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Left" Width="40" Height="40" CornerRadius="10" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,14,0" VerticalAlignment="Top">
+                      <Path Classes="icon accent" Data="{StaticResource IconModels}" Width="18" Height="18" />
+                    </Border>
+                    <StackPanel Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14.5" />
+                        <TextBlock Classes="caption" Text="{Binding Size}" VerticalAlignment="Center" />
+                        <TextBlock Classes="caption" Text="{Binding Context}" VerticalAlignment="Center" />
+                      </StackPanel>
+                      <TextBlock Classes="caption" Text="{Binding Detail}" />
+                      <StackPanel Orientation="Horizontal" Spacing="5">
+                        <views:CapabilityBadgesView DataContext="{Binding Badges}" />
+                        <Border Classes="badge" IsVisible="{Binding IsPrecompiled}" ToolTip.Tip="GPU kernels are stored in the package: loads fast">
+                          <TextBlock Text="Precompiled" />
+                        </Border>
+                        <Border Classes="badge" IsVisible="{Binding IsLocalFile}">
+                          <TextBlock Text="Local file" />
+                        </Border>
+                        <TextBlock Classes="caption" Text="{Binding Added}" VerticalAlignment="Center" Margin="4,0,0,0" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DockPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Panel>
+    </DockPanel>
+
+    <!-- Side panels -->
+    <Border Grid.Column="1" Classes="card" Width="360" Margin="16,0,0,0" IsVisible="{Binding IsPanelOpen}">
+      <Panel>
+        <views:LoadOptionsView DataContext="{Binding LoadPanel}" IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <views:ConvertView DataContext="{Binding ConvertPanel}" IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </Panel>
+    </Border>
+  </Grid>
+</UserControl>

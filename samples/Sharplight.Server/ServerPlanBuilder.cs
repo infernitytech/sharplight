@@ -25,7 +25,8 @@ internal static class ServerPlanBuilder
             budget,
             settings.MaxLoadedModels ?? config?.MaxLoaded ?? 0,
             settings.Lazy || config?.Lazy == true,
-            settings.IdleTimeoutSeconds ?? config?.IdleTimeout);
+            settings.IdleTimeoutSeconds ?? config?.IdleTimeout,
+            settings.OnDemand || config?.OnDemand == true);
     }
 
     private static List<ModelSpec> CollectModels(ServeSettings settings, ServerConfig? config)

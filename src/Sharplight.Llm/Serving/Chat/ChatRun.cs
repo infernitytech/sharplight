@@ -106,7 +106,7 @@ public sealed class ChatRun
                     FinishReason.Timeout => ChatFinishReason.Timeout,
                     _ => ChatFinishReason.Error,
                 };
-                yield return new ChatEvent(index, Finish: reason, Usage: c.Usage, StopSequence: c.StopSequence, Error: c.Error);
+                yield return new ChatEvent(index, Finish: reason, Usage: c.Usage, StopSequence: c.StopSequence, Error: c.Error, Timings: c.Timings);
             }
         }
     }

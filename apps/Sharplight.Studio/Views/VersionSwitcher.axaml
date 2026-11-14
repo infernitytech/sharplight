@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:chat="using:Sharplight.Studio.ViewModels.Chat"
+             x:Class="Sharplight.Studio.Views.VersionSwitcher"
+             x:DataType="chat:MessageViewModel">
+  <StackPanel Orientation="Horizontal" Spacing="0" IsVisible="{Binding HasVersions}" VerticalAlignment="Center">
+    <Button Classes="ghost icon" Padding="4" IsEnabled="{Binding CanShowPrevious}" ToolTip.Tip="Previous version"
+            Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).PreviousVersionCommand}" CommandParameter="{Binding}">
+      <Path Classes="icon" Data="{StaticResource IconChevronLeft}" Width="12" Height="12" />
+    </Button>
+    <TextBlock Classes="caption" Text="{Binding VersionText}" VerticalAlignment="Center" />
+    <Button Classes="ghost icon" Padding="4" IsEnabled="{Binding CanShowNext}" ToolTip.Tip="Next version"
+            Command="{Binding $parent[ItemsControl].((chat:ConversationViewModel)DataContext).NextVersionCommand}" CommandParameter="{Binding}">
+      <Path Classes="icon" Data="{StaticResource IconChevronRight}" Width="12" Height="12" />
+    </Button>
+  </StackPanel>
+</UserControl>

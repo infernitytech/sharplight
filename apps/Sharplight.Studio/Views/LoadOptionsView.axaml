@@ -1,0 +1,90 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:models="using:Sharplight.Studio.Models"
+             x:Class="Sharplight.Studio.Views.LoadOptionsView"
+             x:DataType="mvm:LoadOptionsViewModel">
+  <DockPanel>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+      <Button DockPanel.Dock="Right" Classes="ghost icon" Command="{Binding CloseCommand}" ToolTip.Tip="Close (cancels a load in progress)">
+        <Path Classes="icon" Data="{StaticResource IconClose}" />
+      </Button>
+      <StackPanel>
+        <TextBlock Classes="h2" Text="Load model" />
+        <TextBlock Classes="caption" Text="{Binding Entry.Name}" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </DockPanel>
+    <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
+      <StackPanel Spacing="4" IsVisible="{Binding IsLoading}">
+        <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" />
+      </StackPanel>
+      <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" />
+      <Grid ColumnDefinitions="*,8,*">
+        <Button Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Cancel" Command="{Binding CloseCommand}" />
+        <Button Grid.Column="2" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Content="Load" Command="{Binding LoadCommand}" />
+      </Grid>
+    </StackPanel>
+    <ScrollViewer>
+      <StackPanel Spacing="12" Margin="0,0,8,0">
+        <StackPanel>
+          <TextBlock Classes="label" Text="Name (the model field API clients send)" />
+          <TextBox Text="{Binding ModelId}" />
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Classes="label" Text="Device" />
+          <ComboBox ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}" HorizontalAlignment="Stretch">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="models:ComputeDeviceOption">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Path Classes="icon" Data="{StaticResource IconChip}" Width="13" Height="13" />
+                  <TextBlock Text="{Binding Display}" />
+                </StackPanel>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+        <StackPanel>
+          <TextBlock Classes="label" Text="Context length (tokens per sequence)" />
+          <NumericUpDown Value="{Binding ContextLength}" Minimum="256" Maximum="1048576" Increment="1024" FormatString="0" />
+          <TextBlock Classes="caption" Text="{Binding ContextHint}" Margin="0,3,0,0" />
+        </StackPanel>
+        <Grid ColumnDefinitions="*,10,*">
+          <StackPanel>
+            <TextBlock Classes="label" Text="Parallel slots" />
+            <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" Increment="1" FormatString="0" />
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Classes="label" Text="Batch (prompt chunk)" />
+            <NumericUpDown Value="{Binding BatchTokens}" Minimum="16" Maximum="8192" Increment="128" FormatString="0" />
+          </StackPanel>
+        </Grid>
+        <StackPanel>
+          <TextBlock Classes="label" Text="KV cache" />
+          <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="mvm:KvCacheChoice">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+        <Grid ColumnDefinitions="*,10,*">
+          <StackPanel>
+            <TextBlock Classes="label" Text="N-gram drafts" />
+            <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" Increment="1" FormatString="0" ToolTip.Tip="Prompt-lookup speculative decoding; 0 = off" />
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Classes="label" Text="MTP drafts" />
+            <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" Increment="1" FormatString="0" ToolTip.Tip="Self-speculation with the model's multi-token-prediction head (only models that have one); 0 = off" />
+          </StackPanel>
+        </Grid>
+        <ToggleSwitch Content="Offload to the CPU when it does not fit" IsChecked="{Binding CpuOffload}" IsEnabled="{Binding CanOffload}" />
+        <StackPanel Spacing="2">
+          <ToggleSwitch Content="Reduced precision (opt-in)" IsChecked="{Binding AllowReducedPrecision}" />
+          <TextBlock Classes="caption" TextWrapping="Wrap"
+                     Text="Faster f16 kernel paths where the default keeps near-f32 accuracy (e.g. one f16 product instead of two in the chunked delta rule, f16 tensor-core matmuls on f32 weights). Results may differ slightly." />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </DockPanel>
+</UserControl>

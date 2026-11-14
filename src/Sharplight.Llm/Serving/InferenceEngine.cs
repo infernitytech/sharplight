@@ -576,6 +576,7 @@ public sealed class InferenceEngine : IDisposable
         }
 
         seq.AdmitTick = ++_tick;
+        seq.AdmitTicks = Stopwatch.GetTimestamp();
         seq.Slot = slot;
         slot.Active = seq;
         seq.PromptPos = keep;
@@ -947,6 +948,8 @@ public sealed class InferenceEngine : IDisposable
             if (rows > 1)
             {
                 Metrics.Speculation(rows - 1, outcome.Accepted);
+                s.DraftTokens += rows - 1;
+                s.AcceptedDraftTokens += outcome.Accepted;
                 TruncateSlot(s.Slot!, _stepBaseLength[i] + 1 + outcome.Accepted);
             }
 
@@ -1302,6 +1305,7 @@ public sealed class InferenceEngine : IDisposable
         s.Generated++;
         if (s.Generated == 1)
         {
+            s.FirstTokenTicks = now;
             Metrics.FirstToken(Stopwatch.GetElapsedTime(s.SubmitTicks, now));
         }
 
@@ -1438,9 +1442,35 @@ public sealed class InferenceEngine : IDisposable
         }
 
         var usage = new GenerationUsage(s.Prompt.Length, s.Generated, s.Cached);
-        s.Writer.TryWrite(new GenerationChunk("", null, reason, usage, error, stopSeq));
+        var timings = Timings(s, Stopwatch.GetTimestamp());
+        s.Writer.TryWrite(new GenerationChunk("", null, reason, usage, error, stopSeq, timings));
         s.Writer.TryComplete();
         s.Registration.Dispose();
-        Metrics.Finished(reason, Stopwatch.GetElapsedTime(s.SubmitTicks));
+        Metrics.Finished(reason, timings.Total);
+        if (_opt.RequestFinished is { } finished)
+        {
+            try
+            {
+                finished(new FinishedRequest(s.Id, s.Request.Tenant, reason, usage, timings, error));
+            }
+            catch
+            {
+                // Observers must not break the scheduler.
+            }
+        }
+    }
+
+    /// <summary>The timings of a request finishing at <paramref name="now"/>; phases it never reached are zero.</summary>
+    private static GenerationTimings Timings(EngineSequence s, long now)
+    {
+        long admitted = s.AdmitTicks != 0 ? s.AdmitTicks : now;
+        long first = s.FirstTokenTicks != 0 ? s.FirstTokenTicks : now;
+        return new GenerationTimings(
+            Stopwatch.GetElapsedTime(s.SubmitTicks, admitted),
+            Stopwatch.GetElapsedTime(admitted, first),
+            s.FirstTokenTicks != 0 ? Stopwatch.GetElapsedTime(first, now) : TimeSpan.Zero,
+            Stopwatch.GetElapsedTime(s.SubmitTicks, now),
+            s.DraftTokens,
+            s.AcceptedDraftTokens);
     }
 }

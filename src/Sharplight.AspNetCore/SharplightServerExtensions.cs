@@ -156,7 +156,7 @@ public static class SharplightServerExtensions
             {
                 bool anthropic = ApiErrors.IsAnthropic(http) && ctx.Options.Anthropic;
                 string id = (string)http.Request.RouteValues["id"]!;
-                if (ctx.Host.Get(id) is not { } info)
+                if (!ctx.IsServed(id) || ctx.Host.Get(id) is not { } info)
                 {
                     await ApiErrors.WriteAsync(http, 404, anthropic ? "not_found_error" : "invalid_request_error", $"The model '{id}' does not exist.", code: "model_not_found");
                     return;
@@ -267,7 +267,7 @@ public static class SharplightServerExtensions
     {
         var chats = ctx.LoadedChatModels();
         bool draining = chats.Count > 0 && chats.All(c => c.Instance.Engine.IsDraining);
-        var models = ctx.Host.List();
+        var models = ctx.ListModels();
         // Lazily loaded models count as ready: the first request loads them. A model still loading at startup does not.
         bool servable = models.Any(m => m.State is Llm.Serving.Hosting.ModelState.Loaded or Llm.Serving.Hosting.ModelState.Unloaded);
         string status = draining ? "draining" : servable ? "ready" : "loading";
@@ -280,7 +280,7 @@ public static class SharplightServerExtensions
     {
         var chats = ctx.LoadedChatModels();
         bool draining = chats.Count > 0 && chats.All(c => c.Instance.Engine.IsDraining);
-        var defaultName = ctx.Host.DefaultName();
+        var defaultName = ctx.DefaultName();
         var defaultChat = chats.FirstOrDefault(c => c.Name == defaultName);
         var defaultMetrics = defaultChat.Instance?.Engine.GetMetrics();
         http.Response.StatusCode = draining ? 503 : 200;
@@ -292,7 +292,7 @@ public static class SharplightServerExtensions
             slots = defaultMetrics?.SlotCount ?? 0,
             active = chats.Sum(c => c.Instance.Engine.GetMetrics().ActiveSequences),
             queued = chats.Sum(c => c.Instance.Engine.GetMetrics().QueueDepth),
-            models = ctx.Host.List().Select(i => new { id = i.Name, kind = i.Kind.ToString().ToLowerInvariant(), state = i.State.ToString().ToLowerInvariant() }),
+            models = ctx.ListModels().Select(i => new { id = i.Name, kind = i.Kind.ToString().ToLowerInvariant(), state = i.State.ToString().ToLowerInvariant() }),
         }));
     }
 }

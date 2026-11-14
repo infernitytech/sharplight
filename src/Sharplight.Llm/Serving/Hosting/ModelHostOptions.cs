@@ -17,4 +17,11 @@ public sealed record ModelHostOptions
     public TimeProvider Time { get; init; } = TimeProvider.System;
     /// <summary>Receives load / unload / eviction messages.</summary>
     public Action<string>? Log { get; init; }
+    /// <summary>
+    /// On-demand registration: called (outside the host's locks) for a name that is not registered when a model is acquired; a
+    /// returned registration is registered under that name and loaded like any other (e.g. a model of a local store, ollama-style).
+    /// Null, or a null result, keeps the name unknown (<see cref="ModelNotFoundException"/>). The registration's name must equal
+    /// the requested one.
+    /// </summary>
+    public Func<string, ModelRegistration?>? Resolve { get; init; }
 }

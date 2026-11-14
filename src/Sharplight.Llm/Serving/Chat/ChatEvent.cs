@@ -13,6 +13,7 @@ namespace Sharplight.Llm.Serving.Chat;
 /// <param name="Usage">Token counts (final event).</param>
 /// <param name="StopSequence">The stop string that ended generation (final event).</param>
 /// <param name="Error">Failure message (final event).</param>
+/// <param name="Timings">Where the request's time went (final event).</param>
 public sealed record ChatEvent(
     int Index,
     string? Content = null,
@@ -22,4 +23,5 @@ public sealed record ChatEvent(
     ChatFinishReason? Finish = null,
     GenerationUsage? Usage = null,
     string? StopSequence = null,
-    string? Error = null);
+    string? Error = null,
+    GenerationTimings? Timings = null);

@@ -327,9 +327,11 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         EnsurePipelineCache(cache);
         var program = Code.Lower(segment, this, options, cache, out var kernels);
         RecordKernels(cache, kernels);
+        options.CancellationToken.ThrowIfCancellationRequested();
 
         // Slang keeps compiling in the background while the weights upload; pipelines are created as the kernels complete.
-        var pipelines = Task.Run(() => CreatePipelines(kernels));
+        var compiling = new LoadProgressCounter(options.Progress, LoadStage.Compiling, kernels.Count, Info.Name, kernels.Count(k => k.FromCache));
+        var pipelines = Task.Run(() => CreatePipelines(kernels, compiling, options.CancellationToken));
         VulkanSegment compiled;
         try
         {
@@ -342,7 +344,16 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         var swWait = Stopwatch.StartNew();
-        pipelines.GetAwaiter().GetResult();
+        try
+        {
+            pipelines.GetAwaiter().GetResult();
+        }
+        catch
+        {
+            compiled.Dispose();
+            throw;
+        }
+
         SavePipelineCache();
         if (DiagnosticSwitches.LoadTiming)
         {
@@ -354,11 +365,15 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
     /// <summary>Creates the pipelines of <paramref name="kernels"/> in parallel, waiting for kernels that are still compiling.</summary>
     /// <exception cref="KernelCompilationException">Slang rejected one of the kernels.</exception>
-    private void CreatePipelines(IEnumerable<CompiledKernel> kernels)
+    private void CreatePipelines(IEnumerable<CompiledKernel> kernels, LoadProgressCounter progress, CancellationToken ct)
     {
         try
         {
-            Parallel.ForEach(kernels, kernel => Pipeline(kernel));
+            Parallel.ForEach(kernels, new ParallelOptions { CancellationToken = ct }, kernel =>
+            {
+                Pipeline(kernel);
+                progress.Add();
+            });
         }
         catch (AggregateException e)
         {
@@ -488,7 +503,7 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
 
         if (!shared)
         {
-            CreatePipelines(kernels);
+            CreatePipelines(kernels, new LoadProgressCounter(null, LoadStage.Compiling, kernels.Length), CancellationToken.None);
             cache.Put(PipelineCacheKey, GetPipelineCacheData(_pipelineCache));
             return;
         }

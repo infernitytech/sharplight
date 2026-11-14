@@ -1,0 +1,114 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Sharplight.Studio.ViewModels"
+        xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+        xmlns:views="using:Sharplight.Studio.Views"
+        xmlns:conv="using:Sharplight.Studio.Converters"
+        x:Class="Sharplight.Studio.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Sharplight Studio"
+        Width="1440" Height="900" MinWidth="980" MinHeight="620"
+        WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="232,*" RowDefinitions="*,Auto">
+    <!-- Sidebar -->
+    <Border Grid.RowSpan="2" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="14,18,14,14">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="6,0,0,22">
+          <Border Width="34" Height="34" CornerRadius="10" Background="{DynamicResource AccentGradientBrush}">
+            <Path Data="{StaticResource IconLogo}" Fill="White" Stretch="Uniform" Width="16" Height="16" />
+          </Border>
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="Sharplight" FontWeight="SemiBold" FontSize="15" />
+            <TextBlock Text="Studio" Classes="caption" Margin="0,-2,0,0" />
+          </StackPanel>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom" Spacing="8">
+          <!-- Downloads: visible from every page -->
+          <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="0"
+                  IsVisible="{Binding Downloads.ActiveCount, Converter={x:Static conv:PositiveConverter.Instance}}" x:Name="DownloadsButton">
+            <Border Classes="inset" Padding="10,8">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Path Classes="icon accent" Data="{StaticResource IconDownload}" />
+                  <TextBlock Text="{Binding Downloads.Summary}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Downloads.OverallProgress}" />
+              </StackPanel>
+            </Border>
+            <Button.Flyout>
+              <Flyout Placement="RightEdgeAlignedBottom">
+                <StackPanel Width="380" Spacing="8" Margin="4">
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Classes="ghost small" Content="Open downloads" Command="{Binding OpenDownloadsCommand}" />
+                    <TextBlock Classes="h3" Text="Downloads" VerticalAlignment="Center" />
+                  </DockPanel>
+                  <ScrollViewer MaxHeight="420">
+                    <ItemsControl ItemsSource="{Binding Downloads.Items}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="mvm:DownloadItemViewModel">
+                          <views:DownloadItemView Margin="0,4" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+
+          <Border Classes="divider" Margin="0,4" />
+          <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,9"
+                  Command="{Binding NavigateCommand}" CommandParameter="{Binding Settings}">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Path Classes="icon" Data="{StaticResource IconSettings}" />
+              <TextBlock Text="Settings" FontWeight="Medium" />
+            </StackPanel>
+          </Button>
+        </StackPanel>
+
+        <ListBox x:Name="Nav" Classes="nav" ItemsSource="{Binding Pages}" SelectedItem="{Binding CurrentPage, Mode=OneWay}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:PageViewModel">
+              <DockPanel>
+                <Border DockPanel.Dock="Right" Classes="badge accent" IsVisible="{Binding Badge, Converter={x:Static conv:PositiveConverter.Instance}}">
+                  <TextBlock Text="{Binding Badge}" />
+                </Border>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                  <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
+                  <TextBlock Classes="navtext" Text="{Binding Title}" FontWeight="Medium" />
+                </StackPanel>
+              </DockPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- Page -->
+    <TransitioningContentControl Grid.Column="1" Content="{Binding CurrentPage}">
+      <TransitioningContentControl.PageTransition>
+        <CrossFade Duration="0:0:0.14" />
+      </TransitioningContentControl.PageTransition>
+    </TransitioningContentControl>
+
+    <!-- Status bar -->
+    <Border Grid.Column="1" Grid.Row="1" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="16,4">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding DeviceText}" VerticalAlignment="Center" />
+        <StackPanel Orientation="Horizontal" Spacing="18">
+          <Button Classes="ghost small" Command="{Binding OpenResidentCommand}" Padding="4,2">
+            <StackPanel Orientation="Horizontal" Spacing="7">
+              <Path Classes="icon" Data="{StaticResource IconModels}" Width="13" Height="13" />
+              <TextBlock Classes="caption" Text="{Binding LoadedText}" />
+            </StackPanel>
+          </Button>
+          <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+            <Ellipse Classes="dot" Classes.ok="{Binding IsServing}" />
+            <TextBlock Classes="caption" Text="{Binding ServerText}" />
+          </StackPanel>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+  </Grid>
+</Window>

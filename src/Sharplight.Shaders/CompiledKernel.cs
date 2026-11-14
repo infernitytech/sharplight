@@ -30,7 +30,7 @@ public sealed class CompiledKernel
     public CompiledKernel(string name, string entryPoint, ShaderTarget target, byte[] code, string cacheKey)
         : this(name, entryPoint, target, cacheKey)
     {
-        Complete(code);
+        CompleteFromCache(code);
     }
 
     /// <summary>Source file or kernel name, for diagnostics.</summary>
@@ -44,6 +44,12 @@ public sealed class CompiledKernel
 
     /// <summary>Content hash of source, macros and target; identifies the kernel in caches.</summary>
     public string CacheKey { get; }
+
+    /// <summary>
+    /// True when the binary was not compiled by this process: it came from a model's compilation artifacts or the per-user kernel
+    /// cache, or was supplied by the caller.
+    /// </summary>
+    public bool FromCache { get; private set; }
 
     /// <summary>True once the binary is available (or compilation failed).</summary>
     public bool IsReady => _code.Task.IsCompleted;
@@ -74,6 +80,13 @@ public sealed class CompiledKernel
         {
             action(code);
         }
+    }
+
+    /// <summary>Completes with a binary found in a cache (<see cref="FromCache"/>).</summary>
+    internal void CompleteFromCache(byte[] code)
+    {
+        FromCache = true;
+        Complete(code);
     }
 
     internal void Complete(byte[] code)

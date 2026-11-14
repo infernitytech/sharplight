@@ -38,7 +38,7 @@ internal static class OpenAiApi
     };
 
     internal static JsonNode ModelList(SharplightServerContext ctx)
-        => new JsonObject { ["object"] = "list", ["data"] = new JsonArray(ctx.Host.List().Select(m => ModelObject(m)).ToArray()) };
+        => new JsonObject { ["object"] = "list", ["data"] = new JsonArray(ctx.ListModels().Select(m => ModelObject(m)).ToArray()) };
 
     // ---- request parsing --------------------------------------------------------------------------------------------
 

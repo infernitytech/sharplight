@@ -1,0 +1,97 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:views="using:Sharplight.Studio.Views"
+             x:Class="Sharplight.Studio.Views.ResidentView"
+             x:DataType="mvm:ResidentModelsViewModel">
+  <DockPanel Margin="0,0,0,16">
+    <StackPanel DockPanel.Dock="Top" Spacing="10" Margin="0,0,0,12">
+      <TextBlock Classes="caption" Text="{Binding PolicyText}" />
+      <ItemsControl ItemsSource="{Binding Devices}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <UniformGrid Columns="2" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="mvm:DeviceBudgetViewModel">
+            <Border Classes="card" Margin="0,0,10,10" Padding="16,12">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Path Classes="icon accent" Data="{StaticResource IconChip}" />
+                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                </StackPanel>
+                <Panel Height="8">
+                  <Border CornerRadius="4" Background="{DynamicResource SurfaceAltBrush}" />
+                  <ProgressBar Minimum="0" Maximum="1" Value="{Binding UsedFraction}" Height="8" MinHeight="8" Foreground="{DynamicResource AccentSecondaryBrush}" Background="Transparent" />
+                  <ProgressBar Minimum="0" Maximum="1" Value="{Binding ModelFraction}" Height="8" MinHeight="8" Background="Transparent" />
+                </Panel>
+                <TextBlock Classes="caption" Text="{Binding Text}" />
+                <TextBlock Classes="caption" Text="{Binding ModelNames}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Classes="caption" Text="{Binding Status}" />
+    </StackPanel>
+    <Panel>
+      <StackPanel IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+        <Path Classes="icon huge" Data="{StaticResource IconLayers}" HorizontalAlignment="Center" />
+        <TextBlock Classes="muted" Text="No model is resident. Load models from the library; several can stay loaded at once." HorizontalAlignment="Center" />
+        <Button Classes="accent" Content="Open library" Command="{Binding OpenLibraryCommand}" HorizontalAlignment="Center" />
+      </StackPanel>
+      <ScrollViewer IsVisible="{Binding !IsEmpty}">
+        <ItemsControl ItemsSource="{Binding Models}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="mvm:LoadedModelViewModel">
+              <Border Classes="card" Margin="0,0,0,10" Padding="16,14">
+                <StackPanel Spacing="8">
+                  <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <Button Classes="small" Command="{Binding $parent[ItemsControl].((mvm:ResidentModelsViewModel)DataContext).ChatWithCommand}" CommandParameter="{Binding}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Path Classes="icon" Data="{StaticResource IconChat}" Width="12" Height="12" />
+                          <TextBlock Text="Chat" />
+                        </StackPanel>
+                      </Button>
+                      <Button Classes="small danger" IsEnabled="{Binding !IsUnloading}" Command="{Binding $parent[ItemsControl].((mvm:ResidentModelsViewModel)DataContext).UnloadCommand}" CommandParameter="{Binding}"
+                              Content="Unload" ToolTip.Tip="Waits a few seconds for running requests, then frees the memory" />
+                    </StackPanel>
+                    <StackPanel Spacing="3">
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse Classes="dot" Classes.ok="{Binding IsReady}" Classes.busy="{Binding IsBusy}" Classes.pulse="{Binding IsBusy}" Classes.warn="{Binding IsLoading}" Classes.bad="{Binding IsFailed}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Id}" FontWeight="SemiBold" FontSize="14.5" />
+                        <Path Classes="icon" Data="{StaticResource IconPin}" Width="12" Height="12" IsVisible="{Binding IsPinned}" ToolTip.Tip="Pinned: never evicted or unloaded for idleness" />
+                        <TextBlock Classes="caption" Text="{Binding StateText}" VerticalAlignment="Center" />
+                      </StackPanel>
+                      <StackPanel Orientation="Horizontal" Spacing="10">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                          <Path Classes="icon" Data="{StaticResource IconChip}" Width="12" Height="12" />
+                          <TextBlock Classes="caption" Text="{Binding Device}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                          <Path Classes="icon" Data="{StaticResource IconMemory}" Width="12" Height="12" />
+                          <TextBlock Classes="caption" Text="{Binding MemoryText}" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{Binding LastUsedText}" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DockPanel>
+                  <StackPanel Spacing="4" IsVisible="{Binding IsLoading}">
+                    <ProgressBar Minimum="0" Maximum="1" Value="{Binding LoadProgress}" />
+                    <TextBlock Classes="caption" Text="{Binding LoadText}" />
+                  </StackPanel>
+                  <DockPanel>
+                    <views:CapabilityBadgesView DockPanel.Dock="Left" DataContext="{Binding Badges}" Margin="0,0,10,0" />
+                    <TextBlock Classes="caption" Text="{Binding Detail}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Panel>
+  </DockPanel>
+</UserControl>

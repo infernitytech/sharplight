@@ -1,0 +1,218 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:stvm="using:Sharplight.Studio.ViewModels.Stats"
+             xmlns:c="using:Sharplight.Studio.Controls"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.StatsPage"
+             x:DataType="stvm:StatsPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28,22,28,24" Spacing="16">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <ComboBox ItemsSource="{Binding ModelChoices}" SelectedItem="{Binding SelectedModel}" MinWidth="180" />
+          <ComboBox ItemsSource="{Binding Ranges}" SelectedItem="{Binding SelectedRange}" MinWidth="110">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="stvm:TimeRange">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+        <StackPanel Spacing="4">
+          <TextBlock Classes="h1" Text="Statistics" />
+          <TextBlock Classes="muted" Text="Speed, latency and usage of every chat and API request, per model." />
+        </StackPanel>
+      </DockPanel>
+
+      <!-- Live monitor -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="18">
+              <TextBlock Classes="caption" Text="{Binding CpuText, StringFormat='CPU {0}'}" />
+              <TextBlock Classes="caption" Text="{Binding BusyText, StringFormat='Engine busy {0}'}" />
+              <TextBlock Classes="caption" Text="{Binding ThroughputText}" />
+              <TextBlock Classes="caption" Text="{Binding MemoryText}" />
+              <TextBlock Classes="caption" Text="{Binding SequencesText}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Ellipse Classes="dot ok pulse" VerticalAlignment="Center" />
+              <TextBlock Classes="h3" Text="Live" />
+            </StackPanel>
+          </DockPanel>
+          <Grid ColumnDefinitions="*,16,*,16,*" Height="120">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Classes="section" Text="DECODE TOK/S (ALL MODELS)" />
+              <c:LineChart Points="{Binding ThroughputSeries}" IsTimeSeries="True" ShowAxis="False" EmptyText="Idle" />
+            </DockPanel>
+            <DockPanel Grid.Column="2">
+              <TextBlock DockPanel.Dock="Top" Classes="section" Text="CPU %" />
+              <c:LineChart Points="{Binding CpuSeries}" IsTimeSeries="True" ShowAxis="False" Maximum="100" />
+            </DockPanel>
+            <DockPanel Grid.Column="4">
+              <TextBlock DockPanel.Dock="Top" Classes="section" Text="ENGINE BUSY %" ToolTip.Tip="Share of time the engines were stepping (approximates GPU utilization)" />
+              <c:LineChart Points="{Binding BusySeries}" IsTimeSeries="True" ShowAxis="False" Maximum="100" />
+            </DockPanel>
+          </Grid>
+          <ItemsControl ItemsSource="{Binding DeviceMemory}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <UniformGrid Columns="3" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="stvm:DeviceUsageViewModel">
+                <StackPanel Spacing="4" Margin="0,0,16,0">
+                  <DockPanel>
+                    <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Text}" />
+                    <TextBlock Classes="caption" Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                  </DockPanel>
+                  <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Fraction}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <!-- Tiles -->
+      <ItemsControl ItemsSource="{Binding Tiles}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <UniformGrid Rows="1" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="stvm:StatTile">
+            <Border Classes="card" Margin="0,0,12,0" ToolTip.Tip="{Binding Hint}">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Border Width="26" Height="26" CornerRadius="8" Background="{DynamicResource AccentSoftBrush}">
+                    <Path Classes="icon accent" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" Width="13" Height="13" />
+                  </Border>
+                  <TextBlock Classes="caption" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="5">
+                  <TextBlock Classes="big" Text="{Binding Value}" />
+                  <TextBlock Classes="caption" Text="{Binding Unit}" VerticalAlignment="Bottom" Margin="0,0,0,5" />
+                </StackPanel>
+                <TextBlock Classes="caption" Text="{Binding Hint}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <Border Classes="hint" IsVisible="{Binding IsEmpty}">
+        <TextBlock Text="No requests in this range yet. Chat with a model or call the server and the numbers appear here." TextWrapping="Wrap" />
+      </Border>
+
+      <!-- Charts -->
+      <Grid ColumnDefinitions="*,16,*" RowDefinitions="Auto,16,Auto">
+        <Border Classes="card" Height="250">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14" Margin="0,0,0,8">
+              <TextBlock Classes="h3" Text="Decode speed" />
+              <TextBlock Classes="caption" Text="tokens/s per request" VerticalAlignment="Center" />
+            </StackPanel>
+            <c:LineChart Points="{Binding DecodeSeries}" IsTimeSeries="True" ValueFormat="0" />
+          </DockPanel>
+        </Border>
+        <Border Grid.Column="2" Classes="card" Height="250">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14" Margin="0,0,0,8">
+              <TextBlock Classes="h3" Text="Prefill speed" />
+              <TextBlock Classes="caption" Text="prompt tokens/s per request" VerticalAlignment="Center" />
+            </StackPanel>
+            <c:LineChart Points="{Binding PrefillSeries}" IsTimeSeries="True" ValueFormat="0" Stroke="{DynamicResource AccentSecondaryBrush}" />
+          </DockPanel>
+        </Border>
+        <Border Grid.Row="2" Classes="card" Height="250">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14" Margin="0,0,0,8">
+              <TextBlock Classes="h3" Text="Tokens" />
+              <TextBlock Classes="caption" Text="generated (accent) and prompt" VerticalAlignment="Center" />
+            </StackPanel>
+            <c:BarChart Bars="{Binding TokenBars}" />
+          </DockPanel>
+        </Border>
+        <Border Grid.Row="2" Grid.Column="2" Classes="card" Height="250">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="14" Margin="0,0,0,8">
+              <TextBlock Classes="h3" Text="Time to first token" />
+              <TextBlock Classes="caption" Text="ms per request" VerticalAlignment="Center" />
+            </StackPanel>
+            <c:LineChart Points="{Binding TtftSeries}" IsTimeSeries="True" ValueFormat="0" />
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <!-- Per model -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="h3" Text="Per model" />
+          <Grid ColumnDefinitions="2*,*,*,*,*,*">
+            <TextBlock Classes="section" Text="MODEL" />
+            <TextBlock Grid.Column="1" Classes="section" Text="REQUESTS" />
+            <TextBlock Grid.Column="2" Classes="section" Text="GENERATED" />
+            <TextBlock Grid.Column="3" Classes="section" Text="DECODE TOK/S" />
+            <TextBlock Grid.Column="4" Classes="section" Text="PREFILL TOK/S" />
+            <TextBlock Grid.Column="5" Classes="section" Text="MEDIAN TTFT" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding PerModel}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="stvm:ModelStatsRow">
+                <Grid ColumnDefinitions="2*,*,*,*,*,*" Margin="0,4">
+                  <TextBlock Text="{Binding Model}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="1" Text="{Binding Requests}" />
+                  <TextBlock Grid.Column="2" Text="{Binding Tokens}" />
+                  <TextBlock Grid.Column="3" Text="{Binding Decode}" />
+                  <TextBlock Grid.Column="4" Text="{Binding Prefill}" />
+                  <TextBlock Grid.Column="5" Text="{Binding Ttft}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <!-- Recent -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="ghost small danger" Content="Clear history" Command="{Binding ClearHistoryCommand}" />
+            <TextBlock Classes="h3" Text="Recent requests" VerticalAlignment="Center" />
+          </DockPanel>
+          <Grid ColumnDefinitions="130,2*,60,*,*,*,*,*,*">
+            <TextBlock Classes="section" Text="TIME" />
+            <TextBlock Grid.Column="1" Classes="section" Text="MODEL" />
+            <TextBlock Grid.Column="2" Classes="section" Text="FROM" />
+            <TextBlock Grid.Column="3" Classes="section" Text="TOKENS" />
+            <TextBlock Grid.Column="4" Classes="section" Text="DECODE" />
+            <TextBlock Grid.Column="5" Classes="section" Text="PREFILL" />
+            <TextBlock Grid.Column="6" Classes="section" Text="TTFT" />
+            <TextBlock Grid.Column="7" Classes="section" Text="ACCEPTED" />
+            <TextBlock Grid.Column="8" Classes="section" Text="FINISH" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding Recent}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="stvm:RequestRowViewModel">
+                <Grid ColumnDefinitions="130,2*,60,*,*,*,*,*,*" Margin="0,3">
+                  <TextBlock Classes="caption" Text="{Binding Time}" />
+                  <TextBlock Grid.Column="1" Text="{Binding Model}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Source}" />
+                  <TextBlock Grid.Column="3" Text="{Binding Tokens}" />
+                  <TextBlock Grid.Column="4" Text="{Binding Decode}" />
+                  <TextBlock Grid.Column="5" Text="{Binding Prefill}" />
+                  <TextBlock Grid.Column="6" Text="{Binding Ttft}" />
+                  <TextBlock Grid.Column="7" Text="{Binding Acceptance}" />
+                  <TextBlock Grid.Column="8" Classes="caption" Text="{Binding Finish}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

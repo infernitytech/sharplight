@@ -122,7 +122,7 @@ public sealed class SlangCompiler : IDisposable
     {
         if (cache is not null && cache.TryGet(modelCacheKey, out var stored))
         {
-            kernel.Complete(stored.ToArray());
+            kernel.CompleteFromCache(stored.ToArray());
             return;
         }
 
@@ -132,7 +132,7 @@ public sealed class SlangCompiler : IDisposable
         if (cachePath is not null && TryRead(cachePath) is { } cached)
         {
             Interlocked.Increment(ref s_diskHits);
-            kernel.Complete(cached);
+            kernel.CompleteFromCache(cached);
             return;
         }
 

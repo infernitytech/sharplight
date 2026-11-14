@@ -1,0 +1,48 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Accent brushes are replaced at runtime by ThemeService (palette from the settings); these are the Violet defaults. -->
+  <SolidColorBrush x:Key="AccentBrush" Color="#7C5CFF" />
+  <SolidColorBrush x:Key="AccentSecondaryBrush" Color="#22C1EE" />
+  <SolidColorBrush x:Key="AccentSoftBrush" Color="#7C5CFF" Opacity="0.16" />
+  <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0%,0%" EndPoint="100%,100%">
+    <GradientStop Color="#7C5CFF" Offset="0" />
+    <GradientStop Color="#22C1EE" Offset="1" />
+  </LinearGradientBrush>
+  <SolidColorBrush x:Key="SuccessBrush" Color="#22C55E" />
+  <SolidColorBrush x:Key="WarningBrush" Color="#F59E0B" />
+  <SolidColorBrush x:Key="DangerBrush" Color="#EF4444" />
+  <SolidColorBrush x:Key="InfoBrush" Color="#38BDF8" />
+
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="AppBackgroundBrush" Color="#0E1015" />
+      <SolidColorBrush x:Key="SidebarBrush" Color="#12141A" />
+      <SolidColorBrush x:Key="SurfaceBrush" Color="#171A21" />
+      <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1E222B" />
+      <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#252A35" />
+      <SolidColorBrush x:Key="BorderSubtleBrush" Color="#272C37" />
+      <SolidColorBrush x:Key="TextPrimaryBrush" Color="#E8EAF0" />
+      <SolidColorBrush x:Key="TextSecondaryBrush" Color="#A1A8B8" />
+      <SolidColorBrush x:Key="TextMutedBrush" Color="#6B7385" />
+      <SolidColorBrush x:Key="CodeBackgroundBrush" Color="#0A0C10" />
+      <SolidColorBrush x:Key="InlineCodeBrush" Color="#262B36" />
+      <SolidColorBrush x:Key="UserBubbleBrush" Color="#232838" />
+      <SolidColorBrush x:Key="GridLineBrush" Color="#4A5263" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F5F6FA" />
+      <SolidColorBrush x:Key="SidebarBrush" Color="#ECEEF4" />
+      <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="SurfaceAltBrush" Color="#F1F3F8" />
+      <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#E7EAF2" />
+      <SolidColorBrush x:Key="BorderSubtleBrush" Color="#E0E3EB" />
+      <SolidColorBrush x:Key="TextPrimaryBrush" Color="#141720" />
+      <SolidColorBrush x:Key="TextSecondaryBrush" Color="#4B5263" />
+      <SolidColorBrush x:Key="TextMutedBrush" Color="#8A91A1" />
+      <SolidColorBrush x:Key="CodeBackgroundBrush" Color="#F6F7FA" />
+      <SolidColorBrush x:Key="InlineCodeBrush" Color="#ECEEF4" />
+      <SolidColorBrush x:Key="UserBubbleBrush" Color="#ECEAFE" />
+      <SolidColorBrush x:Key="GridLineBrush" Color="#B4BAC8" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

@@ -34,7 +34,7 @@
             </DataGrid>
             <Grid Grid.Row="4" ColumnDefinitions="Auto,*" Margin="0,8,0,4">
               <TextBlock Classes="heading" Margin="0,0,12,0" VerticalAlignment="Center" Text="Entries" />
-              <TextBox Grid.Column="1" Watermark="Filter (key)" Text="{Binding EntryFilter}" />
+              <TextBox Grid.Column="1" PlaceholderText="Filter (key)" Text="{Binding EntryFilter}" />
             </Grid>
             <DataGrid Grid.Row="5" ItemsSource="{Binding Entries}" IsReadOnly="True" GridLinesVisibility="Horizontal"
                       FontFamily="monospace">

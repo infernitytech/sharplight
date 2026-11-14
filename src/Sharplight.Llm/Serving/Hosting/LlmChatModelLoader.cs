@@ -22,6 +22,7 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         var model = LlmModel.Load(path, load);
         try
         {
+            ct.ThrowIfCancellationRequested();
             var fp = model.EstimateFootprint(_chat.Slots, load.ContextLength, _chat.KvCacheTokens);
             // The model is split over the pipeline devices in proportion to their weights (equal when unset).
             var devs = load.Devices;

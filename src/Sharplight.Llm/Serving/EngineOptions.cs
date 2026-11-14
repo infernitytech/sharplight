@@ -42,4 +42,9 @@ public sealed record EngineOptions
     /// step grows less as the batch, and with it the compute share of the step, grows.
     /// </summary>
     public int SpeculationMaxDraftRows { get; init; } = 16;
+    /// <summary>
+    /// Called once per finished request (any reason) with its usage and timings, for statistics and request logs. Runs on the
+    /// scheduler thread after the final chunk was written: keep it short and non-blocking; exceptions are ignored.
+    /// </summary>
+    public Action<FinishedRequest>? RequestFinished { get; init; }
 }

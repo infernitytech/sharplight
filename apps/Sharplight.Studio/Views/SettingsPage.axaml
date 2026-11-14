@@ -1,0 +1,252 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:setvm="using:Sharplight.Studio.ViewModels.Settings"
+             xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
+             xmlns:models="using:Sharplight.Studio.Models"
+             x:Class="Sharplight.Studio.Views.SettingsPage"
+             x:DataType="setvm:SettingsPageViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="28,22,28,24" Spacing="16" MaxWidth="980" HorizontalAlignment="Left">
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Classes="small" Content="Reset defaults" Command="{Binding ResetDefaultsCommand}" VerticalAlignment="Center" />
+        <StackPanel Spacing="4">
+          <TextBlock Classes="h1" Text="Settings" />
+          <TextBlock Classes="muted" Text="Changes are saved immediately." />
+        </StackPanel>
+      </DockPanel>
+      <Border Classes="hint" IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+      </Border>
+
+      <!-- Appearance -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Appearance" />
+          <Grid ColumnDefinitions="200,*">
+            <TextBlock Classes="label" Text="Theme" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding Themes}" SelectedItem="{Binding Theme}" MinWidth="160">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="setvm:ThemeChoice">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+          <Grid ColumnDefinitions="200,*">
+            <TextBlock Classes="label" Text="Accent" VerticalAlignment="Center" />
+            <ListBox Grid.Column="1" Classes="plain" ItemsSource="{Binding Accents}" SelectedItem="{Binding Accent}">
+              <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Orientation="Horizontal" Spacing="4" />
+                </ItemsPanelTemplate>
+              </ListBox.ItemsPanel>
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="models:AccentPalette">
+                  <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,5">
+                    <Ellipse Width="16" Height="16" Fill="{Binding Accent}" />
+                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- Models -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Models" />
+          <StackPanel>
+            <TextBlock Classes="label" Text="Models directory" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Classes="small" Content="Open" Command="{Binding OpenModelsDirectoryCommand}" Margin="6,0,0,0" />
+              <Button DockPanel.Dock="Right" Classes="small" Content="Default" Command="{Binding ResetModelsDirectoryCommand}" Margin="6,0,0,0" />
+              <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseModelsDirectoryCommand}" Margin="6,0,0,0" />
+              <TextBox Text="{Binding ModelsDirectory}" PlaceholderText="Default: like the command-line tools" />
+            </DockPanel>
+            <TextBlock Classes="caption" Margin="0,4,0,0" TextWrapping="Wrap">
+              <Run Text="In use:" />
+              <Run Text="{Binding StoreRoot, Mode=OneWay}" FontWeight="Medium" />
+              <Run Text="{Binding StoreRootSource, Mode=OneWay, StringFormat='({0})'}" />
+            </TextBlock>
+          </StackPanel>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Hugging Face token (for gated models and higher rate limits)" />
+            <TextBox Text="{Binding HuggingFaceToken}" PasswordChar="•" PlaceholderText="hf_… (falls back to HF_TOKEN)" />
+          </StackPanel>
+          <ToggleSwitch Content="Precompile GPU kernels after downloading (faster first load)" IsChecked="{Binding PrecompileAfterDownload}" />
+          <ToggleSwitch Content="Keep the downloaded source files after converting" IsChecked="{Binding KeepSourceFiles}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Load defaults -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Load defaults" />
+          <TextBlock Classes="caption" Text="Used when a model is loaded from the library, on demand by the server, or from chat." />
+          <Grid ColumnDefinitions="*,12,*,12,*" RowDefinitions="Auto,12,Auto">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Device" />
+              <ComboBox ItemsSource="{Binding Devices}" SelectedItem="{Binding DefaultDevice}" HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="models:ComputeDeviceOption">
+                    <TextBlock Text="{Binding Display}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="label" Text="Context length" />
+              <NumericUpDown Value="{Binding ContextLength}" Minimum="256" Maximum="1048576" Increment="1024" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Column="4">
+              <TextBlock Classes="label" Text="KV cache" />
+              <ComboBox ItemsSource="{Binding KvCacheChoices}" SelectedItem="{Binding KvCache}" HorizontalAlignment="Stretch">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="mvm:KvCacheChoice">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Row="2">
+              <TextBlock Classes="label" Text="Parallel slots" />
+              <NumericUpDown Value="{Binding Slots}" Minimum="1" Maximum="64" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="2">
+              <TextBlock Classes="label" Text="N-gram drafts" />
+              <NumericUpDown Value="{Binding NgramDraftTokens}" Minimum="0" Maximum="16" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Row="2" Grid.Column="4">
+              <TextBlock Classes="label" Text="MTP drafts (models with a draft head)" />
+              <NumericUpDown Value="{Binding MtpDraftTokens}" Minimum="0" Maximum="8" FormatString="0" />
+            </StackPanel>
+          </Grid>
+          <StackPanel>
+            <TextBlock Classes="label" Text="Prompt batch (tokens per prefill chunk)" />
+            <NumericUpDown Value="{Binding BatchTokens}" Minimum="16" Maximum="8192" Increment="128" FormatString="0" Width="200" HorizontalAlignment="Left" />
+          </StackPanel>
+          <ToggleSwitch Content="Offload to the CPU when a model does not fit" IsChecked="{Binding CpuOffload}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Residency -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Residency" />
+          <TextBlock Classes="caption" TextWrapping="Wrap" Text="Several models can stay loaded at once. Before a load the engine estimates the model's footprint; when it does not fit, idle models are evicted (least recently used first) or the load is refused." />
+          <Grid ColumnDefinitions="*,12,*,12,*">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Keep free per device (MiB)" />
+              <NumericUpDown Value="{Binding ReserveMiB}" Minimum="0" Maximum="65536" Increment="256" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="label" Text="Max resident models (0 = no limit)" />
+              <NumericUpDown Value="{Binding MaxLoadedModels}" Minimum="0" Maximum="64" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Column="4">
+              <TextBlock Classes="label" Text="Unload when idle (minutes, 0 = never)" />
+              <NumericUpDown Value="{Binding IdleUnloadMinutes}" Minimum="0" Maximum="10080" Increment="5" FormatString="0" />
+            </StackPanel>
+          </Grid>
+          <ToggleSwitch Content="Pin models loaded by hand (never evicted or unloaded for idleness)" IsChecked="{Binding PinManualLoads}" />
+          <ToggleSwitch Content="Load library models on demand for API requests" IsChecked="{Binding LoadOnDemand}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Chat defaults -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="New chat defaults" />
+          <StackPanel>
+            <TextBlock Classes="label" Text="System prompt" />
+            <TextBox Text="{Binding DefaultSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
+          </StackPanel>
+          <Grid ColumnDefinitions="*,12,*,12,*,12,*,12,*">
+            <StackPanel>
+              <TextBlock Classes="label" Text="Temperature" />
+              <NumericUpDown Value="{Binding Temperature}" Minimum="0" Maximum="2" Increment="0.05" FormatString="0.00" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="label" Text="Top P" />
+              <NumericUpDown Value="{Binding TopP}" Minimum="0" Maximum="1" Increment="0.05" FormatString="0.00" />
+            </StackPanel>
+            <StackPanel Grid.Column="4">
+              <TextBlock Classes="label" Text="Top K" />
+              <NumericUpDown Value="{Binding TopK}" Minimum="0" Maximum="1000" FormatString="0" />
+            </StackPanel>
+            <StackPanel Grid.Column="6">
+              <TextBlock Classes="label" Text="Min P" />
+              <NumericUpDown Value="{Binding MinP}" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+            </StackPanel>
+            <StackPanel Grid.Column="8">
+              <TextBlock Classes="label" Text="Max tokens" />
+              <NumericUpDown Value="{Binding MaxTokens}" Minimum="16" Maximum="262144" Increment="256" FormatString="0" />
+            </StackPanel>
+          </Grid>
+          <ToggleSwitch Content="Thinking (reasoning models)" IsChecked="{Binding EnableThinking}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Engine -->
+      <Border Classes="card">
+        <StackPanel Spacing="12">
+          <TextBlock Classes="h3" Text="Engine features" />
+          <TextBlock Classes="caption" TextWrapping="Wrap" Text="Device features the engine detected. Switch one off to fall back to a portable path, e.g. to rule out a driver problem. Applies to models loaded afterwards." />
+          <Border Classes="panel" Padding="14,12">
+            <DockPanel>
+              <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding AllowReducedPrecision}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
+              <StackPanel Spacing="3">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="Reduced precision" FontWeight="SemiBold" />
+                  <Border Classes="badge accent">
+                    <TextBlock Text="Opt-in" />
+                  </Border>
+                </StackPanel>
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="Off by default. Allows faster f16 kernel paths where the default keeps near-f32 accuracy, such as the chunked delta rule of linear-attention models. Outputs may differ slightly from the reference." />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+          <ItemsControl ItemsSource="{Binding Features}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="setvm:FeatureToggleViewModel">
+                <DockPanel Margin="0,5">
+                  <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsEnabled}" OnContent="On" OffContent="Off" VerticalAlignment="Center" />
+                  <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <TextBlock Classes="mono" Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Classes="caption" Text="{Binding DetectedOn}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Classes="caption" Text="{Binding Description}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </DockPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="caption" Text="{Binding EnvironmentDisabled}" IsVisible="{Binding EnvironmentDisabled, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </Border>
+
+      <!-- Data / About -->
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="h3" Text="Data" />
+          <DockPanel>
+            <Button DockPanel.Dock="Right" Classes="small danger" Content="Clear statistics" Command="{Binding ClearStatisticsCommand}" />
+            <TextBlock Classes="caption" Text="Request history used by the statistics page. Conversations are kept." VerticalAlignment="Center" />
+          </DockPanel>
+          <Border Classes="divider" Margin="0,6" />
+          <TextBlock Classes="h3" Text="About" />
+          <TextBlock Classes="caption">
+            <Run Text="Sharplight Studio" FontWeight="SemiBold" />
+            <Run Text="{Binding Version, Mode=OneWay}" />
+            <Run Text="·" />
+            <Run Text="{Binding Runtime, Mode=OneWay}" />
+            <Run Text="· MIT licensed" />
+          </TextBlock>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
