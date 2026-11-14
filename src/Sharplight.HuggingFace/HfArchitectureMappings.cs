@@ -45,6 +45,8 @@ internal static class HfArchitectureMappings
         yield return new MptHfMapping();
         yield return new SmolLm3HfMapping();
         yield return new Olmo2HfMapping();
+        yield return new ChameleonHfMapping();
+        yield return new EmbeddingGemma2HfMapping();
         yield return new Glm4HfMapping();
         yield return new Ernie45HfMapping();
         yield return new HunyuanDenseHfMapping();
@@ -52,6 +54,7 @@ internal static class HfArchitectureMappings
         yield return new Ernie45MoeHfMapping();
         yield return new HunyuanMoeHfMapping();
         yield return new MiniMaxM2HfMapping();
+        yield return new MiniMaxM3HfMapping();
         yield return new BailingMoeV2HfMapping();
         yield return new GptOssHfMapping();
         yield return new Llama4HfMapping();

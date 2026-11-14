@@ -17,7 +17,8 @@ namespace Sharplight.Architectures;
 /// <item>optional mixing matrix C = sinkhorn(softmax_rows(m[2N:]·scale[2] + base[2N:]) + eps) (doubly stochastic, DeepSeek-V4);</item>
 /// <item>after the block: X'_k = post_k·y + Σ_j C[j, k]·X_j (or + X_k without a mixing matrix).</item>
 /// </list>
-/// The final head collapses the streams with its own pre weights before the output norm.
+/// The final head collapses the streams with its own pre weights before the output norm, or averages them (<see cref="Mean"/>) when the
+/// model has no head.
 /// </remarks>
 internal static class StreamHyperConnections
 {
@@ -68,6 +69,10 @@ internal static class StreamHyperConnections
         var pre = Weights(b, m, b.Weight(prefix + "scale"), b.Weight(prefix + "base"), 0, o.Streams, 1f, o.Eps);
         return Sum(b, x, pre, o.Streams, hidden, $"{prefix}output");
     }
+
+    /// <summary>The unweighted mean of the streams [T, N·H] → [T, H] (a final collapse without a learned head).</summary>
+    public static Value Mean(GraphBuilder b, Value x, int streams, int hidden)
+        => b.Scale(b.Reshape(b.Emit1("ReduceSum", [b.Permute(b.Reshape(x, 0, streams, hidden), 0, 2, 1)]), 0, hidden), 1f / streams, name: "output_hc_mean");
 
     // fn · rms_norm(x): the norm is a per-token factor, so this equals fn · x scaled by the inverse RMS (Hunyuan v4's form).
     private static Value Mixes(GraphBuilder b, Value x, string prefix, StreamHyperConnectionOptions o)

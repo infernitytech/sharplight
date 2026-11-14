@@ -169,6 +169,8 @@ public class FamilyGenerationTests
         .. MappedFamilyCases.All,
         // Linear-attention hybrids: delta attention with per-channel decay (Kimi-Linear, Ling 3) and lightning attention (MiniMax-01).
         .. LinearAttentionFamilyCases.All,
+        // Bring-up round 7: Chameleon (per-head q/k layer norms, swin norm, suppressed image-token logits), ...
+        .. ExtendedFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)

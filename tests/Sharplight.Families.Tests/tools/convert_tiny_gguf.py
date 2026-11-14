@@ -3,7 +3,9 @@ Converts tiny transformers checkpoints (written by mk_tiny_decoders.py) to f32 G
 they are (deepseek_v32, glm_moe_dsa, ...) only need its tokenizer check relaxed; the linear-attention hybrids need more, as the converter only
 knows their original remote-code checkpoints: kimi_linear (KimiLinearForCausalLM, as is), bailing_hybrid (renamed
 BailingMoeV3ForCausalLM with the original config keys) and minimax (renamed MiniMaxText01ForCausalLM with the original layernorm_* / attn_type_list /
-rotary_dim keys; llama.cpp supports only equal alpha factors and beta factors of 1, so the checkpoint must be written with those).
+rotary_dim keys; llama.cpp supports only equal alpha factors and beta factors of 1, so the checkpoint must be written with those) and
+minimax_m3_vl (the published sparse_attention_config / moe_layer_freq / n_shared_experts / scoring_func keys added) and glm5_next
+(the published linear_attn_config / mla_use_nope / first_k_dense_replace keys added).
 The converter is patched to take the GPT-2 style tokenizer.json of the tiny checkpoints.
 
     python convert_tiny_gguf.py <llama.cpp source> <checkpoint directory> <output .gguf>
@@ -103,7 +105,32 @@ with tempfile.TemporaryDirectory() as work:
                 name = name.replace(f".block_sparse_moe.{part}.", f".mlp.{part}.")
             return name
         rewrite(dense)
-    if kind in ("kimi_linear", "bailing_hybrid", "minimax"):
+    elif kind == "minimax_m3_vl":
+        # The converter reads the published config keys (sparse_attention_config, moe_layer_freq, n_shared_experts) that transformers
+        # folds into flat ones, and the published name mlp.* of the leading dense layers (transformers saves them under block_sparse_moe).
+        text = config["text_config"]
+        text["sparse_attention_config"] = dict(sparse_num_index_heads=text["index_n_heads"], sparse_index_dim=text["index_head_dim"],
+                                               sparse_topk_blocks=text["index_topk_blocks"], sparse_block_size=text["index_block_size"],
+                                               sparse_local_block=text["index_local_blocks"],
+                                               sparse_attention_freq=[int(t == "minimax_m3_sparse") for t in text["layer_types"]])
+        text["moe_layer_freq"] = [int(t == "sparse") for t in text["mlp_layer_types"]]
+        text["n_shared_experts"] = 1
+        text["scoring_func"] = "sigmoid"
+        def dense(name):
+            for part in ("gate_proj", "up_proj", "down_proj"):
+                name = name.replace(f".block_sparse_moe.{part}.", f".mlp.{part}.")
+            return name
+        rewrite(dense)
+    elif kind == "glm5_next":
+        # The converter reads the published linear_attn_config / mla_use_nope / first_k_dense_replace keys.
+        text = config["text_config"]
+        text["linear_attn_config"] = dict(num_heads=text["linear_num_heads"], head_dim=text["linear_head_dim"],
+                                          short_conv_kernel_size=text["linear_conv_kernel_dim"], gate_lower_bound=text["linear_lower_bound"])
+        text["mla_use_nope"] = True
+        text["first_k_dense_replace"] = text["mlp_layer_types"].index("sparse")
+        from conversion import glm
+        glm.Glm5NextModel.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer has no GLM special tokens
+    if kind in ("kimi_linear", "bailing_hybrid", "minimax", "minimax_m3_vl"):
         # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
         config["model_type"] = kind + "_original"
     json.dump(config, open(path, "w"), indent=1)

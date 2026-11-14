@@ -73,18 +73,20 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
     {
         var p = parameters;
         var q = Query(b, h, prefix, out var queryInput);                                                                   // [T, H, nope + rope]
-        var queryNope = b.Slice(q, 2, 0, p.NopeDims);
-        var queryRope = Magnitude(b, rotate(b.Slice(q, 2, p.NopeDims, p.RopeDims)));
+        // Without rotary dimensions (GLM-5.3-Flash: no positional encoding) the rows are the latent alone.
+        bool rope = p.RopeDims > 0;
+        var queryNope = rope ? b.Slice(q, 2, 0, p.NopeDims) : q;
 
         var compressed = b.Linear(h, prefix + "attention.kv_down.weight", name: $"{prefix}kv_down");                       // [T, latent + rope]
-        var latent = b.RmsNorm(b.Slice(compressed, 1, 0, p.LatentRank), b.Weight(prefix + "attention.kv_down_norm.weight"), p.Eps);
-        var keyRope = Magnitude(b, rotate(b.Reshape(b.Slice(compressed, 1, p.LatentRank, p.RopeDims), 0, 1, p.RopeDims)));
+        var latent = b.RmsNorm(rope ? b.Slice(compressed, 1, 0, p.LatentRank) : compressed, b.Weight(prefix + "attention.kv_down_norm.weight"), p.Eps);
+        var latentRow = b.Reshape(latent, 0, 1, p.LatentRank);
         var state = b.State(cache);
-        b.CacheWrite(state, b.Concat(2, b.Reshape(latent, 0, 1, p.LatentRank), keyRope));
+        b.CacheWrite(state, rope ? b.Concat(2, latentRow, Magnitude(b, rotate(b.Reshape(b.Slice(compressed, 1, p.LatentRank, p.RopeDims), 0, 1, p.RopeDims))))
+            : latentRow);
 
         // Absorbed query: per head W_UK,hᵀ · q_nope through an expert-indexed product (expert = head).
         var queryLatent = b.Emit1("MatMulId", [queryNope, b.Weight(prefix + "attention.k_up.weight"), headIds], null, $"{prefix}q_latent");
-        var query = b.Concat(2, queryLatent, queryRope);                                                                   // [T, H, latent + rope]
+        var query = rope ? b.Concat(2, queryLatent, Magnitude(b, rotate(b.Slice(q, 2, p.NopeDims, p.RopeDims)))) : queryLatent;   // [T, H, latent + rope]
         if (temperature is not null)
         {
             // The absorbed query is linear in the original one, so tempering it scales the scores exactly as tempering q would.

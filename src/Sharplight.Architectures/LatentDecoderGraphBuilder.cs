@@ -163,7 +163,10 @@ internal sealed partial class LatentDecoderGraphBuilder
         {
             if (_hp.HyperConnections is { } streams)
             {
-                x = StreamHyperConnections.Head(b, x, "output_hc.", streams, _hp.HiddenSize);
+                // A learned head collapses the streams with its own weights; without one (GLM-5.3-Flash) they are averaged.
+                x = b.HasWeight("output_hc.fn.weight")
+                    ? StreamHyperConnections.Head(b, x, "output_hc.", streams, _hp.HiddenSize)
+                    : StreamHyperConnections.Mean(b, x, streams.Streams, _hp.HiddenSize);
             }
 
             var hidden = b.RmsNorm(x, b.Weight("output_norm.weight"), _hp.Eps, "result_norm");

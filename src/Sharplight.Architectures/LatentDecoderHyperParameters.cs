@@ -10,7 +10,7 @@ internal sealed record LatentDecoderHyperParameters(
     int LayerCount, int HiddenSize, int Vocab, int ContextLength, float Eps, LatentAttentionParameters Attention,
     float RopeBase, string RopeStyle, string Activation, bool Gated, float EmbeddingScale, float ResidualScale, float LogitScale,
     MoeOptions Moe, float TemperatureScale, float TemperatureLength, StreamHyperConnectionOptions? HyperConnections, float[] MoeSwigluClamp,
-    bool MoeSwigluClampInput, SparseAttentionIndexerOptions? Indexer)
+    bool MoeSwigluClampInput, SparseAttentionIndexerOptions? Indexer, float[] MlpSwigluClamp, bool MlpSwigluClampInput)
 {
     /// <summary>Reads and validates the hyper-parameters of a latent decoder source.</summary>
     /// <exception cref="InvalidDataException">A required key is missing or a routing key is unknown.</exception>
@@ -49,7 +49,9 @@ internal sealed record LatentDecoderHyperParameters(
             HyperConnections: StreamHyperConnectionOptions.Read(src, attention.Eps),
             MoeSwigluClamp: src.Arch("moe.swiglu_clamp", Array.Empty<float>()),
             MoeSwigluClampInput: src.Arch("moe.swiglu_clamp_input", false),
-            Indexer: SparseAttentionIndexerOptions.Read(src));
+            Indexer: SparseAttentionIndexerOptions.Read(src),
+            MlpSwigluClamp: src.Arch("mlp.swiglu_clamp", Array.Empty<float>()),
+            MlpSwigluClampInput: src.Arch("mlp.swiglu_clamp_input", false));
         if (hp.TemperatureScale != 0f && hp.TemperatureLength <= 0f)
         {
             throw new InvalidDataException("latent_decoder: attention.temperature_scale needs a positive attention.temperature_length.");
@@ -58,6 +60,11 @@ internal sealed record LatentDecoderHyperParameters(
         if (hp.MoeSwigluClamp.Length is not 0 && hp.MoeSwigluClamp.Length != hp.LayerCount)
         {
             throw new InvalidDataException("latent_decoder: moe.swiglu_clamp must have layer_count entries.");
+        }
+
+        if (hp.MlpSwigluClamp.Length is not 0 && hp.MlpSwigluClamp.Length != hp.LayerCount)
+        {
+            throw new InvalidDataException("latent_decoder: mlp.swiglu_clamp must have layer_count entries.");
         }
 
         return hp;

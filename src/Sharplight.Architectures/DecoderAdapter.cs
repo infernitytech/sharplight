@@ -73,7 +73,11 @@ namespace Sharplight.Architectures;
 /// take positions [T, 4]) with <c>rope.sections_interleaved</c> (default false: contiguous sections, Qwen2-VL; true: frequencies cycle through the
 /// axes, Qwen3-VL).
 /// <c>attention.qk_norm_unweighted</c> (bool: q/k get a weight-less RMS norm when the layer has no q/k norm weight),
-/// <c>attention.v_norm</c> (bool: v gets a weight-less RMS norm), <c>post_norm_eps</c> (epsilon of attention.out_norm / mlp.out_norm, default norm_eps).</item>
+/// <c>attention.v_norm</c> (bool: v gets a weight-less RMS norm), <c>post_norm_eps</c> (epsilon of attention.out_norm / mlp.out_norm, default norm_eps).
+/// <c>attention.qk_norm_type</c> ("rms" (default) or "layer": the q/k norms are mean-centred layer norms that add <c>attention.{q,k}_norm.bias</c> when present)
+/// with <c>attention.qk_norm_eps</c> (default norm_eps); a q/k norm weight of shape [heads, head_dim] gives every head its own gain and bias (Chameleon).
+/// <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs: those token ids get the lowest float as logit, Chameleon's image tokens).</item>
+/// <item>Per-layer embeddings without <c>per_layer.embedding.weight</c> (EmbeddingGemma 2) use the projection part alone: input = norm(proj(e)·H^-½).</item>
 /// <item>Per-layer embeddings (Gemma 3n/4 "PLE"; present when <c>per_layer.size</c> = P &gt; 0): weights <c>per_layer.embedding.weight</c> [V, L·P],
 /// <c>per_layer.model_projection.weight</c> [L·P, H], <c>per_layer.projection_norm.weight</c> [P]; per layer <c>layers.{i}.per_layer.{gate,projection}.weight</c>
 /// ([P, H] / [H, P]) and <c>layers.{i}.per_layer.norm.weight</c>. Per-layer input = (norm(proj(e)·H^-½) + emb[token]·√P)·2^-½ with e the scaled token embedding;

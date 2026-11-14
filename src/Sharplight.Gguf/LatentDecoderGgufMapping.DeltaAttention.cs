@@ -7,7 +7,7 @@ namespace Sharplight.Gguf;
 /// <summary>
 /// Delta-attention hybrids on the latent decoder: <c>kimi-linear</c> (Kimi-Linear: low-rank decay / gate projections, latent attention without
 /// rotary embedding) and <c>bailingmoe3</c> (Ling 3: full-rank projections, the bounded gate, latent attention with rope and a per-head output
-/// gate). A layer whose <c>attention.head_count_kv</c> entry is 0 is a delta-attention layer; its three short convolutions
+/// gate) and <c>glm5-next</c> (GLM-5.3-Flash: Kimi's low-rank projections with the bounded gate). A layer whose <c>attention.head_count_kv</c> entry is 0 is a delta-attention layer; its three short convolutions
 /// (<c>ssm_conv1d_{q,k,v}</c>) are joined into the canonical [3·heads·D, kernel] f32 weight.
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping
@@ -16,7 +16,7 @@ internal sealed partial class LatentDecoderGgufMapping
 
     private static bool IsBailing3(GgufMetadataView g) => g.GgufArchitecture == "bailingmoe3";
 
-    private static bool IsDeltaHybrid(GgufMetadataView g) => IsKimiLinear(g) || IsBailing3(g);
+    private static bool IsDeltaHybrid(GgufMetadataView g) => IsKimiLinear(g) || IsBailing3(g) || IsGlm5Next(g);
 
     /// <summary>Whether trunk layer <paramref name="layer"/> is a delta-attention layer (no key/value heads).</summary>
     private static bool IsDeltaLayer(GgufMetadataView g, int layer)
@@ -31,6 +31,14 @@ internal sealed partial class LatentDecoderGgufMapping
         if (IsBailing3(g))
         {
             md[a + "linear_attention.decay_bound"] = g.Float("kda.gate_lower_bound");
+        }
+        else if (IsGlm5Next(g))
+        {
+            md[a + "rope.style"] = "none";               // no rotary dimensions
+            if (g.Has("kda.gate_lower_bound"))
+            {
+                md[a + "linear_attention.decay_bound"] = g.Float("kda.gate_lower_bound");
+            }
         }
         else
         {
@@ -61,7 +69,7 @@ internal sealed partial class LatentDecoderGgufMapping
     /// <summary>Canonical suffix of a delta-layer tensor, or null when it is not delta-attention specific.</summary>
     private static string? MapDeltaSuffix(GgufMetadataView g, string suffix)
     {
-        bool lowRank = IsKimiLinear(g);
+        bool lowRank = IsKimiLinear(g) || IsGlm5Next(g);
         return suffix switch
         {
             "ssm_f_a.weight" => lowRank ? "linear_attention.decay_down.weight" : "linear_attention.decay.weight",

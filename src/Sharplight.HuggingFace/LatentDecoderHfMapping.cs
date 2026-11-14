@@ -7,7 +7,7 @@ namespace Sharplight.HuggingFace;
 /// <summary>
 /// Hugging Face checkpoints with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
 /// <c>LatentDecoderAdapter</c>): <c>deepseek_v2</c>, <c>deepseek_v3</c> / <c>kimi_k2</c>, <c>glm4_moe_lite</c> (GLM-4.7-Flash),
-/// <c>minicpm3</c>, <c>hy_v4</c> (Hunyuan v4, <c>LatentDecoderHfMapping.HyV4.cs</c>) and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
+/// <c>minicpm3</c>, <c>hy_v4</c> (Hunyuan v4, <c>LatentDecoderHfMapping.HyV4.cs</c>), <c>glm5_next</c> (GLM-5.3-Flash, <c>LatentDecoderHfMapping.Glm5Next.cs</c>) and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
 /// tensors are stacked; multi-token-prediction layers (after <c>num_hidden_layers</c>) map like decoder layers below
 /// <c>mtp.layers.{j}.</c>, with their NextN tensors (<see cref="HfNextnTensors"/>).
 /// </summary>
@@ -18,7 +18,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
-        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa"];
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -80,7 +80,11 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         }
 
         AddTemperature(md, a, c);
-        if (IsHyV4(c))
+        if (IsGlm5Next(c))
+        {
+            AddGlm5NextHyperParameters(md, a, c);
+        }
+        else if (IsHyV4(c))
         {
             AddHyV4HyperParameters(md, a, c);
         }
@@ -248,7 +252,8 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         }
     }
 
-    [GeneratedRegex(@"^model\.layers\.(\d+)\.(.+)$")]
+    // The text model's layers, alone or inside a multimodal checkpoint (model.language_model.layers).
+    [GeneratedRegex(@"^model\.(?:language_model\.)?layers\.(\d+)\.(.+)$")]
     private static partial Regex LayerName();
 
     [GeneratedRegex(@"^mlp\.experts\.(\d+)\.(gate|up|down)_proj\.weight$")]
@@ -293,6 +298,11 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
                 continue;
             }
 
+            if (IsGlm5Next(c) && name.StartsWith("model.visual.", StringComparison.Ordinal))
+            {
+                continue;   // the vision tower is not imported
+            }
+
             var m = LayerName().Match(name);
             if (!m.Success)
             {
@@ -316,6 +326,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
                 continue;
             }
             else if ((HasIndexer(c) || IsHyV4(c)) && TryMapIndexer(prefix, suffix, w, collector))
+            {
+                continue;
+            }
+            else if (IsGlm5Next(c) && TryMapGlm5NextLayer(prefix, suffix, w, collector))
             {
                 continue;
             }
@@ -345,10 +359,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     {
         switch (name)
         {
-            case "model.embed_tokens.weight" or "model.word_embeddings.weight":
+            case "model.embed_tokens.weight" or "model.word_embeddings.weight" or "model.language_model.embed_tokens.weight":
                 collector.Add(HfTransforms.Plain(w, "token_embedding.weight"));
                 return true;
-            case "model.norm.weight":
+            case "model.norm.weight" or "model.language_model.norm.weight":
                 collector.Add(HfTransforms.Plain(w, "output_norm.weight"));
                 return true;
             case "lm_head.weight":

@@ -332,7 +332,7 @@ internal sealed partial class DecoderGraphBuilder
             logits = b.Scale(b.Unary("Tanh", b.Scale(logits, 1f / _hp.FinalSoftCap)), _hp.FinalSoftCap, 0, "logits_capped");
         }
 
-        return logits;
+        return SuppressedLogits.Apply(b, logits, checked((int)head.Shape[0].Fixed), _hp.SuppressedTokenRanges);
     }
 
     // The transformer layers; rowSpans selects packed-sequence attention (no KV cache) instead of cached attention. With layer loops
@@ -533,9 +533,9 @@ internal sealed partial class DecoderGraphBuilder
         int L = _hp.NLayer;
         var proj = b.Scale(b.MatMul(x, b.Weight("per_layer.model_projection.weight")), 1f / MathF.Sqrt(_hp.NEmbd));
         proj = b.Reshape(b.RmsNorm(b.Reshape(proj, 0, L, P), b.Weight("per_layer.projection_norm.weight"), _hp.Eps), 0, L * P);
-        if (tokens is null)
+        if (tokens is null || !b.HasWeight("per_layer.embedding.weight"))
         {
-            return proj;                       // embedding input: no token identity available
+            return proj;                       // embedding input or projection-only PLE (EmbeddingGemma 2): no token identity
         }
 
         var tok = b.Scale(b.Gather(b.Weight("per_layer.embedding.weight"), tokens, "per_layer_tok"), MathF.Sqrt(P));
