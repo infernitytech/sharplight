@@ -33,8 +33,9 @@ namespace Sharplight.Architectures;
 /// (see <see cref="ClampedSwigluActivation"/>); dense layers and shared experts keep the plain activation unless <c>mlp.swiglu_clamp</c>
 /// (float[layer_count], 0 = plain; with <c>mlp.swiglu_clamp_input</c> on the gate before the SiLU) clamps them too (experts without their own limit
 /// follow it).</item>
-/// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4): <c>attention.indexer.*</c> (<see cref="SparseAttentionIndexerOptions"/>) and per
-/// layer the weights <c>attention.indexer.{q_up,k,head_weights}.weight</c>, <c>attention.indexer.k_norm.{weight,bias}</c> (see
+/// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4, GLM-5.3 with pooled keys): <c>attention.indexer.*</c>
+/// (<see cref="SparseAttentionIndexerOptions"/>) and per layer the weights <c>attention.indexer.{q_up,k,head_weights}.weight</c>,
+/// <c>attention.indexer.k_norm.{weight,bias}</c> (pooled keys also <c>attention.indexer.{pool_gate,pool_position}.weight</c>; see
 /// <see cref="SparseAttentionIndexer"/>); a layer without them reuses the previous indexed layer's selection. When the context does not exceed the
 /// budget the indexer is left out (every row would keep every visible position).</item>
 /// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the

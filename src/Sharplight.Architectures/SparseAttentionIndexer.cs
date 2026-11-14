@@ -16,6 +16,10 @@ namespace Sharplight.Architectures;
 /// scaled by 1/sqrt(H·D) (the reference's per-head and softmax scales; positive factors commute with the relu). The rotary part of q and k
 /// (the layer's rope dimensions, at the start or at the end of each row) is rotated like the attention's, with the indexer's pairing style.
 /// The selection is <c>IndexerTopK</c>; rows that see at most the budget keep every position.
+/// Pooled keys (<see cref="SparseAttentionIndexerOptions.PoolSize"/> = G &gt; 1, GLM-5.3): the cache rows hold the key and a gate
+/// <c>attention.indexer.pool_gate.weight</c> [D, hidden] · h; the indexer scores one key per G consecutive positions (per channel the softmax
+/// over the members of gate + <c>attention.indexer.pool_position.weight</c> [G, D] weights their keys) and picks budget / G whole pools,
+/// optionally followed by the query's incomplete pool.
 /// </remarks>
 internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions options)
 {
@@ -26,14 +30,14 @@ internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions optio
     public static bool IsPresent(Func<string, WeightInfo?> weights, string prefix) => weights(prefix + "attention.indexer.k.weight") is not null;
 
     /// <summary>
-    /// The key cache of the layer below <paramref name="prefix"/>: [ctx, 1, D] in f32 when the KV cache is f32, otherwise f16 (block-quantized
-    /// KV caches keep the indexer keys in f16).
+    /// The key cache of the layer below <paramref name="prefix"/>: [ctx, 1, D] (pooled keys: [ctx, 1, 2·D], key and gate) in f32 when the KV cache
+    /// is f32, otherwise f16 (block-quantized KV caches keep the indexer keys in f16).
     /// </summary>
-    public static StateDefinition CreateKeyCache(Func<string, WeightInfo?> weights, string prefix, string group, DataType kvType) => new()
+    public StateDefinition CreateKeyCache(Func<string, WeightInfo?> weights, string prefix, string group, DataType kvType) => new()
     {
         Name = $"{group}.indexer_key_cache",
         Type = kvType == DataType.F32 ? DataType.F32 : DataType.F16,
-        Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), 1, weights(prefix + "attention.indexer.k.weight")!.Shape[0]),
+        Shape = new Shape(Dim.Sym(WellKnown.ContextSymbol), 1, weights(prefix + "attention.indexer.k.weight")!.Shape[0].Fixed * (options.Pooled ? 2 : 1)),
         Kind = StateKind.KeyCache,
         Group = group,
     };
@@ -55,18 +59,35 @@ internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions optio
             b.Weight(prefix + "attention.indexer.k_norm.bias")], Attributes.From(("eps", options.NormEps)), $"{prefix}indexer_k");
         q = Rotate(b, q, dims, ropeDims, rotate);
         k = Rotate(b, b.Reshape(k, 0, 1, dims), dims, ropeDims, rotate);
+        if (options.Pooled)
+        {
+            k = b.Concat(2, k, b.Reshape(b.Linear(h, prefix + "attention.indexer.pool_gate.weight", name: $"{prefix}indexer_gate"), 0, 1, dims));
+        }
+
         var state = b.State(keyCache);
         b.CacheWrite(state, k);
 
         var weights = b.Scale(b.Linear(h, prefix + "attention.indexer.head_weights.weight"), 1f / MathF.Sqrt(heads * dims), name: $"{prefix}indexer_w");
         b.RuntimeScalar(WellKnown.PastScalar);
-        return b.Emit1("IndexerTopK", [q, state, weights], Attributes.From(("k", (long)options.TokenBudget), ("offset", WellKnown.PastScalar)),
-            $"{prefix}indexer_topk");
+        var attributes = Attributes.From(("k", (long)options.TokenBudget), ("offset", WellKnown.PastScalar));
+        Value[] inputs = [q, state, weights];
+        if (options.Pooled)
+        {
+            attributes = attributes.With("group", (long)options.PoolSize).With("group_score", "pooled").With("tail", options.PoolTail);
+            inputs = [.. inputs, b.Weight(prefix + "attention.indexer.pool_position.weight")];
+        }
+
+        return b.Emit1("IndexerTopK", inputs, attributes, $"{prefix}indexer_topk");
     }
 
-    // The rotary part is the start (DeepSeek-V3.2, GLM-5) or the end (Hunyuan v4) of every row.
+    // The rotary part is the start (DeepSeek-V3.2, GLM-5) or the end (Hunyuan v4) of every row; GLM-5.3 has none.
     private Value Rotate(GraphBuilder b, Value x, int dims, int ropeDims, Func<Value, Value> rotate)
     {
+        if (ropeDims == 0)
+        {
+            return x;
+        }
+
         int start = options.RopeLast ? dims - ropeDims : 0;
         var rotated = rotate(b.Slice(x, 2, start, ropeDims));
         var pass = b.Slice(x, 2, options.RopeLast ? 0 : ropeDims, dims - ropeDims);

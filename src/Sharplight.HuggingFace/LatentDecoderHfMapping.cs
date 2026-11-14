@@ -88,7 +88,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         {
             AddHyV4HyperParameters(md, a, c);
         }
-        else if (HasIndexer(c))
+        else if (HasIndexer(c) && !IsGlm5Next(c))
         {
             md[a + "attention.indexer.token_budget"] = c.Int("index_topk");
             // DeepSeek-V3.2 rotates the indexer's rope dimensions in rotate-half pairs, GLM-5 in interleaved ones (like its attention).
@@ -102,7 +102,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     /// DeepSeek-V3.2 and GLM-5 (DSA): a sparse-attention indexer picks <c>index_topk</c> tokens per query (Hunyuan v4 has one too, see
     /// <c>AddHyV4HyperParameters</c>).
     /// </summary>
-    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa";
+    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa" || IsGlm5Next(c);
 
     /// <summary>The DSA indexer tensors below <c>self_attn.indexer.</c>, HF suffix to canonical suffix (norm and head weights in f32).</summary>
     private static readonly Dictionary<string, string> s_indexerTensors = new(StringComparer.Ordinal)
@@ -112,6 +112,8 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         ["k_norm.weight"] = "attention.indexer.k_norm.weight",
         ["k_norm.bias"] = "attention.indexer.k_norm.bias",
         ["weights_proj.weight"] = "attention.indexer.head_weights.weight",
+        ["index_kpool_compress_gate"] = "attention.indexer.pool_gate.weight",       // GLM-5.3 k-pool indexer
+        ["index_kpool_compress_ape"] = "attention.indexer.pool_position.weight",
     };
 
     /// <summary>
@@ -137,6 +139,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         }
 
         collector.Add(canonical.Contains("q_up", StringComparison.Ordinal) || canonical.EndsWith("k.weight", StringComparison.Ordinal)
+            || canonical.EndsWith("pool_gate.weight", StringComparison.Ordinal)
             ? HfTransforms.Plain(w, prefix + canonical)
             : HfTransforms.ToF32(w, prefix + canonical));
         return true;

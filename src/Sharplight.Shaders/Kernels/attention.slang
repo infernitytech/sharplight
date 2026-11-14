@@ -48,6 +48,10 @@
 #ifndef SELECTED
 #define SELECTED 0
 #endif
+// SEL_HEADS (with SELECTED): selections per query row, [T, SEL_HEADS, SELECTED]; query head h reads the selection of h / (HQ / SEL_HEADS).
+#ifndef SEL_HEADS
+#define SEL_HEADS 1
+#endif
 #ifndef KV_FMT
 #define KV_FMT (KV_F16 ? FMT_F16 : FMT_F32)
 #endif
@@ -495,7 +499,7 @@ struct Params
     int* spans;  // [T, 2] (first key row, key count) per query row
 #endif
 #if SELECTED
-    int* sel;    // [T, SELECTED] key positions per query row
+    int* sel;    // [T, SEL_HEADS, SELECTED] key positions per query row (and selection head)
 #endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
@@ -627,7 +631,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     for (uint c0 = jBeg; c0 < jEnd; c0 += WG)
     {
 #if SELECTED
-        int selected = c0 + tid < jEnd ? p.sel[uint64_t(t) * SELECTED + c0 + tid] : -1;
+        int selected = c0 + tid < jEnd ? p.sel[(uint64_t(t) * SEL_HEADS + h / (HQ / SEL_HEADS)) * SELECTED + c0 + tid] : -1;
         bool valid = selected >= 0 && uint(selected) < L;
         uint j = valid ? uint(selected) : 0u;
         sJ[tid] = j;

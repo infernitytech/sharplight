@@ -48,7 +48,7 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         _indexerCaches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _indexer is not null && _caches[il] is not null
             && SparseAttentionIndexer.IsPresent(_src.Weight, $"layers.{il}.")
-                ? SparseAttentionIndexer.CreateKeyCache(_src.Weight, $"layers.{il}.", $"layers.{il}", options.KvCacheType)
+                ? _indexer.CreateKeyCache(_src.Weight, $"layers.{il}.", $"layers.{il}", options.KvCacheType)
                 : null)];
         // The NextN draft head (DeepSeek-V3: one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) with its own cache;
         // not with hyper-connections (the hidden state is several residual streams).

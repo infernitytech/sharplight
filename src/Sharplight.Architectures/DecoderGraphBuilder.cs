@@ -19,6 +19,8 @@ internal sealed partial class DecoderGraphBuilder
     private readonly IMlpActivation _activation;
     private readonly StateDefinition?[] _kCache;
     private readonly StateDefinition?[] _vCache;
+    private readonly BlockSparseIndexer? _blockIndexer;          // only when the context exceeds its budget (below it every key is attended)
+    private readonly StateDefinition?[] _blockIndexerCache;      // per cache slot: the block indexer's key cache of a sparse layer
     private Func<string, WeightInfo?>? _draft;
     private string _pooling = "last";
     private bool _normalize = true;
@@ -71,6 +73,23 @@ internal sealed partial class DecoderGraphBuilder
             var valueShape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _hp.KvHeadsOf(il), _hp.ValueDimOf(il));
             States.Add(_kCache[slot] = new StateDefinition { Name = $"{g}.k_cache", Type = _options.KvCacheTypeFor(_hp.HeadDimOf(il)), Shape = keyShape, Kind = StateKind.KeyCache, Group = g });
             States.Add(_vCache[slot] = new StateDefinition { Name = $"{g}.v_cache", Type = _options.KvCacheTypeFor(_hp.ValueDimOf(il)), Shape = valueShape, Kind = StateKind.ValueCache, Group = g });
+        }
+
+        // Block-sparse attention (MiniMax-M3): the layers with a block indexer attend only the key blocks it picks.
+        if (BlockSparseIndexerOptions.Read(_src) is { } blockIndexer && runtimeCtx > blockIndexer.TokenBudget)
+        {
+            _blockIndexer = new BlockSparseIndexer(blockIndexer, _hp.Eps);
+        }
+
+        _blockIndexerCache = new StateDefinition?[slots];
+        for (int slot = 0; slot < slots && _blockIndexer is not null; slot++)
+        {
+            string prefix = slot < logical ? $"layers.{slot % _hp.NLayer}." : "mtp.layers.0.";
+            if (_kCache[slot] is not null && BlockSparseIndexer.IsPresent(_src.Weight, prefix))
+            {
+                string g = slot < logical ? $"layers.{slot}" : "mtp.layers.0";
+                States.Add(_blockIndexerCache[slot] = BlockSparseIndexer.CreateKeyCache(_src.Weight, prefix, g, _options.KvCacheType));
+            }
         }
     }
 

@@ -86,15 +86,16 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             AddDeltaHyperParameters(md, a, g);
         }
 
-        if (IsGlm5Next(g))
-        {
-            AddGlm5NextHyperParameters(md, a, g);
-        }
-        else if (g.Has("attention.indexer.top_k"))
+        if (g.Has("attention.indexer.top_k"))
         {
             // DSA (deepseek32, glm-dsa): llama.cpp rotates the indexer's rope dimensions with NEOX pairs for DeepSeek-V3.2 and NORM pairs for GLM-5.
             md[a + "attention.indexer.token_budget"] = g.Int("attention.indexer.top_k");
             md[a + "attention.indexer.rope_style"] = g.GgufArchitecture == "glm-dsa" ? "gptj" : "neox";
+        }
+
+        if (IsGlm5Next(g))
+        {
+            AddGlm5NextHyperParameters(md, a, g);
         }
 
         // Mistral 4 / Mistral Large 3: Llama-4-style query temperature beyond the original context.
@@ -217,9 +218,9 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             return $"layers.{layer}.{delta}";
         }
 
-        if (IsGlm5Next(g) && s_hyperConnections.TryGetValue(suffix, out var hyperConnection))
+        if (IsGlm5Next(g) && (s_hyperConnections.TryGetValue(suffix, out var glm5Next) || s_poolIndexer.TryGetValue(suffix, out glm5Next)))
         {
-            return $"layers.{layer}.{hyperConnection}";
+            return $"layers.{layer}.{glm5Next}";
         }
 
         if (IsBailing3(g) && suffix == "attn_gate.weight")
@@ -234,17 +235,11 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView g) => IsDeltaHybrid(g) ? DeltaVector(weight, g) ?? weight : weight;
 
     /// <summary>
-    /// Older files: the combined key/value up-projection splits into the per-head key (transposed) and value projections. GLM-5.3-Flash's k-pool
-    /// indexer tensors split into nothing (dropped).
+    /// Older files: the combined key/value up-projection splits into the per-head key (transposed) and value projections.
     /// </summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
         var m = GgufTensorNames.Block().Match(name);
-        if (m.Success && IsGlm5Next(g) && IsPoolIndexerTensor(m.Groups[2].Value))
-        {
-            return [];   // the k-pool indexer is not used (dense attention up to its budget)
-        }
-
         if (!m.Success || m.Groups[2].Value != "attn_kv_b.weight")
         {
             return null;

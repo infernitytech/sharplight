@@ -23,7 +23,7 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 144 are supported end to end, 5 partially and
+Of the 172 architectures llama.cpp knows, 146 are supported end to end, 3 partially and
 23 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
@@ -39,8 +39,8 @@ Of the 172 architectures llama.cpp knows, 144 are supported end to end, 5 partia
 | OLMo | `olmo`, `olmo2`, `olmoe` |
 | Granite | `granite`, `granitemoe`, `granite_swa` |
 | GLM | `chatglm`, `glm4`, `glm4moe` |
-| MLA/DeepSeek-like | `mistral4`, `minicpm3`, `deepseek`, `deepseek2`, `deepseek32`, `glm-dsa`, `plm`, `hy_v4` |
-| MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `mimo2`, `mellum`, `flint`, `cohere2moe`, `arctic`, `grok`, `step35`, `kolibri1`, `maple`, `maion-coder`, `beam` |
+| MLA/DeepSeek-like | `mistral4`, `minicpm3`, `deepseek`, `deepseek2`, `deepseek32`, `glm-dsa`, `glm5-next`, `plm`, `hy_v4` |
+| MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `minimax-m3`, `mimo2`, `mellum`, `flint`, `cohere2moe`, `arctic`, `grok`, `step35`, `kolibri1`, `maple`, `maion-coder`, `beam` |
 | Other dense | `plamo`, `plamo3`, `internlm2`, `minicpm`, `openelm`, `bitnet`, `exaone`, `exaone4`, `arcee`, `ernie4_5`, `paddleocr`, `hunyuan-dense`, `smollm3`, `seed_oss`, `apertus`, `pangu-embedded`, `spark2_5`, `maincoder`, `talkie`, `nanbeige`, `ricursive`, `chameleon` |
 | GPT-style | `starcoder`, `starcoder2`, `gpt2`, `gptj`, `gptneox`, `falcon`, `mpt`, `bloom`, `refact`, `baichuan`, `stablelm`, `codeshell`, `orion`, `xverse`, `jais`, `jais2` |
 | SSM | `mamba`, `mamba2`, `jamba`, `falcon-h1`, `granitehybrid`, `plamo2` |

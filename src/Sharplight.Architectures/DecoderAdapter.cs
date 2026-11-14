@@ -77,6 +77,9 @@ namespace Sharplight.Architectures;
 /// <c>attention.qk_norm_type</c> ("rms" (default) or "layer": the q/k norms are mean-centred layer norms that add <c>attention.{q,k}_norm.bias</c> when present)
 /// with <c>attention.qk_norm_eps</c> (default norm_eps); a q/k norm weight of shape [heads, head_dim] gives every head its own gain and bias (Chameleon).
 /// <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs: those token ids get the lowest float as logit, Chameleon's image tokens).</item>
+/// <item>Block-sparse attention (MiniMax-M3): <c>attention.block_indexer.*</c> (<see cref="BlockSparseIndexerOptions"/>) and per layer the weights
+/// <c>attention.block_indexer.{q,k,q_norm,k_norm}.weight</c> (see <see cref="BlockSparseIndexer"/>): those layers attend only the key blocks their
+/// indexer picks per key-value group. When the context does not exceed the budget the indexer is left out (every block would be picked).</item>
 /// <item>Per-layer embeddings without <c>per_layer.embedding.weight</c> (EmbeddingGemma 2) use the projection part alone: input = norm(proj(e)·H^-½).</item>
 /// <item>Per-layer embeddings (Gemma 3n/4 "PLE"; present when <c>per_layer.size</c> = P &gt; 0): weights <c>per_layer.embedding.weight</c> [V, L·P],
 /// <c>per_layer.model_projection.weight</c> [L·P, H], <c>per_layer.projection_norm.weight</c> [P]; per layer <c>layers.{i}.per_layer.{gate,projection}.weight</c>
