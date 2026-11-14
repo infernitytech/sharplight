@@ -293,7 +293,8 @@ public sealed class LlmModel : IDisposable
         _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
         var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
-        return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap);
+        bool anchored = Definition.Properties.TryGetValue(WellKnown.DraftAnchored, out var a) && a is true;
+        return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap, anchored);
     }
 
     private const long DefaultReserve = 1L << 30;

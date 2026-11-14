@@ -28,7 +28,13 @@ internal sealed partial class DecoderGraphBuilder
         int sourceSlot = slot.Slot - il + _hp.KvSourceOf(il);
         if (sourceSlot == slot.Slot)
         {
-            var (k, v) = ProjectKeyValue(b, h, ValueInput(b, h, p, embeddings), p, il, rotate);
+            // A shared-KV drafter's layers attend keys and values its target computed (graph inputs), not projections of their own.
+            var (k, v) = _suppliedKv is { } supplied ? supplied[slot.Slot] : ProjectKeyValue(b, h, ValueInput(b, h, p, embeddings), p, il, rotate);
+            if (rowSpans is null)
+            {
+                _kvExportValues?.TryAdd(il, (k, v));
+            }
+
             if (rowSpans is not null)
             {
                 packedKv[slot.Slot] = (k, v);

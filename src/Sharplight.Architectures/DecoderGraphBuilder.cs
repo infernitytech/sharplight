@@ -24,6 +24,9 @@ internal sealed partial class DecoderGraphBuilder
     private Func<string, WeightInfo?>? _draft;
     private readonly int[] _taps;                                 // layers whose inputs the decode graphs export (an EAGLE-3 drafter's features)
     private Dictionary<int, Value>? _tapValues;                   // while a trunk graph is built: the tapped layer inputs
+    private readonly int[] _kvExports;                            // layers whose keys and values the decode graphs export (a shared-KV drafter's)
+    private Dictionary<int, (Value K, Value V)>? _kvExportValues; // while a trunk graph is built: the exported keys and values by layer
+    private Dictionary<int, (Value K, Value V)>? _suppliedKv;     // while a shared-KV draft graph is built: keys and values from the input, by slot
     private string _pooling = "last";
     private bool _normalize = true;
 
@@ -35,10 +38,17 @@ internal sealed partial class DecoderGraphBuilder
     /// Layers whose inputs the token decode graphs also output, concatenated, as <see cref="Eagle3DraftHead.TapsOutput"/> (the layer count: the
     /// last layer's output); empty for none.
     /// </param>
+    /// <param name="kvExports">
+    /// Layers whose keys and values (as written to their KV cache) the token decode graphs also output, after the final hidden state, as
+    /// <see cref="SharedKvDraftHead.FeaturesOutput"/>; null for none.
+    /// </param>
+    /// <param name="statePrefix">Prefix of the KV-cache state names and groups (a drafter's caches next to its target's).</param>
     /// <exception cref="InvalidDataException">A KV-sharing layer does not point to an earlier layer.</exception>
-    public DecoderGraphBuilder(ModelSource source, AdapterOptions adapterOptions, DecoderHyperParameters hyperParameters, int[]? taps = null)
+    public DecoderGraphBuilder(ModelSource source, AdapterOptions adapterOptions, DecoderHyperParameters hyperParameters, int[]? taps = null,
+        int[]? kvExports = null, string statePrefix = "")
     {
         _taps = taps ?? [];
+        _kvExports = kvExports ?? [];
         if (_taps.Any(il => il < 0 || il > hyperParameters.LogicalLayers) || (_taps.Length > 0 && hyperParameters.AltUpStreams > 0))
         {
             throw new InvalidDataException($"decoder: cannot export the inputs of layers {string.Join(", ", _taps)}.");
@@ -65,7 +75,7 @@ internal sealed partial class DecoderGraphBuilder
         for (int slot = 0; slot < slots; slot++)
         {
             int il = slot < logical ? slot % _hp.NLayer : _hp.NLayer;
-            string g = slot < logical ? $"layers.{slot}" : $"mtp.layers.{slot - logical}";
+            string g = statePrefix + (slot < logical ? $"layers.{slot}" : $"mtp.layers.{slot - logical}");
             int sourceSlot = slot - il + _hp.KvSourceOf(il);
             if (sourceSlot != slot)
             {
@@ -233,6 +243,7 @@ internal sealed partial class DecoderGraphBuilder
 
         var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
         _tapValues = _taps.Length > 0 ? [] : null;
+        _kvExportValues = _kvExports.Length > 0 ? [] : null;
         x = Layers(b, x, positions, FrequencyFactors(b), perLayer, rowSpans: null, deepstack);
         if (_tapValues is not null)
         {
@@ -249,9 +260,16 @@ internal sealed partial class DecoderGraphBuilder
             {
                 b.Output(Eagle3DraftHead.TapsOutput, b.Concat(1, [.. _taps.Select(il => _tapValues[il])]));
             }
+
+            if (_kvExportValues is not null)
+            {
+                var exported = _kvExports.SelectMany(il => (Value[])[b.Reshape(_kvExportValues[il].K, 0, -1), b.Reshape(_kvExportValues[il].V, 0, -1)]);
+                b.Output(SharedKvDraftHead.FeaturesOutput, b.Concat(1, [hidden, .. exported]));
+            }
         }
 
         _tapValues = null;
+        _kvExportValues = null;
 
         return b.Build();
     }
