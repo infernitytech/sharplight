@@ -1,20 +1,23 @@
 """
 Builds tiny random Hugging Face checkpoints for decoder families that have no tiny-random model in ~/models/hf:
-GPT-2, GPT-J, Nemotron (dense), Gemma 1, Falcon, BLOOM and MPT (both with ALiBi) with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM (vocabulary 1024).
+GPT-2, GPT-J, Nemotron (dense), Gemma 1, Falcon, BLOOM and MPT (both with ALiBi), plus the families of the later bring-up rounds
+(EXTRA below: transformers model types configured through AutoConfig.for_model), with the GPT-2-style tokenizer of
+tiny-random-GPTNeoXForCausalLM (vocabulary 1024).
 
     python mk_tiny_decoders.py <models/hf directory> [family ...]
 
 With family names only those models are written (so that a later addition does not rewrite checkpoints existing references were taken from).
 
 Every model is written to <dir>/tiny-random-<family>/ in fp32 safetensors; the tests skip a family whose directory is missing.
-Norm weights and biases are randomized so that every parameter matters.
+Norm weights and biases are randomized so that every parameter matters. Reference ids and logits: hf_greedy_reference.py --logits.
 """
 import os, sys, shutil, torch
-from transformers import (AutoModelForCausalLM, BloomConfig, GPT2Config, GPTJConfig, NemotronConfig, GemmaConfig, FalconConfig, MptConfig)
+from transformers import (AutoConfig, AutoModelForCausalLM, BloomConfig, GPT2Config, GPTJConfig, NemotronConfig, GemmaConfig, FalconConfig, MptConfig)
 
 root = os.path.expanduser(sys.argv[1])
 tokenizer_dir = os.path.join(root, "tiny-random-GPTNeoXForCausalLM")
 VOCAB = 1024
+COMMON = dict(vocab_size=VOCAB, bos_token_id=0, eos_token_id=0, pad_token_id=0)
 
 configs = {
     "gpt2": GPT2Config(vocab_size=VOCAB, n_positions=256, n_embd=64, n_layer=3, n_head=4, bos_token_id=0, eos_token_id=0),
@@ -32,6 +35,21 @@ configs = {
                                   "softmax_scale": None, "attn_uses_sequence_id": False, "attn_pdrop": 0, "prefix_lm": False},
                      bos_token_id=0, eos_token_id=0, pad_token_id=0),
 }
+
+# Later families: name -> (transformers model_type, config arguments on top of COMMON).
+EXTRA = {
+    # Softmax routing (not renormalized), sigmoid-gated shared expert; layer 1 is dense (mlp_only_layers).
+    "qwen2-moe": ("qwen2_moe", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=48, shared_expert_intermediate_size=80,
+                                    num_hidden_layers=3, num_attention_heads=4, num_key_value_heads=2, num_experts=4, num_experts_per_tok=2,
+                                    mlp_only_layers=[1], max_position_embeddings=256)),
+    # The same without the dense layer, which llama.cpp's converter cannot map (source of the qwen2moe GGUF case).
+    "qwen2-moe-llamacpp": ("qwen2_moe", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=48, shared_expert_intermediate_size=80,
+                                             num_hidden_layers=3, num_attention_heads=4, num_key_value_heads=2, num_experts=4,
+                                             num_experts_per_tok=2, max_position_embeddings=256)),
+}
+for name, (model_type, arguments) in EXTRA.items():
+    configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})
+
 # Most families use seed 0 and weights of scale 0.15; the ALiBi models tend to repeat one token or tie their logits at it with those, so BLOOM and MPT pick their own.
 seeds = {"bloom": 3, "mpt": 2}
 scales = {"bloom": 0.5, "mpt": 0.5}

@@ -165,6 +165,8 @@ public class FamilyGenerationTests
         .. RoutedMoeFamilyCases.All,
         // Tiny random GGUF files checked against llama.cpp (Qwen v1, XVERSE, ChatGLM, dots1, MiniMax-M2, Hunyuan, EXAONE-MoE, Falcon).
         .. TinyGgufFamilyCases.All,
+        // Families brought up as importer mappings onto the existing adapters (Qwen2-MoE, ...).
+        .. MappedFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
@@ -206,11 +208,56 @@ public class FamilyGenerationTests
 
     private sealed class SkipException(string reason) : Exception(reason);
 
-    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback)
+    /// <summary>
+    /// Logits of the last prompt position written by <c>tools/hf_greedy_reference.py --logits</c> next to a tiny checkpoint
+    /// (<c>reference_logits.json</c>); null when the directory has none.
+    /// </summary>
+    private sealed record ReferenceLogits(int[] PromptIds, float[] Logits)
+    {
+        public static ReferenceLogits? TryLoad(string path)
+        {
+            string file = System.IO.Path.Combine(path, "reference_logits.json");
+            if (!File.Exists(file))
+            {
+                return null;
+            }
+
+            using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file));
+            var root = json.RootElement;
+            return new ReferenceLogits(
+                [.. root.GetProperty("prompt_ids").EnumerateArray().Select(e => e.GetInt32())],
+                [.. root.GetProperty("logits").EnumerateArray().Select(e => (float)e.GetDouble())]);
+        }
+    }
+
+    /// <summary>Largest absolute logit difference allowed, relative to the reference's largest absolute logit (fp32 CPU; f16 GPU paths).</summary>
+    private static double LogitTolerance(bool vulkan) => vulkan ? 2e-2 : 2e-3;
+
+    private static void CheckLogits(LlmModel model, ReferenceLogits reference, bool vulkan)
+    {
+        using var session = model.CreateSession(WellKnown.DecodeGraph);
+        var logits = session.Process(reference.PromptIds);
+        Assert.Equal(reference.Logits.Length, logits.Length);
+        double scale = reference.Logits.Max(MathF.Abs);
+        double worst = 0;
+        for (int i = 0; i < logits.Length; i++)
+        {
+            worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
+        }
+
+        Assert.True(worst <= LogitTolerance(vulkan) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
+    }
+
+    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null)
     {
         var (model, slots) = Load(path, vulkan, cpuFallback);
         try
         {
+            if (reference is not null)
+            {
+                CheckLogits(model, reference, vulkan);
+            }
+
             using var session = model.CreateSession(WellKnown.DecodeGraph);
             var gen = new Generator(session, model.Tokenizer);
             var toks = gen.Generate(prompt, new GenerationOptions { MaxNewTokens = n, Sampling = SamplingOptions.Greedy }).ToList();
@@ -246,7 +293,8 @@ public class FamilyGenerationTests
             return;
         }
         (int[] ids, string text) result;
-        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback); }
+        var reference = Directory.Exists(path) && c.Kind == "ids" ? ReferenceLogits.TryLoad(path) : null;
+        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference); }
         catch (SkipException s)
         {
             Assert.Skip(s.Message);

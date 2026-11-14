@@ -1,4 +1,5 @@
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
 
@@ -199,6 +200,11 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     /// <inheritdoc/>
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
     {
+        if (w.Shape.Rank == 1 && w.Name.EndsWith("mlp.shared.input_gate.weight", StringComparison.Ordinal))
+        {
+            return w.As(w.Name, new Shape(1, w.Shape[0]));
+        }
+
         if (!PermutesQk)
         {
             return w;
