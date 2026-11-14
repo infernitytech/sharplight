@@ -263,10 +263,10 @@ uint codebook_bytes(uint u, uint4 kv)
 WChunk load_chunk(uint8_t* w, uint row, uint ch)
 {
 #if WFMT == FMT_MXFP4R
-    // The aligned split layout (common.slang): one 16-byte load of the codes, the scale from the row's scale bytes.
+    // The aligned split layout (common.slang): one 16-byte load of the codes, the scale from the group's scale bytes.
     WChunk c;
     c.off = 0.0;
-    c.d = e8m0_half(uint(*(uint8_t*)(mxfp4r_scales(w, ROW_BYTES, row) + ch)));
+    c.d = e8m0_half(mxfp4r_scale(w, ROW_BYTES, row, ch));
     uint4 qs = *(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(ch) * 16);
     uint4 h = qs >> 4;
     c.lo = uint4(fp4_bytes(qs.x), fp4_bytes(qs.y), fp4_bytes(qs.z), fp4_bytes(qs.w));

@@ -75,6 +75,7 @@ public sealed class BenchTests
     [InlineData("f8e4m3_b128")]
     [InlineData("f8e4m3_b32")]
     [InlineData("f8e4m3")]
+    [InlineData("mxfp4")]
     public void MatMulPrefill(string type)
     {
         RequireBench();
@@ -115,6 +116,75 @@ public sealed class BenchTests
             double gflop = (TestSwitches.BenchmarkDual ? 4.0 : 2.0) * rows * K * N * 1e-9;
             Console.WriteLine($"BENCH matmul {type} T={rows} {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s");
         }
+    }
+
+    /// <summary>
+    /// A routed expert block at prefill size (gate, up, activation, down on the same routing), with a skewed expert load like a
+    /// real router's (a few experts get most rows, several none). Default shape: gpt-oss-20b (32 experts, 4 per token,
+    /// 2880 → 2880). SHARPLIGHT_BENCH_MOE="E,S,K,N" overrides it, SHARPLIGHT_BENCH_ROWS the token count.
+    /// </summary>
+    [Theory]
+    [InlineData("mxfp4")]
+    [InlineData("q4_k")]
+    [InlineData("q8_0")]
+    public void MoePrefill(string type)
+    {
+        RequireBench();
+        if (TestSwitches.BenchmarkTypes is { } only && !only.Contains(type))
+        {
+            return;
+        }
+
+        int rows = TestSwitches.BenchmarkRows;
+        int[] shape = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_MOE")?.Split(',').Select(int.Parse).ToArray() ?? [32, 4, 2880, 2880];
+        int E = shape[0];
+        int S = shape[1];
+        int K = shape[2];
+        int N = shape[3];
+        if (type.EndsWith("_k", StringComparison.Ordinal))
+        {
+            K = (K + 255) / 256 * 256;
+            N = (N + 255) / 256 * 256;
+        }
+
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var dt = DataType.Get(type);
+        var gate = tg.B.Emit1("MatMulId", [x, tg.RandW("gate", dt, 0.05f, E, N, K), ids]);
+        var up = tg.B.Emit1("MatMulId", [x, tg.RandW("up", dt, 0.05f, E, N, K), ids]);
+        var act = tg.B.Mul(tg.B.Silu(gate), up);
+        tg.B.Output("y", tg.B.Emit1("MatMulId", [act, tg.RandW("down", dt, 0.05f, E, K, N), ids]));
+        using var m = Compile(tg.B.Build(), rows);
+        Feed(m, x, (long)rows * K);
+
+        // Expert popularity ~ 1 / (rank + 1): S distinct experts per token.
+        var rng = new Random(5);
+        double[] weight = [.. Enumerable.Range(0, E).Select(e => 1.0 / (e + 1))];
+        var routing = new int[rows * S];
+        for (int t = 0; t < rows; t++)
+        {
+            var chosen = new HashSet<int>();
+            while (chosen.Count < S)
+            {
+                double r = rng.NextDouble() * weight.Sum();
+                int e = 0;
+                while (e < E - 1 && (r -= weight[e]) > 0)
+                {
+                    e++;
+                }
+
+                chosen.Add(e);
+            }
+
+            chosen.ToArray().CopyTo(routing, t * S);
+        }
+
+        m.SetInput(ids, MemoryMarshal.AsBytes(routing.AsSpan()));
+        var (ms, rep) = Profile(m, rows, iters: TestSwitches.BenchmarkIterations);
+        Console.WriteLine(rep);
+        double gflop = 3 * 2.0 * rows * S * K * N * 1e-9;
+        Console.WriteLine($"BENCH moe {type} T={rows} E={E} S={S} {K}->{N} {ms,8:F3} ms  {gflop / ms,8:F1} TFLOP/s (block, all launches)");
     }
 
     /// <summary>

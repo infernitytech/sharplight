@@ -11,8 +11,9 @@ public enum WeightRepack
     /// </summary>
     Q8_0Split,
     /// <summary>
-    /// MXFP4 rows in groups of 16 → [16 rows of K/2 code bytes][16 rows of K/32 E8M0 scale bytes]: every row's codes start
-    /// 16-byte aligned, so kernels read one 16-byte word per 32-value block instead of unaligned 17-byte blocks. The
+    /// MXFP4 rows in groups of 16 → [16 rows of K/2 code bytes][K/32 blocks of 16 E8M0 scale bytes, one per row]: every
+    /// row's codes start 16-byte aligned, so kernels read one 16-byte word per 32-value block instead of unaligned 17-byte
+    /// blocks, and the scales of one block are adjacent across the 16 rows (one memory sector for a tile's rows). The
     /// repacked unit is the 16-row group (<see cref="WeightRepacker.RowBytes"/>); requires a row count divisible by 16 per
     /// matrix. Kernels see the type <see cref="ShaderTypes.MXFP4R"/>.
     /// </summary>

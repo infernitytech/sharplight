@@ -597,7 +597,14 @@ using namespace linalg;
 #define GQ (GBK / 8)
 #define GAS (GBK + 8)
 #define GA_PER_T (GBM * GBK / 8 / GTHREADS)
-#define GB_PER_T (GBN * GBK / 16 / GTHREADS)   // weights are fetched 16 per item
+// Weights are fetched 16 values per item, or (MXFP4R, when the threads divide the tile evenly) one whole 32-value block per item,
+// so that a block's 16 code bytes and its scale are loaded once.
+#if WFMT == FMT_MXFP4R && (GBN * GBK / 32) % GTHREADS == 0
+#define GW_UNIT 32
+#else
+#define GW_UNIT 16
+#endif
+#define GB_PER_T (GBN * GBK / GW_UNIT / GTHREADS)
 typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
@@ -701,7 +708,7 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
 #elif WFMT == FMT_MXFP4R
     // As MXFP4 below, from the aligned split layout (common.slang): one aligned 16-byte load holds both nibble halves of the block.
     uint4 q = (*(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(g16 >> 1) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
-    float s = e8m0_half(uint(*(uint8_t*)(mxfp4r_scales(w, ROW_BYTES, row) + (g16 >> 1)))) * 32768.0;
+    float s = e8m0_half(mxfp4r_scale(w, ROW_BYTES, row, g16 >> 1)) * 32768.0;
     half2 s1 = half2(half(min(s, 32768.0)));
     half2 s2 = half2(half(max(s / 32768.0, 1.0)));
     lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
@@ -756,6 +763,44 @@ uint4 load8h(uint8_t* w, uint row, uint g)
                  f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
 #endif
 }
+// Raw weight fetches of gemm_cm2. FETCH only issues the loads of a unit (GW_UNIT weights of one row) into GW_RAW registers;
+// the unit is decoded to packed halves when it is staged, after the MMAs of the current step, so the loads stay in flight
+// during the MMAs instead of stalling the warp at the decode. The row's base addresses are computed once (WRow). The decode
+// is the arithmetic of load16h, so the staged halves are identical. Formats without a raw unit decode at fetch (load16h):
+// for the K-quants and Q8_0 the raw units (9-13 registers per 16 values) measured no faster than decoding at fetch.
+struct WRow { uint64_t a; uint64_t b; };
+#if GW_UNIT == 32
+// MXFP4R: one block per unit, [16 code bytes][scale byte].
+#define GW_RAW 5
+WRow wrow(uint8_t* w, uint row)
+{
+    WRow r;
+    r.a = mxfp4r_codes(w, ROW_BYTES, row);
+    r.b = uint64_t(w) + uint64_t(row >> 4) * 16 * ROW_BYTES + 256 * (ROW_BYTES / 17) + (row & 15);
+    return r;
+}
+void wload(WRow r, uint g32, out uint raw[GW_RAW])
+{
+    uint4 c = *(uint4*)(r.a + uint64_t(g32) * 16);
+    raw[0] = c.x; raw[1] = c.y; raw[2] = c.z; raw[3] = c.w;
+    raw[4] = uint(*(uint8_t*)(r.b + uint64_t(g32) * 16));
+}
+void wdecode(uint raw[GW_RAW], out uint4 o[4])
+{
+    uint4 c = uint4(raw[0], raw[1], raw[2], raw[3]);
+    float s = e8m0_half(raw[4]) * 32768.0;
+    half2 s1 = half2(half(min(s, 32768.0)));
+    half2 s2 = half2(half(max(s / 32768.0, 1.0)));
+    [ForceUnroll]
+    for (uint h = 0; h < 2; h++)
+    {
+        uint4 q = (c >> (4 * h)) & 0x0F0F0F0Fu;
+        o[2 * h] = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+        o[2 * h + 1] = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
+    }
+}
+#endif
+
 #ifdef KERNEL_GEMM_CM2
 groupshared float gC[WARPS_M * WARPS_N * 256];
 #if MOE
@@ -810,13 +855,32 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     Acc2 acc[FRAG_M][FRAG_N];
     [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = Acc2(0.0);
 
-    uint4 xs[GA_PER_T];
-    uint4 ws[GB_PER_T][2];
+    // GPF register sets of prefetched operands: with 2 (single-buffered tiles with raw weight fetches), the loads of step s + 2 are
+    // issued before the MMAs of step s and staged after those of step s + 1, so they have two steps to arrive.
+#if GNBUF == 1 && defined(GW_RAW) && !defined(GPF)
+#define GPF 2
+#endif
+#ifndef GPF
+#define GPF 1
+#endif
+    uint4 xs[GPF][GA_PER_T];
+#ifdef GW_RAW
+    uint ws[GPF][GB_PER_T][GW_RAW];
+#else
+    uint4 ws[GPF][GB_PER_T][2];
+#endif
 
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if X_F16
+    // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
+    uint64_t xrb[GA_PER_T];
+    [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)
+    {
+        uint t = t0 + (tid + it * GTHREADS) / GQ;
+        xrb[it] = uint64_t(p.x) + (uint64_t(ROW_OF(t < ROWS_LIVE ? t : t0)) * X_STRIDE + ((tid + it * GTHREADS) % GQ) * 8) * 2;
+    }
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
-        { dst = 0; if ((t) < ROWS_LIVE) dst = ((uint4*)((uint16_t*)p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)))[0]; }
+        { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); }
 #else
     #define GEMM_LOAD_X(t, k, dst)                                                                      \
         { float4 a = 0, b = 0;                                                                          \
@@ -824,37 +888,101 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
           dst = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),       \
                       f32tof16(b.x) | (f32tof16(b.y) << 16), f32tof16(b.z) | (f32tof16(b.w) << 16)); }
 #endif
-    #define FETCH(k0)                                                                                   \
+#ifdef GW_RAW
+    WRow wr[GB_PER_T];
+    [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)
+    {
+        uint idx = tid + it * GTHREADS;
+        wr[it] = wrow(wbase, min(n0 + idx / (GBK / GW_UNIT), uint(N) - 1));
+    }
+    // Rows past N stage the decode of zero codes, which the stores never read back.
+    #define WLOAD(set, it, row, g) { [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0; if (N % GBN == 0 || (row) < N) wload(wr[it], g, ws[set][it]); }
+    #define WSTAGE(set, it, ob, row) { uint4 d[GW_UNIT / 8]; wdecode(ws[set][it], d); [ForceUnroll] for (uint u = 0; u < GW_UNIT / 8; u++) gB[(ob) + u] = d[u]; }
+#else
+    #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
+    #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
+#endif
+#if X_F16
+    #define X_K(k0, q) (k0)
+#else
+    #define X_K(k0, q) ((k0) + (q) * 8)
+#endif
+    #define FETCH(set, k0)                                                                              \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
         uint t = t0 + r;                                                                                \
-        GEMM_LOAD_X(t, (k0) + q * 8, xs[it])                                                            \
+        GEMM_LOAD_X(t, X_K(k0, q), xs[set][it])                                                         \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / (GBK / 16), q = idx % (GBK / 16);                     \
-        ws[it][0] = 0; ws[it][1] = 0;                                                                   \
-        if (N % GBN == 0 || n0 + r < N) load16h(wbase, n0 + r, (k0) / 16 + q, ws[it][0], ws[it][1]);      \
+        uint idx = tid + it * GTHREADS, r = idx / (GBK / GW_UNIT), q = idx % (GBK / GW_UNIT);           \
+        WLOAD(set, it, n0 + r, (k0) / GW_UNIT + q)                                                      \
     }
-    #define STAGE(buf)                                                                                  \
+    #define STAGE(set, buf)                                                                             \
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
-        gA[((buf) * GBM * GAS + r * GAS + q * 8) / 8] = xs[it];                                         \
+        gA[((buf) * GBM * GAS + r * GAS + q * 8) / 8] = xs[set][it];                                    \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
-        uint idx = tid + it * GTHREADS, r = idx / (GBK / 16), q = idx % (GBK / 16);                     \
-        uint ob = ((buf) * GBN * GAS + r * GAS + q * 16) / 8;                                           \
-        gB[ob] = ws[it][0]; gB[ob + 1] = ws[it][1];                                                     \
+        uint idx = tid + it * GTHREADS, r = idx / (GBK / GW_UNIT), q = idx % (GBK / GW_UNIT);           \
+        uint ob = ((buf) * GBN * GAS + r * GAS + q * GW_UNIT) / 8;                                      \
+        WSTAGE(set, it, ob, n0 + r)                                                                     \
+    }
+    // The MMAs of the staged step in buffer `buf` (K order: 16-value slices in sequence).
+    #define COMPUTE(buf)                                                                                \
+    {                                                                                                   \
+        uint ba = (buf) * GBM * GAS, bb = (buf) * GBN * GAS;                                            \
+        [ForceUnroll]                                                                                   \
+        for (uint kk = 0; kk < GBK; kk += 16)                                                           \
+        {                                                                                               \
+            MatB2 b[FRAG_N];                                                                            \
+            [ForceUnroll] for (int j = 0; j < FRAG_N; j++) b[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, (bb + (wn + j * 16) * GAS + kk) / 8, GAS / 8); \
+            [ForceUnroll]                                                                               \
+            for (int i = 0; i < FRAG_M; i++)                                                            \
+            {                                                                                           \
+                MatA2 a = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, (ba + (wm + i * 16) * GAS + kk) / 8, GAS / 8); \
+                [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]); \
+            }                                                                                           \
+        }                                                                                               \
     }
 
+#if GPF == 2
+    // Two register sets, the loop unrolled by two so that the sets stay static: entering step s, smem holds step s and set
+    // (s + 1) % 2 the loads of step s + 1.
+    uint steps = (kEnd - kBeg) / GBK;
+    if (steps > 0)
+    {
+        FETCH(0, kBeg)
+        STAGE(0, 0u)
+    }
+    if (steps > 1) { FETCH(1, kBeg + GBK) }
+    GroupMemoryBarrierWithGroupSync();
+    for (uint s = 0; s < steps; s += 2)
+    {
+        if (s + 2 < steps) { FETCH(0, kBeg + (s + 2) * GBK) }
+        COMPUTE(0u)
+        GroupMemoryBarrierWithGroupSync();
+        if (s + 1 >= steps) break;
+        STAGE(1, 0u)
+        GroupMemoryBarrierWithGroupSync();
+        if (s + 3 < steps) { FETCH(1, kBeg + (s + 3) * GBK) }
+        COMPUTE(0u)
+        GroupMemoryBarrierWithGroupSync();
+        if (s + 2 < steps)
+        {
+            STAGE(0, 0u)
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+#else
     // A split-K slice may be empty (K steps not divisible by SPLITK): never prefetch at or past K.
     if (kBeg < kEnd)
     {
-        FETCH(kBeg)
-        STAGE(0u)
+        FETCH(0, kBeg)
+        STAGE(0, 0u)
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -862,31 +990,21 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     for (uint k0 = kBeg; k0 < kEnd; k0 += GBK)
     {
         bool more = k0 + GBK < kEnd;
-        if (more) { FETCH(k0 + GBK) }
-
-        uint ba = cur * GBM * GAS, bb = cur * GBN * GAS;
-        [ForceUnroll]
-        for (uint kk = 0; kk < GBK; kk += 16)
-        {
-            MatB2 b[FRAG_N];
-            [ForceUnroll] for (int j = 0; j < FRAG_N; j++) b[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, (bb + (wn + j * 16) * GAS + kk) / 8, GAS / 8);
-            [ForceUnroll]
-            for (int i = 0; i < FRAG_M; i++)
-            {
-                MatA2 a = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, (ba + (wm + i * 16) * GAS + kk) / 8, GAS / 8);
-                [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]);
-            }
-        }
+        if (more) { FETCH(0, k0 + GBK) }
+        COMPUTE(cur)
 #if GNBUF == 2
-        if (more) { STAGE(cur ^ 1) }
+        if (more) { STAGE(0, cur ^ 1) }
         GroupMemoryBarrierWithGroupSync();
         cur ^= 1;
 #else
         GroupMemoryBarrierWithGroupSync();
-        if (more) { STAGE(0u) }
+        if (more) { STAGE(0, 0u) }
         GroupMemoryBarrierWithGroupSync();
 #endif
     }
+#endif
+    #undef COMPUTE
+    #undef X_K
     #undef FETCH
     #undef STAGE
     #undef GEMM_LOAD_X
