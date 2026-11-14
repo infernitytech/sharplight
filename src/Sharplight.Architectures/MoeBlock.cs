@@ -37,8 +37,10 @@ internal static class MoeBlock
     /// <see cref="IMlpActivation.Activate"/> on up for ungated ones.</param>
     /// <param name="routerInput">Rows [T, H] the router reads when they differ from <paramref name="h"/> (SmallThinker routes on the
     /// layer input before the norm); null = <paramref name="h"/>.</param>
+    /// <param name="sharedActivation">The shared expert's activation when it differs from the routed experts' (per-branch SwiGLU clamps);
+    /// null = <paramref name="activation"/>.</param>
     public static Value Build(GraphBuilder b, Value h, string layerPrefix, string block, MoeOptions options, int hidden, IMlpActivation activation,
-        Value? routerInput = null)
+        Value? routerInput = null, IMlpActivation? sharedActivation = null)
     {
         string prefix = layerPrefix + block;
         int k = options.ExpertsUsed;
@@ -56,7 +58,7 @@ internal static class MoeBlock
             return routed;
         }
 
-        var shared = SharedExpert(b, h, prefix, Gated);
+        var shared = SharedExpert(b, h, prefix, (gate, up) => Activate(sharedActivation ?? activation, gate, up));
         if (options.SharedScale != 1f)
         {
             shared = b.Scale(shared, options.SharedScale);
@@ -65,7 +67,10 @@ internal static class MoeBlock
         return b.Add(routed, shared, $"{prefix}moe_out");
 
         // Activation of an MLP, gated when a gate projection exists.
-        Value Gated(Value? gate, Value up) => gate is null ? activation.Activate(b, up, layerPrefix) : activation.ActivateGated(b, gate, up, layerPrefix);
+        Value Gated(Value? gate, Value up) => Activate(activation, gate, up);
+
+        Value Activate(IMlpActivation function, Value? gate, Value up)
+            => gate is null ? function.Activate(b, up, layerPrefix) : function.ActivateGated(b, gate, up, layerPrefix);
     }
 
     // Gated (separate or fused gate/up) or ungated expert MLP inputs to the down projection: [T, k, I].

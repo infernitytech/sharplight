@@ -17,8 +17,8 @@ internal sealed partial class DecoderGraphBuilder
     private readonly bool _longRope;
     private readonly DecoderNorm _norm;
     private readonly IMlpActivation _activation;
-    private readonly StateDefinition[] _kCache;
-    private readonly StateDefinition[] _vCache;
+    private readonly StateDefinition?[] _kCache;
+    private readonly StateDefinition?[] _vCache;
     private Func<string, WeightInfo?>? _draft;
     private string _pooling = "last";
     private bool _normalize = true;
@@ -39,28 +39,37 @@ internal sealed partial class DecoderGraphBuilder
         // A NextN draft head (one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) when the layers are uniform: the
         // MTP layer is built like a trunk layer with index NLayer and has its own KV cache.
         _draft = _hp.UniformLayers && _hp.NormType == "rms" && _hp.PreNorm ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
-        int layers = _hp.NLayer + (_draft is null ? 0 : 1);
-        _kCache = new StateDefinition[layers];
-        _vCache = new StateDefinition[layers];
-        for (int il = 0; il < layers; il++)
+        // Cache slots: one per logical layer (layer loops run the physical layers again with caches of their own), then the draft layer.
+        int logical = _hp.LogicalLayers;
+        int slots = logical + (_draft is null ? 0 : 1);
+        _kCache = new StateDefinition?[slots];
+        _vCache = new StateDefinition?[slots];
+        for (int slot = 0; slot < slots; slot++)
         {
-            string g = il < _hp.NLayer ? $"layers.{il}" : $"mtp.layers.{il - _hp.NLayer}";
-            int srcLayer = _hp.KvSourceOf(il);
-            if (srcLayer != il)
+            int il = slot < logical ? slot % _hp.NLayer : _hp.NLayer;
+            string g = slot < logical ? $"layers.{slot}" : $"mtp.layers.{slot - logical}";
+            int sourceSlot = slot - il + _hp.KvSourceOf(il);
+            if (sourceSlot != slot)
             {
-                if (srcLayer > il || srcLayer < 0)
+                if (sourceSlot > slot || sourceSlot < 0)
                 {
                     throw new InvalidDataException("decoder: attention.kv_source_layers must point to an earlier layer.");
                 }
 
-                _kCache[il] = _kCache[srcLayer];
-                _vCache[il] = _vCache[srcLayer];
+                _kCache[slot] = _kCache[sourceSlot];
+                _vCache[slot] = _vCache[sourceSlot];
                 continue;
             }
+
+            if (_hp.KvHeadsOf(il) == 0)
+            {
+                continue;   // no attention, or a linear replacement of it (Deci): no cache
+            }
+
             var keyShape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _hp.KvHeadsOf(il), _hp.HeadDimOf(il));
             var valueShape = new Shape(Dim.Sym(WellKnown.ContextSymbol), _hp.KvHeadsOf(il), _hp.ValueDimOf(il));
-            States.Add(_kCache[il] = new StateDefinition { Name = $"{g}.k_cache", Type = _options.KvCacheTypeFor(_hp.HeadDimOf(il)), Shape = keyShape, Kind = StateKind.KeyCache, Group = g });
-            States.Add(_vCache[il] = new StateDefinition { Name = $"{g}.v_cache", Type = _options.KvCacheTypeFor(_hp.ValueDimOf(il)), Shape = valueShape, Kind = StateKind.ValueCache, Group = g });
+            States.Add(_kCache[slot] = new StateDefinition { Name = $"{g}.k_cache", Type = _options.KvCacheTypeFor(_hp.HeadDimOf(il)), Shape = keyShape, Kind = StateKind.KeyCache, Group = g });
+            States.Add(_vCache[slot] = new StateDefinition { Name = $"{g}.v_cache", Type = _options.KvCacheTypeFor(_hp.ValueDimOf(il)), Shape = valueShape, Kind = StateKind.ValueCache, Group = g });
         }
     }
 
@@ -90,11 +99,11 @@ internal sealed partial class DecoderGraphBuilder
                 graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.NEmbd, positionAxes: 1, _hp.Eps, layers: 1, (b, x, j, positions) =>
                 {
                     string p = $"mtp.layers.{j}.";
-                    int il = _hp.NLayer + j;
+                    var slot = new LayerSlot(_hp.NLayer + j, _hp.LogicalLayers + j);
                     var packedKv = new Dictionary<int, (Value K, Value V)>();
                     return _hp.ParallelResidual
-                        ? ParallelLayer(b, x, p, il, positions, FrequencyFactors(b), null, packedKv)
-                        : SequentialLayer(b, x, p, il, positions, FrequencyFactors(b), null, packedKv);
+                        ? ParallelLayer(b, x, p, slot, positions, FrequencyFactors(b), null, packedKv, null)
+                        : SequentialLayer(b, x, p, slot, positions, FrequencyFactors(b), null, packedKv, null);
                 }, chainNormalized: true);
             }
             catch (KeyNotFoundException)
@@ -269,17 +278,31 @@ internal sealed partial class DecoderGraphBuilder
         return logits;
     }
 
-    // The transformer layers; rowSpans selects packed-sequence attention (no KV cache) instead of cached attention.
+    // The transformer layers; rowSpans selects packed-sequence attention (no KV cache) instead of cached attention. With layer loops
+    // (layer_loops) the physical layers run several times, each pass with KV caches of its own, optionally separated by the output norm.
     private Value Layers(GraphBuilder b, Value x, Value positions, Value? freqFactors, Value? perLayer, Value? rowSpans)
     {
         var packedKv = new Dictionary<int, (Value K, Value V)>();
-        for (int il = 0; il < _hp.NLayer; il++)
+        var embeddings = x;
+        for (int logical = 0; logical < _hp.LogicalLayers; logical++)
         {
-            using var _ = b.Group($"layers.{il}");
+            int il = logical % _hp.NLayer;
+            if (logical > 0 && il == 0 && _hp.LoopNorm)
+            {
+                x = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, $"loop{logical / _hp.NLayer}_norm");
+            }
+
+            using var _ = b.Group($"layers.{logical}");
             string p = $"layers.{il}.";
+            var slot = new LayerSlot(il, logical);
             x = _hp.ParallelResidual
-                ? ParallelLayer(b, x, p, il, positions, freqFactors, rowSpans, packedKv)
-                : SequentialLayer(b, x, p, il, positions, freqFactors, rowSpans, packedKv);
+                ? ParallelLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
+                : SequentialLayer(b, x, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
+
+            if (b.TryWeight(p + "embedding_skip.weight") is { } skipScale)
+            {
+                x = b.Add(x, b.Mul(embeddings, skipScale), $"{p}embedding_skip");
+            }
 
             if (perLayer is not null && b.TryWeight(p + "per_layer.gate.weight") is not null)
             {
@@ -295,30 +318,49 @@ internal sealed partial class DecoderGraphBuilder
         return x;
     }
 
-    // Residual topology "sequential": x += attention(norm(x)); x += mlp(norm(x)).
-    private Value SequentialLayer(GraphBuilder b, Value x, string p, int il, Value positions, Value? freqFactors, Value? rowSpans,
-        Dictionary<int, (Value K, Value V)> packedKv)
+    // Residual topology "sequential": x += attention(norm(x)); x += mlp(norm(x)). A layer without attention weights skips the attention
+    // (Deci); one whose attention is a single linear map (attention.o without q/k/v) adds o(norm(x)). A layer with moe_norm.weight adds a
+    // mixture-of-experts branch that reads the layer input (moe(moe_norm(x)), Arctic) next to its dense MLP; a layer without MLP weights has none.
+    private Value SequentialLayer(GraphBuilder b, Value x, string p, LayerSlot slot, Value positions, Value? freqFactors, Value? rowSpans,
+        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings)
     {
         var residual = x;
-        var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
-        var attnOut = SubLayerOutput(b, Attention(b, h, p, il, positions, freqFactors, rowSpans, packedKv), p + "attention.out_norm.weight");
-        x = b.Add(attnOut, residual, $"{p}attn_residual");
+        if (b.HasWeight(p + "attention.o.weight"))
+        {
+            var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
+            var attention = b.HasWeight(p + "attention.q.weight")
+                ? Attention(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
+                : b.Linear(h, p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+            x = b.Add(SubLayerOutput(b, attention, p + "attention.out_norm.weight"), residual, $"{p}attn_residual");
+        }
+
+        if (!HasFeedForward(b, p))
+        {
+            return x;
+        }
 
         var ffnResidual = x;
-        h = PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm");
-        var ffn = SubLayerOutput(b, FeedForward(b, h, p, residual), p + "mlp.out_norm.weight");
-        return b.Add(ffn, ffnResidual, $"{p}l_out");
+        var normed = PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm");
+        var ffn = SubLayerOutput(b, FeedForward(b, normed, p, slot.Layer, residual), p + "mlp.out_norm.weight");
+        var output = b.Add(ffn, ffnResidual, $"{p}l_out");
+        if (b.HasWeight(p + "moe_norm.weight"))
+        {
+            var experts = MoeMlp(b, _norm.Apply(b, residual, p + "moe_norm.weight", _hp.Eps, $"{p}moe_norm"), p, slot.Layer, residual);
+            output = b.Add(output, experts, $"{p}moe_residual");
+        }
+
+        return output;
     }
 
     // Residual topology "parallel": x += attention(norm(x)) + mlp(norm'(x)), both branches reading the layer input. The MLP uses
     // its own norm (post_attention_norm) when the layer has one, otherwise it shares the attention norm (Falcon-7B, Command-R, Phi-2).
-    private Value ParallelLayer(GraphBuilder b, Value x, string p, int il, Value positions, Value? freqFactors, Value? rowSpans,
-        Dictionary<int, (Value K, Value V)> packedKv)
+    private Value ParallelLayer(GraphBuilder b, Value x, string p, LayerSlot slot, Value positions, Value? freqFactors, Value? rowSpans,
+        Dictionary<int, (Value K, Value V)> packedKv, Value? embeddings)
     {
         var h = PreNorm(b, x, p + "input_norm.weight", $"{p}attn_norm");
-        var attnOut = SubLayerOutput(b, Attention(b, h, p, il, positions, freqFactors, rowSpans, packedKv), p + "attention.out_norm.weight");
+        var attnOut = SubLayerOutput(b, Attention(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings), p + "attention.out_norm.weight");
         var ffnInput = b.HasWeight(p + "post_attention_norm.weight") ? PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm") : h;
-        var ffn = SubLayerOutput(b, FeedForward(b, ffnInput, p, x), p + "mlp.out_norm.weight");
+        var ffn = SubLayerOutput(b, FeedForward(b, ffnInput, p, slot.Layer, x), p + "mlp.out_norm.weight");
         return b.Add(b.Add(attnOut, x, $"{p}attn_residual"), ffn, $"{p}l_out");
     }
 
@@ -337,8 +379,11 @@ internal sealed partial class DecoderGraphBuilder
         return _hp.ResidualScale != 1f ? b.Scale(output, _hp.ResidualScale) : output;
     }
 
-    private Value FeedForward(GraphBuilder b, Value h, string p, Value layerInput)
-        => b.HasWeight(p + "mlp.router.weight") ? MoeMlp(b, h, p, layerInput) : Mlp(b, h, p);
+    // The routed experts when the layer has a router and no separate expert branch (moe_norm), the dense MLP otherwise.
+    private Value FeedForward(GraphBuilder b, Value h, string p, int il, Value layerInput)
+        => b.HasWeight(p + "mlp.router.weight") && !b.HasWeight(p + "moe_norm.weight") ? MoeMlp(b, h, p, il, layerInput) : Mlp(b, h, p, il);
+
+    private static bool HasFeedForward(GraphBuilder b, string p) => b.HasWeight(p + "mlp.up.weight") || b.HasWeight(p + "mlp.router.weight");
 
     // Gated per-layer-embedding contribution that ends a layer (see the DecoderAdapter remarks).
     private Value PerLayerResidual(GraphBuilder b, Value x, Value perLayer, string p, int il)

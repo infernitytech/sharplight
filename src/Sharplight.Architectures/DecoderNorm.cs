@@ -4,7 +4,7 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// Norm factory of the decoder graph: the model's normalization kind (<c>norm.type</c>) turns a norm weight name into the
-/// graph nodes. RMS norm multiplies by <c>name</c> (required); layer norm (mean-centred) multiplies by <c>name</c> and adds the
+/// graph nodes. RMS norm multiplies by <c>name</c> and is non-parametric when the model has no such weight (Talkie); layer norm (mean-centred) multiplies by <c>name</c> and adds the
 /// sibling <c>name</c> with <c>.weight</c> replaced by <c>.bias</c> when present, and is non-parametric (OLMo 1) when the weight is absent.
 /// </summary>
 internal sealed class DecoderNorm
@@ -31,7 +31,7 @@ internal sealed class DecoderNorm
     {
         if (!_centred)
         {
-            return b.RmsNorm(x, b.Weight(weightName), eps, name);
+            return b.RmsNorm(x, b.TryWeight(weightName), eps, name);
         }
 
         var weight = b.TryWeight(weightName);
