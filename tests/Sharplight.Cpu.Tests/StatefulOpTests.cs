@@ -104,11 +104,15 @@ public class StatefulOpTests
         Kit.AssertClose(S, st, 1e-4, 1e-3);
     }
 
-    /// <summary>Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention), split over calls.</summary>
+    /// <summary>
+    /// Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention), split over calls.
+    /// A 16-bit state stays close to the f32 reference and, rounded after every row, gives the same outputs however the tokens are split.
+    /// </summary>
     [Theory]
     [InlineData(true, false, false, 16, 8), InlineData(true, false, false, 32, 32), InlineData(false, true, true, 16, 8), InlineData(true, true, false, 24, 16),
-     InlineData(false, false, true, 16, 16), InlineData(false, false, false, 16, 8)]
-    public void GatedDeltaRuleVariants(bool channel, bool additive, bool constantGates, int Dk, int Dv)
+     InlineData(false, false, true, 16, 16), InlineData(false, false, false, 16, 8),
+     InlineData(true, false, false, 32, 32, "bf16"), InlineData(true, true, false, 24, 16, "f16"), InlineData(false, true, true, 16, 8, "bf16")]
+    public void GatedDeltaRuleVariants(bool channel, bool additive, bool constantGates, int Dk, int Dv, string stateType = "f32")
     {
         int T = 5;
         int Hk = 2;
@@ -129,31 +133,46 @@ public class StatefulOpTests
         var vi = tg.InF("v", TestGraph.T, Hv, Dv);
         var gi = constantGates ? tg.WF("g", g, Hv) : channel ? tg.InF("g", TestGraph.T, Hv, Dk) : tg.InF("g", TestGraph.T, Hv);
         var bi = constantGates ? tg.WF("b", b, Hv) : tg.InF("b", TestGraph.T, Hv);
-        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        var st = tg.State("ssm", DataType.Get(stateType), StateKind.Recurrent, Hv, Dv, Dk);
         var attributes = Attributes.From(("scale", scale), ("rule", additive ? "additive" : "delta"));
         tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [qi, ki, vi, gi, bi, st], attributes, writes: [st])[0]);
-        using var m = Kit.Compile(tg.B.Build(), maxTokens: 8);
-        var got = new List<float>();
-        int t0 = 0;
-        int gw = Hv * (channel ? Dk : 1);
-        foreach (int c in new[] { 2, 1, 2 })
+        var graph = tg.B.Build();
+        float[] Run(int[] chunks)
         {
-            Kit.Set(m, qi, q[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
-            Kit.Set(m, ki, k[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
-            Kit.Set(m, vi, v[(t0 * Hv * Dv)..((t0 + c) * Hv * Dv)]);
-            if (!constantGates)
+            using var m = Kit.Compile(graph, maxTokens: 8);
+            var got = new List<float>();
+            int t0 = 0;
+            int gw = Hv * (channel ? Dk : 1);
+            foreach (int c in chunks)
             {
-                Kit.Set(m, gi, g[(t0 * gw)..((t0 + c) * gw)]);
-                Kit.Set(m, bi, b[(t0 * Hv)..((t0 + c) * Hv)]);
+                Kit.Set(m, qi, q[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
+                Kit.Set(m, ki, k[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
+                Kit.Set(m, vi, v[(t0 * Hv * Dv)..((t0 + c) * Hv * Dv)]);
+                if (!constantGates)
+                {
+                    Kit.Set(m, gi, g[(t0 * gw)..((t0 + c) * gw)]);
+                    Kit.Set(m, bi, b[(t0 * Hv)..((t0 + c) * Hv)]);
+                }
+
+                var p = Kit.P(c);
+                m.Run(p);
+                got.AddRange(Kit.Out(m, "o", p));
+                t0 += c;
             }
 
-            var p = Kit.P(c);
-            m.Run(p);
-            got.AddRange(Kit.Out(m, "o", p));
-            t0 += c;
+            return [.. got];
         }
 
-        Kit.AssertClose(exp, got.ToArray(), 1e-5, 1e-4, $"channel={channel} additive={additive} constant={constantGates}");
+        var split = Run([2, 1, 2]);
+        string what = $"channel={channel} additive={additive} constant={constantGates} state={stateType}";
+        if (stateType == "f32")
+        {
+            Kit.AssertClose(exp, split, 1e-5, 1e-4, what);
+            return;
+        }
+
+        Kit.AssertClose(exp, split, 2e-2, 1e-1, what);
+        Assert.Equal(split, Run([T]));
     }
 
     [Theory]
