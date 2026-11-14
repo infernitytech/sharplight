@@ -120,6 +120,7 @@ internal static unsafe class Mem
     }
 
     /// <summary>An axis in [1, rank - 1) with unit stride on both sides and more than one index, or -1.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static int UnitAxis(long[] srcStrides, long[] dstStrides, long[] dims)
     {
         for (int k = dims.Length - 2; k >= 1; k--)

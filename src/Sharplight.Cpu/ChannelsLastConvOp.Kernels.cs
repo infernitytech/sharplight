@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Sharplight.Cpu;
@@ -9,6 +10,7 @@ internal sealed unsafe partial class ChannelsLastConvOp
     /// 8 pixels x 32 channels over segments [s0, s1) and their values [k0, k1): c[i][j] = clamp((acc ? c[i][j] : bias[j]) +
     /// sum of ptrs[s][i][k] * b[s * len + k][j] + residual[i][j], lo, hi).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Kernel8x32(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
     {
         Vector512<float> c00;
@@ -156,6 +158,7 @@ internal sealed unsafe partial class ChannelsLastConvOp
     /// 12 pixels x 16 channels over segments [s0, s1) and their values [k0, k1): c[i][j] = clamp((acc ? c[i][j] : bias[j]) +
     /// sum of ptrs[s][i][k] * b[s * len + k][j] + residual[i][j], lo, hi).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Kernel12x16(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
     {
         Vector512<float> c00;
@@ -285,6 +288,7 @@ internal sealed unsafe partial class ChannelsLastConvOp
     /// 6 pixels x 16 channels over segments [s0, s1) and their values [k0, k1): c[i][j] = clamp((acc ? c[i][j] : bias[j]) +
     /// sum of ptrs[s][i][k] * b[s * len + k][j] + residual[i][j], lo, hi).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Kernel6x16(float** ptrs, int s0, int s1, int k0, int k1, int len, float* b, float* bias, bool acc, float* c, long ldc, float* residual, float lo, float hi)
     {
         Vector256<float> c00;

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 
@@ -71,6 +72,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>The conv kind node <paramref name="n"/> runs as in the channels-last layout: 0 none, 1 dense (groups 1), 2 depthwise.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private int ChannelsLastConvKind(Node n)
     {
         var ins = n.Inputs;
@@ -103,6 +105,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// True when every reader of <paramref name="v"/> takes channels-last input: convs, pooling, spatial reductions, or (looking
     /// through them) elementwise ops of its shape, channel slices and channel concats.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool ReadersTakeChannelsLast(Value v, int depth = 0)
     {
         if (_channelsLastReaders.TryGetValue(v, out var known))
@@ -128,6 +131,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         return ok;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool ReaderTakesChannelsLast(Node reader, Value v, int depth)
     {
         string op = reader.Op.Name;
@@ -274,6 +278,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     /// per-channel constants) write a channels-last output. They run over [N, H, W, C] views of every operand, or over the
     /// flat buffers when all operands are whole channels-last tensors. False otherwise.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool TryChannelsLastElementwise(Node n, TRef[] inputs, out TRef y, out TRef[] views, out TRef yView)
     {
         y = null!;
@@ -323,6 +328,7 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>[N, H, W, C] view of a rank-4 (or lower, broadcast, left-padded with unit dims) value.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private TRef NhwcView(TRef r)
     {
         int pad = 4 - r.Rank;

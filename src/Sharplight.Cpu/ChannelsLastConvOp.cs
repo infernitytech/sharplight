@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -237,6 +238,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
     /// per tile block and each input block once per panel block, blocks that stay in L2 once per thread), plus a cost per
     /// task; with few tasks the threads wait for the last one. Late layers with few pixels and large weights then take few tasks that each read their weights once.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Plan()
     {
         int threads = CpuParallel.Threads;
@@ -290,6 +292,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
     }
 
     /// <summary>Copies padded input row <paramref name="task"/> (image * HP + row) into the zero-padded channels-last buffer.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PadBody(int task)
     {
         long n = task / _hp;
@@ -344,6 +347,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
     /// chunk of the panel's weights stays in L1 while every tile of the task runs over it; partial sums are kept in the output
     /// (full tiles) or in per-tile scratch (edge tiles), and the epilogue is applied with the last chunk.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int pb = task / _tBlocks;
@@ -431,6 +435,7 @@ internal sealed unsafe partial class ChannelsLastConvOp : CpuOp
     }
 
     /// <summary>The input row pointers of tile <paramref name="t"/>: [segment][pixel], the zero row for padding and past the last pixel.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void TilePointers(int t, float** dst)
     {
         long hw = (long)_ho * _wo;

@@ -165,6 +165,7 @@ internal sealed unsafe class ResizeOp : CpuOp
     }
 
     /// <summary>Channels-last: output row <paramref name="task"/> (image * OH + row), one channel vector of a pixel at a time.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RowBody(int task)
     {
         long n = task / _oh;

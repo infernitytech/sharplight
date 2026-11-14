@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -104,6 +105,7 @@ internal sealed unsafe class ChannelsLastPoolOp : CpuOp
         CpuParallel.For((int)(_rows * _cBlocks), _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int cb = task % _cBlocks;
@@ -133,6 +135,7 @@ internal sealed unsafe class ChannelsLastPoolOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Channels<TL>(long row, int c) where TL : struct, IFloatLanes<TL>
     {
         long cs = _c;
@@ -189,6 +192,7 @@ internal sealed unsafe class ChannelsLastPoolOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void ScalarChannel(long row, int c)
     {
         long cs = _c;

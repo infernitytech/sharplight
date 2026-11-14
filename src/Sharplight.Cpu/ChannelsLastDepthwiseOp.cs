@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -141,6 +142,7 @@ internal sealed unsafe class ChannelsLastDepthwiseOp : CpuOp
         CpuParallel.For((int)(rows * _cBlocks), _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int cb = task % _cBlocks;
@@ -195,6 +197,7 @@ internal sealed unsafe class ChannelsLastDepthwiseOp : CpuOp
     }
 
     /// <summary>One vector of channels from <paramref name="c"/> over the whole output row.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Channels<TL>(float* xr, float* yr, float* rr, int c, int fh0, int fh1) where TL : struct, IFloatLanes<TL>
     {
         var bias = TL.Load(_biasPad + c);
@@ -244,6 +247,7 @@ internal sealed unsafe class ChannelsLastDepthwiseOp : CpuOp
     }
 
     /// <summary>One output pixel with bounds-checked horizontal taps.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Edge<TL>(float* xr, float* yr, float* rr, int c, int fh0, int fh1, int ow, TL bias, TL lo, TL hi) where TL : struct, IFloatLanes<TL>
     {
         long cs = _c;
@@ -276,6 +280,7 @@ internal sealed unsafe class ChannelsLastDepthwiseOp : CpuOp
     }
 
     /// <summary>Channels [c0, c1) (fewer than a vector) one at a time.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void ScalarChannels(float* xr, float* yr, float* rr, int c0, int c1, int fh0, int fh1)
     {
         long cs = _c;

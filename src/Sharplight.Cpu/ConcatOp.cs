@@ -107,6 +107,7 @@ internal sealed unsafe class ConcatOp : CpuOp
         CpuParallel.For(tasks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int i = 0;
