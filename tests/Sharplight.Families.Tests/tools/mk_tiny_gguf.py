@@ -1,6 +1,6 @@
 """
 Writes tiny random GGUF files for llama.cpp architectures that have no Hugging Face class in transformers (so no tiny-random checkpoint
-and no converter path): Qwen v1 (qwen), XVERSE (xverse) and ChatGLM (chatglm), the RMS-normed RWKV distillations ARWKV7 (arwkv7, with and without output gate) and QRWKV6 (rwkv6qwen2), and PLaMo-2 (plamo2). The weights are random, written with llama.cpp's tensor names
+and no converter path): Qwen v1 (qwen), XVERSE (xverse) and ChatGLM (chatglm), the RMS-normed RWKV distillations ARWKV7 (arwkv7, with and without output gate) and QRWKV6 (rwkv6qwen2), and PLaMo-2 (plamo2), plus the later llama.cpp-only families (write_family). The weights are random, written with llama.cpp's tensor names
 and hyper-parameter keys; llama.cpp (llama-completion) provides the reference continuation. The tokenizer fields are copied from a GGUF
 that already carries the 1024-token GPT-2-style vocabulary of tiny-random-GPTNeoXForCausalLM, e.g. tiny-random-falcon-f32.gguf converted
 from ~/models/hf/tiny-random-falcon with convert_hf_to_gguf.py.
@@ -344,6 +344,43 @@ def spark_parameters(writer):
     writer.add_rope_dimension_count_swa(HEAD_DIM)
 
 
+EXPERTS, EXPERTS_USED, EXPERT_FFN = 4, 2, 48
+
+
+def moe_block(head_dim=HEAD_DIM, shared=1):
+    # A Llama attention block (head size head_dim) with routed SwiGLU experts and, when shared > 0, a shared SwiGLU expert of shared * EXPERT_FFN.
+    q, kv = HEADS * head_dim, KV_HEADS * head_dim
+    t = {"attn_norm.weight": norm(HIDDEN), "attn_q.weight": weight(q, HIDDEN), "attn_k.weight": weight(kv, HIDDEN), "attn_v.weight": weight(kv, HIDDEN),
+         "attn_output.weight": weight(HIDDEN, q), "ffn_norm.weight": norm(HIDDEN), "ffn_gate_inp.weight": weight(EXPERTS, HIDDEN),
+         "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, HIDDEN), "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, HIDDEN),
+         "ffn_down_exps.weight": weight(EXPERTS, HIDDEN, EXPERT_FFN)}
+    if shared:
+        t.update({"ffn_gate_shexp.weight": weight(shared * EXPERT_FFN, HIDDEN), "ffn_up_shexp.weight": weight(shared * EXPERT_FFN, HIDDEN),
+                  "ffn_down_shexp.weight": weight(HIDDEN, shared * EXPERT_FFN)})
+    return t
+
+
+def moe_parameters(shared=1, dense_lead=0, scale=None, norm_weights=None):
+    def add(writer):
+        writer.add_expert_count(EXPERTS)
+        writer.add_expert_used_count(EXPERTS_USED)
+        writer.add_expert_feed_forward_length(EXPERT_FFN)
+        writer.add_expert_shared_count(shared)
+        if dense_lead:
+            writer.add_leading_dense_block_count(dense_lead)
+        if scale is not None:
+            writer.add_expert_weights_scale(scale)
+        if norm_weights is not None:
+            writer.add_expert_weights_norm(norm_weights)
+    return add
+
+
+def bailing_parameters(writer):
+    moe_parameters(norm_weights=True)(writer)
+    writer.add_key_length(24)
+    writer.add_value_length(24)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -374,6 +411,12 @@ models = {
     # Baichuan's position scheme depends on the depth: 32 layers rotary (7B), 40 layers ALiBi (13B).
     "baichuan": lambda path: write_family(path, "baichuan", 19, lambda layer: llama_block(), layers=32),
     "baichuan-alibi": lambda path: write_family(path, "baichuan", 20, lambda layer: llama_block(), layers=40),
+    # DeepSeek V1: a leading dense layer, then experts (top-k weights not renormalized, scaled) plus a shared expert of two expert widths.
+    "deepseek": lambda path: write_family(path, "deepseek", 23, lambda layer: llama_block() if layer == 0 else moe_block(shared=2),
+                                          parameters=moe_parameters(shared=2, dense_lead=1, scale=1.5)),
+    # Bailing MoE V1: a head size (rope.dimension_count) other than hidden / heads, renormalized top-k weights.
+    "bailingmoe": lambda path: write_family(path, "bailingmoe", 22, lambda layer: moe_block(head_dim=24), parameters=bailing_parameters,
+                                            rope_dim=24),
 }
 for name, write in models.items():
     if not only or name in only:

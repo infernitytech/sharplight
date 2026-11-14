@@ -73,5 +73,10 @@ internal static class MappedFamilyCases
             [1004, 786, 523, 263, 550, 862, 713, 331, 802, 17, 567, 668, 567, 806, 213, 725, 862, 564, 932, 626, 892, 959, 978, 942], ""),
         new("tiny-random-baichuan-alibi f32 GGUF (baichuan 40 layers ALiBi, llama.cpp)", "gguf/tiny-random-baichuan-alibi-f32.gguf", Prompt, "ids",
             [4, 915, 261, 657, 362, 921, 107, 576, 822, 573, 200, 646, 881, 1015, 607, 419, 999, 1018, 116, 22, 28, 1006, 875, 799], "", NeedsCpuFallback: true),
+        // 23 tokens: llama.cpp's 24th is a near tie (log-prob margin 0.001).
+        new("tiny-random-deepseek f32 GGUF (deepseek V1 dense lead, shared expert, unnormalized scaled top-k, llama.cpp)", "gguf/tiny-random-deepseek-f32.gguf", Prompt, "ids",
+            [593, 248, 303, 176, 746, 405, 657, 36, 658, 237, 613, 780, 765, 958, 427, 467, 96, 383, 720, 246, 784, 804, 625], ""),
+        new("tiny-random-bailingmoe f32 GGUF (bailingmoe head size from rope dims, shared expert, llama.cpp)", "gguf/tiny-random-bailingmoe-f32.gguf", Prompt, "ids",
+            [300, 213, 142, 313, 242, 3, 23, 909, 549, 667, 667, 159, 734, 7, 125, 313, 832, 210, 714, 314, 36, 213, 563, 7], ""),
     ];
 }
