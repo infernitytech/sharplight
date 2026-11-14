@@ -477,7 +477,7 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 15) / 16 * 16;
         long kvHalves = 2 * 32 * (paddedD + 8) + 2 * 32 * (paddedDV + 8);
         long buffer = Math.Max(kvHalves, 2 * 64 * (paddedD + 8)) * 2;
-        long sharedBytes = buffer + 4 * 16 * 32 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
+        long sharedBytes = buffer + 4 * 16 * 36 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
         return DiagnosticSwitches.AttentionEncoderFlash && plain && kv && paddedD <= 128 && paddedDV <= 128
                && sharedBytes <= _opt.MaxSharedMemory;
     }
