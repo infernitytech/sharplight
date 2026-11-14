@@ -14,7 +14,8 @@ namespace Sharplight.Vulkan;
 /// <c>OpCompositeConstruct</c>, which SPIRV-Cross emits as plain value copies.</item>
 /// <item>An <c>OpPtrAccessChain</c> result used as a pointer value (cast, passed, returned, stored or selected) is emitted as
 /// the element value instead of its address (<c>reinterpret_cast&lt;device float4*&gt;(_70.o[i])</c>). Such access chains
-/// become address arithmetic: <c>ConvertUToPtr(ConvertPtrToU(base) + index * ArrayStride)</c>.</item>
+/// become address arithmetic: <c>ConvertUToPtr(ConvertPtrToU(base) + index * ArrayStride)</c>. A base that is itself an
+/// <c>OpPtrAccessChain</c> result is then used as a pointer value too and is rewritten the same way.</item>
 /// </list>
 /// </summary>
 internal static class SpirvPortability
@@ -190,6 +191,25 @@ internal static class SpirvPortability
                 }
 
                 at += count;
+            }
+
+            // A rewritten access chain converts its base to an integer, so that base is used as a pointer value too.
+            var chainBases = new Dictionary<uint, uint>();
+            foreach (int i in _instructions)
+            {
+                if ((ushort)_words[i] == OpPtrAccessChain && (_words[i] >> 16) >= 4)
+                {
+                    chainBases[_words[i + 2]] = _words[i + 3];
+                }
+            }
+
+            var pending = new Stack<uint>(_pointerValues);
+            while (pending.TryPop(out uint value))
+            {
+                if (chainBases.TryGetValue(value, out uint chainBase) && _pointerValues.Add(chainBase))
+                {
+                    pending.Push(chainBase);
+                }
             }
 
             // Result types of value instructions: word 1 is a type id and word 2 the result id.

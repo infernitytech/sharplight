@@ -84,16 +84,16 @@ jobs:
           echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
 
       - name: LLM smoke test (CPU)
-        if: steps.model.outcome == 'success'
+        if: (success() || failure()) && steps.model.outcome == 'success'
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32
 
       - name: LLM smoke test (Vulkan via MoltenVK)
-        if: steps.model.outcome == 'success'
+        if: (success() || failure()) && steps.model.outcome == 'success'
         timeout-minutes: 15
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32
 
       - name: CPU kernel tiers (decode and prefill)
-        if: steps.model.outcome == 'success'
+        if: (success() || failure()) && steps.model.outcome == 'success'
         run: |
           for isa in scalar v128 neon neondot; do
             echo "=== SHARPLIGHT_CPU_ISA=$isa"
@@ -101,7 +101,7 @@ jobs:
           done
 
       - name: Vulkan benchmark (MoltenVK)
-        if: steps.model.outcome == 'success'
+        if: (success() || failure()) && steps.model.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 15
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
@@ -169,11 +169,11 @@ jobs:
           echo "path=$RUNNER_TEMP/models/smoke.gguf" >> "$GITHUB_OUTPUT"
 
       - name: LLM smoke test (CPU)
-        if: steps.model.outcome == 'success'
+        if: (success() || failure()) && steps.model.outcome == 'success'
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32
 
       - name: CPU kernel tiers (decode and prefill)
-        if: steps.model.outcome == 'success'
+        if: (success() || failure()) && steps.model.outcome == 'success'
         run: |
           for isa in scalar v128 neon neondot; do
             echo "=== SHARPLIGHT_CPU_ISA=$isa"
