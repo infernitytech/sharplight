@@ -18,6 +18,7 @@ internal static class HfArchitectureMappings
         Register(new FalconH1HfMapping());
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
+        Register(new MiniMaxHfMapping());
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());
         Register(new DecoderHfMapping());
