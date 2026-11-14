@@ -6,7 +6,9 @@ namespace Sharplight.Gguf;
 /// <summary>
 /// llama.cpp architectures with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
 /// <c>LatentDecoderAdapter</c>): <c>deepseek2</c> (DeepSeek-V2/V2-Lite/V3/R1, Kimi-K2, GLM-4.7-Flash, Moonlight) and
-/// <c>minicpm3</c>. Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
+/// <c>minicpm3</c>, and <c>mistral4</c> (Mistral Small 4: softmax routing with group scores of the two best experts, fused gate+up experts, query
+/// temperature, which Mistral Large 3 <c>deepseek2</c> files carry too) and <c>plm</c> (PLM-1.8B: direct query projection, ungated squared-ReLU MLP,
+/// output head tied to the embedding). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
 /// split (and its key half transposed per head) into the canonical absorbed form; newer files carry <c>attn_k_b</c> /
 /// <c>attn_v_b</c> directly.
 /// </summary>
@@ -21,7 +23,7 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
     private const int GatingSigmoid = 2;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -59,6 +61,12 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         };
         GgufMappingHelpers.AddContextLength(md, a, g);
 
+        if (g.GgufArchitecture == "plm")
+        {
+            md[a + "mlp.activation"] = "relu2";
+            md[a + "mlp.gated"] = false;
+        }
+
         if (IsMiniCpm(g))
         {
             md[a + "embedding_scale"] = MiniCpmEmbeddingScale;
@@ -70,6 +78,19 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         if (g.Has("expert_count"))
         {
             AddMixtureOfExperts(md, a, g);
+        }
+
+        // Mistral 4 / Mistral Large 3: Llama-4-style query temperature beyond the original context.
+        if (g.Float("attention.temperature_scale", 0f) is var temperature && temperature != 0f)
+        {
+            int length = g.Int("attention.temperature_length", g.Int("rope.scaling.original_context_length", 0));
+            if (length <= 0)
+            {
+                throw new InvalidDataException($"{g.GgufArchitecture}: attention.temperature_scale needs attention.temperature_length.");
+            }
+
+            md[a + "attention.temperature_scale"] = temperature;
+            md[a + "attention.temperature_length"] = (float)length;
         }
 
         return md;
@@ -98,7 +119,8 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         md[a + "moe.weights_scale"] = g.Float("expert_weights_scale", 1f);
         md[a + "moe.group_count"] = g.Int("expert_group_count", 1);
         md[a + "moe.group_used_count"] = g.Int("expert_group_used_count", g.Int("expert_group_count", 1));
-        md[a + "moe.group_score"] = sigmoid ? "top2_sum" : "max";
+        // Mistral 4 scores its groups by the two best softmax scores as llama.cpp does; DeepSeek-V2's softmax groups use their best score.
+        md[a + "moe.group_score"] = sigmoid || g.GgufArchitecture == "mistral4" ? "top2_sum" : "max";
     }
 
     /// <summary>Per-layer tensors, GGUF suffix to canonical suffix.</summary>
@@ -123,6 +145,7 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         ["ffn_gate_exps.weight"] = "mlp.experts.gate.weight",
         ["ffn_up_exps.weight"] = "mlp.experts.up.weight",
         ["ffn_down_exps.weight"] = "mlp.experts.down.weight",
+        ["ffn_gate_up_exps.weight"] = "mlp.experts.gate_up.weight",
         ["ffn_gate_shexp.weight"] = "mlp.shared.gate.weight",
         ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
         ["ffn_down_shexp.weight"] = "mlp.shared.down.weight",

@@ -1,10 +1,13 @@
 namespace Sharplight.Gguf;
 
-/// <summary>llama.cpp <c>gpt2</c>: learned absolute position embeddings (no rotary), fused biased q/k/v, layer norm with bias, plain GELU MLP.</summary>
+/// <summary>
+/// llama.cpp <c>gpt2</c> and <c>starcoder</c> (StarCoder 1, SantaCoder: one key/value head): learned absolute position embeddings (no rotary), fused biased q/k/v
+/// (split by the head counts), layer norm with bias, plain GELU MLP.
+/// </summary>
 internal sealed class Gpt2GgufMapping : GgufDecoderFamilyMapping
 {
     /// <inheritdoc/>
-    public override IReadOnlyList<string> GgufArchitectures { get; } = ["gpt2"];
+    public override IReadOnlyList<string> GgufArchitectures { get; } = ["gpt2", "starcoder"];
 
     /// <inheritdoc/>
     protected override bool LayerNorm => true;

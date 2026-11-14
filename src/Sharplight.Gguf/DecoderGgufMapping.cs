@@ -205,6 +205,8 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         ["ffn_gate_shexp.weight"] = "mlp.shared.gate.weight",
         ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
         ["ffn_down_shexp.weight"] = "mlp.shared.down.weight",
+        // Qwen2-MoE: per-token sigmoid gate of the shared expert ([H] in the file, [1, H] canonical).
+        ["ffn_gate_inp_shexp.weight"] = "mlp.shared.input_gate.weight",
         ["attn_sinks.weight"] = "attention.sinks",
         // Gemma 2/3: llama.cpp's post_attention_norm / post_ffw_norm are the norms of the sub-layer outputs.
         ["post_attention_norm.weight"] = "attention.out_norm.weight",

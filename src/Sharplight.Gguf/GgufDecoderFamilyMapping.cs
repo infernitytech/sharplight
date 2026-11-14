@@ -1,4 +1,5 @@
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
 
@@ -64,7 +65,7 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     protected virtual IReadOnlyDictionary<string, string>? LayerTensorOverrides => null;
 
     /// <summary>Canonical weights the metadata determines on top of the rope factors (e.g. activation parameters).</summary>
-    protected virtual IEnumerable<WeightInfo> FamilySyntheticWeights(GgufMetadataView g) => [];
+    protected virtual IEnumerable<WeightInfo> FamilySyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights) => [];
 
     /// <summary>Query and key/value head counts of layer <paramref name="layer"/> (used to split fused q/k/v tensors).</summary>
     protected virtual (int Heads, int KvHeads) HeadsOf(GgufMetadataView g, int layer)
@@ -178,6 +179,15 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
                 }
 
                 return [t.RowSlice(prefix + "mlp.gate.weight", 0, ffnLength), t.RowSlice(prefix + "mlp.up.weight", ffnLength, ffnLength)];
+            case "ffn_up_shexp.weight":
+                // A shared expert stored with its gate rows first, then the up rows (Granite MoE shared).
+                int sharedLength = g.Int("expert_shared_feed_forward_length", 0);
+                if (sharedLength == 0 || t.Shape[0].Fixed != 2 * sharedLength)
+                {
+                    return null;
+                }
+
+                return [t.RowSlice(prefix + "mlp.shared.gate.weight", 0, sharedLength), t.RowSlice(prefix + "mlp.shared.up.weight", sharedLength, sharedLength)];
             default:
                 return null;
         }
@@ -199,6 +209,11 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     /// <inheritdoc/>
     public WeightInfo MapWeight(WeightInfo w, GgufMetadataView g)
     {
+        if (w.Shape.Rank == 1 && w.Name.EndsWith("mlp.shared.input_gate.weight", StringComparison.Ordinal))
+        {
+            return w.As(w.Name, new Shape(1, w.Shape[0]));
+        }
+
         if (!PermutesQk)
         {
             return w;
@@ -220,5 +235,5 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
 
     /// <inheritdoc/>
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
-        => DecoderGgufMapping.RopeFrequencyFactors(g, weights).Concat(FamilySyntheticWeights(g));
+        => DecoderGgufMapping.RopeFrequencyFactors(g, weights).Concat(FamilySyntheticWeights(g, weights));
 }

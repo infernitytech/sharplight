@@ -37,6 +37,7 @@ internal abstract partial class HfMoeFamilyMapping : HfDecoderFamilyMapping
         ["mlp.shared_mlp.gate_proj.weight"] = "mlp.shared.gate.weight",
         ["mlp.shared_mlp.up_proj.weight"] = "mlp.shared.up.weight",
         ["mlp.shared_mlp.down_proj.weight"] = "mlp.shared.down.weight",
+        ["mlp.shared_expert_gate.weight"] = "mlp.shared.input_gate.weight",
     };
 
     /// <summary>Per-expert projection names (Llama-style and Mixtral-style w1/w3/w2) to the canonical expert kind.</summary>

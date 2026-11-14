@@ -6,8 +6,8 @@ namespace Sharplight.HuggingFace;
 
 /// <summary>
 /// Hugging Face checkpoints with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
-/// <c>LatentDecoderAdapter</c>): <c>deepseek_v2</c>, <c>deepseek_v3</c> / <c>kimi_k2</c>, <c>glm4_moe_lite</c> (GLM-4.7-Flash) and
-/// <c>minicpm3</c>. The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
+/// <c>LatentDecoderAdapter</c>): <c>deepseek_v2</c>, <c>deepseek_v3</c> / <c>kimi_k2</c>, <c>glm4_moe_lite</c> (GLM-4.7-Flash),
+/// <c>minicpm3</c> and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
 /// tensors are stacked; multi-token-prediction layers (after <c>num_hidden_layers</c>) map like decoder layers below
 /// <c>mtp.layers.{j}.</c>, with their NextN tensors (<see cref="HfNextnTensors"/>).
 /// </summary>
@@ -17,7 +17,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     public string Architecture => "latent_decoder";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -73,6 +73,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             AddMixtureOfExperts(md, a, c, experts);
         }
 
+        AddTemperature(md, a, c);
         return md;
     }
 
@@ -144,11 +145,31 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         return new LongRopeFactors(Factors("short_factor"), Factors("long_factor"), original, magnitude);
     }
 
+    /// <summary>Mistral 4: Llama-4-style query temperature (<c>llama_4_scaling_beta</c> over <c>original_max_position_embeddings</c>).</summary>
+    /// <exception cref="InvalidDataException">The temperature beta is set without an original context length.</exception>
+    private static void AddTemperature(Dictionary<string, object> md, string a, HfConfig c)
+    {
+        double beta = HfMappingHelpers.NumberOr(c.RopeParameters, "llama_4_scaling_beta", 0);
+        if (beta == 0)
+        {
+            return;
+        }
+
+        double length = HfMappingHelpers.NumberOr(c.RopeParameters, "original_max_position_embeddings", 0);
+        if (length <= 0)
+        {
+            throw new InvalidDataException($"{c.ModelType}: llama_4_scaling_beta needs rope original_max_position_embeddings.");
+        }
+
+        md[a + "attention.temperature_scale"] = (float)beta;
+        md[a + "attention.temperature_length"] = (float)length;
+    }
+
     private static void AddMixtureOfExperts(Dictionary<string, object> md, string a, HfConfig c, int experts)
     {
         string modelType = c.ModelType ?? "";
         string topkMethod = c.GetString("topk_method") ?? (modelType == "deepseek_v2" ? "greedy" : "noaux_tc");
-        bool sigmoid = (c.GetString("scoring_func") ?? (modelType == "deepseek_v2" ? "softmax" : "sigmoid")) == "sigmoid";
+        bool sigmoid = (c.GetString("scoring_func") ?? (modelType is "deepseek_v2" or "mistral4" ? "softmax" : "sigmoid")) == "sigmoid";
         bool normalize = c.GetBool("norm_topk_prob") ?? false;
         double scale = c.GetDouble("routed_scaling_factor") ?? 1.0;
         md[a + "moe.expert_count"] = experts;
@@ -188,6 +209,9 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         ["mlp.up_proj.weight"] = "mlp.up.weight",
         ["mlp.down_proj.weight"] = "mlp.down.weight",
         ["mlp.gate.weight"] = "mlp.router.weight",
+        // Experts stored stacked (Mistral 4): [E, 2I, H] gate rows first, and [E, H, I].
+        ["mlp.experts.gate_up_proj"] = "mlp.experts.gate_up.weight",
+        ["mlp.experts.down_proj"] = "mlp.experts.down.weight",
         ["mlp.shared_experts.gate_proj.weight"] = "mlp.shared.gate.weight",
         ["mlp.shared_experts.up_proj.weight"] = "mlp.shared.up.weight",
         ["mlp.shared_experts.down_proj.weight"] = "mlp.shared.down.weight",

@@ -27,7 +27,7 @@ internal sealed class ApertusGgufMapping : GgufDecoderFamilyMapping
     }
 
     /// <inheritdoc/>
-    protected override IEnumerable<WeightInfo> FamilySyntheticWeights(GgufMetadataView g)
+    protected override IEnumerable<WeightInfo> FamilySyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
     {
         var alphaPositive = Parameters(g, "xielu.alpha_p");
         var alphaNegative = Parameters(g, "xielu.alpha_n");

@@ -26,6 +26,8 @@ namespace Sharplight.Architectures;
 /// <c>moe.group_count</c> / <c>moe.group_used_count</c> (group-limited routing: experts form group_count equal groups, only the
 /// group_used_count best groups compete for the top-k; default no limit), <c>moe.group_score</c> ("top2_sum" (default, DeepSeek-V3:
 /// sum of the two best selection scores of a group) or "max" (DeepSeek-V2)).</item>
+/// <item>Query temperature (Mistral 4, Mistral Large 3): <c>attention.temperature_scale</c> (β, 0 = off) and <c>attention.temperature_length</c> (L) scale
+/// every query row by <c>1 + β · ln(1 + ⌊pos / L⌋)</c>.</item>
 /// <item><c>embedding_scale</c> (factor on the token embeddings), <c>residual_scale</c> (factor on each sub-layer output before its residual
 /// add; MiniCPM's scale_depth/sqrt(layers)), <c>logit_scale</c> (factor on the final hidden state before the output head); all default 1.</item>
 /// </list>

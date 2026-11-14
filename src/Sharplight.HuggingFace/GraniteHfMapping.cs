@@ -23,6 +23,23 @@ internal sealed class GraniteHfMapping : HfDecoderFamilyMapping
     protected override void AddHyperParameters(Dictionary<string, object> md, HfConfig c)
     {
         const string prefix = "decoder.";
+        AddMupScales(md, c);
+        if (c.ModelType == "granitemoe")
+        {
+            md[prefix + "moe.expert_count"] = c.Int("num_local_experts");
+            md[prefix + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+            md[prefix + "moe.ffn_hidden_size"] = c.Int("intermediate_size");
+            md[prefix + "moe.normalize_weights"] = true;
+        }
+    }
+
+    /// <summary>
+    /// Granite's muP multipliers as canonical decoder keys: <c>attention_multiplier</c> (attention scale), <c>embedding_multiplier</c>,
+    /// <c>residual_multiplier</c> (every sub-layer output) and <c>logits_scaling</c> (a divisor of the logits).
+    /// </summary>
+    internal static void AddMupScales(Dictionary<string, object> md, HfConfig c)
+    {
+        const string prefix = "decoder.";
         if (c.GetDouble("attention_multiplier") is { } attention)
         {
             md[prefix + "attention.scale"] = (float)attention;
@@ -41,14 +58,6 @@ internal sealed class GraniteHfMapping : HfDecoderFamilyMapping
         if (c.GetDouble("logits_scaling") is { } divisor && divisor != 0)
         {
             md[prefix + "logit_scale"] = (float)(1.0 / divisor);
-        }
-
-        if (c.ModelType == "granitemoe")
-        {
-            md[prefix + "moe.expert_count"] = c.Int("num_local_experts");
-            md[prefix + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
-            md[prefix + "moe.ffn_hidden_size"] = c.Int("intermediate_size");
-            md[prefix + "moe.normalize_weights"] = true;
         }
     }
 

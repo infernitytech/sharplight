@@ -24,9 +24,11 @@ namespace Sharplight.Architectures;
 /// <param name="GroupScore">How a group is ranked (<c>moe.group_score</c>: "top2_sum" (default) or "max").</param>
 /// <param name="WeightsBeforeExperts">Multiply each selected expert's input by its weight instead of its output
 /// (<c>moe.weights_before_experts</c>, Llama 4).</param>
+/// <param name="SharedScale">Factor on the shared expert's output (<c>moe.shared_scale</c>, default 1; Cohere2-MoE's "average" combination
+/// scales the routed and the shared output by 0.5).</param>
 internal sealed record MoeOptions(
     int Experts, int ExpertsUsed, MoeScoreFunction ScoreFunction, bool NormalizeWeights, float WeightsScale,
-    int Groups = 1, int GroupsUsed = 1, MoeGroupScore GroupScore = MoeGroupScore.TopTwoSum, bool WeightsBeforeExperts = false)
+    int Groups = 1, int GroupsUsed = 1, MoeGroupScore GroupScore = MoeGroupScore.TopTwoSum, bool WeightsBeforeExperts = false, float SharedScale = 1f)
 {
     /// <summary>Reads the <c>moe.*</c> keys of <paramref name="source"/>.</summary>
     /// <param name="source">The model source.</param>
@@ -60,7 +62,8 @@ internal sealed record MoeOptions(
             Groups: groups,
             GroupsUsed: source.Arch("moe.group_used_count", groups),
             GroupScore: group,
-            WeightsBeforeExperts: source.Arch("moe.weights_before_experts", false));
+            WeightsBeforeExperts: source.Arch("moe.weights_before_experts", false),
+            SharedScale: source.Arch("moe.shared_scale", 1f));
     }
 
     /// <summary>Whether the counts describe a usable configuration.</summary>

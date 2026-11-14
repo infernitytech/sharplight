@@ -18,7 +18,7 @@ namespace Sharplight.Architectures;
 /// added to the selected experts' projections.</item>
 /// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
 /// act(up) MLP), optionally scaled per token by
-/// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H].</item>
+/// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H], and by <c>moe.shared_scale</c>.</item>
 /// </list>
 /// </remarks>
 internal static class MoeBlock
@@ -56,7 +56,13 @@ internal static class MoeBlock
             return routed;
         }
 
-        return b.Add(routed, SharedExpert(b, h, prefix, Gated), $"{prefix}moe_out");
+        var shared = SharedExpert(b, h, prefix, Gated);
+        if (options.SharedScale != 1f)
+        {
+            shared = b.Scale(shared, options.SharedScale);
+        }
+
+        return b.Add(routed, shared, $"{prefix}moe_out");
 
         // Activation of an MLP, gated when a gate projection exists.
         Value Gated(Value? gate, Value up) => gate is null ? activation.Activate(b, up, layerPrefix) : activation.ActivateGated(b, gate, up, layerPrefix);

@@ -20,7 +20,7 @@ internal sealed partial class DecoderGraphBuilder
         q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), il, heads, headDim, rotate);
         if (_hp.TemperatureOn(il))
         {
-            q = b.Mul(q, AttentionTemperature(b, positions), $"{p}q_tempered");
+            q = b.Mul(q, AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength, _hp.TemperatureOffset), $"{p}q_tempered");
         }
 
         if (_hp.KvSourceOf(il) == il)
@@ -46,18 +46,6 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         return AttentionOutput(b, CachedAttention(b, q, p, il), h, p, heads, _hp.ValueDimOf(il));
-    }
-
-    /// <summary>
-    /// Llama 4 / Mistral 3 attention temperature per query position: <c>log(floor((pos + offset) / length) + 1) · scale + 1</c>, shaped
-    /// [T, 1, 1] to scale the query heads.
-    /// </summary>
-    private Value AttentionTemperature(GraphBuilder b, Value positions)
-    {
-        var pos = b.Emit1("Cast", [positions], Attributes.From(("type", "f32")));
-        var steps = b.Unary("Floor", b.Scale(pos, 1f / _hp.TemperatureLength, _hp.TemperatureOffset / _hp.TemperatureLength));
-        var temperature = b.Scale(b.Unary("Log", b.Scale(steps, 1f, 1f)), _hp.TemperatureScale, 1f);
-        return b.Reshape(temperature, 0, 1, 1);
     }
 
     /// <summary>Clamps a q/k/v projection to ±<c>attention.clip_qkv</c> (OLMo 1) when the model asks for it.</summary>
