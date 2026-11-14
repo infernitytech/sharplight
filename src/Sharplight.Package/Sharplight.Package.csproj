@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Reads and writes Sharplight model packages (.slm): weights, tokenizer, metadata and precompiled kernels in one file.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>
