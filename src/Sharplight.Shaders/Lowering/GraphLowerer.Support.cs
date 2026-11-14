@@ -131,6 +131,12 @@ public sealed partial class GraphLowerer
             return OpSupport.No("CachedAttention: ALiBi needs one slope per query head");
         }
 
+        if (node.Attributes.Get<float[]?>("position_bias", null) is { } bias
+            && bias.Length != node.Inputs[0].Shape[1].Fixed * (2L * node.Attributes.Get("position_bias_range", 0) + 1))
+        {
+            return OpSupport.No("CachedAttention: position_bias needs heads x (2 * range + 1) entries");
+        }
+
         if (node.Attributes.Get("sinks", false) && node.Inputs[3].Type != DataType.F32)
         {
             return OpSupport.No("attention sinks must be f32");
@@ -174,6 +180,12 @@ public sealed partial class GraphLowerer
         if (node.Attributes.Get<float[]?>("alibi_slopes", null) is { } slopes && slopes.Length != node.Inputs[0].Shape[1].Fixed)
         {
             return OpSupport.No("Attention: ALiBi needs one slope per query head");
+        }
+
+        if (node.Attributes.Get<float[]?>("position_bias", null) is { } bias
+            && bias.Length != node.Inputs[0].Shape[1].Fixed * (2L * node.Attributes.Get("position_bias_range", 0) + 1))
+        {
+            return OpSupport.No("Attention: position_bias needs heads x (2 * range + 1) entries");
         }
 
         var inputs = node.Inputs;

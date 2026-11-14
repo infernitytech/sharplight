@@ -57,7 +57,8 @@ internal sealed unsafe partial class CpuCompiledSegment
         var attention = new AttentionOp(
             q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
             rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0),
-            alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)));
+            alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)),
+            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0));
         AddStep(attention, Touched(q, k, v, sinks, rows, table, y));
         _refs[n.Output] = y;
     }
@@ -75,7 +76,8 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         var attention = new AttentionOp(
             q, k, v, hasSpans ? null : extra, y, a.Get("scale", 1f), null, a.Get("causal", false), a.Get("window", 0), a.Get("softcap", 0f),
-            spans: hasSpans ? extra : null, alibiSlopes: a.Get<float[]?>("alibi_slopes", null));
+            spans: hasSpans ? extra : null, alibiSlopes: a.Get<float[]?>("alibi_slopes", null),
+            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0));
         AddStep(attention, Touched(q, k, v, extra, y));
         _refs[n.Output] = y;
     }
