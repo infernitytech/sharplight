@@ -204,6 +204,12 @@ internal sealed partial class DecoderGraphBuilder
             graphs[WellKnown.ClassifyGraph] = BuildPacked(WellKnown.ClassifyGraph, classify: true);
         }
 
+        // Decision models: the span scoring head over the packed prompt (built whenever the model has one, it is what the model is for).
+        if (SpanScoring.IsPresent(_src) && packable)
+        {
+            graphs[WellKnown.ScoreSpansGraph] = BuildScoreSpans();
+        }
+
         return graphs;
     }
 
@@ -379,6 +385,21 @@ internal sealed partial class DecoderGraphBuilder
                 var hidden = OutputNorm(b, last);
                 b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
             }
+        }
+
+        return b.Build();
+    }
+
+    // The span scoring graph of a decision model: the packed layers, the output norm, then the model's span head.
+    private ComputeGraph BuildScoreSpans()
+    {
+        var b = new GraphBuilder(WellKnown.ScoreSpansGraph, _src.Weight);
+        var inp = PackedSequences.Declare(b, tokenTypes: false);
+        var spans = SpanScoring.Declare(b);
+        var x = PackedLayers(b, inp);
+        using (b.Group("output"))
+        {
+            SpanScoring.Output(b, _src, OutputNorm(b, x), inp.Tokens, inp.SequenceSpans, spans, _src.Weight("lm_head.weight") is null ? "token_embedding.weight" : "lm_head.weight");
         }
 
         return b.Build();

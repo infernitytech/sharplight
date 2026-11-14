@@ -8,7 +8,8 @@ namespace Sharplight.Gguf;
 /// (Qwen3-Next / Qwen3-Coder-Next: plain partial RoPE, fused <c>ssm_ba</c>, value heads grouped by key head) and
 /// <c>qwen4exp</c> (Qwen3.8-Flash-Next: hyper-connections, hashed n-gram embedding, QSA indexer, sigmoid linear-attention
 /// output gate) and <c>clover_moe</c> (Clover: the qwen35moe layers with plain 1-D rope and the linear-attention layers given by
-/// <c>attention.recurrent_layers</c> or <c>full_attention_interval</c>) → canonical <c>qwen3_5</c>.
+/// <c>attention.recurrent_layers</c> or <c>full_attention_interval</c>) and <c>clef</c> (Cloudflare Clef: the qwen35 trunk with the
+/// joint schema span scoring head, see <see cref="ClefGgufHead"/>) → canonical <c>qwen3_5</c>.
 /// </summary>
 internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
@@ -18,7 +19,7 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     private const string SharedExpertGate = "mlp.shared.input_gate.weight";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen35", "qwen35moe", Qwen3NextArchitecture, Qwen4ExpArchitecture, "clover_moe"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen35", "qwen35moe", Qwen3NextArchitecture, Qwen4ExpArchitecture, "clover_moe", ClefGgufHead.Architecture];
 
     /// <inheritdoc/>
     public string Architecture => "qwen3_5";
@@ -80,6 +81,11 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             }
 
             md[a + "rope.sections"] = canonicalSections;
+        }
+
+        if (g.GgufArchitecture == ClefGgufHead.Architecture)
+        {
+            ClefGgufHead.AddHyperParameters(md, g);
         }
 
         return md;
@@ -301,6 +307,11 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (g.GgufArchitecture == ClefGgufHead.Architecture && ClefGgufHead.MapWeightName(name, g) is { } headName)
+        {
+            return headName;
+        }
+
         if (s_qwen4ExpGlobal.TryGetValue(name, out var mixerName))
         {
             return mixerName;

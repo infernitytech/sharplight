@@ -11,7 +11,8 @@ namespace Sharplight.Architectures;
 /// Gated DeltaNet linear-attention layers with a short causal conv. The feed-forward block is a dense SwiGLU MLP or routed
 /// experts plus a sigmoid-gated shared expert (<see cref="MoeBlock"/>). MTP layers, when present, form the
 /// <see cref="WellKnown.DraftGraph"/> (<see cref="MtpDraftHead"/>, hidden states after the final norm, chained after
-/// <c>mtp.output_norm</c>), each a gated-attention layer with its own KV cache.
+/// <c>mtp.output_norm</c>), each a gated-attention layer with its own KV cache. With a span scoring head (<c>span_head.type</c>, e.g. Cloudflare
+/// Clef) the trunk also forms the stateful <see cref="WellKnown.ScoreSpansGraph"/> (<see cref="SpanScoring"/>).
 /// </summary>
 /// <remarks>
 /// Canonical description consumed (importers translate their formats into exactly this):
@@ -258,6 +259,13 @@ public sealed class Qwen35Adapter : IModelAdapter
             ["mtp_layers"] = nextn,
             [WellKnown.DraftLayers] = draftLayers,
         };
+        // Decision models (Clef): the trunk run from reset states over one prompt, then the span scoring head.
+        if (SpanScoring.IsPresent(src))
+        {
+            graphs[WellKnown.ScoreSpansGraph] = BuildTrunk(WellKnown.ScoreSpansGraph, embeddingsInput: false, scoreSpans: true);
+            props[WellKnown.SpanHeadType] = SpanScoring.HeadType(src);
+        }
+
         if (vision is not null)
         {
             if (vision.DeepstackLayers.Length > 0)
@@ -290,7 +298,7 @@ public sealed class Qwen35Adapter : IModelAdapter
             Properties = props,
         };
 
-        ComputeGraph BuildTrunk(string name, bool embeddingsInput, bool mixed = false)
+        ComputeGraph BuildTrunk(string name, bool embeddingsInput, bool mixed = false, bool scoreSpans = false)
         {
             var b = new GraphBuilder(name, Lookup);
             var T = Dim.Sym(WellKnown.TokenSymbol);
@@ -318,7 +326,17 @@ public sealed class Qwen35Adapter : IModelAdapter
                 }
             }
             var positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, positionAxes));
-            var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+            Value? outRows = null, sequenceSpans = null;
+            SpanScoringInputs? spans = null;
+            if (scoreSpans)
+            {
+                sequenceSpans = b.Input(PackedSequences.SequenceSpansInput, InputRole.SequenceSpans, DataType.I32, new Shape(Dim.Sym(WellKnown.SequenceSymbol), 2));
+                spans = SpanScoring.Declare(b);
+            }
+            else
+            {
+                outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
+            }
 
             if (hp.Streams > 0)
             {
@@ -353,9 +371,15 @@ public sealed class Qwen35Adapter : IModelAdapter
                 var hidden = hp.Streams > 0
                     ? HyperConnections.Mix(b, x, "output_hc.", hp.Streams, hp.NEmbd, hp.Eps).Mixed
                     : b.RmsNorm(x, b.Weight("output_norm.weight"), hp.Eps, "result_norm");
-                var rows = b.Gather(hidden, outRows, "selected_rows");
-                var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
-                b.Output("logits", b.MatMul(rows, head, "logits"));
+                string headName = Lookup("lm_head.weight") is null ? "token_embedding.weight" : "lm_head.weight";
+                if (scoreSpans)
+                {
+                    SpanScoring.Output(b, src, hidden, tokens!, sequenceSpans!, spans!, headName);
+                    return b.Build();
+                }
+
+                var rows = b.Gather(hidden, outRows!, "selected_rows");
+                b.Output("logits", b.MatMul(rows, b.Weight(headName), "logits"));
                 b.Output("hidden", hidden);
             }
             return b.Build();

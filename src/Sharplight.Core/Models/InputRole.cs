@@ -60,4 +60,15 @@ public enum InputRole
     /// <see cref="WellKnown.EncoderOutput"/> of the model's <see cref="WellKnown.EncodeGraph"/>) that the decoder's cross-attention reads.
     /// </summary>
     EncoderOutput,
+    /// <summary>
+    /// <see cref="WellKnown.ScoreSpansGraph"/>: per-question table [<see cref="WellKnown.QuestionSymbol"/>, 6] i32 of (first row, row
+    /// count, kind, sequence index, first option, option count) of each question span in the packed rows; kind is a <c>SpanQuestionKind</c>
+    /// value, and the options of a question are consecutive rows of the <see cref="OptionSpans"/> table.
+    /// </summary>
+    QuestionSpans,
+    /// <summary>
+    /// <see cref="WellKnown.ScoreSpansGraph"/>: per-option table [<see cref="WellKnown.OptionSymbol"/>, 3] i32 of (first row, row count,
+    /// question index) of each option span in the packed rows; an option belongs to one question.
+    /// </summary>
+    OptionSpans,
 }
