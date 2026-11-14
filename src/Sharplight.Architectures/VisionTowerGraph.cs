@@ -9,7 +9,8 @@ namespace Sharplight.Architectures;
 /// Emits the <see cref="WellKnown.VisionEncodeGraph"/> of a ViT-style vision tower described by the canonical
 /// <see cref="VisionParameters"/> and <c>vision.*</c> weights (documented on <see cref="VisionParameters"/>):
 /// patch embedding (a MatMul over the patchified input, optionally normed: GLM-4V) + learned position embedding (bilinear or bicubic taps) →
-/// pre-norm transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary
+/// optional class row (EVA2-CLIP: appended after the patches; attention without rotary embedding does not depend on row order, and the output
+/// layout leaves it out) → pre-norm or post-norm transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary
 /// embedding, over the whole image or within windows (Qwen2.5-VL), plain or gated MLP) → optional trunk post-norm (PaddleOCR-VL, GLM-4V) →
 /// patch merger (optional per-patch norm, m×m merge, optional linear downsample and linear/LayerNorm/GELU projection (GLM-4V), plain or
 /// gated 2-layer MLP) producing embeddings of the language model's hidden size, optionally followed by an output stage (HunyuanVL: a learned
@@ -72,6 +73,14 @@ internal static class VisionTowerGraph
             x = b.Add(x, sum!, "inp_pos_embd");
         }
 
+        if (p.ClassToken)
+        {
+            var classRow = b.Add(Row(b, "vision.class_embedding"), Row(b, "vision.class_position_embedding"), "class_row");
+            x = b.Concat(0, x, classRow);
+        }
+
+        bool postNorm = p.NormPlacement == "post";
+
         Value? cos = null;
         Value? sinSigned = null;
         if (p.RopeBase > 0)
@@ -84,7 +93,7 @@ internal static class VisionTowerGraph
         {
             using var _ = b.Group($"vision.layers.{il}");
             string w = $"vision.layers.{il}.";
-            var h = Norm(b, p, x, w + "input_norm");
+            var h = postNorm ? x : Norm(b, p, x, w + "input_norm");
             Value qk;
             Value v;
             if (b.HasWeight(w + "attention.qkv.weight"))
@@ -111,15 +120,15 @@ internal static class VisionTowerGraph
             bool windowed = windowSpans is not null && Array.IndexOf(p.FullAttentionLayers, il) < 0;
             var attn = b.Emit1("Attention", windowed ? [q, k, v, windowSpans!] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
             var o = b.Linear(b.Reshape(attn, 0, H), w + "attention.o.weight", w + "attention.o.bias");
-            x = b.Add(x, o, $"{w}attn_residual");
+            x = b.Add(x, postNorm ? Norm(b, p, o, w + "input_norm") : o, $"{w}attn_residual");
 
-            h = Norm(b, p, x, w + "post_attention_norm");
+            h = postNorm ? x : Norm(b, p, x, w + "post_attention_norm");
             var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
             var act = b.HasWeight(w + "mlp.gate.weight")
                 ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
                 : Activation(b, up, p.Activation);
             var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
-            x = b.Add(x, down, $"{w}l_out");
+            x = b.Add(x, postNorm ? Norm(b, p, down, w + "post_attention_norm") : down, $"{w}l_out");
             if (Array.IndexOf(p.DeepstackLayers, il) >= 0)
             {
                 string d = $"vision.deepstack.{il}.";
@@ -167,7 +176,7 @@ internal static class VisionTowerGraph
     }
 
     /// <summary>
-    /// The output stage after the merger MLP: the table [merged rows | separator] is projected (<c>vision.merger.out</c>), the begin / end rows are
+    /// The output stage after the merger MLP: the table [merged rows | class row | separator] is projected (<c>vision.merger.out</c>), the begin / end rows are
     /// appended, the layout picks the output rows from it and <c>vision.merger.out_norm</c> norms them. Every step is row-wise, so the rows are
     /// composed last.
     /// </summary>

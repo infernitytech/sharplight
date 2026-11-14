@@ -18,7 +18,7 @@ internal sealed partial class DecoderGraphBuilder
         int heads = _hp.HeadsOf(il);
         var rotate = RotationOf(b, il, positions, freqFactors);
 
-        var q = ClipQkv(b, b.Linear(h, p + "attention.q.weight", p + "attention.q.bias"));
+        var q = ClipQkv(b, TokenWeightSets.Linear(b, h, _mediaMask, p, "attention.q"));
         q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), b.TryWeight(p + "attention.q_norm.bias"), il, heads, headDim, rotate);
         if (_hp.TemperatureOn(il))
         {
@@ -165,8 +165,8 @@ internal sealed partial class DecoderGraphBuilder
     {
         int headDim = _hp.HeadDimOf(il);
         int kvHeads = _hp.KvHeadsOf(il);
-        var keyProjection = ClipQkv(b, b.Linear(h, p + "attention.k.weight", p + "attention.k.bias"));
-        var valueProjection = b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, b.Linear(valueInput, p + "attention.v.weight", p + "attention.v.bias")) : keyProjection;
+        var keyProjection = ClipQkv(b, TokenWeightSets.Linear(b, h, _mediaMask, p, "attention.k"));
+        var valueProjection = b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, TokenWeightSets.Linear(b, valueInput, _mediaMask, p, "attention.v")) : keyProjection;
         var v = b.Reshape(valueProjection, 0, kvHeads, _hp.ValueDimOf(il));
         if (_hp.VNorm)
         {
@@ -250,6 +250,6 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         var flat = b.Reshape(scaled, 0, heads * valueDim);
-        return b.Linear(SubNorm(b, flat, p + "attention.sub_norm.weight"), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+        return TokenWeightSets.Linear(b, SubNorm(b, flat, p + "attention.sub_norm.weight"), _mediaMask, p, "attention.o", $"{p}attn_out");
     }
 }

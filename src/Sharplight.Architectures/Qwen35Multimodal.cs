@@ -13,14 +13,18 @@ namespace Sharplight.Architectures;
 /// <c>&lt;|IMAGE_PLACEHOLDER|&gt;</c>); DeepStack blocks travel in the image rows' embeddings. Towers with sequential image positions
 /// (<see cref="VisionParameters.SequentialImagePositions"/>, HunyuanVL's XD-RoPE) lay an image out as its encoder rows (begin, grid rows each followed
 /// by a separator, end): every row takes the next position on the first axis, a grid row (column, row, image ordinal) on the other three, the
-/// begin and end rows their position on every axis; text tokens carry their position on all four axes.
+/// begin and end rows their position on every axis; text tokens carry their position on all four axes. Towers with grouped image positions
+/// (<see cref="VisionParameters.GroupedImagePositions"/>, CogVLM) give the begin row, all grid rows together and the end row one position each;
+/// a language model without M-RoPE has a single position axis. With <see cref="VisionParameters.AllButLastMediaWeightRows"/> the prompt marks
+/// which image rows use the language model's media weight set (<see cref="MultimodalPrompt.MediaWeights"/>).
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
     /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["qwen3_5", "decoder"];
 
-    private const int Axes = 4;
+    // Position axes of an M-RoPE language model.
+    private const int MropeAxes = 4;
 
     /// <inheritdoc/>
     public MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition)
@@ -28,7 +32,10 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         var vision = VisionParameters.Of(context.Model);
         string imageToken = vision?.ImageToken ?? VisionParameters.DefaultImageToken;
         bool sequential = vision?.ImagePositions == VisionParameters.SequentialImagePositions;
-        int textAxes = sequential ? Axes : 3;
+        bool grouped = vision?.ImagePositions == VisionParameters.GroupedImagePositions;
+        int axes = context.Model.Property(Models.WellKnown.PositionAxes, MropeAxes);
+        int textAxes = Math.Min(axes, sequential || grouped ? axes : 3);
+        bool[]? mediaWeights = null;
         int imagePad = context.RequireToken(imageToken);
         int placeholders = 0;
         foreach (var t in tokens)
@@ -53,7 +60,11 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
         var toks = new int[rows];
         var imageIndex = new int[rows];
         var imageRow = new int[rows];
-        var pos = new int[rows * Axes];
+        var pos = new int[rows * axes];
+        if (vision?.MediaWeightRows == VisionParameters.AllButLastMediaWeightRows)
+        {
+            mediaWeights = new bool[rows];
+        }
 
         int r = 0;
         int next = startPosition;
@@ -67,7 +78,7 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
                 imageRow[r] = -1;
                 for (int a = 0; a < textAxes; a++)
                 {
-                    pos[r * Axes + a] = next;
+                    pos[r * axes + a] = next;
                 }
 
                 next++;
@@ -75,13 +86,32 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
                 continue;
             }
             var im = images[img];
+            if (mediaWeights is not null)
+            {
+                mediaWeights.AsSpan(r, im.TokenCount - 1).Fill(true);
+            }
+
+            if (grouped)
+            {
+                for (int i = 0; i < im.TokenCount; i++, r++)
+                {
+                    imageIndex[r] = img;
+                    imageRow[r] = i;
+                    pos.AsSpan(r * axes, axes).Fill(next + GroupedOffset(vision!, im, i));
+                }
+
+                next += GroupedOffset(vision!, im, im.TokenCount - 1) + 1;
+                img++;
+                continue;
+            }
+
             if (sequential)
             {
                 for (int i = 0; i < im.TokenCount; i++, r++)
                 {
                     imageIndex[r] = img;
                     imageRow[r] = i;
-                    SequentialPosition(vision!, im, i, img, next + i, pos.AsSpan(r * Axes, Axes));
+                    SequentialPosition(vision!, im, i, img, next + i, pos.AsSpan(r * axes, axes));
                 }
 
                 next += im.TokenCount;
@@ -93,14 +123,31 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
             {
                 imageIndex[r] = img;
                 imageRow[r] = i;
-                pos[r * Axes] = next;
-                pos[r * Axes + 1] = next + i / im.MergedWidth;
-                pos[r * Axes + 2] = next + i % im.MergedWidth;
+                pos[r * axes] = next;
+                pos[r * axes + 1] = next + i / im.MergedWidth;
+                pos[r * axes + 2] = next + i % im.MergedWidth;
             }
             next += Math.Max(im.MergedWidth, im.MergedHeight);
             img++;
         }
-        return new MultimodalPrompt { Tokens = toks, ImageIndex = imageIndex, ImageRow = imageRow, Positions = pos, PositionAxes = Axes, NextPosition = next };
+        return new MultimodalPrompt
+        {
+            Tokens = toks, ImageIndex = imageIndex, ImageRow = imageRow, Positions = pos, PositionAxes = axes, NextPosition = next, MediaWeights = mediaWeights,
+        };
+    }
+
+    /// <summary>
+    /// Offset from the image's first position of row <paramref name="row"/> with grouped image positions: the begin row 0, every grid row 1 (0
+    /// without boundary rows), the end row 2.
+    /// </summary>
+    private static int GroupedOffset(VisionParameters vision, PreprocessedImage image, int row)
+    {
+        if (!vision.ImageBoundary)
+        {
+            return 0;
+        }
+
+        return row == 0 ? 0 : row == image.TokenCount - 1 ? 2 : 1;
     }
 
     /// <summary>

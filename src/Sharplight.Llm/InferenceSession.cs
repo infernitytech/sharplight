@@ -23,6 +23,7 @@ public sealed class InferenceSession : IDisposable
     private readonly Value? _outputRows;
     private readonly Value? _embeddings;
     private readonly Value? _embeddingMask;
+    private readonly Value? _mediaWeightMask;   // layers with a media weight set (visual experts): which rows use it
     private readonly Value? _samplingParams;
     private readonly int[] _paramBuf = new int[SamplingRow.Width];
     private readonly int[] _sampledToken = new int[1];
@@ -31,6 +32,7 @@ public sealed class InferenceSession : IDisposable
     private readonly int _hidden;
     private float[] _embBuf = [];
     private float[] _maskBuf = [];
+    private float[] _mediaBuf = [];
     private readonly int _posAxes;
     private readonly int _textPositionAxes;   // leading position axes that carry a text token's position (the rest are 0)
     private readonly int _maxTokens;
@@ -79,6 +81,7 @@ public sealed class InferenceSession : IDisposable
         _outputRows = _graph.TryInput(InputRole.OutputRows);
         _embeddings = _graph.TryInput(InputRole.Embeddings);
         _embeddingMask = _graph.TryInput(InputRole.EmbeddingMask);
+        _mediaWeightMask = _graph.TryInput(InputRole.MediaWeightMask);
         _samplingParams = _graph.TryInput(InputRole.SamplingParameters);
         _hidden = _embeddings is null ? 0 : (int)_embeddings.Shape[-1].Fixed;
         _posAxes = _positions is null ? 0 : (int)_positions.Shape[-1].Fixed;
@@ -261,6 +264,14 @@ public sealed class InferenceSession : IDisposable
             _compiled.SetInput<float>(_embeddings!, _embBuf.AsSpan(0, T * _hidden));
             _compiled.SetInput<float>(_embeddingMask!, _maskBuf.AsSpan(0, T));
         }
+
+        if (_mediaWeightMask is not null)
+        {
+            // Text rows use the text weights.
+            EnsureEmbeddingBuffers();
+            _mediaBuf.AsSpan(0, T).Clear();
+            _compiled.SetInput<float>(_mediaWeightMask, _mediaBuf.AsSpan(0, T));
+        }
         Execute(T, wantLogits);
         RopePosition += T;
     }
@@ -275,6 +286,11 @@ public sealed class InferenceSession : IDisposable
         if (_maskBuf.Length < _maxTokens)
         {
             _maskBuf = new float[_maxTokens];
+        }
+
+        if (_mediaBuf.Length < _maxTokens)
+        {
+            _mediaBuf = new float[_maxTokens];
         }
     }
 
@@ -379,11 +395,13 @@ public sealed class InferenceSession : IDisposable
                 {
                     dst.Clear();
                     _maskBuf[t] = 0;
+                    _mediaBuf[t] = prompt.MediaWeights?[row] == true ? 1 : 0;
                 }
                 else
                 {
                     imageEmbeddings[img].AsSpan(prompt.ImageRow[row] * _hidden, _hidden).CopyTo(dst);
                     _maskBuf[t] = 1;
+                    _mediaBuf[t] = prompt.MediaWeights?[row] ?? true ? 1 : 0;
                 }
             }
             _compiled.SetInput(_tokens, toks.AsSpan(0, T));
@@ -395,6 +413,11 @@ public sealed class InferenceSession : IDisposable
 
             _compiled.SetInput<float>(_embeddings!, _embBuf.AsSpan(0, T * _hidden));
             _compiled.SetInput<float>(_embeddingMask!, _maskBuf.AsSpan(0, T));
+            if (_mediaWeightMask is not null)
+            {
+                _compiled.SetInput<float>(_mediaWeightMask, _mediaBuf.AsSpan(0, T));
+            }
+
             Execute(T, wantLogits: start + T == prompt.Length);
         }
         RopePosition = prompt.NextPosition;

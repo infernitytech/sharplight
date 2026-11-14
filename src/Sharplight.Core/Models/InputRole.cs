@@ -60,4 +60,9 @@ public enum InputRole
     /// <see cref="WellKnown.EncoderOutput"/> of the model's <see cref="WellKnown.EncodeGraph"/>) that the decoder's cross-attention reads.
     /// </summary>
     EncoderOutput,
+    /// <summary>
+    /// Per-row selector [T, 1] f32 of a graph whose layers have a second (media) weight set: 1 = the row goes through the media weights
+    /// (CogVLM's visual experts), 0 = through the text weights. Rows of text tokens are always 0.
+    /// </summary>
+    MediaWeightMask,
 }

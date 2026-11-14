@@ -16,7 +16,8 @@ namespace Sharplight.Gguf;
 /// learned position grid sized by its tensor, 2-D rotary embedding, trunk post-norm <c>v.post_ln</c>, projector <c>mm.input_norm</c> /
 /// <c>mm.1</c> / <c>mm.2</c>) and <c>glm4v</c> (GLM-4.1V: patch norm, bicubic position grid, convolution merger, GLM projector) belong to
 /// <c>decoder</c>; <c>hunyuanvl</c> (HunyuanOCR / Hunyuan-VL: half-pixel bilinear position grid, perceiver projector with convolution
-/// merger, newline column, begin / end rows and RMS norms) to <c>decoder</c> as well.
+/// merger, newline column, begin / end rows and RMS norms) and <c>cogvlm</c> (CogVLM's EVA2-CLIP: fixed image size, class token, post-norm blocks,
+/// GLU projector, begin / end rows; the language model's visual experts are in the text file) to <c>decoder</c> as well.
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -31,10 +32,12 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <summary>
     /// Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to, the processor defaults the file omits, GGUF names whose
     /// canonical name differs from the Qwen towers' (<c>Names</c>, checked first) and canonical hyper-parameters the file does not store
-    /// (<c>Extra</c>, without the <c>{architecture}.vision.</c> prefix).
+    /// (<c>Extra</c>, without the <c>{architecture}.vision.</c> prefix). <c>ClassToken</c>: an EVA2-CLIP tower whose first position row belongs to
+    /// the class token (<c>v.class_embd</c>) and whose images are resized to the fixed square <c>clip.vision.image_size</c>.
     /// </summary>
     private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh",
-        string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null);
+        string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null,
+        bool ClassToken = false);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
@@ -98,6 +101,28 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             {
                 ["image_token"] = "<\uFF5Chy_place\u2581holder\u2581no\u2581102\uFF5C>", ["position_embedding.interpolation"] = "bilinear_half_pixel",
                 ["merger.norm.type"] = "rms", ["merger.row_separator"] = true, ["merger.boundary"] = true, ["image_positions"] = "sequential",
+            }),
+        // CogVLM (EVA2-CLIP): class token, fixed position embedding (row 0 is the class token's), post-norm blocks with exact GELU, the GLU projector
+        // mm.model.fc → mm.post_fc_norm (LayerNorm, eps 1e-5) → GELU → SiLU-gated mm.gate / mm.up / mm.down, begin / end rows v.boi / v.eoi. The
+        // language model gives the image rows three positions and its visual experts take every image row but the last (as the reference).
+        ["cogvlm"] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "gelu", ClassToken: true,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.class_embd"] = "vision.class_embedding",
+                ["mm.model.fc.weight"] = "vision.merger.proj.weight",
+                ["mm.model.fc.bias"] = "vision.merger.proj.bias",
+                ["mm.post_fc_norm.weight"] = "vision.merger.proj_norm.weight",
+                ["mm.post_fc_norm.bias"] = "vision.merger.proj_norm.bias",
+                ["mm.gate.weight"] = "vision.merger.gate.weight",
+                ["mm.up.weight"] = "vision.merger.up.weight",
+                ["mm.down.weight"] = "vision.merger.down.weight",
+                ["v.boi"] = "vision.merger.begin",
+                ["v.eoi"] = "vision.merger.end",
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["norm.placement"] = "post", ["class_token"] = true, ["spatial_merge_size"] = 1, ["merger.activation"] = "silu", ["merger.norm_eps"] = 1e-5f,
+                ["merger.boundary"] = true, ["image_positions"] = "grouped", ["media_weight_rows"] = "all_but_last", ["image_token"] = "<unk>",
             }),
     };
 
@@ -175,13 +200,21 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             md[a + "image_std"] = ToFloats(std);
         }
 
+        // The merger activation is the trunk's (GLM-4V's gated SiLU projector); the Qwen and PaddleOCR mergers use the exact GELU.
+        md[a + "merger.activation"] = p.Names?.ContainsKey("mm.gate.weight") == true ? md[a + "activation"] : "gelu";
+        if (p.ClassToken)
+        {
+            int side = g.Int("vision.image_size");
+            md[a + "position_embedding_count"] = (int)md[a + "position_embedding_count"] - 1;   // row 0 is the class token's
+            md[a + "image_size"] = side;
+            md[a + "min_pixels"] = (long)side * side;
+            md[a + "max_pixels"] = (long)side * side;
+        }
+
         foreach (var (key, value) in p.Extra ?? new Dictionary<string, object>())
         {
             md[a + key] = value;
         }
-
-        // The merger activation is the trunk's (GLM-4V's gated SiLU projector); the Qwen and PaddleOCR mergers use the exact GELU.
-        md[a + "merger.activation"] = p.Names?.ContainsKey("mm.gate.weight") == true ? md[a + "activation"] : "gelu";
 
         return md;
     }
@@ -271,6 +304,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
     {
         weights.Remove(UnusedWeight);
+        SplitClassPosition(weights);
         SwapLegacyMlpNames(weights, g);
         if (weights.Remove("vision.merger.downsample.weight", out var kernel) && kernel.Shape.Rank == 4)
         {
@@ -335,6 +369,33 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
 
             return dst;
         });
+    }
+
+    /// <summary>
+    /// EVA2-CLIP towers (a <c>vision.class_embedding</c>): row 0 of the position embedding is the class token's
+    /// (<c>vision.class_position_embedding</c>), the rest the patch grid; the class embedding and the begin / end rows are vectors.
+    /// </summary>
+    private static void SplitClassPosition(Dictionary<string, WeightInfo> weights)
+    {
+        if (!weights.TryGetValue("vision.class_embedding", out var cls))
+        {
+            return;
+        }
+
+        static WeightInfo Vector(WeightInfo w) => w.As(w.Name, new Shape(w.Shape.Elements()));
+        weights[cls.Name] = Vector(cls);
+        foreach (string row in new[] { "vision.merger.begin", "vision.merger.end" })
+        {
+            if (weights.TryGetValue(row, out var w))
+            {
+                weights[row] = Vector(w);
+            }
+        }
+
+        var positions = weights["vision.position_embedding.weight"];
+        long count = positions.Shape[0].Fixed;
+        weights["vision.class_position_embedding"] = Vector(positions.RowSlice("vision.class_position_embedding", 0, 1));
+        weights["vision.position_embedding.weight"] = positions.RowSlice("vision.position_embedding.weight", 1, count - 1);
     }
 
     /// <summary>

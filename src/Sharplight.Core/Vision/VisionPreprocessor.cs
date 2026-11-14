@@ -3,7 +3,7 @@ namespace Sharplight.Vision;
 /// <summary>
 /// Turns raw RGB pixels into the inputs of a model's vision encoder, driven only by the canonical
 /// <see cref="VisionParameters"/>: aspect-preserving "smart" resize to a multiple of patch_size·merge_size within the
-/// pixel bounds (antialiased bicubic), per-channel normalization, patchification (the still image is repeated to fill
+/// pixel bounds, or to the fixed square <c>image_size</c> (antialiased bicubic), per-channel normalization, patchification (the still image is repeated to fill
 /// temporal_patch_size frames) in spatial-merge-window order (window by window when the tower has windowed attention), plus the position inputs (row/col per patch and the
 /// taps into the learned position grid) and, for towers with row separators or boundary rows, the output layout.
 /// </summary>
@@ -15,6 +15,12 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     /// <summary>Target size in pixels for an input size (smart resize).</summary>
     internal (int Width, int Height) TargetSize(int width, int height)
     {
+        if (p.ImageSize > 0)
+        {
+            // A fixed square (CogVLM), whatever the aspect ratio.
+            return (p.ImageSize, p.ImageSize);
+        }
+
         int factor = p.PatchSize * p.SpatialMergeSize;
         long unit = (long)factor * factor;
         long minPixels = limits?.MinTokens is int mt ? mt * unit : p.MinPixels;
@@ -155,8 +161,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
     }
 
     /// <summary>
-    /// The output rows of a tower with row separators or boundary rows (else empty), as rows of the table [merged rows | separator | begin | end]:
-    /// begin, each row of merged tokens followed by the separator, end.
+    /// The output rows of a tower with row separators or boundary rows (else empty), as rows of the table
+    /// [merged rows | class row | separator | begin | end]: begin, each row of merged tokens followed by the separator, end (the class row is not output).
     /// </summary>
     private int[] OutputLayout(int mh, int mw)
     {
@@ -166,8 +172,8 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         }
 
         int merged = mh * mw;
-        int separator = merged;
-        int begin = merged + (p.RowSeparator ? 1 : 0);
+        int separator = merged + (p.ClassToken ? 1 : 0);
+        int begin = separator + (p.RowSeparator ? 1 : 0);
         var layout = new List<int>(p.OutputTokenCount(mh, mw));
         if (p.ImageBoundary)
         {

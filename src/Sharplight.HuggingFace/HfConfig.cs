@@ -62,6 +62,7 @@ internal sealed partial class HfConfig : IDisposable
     private static readonly Dictionary<string, string> s_remoteCodeModelTypes = new(StringComparer.Ordinal)
     {
         ["BailingMoeV2ForCausalLM"] = "bailing_moe_v2",
+        ["CogVLMForCausalLM"] = "cogvlm",
     };
 
     /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>

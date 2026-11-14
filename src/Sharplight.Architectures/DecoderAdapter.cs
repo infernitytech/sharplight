@@ -231,9 +231,10 @@ public sealed class DecoderAdapter : IModelAdapter
             throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
         }
 
-        if (hp.RopeSections.Length == 0)
+        if (hp.RopeSections.Length == 0 && vision.ImagePositions != VisionParameters.GroupedImagePositions)
         {
-            throw new NotSupportedException("decoder: image input needs M-RoPE (rope.sections); the image prompt layout places image rows on a 2-D position grid.");
+            throw new NotSupportedException(
+                "decoder: image input needs M-RoPE (rope.sections) unless the tower's image positions are grouped; the image prompt layout places image rows on a 2-D position grid.");
         }
 
         if (vision.OutHiddenSize != hp.NEmbd)

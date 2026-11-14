@@ -179,6 +179,9 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
                 return SplitQkv(t, prefix, "weight", g, layer);
             case "attn_qkv.bias":
                 return SplitQkv(t, prefix, "bias", g, layer);
+            case "vis_attn_qkv.weight":
+                // CogVLM's visual expert: the layer's media weight set (layers.{i}.media.attention.q/k/v).
+                return SplitQkv(t, prefix + "media.", "weight", g, layer);
             case "ffn_up.weight":
                 int ffnLength = g.Raw("feed_forward_length") is Array ? 0 : g.Int("feed_forward_length", 0);
                 if (ffnLength == 0 || t.Shape[0].Fixed != 2 * ffnLength)

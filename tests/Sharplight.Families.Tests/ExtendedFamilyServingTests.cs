@@ -47,6 +47,8 @@ public class ExtendedFamilyServingTests
             // Round 9: HunyuanOCR's language model (XD-RoPE; text rows carry their position on all four axes).
             "hf/tiny-random-hunyuan-vl",
             "gguf/tiny-random-hunyuan-vl-f32.gguf",
+            "hf/tiny-random-cogvlm",
+            "gguf/tiny-random-cogvlm-f32.gguf",
         ];
         foreach (string model in models)
         {
