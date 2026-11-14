@@ -50,6 +50,30 @@ internal static unsafe class Gemm
         }
     }
 
+    /// <summary>
+    /// Full MR x NR tile whose B row k is at <paramref name="b"/> + <paramref name="bOffsets"/>[k] (rows anywhere, NR contiguous
+    /// floats each): implicit GEMMs that read B in place, e.g. the shifted taps of a convolution.
+    /// </summary>
+    public static void TileGather(float* a, float* b, long* bOffsets, float* c, long ldc, int kc, float* bias, bool acc)
+    {
+        if (NR == 32)
+        {
+            K8x32Gather(a, b, bOffsets, c, ldc, kc, bias, acc);
+        }
+        else if (NR == 16)
+        {
+            K6x16Gather(a, b, bOffsets, c, ldc, kc, bias, acc);
+        }
+        else
+        {
+            // Scalar width: one k at a time through the strided kernel (ldb is unused for a single k row).
+            for (int k = 0; k < kc; k++)
+            {
+                Tile(a + (long)k * MR, b + bOffsets[k], NR, c, ldc, 1, k == 0 ? bias : null, acc || k > 0);
+            }
+        }
+    }
+
     /// <summary>Partial tile (rows &lt;= MR, cols &lt;= NR): computes into a scratch tile and copies the valid part.</summary>
     public static void TileEdge(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc, int rows, int cols)
     {
@@ -292,6 +316,130 @@ internal static unsafe class Gemm
         c71.Store(c + 7 * ldc + 16);
     }
 
+    private static void K8x32Gather(float* a, float* b, long* bOffsets, float* c, long ldc, int kc, float* bias, bool acc)
+    {
+        Vector512<float> c00;
+        Vector512<float> c01;
+        Vector512<float> c10;
+        Vector512<float> c11;
+        Vector512<float> c20;
+        Vector512<float> c21;
+        Vector512<float> c30;
+        Vector512<float> c31;
+        Vector512<float> c40;
+        Vector512<float> c41;
+        Vector512<float> c50;
+        Vector512<float> c51;
+        Vector512<float> c60;
+        Vector512<float> c61;
+        Vector512<float> c70;
+        Vector512<float> c71;
+        if (acc)
+        {
+            c00 = Vector512.Load(c + 0 * ldc + 0);
+            c01 = Vector512.Load(c + 0 * ldc + 16);
+            c10 = Vector512.Load(c + 1 * ldc + 0);
+            c11 = Vector512.Load(c + 1 * ldc + 16);
+            c20 = Vector512.Load(c + 2 * ldc + 0);
+            c21 = Vector512.Load(c + 2 * ldc + 16);
+            c30 = Vector512.Load(c + 3 * ldc + 0);
+            c31 = Vector512.Load(c + 3 * ldc + 16);
+            c40 = Vector512.Load(c + 4 * ldc + 0);
+            c41 = Vector512.Load(c + 4 * ldc + 16);
+            c50 = Vector512.Load(c + 5 * ldc + 0);
+            c51 = Vector512.Load(c + 5 * ldc + 16);
+            c60 = Vector512.Load(c + 6 * ldc + 0);
+            c61 = Vector512.Load(c + 6 * ldc + 16);
+            c70 = Vector512.Load(c + 7 * ldc + 0);
+            c71 = Vector512.Load(c + 7 * ldc + 16);
+        }
+        else if (bias != null)
+        {
+            c00 = Vector512.Create(bias[0]);
+            c01 = c00;
+            c10 = Vector512.Create(bias[1]);
+            c11 = c10;
+            c20 = Vector512.Create(bias[2]);
+            c21 = c20;
+            c30 = Vector512.Create(bias[3]);
+            c31 = c30;
+            c40 = Vector512.Create(bias[4]);
+            c41 = c40;
+            c50 = Vector512.Create(bias[5]);
+            c51 = c50;
+            c60 = Vector512.Create(bias[6]);
+            c61 = c60;
+            c70 = Vector512.Create(bias[7]);
+            c71 = c70;
+        }
+        else
+        {
+            c00 = Vector512<float>.Zero;
+            c01 = c00;
+            c10 = c00;
+            c11 = c00;
+            c20 = c00;
+            c21 = c00;
+            c30 = c00;
+            c31 = c00;
+            c40 = c00;
+            c41 = c00;
+            c50 = c00;
+            c51 = c00;
+            c60 = c00;
+            c61 = c00;
+            c70 = c00;
+            c71 = c00;
+        }
+        for (int k = 0; k < kc; k++)
+        {
+            float* bk = b + bOffsets[k];
+            var b0 = Vector512.Load(bk);
+            var b1 = Vector512.Load(bk + 16);
+            var a0 = Vector512.Create(a[0]);
+            c00 = Vector512.FusedMultiplyAdd(a0, b0, c00);
+            c01 = Vector512.FusedMultiplyAdd(a0, b1, c01);
+            var a1 = Vector512.Create(a[1]);
+            c10 = Vector512.FusedMultiplyAdd(a1, b0, c10);
+            c11 = Vector512.FusedMultiplyAdd(a1, b1, c11);
+            var a2 = Vector512.Create(a[2]);
+            c20 = Vector512.FusedMultiplyAdd(a2, b0, c20);
+            c21 = Vector512.FusedMultiplyAdd(a2, b1, c21);
+            var a3 = Vector512.Create(a[3]);
+            c30 = Vector512.FusedMultiplyAdd(a3, b0, c30);
+            c31 = Vector512.FusedMultiplyAdd(a3, b1, c31);
+            var a4 = Vector512.Create(a[4]);
+            c40 = Vector512.FusedMultiplyAdd(a4, b0, c40);
+            c41 = Vector512.FusedMultiplyAdd(a4, b1, c41);
+            var a5 = Vector512.Create(a[5]);
+            c50 = Vector512.FusedMultiplyAdd(a5, b0, c50);
+            c51 = Vector512.FusedMultiplyAdd(a5, b1, c51);
+            var a6 = Vector512.Create(a[6]);
+            c60 = Vector512.FusedMultiplyAdd(a6, b0, c60);
+            c61 = Vector512.FusedMultiplyAdd(a6, b1, c61);
+            var a7 = Vector512.Create(a[7]);
+            c70 = Vector512.FusedMultiplyAdd(a7, b0, c70);
+            c71 = Vector512.FusedMultiplyAdd(a7, b1, c71);
+            a += 8;
+        }
+        c00.Store(c + 0 * ldc + 0);
+        c01.Store(c + 0 * ldc + 16);
+        c10.Store(c + 1 * ldc + 0);
+        c11.Store(c + 1 * ldc + 16);
+        c20.Store(c + 2 * ldc + 0);
+        c21.Store(c + 2 * ldc + 16);
+        c30.Store(c + 3 * ldc + 0);
+        c31.Store(c + 3 * ldc + 16);
+        c40.Store(c + 4 * ldc + 0);
+        c41.Store(c + 4 * ldc + 16);
+        c50.Store(c + 5 * ldc + 0);
+        c51.Store(c + 5 * ldc + 16);
+        c60.Store(c + 6 * ldc + 0);
+        c61.Store(c + 6 * ldc + 16);
+        c70.Store(c + 7 * ldc + 0);
+        c71.Store(c + 7 * ldc + 16);
+    }
+
     private static void K6x16(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector256<float> c00;
@@ -375,6 +523,104 @@ internal static unsafe class Gemm
             c51 = Vector256.FusedMultiplyAdd(a5, b1, c51);
             a += 6;
             b += ldb;
+        }
+        c00.Store(c + 0 * ldc + 0);
+        c01.Store(c + 0 * ldc + 8);
+        c10.Store(c + 1 * ldc + 0);
+        c11.Store(c + 1 * ldc + 8);
+        c20.Store(c + 2 * ldc + 0);
+        c21.Store(c + 2 * ldc + 8);
+        c30.Store(c + 3 * ldc + 0);
+        c31.Store(c + 3 * ldc + 8);
+        c40.Store(c + 4 * ldc + 0);
+        c41.Store(c + 4 * ldc + 8);
+        c50.Store(c + 5 * ldc + 0);
+        c51.Store(c + 5 * ldc + 8);
+    }
+
+    private static void K6x16Gather(float* a, float* b, long* bOffsets, float* c, long ldc, int kc, float* bias, bool acc)
+    {
+        Vector256<float> c00;
+        Vector256<float> c01;
+        Vector256<float> c10;
+        Vector256<float> c11;
+        Vector256<float> c20;
+        Vector256<float> c21;
+        Vector256<float> c30;
+        Vector256<float> c31;
+        Vector256<float> c40;
+        Vector256<float> c41;
+        Vector256<float> c50;
+        Vector256<float> c51;
+        if (acc)
+        {
+            c00 = Vector256.Load(c + 0 * ldc + 0);
+            c01 = Vector256.Load(c + 0 * ldc + 8);
+            c10 = Vector256.Load(c + 1 * ldc + 0);
+            c11 = Vector256.Load(c + 1 * ldc + 8);
+            c20 = Vector256.Load(c + 2 * ldc + 0);
+            c21 = Vector256.Load(c + 2 * ldc + 8);
+            c30 = Vector256.Load(c + 3 * ldc + 0);
+            c31 = Vector256.Load(c + 3 * ldc + 8);
+            c40 = Vector256.Load(c + 4 * ldc + 0);
+            c41 = Vector256.Load(c + 4 * ldc + 8);
+            c50 = Vector256.Load(c + 5 * ldc + 0);
+            c51 = Vector256.Load(c + 5 * ldc + 8);
+        }
+        else if (bias != null)
+        {
+            c00 = Vector256.Create(bias[0]);
+            c01 = c00;
+            c10 = Vector256.Create(bias[1]);
+            c11 = c10;
+            c20 = Vector256.Create(bias[2]);
+            c21 = c20;
+            c30 = Vector256.Create(bias[3]);
+            c31 = c30;
+            c40 = Vector256.Create(bias[4]);
+            c41 = c40;
+            c50 = Vector256.Create(bias[5]);
+            c51 = c50;
+        }
+        else
+        {
+            c00 = Vector256<float>.Zero;
+            c01 = c00;
+            c10 = c00;
+            c11 = c00;
+            c20 = c00;
+            c21 = c00;
+            c30 = c00;
+            c31 = c00;
+            c40 = c00;
+            c41 = c00;
+            c50 = c00;
+            c51 = c00;
+        }
+        for (int k = 0; k < kc; k++)
+        {
+            float* bk = b + bOffsets[k];
+            var b0 = Vector256.Load(bk);
+            var b1 = Vector256.Load(bk + 8);
+            var a0 = Vector256.Create(a[0]);
+            c00 = Vector256.FusedMultiplyAdd(a0, b0, c00);
+            c01 = Vector256.FusedMultiplyAdd(a0, b1, c01);
+            var a1 = Vector256.Create(a[1]);
+            c10 = Vector256.FusedMultiplyAdd(a1, b0, c10);
+            c11 = Vector256.FusedMultiplyAdd(a1, b1, c11);
+            var a2 = Vector256.Create(a[2]);
+            c20 = Vector256.FusedMultiplyAdd(a2, b0, c20);
+            c21 = Vector256.FusedMultiplyAdd(a2, b1, c21);
+            var a3 = Vector256.Create(a[3]);
+            c30 = Vector256.FusedMultiplyAdd(a3, b0, c30);
+            c31 = Vector256.FusedMultiplyAdd(a3, b1, c31);
+            var a4 = Vector256.Create(a[4]);
+            c40 = Vector256.FusedMultiplyAdd(a4, b0, c40);
+            c41 = Vector256.FusedMultiplyAdd(a4, b1, c41);
+            var a5 = Vector256.Create(a[5]);
+            c50 = Vector256.FusedMultiplyAdd(a5, b0, c50);
+            c51 = Vector256.FusedMultiplyAdd(a5, b1, c51);
+            a += 6;
         }
         c00.Store(c + 0 * ldc + 0);
         c01.Store(c + 0 * ldc + 8);

@@ -109,4 +109,70 @@ public class SpatialBenchTests
         Assert.All(logits, v => Assert.True(float.IsFinite(v)));
         Report($"ResNet-50 batch {batch}: best {best * 1e3:F2} ms, median {med * 1e3:F2} ms  ({net.Flops * batch / best / 1e9:F0} GFLOP/s best, {net.Flops / 1e9:F2} GFLOP/img, threads {CpuParallel.Threads})");
     }
+
+    /// <summary>
+    /// GFLOP/s of single convolutions with the distinct ResNet-50 shapes (plus a few YOLO / EfficientNet ones) at batch 1 and
+    /// 8; run with SHARPLIGHT_BENCH=1. Each line: Cin, Cout, kernel, stride, input size, best time, GFLOP/s.
+    /// </summary>
+    [Fact]
+    public void ConvShapes()
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        if (int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_THREADS"), out var thr))
+        {
+            CpuParallel.Threads = thr;
+        }
+
+        (int Cin, int Cout, int K, int Stride, int Hw)[] shapes =
+        [
+            (3, 64, 7, 2, 224), (64, 64, 1, 1, 56), (64, 64, 3, 1, 56), (64, 256, 1, 1, 56), (256, 64, 1, 1, 56),
+            (256, 128, 1, 1, 56), (128, 128, 3, 2, 56), (128, 128, 3, 1, 28), (128, 512, 1, 1, 28), (512, 128, 1, 1, 28),
+            (256, 512, 1, 2, 56), (512, 256, 1, 1, 28), (256, 256, 3, 1, 14), (256, 1024, 1, 1, 14), (1024, 256, 1, 1, 14),
+            (1024, 512, 1, 1, 14), (512, 512, 3, 1, 7), (512, 2048, 1, 1, 7), (2048, 512, 1, 1, 7), (1024, 2048, 1, 2, 14),
+            (16, 32, 3, 2, 320), (32, 32, 3, 1, 160), (64, 64, 3, 1, 80), (128, 128, 3, 1, 40),
+        ];
+        string? only = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_SHAPE");
+        foreach (int batch in new[] { 1, 8 })
+        {
+            double totalTime = 0;
+            double totalFlops = 0;
+            foreach (var (cin, cout, k, stride, hw) in shapes)
+            {
+                string key = $"{cin}x{cout}k{k}s{stride}@{hw}";
+                if (only is { Length: > 0 } && !only.Split(',').Contains(key))
+                {
+                    continue;
+                }
+
+                var net = new Net();
+                var tg = net.Tg;
+                var x = tg.InF("x", TestGraph.T, cin, hw, hw);
+                var y = net.Conv(x, cin, cout, k, stride, k / 2, hw, true, out int ohw);
+                tg.B.Output("y", y);
+                using var m = Kit.Compile(tg.B.Build(), maxTokens: batch);
+                Kit.Set(m, x, Kit.Rand(batch * cin * hw * hw, 5));
+                var p = Kit.P(batch);
+                for (int i = 0; i < 3; i++)
+                {
+                    m.Run(p);
+                }
+
+                double best = double.MaxValue;
+                long budget = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 2;
+                for (int i = 0; i < 200 && (i < 10 || Stopwatch.GetTimestamp() < budget); i++)
+                {
+                    long t0 = Stopwatch.GetTimestamp();
+                    m.Run(p);
+                    best = Math.Min(best, Stopwatch.GetElapsedTime(t0).TotalSeconds);
+                }
+
+                double flops = net.Flops * batch;
+                totalTime += best;
+                totalFlops += flops;
+                Report($"b{batch} {key,-18} {best * 1e3,8:F3} ms {flops / best / 1e9,7:F0} GFLOP/s");
+            }
+
+            Report($"b{batch} total {totalTime * 1e3:F2} ms, {totalFlops / totalTime / 1e9:F0} GFLOP/s");
+        }
+    }
 }
