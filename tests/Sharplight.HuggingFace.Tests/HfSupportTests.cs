@@ -44,15 +44,25 @@ public sealed class HfSupportTests : IDisposable
     [Theory]
     [InlineData("""{"model_type": "qwen3"}""", null, SupportLevel.Supported)]
     [InlineData("""{"model_type": "qwen3", "quantization_config": {"quant_method": "fp8", "weight_block_size": [128, 128]}}""", "fp8", SupportLevel.Supported)]
-    [InlineData("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "gptq"}}""", "gptq", SupportLevel.Unsupported)]
-    [InlineData("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "awq"}}""", "awq", SupportLevel.Unsupported)]
-    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "bitsandbytes", "load_in_4bit": true}}""", "bitsandbytes", SupportLevel.Unsupported)]
-    [InlineData("""{"model_type": "qwen3_5", "quantization_config": {"group_size": 64, "bits": 8}}""", "mlx (8-bit)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "gptq"}}""", "gptq (4-bit)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "gptq", "checkpoint_format": "marlin"}}""", "gptq (4-bit)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "awq"}}""", "awq (gemm)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "awq", "version": "gemv_fast"}}""", "awq (gemv_fast)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "bitsandbytes", "load_in_4bit": true}}""", "bitsandbytes", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen3_5", "quantization_config": {"group_size": 64, "bits": 8}}""", "mlx (8-bit)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen3", "quantization": {"group_size": 64, "bits": 4}}""", "mlx (4-bit)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "qwen3", "quantization": {"group_size": 32, "bits": 4, "mode": "mxfp4"}}""", "mlx (mxfp4)", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "gpt_oss", "quantization_config": {"quant_method": "mxfp4"}}""", "mxfp4", SupportLevel.Supported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "mxfp4"}}""", "mxfp4", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "float", "num_bits": 8}}}}}""", "compressed-tensors (float 8-bit)", SupportLevel.Supported)]
-    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "int", "num_bits": 4}}}}}""", "compressed-tensors (int 4-bit)", SupportLevel.Unsupported)]
-    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "modelopt", "quant_algo": "NVFP4"}}""", "modelopt NVFP4", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "int", "num_bits": 4}}}}}""", "compressed-tensors (int 4-bit)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "float", "num_bits": 4}}}}}""", "compressed-tensors (float 4-bit)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "compressed-tensors", "config_groups": {"g": {"weights": {"type": "int", "num_bits": 4}}}, "sparsity_config": {"format": "sparse-24-bitmask"}}}""", "compressed-tensors (sparse-24-bitmask)", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "modelopt", "quant_algo": "NVFP4"}}""", "modelopt NVFP4", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "modelopt", "quant_algo": "W4A8_AWQ"}}""", "modelopt W4A8_AWQ", SupportLevel.Unsupported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "quark", "global_quant_config": {"weight": {"dtype": "fp4", "group_size": 32, "scale_format": "e8m0"}}}}""", "quark (mxfp4)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "quark", "global_quant_config": {"weight": {"dtype": "fp8_e4m3"}}, "layer_quant_config": {"*mlp*": {"weight": {"dtype": "fp4", "group_size": 32, "scale_format": "e8m0"}}}}}""", "quark (fp8, mxfp4)", SupportLevel.Supported)]
+    [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "quark", "global_quant_config": {"weight": {"dtype": "int4", "group_size": 128}}}}""", "quark (int4)", SupportLevel.Unsupported)]
     [InlineData("""{"model_type": "llama", "quantization_config": {"quant_method": "something-new"}}""", "something-new", null)]
     public void Quantization_ReadOrNot(string config, string? method, SupportLevel? expected)
     {
@@ -67,7 +77,7 @@ public sealed class HfSupportTests : IDisposable
         const string Config = """{"model_type": "nemotron_h"}""";
         Assert.Equal(SupportLevel.Supported, HfSupport.GetQuantizationSupport(Config, """{"quantization": {"quant_algo": "FP8"}}""").Level);
         var nvfp4 = HfSupport.GetQuantizationSupport(Config, """{"quantization": {"quant_algo": "NVFP4"}}""");
-        Assert.Equal(("modelopt NVFP4", SupportLevel.Unsupported), (nvfp4.Method, nvfp4.Level));
+        Assert.Equal(("modelopt NVFP4", SupportLevel.Supported), (nvfp4.Method, nvfp4.Level));
     }
 
     [Fact]
@@ -79,8 +89,8 @@ public sealed class HfSupportTests : IDisposable
 
         Assert.Equal(SupportLevel.Unsupported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-hrm-text"))));
         Assert.Equal(SupportLevel.Unsupported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-kimi-k3"))));
-        // Kimi-K3's experts are MXFP4 packed by compressed-tensors, which is not read either.
-        Assert.Equal(SupportLevel.Unsupported, HfSupport.GetQuantizationSupport(Read("tiny-random-kimi-k3")).Level);
+        // Kimi-K3's experts are MXFP4 packed by compressed-tensors, which is read (its architecture is not).
+        Assert.Equal(SupportLevel.Supported, HfSupport.GetQuantizationSupport(Read("tiny-random-kimi-k3")).Level);
         Assert.Equal(SupportLevel.Supported, HfSupport.GetQuantizationSupport(Read("tiny-random-gpt-oss-mxfp4")).Level);
         Assert.Equal(SupportLevel.Partial, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("tiny-random-qwen3.8-flash-next"))));
         Assert.Equal(SupportLevel.Supported, HfSupport.GetArchitectureSupport(HfSupport.GetModelType(Read("Qwen3-0.6B"))));
@@ -90,10 +100,10 @@ public sealed class HfSupportTests : IDisposable
     [Fact]
     public void Import_UnreadQuantization_FailsWithTheMethod()
     {
-        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen2", "quantization_config": {"bits": 4, "quant_method": "gptq"}}""");
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen2", "quantization_config": {"bits": 2, "quant_method": "aqlm"}}""");
         var error = Assert.Throws<UnsupportedWeightFormatException>(() => HuggingFaceImporter.Open(_dir));
-        Assert.Equal("gptq", error.WeightFormat);
-        Assert.Contains("gptq", error.Message, StringComparison.Ordinal);
+        Assert.Equal("aqlm", error.WeightFormat);
+        Assert.Contains("aqlm", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

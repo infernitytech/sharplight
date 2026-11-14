@@ -116,11 +116,18 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 // The same in the aligned split layout [K codes][K / B f32 scales] (WeightRepack.Fp8B32Split / Fp8B128Split).
 #define FMT_F8E4M3_B32R 152
 #define FMT_F8E4M3_B128R 153
+// Group-scaled formats of quantized Hugging Face checkpoints, decoded in quant_group.slang.
+#define FMT_NVFP4_GS 60
+#define FMT_Q4Z_G32 61
+#define FMT_Q4Z_G128 62
+#define FMT_Q8Z_G32 63
+#define FMT_Q8Z_G128 64
+#define FMT_NF4_B64 65
 
-// IQ formats decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
+// IQ formats (and NF4, its 16 f32 code values) decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
 // of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
 // point, which stores it in g_grid for the decoders (quant_iq.slang).
-#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M
+#if WFMT == FMT_IQ2_XXS || WFMT == FMT_IQ2_XS || WFMT == FMT_IQ2_S || WFMT == FMT_IQ3_XXS || WFMT == FMT_IQ3_S || WFMT == FMT_IQ1_S || WFMT == FMT_IQ1_M || WFMT == FMT_NF4_B64
 #define HAS_GRID 1
 static uint* g_grid;
 #define GRID_BIND(p) g_grid = (p).grid;
@@ -422,7 +429,7 @@ uint8_t* rowStart(uint8_t* base, uint64_t rowBytes, uint row)
     return (uint8_t*)(uint64_t(base) + rowBytes * row);
 }
 
-#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0)
+#if defined(WFMT) && (WFMT == FMT_Q4_K || WFMT == FMT_Q5_K || WFMT == FMT_Q6_K || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0 || WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128)
 // Packed-half decoding of quantized codes for the tensor-core GEMMs (needs Float16).
 
 // Bytes 0,1 (hi false) or 2,3 of u (codes 0..255) as half2 (code - offset) * scale + add.
@@ -489,6 +496,7 @@ uint4 load8h_kquant(uint8_t* w, uint64_t rowBytes, uint row, uint g)
 #include "quant_k.slang"
 #include "quant_iq.slang"
 #include "quant_fp8.slang"
+#include "quant_group.slang"
 
 void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v[8])
 {
@@ -564,6 +572,18 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
         v[i] = fp4_value(((i < 4 ? q.x : q.y) >> (8 * (i & 3))) & 0xF) * d;
 #elif WFMT == FMT_NVFP4
     load8_nvfp4(base, rowBytes, row, g, v);
+#elif WFMT == FMT_NVFP4_GS
+    load8_nvfp4_gs(base, rowBytes, row, g, v);
+#elif WFMT == FMT_Q4Z_G32
+    load8_q4z(base, rowBytes, row, g, 1, v);
+#elif WFMT == FMT_Q4Z_G128
+    load8_q4z(base, rowBytes, row, g, 4, v);
+#elif WFMT == FMT_Q8Z_G32
+    load8_q8z(base, rowBytes, row, g, 32, v);
+#elif WFMT == FMT_Q8Z_G128
+    load8_q8z(base, rowBytes, row, g, 128, v);
+#elif WFMT == FMT_NF4_B64
+    load8_nf4_b64(base, rowBytes, row, g, v);
 #elif WFMT == FMT_F8E4M3
     load8_fp8(base, rowBytes, row, g, 0, false, v);
 #elif WFMT == FMT_F8E5M2

@@ -101,7 +101,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             }
             HfSentenceTransformers.AddTo(md, dir, config);
 
-            var weights = mapping.MapWeights(config, HfFp8Weights.Resolve(config, checkpoint.Tensors), options);
+            var weights = mapping.MapWeights(config, HfQuantizedWeights.Resolve(config, checkpoint.Tensors), options);
             var dense = HfSentenceTransformers.DenseWeights(dir, owned);
             if (dense.Count > 0)
             {
@@ -139,7 +139,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
         if (quantization.Level == SupportLevel.Unsupported)
         {
             throw new UnsupportedWeightFormatException(quantization.Method!,
-                $"{new DirectoryInfo(dir).Name}: weights quantized with {quantization.Method} are not supported (supported: unquantized, FP8, MXFP4 for gpt-oss).");
+                $"{new DirectoryInfo(dir).Name}: weights quantized with {quantization.Method} are not supported (supported: unquantized, FP8, NVFP4, MXFP4, GPTQ, AWQ, compressed-tensors, bitsandbytes).");
         }
     }
 }

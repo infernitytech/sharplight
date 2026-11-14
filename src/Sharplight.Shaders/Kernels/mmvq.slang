@@ -4,7 +4,7 @@
 // block is read once for all activation rows and the activation traffic is one byte per value.
 //
 // Quantized activation row (QROW bytes): [K int8 q][K/32 float2 (d, d * sum(q))], x ≈ d * q per 32-value block.
-// Specialization macros: WFMT (q8_0r, q4_k, q5_k, q6_k and the 32-value block formats q8_0, q4_0, q5_0, iq4_nl, mxfp4), K, N,
+// Specialization macros: WFMT (q8_0r, q4_k, q5_k, q6_k and the 32-value block formats q8_0, q4_0, q5_0, iq4_nl, mxfp4, and the group formats q4z_*, q8z_*, nvfp4, nvfp4_gs), K, N,
 // Y_STRIDE, ROW_BYTES, SG;
 // MQ_COLS (activation rows handled per launch, >= T), MQ_ROWS (weight rows per workgroup), MQ_SG (subgroups per workgroup).
 #include "common.slang"
@@ -221,6 +221,101 @@ float dot_chunk(WChunk w, XChunk x, uint ch)
     float4 i = float4(float(dot16(w.q0, x.q0)), float(dot16(w.q1, x.q1)), float(dot16(w.q2, x.q2)), float(dot16(w.q3, x.q3)));
     return dot(w.s * x.d, i);
 }
+#elif WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128 || WFMT == FMT_Q8Z_G32 || WFMT == FMT_Q8Z_G128 || WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+// The group-scaled formats of quantized Hugging Face checkpoints (quant_group.slang), 32 values per chunk:
+//  * Q4Z { f16 d; f16 z; u8 qs[16 * runs] } and Q8Z { f16 d; f16 z; u8 q[group] }: unsigned codes (Q8Z biased by -128 into
+//    int8) with the zero point applied through the activation block sum, d * (sum(q x) - z sum(x)), as Q4_0 does with its 8.
+//  * NVFP4 { u8 d[4]; u8 qs[32] } and NVFP4_GS { f32 g; u8 d[4]; u8 qs[32] }: one chunk is two 16-value sub-blocks with
+//    their own UE4M3 scales (times g); codes as the doubled int8 E2M1 values of MXFP4, sub-block i in lo / hi.
+#define CHUNK_VALUES 32
+struct WChunk { uint4 lo; uint4 hi; float d; float d2; float off; };
+struct XChunk { uint4 lo; uint4 hi; float2 d; };
+
+#if WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+uint fp4_bytes(uint u)
+{
+    uint m = u & 0x07070707u;
+    uint ge4 = (m >> 2) & 0x01010101u;
+    uint ge6 = ge4 & (m >> 1);
+    uint v = m + (m & 0x03030303u & (ge4 * 0xFFu)) + ((m & ge6) << 1);
+    uint neg = (u >> 3) & 0x01010101u & ((v + 0x7F7F7F7Fu) >> 7);
+    return (v ^ (neg * 0xFFu)) + neg;
+}
+
+// The 16 codes of one sub-block (8 bytes: value i in the low nibble of byte i, i + 8 in the high one) in value order.
+uint4 fp4_sub_block(uint64_t at)
+{
+    uint a = *(uint*)at;
+    uint b = *(uint*)(at + 4);
+    return uint4(fp4_bytes(a), fp4_bytes(b), fp4_bytes(a >> 4), fp4_bytes(b >> 4));
+}
+#endif
+
+WChunk load_chunk(uint8_t* w, uint row, uint ch)
+{
+    WChunk c;
+    uint64_t base = uint64_t(rowStart(w, ROW_BYTES, row));
+#if WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+#if WFMT == FMT_NVFP4
+    uint64_t at = base + uint64_t(ch >> 1) * 36;
+    uint64_t scales = at;
+    uint64_t codes = at + 4;
+    float g = 1.0;
+#else
+    uint64_t at = base + uint64_t(ch >> 1) * 40;
+    uint64_t scales = at + 4;
+    uint64_t codes = at + 8;
+    float g = asfloat(*(uint*)at);
+#endif
+    uint s = (ch & 1) * 2;
+    c.d = ue4m3_half(uint(*(uint8_t*)(scales + s))) * g;
+    c.d2 = ue4m3_half(uint(*(uint8_t*)(scales + s + 1))) * g;
+    c.lo = fp4_sub_block(codes + 8 * s);
+    c.hi = fp4_sub_block(codes + 8 * s + 8);
+    c.off = 0.0;
+#else
+#if WFMT == FMT_Q4Z_G32
+    uint64_t at = base + uint64_t(ch) * 20;
+    uint64_t codes = at + 4;
+#elif WFMT == FMT_Q4Z_G128
+    uint64_t at = base + uint64_t(ch >> 2) * 68;
+    uint64_t codes = at + 4 + (ch & 3) * 16;
+#elif WFMT == FMT_Q8Z_G32
+    uint64_t at = base + uint64_t(ch) * 36;
+    uint64_t codes = at + 4;
+#else
+    uint64_t at = base + uint64_t(ch >> 2) * 132;
+    uint64_t codes = at + 4 + (ch & 3) * 32;
+#endif
+    uint dz = *(uint*)at;
+    c.d = f16tof32(dz & 0xFFFFu);
+    c.d2 = c.d;
+    c.off = f16tof32(dz >> 16);
+#if WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128
+    uint4 qs = load16_any(codes);
+    c.lo = qs & 0x0F0F0F0Fu;
+    c.hi = (qs >> 4) & 0x0F0F0F0Fu;
+#else
+    c.lo = load16_any(codes) ^ 0x80808080u;
+    c.hi = load16_any(codes + 16) ^ 0x80808080u;
+    c.off -= 128.0;
+#endif
+#endif
+    return c;
+}
+XChunk load_xchunk(uint8_t* x, uint ch)
+{
+    XChunk c;
+    c.lo = *(uint4*)(x + ch * 32);
+    c.hi = *(uint4*)(x + ch * 32 + 16);
+    c.d = *(float2*)(x + K + ch * 8);
+    return c;
+}
+#if WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+float dot_chunk(WChunk w, XChunk x, uint ch) { return x.d.x * (w.d * float(dot16(w.lo, x.lo)) + w.d2 * float(dot16(w.hi, x.hi))); }
+#else
+float dot_chunk(WChunk w, XChunk x, uint ch) { return w.d * (x.d.x * float(dot16(w.lo, x.lo) + dot16(w.hi, x.hi)) - w.off * x.d.y); }
+#endif
 #elif WFMT == FMT_Q8_0 || WFMT == FMT_Q4_0 || WFMT == FMT_Q5_0 || WFMT == FMT_IQ4_NL || WFMT == FMT_MXFP4 || WFMT == FMT_MXFP4R
 // One 32-value block per chunk: Q8_0 { f16 d; i8 qs[32] } (34 bytes), Q4_0 { f16 d; u8 qs[16] } (18), Q5_0 { f16 d; u32 qh;
 // u8 qs[16] } (22), IQ4_NL like Q4_0 through the codebook, MXFP4 { u8 e; u8 qs[16] } (17). Nibble formats hold values 0..15

@@ -12,14 +12,17 @@ namespace Sharplight.HuggingFace;
 public static class HfSupport
 {
     /// <summary>
-    /// Methods whose weights the importer cannot read: packed integer formats (GPTQ, AWQ, bitsandbytes, MLX, ...) need dequantization
-    /// kernels for their layouts, which do not exist.
+    /// Methods whose weights the importer cannot read: their layouts (codebooks, trellis codes, rotations, framework-specific
+    /// packings) have no conversion to a block type.
     /// </summary>
     private static readonly HashSet<string> s_unsupportedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "gptq", "awq", "bitsandbytes", "aqlm", "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
-        "spqr", "auto-round", "autoround", "fp_quant", "quark", "gptqmodel",
+        "aqlm", "hqq", "eetq", "quanto", "optimum-quanto", "exl2", "exllama", "torchao", "vptq", "higgs",
+        "spqr", "auto-round", "autoround", "fp_quant",
     };
+
+    /// <summary>ModelOpt algorithms whose weights are read (<see cref="HfFp8Weights"/>, <see cref="HfFp4Weights"/>).</summary>
+    private static readonly HashSet<string> s_modelOptAlgorithms = new(StringComparer.OrdinalIgnoreCase) { "FP8", "NVFP4", "MIXED_PRECISION" };
 
     /// <summary>The model type <c>mxfp4</c> checkpoints are read for (their expert blocks are mapped by that architecture).</summary>
     private const string Mxfp4ModelType = "gpt_oss";
@@ -56,8 +59,10 @@ public static class HfSupport
 
     /// <summary>
     /// The checkpoint's quantization method and whether the importer reads it. Read: FP8 (<c>fp8</c> block scales, compressed-tensors
-    /// with 8-bit float weights, ModelOpt <c>FP8</c>) and <c>mxfp4</c> for gpt-oss. Not read: integer and 4-bit packed formats (GPTQ, AWQ,
-    /// bitsandbytes, MLX, compressed-tensors with integer or 4-bit weights, ModelOpt NVFP4, ...).
+    /// with 8-bit float weights, ModelOpt <c>FP8</c>), NVFP4 (ModelOpt, compressed-tensors), MXFP4 (compressed-tensors; <c>mxfp4</c>
+    /// for gpt-oss, AMD Quark), GPTQ (2, 3, 4 and 8 bits), AWQ (<c>gemm</c> / <c>gemv</c>), compressed-tensors integer weights,
+    /// bitsandbytes and MLX affine quantization. Not read: MLX's FP4 modes and the methods with codebook or framework-specific
+    /// layouts (AQLM, HQQ, EXL2, quanto, torchao, ...).
     /// </summary>
     /// <param name="configJson">The text of <c>config.json</c> (its <c>quantization_config</c>).</param>
     /// <param name="quantizationConfigJson">The text of <c>hf_quant_config.json</c> when the checkpoint has one (ModelOpt), else null.</param>
@@ -84,18 +89,24 @@ public static class HfSupport
             return ModelOptAlgorithm(String(quantization, "quant_algo"));
         }
 
+        // MLX writes {"group_size": 64, "bits": 4} without a method (as "quantization", and often also as "quantization_config").
+        if (HfMlxWeights.Settings(config) is { } mlx)
+        {
+            return new HfQuantizationSupport($"mlx ({mlx.GetProperty("bits").GetRawText()}-bit)", SupportLevel.Supported);
+        }
+
         if (!config.Root.TryGetProperty("quantization_config", out var settings) || settings.ValueKind != JsonValueKind.Object)
         {
-            return new HfQuantizationSupport(null, SupportLevel.Supported);
+            return config.Root.TryGetProperty("quantization", out var other) && other.ValueKind == JsonValueKind.Object
+                ? new HfQuantizationSupport($"mlx ({String(other, "mode") ?? "unknown"})", SupportLevel.Unsupported)
+                : new HfQuantizationSupport(null, SupportLevel.Supported);
         }
 
         string? method = String(settings, "quant_method");
         if (method is null)
         {
-            // MLX writes {"group_size": 64, "bits": 4} without a method.
-            return settings.TryGetProperty("bits", out var bits) && bits.ValueKind == JsonValueKind.Number
-                ? new HfQuantizationSupport($"mlx ({bits.GetRawText()}-bit)", SupportLevel.Unsupported)
-                : new HfQuantizationSupport(null, null);
+            return new HfQuantizationSupport(settings.TryGetProperty("mode", out _) ? $"mlx ({String(settings, "mode")})" : null,
+                settings.TryGetProperty("mode", out _) ? SupportLevel.Unsupported : null);
         }
 
         switch (method.ToLowerInvariant())
@@ -109,12 +120,42 @@ public static class HfSupport
                 return CompressedTensors(settings);
             case "modelopt":
                 return ModelOptAlgorithm(String(settings, "quant_algo"));
+            case "gptq":
+                return Gptq(method, settings);
+            case "awq":
+                return Awq(method, settings);
+            case "bitsandbytes":
+                return new HfQuantizationSupport(method, SupportLevel.Supported);
+            case "quark":
+                return Quark(settings);
             default:
                 return new HfQuantizationSupport(method, s_unsupportedMethods.Contains(method) ? SupportLevel.Unsupported : null);
         }
     }
 
-    /// <summary>compressed-tensors: 8-bit float weights are read (<see cref="HfFp8Weights"/>), integer or narrower ones are not.</summary>
+    /// <summary>GPTQ: 2, 3, 4 and 8-bit codes in the <c>gptq</c> / <c>gptq_v2</c> layouts (<see cref="HfGptqLayouts"/>).</summary>
+    private static HfQuantizationSupport Gptq(string method, JsonElement settings)
+    {
+        int bits = HfPackedBits.Int(settings, "bits", 4);
+        string format = String(settings, "checkpoint_format") ?? "gptq";
+        bool read = bits is 2 or 3 or 4 or 8 && format is "gptq" or "gptq_v2";
+        return new HfQuantizationSupport(string.Create(CultureInfo.InvariantCulture, $"{method} ({bits}-bit)"), read ? SupportLevel.Supported : SupportLevel.Unsupported);
+    }
+
+    /// <summary>AWQ: 4-bit codes in the <c>gemm</c> and <c>gemv</c> layouts (<see cref="HfAwqLayouts"/>).</summary>
+    private static HfQuantizationSupport Awq(string method, JsonElement settings)
+    {
+        int bits = HfPackedBits.Int(settings, "bits", HfPackedBits.Int(settings, "w_bit", 4));
+        string version = (String(settings, "version") ?? "gemm").ToLowerInvariant();
+        bool read = bits == 4 && version is "gemm" or "gemv";
+        return new HfQuantizationSupport($"{method} ({version})", read ? SupportLevel.Supported : SupportLevel.Unsupported);
+    }
+
+    /// <summary>
+    /// compressed-tensors: 8-bit float weights (<see cref="HfFp8Weights"/>), 4-bit float weights (NVFP4 / MXFP4,
+    /// <see cref="HfFp4Weights"/>) and 1 to 8-bit integer weights (<see cref="HfCompressedIntLayouts"/>) are read; sparse
+    /// (bitmask-compressed) checkpoints are not.
+    /// </summary>
     private static HfQuantizationSupport CompressedTensors(JsonElement settings)
     {
         if (!settings.TryGetProperty("config_groups", out var groups) || groups.ValueKind != JsonValueKind.Object)
@@ -122,6 +163,7 @@ public static class HfSupport
             return new HfQuantizationSupport("compressed-tensors", null);
         }
 
+        string? label = null;
         foreach (var group in groups.EnumerateObject())
         {
             if (group.Value.ValueKind != JsonValueKind.Object || !group.Value.TryGetProperty("weights", out var weights)
@@ -132,14 +174,67 @@ public static class HfSupport
 
             string type = String(weights, "type") ?? "int";
             int bits = weights.TryGetProperty("num_bits", out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
-            if (!string.Equals(type, "float", StringComparison.OrdinalIgnoreCase) || bits != 8)
+            bool isFloat = string.Equals(type, "float", StringComparison.OrdinalIgnoreCase);
+            bool read = isFloat ? bits is 4 or 8 : bits is >= 1 and <= 8;
+            label = string.Create(CultureInfo.InvariantCulture, $"compressed-tensors ({type} {bits}-bit)");
+            if (!read)
             {
-                string label = string.Create(CultureInfo.InvariantCulture, $"compressed-tensors ({type} {bits}-bit)");
                 return new HfQuantizationSupport(label, SupportLevel.Unsupported);
             }
         }
 
-        return new HfQuantizationSupport("compressed-tensors (float 8-bit)", SupportLevel.Supported);
+        if (settings.TryGetProperty("sparsity_config", out var sparsity) && sparsity.ValueKind == JsonValueKind.Object
+            && String(sparsity, "format") is { } sparseFormat && sparseFormat != "dense")
+        {
+            return new HfQuantizationSupport($"compressed-tensors ({sparseFormat})", SupportLevel.Unsupported);
+        }
+
+        return new HfQuantizationSupport(label ?? "compressed-tensors", SupportLevel.Supported);
+    }
+
+    /// <summary>
+    /// AMD Quark: weights quantized to OCP MXFP4 (<c>fp4</c>, 32-value groups, <c>e8m0</c> scales: U8 <c>X.weight</c> and
+    /// <c>X.weight_scale</c>, low nibble first, read by <see cref="HfFp4Weights"/>) or to FP8 E4M3 (<see cref="HfFp8Weights"/>), in
+    /// the global and every per-layer spec. Activation specs are ignored (activations are not quantized). Other weight types
+    /// (int4 / int8 in Quark's reordered packing, MXFP6, lists of specs) are not read.
+    /// </summary>
+    private static HfQuantizationSupport Quark(JsonElement settings)
+    {
+        var specs = new List<JsonElement>();
+        if (settings.TryGetProperty("global_quant_config", out var global) && global.ValueKind == JsonValueKind.Object)
+        {
+            specs.Add(global);
+        }
+
+        foreach (string name in (string[])["layer_quant_config", "layer_type_quant_config"])
+        {
+            if (settings.TryGetProperty(name, out var layers) && layers.ValueKind == JsonValueKind.Object)
+            {
+                specs.AddRange(layers.EnumerateObject().Select(layer => layer.Value));
+            }
+        }
+
+        var types = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var spec in specs)
+        {
+            if (spec.ValueKind != JsonValueKind.Object || !spec.TryGetProperty("weight", out var weight) || weight.ValueKind == JsonValueKind.Null)
+            {
+                continue;
+            }
+
+            string? type = String(weight, "dtype");
+            bool mxfp4 = type == "fp4" && HfPackedBits.Int(weight, "group_size", 0) == 32 && String(weight, "scale_format") == "e8m0";
+            if (!mxfp4 && type != "fp8_e4m3")
+            {
+                return new HfQuantizationSupport($"quark ({type ?? "weight list"})", SupportLevel.Unsupported);
+            }
+
+            types.Add(mxfp4 ? "mxfp4" : "fp8");
+        }
+
+        return types.Count == 0
+            ? new HfQuantizationSupport("quark", null)
+            : new HfQuantizationSupport($"quark ({string.Join(", ", types)})", SupportLevel.Supported);
     }
 
     private static HfQuantizationSupport ModelOptAlgorithm(string? algorithm)
@@ -147,7 +242,7 @@ public static class HfSupport
         string label = algorithm is null ? "modelopt" : $"modelopt {algorithm}";
         return algorithm is null
             ? new HfQuantizationSupport(label, null)
-            : new HfQuantizationSupport(label, string.Equals(algorithm, "FP8", StringComparison.OrdinalIgnoreCase) ? SupportLevel.Supported : SupportLevel.Unsupported);
+            : new HfQuantizationSupport(label, s_modelOptAlgorithms.Contains(algorithm) ? SupportLevel.Supported : SupportLevel.Unsupported);
     }
 
     private static HfConfig? TryParse(string json)

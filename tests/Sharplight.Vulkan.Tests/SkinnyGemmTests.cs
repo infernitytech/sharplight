@@ -21,8 +21,9 @@ public sealed class SkinnyGemmTests
         }
     }
 
-    // f16 activations on tensor cores (~1 % error); q8_0 runs its rows up to 4 or 8 on the integer-dot matvec (8-bit activations).
-    private static double Atol(string fmt) => fmt == "q8_0" ? 3.0 : 1.5e-1;
+    // f16 activations on tensor cores (~1 % error); q8_0 and nvfp4 run their rows up to 4 or 8 on the integer-dot matvec
+    // (8-bit activations, an error proportional to the weight rows' norms).
+    private static double Atol(string fmt) => fmt is "q8_0" or "nvfp4" ? 3.0 : 1.5e-1;
 
     [Theory]
     [MemberData(nameof(Cases))]

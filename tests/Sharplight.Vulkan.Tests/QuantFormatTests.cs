@@ -10,7 +10,8 @@ namespace Sharplight.Vulkan.Tests;
 public sealed class QuantFormatTests
 {
     public static IEnumerable<object[]> Formats() =>
-        new[] { "q2_k", "q3_k", "iq2_xxs", "iq2_xs", "iq2_s", "iq3_xxs", "iq3_s", "iq1_s", "iq1_m", "tq1_0", "tq2_0", "mxfp4", "nvfp4", "f8e4m3", "f8e5m2", "f8e4m3_b32", "f8e4m3_b128" }
+        new[] { "q2_k", "q3_k", "iq2_xxs", "iq2_xs", "iq2_s", "iq3_xxs", "iq3_s", "iq1_s", "iq1_m", "tq1_0", "tq2_0", "mxfp4", "nvfp4", "f8e4m3", "f8e5m2", "f8e4m3_b32", "f8e4m3_b128",
+                "nvfp4_gs", "q4z_g32", "q4z_g128", "q8z_g32", "q8z_g128", "nf4_b64" }
             .Select(f => new object[] { f });
 
     [Theory, MemberData(nameof(Formats))]

@@ -61,8 +61,15 @@ public sealed partial class GraphLowerer
     private bool QuantizedActivationsAllowed(Node n)
         => _opt.Compile.AllowReducedPrecision || !n.Attributes.Get(StandardOps.F32ActivationsAttribute, false);
 
-    /// <summary>32-value block formats of the integer-dot matvec (one block per chunk).</summary>
-    private static readonly HashSet<DataType> s_intDotBlockFormats = [DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R];
+    /// <summary>
+    /// Block formats of the integer-dot matvec read 32 values per chunk: the 32-value GGUF blocks, and the group-scaled formats of
+    /// quantized Hugging Face checkpoints (integer codes with a zero point, NVFP4 with and without a global scale).
+    /// </summary>
+    private static readonly HashSet<DataType> s_intDotBlockFormats =
+    [
+        DataType.Q8_0, DataType.Q4_0, DataType.Q5_0, DataType.IQ4_NL, DataType.MXFP4, ShaderTypes.MXFP4R,
+        DataType.Q4Z_G32, DataType.Q4Z_G128, DataType.Q8Z_G32, DataType.Q8Z_G128, DataType.NVFP4, DataType.NVFP4_GS,
+    ];
 
     /// <summary>Rows (inclusive) from which the int-dot path serves a matmul; single rows may stay on the f32 matvec.</summary>
     private static long IntDotMinRows(DataType type) => (type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !DiagnosticSwitches.IntDotDecodeQ8 ? 2 : 1;

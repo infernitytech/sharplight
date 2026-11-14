@@ -33,6 +33,17 @@ internal sealed class SafetensorsTensor
     /// </summary>
     public WeightInfo? Converted { get; init; }
 
+    /// <summary>Address of the stored bytes in the shard's memory map (valid while the checkpoint is open).</summary>
+    public unsafe byte* Pointer => File.BasePointer + File.DataOffset + Offset;
+
+    /// <summary>The value of a one-element float tensor (a per-tensor scale), any float dtype.</summary>
+    /// <exception cref="InvalidDataException">The tensor has more than one element.</exception>
+    public float Scalar()
+    {
+        var values = HfTransforms.DecodeF32(ToWeightInfo());
+        return values.Length == 1 ? values[0] : throw new InvalidDataException($"{Name}: expected one value, found {values.Length}.");
+    }
+
     /// <summary>A zero-copy weight view over the memory map.</summary>
     /// <exception cref="NotSupportedException">The dtype has no Sharplight equivalent.</exception>
     public WeightInfo ToWeightInfo()

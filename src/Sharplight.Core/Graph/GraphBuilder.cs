@@ -19,6 +19,7 @@ public sealed class GraphBuilder
     private readonly HashSet<string> _scalars = [];
     private readonly List<KeyValuePair<string, Dim>> _dynamicSymbols = [];
     private readonly Func<string, WeightInfo?> _weightLookup;
+    private readonly List<(Value Input, int[] Order, Value Gathered)> _orderedInputs = [];
     private readonly Stack<string> _groups = new();
     private int _nextValueId;
     private int _nextNodeId;
@@ -241,8 +242,31 @@ public sealed class GraphBuilder
     public Value Scale(Value x, float scale, float bias = 0, string? name = null)
         => Emit1("Scale", [x], Attributes.From(("scale", scale), ("bias", bias)), name);
 
-    /// <summary>Matrix product of <paramref name="x"/> [..., K] with a weight laid out [N, K], giving [..., N].</summary>
-    public Value MatMul(Value x, Value w, string? name = null) => Emit1("MatMul", [x, w], null, name);
+    /// <summary>
+    /// Matrix product of <paramref name="x"/> [..., K] with a weight laid out [N, K], giving [..., N]. A weight with an
+    /// <see cref="WeightInfo.InputOrder"/> multiplies <paramref name="x"/> gathered along its last axis in that order (one gather per
+    /// input and order, shared by the products that use both).
+    /// </summary>
+    public Value MatMul(Value x, Value w, string? name = null)
+        => Emit1("MatMul", [w.Weight?.InputOrder is { } order ? InOrder(x, order) : x, w], null, name);
+
+    /// <summary><paramref name="x"/> gathered along its last axis by <paramref name="order"/>, built once per input and order.</summary>
+    private Value InOrder(Value x, int[] order)
+    {
+        foreach (var (input, known, gathered) in _orderedInputs)
+        {
+            if (input == x && known.AsSpan().SequenceEqual(order))
+            {
+                return gathered;
+            }
+        }
+
+        var indices = Constant($"input_order_{_orderedInputs.Count}", DataType.I32, new Shape(order.Length),
+            System.Runtime.InteropServices.MemoryMarshal.AsBytes(order.AsSpan()).ToArray());
+        var result = Emit1("GatherAxis", [x, indices], Attributes.From(("axis", (long)(x.Shape.Rank - 1))));
+        _orderedInputs.Add((x, order, result));
+        return result;
+    }
 
     /// <summary>Matrix product with the named weight, plus an optional bias weight that is added when the model has it.</summary>
     public Value Linear(Value x, string weight, string? biasWeight = null, string? name = null)
