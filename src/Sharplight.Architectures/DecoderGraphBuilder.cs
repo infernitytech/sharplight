@@ -99,7 +99,13 @@ internal sealed partial class DecoderGraphBuilder
         {
             // Bidirectional encoders with a decoder's layers (EuroBERT, NeoBERT, ModernBERT, EmbeddingGemma, Llama embedding models): every token
             // sees the whole sequence, so there is nothing to decode token by token; the embedding graph is the model.
-            return new Dictionary<string, ComputeGraph> { [WellKnown.EmbedGraph] = BuildPacked(WellKnown.EmbedGraph, classify: false) };
+            var packed = new Dictionary<string, ComputeGraph> { [WellKnown.EmbedGraph] = BuildPacked(WellKnown.EmbedGraph, classify: false) };
+            if (IsDiffusion)
+            {
+                packed[WellKnown.DenoiseGraph] = BuildDenoise();
+            }
+
+            return packed;
         }
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, embeddingsInput: false) };
@@ -205,10 +211,27 @@ internal sealed partial class DecoderGraphBuilder
         return b.Build();
     }
 
-    private ComputeGraph BuildPacked(string name, bool classify)
+    /// <summary>Whether the model is a masked-diffusion language model (bidirectional, <c>diffusion.shift_logits</c> declared).</summary>
+    public bool IsDiffusion => !_hp.Causal && _src.Has($"{_src.Architecture}.diffusion.shift_logits");
+
+    // Masked diffusion: the language model head over every row of one bidirectional pass (WellKnown.DenoiseGraph).
+    private ComputeGraph BuildDenoise()
     {
-        var b = new GraphBuilder(name, _src.Weight);
+        var b = new GraphBuilder(WellKnown.DenoiseGraph, _src.Weight);
         var inp = PackedSequences.Declare(b, tokenTypes: false);
+        var x = PackedLayers(b, inp);
+        using (b.Group("output"))
+        {
+            var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+            b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
+        }
+
+        return b.Build();
+    }
+
+    // Embeddings and layers of the packed-sequence graphs (attention within each sequence, no KV cache).
+    private Value PackedLayers(GraphBuilder b, PackedSequenceInputs inp)
+    {
         Value x;
         Value? perLayer = null;
         using (b.Group("input"))
@@ -220,7 +243,14 @@ internal sealed partial class DecoderGraphBuilder
             }
         }
 
-        x = Layers(b, x, inp.Positions, FrequencyFactors(b), perLayer, inp.RowSpans);
+        return Layers(b, x, inp.Positions, FrequencyFactors(b), perLayer, inp.RowSpans);
+    }
+
+    private ComputeGraph BuildPacked(string name, bool classify)
+    {
+        var b = new GraphBuilder(name, _src.Weight);
+        var inp = PackedSequences.Declare(b, tokenTypes: false);
+        var x = PackedLayers(b, inp);
         using (b.Group("output"))
         {
             if (!classify)

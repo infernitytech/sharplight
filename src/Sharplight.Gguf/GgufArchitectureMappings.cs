@@ -103,6 +103,8 @@ internal static class GgufArchitectureMappings
         yield return new Kolibri1GgufMapping();
         yield return new RicursiveGgufMapping();
         yield return new EuroBertGgufMapping();
+        yield return new DreamGgufMapping();
+        yield return new LladaGgufMapping();
         yield return new NeoBertGgufMapping();
         yield return new LlamaEmbedGgufMapping();
         yield return new GemmaEmbeddingGgufMapping();

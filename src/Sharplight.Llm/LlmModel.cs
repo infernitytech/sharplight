@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Sharplight.Graph;
+using Sharplight.Llm.Embeddings;
 using Sharplight.Models;
 using Sharplight.Runtime;
 using Sharplight.Tokenizers;
@@ -121,6 +122,37 @@ public sealed class LlmModel : IDisposable
 
         ReportReady(graph);
         return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0));
+    }
+
+    /// <summary>
+    /// True for masked-diffusion language models (Dream, LLaDA; the model has a <see cref="WellKnown.DenoiseGraph"/>): they generate with a
+    /// <see cref="DiffusionGenerator"/> (<see cref="CreateDiffusionGenerator"/>) instead of a token-by-token session.
+    /// </summary>
+    public bool IsDiffusion => Definition.Graphs.ContainsKey(WellKnown.DenoiseGraph);
+
+    /// <summary>
+    /// Compiles the denoising pass of a masked-diffusion model onto the configured devices for sequences of up to the context length
+    /// (prompt plus generated span).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The model is not a diffusion model or its vocabulary has no mask token.</exception>
+    public DiffusionGenerator CreateDiffusionGenerator()
+    {
+        if (!IsDiffusion)
+        {
+            throw new InvalidOperationException($"{Definition.Name} is not a masked-diffusion model.");
+        }
+
+        if (!Definition.SourceMetadata.TryGetValue(CanonicalKeys.TokenizerMaskId, out var mask))
+        {
+            throw new InvalidOperationException($"{Definition.Name}: the vocabulary declares no mask token.");
+        }
+
+        int context = _options.ContextLength > 0 ? _options.ContextLength : Definition.Property(WellKnown.ContextLength, 4096);
+        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, _options.Devices, _options.Fallback, context, 1,
+            _options.DisabledFeatures, CacheFor, _options.Log);
+        ReportReady(WellKnown.DenoiseGraph);
+        return new DiffusionGenerator(runner, Tokenizer, Convert.ToInt32(mask, System.Globalization.CultureInfo.InvariantCulture),
+            Definition.Property(WellKnown.DiffusionShiftLogits, false));
     }
 
     /// <summary>

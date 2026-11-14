@@ -85,6 +85,8 @@ internal static class HfArchitectureMappings
         yield return new ArceeHfMapping();
         yield return new Gemma1HfMapping();
         yield return new EuroBertHfMapping();
+        yield return new DreamHfMapping();
+        yield return new LladaHfMapping();
         yield return new ModernBertHfMapping();
     }
 

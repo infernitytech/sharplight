@@ -54,7 +54,8 @@ namespace Sharplight.Architectures;
 /// EmbeddingGemma, Llama embedding models): only <see cref="WellKnown.EmbedGraph"/> is built (mean pooling unless declared), every token attends to its
 /// whole sequence, sliding windows are symmetric (keys less than <c>attention.sliding_window</c> positions away on either side), no KV cache and no
 /// draft head; a layer without <c>input_norm.weight</c> has no norm in front of its attention. Optional <c>embedding_projection.{i}.weight</c>
-/// (+ <c>.bias</c>) project the pooled embedding (sentence-transformers Dense modules).</item>
+/// (+ <c>.bias</c>) project the pooled embedding (sentence-transformers Dense modules). A bidirectional model that declares
+/// <c>diffusion.shift_logits</c> is a masked-diffusion language model (Dream: true, LLaDA: false) and also gets <see cref="WellKnown.DenoiseGraph"/>.</item>
 /// <item>Attention temperature (Llama 4, Mistral 3): <c>attention.temperature_scale</c> (β, 0 = off), <c>attention.temperature_length</c> (L),
 /// <c>attention.temperature_offset</c> (o, default 0) and optional <c>attention.temperature_layers</c> (int[layer_count], default all): queries of
 /// those layers are multiplied by log(floor((pos + o) / L) + 1)·β + 1, or with <c>attention.temperature_power</c> (Beam) by (1 + (pos + o) / L)^β. <c>attention.qk_norm_layers</c> (int[layer_count]) limits the
@@ -161,6 +162,11 @@ public sealed class DecoderAdapter : IModelAdapter
             [WellKnown.CausalAttention] = hp.Causal,
             [WellKnown.ClassifierLabels] = hp.Vocab,
         };
+        if (graphBuilder.IsDiffusion)
+        {
+            props[WellKnown.DiffusionShiftLogits] = src.Arch("diffusion.shift_logits", false);
+        }
+
         vision?.WriteProperties(props);
         return new ModelDefinition
         {

@@ -33,6 +33,16 @@ with tempfile.TemporaryDirectory() as work:
     import convert_hf_to_gguf
     from conversion.base import TextModel
     TextModel.get_vocab_base_pre = lambda self, tokenizer: "gpt-2"
+    if kind in ("Dream", "llada"):
+        # Masked diffusion: llama.cpp's LLaDA converter leaves the mask token to the tokenizer, which the tiny one lacks.
+        from conversion import dream, llada
+        model_class = dream.DreamModel if kind == "Dream" else llada.LLaDAModel
+        base_parameters = model_class.set_gguf_parameters
+        def diffusion_parameters(self, base=base_parameters):
+            base(self)
+            if kind == "llada":
+                self.gguf_writer.add_mask_token_id(self.hparams["mask_token_id"])
+        model_class.set_gguf_parameters = diffusion_parameters
     if kind in ("deepseek_v32", "glm_moe_dsa"):
         config.setdefault("scoring_func", "sigmoid")   # transformers' default, which the converter does not assume
     if kind == "deepseek_v32":

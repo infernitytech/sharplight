@@ -11,4 +11,6 @@ public sealed record GenerationOptions
     public bool StopAtEog { get; init; } = true;
     /// <summary>Generation ends after the output text ends with any of these strings (the string itself is still emitted).</summary>
     public IReadOnlyList<string> StopStrings { get; init; } = [];
+    /// <summary>Settings of masked-diffusion models (<see cref="LlmModel.IsDiffusion"/>); ignored by autoregressive models.</summary>
+    public DiffusionOptions Diffusion { get; init; } = new();
 }
