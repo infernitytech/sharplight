@@ -1,6 +1,7 @@
 using Sharplight.Hub;
 using Sharplight.Package.Import;
 using Sharplight.Runtime;
+using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Settings;
 
@@ -13,6 +14,9 @@ namespace Sharplight.Studio.Services.Hub;
 internal sealed class HubService : IHubService, IDisposable
 {
     private const int PrecompileSlots = 4;
+
+    /// <summary>Bytes read from the start of a GGUF file for its dimensions: usually the first suffices.</summary>
+    private static readonly int[] s_headerPrefixes = [1 << 20, 16 << 20];
 
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
@@ -63,6 +67,58 @@ internal sealed class HubService : IHubService, IDisposable
         }
 
         return new RepositoryDetails(repo, format, variants);
+    }
+
+    /// <inheritdoc/>
+    public async Task<ModelShape?> GetShapeAsync(RepositoryDetails details, VariantInfo variant, CancellationToken cancellationToken)
+    {
+        var client = CreateClient();
+        var repo = details.Repository;
+        try
+        {
+            switch (details.Format)
+            {
+                case ModelFormat.Gguf when variant.PrimaryPath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase):
+                    // The dimensions come before the tokenizer in the metadata as GGUF writers lay it out; read more only when not.
+                    foreach (int bytes in s_headerPrefixes)
+                    {
+                        var prefix = await client.GetFilePrefixAsync(repo, variant.PrimaryPath, bytes, cancellationToken).ConfigureAwait(false);
+                        if (ModelShapeReader.FromGgufPrefix(prefix) is { } shape)
+                        {
+                            return shape;
+                        }
+
+                        if (prefix.Length < bytes)
+                        {
+                            break;
+                        }
+                    }
+
+                    return null;
+                case ModelFormat.Safetensors or ModelFormat.Onnx:
+                    var directory = variant.PrimaryPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
+                        ? variant.PrimaryPath[..Math.Max(0, variant.PrimaryPath.LastIndexOf('/'))]
+                        : variant.PrimaryPath;
+                    var config = directory.Length == 0 ? "config.json" : $"{directory.TrimEnd('/')}/config.json";
+                    if (!repo.Files.Any(file => file.Path == config))
+                    {
+                        config = "config.json";
+                    }
+
+                    if (!repo.Files.Any(file => file.Path == config))
+                    {
+                        return null;
+                    }
+
+                    return ModelShapeReader.FromConfig(await client.GetFileTextAsync(repo, config, cancellationToken).ConfigureAwait(false));
+                default:
+                    return null;
+            }
+        }
+        catch (Exception error) when (error is HubException or HttpRequestException or InvalidDataException)
+        {
+            return null;
+        }
     }
 
     /// <inheritdoc/>
@@ -122,14 +178,18 @@ internal sealed class HubService : IHubService, IDisposable
 
     private static VariantInfo ToVariant(ModelSelection selection, bool recommended)
     {
-        return new VariantInfo(selection.Tag, selection.TotalBytes, selection.Files.Count, selection.ProjectorPath is not null, recommended);
+        return new VariantInfo(selection.Tag, selection.TotalBytes, selection.Files.Count, selection.ProjectorPath is not null, recommended, selection.PrimaryPath);
     }
 
     private PrecompileTarget? CreatePrecompileTarget(PullProgressTracker tracker, CancellationToken cancellationToken)
     {
         var settings = _settings.Current;
-        var gpu = DeviceCatalog.Discover().FirstOrDefault(entry => entry.Option.IsGpu
-            && (settings.DefaultLoad.DeviceId is null || entry.Option.Id == settings.DefaultLoad.DeviceId));
+        var gpus = DeviceCatalog.Discover().Where(entry => entry.Option.IsGpu).ToList();
+        var gpu = gpus.FirstOrDefault(entry => entry.Option.Id == settings.DefaultLoad.DeviceId);
+        if (gpu.Provider is null && settings.DefaultLoad.DeviceId is null or ComputeDeviceOption.AllGpusId)
+        {
+            gpu = gpus.FirstOrDefault();
+        }
         if (gpu.Provider is null)
         {
             return null;

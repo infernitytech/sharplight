@@ -26,7 +26,11 @@ different models run at the same time. Images and documents can be attached by d
 ![Discover](images/studio/studio-discover.png)
 
 - *Discover* searches Hugging Face (format filter, gated models hidden on request) and lists a repository's quantizations with
-  their sizes.
+  their sizes. Each quantization gets an approximate fit badge for this machine (*Fits*, *Fits on 2 GPUs*, *Fits after unloading*,
+  *CPU offload ~40 %*, *Too large*), and the selected one's verdict is explained above the download button (it never blocks the
+  download). The estimate takes the download size as weights and sizes the KV cache for the default load settings from the
+  model's dimensions: the start of a GGUF file (a range request) or the checkpoint's `config.json`. Without them it assumes a
+  generous share of the weights.
 - *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
   then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files. *Load* opens the load options:
   - device;
@@ -37,6 +41,16 @@ different models run at the same time. Images and documents can be attached by d
   - n-gram and MTP speculative drafts;
   - CPU offload;
   - the **Reduced precision** opt-in.
+
+  Below the options, a memory estimate follows every change: the engine's footprint (weights, KV cache, activations) computed
+  from the model's graph for these settings, against each device's free and total memory and the residency reserve. It says
+  whether the model fits, fits after unloading other models (naming them, and whether they unload by themselves), needs CPU
+  offload (with the share that would run on the CPU, against system memory), or does not fit at all. Suggestions (shorter
+  context, smaller KV cache, one slot, turning on offload, splitting over all GPUs, a smaller quantization in the library) apply
+  with a click. With several GPUs the device list also offers *All GPUs (split)*, which splits the layers in proportion to their
+  free memory.
+
+  ![Load options with the memory estimate](images/studio/studio-load-fit-offload.png)
 
   Loading shows its stages (reading, building graphs, placement, kernel compilation with cached counts, weight upload) and can be
   cancelled. *Convert…* turns a GGUF, safetensors checkpoint or ONNX model into a `.slm` package.
@@ -135,6 +149,8 @@ keep using the user folder or to move or copy the models into the new store.
 - the pure helpers;
 - the SQLite stores and settings;
 - the downloads queue (pause, resume, cancel, restore after restart);
+- fit estimates: the planner (unloading, offload, system memory, split GPUs), the load panel's estimate and suggestions, and the
+  download badges;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
 - a headless render of every page that fails on binding errors.
@@ -148,7 +164,8 @@ calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to
   are not batched with the model's text engine, and this memory is not counted in the residency budget.
 - **Conversion progress.** Conversion during a download reports its log, not a percentage. Precompilation reports kernel counts
   per graph.
-- **Fit check.** Whether a model fits is decided by the host's footprint estimate when it is loaded: it evicts idle models,
-  offloads to the CPU when allowed, or refuses the load. The load panel does not show the estimate beforehand.
+- **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
+  applications), and the vision tower of an image conversation is not counted. Download badges are approximate: they know the
+  file sizes and, where readable, the attention dimensions, not the exact graph.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

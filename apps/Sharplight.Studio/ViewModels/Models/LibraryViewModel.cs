@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Runtime;
 
@@ -95,7 +96,18 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private void Load(LibraryEntryViewModel entry)
     {
         ConvertPanel = null;
-        LoadPanel = new LoadOptionsViewModel(entry, _services, OnLoaded, () => LoadPanel = null);
+        LoadPanel = new LoadOptionsViewModel(entry, _services, OnLoaded, () => LoadPanel = null,
+            () => [.. Entries.Select(other => other.Entry)], OpenVariant);
+    }
+
+    /// <summary>Switches the load panel to another library model (a smaller quantization the estimate suggests).</summary>
+    private void OpenVariant(LibraryEntry variant)
+    {
+        if (Entries.FirstOrDefault(other => other.Entry.Path == variant.Path) is { } entry)
+        {
+            LoadPanel?.CloseCommand.Execute(null);
+            Load(entry);
+        }
     }
 
 

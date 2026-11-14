@@ -12,6 +12,15 @@ internal interface IHubService
     public Task<RepositoryDetails> GetDetailsAsync(string repository, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The dimensions of a variant read without downloading it (the start of a GGUF file, a checkpoint's <c>config.json</c>), or null
+    /// when the format has neither or they cannot be read.
+    /// </summary>
+    /// <param name="details">The repository.</param>
+    /// <param name="variant">The variant.</param>
+    /// <param name="cancellationToken">Cancels the requests.</param>
+    public Task<ModelShape?> GetShapeAsync(RepositoryDetails details, VariantInfo variant, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Downloads, converts (and optionally precompiles) a model into the store. Cancelling keeps the downloaded parts, so
     /// pulling again resumes; <see cref="DiscardPartial"/> deletes them.
     /// </summary>
