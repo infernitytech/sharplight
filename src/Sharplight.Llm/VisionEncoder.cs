@@ -138,7 +138,8 @@ public sealed class VisionEncoder : IDisposable
 
     /// <summary>
     /// Two-stage towers: encodes the global view and each tile, then lays the rows out (see <see cref="SamParameters"/>): the tiles stitched
-    /// into one grid with a newline after each row, the global grid with a newline after each row, the view separator.
+    /// into one grid with a newline after each row, the global grid with a newline after each row, the view separator; without newlines
+    /// (<see cref="SamParameters.Newlines"/>) the tiles' rows one tile after the other, the global view's, the separator.
     /// </summary>
     private float[] EncodeViews(PreprocessedImage image)
     {
@@ -166,7 +167,16 @@ public sealed class VisionEncoder : IDisposable
                 views[t] = RunView(model, image.Patches.AsSpan(globalLen + t * tileLen, tileLen), ft * ft, newline, separator);
             }
 
-            for (int tr = 0; tr < image.TileRows; tr++)
+            if (!sam.Newlines)
+            {
+                foreach (var v in views)
+                {
+                    v.CopyTo(result.AsSpan(row * width));
+                    row += ft * ft;
+                }
+            }
+
+            for (int tr = 0; tr < image.TileRows && sam.Newlines; tr++)
             {
                 for (int y = 0; y < ft; y++)
                 {
@@ -187,7 +197,10 @@ public sealed class VisionEncoder : IDisposable
         {
             globalRows.AsSpan(y * f * width, f * width).CopyTo(result.AsSpan(row * width));
             row += f;
-            newline.CopyTo(result.AsSpan(row++ * width));
+            if (sam.Newlines)
+            {
+                newline.CopyTo(result.AsSpan(row++ * width));
+            }
         }
 
         separator.CopyTo(result.AsSpan(row++ * width));
@@ -201,7 +214,11 @@ public sealed class VisionEncoder : IDisposable
         model.Run(_run);
         var embeddings = new float[(long)rows * EmbeddingSize];
         model.GetOutput<float>(VisionParameters.EmbeddingsOutput, embeddings);
-        model.GetOutput<float>(SamParameters.NewlineOutput, newline);
+        if (Parameters.Sam!.Newlines)
+        {
+            model.GetOutput<float>(SamParameters.NewlineOutput, newline);
+        }
+
         model.GetOutput<float>(SamParameters.SeparatorOutput, separator);
         return embeddings;
     }

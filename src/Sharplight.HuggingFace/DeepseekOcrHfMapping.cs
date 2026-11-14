@@ -7,8 +7,7 @@ namespace Sharplight.HuggingFace;
 /// <c>DeepseekOCR2ForCausalLM</c> checkpoints use <c>deepseek_vl_v2</c> too) and Unlimited-OCR (<c>unlimited_ocr</c>) → canonical <c>decoder</c>:
 /// the language model of <see cref="DeepseekOcrTextHfMapping"/>. Checkpoints come with the remote-code names (<c>model.layers.*</c>, which
 /// transformers also writes) or transformers' own (<c>model.language_model.*</c>). The SAM + CLIP image tower of DeepSeek-OCR and Unlimited-OCR
-/// comes from <see cref="DeepseekOcrVisionHfMapping"/>; DeepSeek-OCR-2's tower (a Qwen2 query encoder over the SAM features) is not imported
-/// yet, so those checkpoints load as text models. DeepSeek-VL2 checkpoints (<c>deepseek_vl_v2</c> with latent
+/// and DeepSeek-OCR-2's SAM + Qwen2 query encoder tower come from <see cref="DeepseekOcrVisionHfMapping"/>. DeepSeek-VL2 checkpoints (<c>deepseek_vl_v2</c> with latent
 /// attention) are rejected. Unlimited-OCR's "reference" sliding window (each token sees the prompt plus its last <c>sliding_window</c> tokens) is
 /// not modelled: attention is full, as in llama.cpp, which equals it until the generated text exceeds the window.
 /// </summary>
@@ -32,7 +31,7 @@ internal sealed class DeepseekOcrHfMapping : IHfArchitectureMapping
         }
 
         var md = _text.MapHyperParameters(config, options);
-        if (!DeepseekOcrVisionHfMapping.HasClipTower(config))
+        if (!DeepseekOcrVisionHfMapping.HasTower(config))
         {
             return md;
         }
@@ -52,7 +51,7 @@ internal sealed class DeepseekOcrHfMapping : IHfArchitectureMapping
                 t => t.Value,
                 StringComparer.Ordinal);
         var weights = _text.MapWeights(config, text, options);
-        if (!DeepseekOcrVisionHfMapping.HasClipTower(config))
+        if (!DeepseekOcrVisionHfMapping.HasTower(config))
         {
             return weights;
         }

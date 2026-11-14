@@ -11,7 +11,8 @@ namespace Sharplight.Architectures;
 /// windows or over the whole view and adds a decomposed relative position bias, exact-GELU MLP), a convolution neck (1×1 and 3×3 convolutions,
 /// LayerNorms over the channels) and stride-2 convolutions; the feature map then is the patch embedding of a ViT (class token, learned position
 /// grid, pre-norm, bidirectional blocks of <see cref="VisionTowerGraph.EncoderLayer"/>) whose output rows, joined with the feature map, are
-/// projected to the language model's width. Every shape is static (one graph per view size); resampled position grids and relative position
+/// projected to the language model's width; or (DeepSeek-OCR-2) a query encoder over [feature map | learned queries] whose query rows are
+/// projected (<see cref="QueryEncoder"/>). Every shape is static (one graph per view size); resampled position grids and relative position
 /// tables are matrix products with constant interpolation weights. The pieces are generic: windowed attention is a row gather into windows
 /// (padding rows gather a zero row) and back, the relative bias is two batched products of the query with gathered tables.
 /// </summary>
@@ -59,6 +60,12 @@ internal static class SamTowerGraph
         }
 
         int positions = side * side;
+        if (sam.Encoder == "queries")
+        {
+            QueryEncoder(b, k, p, features, positions);
+            return b.Build();
+        }
+
         Value h;
         using (b.Group("vision.embeddings"))
         {
@@ -84,6 +91,70 @@ internal static class SamTowerGraph
         }
 
         return b.Build();
+    }
+
+    /// <summary>
+    /// The query encoder over [features | queries] (2n rows for n feature rows): features attend to features, query row i to every feature and
+    /// to queries up to i (row spans: every row sees a prefix of the rows), positions 0 … 2n − 1 rotate the two head halves; the final RMS norm's query rows are projected.
+    /// </summary>
+    private static void QueryEncoder(GraphBuilder b, ConstantCache k, VisionParameters p, Value features, int n)
+    {
+        var sam = p.Sam!;
+        int t = 2 * n;
+        int d = p.HeadDim;
+        Value h;
+        Value cos;
+        Value sin;
+        Value mask;
+        using (b.Group("vision.queries"))
+        {
+            h = b.Concat(0, features, Rows(b, k, $"vision.query_embedding.{n}.weight", n, "queries"));
+            // Row spans (first key row, count): feature rows see the features, query row i the prefix up to itself.
+            mask = k.I32($"query_spans_{n}", () =>
+            {
+                var spans = new int[2 * t];
+                for (int i = 0; i < t; i++)
+                {
+                    spans[2 * i + 1] = i < n ? n : i + 1;
+                }
+
+                return spans;
+            });
+            mask = b.Reshape(mask, t, 2);
+            // cos and the sign-folded sin [t, 1, d] of the angles position · base^(−2j/d), repeated over both halves.
+            float[] Table(bool sine)
+            {
+                var v = new float[t * d];
+                for (int i = 0; i < t; i++)
+                {
+                    for (int j = 0; j < d; j++)
+                    {
+                        // In f32 like the reference: the inverse frequency, then the product.
+                        float inverse = 1f / MathF.Pow(sam.QueryRopeBase, 2f * (j % (d / 2)) / d);
+                        double angle = i * inverse;
+                        v[i * d + j] = sine ? (float)(Math.Sin(angle) * (j < d / 2 ? -1 : 1)) : (float)Math.Cos(angle);
+                    }
+                }
+
+                return v;
+            }
+
+            cos = k.F32($"query_cos_{t}", new Shape(t, 1, d), () => Table(false));
+            sin = k.F32($"query_sin_{t}", new Shape(t, 1, d), () => Table(true));
+        }
+
+        for (int il = 0; il < p.LayerCount; il++)
+        {
+            using var _ = b.Group($"vision.layers.{il}");
+            h = VisionTowerGraph.EncoderLayer(b, p, h, il, cos, sin, mask, sam.QueryKvHeads);
+        }
+
+        using (b.Group("projector"))
+        {
+            h = VisionTowerGraph.Norm(b, p, h, "vision.post_norm");
+            b.Output(VisionParameters.EmbeddingsOutput, b.Linear(b.Slice(h, 0, n, n), "vision.projector.weight", "vision.projector.bias", VisionParameters.EmbeddingsOutput));
+            b.Output(SamParameters.SeparatorOutput, Rows(b, k, "vision.view_separator.weight", 1, "separator"));
+        }
     }
 
     /// <summary>

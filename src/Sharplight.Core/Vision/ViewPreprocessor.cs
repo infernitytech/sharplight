@@ -63,11 +63,12 @@ internal static class ViewPreprocessor
         }
 
         int f = sam.FeatureSide(G, p.PatchSize);
-        int tokens = f * (f + 1) + 1;
+        int nl = sam.Newlines ? 1 : 0;
+        int tokens = f * (f + nl) + 1;
         if (tiles.Count > 0)
         {
             int ft = sam.FeatureSide(T, p.PatchSize);
-            tokens += rows * ft * (columns * ft + 1);
+            tokens += rows * ft * (columns * ft + nl);
         }
 
         var pixels = new float[global.Length + tiles.Count * 3 * T * T];
