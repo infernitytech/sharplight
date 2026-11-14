@@ -1,3 +1,4 @@
+using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Runtime;
@@ -5,7 +6,10 @@ namespace Sharplight.Studio.Services.Runtime;
 /// <summary>Keeps several models resident on the devices the registered execution providers offer.</summary>
 internal interface IModelRuntime : IDisposable
 {
-    /// <summary>Every device models can be loaded on (GPUs first, then the CPU).</summary>
+    /// <summary>
+    /// Every device models can be loaded on (GPUs first, then the CPU); with several GPUs also the choice that splits a model over
+    /// all of them (<see cref="ComputeDeviceOption.AllGpusId"/>).
+    /// </summary>
     public IReadOnlyList<ComputeDeviceOption> Devices { get; }
 
     /// <summary>The registered models (loaded, loading or sleeping), in registration order.</summary>
@@ -26,4 +30,17 @@ internal interface IModelRuntime : IDisposable
 
     /// <summary>Memory use of the devices opened so far.</summary>
     public IReadOnlyList<DeviceUsage> GetDeviceUsage();
+
+    /// <summary>
+    /// The engine's estimate of the memory loading <paramref name="request"/> would take (weights, KV cache and state, activations),
+    /// computed from the model's graph for its settings; nothing is allocated on a device.
+    /// </summary>
+    /// <param name="request">The model and settings; the context length, KV cache type, slots, batch and drafts count.</param>
+    /// <param name="cancellationToken">Cancels reading the model.</param>
+    public Task<ModelFootprint> EstimateFootprintAsync(ModelLoadRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Free and total memory of every physical device (GPUs first, then the CPU's system memory), opening devices as needed.</summary>
+    /// <param name="disabledFeatures">Device features not to use, for devices opened by this call.</param>
+    /// <param name="cancellationToken">Cancels the query.</param>
+    public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken);
 }

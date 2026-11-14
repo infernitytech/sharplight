@@ -1,10 +1,11 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Hub;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
 /// <summary>A downloadable variant in the repository details.</summary>
-internal sealed class VariantViewModel
+internal sealed partial class VariantViewModel : ObservableObject
 {
     public VariantViewModel(VariantInfo info, bool stored)
     {
@@ -32,4 +33,12 @@ internal sealed class VariantViewModel
 
     /// <summary>Already in the library.</summary>
     public bool IsStored { get; }
+
+    /// <summary>The approximate fit on this machine, once estimated.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFit))]
+    public partial FitBadgeViewModel? Fit { get; set; }
+
+    /// <summary>The fit is estimated.</summary>
+    public bool HasFit => Fit is not null;
 }

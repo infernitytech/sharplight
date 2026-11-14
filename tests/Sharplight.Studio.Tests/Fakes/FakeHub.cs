@@ -33,6 +33,11 @@ internal sealed class FakeHub : IHubService
     public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<HubModelSummary>>([.. Results]);
 
+    /// <summary>The dimensions <see cref="GetShapeAsync"/> reports (an 8B model with grouped-query attention by default).</summary>
+    public ModelShape? Shape { get; set; } = new(36, 32, 8, 4096, 128, 128, 40960, 151936);
+
+    public Task<ModelShape?> GetShapeAsync(RepositoryDetails details, VariantInfo variant, CancellationToken cancellationToken) => Task.FromResult(Shape);
+
     public Task<RepositoryDetails> GetDetailsAsync(string repository, CancellationToken cancellationToken) =>
         Task.FromResult(new RepositoryDetails(new HubRepository(repository, "main", "abc", false, [], "qwen3"), ModelFormat.Gguf,
         [

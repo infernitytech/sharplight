@@ -3,6 +3,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Fit;
+using Sharplight.Studio.Services.Hub;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -14,6 +16,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private readonly StudioServices _services;
     private readonly DownloadsViewModel _downloads;
     private readonly Func<IReadOnlySet<string>> _storedNames;
+    private readonly FitAdvisor _advisor;
     private CancellationTokenSource? _details;
 
     public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames)
@@ -21,6 +24,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         _services = services;
         _downloads = downloads;
         _storedNames = storedNames;
+        _advisor = new FitAdvisor(services.Runtime, services.Settings);
         SelectedFormat = FormatFilter.All[1];
     }
 
@@ -53,7 +57,24 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     /// <summary>The variant to download.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
+    [NotifyPropertyChangedFor(nameof(SelectedFit), nameof(HasFitWarning), nameof(HasFitOk))]
     public partial VariantViewModel? SelectedVariant { get; set; }
+
+    /// <summary>The approximate fit of the selected variant, once estimated.</summary>
+    public FitBadgeViewModel? SelectedFit => SelectedVariant?.Fit;
+
+    /// <summary>The selected variant would not load as is (shown above the download button; downloading stays possible).</summary>
+    public bool HasFitWarning => SelectedFit is { IsGood: false };
+
+    /// <summary>The selected variant fits.</summary>
+    public bool HasFitOk => SelectedFit is { IsGood: true };
+
+    /// <summary>The variants' fit is being estimated.</summary>
+    [ObservableProperty]
+    public partial bool IsEstimatingFit { get; set; }
+
+    /// <summary>The latest fit estimate of the variants (for tests).</summary>
+    internal Task FitEstimate { get; private set; } = Task.CompletedTask;
 
     /// <summary>Files of the selected repository, as <c>path (size)</c>.</summary>
     public ObservableCollection<string> Files { get; } = [];
@@ -174,6 +195,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
             DetailFormat = details.Format?.ToString() ?? "No supported model files";
             SelectedVariant = Variants.FirstOrDefault(variant => variant.Recommended) ?? Variants.FirstOrDefault();
+            FitEstimate = EstimateFitAsync(details, [.. Variants], cancellation.Token);
         }
         catch (Exception error) when (error is HubException or HttpRequestException or OperationCanceledException)
         {
@@ -187,6 +209,50 @@ internal sealed partial class HubSearchViewModel : ObservableObject
             if (_details == cancellation)
             {
                 IsLoadingDetails = false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Badges every variant with its approximate fit for the default load settings: the download size as weights and the KV cache
+    /// from the dimensions read from the recommended variant (a GGUF header or the checkpoint's configuration), when they can be read.
+    /// </summary>
+    private async Task EstimateFitAsync(RepositoryDetails details, IReadOnlyList<VariantViewModel> variants, CancellationToken cancellationToken)
+    {
+        if (variants.Count == 0)
+        {
+            IsEstimatingFit = false;
+            return;
+        }
+
+        IsEstimatingFit = true;
+        try
+        {
+            var memory = await _advisor.GetMemoryAsync(cancellationToken);
+            var source = variants.FirstOrDefault(variant => variant.Recommended) ?? variants[0];
+            var shape = await _services.Hub.GetShapeAsync(details, source.Info, cancellationToken);
+            var settings = _services.Settings.Current.DefaultLoad;
+            int context = DownloadEstimate.Context(shape, settings);
+            foreach (var variant in variants)
+            {
+                var footprint = DownloadEstimate.Estimate(variant.Info.Bytes, shape, settings);
+                var (report, split) = _advisor.PlanDownload(footprint, memory);
+                variant.Fit = new FitBadgeViewModel(report, split, shape is not null, context);
+            }
+
+            OnPropertyChanged(nameof(SelectedFit));
+            OnPropertyChanged(nameof(HasFitWarning));
+            OnPropertyChanged(nameof(HasFitOk));
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            // No estimate (cancelled, or the devices or the Hub could not be asked): the variants go without a badge.
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                IsEstimatingFit = false;
             }
         }
     }

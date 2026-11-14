@@ -161,6 +161,25 @@
   <Style Selector="Border.badge.danger > TextBlock">
     <Setter Property="Foreground" Value="#EF4444" />
   </Style>
+  <!-- Memory fit verdicts -->
+  <Style Selector="Border.badge.ok">
+    <Setter Property="Background" Value="#2222C55E" />
+  </Style>
+  <Style Selector="Border.badge.ok > TextBlock">
+    <Setter Property="Foreground" Value="#2DBE68" />
+  </Style>
+  <Style Selector="Border.badge.warn">
+    <Setter Property="Background" Value="#22F59E0B" />
+  </Style>
+  <Style Selector="Border.badge.warn > TextBlock">
+    <Setter Property="Foreground" Value="#F0A82A" />
+  </Style>
+  <Style Selector="Border.badge.bad">
+    <Setter Property="Background" Value="#22EF4444" />
+  </Style>
+  <Style Selector="Border.badge.bad > TextBlock">
+    <Setter Property="Foreground" Value="#EF4444" />
+  </Style>
   <Style Selector="Ellipse.dot">
     <Setter Property="Width" Value="8" />
     <Setter Property="Height" Value="8" />
@@ -234,6 +253,54 @@
   <Style Selector="ProgressBar.thin">
     <Setter Property="MinHeight" Value="3" />
     <Setter Property="Height" Value="3" />
+  </Style>
+
+  <!-- Memory fit: a device bar (used by others, then this model) and verdict colors -->
+  <Style Selector="ProgressBar.meter">
+    <Setter Property="MinHeight" Value="8" />
+    <Setter Property="Height" Value="8" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ProgressBar.meter.used">
+    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+  </Style>
+  <Style Selector="ProgressBar.meter.need">
+    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ProgressBar.meter.need.over">
+    <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+  </Style>
+  <Style Selector="ProgressBar.meter.need.offload">
+    <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+  </Style>
+  <Style Selector="Border.callout">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="12,10" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Background" Value="{DynamicResource SurfaceAltBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource BorderSubtleBrush}" />
+  </Style>
+  <Style Selector="Border.callout.ok">
+    <Setter Property="Background" Value="#1A22C55E" />
+    <Setter Property="BorderBrush" Value="#5522C55E" />
+  </Style>
+  <Style Selector="Border.callout.warn">
+    <Setter Property="Background" Value="#1FF59E0B" />
+    <Setter Property="BorderBrush" Value="#66F59E0B" />
+  </Style>
+  <Style Selector="Border.callout.bad">
+    <Setter Property="Background" Value="#1FEF4444" />
+    <Setter Property="BorderBrush" Value="#66EF4444" />
+  </Style>
+  <Style Selector="Path.icon.ok">
+    <Setter Property="Stroke" Value="{DynamicResource SuccessBrush}" />
+  </Style>
+  <Style Selector="Path.icon.warn">
+    <Setter Property="Stroke" Value="{DynamicResource WarningBrush}" />
+  </Style>
+  <Style Selector="Path.icon.bad">
+    <Setter Property="Stroke" Value="{DynamicResource DangerBrush}" />
   </Style>
 
   <!-- Navigation -->

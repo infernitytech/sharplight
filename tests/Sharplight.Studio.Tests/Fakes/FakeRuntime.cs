@@ -1,3 +1,4 @@
+using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Runtime;
 
@@ -12,7 +13,19 @@ internal sealed class FakeRuntime : IModelRuntime
 
     private readonly List<ILoadedModel> _models = [];
 
-    public IReadOnlyList<ComputeDeviceOption> Devices { get; } = [Gpu, Cpu];
+    public IReadOnlyList<ComputeDeviceOption> Devices { get; set; } = [Gpu, Cpu];
+
+    /// <summary>The footprint estimates return (unless <see cref="Estimator"/> is set).</summary>
+    public ModelFootprint Footprint { get; set; } = new(4L << 30, 1L << 30, 512L << 20);
+
+    /// <summary>Computes the footprint of a request, when set.</summary>
+    public Func<ModelLoadRequest, ModelFootprint>? Estimator { get; set; }
+
+    /// <summary>Requests estimated so far.</summary>
+    public List<ModelLoadRequest> Estimates { get; } = [];
+
+    /// <summary>The devices' memory; by default the GPU minus what the models hold, and 24 GB of 32 GB system memory free.</summary>
+    public Func<IReadOnlyList<DeviceMemory>>? Memory { get; set; }
 
     public IReadOnlyList<ILoadedModel> LoadedModels => _models;
 
@@ -46,6 +59,23 @@ internal sealed class FakeRuntime : IModelRuntime
 
     public IReadOnlyList<DeviceUsage> GetDeviceUsage() =>
         [new DeviceUsage(Gpu.Id, Gpu.Name, _models.Sum(model => model.ResidentBytes), Gpu.TotalMemory, true)];
+
+    public Task<ModelFootprint> EstimateFootprintAsync(ModelLoadRequest request, CancellationToken cancellationToken)
+    {
+        lock (Estimates)
+        {
+            Estimates.Add(request);
+        }
+
+        return Task.FromResult(Estimator?.Invoke(request) ?? Footprint);
+    }
+
+    public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken) =>
+        Task.FromResult(Memory?.Invoke() ??
+        [
+            new DeviceMemory(Gpu.Id, Gpu.Name, true, Gpu.TotalMemory, Gpu.TotalMemory - _models.Sum(model => model.ResidentBytes), true),
+            new DeviceMemory(Cpu.Id, Cpu.Name, false, Cpu.TotalMemory, 24L << 30, true),
+        ]);
 
     public void RaiseCompleted(RequestRecord record) => RequestCompleted?.Invoke(this, record);
 

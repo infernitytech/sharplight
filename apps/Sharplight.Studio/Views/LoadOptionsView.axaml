@@ -15,6 +15,72 @@
       </StackPanel>
     </DockPanel>
     <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
+      <!-- Memory estimate of the current choices -->
+      <Border x:Name="FitCard" DataContext="{Binding Fit}" x:DataType="mvm:FitEstimateViewModel" Classes="callout" Classes.ok="{Binding IsGood}"
+              Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}">
+        <ScrollViewer MaxHeight="340" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="8" Margin="0,0,6,0">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Right" Text="{Binding TotalText}" FontWeight="SemiBold" VerticalAlignment="Center"
+                         ToolTip.Tip="Estimated from the model's graph for these settings" />
+              <Panel DockPanel.Dock="Left" Width="14" Height="14" Margin="0,0,7,0" VerticalAlignment="Center">
+                <Path Classes="icon ok" Data="{StaticResource IconCheck}" Width="14" Height="14" IsVisible="{Binding IsGood}" />
+                <Path Classes="icon warn" Data="{StaticResource IconWarning}" Width="14" Height="14" IsVisible="{Binding IsWarning}" />
+                <Path Classes="icon bad" Data="{StaticResource IconWarning}" Width="14" Height="14" IsVisible="{Binding IsBad}" />
+              </Panel>
+              <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,8,0"
+                         ToolTip.Tip="{Binding Title}" />
+            </DockPanel>
+            <TextBlock Text="{Binding Message}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Devices}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mvm:DeviceFitViewModel">
+                  <StackPanel Spacing="3" Margin="0,2">
+                    <DockPanel>
+                      <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding NeedText}" />
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Path Classes="icon" Data="{StaticResource IconChip}" Width="12" Height="12" IsVisible="{Binding Fit.Device.IsGpu}" />
+                        <Path Classes="icon" Data="{StaticResource IconMemory}" Width="12" Height="12" IsVisible="{Binding !Fit.Device.IsGpu}" />
+                        <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                    </DockPanel>
+                    <Panel Height="8">
+                      <Border CornerRadius="4" Background="{DynamicResource SurfaceHoverBrush}" />
+                      <ProgressBar Classes="meter need" Classes.over="{Binding IsOver}" Classes.offload="{Binding IsOffload}" Minimum="0" Maximum="1" Value="{Binding NeedFraction}" />
+                      <ProgressBar Classes="meter used" Minimum="0" Maximum="1" Value="{Binding UsedFraction}" />
+                    </Panel>
+                    <TextBlock Classes="caption" Text="{Binding MemoryText}" TextWrapping="Wrap" FontSize="11" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption" Text="{Binding Breakdown}" TextWrapping="Wrap" FontSize="11" />
+            <StackPanel Spacing="4" IsVisible="{Binding HasSuggestions}">
+              <TextBlock Classes="section" Text="TO MAKE IT FIT" />
+              <ItemsControl ItemsSource="{Binding Suggestions}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mvm:FitSuggestionViewModel">
+                    <Button Classes="ghost small" Command="{Binding ApplyCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="6,4"
+                            ToolTip.Tip="Apply this change">
+                      <DockPanel>
+                        <Border DockPanel.Dock="Right" Classes="badge" Classes.ok="{Binding Fits}" Classes.warn="{Binding !Fits}" Margin="6,0,0,0">
+                          <TextBlock Text="{Binding VerdictText}" />
+                        </Border>
+                        <TextBlock Text="{Binding Text}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      </DockPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+      <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsEstimating}">
+        <ProgressBar Classes="thin" IsIndeterminate="True" Width="60" VerticalAlignment="Center" />
+        <TextBlock Classes="caption" Text="Estimating memory…" />
+      </StackPanel>
+      <TextBlock Classes="caption" Text="{Binding FitError}" TextWrapping="Wrap" IsVisible="{Binding FitError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
       <StackPanel Spacing="4" IsVisible="{Binding IsLoading}">
         <ProgressBar Minimum="0" Maximum="1" Value="{Binding Progress}" />
       </StackPanel>

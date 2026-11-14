@@ -25,6 +25,8 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private readonly Dictionary<string, (IExecutionProvider Provider, DeviceInfo Info)> _devices;
     private readonly Func<ResidencySettings> _residency;
     private readonly Func<string, ModelLoadRequest?>? _resolve;
+    private readonly IReadOnlyList<ComputeDeviceOption> _physical;
+    private readonly FootprintEstimator _estimator = new();
 
     /// <summary>Registers the providers and importers, enumerates the devices and creates the host.</summary>
     /// <param name="residency">The current residency settings (read when a model is added).</param>
@@ -33,7 +35,9 @@ internal sealed class EngineModelRuntime : IModelRuntime
     {
         EngineBootstrap.Register();
         var discovered = DeviceCatalog.Discover();
-        Devices = [.. discovered.Select(entry => entry.Option)];
+        _physical = [.. discovered.Select(entry => entry.Option)];
+        var gpus = _physical.Where(device => device.IsGpu).ToList();
+        Devices = gpus.Count > 1 ? [.. gpus, ComputeDeviceOption.AllGpus(gpus), .. _physical.Where(device => !device.IsGpu)] : _physical;
         _devices = discovered.ToDictionary(entry => entry.Option.Id, entry => (entry.Provider, entry.Info));
         _residency = residency;
         _resolve = resolve;
@@ -120,6 +124,40 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return usage;
     }
 
+    /// <inheritdoc/>
+    public Task<ModelFootprint> EstimateFootprintAsync(ModelLoadRequest request, CancellationToken cancellationToken)
+        => Task.Run(() => _estimator.Estimate(request, cancellationToken), cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<DeviceMemory>> GetDeviceMemoryAsync(IReadOnlyList<string> disabledFeatures, CancellationToken cancellationToken)
+    {
+        var disabled = new HashSet<string>(disabledFeatures, StringComparer.OrdinalIgnoreCase);
+        return Task.Run<IReadOnlyList<DeviceMemory>>(() =>
+        {
+            var memory = new List<DeviceMemory>();
+            foreach (var option in _physical)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                IComputeDevice device;
+                try
+                {
+                    device = Open(option, disabled);
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    // A device that cannot be opened cannot take a model either.
+                    continue;
+                }
+
+                var info = device.GetMemoryInfo();
+                long total = info.Total > 0 ? info.Total : option.TotalMemory;
+                memory.Add(new DeviceMemory(option.Id, option.Name, option.IsGpu, total, Math.Min(total, info.Available), info.IsExact));
+            }
+
+            return memory;
+        }, cancellationToken);
+    }
+
     /// <summary>Unloads every model, then closes the devices.</summary>
     public void Dispose()
     {
@@ -137,6 +175,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
         }
 
         Host.Dispose();
+        _estimator.Dispose();
         _pool.Dispose();
     }
 
@@ -231,12 +270,12 @@ internal sealed class EngineModelRuntime : IModelRuntime
     {
         var settings = request.Settings;
         var disabled = new HashSet<string>(request.DisabledFeatures, StringComparer.OrdinalIgnoreCase);
-        var primary = Open(device, disabled);
-        var cpu = Devices.FirstOrDefault(candidate => !candidate.IsGpu);
+        IReadOnlyList<DeviceSlot> slots = device.IsSplit ? SplitSlots(disabled) : [new DeviceSlot { Device = Open(device, disabled) }];
+        var cpu = _physical.FirstOrDefault(candidate => !candidate.IsGpu);
         bool offload = settings.CpuOffload && device.IsGpu && cpu is not null;
         var load = new LlmLoadOptions
         {
-            Devices = [new DeviceSlot { Device = primary }],
+            Devices = slots,
             Fallback = offload ? new DeviceSlot { Device = Open(cpu!, disabled) } : null,
             ContextLength = settings.ContextLength,
             MaxBatchTokens = settings.BatchTokens,
@@ -259,6 +298,20 @@ internal sealed class EngineModelRuntime : IModelRuntime
             Service = new ModelServiceOptions { DefaultMaxTokens = 0 },
         };
         return new LlmChatModelLoader(id, request.Path, load, chat);
+    }
+
+    /// <summary>
+    /// Every GPU in pipeline order, each weighted by the memory it has free beyond the reserve (the share of the model it gets, as
+    /// <see cref="Fit.FitPlanner"/> assumes).
+    /// </summary>
+    private List<DeviceSlot> SplitSlots(IReadOnlySet<string> disabled)
+    {
+        long reserve = Math.Max(0, _residency().ReserveMiB) * (1L << 20);
+        return [.. _physical.Where(option => option.IsGpu).Select(option =>
+        {
+            var device = Open(option, disabled);
+            return new DeviceSlot { Device = device, Weight = Fit.FitPlanner.SplitWeight(device.GetMemoryInfo().Available, reserve) };
+        })];
     }
 
     private IComputeDevice Open(ComputeDeviceOption option, IReadOnlySet<string> disabled)
