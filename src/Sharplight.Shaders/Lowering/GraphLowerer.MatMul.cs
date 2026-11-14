@@ -431,13 +431,13 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// The split f16 form of the constant f32 weights <paramref name="weight"/> ([N, K], read as <paramref name="w"/>) for the
-    /// split-f16 GEMM (<see cref="SplitScaleTable"/>): the hi / lo parts and the per-row scales, both computed on the host when
+    /// The split f16 form of the constant f32 weights <paramref name="weight"/> ([N, K] or a conv's [O, CG, KH, KW], read as
+    /// <paramref name="w"/>) for the split-f16 GEMM and conv (<see cref="SplitScaleTable"/>): the hi / lo parts and the per-row scales, both computed on the host when
     /// the weights are uploaded. Null when the weights are not a constant of the graph.
     /// </summary>
     private (TensorRef Parts, TensorRef Scales)? SplitWeights(Value weight, TensorRef w)
     {
-        if (w.Type != DataType.F32 || w.ByteOffset != 0 || w.Shape.Length != 2 || weight.Kind is not (ValueKind.Weight or ValueKind.Constant))
+        if (w.Type != DataType.F32 || w.ByteOffset != 0 || w.Shape.Length < 2 || weight.Kind is not (ValueKind.Weight or ValueKind.Constant))
         {
             return null;
         }
@@ -447,8 +447,9 @@ public sealed partial class GraphLowerer
             return cached;
         }
 
+        // Rows are the leading dimension (matmul [N, K], conv [O, CG, KH, KW]); the rest is one reduction row.
         long rows = w.Shape[0];
-        long k = w.Shape[1];
+        long k = w.Shape.Skip(1).Aggregate(1L, (a, b) => a * b);
         byte[] Source()
         {
             if (weight.Kind == ValueKind.Constant)

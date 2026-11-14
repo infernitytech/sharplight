@@ -240,6 +240,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool GemmSplitHalf { get; } = IsNotZero("SHARPLIGHT_GEMM_SPLIT_F16");
 
+    /// <summary>
+    /// True (default) when strict-precision convs with constant f32 weights may run in the split-f16 form of conv_cm
+    /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_CONV_SPLIT_F16=0</c> keeps them on the three-part bf16 form.
+    /// </summary>
+    public static bool ConvSplitHalf { get; } = IsNotZero("SHARPLIGHT_CONV_SPLIT_F16");
+
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");
 
