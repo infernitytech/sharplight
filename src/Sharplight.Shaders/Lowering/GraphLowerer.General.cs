@@ -62,7 +62,7 @@ public sealed partial class GraphLowerer
                     return OpSupport.No($"{op} reduction on {node.Inputs[0].Type}");
                 }
 
-                if (node.Inputs[1].Shape.Symbol is not null && (op == "ScatterND" ? a.Get("batch_dims", 0L) == 0 : Axis0(a, node.Inputs[0].Rank)))
+                if (op == "ScatterND" && node.Inputs[1].Shape.Symbol is not null && a.Get("batch_dims", 0L) == 0)
                 {
                     return OpSupport.No($"{op} over a symbolic axis");
                 }
@@ -114,7 +114,6 @@ public sealed partial class GraphLowerer
     }
 
     private static int NormAxis(long axis, int rank) => (int)(axis < 0 ? axis + rank : axis);
-    private static bool Axis0(Attributes a, int rank) => NormAxis(a.Get("axis", 0L), rank) == 0;
 
     private bool LowerGeneral(Node n)
     {
@@ -182,11 +181,13 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Emits a generated one-thread-per-element kernel over iteration space <paramref name="shape"/> (outermost dim possibly symbolic).
-    /// The body can use idx, d0..dN-1, p.in{i} and p.out{i} (typed pointers, see <paramref name="inTypes"/>/<paramref name="outTypes"/>).
+    /// The body can use idx, d0..dN-1, p.in{i} and p.out{i} (typed pointers, see <paramref name="inTypes"/>/<paramref name="outTypes"/>), and
+    /// the uint parameters of <paramref name="scalars"/> by name (e.g. the run-time value of a symbolic extent the body loops over).
     /// </summary>
     private void EmitGen(string name, IEnumerable<Node> nodes, long[] shape, string? symbol, IReadOnlyList<TensorRef> ins, IReadOnlyList<TensorRef> outs, string body,
-        string[]? inTypes = null, string[]? outTypes = null, bool outsAreReads = false)
+        string[]? inTypes = null, string[]? outTypes = null, bool outsAreReads = false, IReadOnlyList<(string Name, KernelArg Value)>? scalars = null)
     {
+        scalars ??= [];
         int rank = shape.Length;
         var P = new long[rank];
         long acc = 1;
@@ -209,7 +210,13 @@ public sealed partial class GraphLowerer
             sb.AppendLine($"  {(outTypes?[i] ?? CType(outs[i].Type))}* out{i};");
         }
 
-        sb.AppendLine("  uint n;\n};");
+        sb.AppendLine("  uint n;");
+        foreach (var (scalar, _) in scalars)
+        {
+            sb.AppendLine($"  uint {scalar};");
+        }
+
+        sb.AppendLine("};");
         sb.AppendLine("[shader(\"compute\")] [numthreads(256, 1, 1)]");
         sb.AppendLine("void main(uint3 dtid : SV_DispatchThreadID, uniform Params p) {");
         sb.AppendLine("  uint idx = dtid.x; if (idx >= p.n) return;");
@@ -225,7 +232,7 @@ public sealed partial class GraphLowerer
         KernelArg count = symbol is null ? new UIntArg((uint)total) : new SymbolArg(symbol, inner);
         Emit(name, nodes,
             [Always(kernel, b => new Grid(Grid.Div((symbol is null ? total : b[symbol] * inner), 256)))],
-            [.. ins.Select(r => (KernelArg)Pointer(r)), .. outs.Select(o => (KernelArg)Pointer(o)), count],
+            [.. ins.Select(r => (KernelArg)Pointer(r)), .. outs.Select(o => (KernelArg)Pointer(o)), count, .. scalars.Select(v => v.Value)],
             outsAreReads ? [.. ins, .. outs] : ins, outs);
     }
 
@@ -371,18 +378,34 @@ public sealed partial class GraphLowerer
         var y = Produce(n.Output);
         EmitCopy(data, y, "scatter-copy", [n]);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), data.Rank);
-        long A = data.Shape[axis];
         var iter = (long[])ix.Shape.Clone();
-        long len = iter[axis];
         iter[axis] = 1;
+        // Along a symbolic axis 0 the update rows and the data extent are read at run time (one thread per inner position walks the rows).
+        var scalars = new List<(string, KernelArg)>();
+        string len = $"{ix.Shape[axis]}u";
+        string extent = $"{data.Shape[axis]}";
+        string? symbol = ix.Symbol;
+        if (axis == 0 && ix.Symbol is not null)
+        {
+            scalars.Add(("len", new SymbolArg(ix.Symbol, 1)));
+            len = "p.len";
+            symbol = null;
+        }
+
+        if (axis == 0 && data.Symbol is not null)
+        {
+            scalars.Add(("extent", new SymbolArg(data.Symbol, 1)));
+            extent = "int(p.extent)";
+        }
+
         var d = Enumerable.Range(0, ix.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
         var ycoords = d.Select((c, k) => k == axis ? "uint(ii)" : c).ToArray();
         string red = n.Attributes.Get("reduction", "none");
-        string body = $"  for (uint j = 0; j < {len}u; j++) {{\n" +
-            $"    int ii = int(p.in0[{Lin(ix, cj)}]); if (ii < 0) ii += {A}; if (ii < 0 || ii >= {A}) continue;\n" +
+        string body = $"  for (uint j = 0; j < {len}; j++) {{\n" +
+            $"    int ii = int(p.in0[{Lin(ix, cj)}]); if (ii < 0) ii += {extent}; if (ii < 0 || ii >= {extent}) continue;\n" +
             $"    uint yo = {Lin(y, ycoords)};\n    p.out0[yo] = {ScatterOp(red, "p.out0[yo]", $"p.in1[{Lin(upd, cj)}]")};\n  }}";
-        EmitGen("scatter_elements", [n], iter, ix.Symbol, [ix, upd], [y], body, outsAreReads: true);
+        EmitGen("scatter_elements", [n], iter, symbol, [ix, upd], [y], body, outsAreReads: true, scalars: scalars);
     }
 
     private void LowerScatterND(Node n)

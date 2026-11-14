@@ -116,6 +116,37 @@ public sealed class DataOpTests
         Diff.Check("ScatterElements", tg.B.Build(), new Step(1, 0, (x, Rnd.F(24, 1)), (idx, iv), (u, Rnd.F(12, 2))), atol: 1e-5, what: $"{red} axis {axis}");
     }
 
+    /// <summary>
+    /// Scatter along a symbolic axis 0 (rows of per-level results scattered into a symbolic number of detections, as in multi-scale
+    /// RoI pooling): the row count and the data extent are run-time values; negative indices wrap with the run-time extent.
+    /// </summary>
+    [Theory]
+    [InlineData("none", 9, 5)]
+    [InlineData("add", 20, 7)]
+    public void ScatterElementsSymbolicAxis(string red, int dataRows, int updateRows)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 3, 4);
+        var idx = tg.In("idx", DataType.I32, Dim.Sym("R"), 3, 4);
+        var u = tg.InF("u", Dim.Sym("R"), 3, 4);
+        tg.B.Output("y", tg.B.Emit1("ScatterElements", [x, idx, u], Attributes.From(("axis", 0L), ("reduction", red))));
+        // "none": each (column) position receives distinct rows, so the result does not depend on the update order.
+        var rows = Enumerable.Range(0, dataRows).ToArray();
+        var iv = new int[updateRows * 12];
+        for (int r = 0; r < updateRows; r++)
+        {
+            for (int k = 0; k < 12; k++)
+            {
+                int row = rows[(r * 5 + k) % dataRows];
+                iv[r * 12 + k] = red == "none" && k % 3 == 0 ? row - dataRows : row;
+            }
+        }
+
+        var step = new Step(dataRows, 0, (x, Rnd.F(dataRows * 12L, 1)), (idx, iv), (u, Rnd.F(updateRows * 12L, 2))) { R = updateRows };
+        Diff.Check("ScatterElements.symbolic", tg.B.Build(), step, atol: 1e-5, what: $"{red} rows {dataRows} updates {updateRows}");
+    }
+
     [Theory]
     [InlineData("none")]
     [InlineData("add")]

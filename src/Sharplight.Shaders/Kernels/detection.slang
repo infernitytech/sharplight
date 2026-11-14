@@ -16,7 +16,8 @@
 #if defined(KERNEL_NMS_CLASS)
 // Macros: C (classes), MAXK (boxes kept per class at most), KCAP (kept-box slots per class, >= MAXK), CAP (sort slots per class,
 // a power of two >= the box count), LOCAL (sort slots in shared memory, a power of two; larger candidate sets sort in the global
-// slots), IOU, SCORE (thresholds; SCORE may be -inf), CENTER (1: boxes are [cx, cy, w, h]).
+// slots), KEPT_LOCAL (1: the kept boxes of a class live in shared memory, else in p.keptBoxes), IOU, SCORE (thresholds; SCORE may be
+// -inf), CENTER (1: boxes are [cx, cy, w, h]).
 struct NmsParams { float* boxes; float* scores; float* keys; int* ids; int* keptIds; float4* keptBoxes; int* keptCount; uint groups; uint S; };
 
 #define MASK_WORDS (WG / 32)
@@ -29,6 +30,12 @@ groupshared float4 sBox[WG];
 groupshared int sBoxId[WG];
 groupshared uint sDead[WG];
 groupshared uint sMask[WG * MASK_WORDS];
+#if KEPT_LOCAL
+groupshared float4 sKeptBox[KCAP];
+#define KEPT_BOX(k) sKeptBox[k]
+#else
+#define KEPT_BOX(k) keptBoxes[k]
+#endif
 
 // (y1, x1, y2, x2) with y1 <= y2 and x1 <= x2, as the CPU provider computes it.
 float4 nms_corners(float* box)
@@ -251,7 +258,7 @@ void nms_class(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Nm
         float4 box = dead ? float4(0.0) : nms_corners(boxes + uint64_t(id) * 4u);
         for (uint k = 0u; k < keptBefore && !dead; k++)
         {
-            dead = nms_suppresses(keptBoxes[k], box);
+            dead = nms_suppresses(KEPT_BOX(k), box);
         }
 
         sBox[tid] = box;
@@ -298,7 +305,7 @@ void nms_class(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Nm
                 {
                     keptBits[t / 32u] |= 1u << (t % 32u);
                     keptIds[kept] = sBoxId[t];
-                    keptBoxes[kept] = sBox[t];
+                    KEPT_BOX(kept) = sBox[t];
                     kept++;
                 }
             }

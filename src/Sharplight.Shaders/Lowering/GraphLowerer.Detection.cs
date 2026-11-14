@@ -82,8 +82,11 @@ public sealed partial class GraphLowerer
             sortSlots <<= 1;
         }
 
+        // Shared memory: the kept boxes when they fit next to a 1024-slot sort, then as many sort slots as fit.
+        bool keptLocal = NmsFixedSharedBytes + 16 * keptSlots + 8 * Math.Min(sortSlots, 1024) <= _opt.MaxSharedMemory;
+        long sharedBytes = NmsFixedSharedBytes + (keptLocal ? 16 * keptSlots : 0);
         long localSlots = 1;
-        while (NmsFixedSharedBytes + 8 * localSlots * 2 <= _opt.MaxSharedMemory && localSlots * 2 <= sortSlots)
+        while (sharedBytes + 8 * localSlots * 2 <= _opt.MaxSharedMemory && localSlots * 2 <= sortSlots)
         {
             localSlots <<= 1;
         }
@@ -96,7 +99,7 @@ public sealed partial class GraphLowerer
         var offsets = Temp(DataType.I32, [groupsBound], null);
 
         var classKernel = Lib("detection.slang", "nms_class", Macros(("WG", NmsWorkgroup), ("C", classes), ("MAXK", maxKept), ("KCAP", keptSlots),
-            ("CAP", sortSlots), ("LOCAL", localSlots), ("IOU", a.Get("iou_threshold", 0f)), ("SCORE", a.Get("score_threshold", float.NegativeInfinity)),
+            ("CAP", sortSlots), ("LOCAL", localSlots), ("KEPT_LOCAL", keptLocal), ("IOU", a.Get("iou_threshold", 0f)), ("SCORE", a.Get("score_threshold", float.NegativeInfinity)),
             ("CENTER", a.Get("center_point_box", false))));
         KernelArg groups = single || scores.Symbol is null ? new UIntArg((uint)groupsBound) : new SymbolArg(scores.Symbol, classes);
         KernelArg boxCount = single && scores.Symbol is not null ? new SymbolArg(scores.Symbol, 1) : new UIntArg((uint)boxesBound);
