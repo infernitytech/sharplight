@@ -37,6 +37,9 @@ internal readonly unsafe struct FloatLanes256(Vector256<float> value) : IFloatLa
     public static FloatLanes256 Max(FloatLanes256 a, FloatLanes256 b) => new(Vector256.Max(a._value, b._value));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static FloatLanes256 Min(FloatLanes256 a, FloatLanes256 b) => new(Vector256.Min(a._value, b._value));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static FloatLanes256 Exp(FloatLanes256 x) => new(Vector256.Exp(x._value));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

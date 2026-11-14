@@ -37,6 +37,9 @@ internal readonly unsafe struct FloatLanes512(Vector512<float> value) : IFloatLa
     public static FloatLanes512 Max(FloatLanes512 a, FloatLanes512 b) => new(Vector512.Max(a._value, b._value));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static FloatLanes512 Min(FloatLanes512 a, FloatLanes512 b) => new(Vector512.Min(a._value, b._value));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static FloatLanes512 Exp(FloatLanes512 x) => new(Vector512.Exp(x._value));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

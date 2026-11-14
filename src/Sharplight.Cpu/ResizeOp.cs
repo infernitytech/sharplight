@@ -1,9 +1,14 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>2-D resize (nearest / bilinear) with ONNX Runtime coordinate semantics (single precision).</summary>
+/// <summary>
+/// 2-D resize (nearest / bilinear) with ONNX Runtime coordinate semantics (single precision), over dense NCHW planes, or over
+/// whole pixels (channel vectors) when the input is a channels-last view and the output channels-last
+/// (<see cref="ChannelsLast"/>).
+/// </summary>
 internal sealed unsafe class ResizeOp : CpuOp
 {
     private readonly TRef _x;
@@ -22,6 +27,11 @@ internal sealed unsafe class ResizeOp : CpuOp
     private readonly float[] _yw;
     private readonly float[] _xw;
     private readonly Action<int> _body;
+    private readonly bool _channelsLast;
+    private readonly int _c;
+    private readonly long _ps;
+    private readonly long _rs;
+    private readonly long _is;
     private long _planes;
     private long _per;
     public override string Name => "Resize." + (_linear ? "linear" : "nearest");
@@ -39,7 +49,12 @@ internal sealed unsafe class ResizeOp : CpuOp
         _ow = (int)y.Dims[3];
         (_yi0, _yi1, _yw) = Axis(_h, _oh);
         (_xi0, _xi1, _xw) = Axis(_w, _ow);
-        _body = Body;
+        _channelsLast = ChannelsLast.IsView(x) && ChannelsLast.Is(y);
+        _c = (int)x.Dims[1];
+        _ps = _channelsLast ? ChannelsLast.PixelStride(x) : 0;
+        _rs = _channelsLast ? ChannelsLast.RowStride(x) : 0;
+        _is = _channelsLast ? ChannelsLast.ImageStride(x) : 0;
+        _body = _channelsLast ? RowBody : Body;
     }
 
     private float Original(int xr, int lenIn, int lenOut)
@@ -99,6 +114,12 @@ internal sealed unsafe class ResizeOp : CpuOp
             return;
         }
 
+        if (_channelsLast)
+        {
+            CpuParallel.For((int)(_x.Dim(0, p) * _oh), _body);
+            return;
+        }
+
         int chunks = (int)Math.Min(_planes, CpuParallel.Chunks(_planes * _oh * _ow, 16384));
         _per = (_planes + chunks - 1) / chunks;
         CpuParallel.For(chunks, _body);
@@ -139,6 +160,61 @@ internal sealed unsafe class ResizeOp : CpuOp
                         y[ox] = r0[a] * dx2 * dy2 + r0[b] * dx * dy2 + r1[a] * dx2 * dy + r1[b] * dx * dy;
                     }
                 }
+            }
+        }
+    }
+
+    /// <summary>Channels-last: output row <paramref name="task"/> (image * OH + row), one channel vector of a pixel at a time.</summary>
+    private void RowBody(int task)
+    {
+        long n = task / _oh;
+        int oy = (int)(task - n * _oh);
+        float* xn = (float*)_x.P + n * _is;
+        float* y = (float*)_y.P + ((n * _oh + oy) * _ow) * _c;
+        int c = _c;
+        if (!_linear)
+        {
+            float* r = xn + _yi0[oy] * _rs;
+            for (int ox = 0; ox < _ow; ox++)
+            {
+                new ReadOnlySpan<float>(r + _xi0[ox] * _ps, c).CopyTo(new Span<float>(y + (long)ox * c, c));
+            }
+
+            return;
+        }
+
+        float* r0 = xn + _yi0[oy] * _rs;
+        float* r1 = xn + _yi1[oy] * _rs;
+        float dy = _yw[oy];
+        float dy2 = 1f - dy;
+        for (int ox = 0; ox < _ow; ox++)
+        {
+            float dx = _xw[ox];
+            float dx2 = 1f - dx;
+            float* a0 = r0 + _xi0[ox] * _ps;
+            float* b0 = r0 + _xi1[ox] * _ps;
+            float* a1 = r1 + _xi0[ox] * _ps;
+            float* b1 = r1 + _xi1[ox] * _ps;
+            float* d = y + (long)ox * c;
+            int k = 0;
+            if (CpuIsa.Use512)
+            {
+                // The scalar expression, lane-wise (no contraction), so both layouts give identical results.
+                var w00 = Vector512.Create(dx2);
+                var w01 = Vector512.Create(dx);
+                var v0 = Vector512.Create(dy2);
+                var v1 = Vector512.Create(dy);
+                for (; k + 16 <= c; k += 16)
+                {
+                    var t = Vector512.Load(a0 + k) * w00 * v0 + Vector512.Load(b0 + k) * w01 * v0 + Vector512.Load(a1 + k) * w00 * v1
+                        + Vector512.Load(b1 + k) * w01 * v1;
+                    t.Store(d + k);
+                }
+            }
+
+            for (; k < c; k++)
+            {
+                d[k] = a0[k] * dx2 * dy2 + b0[k] * dx * dy2 + a1[k] * dx2 * dy + b1[k] * dx * dy;
             }
         }
     }

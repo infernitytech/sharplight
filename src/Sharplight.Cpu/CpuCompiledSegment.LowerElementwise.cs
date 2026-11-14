@@ -13,9 +13,16 @@ internal sealed unsafe partial class CpuCompiledSegment
             return;
         }
 
+        var (scale, bias) = UnaryParameters(kind, n.Attributes);
+        if (TryChannelsLastElementwise(n, [RefF32(n.Inputs[0])], out var cl, out var flatIn, out var flatOut))
+        {
+            AddStep(new UnaryOp(kind, flatIn[0], flatOut, scale, bias), flatIn[0], flatOut);
+            _refs[n.Output] = cl;
+            return;
+        }
+
         var x = RowContig(RefF32(n.Inputs[0]));
         var y = NewDense(n.Output);
-        var (scale, bias) = UnaryParameters(kind, n.Attributes);
         AddStep(new UnaryOp(kind, x, y, scale, bias), x, y);
         _refs[n.Output] = y;
     }
@@ -52,6 +59,13 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         var x = RefF32(n.Inputs[0]);
         var z = RefF32(n.Inputs[1]);
+        if (TryChannelsLastElementwise(n, [x, z], out var cl, out var flatIn, out var flatOut))
+        {
+            AddStep(new BinaryOp(kind, flatIn[0], flatIn[1], flatOut, n.Attributes.Get("fmod", false)), flatIn[0], flatIn[1], flatOut);
+            _refs[n.Output] = cl;
+            return;
+        }
+
         var y = NewDense(n.Output);
         AddStep(new BinaryOp(kind, x, z, y, n.Attributes.Get("fmod", false)), x, z, y);
         _refs[n.Output] = y;
