@@ -1,0 +1,7 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 99 %, 92767 MiB, 294.20 W, 1545 MHz, 14001 MHz, 87, P0
+2752, kwin_wayland, 604 MiB
+4944, chrome
+82584, rider, 343 MiB
+531221, code
+1065348, sharplight-studio, 45250 MiB
+1070448, scratch

@@ -8,15 +8,15 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 ## In progress
 
-- **17–64-row GEMM at full memory bandwidth**: the fp8 GEMM runs at about 1.0 TB/s at 64 rows and bf16 / f16 still use
-  gemm_cm2 (~1.3 TB/s), against 1.61 TB/s peak. A dual (gate/up) fp8 GEMM in a K-parallel layout is next. The 27B FP8
-  serves 16 / 64 streams at 0.68x of vLLM (§19).
-- **Skinny GEMM (2–16 rows) beyond 1.0–1.4 TB/s**: deeper prefetch, and splitting K across workgroups for narrow
-  matrices (§19.6).
-- **Fewer glue launches per batched step**: f16 activation copies and split-K reductions are 4–7 % of GPU time. Produce
-  the f16 copy in the preceding norm / elementwise epilogue (§19.6).
-- **Mixed prefill / decode steps in serving**: a 512-row prompt chunk shares the step with the decodes (TTFT p95 4.6 s vs
-  vLLM's 2.4 s at 64 streams, §19.3).
+- **Per-row prefill cost (serving at 16–64 streams)**: a serving step costs the decode step plus ~0.24 ms per prompt row
+  (vLLM ~0.17 ms), so throughput and TTFT at 16–64 streams follow the prefill kernels, not the chunk / budget settings.
+  The 27B FP8 serves 16 / 64 streams at 0.63x / 0.68x of vLLM (§20.1, §20.5). Next: a fetch-efficient fp8 GEMM (282 of
+  ~520 TFLOPS without global loads, §20.2), and a dual gate/up fp8 GEMM above 64 rows whose epilogue rounds like the
+  separate launches (worth 4–6 % of prefill, §20.2).
+- **Skinny GEMM (2–16 rows) beyond 0.8–1.4 TB/s**: every workgroup re-reads x; deeper prefetch, and splitting K across
+  workgroups for narrow matrices. The 16-row step is 33.9 ms against vLLM's 24 ms ITL at 16 streams (§19.6, §20.9).
+- **Fewer glue launches per batched step**: f16 activation copies, fp8 quantization and split-K reductions are 3–7 % of
+  GPU time. Produce the copy in the preceding norm / elementwise epilogue (§19.6).
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
   27B); verify drafts on the device instead of reading back 1 MB of logits per row; count rollback records and the draft
   head in `EstimateFootprint`; wire up DeepSeek-V3 and GLM-4.5 NextN heads.
@@ -29,7 +29,7 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 GPU (Vulkan):
 
-- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at about 0.55x of vLLM (§13, §16).
+- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.81x / 0.69x of vLLM at 512 / 2048 tokens (§20.4).
 - **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K only ties the f16 path today and stays opt-in (§13).
   27B Q4_K_M prefill is still 2–4 % behind llama.cpp CUDA (§18).
 - **MoE expert GEMMs**: gpt-oss prefill is at 11079 tok/s against a 17432 target (§14).

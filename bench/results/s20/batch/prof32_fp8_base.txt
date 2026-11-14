@@ -1,0 +1,33 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 248320, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 32 | 95.5 | 1830 / 1269 | 35.46 / 36.87, 35.31 |
+--- profile batch 32 (greedy)
+GPU time 778.35 ms
+   249.173 ms  32.0%   2560x  min     83.8 us  matmul [5120→17408] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+   102.244 ms  13.1%   1280x  min     75.6 us  matmul [17408→5120] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+    90.837 ms  11.7%    960x  min     85.4 us  delta_rule delta_rule T=32,32,32
+    50.476 ms   6.5%    960x  min     44.9 us  matmul [5120→10240] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+    48.151 ms   6.2%   1280x  min     30.5 us  matmul [6144→5120] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+    35.759 ms   4.6%    960x  min     35.1 us  matmul [5120→6144] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+    35.333 ms   4.5%     20x  min   1671.9 us  matmul [5120→248320] bf16 gemm_cm2 T=32,32,32
+    32.354 ms   4.2%   8000x  min      2.0 us  matmul fp8 split-k reduce splitk_reduce T=32,32,32
+    22.457 ms   2.9%    320x  min     65.1 us  matmul [5120→12288] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+    17.350 ms   2.2%   1920x  min      7.8 us  matmul [5120→48] bf16 split-k gemm_cm2 T=32,32,32
+    14.902 ms   1.9%    320x  min     45.0 us  attention decode T=32,32,32
+    13.839 ms   1.8%   2560x  min      4.1 us  fused[Add]+RmsNorm main T=32,32,32
+     8.807 ms   1.1%    640x  min     11.3 us  matmul [5120→1024] f8e4m3_b128 fp8 split-k gemm_fp8 T=32,32,32
+     6.242 ms   0.8%    960x  min      6.1 us  conv1d conv1d T=32,32,32
+     6.109 ms   0.8%   1280x  min      2.9 us  matmul [17408→5120] f8e4m3_b128 x→fp8 quantize_fp8 T=32,32,32
+     5.040 ms   0.6%   1280x  min      2.2 us  matmul [6144→5120] f8e4m3_b128 x→fp8 quantize_fp8 T=32,32,32
+     4.561 ms   0.6%   1920x  min      2.0 us  matmul split-k reduce splitk_reduce T=32,32,32
+     4.487 ms   0.6%   1280x  min      2.0 us  matmul [5120→17408] f8e4m3_b128 x→fp8 quantize_fp8 T=32,32,32
+     4.414 ms   0.6%    960x  min      4.1 us  RmsNorm+fused[Silu,Mul] main T=32,32,32
+     4.333 ms   0.6%   1280x  min      3.2 us  fused[Silu,Mul] main T=32,32,32
+     3.777 ms   0.5%    960x  min      2.9 us  matmul [5120→10240] f8e4m3_b128 x→fp8 quantize_fp8 T=32,32,32
+     3.223 ms   0.4%    960x  min      2.7 us  matmul [5120→48] bf16 x→f16 to_f16 T=32,32,32
+     2.176 ms   0.3%    320x  min      5.7 us  attention combine decode_combine T=32,32,32
+     2.111 ms   0.3%    960x  min      2.0 us  fused[Add,Softplus,Mul] main T=32,32,32
+     1.976 ms   0.3%    960x  min      2.0 us  fused[Sigmoid] main T=32,32,32
+

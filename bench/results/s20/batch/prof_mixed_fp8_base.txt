@@ -1,0 +1,90 @@
+decoder: MultiSequenceDecoder, slots 72, vocab 248320, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | greedy wall min / median, GPU min | GPU ms per prompt row over decode-only |
+|---|---|---|---|---|---|
+| 64 | 0 (0) | 103.5 | 1830 / 1269 | 45.93 / 47.21, 45.79 |  |
+| 64 | 448 (1) | 213.9 | 1573 / 1090 | 185.08 / 185.53, 184.89 | 0.310 |
+--- profile mixed 64+448 (greedy)
+GPU time 1891.61 ms
+   529.181 ms  28.0%   1280x  min    362.5 us  matmul [5120→17408] f8e4m3_b128 fp8 gemm_fp8 T=512,65,65
+   270.000 ms  14.3%    640x  min    360.3 us  matmul [17408→5120] f8e4m3_b128 fp8 split-k gemm_fp8 T=512,65,65
+   190.689 ms  10.1%    160x  min   1092.6 us  attention main T=512,65,65
+   135.646 ms   7.2%    480x  min    227.3 us  matmul [5120→10240] f8e4m3_b128 fp8 gemm_fp8 T=512,65,65
+   123.072 ms   6.5%    480x  min    239.6 us  delta_rule delta_rule T=512,65,65
+   118.824 ms   6.3%    480x  min    208.7 us  matmul [5120→6144] f8e4m3_b128 fp8 gemm_fp8 T=512,65,65
+    93.363 ms   4.9%    640x  min    124.8 us  matmul [6144→5120] f8e4m3_b128 fp8 split-k gemm_fp8 T=512,65,65
+    93.359 ms   4.9%    480x  min    184.3 us  conv1d conv1d_tokens T=512,65,65
+    61.697 ms   3.3%    160x  min    325.6 us  matmul [5120→12288] f8e4m3_b128 fp8 gemm_fp8 T=512,65,65
+    61.427 ms   3.2%    480x  min    118.8 us  delta_chunk delta_chunk_state T=512,65,65
+    34.338 ms   1.8%    480x  min     68.6 us  delta_chunk delta_chunk_prep T=512,65,65
+    28.655 ms   1.5%     10x  min   2651.8 us  matmul [5120→248320] bf16 gemm_cm2 T=512,65,65
+    24.718 ms   1.3%    640x  min     35.0 us  fused[Silu,Mul] main T=512,65,65
+    19.745 ms   1.0%   1280x  min     12.5 us  fused[Add]+RmsNorm main T=512,65,65
+    19.421 ms   1.0%    960x  min     15.7 us  matmul [5120→48] bf16 split-k gemm_cm2 T=512,65,65
+    17.397 ms   0.9%    480x  min     30.7 us  RmsNorm+fused[Silu,Mul] main T=512,65,65
+    15.611 ms   0.8%   1600x  min      4.4 us  matmul fp8 split-k reduce splitk_reduce T=512,65,65
+    12.384 ms   0.7%    320x  min     34.7 us  matmul [5120→1024] f8e4m3_b128 fp8 split-k gemm_fp8 T=512,65,65
+     7.770 ms   0.4%    640x  min     10.1 us  matmul [17408→5120] f8e4m3_b128 x→fp8 quantize_fp8 T=512,65,65
+     4.846 ms   0.3%    640x  min      5.4 us  matmul [6144→5120] f8e4m3_b128 x→fp8 quantize_fp8 T=512,65,65
+     3.727 ms   0.2%    480x  min      5.2 us  matmul [5120→48] bf16 x→f16 to_f16 T=512,65,65
+     3.585 ms   0.2%    640x  min      4.5 us  matmul [5120→17408] f8e4m3_b128 x→fp8 quantize_fp8 T=512,65,65
+     2.957 ms   0.2%    480x  min      5.5 us  conv1d conv1d_state T=512,65,65
+     2.950 ms   0.2%    480x  min      5.7 us  delta_chunk delta_chunk_qk T=512,65,65
+     2.879 ms   0.2%    480x  min      4.0 us  matmul [5120→10240] f8e4m3_b128 x→fp8 quantize_fp8 T=512,65,65
+     2.617 ms   0.1%    960x  min      2.0 us  matmul split-k reduce splitk_reduce T=512,65,65
+     2.388 ms   0.1%    160x  min     11.6 us  rope+norm rope_row T=512,65,65
+     2.274 ms   0.1%    160x  min     13.8 us  fused[Sigmoid,Mul] main T=512,65,65
+     1.306 ms   0.1%    480x  min      2.0 us  fused[Add,Softplus,Mul] main T=512,65,65
+     0.994 ms   0.1%    480x  min      2.0 us  fused[Sigmoid] main T=512,65,65
+     0.985 ms   0.1%    160x  min      6.0 us  rope+norm+cache_write rope_row T=512,65,65
+     0.973 ms   0.1%    160x  min      4.1 us  cache_write cache_write T=512,65,65
+     0.956 ms   0.1%    160x  min      4.0 us  matmul [5120→12288] f8e4m3_b128 x→fp8 quantize_fp8 T=512,65,65
+     0.476 ms   0.0%     10x  min     45.0 us  sample sample T=512,65,65
+     0.276 ms   0.0%     20x  min      6.1 us  gather gather T=512,65,65
+     0.082 ms   0.0%     10x  min      8.2 us  RmsNorm main T=512,65,65
+     0.041 ms   0.0%     10x  min      4.1 us  matmul [5120→248320] bf16 x→f16 to_f16 T=512,65,65
+
+| 16 | 0 (0) | 44.4 | 1334 / 917 | 34.43 / 35.82, 34.33 |  |
+| 16 | 1008 (1) | 300.1 | 1445 / 962 | 292.29 / 293.40, 291.94 | 0.256 |
+--- profile mixed 16+1008 (greedy)
+GPU time 2973.48 ms
+  1059.388 ms  35.6%   1280x  min    745.7 us  matmul [5120→17408] f8e4m3_b128 fp8 gemm_fp8 T=1024,17,17
+   581.927 ms  19.6%    640x  min    815.1 us  matmul [17408→5120] f8e4m3_b128 fp8 gemm_fp8 T=1024,17,17
+   251.385 ms   8.5%    480x  min    475.1 us  matmul [5120→10240] f8e4m3_b128 fp8 gemm_fp8 T=1024,17,17
+   190.415 ms   6.4%    640x  min    270.3 us  matmul [6144→5120] f8e4m3_b128 fp8 gemm_fp8 T=1024,17,17
+   179.975 ms   6.1%    480x  min    327.9 us  matmul [5120→6144] f8e4m3_b128 fp8 gemm_fp8 T=1024,17,17
+   131.505 ms   4.4%    480x  min    259.0 us  delta_chunk delta_chunk_state T=1024,17,17
+   102.938 ms   3.5%    160x  min    583.7 us  matmul [5120→12288] f8e4m3_b128 fp8 gemm_fp8 T=1024,17,17
+    79.700 ms   2.7%    160x  min    448.5 us  attention fa T=1024,17,17
+    65.106 ms   2.2%    480x  min    119.8 us  conv1d conv1d_tokens T=1024,17,17
+    61.203 ms   2.1%    640x  min     89.0 us  fused[Silu,Mul] main T=1024,17,17
+    55.694 ms   1.9%    480x  min    110.6 us  delta_chunk delta_chunk_prep T=1024,17,17
+    31.111 ms   1.0%   1280x  min     21.4 us  fused[Add]+RmsNorm main T=1024,17,17
+    30.093 ms   1.0%    480x  min     53.0 us  RmsNorm+fused[Silu,Mul] main T=1024,17,17
+    25.142 ms   0.8%    480x  min     45.1 us  delta_rule delta_rule T=1024,17,17
+    22.619 ms   0.8%    320x  min     57.4 us  matmul [5120→1024] f8e4m3_b128 fp8 split-k gemm_fp8 T=1024,17,17
+    18.872 ms   0.6%     10x  min   1728.3 us  matmul [5120→248320] bf16 gemm_cm2 T=1024,17,17
+    17.020 ms   0.6%    960x  min     16.0 us  matmul [5120→48] bf16 split-k gemm_cm2 T=1024,17,17
+    16.600 ms   0.6%    640x  min     20.3 us  matmul [17408→5120] f8e4m3_b128 x→fp8 quantize_fp8 T=1024,17,17
+     8.406 ms   0.3%    480x  min     16.5 us  matmul [5120→48] bf16 x→f16 to_f16 T=1024,17,17
+     5.789 ms   0.2%    640x  min      8.0 us  matmul [6144→5120] f8e4m3_b128 x→fp8 quantize_fp8 T=1024,17,17
+     5.279 ms   0.2%    640x  min      7.6 us  matmul [5120→17408] f8e4m3_b128 x→fp8 quantize_fp8 T=1024,17,17
+     5.086 ms   0.2%    160x  min     23.7 us  rope+norm rope_row T=1024,17,17
+     4.318 ms   0.1%    480x  min      8.2 us  delta_chunk delta_chunk_qk T=1024,17,17
+     4.128 ms   0.1%    160x  min     23.4 us  fused[Sigmoid,Mul] main T=1024,17,17
+     3.927 ms   0.1%    960x  min      3.0 us  matmul split-k reduce splitk_reduce T=1024,17,17
+     3.866 ms   0.1%    480x  min      7.5 us  matmul [5120→10240] f8e4m3_b128 x→fp8 quantize_fp8 T=1024,17,17
+     2.212 ms   0.1%    480x  min      3.6 us  conv1d conv1d_state T=1024,17,17
+     1.979 ms   0.1%    320x  min      5.6 us  matmul fp8 split-k reduce splitk_reduce T=1024,17,17
+     1.964 ms   0.1%    480x  min      3.1 us  fused[Add,Softplus,Mul] main T=1024,17,17
+     1.313 ms   0.0%    160x  min      6.2 us  rope+norm+cache_write rope_row T=1024,17,17
+     1.311 ms   0.0%    160x  min      7.2 us  cache_write cache_write T=1024,17,17
+     1.289 ms   0.0%    160x  min      8.0 us  matmul [5120→12288] f8e4m3_b128 x→fp8 quantize_fp8 T=1024,17,17
+     0.994 ms   0.0%    480x  min      2.0 us  fused[Sigmoid] main T=1024,17,17
+     0.391 ms   0.0%     10x  min     34.8 us  sample sample T=1024,17,17
+     0.390 ms   0.0%     20x  min      4.1 us  gather gather T=1024,17,17
+     0.109 ms   0.0%     10x  min     10.2 us  RmsNorm main T=1024,17,17
+     0.041 ms   0.0%     10x  min      4.1 us  matmul [5120→248320] bf16 x→f16 to_f16 T=1024,17,17
+
