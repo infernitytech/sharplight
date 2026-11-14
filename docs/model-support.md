@@ -187,7 +187,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `qwen35` | Qwen3.5/3.6/3.8 dense (0.8B...27B) | GDN + gated attention, M-RoPE partial, dense SwiGLU, MTP, vision tower | **supported** | - | qwen3_5 (text) | gguf/Qwen3.5-0.8B (existing), hf/Qwen3.5-0.8B (existing) |
 | `qwen35moe` | Qwen3.5-35B-A3B/122B/397B, Qwen3.6-35B-A3B | qwen35 + MoE softmax (256 experts, top-8) + sigmoid-gated shared expert | **supported** | - | qwen3_5_moe | gguf/Qwen3.6-35B-A3B (+mmproj), hf/Qwen3.6-35B-A3B (config+tokenizer), hf/tiny-random-qwen3.5-moe, hf/tiny-random-qwen3.6-moe, hf/tiny-random-qwen3.8-moe |
 | `qwen4exp` | Qwen3.8-Flash-Next (hf: qwen4_exp, ~200B total params) | GDN + gated attention, MoE 512 experts top-10 + shared, hyper-connections (4 streams, low-rank), QSA sparse-attention indexer (top-k 2048, pooled keys), PLE n-gram hash embeddings (layer 2), M-RoPE, MTP | **partial** (HC, NGRAM done; IDX dense regime only; MTP not used) | `IDX` (block selection) | qwen4_exp | gguf/Qwen3.8-Flash-Next-UD-Q4_K_XL (+mmproj), hf/Qwen3.8-Flash-Next (config+tokenizer), hf/tiny-random-qwen3.8-flash-next |
-| `clover_moe` | clover-moe (qwen3-next-like) | GDN + attention + MoE shared | **partial** | `MOEHYB`, `SGATE`, `MAP` | - | - |
+| `clover_moe` | clover-moe (qwen3-next-like) | GDN + attention + MoE shared | **supported** (GGUF through the qwen3_5 adapter: the tiny Qwen3.5-MoE checkpoint retargeted to clover_moe vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan, b11177 predates it; per-layer `attention.recurrent_layers` must be periodic; not run on a real model) | - | - | gguf/tiny-random-clover-moe-f32 |
 
 ### Gemma
 
