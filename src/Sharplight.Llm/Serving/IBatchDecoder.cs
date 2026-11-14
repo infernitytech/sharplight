@@ -35,6 +35,11 @@ public interface IBatchDecoder : IDisposable
     /// </summary>
     public void Truncate(int slot, int length);
     /// <summary>
+    /// Whether a slot's context may be continued by a later request whose prompt starts with it (prefix reuse). False for
+    /// encoder-decoder models, whose prompt is the encoder's source sequence rather than the start of the decoder's context.
+    /// </summary>
+    public bool ReusesPrefixes => true;
+    /// <summary>
     /// Most rows of one <see cref="SequenceInput.Speculative"/> input (pending token plus drafts) that <see cref="Truncate"/> can
     /// roll back until the slot's next step: unbounded when <see cref="CanTruncate"/>; for models with recurrent state the rollback
     /// rows the decoder was compiled with (0: speculative decoding is not possible).

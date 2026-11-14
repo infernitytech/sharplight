@@ -19,6 +19,7 @@ internal static class GgufArchitectureMappings
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());
+        Register(new T5GgufMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);

@@ -55,4 +55,9 @@ public enum InputRole
     /// Hidden states [T, H] f32 of a target decoder fed to a draft head (<see cref="WellKnown.DraftGraph"/>), one row per token.
     /// </summary>
     HiddenStates,
+    /// <summary>
+    /// Encoder-decoder models: the encoded source sequence [<see cref="WellKnown.EncoderSymbol"/>, H] f32 (the
+    /// <see cref="WellKnown.EncoderOutput"/> of the model's <see cref="WellKnown.EncodeGraph"/>) that the decoder's cross-attention reads.
+    /// </summary>
+    EncoderOutput,
 }

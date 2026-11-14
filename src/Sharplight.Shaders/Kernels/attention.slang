@@ -30,6 +30,11 @@
 #ifndef VRS
 #define VRS DV
 #endif
+// CROSS_ATTN (FULL_ATTN only, without SPANS, WINDOW or CAUSAL): the keys are a separate sequence of S rows (parameter S), every
+// query sees all of them (encoder-decoder cross-attention).
+#ifndef CROSS_ATTN
+#define CROSS_ATTN 0
+#endif
 // SPANS (FULL_ATTN only): spans [T, 2] (first key row, count) per query row — packed independent sequences; with CAUSAL a
 // query row t additionally sees only key rows <= t.
 #ifndef SPANS
@@ -486,6 +491,9 @@ struct Params
 #endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
+#if CROSS_ATTN
+    uint S;      // key rows (FULL_ATTN cross-attention: K/V are [S, HKV, D], independent of the T queries)
+#endif
 };
 
 
@@ -554,7 +562,11 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
     L = max(L, spBeg);
 #elif FULL_ATTN
+#if CROSS_ATTN
+    uint L = p.S;   // cross-attention: every query sees all S keys
+#else
     uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
+#endif
 #elif MULTI_SEQ
     uint L = uint(p.seq[t * 4 + 1]) + 1;
     kvRow = kv_base(uint(p.seq[t * 4]));
@@ -780,7 +792,11 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint L = jMax, jFirst = jMin / FA_BC * FA_BC;
 #else
 #if FULL_ATTN
+#if CROSS_ATTN
+    uint L = p.S, rowEnd = p.S;
+#else
     uint L = p.T, rowEnd = p.T;
+#endif
 #else
     uint L = nPast + min(qT, t0 + FA_BR);   // keys needed by the block's last query
     uint rowEnd = nPast + tq + 1;            // this row's causal end

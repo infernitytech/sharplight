@@ -39,10 +39,10 @@ internal static class PackedSequences
 
     /// <summary>
     /// Self-attention confined to each packed sequence (optionally causal within it), with an optional sliding window (keys less than
-    /// <paramref name="window"/> positions away; symmetric when not causal) and ALiBi slopes.
+    /// <paramref name="window"/> positions away; symmetric when not causal), ALiBi slopes and a learned relative position bias.
     /// </summary>
     public static Value Attention(GraphBuilder b, Value q, Value k, Value v, Value rowSpans, float scale, bool causal, float softcap = 0, string? name = null,
-        float[]? alibiSlopes = null, int window = 0)
+        float[]? alibiSlopes = null, int window = 0, RelativePositionBias? positionBias = null)
     {
         var attrs = new List<(string, object)> { ("scale", scale), ("causal", causal) };
         if (window > 0)
@@ -58,6 +58,11 @@ internal static class PackedSequences
         if (alibiSlopes is not null)
         {
             attrs.Add(("alibi_slopes", alibiSlopes));
+        }
+
+        if (positionBias is not null)
+        {
+            attrs.AddRange(positionBias.Attributes);
         }
 
         return b.Emit1("Attention", [q, k, v, rowSpans], Attributes.From([.. attrs]), name);

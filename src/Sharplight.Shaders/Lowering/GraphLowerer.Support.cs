@@ -209,9 +209,20 @@ public sealed partial class GraphLowerer
         }
 
         bool selfAttention = inputs[0].Shape[0] == inputs[1].Shape[0];
-        if (!spans && (causal || !selfAttention))
+        if (!spans && causal && !selfAttention)
         {
-            return OpSupport.No("Attention: causal or cross attention needs i32 spans");
+            return OpSupport.No("Attention: causal attention must be self-attention");
+        }
+
+        if (!spans && causal)
+        {
+            return OpSupport.No("Attention: causal attention needs i32 spans");
+        }
+
+        bool scoreBias = node.Attributes.Has("alibi_slopes") || node.Attributes.Has("position_bias") || node.Attributes.Get("window", 0) > 0;
+        if (!spans && !selfAttention && scoreBias)
+        {
+            return OpSupport.No("Attention: cross-attention takes no position bias or window");
         }
 
         if (spans && causal && !selfAttention)

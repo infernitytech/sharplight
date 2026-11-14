@@ -125,6 +125,9 @@ internal static class MappedFamilyCases
         // no NextN block, one shared expert); hidden size 8, so the logits are flat (llama.cpp's top two differ by 0.0006 to 0.005 at steps 5, 7 and 15).
         new("tiny-random-clover-moe f32 GGUF (clover_moe gated delta net + gated attention, MoE with gated shared expert, llama.cpp 8ca5a80)",
             "gguf/tiny-random-clover-moe-f32.gguf", Prompt, "ids", [132029, 22595, 212119, 133773, 4415, 198543, 219592, 20547, 220921, 172932, 151129, 212119, 133773, 239941, 239941, 219592, 127405, 224729, 212119, 133773, 239941, 118789, 69541, 215913], ""),
+        // Encoder-decoder: the prompt is encoded, the decoder starts from the pad token (llama.cpp b11177 llama-completion prints the same text).
+        new("flan-t5-small Q4_K_M GGUF (t5 encoder-decoder, relative position bias, cross-attention, llama.cpp)", "gguf/flan-t5-small/flan-t5-small.Q4_K_M.gguf",
+            "Write a short story about a cat who learns to fly.", "ids", [37, 1712, 19, 7070, 16, 8, 799, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5], ""),
         new("LFM3-1.7B Q8_0 GGUF (lfm3, llama.cpp 8ca5a80)", "gguf/LFM3-1.7B/LFM3-1.7B-Q8_0.gguf", "The capital of France is", "ids",
             [4741, 63908, 597, 5205, 302, 3888, 355, 18943, 63908, 597, 5205, 302, 5881, 355, 2076, 59405, 63908, 597, 5205, 302, 5177, 355, 36038, 63908], ""),
         new("tiny-random-step35 f32 GGUF (step35 per-layer heads, half rope on full layers, head gate, sigmoid experts, clamped SwiGLU, llama.cpp)", "gguf/tiny-random-step35-f32.gguf", Prompt, "ids",

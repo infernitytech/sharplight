@@ -5,7 +5,8 @@ namespace Sharplight.Llm.Serving;
 /// <summary>
 /// Single-slot <see cref="IBatchDecoder"/> over an <see cref="InferenceSession"/>: inputs of a step run one after another, and
 /// a context can only be reset, not truncated, so prefix reuse is limited to whole-context matches. The fallback of
-/// <see cref="LlmModel.CreateBatchDecoder"/> for models whose graph has no multi-sequence form. Not thread-safe.
+/// <see cref="LlmModel.CreateBatchDecoder"/> for models whose graph has no multi-sequence form and for encoder-decoder models (the
+/// prompt chunks of a new context are collected and encoded together; such contexts are never reused as prefixes). Not thread-safe.
 /// </summary>
 /// <param name="session">The session that holds the single context.</param>
 /// <param name="ownsSession">Dispose <paramref name="session"/> together with the decoder.</param>
@@ -25,6 +26,8 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     public bool BatchesSequences => false;
     /// <inheritdoc/>
     public bool CanTruncate => false;
+    /// <inheritdoc/>
+    public bool ReusesPrefixes => !session.IsEncoderDecoder;
     /// <inheritdoc/>
     public long DeviceMemoryBytes => session.Compiled.AcceleratorMemoryBytes;
 
@@ -77,6 +80,12 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
             if (inputs[i].OutputRows > 1)
             {
                 throw new NotSupportedException("This decoder returns the logits of the last row only.");
+            }
+
+            if (!inputs[i].WantLogits && session.IsEncoderDecoder && session.Position == 0)
+            {
+                session.AppendSource(inputs[i].Tokens.Span);   // a prompt chunk of an encoder-decoder model: encoded with the last one
+                continue;
             }
 
             if (inputs[i].WantLogits && i < sampling.Count && sampling[i] is { } row)

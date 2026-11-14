@@ -109,9 +109,23 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
         var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
+        CompiledModel? encoder = null;
+        if (compiled.Graph.TryInput(InputRole.EncoderOutput) is not null)
+        {
+            sw.Restart();
+            encoder = CompiledModel.Compile(Definition.Graph(WellKnown.EncodeGraph), placement);
+            _options.Log?.Invoke($"Compiled '{WellKnown.EncodeGraph}' in {sw.ElapsedMilliseconds} ms\n{encoder.Plan.Describe()}");
+        }
+
         ReportReady(graph);
-        return new InferenceSession(compiled);
+        return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0));
     }
+
+    /// <summary>
+    /// True for encoder-decoder models (T5, ...; the model has an <see cref="WellKnown.EncodeGraph"/>): a session encodes the prompt as
+    /// the source sequence and generates the decoder's output from the start token (see <see cref="InferenceSession.IsEncoderDecoder"/>).
+    /// </summary>
+    public bool IsEncoderDecoder => Definition.Graphs.ContainsKey(WellKnown.EncodeGraph);
 
     /// <summary>
     /// Creates the decoder the serving layer batches requests over: with <paramref name="slots"/> &gt; 1 and a graph whose
@@ -142,7 +156,12 @@ public sealed class LlmModel : IDisposable
     {
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
-        if ((slots <= 1 && draftTokens <= 0) || !Graph.MultiSequence.IsSupported(graph, out why))
+        if (IsEncoderDecoder)
+        {
+            why = "encoder-decoder model";
+        }
+
+        if ((slots <= 1 && draftTokens <= 0) || IsEncoderDecoder || !Graph.MultiSequence.IsSupported(graph, out why))
         {
             if (slots > 1 || draftTokens > 0)
             {
@@ -230,7 +249,7 @@ public sealed class LlmModel : IDisposable
         {
             MaxTokens = _options.MaxBatchTokens,
             ContextLength = contextLength,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound },
+            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = _options.MaxBatchTokens },
             DisabledFeatures = _options.DisabledFeatures,
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,

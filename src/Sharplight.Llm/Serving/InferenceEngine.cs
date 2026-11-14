@@ -527,7 +527,7 @@ public sealed class InferenceEngine : IDisposable
 
     private int ReusableTokens(EngineSlot slot, int[] prompt)
     {
-        if (!_opt.PrefixCache || slot.Tokens.Count == 0)
+        if (!_opt.PrefixCache || slot.Tokens.Count == 0 || !_decoder.ReusesPrefixes)
         {
             return 0;
         }
