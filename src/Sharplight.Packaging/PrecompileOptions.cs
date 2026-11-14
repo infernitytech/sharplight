@@ -30,6 +30,13 @@ public sealed class PrecompileOptions
     /// <summary>Paged KV cache of the serving batch decoder in tokens (as the server's <c>--kv-tokens</c>), or <see langword="null"/>.</summary>
     public long? KvCacheTokens { get; init; }
 
+    /// <summary>
+    /// Speculative decoding with this many draft tokens (as <c>--speculate-mtp</c> / <c>--speculate-ngram</c>), or 0: also
+    /// compiles the decoders that verify drafts (recurrent ops in rollback form) for one sequence (the CLI) and for
+    /// <see cref="Slots"/>, and the multi-token-prediction head when the model has one.
+    /// </summary>
+    public int DraftTokens { get; init; }
+
     /// <summary>Upper bounds of further symbolic dimensions of non-LLM graphs (e.g. <c>batch</c>).</summary>
     public IReadOnlyDictionary<string, long> SymbolBounds { get; init; } = new Dictionary<string, long>();
 

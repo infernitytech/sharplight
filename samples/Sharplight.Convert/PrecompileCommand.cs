@@ -53,6 +53,10 @@ internal sealed class PrecompileCommand
     private readonly Option<long?> _kvTokens = OptionFactory.Size("--kv-tokens",
         "Paged KV cache of the serving batch decoder in tokens, as sharplight-server --kv-tokens (K/M suffixes).", helpName: "tokens");
 
+    private readonly Option<int> _drafts = OptionFactory.Integer("--drafts",
+        "Speculative decoding: also compile the draft-verifying decoders and the MTP head for this many draft tokens, as --speculate-mtp / --speculate-ngram (0 = no).",
+        0, minimum: 0, helpName: "tokens");
+
     private readonly Option<string[]> _bounds = new("--bound")
     {
         Description = "Non-LLM graphs: upper bound of a symbolic dimension, e.g. batch=1 (ONNX batch defaults to 1). Repeatable.",
@@ -91,6 +95,7 @@ internal sealed class PrecompileCommand
         command.Options.Add(_batch);
         command.Options.Add(_slots);
         command.Options.Add(_kvTokens);
+        command.Options.Add(_drafts);
         command.Options.Add(_bounds);
         command.Options.Add(_userCache);
         command.Validators.Add(result =>
@@ -155,6 +160,7 @@ internal sealed class PrecompileCommand
             parseResult.GetValue(_batch),
             parseResult.GetValue(_slots),
             parseResult.GetValue(_kvTokens),
+            parseResult.GetValue(_drafts),
             bounds,
             parseResult.GetValue(_userCache));
     }

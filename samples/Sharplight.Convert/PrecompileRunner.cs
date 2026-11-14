@@ -23,6 +23,7 @@ internal sealed class PrecompileRunner(TextWriter output)
             BatchTokens = settings.BatchTokens,
             Slots = settings.Slots,
             KvCacheTokens = settings.KvCacheTokens,
+            DraftTokens = settings.DraftTokens,
             SymbolBounds = settings.SymbolBounds,
             DefaultSymbolBounds = OnnxBatchBound,
             FallbackDevice = cpu,

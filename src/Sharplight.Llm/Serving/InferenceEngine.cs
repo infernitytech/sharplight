@@ -1189,6 +1189,7 @@ public sealed class InferenceEngine : IDisposable
         }
 
         int perSequence = Math.Min(Math.Min(_speculator!.MaxDraftTokens, (_decoder.MaxLogitsRows / decoding) - 1), _decoder.MaxSpeculativeRows - 1);
+        perSequence = Math.Min(perSequence, Math.Max(1, _opt.SpeculationMaxDraftRows / decoding));
         foreach (var s in _active)
         {
             var slot = s.Slot!;
