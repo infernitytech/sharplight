@@ -249,10 +249,13 @@ public static class PackagePrecompiler
             ContextLength = options.ContextLength,
             SymbolBounds = bounds,
             CacheFor = artifacts.For,
+            Progress = options.Progress,
+            CancellationToken = options.CancellationToken,
         };
         var fallback = device.Info.Kind == DeviceKind.Cpu ? null : options.FallbackDevice;
         foreach (var (name, graph) in definition.Graphs)
         {
+            options.CancellationToken.ThrowIfCancellationRequested();
             var stopwatch = Stopwatch.StartNew();
             using var compiled = Compile(name, graph, device, fallback, compileOptions);
             options.Log?.Invoke($"Compiled '{name}' in {stopwatch.ElapsedMilliseconds} ms ({compiled.Plan.Segments.Count} segment(s))");

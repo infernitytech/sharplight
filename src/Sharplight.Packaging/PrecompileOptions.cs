@@ -66,4 +66,13 @@ public sealed class PrecompileOptions
 
     /// <summary>Receives progress messages, or <see langword="null"/>.</summary>
     public Action<string>? Log { get; init; }
+
+    /// <summary>
+    /// Receives structured progress of each graph's compilation (<see cref="LoadStage.Placing"/>, <see cref="LoadStage.Compiling"/>
+    /// with kernel counts); counts restart for every graph of the package (<see cref="LoadProgress.Detail"/> names the device).
+    /// </summary>
+    public IProgress<LoadProgress>? Progress { get; init; }
+
+    /// <summary>Cancels the precompilation between kernels.</summary>
+    public CancellationToken CancellationToken { get; init; }
 }
