@@ -348,8 +348,10 @@ public sealed partial class GraphLowerer
 
             // Split tiles: the 64- and 128-row launches skip routing tiles of at most half their height (an expert's last tile
             // with few rows), which a second launch runs on half-height tiles. Each output row keeps its K order, so the result
-            // does not depend on the tile height.
+            // does not depend on the tile height. The two launches write disjoint output rows, so they share a write group
+            // and run without a barrier between them.
             bool split = DiagnosticSwitches.MoeSplitTiles;
+            _writeGroup = split ? new object() : null;
             Dictionary<string, string> Rows(int t, string limit, int rows)
                 => new(Gemm2Macros(groupedMacros, t, large: false)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
             Emit(label + " gemm-cm2", [n],
@@ -365,6 +367,8 @@ public sealed partial class GraphLowerer
                         b => new Grid(Grid.Div(N, Gemm2Columns(t / 2)), tiles(b))))],
                     gargs, [gemmX, w, scratch], [y]);
             }
+
+            _writeGroup = null;
         }
         else if (coop)
         {

@@ -20,13 +20,18 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - close the remaining gap to f16's ~1.65 TB/s;
   - fold the small [5120→48] split-K matmuls (~0.9 ms per step);
   - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
-  - serving against vLLM (§24.5): 0.93x / 0.85x / 0.73x / 0.65x at 1 / 4 / 16 / 64 streams; the batched decode step
-    is the gap.
+  - serving against vLLM (§28.6): 0.81x / 0.82x / 0.69x / 0.77x at 1 / 4 / 16 / 64 streams (bf16 state opt-in: 0.83x /
+    0.85x / 0.71x / 0.80x); mixed decode + prompt steps are 70 % fp8 GEMM at 100-500 rows and 20 % delta rule (§28.4).
 - **Reduced-precision delta-rule state**: done as an opt-in (`--reduced-precision` stores it as bf16; 64-row step
   -8.6 %, 16-row -2.7 % on the 27B FP8, §24.6). Next: round the chunked prefill per chunk like the token-by-token
   kernel, and 16-bit states for Mamba / RWKV.
-- **Fewer glue launches per batched step**: f16 activation copies, fp8 quantization and split-K reductions are 3–7 % of
-  GPU time. Produce the copy in the preceding norm / elementwise epilogue (§19.6).
+- **Fewer glue launches per batched step**: row norms now write the f16 activation copy for 2-16-row steps (1334 → 1158
+  dispatches, 917 → 789 barriers at 16 rows on the 27B FP8; Blackwell GPU time unchanged, §28.3). Left: the copies after
+  elementwise and matmul epilogues (attention gate, SwiGLU output), fp8 quantization and split-K reductions.
+- **Single-stream gaps** (§28.5): 27B Q8_0 decode (0.90x of llama.cpp; single matvecs at 1.34-1.42 TB/s) and Mistral-7B
+  Q4_K_M pp512 (0.91x). Both need a different summation order, i.e. a deliberate change of greedy output.
+- **Row-invariant MTP verification** (§28.1): verification rows now reproduce plain decoding bit for bit. Next: a
+  row-invariant skinny GEMM so k = 3 on FP8 regains its 5-8 %, and bit-exact int-dot variants for K-quant weights.
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
   27B); verify drafts on the device instead of reading back 1 MB of logits per row; count rollback records and the draft
   head in `EstimateFootprint`; wire up DeepSeek-V3 and GLM-4.5 NextN heads.
@@ -66,7 +71,8 @@ GPU (Vulkan):
 - **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K is still 6 % slower than the f16 path on the 27B
   Q4_K_M (§24.4) and stays opt-in; any int8 path changes greedy output against the f16 default. 27B Q4_K_M prefill
   is still 2–4 % behind llama.cpp CUDA (§18).
-- **MoE expert GEMMs**: gpt-oss is at 0.95x / 1.10x of llama.cpp CUDA at pp512 / pp2048 and 0.97x in decode (§24).
+- **MoE expert GEMMs**: gpt-oss is at 0.95x / 1.10x of llama.cpp CUDA at pp512 / pp2048 and 0.97x in decode (§24);
+  the two split-tile launches no longer wait on a barrier (pp512 +10 %, §28.2).
   Left: the expert GEMM's weight fetch (64-row tiles still about 65 % full before the split launch), and the
   dual gate/up and slot-sum fusions for the batched expert GEMM (they cover the int-dot matvec only).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
