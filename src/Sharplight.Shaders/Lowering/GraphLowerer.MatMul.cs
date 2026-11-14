@@ -237,7 +237,27 @@ public sealed partial class GraphLowerer
     /// Token rows of the gemm_cm2 tile for a batch of <paramref name="rows"/>: 32 or 64 for small batches (decode of many
     /// sequences), where a 128-token tile would mostly multiply padding, else 128.
     /// </summary>
-    private static int Gemm2TileRowsFor(long rows) => !DiagnosticSwitches.Gemm2Skinny ? Gemm2TileRows : rows <= 32 ? 32 : rows <= 64 ? 64 : Gemm2TileRows;
+    /// <remarks>
+    /// The split-f16 form (<paramref name="splitHalfColumns"/>, its output columns; 0 for other GEMMs) uses 64-token tiles up to
+    /// <see cref="SplitHalfTile64MaxRows"/> rows when the 128-token grid has under <see cref="SplitHalfTile64MaxWorkgroups"/>
+    /// workgroups: its
+    /// 128-token tiles hold two accumulator sets in about 220 registers (one 8-warp workgroup per SM), and a few hundred rows
+    /// leave such grids to deep K splits of a few steps each (vit-base at 197 rows: 40.8 -> 38.8 us for [3072 -> 768], 34.7 ->
+    /// 28.5 us for [768 -> 2304]; bert-base's 128-row matmuls move from the SIMT GEMM to tensor cores). Wide outputs (a vocabulary
+    /// head) already fill the device with 128-token tiles, which read each weight tile half as often.
+    /// </remarks>
+    private static int Gemm2TileRowsFor(long rows, long splitHalfColumns = 0)
+        => !DiagnosticSwitches.Gemm2Skinny ? Gemm2TileRows
+            : rows <= 32 ? 32
+            : rows <= 64 || (rows <= SplitHalfTile64MaxRows && splitHalfColumns > 0
+                && Grid.Div(splitHalfColumns, Gemm2Columns(Gemm2TileRows)) * Grid.Div(rows, Gemm2TileRows) < SplitHalfTile64MaxWorkgroups) ? 64
+            : Gemm2TileRows;
+
+    /// <summary>Largest batch the split-f16 GEMM runs with 64-token tiles.</summary>
+    private const long SplitHalfTile64MaxRows = 256;
+
+    /// <summary>128-token split-f16 grids of at least this many workgroups keep 128-token tiles.</summary>
+    private const long SplitHalfTile64MaxWorkgroups = 160;
 
     /// <summary>
     /// gemm_cm2 layout (warps M, warps N, fragments M, fragments N) of a tile with <paramref name="tileRows"/> tokens and
@@ -300,7 +320,7 @@ public sealed partial class GraphLowerer
         ];
         foreach (int tileRows in new[] { 32, 64 })
         {
-            variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1 && Gemm2TileRowsFor(p.RowCount(b)) == tileRows,
+            variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1 && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == tileRows,
                 compile(Gemm2Macros(m, tileRows, large: false)), b => Gemm2Grid(p, b)));
         }
 
@@ -567,7 +587,7 @@ public sealed partial class GraphLowerer
         // grids large enough for tensor cores to beat the f32 SIMT GEMM.
         long rowsBound = (x.Symbol is null ? x.Shape[0] : _opt.Compile.Bound(x.Symbol)) * rowsPerLead;
         (TensorRef Parts, TensorRef Scales)? splitWeights = null;
-        if (!coop && SplitHalfGemmUsable(n, w.Type, K) && !SmallCoopGrid(N, K, rowsBound))
+        if (!coop && SplitHalfGemmUsable(n, w.Type, K) && !SmallCoopGrid(N, K, rowsBound, splitHalf: true))
         {
             splitWeights = SplitWeights(n.Inputs[1], w);
         }
@@ -585,7 +605,7 @@ public sealed partial class GraphLowerer
         Func<long, int> splitRows = workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
             : coop
-                ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows), Gemm2Columns(Gemm2TileRowsFor(rows)),
+                ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows, splitHalf ? N : 0), Gemm2Columns(Gemm2TileRowsFor(rows, splitHalf ? N : 0)),
                     !splitHalf && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
                 : rows => ChooseSimtSplit(N, K, rows);
 
@@ -623,9 +643,9 @@ public sealed partial class GraphLowerer
     /// True when the gemm_cm2 grid for <paramref name="rows"/> rows (tiles times K splits) stays under
     /// <see cref="SmallCoopGridWorkgroups"/>: too few workgroups to occupy the device.
     /// </summary>
-    private static bool SmallCoopGrid(long n, long k, long rows)
+    private static bool SmallCoopGrid(long n, long k, long rows, bool splitHalf = false)
     {
-        int tileRows = Gemm2TileRowsFor(rows);
+        int tileRows = Gemm2TileRowsFor(rows, splitHalf ? n : 0);
         long columns = Gemm2Columns(tileRows);
         int split = ChooseSplit(n, k, rows, tileRows, columns, DiagnosticSwitches.GemmBlockK == 64 && k % 64 == 0 ? 64 : 32);
         return rows > MatvecMaxRows && (n + columns - 1) / columns * ((rows + tileRows - 1) / tileRows) * split < SmallCoopGridWorkgroups;
@@ -649,14 +669,17 @@ public sealed partial class GraphLowerer
 
     private static string MatMulLabel(MatMulPlan p) => $"matmul {p.Node.Output.Name} [{p.K}→{p.N}] {p.W.Type}";
 
+    /// <summary>The output columns of <paramref name="p"/> when it runs the split-f16 GEMM, else 0 (see <see cref="Gemm2TileRowsFor"/>).</summary>
+    private static long SplitHalfColumns(MatMulPlan p) => p.SplitHalf ? p.N : 0;
+
     private static Grid Gemm2Grid(MatMulPlan p, Bindings b, uint splits = 1)
     {
-        int tileRows = Gemm2TileRowsFor(p.RowCount(b));
+        int tileRows = Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p));
         return new(Grid.Div(p.N, Gemm2Columns(tileRows)), Grid.Div(p.RowCount(b), tileRows), splits);
     }
 
     private static bool LargeGemm2Grid(MatMulPlan p, Bindings b)
-        => Gemm2TileRowsFor(p.RowCount(b)) == Gemm2TileRows
+        => Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == Gemm2TileRows
            && Grid.Div(p.N, Gemm2TileColumns) * Grid.Div(p.RowCount(b), Gemm2TileRows) >= LargeGridWorkgroups;
 
     /// <summary>One launch with matvec variants and GEMM variants that read f32 activations.</summary>
@@ -776,7 +799,7 @@ public sealed partial class GraphLowerer
             if (split > 1)
             {
                 splits.Add(split);
-                tiledSplits.Add((p.WorkgroupMatrix ? NvTileTokens : Gemm2TileRowsFor(rows), split));
+                tiledSplits.Add((p.WorkgroupMatrix ? NvTileTokens : Gemm2TileRowsFor(rows, SplitHalfColumns(p)), split));
                 scratchBytes = Math.Max(scratchBytes, split * rows * N * 4);
             }
         }
@@ -794,7 +817,7 @@ public sealed partial class GraphLowerer
             ? new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split,
                 Lib("matmul.slang", "gemm_nv2", splitMacros(ts.Split)),
                 b => new Grid(Grid.Div(N, NvTileColumns), Grid.Div(p.RowCount(b), NvTileTokens), (uint)ts.Split))
-            : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split && Gemm2TileRowsFor(p.RowCount(b)) == ts.TileRows,
+            : new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == ts.Split && Gemm2TileRowsFor(p.RowCount(b), SplitHalfColumns(p)) == ts.TileRows,
                 Lib("matmul.slang", "gemm_cm2", new Dictionary<string, string>(Gemm2Macros(p.Macros, ts.TileRows, large: false))
                 {
                     ["SPLITK"] = ts.Split.ToString(CultureInfo.InvariantCulture),
