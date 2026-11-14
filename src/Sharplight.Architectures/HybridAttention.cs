@@ -26,6 +26,15 @@ internal sealed class HybridAttention
     private readonly int[] _slidingLayers;
     private readonly float _localBase;
 
+    /// <summary>Query heads.</summary>
+    public int Heads => _heads;
+
+    /// <summary>Key / value heads.</summary>
+    public int KvHeads => _kvHeads;
+
+    /// <summary>Width of one head.</summary>
+    public int HeadDim => _headDim;
+
     /// <summary>Reads the <c>attention.*</c> and <c>rope.*</c> hyper-parameters of a source.</summary>
     public HybridAttention(ModelSource src)
     {
@@ -58,9 +67,22 @@ internal sealed class HybridAttention
     /// <summary>Emits the mixer of layer <paramref name="il"/> on the normalized input <paramref name="h"/> [T, hidden].</summary>
     public Value Build(GraphBuilder b, Value h, Value positions, int il, string p, StateDefinition keyCache, StateDefinition valueCache)
     {
-        var q = b.Reshape(b.Linear(h, p + "attention.q.weight"), 0, _heads, _headDim);
-        var k = b.Reshape(b.Linear(h, p + "attention.k.weight"), 0, _kvHeads, _headDim);
-        var v = b.Reshape(b.Linear(h, p + "attention.v.weight"), 0, _kvHeads, _headDim);
+        var q = b.Linear(h, p + "attention.q.weight");
+        var k = b.Linear(h, p + "attention.k.weight");
+        var v = b.Linear(h, p + "attention.v.weight");
+        return Attend(b, h, q, k, v, positions, il, p, keyCache, valueCache);
+    }
+
+    /// <summary>
+    /// Emits the mixer of layer <paramref name="il"/> from already projected queries [T, heads·head_dim] and keys / values [T, kv_heads·head_dim]
+    /// (for layouts that project them differently, e.g. fused or adapted): the optional q/k norms, rotation, cache, attention, output gate (a
+    /// projection of <paramref name="h"/>) and output projection.
+    /// </summary>
+    public Value Attend(GraphBuilder b, Value h, Value q, Value k, Value v, Value positions, int il, string p, StateDefinition keyCache, StateDefinition valueCache)
+    {
+        q = b.Reshape(q, 0, _heads, _headDim);
+        k = b.Reshape(k, 0, _kvHeads, _headDim);
+        v = b.Reshape(v, 0, _kvHeads, _headDim);
         if (b.TryWeight(p + "attention.q_norm.weight") is { } qNorm)
         {
             q = HeadNorm(b, q, qNorm);

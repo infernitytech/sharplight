@@ -25,6 +25,18 @@ internal static class MoeRouter
     /// <exception cref="InvalidDataException">The options do not describe a usable configuration.</exception>
     public static (Value Weights, Value Ids) Route(GraphBuilder b, Value h, string prefix, MoeOptions options)
     {
+        var (weights, ids, _) = RouteWithLogits(b, h, prefix, options);
+        return (weights, ids);
+    }
+
+    /// <summary>
+    /// <see cref="Route"/>, also returning the router logits [T, E] (with the logit bias and soft cap applied) for consumers of the full
+    /// distribution, e.g. routing entropy or confidence signals.
+    /// </summary>
+    /// <returns>Mixing weights f32 [T, k], expert indices i32 [T, k] and the router logits f32 [T, E].</returns>
+    /// <exception cref="InvalidDataException">The options do not describe a usable configuration.</exception>
+    public static (Value Weights, Value Ids, Value Logits) RouteWithLogits(GraphBuilder b, Value h, string prefix, MoeOptions options)
+    {
         if (!options.IsValid)
         {
             throw new InvalidDataException($"{prefix}: MoE weights present but moe.expert_count / moe.expert_used_count / moe.group_count are missing or inconsistent.");
@@ -67,7 +79,7 @@ internal static class MoeRouter
             weights = b.Scale(weights, options.WeightsScale);
         }
 
-        return (weights, ids);
+        return (weights, ids, logits);
     }
 
     // Expert scores [T, E] from the router logits. Softmax-after-top-k keeps the logits: the softmax runs on the selected ones.

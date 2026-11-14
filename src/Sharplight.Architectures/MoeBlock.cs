@@ -49,12 +49,14 @@ internal static class MoeBlock
     /// layer input before the norm); null = <paramref name="h"/>.</param>
     /// <param name="sharedActivation">The shared expert's activation when it differs from the routed experts' (per-branch SwiGLU clamps);
     /// null = <paramref name="activation"/>.</param>
+    /// <param name="route">Mixing weights [T, k] and expert indices [T, k] the caller already routed (when it also needs them itself);
+    /// null = route here with <see cref="MoeRouter"/>.</param>
     public static Value Build(GraphBuilder b, Value h, string layerPrefix, string block, MoeOptions options, int hidden, IMlpActivation activation,
-        Value? routerInput = null, IMlpActivation? sharedActivation = null)
+        Value? routerInput = null, IMlpActivation? sharedActivation = null, (Value Weights, Value Ids)? route = null)
     {
         string prefix = layerPrefix + block;
         int k = options.ExpertsUsed;
-        var (weights, ids) = MoeRouter.Route(b, routerInput ?? h, prefix, options);
+        var (weights, ids) = route ?? MoeRouter.Route(b, routerInput ?? h, prefix, options);
         var slotWeights = b.Reshape(weights, 0, k, 1);                                                                           // [T, k, 1]
         var latentDown = b.TryWeight(prefix + "latent_down.weight");
         int width = latentDown is null ? hidden : (int)latentDown.Shape[0].Fixed;
