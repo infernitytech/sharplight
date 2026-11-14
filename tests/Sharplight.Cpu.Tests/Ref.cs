@@ -262,6 +262,48 @@ internal static class Ref
         return o;
     }
 
+    /// <summary>
+    /// Gated delta rule with a per-key-channel decay (g [T, Hv, Dk]) or a scalar per head (g [T, Hv]) or time-invariant gates
+    /// (<paramref name="constantGates"/>: g [Hv], beta [Hv]); <paramref name="additive"/>: no delta correction.
+    /// </summary>
+    public static float[] DeltaVariant(float[] q, float[] k, float[] v, float[] g, float[] beta, float[] S, int T, int Hk, int Hv, int Dk, int Dv, float scale,
+        bool channel, bool additive, bool constantGates)
+    {
+        var o = new float[T * Hv * Dv];
+        for (int t = 0; t < T; t++)
+        {
+            for (int h = 0; h < Hv; h++)
+            {
+                int hq = h % Hk;
+                int gt = constantGates ? 0 : t;
+                double b = beta[gt * Hv + h];
+                for (int j = 0; j < Dv; j++)
+                {
+                    int r = (h * Dv + j) * Dk;
+                    double kv = 0;
+                    for (int i = 0; i < Dk; i++)
+                    {
+                        double decay = Math.Exp(channel ? g[(gt * Hv + h) * Dk + i] : g[gt * Hv + h]);
+                        S[r + i] = (float)(S[r + i] * decay);
+                        kv += (double)S[r + i] * k[(t * Hk + hq) * Dk + i];
+                    }
+
+                    double delta = additive ? v[(t * Hv + h) * Dv + j] * b : (v[(t * Hv + h) * Dv + j] - kv) * b;
+                    double acc = 0;
+                    for (int i = 0; i < Dk; i++)
+                    {
+                        S[r + i] = (float)(S[r + i] + k[(t * Hk + hq) * Dk + i] * delta);
+                        acc += (double)S[r + i] * q[(t * Hk + hq) * Dk + i];
+                    }
+
+                    o[(t * Hv + h) * Dv + j] = (float)(acc * scale);
+                }
+            }
+        }
+
+        return o;
+    }
+
     public static float[] Softmax(float[] x, int rows, int n, float scale)
     {
         var y = new float[x.Length];

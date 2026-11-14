@@ -135,7 +135,7 @@ internal static partial class CpuOpSupport
             return OpSupport.No("GatedDeltaRule sequence runs must be i32");
         }
 
-        return OpSupport.Yes;
+        return node.Attributes.Get("rule", "delta") is "delta" or "additive" ? OpSupport.Yes : OpSupport.No("GatedDeltaRule rule must be delta or additive");
     }
 
     /// <summary>RWKV recurrences: f32 activations and state; the optional trailing sequence-runs table is i32 (<paramref name="inputs"/> counts the inputs before it).</summary>

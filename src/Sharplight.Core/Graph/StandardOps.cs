@@ -255,10 +255,12 @@ public static partial class StandardOps
     public static readonly OpSchema CausalConv1d = new("CausalConv1d", OpCategory.Composite, 3, 7, (i, a) => [new(DataType.F32, i[0].Shape)]);
 
     /// <summary>
-    /// Gated delta rule recurrence (Gated DeltaNet linear attention).
-    /// q,k [T, Hk, Dk]; v [T, Hv, Dv]; g [T, Hv] (log decay); beta [T, Hv]; state State [Hv, Dv, Dk].
-    /// Head h uses q/k head (h mod Hk). Per token: S = exp(g)·S; S += k ⊗ (v − Sᵀk)·beta; o = Sᵀq·scale.
-    /// Attribute: scale. Output [T, Hv, Dv].
+    /// Gated delta rule recurrence (Gated DeltaNet, Kimi delta attention) and gated linear attention.
+    /// q,k [T, Hk, Dk]; v [T, Hv, Dv]; g: log decay, [T, Hv] (one per head), [T, Hv, Dk] (one per key channel, Kimi delta attention) or
+    /// [Hv] (time-invariant, e.g. lightning attention's fixed slopes); beta [T, Hv] or [Hv] (time-invariant); state State [Hv, Dv, Dk].
+    /// Head h uses q/k head (h mod Hk). Per token, with D = diag(exp(g)) over the key channels (or the scalar exp(g)):
+    /// rule "delta" (default): S = D·S; S += k ⊗ (v − Sᵀk)·beta; rule "additive": S = D·S + k ⊗ v·beta (no delta correction);
+    /// then o = Sᵀq·scale. Attributes: scale, rule. Output [T, Hv, Dv].
     /// Multi-sequence form: seventh input = sequence runs [U, 4], state [S, Hv, Dv, Dk]; each run continues its slot's state.
     /// Rollback form (<see cref="RecurrentRollback"/>): then the commits table and the record state.
     /// </summary>

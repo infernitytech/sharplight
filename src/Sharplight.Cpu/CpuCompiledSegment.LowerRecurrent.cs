@@ -61,10 +61,18 @@ internal sealed unsafe partial class CpuCompiledSegment
         var y = NewDense(n.Output);
         TRef? runs = ins.Length > 6 ? Dense(Ref(ins[6])) : null;
         var (rollback, commits, records) = LowerRollback(n);
-        AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), runs, rollback),
+        AddStep(new GatedDeltaRuleOp(q, k, v, g, beta, state, y, n.Attributes.Get("scale", 1f), IsAdditiveDeltaRule(n), runs, rollback),
             Touched(q, k, v, g, beta, state, runs, y, commits, records));
         _refs[n.Output] = y;
     }
+
+    /// <summary>Whether a GatedDeltaRule node uses the additive (decay-only) rule instead of the delta rule.</summary>
+    private static bool IsAdditiveDeltaRule(Node n) => n.Attributes.Get("rule", "delta") switch
+    {
+        "delta" => false,
+        "additive" => true,
+        var other => throw new NotSupportedException($"GatedDeltaRule: unknown rule '{other}'."),
+    };
 
     private void LowerWkv7(Node n)
     {
