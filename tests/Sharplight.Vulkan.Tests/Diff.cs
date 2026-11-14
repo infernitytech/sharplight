@@ -74,6 +74,31 @@ internal static class Diff
         }
     }
 
+    /// <summary>Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.</summary>
+    public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null)
+    {
+        Gpu.Require();
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures);
+        var results = new List<float[]>();
+        foreach (var s in steps)
+        {
+            var p = Params(s);
+            Feed(vk, s);
+            vk.Run(p);
+            var outputs = new List<float>();
+            foreach (var (name, v) in g.Outputs.Where(o => o.Value.Type == DataType.F32))
+            {
+                var x = new float[v.Shape.Elements(p.Symbols)];
+                vk.GetOutput<float>(name, x);
+                outputs.AddRange(x);
+            }
+
+            results.Add([.. outputs]);
+        }
+
+        return results;
+    }
+
     /// <summary>
     /// Runs all steps on both devices (state persists across steps) and compares every graph output.
     /// Returns the largest |a-b| seen. <paramref name="disabledFeatures"/> are turned off for the Vulkan compilation
