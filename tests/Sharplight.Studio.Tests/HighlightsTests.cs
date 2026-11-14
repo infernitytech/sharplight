@@ -25,7 +25,7 @@ public sealed class HighlightsTests
         IReadOnlyList<HubModelSummary> trendingGguf =
         [
             Gguf("a/Trend-GGUF", 10),
-            Gguf("a/Unsupported-GGUF", 9, architecture: "hrm_text"),
+            Gguf("a/Unsupported-GGUF", 9, architecture: "toy_unmapped"),
             Gguf("a/Fresh-GGUF", 8, ageDays: 3),
             Gguf("a/Embedding-GGUF", 7, pipeline: "feature-extraction"),
         ];

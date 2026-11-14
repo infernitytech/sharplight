@@ -40,7 +40,7 @@ public sealed class HfSupportTests : IDisposable
             """;
         Assert.Contains("qk_layernorm", Assert.Single(HfSupport.Validate(stableLm)), StringComparison.Ordinal);
         Assert.Empty(HfSupport.Validate(stableLm.Replace("\"qk_layernorm\": true", "\"qk_layernorm\": false", StringComparison.Ordinal)));
-        Assert.Contains("hrm_text", Assert.Single(HfSupport.Validate("""{"model_type": "hrm_text"}""")), StringComparison.Ordinal);
+        Assert.Contains("toy_unmapped", Assert.Single(HfSupport.Validate("""{"model_type": "toy_unmapped"}""")), StringComparison.Ordinal);
         Assert.Single(HfSupport.Validate("not json"));
     }
 

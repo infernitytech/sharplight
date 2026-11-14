@@ -38,8 +38,8 @@ internal static class DemoData
     [
         new HubModelSummary("Qwen/Qwen3-4B-GGUF", 268_000, 640, false, "gguf", "text-generation", 4_020_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
             GgufArchitecture: "qwen3"),
-        new HubModelSummary("example-lab/HRM-Text-1B-GGUF", 41_000, 210, false, "gguf", "text-generation", 1_100_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
-            GgufArchitecture: "hrm_text"),
+        new HubModelSummary("example-lab/Toy-Unmapped-1B-GGUF", 41_000, 210, false, "gguf", "text-generation", 1_100_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
+            GgufArchitecture: "toy_unmapped"),
         new HubModelSummary("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", 96_000, 120, false, "transformers", "text-generation", 7_610_000_000, [ModelFormat.Safetensors], [],
             ModelType: "qwen2", QuantizationMethod: "gptq"),
         new HubModelSummary("Qwen/Qwen3-4B", 1_120_000, 450, false, "transformers", "text-generation", 4_020_000_000, [ModelFormat.Safetensors], [],

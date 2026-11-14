@@ -14,6 +14,9 @@ namespace Sharplight.Studio.Tests;
 /// </summary>
 public sealed class CompatibilityTests
 {
+    /// <summary>An architecture (GGUF and Hugging Face) that no importer maps.</summary>
+    private const string UnmappedArchitecture = "toy_unmapped";
+
     private static readonly string s_models = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models");
 
     private static string Gguf(string name) => Path.Combine(s_models, "gguf", name);
@@ -30,12 +33,13 @@ public sealed class CompatibilityTests
     [Fact]
     public async Task Gguf_UnsupportedArchitecture()
     {
-        string path = Gguf("tiny-random-hrm-text-f32.gguf");
-        Assert.SkipUnless(File.Exists(path), "test GGUF not found");
+        using var dir = new TempDir();
+        string path = dir.File("unmapped.gguf");
+        File.WriteAllBytes(path, TinyGguf(UnmappedArchitecture));
         var (probe, _) = await ProbeGgufAsync(path);
         Assert.Equal(CompatibilityState.UnsupportedArchitecture, probe.Compatibility.State);
-        Assert.Equal("hrm_text", probe.Compatibility.Subject);
-        Assert.Equal("Unsupported architecture hrm_text", probe.Compatibility.Text);
+        Assert.Equal(UnmappedArchitecture, probe.Compatibility.Subject);
+        Assert.Equal("Unsupported architecture toy_unmapped", probe.Compatibility.Text);
         Assert.True(probe.Compatibility.IsUnsupported);
         Assert.Equal(CompatibilityState.UnsupportedArchitecture, probe.ArchitectureCompatibility.State);
     }
@@ -49,18 +53,6 @@ public sealed class CompatibilityTests
         Assert.Equal(CompatibilityState.Projector, probe.Compatibility.State);
         Assert.Contains("not a model", probe.Compatibility.Reason, StringComparison.Ordinal);
         Assert.False(probe.Compatibility.IsUnsupported);
-    }
-
-    [Fact]
-    public async Task Gguf_PartialArchitecture_FromTheMapping()
-    {
-        string path = Gguf("tiny-random-qwen3.8-flash-next-sparse-f32.gguf");
-        Assert.SkipUnless(File.Exists(path), "test GGUF not found");
-        var (probe, _) = await ProbeGgufAsync(path);
-        Assert.Equal(CompatibilityState.Partial, probe.Compatibility.State);
-        Assert.Equal("Partially supported", probe.Compatibility.Text);
-        Assert.Contains("dense regime", probe.Compatibility.Reason, StringComparison.Ordinal);
-        Assert.True(probe.Compatibility.WeightsChecked);
     }
 
     [Fact]
@@ -110,12 +102,13 @@ public sealed class CompatibilityTests
         Assert.SkipUnless(names.All(name => File.Exists(Hf(name))), "test configs not found");
         ModelCompatibility Check(string name) => CompatibilityChecker.FromConfig(File.ReadAllText(Hf(name)));
 
-        Assert.Equal("Unsupported architecture hrm_text", Check("tiny-random-hrm-text").Text);
-        Assert.Equal(CompatibilityState.UnsupportedArchitecture, Check("tiny-random-kimi-k3").State);
+        Assert.Equal(CompatibilityState.Supported, Check("tiny-random-hrm-text").State);
+        Assert.Equal(CompatibilityState.Supported, Check("tiny-random-kimi-k3").State);
+        Assert.Equal("Unsupported architecture toy_unmapped", CompatibilityChecker.FromConfig("""{"model_type": "toy_unmapped"}""").Text);
         var mxfp4 = Check("tiny-random-gpt-oss-mxfp4");
         Assert.Equal(CompatibilityState.Supported, mxfp4.State);
         Assert.Contains("mxfp4", mxfp4.Reason, StringComparison.Ordinal);
-        Assert.Equal(CompatibilityState.Partial, Check("tiny-random-qwen3.8-flash-next").State);
+        Assert.Equal(CompatibilityState.Supported, Check("tiny-random-qwen3.8-flash-next").State);
         var plain = Check("Qwen3-0.6B");
         Assert.Equal(CompatibilityState.Supported, plain.State);
         Assert.True(plain.WeightsChecked);
@@ -133,7 +126,7 @@ public sealed class CompatibilityTests
         Assert.Equal(CompatibilityState.Unknown, CompatibilityChecker.FromConfig("""{"model_type": "qwen3", "quantization_config": {"quant_method": "new-thing"}}""").State);
         Assert.Equal(CompatibilityState.Unknown, CompatibilityChecker.FromConfig("""{"hidden_size": 8}""").State);
         // An unsupported architecture is named first, whatever the weights.
-        Assert.Equal("Unsupported architecture hrm_text", CompatibilityChecker.FromConfig("""{"model_type": "hrm_text", "quantization_config": {"quant_method": "awq"}}""").Text);
+        Assert.Equal("Unsupported architecture toy_unmapped", CompatibilityChecker.FromConfig("""{"model_type": "toy_unmapped", "quantization_config": {"quant_method": "awq"}}""").Text);
     }
 
     [Fact]
@@ -165,7 +158,7 @@ public sealed class CompatibilityTests
         HubModelSummary Summary(IReadOnlyList<ModelFormat> formats, string? arch = null, string? type = null, string? method = null, bool projectors = false) =>
             new("o/m", 1, 1, false, null, null, null, formats, [], arch, type, method, projectors);
 
-        Assert.Equal("Unsupported architecture hrm_text", CompatibilityChecker.FromSummary(Summary([ModelFormat.Gguf], arch: "hrm_text")).Text);
+        Assert.Equal("Unsupported architecture toy_unmapped", CompatibilityChecker.FromSummary(Summary([ModelFormat.Gguf], arch: UnmappedArchitecture)).Text);
         var qwen = CompatibilityChecker.FromSummary(Summary([ModelFormat.Gguf], arch: "qwen3"));
         Assert.Equal(CompatibilityState.Supported, qwen.State);
         Assert.False(qwen.WeightsChecked);
@@ -180,9 +173,9 @@ public sealed class CompatibilityTests
     [Fact]
     public void Library_ImportErrorsNameTheReason()
     {
-        var architecture = new UnsupportedArchitectureException("hrm_text", "model.gguf: GGUF architecture 'hrm_text' has no canonical mapping. Supported: " + new string('x', 400));
+        var architecture = new UnsupportedArchitectureException("toy_unmapped", "model.gguf: GGUF architecture 'toy_unmapped' has no canonical mapping. Supported: " + new string('x', 400));
         string text = ImportFailure.Describe(new InvalidOperationException("Load failed", architecture), "Load failed");
-        Assert.StartsWith("Unsupported architecture hrm_text. ", text, StringComparison.Ordinal);
+        Assert.StartsWith("Unsupported architecture toy_unmapped. ", text, StringComparison.Ordinal);
         Assert.DoesNotContain("xxxx", text, StringComparison.Ordinal);
 
         var format = new UnsupportedWeightFormatException("gptq", "m: weights quantized with gptq are not supported.");
@@ -193,13 +186,14 @@ public sealed class CompatibilityTests
     [Fact]
     public void Library_LoadErrorsOfLocalFiles_AreExplainedFromTheFile()
     {
-        string path = Gguf("tiny-random-hrm-text-f32.gguf");
-        Assert.SkipUnless(File.Exists(path), "test GGUF not found");
+        using var dir = new TempDir();
+        string path = dir.File("unmapped.gguf");
+        File.WriteAllBytes(path, TinyGguf(UnmappedArchitecture));
         var error = Assert.ThrowsAny<NotSupportedException>(() => GgufImporter.Open(path));
-        Assert.StartsWith("Unsupported architecture hrm_text. ", ImportFailure.Describe(error, error.Message, path), StringComparison.Ordinal);
+        Assert.StartsWith("Unsupported architecture toy_unmapped. ", ImportFailure.Describe(error, error.Message, path), StringComparison.Ordinal);
 
         // A failure that does not say why: the file is read for a verdict.
-        Assert.StartsWith("Unsupported architecture hrm_text. ", ImportFailure.Describe(new InvalidOperationException("failed"), "failed", path), StringComparison.Ordinal);
+        Assert.StartsWith("Unsupported architecture toy_unmapped. ", ImportFailure.Describe(new InvalidOperationException("failed"), "failed", path), StringComparison.Ordinal);
         string supported = Gguf("quant-test/qwen3-0.6b-IQ2_S.gguf");
         if (File.Exists(supported))
         {
@@ -213,7 +207,7 @@ public sealed class CompatibilityTests
         using var services = new TestServices();
         services.Hub.Results.AddRange(
         [
-            new HubModelSummary("someone/HRM-Text-GGUF", 900, 1, false, "gguf", "text-generation", null, [ModelFormat.Gguf], ["Q4_K_M"], GgufArchitecture: "hrm_text"),
+            new HubModelSummary("someone/Toy-Unmapped-GGUF", 900, 1, false, "gguf", "text-generation", null, [ModelFormat.Gguf], ["Q4_K_M"], GgufArchitecture: UnmappedArchitecture),
             new HubModelSummary("Qwen/Qwen3-8B-GGUF", 500, 1, false, "gguf", "text-generation", null, [ModelFormat.Gguf], ["Q4_K_M", "Q5_K_M", "Q8_0"], GgufArchitecture: "qwen3"),
             new HubModelSummary("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", 400, 1, false, "transformers", "text-generation", null, [ModelFormat.Safetensors], [], ModelType: "qwen2", QuantizationMethod: "gptq"),
             new HubModelSummary("Qwen/Qwen3-8B", 300, 1, false, "transformers", "text-generation", null, [ModelFormat.Safetensors], [], ModelType: "qwen3"),
@@ -226,10 +220,10 @@ public sealed class CompatibilityTests
         await search.SearchCommand.ExecuteAsync(null);
 
         // Unsupported results go last; the Hub's order stays otherwise.
-        Assert.Equal(["Qwen/Qwen3-8B-GGUF", "Qwen/Qwen3-8B", "someone/HRM-Text-GGUF", "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"], search.Results.Select(result => result.Id));
+        Assert.Equal(["Qwen/Qwen3-8B-GGUF", "Qwen/Qwen3-8B", "someone/Toy-Unmapped-GGUF", "Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4"], search.Results.Select(result => result.Id));
         Assert.Equal("Supported", search.Results[0].Compatibility.Text);
         Assert.True(search.Results[2].Compatibility.IsBad);
-        Assert.Equal("Unsupported architecture hrm_text", search.Results[2].Compatibility.Text);
+        Assert.Equal("Unsupported architecture toy_unmapped", search.Results[2].Compatibility.Text);
         Assert.Equal("Unsupported weight format gptq", search.Results[3].Compatibility.Text);
 
         await search.FitEstimate;

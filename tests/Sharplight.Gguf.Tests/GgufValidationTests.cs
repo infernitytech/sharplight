@@ -102,8 +102,8 @@ public class GgufValidationTests
     [Fact]
     public void UnknownArchitectureOrTypeId_IsAProblem()
     {
-        var unmapped = GgufSupport.Validate(new Dictionary<string, object> { ["general.architecture"] = "hrm_text" }, []);
-        Assert.Contains("hrm_text", Assert.Single(unmapped.Problems), StringComparison.Ordinal);
+        var unmapped = GgufSupport.Validate(new Dictionary<string, object> { ["general.architecture"] = "toy_unmapped" }, []);
+        Assert.Contains("toy_unmapped", Assert.Single(unmapped.Problems), StringComparison.Ordinal);
 
         var header = File.ReadAllBytes(s_gemma4Moe);
         var table = GgufHeaderProbe.ReadTensorTable(header)!.Select((tensor, i) => i == 657 ? tensor with { GgmlType = 99 } : tensor).ToList();

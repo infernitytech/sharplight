@@ -71,9 +71,8 @@ different models run at the same time. Images and documents can be attached by d
   ![Discover with an unsupported architecture](images/studio/studio-discover-unsupported.png)
 
   The checks come from the importers, not from lists in Studio:
-  - GGUF: `general.architecture` against the registered mappings (`GgufSupport`). Partial support is what a mapping declares, e.g.
-    Qwen3.8-Flash-Next (`qwen4exp`), whose block indexer runs in its dense regime only. When the recommended quantization is
-    opened, or another one is selected, its whole tensor table is read too (of every shard of a split GGUF): a prefix of up to
+  - GGUF: `general.architecture` against the registered mappings (`GgufSupport`). Partial support is what a mapping declares (none
+    does at the moment). When the recommended quantization is opened, or another one is selected, its whole tensor table is read too (of every shard of a split GGUF): a prefix of up to
     64 MiB per file, fetched in steps. Every ggml type id must be known and have CPU kernels
     (`CpuExecutionProvider.SupportsWeightType`). Every provider falls back to the CPU, so a type without CPU kernels, such as `Q8_K`,
     cannot load. The header then goes through the importer's own mapping steps (`GgufSupport.Validate`): the mapping's feature and
@@ -238,7 +237,7 @@ keep using the user folder or to move or copy the models into the new store.
 - the header-only import check on the header of a Gemma 4 mixture-of-experts GGUF (every tensor of the table, compared with the
   importer on the same header);
 - compatibility checks before downloading, on the tiny GGUFs and Hugging Face configs under `~/models` when present (an unmapped
-  architecture, an mmproj projector, a partial architecture, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
+  architecture, an mmproj projector, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
   unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
   library's import errors;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;

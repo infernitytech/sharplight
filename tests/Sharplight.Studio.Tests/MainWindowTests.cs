@@ -119,21 +119,21 @@ public sealed class MainWindowTests
             // download button (which stays enabled), and listed after the supported results.
             services.Hub.Results.Clear();
             services.Hub.Results.AddRange(DemoData.CompatibilityResults);
-            services.Hub.Compatibility = (repository, _) => repository.Contains("HRM", StringComparison.Ordinal)
-                ? new ModelCompatibility(CompatibilityState.UnsupportedArchitecture, "hrm_text",
-                    "No importer mapping exists for the GGUF architecture 'hrm_text', so importing it fails.")
+            services.Hub.Compatibility = (repository, _) => repository.Contains("Unmapped", StringComparison.Ordinal)
+                ? new ModelCompatibility(CompatibilityState.UnsupportedArchitecture, "toy_unmapped",
+                    "No importer mapping exists for the GGUF architecture 'toy_unmapped', so importing it fails.")
                 : new ModelCompatibility(CompatibilityState.Supported, "qwen3",
                     "The GGUF architecture 'qwen3' is supported. Tensor types: F32 (113), Q4_K (108), Q6_K (37), all with kernels.");
             discover.Query = "text gguf";
             await discover.SearchCommand.ExecuteAsync(null);
-            var unsupported = discover.Results.Single(result => result.Id.Contains("HRM", StringComparison.Ordinal));
+            var unsupported = discover.Results.Single(result => result.Id.Contains("Unmapped", StringComparison.Ordinal));
             Assert.Same(unsupported, discover.Results[^2]);
             discover.SelectedResult = unsupported;
             await HeadlessApp.WaitForAsync(window, () => discover.Variants.Count == 3);
             await discover.FitEstimate;
             await HeadlessApp.RenderAsync(window);
             Assert.True(discover.SelectedCompatibility!.IsBad);
-            Assert.Equal("Unsupported architecture hrm_text", discover.SelectedCompatibility.Title);
+            Assert.Equal("Unsupported architecture toy_unmapped", discover.SelectedCompatibility.Title);
             Assert.True(discover.DownloadCommand.CanExecute(null));
             Save(window, "discover-unsupported");
 
