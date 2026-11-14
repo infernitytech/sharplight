@@ -67,6 +67,7 @@ internal static partial class CpuOpSupport
             "SequencePool" => CheckSequencePool(node),
             "NGramHash" => node.Inputs[0].Type == DataType.F32 && node.Inputs[0].Rank == 2 ? OpSupport.Yes : OpSupport.No("NGramHash window must be f32 [T, N]"),
             "CausalConv1d" => CheckCausalConv1d(node),
+            "WindowPool" => CheckWindowPool(node),
             "SelectiveScan" => CheckSelectiveScan(node),
             "GatedDeltaRule" => CheckGatedDeltaRule(node),
             "Wkv7" => CheckWkv(node, 7),

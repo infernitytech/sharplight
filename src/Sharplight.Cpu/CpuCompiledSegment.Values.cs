@@ -185,7 +185,14 @@ internal sealed unsafe partial class CpuCompiledSegment
                 var def = v.State!;
                 var dims = DimsOf(def.Shape);
                 long bytes = def.Type.ByteSize(ElementCount(dims));
-                var buf = new Buf { Bytes = bytes, Ptr = AllocateOwned(bytes, true), Name = def.Name };
+                // The segments of one graph on this device share the state (its nodes may be split by other devices' nodes).
+                var shared = _options.StateScope is { } scope ? _device.SharedStates.GetOrCreateValue(scope) : null;
+                if (shared is null || !shared.TryGetValue(def, out var buf))
+                {
+                    buf = new Buf { Bytes = bytes, Ptr = AllocateOwned(bytes, true), Name = def.Name };
+                    shared?.Add(def, buf);
+                }
+
                 _stateBufs.Add((buf, bytes));
                 r = Register(new TRef { Type = def.Type, Dims = dims, Strides = TRef.RowMajor(dims), Buf = buf });
                 break;

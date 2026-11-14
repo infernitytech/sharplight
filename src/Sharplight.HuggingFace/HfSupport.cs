@@ -23,6 +23,7 @@ public static class HfSupport
 
     /// <summary>The model type <c>mxfp4</c> checkpoints are read for (their expert blocks are mapped by that architecture).</summary>
     private const string Mxfp4ModelType = "gpt_oss";
+    private const string Mxfp4PackFormat = "mxfp4-pack-quantized";
 
     /// <summary>Every <c>model_type</c> the importer maps, in no particular order.</summary>
     public static IReadOnlyCollection<string> ModelTypes => [.. HfArchitectureMappings.All.SelectMany(mapping => mapping.ModelTypes)];
@@ -114,9 +115,14 @@ public static class HfSupport
         }
     }
 
-    /// <summary>compressed-tensors: 8-bit float weights are read (<see cref="HfFp8Weights"/>), integer or narrower ones are not.</summary>
+    /// <summary>
+    /// compressed-tensors: 8-bit float weights are read (<see cref="HfFp8Weights"/>), as are 4-bit float groups in the MXFP4 pack format
+    /// (<see cref="HfMxfp4Weights"/>); integer or other narrower ones are not.
+    /// </summary>
     private static HfQuantizationSupport CompressedTensors(JsonElement settings)
     {
+        bool mxfp4Pack = String(settings, "format") == Mxfp4PackFormat;
+        bool anyPacked = mxfp4Pack;
         if (!settings.TryGetProperty("config_groups", out var groups) || groups.ValueKind != JsonValueKind.Object)
         {
             return new HfQuantizationSupport("compressed-tensors", null);
@@ -132,14 +138,16 @@ public static class HfSupport
 
             string type = String(weights, "type") ?? "int";
             int bits = weights.TryGetProperty("num_bits", out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
-            if (!string.Equals(type, "float", StringComparison.OrdinalIgnoreCase) || bits != 8)
+            bool packed = mxfp4Pack || String(group.Value, "format") == Mxfp4PackFormat;
+            anyPacked |= packed && bits == 4;
+            if (!string.Equals(type, "float", StringComparison.OrdinalIgnoreCase) || !(bits == 8 || (bits == 4 && packed)))
             {
                 string label = string.Create(CultureInfo.InvariantCulture, $"compressed-tensors ({type} {bits}-bit)");
                 return new HfQuantizationSupport(label, SupportLevel.Unsupported);
             }
         }
 
-        return new HfQuantizationSupport("compressed-tensors (float 8-bit)", SupportLevel.Supported);
+        return new HfQuantizationSupport(anyPacked ? "compressed-tensors (mxfp4)" : "compressed-tensors (float 8-bit)", SupportLevel.Supported);
     }
 
     private static HfQuantizationSupport ModelOptAlgorithm(string? algorithm)

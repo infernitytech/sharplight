@@ -3,7 +3,7 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Hashed n-gram row ids (<c>NGramHash</c>): window f32 [T, N] (token + 1 per position back, 0 = none) → i32 [T, H].</summary>
+/// <summary>Hashed n-gram row ids (<c>NGramHash</c>): window f32 [T, N] (token + 1 per position back, 0 = none; a missing token cuts the window) → i32 [T, H].</summary>
 internal sealed unsafe class NGramHashOp : CpuOp
 {
     private readonly TRef _window;
@@ -13,9 +13,10 @@ internal sealed unsafe class NGramHashOp : CpuOp
     private readonly ulong[] _offsets;
     private readonly int _headsPerOrder;
     private readonly long _stop;
+    private readonly bool _stopCuts;
     public override string Name => "NGramHash";
 
-    public NGramHashOp(TRef window, TRef y, long[] multipliers, long[] sizes, long[] offsets, int headsPerOrder, long stop)
+    public NGramHashOp(TRef window, TRef y, long[] multipliers, long[] sizes, long[] offsets, int headsPerOrder, long stop, bool stopCuts = true)
     {
         _window = window;
         _y = y;
@@ -24,6 +25,7 @@ internal sealed unsafe class NGramHashOp : CpuOp
         _offsets = [.. offsets.Select(o => (ulong)o)];
         _headsPerOrder = headsPerOrder;
         _stop = stop;
+        _stopCuts = stopCuts;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -40,12 +42,8 @@ internal sealed unsafe class NGramHashOp : CpuOp
             for (int j = 0; j < n; j++)
             {
                 long token = (long)w[j * _window.Strides[^1]] - 1;
-                if (j > 0)
-                {
-                    cut = cut || token < 0 || token == _stop;
-                }
-
-                tokens[j] = j > 0 && cut || token < 0 ? _stop : token;
+                cut = cut || token < 0 || (j > 0 && _stopCuts && token == _stop);
+                tokens[j] = cut ? _stop : token;
             }
 
             int* y = (int*)_y.P + i * heads;

@@ -50,6 +50,26 @@ uint64_t seq_row(int* pages, uint slot, uint pos)
 #endif
 }
 
+// Compressed caches (KV_COMP positions per row, see StateDefinition.Compression): row of entry `e` (positions [e * KV_COMP,
+// (e + 1) * KV_COMP)) of slot `slot`, with COMP_SLOT_CTX rows per slot, or through the block table with ceil(PAGE_BS / KV_COMP) rows per
+// block. Position `pos` closes the window of entry (pos + 1) / KV_COMP - 1 when (pos + 1) % KV_COMP == 0.
+#ifndef KV_COMP
+#define KV_COMP 1
+#endif
+#ifndef COMP_SLOT_CTX
+#define COMP_SLOT_CTX 0
+#endif
+uint64_t seq_row_c(int* pages, uint slot, uint e)
+{
+#if PAGED
+    uint first = e * KV_COMP;
+    int block = pages[slot * PAGE_MB + min(first / PAGE_BS, uint(PAGE_MB - 1))];
+    return uint64_t(uint(max(block, 0))) * ((PAGE_BS + KV_COMP - 1) / KV_COMP) + (first % PAGE_BS) / KV_COMP;
+#else
+    return uint64_t(slot) * COMP_SLOT_CTX + e;
+#endif
+}
+
 float gelu_tanh(float x) { return 0.5 * x * (1.0 + tanh(0.7978845608 * (x + 0.044715 * x * x * x))); }
 float erf_approx(float x)
 {

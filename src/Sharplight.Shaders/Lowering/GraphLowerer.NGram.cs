@@ -14,6 +14,7 @@ public sealed partial class GraphLowerer
         var multipliers = a.Get<long[]>("multipliers");
         long headsPerOrder = a.Get<long>("heads_per_order");
         long stop = a.Get<long>("stop_token");
+        bool stopCuts = a.Get("stop_cuts", true);
         int order = multipliers.Length;
 
         string body = string.Join('\n',
@@ -24,8 +25,8 @@ public sealed partial class GraphLowerer
             "  uint64_t mixed = 0; bool cut = false;",
             "  for (int j = 0; j < ord; j++) {",
             $"    int64_t tok = int64_t(p.in0[uint64_t(d0) * {order}u + uint(j)]) - 1;",
-            $"    if (j > 0) cut = cut || tok < 0 || tok == {stop};",
-            $"    if ((j > 0 && cut) || tok < 0) tok = {stop};",
+            stopCuts ? $"    cut = cut || tok < 0 || (j > 0 && tok == {stop});" : "    cut = cut || tok < 0;",
+            $"    if (cut) tok = {stop};",
             "    mixed ^= uint64_t(tok) * mult[j];",
             "  }",
             "  p.out0[idx] = int(mixed % size[d1] + offs[d1]);");

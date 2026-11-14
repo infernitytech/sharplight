@@ -76,6 +76,13 @@
 #ifndef SELECTED
 #define SELECTED 0
 #endif
+// COMP_ATTN (`main` only): compressed attention. p.cc is a compressed cache in KV_FMT with the key cache's row layout (KV_COMP positions per
+// entry, rows addressed by seq_row_c); after the cache keys, the query at position qp attends in the same softmax the entries of its complete
+// windows [0, (qp + 1) / KV_COMP), or with SELECTED the selected ones among them (the selection then lists entries, not key positions).
+#ifndef COMP_ATTN
+#define COMP_ATTN 0
+#endif
+#define RAW_SELECTED (SELECTED && !COMP_ATTN)
 // SEL_HEADS (with SELECTED): selections per query row, [T, SEL_HEADS, SELECTED]; query head h reads the selection of h / (HQ / SEL_HEADS).
 #ifndef SEL_HEADS
 #define SEL_HEADS 1
@@ -546,7 +553,10 @@ struct Params
     int* spans;  // [T, 2] (first key row, key count) per query row
 #endif
 #if SELECTED
-    int* sel;    // [T, SEL_HEADS, SELECTED] key positions per query row (and selection head)
+    int* sel;    // [T, SEL_HEADS, SELECTED] key positions (COMP_ATTN: entries) per query row (and selection head)
+#endif
+#if COMP_ATTN
+    uint8_t* cc; // compressed cache [entries, HKV, VRS]
 #endif
 #if HAS_MASK
     float* mask; // additive score mask (see HAS_MASK)
@@ -588,6 +598,9 @@ groupshared float sP[WG];
 #if SELECTED
 groupshared uint sJ[WG];   // key position of every entry of the current chunk
 #endif
+#if COMP_ATTN
+groupshared uint64_t sJ2[WG];   // compressed cache row (x HKV + head) of every entry of the current chunk
+#endif
 groupshared float sRed[WG / SG];
 
 float reduce_max(float v, uint tid)
@@ -615,6 +628,7 @@ float reduce_sum(float v, uint tid)
 float dot_k(uint8_t* kc, uint64_t rowElem)
 {
     float s = 0;
+#if D % 8 == 0
     [ForceUnroll]
     for (uint i = 0; i < D / 8; i++)
     {
@@ -622,6 +636,10 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
         unpack_kv8(load_kv8(kc, rowElem + i * 8), k);
         [ForceUnroll] for (uint e = 0; e < 8; e++) s += sQ[8 * i + e] * k[e];
     }
+#else
+    // Head sizes that are not a multiple of 8: key rows are not 16-byte aligned, so one element per load.
+    for (uint i = 0; i < D; i++) s += sQ[i] * load_kv(kc, rowElem + i);
+#endif
     return s;
 }
 
@@ -688,7 +706,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #else
     uint jBeg = jLo, jEnd = L;
 #endif
-#if SELECTED
+#if RAW_SELECTED
     jBeg = 0;          // entries of the selection; L stays the visible key count
     jEnd = SELECTED;
 #endif
@@ -710,7 +728,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 
     for (uint c0 = jBeg; c0 < jEnd; c0 += WG)
     {
-#if SELECTED
+#if RAW_SELECTED
         int selected = c0 + tid < jEnd ? p.sel[(uint64_t(t) * SEL_HEADS + h / (HQ / SEL_HEADS)) * SELECTED + c0 + tid] : -1;
         bool valid = selected >= 0 && uint(selected) < L;
         uint j = valid ? uint(selected) : 0u;
@@ -745,7 +763,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             float a = acc[di] * corr;
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
-#if SELECTED
+#if RAW_SELECTED
                     a += sP[jj] * load_kv(p.vc, V_ELEM(kv_row(kvRow, sJ[jj]), hk) + d);
 #else
                     a += sP[jj] * load_kv(p.vc, V_ELEM(kv_row(kvRow, c0 + jj), hk) + d);
@@ -754,6 +772,55 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         }
         GroupMemoryBarrierWithGroupSync();
     }
+
+#if COMP_ATTN
+    // The compressed entries of the complete windows (or the selected ones among them), continuing the online softmax.
+#if MULTI_SEQ
+    uint cSlot = uint(p.seq[t * 4]);
+#else
+    uint cSlot = 0;
+#endif
+    uint complete = (qPos + 1) / KV_COMP;
+#if SELECTED
+    uint cEnd = SELECTED;
+#else
+    uint cEnd = complete;
+#endif
+    for (uint c0 = 0; c0 < cEnd; c0 += WG)
+    {
+#if SELECTED
+        int picked = c0 + tid < cEnd ? p.sel[(uint64_t(t) * SEL_HEADS + h / (HQ / SEL_HEADS)) * SELECTED + c0 + tid] : -1;
+        bool valid = picked >= 0 && uint(picked) < complete;
+        uint e = valid ? uint(picked) : 0u;
+#else
+        uint e = c0 + tid;
+        bool valid = e < cEnd;
+#endif
+        uint64_t cRow = valid ? (seq_row_c(SEQ_PAGES(p), cSlot, e) * HKV + hk) : 0;
+        sJ2[tid] = cRow;
+        float s = -1e30;
+        if (valid) s = dot_k(p.cc, cRow * D);
+        float mc = reduce_max(s, tid);
+        float mNew = max(m, mc);
+        float pj = valid ? exp(s - mNew) : 0;
+        sP[tid] = pj;
+        float corr = exp(m - mNew);
+        l = l * corr + reduce_sum(pj, tid);   // reduce_sum syncs, so sP and sJ2 are visible afterwards
+        m = mNew;
+        uint cnt = min(uint(WG), cEnd - c0);
+        [ForceUnroll]
+        for (int di = 0; di < DPT; di++)
+        {
+            uint d = tid + di * WG;
+            float a = acc[di] * corr;
+            if (d < DV)
+                for (uint jj = 0; jj < cnt; jj++)
+                    if (sP[jj] != 0) a += sP[jj] * load_kv(p.cc, sJ2[jj] * VRS + d);
+            acc[di] = a;
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+#endif
 
 #if SPLITS > 1
     float* ps = p.part + ((uint64_t(split) * p.T + t) * HQ + h) * (DV + 2);

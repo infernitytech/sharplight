@@ -24,6 +24,12 @@ internal sealed class CpuDevice : IComputeDevice
 
     public DeviceInfo Info { get; }
 
+    /// <summary>
+    /// State buffers per compiled graph (<see cref="CompileOptions.StateScope"/>): the first segment of the graph that uses a state allocates
+    /// (and owns) its buffer, the later ones reuse it.
+    /// </summary>
+    internal System.Runtime.CompilerServices.ConditionalWeakTable<object, Dictionary<Models.StateDefinition, Buf>> SharedStates { get; } = new();
+
     public IReadOnlySet<string> EnabledFeatures { get; }
 
     /// <summary>Weights from mapped files are used in place anyway; copies (non-mapped sources, f32 conversions) are shared.</summary>

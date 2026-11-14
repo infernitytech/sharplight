@@ -1,0 +1,5 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 50390 MiB, 300.00 W, 2145 MHz, 13365 MHz, 82, P1
+2740, /usr/bin/kwin_wayland, 75 MiB
+5089, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/re
+123535, VLLM::EngineCore, 47678 MiB
+124644, dotnet, 296 MiB

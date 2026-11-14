@@ -221,10 +221,15 @@ public sealed partial class GraphLowerer
         }
     }
 
-    /// <summary>Symbolic dimensions (other than the context length and the counts the segment computes itself) the segment's tensors depend on.</summary>
+    /// <summary>Symbolic dimensions (other than the context length, expressions of it, and the counts the segment computes itself) the segment's tensors depend on.</summary>
     private List<string> CollectSymbols()
         => [.. _seg.Nodes.SelectMany(n => n.Outputs.Concat(n.Inputs)).Select(v => v.Shape.Symbol).OfType<string>()
-            .Where(s => s != WellKnown.ContextSymbol && !_producedSymbols.ContainsKey(s)).Distinct()];
+            .Where(s => !OnlyContext(s) && !_producedSymbols.ContainsKey(s)).Distinct()];
+
+    /// <summary>Whether <paramref name="symbol"/> is the context length or an expression of it alone (fixed when the segment is compiled).</summary>
+    private static bool OnlyContext(string symbol)
+        => symbol == WellKnown.ContextSymbol
+            || (!SymbolicExpression.IsSymbolName(symbol) && SymbolicExpression.Parse(symbol).Atoms().All(a => a == WellKnown.ContextSymbol));
 
     /// <summary>
     /// A host-readable i32 slot into which a kernel writes the value of the data-dependent symbol <paramref name="symbol"/>

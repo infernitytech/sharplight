@@ -26,9 +26,11 @@ public class FamilyGenerationTests
 
     /// <summary>
     /// One model to generate with. <c>Kind</c> "ids": <c>Ids</c> are the expected generated token ids (transformers); "text": <c>Text</c> is the
-    /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp).
+    /// expected continuation of <c>Tokens</c> greedy tokens (llama.cpp). <c>F32KvCache</c> keeps the KV caches in f32 (models whose top-k selection
+    /// of cache entries has near-ties that f16 rounding flips).
     /// </summary>
-    public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallback = false, bool Large = false, int Tokens = 40);
+    public sealed record Case(string Name, string Path, string Prompt, string Kind, int[] Ids, string Text, bool NeedsCpuFallback = false, bool Large = false, int Tokens = 40,
+        bool F32KvCache = false);
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
     private static readonly string P2 = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
@@ -171,9 +173,25 @@ public class FamilyGenerationTests
         .. LinearAttentionFamilyCases.All,
         // Bring-up round 7: Chameleon (per-head q/k layer norms, swin norm, suppressed image-token logits), ...
         .. ExtendedFamilyCases.All,
+        // Bring-up round 9: vision-language families (HunyuanOCR with XD-RoPE).
+        .. VisionLanguageFamilyCases.All,
+        // Bring-up round 9: HRM-Text (hierarchical cycles), SenseNova-U1, Limite.
+        .. CrossLayerFamilyCases.All,
+        // Bring-up round 9: the DeepSeek-OCR language model (deepseek2-ocr: DeepSeek-V2 MoE with multi-head attention).
+        .. DeepseekOcrFamilyCases.All,
+        // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
+        .. MoeVariantFamilyCases.All,
+        // Bring-up round 9: per-token switched adapters (Granite Switch).
+        .. AdapterFamilyCases.All,
+        // Bring-up round 9: QSA block selection (Qwen3.8-Flash-Next) in its sparse regime.
+        .. SparseQsaCases.All,
+        // Bring-up round 9: Kimi K3 (attention residuals, situ, latent MoE on Kimi-Linear) and K3.1 (DSA indexer without rope).
+        .. KimiK3FamilyCases.All,
+        // Bring-up round 9: DeepSeek-V4 (compressed-KV attention, hash routing).
+        .. DeepSeekV4Cases.All,
     ];
 
-    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
+    private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
     {
         DeviceSlot slot, fallback = null!;
         if (vulkan)
@@ -205,7 +223,7 @@ public class FamilyGenerationTests
         var model = LlmModel.Load(path, new LlmLoadOptions
         {
             Devices = [slot], Fallback = vulkan && cpuFallback ? fallback : null, ContextLength = 256, MaxBatchTokens = 256,
-            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot },
+            DisabledFeatures = new HashSet<string> { DeviceFeatures.IntDot }, KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
         });
         return (model, vulkan && cpuFallback ? [slot, fallback] : [slot]);
     }
@@ -252,9 +270,9 @@ public class FamilyGenerationTests
         Assert.True(worst <= LogitTolerance(vulkan) * scale, $"prompt logits differ from transformers by {worst:G4} (largest reference logit {scale:G4})");
     }
 
-    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null)
+    private static (int[] Ids, string Text) Generate(string path, string prompt, int n, bool vulkan, bool cpuFallback, ReferenceLogits? reference = null, bool f32Kv = false)
     {
-        var (model, slots) = Load(path, vulkan, cpuFallback);
+        var (model, slots) = Load(path, vulkan, cpuFallback, f32Kv);
         try
         {
             if (reference is not null)
@@ -298,7 +316,7 @@ public class FamilyGenerationTests
         }
         (int[] ids, string text) result;
         var reference = Directory.Exists(path) && c.Kind == "ids" ? ReferenceLogits.TryLoad(path) : null;
-        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference); }
+        try { result = Generate(path, c.Prompt, c.Kind == "ids" ? c.Ids.Length : c.Tokens, vulkan, c.NeedsCpuFallback, reference, c.F32KvCache); }
         catch (SkipException s)
         {
             Assert.Skip(s.Message);

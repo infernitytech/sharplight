@@ -107,7 +107,7 @@ public sealed class CompiledModel : IDisposable
         placing.Complete();
         // Segments report through one combined count per stage.
         var progress = placement.Compile.Progress is { } target ? new SegmentProgress(target) : null;
-        var segmentOptions = progress is null ? placement.Compile : placement.Compile.WithProgress(progress);
+        var segmentOptions = (progress is null ? placement.Compile : placement.Compile.WithProgress(progress)).WithStateScope(new object());
         var compiled = new List<ICompiledSegment>();
         try
         {

@@ -29,7 +29,7 @@ internal sealed partial class LatentDecoderGraphBuilder
         bool clamped = layer >= 0 && layer < _hp.MoeSwigluClamp.Length && _hp.MoeSwigluClamp[layer] > 0f;
         var shared = MlpActivation(p);
         var experts = clamped ? new ClampedSwigluActivation(_hp.MoeSwigluClamp[layer], _hp.MoeSwigluClampInput) : shared;
-        return MoeBlock.Build(b, h, p, "mlp.", _hp.Moe, _hp.HiddenSize, experts, sharedActivation: shared);
+        return MoeBlock.Build(b, h, p, "mlp.", _hp.Moe, _hp.HiddenSize, experts, sharedActivation: shared, tokens: layer >= 0 ? _tokens : null);
     }
 
     /// <summary>

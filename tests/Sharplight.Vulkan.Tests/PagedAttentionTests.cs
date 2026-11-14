@@ -23,6 +23,7 @@ public sealed class PagedAttentionTests
     [InlineData("f32", 64, 64, 4, 4)]
     [InlineData("f16", 576, 512, 16, 1)]   // latent attention (fa_mqa)
     [InlineData("q4_0", 288, 256, 40, 1)]
+    [InlineData("f16", 12, 12, 4, 2)]   // head size not a multiple of 8
     public void PagedAttentionMatchesCpu(string cacheType, int D, int valueDims, int Hq, int Hkv)
     {
         Gpu.Require();

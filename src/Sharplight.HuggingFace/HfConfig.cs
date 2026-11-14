@@ -4,13 +4,15 @@ using System.Text.Json;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// A checkpoint's <c>config.json</c>. Like llama.cpp's converter, the nested <c>text_config</c> (if any)
-/// is merged over the root object (text_config wins), so hyper-parameters are looked up flat.
+/// A checkpoint's <c>config.json</c>. Like llama.cpp's converter, the nested <c>text_config</c> (if any; else <c>llm_config</c>, as
+/// SenseNova-U1 names it) is merged over the root object (the nested config wins), so hyper-parameters are looked up flat.
 /// </summary>
 internal sealed partial class HfConfig : IDisposable
 {
     private readonly JsonDocument _doc;
     private readonly Dictionary<string, JsonElement> _flat = new(StringComparer.Ordinal);
+    private readonly string? _modelType;     // a view's model type (AsModelType); null: from the document
+    private readonly bool _ownsDocument = true;
 
     /// <summary>The parsed root object of <c>config.json</c> (before merging <c>text_config</c>).</summary>
     public JsonElement Root => _doc.RootElement;
@@ -26,7 +28,7 @@ internal sealed partial class HfConfig : IDisposable
             _flat[p.Name] = p.Value;
         }
 
-        if (doc.RootElement.TryGetProperty("text_config", out var tc) && tc.ValueKind == JsonValueKind.Object)
+        if ((doc.RootElement.TryGetProperty("text_config", out var tc) || doc.RootElement.TryGetProperty("llm_config", out tc)) && tc.ValueKind == JsonValueKind.Object)
         {
             foreach (var p in tc.EnumerateObject())
             {
@@ -59,17 +61,43 @@ internal sealed partial class HfConfig : IDisposable
     /// <summary>
     /// The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's, then to the model type of a
     /// remote-code <c>architectures</c> class whose configs omit it (e.g. <c>BailingMoeV2ForCausalLM</c>). EAGLE-3 drafters, whose configs say
-    /// <c>llama</c>, are <c>eagle3</c>.
+    /// <c>llama</c>, are <c>eagle3</c>; remote-code classes whose configs name another family (<c>GroveMoeForCausalLM</c>, configs say
+    /// <c>qwen3_moe</c>) get their own type.
     /// </summary>
     public string? ModelType
-        => Eagle3HfMapping.IsDrafter(this) ? "eagle3"
+        => _modelType ?? (Eagle3HfMapping.IsDrafter(this) ? "eagle3"
+            : Architectures.Select(a => s_remoteCodeOverrides.GetValueOrDefault(a)).FirstOrDefault(t => t is not null) is { } overridden ? overridden
             : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
-            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null);
+            : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null));
+
+    private HfConfig(HfConfig config, string modelType)
+    {
+        _doc = config._doc;
+        _flat = config._flat;
+        Directory = config.Directory;
+        _modelType = modelType;
+        _ownsDocument = false;
+    }
+
+    /// <summary>
+    /// A view of this config that reports <paramref name="modelType"/> as its <see cref="ModelType"/>: a drafter whose layers are another model type's
+    /// (a Gemma 4 assistant's are <c>gemma4_text</c> layers) maps them with that type's mapping. The view shares this config's document; disposing it does
+    /// nothing.
+    /// </summary>
+    public HfConfig AsModelType(string modelType) => new(this, modelType);
 
     // Remote-code causal-LM classes whose config.json may lack model_type.
     private static readonly Dictionary<string, string> s_remoteCodeModelTypes = new(StringComparer.Ordinal)
     {
         ["BailingMoeV2ForCausalLM"] = "bailing_moe_v2",
+        ["CogVLMForCausalLM"] = "cogvlm",
+    };
+
+    // Remote-code causal-LM classes whose config.json names another family's model_type (GroveMoE says qwen3_moe): the class decides.
+    private static readonly Dictionary<string, string> s_remoteCodeOverrides = new(StringComparer.Ordinal)
+    {
+        ["GroveMoeForCausalLM"] = "grove_moe",
+        ["modeling_grove_moe.GroveMoeForCausalLM"] = "grove_moe",
     };
 
     /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>
@@ -161,5 +189,11 @@ internal sealed partial class HfConfig : IDisposable
     private static KeyNotFoundException Missing(string[] keys) => new($"config.json: none of [{string.Join(", ", keys)}] is present.");
 
     /// <summary>Releases the parsed document; elements obtained from it must not be used afterwards.</summary>
-    public void Dispose() => _doc.Dispose();
+    public void Dispose()
+    {
+        if (_ownsDocument)
+        {
+            _doc.Dispose();
+        }
+    }
 }

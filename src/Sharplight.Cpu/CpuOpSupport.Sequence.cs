@@ -59,9 +59,17 @@ internal static partial class CpuOpSupport
             return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32, f16, q8_0, q4_0)");
         }
 
-        int selectionInput = node.Attributes.Get("sinks", false) ? 4 : 3;
+        bool compressed = node.Attributes.Has("compression");
+        int compressedInput = node.Attributes.Get("sinks", false) ? 4 : 3;
+        if (compressed && (ins.Length <= compressedInput || !IsKvCacheType(ins[compressedInput].Type)))
+        {
+            return OpSupport.No("CachedAttention compressed cache must be f32 or f16");
+        }
+
+        int selectionInput = compressedInput + (compressed ? 1 : 0);
         if (node.Attributes.Get("selection", false)
-            && (ins.Length <= selectionInput || ins[selectionInput].Type != DataType.I32 || node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))
+            && (ins.Length <= selectionInput || ins[selectionInput].Type != DataType.I32
+                || (!compressed && (node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))))
         {
             return OpSupport.No("CachedAttention selection must be i32 [T, K] and cannot be combined with window or chunk");
         }
@@ -79,6 +87,17 @@ internal static partial class CpuOpSupport
         }
 
         return IsKvCacheType(ins[1].Type) ? OpSupport.Yes : OpSupport.No($"IndexerTopK key cache type {ins[1].Type} (f32 or f16)");
+    }
+
+    private static OpSupport CheckWindowPool(Node node)
+    {
+        var ins = node.Inputs;
+        if (ins[0].Type != DataType.F32 || ins[1].Type != DataType.F32 || ins[2].Type != DataType.F32 || ins[3].Type != DataType.I32 || ins[4].Type != DataType.F32)
+        {
+            return OpSupport.No("WindowPool takes f32 values, scores, bias and state and i32 positions");
+        }
+
+        return OpSupport.Yes;
     }
 
     private static OpSupport CheckAttention(Node node)

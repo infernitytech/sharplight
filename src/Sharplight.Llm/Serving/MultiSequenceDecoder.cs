@@ -31,6 +31,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly int _blocksPerSlot;
     private bool _tableDirty;
     private readonly int _posAxes;
+    private readonly int _textPositionAxes;   // leading position axes that carry a text token's position (the rest are 0)
     private readonly int[] _length;
     private readonly RunParameters _run = new();
     private readonly int[] _tokBuf, _posBuf, _rowBuf, _outBuf;
@@ -96,8 +97,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <param name="kvBlocks">Paged cache: blocks in the pool (the compiled cache rows / <paramref name="kvBlockSize"/>).</param>
     /// <param name="rollbackRows">Rollback rows the recurrent ops were compiled with (<see cref="MultiSequence.Result.RollbackRows"/>).</param>
     /// <param name="hiddenOutput">The graph output <see cref="HiddenStates"/> reads (default <see cref="WellKnown.HiddenOutput"/>).</param>
+    /// <param name="textPositionAxes">Leading position axes that carry a text row's position (<see cref="WellKnown.TextPositionAxes"/>).</param>
     internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0,
-        int rollbackRows = 0, string? hiddenOutput = null)
+        int rollbackRows = 0, string? hiddenOutput = null, int textPositionAxes = WellKnown.DefaultTextPositionAxes)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -130,6 +132,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         _posAxes = _positions is null ? 0 : _positions.Rank == 1 ? 1 : (int)_positions.Shape[-1].Fixed;
+        _textPositionAxes = textPositionAxes;
         SlotCount = slots;
         ContextLength = contextLength;
         MaxBatchTokens = (int)compiled.Options.MaxTokens;
@@ -178,12 +181,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// Only used by models with recurrent state (attention-only models roll back any number of rows).
     /// </param>
     /// <param name="hiddenOutput">The graph output a draft head reads as hidden states (default <see cref="WellKnown.HiddenOutput"/>).</param>
+    /// <param name="textPositionAxes">Leading position axes that carry a text row's position (<see cref="WellKnown.TextPositionAxes"/>).</param>
     /// <param name="invariantRows">
     /// Steps of up to this many rows compute every row bit-identically to a single-row step (<see cref="CompileOptions.RowInvariantRows"/>):
     /// speculative verification rows then reproduce the logits of plain decoding.
     /// </param>
     internal static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement, bool deviceSampling,
-        long kvCacheTokens = 0, int rollbackRows = 0, string? hiddenOutput = null, int invariantRows = 0)
+        long kvCacheTokens = 0, int rollbackRows = 0, string? hiddenOutput = null, int textPositionAxes = WellKnown.DefaultTextPositionAxes, int invariantRows = 0)
     {
         int blockSize = kvCacheTokens > 0 ? DefaultKvBlockSize : 0;
         int blocksPerSlot = blockSize > 0 ? (contextLength + blockSize - 1) / blockSize : 0;
@@ -217,7 +221,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             },
         });
         bool recurrent = ms.States.Keys.Any(s => !MultiSequence.IsKvState(s));
-        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows, hiddenOutput);
+        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows, hiddenOutput, textPositionAxes);
     }
 
     /// <inheritdoc/>
@@ -632,10 +636,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 _rowBuf[row * 4 + 1] = pos;
                 _rowBuf[row * 4 + 2] = n;
                 _rowBuf[row * 4 + 3] = u;
-                // Text rows use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
+                // Text rows use the same position on the leading axes (M-RoPE: temporal/height/width), extra axes 0.
                 for (int a = 0; a < _posAxes; a++)
                 {
-                    _posBuf[row * _posAxes + a] = a < 3 ? pos : 0;
+                    _posBuf[row * _posAxes + a] = a < _textPositionAxes ? pos : 0;
                 }
             }
             _runBuf[u * 4] = inp.Slot;

@@ -27,9 +27,24 @@ public sealed class PreprocessedImage
     public int[] WindowSpans { get; init; } = [];
     /// <summary>Windowed attention only (else empty): for each output token in merge-window raster order, its index in window order [M].</summary>
     public int[] WindowOrder { get; init; } = [];
+    /// <summary>
+    /// Two-stage towers of fixed-size views (<see cref="VisionParameters.Sam"/>) only: columns of the local tile grid, 0 without tiles. The
+    /// views are then in <see cref="Patches"/> as normalized channels-first pixels, the global view (<see cref="Width"/> = <see cref="Height"/>)
+    /// first, then the tiles in raster order; the position inputs are empty, <see cref="MergedHeight"/> is 1 and <see cref="MergedWidth"/> the
+    /// number of embedding rows (layout rows included).
+    /// </summary>
+    public int TileColumns { get; init; }
+    /// <summary>Two-stage towers only: rows of the local tile grid, 0 without tiles.</summary>
+    public int TileRows { get; init; }
+
+    /// <summary>
+    /// Towers with row separators or boundary rows only (else empty): for each output row, its row in the encoder's table [merged rows | separator |
+    /// begin | end] (<see cref="VisionParameters.LayoutInput"/>).
+    /// </summary>
+    public int[] Layout { get; init; } = [];
 
     /// <summary>Number of patches (N).</summary>
     public int PatchCount => GridHeight * GridWidth;
     /// <summary>Number of embeddings the encoder produces (and language-model positions the image occupies as rows).</summary>
-    public int TokenCount => MergedHeight * MergedWidth;
+    public int TokenCount => Layout.Length > 0 ? Layout.Length : MergedHeight * MergedWidth;
 }
