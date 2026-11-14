@@ -47,7 +47,7 @@ public sealed class FusionTests
     {
         foreach (var fmt in new[] { "f32", "bf16", "f16", "f8e4m3_b128", "q8_0", "q4_k" })
         {
-            foreach (var t in new[] { 1, 3, 8, 9, 16, 20 })
+            foreach (var t in new[] { 1, 3, 8, 9, 16, 20, 70, 140 })
             {
                 yield return [fmt, t];
             }
@@ -76,7 +76,9 @@ public sealed class FusionTests
         // silu(g) * u multiplies by the other factor.
         bool intDot = fmt is "q8_0" or "q4_k";
         double atol = intDot ? 6e-1 : t > 1 ? 1e-1 : 2e-3, rtol = intDot || t > 1 ? 1e-2 : 1e-3;
-        Diff.Check("Fusion.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (x2, Rnd.F((long)t * 256, 4))), atol: atol, rtol: rtol, what: $"T={t}");
+        // 17+ rows of fp8 weights: the dual fp8 GEMM (E4M3 activations, 64- and 128-row tiles).
+        Diff.Check("Fusion.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (x2, Rnd.F((long)t * 256, 4))), atol: atol, rtol: rtol,
+            maxTokens: Math.Max(64, t), what: $"T={t}");
     }
 
     [Theory]

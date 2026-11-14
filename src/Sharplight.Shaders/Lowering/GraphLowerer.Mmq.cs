@@ -132,12 +132,18 @@ public sealed partial class GraphLowerer
     /// Emits an 8-bit tensor-core GEMM (activations quantized to <paramref name="code"/>, 64- or 128-token tiles of the
     /// <see cref="MmqLayout"/> layouts, <paramref name="blockK"/> K values per staged step) with its split-K variants and
     /// reduction for batches of at least <see cref="QuantizedGemmMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
-    /// tile height and a K split.
+    /// tile height and a K split; <paramref name="tokenTilesFirst"/> when it reads grid x as the token tile (see gemm_fp8).
     /// </summary>
-    private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel)
+    private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
+        bool tokenTilesFirst = false)
     {
+
         long n = p.N;
         long k = p.K;
+        // Grid of a kernel indexing (token tile, weight tile) as (x, y) when tokenTilesFirst, else (y, x).
+        Grid TileGrid(long rows, int tileRows, int columns, uint z = 1) => tokenTilesFirst
+            ? new Grid(Grid.Div(rows, tileRows), Grid.Div(n, columns), z)
+            : new Grid(Grid.Div(n, columns), Grid.Div(rows, tileRows), z);
         long rowsMax = p.X.Shape[0] * p.RowsPerLead;
         long minRows = QuantizedGemmMinRows(code);
         if (rowsMax < minRows)
@@ -156,7 +162,7 @@ public sealed partial class GraphLowerer
             int columns = MmqColumns(tileRows);
             direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == tileRows && Split(b) == 1,
                 kernel(tileRows, 1),
-                b => new Grid(Grid.Div(n, columns), Grid.Div(p.RowCount(b), tileRows))));
+                b => TileGrid(p.RowCount(b), tileRows, columns)));
         }
 
         Emit($"{label} {name}", [p.Node], direct,
@@ -186,7 +192,7 @@ public sealed partial class GraphLowerer
         var partialVariants = tiledSplits.Select(ts => new KernelVariant(
             b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == ts.TileRows && Split(b) == ts.Split,
             kernel(ts.TileRows, ts.Split),
-            b => new Grid(Grid.Div(n, MmqColumns(ts.TileRows)), Grid.Div(p.RowCount(b), ts.TileRows), (uint)ts.Split)));
+            b => TileGrid(p.RowCount(b), ts.TileRows, MmqColumns(ts.TileRows), (uint)ts.Split)));
         Emit($"{label} {name} split-k", [p.Node], [.. partialVariants],
             [Pointer(quantized), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, p.RowsPerLead)],
             [quantized, p.W], [partial]);
