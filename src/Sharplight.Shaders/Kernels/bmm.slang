@@ -3,7 +3,41 @@
 // A element address: aoff(b) + m*SAM + k*SAK ; B: boff(b) + k*SBK + n*SBN ; y dense [B..., M, N].
 // Macros: M N K NB (batch dims, may be 0) BSH BSA BSB (per batch dim: shape [outermost unused], A stride, B stride),
 //         SAM SAK SBK SBN ALPHA M_DYN (M comes from the uniform) BM BN BK TM TN NT
+//         SPLITK KPS WS_STRIDE PARTIAL: with PARTIAL (few output tiles and a long K, e.g. attention P.V), grid z is
+//         batch * SPLITK; each split sums KPS values of k and writes its unscaled partial to y + split * WS_STRIDE (a
+//         workspace); bmm_reduce sums the partials and applies ALPHA.
 #include "common.slang"
+
+#ifndef SPLITK
+#define SPLITK 1
+#define KPS K
+#define WS_STRIDE 0
+#define PARTIAL 0
+#endif
+
+#if PARTIAL
+#define OUT_SCALE 1.0
+#else
+#define OUT_SCALE ALPHA
+#endif
+
+#ifdef KERNEL_BMM_REDUCE
+struct BmmReduceParams { float* ws; float* y; uint total; };
+
+[shader("compute")]
+[numthreads(256, 1, 1)]
+void bmm_reduce(uint3 dtid : SV_DispatchThreadID, uniform BmmReduceParams p)
+{
+    uint i = dtid.x;
+    if (i >= p.total) return;
+    float s = 0.0;
+    [ForceUnroll]
+    for (uint k = 0; k < SPLITK; k++) s += p.ws[uint64_t(k) * WS_STRIDE + i];
+    p.y[i] = s * ALPHA;
+}
+#endif
+
+#ifdef KERNEL_BMM
 
 struct BmmParams { float* a; float* b; float* y; uint dyn; };
 
@@ -26,7 +60,10 @@ void bmm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform BmmParam
 #else
     const uint Mv = M;
 #endif
-    uint bi = gid.z;
+    uint bi = gid.z / SPLITK;
+    const uint split = gid.z % SPLITK;
+    const uint kBegin = split * KPS;
+    const uint kEnd = min(uint(K), kBegin + KPS);
     uint64_t aoff = 0, boff = 0;
 #if NB > 0
     uint64_t yb = uint64_t(bi) * uint64_t(Mv) * N;
@@ -43,6 +80,7 @@ void bmm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform BmmParam
 #else
     uint64_t yb = 0;
 #endif
+    yb += uint64_t(split) * WS_STRIDE;
     const uint mBase = gid.y * BM;
     const uint nBase = gid.x * BN;
     float* ap = p.a + aoff;
@@ -54,7 +92,7 @@ void bmm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform BmmParam
     const uint tx = tid % (BN / TN);
     const uint ty = tid / (BN / TN);
 
-    for (uint k0 = 0; k0 < K; k0 += BK)
+    for (uint k0 = kBegin; k0 < kEnd; k0 += BK)
     {
                 for (uint i = tid; i < BM * BK; i += NT)
         {
@@ -64,7 +102,7 @@ void bmm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform BmmParam
             uint m = i % BM, kk = i / BM;
 #endif
             float v = 0.0;
-            if (mBase + m < Mv && k0 + kk < K) v = ap[uint64_t(mBase + m) * SAM + uint64_t(k0 + kk) * SAK];
+            if (mBase + m < Mv && k0 + kk < kEnd) v = ap[uint64_t(mBase + m) * SAM + uint64_t(k0 + kk) * SAK];
             As[kk][m] = v;
         }
                 for (uint i = tid; i < BK * BN; i += NT)
@@ -75,7 +113,7 @@ void bmm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform BmmParam
             uint kk = i % BK, n = i / BK;
 #endif
             float v = 0.0;
-            if (nBase + n < N && k0 + kk < K) v = bp[uint64_t(k0 + kk) * SBK + uint64_t(nBase + n) * SBN];
+            if (nBase + n < N && k0 + kk < kEnd) v = bp[uint64_t(k0 + kk) * SBK + uint64_t(nBase + n) * SBN];
             Bs[kk][n] = v;
         }
         GroupMemoryBarrierWithGroupSync();
@@ -95,11 +133,25 @@ void bmm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform BmmParam
     {
         uint m = mBase + ty * TM + i;
         if (m >= Mv) continue;
+#if N % 4 == 0 && TN % 4 == 0
+        // Each thread's TN outputs of a row are contiguous: 16-byte stores keep the warp's writes in whole sectors.
+        [ForceUnroll]
+        for (int j = 0; j < TN; j += 4)
+        {
+            uint n = nBase + tx * TN + j;
+            if (n < N)
+            {
+                *(float4*)(p.y + yb + uint64_t(m) * N + n) = float4(acc[i][j], acc[i][j + 1], acc[i][j + 2], acc[i][j + 3]) * OUT_SCALE;
+            }
+        }
+        continue;
+#endif
         [ForceUnroll]
         for (int j = 0; j < TN; j++)
         {
             uint n = nBase + tx * TN + j;
-            if (n < N) p.y[yb + uint64_t(m) * N + n] = acc[i][j] * ALPHA;
+            if (n < N) p.y[yb + uint64_t(m) * N + n] = acc[i][j] * OUT_SCALE;
         }
     }
 }
+#endif

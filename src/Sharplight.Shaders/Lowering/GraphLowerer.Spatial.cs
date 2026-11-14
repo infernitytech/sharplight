@@ -448,10 +448,16 @@ public sealed partial class GraphLowerer
     }
 
     // ---- BatchMatMul -------------------------------------------------------------------------
-    private sealed record BmmTile(int BM, int BN, int TM, int TN, int BK)
+    private sealed record BmmTile(int BM, int BN, int TM, int TN, int BK, int Split = 1, long Kps = 0)
     {
         public int NT => (BM / TM) * (BN / TN);
     }
+
+    /// <summary>Smallest K worth splitting across workgroups in bmm (each split keeps at least <see cref="BmmMinKPerSplit"/>).</summary>
+    private const long BmmSplitMinK = 512;
+
+    /// <summary>K values per bmm split at least.</summary>
+    private const long BmmMinKPerSplit = 256;
 
     private void LowerBatchMatMul(Node n)
     {
@@ -501,25 +507,60 @@ public sealed partial class GraphLowerer
             long wgs32 = batches * ((mm + 31) / 32) * ((N + 31) / 32);
             // Small grids (attention P·V at batch 1: 12 heads x 7 x 2 tiles) are latency-bound with 64-thread groups;
             // 2x2 outputs per thread give each group 256 threads for the same tile.
-            return wgs64 >= 120 ? new BmmTile(64, 64, 4, 4, 16) : wgs32 >= 512 ? new BmmTile(32, 32, 4, 4, 16) : new BmmTile(32, 32, 2, 2, 16);
+            var tile = wgs64 >= 120 ? new BmmTile(64, 64, 4, 4, 16) : wgs32 >= 512 ? new BmmTile(32, 32, 4, 4, 16) : new BmmTile(32, 32, 2, 2, 16);
+            // Few tiles over a long K (P·V of long sequences: whisper's 1500 keys, 6 heads x 24 tiles) leave most of the
+            // device idle: split K towards TargetWorkgroups, the partials summed by bmm_reduce.
+            long tiles = batches * ((mm + tile.BM - 1) / tile.BM) * ((N + tile.BN - 1) / tile.BN);
+            long split = K < BmmSplitMinK || tiles >= TargetWorkgroups / 2 ? 1 : Math.Min(Math.Min((TargetWorkgroups + tiles - 1) / tiles, K / BmmMinKPerSplit), 8);
+            if (split <= 1)
+            {
+                return tile;
+            }
+
+            long kSteps = (K + tile.BK - 1) / tile.BK;
+            long kps = (kSteps + split - 1) / split * tile.BK;
+            return tile with { Split = (int)((K + kps - 1) / kps), Kps = kps };
         };
         long bound = y.Symbol is null ? 1 : Bound(Dim.Sym(y.Symbol));
+        int maxSplit = 1;
+        for (long v = y.Symbol is null ? bound : 1; v <= bound; v++)
+        {
+            maxSplit = Math.Max(maxSplit, choose(v).Split);
+        }
+
+        bool useWs = maxSplit > 1;
+        long wsStride = y.MaxElements;
+        var dst = useWs ? Temp(DataType.F32, [maxSplit * wsStride], null) : y;
         var variants = ChooseVariants(y.Symbol, bound, choose, t =>
         {
             var k = Lib("bmm.slang", "bmm", Macros(("M", M), ("N", N), ("K", K), ("NB", nb), ("BSH", IntList(bsh)), ("BSA", IntList(bsa)), ("BSB", IntList(bsb)),
                 ("SAM", sam), ("SAK", sak), ("SBK", sbk), ("SBN", sbn), ("ALPHA", alpha), ("M_DYN", mdyn),
-                ("BM", t.BM), ("BN", t.BN), ("BK", t.BK), ("TM", t.TM), ("TN", t.TN), ("NT", t.NT)));
+                ("BM", t.BM), ("BN", t.BN), ("BK", t.BK), ("TM", t.TM), ("TN", t.TN), ("NT", t.NT),
+                ("SPLITK", t.Split), ("KPS", t.Split > 1 ? t.Kps : K), ("WS_STRIDE", useWs ? wsStride + "ull" : "0"), ("PARTIAL", useWs)));
             return (k, dyn =>
             {
                 long mm = mdyn ? dyn : Mb;
                 long batches = nb == 0 ? 1 : (y.Symbol is not null ? dyn * batchesInner : y.Shape.Take(nb).Aggregate(1L, (p, q) => p * q));
-                return new Grid(Grid.Div(N, t.BN), Grid.Div(mm, t.BM), (uint)batches);
+                return new Grid(Grid.Div(N, t.BN), Grid.Div(mm, t.BM), (uint)(batches * t.Split));
             }
             );
         });
         KernelArg dynArg = mdyn ? new SymbolArg(y.Symbol!) : new UIntArg(0);
-        Emit($"bmm {n.Output.Name} [{M}x{K}x{N}]", [n], variants,
-            [Pointer(a), Pointer(b), Pointer(y), dynArg], [a, b], [y]);
+        string name = $"bmm {n.Output.Name} [{M}x{K}x{N}]";
+        Emit(useWs ? name + " split-k" : name, [n], variants,
+            [Pointer(a), Pointer(b), Pointer(dst), dynArg], [a, b], [dst]);
+        if (!useWs)
+        {
+            return;
+        }
+
+        long inner = y.MaxElements / Math.Max(1, y.Shape[0]);
+        var reduceVariants = ChooseVariants(y.Symbol, bound, choose, t =>
+        {
+            var k = Lib("bmm.slang", "bmm_reduce", Macros(("SPLITK", t.Split), ("KPS", K), ("WS_STRIDE", wsStride + "ull"), ("PARTIAL", 1), ("ALPHA", alpha)));
+            return (k, dyn => new Grid(Grid.Div((y.Symbol is null ? y.Shape[0] : dyn) * inner, 256)));
+        });
+        Emit(name + " reduce", [n], reduceVariants, [Pointer(dst), Pointer(y), CountArg(y, inner)], [dst], [y]);
     }
 
     // ---- Pad ---------------------------------------------------------------------------------
