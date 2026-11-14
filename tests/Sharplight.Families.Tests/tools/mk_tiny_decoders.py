@@ -39,6 +39,9 @@ configs = {
 
 # Later families: name -> (transformers model_type, config arguments on top of COMMON).
 EXTRA = {
+    # Llama with a head size of 12 (not a multiple of 8): the Vulkan attention kernels decline it and placement runs attention elsewhere.
+    "llama-hd12": ("llama", dict(hidden_size=48, intermediate_size=96, num_hidden_layers=2, num_attention_heads=4, num_key_value_heads=2,
+                                 head_dim=12, max_position_embeddings=256)),
     # Softmax routing (not renormalized), sigmoid-gated shared expert; layer 1 is dense (mlp_only_layers).
     "qwen2-moe": ("qwen2_moe", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=48, shared_expert_intermediate_size=80,
                                     num_hidden_layers=3, num_attention_heads=4, num_key_value_heads=2, num_experts=4, num_experts_per_tok=2,

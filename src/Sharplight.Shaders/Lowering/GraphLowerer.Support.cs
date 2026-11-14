@@ -187,12 +187,7 @@ public sealed partial class GraphLowerer
             return OpSupport.No("CachedAttention: the selection must be i32 and cannot be combined with window or chunk");
         }
 
-        // The key dot products read 8 (f16) / 4 (f32) elements per load.
-        if (node.Inputs[0].Shape[2] is { IsSymbolic: false } keyDims && keyDims.Fixed % 8 != 0)
-        {
-            return OpSupport.No($"CachedAttention: key head size {keyDims.Fixed} is not a multiple of 8");
-        }
-
+        // Head sizes that are not a multiple of 8 run on the per-head kernel, which then reads one key element per load.
         if (node.Inputs[1].Type != node.Inputs[2].Type)
         {
             return OpSupport.No($"CachedAttention: K and V caches of different types ({node.Inputs[1].Type}, {node.Inputs[2].Type})");
@@ -241,11 +236,9 @@ public sealed partial class GraphLowerer
             return OpSupport.No("Attention: an f32 mask input is not implemented (i32 spans are)");
         }
 
-        bool headsMatch = inputs[1].Shape[1] == inputs[2].Shape[1];
-        bool headSizesAligned = inputs[0].Shape[2].Fixed % 8 == 0 && inputs[1].Shape[2].Fixed % 8 == 0 && inputs[2].Shape[2].Fixed % 8 == 0;
-        if (!headsMatch || !headSizesAligned)
+        if (inputs[1].Shape[1] != inputs[2].Shape[1])
         {
-            return OpSupport.No("Attention: k/v head counts must match and head sizes be multiples of 8");
+            return OpSupport.No("Attention: k/v head counts must match");
         }
 
         if (inputs[0].Shape[1].Fixed % inputs[1].Shape[1].Fixed != 0)

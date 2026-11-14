@@ -547,6 +547,7 @@ float reduce_sum(float v, uint tid)
 float dot_k(uint8_t* kc, uint64_t rowElem)
 {
     float s = 0;
+#if D % 8 == 0
     [ForceUnroll]
     for (uint i = 0; i < D / 8; i++)
     {
@@ -554,6 +555,10 @@ float dot_k(uint8_t* kc, uint64_t rowElem)
         unpack_kv8(load_kv8(kc, rowElem + i * 8), k);
         [ForceUnroll] for (uint e = 0; e < 8; e++) s += sQ[8 * i + e] * k[e];
     }
+#else
+    // Head sizes that are not a multiple of 8: key rows are not 16-byte aligned, so one element per load.
+    for (uint i = 0; i < D; i++) s += sQ[i] * load_kv(kc, rowElem + i);
+#endif
     return s;
 }
 
