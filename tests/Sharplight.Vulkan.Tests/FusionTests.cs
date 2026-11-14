@@ -45,9 +45,9 @@ public sealed class FusionTests
 
     public static IEnumerable<object[]> DualCases()
     {
-        foreach (var fmt in new[] { "f32", "bf16", "q8_0", "q4_k" })
+        foreach (var fmt in new[] { "f32", "bf16", "f16", "f8e4m3_b128", "q8_0", "q4_k" })
         {
-            foreach (var t in new[] { 1, 3, 8, 9, 20 })
+            foreach (var t in new[] { 1, 3, 8, 9, 16, 20 })
             {
                 yield return [fmt, t];
             }
@@ -70,11 +70,12 @@ public sealed class FusionTests
         var g2 = tg.B.MatMul(x2, tg.RandW("wg2", DataType.Get(fmt), 0.1f, 40, 256));
         var u2 = tg.B.MatMul(x2, tg.RandW("wu2", DataType.Get(fmt), 0.1f, 40, 256));
         tg.B.Output("y2", tg.B.Mul(g2, tg.B.Sigmoid(u2)));
-        // Above 8 rows tensor-core products (~1 % error). For q8_0 / q4_k the integer-dot matvec quantizes the activations to
+        // From 2 rows on tensor-core products with f16 activations (~1 % error; the skinny GEMM for 2-16 rows of formats without
+        // an integer-dot matvec, gemm_cm2 above). For q8_0 / q4_k the integer-dot matvec quantizes the activations to
         // 8 bits, an absolute error proportional to the weight row norms (large: random K-quant rows carry big offsets), which
         // silu(g) * u multiplies by the other factor.
         bool intDot = fmt is "q8_0" or "q4_k";
-        double atol = intDot ? 6e-1 : t > 8 ? 1e-1 : 2e-3, rtol = intDot || t > 8 ? 1e-2 : 1e-3;
+        double atol = intDot ? 6e-1 : t > 1 ? 1e-1 : 2e-3, rtol = intDot || t > 1 ? 1e-2 : 1e-3;
         Diff.Check("Fusion.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (x2, Rnd.F((long)t * 256, 4))), atol: atol, rtol: rtol, what: $"T={t}");
     }
 

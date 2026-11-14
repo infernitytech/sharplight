@@ -414,7 +414,7 @@ void gemm_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Para
 }
 #endif
 
-#ifdef KERNEL_GEMM_CM2
+#if defined(KERNEL_GEMM_CM2) || defined(KERNEL_GEMM_SK)
 // ---------------------------------------------------------------------------------------------
 // Large tensor-core GEMM. Workgroup = WARPS_M x WARPS_N subgroups, each owning FRAG_M x FRAG_N 16x16
 // accumulators, i.e. a (WARPS_M*FRAG_M*16) tokens x (WARPS_N*FRAG_N*16) rows tile. Shared tiles are
@@ -454,9 +454,11 @@ typealias MatA2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 typealias MatB2 = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
 typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
 
+#ifdef KERNEL_GEMM_CM2
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
 groupshared uint4 gA[GNBUF * GBM * GAS / 8];
 groupshared uint4 gB[GNBUF * GBN * GAS / 8];
+#endif
 
 uint q8x4_h2(uint u, half2 d, bool hi)
 {
@@ -569,6 +571,10 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #elif defined(WFMT_FP8)
     load16h_fp8(w, ROW_BYTES, row, g16, lo, hi);
+#elif WFMT == FMT_F16
+    uint4* p16 = (uint4*)(rowStart(w, ROW_BYTES, row) + uint64_t(g16) * 32);
+    lo = p16[0];
+    hi = p16[1];
 #else
     lo = load8h(w, row, g16 * 2);
     hi = load8h(w, row, g16 * 2 + 1);
@@ -602,6 +608,7 @@ uint4 load8h(uint8_t* w, uint row, uint g)
                  f32tof16(v[4]) | (f32tof16(v[5]) << 16), f32tof16(v[6]) | (f32tof16(v[7]) << 16));
 #endif
 }
+#ifdef KERNEL_GEMM_CM2
 groupshared float gC[WARPS_M * WARPS_N * 256];
 #if MOE
 groupshared uint gItem[GBM];
@@ -769,6 +776,8 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         }
     }
 }
+#endif   // KERNEL_GEMM_CM2 entry
+#include "matmul_skinny.slang"
 #endif
 
 #ifdef KERNEL_SPLITK_REDUCE

@@ -47,8 +47,10 @@ public sealed class QuantFormatTests
         bool tensorCores = tokens > 16;   // the prefill GEMM may round activations and weights to f16
         // Few rows may take the integer-dot matvec: activations exact under its 8-bit block quantization keep the bound tight.
         var xData = tensorCores ? Rnd.F((long)tokens * K, 3) : Rnd.ExactInt8((long)tokens * K, 3);
+        // From 2 rows, formats without an integer-dot matvec take the skinny tensor-core GEMM (f16 weights and activations).
+        bool reducedPrecision = tokens > 1;
         Diff.Check("MatMul." + type, tg.B.Build(), new Step(tokens, 0, (x, xData)),
-            atol: (tensorCores ? 5e-2 : 2e-3) * scale, rtol: tensorCores ? 1e-2 : 1e-3);
+            atol: (reducedPrecision ? 5e-2 : 2e-3) * scale, rtol: reducedPrecision ? 1e-2 : 1e-3);
     }
 
     [Theory, MemberData(nameof(Formats))]

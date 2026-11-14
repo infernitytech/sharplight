@@ -75,7 +75,7 @@ public sealed partial class GraphLowerer
         return split;
     }
 
-    /// <summary>Split-K SIMT gemm: partial sums into the shared split-K scratch, then <c>splitk_reduce</c>.</summary>
+    /// <summary>Split-K SIMT gemm: partial sums into a split-K scratch buffer, then <c>splitk_reduce</c>.</summary>
     private void EmitSimtSplitKMatMul(MatMulPlan p)
     {
         long N = p.N;
@@ -100,23 +100,22 @@ public sealed partial class GraphLowerer
             return;
         }
 
-        _splitScratch ??= NewBuffer(BufferKind.Activations, "splitk", 0);
-        _splitScratch.Bytes = Math.Max(_splitScratch.Bytes, scratchBytes);
-        var partial = new TensorRef(_splitScratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
+        var scratch = SplitScratch(scratchBytes);
+        var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         bool Selected(Bindings b, long tileRows, int split)
             => p.RowCount(b) > MatvecMaxRows && SimtTileRows(p.RowCount(b)) == tileRows && p.Split(b) == split;
 
         Emit($"{MatMulLabel(p)} split-k", [p.Node],
             [.. configs.Select(c => new KernelVariant(b => Selected(b, c.TileRows, c.Split),
                 Lib("matmul.slang", "gemm", SimtMacros(p, c.TileRows, c.Split)), b => SimtGrid(p, b, (uint)c.Split)))],
-            [Pointer(p.X), Pointer(p.W), new PointerArg(_splitScratch, 0), TokenArg(p.X, p.RowsPerLead)],
+            [Pointer(p.X), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, p.RowsPerLead)],
             [p.X, p.W], [partial]);
 
         Emit($"matmul {p.Node.Output.Name} split-k reduce", [p.Node],
             [.. configs.Select(c => c.Split).Distinct().Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
                 Lib("matmul.slang", "splitk_reduce", new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) }),
                 b => new Grid(Grid.Div(p.RowCount(b) * N, 256))))],
-            [new PointerArg(_splitScratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
+            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
             [partial], [p.Y]);
     }
 }

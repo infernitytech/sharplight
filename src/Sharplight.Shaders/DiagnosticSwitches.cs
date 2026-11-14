@@ -40,6 +40,12 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG32</c>, <c>SHARPLIGHT_GEMM2_CFG64=wm,wn,fm,fn</c>: force the layout of the 32- and 64-token
 /// gemm_cm2 tiles.</item>
+/// <item><c>SHARPLIGHT_SKINNY_GEMM=0</c>: serve 2-16-row matmuls of weight formats without an integer-dot matvec (f16, bf16,
+/// FP8, NVFP4, ...) with the multi-row f32 matvec and gemm_cm2 (split-K) instead of the skinny tensor-core GEMM
+/// (<c>matmul_skinny.slang</c>: every weight read once, K split inside the workgroup).
+/// <c>SHARPLIGHT_SKINNY_MAX_ROWS=n</c>: largest row count it serves (default 16, at most 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its
+/// weight fragments per workgroup, subgroups per workgroup and K block. <c>SHARPLIGHT_SKINNY_X16=0|1</c>: read an f16 copy of the
+/// activations instead of converting f32 rows while staging.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -142,6 +148,18 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced layout of the 64-token gemm_cm2 tile, or null.</summary>
     public static int[]? Gemm2Layout64 { get; } = Read("SHARPLIGHT_GEMM2_CFG64")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
+    public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
+
+    /// <summary>Forced largest row count of the skinny GEMM, or null for the default.</summary>
+    public static long? SkinnyGemmMaxRows { get; } = Read("SHARPLIGHT_SKINNY_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
+    /// <summary>Forced skinny GEMM configuration (weight fragments, subgroups, K block), or null.</summary>
+    public static int[]? SkinnyGemmConfig { get; } = Read("SHARPLIGHT_SKINNY_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Forced activation source of the skinny GEMM (true: f16 copy, false: f32 rows), or null for the default.</summary>
+    public static bool? SkinnyGemmHalfActivations { get; } = Read("SHARPLIGHT_SKINNY_X16") is { } v ? v != "0" : null;
 
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);

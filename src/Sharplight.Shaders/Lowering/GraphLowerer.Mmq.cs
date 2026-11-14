@@ -170,15 +170,14 @@ public sealed partial class GraphLowerer
             return;
         }
 
-        _splitScratch ??= NewBuffer(BufferKind.Activations, "splitk", 0);
-        _splitScratch.Bytes = Math.Max(_splitScratch.Bytes, scratchBytes);
-        var partial = new TensorRef(_splitScratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
+        var scratch = SplitScratch(scratchBytes);
+        var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var partialVariants = tiledSplits.Select(ts => new KernelVariant(
             b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == ts.TileRows && Split(b) == ts.Split,
             kernel(ts.TileRows, ts.Split),
             b => new Grid(Grid.Div(n, MmqColumns(ts.TileRows)), Grid.Div(p.RowCount(b), ts.TileRows), (uint)ts.Split)));
         Emit($"{label} {name} split-k", [p.Node], [.. partialVariants],
-            [Pointer(quantized), Pointer(p.W), new PointerArg(_splitScratch, 0), TokenArg(p.X, p.RowsPerLead)],
+            [Pointer(quantized), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, p.RowsPerLead)],
             [quantized, p.W], [partial]);
 
         var reduceVariants = tiledSplits.Select(ts => ts.Split).Distinct().Select(split => new KernelVariant(
@@ -186,7 +185,7 @@ public sealed partial class GraphLowerer
             Lib("matmul.slang", "splitk_reduce", new Dictionary<string, string>(p.Macros) { ["SPLITK"] = split.ToString(CultureInfo.InvariantCulture) }),
             b => new Grid(Grid.Div(p.RowCount(b) * n, 256))));
         Emit($"matmul {p.Node.Output.Name} {name} split-k reduce", [p.Node], [.. reduceVariants],
-            [new PointerArg(_splitScratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
+            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
             [partial], [p.Y]);
     }
 }
