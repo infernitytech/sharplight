@@ -51,10 +51,11 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Subgroup rows of the conv_cm tile: 2 (128 channels) when OG fills it and shared memory allows, else 1. The split f16 form
-    /// needs at least two k groups of a pixel per thread (its 16-pixel blocks within one subgroup): 2 only with 256-pixel tiles.
+    /// needs at least two k groups of a pixel per thread (B_ITEMS = 2 * FRAG_N / WARPS_M, its 16-pixel blocks within one
+    /// subgroup): 2 only with tiles of at least 128 pixels.
     /// </summary>
     private int ConvMatrixWarpsM(long OG, ConvMatrixForm form)
-        => OG >= 2 * ConvMatrixWarpRows && ConvMatrixSharedBytes(2, form) <= _opt.MaxSharedMemory && (form.Parts != 4 || form.TileColumns >= 256) ? 2 : 1;
+        => OG >= 2 * ConvMatrixWarpRows && ConvMatrixSharedBytes(2, form) <= _opt.MaxSharedMemory && (form.Parts != 4 || form.TileColumns >= 128) ? 2 : 1;
 
     /// <summary>
     /// Which conv_cm form applies (null: none), see the class remarks. <paramref name="columns"/> is the output map size,
