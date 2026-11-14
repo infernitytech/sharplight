@@ -204,8 +204,12 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) != 1;
         }
 
-        LowerMatMul(matmul);
-        LowerElementwise([add], [add.Output]);
+        LowerMatMul(matmul, DiagnosticSwitches.NoMatMulEpilogue ? null : new MatMulEpilogue([add], add.Output));
+        if (DiagnosticSwitches.NoMatMulEpilogue)
+        {
+            LowerElementwise([add], [add.Output]);
+        }
+
         _launchCondition = outer;
     }
 
@@ -285,25 +289,32 @@ public sealed partial class GraphLowerer
     /// The gemm_cm2 variants (no split-K) for activations with macros <paramref name="m"/>, each also gated by
     /// <paramref name="when"/>: the 8-warp 128-token layout for large grids, the skinny tiles, then the 4-warp layout.
     /// </summary>
-    private List<KernelVariant> Gemm2Variants(MatMulPlan p, Dictionary<string, string> m, Func<Bindings, bool> when)
+    private List<KernelVariant> Gemm2Variants(MatMulPlan p, Dictionary<string, string> m, Func<Bindings, bool> when,
+        Func<Dictionary<string, string>, CompiledKernel>? compile = null)
     {
+        compile ??= macros => Lib("matmul.slang", "gemm_cm2", macros);
         List<KernelVariant> variants =
         [
             new KernelVariant(b => when(b) && p.Split(b) == 1 && LargeGemm2Grid(p, b),
-                Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, Gemm2TileRows, large: true)), b => Gemm2Grid(p, b)),
+                compile(Gemm2Macros(m, Gemm2TileRows, large: true)), b => Gemm2Grid(p, b)),
         ];
         foreach (int tileRows in new[] { 32, 64 })
         {
             variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1 && Gemm2TileRowsFor(p.RowCount(b)) == tileRows,
-                Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, tileRows, large: false)), b => Gemm2Grid(p, b)));
+                compile(Gemm2Macros(m, tileRows, large: false)), b => Gemm2Grid(p, b)));
         }
 
         variants.Add(new KernelVariant(b => when(b) && p.Split(b) == 1,
-            Lib("matmul.slang", "gemm_cm2", Gemm2Macros(m, Gemm2TileRows, large: false)), b => Gemm2Grid(p, b)));
+            compile(Gemm2Macros(m, Gemm2TileRows, large: false)), b => Gemm2Grid(p, b)));
         return variants;
     }
 
-    private void LowerMatMul(Node n)
+    /// <summary>
+    /// Lowers weight matmul <paramref name="n"/>. With <paramref name="epilogue"/> (an elementwise group consuming the product), the
+    /// split-f16 GEMM applies the group in its store; the other launches write the product and the group runs as its own launch
+    /// for the row counts they serve.
+    /// </summary>
+    private void LowerMatMul(Node n, MatMulEpilogue? epilogue = null)
     {
         var x = Ref(n.Inputs[0]);
         var w = Ref(n.Inputs[1]);
@@ -311,11 +322,17 @@ public sealed partial class GraphLowerer
         {
             // Weight kernels walk K in groups of 8; odd K goes through the general strided matmul (x · Wᵀ).
             LowerBmm(n, Ref(n.Inputs[0]), w, ta: false, tb: true, alpha: 1f);
+            if (epilogue is not null)
+            {
+                LowerElementwise(epilogue.Group, [epilogue.Output]);
+            }
+
             return;
         }
 
         var plan = PlanMatMul(n, x, w);
         var outer = _launchCondition;
+        var epilogueCode = epilogue is not null && plan.SplitHalf ? MatMulEpilogueSource(n, epilogue) : null;
         bool intDot = UseIntDotMatvec(n, plan.W.Type, plan.K);
         bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
@@ -359,8 +376,12 @@ public sealed partial class GraphLowerer
             _launchCondition = b => (beforeSkinny?.Invoke(b) ?? true) && !InSkinnyRange(plan.RowCount(b), plan.N, skinnyMin);
         }
 
-        EmitMatMulLaunches(plan, half);
+        EmitMatMulLaunches(plan, half, epilogueCode);
         _launchCondition = outer;
+        if (epilogue is not null && epilogueCode is null)
+        {
+            LowerElementwise(epilogue.Group, [epilogue.Output]);
+        }
     }
 
     /// <summary>
@@ -392,7 +413,7 @@ public sealed partial class GraphLowerer
     /// The f32-activation launches of a planned matmul: matvec variants, GEMM (optionally on the f16 activations
     /// <paramref name="half"/>), split-K.
     /// </summary>
-    private void EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null)
+    private void EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null, MatMulEpilogueCode? epilogue = null)
     {
         var activations = plan.X;
         if (plan.Coop && !plan.SplitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
@@ -420,21 +441,21 @@ public sealed partial class GraphLowerer
         }
         else if (plan.SplitHalf)
         {
-            activations = EmitSplitHalfMatMul(plan);
+            activations = EmitSplitHalfMatMul(plan, epilogue);
         }
         else
         {
             EmitDirectMatMul(plan);
         }
 
-        EmitSplitKMatMul(plan, activations);
+        EmitSplitKMatMul(plan, activations, epilogue);
     }
 
     /// <summary>
     /// Emits the f32 matvec launch, the split of x into row-scaled f16 hi / lo parts (shared by the matmuls reading the same
     /// rows) and the split-f16 GEMM. Returns the split activations.
     /// </summary>
-    private TensorRef EmitSplitHalfMatMul(MatMulPlan p)
+    private TensorRef EmitSplitHalfMatMul(MatMulPlan p, MatMulEpilogueCode? epilogue = null)
     {
         if (MinRows(p.X) * p.RowsPerLead <= MatvecMaxRows)
         {
@@ -442,13 +463,24 @@ public sealed partial class GraphLowerer
                 MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), WithoutSplit(p.Macros), p.N, p.K, p.RowCount),
                 [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
                 [p.X, p.W], [p.Y]);
+            if (epilogue is not null)
+            {
+                // The matvec rows (up to MatvecMaxRows) apply the group in its own launch.
+                var outer = _launchCondition;
+                _launchCondition = b => (outer?.Invoke(b) ?? true) && p.RowCount(b) <= MatvecMaxRows;
+                LowerElementwise(epilogue.Group, [epilogue.OutputValue]);
+                _launchCondition = outer;
+            }
         }
 
         var split = QuantizedActivations(MatMulLabel(p), [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, p.K, MatvecMaxRows + 1,
             p.X.Shape[0] * p.RowsPerLead, ActivationCode.SplitF16);
-        Emit(MatMulLabel(p), [p.Node], Gemm2Variants(p, p.Macros, b => p.RowCount(b) > MatvecMaxRows),
-            [Pointer(split), Pointer(p.WeightParts!), Pointer(p.Y), Pointer(p.WeightScales!), TokenArg(p.X, p.RowsPerLead)],
-            [split, p.WeightParts!, p.WeightScales!], [p.Y]);
+        var y = epilogue?.Output ?? p.Y;
+        Emit(MatMulLabel(p) + (epilogue?.Label ?? ""), [p.Node, .. epilogue?.Group ?? []],
+            Gemm2Variants(p, p.Macros, b => p.RowCount(b) > MatvecMaxRows,
+                epilogue is null ? null : macros => MatMulEpilogueKernel(epilogue, "gemm_cm2", macros)),
+            [Pointer(split), Pointer(p.WeightParts!), Pointer(y), Pointer(p.WeightScales!), .. MatMulEpilogueArgs(epilogue), TokenArg(p.X, p.RowsPerLead)],
+            [split, p.WeightParts!, p.WeightScales!, .. epilogue?.Args ?? []], [y]);
         return split;
     }
 
@@ -717,7 +749,7 @@ public sealed partial class GraphLowerer
     /// Split-K for grids too small to fill the GPU (small N or few token tiles): partial sums into a shared
     /// scratch buffer, then a reduction. Both launches only run when the chosen split is greater than one.
     /// </summary>
-    private void EmitSplitKMatMul(MatMulPlan p, TensorRef activations)
+    private void EmitSplitKMatMul(MatMulPlan p, TensorRef activations, MatMulEpilogueCode? epilogue = null)
     {
         if (!p.Coop)
         {
@@ -776,12 +808,13 @@ public sealed partial class GraphLowerer
             [activations, p.WeightParts ?? p.W, .. scaleReads], [partial]);
 
         var reduceVariants = splits.Select(split => new KernelVariant(b => p.RowCount(b) > MatvecMaxRows && p.Split(b) == split,
-            Lib("matmul.slang", "splitk_reduce", splitMacros(split)),
+            epilogue is null ? Lib("matmul.slang", "splitk_reduce", splitMacros(split)) : MatMulEpilogueKernel(epilogue, "splitk_reduce", splitMacros(split)),
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
-        Emit($"matmul {p.Node.Output.Name} split-k reduce", [p.Node],
+        var y = epilogue?.Output ?? p.Y;
+        Emit($"matmul {p.Node.Output.Name} split-k reduce{epilogue?.Label}", [p.Node, .. epilogue?.Group ?? []],
             [.. reduceVariants],
-            [new PointerArg(scratch, 0), Pointer(p.WeightParts ?? p.W), Pointer(p.Y), TokenArg(p.X, rowsPerLead)],   // w: unused by the reduction
-            [partial], [p.Y]);
+            [new PointerArg(scratch, 0), Pointer(p.WeightParts ?? p.W), Pointer(y), .. MatMulEpilogueArgs(epilogue), TokenArg(p.X, rowsPerLead)],   // w: unused by the reduction
+            [partial, .. epilogue?.Args ?? []], [y]);
     }
 
     /// <summary>
