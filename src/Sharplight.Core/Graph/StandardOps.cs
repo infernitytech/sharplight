@@ -197,13 +197,16 @@ public static partial class StandardOps
     /// Attribute <c>v_dims</c> (int &gt; 0): the values are the first <c>v_dims</c> entries of each vcache row, so Dv = v_dims and
     /// vcache may be the very same state as kcache (multi-head latent attention: one latent row per token serves as key and,
     /// through its prefix, as value).
+    /// Attribute <c>selection</c> (bool): sparse attention. The input after V (and after the sinks when present) is i32 [T, K]: the key positions
+    /// query row t attends (as positions of its own sequence, e.g. from <see cref="IndexerTopK"/>); entries below 0 and positions the row cannot
+    /// see are skipped. Not combined with <c>window</c> or <c>chunk</c>.
     /// Output [T, Hq, Dv]. Hq must be a multiple of Hkv (GQA).
-    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
+    /// Multi-sequence form (see <see cref="MultiSequence"/>): the last two inputs (after the optional sinks and selection) = sequence rows [T, 4] / runs [U, 4], attribute <c>slots</c>
     /// = S; the cache holds S contiguous slot contexts of Ctx/S rows, and row t attends rows [0, position] of its slot.
     /// Paged form: attribute <c>block_size</c> = B and a last input, the block table [S, blocks per slot] i32
     /// (<see cref="Models.InputRole.KvBlockTable"/>); position p of slot s is cache row table[s, p / B] · B + p % B.
     /// </summary>
-    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 7, (i, a) =>
+    public static readonly OpSchema CachedAttention = new("CachedAttention", OpCategory.Composite, 3, 8, (i, a) =>
     {
         var q = i[0].Shape;
         var v = i[2].Shape;
@@ -214,6 +217,27 @@ public static partial class StandardOps
         }
 
         return [new(DataType.F32, new Shape(q[0], q[1], valueDims > 0 ? Dim.Of(valueDims) : v[2]))];
+    });
+
+    /// <summary>
+    /// Lightning-indexer key selection (DeepSeek sparse attention): scores the visible keys of a key cache for every query row and returns the
+    /// positions of the best <c>k</c>. Score of key position j for row t: <c>Σ_h w[t, h] · relu(q[t, h] · key[j])</c>.
+    /// Inputs: q [T, H, D] f32, kcache State [Ctx, 1, D] (f32 or f16), w [T, H] f32. Query t sees positions [0, offset + t] (attribute <c>offset</c>,
+    /// the runtime scalar, default "n_past"). Attribute <c>k</c> (int &gt; 0).
+    /// Output i32 [T, k]: the positions whose score exceeds the k-th best score in ascending order, then those equal to it in ascending order
+    /// (ties go to lower positions) up to k entries; a row that sees at most k positions gets all of them in ascending order followed by −1.
+    /// Multi-sequence and paged forms as <see cref="CachedAttention"/> (sequence rows [T, 4], runs [U, 4], optional block table; attributes
+    /// <c>slots</c>, <c>block_size</c>): row t sees the positions [0, position] of its slot.
+    /// </summary>
+    public static readonly OpSchema IndexerTopK = new("IndexerTopK", OpCategory.Composite, 3, 6, (i, a) =>
+    {
+        long k = a.Get("k", 0L);
+        if (k < 1)
+        {
+            throw new ArgumentException("IndexerTopK needs k >= 1.");
+        }
+
+        return [new(DataType.I32, new Shape(i[0].Shape[0], Dim.Of(k)))];
     });
 
     /// <summary>

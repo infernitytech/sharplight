@@ -35,6 +35,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
     private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
     private readonly KvPages? _pages;    // paged multi-sequence cache
+    private readonly TRef? _selection;   // sparse attention: [T, K] key positions per query row (< 0: none)
     private long _t;
     private long _past;
     private long _s;
@@ -42,13 +43,15 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private long _per;
     [ThreadStatic] private static float[]? s_scores;
     [ThreadStatic] private static float[]? s_row;
+    [ThreadStatic] private static long[]? s_positions;
 
     public override string Name => (_offsetScalar is null ? "Attention" : "CachedAttention") + (_tiledLanes > 0 ? ".tiled" : "");
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
-        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0)
+        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null)
     {
+        _selection = selection;
         _alibiSlopes = alibiSlopes;
         _positionBias = positionBias;
         _positionBiasRange = positionBiasRange;
@@ -236,6 +239,15 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 float* q = _q.F(task);
                 float* o = (float*)_y.P + task * _dv;
                 new Span<float>(o, _dv).Clear();
+                long* positions = null;
+                if (_selection is not null)
+                {
+                    // Sparse attention: the scores are kept per selected entry, entries index the visible selected positions.
+                    positions = SelectedPositions(t, n, out long count);
+                    j0 = 0;
+                    n = count;
+                }
+
                 if (n <= j0)
                 {
                     continue;
@@ -250,8 +262,9 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
                 float sink = _sinks is null ? float.NegativeInfinity : ((float*)_sinks.P)[h * _sinks.Strides[0]];   // learned per-head logit that attends to nothing
                 float max = sink;
-                for (long j = j0; j < n; j++)
+                for (long entry = j0; entry < n; entry++)
                 {
+                    long j = positions == null ? entry : positions[entry];
                     long off = (slot >= 0 ? _pages!.Row(slot, j) : kvBase + j) * ks0 + hk * ks1;
                     float dot;
                     if (_kQuant is { } kFormat)
@@ -286,7 +299,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                         dot += mrow[j * mstride];
                     }
 
-                    sc[j] = dot;
+                    sc[entry] = dot;
                     if (dot > max)
                     {
                         max = dot;
@@ -312,25 +325,52 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     sc[i] = ev;
                     sum += ev;
                 }
-                for (long j = j0; j < n; j++)
+                for (long entry = j0; entry < n; entry++)
                 {
+                    long j = positions == null ? entry : positions[entry];
                     long off = (slot >= 0 ? _pages!.Row(slot, j) : kvBase + j) * vs0 + hk * vs1;
                     if (_vQuant is { } vFormat)
                     {
                         Quant.Dequantize(vFormat, _v.P + off / 32 * Quant.BlockBytes(vFormat), _dv, rowBuf);
-                        Simd.Axpy(o, rowBuf, sc[j], _dv);
+                        Simd.Axpy(o, rowBuf, sc[entry], _dv);
                     }
                     else if (_vHalf)
                     {
-                        Simd.AxpyHalf(o, (ushort*)_v.P + off, sc[j], _dv);
+                        Simd.AxpyHalf(o, (ushort*)_v.P + off, sc[entry], _dv);
                     }
                     else
                     {
-                        Simd.Axpy(o, (float*)_v.P + off, sc[j], _dv);
+                        Simd.Axpy(o, (float*)_v.P + off, sc[entry], _dv);
                     }
                 }
                 Simd.Scale(o, o, 1f / sum, _dv);
             }
         }
+    }
+    /// <summary>
+    /// The selected key positions of query row <paramref name="t"/> that it can see (below <paramref name="visible"/>), in a per-thread buffer that
+    /// stays valid until the next call on the thread.
+    /// </summary>
+    private long* SelectedPositions(long t, long visible, out long count)
+    {
+        long width = _selection!.Dims[1];
+        var buffer = s_positions;
+        if (buffer is null || buffer.Length < width)
+        {
+            s_positions = buffer = GC.AllocateUninitializedArray<long>((int)width, pinned: true);   // pinned: its address is handed out
+        }
+
+        int* row = (int*)_selection.P + t * _selection.Strides[0];
+        count = 0;
+        for (long i = 0; i < width; i++)
+        {
+            long j = row[i * _selection.Strides[1]];
+            if (j >= 0 && j < visible)
+            {
+                buffer[count++] = j;
+            }
+        }
+
+        return (long*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref buffer[0]);
     }
 }

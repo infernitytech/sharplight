@@ -176,6 +176,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "CachedAttention":
                 LowerCachedAttention(n);
                 return;
+            case "IndexerTopK":
+                LowerIndexerTopK(n);
+                return;
             case "Attention":
                 LowerAttention(n);
                 return;
