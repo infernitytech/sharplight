@@ -44,6 +44,14 @@ internal sealed class EngineSequence
     /// <summary>Tokens generated so far.</summary>
     public int Generated { get; set; }
     public long LastTokenTicks { get; set; }
+    /// <summary>When the request got a slot (0 while queued).</summary>
+    public long AdmitTicks { get; set; }
+    /// <summary>When the first token was generated (0 before).</summary>
+    public long FirstTokenTicks { get; set; }
+    /// <summary>Draft tokens verified for this request.</summary>
+    public int DraftTokens { get; set; }
+    /// <summary>Draft tokens accepted for this request.</summary>
+    public int AcceptedDraftTokens { get; set; }
 
     /// <summary>The token sampled last and not yet fed to the model, followed by its draft tokens; reused as the step input.</summary>
     public int[] Input { get; private set; } = new int[1];

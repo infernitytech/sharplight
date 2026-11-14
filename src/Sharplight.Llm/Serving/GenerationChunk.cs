@@ -10,10 +10,12 @@ namespace Sharplight.Llm.Serving;
 /// <param name="Usage">Set on the last chunk only.</param>
 /// <param name="Error">Failure message when <paramref name="Finish"/> is <see cref="FinishReason.Error"/>.</param>
 /// <param name="StopSequence">The stop string that ended the generation (it is not part of the text), if that was the reason.</param>
+/// <param name="Timings">Set on the last chunk only: where the request's time went.</param>
 public sealed record GenerationChunk(
     string Text,
     IReadOnlyList<TokenLogprob>? Logprobs = null,
     FinishReason? Finish = null,
     GenerationUsage? Usage = null,
     string? Error = null,
-    string? StopSequence = null);
+    string? StopSequence = null,
+    GenerationTimings? Timings = null);

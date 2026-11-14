@@ -50,7 +50,7 @@
     <Grid Grid.Column="2" RowDefinitions="Auto,*,Auto,Auto">
       <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,4">
         <TextBlock Classes="heading" Margin="0,0,12,0" VerticalAlignment="Center" Text="Properties and metadata" />
-        <TextBox Grid.Column="1" Watermark="Filter (key, value)" Text="{Binding Filter}" />
+        <TextBox Grid.Column="1" PlaceholderText="Filter (key, value)" Text="{Binding Filter}" />
       </Grid>
       <DataGrid Grid.Row="1" ItemsSource="{Binding Values}" SelectedItem="{Binding SelectedValue}" IsReadOnly="True"
                 GridLinesVisibility="Horizontal">

@@ -16,7 +16,7 @@
     <Grid RowDefinitions="Auto,*">
       <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="0,4">
         <TextBlock Classes="heading" Margin="0,0,12,0" VerticalAlignment="Center" Text="IR" />
-        <TextBox Grid.Column="1" Watermark="Find in IR (Enter: next, Shift+Enter: previous)" Text="{Binding SearchText}">
+        <TextBox Grid.Column="1" PlaceholderText="Find in IR (Enter: next, Shift+Enter: previous)" Text="{Binding SearchText}">
           <TextBox.KeyBindings>
             <KeyBinding Gesture="Enter" Command="{Binding FindNextCommand}" />
             <KeyBinding Gesture="Shift+Enter" Command="{Binding FindPreviousCommand}" />

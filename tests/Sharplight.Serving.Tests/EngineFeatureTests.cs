@@ -120,6 +120,8 @@ public class EngineFeatureTests
         Assert.True(m.AcceptedDraftTokens > 10, $"accepted {m.AcceptedDraftTokens} of {m.DraftTokens}");
         Assert.True(d.Steps.Count < plain.Steps.Count / 2, $"{d.Steps.Count} steps vs {plain.Steps.Count}");
         Assert.Contains(d.LogitsRowsPerStep, rows => rows.Any(n => n > 1));
+        var timings = (await spec.GenerateAsync(Req("abcd"), ct).LastAsync(ct)).Timings!.Value;
+        Assert.True(timings.AcceptedDraftTokens > 10 && timings.AcceptedDraftTokens <= timings.DraftTokens, $"{timings}");
     }
 
     [Fact]
