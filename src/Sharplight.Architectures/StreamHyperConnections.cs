@@ -33,6 +33,17 @@ internal static class StreamHyperConnections
     /// </summary>
     public static (Value Input, Value Post, Value? Mixing) Collapse(GraphBuilder b, Value x, string prefix, StreamHyperConnectionOptions o, int hidden)
     {
+        var (pre, post, mixing) = Weigh(b, x, prefix, o);
+        return (Apply(b, x, pre, o, hidden, $"{prefix}input"), post, mixing);
+    }
+
+    /// <summary>
+    /// The collapse weights [T, N], expansion weights [T, N, 1] and optional mixing matrix [T, N, N] of the module below <paramref name="prefix"/>,
+    /// computed from the streams x [T, N·H] (<see cref="Collapse"/> applies the collapse weights to the same streams; with
+    /// <see cref="StreamHyperConnectionOptions.LaggedCollapse"/> they collapse the input of the next block instead).
+    /// </summary>
+    public static (Value Pre, Value Post, Value? Mixing) Weigh(GraphBuilder b, Value x, string prefix, StreamHyperConnectionOptions o)
+    {
         int n = o.Streams;
         var m = Mixes(b, x, prefix, o);
         var scale = b.Weight(prefix + "scale");
@@ -45,8 +56,15 @@ internal static class StreamHyperConnections
             mixing = Sinkhorn(b, m, scale, bias, o);
         }
 
-        return (Sum(b, x, pre, n, hidden, $"{prefix}input"), post, mixing);
+        return (pre, post, mixing);
     }
+
+    /// <summary>The streams x [T, N·H] collapsed with the weights <paramref name="pre"/> [T, N] into [T, H].</summary>
+    public static Value Apply(GraphBuilder b, Value x, Value pre, StreamHyperConnectionOptions o, int hidden, string name)
+        => Sum(b, x, pre, o.Streams, hidden, name);
+
+    /// <summary>Stream <paramref name="stream"/> of x [T, N·H] as [T, H] (the collapse of the first block with lagged collapse weights).</summary>
+    public static Value Stream(GraphBuilder b, Value x, int stream, int hidden) => b.Slice(x, 1, (long)stream * hidden, hidden);
 
     /// <summary>The streams after a block: every stream gets the block output y [T, H] times its expansion weight, plus the (mixed) old streams.</summary>
     public static Value Merge(GraphBuilder b, Value x, Value y, Value post, Value? mixing, StreamHyperConnectionOptions o, int hidden, string? name = null)

@@ -35,6 +35,11 @@ internal sealed partial class LatentDecoderGraphBuilder
     private Value? _positions;   // while a graph is built: the row positions
     private Value? _tokens;   // while a graph is built: the token ids (null for the embeddings graph), for hash routing
     private Value? _groupIds;   // while a graph is built: the output group indices of compressed-KV attention
+    private readonly EngramOptions? _engram;   // DeepSeek-V4.1: hashed n-gram memory read by some layers
+    private readonly StateDefinition? _engramWindow;
+    private Value? _engramIds;   // while a graph is built: the n-gram token window (null for the embeddings graph)
+    private Value? _laggedPre;   // while a graph is built: the collapse weights of the last module (lagged hyper-connections)
+    private CompressedKvShared? _compressedShared;   // while a graph is built: caches and selections shared across layers
 
     /// <summary>Creates the builder and the latent cache state of every layer.</summary>
     public LatentDecoderGraphBuilder(ModelSource source, AdapterOptions options, LatentDecoderHyperParameters hyperParameters)
@@ -56,13 +61,15 @@ internal sealed partial class LatentDecoderGraphBuilder
         _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
             ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
         _caches = new StateDefinition?[_hp.LayerCount];
+        _engram = _hp.HyperConnections is null ? null : EngramOptions.Read(_src);
+        _engramWindow = _engram is null ? null : EngramMemory.WindowState(_engram);
         _compressedStates = new CompressedKvLayerStates?[_hp.LayerCount];
         if (_hp.CompressedKv is { } compressedKv)
         {
             _compressedKv = new CompressedKvAttention(compressedKv, _hp.Attention.Heads, _hp.Attention.RopeDims, _hp.Eps);
             for (int il = 0; il < _hp.LayerCount; il++)
             {
-                _compressedStates[il] = _compressedKv.CreateStates(_src.Weight, $"layers.{il}.", $"layers.{il}", il, options.KvCacheType);
+                _compressedStates[il] = _compressedKv.CreateStates(_src.Weight, $"layers.{il}.", $"layers.{il}", il, options.KvCacheType, _compressedStates);
             }
         }
 
@@ -132,6 +139,11 @@ internal sealed partial class LatentDecoderGraphBuilder
             if (_draftCache is not null)
             {
                 states.Add(_draftCache);
+            }
+
+            if (_engramWindow is not null)
+            {
+                states.Add(_engramWindow);
             }
 
             return states;
@@ -204,6 +216,9 @@ internal sealed partial class LatentDecoderGraphBuilder
         _logPositions = _ssmax ? ScalableSoftmax.LogPositions(b, positions) : null;
         _slidingHeadIds = _hp.SlidingAttention.Heads == _hp.Attention.Heads ? headIds : LatentAttention.HeadIndices(b, positions, _hp.SlidingAttention.Heads, "_sliding");
         _slidingRotate = _hp.SlidingLayers.Length == 0 ? null : RopeOf(b, positions, _hp.RopeStyle, 1f, _hp.SlidingRopeBase, "rope.freq_factors_sliding");
+        _laggedPre = null;
+        _compressedShared = _compressedKv is null ? null : new CompressedKvShared();
+        _engramIds = _engram is not null && !embeddingsInput ? EngramMemory.Window(b, _tokens!, _engram, b.State(_engramWindow!)) : null;
         if (_hp.HyperConnections is { } hc)
         {
             x = StreamHyperConnections.Expand(b, x, hc.Streams);
@@ -225,7 +240,9 @@ internal sealed partial class LatentDecoderGraphBuilder
             if (_hp.HyperConnections is { } streams)
             {
                 // A learned head collapses the streams with its own weights; without one (GLM-5.3-Flash) they are averaged.
-                x = b.HasWeight("output_hc.fn.weight")
+                // Lagged collapse weights (DeepSeek-V4.1): the last module's collapse the final streams.
+                x = streams.LaggedCollapse ? StreamHyperConnections.Apply(b, x, _laggedPre!, streams, _hp.HiddenSize, "output_hc.output")
+                    : b.HasWeight("output_hc.fn.weight")
                     ? StreamHyperConnections.Head(b, x, "output_hc.", streams, _hp.HiddenSize)
                     : StreamHyperConnections.Mean(b, x, streams.Streams, _hp.HiddenSize);
             }
@@ -287,7 +304,7 @@ internal sealed partial class LatentDecoderGraphBuilder
             // Sliding-only layers rotate with the main rope, layers with compressed entries with the compressed one.
             bool main = _compressedKv!.Options.Ratios[il] == 0;
             var rope = RopeAt(b, main ? _hp.RopeBase : _compressedKv.Options.CompressedRopeBase, main ? "rope.freq_factors" : "rope.freq_factors_compressed");
-            return _compressedKv.Build(b, h, p, il, compressed, _positions!, _groupIds!, rope);
+            return _compressedKv.Build(b, h, p, il, compressed, _positions!, _groupIds!, rope, _compressedShared!);
         }
 
         if (il >= 0 && _hp.IsSliding(il))
@@ -325,6 +342,16 @@ internal sealed partial class LatentDecoderGraphBuilder
     private Value HyperConnectedLayer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature,
         StreamHyperConnectionOptions hc)
     {
+        if (il >= 0 && _engramIds is not null && _engram!.ModuleOf(il) is int module and >= 0)
+        {
+            x = EngramMemory.Build(b, _engramIds, x, p, module, _engram, hc.Streams, _hp.HiddenSize, _hp.Eps);
+        }
+
+        if (hc.LaggedCollapse)
+        {
+            return LaggedHyperConnectedLayer(b, x, p, il, headIds, rotate, temperature, hc);
+        }
+
         var (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "attention_hc.", hc, _hp.HiddenSize);
         var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
         var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
@@ -334,6 +361,26 @@ internal sealed partial class LatentDecoderGraphBuilder
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
         var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
         return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, _hp.HiddenSize, $"{p}l_out");
+    }
+
+    // The layer on single-pass hyper-connections (DeepSeek-V4.1): each module's collapse weights, computed from its block's input, collapse the
+    // next block's input (the attention's from the previous layer's FFN module, the first layer's attention reads stream 0).
+    private Value LaggedHyperConnectedLayer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature,
+        StreamHyperConnectionOptions hc)
+    {
+        int hidden = _hp.HiddenSize;
+        var (attentionPre, post, mixing) = StreamHyperConnections.Weigh(b, x, p + "attention_hc.", hc);
+        var input = _laggedPre is null ? StreamHyperConnections.Stream(b, x, 0, hidden)
+            : StreamHyperConnections.Apply(b, x, _laggedPre, hc, hidden, $"{p}attention_hc.input");
+        var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
+        var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
+        x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc, hidden, $"{p}attn_residual");
+
+        (_laggedPre, post, mixing) = StreamHyperConnections.Weigh(b, x, p + "mlp_hc.", hc);
+        h = b.RmsNorm(StreamHyperConnections.Apply(b, x, attentionPre, hc, hidden, $"{p}mlp_hc.input"), b.Weight(p + "post_attention_norm.weight"), _hp.Eps,
+            $"{p}post_attn_norm");
+        var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
+        return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, hidden, $"{p}l_out");
     }
 
     // The layer with block attention residuals: x is the running sum of the current block; each sub-layer reads the mix of the banked

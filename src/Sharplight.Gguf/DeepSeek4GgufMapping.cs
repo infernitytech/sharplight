@@ -11,6 +11,11 @@ namespace Sharplight.Gguf;
 /// (the plain base and no scaling on the sliding-only layers, as llama.cpp), hyper-connections with Sinkhorn mixing, sqrt-softplus routing with the
 /// hash-routed first <c>hash_layer_count</c> layers (<c>ffn_gate_tid2eid</c>) and clamped SwiGLU experts and shared expert. The NextN layers are
 /// not imported.
+/// <c>deepseek41</c> (DeepSeek-V4.1) on the same vocabulary: compression ratios 1 and 2 without position biases, the compressed caches and
+/// indexer selections of the latest <c>attention.kv_source_layers</c> / <c>attention.indexer.source_layers</c> layer at or before every layer,
+/// index keys derived from the entries (<c>indexer.attn_k</c>), the optional candidate-block selection, query heads without RMS norm,
+/// single-pass (lagged) hyper-connections without a head, the Engram n-gram memory (<c>ple.*</c>, <c>engram.*</c> keys,
+/// <c>per_layer_token_embd</c>) and expert weights normalized only when more than one expert is routed.
 /// </summary>
 internal sealed class DeepSeek4GgufMapping : IGgufArchitectureMapping
 {
@@ -18,7 +23,7 @@ internal sealed class DeepSeek4GgufMapping : IGgufArchitectureMapping
     private const int GatingSqrtSoftplus = 4;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek4"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek4", "deepseek41"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -71,8 +76,67 @@ internal sealed class DeepSeek4GgufMapping : IGgufArchitectureMapping
             md[a + "mlp.swiglu_clamp_input"] = true;
         }
 
+        if (IsV41(g))
+        {
+            AddV41(md, a, g, layers);
+        }
+
         return md;
     }
+
+    private static bool IsV41(GgufMetadataView g) => g.GgufArchitecture == "deepseek41";
+
+    // DeepSeek-V4.1: layer sources, candidate blocks, the query and hyper-connection variants and the Engram memory.
+    private static void AddV41(Dictionary<string, object> md, string a, GgufMetadataView g, int layers)
+    {
+        var ratios = (int[])md[a + "attention.compression.ratios"];
+        var kvLayers = IntArray(g, "attention.kv_source_layers");
+        var indexLayers = IntArray(g, "attention.indexer.source_layers");
+        var kvSources = new int[layers];
+        var indexSources = new int[layers];
+        int lastKv = -1, lastIndex = -1;
+        for (int il = 0; il < layers; il++)
+        {
+            lastKv = kvLayers.Contains(il) ? il : lastKv;
+            lastIndex = indexLayers.Contains(il) ? il : lastIndex;
+            kvSources[il] = ratios[il] == 0 ? -1 : lastKv;
+            indexSources[il] = ratios[il] == 0 ? -1 : lastIndex;
+        }
+
+        md[a + "attention.compression.kv_sources"] = kvSources;
+        md[a + "attention.compression.index_sources"] = indexSources;
+        md[a + "attention.compression.query_norm"] = false;
+        if (g.Int("attention.indexer.candidate_source_layer", -1) is int candidate and >= 0)
+        {
+            md[a + "attention.compression.candidate_source"] = candidate;
+            md[a + "attention.compression.candidate_blocks"] = g.Int("attention.indexer.candidate_top_k_blocks");
+            md[a + "attention.compression.candidate_block_size"] = g.Int("attention.indexer.candidate_block_size");
+        }
+
+        md[a + "hyper_connections.lagged_collapse"] = true;
+        md[a + "moe.normalize_weights"] = g.Bool("expert_weights_norm", false) && g.Int("expert_used_count") > 1;
+        if (g.Raw("ple.layers") is Array { Length: > 0 })
+        {
+            md[a + "engram.layers"] = IntArray(g, "ple.layers");
+            md[a + "engram.order"] = g.Int("ple.ngram_size");
+            md[a + "engram.heads_per_order"] = g.Int("ple.heads_per_ngram");
+            md[a + "engram.multipliers"] = LongArray(g, "ple.layer_multipliers");
+            md[a + "engram.head_sizes"] = LongArray(g, "ple.head_vocab_sizes");
+            md[a + "engram.head_offsets"] = LongArray(g, "ple.head_offsets");
+            md[a + "engram.token_map"] = IntArray(g, "engram.token_map");
+            md[a + "engram.pad_token"] = (long)g.Int("engram.pad_token_id");
+        }
+    }
+
+    private static int[] IntArray(GgufMetadataView g, string key) =>
+        g.Raw(key) is Array values
+            ? [.. values.Cast<object>().Select(Convert.ToInt32)]
+            : throw new InvalidDataException($"GGUF metadata '{key}' is missing or not an array.");
+
+    private static long[] LongArray(GgufMetadataView g, string key) =>
+        g.Raw(key) is Array values
+            ? [.. values.Cast<object>().Select(v => unchecked((long)Convert.ToUInt64(v)))]
+            : throw new InvalidDataException($"GGUF metadata '{key}' is missing or not an array.");
 
     /// <summary>Global tensors besides the embedding, output norm and head.</summary>
     private static readonly Dictionary<string, string> s_global = new(StringComparer.Ordinal)
@@ -80,6 +144,7 @@ internal sealed class DeepSeek4GgufMapping : IGgufArchitectureMapping
         ["output_hc_fn.weight"] = "output_hc.fn.weight",
         ["output_hc_base.weight"] = "output_hc.base",
         ["output_hc_scale.weight"] = "output_hc.scale",
+        ["per_layer_token_embd.weight"] = "engram.table.weight",
     };
 
     /// <summary>Per-layer tensors, GGUF suffix to canonical suffix.</summary>
@@ -105,6 +170,10 @@ internal sealed class DeepSeek4GgufMapping : IGgufArchitectureMapping
         ["indexer_compressor_gate.weight"] = "attention.indexer.compressor.gate.weight",
         ["indexer_compressor_ape.weight"] = "attention.indexer.compressor.position_bias",
         ["indexer_compressor_norm.weight"] = "attention.indexer.compressor.norm.weight",
+        ["indexer.attn_k.weight"] = "attention.indexer.k.weight",
+        ["indexer.k_norm.weight"] = "attention.indexer.k_norm.weight",
+        ["engram_kv.weight"] = "engram.kv.weight",
+        ["engram_gate.weight"] = "engram.gate",
         ["hc_attn_fn.weight"] = "attention_hc.fn.weight",
         ["hc_attn_base.weight"] = "attention_hc.base",
         ["hc_attn_scale.weight"] = "attention_hc.scale",
