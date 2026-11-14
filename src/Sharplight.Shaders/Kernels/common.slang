@@ -113,6 +113,9 @@ uint16_t f2h(float f) { return uint16_t(f32tof16(f)); }
 #define FMT_F8E5M2 51
 #define FMT_F8E4M3_B32 52
 #define FMT_F8E4M3_B128 53
+// The same in the aligned split layout [K codes][K / B f32 scales] (WeightRepack.Fp8B32Split / Fp8B128Split).
+#define FMT_F8E4M3_B32R 152
+#define FMT_F8E4M3_B128R 153
 
 // IQ formats decode through a lookup grid that lives in a device buffer (GridTables.cs). The lowering prepends its address to the parameter block
 // of every kernel that reads such a weight: those kernels declare `uint* grid` first under HAS_GRID and call GRID_BIND(p) at the start of each entry
@@ -564,9 +567,9 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
     load8_fp8(base, rowBytes, row, g, 0, false, v);
 #elif WFMT == FMT_F8E5M2
     load8_fp8(base, rowBytes, row, g, 0, true, v);
-#elif WFMT == FMT_F8E4M3_B32
+#elif WFMT == FMT_F8E4M3_B32 || WFMT == FMT_F8E4M3_B32R
     load8_fp8(base, rowBytes, row, g, 32, false, v);
-#elif WFMT == FMT_F8E4M3_B128
+#elif WFMT == FMT_F8E4M3_B128 || WFMT == FMT_F8E4M3_B128R
     load8_fp8(base, rowBytes, row, g, 128, false, v);
 #else
 #error "unsupported WFMT"

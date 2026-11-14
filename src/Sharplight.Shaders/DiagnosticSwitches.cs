@@ -51,7 +51,8 @@ namespace Sharplight.Shaders;
 /// inside the workgroup; matrices with fewer than 1024 output rows, or 4096 above 8 rows, stay on the split-K kernels).
 /// <c>SHARPLIGHT_SKINNY_MAX_ROWS=n</c>: largest row count it serves at every width (default 16 for N of at least 4096, at most
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
-/// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.</item>
+/// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
+/// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -112,6 +113,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>False keeps MXFP4 expert tensors in the file layout (no aligned 16-row-group repack).</summary>
     public static bool Mxfp4Repack { get; } = IsNotZero("SHARPLIGHT_REPACK_MXFP4");
+
+    /// <summary>Repack block-scaled FP8 weights into the aligned split layout (<c>SHARPLIGHT_REPACK_FP8=0</c> disables).</summary>
+    public static bool Fp8Repack { get; } = IsNotZero("SHARPLIGHT_REPACK_FP8");
 
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
@@ -175,6 +179,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Forced skinny GEMM configuration (weight fragments, subgroups, K block), or null.</summary>
     public static int[]? SkinnyGemmConfig { get; } = Read("SHARPLIGHT_SKINNY_CFG")?.Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>Let the skinny GEMM load its operands straight into the fragment registers where the device's layout allows.</summary>
+    public static bool SkinnyGemmDirect { get; } = IsNotZero("SHARPLIGHT_SKINNY_DIRECT");
 
     /// <summary>Forced activation source of the skinny GEMM (true: f16 copy, false: f32 rows), or null for the default.</summary>
     public static bool? SkinnyGemmHalfActivations { get; } = Read("SHARPLIGHT_SKINNY_X16") is { } v ? v != "0" : null;

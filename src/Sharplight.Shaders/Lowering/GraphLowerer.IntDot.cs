@@ -11,10 +11,23 @@ public sealed partial class GraphLowerer
     /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/> and depth
     /// <paramref name="k"/>: 8, above which the skinny GEMM or gemm_cm2 win (K-quants: Mistral-7B Q4_K_M batch 16: 12 vs 18 ms
     /// per step; Q8_0 [17408→5120] at 12 rows: 100 µs int-dot vs 72 µs skinny), and 16 for Q8_0 where the f16 tensor-core
-    /// path is not usable.
+    /// path is not usable. With the direct skinny GEMM, Q8_0 at 5-8 rows would be faster there (Blackwell, Qwen3.8-27B Q8_0
+    /// decode step at 5 / 6 / 8 rows: 27.7 / 28.1 / 28.7 ms int-dot, 24.0 / 25.6 / 25.3 ms with <c>SHARPLIGHT_MMVQ_MAX_ROWS=4</c>),
+    /// but that changes the rounding of those rows and with it greedy MTP output, so it stays a diagnostic setting.
     /// </summary>
     private long IntDotMaxRows(DataType type, long k) => DiagnosticSwitches.IntDotMaxRows
         ?? ((type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !(DiagnosticSwitches.SkinnyGemm && CoopUsable(type, k)) ? 16 : 8);
+
+    /// <summary>
+    /// First row count the skinny GEMM serves for a matmul whose small batches take the int-dot matvec: right above the int-dot
+    /// range when that ends below <see cref="MatvecMaxRows"/> (<c>SHARPLIGHT_MMVQ_MAX_ROWS</c>) and the skinny GEMM covers the
+    /// rows up to it for <paramref name="n"/> output rows, else above both the int-dot and the f32 matvec ranges.
+    /// </summary>
+    private long IntDotSkinnyMinRows(DataType type, long k, long n)
+    {
+        long cap = IntDotMaxRows(type, k);
+        return (cap < MatvecMaxRows && SkinnyMaxRowsFor(n) >= MatvecMaxRows ? cap : Math.Max(MatvecMaxRows, cap)) + 1;
+    }
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
     private const long IntDotTargetThreads = 128 * 1024;

@@ -31,6 +31,13 @@ public static class DeviceFeatures
     /// (Vulkan: VK_NV_cooperative_matrix2). Lets the device stage tiles itself instead of the kernel.
     /// </summary>
     public const string MatrixWorkgroup = "matrix_workgroup";
+    /// <summary>
+    /// The 16x16 f16 subgroup fragments of <see cref="MatrixF16"/> (32-lane subgroups) hold their elements in the layout of
+    /// the 16x8x16 MMA instructions: lane l has rows (A) / columns (B) l / 4 and l / 4 + 8 at K positions 2 (l % 4) + {0, 1, 8, 9}.
+    /// Kernels can then fill fragments from registers instead of staging them in shared memory. Detected for NVIDIA GPUs;
+    /// the kernels that rely on it verify the layout at run time.
+    /// </summary>
+    public const string MatrixMmaLayout = "matrix_mma_layout";
     /// <summary>Native 16-bit float arithmetic in kernels.</summary>
     public const string Float16 = "fp16";
     /// <summary>Native bfloat16 types in kernels.</summary>
@@ -48,7 +55,7 @@ public static class DeviceFeatures
     public const string MemoryBudget = "memory_budget";
 
     /// <summary>Every feature name defined here.</summary>
-    public static IReadOnlyList<string> All { get; } = [MemoryBudget, MatrixF16, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
+    public static IReadOnlyList<string> All { get; } = [MemoryBudget, MatrixF16, MatrixBF16, MatrixInt8, MatrixFp8, MatrixWorkgroup, MatrixMmaLayout, Float16, BFloat16, Float8, IntDot, SubgroupOps, SubgroupSizeControl];
 
     /// <summary>
     /// Features disabled process-wide through the environment variable <c>SHARPLIGHT_DISABLE_FEATURES</c>
