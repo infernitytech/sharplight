@@ -22,7 +22,10 @@ namespace Sharplight.Architectures;
 /// <c>attention.kv_down_norm.weight</c> [latent]; <c>attention.k_up.weight</c> [H, latent, nope]; <c>attention.v_up.weight</c>
 /// [H, v, latent]; <c>attention.o.weight</c> [hidden, H·v]. Query rows per head are [nope | rope]. Optional: <c>attention.sinks</c> (f32 [H],
 /// a learned per-head logit that joins the softmax denominator without a value) and <c>attention.gate.weight</c> [H·v, hidden] or [H, hidden] (sigmoid
-/// output gate: every head's value is multiplied by sigmoid of this projection of the layer input, per channel or per head, before the output projection).
+/// output gate: every head's value is multiplied by sigmoid of this projection of the layer input, per channel or per head, before the output projection),
+/// <c>attention.ssmax.{weight,bias}</c> (<see cref="ScalableSoftmax"/> on the query). A layer without <c>attention.kv_down.weight</c> writes no cache rows
+/// and attends the cache it is given (an earlier layer's, Mistral Large 4's shared key-value layers). <c>attention.k_rope_norm.weight</c> [rope] (dots.3):
+/// an RMS norm on the shared rotary key before its rotation.
 /// </remarks>
 internal sealed class LatentAttention(LatentAttentionParameters parameters)
 {
@@ -43,7 +46,11 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
     /// The per-row head indices [T, H] (i32) the absorbed projections select their per-head matrices with; build once per graph
     /// from any [T, ...] input and share it between layers.
     /// </summary>
-    public static Value HeadIndices(GraphBuilder b, Value positions, int heads)
+    /// <param name="b">Graph under construction.</param>
+    /// <param name="positions">Positions [T, 1] of the graph.</param>
+    /// <param name="heads">Attention heads.</param>
+    /// <param name="suffix">Name suffix, distinct per head count when a graph needs several.</param>
+    public static Value HeadIndices(GraphBuilder b, Value positions, int heads, string suffix = "")
     {
         var iota = new byte[heads * 4];
         for (int h = 0; h < heads; h++)
@@ -52,8 +59,8 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
         }
 
         var zeros = b.Scale(b.Emit1("Cast", [b.Slice(positions, 1, 0, 1)], Attributes.From(("type", "f32"))), 0f);              // [T, 1]
-        var rows = b.Add(zeros, b.Constant("latent_head_iota", DataType.F32, new Shape(heads), iota));                           // [T, H]
-        return b.Emit1("Cast", [rows], Attributes.From(("type", "i32")), "latent_head_ids");
+        var rows = b.Add(zeros, b.Constant("latent_head_iota" + suffix, DataType.F32, new Shape(heads), iota));                  // [T, H]
+        return b.Emit1("Cast", [rows], Attributes.From(("type", "i32")), "latent_head_ids" + suffix);
     }
 
     /// <summary>Emits the attention of one layer: writes the layer's cache rows and returns the output projection [T, hidden].</summary>
@@ -68,8 +75,9 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
     /// Sparse attention: given the input of the query projection (the normalized compressed query, or <paramref name="h"/> without one), returns
     /// the key positions every row attends, i32 [T, K] (<see cref="SparseAttentionIndexer"/>); null attends every visible position.
     /// </param>
+    /// <param name="logPositions">ln(pos + 1) of every row (<see cref="ScalableSoftmax.LogPositions"/>) when the model has SSMax factors.</param>
     public Value Build(GraphBuilder b, Value h, string prefix, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature = null,
-        Func<Value, Value>? select = null)
+        Func<Value, Value>? select = null, Value? logPositions = null)
     {
         var p = parameters;
         var q = Query(b, h, prefix, out var queryInput);                                                                   // [T, H, nope + rope]
@@ -77,12 +85,27 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
         bool rope = p.RopeDims > 0;
         var queryNope = rope ? b.Slice(q, 2, 0, p.NopeDims) : q;
 
-        var compressed = b.Linear(h, prefix + "attention.kv_down.weight", name: $"{prefix}kv_down");                       // [T, latent + rope]
-        var latent = b.RmsNorm(rope ? b.Slice(compressed, 1, 0, p.LatentRank) : compressed, b.Weight(prefix + "attention.kv_down_norm.weight"), p.Eps);
-        var latentRow = b.Reshape(latent, 0, 1, p.LatentRank);
         var state = b.State(cache);
-        b.CacheWrite(state, rope ? b.Concat(2, latentRow, Magnitude(b, rotate(b.Reshape(b.Slice(compressed, 1, p.LatentRank, p.RopeDims), 0, 1, p.RopeDims))))
-            : latentRow);
+        if (b.HasWeight(prefix + "attention.kv_down.weight"))
+        {
+            var compressed = b.Linear(h, prefix + "attention.kv_down.weight", name: $"{prefix}kv_down");                   // [T, latent + rope]
+            var latent = b.RmsNorm(rope ? b.Slice(compressed, 1, 0, p.LatentRank) : compressed, b.Weight(prefix + "attention.kv_down_norm.weight"), p.Eps);
+            var latentRow = b.Reshape(latent, 0, 1, p.LatentRank);
+            if (rope)
+            {
+                var ropeKey = b.Slice(compressed, 1, p.LatentRank, p.RopeDims);
+                if (b.TryWeight(prefix + "attention.k_rope_norm.weight") is { } keyNorm)
+                {
+                    ropeKey = b.RmsNorm(ropeKey, keyNorm, p.Eps);
+                }
+
+                b.CacheWrite(state, b.Concat(2, latentRow, Magnitude(b, rotate(b.Reshape(ropeKey, 0, 1, p.RopeDims)))));
+            }
+            else
+            {
+                b.CacheWrite(state, latentRow);
+            }
+        }
 
         // Absorbed query: per head W_UK,hᵀ · q_nope through an expert-indexed product (expert = head).
         var queryLatent = b.Emit1("MatMulId", [queryNope, b.Weight(prefix + "attention.k_up.weight"), headIds], null, $"{prefix}q_latent");
@@ -93,8 +116,15 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
             query = b.Mul(query, temperature, $"{prefix}q_tempered");
         }
 
+        query = ScalableSoftmax.Apply(b, query, logPositions, prefix + "attention.ssmax");
+
         b.RuntimeScalar(WellKnown.PastScalar);
         var attributes = Attributes.From(("scale", p.Scale), ("offset", WellKnown.PastScalar), ("v_dims", (long)p.LatentRank));
+        if (p.Window > 0)
+        {
+            attributes = attributes.With("window", (long)p.Window);
+        }
+
         Value[] inputs = [query, state, state];
         if (b.TryWeight(prefix + "attention.sinks") is { } sinks)
         {

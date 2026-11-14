@@ -52,6 +52,11 @@ public static class WellKnown
     /// <summary>Number of draft (MTP / NextN) layers a model ships (int; 0 or absent: no <see cref="DraftGraph"/>).</summary>
     public const string DraftLayers = "draft_layers";
     /// <summary>
+    /// The target token of every token of a draft head's own (smaller) vocabulary (int[]; absent: the head's logits are over the target's
+    /// vocabulary). EAGLE-3 drafters predict over such a vocabulary.
+    /// </summary>
+    public const string DraftTokenMap = "draft_token_map";
+    /// <summary>
     /// Name of the decode-graph output a model's <see cref="DraftGraph"/> reads as its hidden states (string property; absent:
     /// <see cref="HiddenOutput"/>, the state after the final norm, which the MTP heads of Qwen3.5 / Qwen3-Next and the NextN heads
     /// of DeepSeek-V3 / GLM-4.5 read). For a head trained on another tap of the decoder (e.g. an EAGLE-style head on a

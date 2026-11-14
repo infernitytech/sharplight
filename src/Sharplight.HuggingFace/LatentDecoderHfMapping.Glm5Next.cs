@@ -6,9 +6,9 @@ namespace Sharplight.HuggingFace;
 /// GLM-5.3-Flash (HF <c>glm5_next</c> / <c>glm5_next_text</c>, the language model): Kimi delta-attention layers with the bounded forget gate
 /// (<c>linear_lower_bound</c>) and DSA layers whose multi-head latent attention has no rotary dimensions, a dense first block and MoE layers,
 /// every MLP with the clamped SwiGLU (<c>swiglu_limit</c>), and DeepSeek-V4-style hyper-connections (<c>hc_mult</c> streams, Sinkhorn-normalized
-/// mixing) whose streams are averaged before the output norm. Its k-pool indexer picks <c>index_topk</c> keys (whole pools of <c>index_kpool</c>
-/// plus the current tail); while a query sees no more than that, every key is picked and dense attention is exact. Pool selection beyond it is
-/// not implemented yet, so the context is capped at <c>index_topk</c> and the indexer weights are not imported. The vision tower is not imported.
+/// mixing) whose streams are averaged before the output norm. Its k-pool indexer picks <c>index_topk</c> keys: whole pools of <c>index_kpool</c>
+/// positions scored by their gated pooled keys, plus the query's incomplete pool (<c>index_kpool_always_select_tail</c>). The vision tower is
+/// not imported.
 /// </summary>
 internal sealed partial class LatentDecoderHfMapping
 {
@@ -26,18 +26,14 @@ internal sealed partial class LatentDecoderHfMapping
             md[a + "mlp.swiglu_clamp_input"] = true;   // min(gate, limit) before the SiLU, up clamped to ±limit
         }
 
-        int budget = c.GetInt("index_topk") ?? 2048;
-        md[a + "context_length"] = md.TryGetValue(a + "context_length", out var context) && context is int known ? Math.Min(known, budget) : budget;
+        md[a + "attention.indexer.token_budget"] = c.GetInt("index_topk") ?? 2048;
+        md[a + "attention.indexer.pool_size"] = c.GetInt("index_kpool") ?? 16;
+        md[a + "attention.indexer.pool_tail"] = c.GetBool("index_kpool_always_select_tail") ?? true;
     }
 
-    /// <summary>GLM-5.3-Flash tensors that differ from DeepSeek's (hyper-connection modules, the dropped indexer); false for other tensors.</summary>
+    /// <summary>GLM-5.3-Flash tensors that differ from DeepSeek's (hyper-connection modules); false for other tensors.</summary>
     private static bool TryMapGlm5NextLayer(string prefix, string suffix, WeightInfo w, HfWeightCollector collector)
     {
-        if (suffix.StartsWith("self_attn.indexer.", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
         string? canonical = suffix switch
         {
             "hc_attn_fn" or "attn_hc.fn" => "attention_hc.fn.weight",

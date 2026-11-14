@@ -4,8 +4,9 @@ namespace Sharplight.Gguf;
 /// llama.cpp <c>glm5-next</c> (GLM-5.3-Flash): Kimi delta-attention layers (low-rank decay and gate, the bounded gate <c>kda.gate_lower_bound</c>)
 /// and DSA layers whose latent attention has no rotary dimensions, dense first blocks and MoE layers whose MLPs clamp the SwiGLU
 /// (<c>swiglu_clamp_exp</c> / <c>swiglu_clamp_shexp</c>, the gate before the SiLU), and hyper-connections (<c>hyper_connection.*</c>, Sinkhorn
-/// mixing) averaged before the output norm. The k-pool indexer picks <c>attention.indexer.top_k</c> keys; up to that context every key is picked,
-/// so dense attention is exact. Pool selection beyond it is not implemented yet: the context is capped there and the indexer tensors are dropped.
+/// mixing) averaged before the output norm. The k-pool indexer picks <c>attention.indexer.top_k</c> keys: whole pools of
+/// <c>attention.indexer.kpool</c> positions scored by their gated pooled keys (<c>indexer_compressor_{gate,ape}</c>), plus the query's incomplete
+/// pool (<c>attention.indexer.kpool_select_tail</c>); layers whose <c>attention.indexer.types</c> entry is false reuse the previous selection.
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping
 {
@@ -34,8 +35,8 @@ internal sealed partial class LatentDecoderGgufMapping
             md[a + "mlp.swiglu_clamp_input"] = true;
         }
 
-        int budget = g.Int("attention.indexer.top_k", 2048);
-        md[a + "context_length"] = md.TryGetValue(a + "context_length", out var context) && context is int known ? Math.Min(known, budget) : budget;
+        md[a + "attention.indexer.pool_size"] = g.Int("attention.indexer.kpool", 1);
+        md[a + "attention.indexer.pool_tail"] = g.Bool("attention.indexer.kpool_select_tail", false);
     }
 
     /// <summary>The hyper-connection modules of a layer, GGUF suffix to canonical suffix.</summary>
@@ -49,7 +50,10 @@ internal sealed partial class LatentDecoderGgufMapping
         ["hc_ffn_scale.weight"] = "mlp_hc.scale",
     };
 
-    /// <summary>Whether a GLM-5.3-Flash layer tensor belongs to the k-pool indexer, which dense attention does not need.</summary>
-    private static bool IsPoolIndexerTensor(string suffix)
-        => suffix.StartsWith("indexer.", StringComparison.Ordinal) || suffix.StartsWith("indexer_compressor_", StringComparison.Ordinal);
+    /// <summary>The k-pool tensors of the GLM-5.3-Flash indexer, GGUF suffix to canonical suffix.</summary>
+    private static readonly Dictionary<string, string> s_poolIndexer = new(StringComparer.Ordinal)
+    {
+        ["indexer_compressor_gate.weight"] = "attention.indexer.pool_gate.weight",
+        ["indexer_compressor_ape.weight"] = "attention.indexer.pool_position.weight",
+    };
 }

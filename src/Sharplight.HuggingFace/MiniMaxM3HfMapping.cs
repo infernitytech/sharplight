@@ -12,9 +12,9 @@ namespace Sharplight.HuggingFace;
 /// <c>block_sparse_moe</c> with per-expert w1/w2/w3) and the transformers layout (<c>model.language_model.*</c>, fused <c>gate_up_proj</c>) load.
 /// </summary>
 /// <remarks>
-/// MiniMax sparse attention: the lightning indexer of the sparse layers picks <c>index_topk_blocks</c> key blocks of <c>index_block_size</c>
-/// keys per query. While a query sees at most that many blocks every block is picked, so dense attention is exact; block selection beyond
-/// that is not implemented yet, so the context is capped there and the indexer weights are not imported. The vision tower is not imported.
+/// MiniMax sparse attention: the indexer of the sparse layers (<c>attention.block_indexer.*</c>, Gemma norms like the others) picks
+/// <c>index_topk_blocks</c> key blocks of <c>index_block_size</c> keys per query and key-value group, always including the query's latest
+/// <c>index_local_blocks</c>. The vision tower is not imported.
 /// </remarks>
 internal sealed partial class MiniMaxM3HfMapping : HfMoeFamilyMapping
 {
@@ -24,7 +24,15 @@ internal sealed partial class MiniMaxM3HfMapping : HfMoeFamilyMapping
         ("block_sparse_moe.down_proj.weight", "mlp.down.weight"),
         ("block_sparse_moe.shared_experts.gate_proj.weight", "mlp.shared.gate.weight"),
         ("block_sparse_moe.shared_experts.up_proj.weight", "mlp.shared.up.weight"),
-        ("block_sparse_moe.shared_experts.down_proj.weight", "mlp.shared.down.weight"));
+        ("block_sparse_moe.shared_experts.down_proj.weight", "mlp.shared.down.weight"),
+        ("self_attn.index_q_proj.weight", "attention.block_indexer.q.weight"),
+        ("self_attn.index_k_proj.weight", "attention.block_indexer.k.weight"),
+        ("self_attn.index_q_norm.weight", "attention.block_indexer.q_norm.weight"),
+        ("self_attn.index_k_norm.weight", "attention.block_indexer.k_norm.weight"),
+        ("self_attn.indexer.q_proj.weight", "attention.block_indexer.q.weight"),
+        ("self_attn.indexer.k_proj.weight", "attention.block_indexer.k.weight"),
+        ("self_attn.indexer.q_norm.weight", "attention.block_indexer.q_norm.weight"),
+        ("self_attn.indexer.k_norm.weight", "attention.block_indexer.k_norm.weight"));
 
     private static readonly IReadOnlyDictionary<string, string> s_global = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -72,18 +80,14 @@ internal sealed partial class MiniMaxM3HfMapping : HfMoeFamilyMapping
         => c.RopeDouble("partial_rotary_factor", "partial_rotary_factor") is { } factor ? (int)(headDim * factor) : c.GetInt("rotary_dim") ?? headDim;
 
     /// <inheritdoc/>
-    protected override int? ContextLength(HfConfig c)
-    {
-        int context = c.GetInt("max_position_embeddings") ?? 524288;
-        return SparseLayers(c).Any(sparse => sparse) ? Math.Min(context, Sparse(c, "index_topk_blocks", "sparse_topk_blocks", 16) * Sparse(c, "index_block_size", "sparse_block_size", 128)) : context;
-    }
+    protected override int? ContextLength(HfConfig c) => c.GetInt("max_position_embeddings") ?? 524288;
 
     /// <inheritdoc/>
     protected override WeightInfo NormWeight(WeightInfo w, string name) => HfTransforms.NormPlusOne(w, name);
 
     /// <inheritdoc/>
     protected override bool IsIgnored(string name)
-        => base.IsIgnored(name) || name.Contains(".self_attn.index", StringComparison.Ordinal) || name.StartsWith("vision_tower.", StringComparison.Ordinal)
+        => base.IsIgnored(name) || name.StartsWith("vision_tower.", StringComparison.Ordinal)
            || name.StartsWith("model.vision_tower.", StringComparison.Ordinal) || name.StartsWith("multi_modal_projector.", StringComparison.Ordinal)
            || name.StartsWith("model.multi_modal_projector.", StringComparison.Ordinal) || name.StartsWith("patch_merge_mlp.", StringComparison.Ordinal);
 
@@ -97,6 +101,12 @@ internal sealed partial class MiniMaxM3HfMapping : HfMoeFamilyMapping
     {
         md["decoder.mlp.swiglu_alpha"] = (float)(c.GetDouble("swiglu_alpha") ?? 1.702);
         md["decoder.mlp.swiglu_limit"] = (float)(c.GetDouble("swiglu_limit") ?? 7.0);
+        if (SparseLayers(c).Any(sparse => sparse))
+        {
+            md["decoder.attention.block_indexer.block_size"] = Sparse(c, "index_block_size", "sparse_block_size", 128);
+            md["decoder.attention.block_indexer.blocks"] = Sparse(c, "index_topk_blocks", "sparse_topk_blocks", 16);
+            md["decoder.attention.block_indexer.local_blocks"] = Sparse(c, "index_local_blocks", "sparse_local_blocks", 1);
+        }
     }
 
     /// <inheritdoc/>

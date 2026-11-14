@@ -13,11 +13,19 @@ namespace Sharplight.Llm.Serving.Speculative;
 /// sequences batched, which yields the first draft (after the pending token), then chains one row per further draft with the
 /// head's own hidden output, and finally cuts the head's cache back to the target-verified rows. Drafts are greedy (the head's
 /// argmax), which the engine's verification keeps distribution-exact for any sampling (see <see cref="ISpeculator"/>).
+/// <para>
+/// Heads that read another tap of the target than what they feed back (EAGLE-3: three fused layer inputs of the target, its own pre-norm state
+/// for chained drafts) take hidden-state rows of [target part | chained part]: the observed rows fill the first part and leave the second zero,
+/// chained rows the reverse. A head with its own vocabulary maps its argmax through the model's <see cref="Models.WellKnown.DraftTokenMap"/>.
+/// </para>
 /// </remarks>
 public sealed class MtpSpeculator : ISpeculator
 {
     private readonly MultiSequenceDecoder _draft;
-    private readonly int _hidden;
+    private readonly int _hidden;          // width of the head's hidden-state input rows
+    private readonly int _targetWidth;     // width of the observed target rows (the start of every input row)
+    private readonly int _chainWidth;      // width of the head's own hidden output (fed back at the end of every input row)
+    private readonly int[]? _tokenMap;
     private readonly MtpRowBuffer[] _buffers;
     private readonly int[] _verified;
     private readonly List<SpeculationRequest> _active = [];
@@ -32,22 +40,25 @@ public sealed class MtpSpeculator : ISpeculator
     private readonly int[] _argmax;
     private readonly float[] _argmaxLogprobs;
 
-    internal MtpSpeculator(MultiSequenceDecoder draft, int maxDraftTokens)
+    internal MtpSpeculator(MultiSequenceDecoder draft, int maxDraftTokens, int[]? tokenMap = null)
     {
         _draft = draft;
         _hidden = draft.HiddenInputSize;
-        if (_hidden == 0 || draft.HiddenSize != _hidden)
+        _chainWidth = draft.HiddenSize;
+        if (_hidden == 0 || _chainWidth == 0 || _chainWidth > _hidden)
         {
-            throw new ArgumentException("The draft decoder needs a hidden-states input and a hidden output of the same width.", nameof(draft));
+            throw new ArgumentException("The draft decoder needs a hidden-states input at least as wide as its hidden output.", nameof(draft));
         }
 
+        _targetWidth = _hidden == _chainWidth ? _hidden : _hidden - _chainWidth;
+        _tokenMap = tokenMap;
         MaxDraftTokens = Math.Max(1, maxDraftTokens);
         _draft.CaptureHiddenStates = true;
         _buffers = [.. Enumerable.Range(0, draft.SlotCount).Select(_ => new MtpRowBuffer(_hidden))];
         _verified = new int[draft.SlotCount];
         _tokenScratch = new int[draft.SlotCount];
         _hiddenScratch = new float[_hidden * Math.Max(draft.SlotCount, 16)];
-        _chain = new float[_hidden * draft.SlotCount];
+        _chain = new float[_chainWidth * draft.SlotCount];
         _deviceArgmax = draft is IDeviceSamplingDecoder { SamplesOnDevice: true } d ? d : null;
         _greedyRows = [.. Enumerable.Repeat<SamplingRow?>(SamplingRow.Greedy(), draft.SlotCount)];
         _argmax = new int[draft.MaxLogitsRows];
@@ -63,21 +74,30 @@ public sealed class MtpSpeculator : ISpeculator
         if (_deviceArgmax is not null)
         {
             _deviceArgmax.Step(_inputs, new ArraySegment<SamplingRow?>(_greedyRows, 0, _inputs.Count), _argmax, _argmaxLogprobs);
-            return;
+        }
+        else
+        {
+            var logits = _draft.Step(_inputs);
+            for (int u = 0; u < _inputs.Count; u++)
+            {
+                _argmax[u] = LogitsMath.ArgMax(logits[u].Span);
+            }
         }
 
-        var logits = _draft.Step(_inputs);
-        for (int u = 0; u < _inputs.Count; u++)
+        if (_tokenMap is not null)
         {
-            _argmax[u] = LogitsMath.ArgMax(logits[u].Span);
+            for (int u = 0; u < _inputs.Count; u++)
+            {
+                _argmax[u] = _tokenMap[_argmax[u]];
+            }
         }
     }
 
     /// <inheritdoc/>
     public int MaxDraftTokens { get; }
 
-    /// <summary>Hidden size the head expects (the target's <see cref="IBatchDecoder.HiddenSize"/>).</summary>
-    public int HiddenSize => _hidden;
+    /// <summary>Hidden size the head expects from the target (the target's <see cref="IBatchDecoder.HiddenSize"/>).</summary>
+    public int HiddenSize => _targetWidth;
 
     /// <summary>The head's decoder (compiled draft graph).</summary>
     internal MultiSequenceDecoder Decoder => _draft;
@@ -89,7 +109,7 @@ public sealed class MtpSpeculator : ISpeculator
     public void Observe(int slot, int position, ReadOnlySpan<int> successors, ReadOnlySpan<float> hidden)
     {
         var buf = _buffers[slot];
-        buf.Append(position, successors, hidden);
+        buf.Append(position, successors, hidden, _targetWidth);
         // Long prompts: feed all but the last row now (the last one yields the first draft later), in bounded chunks.
         if (buf.Count > _draft.MaxBatchTokens / 2)
         {
@@ -175,7 +195,7 @@ public sealed class MtpSpeculator : ISpeculator
             var buf = _buffers[r.Slot];
             r.Draft[0] = _argmax[u];
             r.Count = 1;
-            _draft.HiddenStates(u, buf.Count).Span[((buf.Count - 1) * _hidden)..].CopyTo(_chain.AsSpan(u * _hidden, _hidden));
+            _draft.HiddenStates(u, buf.Count).Span[((buf.Count - 1) * _chainWidth)..].CopyTo(_chain.AsSpan(u * _chainWidth, _chainWidth));
             _verified[r.Slot] = buf.End;
             buf.Clear();
         }
@@ -196,7 +216,9 @@ public sealed class MtpSpeculator : ISpeculator
 
                 _tokenScratch[n] = r.Draft[j - 1];
                 _inputs.Add(new SequenceInput(r.Slot, _tokenScratch.AsMemory(n, 1)));
-                _chain.AsSpan(u * _hidden, _hidden).CopyTo(_hiddenScratch.AsSpan(n * _hidden));
+                var chained = _hiddenScratch.AsSpan(n * _hidden, _hidden);
+                chained[..(_hidden - _chainWidth)].Clear();
+                _chain.AsSpan(u * _chainWidth, _chainWidth).CopyTo(chained[(_hidden - _chainWidth)..]);
                 n++;
             }
 
@@ -217,7 +239,7 @@ public sealed class MtpSpeculator : ISpeculator
 
                 r.Draft[j] = _argmax[k];
                 r.Count = j + 1;
-                _draft.HiddenStates(k, 1).Span.CopyTo(_chain.AsSpan(u * _hidden, _hidden));
+                _draft.HiddenStates(k, 1).Span.CopyTo(_chain.AsSpan(u * _chainWidth, _chainWidth));
                 k++;
             }
         }

@@ -33,14 +33,25 @@ namespace Sharplight.Architectures;
 /// (see <see cref="ClampedSwigluActivation"/>); dense layers and shared experts keep the plain activation unless <c>mlp.swiglu_clamp</c>
 /// (float[layer_count], 0 = plain; with <c>mlp.swiglu_clamp_input</c> on the gate before the SiLU) clamps them too (experts without their own limit
 /// follow it).</item>
-/// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4): <c>attention.indexer.*</c> (<see cref="SparseAttentionIndexerOptions"/>) and per
-/// layer the weights <c>attention.indexer.{q_up,k,head_weights}.weight</c>, <c>attention.indexer.k_norm.{weight,bias}</c> (see
+/// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4, GLM-5.3 with pooled keys): <c>attention.indexer.*</c>
+/// (<see cref="SparseAttentionIndexerOptions"/>) and per layer the weights <c>attention.indexer.{q_up,k,head_weights}.weight</c>,
+/// <c>attention.indexer.k_norm.{weight,bias}</c> (pooled keys also <c>attention.indexer.{pool_gate,pool_position}.weight</c>; see
 /// <see cref="SparseAttentionIndexer"/>); a layer without them reuses the previous indexed layer's selection. When the context does not exceed the
 /// budget the indexer is left out (every row would keep every visible position).</item>
 /// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
 /// modules <c>layers.{i}.attention_hc.*</c> and <c>layers.{i}.mlp_hc.*</c> around the two sub-layers and the head <c>output_hc.*</c> before the
 /// output norm (weights on <see cref="StreamHyperConnections"/>; without <c>output_hc.*</c> the streams are averaged). No draft head with
 /// hyper-connections.</item>
+/// <item>Per-layer geometry (Mistral Large 4): <c>rope.layers</c> (int[layer_count], 0 = NoPE layer: no rotary dimensions, the whole query/key head
+/// of nope + rope dimensions is non-rotary and the cache rows are the latent alone; default all 1), <c>attention.kv_source_layers</c> (int[layer_count]:
+/// the earlier layer whose latent cache a layer without <c>attention.kv_down.weight</c> attends; default the layer itself). SSMax: per layer
+/// <c>attention.ssmax.{weight,bias}</c> and <c>attention.indexer.ssmax.{weight,bias}</c> (<see cref="ScalableSoftmax"/>); an indexer with
+/// <c>attention.indexer.q_norm.{weight,bias}</c> projects its query from LayerNorm(h).</item>
+/// <item>Sliding-window layers (dots.3): <c>attention.sliding_layers</c> (int[layer_count], 1 = sliding), <c>attention.sliding_window</c> (a query attends
+/// its last that many positions), their own geometry <c>attention.sliding.{head_count,latent_rank,nope_dim,value_dim,scale}</c> (defaults: the full
+/// layers' values, scale 1/sqrt(nope + rope)) and rope base <c>rope.base_sliding</c> (frequency factors <c>rope.freq_factors_sliding</c>); they attend
+/// densely, without an indexer.</item>
+/// <item><c>final_logit_softcap</c> (logits = cap·tanh(logits/cap), 0 = off).</item>
 /// <item><c>embedding_scale</c> (factor on the token embeddings), <c>residual_scale</c> (factor on each sub-layer output before its residual
 /// add; MiniCPM's scale_depth/sqrt(layers)), <c>logit_scale</c> (factor on the final hidden state before the output head); all default 1.</item>
 /// </list>

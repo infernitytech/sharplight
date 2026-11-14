@@ -3,7 +3,7 @@ using static Sharplight.Families.Tests.FamilyGenerationTests;
 namespace Sharplight.Families.Tests;
 
 /// <summary>
-/// Families of bring-up round 7 (docs/model-support.md). Tiny random Hugging Face checkpoints come from the generators in <c>tools/</c>, their
+/// Families of bring-up rounds 7 and 8 (docs/model-support.md). Tiny random Hugging Face checkpoints come from the generators in <c>tools/</c>, their
 /// references are greedy ids and prompt logits from transformers (<c>tools/hf_greedy_reference.py --logits</c>); GGUF files are converted from
 /// them with llama.cpp's converter (<c>tools/convert_tiny_gguf.py</c>) and checked against llama.cpp. Every case skips when its files are missing.
 /// </summary>
@@ -15,6 +15,10 @@ internal static class ExtendedFamilyCases
     // The 23rd step of the reference is a near tie (logit margin 0.002), so the cases stop before it.
     private static readonly int[] MiniMaxM3Ids = [613, 805, 449, 864, 7, 475, 81, 300, 81, 190, 190, 118, 825, 219, 616, 808, 931, 825, 355, 160, 413, 955];
     private static readonly int[] Glm5NextIds = [875, 197, 435, 728, 218, 816, 832, 662, 999, 138, 781, 950, 950, 955, 270, 731, 88, 428, 187, 167, 664, 344, 174, 13];
+    private static readonly int[] MiniMaxM3SparseIds = [519, 353, 790, 448, 953, 721, 836, 239, 413, 526, 674, 849, 616, 322, 449, 245, 616, 612, 149, 223, 7, 765, 568, 7];
+    private static readonly int[] Glm5NextSparseIds = [149, 946, 701, 342, 566, 87, 479, 329, 975, 905, 283, 218, 846, 174, 385, 455, 461, 414, 424, 496, 511, 90, 738, 856];
+    private static readonly int[] Dots3NoteIds = [980, 334, 783, 400, 453, 842, 970, 248, 337, 880, 743, 746, 787, 883, 447, 481, 952, 300, 778, 657, 999, 802, 694, 757];
+    private static readonly int[] MistralLarge4Ids = [442, 239, 923, 778, 247, 629, 576, 233, 827, 725, 687, 1004, 233, 592, 409, 233, 222, 706, 963, 155, 1008, 496, 353, 996];
     private static readonly int[] ChameleonSwinIds = [8348, 8348, 8348, 8218, 8235, 8337, 8235, 8337, 8232, 8232, 8232, 8348, 8232, 8348, 8421, 8348, 8232, 8348, 8232, 8348, 8232, 8348, 8232, 8232];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
@@ -37,5 +41,26 @@ internal static class ExtendedFamilyCases
         // selection in its dense regime, clamped SwiGLU MLPs, hyper-connections averaged at the end. llama.cpp 8ca5a80 continues identically.
         new("tiny-random-glm5-next HF (glm5_next, transformers)", "hf/tiny-random-glm5-next", Prompt, "ids", Glm5NextIds, ""),
         new("tiny-random-glm5-next f32 GGUF (glm5-next, llama.cpp)", "gguf/tiny-random-glm5-next-f32.gguf", Prompt, "ids", Glm5NextIds, ""),
+        // Round 8, the indexers in their sparse regime (tools/mk_tiny_group_sparse.py re-initializes the indexer so that no two group scores tie
+        // at the selection boundary). MiniMax-M3 with blocks of 4 keys, 3 blocks per query and key-value group (the latest one forced): every row
+        // past the 12th attends only its picked blocks (IndexerTopK per head + CachedAttention with a per-head selection). llama.cpp 8ca5a80 gives
+        // these ids when the prompt is decoded one token at a time; its batched block-sparse prefill continues differently from the first token.
+        new("tiny-random-minimax-m3-sparse HF (minimax_m3_vl, 3 blocks of 4, transformers)", "hf/tiny-random-minimax-m3-sparse", Prompt, "ids", MiniMaxM3SparseIds, ""),
+        new("tiny-random-minimax-m3-sparse f32 GGUF (minimax-m3, 3 blocks of 4, transformers ids)", "gguf/tiny-random-minimax-m3-sparse-f32.gguf", Prompt, "ids",
+            MiniMaxM3SparseIds, ""),
+        // GLM-5.3-Flash with index_topk 8 and pools of 4 (16 indexer heads): two pooled-key picks plus the incomplete pool per row, the shared
+        // indexer layer reusing the selection. llama.cpp 8ca5a80 gives the same ids.
+        new("tiny-random-glm5-next-sparse HF (glm5_next, index_topk 8, kpool 4, transformers)", "hf/tiny-random-glm5-next-sparse", Prompt, "ids", Glm5NextSparseIds, ""),
+        new("tiny-random-glm5-next-sparse f32 GGUF (glm5-next, index_topk 8, kpool 4, llama.cpp)", "gguf/tiny-random-glm5-next-sparse-f32.gguf", Prompt, "ids",
+            Glm5NextSparseIds, ""),
+        // Mistral Large 4 (tools/mk_tiny_gguf.py, no transformers class): NoPE layers, layers attending an earlier layer's latent cache, SSMax, the DSA
+        // indexer (budget 8, shared layers) on a LayerNorm'ed query, LeRoPE frequencies under YaRN, softmax experts and a final soft cap. The ids are
+        // those of tools/ref_mistral_large4.py (float64 numpy of llama.cpp's graph); llama.cpp 8ca5a80 gives them with flash attention and token by
+        // token, its prefill without flash attention continues differently from the 6th token.
+        new("tiny-random-mistral-large4 f32 GGUF (mistral-large4, llama.cpp)", "gguf/tiny-random-mistral-large4-f32.gguf", Prompt, "ids", MistralLarge4Ids, ""),
+        // dots.3 (tools/mk_tiny_gguf.py): sliding-window layers (window 6) with their own head count, latent rank, head sizes and rope base between
+        // full layers with the DSA indexer (budget 8), the rope key's RMS norm, per-head output gates, sigmoid experts. llama.cpp 8ca5a80 gives these
+        // ids with and without flash attention and token by token.
+        new("tiny-random-dots3note f32 GGUF (dots3note, llama.cpp)", "gguf/tiny-random-dots3note-f32.gguf", Prompt, "ids", Dots3NoteIds, ""),
     ];
 }

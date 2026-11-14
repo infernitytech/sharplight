@@ -13,6 +13,7 @@ and biases are randomized so that every tensor matters.
 """
 import os, sys
 import numpy as np
+import gguf
 from gguf import GGUFReader, GGUFWriter
 
 HIDDEN, HEADS, KV_HEADS, FFN, LAYERS, CONTEXT = 64, 4, 2, 128, 3, 256
@@ -708,6 +709,123 @@ def jina_bert_v3_block():
             "layer_output_norm.weight": norm(HIDDEN), "layer_output_norm.bias": bias(HIDDEN)}
 
 
+# Mistral Large 4: five latent-attention layers without query compression. Layers 1 and 4 are NoPE (the whole head is non-rotary), layers 3 and 4
+# read the latent caches of layers 2 and 1 (no key/value projection of their own), layers 1 and 3 reuse the previous indexer selection.
+ML4_ROPE = [True, False, True, True, False]
+ML4_KV_SOURCE = [0, 1, 2, 2, 1]
+ML4_INDEXER = [True, False, True, False, True]
+ML4_INDEXER_HEADS, ML4_INDEXER_DIM, ML4_TOP_K = 8, 64, 8
+
+
+def ssmax(n):
+    # SSMax factors s * log(pos + 1) + b per head, around 1 at the start and slowly changing.
+    return (0.15 * rng.standard_normal(n)).astype(np.float32), (1.0 + 0.2 * rng.standard_normal(n)).astype(np.float32)
+
+
+def mistral_large4_block(layer):
+    nope = NOPE if ML4_ROPE[layer] else NOPE + ROPE
+    t = {"attn_norm.weight": norm(HIDDEN), "attn_q.weight": weight(HEADS * (NOPE + ROPE), HIDDEN),
+         "attn_k_b.weight": weight(HEADS, LATENT, nope), "attn_v_b.weight": weight(HEADS, VALUE, LATENT), "attn_output.weight": weight(HIDDEN, HEADS * VALUE),
+         "ffn_norm.weight": norm(HIDDEN)}
+    t["attn_ssmax.weight"], t["attn_ssmax.bias"] = ssmax(HEADS)
+    if ML4_KV_SOURCE[layer] == layer:
+        t["attn_kv_a_mqa.weight"] = weight(LATENT + (ROPE if ML4_ROPE[layer] else 0), HIDDEN)
+        t["attn_kv_a_norm.weight"] = norm(LATENT)
+    if ML4_INDEXER[layer]:
+        t.update({"indexer.q_norm.weight": norm(HIDDEN), "indexer.q_norm.bias": bias(HIDDEN),
+                  "indexer.attn_q_b.weight": weight(ML4_INDEXER_HEADS * ML4_INDEXER_DIM, HIDDEN), "indexer.attn_k.weight": weight(ML4_INDEXER_DIM, HIDDEN),
+                  "indexer.k_norm.weight": norm(ML4_INDEXER_DIM), "indexer.k_norm.bias": bias(ML4_INDEXER_DIM),
+                  "indexer.proj.weight": weight(ML4_INDEXER_HEADS, HIDDEN)})
+        t["indexer.ssmax.weight"], t["indexer.ssmax.bias"] = ssmax(ML4_INDEXER_HEADS)
+    if layer == 0:
+        t.update({"ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)})
+    else:
+        t.update({"ffn_gate_inp.weight": weight(EXPERTS, HIDDEN), "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, HIDDEN),
+                  "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, HIDDEN), "ffn_down_exps.weight": weight(EXPERTS, HIDDEN, EXPERT_FFN),
+                  "ffn_gate_shexp.weight": weight(EXPERT_FFN, HIDDEN), "ffn_up_shexp.weight": weight(EXPERT_FFN, HIDDEN),
+                  "ffn_down_shexp.weight": weight(HIDDEN, EXPERT_FFN)})
+    return t
+
+
+def mistral_large4_parameters(writer):
+    moe_parameters(shared=1, dense_lead=1, norm_weights=True)(writer)
+    writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
+    writer.add_kv_lora_rank(LATENT)
+    writer.add_key_length(LATENT + ROPE)
+    writer.add_value_length(LATENT)
+    writer.add_key_length_mla(NOPE + ROPE)
+    writer.add_value_length_mla(VALUE)
+    writer.add_layer_norm_eps(1e-6)
+    writer.add_indexer_head_count(ML4_INDEXER_HEADS)
+    writer.add_indexer_key_length(ML4_INDEXER_DIM)
+    writer.add_indexer_top_k(ML4_TOP_K)
+    writer.add_indexer_types(ML4_INDEXER)
+    writer.add_rope_pattern(ML4_ROPE)
+    writer.add_kv_source_map(ML4_KV_SOURCE)
+    writer.add_final_logit_softcapping(6.0)
+    # YaRN without magnitude (log multiplier 1, as the converter writes for apply_scale = false) on top of the learned LeRoPE frequencies.
+    writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
+    writer.add_rope_scaling_factor(4.0)
+    writer.add_rope_scaling_yarn_beta_fast(8.0)
+    writer.add_rope_scaling_yarn_beta_slow(1.0)
+    writer.add_rope_scaling_yarn_log_mul(1.0)
+    writer.add_rope_scaling_orig_ctx_len(64)
+
+
+# dots.3 (dots3note): compressed-query latent attention of two geometries, sliding-window layers (window 6, their own rope base, head count, latent
+# rank and head sizes) and full layers with the DSA indexer; an RMS norm on the shared rope key, a per-head sigmoid output gate, sigmoid experts with a
+# selection bias and a shared expert after a dense first layer.
+D3_SWA = [True, False, True, False]
+D3_Q_RANK, D3_WINDOW = 24, 6
+D3_FULL = dict(heads=4, latent=32, nope=16, value=16)
+D3_SLIDING = dict(heads=2, latent=24, nope=8, value=12)
+
+
+def dots3note_block(layer):
+    g = D3_SLIDING if D3_SWA[layer] else D3_FULL
+    heads, latent, nope, value = g["heads"], g["latent"], g["nope"], g["value"]
+    t = {"attn_norm.weight": norm(HIDDEN), "attn_q_a.weight": weight(D3_Q_RANK, HIDDEN), "attn_q_a_norm.weight": norm(D3_Q_RANK),
+         "attn_q_b.weight": weight(heads * (nope + ROPE), D3_Q_RANK), "attn_kv_a_mqa.weight": weight(latent + ROPE, HIDDEN),
+         "attn_kv_a_norm.weight": norm(latent), "attn_k_norm.weight": norm(ROPE), "attn_k_b.weight": weight(heads, latent, nope),
+         "attn_v_b.weight": weight(heads, value, latent), "attn_output.weight": weight(HIDDEN, heads * value), "attn_gate.weight": weight(heads, HIDDEN),
+         "ffn_norm.weight": norm(HIDDEN)}
+    if not D3_SWA[layer]:
+        t.update({"indexer.attn_q_b.weight": weight(ML4_INDEXER_HEADS * ML4_INDEXER_DIM, D3_Q_RANK), "indexer.attn_k.weight": weight(ML4_INDEXER_DIM, HIDDEN),
+                  "indexer.k_norm.weight": norm(ML4_INDEXER_DIM), "indexer.k_norm.bias": bias(ML4_INDEXER_DIM),
+                  "indexer.proj.weight": weight(ML4_INDEXER_HEADS, HIDDEN)})
+    if layer == 0:
+        t.update({"ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)})
+    else:
+        t.update({"ffn_gate_inp.weight": weight(EXPERTS, HIDDEN), "exp_probs_b.bias": bias(EXPERTS), "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, HIDDEN),
+                  "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, HIDDEN), "ffn_down_exps.weight": weight(EXPERTS, HIDDEN, EXPERT_FFN),
+                  "ffn_gate_shexp.weight": weight(EXPERT_FFN, HIDDEN), "ffn_up_shexp.weight": weight(EXPERT_FFN, HIDDEN),
+                  "ffn_down_shexp.weight": weight(HIDDEN, EXPERT_FFN)})
+    return t
+
+
+def dots3note_parameters(writer):
+    moe_parameters(shared=1, dense_lead=1, scale=2.0, norm_weights=True)(writer)
+    writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
+    writer.add_q_lora_rank(D3_Q_RANK)
+    writer.add_kv_lora_rank(D3_FULL["latent"])
+    writer.add_key_length(D3_FULL["latent"] + ROPE)
+    writer.add_value_length(D3_FULL["latent"])
+    writer.add_key_length_mla(D3_FULL["nope"] + ROPE)
+    writer.add_value_length_mla(D3_FULL["value"])
+    writer.add_kv_lora_rank_swa(D3_SLIDING["latent"])
+    writer.add_key_length_swa(D3_SLIDING["latent"] + ROPE)
+    writer.add_value_length_swa(D3_SLIDING["latent"])
+    writer.add_key_length_mla_swa(D3_SLIDING["nope"] + ROPE)
+    writer.add_value_length_mla_swa(D3_SLIDING["value"])
+    writer.add_sliding_window(D3_WINDOW)
+    writer.add_sliding_window_pattern(D3_SWA)
+    writer.add_rope_freq_base_swa(1000.0)
+    writer.add_indexer_head_count(ML4_INDEXER_HEADS)
+    writer.add_indexer_key_length(ML4_INDEXER_DIM)
+    writer.add_indexer_top_k(ML4_TOP_K)
+    writer.add_indexer_types([not swa for swa in D3_SWA])
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -800,6 +918,14 @@ models = {
                                               global_tensors=lambda vocab: {"output.weight": None, "output_norm.weight": None, "output_norm.bias": None,
                                                                             "token_types.weight": weight(1, HIDDEN), "token_embd_norm.weight": norm(HIDDEN),
                                                                             "token_embd_norm.bias": bias(HIDDEN)}),
+    # Mistral Large 4 (llama.cpp after b11177): see mistral_large4_block; the learned rope frequencies are exp(-alpha) of the reference.
+    "mistral-large4": lambda path: write_family(path, "mistral-large4", int(os.environ.get("ML4_SEED", 63)), mistral_large4_block, parameters=mistral_large4_parameters, layers=len(ML4_ROPE),
+                                                kv_heads=1, rope_dim=ROPE,
+                                                global_tensors=lambda vocab: {"rope_freqs.weight": np.exp(-0.3 * rng.standard_normal(ROPE // 2)).astype(np.float32)}),
+    # dots.3 (llama.cpp after b11177): see dots3note_block; head_count is per layer.
+    "dots3note": lambda path: write_family(path, "dots3note", int(os.environ.get("D3_SEED", 49)), dots3note_block, parameters=dots3note_parameters,
+                                           layers=len(D3_SWA), kv_heads=1, rope_dim=ROPE,
+                                           heads=[D3_SLIDING["heads"] if swa else D3_FULL["heads"] for swa in D3_SWA]),
 }
 for name, write in models.items():
     if not only or name in only:

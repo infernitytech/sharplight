@@ -35,7 +35,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly TRef? _spans;       // packed sequences: [T, 2] (first key row, count) per query row
     private readonly long _slotCtx;      // multi-sequence: rows per slot in the cache
     private readonly KvPages? _pages;    // paged multi-sequence cache
-    private readonly TRef? _selection;   // sparse attention: [T, K] key positions per query row (< 0: none)
+    private readonly TRef? _selection;   // sparse attention: [T, K] or [T, Hs, K] key positions per query row (and selection head; < 0: none)
     private long _t;
     private long _past;
     private long _s;
@@ -243,7 +243,7 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 if (_selection is not null)
                 {
                     // Sparse attention: the scores are kept per selected entry, entries index the visible selected positions.
-                    positions = SelectedPositions(t, n, out long count);
+                    positions = SelectedPositions(t, h, n, out long count);
                     j0 = 0;
                     n = count;
                 }
@@ -348,12 +348,14 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         }
     }
     /// <summary>
-    /// The selected key positions of query row <paramref name="t"/> that it can see (below <paramref name="visible"/>), in a per-thread buffer that
-    /// stays valid until the next call on the thread.
+    /// The selected key positions of query row <paramref name="t"/> and query head <paramref name="h"/> that it can see (below
+    /// <paramref name="visible"/>), in a per-thread buffer that stays valid until the next call on the thread. A rank-3 selection [T, Hs, K] has
+    /// one row per selection head; query head h reads the row of selection head h / (Hq / Hs).
     /// </summary>
-    private long* SelectedPositions(long t, long visible, out long count)
+    private long* SelectedPositions(long t, int h, long visible, out long count)
     {
-        long width = _selection!.Dims[1];
+        bool perHead = _selection!.Dims.Length == 3;
+        long width = _selection.Dims[^1];
         var buffer = s_positions;
         if (buffer is null || buffer.Length < width)
         {
@@ -361,10 +363,16 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         }
 
         int* row = (int*)_selection.P + t * _selection.Strides[0];
+        if (perHead)
+        {
+            row += h / (_hq / _selection.Dims[1]) * _selection.Strides[1];
+        }
+
+        long entryStride = _selection.Strides[^1];
         count = 0;
         for (long i = 0; i < width; i++)
         {
-            long j = row[i * _selection.Strides[1]];
+            long j = row[i * entryStride];
             if (j >= 0 && j < visible)
             {
                 buffer[count++] = j;

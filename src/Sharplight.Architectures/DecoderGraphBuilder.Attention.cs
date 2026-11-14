@@ -49,7 +49,8 @@ internal sealed partial class DecoderGraphBuilder
             return AttentionOutput(b, packed, h, p, heads, _hp.ValueDimOf(il));
         }
 
-        return AttentionOutput(b, CachedAttention(b, q, p, il, sourceSlot), h, p, heads, _hp.ValueDimOf(il));
+        var selection = _blockIndexerCache[slot.Slot] is { } indexerKeys ? _blockIndexer!.Select(b, h, p, indexerKeys, rotate) : null;
+        return AttentionOutput(b, CachedAttention(b, q, p, il, sourceSlot, selection), h, p, heads, _hp.ValueDimOf(il));
     }
 
     /// <summary>
@@ -172,8 +173,11 @@ internal sealed partial class DecoderGraphBuilder
         return (k, v);
     }
 
-    /// <summary>Attention of the queries against the KV cache of <paramref name="cacheSlot"/>, honouring window, soft cap and sinks.</summary>
-    private Value CachedAttention(GraphBuilder b, Value q, string p, int il, int cacheSlot)
+    /// <summary>
+    /// Attention of the queries against the KV cache of <paramref name="cacheSlot"/>, honouring window, soft cap and sinks; with
+    /// <paramref name="selection"/> (i32 [T, Hs, K]) only the selected key positions are attended.
+    /// </summary>
+    private Value CachedAttention(GraphBuilder b, Value q, string p, int il, int cacheSlot, Value? selection)
     {
         var attrs = new List<(string, object)> { ("scale", _hp.AttnScale), ("offset", WellKnown.PastScalar) };
         if (_hp.Windowed(il))
@@ -203,6 +207,12 @@ internal sealed partial class DecoderGraphBuilder
         if (attnIn.Length > 3)
         {
             attrs.Add(("sinks", true));
+        }
+
+        if (selection is not null)
+        {
+            attnIn = [.. attnIn, selection];
+            attrs.Add(("selection", true));
         }
 
         return b.Emit1("CachedAttention", attnIn, Attributes.From([.. attrs]), $"{p}attn");

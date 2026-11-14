@@ -1,15 +1,12 @@
-using Sharplight.Models;
-
 namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp <c>minimax-m3</c> (MiniMax-M3): llama layers with per-head q/k RMS norms (the converter bakes the Gemma +1 into all norms), partial
 /// rope, leading dense layers and routed-expert layers with a shared expert, everything with llama.cpp's clamped SwiGLU-OAI (alpha 1.702,
-/// limit 7). MiniMax sparse attention: every query sees all key blocks while it sees at most <c>attention.indexer.top_k</c> blocks of
-/// <c>attention.indexer.block_size</c> keys, so dense attention is exact up to that context; block selection beyond it is not implemented
-/// yet, so the context is capped there and the indexer tensors are dropped.
+/// limit 7). MiniMax sparse attention: the indexer of the routed-expert layers picks <c>attention.indexer.top_k</c> blocks of
+/// <c>attention.indexer.block_size</c> keys per query and key-value group, always including its latest <c>attention.indexer.local_blocks</c>.
 /// </summary>
-internal sealed class MiniMaxM3GgufMapping : GgufDecoderFamilyMapping, IGgufWeightTransformer
+internal sealed class MiniMaxM3GgufMapping : GgufDecoderFamilyMapping
 {
     private const string IndexerPrefix = "attention.block_indexer.";
 
@@ -39,17 +36,9 @@ internal sealed class MiniMaxM3GgufMapping : GgufDecoderFamilyMapping, IGgufWeig
         md[a + "moe.normalize_weights"] = true;
         if (g.Int("attention.indexer.top_k", 0) is > 0 and var blocks)
         {
-            int context = blocks * g.Int("attention.indexer.block_size", 1);
-            md[a + "context_length"] = md.TryGetValue(a + "context_length", out var current) && current is int known ? Math.Min(known, context) : context;
-        }
-    }
-
-    /// <summary>Drops the indexer tensors, which dense attention does not need.</summary>
-    public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView gguf)
-    {
-        foreach (var name in weights.Keys.Where(n => n.Contains(IndexerPrefix, StringComparison.Ordinal)).ToList())
-        {
-            weights.Remove(name);
+            md[a + "attention.block_indexer.block_size"] = g.Int("attention.indexer.block_size");
+            md[a + "attention.block_indexer.blocks"] = blocks;
+            md[a + "attention.block_indexer.local_blocks"] = g.Int("attention.indexer.local_blocks", 1);
         }
     }
 }

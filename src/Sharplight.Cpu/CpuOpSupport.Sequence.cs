@@ -71,7 +71,8 @@ internal static partial class CpuOpSupport
     private static OpSupport CheckIndexerTopK(Node node)
     {
         var ins = node.Inputs;
-        if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32)
+        var selection = IndexerSelection.From(node.Attributes);
+        if (ins[0].Type != DataType.F32 || (!selection.PerHead && ins[2].Type != DataType.F32))
         {
             return OpSupport.No("IndexerTopK q and weights must be f32");
         }

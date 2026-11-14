@@ -151,6 +151,12 @@ public sealed partial class GraphLowerer
             return OpSupport.No($"IndexerTopK: key cache type {node.Inputs[1].Type} (f32 or f16)");
         }
 
+        var selection = IndexerSelection.From(node.Attributes);
+        if (selection.Budget / selection.Group > MaxIndexerGroups)
+        {
+            return OpSupport.No($"IndexerTopK: more than {MaxIndexerGroups} selected groups per row");
+        }
+
         return node.Inputs[0].Shape[2] is { IsSymbolic: false } keyDims && keyDims.Fixed % 8 == 0 && node.Inputs[0].Shape[1] is { IsSymbolic: false }
             ? OpSupport.Yes
             : OpSupport.No("IndexerTopK: the key size must be a multiple of 8");

@@ -17,6 +17,7 @@ internal static class GgufArchitectureMappings
         Register(new Rwkv7GgufMapping());
         Register(new Rwkv6GgufMapping());
         Register(new LatentDecoderGgufMapping());
+        Register(new Eagle3GgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());

@@ -1,4 +1,7 @@
+using System.Text.Json;
+using Sharplight.Architectures;
 using Sharplight.Cpu;
+using Sharplight.Gguf;
 using Sharplight.Graph;
 using Sharplight.HuggingFace;
 using Sharplight.Llm;
@@ -6,6 +9,7 @@ using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Models;
 using Sharplight.Runtime;
+using Sharplight.Vision;
 using Sharplight.Vulkan;
 
 namespace Sharplight.Families.Tests;
@@ -21,7 +25,11 @@ public class SpeculativeDecodingTests
     private const int Slots = 3;
     private const int Drafts = 3;
 
-    static SpeculativeDecodingTests() => HuggingFaceImporter.Register();
+    static SpeculativeDecodingTests()
+    {
+        HuggingFaceImporter.Register();
+        GgufImporter.Register();
+    }
 
     [Theory]
     [InlineData(false, "mtp", false)]
@@ -56,14 +64,80 @@ public class SpeculativeDecodingTests
     public async Task SeededSampling_OnDevice_Matches_NonSpeculativeDecoding(string speculator)
         => await Matches_NonSpeculativeDecoding(ModelPath, true, speculator, true, new SamplingParams { Temperature = 0.5f, TopK = 4, Seed = 5 });
 
-    private static async Task Matches_NonSpeculativeDecoding(string modelPath, bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling,
-        Action<LlmModel>? check = null)
+    /// <summary>
+    /// An EAGLE-3 drafter (a separate checkpoint, loaded as the <see cref="AuxiliaryRoles.Draft"/> source of a tiny Llama target; its own
+    /// 512-token vocabulary mapped to target ids, three fused target layers of another width than its own): greedy output with it is
+    /// token-identical, Hugging Face and GGUF.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Eagle3Drafter_GreedyOutput_Matches_NonSpeculativeDecoding(bool gguf, bool vulkan)
     {
-        Assert.SkipUnless(Directory.Exists(modelPath), $"{modelPath} not present");
+        var (target, drafter) = Eagle3Paths(gguf);
+        Assert.SkipUnless(Path.Exists(drafter), $"{drafter} not present");
+        await Matches_NonSpeculativeDecoding(target, vulkan, "mtp", vulkan, SamplingParams.GreedyDefault,
+            m => Assert.Equal(Eagle3DraftHead.TapsOutput, m.Definition.Properties[WellKnown.DraftHiddenSource]), [(AuxiliaryRoles.Draft, drafter)]);
+    }
+
+    /// <summary>
+    /// The EAGLE-3 drafter's proposals after each prompt (two prompts drafted together) are the reference's: transformers' layer inputs of the
+    /// target fused by a numpy forward of the drafter, the first draft from the prompt rows, the next two chained on the drafter's own
+    /// pre-norm output, all mapped through d2t (<c>tools/mk_tiny_eagle3.py</c>).
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Eagle3Drafter_Proposes_ReferenceDrafts(bool gguf, bool vulkan)
+    {
+        var (target, drafter) = Eagle3Paths(gguf);
+        string referencePath = Path.Combine(Path.GetDirectoryName(ModelPath)!, "tiny-random-eagle3", "eagle3_reference.json");
+        Assert.SkipUnless(Path.Exists(drafter) && File.Exists(referencePath), $"{drafter} or its reference not present");
+        using var reference = JsonDocument.Parse(File.ReadAllText(referencePath));
+        var cases = reference.RootElement.EnumerateArray().Select(e => (
+            Prompt: e.GetProperty("prompt").EnumerateArray().Select(t => t.GetInt32()).ToArray(),
+            Pending: e.GetProperty("pending").GetInt32(),
+            Drafts: e.GetProperty("drafts").EnumerateArray().Select(t => t.GetInt32()).ToArray())).ToList();
+        using var device = OpenDevice(vulkan);
+        using var model = LlmModel.Load(target, new LlmLoadOptions
+        {
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = vulkan,
+            Auxiliary = [(AuxiliaryRoles.Draft, drafter)],
+        });
+        var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
+        var recorder = new RecordingSpeculator(model.CreateMtpSpeculator(Slots, Drafts));
+        var outputs = await Generate(model, decoder, recorder, [.. cases.Select(c => c.Prompt)], SamplingParams.GreedyDefault, TestContext.Current.CancellationToken);
+        for (int i = 0; i < cases.Count; i++)
+        {
+            var (prompt, pending, drafts) = cases[i];
+            Assert.Equal(pending, outputs[i][0]);
+            int[] context = [.. prompt, pending];
+            var proposal = recorder.Proposals.First(p => p.Context.SequenceEqual(context));
+            Assert.Equal(drafts, proposal.Drafts);
+        }
+    }
+
+    private static (string Target, string Drafter) Eagle3Paths(bool gguf)
+    {
+        string models = Path.GetDirectoryName(Path.GetDirectoryName(ModelPath))!;
+        return gguf
+            ? (Path.Combine(models, "gguf", "tiny-random-llama-eagle3-target-f32.gguf"), Path.Combine(models, "gguf", "tiny-random-eagle3-f32.gguf"))
+            : (Path.Combine(models, "hf", "tiny-random-llama-eagle3-target"), Path.Combine(models, "hf", "tiny-random-eagle3"));
+    }
+
+    private static async Task Matches_NonSpeculativeDecoding(string modelPath, bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling,
+        Action<LlmModel>? check = null, IReadOnlyList<(string Role, string Path)>? auxiliary = null)
+    {
+        Assert.SkipUnless(Path.Exists(modelPath), $"{modelPath} not present");
         using var device = OpenDevice(vulkan);
         using var model = LlmModel.Load(modelPath, new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = deviceSampling,
+            Auxiliary = auxiliary ?? [],
         });
         Assert.True(model.HasDraftHead);
         check?.Invoke(model);
