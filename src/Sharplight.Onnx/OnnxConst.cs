@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using Sharplight.Models;
+using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
@@ -39,7 +40,7 @@ internal sealed class OnnxConst
     public bool IsFloat => OnnxType.IsFloat(ElemType);
     public bool HasBackingSource => _source is not null && _bytes is null;
     public IWeightSource? Source => _source;
-    public long ByteSize => Count * OnnxType.ElementSize(ElemType);
+    public long ByteSize => OnnxType.ByteSize(ElemType, Count);
 
     /// <summary>Elements of a string constant (row-major); null for other types, whose data the string constant does not have.</summary>
     public string[]? Strings { get; private init; }
@@ -143,6 +144,11 @@ internal sealed class OnnxConst
 
     private byte[] Encode()
     {
+        if (IsCoded(ElemType))
+        {
+            return EncodeCodes(OnnxType.NarrowFormat(ElemType)!.Value);
+        }
+
         int es = OnnxType.ElementSize(ElemType);
         var b = new byte[Count * es];
         for (long i = 0; i < Count; i++)
@@ -178,6 +184,55 @@ internal sealed class OnnxConst
         return b;
     }
 
+    /// <summary>Bit patterns of the 8-bit and packed sub-byte types (low bits first within a byte).</summary>
+    private byte[] EncodeCodes(NumericFormat format)
+    {
+        var codes = new byte[Count];
+        for (long i = 0; i < Count; i++)
+        {
+            codes[i] = (byte)NumericFormats.Encode(format, _floats is not null ? _floats[i] : _ints![i]);
+        }
+
+        return PackCodes(codes, OnnxType.ElementBits(ElemType));
+    }
+
+    /// <summary>Value of element <paramref name="i"/> of an 8-bit or packed sub-byte type.</summary>
+    private static double ReadCode(byte[] b, long i, int t)
+    {
+        int bits = OnnxType.ElementBits(t);
+        long bit = i * bits;
+        int code = (b[bit / 8] >> (int)(bit % 8)) & ((1 << bits) - 1);
+        return NumericFormats.Decode(OnnxType.NarrowFormat(t)!.Value, code);
+    }
+
+    private byte[] UnpackCodes()
+    {
+        var b = Bytes();
+        int bits = OnnxType.ElementBits(ElemType);
+        var codes = new byte[Count];
+        for (long i = 0; i < Count; i++)
+        {
+            long bit = i * bits;
+            codes[i] = (byte)((b[bit / 8] >> (int)(bit % 8)) & ((1 << bits) - 1));
+        }
+
+        return codes;
+    }
+
+    private static byte[] PackCodes(byte[] codes, int bits)
+    {
+        var b = new byte[(codes.LongLength * bits + 7) / 8];
+        for (long i = 0; i < codes.LongLength; i++)
+        {
+            long bit = i * bits;
+            b[bit / 8] |= (byte)(codes[i] << (int)(bit % 8));
+        }
+
+        return b;
+    }
+
+    private static bool IsCoded(int t) => OnnxType.ElementBits(t) <= 8 && t is not (OnnxType.UInt8 or OnnxType.Int8 or OnnxType.Bool);
+
     private static void WriteInt(Span<byte> s, int es, long v)
     {
         switch (es)
@@ -212,6 +267,16 @@ internal sealed class OnnxConst
 
         var b = Bytes();
         var r = new long[Count];
+        if (IsCoded(ElemType))
+        {
+            for (long i = 0; i < Count; i++)
+            {
+                r[i] = (long)ReadCode(b, i, ElemType);
+            }
+
+            return _ints = r;
+        }
+
         int es = OnnxType.ElementSize(ElemType);
         for (long i = 0; i < Count; i++)
         {
@@ -245,6 +310,16 @@ internal sealed class OnnxConst
 
         var b = Bytes();
         var r = new double[Count];
+        if (IsCoded(ElemType))
+        {
+            for (long i = 0; i < Count; i++)
+            {
+                r[i] = ReadCode(b, i, ElemType);
+            }
+
+            return _floats = r;
+        }
+
         int es = OnnxType.ElementSize(ElemType);
         for (long i = 0; i < Count; i++)
         {
@@ -303,19 +378,29 @@ internal sealed class OnnxConst
     public long ScalarInt() => Count == 1 ? Ints()[0] : throw new InvalidOperationException($"Expected a scalar, got {Count} elements.");
 
     // ---- element-type conversion -----------------------------------------------------------------
-    public OnnxConst CastTo(int et)
+    /// <summary>
+    /// Converts to element type <paramref name="et"/> with ONNX Cast semantics: floats round to nearest even (FP8 saturating when
+    /// <paramref name="saturate"/>), floats truncate toward zero to integers, integers wrap to narrower integer types. Symbolic shape
+    /// values pass through unchanged.
+    /// </summary>
+    public OnnxConst CastTo(int et, bool saturate = true)
     {
         if (et == ElemType)
         {
             return this;
         }
 
+        var format = OnnxType.NarrowFormat(et);
         if (OnnxType.IsFloat(et))
         {
             var f = Floats();
             if (et == OnnxType.Float)
             {
                 f = f.Select(v => SymbolicInts.IsSymbolicDouble(v) ? v : (float)v).ToArray();
+            }
+            else if (format is { } narrow)
+            {
+                f = f.Select(v => SymbolicInts.IsSymbolicDouble(v) ? v : NumericFormats.Round(narrow, (float)v, saturate)).ToArray();
             }
 
             return FromFloats(et, Dims, f, Name);
@@ -325,7 +410,14 @@ internal sealed class OnnxConst
             return FromInts(et, Dims, (IsFloat ? Floats().Select(v => v != 0 ? 1L : 0L) : Ints().Select(v => v != 0 ? 1L : 0L)).ToArray(), Name);
         }
 
-        return FromInts(et, Dims, IsFloat ? Floats().Select(SymbolicInts.FromDouble).ToArray() : Ints(), Name);
+        var ints = IsFloat ? Floats().Select(SymbolicInts.FromDouble).ToArray() : Ints();
+        if (format is { } integer && !SymbolicInts.AnySymbolic(ints))
+        {
+            var (min, _) = NumericFormats.IntegerRange(integer);
+            ints = ints.Select(v => NumericFormats.Wrap(v, NumericFormats.Bits(integer), min < 0)).ToArray();
+        }
+
+        return FromInts(et, Dims, ints, Name);
     }
 
     // ---- data movement --------------------------------------------------------------------------
@@ -333,6 +425,14 @@ internal sealed class OnnxConst
     {
         var src = this;
         var newDims = perm.Select(p => Dims[p]).ToArray();
+        if (OnnxType.IsSubByte(ElemType))
+        {
+            // Move one code per byte, then pack again.
+            var codes = FromBytes(OnnxType.UInt8, Dims, UnpackCodes()).Transposed(perm);
+            int bits = OnnxType.ElementBits(ElemType);
+            return Lazy(ElemType, newDims, () => PackCodes(codes.Bytes(), bits), Name);
+        }
+
         int es = OnnxType.ElementSize(ElemType);
         return Lazy(ElemType, newDims, () =>
         {

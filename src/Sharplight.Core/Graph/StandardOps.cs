@@ -17,7 +17,8 @@ public static partial class StandardOps
     // ---- elementwise ----------------------------------------------------------------------
 
     /// <summary>
-    /// Names of the registered one-operand elementwise ops. Each takes x (any shape) and returns f32 of the same shape;
+    /// Names of the registered one-operand elementwise ops. Each takes x (any shape) and returns f32 of the same shape (i32 for an i32
+    /// input of <see cref="IntegerPreservingUnaryNames"/>);
     /// the attributes some of them read (alpha, beta, gamma) are listed next to the name. Mask-valued ops
     /// (<c>Not</c>, <c>IsNaN</c>, <c>IsInf</c>) produce and consume f32 0/1 masks.
     /// </summary>
@@ -32,7 +33,8 @@ public static partial class StandardOps
          "Not", "IsNaN", "IsInf"];
     /// <summary>
     /// Names of the registered two-operand elementwise ops. Each takes a and b with numpy-style broadcasting and returns
-    /// f32 of the broadcast shape; comparison and logic ops return f32 0/1 masks.
+    /// f32 of the broadcast shape (i32 for two i32 inputs of <see cref="IntegerPreservingBinaryNames"/>); comparison and logic ops
+    /// return f32 0/1 masks.
     /// </summary>
     public static readonly string[] BinaryNames =
         ["Add", "Sub", "Mul", "Div", "Max", "Min", "Pow",
@@ -273,15 +275,17 @@ public static partial class StandardOps
 
     internal static void RegisterAll()
     {
-        foreach (var n in UnaryNames)
+        foreach (var n in UnaryNames.Except(IntegerPreservingUnaryNames))
         {
             OpRegistry.Register(new OpSchema(n, OpCategory.Elementwise, 1, 1, SameF32));
         }
 
-        foreach (var n in BinaryNames)
+        foreach (var n in BinaryNames.Except(IntegerPreservingBinaryNames))
         {
             OpRegistry.Register(new OpSchema(n, OpCategory.Elementwise, 2, 2, Broadcast));
         }
+
+        RegisterNumeric();
 
         foreach (var f in typeof(StandardOps).GetFields())
         {

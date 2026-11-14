@@ -39,7 +39,6 @@ internal sealed partial class OnnxTranslator
         ["Softsign"] = "Softsign",
         ["Not"] = "Not",
         ["IsNaN"] = "IsNaN",
-        ["IsInf"] = "IsInf",
         ["Silu"] = "Silu",
     };
 
@@ -99,6 +98,12 @@ internal sealed partial class OnnxTranslator
 
     private void Unary(OnnxNode n, TranslatedTensor?[] ins, string irOp)
     {
+        if (s_integerUnary.Contains(n.OpType) && AllIntegers(ins))
+        {
+            IntegerUnary(n, ins[0]!, irOp);
+            return;
+        }
+
         SetDyn(n, 0, Emit(irOp, [X(ins, 0)], null, Nm(n)));
     }
 
@@ -110,6 +115,12 @@ internal sealed partial class OnnxTranslator
 
     private void Binary(OnnxNode n, TranslatedTensor?[] ins, string irOp)
     {
+        if (s_integerBinary.Contains(n.OpType) && AllIntegers(ins))
+        {
+            IntegerBinary(n, ins, irOp);
+            return;
+        }
+
         string name = Nm(n);
         SetDyn(n, 0, Emit(irOp, BroadcastOperands(ins, X(ins, 0, name + ".a"), X(ins, 1, name + ".b")), null, name));
     }
@@ -148,6 +159,12 @@ internal sealed partial class OnnxTranslator
     private void Mod(OnnxNode n, TranslatedTensor?[] ins)
     {
         var attributes = Attributes.From(("fmod", n.Int("fmod", 0) != 0));
+        if (AllIntegers(ins))
+        {
+            IntegerBinary(n, ins, "Mod", attributes);
+            return;
+        }
+
         SetDyn(n, 0, Emit("Mod", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
     }
 
@@ -277,42 +294,5 @@ internal sealed partial class OnnxTranslator
             var one = ConstValue(OnnxConst.Scalar(1f), Nm(n) + ".one");
             SetDyn(n, 1, Emit("Where", [_b.Unary("IsNaN", x), one, one]));
         }
-    }
-
-    private void Cast(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        int to = (int)n.Int("to", OnnxType.Float);
-        var x = ins[0]!;
-        Value v = x.V ?? AsValue(x);
-        if (to == OnnxType.Bool)
-        {
-            v = Emit("NotEqual", [AsValue(x), _b.Constant("zero", DataType.F32, new Shape(1), new byte[4])], null, Nm(n));
-        }
-        else if (OnnxType.IsFloat(to))
-        {
-            v = x.V is { Type.Kind: DataTypeKind.Int } ? AsValue(x) : v;
-        }
-        else if (v.Type == DataType.F32)
-        {
-            v = Emit("Cast", [v], Attributes.From(("type", "i32")), Nm(n));
-        }
-
-        _env[n.Outputs[0]] = TranslatedTensor.Dyn(v);
-    }
-
-    /// <summary>CastLike is a Cast to the element type of the second input (float when that input is dynamic).</summary>
-    private void CastLike(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        var like = ins[1]!;
-        int to = like.IsConst ? like.C!.ElemType : OnnxType.Float;
-        var toAttribute = new OnnxAttribute { Name = "to", Type = OnnxAttrType.Int, I = to };
-        var cast = new OnnxNode
-        {
-            OpType = "Cast",
-            Inputs = n.Inputs.Take(1).ToList(),
-            Outputs = n.Outputs,
-            Attributes = new Dictionary<string, OnnxAttribute> { ["to"] = toAttribute },
-        };
-        Cast(cast, ins);
     }
 }

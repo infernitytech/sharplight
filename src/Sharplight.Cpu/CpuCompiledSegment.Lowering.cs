@@ -51,10 +51,16 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Cast":
                 LowerCast(n);
                 return;
-            case "Contiguous" or "Transfer":
+            case "Contiguous" or "Transfer" or "Reinterpret":
                 LowerCopy(n);
                 return;
 
+            case "Narrow":
+                LowerNarrow(n);
+                return;
+            case "BitAnd" or "BitOr" or "BitXor" or "ShiftLeft" or "ShiftRight" or "BitNot":
+                LowerInteger(n);
+                return;
             case "Clip":
                 LowerClip(n);
                 return;

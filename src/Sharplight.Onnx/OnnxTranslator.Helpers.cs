@@ -64,7 +64,7 @@ internal sealed partial class OnnxTranslator
     {
         if (t.V is { } v)
         {
-            return v.Type == DataType.I32 ? v : _b.Emit1("Cast", [v], Attributes.From(("type", "i32")));
+            return v.Type == DataType.I32 ? v : t.CachedIndex ??= _b.Emit1("Cast", [v], Attributes.From(("type", "i32")));
         }
 
         var c = t.C!;

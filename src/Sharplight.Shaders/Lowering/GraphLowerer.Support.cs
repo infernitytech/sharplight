@@ -6,7 +6,7 @@ namespace Sharplight.Shaders.Lowering;
 
 public sealed partial class GraphLowerer
 {
-    private static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where"];
+    private static readonly HashSet<string> s_elementwise = [.. StandardOps.UnaryNames, .. StandardOps.BinaryNames, "Scale", "Cast", "Clip", "Where", .. NumericElementwiseNames];
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
@@ -98,6 +98,7 @@ public sealed partial class GraphLowerer
             "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
+            _ when s_elementwise.Contains(op) => SupportsElementwise(node),
             "Concat" when node.Output.Shape[0].IsSymbolic && node.Inputs.Any(i => i.Shape[0] != node.Output.Shape[0])
                 => OpSupport.No("Concat along the symbolic axis (offsets known only at run time)"),
             _ => OpSupport.Yes,

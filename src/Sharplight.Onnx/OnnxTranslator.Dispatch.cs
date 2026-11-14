@@ -31,6 +31,7 @@ internal sealed partial class OnnxTranslator
         "CausalConvWithState",
         "LinearAttention",
         "TensorScatter",
+        "BitShift", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "BitwiseNot", "BitCast",
     ];
 
     private static readonly HashSet<string> s_contribOps =
@@ -130,6 +131,18 @@ internal sealed partial class OnnxTranslator
                 break;
             case "CastLike":
                 CastLike(n, ins);
+                break;
+            case "BitCast":
+                BitCast(n, ins);
+                break;
+            case "BitShift":
+                BitShift(n, ins);
+                break;
+            case "BitwiseAnd" or "BitwiseOr" or "BitwiseXor" or "BitwiseNot":
+                Bitwise(n, ins);
+                break;
+            case "IsInf":
+                IsInf(n, ins);
                 break;
 
             // Spatial.
