@@ -100,6 +100,8 @@ PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physi
 | llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
 
 Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
+Section 29 re-measures serving against vLLM (0.69-0.89x at 1-64 streams on the 27B FP8) and finds the sustained steps
+limited by the GPU's power cap rather than by idle compute units.
 Section 28 makes MTP speculative decoding reproduce plain greedy output on long prompts (verification rows now use the
 single-row arithmetic), removes a barrier between the MoE expert-tile launches (gpt-oss-20b prefill +10 %), and re-runs
 serving against vLLM (0.69-0.82x at 1-64 streams on the 27B FP8).

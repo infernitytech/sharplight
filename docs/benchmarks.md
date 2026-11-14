@@ -3536,3 +3536,153 @@ OUT_DIR=bench/results/s28/serve PORT=18377 SLOTS=64 bench/s16_serve.sh vllm qwen
   summation order in the single matvecs and the K-quant GEMM, which changes greedy output (28.5).
 * **Norm-written f16 copies** cut launches and barriers but not Blackwell GPU time; their value on GPUs with costlier
   dispatch is unmeasured. Elementwise and matmul epilogues (attention gate, SwiGLU output) still feed separate conversions.
+
+## 29. Serving steps are power-limited; narrow fp8 tiles and deeper skinny prefetch tried and dropped (2026-11-14)
+
+Follow-up to section 28 (LLM performance, serving against vLLM). Base is `main` at `ba21180`, built side by side; base
+and new runs alternate. The GPU was shared with the user's applications (a game ran during part of the round) and with
+other agents' test suites; runs disturbed by them are kept in the raw results but not used. Raw results:
+[`bench/results/s29/`](../bench/results/s29). No kernel change of this round made the end-to-end steps faster, so the
+branch ends with the source tree of `main`; this section records what was measured.
+
+### 29.1 Narrow fp8 GEMM tiles below 64 rows (reverted)
+
+The fp8 GEMM's regular 64-row tile (64 x 128 outputs, 8 subgroups) uses 156-158 registers per thread, so one workgroup
+runs per SM, and the 17-64-row batches of the 27B FP8 give grids of 160-384 workgroups (split-K included) on the RTX PRO
+6000's 188 SMs: the last wave is often half empty. A 64 x 64 tile on 4 subgroups (`2,2,2,2`, 164-168 registers, 19 KB
+shared memory) fits three workgroups per SM and doubles the grid. The experiment (commit `5c71bb5c`, reverted on the
+branch) chose the narrow tiles when the regular grid filled less than 80 % of its waves, with the compute-unit count
+read from `VK_NV_shader_sm_builtins` / `VK_AMD_shader_core_properties` / `VK_ARM_shader_core_builtins`. The K split
+stayed the regular one, so outputs were bit-identical (greedy 27B FP8 output identical to `main` on the short, a
+37-token and the ~650-token prompt, `ident/`), and all suites passed with it.
+
+Kernel times with the rule against the regular tiles (`micro/narrow_auto_summary.txt`, minimum of two interleaved rounds
+of 100 back-to-back launches, µs):
+
+| shape | regular grid | 24 rows | 40 rows | 64 rows |
+|---|---:|---|---|---|
+| [5120→17408]x2 dual | 272 | 133 → 127 | 137 → 127 | 139 → 129 |
+| [5120→17408] | 272 | 75 → 69 | 78 → 73 | 80 → 76 |
+| [5120→12288] | 384 | 63 → 57 | 65 → 61 | 68 → 66 |
+| [5120→6144] | 192 | 30 → 26 | 37 → 28 | 41 → 35 |
+| [17408→5120], [5120→10240], [6144→5120] | 160-320 | regular kept | | |
+
+Forcing the narrow tiles everywhere (`micro/narrow_forced_ab.txt`) made the 320-workgroup grids 8-22 % slower. In the
+profiled 16 + 32-row mixed step the dual GEMM went from 143.4 to 129.0 µs per layer and the step from 34.2 to 33.7 ms
+GPU time (launches serialized; `batch/prof_m48_*.txt`). Unprofiled, the steps did not get faster: same binary,
+`SHARPLIGHT_FP8_NARROW=0` against the rule, minimum GPU ms over three interleaved rounds of 20 steps
+(`batch/narrow_switch_*.txt`; the dual-only variant `batch/narrow_dual_*.txt` behaved the same; base against narrow
+build: `batch/mixed_*.txt`):
+
+| step (decode + prompt rows) | regular | narrow (rule) | dual only: regular | dual only: narrow |
+|---|---:|---:|---:|---:|
+| 16 + 16 | 29.25 | 28.49 | 28.29 | 27.97 |
+| 16 + 32 | 31.05 | 31.77 | 30.08 | 29.70 |
+| 16 + 48 | 34.24 | 34.32 | 33.47 | 33.92 |
+| 32 + 32 | 36.60 | 37.49 | 36.17 | 36.60 |
+| 40 + 0 | 35.87 | 35.86 | 35.17 | 35.40 |
+| 64 + 0 | 42.55 | 43.44 | 42.07 | 42.60 |
+
+The differences (-0.8 to +0.9 ms) are within the round-to-round spread and lean towards slower at 48-64 rows. 29.2 gives
+the likely reason.
+
+### 29.2 Sustained steps run at the power limit
+
+The card is the 300 W Max-Q edition. During back-to-back 32 + 32 and 64-row steps (`nvidia-smi` every 500 ms,
+`batch/power_32+32_64.csv`) it draws 300 W with the software power cap as the active clock-limit reason, and the SM
+clock is 1600-1770 MHz (3090 MHz maximum; about 2.3 GHz when idle, where short micro-benchmark bursts start). So the
+serving steps are limited by energy, not by idle SMs: a tile that fills the last wave but re-reads the activations twice
+as often and stages more shared memory most likely just runs the same work at a lower clock. vLLM runs under the same
+cap. Wave-fill and occupancy tuning measured with micro-benchmarks therefore overstates end-to-end gains on this card;
+the levers that remain are those that move fewer bytes (smaller state, fewer intermediate copies) or do fewer
+operations.
+
+### 29.3 Other experiments (dropped)
+
+* Two K blocks in flight per subgroup in the direct skinny GEMM (2-16 rows, same arithmetic;
+  `micro/skinny_depth2_dropped.txt`): 3-22 % slower at 4 and 16 rows, the extra registers cost occupancy.
+* Narrow tiles above 64 rows against the 128-row tiles (`micro/narrow_above64_summary.txt`): 4-28 % slower at 80-256
+  rows except [5120→6144] (8-16 % faster, under 1 % of a mixed step).
+
+### 29.4 The delta-rule state is at the memory bandwidth
+
+The token-by-token `delta_rule` kernel reads and writes each sequence's f32 state once per step: 48 value heads x 128 x
+128 x 4 bytes = 3.1 MB per layer and sequence. At 48 decode rows it takes 161 µs per layer, 302 MB in 161 µs = 1.9 TB/s,
+at or above the card's 1.79 TB/s nominal bandwidth (part of the state stays in the 128 MB L2 between the bench's
+repeated steps); section 28's 63-row profile (234.5 µs) gives 1.7 TB/s. A bit-identical change of layout, fusion or
+occupancy cannot make it faster; only a smaller state (the opt-in bf16 state, section 24.6) can. At 16 rows the kernel
+is 6 % of the step (36 µs per layer); the 20 % of section 28.4 is the 63-row case.
+
+### 29.5 Where the 16-row decode step goes
+
+27B FP8, 16 decode rows, minimum per launch (`batch/prof16dec.txt`; 29.0 ms GPU per step, against vLLM's 24.7-25.8 ms
+mean ITL at 16 streams in sections 28.6 and 29.6):
+
+| launch | µs | per step | weight TB/s |
+|---|---:|---:|---:|
+| gate/up [5120→17408]x2 skinny (dual) | 129.0 | 64x | 1.42 |
+| down [17408→5120] skinny | 73.2 | 64x | 1.26 |
+| [5120→10240] skinny | 45.5 | 48x | 1.19 |
+| [6144→5120] skinny | 26.0 | 64x | 1.22 |
+| [5120→6144] skinny | 34.4 | 48x | 0.94 |
+| LM head [5120→248320] bf16 skinny | 1602.5 | 1x | 1.59 |
+| delta rule | 36.2 | 48x | |
+| [5120→48] bf16 split-K (+ reduce) | 7.7 (+2.0) | 96x | |
+
+The skinny GEMMs read the weights (with their block scales) at 0.9-1.4 TB/s, the LM head at 1.6 TB/s. The small
+[5120→48] matmuls and their reductions are about 1 ms per step in the serialized profile.
+
+### 29.6 Serving against vLLM
+
+`bench/s16_serve.sh` as in section 28.6 (~250-token prompts, 128 output tokens, ignore_eos, a 64-slot server), 27B FP8,
+port 18377, one round: Sharplight (the source tree of `main`), then vLLM 0.33 (`--gpu-memory-utilization 0.5`). Another
+agent's GPU tests ran during both engines' c = 4-64 runs (the snapshots before those runs show 98-100 % utilization at
+300 W), so the ratios carry that disturbance.
+
+| conc | vLLM | Sharplight | SL / vLLM | TTFT P50 / P95 SL | vLLM | mean ITL SL | vLLM |
+|---|---:|---:|---:|---|---|---:|---:|
+| 1 | 45.5 | 39.0 | 0.86x | 80 / 111 | 56 / 63 | 25.2 | 21.7 |
+| 4 | 158.5 | 140.8 | 0.89x | 214 / 229 | 178 / 183 | 27.1 | 24.1 |
+| 16 | 533.1 | 393.3 | 0.74x | 286 / 943 | 581 / 594 | 37.7 | 25.8 |
+| 64 | 1108.7 | 769.7 | 0.69x | 499 / 4360 | 1715 / 2332 | 72.4 | 42.6 |
+
+Sharplight is at its section 28.6 level (38 / 135 / 383 / 769 tok/s then); vLLM measured 45-47 / 158-165 / 533-552 /
+980-1109 over sections 28 and 29, so the ratio at 64 streams moves between 0.69x and 0.78x with vLLM's spread.
+
+### 29.7 Correctness
+
+* Greedy CLI output of the 27B FP8, 200 tokens, the short and ~650-token prompts of section 28 and a 37-token prompt
+  (`ident/p_mid.txt`, its prefill runs the 17-64-row GEMMs the narrow tiles served): identical to `main` with the narrow
+  tiles. Q8_0, K-quant and MXFP4 models never took the changed path (fp8 GEMM only).
+* Tests with the narrow tiles, one at a time under the suite lock: Package 32, Cpu 1214 (36 skipped), Vulkan 1277 (22
+  skipped), Families 663 (34 skipped) and Serving 283 pass. After the revert the source tree equals `main`.
+
+### 29.8 Commands
+
+```bash
+# Kernel A/B (GPU timestamps; SHARPLIGHT_FP8_NARROW=0|1 existed only in commit 5c71bb5c)
+SHARPLIGHT_BENCH=1 SHARPLIGHT_BENCH_TYPES=f8e4m3_b128 SHARPLIGHT_BENCH_ROWS=48 SHARPLIGHT_BENCH_COPIES=4 SHARPLIGHT_BENCH_ITERS=100 \
+  SHARPLIGHT_BENCH_DUAL=1 SHARPLIGHT_BENCH_SHAPES="5120,17408" SHARPLIGHT_BENCH_REPORT=1 \
+  dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -method '*MatMulPrefill'
+# Mixed steps (and --profile <index of the --mixed entry>)
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 16 \
+  --mixed 16+16x1,16+32x1,16+48x1,32+32x1,40+0,64+0 --reps 20
+# Power and clocks during a run
+nvidia-smi --query-gpu=timestamp,power.draw,power.limit,clocks.sm,clocks.mem,utilization.gpu,clocks_event_reasons.active \
+  --format=csv,noheader -lms 500
+# Serving
+OUT_DIR=bench/results/s29/serve PORT=18377 SLOTS=64 ROUNDS=1 bench/s16_serve.sh sharplight qwen27b-fp8 <dir> "1 4 16 64"
+OUT_DIR=bench/results/s29/serve PORT=18377 SLOTS=64 ROUNDS=1 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "1 4 16 64" --gpu-memory-utilization 0.5
+```
+
+### 29.9 Open issues
+
+* **Serving at 16-64 streams** (0.69-0.78x of vLLM): unchanged. The mixed steps are fp8 GEMM at 100-500 rows and the
+  delta rule; the delta rule is at the bandwidth (29.4), and on this power-capped card a faster fp8 GEMM has to do less
+  work or move fewer bytes per output, not only fill the GPU better (29.2).
+* **16-row decode** (29.0 ms GPU against vLLM's 24.7-25.8 ms ITL): the skinny GEMMs read weights at 0.9-1.4 TB/s against
+  the LM head's 1.6 TB/s (29.5); a deeper register prefetch did not help (29.3).
+* **Small [5120→48] matmuls**: about 1 ms per 16-row step serialized; folding the two per layer into one launch needs a
+  two-output variant of the split-K GEMM with separate epilogues.
+* The open issues of section 28.9 (MTP verification cost, K-quant verification, single-stream Q8_0 decode and Mistral-7B
+  pp512, norm-written copies) are unchanged.
