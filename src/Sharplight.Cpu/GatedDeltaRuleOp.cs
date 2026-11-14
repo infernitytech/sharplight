@@ -1,5 +1,6 @@
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -7,6 +8,8 @@ namespace Sharplight.Cpu;
 /// Gated delta rule recurrence (per head sequential over tokens, rows of the state are independent), with a per-head or per-key-channel
 /// log decay, optionally time-invariant gates, and the additive (decay-only) rule. Rollback form: a record row holds, per value head, k (DK),
 /// v (DV), g (DK per-channel, else 1) and beta; a tentative run advances a task-local copy of its state rows.
+/// A 16-bit (bf16 / f16) state is widened into a task-local f32 copy, updated in f32 and rounded to the state type after every
+/// token row (as the Vulkan kernel does, so runs of any length round the same way), then narrowed back.
 /// </summary>
 internal sealed unsafe class GatedDeltaRuleOp : CpuOp
 {
@@ -34,8 +37,10 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     private readonly TRef? _runs;   // multi-sequence: [U, 4] (slot, firstRow, count, firstPos); state [S, Hv, Dv, Dk]
     private long _u;
     private readonly RollbackTables? _rollback;
-    private float* _scratch;        // tentative runs: per task, a copy of its state rows
+    private float* _scratch;        // tentative runs and 16-bit states: per task, an f32 copy of its state rows
     private long _scratchFloats;
+    private readonly int _stateBytes;   // bytes per state element: 4 (f32) or 2 (bf16, f16)
+    private readonly bool _bf16;
     public override string Name => "GatedDeltaRule";
 
     public GatedDeltaRuleOp(TRef q, TRef k, TRef v, TRef g, TRef beta, TRef state, TRef y, float scale, bool additive = false, TRef? runs = null,
@@ -77,6 +82,9 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
         }
 
         _gWidth = _channelDecay ? _dk : 1;
+        _stateBytes = state.Type == DataType.F32 ? 4 : state.Type == DataType.BF16 || state.Type == DataType.F16 ? 2
+            : throw new ArgumentException($"GatedDeltaRule: unsupported state type {state.Type}.");
+        _bf16 = state.Type == DataType.BF16;
         _body = Body;
     }
 
@@ -101,14 +109,15 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
 
                 if (r[3] == 0)
                 {
-                    new Span<float>((float*)_state.P + (long)r[0] * _hv * _dv * _dk, _hv * _dv * _dk).Clear();
+                    long slotBytes = (long)_hv * _dv * _dk * _stateBytes;
+                    new Span<byte>(_state.P + r[0] * slotBytes, checked((int)slotBytes)).Clear();
                 }
             }
         }
 
         _jChunks = Math.Max(1, Math.Min(_dv / 8, (CpuParallel.Threads * 2 + _hv - 1) / _hv));
         _jPer = (_dv + _jChunks - 1) / _jChunks;
-        if (_rollback is not null)
+        if (_rollback is not null || _stateBytes != 4)
         {
             EnsureScratch((long)_hv * _jChunks * _jPer * _dk);
         }
@@ -163,6 +172,16 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
             }
 
             float* S = (float*)_state.P + (slot * _hv + h) * (long)_dv * _dk;
+            long rowFloats = (long)(j1 - j0) * _dk;
+            ushort* stored = null;
+            if (_stateBytes != 4)
+            {
+                // 16-bit state: work on an f32 copy of this task's rows (indexed like the state), rounded after every update.
+                stored = (ushort*)_state.P + ((slot * _hv + h) * (long)_dv + j0) * _dk;
+                S = _scratch + (long)task * _jPer * _dk - (long)j0 * _dk;
+                Widen(stored, S + (long)j0 * _dk, rowFloats);
+            }
+
             var plan = _rollback?.Plan(u, slot, t1 - t0, position) ?? default;
             for (int i = 0; i < plan.Replay; i++)
             {
@@ -172,7 +191,12 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
                 Rows(S, rec, null, rec + _dk, decay, decays, logDecay[_gWidth], j0, j1, null);
             }
 
-            if (plan.Tentative)
+            if (plan.Tentative && stored is not null)
+            {
+                // The slot's state stays as it is after the replay; the run advances the f32 copy.
+                Narrow(S + (long)j0 * _dk, stored, rowFloats);
+            }
+            else if (plan.Tentative)
             {
                 // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
                 float* copy = _scratch + (long)task * _jPer * _dk;
@@ -195,6 +219,41 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
 
                 Rows(S, k, q, v, decay, decays, beta, j0, j1, (float*)_y.P + (t * _hv + h) * _dv);
             }
+
+            if (stored is not null && !plan.Tentative)
+            {
+                Narrow(S + (long)j0 * _dk, stored, rowFloats);
+            }
+        }
+    }
+
+    private void Widen(ushort* src, float* dst, long n)
+    {
+        if (_bf16)
+        {
+            Simd.BFloatToFloat(src, dst, n);
+        }
+        else
+        {
+            Simd.HalfToFloat(src, dst, n);
+        }
+    }
+
+    /// <summary>Stores rows already rounded to the 16-bit state type (exact).</summary>
+    private void Narrow(float* src, ushort* dst, long n)
+    {
+        for (long i = 0; i < n; i++)
+        {
+            dst[i] = _bf16 ? (ushort)(BitConverter.SingleToUInt32Bits(src[i]) >> 16) : Simd.FloatToHalf(src[i]);
+        }
+    }
+
+    /// <summary>Rounds a row to the 16-bit state type's precision (round to nearest even), keeping it in f32.</summary>
+    private void Round(float* row)
+    {
+        for (long i = 0; i < _dk; i++)
+        {
+            row[i] = _bf16 ? Simd.BFloatToFloat(Simd.FloatToBFloat(row[i])) : Simd.HalfToFloat(Simd.FloatToHalf(row[i]));
         }
     }
 
@@ -239,6 +298,11 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
             else
             {
                 o[j] = DecayUpdateDot(row, k, q, decay, delta, _dk) * _scale;
+            }
+
+            if (_stateBytes != 4)
+            {
+                Round(row);
             }
         }
     }

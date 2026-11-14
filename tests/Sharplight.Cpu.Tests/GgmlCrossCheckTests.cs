@@ -130,7 +130,8 @@ public class GgmlCrossCheckTests
         }
     }
 
-    internal static float[] RunDelta(float[] q, float[] k, float[] v, float[] g, float[] beta, float[] state0, int T, int Hk, int Hv, int Dk, int Dv, float scale, int[] chunks, out float[] finalState)
+    internal static float[] RunDelta(float[] q, float[] k, float[] v, float[] g, float[] beta, float[] state0, int T, int Hk, int Hv, int Dk, int Dv, float scale, int[] chunks, out float[] finalState,
+        DataType? stateType = null)
     {
         var tg = new TestGraph();
         var D = TestGraph.T;
@@ -139,7 +140,7 @@ public class GgmlCrossCheckTests
         var vi = tg.InF("v", D, Hv, Dv);
         var gi = tg.InF("g", D, Hv);
         var bi = tg.InF("b", D, Hv);
-        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        var st = tg.State("ssm", stateType ?? DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
         tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [qi, ki, vi, gi, bi, st], Attributes.From(("scale", scale)), writes: [st])[0]);
         using var m = Kit.Compile(tg.B.Build(), maxTokens: Math.Max(8, T));
         var o = new float[T * Hv * Dv];

@@ -33,6 +33,56 @@ public class StatefulOpTests
         Kit.AssertClose(S, s3, 1e-5, 1e-4);
     }
 
+    /// <summary>
+    /// A 16-bit state is rounded after every token row: the outputs and the final state follow a reference that rounds the state
+    /// after each token, and they do not depend on how the tokens are split into calls (a speculative verification run of
+    /// several rows matches token-by-token decoding). The 16-bit state stays close to the f32 one.
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 2e-2)]
+    [InlineData("f16", 4e-3)]
+    public void GatedDeltaRule16BitStateRoundsEveryRow(string type, double vsF32)
+    {
+        int T = 6;
+        int Hk = 2;
+        int Hv = 4;
+        int Dk = 32;
+        int Dv = 16;
+        float scale = 1f / MathF.Sqrt(Dk);
+        var stateType = type == "bf16" ? DataType.BF16 : DataType.F16;
+        var q = Kit.Rand(T * Hk * Dk, 1);
+        var k = Kit.Rand(T * Hk * Dk, 2, 0.3f);
+        var v = Kit.Rand(T * Hv * Dv, 3);
+        var g = Kit.Rand(T * Hv, 4).Select(x => -Math.Abs(x) * 0.2f).ToArray();
+        var b = Kit.Rand(T * Hv, 5).Select(x => Math.Abs(x)).ToArray();
+
+        var S = new float[Hv * Dv * Dk];
+        var exp = new float[T * Hv * Dv];
+        for (int t = 0; t < T; t++)
+        {
+            var o = Ref.Delta(q[(t * Hk * Dk)..((t + 1) * Hk * Dk)], k[(t * Hk * Dk)..((t + 1) * Hk * Dk)], v[(t * Hv * Dv)..((t + 1) * Hv * Dv)],
+                g[(t * Hv)..((t + 1) * Hv)], b[(t * Hv)..((t + 1) * Hv)], S, 1, Hk, Hv, Dk, Dv, scale);
+            o.CopyTo(exp, t * Hv * Dv);
+            for (int i = 0; i < S.Length; i++)
+            {
+                S[i] = stateType == DataType.BF16 ? Simd.BFloatToFloat(Simd.FloatToBFloat(S[i])) : (float)(Half)S[i];
+            }
+        }
+
+        var once = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [T], out var s1, stateType);
+        var single = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [1, 1, 1, 1, 1, 1], out var s2, stateType);
+        var split = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [4, 2], out var s3, stateType);
+        Kit.AssertClose(exp, once, 1e-3, 1e-2, $"{type} vs rounded reference");
+        Kit.AssertClose(S, s1, 1e-3, 1e-2, $"{type} state vs rounded reference");
+        Assert.Equal(once, single);
+        Assert.Equal(once, split);
+        Assert.Equal(s1, s2);
+        Assert.Equal(s1, s3);
+
+        var f32 = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [T], out _);
+        Kit.AssertClose(f32, once, vsF32, vsF32 * 10, $"{type} vs f32 state");
+    }
+
     [Fact]
     public void GatedDeltaRuleLargeHeadDimParallelRows()
     {
