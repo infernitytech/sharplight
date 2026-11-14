@@ -46,6 +46,8 @@ EXTRA = {
     "qwen2-moe-llamacpp": ("qwen2_moe", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=48, shared_expert_intermediate_size=80,
                                              num_hidden_layers=3, num_attention_heads=4, num_key_value_heads=2, num_experts=4,
                                              num_experts_per_tok=2, max_position_embeddings=256)),
+    # StarCoder 1 / SantaCoder: GPT-2 layout with linear weights and one key/value head.
+    "gpt-bigcode": ("gpt_bigcode", dict(n_embd=64, n_layer=3, n_head=4, n_positions=256, multi_query=True)),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})

@@ -4,8 +4,10 @@ using Sharplight.Models;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// Hugging Face <c>gpt2</c> (GPT-2, DistilGPT-2, ...): learned absolute position embeddings (no rotary), layer norm with bias, fused q/k/v and plain GELU MLP.
-/// The checkpoint's projections are transposed <c>Conv1D</c> weights ([in, out]); they are transposed lazily into the canonical [out, in] layout.
+/// Hugging Face <c>gpt2</c> (GPT-2, DistilGPT-2, ...) and <c>gpt_bigcode</c> (StarCoder 1, SantaCoder): learned absolute position embeddings (no rotary),
+/// layer norm with bias, fused q/k/v and plain GELU MLP. GPT-2's projections are transposed <c>Conv1D</c> weights ([in, out]); they are transposed lazily into
+/// the canonical [out, in] layout. GPTBigCode stores ordinary linear weights and, with <c>multi_query</c>, one key/value head (the fused projection is [q; k; v]
+/// with H + 2·head_dim rows).
 /// </summary>
 internal sealed partial class Gpt2HfMapping : HfDecoderFamilyMapping
 {
@@ -46,7 +48,7 @@ internal sealed partial class Gpt2HfMapping : HfDecoderFamilyMapping
     private static partial Regex Gpt2LayerName();
 
     /// <inheritdoc/>
-    public override IReadOnlyList<string> ModelTypes { get; } = ["gpt2"];
+    public override IReadOnlyList<string> ModelTypes { get; } = ["gpt2", "gpt_bigcode"];
 
     /// <inheritdoc/>
     protected override bool LayerNorm => true;
@@ -76,7 +78,10 @@ internal sealed partial class Gpt2HfMapping : HfDecoderFamilyMapping
     protected override int FeedForwardSize(HfConfig c) => c.GetInt("n_inner") ?? 4 * HiddenSize(c);
 
     /// <inheritdoc/>
-    protected override int KvHeadCount(HfConfig c, int headCount) => headCount;
+    protected override int KvHeadCount(HfConfig c, int headCount) => c.GetBool("multi_query") == true ? 1 : headCount;
+
+    /// <summary>Whether the projections are GPT-2 <c>Conv1D</c> weights ([in, out]) rather than linear weights.</summary>
+    private static bool IsConv1D(HfConfig c) => c.ModelType == "gpt2";
 
     /// <inheritdoc/>
     protected override int? ContextLength(HfConfig c) => c.GetInt("n_positions", "max_position_embeddings");
@@ -94,26 +99,19 @@ internal sealed partial class Gpt2HfMapping : HfDecoderFamilyMapping
     /// <inheritdoc/>
     protected override bool TryMapSpecialLayerTensor(HfConfig c, string layerPrefix, string suffix, WeightInfo w, HfWeightCollector collector)
     {
-        if (suffix == "attn.c_attn.weight")
+        int hidden = HiddenSize(c);
+        int kvRows = KvHeadCount(c, HeadCount(c)) * HeadDimOf(c);
+        if (suffix is "attn.c_attn.weight" or "attn.c_attn.bias")
         {
-            var linear = Transpose(w, layerPrefix + "attn.qkv.weight");
-            int hidden = HiddenSize(c);
-            collector.Add(linear.RowSlice(layerPrefix + "attention.q.weight", 0, hidden));
-            collector.Add(linear.RowSlice(layerPrefix + "attention.k.weight", hidden, hidden));
-            collector.Add(linear.RowSlice(layerPrefix + "attention.v.weight", 2 * hidden, hidden));
+            string kind = suffix.EndsWith(".bias", StringComparison.Ordinal) ? "bias" : "weight";
+            var fused = kind == "weight" && IsConv1D(c) ? Transpose(w, layerPrefix + "attn.qkv.weight") : w;
+            collector.Add(HfTransforms.Plain(fused.RowSlice("", 0, hidden), $"{layerPrefix}attention.q.{kind}"));
+            collector.Add(HfTransforms.Plain(fused.RowSlice("", hidden, kvRows), $"{layerPrefix}attention.k.{kind}"));
+            collector.Add(HfTransforms.Plain(fused.RowSlice("", hidden + kvRows, kvRows), $"{layerPrefix}attention.v.{kind}"));
             return true;
         }
 
-        if (suffix == "attn.c_attn.bias")
-        {
-            int hidden = HiddenSize(c);
-            collector.Add(HfTransforms.Plain(w.RowSlice("", 0, hidden), layerPrefix + "attention.q.bias"));
-            collector.Add(HfTransforms.Plain(w.RowSlice("", hidden, hidden), layerPrefix + "attention.k.bias"));
-            collector.Add(HfTransforms.Plain(w.RowSlice("", 2 * hidden, hidden), layerPrefix + "attention.v.bias"));
-            return true;
-        }
-
-        if (!s_transposed.Contains(suffix))
+        if (!IsConv1D(c) || !s_transposed.Contains(suffix))
         {
             return false;
         }
