@@ -18,7 +18,7 @@ namespace Sharplight.Architectures;
 /// <para>
 /// The graph's <see cref="WellKnown.HiddenOutput"/> is what the next chained draft step feeds back as its hidden input: after the
 /// output norm (Qwen3.5 / Qwen3-Next, vLLM's convention for these models) or before it (DeepSeek-V3 / GLM-4.5 NextN, whose
-/// target hidden is the pre-norm residual stream); see <paramref name="chainNormalized"/> of <see cref="Build"/>.
+/// target hidden is the pre-norm residual stream); see the <c>chainNormalized</c> argument of <see cref="Build"/>.
 /// </para>
 /// </remarks>
 public static class MtpDraftHead
