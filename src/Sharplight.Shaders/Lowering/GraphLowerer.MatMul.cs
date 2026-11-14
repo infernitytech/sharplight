@@ -410,10 +410,14 @@ public sealed partial class GraphLowerer
     /// </summary>
     private TensorRef EmitSplitHalfMatMul(MatMulPlan p)
     {
-        Emit(MatMulLabel(p), [p.Node],
-            MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), WithoutSplit(p.Macros), p.N, p.K, p.RowCount),
-            [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
-            [p.X, p.W], [p.Y]);
+        if (MinRows(p.X) * p.RowsPerLead <= MatvecMaxRows)
+        {
+            Emit(MatMulLabel(p), [p.Node],
+                MatvecVariants((entry, macros) => Lib("matmul.slang", entry, macros), WithoutSplit(p.Macros), p.N, p.K, p.RowCount),
+                [Pointer(p.X), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, p.RowsPerLead)],
+                [p.X, p.W], [p.Y]);
+        }
+
         var split = QuantizedActivations(MatMulLabel(p), [p.Node], p.Node.Inputs[0], p.X, p.XStride, p.RowsPerLead, p.K, MatvecMaxRows + 1,
             p.X.Shape[0] * p.RowsPerLead, ActivationCode.SplitF16);
         Emit(MatMulLabel(p), [p.Node], Gemm2Variants(p, p.Macros, b => p.RowCount(b) > MatvecMaxRows),
@@ -421,6 +425,13 @@ public sealed partial class GraphLowerer
             [split, p.WeightParts!, p.WeightScales!], [p.Y]);
         return split;
     }
+
+    /// <summary>
+    /// The fewest rows <paramref name="r"/> can have: its fixed extent, a lone symbol at 1 (0 rows need no launch), 0 for other
+    /// expressions. Matmuls whose rows always exceed the matvec range need no matvec launch (nor, for split f16, the f32 weights).
+    /// </summary>
+    private static long MinRows(TensorRef r)
+        => r.Symbol is null ? r.Shape[0] : SymbolicExpression.Parse(r.Symbol).IsSymbol ? 1 : 0;
 
     /// <summary>The macros without GEMM_SPLIT (the f32 matvecs and the split-K reduction of a split-f16 matmul).</summary>
     private static Dictionary<string, string> WithoutSplit(Dictionary<string, string> m)
@@ -737,7 +748,7 @@ public sealed partial class GraphLowerer
             b => new Grid(Grid.Div(p.RowCount(b) * N, 256))));
         Emit($"matmul {p.Node.Output.Name} split-k reduce", [p.Node],
             [.. reduceVariants],
-            [new PointerArg(scratch, 0), Pointer(p.W), Pointer(p.Y), TokenArg(p.X, rowsPerLead)],
+            [new PointerArg(scratch, 0), Pointer(p.WeightParts ?? p.W), Pointer(p.Y), TokenArg(p.X, rowsPerLead)],   // w: unused by the reduction
             [partial], [p.Y]);
     }
 
