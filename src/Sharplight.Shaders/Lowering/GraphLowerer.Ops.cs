@@ -74,6 +74,9 @@ public sealed partial class GraphLowerer
             case "CachedAttention" or "Attention":
                 LowerAttention(n);
                 break;
+            case "IndexerTopK":
+                LowerIndexerTopK(n);
+                break;
             case "CausalConv1d":
                 LowerConv(n);
                 break;

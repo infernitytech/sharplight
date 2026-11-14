@@ -34,6 +34,9 @@ internal sealed class AttentionPlan
     /// <summary>Paged cache: the block table [slots, blocks per slot] (null for a contiguous cache).</summary>
     public TensorRef? Pages { get; init; }
 
+    /// <summary>Sparse attention: the key positions each query row attends, i32 [rows, K] (entries below 0 are skipped).</summary>
+    public TensorRef? Selection { get; init; }
+
     /// <summary>"Attention" with i32 spans: the key range each query may see.</summary>
     public TensorRef? Spans { get; init; }
 

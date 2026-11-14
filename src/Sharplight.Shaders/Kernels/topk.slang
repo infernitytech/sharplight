@@ -7,26 +7,19 @@
 //   topk_subgroup: one subgroup (SG lanes) per row for small K (<= 16): per-lane sorted lists merged by subgroup reductions.
 // Grid: x * 65535 + y covers the rows; rows beyond p.rows return immediately.
 #include "common.slang"
+// The radix selection compares topk_key (declared below; Slang resolves global declarations in any order).
+#define RADIX_KEY(v) topk_key(v)
+#include "radix_select.slang"
 
 struct TopKParams { float* x; float* vals; int* idx; uint rows; };
 
 // Order-preserving key: larger key = better element (for LARGEST = 0 the order is reversed).
 uint topk_key(float v)
 {
-    uint k;
-    if (isnan(v))
-    {
-        k = 0xFFFFFFFFu;
-    }
-    else
-    {
-        uint u = asuint(v == 0.0 ? 0.0 : v);
-        k = (u & 0x80000000u) != 0 ? ~u : (u | 0x80000000u);
-    }
 #if LARGEST
-    return k;
+    return radix_key(v);
 #else
-    return ~k;
+    return ~radix_key(v);
 #endif
 }
 
@@ -35,27 +28,8 @@ uint64_t topk_in_base(uint row) { return uint64_t(row / INNER) * (uint64_t(LEN) 
 uint64_t topk_out_base(uint row) { return uint64_t(row / INNER) * (uint64_t(K) * INNER) + (row % INNER); }
 
 #ifdef KERNEL_TOPK_ROWS
-groupshared uint sHist[256];
-groupshared uint sGt[WG];
-groupshared uint sEq[WG];
 groupshared uint sKey[P2];
 groupshared uint sIdx[P2];
-groupshared uint sPrefix;
-groupshared uint sRemaining;
-
-// Inclusive Hillis-Steele scans of sGt and sEq over the WG threads.
-void scan_pair(uint tid)
-{
-    for (uint off = 1; off < WG; off <<= 1)
-    {
-        uint g = tid >= off ? sGt[tid - off] : 0u;
-        uint e = tid >= off ? sEq[tid - off] : 0u;
-        GroupMemoryBarrierWithGroupSync();
-        sGt[tid] += g;
-        sEq[tid] += e;
-        GroupMemoryBarrierWithGroupSync();
-    }
-}
 
 [shader("compute")]
 [numthreads(WG, 1, 1)]
@@ -70,69 +44,10 @@ void topk_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform To
     uint tid = ltid.x;
     float* xr = p.x + topk_in_base(row);
 
-    // 1. Radix select (8 bits per pass, most significant first): find the key T of the k-th best element and the
-    //    number of elements equal to T that belong to the top k.
-    if (tid == 0)
-    {
-        sPrefix = 0u;
-        sRemaining = K;
-    }
-    uint mask = 0u;
-    for (int shift = 24; shift >= 0; shift -= 8)
-    {
-        for (uint b = tid; b < 256u; b += WG)
-        {
-            sHist[b] = 0u;
-        }
-        GroupMemoryBarrierWithGroupSync();
-        uint prefix = sPrefix;
-        for (uint j = tid; j < LEN; j += WG)
-        {
-            uint k = topk_key(xr[uint64_t(j) * INNER]);
-            if ((k & mask) == prefix)
-            {
-                InterlockedAdd(sHist[(k >> uint(shift)) & 255u], 1u);
-            }
-        }
-        GroupMemoryBarrierWithGroupSync();
-        // Suffix sums: sGt[b] = number of candidates in bins > b (reusing the scan buffer, bins mapped high to low).
-        for (uint b = tid; b < 256u; b += WG)
-        {
-            sGt[b] = sHist[255u - b];
-        }
-        GroupMemoryBarrierWithGroupSync();
-        for (uint off = 1; off < 256u; off <<= 1)
-        {
-            uint add = 0u;
-            if (tid < 256u && tid >= off)
-            {
-                add = sGt[tid - off];
-            }
-            GroupMemoryBarrierWithGroupSync();
-            if (tid < 256u)
-            {
-                sGt[tid] += add;
-            }
-            GroupMemoryBarrierWithGroupSync();
-        }
-        uint remaining = sRemaining;
-        GroupMemoryBarrierWithGroupSync();
-        if (tid < 256u)
-        {
-            uint bin = 255u - tid;
-            uint inclusive = sGt[tid];
-            uint above = inclusive - sHist[bin];
-            if (above < remaining && inclusive >= remaining)
-            {
-                sPrefix = prefix | (bin << uint(shift));
-                sRemaining = remaining - above;
-            }
-        }
-        mask |= 255u << uint(shift);
-        GroupMemoryBarrierWithGroupSync();
-    }
-    uint threshold = sPrefix;
-    uint needEq = sRemaining;
+    // 1. Radix select: the key T of the k-th best element and the number of elements equal to T that belong to the top k.
+    uint threshold;
+    uint needEq;
+    radix_threshold(tid, xr, INNER, LEN, K, threshold, needEq);
     uint greater = K - needEq;
 
     // 2. Ordered collection: thread t owns the contiguous chunk [t*C, (t+1)*C); elements equal to the threshold are
@@ -140,20 +55,9 @@ void topk_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform To
     const uint C = (LEN + WG - 1) / WG;
     uint begin = min(tid * C, uint(LEN));
     uint end = min(begin + C, uint(LEN));
-    uint gt = 0u;
-    uint eq = 0u;
-    for (uint j = begin; j < end; j++)
-    {
-        uint k = topk_key(xr[uint64_t(j) * INNER]);
-        gt += k > threshold ? 1u : 0u;
-        eq += k == threshold ? 1u : 0u;
-    }
-    sGt[tid] = gt;
-    sEq[tid] = eq;
-    GroupMemoryBarrierWithGroupSync();
-    scan_pair(tid);
-    uint gtSlot = sGt[tid] - gt;
-    uint eqRank = sEq[tid] - eq;
+    uint gtSlot;
+    uint eqRank;
+    radix_ranks(tid, xr, INNER, begin, end, threshold, gtSlot, eqRank);
     for (uint j = begin; j < end; j++)
     {
         uint k = topk_key(xr[uint64_t(j) * INNER]);
