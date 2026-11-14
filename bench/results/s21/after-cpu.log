@@ -1,0 +1,84 @@
+r0 resnet50 b1 sl-cpu: ok min 8.606 med 14.389 parity True 
+r0 resnet50 b1 ort-cpu: ok min 5.71 med 5.851 parity None 
+r0 resnet50 b8 sl-cpu: ok min 54.528 med 56.684 parity True 
+r0 resnet50 b8 ort-cpu: ok min 22.108 med 22.597 parity None 
+r0 convnext-tiny b1 sl-cpu: ok min 20.045 med 90.977 parity True 
+r0 convnext-tiny b1 ort-cpu: ok min 13.165 med 13.861 parity None 
+r0 convnext-tiny b8 sl-cpu: ok min 89.228 med 93.444 parity True 
+r0 convnext-tiny b8 ort-cpu: ok min 79.931 med 85.012 parity None 
+r0 efficientnet-lite4 b1 sl-cpu: ok min 13.04 med 19.588 parity True 
+r0 efficientnet-lite4 b1 ort-cpu: ok min 3.601 med 3.791 parity None 
+r0 mobilenetv2 b1 sl-cpu: ok min 2.056 med 10.033 parity True 
+r0 mobilenetv2 b1 ort-cpu: ok min 1.561 med 1.62 parity None 
+r0 mobilenetv2 b8 sl-cpu: ok min 15.315 med 17.19 parity True 
+r0 mobilenetv2 b8 ort-cpu: ok min 6.409 med 6.566 parity None 
+r0 yolov8n b1 sl-cpu: ok min 14.033 med 16.107 parity True 
+r0 yolov8n b1 ort-cpu: ok min 12.75 med 13.213 parity None 
+r0 yolov10n b1 sl-cpu: ok min 15.527 med 20.316 parity True 
+r0 yolov10n b1 ort-cpu: ok min 15.151 med 16.043 parity None 
+r0 ssd-10 (NMS) b1 sl-cpu: ok min 326.571 med 355.806 parity False 
+r0 ssd-10 (NMS) b1 ort-cpu: ok min 225.625 med 236.739 parity None 
+r0 bert-base (16 tok) b1 sl-cpu: ok min 14.214 med 22.401 parity True 
+r0 bert-base (16 tok) b1 ort-cpu: ok min 15.353 med 21.821 parity None 
+r0 bert-base (16 tok) b8 sl-cpu: ok min 22.227 med 26.556 parity True 
+r0 bert-base (16 tok) b8 ort-cpu: ok min 26.682 med 27.479 parity None 
+r0 vit-base b1 sl-cpu: ok min 27.017 med 28.06 parity True 
+r0 vit-base b1 ort-cpu: ok min 21.96 med 22.484 parity None 
+r0 vit-base b8 sl-cpu: ok min 164.597 med 173.249 parity True 
+r0 vit-base b8 ort-cpu: ok min 131.137 med 135.666 parity None 
+r0 whisper-tiny-encoder b1 sl-cpu: ok min 44.889 med 46.543 parity True 
+r0 whisper-tiny-encoder b1 ort-cpu: ok min 39.45 med 40.804 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cpu: ok min 17.027 med 18.573 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cpu: ok min 21.03 med 21.446 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-cpu: ok min 41.273 med 42.532 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cpu: ok min 51.142 med 51.708 parity None 
+r0 segformer-b0 b1 sl-cpu: ok min 91.644 med 105.636 parity True 
+r0 segformer-b0 b1 ort-cpu: ok min 42.679 med 44.123 parity None 
+r0 segformer-b0 b8 sl-cpu: ok min 426.681 med 465.263 parity True 
+r0 segformer-b0 b8 ort-cpu: ok min 510.693 med 531.808 parity None 
+r0 mobilesam-encoder b1 sl-cpu: ok min 215.442 med 242.147 parity True 
+r0 mobilesam-encoder b1 ort-cpu: ok min 198.04 med 205.992 parity None 
+r0 raft-large b1 sl-cpu: ok min 1803.678 med 1826.077 parity True 
+r0 raft-large b1 ort-cpu: ok min 1546.906 med 1562.368 parity None 
+r1 resnet50 b1 sl-cpu: ok min 8.16 med 8.858 parity True 
+r1 resnet50 b1 ort-cpu: ok min 5.805 med 6.624 parity None 
+r1 resnet50 b8 sl-cpu: ok min 55.865 med 62.35 parity True 
+r1 resnet50 b8 ort-cpu: ok min 20.302 med 20.499 parity None 
+r1 convnext-tiny b1 sl-cpu: ok min 20.143 med 23.755 parity True 
+r1 convnext-tiny b1 ort-cpu: ok min 13.189 med 13.658 parity None 
+r1 convnext-tiny b8 sl-cpu: ok min 91.868 med 108.115 parity True 
+r1 convnext-tiny b8 ort-cpu: ok min 86.2 med 96.845 parity None 
+r1 efficientnet-lite4 b1 sl-cpu: ok min 7.928 med 17.377 parity True 
+r1 efficientnet-lite4 b1 ort-cpu: ok min 3.971 med 4.28 parity None 
+r1 mobilenetv2 b1 sl-cpu: ok min 9.367 med 11.179 parity True 
+r1 mobilenetv2 b1 ort-cpu: ok min 1.568 med 1.699 parity None 
+r1 mobilenetv2 b8 sl-cpu: ok min 16.88 med 18.212 parity True 
+r1 mobilenetv2 b8 ort-cpu: ok min 6.625 med 11.241 parity None 
+r1 yolov8n b1 sl-cpu: ok min 14.119 med 15.575 parity True 
+r1 yolov8n b1 ort-cpu: ok min 13.092 med 13.469 parity None 
+r1 yolov10n b1 sl-cpu: ok min 16.235 med 22.328 parity True 
+r1 yolov10n b1 ort-cpu: ok min 15.961 med 16.666 parity None 
+r1 ssd-10 (NMS) b1 sl-cpu: ok min 305.862 med 314.373 parity False 
+r1 ssd-10 (NMS) b1 ort-cpu: ok min 204.96 med 210.204 parity None 
+r1 bert-base (16 tok) b1 sl-cpu: ok min 11.402 med 21.367 parity True 
+r1 bert-base (16 tok) b1 ort-cpu: ok min 11.384 med 11.728 parity None 
+r1 bert-base (16 tok) b8 sl-cpu: ok min 22.414 med 26.592 parity True 
+r1 bert-base (16 tok) b8 ort-cpu: ok min 26.811 med 27.601 parity None 
+r1 vit-base b1 sl-cpu: ok min 26.132 med 27.791 parity True 
+r1 vit-base b1 ort-cpu: ok min 21.159 med 21.875 parity None 
+r1 vit-base b8 sl-cpu: ok min 164.52 med 173.982 parity True 
+r1 vit-base b8 ort-cpu: ok min 130.618 med 135.064 parity None 
+r1 whisper-tiny-encoder b1 sl-cpu: ok min 52.478 med 59.241 parity True 
+r1 whisper-tiny-encoder b1 ort-cpu: ok min 44.119 med 45.535 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cpu: ok min 16.756 med 26.646 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cpu: ok min 20.836 med 21.291 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-cpu: ok min 41.986 med 43.118 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cpu: ok min 50.873 med 51.827 parity None 
+r1 segformer-b0 b1 sl-cpu: ok min 92.222 med 100.097 parity True 
+r1 segformer-b0 b1 ort-cpu: ok min 41.398 med 42.635 parity None 
+r1 segformer-b0 b8 sl-cpu: ok min 423.828 med 455.158 parity True 
+r1 segformer-b0 b8 ort-cpu: ok min 476.526 med 487.219 parity None 
+r1 mobilesam-encoder b1 sl-cpu: ok min 217.239 med 393.407 parity True 
+r1 mobilesam-encoder b1 ort-cpu: ok min 196.338 med 209.498 parity None 
+r1 raft-large b1 sl-cpu: ok min 1874.249 med 2042.708 parity True 
+r1 raft-large b1 ort-cpu: ok min 1570.621 med 1793.311 parity None 

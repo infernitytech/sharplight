@@ -692,6 +692,8 @@ within the noise; VNNI shows up in the kernel benchmark (single thread q4_k matv
 | `SHARPLIGHT_CPU_POOL=0` | use `Parallel.For` instead of the spinning pool |
 | `SHARPLIGHT_CPU_SPIN_US` | pool spin time after each job (default 200) |
 | `SHARPLIGHT_CPU_GEMM_MIN_ROWS` | rows from which MatMul uses the GEMM (default 8, 32 with integer dots) |
+| `SHARPLIGHT_CPU_NO_FUSION=1` | lower every node on its own: no bias / residual / activation epilogues on Conv and MatMul (§21) |
+| `SHARPLIGHT_CPU_NO_PREPACK=1` | pack the B panels of static f32 MatMul weights on every run instead of once (§21) |
 | `SHARPLIGHT_CPU_PROFILE=1` | per-op timing table on stderr at exit |
 
 Correctness: `tests/Sharplight.Cpu.Tests` (1103 tests) passes under every `SHARPLIGHT_CPU_ISA` value; the integer-dot tiers
@@ -1836,3 +1838,245 @@ OUT_DIR=bench/results/s20 PORT=18190 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp
 * **Delta rule at 64 decode rows** (section 19.6): unchanged, about a quarter of the step. An opt-in bf16 state behind
   `--reduced-precision` is the remaining lever.
 * **Glue launches**: f16 copies, fp8 quantization and split-K reductions are 3 % of the mixed step.
+
+## 21. ONNX models against onnxruntime: CPU and GPU (2026-11-14)
+
+The goal is to run 15 representative ONNX models, all imported through `Sharplight.Onnx`, as fast as onnxruntime on the
+same machine. Sharplight's CPU provider is compared with ORT's CPU EP, and the Vulkan provider with ORT's CUDA EP on the
+same GPU. The optimizations work at graph, op and kernel level. None of them is specific to a model.
+
+| | |
+|---|---|
+| Machine | Ryzen 9 9950X (16 cores, AVX-512) and RTX PRO 6000 Blackwell Max-Q (driver 610.57.04), as in section 1 |
+| onnxruntime | 1.31.1 (`onnxruntime-gpu` wheel with CUDA 13 / cuDNN 9; venv set up by `bench/onnx/env.sh`), `ORT_ENABLE_ALL` graph optimizations |
+| CPU | both engines pinned to cores 0-15 (`taskset`). They use 16 threads: `SHARPLIGHT_CPU_THREADS=16` for Sharplight, `intra_op_num_threads=16` for ORT |
+| GPU | `ort-cuda` is the CUDA EP default, which allows **TF32** for f32 matmuls and convolutions. `ort-cuda-strict` sets `use_tf32=0`. Inputs are bound on the device with IO binding, and outputs are copied back |
+| Sharplight GPU | `sl-vulkan` uses the defaults (f32-accurate). `sl-vulkan-rp` adds `AllowReducedPrecision` and `AllowHalfBlockScales` (opt-in, section 21.3). Ops without a Vulkan kernel (NMS) run on the CPU provider as a fallback segment |
+| Timing | every cell is its own process. After warm-up, each process reports min / median of N runs (N ≥ 20, or a 10 s budget). Engines run interleaved per model, and the table gives the minimum of the per-process minima over 2 rounds, then the median of medians |
+
+Scripts are in `bench/onnx/`:
+
+* `OnnxBench/` (C#): imports a reference manifest, compiles for CPU or Vulkan, and times runs. It reports GPU timestamps
+  and an optional profile, and checks outputs against the manifest's ORT reference.
+* `ort_latency.py`: times the same model under ORT.
+* `parity_bench.py`: runs both and prints the tables below.
+
+Model paths come from `SHARPLIGHT_ONNX_MODELS`. Raw JSONL and logs are in [`bench/results/s21/`](../bench/results/s21):
+
+* `before.jsonl`: the baseline at `4f192ee`.
+* `after-cpu.jsonl`, `after-gpu.jsonl`: this branch.
+* `disturbed/`: runs that overlapped another agent's GPU benchmark. They were repeated and are not used in the tables.
+
+### 21.1 What changed
+
+Commits on the branch, in order:
+
+* **Benchmark harness** (`bench/onnx/OnnxBench`, `ort_latency.py`, `parity_bench.py`). `OnnxBench` replaces SurveyRunner,
+  which does not build under the code-style analyzers. It tries a symbolic batch first and falls back to a fixed batch.
+  On Vulkan it attaches the CPU provider as a fallback device, so ssd-10's NonMaxSuppression now runs as a CPU segment
+  instead of failing to compile.
+* **MatMulNBits in block form** (`MatMulNBitsPacking.cs`). The weights used to be dequantized to f32 at import. Now they
+  are packed into ggml Q4_0 / Q8_0 blocks (Q4_1 when zero points are present), so the existing quantized matvec / GEMM
+  kernels run them. Rules:
+  * Packing happens only when it is exact: the block scales must be representable in f16, as for phi-3.5 q4f16.
+  * Models with f32 scales (bert / qwen `model_q4`) keep the f32 path unless the new opt-in
+    `OnnxImportOptions.AllowHalfBlockScales` is set. Rounding those scales costs about 5e-4 relative RMS on BERT, which
+    is above the conformance tolerance.
+  * The MatMuls carry a new `f32_activations` attribute (`StandardOps.F32ActivationsAttribute`) unless the node has
+    `accuracy_level` 4. The attribute keeps the int8-activation paths (CPU `IntDot`, Vulkan int-dot matvec and MMQ) and
+    the Vulkan f16-activation tensor-core GEMMs off unless `AllowReducedPrecision` is set.
+* **CPU conv** (`ConvOp`, `OutputEpilogue`, `CpuCompiledSegment.Fusion.cs`):
+  * A residual `Add` and one activation are applied to each output tile while it is in cache. This covers
+    Relu / Clip / LeakyRelu / HardSwish / Sigmoid / SiLU / GELU / Tanh / ..., and the `Mul(x, Sigmoid(x))` SiLU of YOLO
+    and EfficientNet exports.
+  * Convs with ≤ 1 MB of weights and K ≤ 1152 pack each output tile's im2col panel per worker instead of the whole B
+    matrix up front.
+  * Depthwise rows use AVX-512 / AVX2 lanes over the interior, for stride 1 and stride 2 (even-lane permute). Narrow maps
+    keep the AXPY rows.
+* **CPU MatMul** (`MatMulOp`):
+  * Static f32 weights up to 64 MB are packed into the GEMM's B layout once, on the first GEMM run. Before, they were
+    packed on every run and for every row block.
+  * The same epilogue also takes a constant bias vector over the last axis, so `MatMul → Add(bias) → Add(residual) → act`
+    is one op.
+* **ONNX translation**: the decomposed LayerNorm of opset < 17 exports (ReduceMean / Sub / Pow / ReduceMean / Add /
+  Sqrt / Div, plus the affine Mul / Add) and the decomposed erf GELU (`x · 0.5 · (1 + erf(x/√2))`, any grouping) each
+  become one node.
+  * They are matched backwards from the last node, so constants defined after the first ReduceMean are known.
+  * The elementary nodes are left to dead-node elimination.
+  * vit-base drops from 608 to 408 nodes and bert-base from 635 to 427.
+* **Vulkan bmm**: grids under 512 32x32 tiles use 2x2 outputs per thread (256-thread groups). Attention P·V at batch 1
+  (12 x 197x197 · 197x64) drops from 43 µs to 16 µs.
+
+New switches:
+
+* `SHARPLIGHT_CPU_NO_FUSION=1`: no conv / matmul epilogues.
+* `SHARPLIGHT_CPU_NO_PREPACK=1`: no once-only weight packing.
+* `OnnxImportOptions.AllowHalfBlockScales`: opt-in, described above.
+
+### 21.2 CPU: Sharplight vs onnxruntime CPU EP (16 threads)
+
+Before = `4f192ee`, after = this branch. Times are in ms: min of the per-process minima over 2 rounds, then the median
+of medians. The CPU was shared with other agents' builds and tests (load average 9-13), so the medians are noisy. Use
+the minima. Cells read `min / median`, before → after. `(!)` marks a run whose outputs failed the parity check
+against the ORT reference. The ratio column is Sharplight's after-min divided by ORT's min.
+
+| model | batch | sl-cpu | ort-cpu | SL/ORT CPU (min) |
+|---|---|---|---|---|
+| resnet50 | 1 | 12.48 / 43.62 → 8.16 / 14.39 | 5.71 / 6.62 | 1.43x |
+| resnet50 | 8 | 80.81 / 86.00 → 54.53 / 62.35 | 20.30 / 22.60 | 2.69x |
+| convnext-tiny | 1 | 18.95 / 22.57 → 20.05 / 90.98 | 13.16 / 13.86 | 1.52x |
+| convnext-tiny | 8 | 163.18 / 173.72 → 89.23 / 108.11 | 79.93 / 96.84 | 1.12x |
+| efficientnet-lite4 | 1 | 9.42 / 13.71 → 7.93 / 19.59 | 3.60 / 4.28 | 2.20x |
+| mobilenetv2 | 1 | 6.53 / 7.53 → 2.06 / 11.18 | 1.56 / 1.70 | 1.32x |
+| mobilenetv2 | 8 | 21.04 / 23.88 → 15.31 / 18.21 | 6.41 / 11.24 | 2.39x |
+| yolov8n | 1 | 28.54 / 33.49 → 14.03 / 16.11 | 12.75 / 13.47 | 1.10x |
+| yolov10n | 1 | 28.86 / 35.77 → 15.53 / 22.33 | 15.15 / 16.67 | 1.02x |
+| ssd-10 (NMS) | 1 | 467.76 / 489.10 (!) → 305.86 / 355.81 (!) | 204.96 / 236.74 | 1.49x |
+| bert-base (16 tok) | 1 | 13.16 / 28.71 → 11.40 / 22.40 | 11.38 / 21.82 | 1.00x |
+| bert-base (16 tok) | 8 | 33.57 / 53.98 → 22.23 / 26.59 | 26.68 / 27.60 | 0.83x |
+| vit-base | 1 | 37.69 / 41.33 → 26.13 / 28.06 | 21.16 / 22.48 | 1.24x |
+| vit-base | 8 | 258.10 / 299.06 → 164.52 / 173.98 | 130.62 / 135.67 | 1.26x |
+| whisper-tiny-encoder | 1 | 59.13 / 65.97 → 44.89 / 59.24 | 39.45 / 45.53 | 1.14x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 40.74 / 50.44 → 16.76 / 26.65 | 20.84 / 21.45 | 0.80x |
+| phi3.5-mini q4f16 (GQA) | 1 | fail → 41.27 / 43.12 (!) | 50.87 / 51.83 | 0.81x |
+| segformer-b0 | 1 | 92.78 / 103.16 → 91.64 / 105.64 | 41.40 / 44.12 | 2.21x |
+| segformer-b0 | 8 | 560.67 / 619.11 → 423.83 / 465.26 | 476.53 / 531.81 | 0.89x |
+| mobilesam-encoder | 1 | 395.02 / 639.59 → 215.44 / 393.41 | 196.34 / 209.50 | 1.10x |
+| raft-large | 1 | 2239.13 / 2347.01 → 1803.68 / 2042.71 | 1546.91 / 1793.31 | 1.17x |
+
+What moved:
+
+* Convnets: resnet50 is 1.5x faster at b1, yolov8n / yolov10n are about 2x faster, and mobilenetv2 b1 is 3x faster.
+  These gains come from the epilogues, tile packing and depthwise lanes.
+* Transformers: vit is 1.4-1.6x faster, bert b8 1.5x and whisper 1.3x. These come from the decomposed-op translation,
+  weight prepacking and the bias / GELU epilogues.
+* MatMulNBits: phi-3.5 went from an out-of-memory failure (f32 dequantization of 3.8B parameters) to 41 ms, against
+  ORT's 51 ms.
+
+Sharplight is now at or ahead of ORT on bert, phi-3.5, qwen q4 and segformer b8. It is within 10-25 % on yolov8n,
+yolov10n, whisper, vit and mobilesam.
+
+### 21.3 GPU: Sharplight Vulkan vs onnxruntime CUDA EP
+
+Same format as 21.2. All GPU after-rows ran while no other agent's benchmark was on the GPU. `nvidia-smi` was sampled
+every 15 s (`after-gpu.gpu-samples.txt`). The qwen / phi-3.5 rows are from a re-run after the fix described below. ORT's
+own run-to-run spread is visible there: phi-3.5 `ort-cuda` measured 3.41 ms in the baseline and 4.19 ms here.
+
+| model | batch | sl-vulkan | sl-vulkan-rp | ort-cuda | ort-cuda-strict | SL / ORT CUDA (TF32) |
+|---|---|---|---|---|---|---|
+| resnet50 | 1 | 0.97 / 1.00 → 0.94 / 0.96 | 1.10 / 1.12 (!) → 1.08 / 1.11 (!) | 1.02 / 1.08 | 2.11 / 2.27 | 0.92x |
+| resnet50 | 8 | 4.01 / 4.22 → 3.86 / 4.06 | 3.34 / 3.54 (!) → 3.17 / 3.38 (!) | 2.00 / 2.14 | 3.72 / 4.17 | 1.93x |
+| convnext-tiny | 1 | 1.18 / 1.20 → 1.10 / 1.14 | 1.53 / 1.99 (!) → 1.43 / 1.50 (!) | 1.00 / 2.33 | 1.35 / 1.45 | 1.10x |
+| convnext-tiny | 8 | 4.46 / 4.83 → 4.48 / 4.68 | 2.87 / 3.68 (!) → 2.76 / 2.87 (!) | 2.56 / 2.58 | 4.01 / 4.36 | 1.75x |
+| efficientnet-lite4 | 1 | 0.94 / 0.97 → 0.95 / 0.97 | 1.05 / 3.57 → 1.05 / 1.09 | 0.68 / 0.89 | 8.18 / 8.88 | 1.41x |
+| mobilenetv2 | 1 | 0.46 / 0.47 → 0.47 / 0.51 | 0.51 / 0.51 (!) → 0.51 / 0.55 (!) | 0.35 / 0.49 | 0.65 / 0.67 | 1.32x |
+| mobilenetv2 | 8 | 0.92 / 0.94 → 0.92 / 1.01 | 0.95 / 0.96 (!) → 0.95 / 1.00 (!) | 0.75 / 0.90 | 1.35 / 1.39 | 1.22x |
+| yolov8n | 1 | 1.48 / 2.01 → 1.46 / 1.53 | 1.90 / 1.95 (!) → 1.80 / 2.24 (!) | 1.31 / 1.34 | 2.75 / 3.00 | 1.11x |
+| yolov10n | 1 | 1.43 / 1.82 → 1.34 / 1.36 | 1.82 / 1.92 (!) → 1.72 / 1.75 (!) | 1.17 / 1.21 | 2.31 / 2.51 | 1.15x |
+| ssd-10 (NMS) | 1 | fail → 19.51 / 21.21 (!) | fail → 13.04 / 14.45 (!) | 10.99 / 12.07 | 22.54 / 24.80 | 1.78x |
+| bert-base (16 tok) | 1 | 1.63 / 3.76 → 1.26 / 1.30 | 2.43 / 3.60 (!) → 1.70 / 1.84 (!) | 1.24 / 1.45 | 1.44 / 1.61 | 1.01x |
+| bert-base (16 tok) | 8 | 4.57 / 8.35 → 3.72 / 4.03 | 4.53 / 4.86 (!) → 3.84 / 8.58 (!) | 2.70 / 4.84 | 3.32 / 4.43 | 1.38x |
+| vit-base | 1 | 3.34 / 3.55 → 2.76 / 2.80 | 3.42 / 3.44 (!) → 2.38 / 2.41 (!) | 1.34 / 2.53 | 2.46 / 2.69 | 2.06x |
+| vit-base | 8 | 13.53 / 14.97 → 12.75 / 14.73 | 5.82 / 10.82 (!) → 5.43 / 5.81 (!) | 3.98 / 4.33 | 9.23 / 9.99 | 3.21x |
+| whisper-tiny-encoder | 1 | 2.90 / 3.13 → 2.84 / 3.02 | fail → fail | 1.17 / 1.32 | 2.08 / 2.15 | 2.42x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.56 / 3.77 → 3.19 / 4.16 | 3.59 / 7.04 → 2.50 / 4.29 (!) | 3.92 / 12.47 | 3.86 / 4.23 | 0.82x |
+| phi3.5-mini q4f16 (GQA) | 1 | 11.10 / 12.03 (!) → 4.62 / 6.60 (!) | 11.38 / 11.93 (!) → 3.50 / 8.68 (!) | 4.19 / 7.21 | 3.46 / 6.87 | 1.10x |
+| segformer-b0 | 1 | 3.43 / 6.21 → 3.02 / 3.49 | 3.63 / 3.75 (!) → 3.33 / 3.83 | 2.33 / 2.55 | 3.39 / 3.92 | 1.30x |
+| segformer-b0 | 8 | 23.12 / 25.12 → 22.63 / 24.83 | 21.24 / 23.45 (!) → 20.95 / 22.55 | 19.90 / 22.54 | 23.38 / 25.44 | 1.14x |
+| mobilesam-encoder | 1 | 6.38 / 7.23 → 6.23 / 6.95 | fail → fail | 6.15 / 9.04 | 8.00 / 8.93 | 1.01x |
+| raft-large | 1 | 58.69 / 63.30 → 58.19 / 64.14 | 47.97 / 75.43 (!) → 45.01 / 54.94 (!) | 29.25 / 36.54 | 77.00 / 94.06 | 1.99x |
+
+What moved:
+
+* **bert**: b1 went from 1.63 to 1.26 ms (ORT TF32 1.24, strict 1.44), b8 from 4.57 to 3.72 ms. This comes from the
+  LayerNorm translation and the bmm change.
+* **vit**: b1 went from 3.34 to 2.76 ms, segformer b1 from 3.43 to 3.02 ms.
+* **phi-3.5 q4f16**: 11.1 → 4.6 ms. The weights now stay Q4_0 instead of f32.
+* **qwen q4**: 3.56 → 3.19 ms, against 3.86 ms for ORT.
+* **ssd-10** now runs, at 19.5 ms with NMS on the CPU fallback (ORT 11.0 ms).
+* **Convnets** are unchanged within noise. Nothing on their Vulkan path changed.
+
+The first after-run showed qwen q4 failing parity (rms 1.0e-3 instead of 1.1e-5). Its weights became Q4_0, so prompts
+of more than 8 rows took the f16-activation tensor-core GEMM. MatMuls marked `f32_activations` now use those GEMMs only
+with `AllowReducedPrecision`, as f32 weights already did. Speed is unchanged, and the pre-fix rows are in
+`superseded/`.
+
+Against `ort-cuda-strict`, Sharplight's default is faster or equal on 14 of 21 rows. Against TF32 it is ahead on
+resnet50 b1 and qwen, about equal on bert b1 and mobilesam, and up to 3.2x behind on the transformer rows (vit b8,
+whisper), where ORT's f32 matmuls use TF32 tensor cores.
+
+`ort-cuda` runs f32 convolutions and matmuls in **TF32** (10-bit mantissa), which is the EP's default. The
+accuracy-equivalent comparison for Sharplight's default mode is `ort-cuda-strict`. Sharplight's strict convs use the 3-way
+bf16 split on tensor cores, and its f32 matmuls use the SIMT GEMM.
+
+### 21.4 Opt-in reduced precision
+
+`sl-vulkan-rp` turns on `AllowReducedPrecision` (f16 single-part convs and matmuls, int8 activation dots) and
+`AllowHalfBlockScales`. Its outputs do not pass the strict parity check, as expected. Two problems:
+
+* At batch 1 it is often *slower* than the default (resnet50, convnext, bert, mobilenetv2).
+* It loses the device (`VK_ERROR_DEVICE_LOST`) on whisper-tiny-encoder and mobilesam-encoder, in the baseline and on this
+  branch.
+
+It pays off at batch 8 (convnext 4.48 → 2.76 ms, vit 12.75 → 5.43 ms), on raft (58 → 45 ms) and on the q4 models
+(qwen 3.19 → 2.50 ms, phi-3.5 4.62 → 3.50 ms). On the CPU, `AllowHalfBlockScales`
+packs bert / qwen `model_q4` as Q4_1 / Q4_0 too.
+
+### 21.5 Negative results
+
+* **Split-bf16 tensor-core GEMM for f32 matmuls** (3-part bf16 split, as used for conv): it was correct, but slower than
+  the SIMT GEMM at these sizes. vit b1 768x768 took 26.5 µs against 16.2 µs, and b8 358 µs against 287 µs. It was
+  removed.
+* **Unbounded tile packing in CPU conv**: packing per tile for every conv, rather than for ≤ 1 MB weights and K ≤ 1152,
+  made resnet50 slower (11.5 against 8.0 ms). Large-K convs prefer the up-front B panels, which stay in L2 across row
+  tiles.
+* **Decomposed LayerNorm on Vulkan**: the elementwise fusion already merged most of it. The translation is worth only
+  0.03 ms on vit. The gain there comes from the bmm change.
+
+### 21.6 Correctness and tests
+
+Accuracy stays within the existing parity checks. Every after-row of the default engines passed the manifest's ORT
+parity check, except ssd-10 (detection ordering on ties, as before) and phi-3.5 (fp16 reference noise, rms 4.6e-2, as
+before).
+
+On the rebased branch:
+
+* Cpu, Onnx (`-parallelMode none`), Package, Families and Vulkan pass: 1169 / 412 / 29 / 456 / 1065 tests, 0 failed.
+* The ONNX conformance report is unchanged from `main`:
+  * 1829 of 1884 node tests pass (97.1 %) on CPU and on Vulkan;
+  * 161 / 161 / 147 of 192 ai.onnx operators pass (cpu / vulkan / vulkan without fallback).
+
+New tests:
+
+* `ConvTests.ConvEpilogues`: conv + residual + Clip, SiLU pattern, Relu with a second consumer, on the tile-packed,
+  im2col, depthwise and 1x1 paths.
+* Wide depthwise cases (stride 1 and 2, 3x3 and 5x5).
+* `MatMulEpilogueTests`: bias, residual and activation on the row and GEMM paths, prepacked or not.
+* `TranslationTests`: decomposed LayerNorm and GELU, positive and negative cases.
+
+### 21.7 Commands
+
+```bash
+source bench/onnx/env.sh                         # ORT venv + CUDA libs
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx      # models and ref/ manifests
+dotnet build bench/onnx/OnnxBench -c Release
+python3 bench/onnx/parity_bench.py run after.jsonl --rounds 2 [--engines sl-cpu,ort-cpu] [--models vit-base,...]
+python3 bench/onnx/parity_bench.py table after.jsonl before.jsonl
+dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/<manifest>.json vulkan --profile
+```
+
+### 21.8 Remaining gaps
+
+* **CPU convolution GEMM.** resnet50 is 1.4x / 2.7x behind ORT at b1 / b8, efficientnet 2.2x and segformer b1 2.2x.
+  * The 8x32 microkernel reaches roughly 10-15 % of the 9950X's f32 peak inside these networks.
+  * At batch > 1 each image is a separate GEMM.
+  * Next steps: pack the conv weights once, block over output channels per thread, and treat N·H·W as one GEMM.
+* **CPU transformer GEMM.** vit is still 1.25x behind ORT. GEMMs are ~60 % of its time.
+  * The attention scale `Div` and Softmax are separate passes.
+* **Vulkan f32 GEMM vs TF32.** vit, whisper and bert at b8 trail `ort-cuda`, because ORT uses TF32 tensor cores. Against
+  `ort-cuda-strict`, Sharplight leads or ties on most rows.
+* **NonMaxSuppression / RoiAlign / MaxPool with indices** have no Vulkan kernel. ssd-10 runs NMS as a CPU fallback
+  segment.
+  * NMS needs data-dependent output counts on the device.
+  * CumSum and GridSample already have Vulkan kernels.
+* **Reduced precision**: slower than strict at b1, and `DEVICE_LOST` on two encoders (21.4).

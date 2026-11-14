@@ -149,6 +149,75 @@ public class TranslationTests
         Assert.ThrowsAny<Exception>(() => m.Build());
     }
 
+    /// <summary>The decomposed LayerNorm PyTorch exports below opset 17 becomes one LayerNorm with the affine Mul/Add absorbed.</summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void DecomposedLayerNorm_BecomesLayerNorm(bool pow, bool affine)
+    {
+        var m = new TestModel().Opset(13).Input("x", "N", 5, 8).Output("y", "N", 5, 8)
+            .InitF32("two", [], [2f]).InitF32("eps", [], [1e-5f]).InitF32("g", [8], Rnd(8, 3)).InitF32("b", [8], Rnd(8, 4))
+            .Node("ReduceMean", ["x"], ["m"], TestModel.AttrInts("axes", -1)).Node("Sub", ["x", "m"], ["d"])
+            .Node(pow ? "Pow" : "Mul", pow ? ["d", "two"] : ["d", "d"], ["p"])
+            .Node("ReduceMean", ["p"], ["v"], TestModel.AttrInts("axes", -1)).Node("Add", ["v", "eps"], ["e"]).Node("Sqrt", ["e"], ["s"]);
+        if (affine)
+        {
+            m.Node("Div", ["d", "s"], ["q"]).Node("Mul", ["q", "g"], ["r"]).Node("Add", ["r", "b"], ["y"]);
+        }
+        else
+        {
+            m.Node("Div", ["d", "s"], ["y"]);
+        }
+
+        var nodes = m.Build().Graph("main").Nodes;
+        Assert.True(nodes.Count == 1, string.Join(", ", nodes.Select(x => x.Op.Name)));
+        var ln = nodes[0];
+        Assert.Equal("LayerNorm", ln.Op.Name);
+        Assert.Equal(affine ? 3 : 2, ln.Inputs.Length);
+        Assert.Equal(1e-5f, ln.Attributes.Get("eps", 0f));
+    }
+
+    /// <summary>x · 0.5 · (1 + erf(x / √2)) in the groupings HF exports use becomes one Gelu.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DecomposedGelu_BecomesGelu(bool halfLast)
+    {
+        var m = new TestModel().Opset(13).Input("x", "N", 8).Output("y", "N", 8)
+            .InitF32("s2", [], [1.4142135f]).InitF32("one", [], [1f]).InitF32("half", [], [0.5f])
+            .Node("Div", ["x", "s2"], ["z"]).Node("Erf", ["z"], ["e"]).Node("Add", ["e", "one"], ["a"]);
+        if (halfLast)
+        {
+            m.Node("Mul", ["x", "a"], ["p"]).Node("Mul", ["p", "half"], ["y"]);
+        }
+        else
+        {
+            m.Node("Mul", ["x", "half"], ["h"]).Node("Mul", ["h", "a"], ["y"]);
+        }
+
+        Assert.Equal(["Gelu"], Ops(m.Build()));
+    }
+
+    [Fact]
+    public void DecomposedGelu_WithOtherConstant_IsNotFused()
+    {
+        var def = new TestModel().Opset(13).Input("x", "N", 8).Output("y", "N", 8)
+            .InitF32("s2", [], [2f]).InitF32("one", [], [1f]).InitF32("half", [], [0.5f])
+            .Node("Div", ["x", "s2"], ["z"]).Node("Erf", ["z"], ["e"]).Node("Add", ["e", "one"], ["a"])
+            .Node("Mul", ["x", "a"], ["p"]).Node("Mul", ["p", "half"], ["y"]).Build();
+        Assert.DoesNotContain("Gelu", Ops(def));
+    }
+
+    [Fact]
+    public void DecomposedLayerNorm_OverOtherAxis_IsNotFused()
+    {
+        var def = new TestModel().Opset(13).Input("x", "N", 5, 8).Output("y", "N", 5, 8).InitF32("two", [], [2f]).InitF32("eps", [], [1e-5f])
+            .Node("ReduceMean", ["x"], ["m"], TestModel.AttrInts("axes", 1)).Node("Sub", ["x", "m"], ["d"]).Node("Pow", ["d", "two"], ["p"])
+            .Node("ReduceMean", ["p"], ["v"], TestModel.AttrInts("axes", 1)).Node("Add", ["v", "eps"], ["e"]).Node("Sqrt", ["e"], ["s"])
+            .Node("Div", ["d", "s"], ["y"]).Build();
+        Assert.DoesNotContain("LayerNorm", Ops(def));
+    }
+
     [Fact]
     public void ConvBatchNorm_IsFoldedIntoDerivedWeights()
     {

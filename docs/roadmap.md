@@ -23,6 +23,12 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences, NonMaxSuppression and the rest of the opset.
+- **ONNX latency parity with onnxruntime** (§21): conv / matmul epilogues, prepacked weights, decomposed LayerNorm and
+  GELU translation and block-quantized MatMulNBits are in. Open gaps:
+  - CPU convolution GEMM efficiency (resnet50, segformer, mobilesam);
+  - Vulkan f32 GEMMs at 200-1600 rows against ORT's TF32 (vit, whisper);
+  - NonMaxSuppression and RoiAlign on the GPU (CPU fallback segments today);
+  - reduced-precision mode, which is slower than the default at batch 1 and loses the device on two encoders.
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
 
 ## Performance ideas
@@ -43,7 +49,10 @@ GPU (Vulkan):
 
 CPU:
 
-- Relu fusion into the preceding GEMM, single-pass LayerNorm, polynomial `exp`.
+- Single-pass LayerNorm, polynomial `exp`; fold the attention scale (`Div` after Q·Kᵀ) into the BatchMatMul alpha.
+  Conv / MatMul bias, residual and activation epilogues are done (§21).
+- Conv GEMM: the 8x32 microkernel reaches roughly 10-15 % of the 9950X's f32 peak inside ONNX CNNs. Next: pack A (the
+  weights) once per conv, block over output channels per thread, and run batch > 1 as one GEMM over N·H·W (§21).
 - 128-bit GEMM kernels for CPUs without AVX-512; ARM64 (NEON / SVE) kernels.
 
 ## Precision options

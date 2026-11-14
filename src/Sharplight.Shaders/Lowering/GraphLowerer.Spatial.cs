@@ -439,7 +439,10 @@ public sealed partial class GraphLowerer
             long batches = nb == 0 ? 1 : (y.Symbol is not null ? dyn * batchesInner : y.Shape.Take(nb).Aggregate(1L, (p, q) => p * q));
             long mm = mdyn ? dyn : Mb;
             long wgs64 = batches * ((mm + 63) / 64) * ((N + 63) / 64);
-            return wgs64 >= 120 ? new BmmTile(64, 64, 4, 4, 16) : new BmmTile(32, 32, 4, 4, 16);
+            long wgs32 = batches * ((mm + 31) / 32) * ((N + 31) / 32);
+            // Small grids (attention P·V at batch 1: 12 heads x 7 x 2 tiles) are latency-bound with 64-thread groups;
+            // 2x2 outputs per thread give each group 256 threads for the same tile.
+            return wgs64 >= 120 ? new BmmTile(64, 64, 4, 4, 16) : wgs32 >= 512 ? new BmmTile(32, 32, 4, 4, 16) : new BmmTile(32, 32, 2, 2, 16);
         };
         long bound = y.Symbol is null ? 1 : Bound(Dim.Sym(y.Symbol));
         var variants = ChooseVariants(y.Symbol, bound, choose, t =>

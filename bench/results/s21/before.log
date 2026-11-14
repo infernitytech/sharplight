@@ -1,0 +1,252 @@
+r0 resnet50 b1 sl-cpu: ok min 22.205 med 43.615 parity True 
+r0 resnet50 b1 ort-cpu: ok min 6.69 med 25.842 parity None 
+r0 resnet50 b1 sl-vulkan: ok min 0.975 med 0.999 parity True 
+r0 resnet50 b1 sl-vulkan-rp: ok min 1.112 med 1.122 parity False 
+r0 resnet50 b1 ort-cuda: ok min 1.018 med 1.031 parity None 
+r0 resnet50 b1 ort-cuda-strict: ok min 2.121 med 2.131 parity None 
+r0 resnet50 b8 sl-cpu: ok min 80.812 med 86.005 parity True 
+r0 resnet50 b8 ort-cpu: ok min 20.749 med 21.929 parity None 
+r0 resnet50 b8 sl-vulkan: ok min 4.008 med 4.028 parity True 
+r0 resnet50 b8 sl-vulkan-rp: ok min 3.353 med 3.367 parity False 
+r0 resnet50 b8 ort-cuda: ok min 1.974 med 1.985 parity None 
+r0 resnet50 b8 ort-cuda-strict: ok min 3.693 med 3.707 parity None 
+r0 convnext-tiny b1 sl-cpu: ok min 18.947 med 19.694 parity True 
+r0 convnext-tiny b1 ort-cpu: ok min 13.361 med 13.65 parity None 
+r0 convnext-tiny b1 sl-vulkan: ok min 1.192 med 1.197 parity True 
+r0 convnext-tiny b1 sl-vulkan-rp: ok min 1.531 med 1.546 parity False 
+r0 convnext-tiny b1 ort-cuda: ok min 1.004 med 1.026 parity None 
+r0 convnext-tiny b1 ort-cuda-strict: ok min 1.386 med 1.57 parity None 
+r0 convnext-tiny b8 sl-cpu: ok min 165.025 med 167.938 parity True 
+r0 convnext-tiny b8 ort-cpu: ok min 80.242 med 97.166 parity None 
+r0 convnext-tiny b8 sl-vulkan: ok min 4.465 med 4.826 parity True 
+r0 convnext-tiny b8 sl-vulkan-rp: ok min 3.034 med 3.68 parity False 
+r0 convnext-tiny b8 ort-cuda: ok min 2.544 med 2.84 parity None 
+r0 convnext-tiny b8 ort-cuda-strict: ok min 3.988 med 4.015 parity None 
+r0 efficientnet-lite4 b1 sl-cpu: ok min 10.038 med 13.712 parity True 
+r0 efficientnet-lite4 b1 ort-cpu: ok min 3.857 med 4.263 parity None 
+r0 efficientnet-lite4 b1 sl-vulkan: ok min 0.944 med 0.956 parity True 
+r0 efficientnet-lite4 b1 sl-vulkan-rp: ok min 1.17 med 3.571 parity True 
+r0 efficientnet-lite4 b1 ort-cuda: ok min 0.807 med 1.917 parity None 
+r0 efficientnet-lite4 b1 ort-cuda-strict: ok min 10.033 med 12.032 parity None 
+r0 mobilenetv2 b1 sl-cpu: ok min 6.805 med 7.534 parity True 
+r0 mobilenetv2 b1 ort-cpu: ok min 1.54 med 1.61 parity None 
+r0 mobilenetv2 b1 sl-vulkan: ok min 0.464 med 0.468 parity True 
+r0 mobilenetv2 b1 sl-vulkan-rp: ok min 0.508 med 0.512 parity False 
+r0 mobilenetv2 b1 ort-cuda: ok min 0.354 med 0.362 parity None 
+r0 mobilenetv2 b1 ort-cuda-strict: ok min 0.65 med 0.662 parity None 
+r0 mobilenetv2 b8 sl-cpu: ok min 21.04 med 23.882 parity True 
+r0 mobilenetv2 b8 ort-cpu: ok min 6.075 med 6.296 parity None 
+r0 mobilenetv2 b8 sl-vulkan: ok min 0.924 med 0.939 parity True 
+r0 mobilenetv2 b8 sl-vulkan-rp: ok min 0.947 med 0.956 parity False 
+r0 mobilenetv2 b8 ort-cuda: ok min 0.746 med 0.753 parity None 
+r0 mobilenetv2 b8 ort-cuda-strict: ok min 1.346 med 1.356 parity None 
+r0 yolov8n b1 sl-cpu: ok min 28.541 med 30.27 parity True 
+r0 yolov8n b1 ort-cpu: ok min 12.83 med 13.248 parity None 
+r0 yolov8n b1 sl-vulkan: ok min 1.481 med 1.495 parity True 
+r0 yolov8n b1 sl-vulkan-rp: ok min 1.9 med 1.954 parity False 
+r0 yolov8n b1 ort-cuda: ok min 1.306 med 1.323 parity None 
+r0 yolov8n b1 ort-cuda-strict: ok min 2.756 med 2.972 parity None 
+r0 yolov10n b1 sl-cpu: ok min 28.865 med 33.497 parity True 
+r0 yolov10n b1 ort-cpu: ok min 15.09 med 16.035 parity None 
+r0 yolov10n b1 sl-vulkan: ok min 1.425 med 1.435 parity True 
+r0 yolov10n b1 sl-vulkan-rp: ok min 1.823 med 1.845 parity False 
+r0 yolov10n b1 ort-cuda: ok min 1.188 med 1.217 parity None 
+r0 yolov10n b1 ort-cuda-strict: ok min 2.306 med 2.505 parity None 
+r0 ssd-10 (NMS) b1 sl-cpu: ok min 477.272 med 489.1 parity False 
+r0 ssd-10 (NMS) b1 ort-cpu: ok min 200.694 med 204.656 parity None 
+r0 ssd-10 (NMS) b1 sl-vulkan: compile min None med None parity None NotSupportedException: Op NonMaxSuppression (node 148) is not supported on NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: no kernel for NonM
+r0 ssd-10 (NMS) b1 sl-vulkan-rp: compile min None med None parity None NotSupportedException: Op NonMaxSuppression (node 148) is not supported on NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: no kernel for NonM
+r0 ssd-10 (NMS) b1 ort-cuda: ok min 11.92 med 12.099 parity None 
+r0 ssd-10 (NMS) b1 ort-cuda-strict: ok min 22.608 med 24.549 parity None 
+r0 bert-base (16 tok) b1 sl-cpu: ok min 13.679 med 25.738 parity True 
+r0 bert-base (16 tok) b1 ort-cpu: ok min 11.408 med 11.676 parity None 
+r0 bert-base (16 tok) b1 sl-vulkan: ok min 1.631 med 1.679 parity True 
+r0 bert-base (16 tok) b1 sl-vulkan-rp: ok min 2.671 med 3.602 parity False 
+r0 bert-base (16 tok) b1 ort-cuda: ok min 1.237 med 1.254 parity None 
+r0 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.453 med 1.473 parity None 
+r0 bert-base (16 tok) b8 sl-cpu: ok min 33.567 med 53.979 parity True 
+r0 bert-base (16 tok) b8 ort-cpu: ok min 27.6 med 31.015 parity None 
+r0 bert-base (16 tok) b8 sl-vulkan: ok min 5.884 med 8.346 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan-rp: ok min 4.534 med 4.581 parity False 
+r0 bert-base (16 tok) b8 ort-cuda: ok min 2.639 med 2.715 parity None 
+r0 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.2 med 3.227 parity None 
+r0 vit-base b1 sl-cpu: ok min 38.693 med 40.198 parity True 
+r0 vit-base b1 ort-cpu: ok min 21.11 med 21.781 parity None 
+r0 vit-base b1 sl-vulkan: ok min 3.34 med 3.507 parity True 
+r0 vit-base b1 sl-vulkan-rp: ok min 3.42 med 3.436 parity False 
+r0 vit-base b1 ort-cuda: ok min 1.352 med 1.374 parity None 
+r0 vit-base b1 ort-cuda-strict: ok min 2.466 med 2.627 parity None 
+r0 vit-base b8 sl-cpu: ok min 258.104 med 265.735 parity True 
+r0 vit-base b8 ort-cpu: ok min 124.603 med 135.741 parity None 
+r0 vit-base b8 sl-vulkan: ok min 13.533 med 14.172 parity True 
+r0 vit-base b8 sl-vulkan-rp: ok min 9.617 med 10.816 parity False 
+r0 vit-base b8 ort-cuda: ok min 4.69 med 5.662 parity None 
+r0 vit-base b8 ort-cuda-strict: ok min 13.535 med 15.223 parity None 
+r0 whisper-tiny-encoder b1 sl-cpu: ok min 61.333 med 65.967 parity True 
+r0 whisper-tiny-encoder b1 ort-cpu: ok min 51.701 med 54.137 parity None 
+r0 whisper-tiny-encoder b1 sl-vulkan: ok min 2.898 med 3.015 parity True 
+r0 whisper-tiny-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r0 whisper-tiny-encoder b1 ort-cuda: ok min 1.166 med 1.179 parity None 
+r0 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.066 med 2.094 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cpu: ok min 41.512 med 48.791 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cpu: ok min 21.396 med 27.603 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.558 med 3.763 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 5.469 med 7.04 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda: ok min 3.83 med 3.911 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda-strict: ok min 3.921 med 3.975 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-cpu: crash min None med None parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cpu: ok min 52.233 med 55.667 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 11.912 med 12.031 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 11.505 med 11.933 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cuda: ok min 3.42 med 3.502 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cuda-strict: ok min 3.398 med 3.48 parity None 
+r0 segformer-b0 b1 sl-cpu: ok min 97.311 med 103.158 parity True 
+r0 segformer-b0 b1 ort-cpu: ok min 40.751 med 43.824 parity None 
+r0 segformer-b0 b1 sl-vulkan: ok min 4.048 med 6.207 parity True 
+r0 segformer-b0 b1 sl-vulkan-rp: ok min 3.628 med 3.751 parity False 
+r0 segformer-b0 b1 ort-cuda: ok min 2.331 med 2.365 parity None 
+r0 segformer-b0 b1 ort-cuda-strict: ok min 3.358 med 3.465 parity None 
+r0 segformer-b0 b8 sl-cpu: ok min 594.034 med 619.114 parity True 
+r0 segformer-b0 b8 ort-cpu: ok min 491.69 med 533.447 parity None 
+r0 segformer-b0 b8 sl-vulkan: ok min 24.094 med 25.12 parity True 
+r0 segformer-b0 b8 sl-vulkan-rp: ok min 22.586 med 23.453 parity False 
+r0 segformer-b0 b8 ort-cuda: ok min 22.485 med 24.689 parity None 
+r0 segformer-b0 b8 ort-cuda-strict: ok min 23.182 med 23.625 parity None 
+r0 mobilesam-encoder b1 sl-cpu: ok min 434.273 med 639.586 parity True 
+r0 mobilesam-encoder b1 ort-cpu: ok min 205.957 med 220.451 parity None 
+r0 mobilesam-encoder b1 sl-vulkan: ok min 6.399 med 7.228 parity True 
+r0 mobilesam-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r0 mobilesam-encoder b1 ort-cuda: ok min 7.078 med 9.73 parity None 
+r0 mobilesam-encoder b1 ort-cuda-strict: ok min 10.174 med 12.459 parity None 
+r0 raft-large b1 sl-cpu: ok min 2284.5 med 2347.006 parity True 
+r0 raft-large b1 ort-cpu: ok min 1682.258 med 1825.959 parity None 
+r0 raft-large b1 sl-vulkan: ok min 58.948 med 63.297 parity True 
+r0 raft-large b1 sl-vulkan-rp: ok min 50.738 med 75.434 parity False 
+r0 raft-large b1 ort-cuda: ok min 29.522 med 32.078 parity None 
+r0 raft-large b1 ort-cuda-strict: ok min 68.743 med 73.992 parity None 
+r1 resnet50 b1 sl-cpu: ok min 12.481 med 16.068 parity True 
+r1 resnet50 b1 ort-cpu: ok min 6.06 med 6.24 parity None 
+r1 resnet50 b1 sl-vulkan: ok min 0.968 med 0.977 parity True 
+r1 resnet50 b1 sl-vulkan-rp: ok min 1.098 med 1.106 parity False 
+r1 resnet50 b1 ort-cuda: ok min 1.029 med 1.045 parity None 
+r1 resnet50 b1 ort-cuda-strict: ok min 2.126 med 2.239 parity None 
+r1 resnet50 b8 sl-cpu: ok min 81.711 med 84.357 parity True 
+r1 resnet50 b8 ort-cpu: ok min 21.927 med 22.268 parity None 
+r1 resnet50 b8 sl-vulkan: ok min 4.013 med 4.218 parity True 
+r1 resnet50 b8 sl-vulkan-rp: ok min 3.34 med 3.541 parity False 
+r1 resnet50 b8 ort-cuda: ok min 1.988 med 2.136 parity None 
+r1 resnet50 b8 ort-cuda-strict: ok min 3.724 med 4.165 parity None 
+r1 convnext-tiny b1 sl-cpu: ok min 19.471 med 22.57 parity True 
+r1 convnext-tiny b1 ort-cpu: ok min 13.728 med 15.479 parity None 
+r1 convnext-tiny b1 sl-vulkan: ok min 1.184 med 1.188 parity True 
+r1 convnext-tiny b1 sl-vulkan-rp: ok min 1.714 med 1.993 parity False 
+r1 convnext-tiny b1 ort-cuda: ok min 1.003 med 1.022 parity None 
+r1 convnext-tiny b1 ort-cuda-strict: ok min 1.431 med 1.538 parity None 
+r1 convnext-tiny b8 sl-cpu: ok min 163.178 med 173.725 parity True 
+r1 convnext-tiny b8 ort-cpu: ok min 80.702 med 88.078 parity None 
+r1 convnext-tiny b8 sl-vulkan: ok min 4.528 med 4.811 parity True 
+r1 convnext-tiny b8 sl-vulkan-rp: ok min 2.867 med 3.027 parity False 
+r1 convnext-tiny b8 ort-cuda: ok min 2.564 med 2.732 parity None 
+r1 convnext-tiny b8 ort-cuda-strict: ok min 4.017 med 4.39 parity None 
+r1 efficientnet-lite4 b1 sl-cpu: ok min 9.42 med 11.162 parity True 
+r1 efficientnet-lite4 b1 ort-cpu: ok min 3.538 med 3.93 parity None 
+r1 efficientnet-lite4 b1 sl-vulkan: ok min 0.952 med 0.966 parity True 
+r1 efficientnet-lite4 b1 sl-vulkan-rp: ok min 1.052 med 1.079 parity True 
+r1 efficientnet-lite4 b1 ort-cuda: ok min 0.672 med 0.691 parity None 
+r1 efficientnet-lite4 b1 ort-cuda-strict: ok min 8.343 med 8.83 parity None 
+r1 mobilenetv2 b1 sl-cpu: ok min 6.531 med 7.201 parity True 
+r1 mobilenetv2 b1 ort-cpu: ok min 1.542 med 1.607 parity None 
+r1 mobilenetv2 b1 sl-vulkan: ok min 0.466 med 0.469 parity True 
+r1 mobilenetv2 b1 sl-vulkan-rp: ok min 0.505 med 0.51 parity False 
+r1 mobilenetv2 b1 ort-cuda: ok min 0.363 med 0.375 parity None 
+r1 mobilenetv2 b1 ort-cuda-strict: ok min 0.65 med 0.66 parity None 
+r1 mobilenetv2 b8 sl-cpu: ok min 21.475 med 23.781 parity True 
+r1 mobilenetv2 b8 ort-cpu: ok min 6.123 med 6.306 parity None 
+r1 mobilenetv2 b8 sl-vulkan: ok min 0.917 med 0.928 parity True 
+r1 mobilenetv2 b8 sl-vulkan-rp: ok min 0.947 med 0.954 parity False 
+r1 mobilenetv2 b8 ort-cuda: ok min 0.757 med 0.771 parity None 
+r1 mobilenetv2 b8 ort-cuda-strict: ok min 1.347 med 1.486 parity None 
+r1 yolov8n b1 sl-cpu: ok min 29.738 med 33.488 parity True 
+r1 yolov8n b1 ort-cpu: ok min 13.106 med 13.716 parity None 
+r1 yolov8n b1 sl-vulkan: ok min 1.602 med 2.007 parity True 
+r1 yolov8n b1 sl-vulkan-rp: ok min 1.908 med 1.943 parity False 
+r1 yolov8n b1 ort-cuda: ok min 1.738 med 2.288 parity None 
+r1 yolov8n b1 ort-cuda-strict: ok min 3.6 med 5.113 parity None 
+r1 yolov10n b1 sl-cpu: ok min 29.585 med 35.767 parity True 
+r1 yolov10n b1 ort-cpu: ok min 16.098 med 17.805 parity None 
+r1 yolov10n b1 sl-vulkan: ok min 1.428 med 1.816 parity True 
+r1 yolov10n b1 sl-vulkan-rp: ok min 1.821 med 1.924 parity False 
+r1 yolov10n b1 ort-cuda: ok min 1.342 med 1.652 parity None 
+r1 yolov10n b1 ort-cuda-strict: ok min 2.308 med 2.458 parity None 
+r1 ssd-10 (NMS) b1 sl-cpu: ok min 467.762 med 483.37 parity False 
+r1 ssd-10 (NMS) b1 ort-cpu: ok min 207.681 med 214.551 parity None 
+r1 ssd-10 (NMS) b1 sl-vulkan: compile min None med None parity None NotSupportedException: Op NonMaxSuppression (node 148) is not supported on NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: no kernel for NonM
+r1 ssd-10 (NMS) b1 sl-vulkan-rp: compile min None med None parity None NotSupportedException: Op NonMaxSuppression (node 148) is not supported on NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: no kernel for NonM
+r1 ssd-10 (NMS) b1 ort-cuda: ok min 11.847 med 11.973 parity None 
+r1 ssd-10 (NMS) b1 ort-cuda-strict: ok min 22.752 med 25.02 parity None 
+r1 bert-base (16 tok) b1 sl-cpu: ok min 13.157 med 28.714 parity True 
+r1 bert-base (16 tok) b1 ort-cpu: ok min 11.54 med 12.391 parity None 
+r1 bert-base (16 tok) b1 sl-vulkan: ok min 1.905 med 3.764 parity True 
+r1 bert-base (16 tok) b1 sl-vulkan-rp: ok min 2.426 med 2.536 parity False 
+r1 bert-base (16 tok) b1 ort-cuda: ok min 1.246 med 1.26 parity None 
+r1 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.505 med 1.804 parity None 
+r1 bert-base (16 tok) b8 sl-cpu: ok min 34.907 med 43.476 parity True 
+r1 bert-base (16 tok) b8 ort-cpu: ok min 26.312 med 28.312 parity None 
+r1 bert-base (16 tok) b8 sl-vulkan: ok min 4.574 med 5.175 parity True 
+r1 bert-base (16 tok) b8 sl-vulkan-rp: ok min 4.627 med 4.86 parity False 
+r1 bert-base (16 tok) b8 ort-cuda: ok min 2.673 med 2.72 parity None 
+r1 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.38 med 3.695 parity None 
+r1 vit-base b1 sl-cpu: ok min 37.686 med 41.332 parity True 
+r1 vit-base b1 ort-cpu: ok min 21.666 med 22.724 parity None 
+r1 vit-base b1 sl-vulkan: ok min 3.348 med 3.547 parity True 
+r1 vit-base b1 sl-vulkan-rp: ok min 3.426 med 3.444 parity False 
+r1 vit-base b1 ort-cuda: ok min 1.353 med 1.494 parity None 
+r1 vit-base b1 ort-cuda-strict: ok min 2.458 med 2.481 parity None 
+r1 vit-base b8 sl-cpu: ok min 267.229 med 299.062 parity True 
+r1 vit-base b8 ort-cpu: ok min 133.556 med 142.69 parity None 
+r1 vit-base b8 sl-vulkan: ok min 13.898 med 14.967 parity True 
+r1 vit-base b8 sl-vulkan-rp: ok min 5.824 med 7.133 parity False 
+r1 vit-base b8 ort-cuda: ok min 4.621 med 4.853 parity None 
+r1 vit-base b8 ort-cuda-strict: ok min 9.163 med 9.89 parity None 
+r1 whisper-tiny-encoder b1 sl-cpu: ok min 59.132 med 63.291 parity True 
+r1 whisper-tiny-encoder b1 ort-cpu: ok min 39.055 med 41.01 parity None 
+r1 whisper-tiny-encoder b1 sl-vulkan: ok min 2.916 med 3.132 parity True 
+r1 whisper-tiny-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r1 whisper-tiny-encoder b1 ort-cuda: ok min 1.163 med 1.17 parity None 
+r1 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.092 med 2.216 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-cpu: ok min 40.742 med 50.442 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cpu: ok min 21.299 med 22.328 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.568 med 3.768 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 3.591 med 4.293 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda: ok min 3.813 med 3.85 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda-strict: ok min 3.821 med 3.869 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-cpu: crash min None med None parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cpu: ok min 51.136 med 54.566 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 11.097 med 11.253 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 11.384 med 11.722 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cuda: ok min 3.416 med 3.432 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cuda-strict: ok min 3.403 med 3.426 parity None 
+r1 segformer-b0 b1 sl-cpu: ok min 92.783 med 101.654 parity True 
+r1 segformer-b0 b1 ort-cpu: ok min 41.548 med 43.507 parity None 
+r1 segformer-b0 b1 sl-vulkan: ok min 3.433 med 3.486 parity True 
+r1 segformer-b0 b1 sl-vulkan-rp: ok min 3.646 med 3.72 parity False 
+r1 segformer-b0 b1 ort-cuda: ok min 2.297 med 2.325 parity None 
+r1 segformer-b0 b1 ort-cuda-strict: ok min 3.348 med 3.365 parity None 
+r1 segformer-b0 b8 sl-cpu: ok min 560.671 med 589.014 parity True 
+r1 segformer-b0 b8 ort-cpu: ok min 505.274 med 516.259 parity None 
+r1 segformer-b0 b8 sl-vulkan: ok min 23.117 med 23.903 parity True 
+r1 segformer-b0 b8 sl-vulkan-rp: ok min 21.242 med 22.746 parity False 
+r1 segformer-b0 b8 ort-cuda: ok min 19.807 med 21.516 parity None 
+r1 segformer-b0 b8 ort-cuda-strict: ok min 22.608 med 23.027 parity None 
+r1 mobilesam-encoder b1 sl-cpu: ok min 395.018 med 402.558 parity True 
+r1 mobilesam-encoder b1 ort-cpu: ok min 206.108 med 225.735 parity None 
+r1 mobilesam-encoder b1 sl-vulkan: ok min 6.381 med 6.847 parity True 
+r1 mobilesam-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r1 mobilesam-encoder b1 ort-cuda: ok min 6.078 med 6.194 parity None 
+r1 mobilesam-encoder b1 ort-cuda-strict: ok min 7.845 med 8.032 parity None 
+r1 raft-large b1 sl-cpu: ok min 2239.134 med 2294.673 parity True 
+r1 raft-large b1 ort-cpu: ok min 1661.996 med 1714.269 parity None 
+r1 raft-large b1 sl-vulkan: ok min 58.687 med 59.103 parity True 
+r1 raft-large b1 sl-vulkan-rp: ok min 47.967 med 49.044 parity False 
+r1 raft-large b1 ort-cuda: ok min 35.059 med 40.48 parity None 
+r1 raft-large b1 ort-cuda-strict: ok min 72.491 med 74.553 parity None 

@@ -32,6 +32,10 @@ public class ConvTests
         new("q-groups2", 8, 9, 9, 8, 3, 3, [2, 2], [1, 1, 1, 1], [1, 1], 2, true),
         new("q-depthwise-5x5", 32, 11, 12, 32, 5, 5, [1, 1], [2, 2, 2, 2], [1, 1], 32, true),
         new("wide", 8, 70, 70, 20, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, true),
+        new("long-K-packed-B", 160, 9, 9, 8, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, true),     // K=1440: im2col panels, not tile-packed
+        new("depthwise-wide-s1", 6, 13, 53, 6, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 6, true),   // vector interior + borders
+        new("depthwise-wide-s2", 6, 13, 70, 6, 3, 3, [2, 2], [1, 1, 1, 1], [1, 1], 6, true),   // even-lane permute
+        new("depthwise-wide-5x5-s2", 5, 12, 77, 5, 5, 5, [2, 2], [2, 2, 2, 2], [1, 1], 5, false),
     ];
 
     public static IEnumerable<object[]> Params()
@@ -135,6 +139,50 @@ public class ConvTests
         r1 = r1.Select(v => Math.Max(0, v)).ToArray();
         var r2 = SRef.Conv(r1, N, O, h1, w1o, w2, O, 1, 1, null, [1, 1], [0, 0, 0, 0], [1, 1], 1, out _, out _);
         Kit.AssertClose(r2, Kit.Out(m, "y", p), 1e-4, 1e-4);
+    }
+
+    /// <summary>
+    /// Conv epilogues: residual Add + Clip, the Sigmoid·x (SiLU) pattern, and a Relu whose output is also a graph output,
+    /// on the tile-packed, im2col and depthwise paths, against the unfused reference.
+    /// </summary>
+    [Theory]
+    [InlineData(5, 3, 1)]     // tile-packed 3x3
+    [InlineData(160, 3, 1)]   // K = 1440: im2col panels
+    [InlineData(6, 3, 6)]     // depthwise
+    [InlineData(16, 1, 1)]    // 1x1 direct
+    public void ConvEpilogues(int C, int k, int groups)
+    {
+        int N = 2;
+        int H = 9;
+        int W = 37;
+        int O = groups == 1 ? 8 : C;
+        int pad = k / 2;
+        var x = Kit.Rand(N * C * H * W, 31);
+        var w = Kit.Rand(O * (C / groups) * k * k, 32, 0.3f);
+        var r = Kit.Rand(N * O * H * W, 33);
+        var tg = new TestGraph();
+        var xin = tg.InF("x", SpatialKit.DSym(C, H, W));
+        var rin = tg.InF("r", SpatialKit.DSym(O, H, W));
+        var wv = tg.WF("w", w, O, C / groups, k, k);
+        var attrs = Attributes.From(("groups", (long)groups), ("pads", new long[] { pad, pad, pad, pad }));
+        var clipped = tg.B.Emit1("Clip", [tg.B.Add(tg.B.Emit1("Conv", [xin, wv], attrs), rin)], Attributes.From(("min", 0f), ("max", 6f)));
+        var c2 = tg.B.Emit1("Conv", [xin, wv], attrs);
+        var silu = tg.B.Mul(c2, tg.B.Unary("Sigmoid", c2));
+        var relu = tg.B.Unary("Relu", tg.B.Emit1("Conv", [xin, wv], attrs));
+        tg.B.Output("clip", clipped);
+        tg.B.Output("silu", silu);
+        tg.B.Output("relu", relu);
+        tg.B.Output("relu2", tg.B.Add(relu, relu));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 2);
+        Kit.Set(m, xin, x);
+        Kit.Set(m, rin, r);
+        var p = Kit.P(N);
+        m.Run(p);
+        var conv = SRef.Conv(x, N, C, H, W, w, O, k, k, null, [1, 1], [pad, pad, pad, pad], [1, 1], groups, out _, out _);
+        Kit.AssertClose(conv.Select((v, i) => Math.Clamp(v + r[i], 0f, 6f)).ToArray(), Kit.Out(m, "clip", p), 1e-4, 1e-4, "clip");
+        Kit.AssertClose(conv.Select(v => v / (1f + MathF.Exp(-v))).ToArray(), Kit.Out(m, "silu", p), 1e-4, 1e-4, "silu");
+        Kit.AssertClose(conv.Select(v => Math.Max(0f, v)).ToArray(), Kit.Out(m, "relu", p), 1e-4, 1e-4, "relu");
+        Kit.AssertClose(conv.Select(v => 2 * Math.Max(0f, v)).ToArray(), Kit.Out(m, "relu2", p), 1e-4, 1e-4, "relu2");
     }
 
     [Fact]

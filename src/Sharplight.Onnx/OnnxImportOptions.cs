@@ -53,6 +53,14 @@ public sealed class OnnxImportOptions
     /// </summary>
     public int RuntimeLoopScanBound { get; init; } = 4096;
 
+    /// <summary>
+    /// Lets block-quantized weights (<c>MatMulNBits</c>) whose f32 block scales are not exactly representable in f16 be stored
+    /// in the 4.5 / 8.5-bit block formats with the scales rounded to f16 (relative error at most 2⁻¹¹ per block, about 5e-4
+    /// relative RMS on BERT outputs). Off by default: such weights are then dequantized to f32 (exact, 7x the memory traffic).
+    /// Weights with f16 scales are always kept in block form, since that is exact.
+    /// </summary>
+    public bool AllowHalfBlockScales { get; init; }
+
     /// <summary>Placement group size: number of compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group; values below 1 act as 1.</summary>
     public int GroupSize { get; init; } = 8;
 }

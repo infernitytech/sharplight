@@ -52,11 +52,16 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
                 Ref(input);
             }
 
+            IndexConsumers();
             var progress = new LoadProgressCounter(options.Progress, LoadStage.Compiling, segment.Nodes.Count, device.Info.Name);
             foreach (var node in segment.Nodes)
             {
                 options.CancellationToken.ThrowIfCancellationRequested();
-                Lower(node, device);
+                if (!_absorbed.Contains(node))
+                {
+                    Lower(node, device);
+                }
+
                 progress.Add();
             }
 

@@ -127,8 +127,15 @@ public static partial class StandardOps
 
     // ---- linear algebra -------------------------------------------------------------------
     /// <summary>
+    /// MatMul attribute (bool, default false): x takes part in f32, so backends do not quantize it to int8 for integer dot
+    /// products unless <see cref="Runtime.CompileOptions.AllowReducedPrecision"/> is set. Importers set it where the source
+    /// format promises f32 activation math (e.g. ONNX MatMulNBits without accuracy_level 4).
+    /// </summary>
+    public const string F32ActivationsAttribute = "f32_activations";
+
+    /// <summary>
     /// y = x · Wᵀ. x: [..., K] (f32), W: [N, K] (any float or quantized format) → [..., N].
-    /// This is the "Linear" layout used by GGUF/PyTorch weights.
+    /// This is the "Linear" layout used by GGUF/PyTorch weights. Attribute: <see cref="F32ActivationsAttribute"/>.
     /// </summary>
     public static readonly OpSchema MatMul = new("MatMul", OpCategory.MatMul, 2, 2, (i, a) =>
     {

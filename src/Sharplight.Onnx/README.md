@@ -72,7 +72,7 @@ Gelu, BiasGelu, FastGelu, QuickGelu, FusedConv, FusedMatMul, SkipLayerNormalizat
 SimplifiedLayerNormalization (RmsNorm; also accepted in the default domain, as some exporters emit it), Attention (no mask/past; `unidirectional` via a constant causal mask), MultiHeadAttention (attention bias, past/present key/value),
 GroupQueryAttention (rotary, local window, softcap, attention bias, present key/value), RotaryEmbedding (constant or runtime position ids,
 interleaved, partial rotary dim),
-BiasAdd, MatMulNBits (4/8-bit dequantized at import), QLinearAdd/Mul/Sigmoid/LeakyRelu/Softmax/AveragePool/GlobalAveragePool/Concat (dequantize, op, requantize).
+BiasAdd, MatMulNBits (4/8-bit; kept as Q4_0 / Q4_1 / Q8_0 blocks when the block scales are exact in f16 or `AllowHalfBlockScales` is set, otherwise dequantized to f32 at import), QLinearAdd/Mul/Sigmoid/LeakyRelu/Softmax/AveragePool/GlobalAveragePool/Concat (dequantize, op, requantize).
 
 ## Import options worth knowing
 

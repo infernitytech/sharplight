@@ -1,0 +1,16 @@
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.208 med 3.664 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 2.499 med 4.29 parity False 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda: ok min 6.752 med 12.473 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda-strict: ok min 3.859 med 3.945 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 5.419 med 6.604 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 5.614 med 8.684 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cuda: ok min 4.665 med 7.208 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cuda-strict: ok min 3.463 med 4.06 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.193 med 4.155 parity True 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 2.681 med 3.212 parity False 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda: ok min 3.917 med 3.986 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda-strict: ok min 3.882 med 4.234 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 4.617 med 5.433 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 3.498 med 3.761 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cuda: ok min 4.192 med 6.665 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cuda-strict: ok min 4.468 med 6.867 parity None 

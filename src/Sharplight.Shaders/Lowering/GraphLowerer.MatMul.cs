@@ -91,7 +91,7 @@ public sealed partial class GraphLowerer
         var groupNames = string.Join(",", group.Select(g => g.Op.Name));
         var outer = _launchCondition;
         long fusedMaxRows = MatvecMaxRows;
-        if (UseIntDotMatvec(weightA.Type, K))
+        if (UseIntDotMatvec(a, weightA.Type, K))
         {
             fusedMaxRows = Math.Max(MatvecMaxRows, IntDotMaxRows(weightA.Type, K));
             string intDotSource = DualEpilogueSource(a, bNode, group, output, "mmvq.slang");
@@ -103,8 +103,8 @@ public sealed partial class GraphLowerer
         }
 
         string source = DualEpilogueSource(a, bNode, group, output, "matmul.slang");
-        long dualSkinnyMin = UseIntDotMatvec(weightA.Type, K) ? fusedMaxRows + 1 : SkinnyMinRows;
-        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(weightA.Type, K) && SkinnyMaxRowsFor(N) >= dualSkinnyMin)
+        long dualSkinnyMin = UseIntDotMatvec(a, weightA.Type, K) ? fusedMaxRows + 1 : SkinnyMinRows;
+        if (DiagnosticSwitches.SkinnyGemm && CoopUsable(a, weightA.Type, K) && SkinnyMaxRowsFor(N) >= dualSkinnyMin)
         {
             // Up to 16 rows (above the int-dot range for formats with one): both matrices on the skinny GEMM with the group as
             // its epilogue.
@@ -241,8 +241,8 @@ public sealed partial class GraphLowerer
 
         var plan = PlanMatMul(n, x, w);
         var outer = _launchCondition;
-        bool intDot = UseIntDotMatvec(plan.W.Type, plan.K);
-        bool mmq = UseMmq(plan.W.Type, plan.N, plan.K);
+        bool intDot = UseIntDotMatvec(n, plan.W.Type, plan.K);
+        bool mmq = QuantizedActivationsAllowed(n) && UseMmq(plan.W.Type, plan.N, plan.K);
         bool fp8Gemm = !mmq && UseFp8Gemm(plan.W.Type, plan.K);
         bool skinny = UseSkinnyGemm(plan);
         long skinnyMin = intDot ? Math.Max(MatvecMaxRows, IntDotMaxRows(plan.W.Type, plan.K)) + 1 : SkinnyMinRows;
@@ -361,7 +361,7 @@ public sealed partial class GraphLowerer
         int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
         var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"));
 
-        bool coop = CoopUsable(w.Type, K);
+        bool coop = CoopUsable(n, w.Type, K);
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
         bool workgroupMatrix = coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
@@ -394,6 +394,13 @@ public sealed partial class GraphLowerer
     /// f16 matrix MMA (+ f16 arithmetic), the 32-wide subgroups gemm_cm is written for, K in 32-value blocks, and reduced
     /// precision allowed for f32 weights.
     /// </summary>
+    /// <summary>
+    /// <see cref="CoopUsable(DataType, long)"/> for matmul node <paramref name="n"/>: a node marked
+    /// <see cref="StandardOps.F32ActivationsAttribute"/> (block-quantized ONNX weights, whose ORT reference keeps f32
+    /// activations) uses the f16 tensor-core GEMMs only with reduced precision allowed.
+    /// </summary>
+    private bool CoopUsable(Node n, DataType type, long k) => CoopUsable(type, k) && QuantizedActivationsAllowed(n);
+
     private bool CoopUsable(DataType type, long k)
         => _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && k % 32 == 0
            && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision);

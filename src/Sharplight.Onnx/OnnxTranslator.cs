@@ -18,6 +18,7 @@ internal sealed partial class OnnxTranslator
     private Dictionary<(OnnxConst, string), Value> _constValues = new();
     private readonly HashSet<string> _usedNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<OnnxNode>> _consumers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, OnnxNode> _liveProducers = new(StringComparer.Ordinal);
     private readonly HashSet<OnnxNode> _skip = [];
     private readonly Dictionary<OnnxNode, IReadOnlyList<string>> _reads = [];
     private readonly HashSet<string> _graphOutputs;
@@ -94,11 +95,19 @@ internal sealed partial class OnnxTranslator
         return names;
     }
 
-    /// <summary>Records which live nodes read each value (used to fuse Conv + BatchNormalization and to detect unsupported optional outputs).</summary>
+    /// <summary>Records which live node produces and which read each value (used for pattern fusions such as Conv + BatchNormalization and to detect unsupported optional outputs).</summary>
     private void IndexConsumers(List<OnnxNode> live)
     {
         foreach (var node in live)
         {
+            foreach (var output in node.Outputs)
+            {
+                if (output != "")
+                {
+                    _liveProducers[output] = node;
+                }
+            }
+
             foreach (var input in Reads(node))
             {
                 if (input == "")

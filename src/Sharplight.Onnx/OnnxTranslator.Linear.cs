@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
@@ -350,8 +351,39 @@ internal sealed partial class OnnxTranslator
         var B = ConstIn(ins, 1, "quantized weight");
         var scales = ConstIn(ins, 2, "scales");
         var zps = OptConst(ins, 3, "zero points");
+        // accuracy_level 4 lets the activations be quantized to int8 (onnxruntime's own CPU kernel does that); otherwise
+        // they stay f32 unless the compile allows reduced precision.
+        var attributes = n.Int("accuracy_level", 0) == 4 ? null : Attributes.From((StandardOps.F32ActivationsAttribute, true));
+        var packed = MatMulNBitsPacking.TargetType(K, bits, bs, zps is not null, _opts.AllowHalfBlockScales);
+        bool zeroPointsPacked = zps is null || zps.ElemType == OnnxType.UInt8;
+        Value weight;
+        if (packed is { } type && zeroPointsPacked && scales.Floats() is var scaleValues && MatMulNBitsPacking.ScalesFitHalf(scaleValues, _opts.AllowHalfBlockScales))
+        {
+            var wname = UniqueWeightName(Nm(n) + ".weight");
+            _weights[wname] = WeightInfo.Derived(wname, type, new Shape([(Dim)N, (Dim)K]),
+                () => MatMulNBitsPacking.Pack(type, B.Bytes(), scaleValues, zps?.Bytes(), N, K, bits, bs));
+            weight = _b.Weight(wname);
+        }
+        else
+        {
+            weight = WeightValue(DequantizedNBits(n, B, scales, zps, N, K, bits, bs), false, Nm(n) + ".weight");
+        }
+
+        var y = Emit("MatMul", [X(ins, 0), weight], attributes, Nm(n));
+        Heavy();
+        if (ins.Length > 5 && ins[5] is not null)
+        {
+            y = _b.Add(y, X(ins, 5));
+        }
+
+        SetDyn(n, 0, y);
+    }
+
+    /// <summary>MatMulNBits weights the block formats cannot hold (other bit widths, 8-bit zero points, odd K): f32 [N, K].</summary>
+    private static OnnxConst DequantizedNBits(OnnxNode n, OnnxConst B, OnnxConst scales, OnnxConst? zps, long N, long K, long bits, long bs)
+    {
         long nb = (K + bs - 1) / bs;
-        var wc = OnnxConst.Lazy(OnnxType.Float, [N, K], () =>
+        return OnnxConst.Lazy(OnnxType.Float, [N, K], () =>
         {
             var q = B.Bytes();
             var sc = scales.Floats();
@@ -383,13 +415,5 @@ internal sealed partial class OnnxTranslator
             Buffer.BlockCopy(res, 0, bytes, 0, bytes.Length);
             return bytes;
         }, Nm(n) + ".dequant");
-        var y = _b.MatMul(X(ins, 0), WeightValue(wc, false, Nm(n) + ".weight"));
-        Heavy();
-        if (ins.Length > 5 && ins[5] is not null)
-        {
-            y = _b.Add(y, X(ins, 5));
-        }
-
-        SetDyn(n, 0, y);
     }
 }

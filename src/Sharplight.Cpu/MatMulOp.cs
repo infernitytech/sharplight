@@ -26,6 +26,12 @@ internal sealed unsafe class MatMulOp : CpuOp
     /// </summary>
     public static readonly int IntDotGemmMinRows = s_gemmMinRowsOverride > 0 ? s_gemmMinRowsOverride : 32;
 
+    /// <summary>Largest static f32 weight (bytes) kept a second time in the GEMM's packed B layout.</summary>
+    public const long PrepackMaxBytes = 64L << 20;
+
+    /// <summary><c>SHARPLIGHT_CPU_NO_PREPACK=1</c> packs the B panels of static f32 weights on every run instead of once.</summary>
+    private static readonly bool s_noPrepack = Environment.GetEnvironmentVariable("SHARPLIGHT_CPU_NO_PREPACK") == "1";
+
     private const int KB = 1024;
     private const int GemmMinTilesPerBlock = 4;
     private const int IntDotMinRowsPerChunk = 16;
@@ -45,6 +51,11 @@ internal sealed unsafe class MatMulOp : CpuOp
     private readonly Action<int> _intDotBody;
     private readonly Action<int> _packBody;
     private readonly Action<int> _gemmBody;
+    private readonly Action<int> _prepackBody;
+    private readonly bool _prepack;
+    private readonly OutputEpilogue? _epilogue;
+    private readonly Action<int> _epilogueBody;
+    private float* _bprepacked;
     [ThreadStatic] private static float[]? s_acc;
     private long _m;
     private long _groups;
@@ -56,9 +67,19 @@ internal sealed unsafe class MatMulOp : CpuOp
     private int _tilesPerBlock;
     private int _mBlocks;
 
-    public override string Name => $"MatMul.{_fmt} {_n}x{_k}";
+    public override string Name => $"MatMul.{_fmt} {_n}x{_k}{_epilogue?.Label}";
 
-    public MatMulOp(TRef x, TRef w, TRef y, WeightFormat fmt, bool intDot)
+    /// <param name="x">Activation rows [M, K].</param>
+    /// <param name="w">Weight [N, K].</param>
+    /// <param name="y">Output rows [M, N].</param>
+    /// <param name="fmt">Storage format of <paramref name="w"/>.</param>
+    /// <param name="intDot">Whether 8-bit activation dots may be used.</param>
+    /// <param name="staticWeight">
+    /// Whether <paramref name="w"/> never changes between runs: an f32 weight up to <see cref="PrepackMaxBytes"/> is then packed
+    /// into the GEMM's B layout once, on the first run that takes the GEMM path.
+    /// </param>
+    /// <param name="epilogue">Elementwise ops applied to the output (rows of <paramref name="y"/>), or null.</param>
+    public MatMulOp(TRef x, TRef w, TRef y, WeightFormat fmt, bool intDot, bool staticWeight = false, OutputEpilogue? epilogue = null)
     {
         _x = x;
         _w = w;
@@ -81,9 +102,18 @@ internal sealed unsafe class MatMulOp : CpuOp
         _intDotBody = IntDotBody;
         _packBody = PackBody;
         _gemmBody = GemmBody;
+        _prepackBody = PrepackPanel;
+        _epilogue = epilogue;
+        _epilogueBody = EpilogueBody;
+        _prepack = staticWeight && !s_noPrepack && fmt == WeightFormat.F32 && _n * _k * sizeof(float) <= PrepackMaxBytes;
     }
 
-    public override void Dispose() => Mem.Free((byte*)_xrows);
+    public override void Dispose()
+    {
+        Mem.Free((byte*)_xrows);
+        Mem.Free((byte*)_bprepacked);
+        _bprepacked = null;
+    }
 
     public override void Run(RunParameters p)
     {
@@ -100,9 +130,11 @@ internal sealed unsafe class MatMulOp : CpuOp
 
         if (_m >= (_intDot ? IntDotGemmMinRows : GemmMinRows))
         {
-            RunGemm();
+            RunGemm();   // applies the epilogue per tile
+            return;
         }
-        else if (_intDot)
+
+        if (_intDot)
         {
             RunIntDot();
         }
@@ -113,6 +145,20 @@ internal sealed unsafe class MatMulOp : CpuOp
             _perChunk = (_groups + chunks - 1) / chunks;
             CpuParallel.For(chunks, _body);
         }
+
+        if (_epilogue is not null)
+        {
+            CpuParallel.For((int)Math.Min(_m, CpuParallel.Threads), _epilogueBody);
+        }
+    }
+
+    /// <summary>Applies the epilogue to a contiguous share of the output rows (paths without per-tile epilogues).</summary>
+    private void EpilogueBody(int chunk)
+    {
+        int chunks = (int)Math.Min(_m, CpuParallel.Threads);
+        long r0 = _m * chunk / chunks;
+        long r1 = _m * (chunk + 1) / chunks;
+        _epilogue!.ApplyRows((float*)_y.P, r0, r1);
     }
 
     // ---- integer dot (few rows) ------------------------------------------------------------------------------------
@@ -176,7 +222,30 @@ internal sealed unsafe class MatMulOp : CpuOp
         }
 
         _tilesPerBlock = (_mTiles + _mBlocks - 1) / _mBlocks;
+        if (_prepack && _bprepacked == null)
+        {
+            _bprepacked = (float*)Mem.Alloc((long)_panels * _k * Gemm.NR * sizeof(float), false);
+            CpuParallel.For(_panels, _prepackBody);
+        }
+
         CpuParallel.For(_panels * _mBlocks, _gemmBody);
+    }
+
+    /// <summary>Packs weight rows [panel·NR, panel·NR + NR) as [K][NR] (zero columns past N); panel p starts at p·K·NR.</summary>
+    private void PrepackPanel(int panel)
+    {
+        int nr = Gemm.NR;
+        long n0 = (long)panel * nr;
+        int cols = (int)Math.Min(nr, _n - n0);
+        float* dst = _bprepacked + (long)panel * _k * nr;
+        for (int j = 0; j < nr; j++)
+        {
+            float* src = j < cols ? (float*)(_w.P + (n0 + j) * _rowBytes) : null;
+            for (long k = 0; k < _k; k++)
+            {
+                dst[k * nr + j] = src == null ? 0f : src[k];
+            }
+        }
     }
 
     /// <summary>Packs MR activation rows as [K][MR] (zero rows past the end).</summary>
@@ -226,7 +295,12 @@ internal sealed unsafe class MatMulOp : CpuOp
         for (long kb = 0; kb < _k; kb += kcMax)
         {
             int kc = (int)Math.Min(kcMax, _k - kb);
-            for (int j = 0; j < nr; j++)
+            if (_bprepacked != null)
+            {
+                bpack = _bprepacked + ((long)panel * _k + kb) * nr;
+            }
+
+            for (int j = 0; j < nr && _bprepacked == null; j++)
             {
                 if (j < cols)
                 {
@@ -267,6 +341,15 @@ internal sealed unsafe class MatMulOp : CpuOp
                 else
                 {
                     Gemm.TileEdge(a, bpack, nr, c, _n, kc, null, accumulate, rows, cols);
+                }
+
+                if (_epilogue is not null && kb + kc >= _k)
+                {
+                    long r0 = (long)t * mr;
+                    for (int i = 0; i < rows; i++)
+                    {
+                        _epilogue.Apply(c + (long)i * _n, (r0 + i) * _n + n0, cols);
+                    }
                 }
             }
         }

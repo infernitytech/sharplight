@@ -1,0 +1,168 @@
+r0 resnet50 b1 sl-vulkan: ok min 0.945 med 0.964 parity True 
+r0 resnet50 b1 sl-vulkan-rp: ok min 1.082 med 1.101 parity False 
+r0 resnet50 b1 ort-cuda: ok min 1.023 med 1.031 parity None 
+r0 resnet50 b1 ort-cuda-strict: ok min 2.112 med 2.121 parity None 
+r0 resnet50 b8 sl-vulkan: ok min 3.898 med 4.045 parity True 
+r0 resnet50 b8 sl-vulkan-rp: ok min 3.169 med 3.195 parity False 
+r0 resnet50 b8 ort-cuda: ok min 2.0 med 2.024 parity None 
+r0 resnet50 b8 ort-cuda-strict: ok min 3.723 med 3.75 parity None 
+r0 convnext-tiny b1 sl-vulkan: ok min 1.113 med 1.138 parity True 
+r0 convnext-tiny b1 sl-vulkan-rp: ok min 1.433 med 1.443 parity False 
+r0 convnext-tiny b1 ort-cuda: ok min 1.004 med 1.11 parity None 
+r0 convnext-tiny b1 ort-cuda-strict: ok min 1.35 med 1.366 parity None 
+r0 convnext-tiny b8 sl-vulkan: ok min 4.484 med 4.683 parity True 
+r0 convnext-tiny b8 sl-vulkan-rp: ok min 2.766 med 2.839 parity False 
+r0 convnext-tiny b8 ort-cuda: ok min 2.558 med 2.578 parity None 
+r0 convnext-tiny b8 ort-cuda-strict: ok min 4.008 med 4.03 parity None 
+r0 efficientnet-lite4 b1 sl-vulkan: ok min 0.955 med 0.962 parity True 
+r0 efficientnet-lite4 b1 sl-vulkan-rp: ok min 1.059 med 1.086 parity True 
+r0 efficientnet-lite4 b1 ort-cuda: ok min 0.704 med 0.894 parity None 
+r0 efficientnet-lite4 b1 ort-cuda-strict: ok min 8.184 med 8.447 parity None 
+r0 mobilenetv2 b1 sl-vulkan: ok min 0.495 med 0.51 parity True 
+r0 mobilenetv2 b1 sl-vulkan-rp: ok min 0.517 med 0.546 parity False 
+r0 mobilenetv2 b1 ort-cuda: ok min 0.379 med 0.493 parity None 
+r0 mobilenetv2 b1 ort-cuda-strict: ok min 0.654 med 0.67 parity None 
+r0 mobilenetv2 b8 sl-vulkan: ok min 0.929 med 0.963 parity True 
+r0 mobilenetv2 b8 sl-vulkan-rp: ok min 0.955 med 0.989 parity False 
+r0 mobilenetv2 b8 ort-cuda: ok min 0.755 med 0.897 parity None 
+r0 mobilenetv2 b8 ort-cuda-strict: ok min 1.361 med 1.387 parity None 
+r0 yolov8n b1 sl-vulkan: ok min 1.465 med 1.508 parity True 
+r0 yolov8n b1 sl-vulkan-rp: ok min 1.802 med 1.851 parity False 
+r0 yolov8n b1 ort-cuda: ok min 1.312 med 1.324 parity None 
+r0 yolov8n b1 ort-cuda-strict: ok min 2.748 med 2.771 parity None 
+r0 yolov10n b1 sl-vulkan: ok min 1.349 med 1.36 parity True 
+r0 yolov10n b1 sl-vulkan-rp: ok min 1.719 med 1.73 parity False 
+r0 yolov10n b1 ort-cuda: ok min 1.17 med 1.194 parity None 
+r0 yolov10n b1 ort-cuda-strict: ok min 2.309 med 2.337 parity None 
+r0 ssd-10 (NMS) b1 sl-vulkan: ok min 19.512 med 21.207 parity False 
+r0 ssd-10 (NMS) b1 sl-vulkan-rp: ok min 13.041 med 13.567 parity False 
+r0 ssd-10 (NMS) b1 ort-cuda: ok min 10.989 med 11.456 parity None 
+r0 ssd-10 (NMS) b1 ort-cuda-strict: ok min 22.596 med 22.8 parity None 
+r0 bert-base (16 tok) b1 sl-vulkan: ok min 1.277 med 1.305 parity True 
+r0 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.715 med 1.742 parity False 
+r0 bert-base (16 tok) b1 ort-cuda: ok min 1.267 med 1.453 parity None 
+r0 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.45 med 1.609 parity None 
+r0 bert-base (16 tok) b8 sl-vulkan: ok min 3.72 med 3.933 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan-rp: ok min 3.844 med 4.391 parity False 
+r0 bert-base (16 tok) b8 ort-cuda: ok min 3.359 med 4.844 parity None 
+r0 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.324 med 3.909 parity None 
+r0 vit-base b1 sl-vulkan: ok min 2.759 med 2.778 parity True 
+r0 vit-base b1 sl-vulkan-rp: ok min 2.382 med 2.392 parity False 
+r0 vit-base b1 ort-cuda: ok min 2.049 med 2.532 parity None 
+r0 vit-base b1 ort-cuda-strict: ok min 2.466 med 2.689 parity None 
+r0 vit-base b8 sl-vulkan: ok min 12.754 med 14.005 parity True 
+r0 vit-base b8 sl-vulkan-rp: ok min 5.434 med 5.46 parity False 
+r0 vit-base b8 ort-cuda: ok min 3.976 med 4.004 parity None 
+r0 vit-base b8 ort-cuda-strict: ok min 9.257 med 9.988 parity None 
+r0 whisper-tiny-encoder b1 sl-vulkan: ok min 2.844 med 2.884 parity True 
+r0 whisper-tiny-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r0 whisper-tiny-encoder b1 ort-cuda: ok min 1.173 med 1.215 parity None 
+r0 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.122 med 2.153 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 2.996 med 3.055 parity False 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 2.437 med 2.513 parity False 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda: ok min 3.788 med 3.834 parity None 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda-strict: ok min 3.839 med 3.985 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 4.583 med 4.702 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 3.563 med 4.182 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cuda: ok min 3.41 med 3.51 parity None 
+r0 phi3.5-mini q4f16 (GQA) b1 ort-cuda-strict: ok min 3.448 med 3.526 parity None 
+r0 segformer-b0 b1 sl-vulkan: ok min 3.021 med 3.072 parity True 
+r0 segformer-b0 b1 sl-vulkan-rp: ok min 3.39 med 3.819 parity True 
+r0 segformer-b0 b1 ort-cuda: ok min 2.329 med 2.377 parity None 
+r0 segformer-b0 b1 ort-cuda-strict: ok min 3.394 med 3.627 parity None 
+r0 segformer-b0 b8 sl-vulkan: ok min 22.634 med 23.971 parity True 
+r0 segformer-b0 b8 sl-vulkan-rp: ok min 20.951 med 22.514 parity True 
+r0 segformer-b0 b8 ort-cuda: ok min 19.898 med 21.687 parity None 
+r0 segformer-b0 b8 ort-cuda-strict: ok min 23.622 med 24.857 parity None 
+r0 mobilesam-encoder b1 sl-vulkan: ok min 6.228 med 6.864 parity True 
+r0 mobilesam-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r0 mobilesam-encoder b1 ort-cuda: ok min 6.195 med 6.611 parity None 
+r0 mobilesam-encoder b1 ort-cuda-strict: ok min 8.002 med 8.934 parity None 
+r0 raft-large b1 sl-vulkan: ok min 59.338 med 64.139 parity True 
+r0 raft-large b1 sl-vulkan-rp: ok min 45.011 med 48.038 parity False 
+r0 raft-large b1 ort-cuda: ok min 29.249 med 31.242 parity None 
+r0 raft-large b1 ort-cuda-strict: ok min 76.995 med 83.173 parity None 
+r1 resnet50 b1 sl-vulkan: ok min 0.952 med 0.965 parity True 
+r1 resnet50 b1 sl-vulkan-rp: ok min 1.09 med 1.115 parity False 
+r1 resnet50 b1 ort-cuda: ok min 1.029 med 1.079 parity None 
+r1 resnet50 b1 ort-cuda-strict: ok min 2.125 med 2.267 parity None 
+r1 resnet50 b8 sl-vulkan: ok min 3.861 med 4.064 parity True 
+r1 resnet50 b8 sl-vulkan-rp: ok min 3.166 med 3.378 parity False 
+r1 resnet50 b8 ort-cuda: ok min 2.004 med 2.141 parity None 
+r1 resnet50 b8 ort-cuda-strict: ok min 3.754 med 4.165 parity None 
+r1 convnext-tiny b1 sl-vulkan: ok min 1.101 med 1.104 parity True 
+r1 convnext-tiny b1 sl-vulkan-rp: ok min 1.46 med 1.497 parity False 
+r1 convnext-tiny b1 ort-cuda: ok min 2.075 med 2.328 parity None 
+r1 convnext-tiny b1 ort-cuda-strict: ok min 1.421 med 1.449 parity None 
+r1 convnext-tiny b8 sl-vulkan: ok min 4.498 med 4.525 parity True 
+r1 convnext-tiny b8 sl-vulkan-rp: ok min 2.758 med 2.871 parity False 
+r1 convnext-tiny b8 ort-cuda: ok min 2.569 med 2.576 parity None 
+r1 convnext-tiny b8 ort-cuda-strict: ok min 4.019 med 4.36 parity None 
+r1 efficientnet-lite4 b1 sl-vulkan: ok min 0.954 med 0.967 parity True 
+r1 efficientnet-lite4 b1 sl-vulkan-rp: ok min 1.055 med 1.076 parity True 
+r1 efficientnet-lite4 b1 ort-cuda: ok min 0.676 med 0.71 parity None 
+r1 efficientnet-lite4 b1 ort-cuda-strict: ok min 8.192 med 8.88 parity None 
+r1 mobilenetv2 b1 sl-vulkan: ok min 0.466 med 0.47 parity True 
+r1 mobilenetv2 b1 sl-vulkan-rp: ok min 0.506 med 0.51 parity False 
+r1 mobilenetv2 b1 ort-cuda: ok min 0.352 med 0.365 parity None 
+r1 mobilenetv2 b1 ort-cuda-strict: ok min 0.653 med 0.667 parity None 
+r1 mobilenetv2 b8 sl-vulkan: ok min 0.915 med 1.008 parity True 
+r1 mobilenetv2 b8 sl-vulkan-rp: ok min 0.959 med 1.005 parity False 
+r1 mobilenetv2 b8 ort-cuda: ok min 0.752 med 0.765 parity None 
+r1 mobilenetv2 b8 ort-cuda-strict: ok min 1.35 med 1.36 parity None 
+r1 yolov8n b1 sl-vulkan: ok min 1.46 med 1.527 parity True 
+r1 yolov8n b1 sl-vulkan-rp: ok min 1.929 med 2.236 parity False 
+r1 yolov8n b1 ort-cuda: ok min 1.319 med 1.337 parity None 
+r1 yolov8n b1 ort-cuda-strict: ok min 2.757 med 2.997 parity None 
+r1 yolov10n b1 sl-vulkan: ok min 1.344 med 1.36 parity True 
+r1 yolov10n b1 sl-vulkan-rp: ok min 1.718 med 1.749 parity False 
+r1 yolov10n b1 ort-cuda: ok min 1.171 med 1.206 parity None 
+r1 yolov10n b1 ort-cuda-strict: ok min 2.31 med 2.508 parity None 
+r1 ssd-10 (NMS) b1 sl-vulkan: ok min 19.711 med 20.935 parity False 
+r1 ssd-10 (NMS) b1 sl-vulkan-rp: ok min 13.409 med 14.447 parity False 
+r1 ssd-10 (NMS) b1 ort-cuda: ok min 11.22 med 12.068 parity None 
+r1 ssd-10 (NMS) b1 ort-cuda-strict: ok min 22.544 med 24.803 parity None 
+r1 bert-base (16 tok) b1 sl-vulkan: ok min 1.26 med 1.294 parity True 
+r1 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.703 med 1.836 parity False 
+r1 bert-base (16 tok) b1 ort-cuda: ok min 1.242 med 1.363 parity None 
+r1 bert-base (16 tok) b1 ort-cuda-strict: ok min 1.438 med 1.451 parity None 
+r1 bert-base (16 tok) b8 sl-vulkan: ok min 3.807 med 4.034 parity True 
+r1 bert-base (16 tok) b8 sl-vulkan-rp: ok min 6.314 med 8.579 parity False 
+r1 bert-base (16 tok) b8 ort-cuda: ok min 2.698 med 2.917 parity None 
+r1 bert-base (16 tok) b8 ort-cuda-strict: ok min 3.826 med 4.431 parity None 
+r1 vit-base b1 sl-vulkan: ok min 2.77 med 2.796 parity True 
+r1 vit-base b1 sl-vulkan-rp: ok min 2.384 med 2.408 parity False 
+r1 vit-base b1 ort-cuda: ok min 1.341 med 1.351 parity None 
+r1 vit-base b1 ort-cuda-strict: ok min 2.465 med 2.635 parity None 
+r1 vit-base b8 sl-vulkan: ok min 12.786 med 14.726 parity True 
+r1 vit-base b8 sl-vulkan-rp: ok min 5.427 med 5.812 parity False 
+r1 vit-base b8 ort-cuda: ok min 3.993 med 4.335 parity None 
+r1 vit-base b8 ort-cuda-strict: ok min 9.235 med 9.928 parity None 
+r1 whisper-tiny-encoder b1 sl-vulkan: ok min 2.884 med 3.02 parity True 
+r1 whisper-tiny-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r1 whisper-tiny-encoder b1 ort-cuda: ok min 1.174 med 1.316 parity None 
+r1 whisper-tiny-encoder b1 ort-cuda-strict: ok min 2.076 med 2.09 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.012 med 3.054 parity False 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 3.001 med 3.269 parity False 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda: ok min 4.083 med 7.512 parity None 
+r1 qwen2.5-0.5b q4 (MatMulNBits) b1 ort-cuda-strict: ok min 5.216 med 9.222 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 5.028 med 5.761 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 4.939 med 5.322 parity False 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cuda: ok min 3.553 med 3.802 parity None 
+r1 phi3.5-mini q4f16 (GQA) b1 ort-cuda-strict: ok min 3.884 med 4.79 parity None 
+r1 segformer-b0 b1 sl-vulkan: ok min 3.114 med 3.492 parity True 
+r1 segformer-b0 b1 sl-vulkan-rp: ok min 3.332 med 3.829 parity True 
+r1 segformer-b0 b1 ort-cuda: ok min 2.407 med 2.553 parity None 
+r1 segformer-b0 b1 ort-cuda-strict: ok min 3.644 med 3.918 parity None 
+r1 segformer-b0 b8 sl-vulkan: ok min 23.317 med 24.827 parity True 
+r1 segformer-b0 b8 sl-vulkan-rp: ok min 21.528 med 22.548 parity True 
+r1 segformer-b0 b8 ort-cuda: ok min 20.769 med 22.537 parity None 
+r1 segformer-b0 b8 ort-cuda-strict: ok min 23.379 med 25.436 parity None 
+r1 mobilesam-encoder b1 sl-vulkan: ok min 6.427 med 6.954 parity True 
+r1 mobilesam-encoder b1 sl-vulkan-rp: run min None med None parity None VkException: [-4] ErrorDeviceLost - Vulkan error occured
+r1 mobilesam-encoder b1 ort-cuda: ok min 6.15 med 9.039 parity None 
+r1 mobilesam-encoder b1 ort-cuda-strict: ok min 8.095 med 8.608 parity None 
+r1 raft-large b1 sl-vulkan: ok min 58.191 med 62.794 parity True 
+r1 raft-large b1 sl-vulkan-rp: ok min 47.712 med 54.94 parity False 
+r1 raft-large b1 ort-cuda: ok min 31.48 med 36.539 parity None 
+r1 raft-large b1 ort-cuda-strict: ok min 77.616 med 94.058 parity None 
