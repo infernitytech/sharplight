@@ -10,11 +10,21 @@ public sealed partial class GraphLowerer
     private const long SkinnyMinRows = 2;
 
     /// <summary>
-    /// Largest activation row count served by the skinny GEMM. Up to 16 rows it reads the weights at the 1-row matvec's
-    /// speed; above, its per-subgroup tiles make it slower than gemm_cm2's shared tiles (Blackwell, FP8 [5120→17408]:
+    /// Largest activation row count the skinny GEMM serves at any output width. Up to 16 rows it reads the weights at the 1-row
+    /// matvec's speed; above, its per-subgroup tiles make it slower than gemm_cm2's shared tiles (Blackwell, FP8 [5120→17408]:
     /// 80 vs 74 µs at 32 rows, 172 vs 106 µs at 64).
     /// </summary>
     private static long SkinnyMaxRows => DiagnosticSwitches.SkinnyGemmMaxRows ?? 16;
+
+    /// <summary>
+    /// Largest activation row count the skinny GEMM serves for <paramref name="n"/> output rows (below
+    /// <see cref="SkinnyMinRows"/>: none). Its grid has one workgroup per 16-32 output rows and each walks all of K, so
+    /// narrow matrices leave the GPU idle and take a fixed ~20 µs at K = 5120, where the split-K matvec (up to 8 rows) and
+    /// the split-K gemm_cm2 (9+ rows) spread K over many workgroups. Blackwell, FP8 at K = 5120, skinny vs those: N = 48
+    /// 24 vs 8 µs at 4 rows; N = 1024 23 vs 20 µs at 4 rows, 23 vs 35 µs at 8 rows, 21 vs 12 µs at 16 rows; N = 2048
+    /// 21 vs 16 µs at 16 rows; N = 4096 even at 16 rows.
+    /// </summary>
+    private static long SkinnyMaxRowsFor(long n) => DiagnosticSwitches.SkinnyGemmMaxRows ?? (n >= 4096 ? SkinnyMaxRows : n >= 1024 ? 8 : 0);
 
     /// <summary>Workgroup subgroups a skinny GEMM launch aims for in total (keeps enough weight loads in flight).</summary>
     private const long SkinnyTargetSubgroups = 2048;
@@ -30,43 +40,42 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// True when the skinny tensor-core GEMM (<c>matmul_skinny.slang</c>) can serve the small batches of a matmul with
-    /// weights of this plan (the callers leave formats with an integer-dot matvec on that one): the f16 tensor-core path is usable (<see cref="MatMulPlan.Coop"/>, which needs
-    /// <see cref="DeviceFeatures.MatrixF16"/>, <see cref="DeviceFeatures.Float16"/> and 32-wide subgroups) and K splits into
+    /// weights of this plan (for formats with an integer-dot matvec, the rows above its range): the f16 tensor-core path is
+    /// usable (<see cref="MatMulPlan.Coop"/>, which needs <see cref="DeviceFeatures.MatrixF16"/>, <see cref="DeviceFeatures.Float16"/> and 32-wide subgroups) and K splits into
     /// 32-value blocks. Weights are decoded to f16 as in gemm_cm2, so every format gemm_cm2 reads works here too.
     /// </summary>
     private static bool UseSkinnyGemm(MatMulPlan p) => DiagnosticSwitches.SkinnyGemm && p.Coop && p.K % 32 == 0;
 
-    /// <summary>True when <paramref name="rows"/> activation rows are in the skinny GEMM's range.</summary>
-    private static bool InSkinnyRange(long rows) => rows >= SkinnyMinRows && rows <= SkinnyMaxRows;
+    /// <summary>
+    /// True when <paramref name="rows"/> activation rows are in the skinny GEMM's range for <paramref name="n"/> output rows,
+    /// starting at <paramref name="minRows"/>.
+    /// </summary>
+    private static bool InSkinnyRange(long rows, long n, long minRows) => rows >= minRows && rows <= SkinnyMaxRowsFor(n);
 
     /// <summary>
-    /// Smallest row count for which the skinny GEMM reads an f16 copy of x. Fewer rows read the f32 rows directly (converting
-    /// while staging): their re-reads cost little, and leaving out the copy saves a launch and a barrier per matmul input
-    /// (Blackwell, FP8 [5120→17408] at 4 rows: 49 µs from f32 rows vs 47 µs for copy + GEMM).
-    /// <c>SHARPLIGHT_SKINNY_X16=1</c> / <c>0</c> force the copy for every / no row count.
+    /// Smallest row count for which the skinny GEMM reads an f16 copy of x (shared with the matmul's siblings) rather than
+    /// converting the f32 rows while staging. Every workgroup re-reads x, about T / 8 of the weight bytes in f32, so the copy
+    /// pays from 2 rows (Blackwell, FP8 [17408→5120] at 2-4 rows: 60 µs with the copy vs 75 µs from f32 rows).
+    /// <c>SHARPLIGHT_SKINNY_X16=0</c> reads f32 rows at every row count.
     /// </summary>
-    private static long SkinnyHalfMinRows => DiagnosticSwitches.SkinnyGemmHalfActivations switch
-    {
-        true => SkinnyMinRows,
-        false => long.MaxValue,
-        null => 5,
-    };
+    private static long SkinnyHalfMinRows => DiagnosticSwitches.SkinnyGemmHalfActivations == false ? long.MaxValue : SkinnyMinRows;
 
     /// <summary>
     /// Emits the skinny GEMM launches of a matmul (or of a dual matmul when <paramref name="weights"/> holds two matrices and
     /// <paramref name="compile"/> builds the kernel from a source with the <c>epi2</c> epilogue), conditioned on the row count
-    /// being in the skinny range: one reading f32 x below <see cref="SkinnyHalfMinRows"/>, one reading <paramref name="half"/>
+    /// being in the skinny range from <paramref name="minRows"/> (2, or above the int-dot matvec range): one reading f32 x
+    /// below <see cref="SkinnyHalfMinRows"/>, one reading <paramref name="half"/>
     /// (an f16 copy of x covering its rows) or, when that is null, the shared f16 copy of <paramref name="source"/>'s rows.
     /// </summary>
-    private void EmitSkinnyGemm(string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights, TensorRef y,
-        long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null)
+    private void EmitSkinnyGemm(long minRows, string label, Node[] nodes, Value source, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights,
+        TensorRef y, long n, long k, Dictionary<string, string> baseMacros, Func<Dictionary<string, string>, CompiledKernel> compile, TensorRef? half = null)
     {
         long rowsMax = x.Shape[0] * rowsPerLead;
-        long maxRows = Math.Min(SkinnyMaxRows, rowsMax);
-        long halfMin = Math.Max(SkinnyMinRows, SkinnyHalfMinRows);
-        if (SkinnyMinRows < halfMin && SkinnyMinRows <= maxRows)
+        long maxRows = Math.Min(SkinnyMaxRowsFor(n), rowsMax);
+        long halfMin = Math.Max(minRows, SkinnyHalfMinRows);
+        if (minRows < halfMin && minRows <= maxRows)
         {
-            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, x, xStride, false, SkinnyMinRows, Math.Min(maxRows, halfMin - 1), weights, y, n, k, baseMacros, compile);
+            EmitSkinnyLaunch(label, nodes, x, rowsPerLead, x, xStride, false, minRows, Math.Min(maxRows, halfMin - 1), weights, y, n, k, baseMacros, compile);
         }
 
         if (halfMin <= maxRows)

@@ -8,10 +8,13 @@ namespace Sharplight.Shaders.Lowering;
 public sealed partial class GraphLowerer
 {
     /// <summary>
-    /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/>: 16 for Q8_0,
-    /// 8 for the K-quants, whose GEMM already wins at 16 rows (Mistral-7B Q4_K_M batch 16: 12 vs 18 ms per step).
+    /// Largest activation row count served by the integer-dot matvec for weights of <paramref name="type"/> and depth
+    /// <paramref name="k"/>: 8, above which the skinny GEMM or gemm_cm2 win (K-quants: Mistral-7B Q4_K_M batch 16: 12 vs 18 ms
+    /// per step; Q8_0 [17408→5120] at 12 rows: 100 µs int-dot vs 72 µs skinny), and 16 for Q8_0 where the f16 tensor-core
+    /// path is not usable.
     /// </summary>
-    private static long IntDotMaxRows(DataType type) => DiagnosticSwitches.IntDotMaxRows ?? (type == ShaderTypes.Q8_0R || type == DataType.Q8_0 ? 16 : 8);
+    private long IntDotMaxRows(DataType type, long k) => DiagnosticSwitches.IntDotMaxRows
+        ?? ((type == ShaderTypes.Q8_0R || type == DataType.Q8_0) && !(DiagnosticSwitches.SkinnyGemm && CoopUsable(type, k)) ? 16 : 8);
 
     /// <summary>Threads an int-dot matvec launch aims for (splitting K inside workgroups when there are few weight rows).</summary>
     private const long IntDotTargetThreads = 128 * 1024;
@@ -55,7 +58,7 @@ public sealed partial class GraphLowerer
         var w = weights[0];
         long minRows = IntDotMinRows(w.Type);
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
-        long maxRows = IntDotMaxRows(w.Type);
+        long maxRows = IntDotMaxRows(w.Type, k);
         bool InRange(Bindings b) => rows(b) >= minRows && rows(b) <= maxRows;
         var quantized = QuantizedActivations(label, nodes, source, x, xStride, rowsPerLead, k, minRows, maxRows);
 
@@ -216,10 +219,10 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>The launch-condition guard that keeps the f32 matvec/GEMM launches off the int-dot row range.</summary>
-    private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType)
+    private Func<Bindings, bool> OutsideIntDotRange(TensorRef x, long rowsPerLead, DataType weightType, long k)
     {
         long minRows = IntDotMinRows(weightType);
-        long maxRows = IntDotMaxRows(weightType);
+        long maxRows = IntDotMaxRows(weightType, k);
         return b => Rows(b, x) * rowsPerLead is var r && (r < minRows || r > maxRows);
     }
 }
