@@ -16,6 +16,9 @@ namespace Sharplight.Architectures;
 /// <c>experts.gate.weight</c> [E, I, H] or the fused <c>experts.gate_up.weight</c> [E, 2I, H] (gate rows first). Without a gate the
 /// experts are ungated MLPs (act(up)). Optional per-expert biases (gpt-oss) <c>experts.{gate,up,gate_up,down}.bias</c> [E, N] are
 /// added to the selected experts' projections.</item>
+/// <item>Optional latent space (Maion-Coder, Muse Spark): with <c>latent_down.weight</c> [L, H] the routed experts read the rows projected to the
+/// latent size L (their weights are then [E, I, L] and [E, L, I]) and their weighted sum is projected back by <c>latent_up.weight</c> [H, L]; the
+/// router and the shared expert read the full rows.</item>
 /// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
 /// act(up) MLP), optionally scaled per token by
 /// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H], and by <c>moe.shared_scale</c>.</item>
@@ -46,13 +49,21 @@ internal static class MoeBlock
         int k = options.ExpertsUsed;
         var (weights, ids) = MoeRouter.Route(b, routerInput ?? h, prefix, options);
         var slotWeights = b.Reshape(weights, 0, k, 1);                                                                           // [T, k, 1]
-        var expertInput = options.WeightsBeforeExperts ? b.Mul(b.Reshape(h, 0, 1, hidden), slotWeights) : h;                     // [T, (k,) H]
+        var latentDown = b.TryWeight(prefix + "latent_down.weight");
+        int width = latentDown is null ? hidden : (int)latentDown.Shape[0].Fixed;
+        var rows = latentDown is null ? h : b.Linear(h, prefix + "latent_down.weight", name: $"{prefix}latent_in");                // [T, H or L]
+        var expertInput = options.WeightsBeforeExperts ? b.Mul(b.Reshape(rows, 0, 1, width), slotWeights) : rows;                // [T, (k,) H or L]
         var act = ExpertActivations(b, expertInput, prefix, ids, Gated);
         var down = WithExpertBias(b, b.Emit1("MatMulId", [act, b.Weight(prefix + "experts.down.weight"), ids], null, $"{prefix}experts_down"),
             prefix + "experts.down.bias", ids);                                                                                  // [T, k, H]
         var weighted = options.WeightsBeforeExperts ? down : b.Mul(down, slotWeights);
-        var summed = b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]);                                                       // [T, H, 1]
-        var routed = b.Reshape(summed, 0, hidden);
+        var summed = b.Emit1("ReduceSum", [b.Permute(weighted, 0, 2, 1)]);                                                       // [T, H or L, 1]
+        var routed = b.Reshape(summed, 0, width);
+        if (latentDown is not null)
+        {
+            routed = b.Linear(routed, prefix + "latent_up.weight", name: $"{prefix}latent_out");                                   // [T, H]
+        }
+
         if (!b.HasWeight(prefix + "shared.up.weight"))
         {
             return routed;

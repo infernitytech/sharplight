@@ -73,6 +73,7 @@ internal static class GgufArchitectureMappings
         yield return new MellumGgufMapping();
         yield return new DbrxGgufMapping();
         yield return new PhimoeGgufMapping();
+        yield return new MaionCoderGgufMapping();
         yield return new DeepseekGgufMapping();
         yield return new BailingMoeGgufMapping();
         yield return new Cohere2MoeGgufMapping();

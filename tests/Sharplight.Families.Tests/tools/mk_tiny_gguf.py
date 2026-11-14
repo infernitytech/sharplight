@@ -539,6 +539,29 @@ def lfm3_globals(vocab):
     return {"rope_freqs.weight": np.array([1.0] * (pairs // 2) + [1e30] * (pairs - pairs // 2), dtype=np.float32)}
 
 
+LATENT = 32
+
+
+def maion_coder_block(layer):
+    # q/k norms and sandwich norms; every second layer routes its experts in a latent space of LATENT channels.
+    t = qk_norm_block(post_attention_norm__weight=lambda: norm(HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN))
+    if layer % 2 == 1:
+        for name in ("ffn_gate.weight", "ffn_up.weight", "ffn_down.weight"):
+            t.pop(name)
+        t.update({"ffn_gate_inp.weight": weight(EXPERTS, HIDDEN), "ffn_latent_down.weight": weight(LATENT, HIDDEN), "ffn_latent_up.weight": weight(HIDDEN, LATENT),
+                  "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT), "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT),
+                  "ffn_down_exps.weight": weight(EXPERTS, LATENT, EXPERT_FFN)})
+    return t
+
+
+def maion_coder_parameters(writer):
+    moe_parameters(shared=0)(writer)
+    writer.add_interleave_moe_layer_step(2)
+    writer.add_moe_latent_size(LATENT)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, True, True, False])
+
+
 def bidirectional(extra=None):
     # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
     def parameters(writer):
@@ -668,6 +691,7 @@ models = {
     # LFM3 (llama.cpp after b11177): conv / sliding attention / conv / full attention, see lfm3_block.
     "lfm3": lambda path: write_family(path, "lfm3", 34, lfm3_block, parameters=lfm3_parameters, layers=len(LFM3_KINDS),
                                       kv_heads=[0 if kind == "conv" else KV_HEADS for kind in LFM3_KINDS], rope_dim=LFM3_HEAD, global_tensors=lfm3_globals),
+    "maion-coder": lambda path: write_family(path, "maion-coder", 35, maion_coder_block, parameters=maion_coder_parameters, layers=4),
     # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
     "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
                                           global_tensors=lambda vocab: {"output.weight": None}),

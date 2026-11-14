@@ -300,7 +300,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `minimax-m2` | MiniMax-M2/M2.5 | full-width QK-norm, partial rope, MoE sigmoid + bias | **supported** | - (GGUF mapping not verified on a real file) | minimax_m2 | hf/tiny-random-minimax-m2 |
 | `mimo2` | MiMo-V2-Flash | SWA + sinks, value head size < key head size, value scale, MoE sigmoid bias, MTP | **supported** (MTP layers ignored; not run on a real model) | - | mimo_v2_flash | hf/tiny-random-mimo-v2-flash, gguf/tiny-random-mimo-v2-flash-f32 |
 | `step35` | Step-3.5-Flash | SWA, gated attn, MoE sigmoid + shared | **supported** (clamped SwiGLU, per-layer heads, per-head gate; MTP draft layers not used; not run on a real model, 196B) | - | - | gguf/tiny-random-step35-f32 (tiny GGUF vs llama.cpp b11177 greedy ids) |
-| `maion-coder` | Maion-Coder | SWA + NoPE, MoE latent | **partial** | `MAP`, `MOELATENT` | - | - |
+| `maion-coder` | Maion-Coder | SWA + NoPE, MoE latent | **supported** (GGUF, tiny random vs llama.cpp 8ca5a80 greedy ids on CPU and Vulkan, b11177 predates it; not run on a real model) | - | - | gguf/tiny-random-maion-coder-f32 |
 | `mellum` | Mellum (JetBrains) | SWA + MoE, MTP | **supported** | - | mellum | hf/tiny-random-mellum, hf/tiny-random-mellum-llamacpp, gguf/tiny-random-mellum-llamacpp-f32.gguf |
 | `k2-horizon` | K2-Horizon | MoVA value experts, MoE sigmoid + shared, yarn | **missing** | `MOVA`, `RGRP` | - | - |
 | `beam` | Beam | SWA + NoPE, attn temp, softcap, MoE sigmoid | **partial** | `TMP`, `RBIAS`, `MAP` | - | - |
