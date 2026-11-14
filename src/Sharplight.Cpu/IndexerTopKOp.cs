@@ -27,6 +27,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     private readonly long _slotContext;  // multi-sequence: cache rows per slot
     private readonly KvPages? _pages;    // paged multi-sequence cache
     private readonly long _compression;  // positions per key cache row (compressed cache: a row at position p sees entries [0, (p + 1) / r))
+    private readonly TRef? _candidates;  // candidate groups: [T, M] positions of picked groups of CandidateGroup positions
     private readonly Action<int> _body;
     private long _past;
     private long _per;
@@ -34,13 +35,15 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     [ThreadStatic] private static float[]? s_scores;
     [ThreadStatic] private static float[]? s_sorted;
     [ThreadStatic] private static float[]? s_pooled;
+    [ThreadStatic] private static long[]? s_positions;
 
     public override string Name => "IndexerTopK";
 
     public IndexerTopKOp(TRef q, TRef keys, TRef? weights, TRef? positionGate, TRef y, IndexerSelection selection, string offsetScalar, TRef? rows = null,
-        int slots = 1, KvPages? pages = null, long compression = 1)
+        int slots = 1, KvPages? pages = null, long compression = 1, TRef? candidates = null)
     {
         _compression = Math.Max(1, compression);
+        _candidates = candidates;
         _q = q;
         _keys = keys;
         _weights = weights;
@@ -143,6 +146,12 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         long candidates = _selection.Pooled ? visible / group : (visible + group - 1) / group;
         int* y = (int*)_y.P + (t * _selectionHeads + head) * _width;
         new Span<int>(y, _width).Fill(-1);
+        if (_candidates is not null)
+        {
+            SelectCandidates(t, y, visible, rowBase, slot);
+            return;
+        }
+
         if (_selection.Tail)
         {
             for (int i = 0; i < group - 1 && candidates * group + i < visible; i++)
@@ -206,6 +215,84 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
             else if (scores[g] == threshold && slotEqual < budget)
             {
                 Expand(y, slotEqual++, (int)g, visible);
+            }
+        }
+    }
+
+    // Plain selection among the visible positions of the groups the candidates row lists (ascending; ties to lower positions).
+    private void SelectCandidates(long t, int* y, long visible, long rowBase, int slot)
+    {
+        int size = _selection.CandidateGroup;
+        long width = _candidates!.Dims[1];
+        int* row = (int*)_candidates.P + t * _candidates.Strides[0];
+        var groups = new SortedSet<long>();
+        for (long i = 0; i < width; i += size)
+        {
+            if (row[i * _candidates.Strides[1]] is int first and >= 0)
+            {
+                groups.Add(first / size);
+            }
+        }
+
+        long most = groups.Count * (long)size;
+        var positions = s_positions;
+        if (positions is null || positions.Length < most || s_scores is null || s_scores.Length < most)
+        {
+            s_positions = positions = new long[Math.Max(most, 1024)];
+            s_scores = new float[positions.Length];
+            s_sorted = new float[positions.Length];
+        }
+
+        int count = 0;
+        foreach (long g in groups)
+        {
+            for (long j = g * size; j < Math.Min(visible, (g + 1) * size); j++)
+            {
+                positions[count++] = j;
+            }
+        }
+
+        int budget = _selection.Budget;
+        if (count <= budget)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                y[i] = (int)positions[i];
+            }
+
+            return;
+        }
+
+        var scores = s_scores!;
+        for (int i = 0; i < count; i++)
+        {
+            scores[i] = KeyScore(t, 0, KeyRow(positions[i], rowBase, slot));
+        }
+
+        var sorted = s_sorted!;
+        scores.AsSpan(0, count).CopyTo(sorted);
+        sorted.AsSpan(0, count).Sort();
+        float threshold = sorted[count - budget];
+        int above = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (scores[i] > threshold)
+            {
+                above++;
+            }
+        }
+
+        int slotAbove = 0;
+        int slotEqual = above;
+        for (int i = 0; i < count && (slotAbove < above || slotEqual < budget); i++)
+        {
+            if (scores[i] > threshold)
+            {
+                y[slotAbove++] = (int)positions[i];
+            }
+            else if (scores[i] == threshold && slotEqual < budget)
+            {
+                y[slotEqual++] = (int)positions[i];
             }
         }
     }

@@ -9,13 +9,17 @@ namespace Sharplight.Graph;
 /// <param name="Local">The latest groups that are always picked (attribute <c>local</c>, default 0).</param>
 /// <param name="Tail">The visible positions of the row's incomplete group follow the selection (attribute <c>tail</c>, pooled groups only).</param>
 /// <param name="PerHead">Every query head selects for itself without head weights (attribute <c>per_head</c>).</param>
-internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int Local, bool Tail, bool PerHead)
+/// <param name="CandidateGroup">Positions per candidate group of the candidates input (attribute <c>candidate_group</c>); 0 without one.</param>
+internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int Local, bool Tail, bool PerHead, int CandidateGroup = 0)
 {
     /// <summary>Output entries per selection row: the budget plus the tail's G − 1 entries.</summary>
     public int Width => Budget + (Tail ? Group - 1 : 0);
 
-    /// <summary>Index of the first input after the fixed ones (q, key cache, [head weights], [position gate]): the multi-sequence tables.</summary>
-    public int TableInput => 2 + (PerHead ? 0 : 1) + (Pooled ? 1 : 0);
+    /// <summary>Index of the candidates input (after q, key cache, [head weights], [position gate]).</summary>
+    public int CandidateInput => 2 + (PerHead ? 0 : 1) + (Pooled ? 1 : 0);
+
+    /// <summary>Index of the first input after the fixed ones (q, key cache, [head weights], [position gate], [candidates]): the multi-sequence tables.</summary>
+    public int TableInput => CandidateInput + (CandidateGroup > 0 ? 1 : 0);
 
     /// <summary>Reads and validates the attributes of an IndexerTopK node.</summary>
     /// <exception cref="ArgumentException">The attributes are inconsistent.</exception>
@@ -24,7 +28,8 @@ internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int 
         long budget = a.Get("k", 0L);
         long group = a.Get("group", 1L);
         string score = a.Get("group_score", "max");
-        var selection = new IndexerSelection((int)budget, (int)group, score == "pooled", (int)a.Get("local", 0L), a.Get("tail", false), a.Get("per_head", false));
+        var selection = new IndexerSelection((int)budget, (int)group, score == "pooled", (int)a.Get("local", 0L), a.Get("tail", false), a.Get("per_head", false),
+            (int)a.Get("candidate_group", 0L));
         if (budget < 1 || group < 1 || budget % group != 0)
         {
             throw new ArgumentException($"IndexerTopK needs k >= 1 as a multiple of group (k {budget}, group {group}).");
@@ -33,6 +38,11 @@ internal sealed record IndexerSelection(int Budget, int Group, bool Pooled, int 
         if (score is not ("max" or "pooled") || selection.Local < 0 || (selection.Tail && !selection.Pooled))
         {
             throw new ArgumentException($"IndexerTopK: group_score '{score}' (max, pooled), local {selection.Local}, tail only with pooled groups.");
+        }
+
+        if (selection.CandidateGroup < 0 || (selection.CandidateGroup > 0 && (group != 1 || selection.PerHead || selection.Local > 0)))
+        {
+            throw new ArgumentException("IndexerTopK: candidate_group needs a plain selection (group 1, head weights, no local groups).");
         }
 
         return selection;

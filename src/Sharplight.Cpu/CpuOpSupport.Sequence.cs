@@ -58,7 +58,7 @@ internal static partial class CpuOpSupport
             return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32, f16, q8_0, q4_0)");
         }
 
-        bool compressed = node.Attributes.Get("compression", 1L) > 1;
+        bool compressed = node.Attributes.Has("compression");
         int compressedInput = node.Attributes.Get("sinks", false) ? 4 : 3;
         if (compressed && (ins.Length <= compressedInput || !IsKvCacheType(ins[compressedInput].Type)))
         {

@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", "WindowPool", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -101,7 +101,10 @@ public sealed partial class GraphLowerer
             "CachedAttention" => SupportsCachedAttention(node),
             "IndexerTopK" => SupportsIndexerTopK(node),
             "GatedDeltaRule" => SupportsDeltaRule(node),
-            "CacheWrite" => node.Attributes.Get("compression", 1L) > 1 ? OpSupport.No("CacheWrite: compressed caches run on the CPU") : SupportsKvRows(node.Inputs[0]),
+            "CacheWrite" => node.Attributes.Get("compression", 1L) > 1 && node.Inputs[0].Type != DataType.F32 && node.Inputs[0].Type != DataType.F16
+                ? OpSupport.No("CacheWrite: a compressed cache must be f32 or f16") : SupportsKvRows(node.Inputs[0]),
+            "WindowPool" => node.Inputs[4].Type == DataType.F32 && node.Inputs[0].Shape[1] is { IsSymbolic: false }
+                ? OpSupport.Yes : OpSupport.No("WindowPool: the ring state must be f32 and the channels fixed"),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
             "Gather" => node.Inputs[0].Shape[-1] is { IsSymbolic: false } d && d.Fixed % 8 == 0 ? OpSupport.Yes : OpSupport.No("Gather: rows must be a multiple of 8 values"),
@@ -146,11 +149,6 @@ public sealed partial class GraphLowerer
 
     private static OpSupport SupportsIndexerTopK(Node node)
     {
-        if (node.Attributes.Get("compression", 1L) > 1)
-        {
-            return OpSupport.No("IndexerTopK: compressed caches run on the CPU");
-        }
-
         if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16)
         {
             return OpSupport.No($"IndexerTopK: key cache type {node.Inputs[1].Type} (f32 or f16)");
@@ -169,9 +167,14 @@ public sealed partial class GraphLowerer
 
     private static OpSupport SupportsCachedAttention(Node node)
     {
-        if (node.Attributes.Get("compression", 1L) > 1)
+        bool compressed = node.Attributes.Has("compression");
+        if (compressed)
         {
-            return OpSupport.No("CachedAttention: compressed caches run on the CPU");
+            var cache = node.Inputs[node.Attributes.Get("sinks", false) ? 4 : 3].Type;
+            if (cache != node.Inputs[1].Type || (cache != DataType.F32 && cache != DataType.F16))
+            {
+                return OpSupport.No("CachedAttention: the compressed cache must be f32 or f16 like the key cache");
+            }
         }
 
         if (node.Attributes.Get<float[]?>("alibi_slopes", null) is { } slopes && slopes.Length != node.Inputs[0].Shape[1].Fixed)
@@ -190,9 +193,9 @@ public sealed partial class GraphLowerer
             return OpSupport.No("attention sinks must be f32");
         }
 
-        int selectionInput = node.Attributes.Get("sinks", false) ? 4 : 3;
+        int selectionInput = (node.Attributes.Get("sinks", false) ? 4 : 3) + (compressed ? 1 : 0);
         if (node.Attributes.Get("selection", false)
-            && (node.Inputs[selectionInput].Type != DataType.I32 || node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))
+            && (node.Inputs[selectionInput].Type != DataType.I32 || (!compressed && (node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))))
         {
             return OpSupport.No("CachedAttention: the selection must be i32 and cannot be combined with window or chunk");
         }

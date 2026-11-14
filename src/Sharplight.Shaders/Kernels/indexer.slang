@@ -11,6 +11,10 @@
 //                 incomplete group, -1 padded to WIDTH entries.
 // q: [T, H, D] dense f32; keys: the cache [ctx, 1, D] (pooled: [ctx, 1, 2D], key | gate) in KEY_F16 ? f16 : f32; w: [T, H] dense f32 (not PER_HEAD);
 // gate: [GROUP, D] dense f32 (GROUP_POOLED); out: [T, SH, WIDTH] i32.
+// CAND_GROUP > 0 (plain selection): only the visible positions of the groups of CAND_GROUP positions that the candidates row cand[t] (CAND_M
+// entries, a group selection's output: every listed group starts with its first position, -1 elsewhere) lists are candidates; the others
+// score -inf and do not count as visible.
+// KV_COMP > 1: the keys are a compressed cache (see seq_row_c): a row at position p sees its entries [0, (p + 1) / KV_COMP), CTX counts entries.
 // Macros: H, D (multiple of 8), BUDGET, GROUP, GROUP_POOLED, LOCAL, TAIL, PER_HEAD, WIDTH, CTX (positions per row: the per-sequence context),
 // KEY_F16, WG, RT_N_PAST; MULTI_SEQ / SLOT_CTX and PAGED / PAGE_BS / PAGE_MB for the multi-sequence and paged forms (row t sees positions
 // [0, seq[t].position] of its slot).
@@ -24,6 +28,15 @@
 #endif
 #define NG ((CTX + GROUP - 1) / GROUP)
 #define KG (BUDGET / GROUP)
+#ifndef CAND_GROUP
+#define CAND_GROUP 0
+#define CAND_M 1
+#endif
+#if CAND_GROUP > 0
+#define CAND_GROUPS (CAND_M / CAND_GROUP)
+#else
+#define CAND_GROUPS 1
+#endif
 #if GROUP_POOLED
 #define ROW_VALUES (2 * D)
 #else
@@ -36,6 +49,7 @@ struct IndexerParams
     uint8_t* keys;
     float* w;
     float* gate;
+    int* cand;   // CAND_GROUP: [T, CAND_M] candidate positions
     float* scores;
     int* out;
     uint* rt;
@@ -49,15 +63,15 @@ struct IndexerParams
     uint row0;   // first query row of this launch
 };
 
-// Visible positions of query row t and its slot.
+// Visible positions (compressed cache: the entries of the complete windows) of query row t and its slot.
 uint visible_keys(IndexerParams p, uint t, out uint slot)
 {
 #if MULTI_SEQ
     slot = uint(p.seq[t * 4]);
-    return uint(p.seq[t * 4 + 1]) + 1;
+    return (uint(p.seq[t * 4 + 1]) + 1) / KV_COMP;
 #else
     slot = 0;
-    return p.rt[RT_N_PAST] + t + 1;
+    return (p.rt[RT_N_PAST] + t + 1) / KV_COMP;
 #endif
 }
 
@@ -73,7 +87,9 @@ uint candidate_groups(uint L)
 
 uint64_t key_row(IndexerParams p, uint slot, uint j)
 {
-#if MULTI_SEQ
+#if MULTI_SEQ && KV_COMP > 1
+    return seq_row_c(SEQ_PAGES(p), slot, j);
+#elif MULTI_SEQ
 #if PAGED
     return seq_row(p.pages, slot, j);
 #else
@@ -92,6 +108,22 @@ void load_key8(IndexerParams p, uint64_t row, uint chunk, out float v[8])
     load8_f32(p.keys, ROW_VALUES * 4, uint(row), chunk, v);
 #endif
 }
+
+#if CAND_GROUP > 0
+// Whether the candidates row of t lists the group of position j.
+bool is_candidate(IndexerParams p, uint t, uint j)
+{
+    for (uint i = 0; i < CAND_GROUPS; i++)
+    {
+        int first = p.cand[uint64_t(t) * CAND_M + i * CAND_GROUP];
+        if (first >= 0 && uint(first) / CAND_GROUP == j / CAND_GROUP)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
 
 #ifdef KERNEL_INDEX_SCORES
 // Per-head dot products of the row's queries with the key of cache row `row`, added to acc.
@@ -177,6 +209,12 @@ void index_scores(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
 #else
     [ForceUnroll] for (uint s = 0; s < SH; s++) best[s] = asfloat(0xFF800000u);
     uint end = min(L, (g + 1) * GROUP);
+#if CAND_GROUP > 0
+    if (!is_candidate(p, t, g))
+    {
+        end = 0;
+    }
+#endif
     for (uint j = g * GROUP; j < end; j++)
     {
         float acc[H];
@@ -201,6 +239,10 @@ void index_scores(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
 #ifdef KERNEL_INDEX_SELECT
 groupshared int sSel[KG];   // the picked groups, in output order
 groupshared uint sCount;
+#if CAND_GROUP > 0
+groupshared int sGroups[CAND_GROUPS];   // the listed candidate groups, ascending
+groupshared uint sVisible;              // the row's visible candidate positions
+#endif
 
 [shader("compute")]
 [numthreads(WG, 1, 1)]
@@ -212,7 +254,68 @@ void index_select(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
     uint slot;
     uint L = visible_keys(p, t, slot);
     uint candidates = candidate_groups(L);
-    if (candidates <= KG)
+#if CAND_GROUP > 0
+    if (tid == 0)
+    {
+        // The listed groups, sorted and deduplicated, and the number of visible positions in them.
+        uint n = 0;
+        for (uint i = 0; i < CAND_GROUPS; i++)
+        {
+            int first = p.cand[uint64_t(t) * CAND_M + i * CAND_GROUP];
+            if (first < 0)
+            {
+                continue;
+            }
+            int grp = first / CAND_GROUP;
+            uint at = n;
+            bool seen = false;
+            for (uint k = 0; k < n; k++)
+            {
+                seen = seen || sGroups[k] == grp;
+            }
+            if (seen)
+            {
+                continue;
+            }
+            while (at > 0 && sGroups[at - 1] > grp)
+            {
+                sGroups[at] = sGroups[at - 1];
+                at--;
+            }
+            sGroups[at] = grp;
+            n++;
+        }
+        uint visible = 0;
+        for (uint k = 0; k < n; k++)
+        {
+            uint first = uint(sGroups[k]) * CAND_GROUP;
+            visible += first < L ? min(L - first, uint(CAND_GROUP)) : 0;
+        }
+        sVisible = visible;
+        if (visible <= KG)
+        {
+            // All of them, ascending.
+            uint m = 0;
+            for (uint k = 0; k < n; k++)
+            {
+                for (uint j = uint(sGroups[k]) * CAND_GROUP; j < min(L, uint(sGroups[k] + 1) * CAND_GROUP); j++)
+                {
+                    sSel[m++] = int(j);
+                }
+            }
+            sCount = m;
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    bool listed = sVisible <= KG;   // uniform: sSel / sCount hold every visible candidate
+#else
+    bool listed = false;
+#endif
+    if (listed)
+    {
+        // nothing to select
+    }
+    else if (candidates <= KG)
     {
         for (uint i = tid; i < candidates; i += WG)
         {
