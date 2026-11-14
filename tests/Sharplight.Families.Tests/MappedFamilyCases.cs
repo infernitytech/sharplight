@@ -15,6 +15,8 @@ internal static class MappedFamilyCases
     // Reference ids shared by a Hugging Face case and the GGUF converted from it (transformers and llama.cpp agree). Declared before All, which reads them.
     private static readonly int[] BigCodeIds = [66, 85, 139, 469, 469, 469, 469, 469, 799, 469, 469, 469, 469, 799, 901, 469, 469, 469, 469, 469, 469, 799, 194, 937];
     private static readonly int[] Jais2Ids = [102, 955, 428, 102, 955, 1009, 899, 1009, 38, 102, 633, 428, 831, 535, 75, 38, 955, 1009, 899, 1009, 393, 393, 899, 102];
+    private static readonly int[] Qwen2VlIds = [29748, 94318, 1328, 41714, 62760, 29185, 64018, 7892, 30722, 97510, 94694, 82309, 131534, 138164, 47340, 95434, 13334, 130984, 129733, 130287, 133750, 15219, 58636, 17515];
+    private static readonly int[] Qwen25VlIds = [100505, 114647, 51648, 47348, 40605, 114014, 91380, 37734, 64948, 108835, 14851, 135520, 147170, 30162, 144562, 54336, 51142, 56149, 112305, 102190, 111473, 102928, 23433, 99645];
     private static readonly int[] MellumIds = [284, 372, 193, 882, 837, 650, 835, 351, 351, 194, 713, 284, 713, 284, 936, 571, 936, 533, 533, 701, 533, 434, 777, 602];
     private static readonly int[] DbrxIds = [127, 66, 518, 974, 553, 697, 900, 55, 121, 457, 1001, 456, 637, 454, 413, 646, 60, 651, 884, 519, 44, 766, 848, 2];
     private static readonly int[] Mistral4Ids = [505, 539, 72, 499, 752, 892, 325, 610, 338, 241, 662, 957, 502, 902, 979, 752, 892, 443, 713, 752, 892, 433, 43, 471];
@@ -56,6 +58,12 @@ internal static class MappedFamilyCases
         // Qwen3-VL-MoE text model: interleaved M-RoPE, fused [in, out]-ordered experts (tools/mk_tiny_qwen3_vl_moe.py; images: Sharplight.Vision.Tests).
         new("tiny-random-qwen3-vl-moe-wide HF (qwen3_vl_moe, transformers)", "hf/tiny-random-qwen3-vl-moe-wide", Prompt, "ids",
             [132910, 7463, 98835, 131008, 121579, 25524, 14632, 43177, 5803, 37018, 63405, 32384, 88973, 59478, 148260, 121114, 93445, 111806, 141353, 24164, 26457, 30288, 25830, 93701], ""),
+        // Qwen2-VL / Qwen2.5-VL language models: Qwen2 with sectioned (non-interleaved) M-RoPE; tower not imported (tools/mk_tiny_qwen2_vl.py).
+        new("tiny-random-qwen2-vl-wide HF (qwen2_vl, transformers)", "hf/tiny-random-qwen2-vl-wide", Prompt, "ids", Qwen2VlIds, ""),
+        new("tiny-random-qwen2-5-vl-wide HF (qwen2_5_vl, transformers)", "hf/tiny-random-qwen2-5-vl-wide", Prompt, "ids", Qwen25VlIds, ""),
+        // The same checkpoints converted with convert_hf_to_gguf.py (qwen2vl); llama.cpp b11177 continues them with the transformers ids.
+        new("tiny-random-qwen2-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-vl-wide-f32.gguf", Prompt, "ids", Qwen2VlIds, ""),
+        new("tiny-random-qwen2-5-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-5-vl-wide-f32.gguf", Prompt, "ids", Qwen25VlIds, ""),
         // Hunyuan v4: latent attention with output gate and sinks, indexer in its dense regime, clamped SwiGLU experts, hyper-connections (3 streams).
         new("tiny-random-hy-v4 HF (hy_v4, transformers)", "hf/tiny-random-hy-v4", Prompt, "ids",
             [954, 350, 912, 711, 295, 223, 710, 662, 175, 970, 611, 547, 737, 462, 661, 35, 414, 81, 604, 808, 906, 627, 420, 522], ""),
