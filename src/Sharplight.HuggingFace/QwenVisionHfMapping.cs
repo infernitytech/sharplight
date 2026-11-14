@@ -98,22 +98,23 @@ internal static partial class QwenVisionHfMapping
         long? max = null;
         if (r.TryGetProperty("size", out var size) && size.ValueKind == JsonValueKind.Object)
         {
-            if (size.TryGetProperty("shortest_edge", out var se))
+            if (size.TryGetProperty("shortest_edge", out var se) && se.ValueKind == JsonValueKind.Number)
             {
                 min = se.GetInt64();
             }
 
-            if (size.TryGetProperty("longest_edge", out var le))
+            if (size.TryGetProperty("longest_edge", out var le) && le.ValueKind == JsonValueKind.Number)
             {
                 max = le.GetInt64();
             }
         }
-        if (r.TryGetProperty("min_pixels", out var mp))
+        // transformers 5 writes unset fields as null.
+        if (r.TryGetProperty("min_pixels", out var mp) && mp.ValueKind == JsonValueKind.Number)
         {
             min = mp.GetInt64();
         }
 
-        if (r.TryGetProperty("max_pixels", out var xp))
+        if (r.TryGetProperty("max_pixels", out var xp) && xp.ValueKind == JsonValueKind.Number)
         {
             max = xp.GetInt64();
         }

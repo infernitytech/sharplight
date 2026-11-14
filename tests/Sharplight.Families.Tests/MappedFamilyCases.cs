@@ -53,6 +53,9 @@ internal static class MappedFamilyCases
         new("tiny-random-dbrx f32 GGUF (dbrx, llama.cpp)", "gguf/tiny-random-dbrx-f32.gguf", Prompt, "ids", DbrxIds, ""),
         // Mistral 4: latent attention with YaRN and query temperature (beyond 16 positions), softmax routing over expert groups, stacked experts.
         new("tiny-random-mistral4 HF (mistral4, transformers)", "hf/tiny-random-mistral4", Prompt, "ids", Mistral4Ids, ""),
+        // Qwen3-VL-MoE text model: interleaved M-RoPE, fused [in, out]-ordered experts (tools/mk_tiny_qwen3_vl_moe.py; images: Sharplight.Vision.Tests).
+        new("tiny-random-qwen3-vl-moe-wide HF (qwen3_vl_moe, transformers)", "hf/tiny-random-qwen3-vl-moe-wide", Prompt, "ids",
+            [132910, 7463, 98835, 131008, 121579, 25524, 14632, 43177, 5803, 37018, 63405, 32384, 88973, 59478, 148260, 121114, 93445, 111806, 141353, 24164, 26457, 30288, 25830, 93701], ""),
         // Hunyuan v4: latent attention with output gate and sinks, indexer in its dense regime, clamped SwiGLU experts, hyper-connections (3 streams).
         new("tiny-random-hy-v4 HF (hy_v4, transformers)", "hf/tiny-random-hy-v4", Prompt, "ids",
             [954, 350, 912, 711, 295, 223, 710, 662, 175, 970, 611, 547, 737, 462, 661, 35, 414, 81, 604, 808, 906, 627, 420, 522], ""),
