@@ -499,8 +499,12 @@ public sealed partial class GraphLowerer
             return bytes;
         }
 
-        var partsInfo = WeightInfo.Derived(weight.Name + ":split-f16", DataType.F16, new Shape(rows, 2 * k), () => SplitScaleTable.Split(Source(), rows, k));
-        var scalesInfo = WeightInfo.Derived(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k));
+        (WeightInfo Parts, WeightInfo Scales) Create()
+            => (WeightInfo.Derived(weight.Name + ":split-f16", DataType.F16, new Shape(rows, 2 * k), () => SplitScaleTable.Split(Source(), rows, k)),
+                WeightInfo.Derived(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k)));
+
+        // Model weights: one derived pair per source tensor, so shared-weight registries upload it once for every compilation.
+        var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, Create) : Create();
         var parts = new TensorRef(NewBuffer(BufferKind.Weight, partsInfo.Name, partsInfo.ByteSize, w: partsInfo), 0, DataType.F16, [rows, 2 * k], [2 * k, 1], null);
         var scales = new TensorRef(NewBuffer(BufferKind.Weight, scalesInfo.Name, scalesInfo.ByteSize, w: scalesInfo), 0, DataType.F32, [rows], [1], null);
         _splitWeights[weight] = (parts, scales);
