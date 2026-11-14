@@ -9,6 +9,9 @@ internal sealed record StudioPaths(string ConfigDirectory, string DataDirectory)
     /// <summary>The settings file.</summary>
     public string SettingsFile => Path.Combine(ConfigDirectory, "settings.json");
 
+    /// <summary>The Hub's highlighted models, cached for Discover.</summary>
+    public string HighlightsFile => Path.Combine(DataDirectory, "discover-highlights.json");
+
     /// <summary>The conversation and statistics database.</summary>
     public string DatabaseFile => Path.Combine(DataDirectory, "studio.db");
 

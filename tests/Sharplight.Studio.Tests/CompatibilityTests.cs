@@ -254,8 +254,108 @@ public sealed class CompatibilityTests
         Assert.True(search.DownloadCommand.CanExecute(null));
     }
 
+    /// <summary>The header of Unsloth's gemma-4-26B-A4B-it UD-Q4_K_XL (metadata and the full tensor table, tokenizer arrays emptied).</summary>
+    private static readonly string s_gemma4MoeHeader = Path.Combine(AppContext.BaseDirectory, "Fixtures", "gemma-4-26B-A4B-it-UD-Q4_K_XL.header.gguf");
+
+    [Fact]
+    public async Task Gguf_Gemma4Moe_ChecksEveryTensorAgainstTheImporter()
+    {
+        // Regression: this file was badged "Supported" from its architecture and tensor types while 150 of its expert tensors had no
+        // canonical mapping, so the import failed. The verdict now comes from the importer's own mapping steps run on the header, so it
+        // is "Supported" exactly when those steps accept every tensor.
+        var (probe, ranges) = await ProbeGgufAsync(s_gemma4MoeHeader);
+        var header = File.ReadAllBytes(s_gemma4MoeHeader);
+        var check = GgufSupport.Validate(GgufHeaderProbe.ReadMetadata(header), GgufHeaderProbe.ReadTensorTable(header)!);
+        Assert.True(check.IsComplete);
+        Assert.Equal(new FileInfo(s_gemma4MoeHeader).Length, ranges.BytesRead);
+        Assert.Equal(30, probe.Shape!.Layers);
+        if (check.IsAccepted)
+        {
+            Assert.Equal(CompatibilityState.Supported, probe.Compatibility.State);
+            Assert.True(probe.Compatibility.WeightsChecked);
+            Assert.Contains("All 658 tensors map", probe.Compatibility.Reason, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(CompatibilityState.UnsupportedVariant, probe.Compatibility.State);
+            Assert.Equal("Unsupported variant of gemma4", probe.Compatibility.Text);
+            Assert.Contains("no canonical mapping", probe.Compatibility.Reason, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Gguf_UnmappedTensor_IsAnUnsupportedVariant()
+    {
+        using var dir = new TempDir();
+        string path = dir.File("renamed.gguf");
+        var header = File.ReadAllBytes(s_gemma4MoeHeader);
+        // Same length, so every offset stays valid: a projection the mapping does not know (early in the table, so the reason names it).
+        File.WriteAllBytes(path, Replace(header, "blk.0.attn_q.weight", "blk.0.attn_x.weight"));
+
+        var (probe, _) = await ProbeGgufAsync(path);
+
+        Assert.Equal(CompatibilityState.UnsupportedVariant, probe.Compatibility.State);
+        Assert.Equal("Unsupported variant of gemma4", probe.Compatibility.Text);
+        Assert.Contains("blk.0.attn_x.weight", probe.Compatibility.Reason, StringComparison.Ordinal);
+        Assert.True(probe.Compatibility.IsUnsupported);
+        Assert.Equal("Unsupported variant", new CompatibilityBadgeViewModel(probe.Compatibility).ShortText);
+        // Other quantizations share only the architecture's verdict until their own tables are read.
+        Assert.Equal(CompatibilityState.Supported, probe.ArchitectureCompatibility.State);
+        Assert.False(probe.ArchitectureCompatibility.WeightsChecked);
+    }
+
+    [Fact]
+    public async Task Gguf_TensorTableBeyondTheReadBytes_IsUnknown()
+    {
+        using var dir = new TempDir();
+        string path = dir.File("long-header.gguf");
+        File.WriteAllBytes(path, TinyGguf("llama", new string('x', VariantProbe.MaxGgufPrefixBytes), ("token_embd.weight", 0)));
+
+        var (probe, ranges) = await ProbeGgufAsync(path);
+
+        Assert.Equal(CompatibilityState.Unknown, probe.Compatibility.State);
+        Assert.Contains("beyond the first 64 MiB", probe.Compatibility.Reason, StringComparison.Ordinal);
+        Assert.Equal(VariantProbe.MaxGgufPrefixBytes, ranges.BytesRead);
+    }
+
+    [Fact]
+    public async Task Gguf_SplitModel_ReadsEveryShard()
+    {
+        using var dir = new TempDir();
+        string first = dir.File("model-00001-of-00002.gguf");
+        string second = dir.File("model-00002-of-00002.gguf");
+        File.WriteAllBytes(first, TinyGguf("llama", ("token_embd.weight", 0)));
+        File.WriteAllBytes(second, TinyGguf("llama", ("blk.0.attn_q.weight", 15)));
+
+        var probe = await VariantProbe.ProbeGgufAsync(new LocalRanges(first).ReadAsync, readWeightFormats: true, TestContext.Current.CancellationToken,
+            [new LocalRanges(second).ReadAsync]);
+
+        // The first shard alone looks fine; the second one's Q8_K tensor does not load.
+        Assert.Equal("Unsupported weight format Q8_K", probe.Compatibility.Text);
+        Assert.Equal("Unsupported weight format Q8_K", ImportFailure.FromLocalModel(first)!.Text);
+
+        File.WriteAllBytes(second, [.. TinyGguf("llama", ("blk.0.attn_q.weight", 15)).AsSpan(0, 40)]);
+        probe = await VariantProbe.ProbeGgufAsync(new LocalRanges(first).ReadAsync, readWeightFormats: true, TestContext.Current.CancellationToken,
+            [new LocalRanges(second).ReadAsync]);
+        Assert.Equal(CompatibilityState.Unknown, probe.Compatibility.State);
+        Assert.Contains("shard 2", probe.Compatibility.Reason, StringComparison.Ordinal);
+    }
+
+    private static byte[] Replace(byte[] data, string from, string to)
+    {
+        var source = Encoding.UTF8.GetBytes(from);
+        int at = data.AsSpan().IndexOf(source);
+        Assert.True(at >= 0, $"'{from}' not found");
+        var copy = data.ToArray();
+        Encoding.UTF8.GetBytes(to).CopyTo(copy, at);
+        return copy;
+    }
+
     /// <summary>A GGUF file with one string key (the architecture) and the given tensors (one 32-element row each, no data).</summary>
-    private static byte[] TinyGguf(string architecture, params (string Name, int Type)[] tensors)
+    private static byte[] TinyGguf(string architecture, params (string Name, int Type)[] tensors) => TinyGguf(architecture, null, tensors);
+
+    /// <summary>A GGUF header with the architecture, an optional padding string before the tensor table, and one-row tensors.</summary>
+    private static byte[] TinyGguf(string architecture, string? padding, params (string Name, int Type)[] tensors)
     {
         using var stream = new MemoryStream();
         using var writer = new BinaryWriter(stream, Encoding.UTF8);
@@ -269,10 +369,17 @@ public sealed class CompatibilityTests
         writer.Write(0x46554747u);
         writer.Write(3u);
         writer.Write((ulong)tensors.Length);
-        writer.Write(1UL);
+        writer.Write(padding is null ? 1UL : 2UL);
         String("general.architecture");
         writer.Write(8u);
         String(architecture);
+        if (padding is not null)
+        {
+            String("general.padding");
+            writer.Write(8u);
+            String(padding);
+        }
+
         foreach (var (name, type) in tensors)
         {
             String(name);

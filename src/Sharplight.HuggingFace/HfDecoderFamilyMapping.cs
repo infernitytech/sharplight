@@ -164,6 +164,9 @@ internal abstract partial class HfDecoderFamilyMapping : IHfArchitectureMapping
     }
 
     /// <inheritdoc/>
+    public virtual IEnumerable<string> Validate(HfConfig config) => [];
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
     {
         const string prefix = "decoder.";

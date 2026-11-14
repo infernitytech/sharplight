@@ -29,5 +29,11 @@ internal static class Program
     }
 
     /// <summary>Avalonia configuration; also used by the designer and the headless tests.</summary>
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace();
+    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace()
+        // The X11 window class matches StartupWMClass of packaging/linux/sharplight-studio.desktop, so the taskbar groups the window
+        // under the launcher and shows its icon (also under XWayland).
+        .With(new X11PlatformOptions { WmClass = WindowClass });
+
+    /// <summary>The window class (X11 <c>WM_CLASS</c>) and desktop-file name of the app.</summary>
+    public const string WindowClass = "sharplight-studio";
 }

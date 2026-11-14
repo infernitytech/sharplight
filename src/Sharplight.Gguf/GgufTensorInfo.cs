@@ -6,9 +6,10 @@ namespace Sharplight.Gguf;
 /// <summary>Describes one tensor stored in a GGUF file. Valid while the owning <see cref="GgufFile"/> is open.</summary>
 public sealed class GgufTensorInfo
 {
-    private readonly GgufFile _file;
+    /// <summary>The file holding the data, or null for a tensor read from a header alone (<see cref="FromHeader"/>).</summary>
+    private readonly GgufFile? _file;
 
-    internal GgufTensorInfo(GgufFile file, string name, int ggmlType, DataType dataType, long[] ne, long relativeOffset, long absoluteOffset, long byteSize)
+    internal GgufTensorInfo(GgufFile? file, string name, int ggmlType, DataType dataType, long[] ne, long relativeOffset, long absoluteOffset, long byteSize)
     {
         _file = file;
         Name = name;
@@ -45,8 +46,20 @@ public sealed class GgufTensorInfo
     /// <summary>Size of the tensor data in bytes.</summary>
     public long ByteSize { get; }
 
-    /// <summary>A zero-copy source over the tensor bytes inside the file mapping.</summary>
-    internal IWeightSource CreateSource() => new GgufWeightSource(_file, Offset, ByteSize);
+    /// <summary>
+    /// A tensor known from a tensor table read before the file is available (<see cref="GgufHeaderProbe.ReadTensorTable"/>): its
+    /// weights have the right names, types and shapes, and reading their data throws <see cref="GgufHeaderOnlyDataException"/>.
+    /// </summary>
+    /// <param name="entry">The tensor table entry.</param>
+    /// <param name="dataType">Its element type (<see cref="GgmlTypes.TryGetDataType"/>).</param>
+    internal static GgufTensorInfo FromHeader(GgufTensorEntry entry, DataType dataType)
+    {
+        var ne = entry.Dimensions.ToArray();
+        return new GgufTensorInfo(null, entry.Name, entry.GgmlType, dataType, ne, 0, 0, GgufFile.ComputeByteSize(dataType, ne, entry.Name));
+    }
+
+    /// <summary>A zero-copy source over the tensor bytes inside the file mapping (a source without data for a header-only tensor).</summary>
+    internal IWeightSource CreateSource() => _file is null ? new GgufHeaderOnlySource(Name, ByteSize) : new GgufWeightSource(_file, Offset, ByteSize);
 
     /// <summary>A zero-copy weight (file name, file shape) over the tensor bytes.</summary>
     internal WeightInfo ToWeightInfo() => new() { Name = Name, Type = DataType, Shape = Shape, Source = CreateSource() };

@@ -60,6 +60,14 @@ internal sealed partial class ModelsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial int SelectedTab { get; set; } = LibraryTab;
 
+    partial void OnSelectedTabChanged(int value)
+    {
+        if (value == DiscoverTab)
+        {
+            _ = Discover.LoadHighlightsAsync();
+        }
+    }
+
     /// <inheritdoc/>
     public override async Task ActivateAsync()
     {

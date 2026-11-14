@@ -10,13 +10,17 @@ internal sealed class StableLmHfMapping : HfDecoderFamilyMapping
     protected override bool LayerNorm => true;
 
     /// <inheritdoc/>
+    public override IEnumerable<string> Validate(HfConfig config)
+    {
+        if (config.GetBool("qk_layernorm") == true)
+        {
+            yield return "stablelm: per-head q/k layer norms (qk_layernorm) are not supported.";
+        }
+    }
+
+    /// <inheritdoc/>
     protected override void AddHyperParameters(Dictionary<string, object> md, HfConfig c)
     {
-        if (c.GetBool("qk_layernorm") == true)
-        {
-            throw new NotSupportedException("stablelm: per-head q/k layer norms (qk_layernorm) are not supported.");
-        }
-
         md["decoder.residual.parallel"] = c.GetBool("use_parallel_residual") ?? false;
     }
 }

@@ -16,8 +16,8 @@
     <Border Classes="badge tools" IsVisible="{Binding Tools}" ToolTip.Tip="The chat template supports tool calls">
       <TextBlock Text="Tools" />
     </Border>
-    <Border Classes="badge accent" IsVisible="{Binding DraftHead}" ToolTip.Tip="Has a multi-token-prediction head for self-speculative decoding">
-      <TextBlock Text="MTP" />
+    <Border Classes="badge accent" IsVisible="{Binding DraftHead}" ToolTip.Tip="Can draft several tokens at once for faster answers">
+      <TextBlock Text="Draft head" />
     </Border>
     <Border Classes="badge" IsVisible="{Binding Embedding}">
       <TextBlock Text="Embedding" />

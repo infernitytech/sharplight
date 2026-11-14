@@ -186,6 +186,10 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial bool KeepSourceFiles { get; set; }
 
+    /// <summary>Use the system's title bar instead of Studio's own one.</summary>
+    [ObservableProperty]
+    public partial bool UseSystemTitleBar { get; set; }
+
     /// <summary>Feedback of the last action.</summary>
     [ObservableProperty]
     public partial string? Message { get; set; }
@@ -281,6 +285,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
 
     partial void OnKeepSourceFilesChanged(bool value) => Save();
 
+    partial void OnUseSystemTitleBarChanged(bool value) => Save();
+
     [RelayCommand]
     private async Task BrowseModelsDirectoryAsync()
     {
@@ -369,6 +375,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         LoadOnDemand = residency.LoadOnDemand;
         PrecompileAfterDownload = settings.PrecompileAfterDownload;
         KeepSourceFiles = settings.KeepSourceFiles;
+        UseSystemTitleBar = settings.UseSystemTitleBar;
         Features.Clear();
         var disabled = settings.DisabledFeatures.ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var feature in DeviceFeatures.All)
@@ -437,6 +444,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             DisabledFeatures = [.. Features.Where(feature => !feature.IsEnabled).Select(feature => feature.Name)],
             PrecompileAfterDownload = PrecompileAfterDownload,
             KeepSourceFiles = KeepSourceFiles,
+            UseSystemTitleBar = UseSystemTitleBar,
         });
         RefreshStore();
     }

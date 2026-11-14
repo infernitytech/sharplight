@@ -18,6 +18,12 @@ internal enum CompatibilityState
     /// <summary>The weights use a quantization type or method without a reader or kernels.</summary>
     UnsupportedWeightFormat,
 
+    /// <summary>
+    /// The architecture is mapped, but this model uses a variant of it the importer rejects: a hyper-parameter or feature, or tensors
+    /// without a canonical mapping.
+    /// </summary>
+    UnsupportedVariant,
+
     /// <summary>A multimodal projector (mmproj): loaded with its language model, not a model of its own.</summary>
     Projector,
 

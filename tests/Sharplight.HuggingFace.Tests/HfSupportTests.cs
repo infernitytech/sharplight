@@ -32,6 +32,42 @@ public sealed class HfSupportTests : IDisposable
     }
 
     [Fact]
+    public void Validate_ReportsTheFeaturesAMappingRejects()
+    {
+        const string stableLm = """
+            {"model_type": "stablelm", "hidden_size": 64, "intermediate_size": 128, "num_hidden_layers": 2, "num_attention_heads": 4,
+             "num_key_value_heads": 4, "vocab_size": 100, "max_position_embeddings": 256, "qk_layernorm": true}
+            """;
+        Assert.Contains("qk_layernorm", Assert.Single(HfSupport.Validate(stableLm)), StringComparison.Ordinal);
+        Assert.Empty(HfSupport.Validate(stableLm.Replace("\"qk_layernorm\": true", "\"qk_layernorm\": false", StringComparison.Ordinal)));
+        Assert.Contains("hrm_text", Assert.Single(HfSupport.Validate("""{"model_type": "hrm_text"}""")), StringComparison.Ordinal);
+        Assert.Single(HfSupport.Validate("not json"));
+    }
+
+    [Fact]
+    public void Validate_MatchesTheImporter()
+    {
+        foreach (var name in new[] { "Qwen3-0.6B", "SmolLM2-360M-Instruct", "gemma-4-E2B-it" })
+        {
+            var config = Path.Combine(s_models, name, "config.json");
+            if (!File.Exists(config))
+            {
+                continue;
+            }
+
+            Assert.Empty(HfSupport.Validate(File.ReadAllText(config)));
+        }
+
+        Directory.CreateDirectory(Path.Combine(_dir, "falcon"));
+        File.WriteAllText(Path.Combine(_dir, "falcon", "config.json"), """
+            {"model_type": "falcon", "hidden_size": 64, "num_hidden_layers": 2, "num_attention_heads": 4, "vocab_size": 100, "alibi": true}
+            """);
+        var error = Assert.Throws<NotSupportedException>(() => HuggingFaceImporter.Open(Path.Combine(_dir, "falcon")));
+        Assert.Contains("ALiBi", error.Message, StringComparison.Ordinal);
+        Assert.Contains("ALiBi", Assert.Single(HfSupport.Validate(File.ReadAllText(Path.Combine(_dir, "falcon", "config.json")))), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ModelType_IsTheOneTheImporterSelectsBy()
     {
         Assert.Equal("qwen3", HfSupport.GetModelType("""{"model_type": "qwen3", "architectures": ["Qwen3ForCausalLM"]}"""));

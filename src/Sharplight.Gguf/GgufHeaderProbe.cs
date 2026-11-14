@@ -2,7 +2,7 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// Reads GGUF metadata from the first bytes of a file, e.g. fetched with an HTTP range request before the file is downloaded. Only
-/// the key/value pairs that lie entirely within those bytes are returned; the tensor table is not read.
+/// the key/value pairs that lie entirely within those bytes are returned; the tensor table is read when the bytes cover it.
 /// </summary>
 public static unsafe class GgufHeaderProbe
 {
@@ -58,6 +58,29 @@ public static unsafe class GgufHeaderProbe
     /// <param name="prefix">The first bytes of a GGUF file.</param>
     /// <returns>Type id → tensor count; ids may be unknown to this version (see <see cref="GgufSupport.GetTensorType"/>).</returns>
     public static IReadOnlyDictionary<int, int>? ReadTensorTypes(ReadOnlySpan<byte> prefix)
+        => ReadTensorTable(prefix) is { } table ? CountTypes(table) : null;
+
+    /// <summary>The number of tensors of each ggml type id in a tensor table (see <see cref="ReadTensorTable"/>).</summary>
+    /// <param name="tensors">The tensor table, of one shard or of all shards together.</param>
+    public static IReadOnlyDictionary<int, int> CountTypes(IEnumerable<GgufTensorEntry> tensors)
+    {
+        ArgumentNullException.ThrowIfNull(tensors);
+        var types = new Dictionary<int, int>();
+        foreach (var tensor in tensors)
+        {
+            types[tensor.GgmlType] = types.GetValueOrDefault(tensor.GgmlType) + 1;
+        }
+
+        return types;
+    }
+
+    /// <summary>
+    /// Every entry of the tensor table (name, type id, dimensions), in file order, when the prefix holds the whole table (it follows the
+    /// metadata, so the prefix must cover both); null when it ends earlier or is not GGUF. Of a split model, only the tensors of the
+    /// shard the prefix belongs to are listed.
+    /// </summary>
+    /// <param name="prefix">The first bytes of a GGUF file.</param>
+    public static IReadOnlyList<GgufTensorEntry>? ReadTensorTable(ReadOnlySpan<byte> prefix)
     {
         if (prefix.Length < HeaderBytes)
         {
@@ -87,27 +110,28 @@ public static unsafe class GgufHeaderProbe
                     reader.ReadValue((GgufValueType)reader.ReadU32());
                 }
 
-                var types = new Dictionary<int, int>();
+                var tensors = new List<GgufTensorEntry>((int)tensorCount);
                 for (ulong i = 0; i < tensorCount; i++)
                 {
-                    reader.ReadString();
+                    string name = reader.ReadString();
                     uint dimensions = reader.ReadU32();
                     if (dimensions > MaxTensorDimensions)
                     {
                         return null;
                     }
 
+                    var ne = new long[dimensions];
                     for (uint d = 0; d < dimensions; d++)
                     {
-                        reader.ReadU64();
+                        ne[d] = (long)reader.ReadU64();
                     }
 
                     int type = (int)reader.ReadU32();
                     reader.ReadU64();
-                    types[type] = types.GetValueOrDefault(type) + 1;
+                    tensors.Add(new GgufTensorEntry(name, type, ne));
                 }
 
-                return types;
+                return tensors;
             }
             catch (Exception error) when (error is InvalidDataException or OverflowException)
             {
