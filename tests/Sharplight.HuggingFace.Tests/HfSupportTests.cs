@@ -103,8 +103,8 @@ public sealed class HfSupportTests : IDisposable
     [Fact]
     public void Import_UnknownModelType_NamesIt()
     {
-        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "hrm_text", "architectures": ["HrmTextForCausalLM"]}""");
+        File.WriteAllText(Path.Combine(_dir, "config.json"), """{"model_type": "qwen3_tts", "architectures": ["Qwen3TTSForConditionalGeneration"]}""");
         var error = Assert.Throws<UnsupportedArchitectureException>(() => HuggingFaceImporter.Open(_dir));
-        Assert.Equal("hrm_text", error.Architecture);
+        Assert.Equal("qwen3_tts", error.Architecture);
     }
 }
