@@ -95,4 +95,16 @@ public static class WellKnown
     public const string EncoderSymbol = "E";
     /// <summary>Property of encoder-decoder models: the token the decoder starts from (int; T5: the pad token).</summary>
     public const string DecoderStartToken = "decoder_start_token";
+    /// <summary>
+    /// Masked-diffusion language models (Dream, LLaDA): one bidirectional pass over a single sequence with the inputs of
+    /// <see cref="EmbedGraph"/>; output <see cref="LogitsOutput"/> [T, vocabulary], the prediction of every position (see
+    /// <see cref="DiffusionShiftLogits"/>). The generation loop starts from the prompt followed by mask tokens
+    /// (<see cref="CanonicalKeys.TokenizerMaskId"/>) and reveals them over several passes.
+    /// </summary>
+    public const string DenoiseGraph = "denoise";
+    /// <summary>
+    /// Property of diffusion models (bool): row i of the <see cref="DenoiseGraph"/> logits predicts position i + 1 (Dream: trained like an
+    /// autoregressive model); false: it predicts position i (LLaDA).
+    /// </summary>
+    public const string DiffusionShiftLogits = "diffusion.shift_logits";
 }

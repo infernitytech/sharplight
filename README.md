@@ -23,8 +23,8 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 131 are supported end to end, 3 partially and
-38 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+Of the 172 architectures llama.cpp knows, 140 are supported end to end, 3 partially and
+29 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
@@ -39,13 +39,15 @@ Of the 172 architectures llama.cpp knows, 131 are supported end to end, 3 partia
 | OLMo | `olmo`, `olmo2`, `olmoe` |
 | Granite | `granite`, `granitemoe`, `granite_swa` |
 | GLM | `chatglm`, `glm4`, `glm4moe` |
-| MLA/DeepSeek-like | `mistral4`, `minicpm3`, `deepseek`, `deepseek2`, `plm`, `hy_v4` |
+| MLA/DeepSeek-like | `mistral4`, `minicpm3`, `deepseek`, `deepseek2`, `deepseek32`, `glm-dsa`, `plm`, `hy_v4` |
 | MoE | `dbrx`, `exaone-moe`, `bailingmoe`, `bailingmoe2`, `dots1`, `afmoe`, `laguna`, `ernie4_5-moe`, `hunyuan-moe`, `hy_v3`, `gpt-oss`, `smallthinker`, `minimax-m2`, `mimo2`, `mellum`, `flint`, `cohere2moe`, `arctic`, `grok`, `step35`, `kolibri1`, `maple`, `maion-coder`, `beam` |
 | Other dense | `plamo`, `plamo3`, `internlm2`, `minicpm`, `openelm`, `bitnet`, `exaone`, `exaone4`, `arcee`, `ernie4_5`, `paddleocr`, `hunyuan-dense`, `smollm3`, `seed_oss`, `apertus`, `pangu-embedded`, `spark2_5`, `maincoder`, `talkie`, `nanbeige`, `ricursive` |
 | GPT-style | `starcoder`, `starcoder2`, `gpt2`, `gptj`, `gptneox`, `falcon`, `mpt`, `bloom`, `refact`, `baichuan`, `stablelm`, `codeshell`, `orion`, `xverse`, `jais`, `jais2` |
 | SSM | `mamba`, `mamba2`, `jamba`, `falcon-h1`, `granitehybrid`, `plamo2` |
 | RNN | `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7` |
 | Hybrid conv | `lfm2`, `lfm2moe`, `lfm3` |
+| Linear-attention hybrid | `kimi-linear`, `bailingmoe3`, `minimax-01` |
+| Masked diffusion | `dream`, `llada`, `llada-moe`, `rnd1` (decoded with `DiffusionGenerator`) |
 | Encoder-decoder | `t5` (plus the Hugging Face-only `bart`, `mbart`) |
 | Encoder | `t5encoder`, `bert`, `nomic-bert`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `eurobert` |
 | Multimodal | `clip` |

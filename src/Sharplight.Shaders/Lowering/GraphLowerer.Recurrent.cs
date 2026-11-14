@@ -102,9 +102,21 @@ public sealed partial class GraphLowerer
         long HV = v.Shape[1];
         long DV = v.Shape[2];
         Node[] nodes = [.. new[] { normQ, normK }.OfType<Node>(), n];
+        // Per-channel decay ([T, HV, DK]), time-invariant gates ([HV]) and the additive rule run token by token only.
+        // (From the node's values: dense copies may be flattened.)
+        int gRank = n.Inputs[3].Shape.Rank;
+        int betaRank = n.Inputs[4].Shape.Rank;
+        bool channelDecay = gRank == 3;
+        bool additive = n.Attributes.Get("rule", "delta") switch
+        {
+            "delta" => false,
+            "additive" => true,
+            var other => throw new NotSupportedException($"GatedDeltaRule: unknown rule '{other}'."),
+        };
+        bool plainGates = !channelDecay && !additive && gRank == 2 && betaRank == 2;
         // Rollback form: the token-by-token kernel runs first and replays every run's committed rows (and serves the short runs,
         // recording tentative ones); runs long enough for the chunked form, and longer than any tentative run, then take it.
-        var chunked = ChunkedDeltaPlan(DK, DV);
+        var chunked = plainGates ? ChunkedDeltaPlan(DK, DV) : null;
         int chunkMin = Math.Max(1, DiagnosticSwitches.DeltaChunkMinRows);
         if (records is not null)
         {
@@ -116,7 +128,8 @@ public sealed partial class GraphLowerer
             ("SCALE", n.Attributes.Get<float>("scale")),
             ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
             ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
-            ("MULTI_SEQ", runs is not null));
+            ("MULTI_SEQ", runs is not null), ("CHANNEL_DECAY", channelDecay), ("ADDITIVE", additive),
+            ("G_TS", gRank == 1 ? 0 : HV), ("B_TS", betaRank == 1 ? 0 : HV));
         if (chunked is { } plan && records is null)
         {
             EmitChunkedDeltaRule(nodes, plan, common, chunkMin, q, k, v, g, beta, st, o, runs);
@@ -133,7 +146,7 @@ public sealed partial class GraphLowerer
         long dvb = DV % wantedRowsPerBlock == 0 ? wantedRowsPerBlock : DV;
         // With the chunked form, the token-by-token kernel serves the short runs (multi-sequence) or the short batches.
         var macros = new Dictionary<string, string>(common, StringComparer.Ordinal);
-        foreach (var (key, value) in Macros([("LPR", lanesPerRow), ("DVB", dvb), ("TB", Math.Clamp(2048 / DK, 1, 16)),
+        foreach (var (key, value) in Macros([("LPR", lanesPerRow), ("DVB", dvb), ("TB", Math.Clamp((channelDecay ? 1536 : 2048) / DK, 1, 16)),
                      ("SEQ_MAX_ROWS", chunked is not null && runs is not null ? chunkMin - 1 : 0), .. rollback]))
         {
             macros[key] = value;

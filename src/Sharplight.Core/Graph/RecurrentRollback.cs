@@ -82,7 +82,7 @@ public static class RecurrentRollback
 
     /// <summary>
     /// Floats per record row of a recurrent op, from its token inputs: <c>CausalConv1d</c> C (x [T, C]); <c>GatedDeltaRule</c>
-    /// HV · (DK + DV + 2) (k, v, g and beta per value head); <c>SelectiveScan</c> H · (P + 1) + G · N (x and dt per head, B);
+    /// HV · (DK + DV + G + 1) (k, v, g and beta per value head; G = DK for a per-channel decay, else 1); <c>SelectiveScan</c> H · (P + 1) + G · N (x and dt per head, B);
     /// <c>Wkv7</c> 5 · H · N (w, k, v, a, b); <c>Wkv6</c> 3 · H · N (k, v, w).
     /// </summary>
     /// <param name="op">Op name.</param>
@@ -91,7 +91,7 @@ public static class RecurrentRollback
     public static long RecordWidth(string op, IReadOnlyList<Value> inputs) => op switch
     {
         "CausalConv1d" => inputs[0].Shape[1].Fixed,
-        "GatedDeltaRule" => inputs[2].Shape[1].Fixed * (inputs[0].Shape[2].Fixed + inputs[2].Shape[2].Fixed + 2),
+        "GatedDeltaRule" => inputs[2].Shape[1].Fixed * (inputs[0].Shape[2].Fixed + inputs[2].Shape[2].Fixed + (inputs[3].Shape.Rank == 3 ? inputs[0].Shape[2].Fixed : 1) + 1),
         "SelectiveScan" => inputs[0].Shape[1].Fixed * (inputs[0].Shape[2].Fixed + 1) + inputs[4].Shape[1].Fixed * inputs[4].Shape[2].Fixed,
         "Wkv7" => 5 * inputs[0].Shape[1].Fixed * inputs[0].Shape[2].Fixed,
         "Wkv6" => 3 * inputs[0].Shape[1].Fixed * inputs[0].Shape[2].Fixed,

@@ -21,8 +21,8 @@ namespace Sharplight.Architectures;
 /// [H·(nope + rope), q_rank]; <c>attention.kv_down.weight</c> [latent + rope, hidden] (rows: latent, then the rotary key),
 /// <c>attention.kv_down_norm.weight</c> [latent]; <c>attention.k_up.weight</c> [H, latent, nope]; <c>attention.v_up.weight</c>
 /// [H, v, latent]; <c>attention.o.weight</c> [hidden, H·v]. Query rows per head are [nope | rope]. Optional: <c>attention.sinks</c> (f32 [H],
-/// a learned per-head logit that joins the softmax denominator without a value) and <c>attention.gate.weight</c> [H·v, hidden] (sigmoid
-/// output gate: every head's value is multiplied by sigmoid of this projection of the layer input before the output projection).
+/// a learned per-head logit that joins the softmax denominator without a value) and <c>attention.gate.weight</c> [H·v, hidden] or [H, hidden] (sigmoid
+/// output gate: every head's value is multiplied by sigmoid of this projection of the layer input, per channel or per head, before the output projection).
 /// </remarks>
 internal sealed class LatentAttention(LatentAttentionParameters parameters)
 {
@@ -99,7 +99,9 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
         var values = b.Emit1("MatMulId", [attended, b.Weight(prefix + "attention.v_up.weight"), headIds], null, $"{prefix}attn_values"); // [T, H, v]
         if (b.TryWeight(prefix + "attention.gate.weight") is not null)
         {
-            var gate = b.Reshape(b.Linear(h, prefix + "attention.gate.weight", name: $"{prefix}attn_gate"), 0, p.Heads, p.ValueDims);
+            // One gate per value channel ([H·v, hidden]) or one per head ([H, hidden], Ling 3).
+            bool perHead = b.TryWeight(prefix + "attention.gate.weight")!.Shape[0].Fixed == p.Heads;
+            var gate = b.Reshape(b.Linear(h, prefix + "attention.gate.weight", name: $"{prefix}attn_gate"), 0, p.Heads, perHead ? 1 : p.ValueDims);
             values = b.Mul(values, b.Sigmoid(gate), $"{prefix}attn_gated");
         }
 

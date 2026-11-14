@@ -18,6 +18,7 @@ internal static class HfArchitectureMappings
         Register(new FalconH1HfMapping());
         Register(new Mamba2HfMapping());
         Register(new Lfm2HfMapping());
+        Register(new MiniMaxHfMapping());
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());
         Register(new DecoderHfMapping());
@@ -84,6 +85,8 @@ internal static class HfArchitectureMappings
         yield return new ArceeHfMapping();
         yield return new Gemma1HfMapping();
         yield return new EuroBertHfMapping();
+        yield return new DreamHfMapping();
+        yield return new LladaHfMapping();
         yield return new ModernBertHfMapping();
     }
 

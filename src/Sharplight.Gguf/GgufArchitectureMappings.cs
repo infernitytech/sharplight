@@ -13,6 +13,7 @@ internal static class GgufArchitectureMappings
         Register(new Qwen3VlGgufMapping());
         Register(new NemotronHGgufMapping());
         Register(new HybridGgufMapping());
+        Register(new MiniMax01GgufMapping());
         Register(new Rwkv7GgufMapping());
         Register(new Rwkv6GgufMapping());
         Register(new LatentDecoderGgufMapping());
@@ -102,6 +103,8 @@ internal static class GgufArchitectureMappings
         yield return new Kolibri1GgufMapping();
         yield return new RicursiveGgufMapping();
         yield return new EuroBertGgufMapping();
+        yield return new DreamGgufMapping();
+        yield return new LladaGgufMapping();
         yield return new NeoBertGgufMapping();
         yield return new LlamaEmbedGgufMapping();
         yield return new GemmaEmbeddingGgufMapping();

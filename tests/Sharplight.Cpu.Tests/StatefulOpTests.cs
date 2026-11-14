@@ -54,6 +54,58 @@ public class StatefulOpTests
         Kit.AssertClose(S, st, 1e-4, 1e-3);
     }
 
+    /// <summary>Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention), split over calls.</summary>
+    [Theory]
+    [InlineData(true, false, false, 16, 8), InlineData(true, false, false, 32, 32), InlineData(false, true, true, 16, 8), InlineData(true, true, false, 24, 16),
+     InlineData(false, false, true, 16, 16), InlineData(false, false, false, 16, 8)]
+    public void GatedDeltaRuleVariants(bool channel, bool additive, bool constantGates, int Dk, int Dv)
+    {
+        int T = 5;
+        int Hk = 2;
+        int Hv = 4;
+        float scale = 0.3f;
+        var q = Kit.Rand(T * Hk * Dk, 1);
+        var k = Kit.Rand(T * Hk * Dk, 2, 0.3f);
+        var v = Kit.Rand(T * Hv * Dv, 3);
+        int gRows = constantGates ? 1 : T;
+        var g = Kit.Rand(gRows * Hv * (channel ? Dk : 1), 4).Select(x => -Math.Abs(x)).ToArray();
+        var b = Kit.Rand(gRows * Hv, 5).Select(x => Math.Abs(x)).ToArray();
+        var S = new float[Hv * Dv * Dk];
+        var exp = Ref.DeltaVariant(q, k, v, g, b, S, T, Hk, Hv, Dk, Dv, scale, channel, additive, constantGates);
+
+        var tg = new TestGraph();
+        var qi = tg.InF("q", TestGraph.T, Hk, Dk);
+        var ki = tg.InF("k", TestGraph.T, Hk, Dk);
+        var vi = tg.InF("v", TestGraph.T, Hv, Dv);
+        var gi = constantGates ? tg.WF("g", g, Hv) : channel ? tg.InF("g", TestGraph.T, Hv, Dk) : tg.InF("g", TestGraph.T, Hv);
+        var bi = constantGates ? tg.WF("b", b, Hv) : tg.InF("b", TestGraph.T, Hv);
+        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        var attributes = Attributes.From(("scale", scale), ("rule", additive ? "additive" : "delta"));
+        tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [qi, ki, vi, gi, bi, st], attributes, writes: [st])[0]);
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: 8);
+        var got = new List<float>();
+        int t0 = 0;
+        int gw = Hv * (channel ? Dk : 1);
+        foreach (int c in new[] { 2, 1, 2 })
+        {
+            Kit.Set(m, qi, q[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
+            Kit.Set(m, ki, k[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
+            Kit.Set(m, vi, v[(t0 * Hv * Dv)..((t0 + c) * Hv * Dv)]);
+            if (!constantGates)
+            {
+                Kit.Set(m, gi, g[(t0 * gw)..((t0 + c) * gw)]);
+                Kit.Set(m, bi, b[(t0 * Hv)..((t0 + c) * Hv)]);
+            }
+
+            var p = Kit.P(c);
+            m.Run(p);
+            got.AddRange(Kit.Out(m, "o", p));
+            t0 += c;
+        }
+
+        Kit.AssertClose(exp, got.ToArray(), 1e-5, 1e-4, $"channel={channel} additive={additive} constant={constantGates}");
+    }
+
     [Theory]
     [InlineData(20, 4, true), InlineData(20, 4, false), InlineData(600, 4, true), InlineData(33, 2, true), InlineData(16, 6, false)]
     public void CausalConvStateCarryOver(int C, int K, bool silu)

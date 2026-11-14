@@ -6,7 +6,7 @@ namespace Sharplight.HuggingFace;
 
 /// <summary>
 /// Hugging Face decoder-only transformers (<c>llama</c>, <c>mistral</c>, <c>qwen2</c>, <c>qwen3</c>, <c>gemma2</c>,
-/// <c>gemma3_text</c>, <c>phi3</c>, <c>olmoe</c>, <c>qwen3_moe</c>) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>). Weights are
+/// <c>gemma3_text</c>, <c>phi3</c>, <c>olmoe</c>, <c>qwen3_moe</c>, <c>rnd1</c> (Qwen3-MoE as a masked-diffusion model)) → canonical <c>decoder</c> (vocabulary documented on <c>DecoderAdapter</c>). Weights are
 /// mapped by presence (biases, q/k norms, Gemma's extra norms), Gemma's <c>1 + w</c> norms are folded, rope scaling
 /// (llama3 / yarn / linear) becomes the canonical <c>rope.freq_factors</c> weight.
 /// The Gemma 4 / Muse Glimmer / Flint variants live in <c>DecoderHfMapping.Extended.cs</c>.
@@ -21,7 +21,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
     [
-        "llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe",
+        "llama", "mistral", "qwen2", "qwen3", "gemma2", "gemma3_text", "phi3", "olmoe", "qwen3_moe", "rnd1",
         "gemma4", "gemma4_text", "gemma4_unified", "gemma4_unified_text", "gemma3n", "gemma3n_text", "muse_glimmer", "flint",
     ];
 
@@ -187,9 +187,15 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
         };
         HfMappingHelpers.AddContextLength(md, a, c);
 
-        if (type is "olmoe" or "qwen3_moe")
+        if (type is "olmoe" or "qwen3_moe" or "rnd1")
         {
             AddMixtureOfExperts(md, a, c);
+        }
+
+        if (type == "rnd1")
+        {
+            // RND1: Qwen3-MoE layers as a masked-diffusion model; its sampler shifts the logits (row i predicts position i + 1).
+            DreamHfMapping.AddDiffusion(md, c, shiftLogits: true);
         }
 
         AddRopeAttentionScale(md, a, c);
@@ -214,7 +220,8 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
             throw new NotSupportedException("clip_qkv (qkv clamping) is not supported.");
         }
 
-        md[a + "moe.expert_count"] = c.Int("num_experts");
+        // transformers 5 writes num_local_experts for Qwen3-MoE configs.
+        md[a + "moe.expert_count"] = c.Int("num_experts", "num_local_experts");
         md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
         md[a + "moe.ffn_hidden_size"] = c.GetInt("moe_intermediate_size") ?? c.Int("intermediate_size");
         md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? false;
@@ -453,7 +460,7 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
             return true;
         }
 
-        if (suffix == "mlp.gate.weight" && c.Has("num_experts"))
+        if (suffix == "mlp.gate.weight" && (c.Has("num_experts") || c.Has("num_local_experts")))
         {
             collector.Add(HfTransforms.Plain(w, prefix + "mlp.router.weight"));
         }
@@ -525,9 +532,9 @@ internal sealed partial class DecoderHfMapping : IHfArchitectureMapping
     {
         foreach (var ((layer, kind), byIndex) in experts)
         {
-            if (byIndex.Count != c.Int("num_experts") || byIndex.Keys.Max() != byIndex.Count - 1)
+            if (byIndex.Count != c.Int("num_experts", "num_local_experts") || byIndex.Keys.Max() != byIndex.Count - 1)
             {
-                throw new InvalidDataException($"layer {layer}: expected {c.Int("num_experts")} {kind} experts, found {byIndex.Count}.");
+                throw new InvalidDataException($"layer {layer}: expected {c.Int("num_experts", "num_local_experts")} {kind} experts, found {byIndex.Count}.");
             }
 
             collector.Add(WeightInfo.Stack($"layers.{layer}.mlp.experts.{kind}.weight", [.. byIndex.Values]));

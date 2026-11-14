@@ -250,14 +250,35 @@ void conv1d_state(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 // GatedDeltaRule. One workgroup per value head h; row j (0..DV) of the state matrix M[h][j][i]
 // (i over DK) is owned by LPR lanes, each holding DK/LPR elements in registers.
 //   M <- exp(g) M;  delta_j = (v_j - M_j . k) * beta;  M_j += delta_j k;  o_j = (M_j . q) * SCALE
+// ADDITIVE (gated linear attention, no delta correction): delta_j = v_j * beta.
 // q,k: [T, HK, DK] strides (QS0,QS1)/(KS0,KS1); v: [T, HV, DV] strides (VS0, VS1);
-// g, beta: [T, HV] dense; state [HV, DV, DK] f32; out dense [T, HV, DV].
+// g: dense [T, HV] (time stride G_TS = HV), [HV] (time-invariant, G_TS = 0) or, with CHANNEL_DECAY, [T, HV, DK] (one log decay per
+// key channel: M_j <- exp(g) ⊙ M_j); beta: dense [T, HV] (B_TS = HV) or [HV] (B_TS = 0); state [HV, DV, DK] f32; out dense [T, HV, DV].
 // Macros: HK, HV, DK, DV, QS0, QS1, KS0, KS1, VS0, VS1, SCALE, LPR (lanes per row, power of 2 <= SG),
 // DVB (state rows per workgroup; rows are independent, so a head is split over DV/DVB workgroups),
 // SEQ_MAX_ROWS (multi-sequence: runs longer than this are left to the chunked form; 0 = serve every run).
 #ifndef SEQ_MAX_ROWS
 #define SEQ_MAX_ROWS 0
 #endif
+#ifndef CHANNEL_DECAY
+#define CHANNEL_DECAY 0
+#endif
+#ifndef ADDITIVE
+#define ADDITIVE 0
+#endif
+#ifndef G_TS
+#define G_TS HV
+#endif
+#ifndef B_TS
+#define B_TS HV
+#endif
+#if CHANNEL_DECAY
+#define GW DK
+#else
+#define GW 1
+#endif
+// Floats per value head in a record row: k [DK], v [DV], g [GW], beta.
+#define RH (DK + DV + GW + 1)
 struct DeltaParams
 {
     float* q;
@@ -272,7 +293,7 @@ struct DeltaParams
 #endif
 #if ROLLBACK
     int* commits;
-    float* records;   // record row: per value head h at h * (DK + DV + 2): k [DK] (as read, before an absorbed L2 norm), v [DV], g, beta
+    float* records;   // record row: per value head h at h * RH: k [DK] (as read, before an absorbed L2 norm), v [DV], g [GW], beta
 #endif
     uint T;
 };
@@ -304,6 +325,9 @@ groupshared float sq[TB * DK];
 groupshared float sk[TB * DK];
 groupshared float sv[TB * DVB];
 groupshared float sgd[TB];
+#if CHANNEL_DECAY
+groupshared float sgc[TB * DK];
+#endif
 groupshared float sbeta[TB];
 groupshared float sqn[TB];
 groupshared float skn[TB];
@@ -355,8 +379,8 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
     uint replay = fresh ? 0u : uint(cm.x);
     bool tentative = cm.z != 0;
     bool recordShared = tentative && gid.y == 0;
-    float* recIn = p.records + (uint64_t(run.x) * 2 + uint(cm.y)) * KR * RW + uint64_t(h) * (DK + DV + 2);
-    float* recOut = p.records + (uint64_t(run.x) * 2 + uint(1 - cm.y)) * KR * RW + uint64_t(h) * (DK + DV + 2);
+    float* recIn = p.records + (uint64_t(run.x) * 2 + uint(cm.y)) * KR * RW + uint64_t(h) * RH;
+    float* recOut = p.records + (uint64_t(run.x) * 2 + uint(1 - cm.y)) * KR * RW + uint64_t(h) * RH;
 #else
     const uint replay = 0;
     const bool tentative = false;
@@ -391,6 +415,24 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             if (tentative) recOut[uint64_t(r - replay) * RW + DK + gid.y * DVB + c] = sv[i];
 #endif
         }
+#if CHANNEL_DECAY
+        for (uint i = ltid.x; i < nt * DK; i += NT)
+        {
+            uint tt = i / DK, c = i % DK, r = r0 + tt;
+            float gc;
+#if ROLLBACK
+            if (r < replay) gc = recIn[uint64_t(r) * RW + DK + DV + c];
+            else
+#endif
+            {
+                gc = p.g[((tBeg + r - replay) * uint64_t(HV) + h) * DK + c];
+#if ROLLBACK
+                if (recordShared) recOut[uint64_t(r - replay) * RW + DK + DV + c] = gc;
+#endif
+            }
+            sgc[i] = exp(gc);
+        }
+#endif
         for (uint i = ltid.x; i < nt; i += NT)
         {
             uint r = r0 + i;
@@ -398,20 +440,30 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
 #if ROLLBACK
             if (r < replay)
             {
+#if CHANNEL_DECAY
+                gr = 0.0;
+#else
                 gr = recIn[uint64_t(r) * RW + DK + DV];
-                br = recIn[uint64_t(r) * RW + DK + DV + 1];
+#endif
+                br = recIn[uint64_t(r) * RW + DK + DV + GW];
             }
             else
 #endif
             {
                 uint64_t t = tBeg + r - replay;
-                gr = p.g[t * HV + h];
-                br = p.beta[t * HV + h];
+#if CHANNEL_DECAY
+                gr = 0.0;
+#else
+                gr = p.g[t * G_TS + h];
+#endif
+                br = p.beta[t * B_TS + h];
 #if ROLLBACK
                 if (recordShared)
                 {
+#if !CHANNEL_DECAY
                     recOut[uint64_t(r - replay) * RW + DK + DV] = gr;
-                    recOut[uint64_t(r - replay) * RW + DK + DV + 1] = br;
+#endif
+                    recOut[uint64_t(r - replay) * RW + DK + DV + GW] = br;
                 }
 #endif
             }
@@ -464,9 +516,17 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             // Independent partial sums keep the dependency chains short (the loop is latency-bound).
             float kv[EPL];
             float ka[4] = { 0, 0, 0, 0 };
+#if CHANNEL_DECAY
+            [ForceUnroll] for (int e = 0; e < EPL; e++) { kv[e] = sk[base + e * LPR]; M[e] *= sgc[base + e * LPR]; ka[e % 4] += M[e] * kv[e]; }
+#else
             [ForceUnroll] for (int e = 0; e < EPL; e++) { kv[e] = sk[base + e * LPR]; M[e] *= decay; ka[e % 4] += M[e] * kv[e]; }
+#endif
+#if ADDITIVE
+            float delta = vj * b;
+#else
             float kd = row_sum((ka[0] + ka[1]) + (ka[2] + ka[3])) * kn;
             float delta = (vj - kd) * b;
+#endif
             float dk = delta * kn;
             float oa[4] = { 0, 0, 0, 0 };
             [ForceUnroll] for (int e = 0; e < EPL; e++) { M[e] += kv[e] * dk; oa[e % 4] += M[e] * sq[base + e * LPR]; }

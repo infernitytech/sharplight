@@ -10,9 +10,10 @@ namespace Sharplight.Gguf;
 /// temperature, which Mistral Large 3 <c>deepseek2</c> files carry too) and <c>plm</c> (PLM-1.8B: direct query projection, ungated squared-ReLU MLP,
 /// output head tied to the embedding). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
 /// split (and its key half transposed per head) into the canonical absorbed form; newer files carry <c>attn_k_b</c> /
-/// <c>attn_v_b</c> directly.
+/// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer in its dense regime, with the context
+/// capped at <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part).
 /// </summary>
-internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
+internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     // MiniCPM3 constants llama.cpp hard-codes because its GGUFs do not store them (HF config: scale_emb, scale_depth, dim_model_base).
     private const float MiniCpmEmbeddingScale = 12f;
@@ -23,7 +24,7 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
     private const int GatingSigmoid = 2;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -78,6 +79,17 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         if (g.Has("expert_count"))
         {
             AddMixtureOfExperts(md, a, g);
+        }
+
+        if (IsDeltaHybrid(g))
+        {
+            AddDeltaHyperParameters(md, a, g);
+        }
+
+        if (g.Has("attention.indexer.top_k"))
+        {
+            // DSA (deepseek32, glm-dsa): only the dense regime of the indexer is implemented, the context is capped at its budget.
+            md[a + "attention.indexer.token_budget"] = g.Int("attention.indexer.top_k");
         }
 
         // Mistral 4 / Mistral Large 3: Llama-4-style query temperature beyond the original context.
@@ -149,6 +161,12 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         ["ffn_gate_shexp.weight"] = "mlp.shared.gate.weight",
         ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
         ["ffn_down_shexp.weight"] = "mlp.shared.down.weight",
+        // DSA indexer: kept under canonical names, not used by the dense regime.
+        ["indexer.attn_q_b.weight"] = "attention.indexer.q_up.weight",
+        ["indexer.attn_k.weight"] = "attention.indexer.k.weight",
+        ["indexer.k_norm.weight"] = "attention.indexer.k_norm.weight",
+        ["indexer.k_norm.bias"] = "attention.indexer.k_norm.bias",
+        ["indexer.proj.weight"] = "attention.indexer.head_weights.weight",
     };
 
     /// <summary>Rope frequency tensors outside the layers.</summary>
@@ -189,8 +207,21 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
                 : mtpPrefix + suffix;   // unknown to the head: kept under its GGUF name
         }
 
+        if (IsDeltaHybrid(g) && IsDeltaLayer(g, layer) && MapDeltaSuffix(g, suffix) is { } delta)
+        {
+            return $"layers.{layer}.{delta}";
+        }
+
+        if (IsBailing3(g) && suffix == "attn_gate.weight")
+        {
+            return $"layers.{layer}.attention.gate.weight";   // one sigmoid gate per head
+        }
+
         return s_layer.TryGetValue(suffix, out var canonical) ? $"layers.{layer}.{canonical}" : null;
     }
+
+    /// <inheritdoc/>
+    public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView g) => IsDeltaHybrid(g) ? DeltaVector(weight, g) ?? weight : weight;
 
     /// <summary>Older files: the combined key/value up-projection splits into the per-head key (transposed) and value projections.</summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
@@ -214,6 +245,11 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
     /// <inheritdoc/>
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
     {
+        foreach (var joined in JoinedConvolutions(weights))
+        {
+            yield return joined;
+        }
+
         if (weights.ContainsKey("rope.freq_factors") || g.Raw("rope.scaling.type") is not "yarn")
         {
             yield break;

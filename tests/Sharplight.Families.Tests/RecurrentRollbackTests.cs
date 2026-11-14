@@ -36,6 +36,8 @@ public class RecurrentRollbackTests
         { "gguf/tiny-random-arwkv7-f32.gguf", "Wkv7, CausalConv1d (token shift)" },
         { "gguf/tiny-random-rwkv6qwen2-f32.gguf", "Wkv6, CausalConv1d (token shift)" },
         { "hf/tiny-random-lfm2", "CausalConv1d (short conv)" },
+        { "hf/tiny-random-kimi-linear-f32", "GatedDeltaRule (per-channel decay), CausalConv1d" },
+        { "hf/tiny-random-minimax", "GatedDeltaRule (additive rule, time-invariant decay)" },
     };
 
     [Theory]
