@@ -41,6 +41,8 @@ MODELS = {
     "segformer-b0": ("segformer-b0.json", [1, 8]),
     "mobilesam-encoder": ("zoo/mobilesam-encoder.json", [1]),
     "raft-large": ("zoo/raft-large.json", [1]),
+    "fasterrcnn-12 (counts)": ("survey/fasterrcnn-12.json", [1]),
+    "maskrcnn-12 (counts)": ("survey/maskrcnn-12.json", [1]),
 }
 ENGINES = ["sl-cpu", "ort-cpu", "sl-vulkan", "sl-vulkan-rp", "sl-vulkan-simt", "ort-cuda", "ort-cuda-strict"]
 CPU_ENGINES = {"sl-cpu", "ort-cpu"}
