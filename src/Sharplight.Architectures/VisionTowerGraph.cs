@@ -8,9 +8,11 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// Emits the <see cref="WellKnown.VisionEncodeGraph"/> of a ViT-style vision tower described by the canonical
 /// <see cref="VisionParameters"/> and <c>vision.*</c> weights (documented on <see cref="VisionParameters"/>):
-/// patch embedding (a MatMul over the patchified input) + learned position embedding (bilinear taps) → pre-norm
-/// transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary embedding, over
-/// the whole image or within windows (Qwen2.5-VL), plain or gated MLP) → optional trunk post-norm (PaddleOCR-VL's SigLIP tower) → patch merger (norm, m×m merge, 2-layer MLP) producing embeddings of the language model's hidden size. DeepStack towers
+/// patch embedding (a MatMul over the patchified input, optionally normed: GLM-4V) + learned position embedding (bilinear or bicubic taps) →
+/// pre-norm transformer blocks (LayerNorm or RMS norm, fused or separate QKV bidirectional multi-head attention with axial 2-D rotary
+/// embedding, over the whole image or within windows (Qwen2.5-VL), plain or gated MLP) → optional trunk post-norm (PaddleOCR-VL, GLM-4V) →
+/// patch merger (optional per-patch norm, m×m merge, optional linear downsample and linear/LayerNorm/GELU projection (GLM-4V), plain or
+/// gated 2-layer MLP) producing embeddings of the language model's hidden size. DeepStack towers
 /// (Qwen3-VL) also merge the outputs of selected layers (m×m merge, LayerNorm, 2-layer MLP each) and append them to the embedding row.
 /// Shared by every architecture that uses such a tower; it does not know which file the weights came from.
 /// </summary>
@@ -33,8 +35,8 @@ internal static class VisionTowerGraph
         {
             var patches = b.Input(VisionParameters.PatchesInput, InputRole.Media, DataType.F32, new Shape(N, p.PatchDim));
             positions = b.Input(VisionParameters.PositionsInput, InputRole.Positions, DataType.I32, new Shape(N, 2));
-            embIndex = b.Input(VisionParameters.EmbeddingIndexInput, InputRole.Other, DataType.I32, new Shape(N, 4));
-            embWeight = b.Input(VisionParameters.EmbeddingWeightInput, InputRole.Other, DataType.F32, new Shape(N, 4));
+            embIndex = b.Input(VisionParameters.EmbeddingIndexInput, InputRole.Other, DataType.I32, new Shape(N, p.PositionTaps));
+            embWeight = b.Input(VisionParameters.EmbeddingWeightInput, InputRole.Other, DataType.F32, new Shape(N, p.PositionTaps));
             if (p.WindowSize > 0)
             {
                 windowSpans = b.Input(VisionParameters.WindowSpansInput, InputRole.RowSpans, DataType.I32, new Shape(N, 2));
@@ -42,6 +44,10 @@ internal static class VisionTowerGraph
             }
 
             x = b.Linear(patches, "vision.patch_embed.weight", "vision.patch_embed.bias", "patch_embed");
+            if (b.HasWeight("vision.patch_norm.weight"))
+            {
+                x = Norm(b, p, x, "vision.patch_norm");
+            }
         }
 
         if (p.PositionEmbeddingCount > 0)
@@ -49,7 +55,7 @@ internal static class VisionTowerGraph
             using var _ = b.Group("position_embedding");
             var table = b.Weight("vision.position_embedding.weight");
             Value? sum = null;
-            for (int k = 0; k < 4; k++)
+            for (int k = 0; k < p.PositionTaps; k++)
             {
                 var idx = b.Reshape(b.Slice(embIndex, 1, k, 1), 0);
                 var term = b.Mul(b.Gather(table, idx), b.Slice(embWeight, 1, k, 1));
@@ -122,9 +128,27 @@ internal static class VisionTowerGraph
 
         using (b.Group("merger"))
         {
-            var h = Merge(b, Norm(b, p, x, "vision.merger.norm", p.MergerNormEps), p);
+            var h = Merge(b, b.HasWeight("vision.merger.norm.weight") ? Norm(b, p, x, "vision.merger.norm", p.MergerNormEps) : x, p);
+            if (b.HasWeight("vision.merger.downsample.weight"))
+            {
+                // A stride-m convolution over each m×m window (GLM-4V), i.e. a linear map of the merged row.
+                h = b.Linear(h, "vision.merger.downsample.weight", "vision.merger.downsample.bias");
+            }
+
+            if (b.HasWeight("vision.merger.proj.weight"))
+            {
+                // GLM-4V: linear → LayerNorm → exact GELU before the MLP.
+                var proj = b.Linear(h, "vision.merger.proj.weight", "vision.merger.proj.bias");
+                var normed = b.Emit1("LayerNorm", [proj, b.Weight("vision.merger.proj_norm.weight"), b.Weight("vision.merger.proj_norm.bias")],
+                    Attributes.From(("eps", p.MergerNormEps ?? p.NormEps)));
+                h = b.Unary("Gelu", normed);
+            }
+
             var up = b.Linear(h, "vision.merger.up.weight", "vision.merger.up.bias");
-            var down = b.Linear(Activation(b, up, p.MergerActivation), "vision.merger.down.weight", "vision.merger.down.bias", VisionParameters.EmbeddingsOutput);
+            var act = b.HasWeight("vision.merger.gate.weight")
+                ? b.Mul(Activation(b, b.Linear(h, "vision.merger.gate.weight", "vision.merger.gate.bias"), p.MergerActivation), up)
+                : Activation(b, up, p.MergerActivation);
+            var down = b.Linear(act, "vision.merger.down.weight", "vision.merger.down.bias", VisionParameters.EmbeddingsOutput);
             var rows = deepstack.Count == 0 ? down : b.Concat(1, [down, .. deepstack]);
             // Windowed towers run window by window; the output goes back to merge-window raster order.
             b.Output(VisionParameters.EmbeddingsOutput, windowOrder is null ? rows : b.Gather(rows, windowOrder));

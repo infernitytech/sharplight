@@ -21,8 +21,9 @@ namespace Sharplight.Vision;
 /// window and a patch of a windowed layer only attends to the patches of its window;</item>
 /// <item><c>patch_size</c>, <c>temporal_patch_size</c> (frames per patch; a still image is repeated), <c>in_channels</c>,
 /// <c>spatial_merge_size</c> (m: m×m neighbouring patches are merged into one output token);</item>
-/// <item><c>position_embedding_count</c> (learned absolute position grid of g×g entries, g² = count, bilinearly
-/// resampled to the image grid with align_corners; 0 = none), <c>rope.base</c> (axial 2-D rotary position
+/// <item><c>position_embedding_count</c> (learned absolute position grid of g×g entries, g² = count, resampled to the image grid; 0 = none),
+/// <c>position_embedding.interpolation</c> (<c>bilinear</c>, the default: align_corners, 4 taps | <c>bicubic</c>: PyTorch grid_sample of the
+/// patch centres, 16 taps), <c>rope.base</c> (axial 2-D rotary position
 /// embedding over (row, col), 0 = none);</item>
 /// <item><c>out_hidden_size</c> (width of the produced embeddings = hidden size of the language model),
 /// <c>merger.activation</c> (<c>gelu</c> | <c>gelu_tanh</c> | <c>silu</c>), <c>merger.norm_eps</c> (epsilon of the merger norm; default
@@ -41,13 +42,17 @@ namespace Sharplight.Vision;
 /// per layer <c>vision.layers.{i}.</c>: <c>input_norm</c> and <c>post_attention_norm</c> (LayerNorm weight+bias),
 /// <c>attention.qkv</c> (fused [3·hidden, hidden], rows ordered q | k | v, each head-major) or separate <c>attention.q</c>, <c>attention.k</c>,
 /// <c>attention.v</c>, then <c>attention.o</c>, <c>mlp.up</c>, <c>mlp.down</c> and optionally <c>mlp.gate</c> (gated MLP: act(gate)·up); norms
-/// without <c>.bias</c> when <c>norm.type</c> is <c>rms</c>; the patch embedding's bias is optional; optionally <c>vision.post_norm</c> (a norm of the trunk output, before the merger); the patch merger <c>vision.merger.norm</c> (LayerNorm over hidden, applied per patch before merging),
+/// without <c>.bias</c> when <c>norm.type</c> is <c>rms</c>; the patch embedding's bias is optional; optionally <c>vision.patch_norm</c> (a norm of the patch embeddings, before the position embedding is added) and <c>vision.post_norm</c> (a norm of
+/// the trunk output, before the merger); the patch merger: optionally <c>vision.merger.norm</c> (applied per patch before merging, epsilon
+/// <c>merger.norm_eps</c>), optionally <c>vision.merger.downsample</c> [out_hidden, m²·hidden] (a linear map of the merged row, with bias) and
+/// <c>vision.merger.proj</c> + <c>vision.merger.proj_norm</c> (linear, LayerNorm with weight and bias, exact GELU), then the MLP
+/// <c>vision.merger.up</c>, optional <c>vision.merger.gate</c> (gated: act(gate)·up) and <c>vision.merger.down</c>; the Qwen merger has
 /// <c>vision.merger.up</c> [m²·hidden, m²·hidden] and <c>vision.merger.down</c> [out_hidden, m²·hidden]; per DeepStack layer i
 /// <c>vision.deepstack.{i}.norm</c> (LayerNorm over m²·hidden, applied after merging), <c>vision.deepstack.{i}.up</c> and
 /// <c>vision.deepstack.{i}.down</c> (shapes of the merger's; same activation).</para>
 /// <para><b>Graph contract</b> (<see cref="WellKnown.VisionEncodeGraph"/>): inputs <see cref="PatchesInput"/> [N, K],
-/// <see cref="PositionsInput"/> i32 [N, 2] (row, col), <see cref="EmbeddingIndexInput"/> i32 [N, 4],
-/// <see cref="EmbeddingWeightInput"/> f32 [N, 4], and with windowed attention <see cref="WindowSpansInput"/> i32 [N, 2] (first patch and patch count
+/// <see cref="PositionsInput"/> i32 [N, 2] (row, col), <see cref="EmbeddingIndexInput"/> i32 [N, taps],
+/// <see cref="EmbeddingWeightInput"/> f32 [N, taps] (<see cref="PositionTaps"/>), and with windowed attention <see cref="WindowSpansInput"/> i32 [N, 2] (first patch and patch count
 /// of each patch's window) and <see cref="WindowOrderInput"/> i32 [M] (for each output row in merge-window raster order, its row in window order); symbols <c>N</c> = patches, <c>M</c> = N / m² (the merger reshapes N → M); output <see cref="EmbeddingsOutput"/> f32 [M, <see cref="EmbeddingWidth"/>]. Patches are ordered in merge-window
 /// order, or window by window with windowed attention (see <see cref="VisionPreprocessor"/>); the output rows are always in merge-window raster order. Inputs are produced by <see cref="VisionPreprocessor"/>.</para>
 /// </remarks>
@@ -103,6 +108,11 @@ public sealed record VisionParameters
     public int SpatialMergeSize { get; init; } = 1;
     /// <summary>Entries of the learned absolute position grid (a perfect square), or 0 for none.</summary>
     public int PositionEmbeddingCount { get; init; }
+    /// <summary>
+    /// How the learned position grid is resampled to the image grid: "bilinear" (align_corners, 4 taps per patch) or "bicubic" (PyTorch
+    /// grid_sample at the patch centres, align_corners off, border padding, A = −0.75; 16 taps per patch; GLM-4V).
+    /// </summary>
+    public string PositionInterpolation { get; init; } = "bilinear";
     /// <summary>Base of the axial 2-D rotary position embedding, or 0 for none.</summary>
     public float RopeBase { get; init; }
     /// <summary>Width of the produced embeddings; equals the hidden size of the language model.</summary>
@@ -130,6 +140,8 @@ public sealed record VisionParameters
     public int HeadDim => HiddenSize / HeadCount;
     /// <summary>Values per patch: in_channels · temporal_patch_size · patch_size².</summary>
     public int PatchDim => InChannels * TemporalPatchSize * PatchSize * PatchSize;
+    /// <summary>Taps per patch of the position-embedding resampling (<see cref="PositionInterpolation"/>): 4 or 16.</summary>
+    public int PositionTaps => PositionInterpolation == "bicubic" ? 16 : 4;
     /// <summary>Side of the learned position grid.</summary>
     public int PositionGridSide => (int)Math.Round(Math.Sqrt(PositionEmbeddingCount));
     /// <summary>Patches merged into one output token (m²).</summary>
@@ -160,6 +172,7 @@ public sealed record VisionParameters
             InChannels = Get("in_channels", 3),
             SpatialMergeSize = Get("spatial_merge_size", 1),
             PositionEmbeddingCount = Get("position_embedding_count", 0),
+            PositionInterpolation = Get("position_embedding.interpolation", "bilinear"),
             RopeBase = Get("rope.base", 0f),
             OutHiddenSize = Get<int>("out_hidden_size", 0),
             MergerActivation = Get("merger.activation", "gelu"),
@@ -205,6 +218,10 @@ public sealed record VisionParameters
         Set("in_channels", InChannels);
         Set("spatial_merge_size", SpatialMergeSize);
         Set("position_embedding_count", PositionEmbeddingCount);
+        if (PositionInterpolation != "bilinear")
+        {
+            Set("position_embedding.interpolation", PositionInterpolation);
+        }
         Set("rope.base", RopeBase);
         Set("out_hidden_size", OutHiddenSize);
         Set("merger.activation", MergerActivation);
@@ -266,6 +283,11 @@ public sealed record VisionParameters
         if (WindowSize < 0 || FullAttentionLayers.Any(l => l < 0 || l >= LayerCount))
         {
             throw new InvalidDataException("vision: attention.window must be >= 0 and attention.full_layers tower layer indices.");
+        }
+
+        if (PositionInterpolation is not ("bilinear" or "bicubic"))
+        {
+            throw new InvalidDataException($"vision: position_embedding.interpolation '{PositionInterpolation}' is not supported (bilinear, bicubic).");
         }
 
         if (PositionEmbeddingCount > 0 && PositionGridSide * PositionGridSide != PositionEmbeddingCount)

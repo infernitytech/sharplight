@@ -10,6 +10,9 @@ namespace Sharplight.Families.Tests;
 /// </summary>
 internal static class MappedFamilyCases
 {
+    private static readonly int[] Glm4vIds = [5905, 143123, 146707, 4073, 112255, 132989, 3497, 55373, 32310, 105637, 84533, 115245, 117628, 124811,
+        14440, 5610, 117557, 95723, 136998, 2304, 102407, 74617, 42512, 136914];
+
     private const string Prompt = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
 
     // Reference ids shared by a Hugging Face case and the GGUF converted from it (transformers and llama.cpp agree). Declared before All, which reads them.
@@ -68,7 +71,11 @@ internal static class MappedFamilyCases
         // The same checkpoints converted with convert_hf_to_gguf.py (qwen2vl); llama.cpp b11177 continues them with the transformers ids.
         new("tiny-random-qwen2-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-vl-wide-f32.gguf", Prompt, "ids", Qwen2VlIds, ""),
         new("tiny-random-qwen2-5-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-5-vl-wide-f32.gguf", Prompt, "ids", Qwen25VlIds, ""),
-        // PaddleOCR-VL language model: ERNIE-4.5 with sectioned M-RoPE (tools/mk_tiny_paddleocr_vl.py; the SigLIP tower is not imported). The GGUF
+        // GLM-4.1V language model: GLM-4 with sectioned M-RoPE on interleaved pairs of half of each head (tools/mk_tiny_glm4v.py; the image path is
+        // checked in Sharplight.Vision.Tests); the GGUF (convert_hf_to_gguf.py, glm4) gives the same ids in llama.cpp b11177.
+        new("tiny-random-glm4v HF (glm4v, transformers)", "hf/tiny-random-glm4v", Prompt, "ids", Glm4vIds, ""),
+        new("tiny-random-glm4v f32 GGUF (glm4 + M-RoPE, llama.cpp)", "gguf/tiny-random-glm4v-f32.gguf", Prompt, "ids", Glm4vIds, ""),
+        // PaddleOCR-VL language model: ERNIE-4.5 with sectioned M-RoPE (tools/mk_tiny_paddleocr_vl.py; the tower is checked in Sharplight.Vision.Tests). The GGUF
         // (convert_hf_to_gguf.py, paddleocr) matches llama.cpp 11139 (d79953103, Unsloth build); b11177 lacks the architecture.
         new("tiny-random-paddleocr-vl HF (paddleocr_vl, transformers)", "hf/tiny-random-paddleocr-vl", Prompt, "ids", PaddleOcrVlIds, ""),
         new("tiny-random-paddleocr-vl f32 GGUF (paddleocr, llama.cpp)", "gguf/tiny-random-paddleocr-vl-f32.gguf", Prompt, "ids", PaddleOcrVlIds, ""),

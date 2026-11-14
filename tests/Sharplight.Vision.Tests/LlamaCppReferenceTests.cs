@@ -180,6 +180,26 @@ public class LlamaCppReferenceTests
         Check($"tiny {which} rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, which == "qwen2-vl-wide" ? RainbowTinyQwen2Vl : RainbowTinyQwen25Vl, tolerance: 2e-4);
     }
 
+    // The tiny random GLM-4.1V (tools/mk_tiny_glm4v.py), its tower converted by llama.cpp b11177 (tools/convert_tiny_mmproj.py, projector type
+    // glm4v): rainbow 56 (the 4×4 learned grid itself) and 280 (bicubic resampling), 4 and 100 rows of 64.
+    private static readonly Expected RainbowTinyGlm4v56 = new(3.046404f, [0.3155f, 1.2263f, -1.4399f], [0.8930f, 0.5033f, -0.8091f], [-0.0236f, -0.0553f, 0.2907f], [0.0241f, 0.3667f, 0.1091f]);
+    private static readonly Expected RainbowTinyGlm4v = new(76.935051f, [0.5760f, 0.3973f, -1.3759f], [-0.2183f, -1.2097f, 1.6504f], [0.1365f, 0.5883f, -0.5596f], [0.4676f, -0.3525f, 0.3442f]);
+
+    /// <summary>GLM-4.1V's tower (patch norm, bicubic position grid, convolution merger, GLM projector) from an f32 mmproj.</summary>
+    [Fact]
+    public void Tiny_glm4v_tower_matches_llama_cpp()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string gguf = Path.Combine(home, "models/gguf/tiny-random-glm4v-f32.gguf");
+        string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-glm4v-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny GLM-4.1V GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        // transformers on the same images gives sums 3.0902 and 76.8782 and the corner values Sharplight prints to 1e-4; llama.cpp (f16
+        // attention on the CPU backend) is ~1e-3 away from both.
+        Check("tiny glm4v rainbow 56", Encode(model, Rainbow(56), 56), 4, 64, RainbowTinyGlm4v56, tolerance: 3e-3, sumTolerance: 1e-3);
+        Check("tiny glm4v rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, RainbowTinyGlm4v, tolerance: 5e-3, sumTolerance: 1e-3);
+    }
+
     // The tiny random PaddleOCR-VL (tools/mk_tiny_paddleocr_vl.py), its tower converted by llama.cpp b11177 (tools/convert_tiny_mmproj.py, projector
     // type paddleocr): rainbow 280, 100 rows of 64.
     private static readonly Expected RainbowTinyPaddleOcr56 = new(-35.144493f, [-0.8637f, 0.4443f, 1.7223f], [2.5447f, -2.8049f, 1.7900f], [-0.9414f, 1.3340f, 2.3642f], [2.5715f, -2.1133f, 1.6070f]);

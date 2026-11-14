@@ -1,4 +1,4 @@
-"""Image references for tiny Qwen-VL checkpoints from Hugging Face transformers (fp32).
+"""Image references for tiny Qwen-VL, PaddleOCR-VL and GLM-4.1V checkpoints from Hugging Face transformers (fp32).
 
 Usage: python hf_image_reference.py <model_dir> [<width> <height>] [--new-tokens N]
 
@@ -49,8 +49,12 @@ with torch.no_grad():
     else:
         out = model.model.visual(pixel_values, grid_thw=grid)
         embeddings = out.pooler_output if hasattr(out, "pooler_output") else out
-        placeholder = "<|image_pad|>"
-        text = "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>\n<|im_start|>assistant\n"
+        if config.model_type == "glm4v":
+            placeholder = "<|image|>"
+            text = "[gMASK]<sop><|user|>\n<|begin_of_image|><|image|><|end_of_image|>Describe this image.<|assistant|>\n"
+        else:
+            placeholder = "<|image_pad|>"
+            text = "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>\n<|im_start|>assistant\n"
     pad = tokenizer.convert_tokens_to_ids(placeholder)
     prompt_ids = tokenizer(text, add_special_tokens=False).input_ids
     expanded = []

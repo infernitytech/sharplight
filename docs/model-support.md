@@ -93,7 +93,7 @@ Score = sum over non-supported architectures that need the block of a 1-3 popula
 | 9 | Bidirectional encoder adapter with pooling heads | ENC, POOL (+ LN, APOS, ALIBI) | bert, modern-bert, nomic-bert(-moe), neo-bert, jina-bert-v2/v3, eurobert, gemma-embedding(2), t5encoder: embeddings and rerankers, the main RAG workload. |
 | 10 | Quantisation kernels: Q2_K/Q3_K, IQ1-IQ3, MXFP4/NVFP4, TQ | (formats) | Every UD-quant of a large model, gpt-oss (MXFP4), BitNet (TQ2_0). Independent of architecture; unblocks the sub-100 GB Qwen3.8-Flash-Next files (IQ1/IQ2/IQ3 based, 66-94 GB). |
 
-Next in line: the remaining vision towers on the decoder's multimodal graph (glm4v, the PaddleOCR-VL SigLIP tower, Gemma 3n MobileNetV5); the continuous-batching server path for masked-diffusion models.
+Next in line: the Gemma 3n MobileNetV5 vision tower and audio encoder; the continuous-batching server path for masked-diffusion models.
 
 ### 3.2 Block catalog and score table
 
@@ -255,7 +255,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `chatglm` | ChatGLM3, GLM-4-9B-chat | MQA-ish GQA, partial interleaved rope, fused qkv | **supported (GGUF, tiny random vs llama.cpp)**| -| chatglm | gguf/tiny-random-chatglm-f32 |
-| `glm4` | GLM-4-0414 (9B/32B), GLM-Z1 | GQA, sandwich norms, partial rope, fused gate-up | **supported**| -| glm4 | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4 |
+| `glm4` | GLM-4-0414 (9B/32B), GLM-Z1, GLM-4.1V | GQA, sandwich norms, partial rope, fused gate-up; GLM-4.1V: M-RoPE + vision tower | **supported** (GLM-4.1V: HF glm4v with its tower, GGUF glm4 with `rope.dimension_sections` (q/k in neox order) plus a glm4v mmproj; tiny model vs transformers (text: greedy ids and prompt logits; image prompt: embeddings, logits, greedy ids; CPU and Vulkan) and vs llama.cpp b11177 (text ids, mmproj tower outputs to ~1e-3, llama.cpp's f16 attention); no real checkpoint under ~4 GB) | - | glm4, glm4v | gguf/GLM-4-9B-0414, hf/tiny-random-glm-4, hf/tiny-random-glm4v, gguf/tiny-random-glm4v-f32 (+mmproj) |
 | `glm4moe` | GLM-4.5/4.6/4.7, GLM-4.5-Air | QK-norm, partial rope, MoE sigmoid + bias + groups + shared, dense lead, MTP | **supported** | - (MTP layers dropped) | glm4_moe | hf/tiny-random-glm-4-moe |
 | `glm-dsa` | GLM-5 / DSA models | MLA + DSA indexer, MoE | **supported** (dense and sparse regime; deviation: llama.cpp b11177's glm-dsa graph leaves the transformers ids on the same weights, the GGUFs are checked against transformers) | - | glm_moe_dsa | hf/tiny-random-glm-moe-dsa(-sparse), gguf/tiny-random-glm-moe-dsa(-sparse)-f32.gguf |
 | `glm5-next` | GLM-5-Next | MLA + indexer + HC + linear-attn layers | **missing** | `MLA`, `IDX`, `HC`, `KDA` | - | - |
@@ -522,7 +522,7 @@ llama.cpp `tools/mtmd/models/` implements these vision/audio front ends (file na
 | Family | llama.cpp projector files | Used by | Status |
 |---|---|---|---|
 | Qwen vision | qwen2vl, qwen3vl (DeepStack), qwen3.5 merger (`qwen3vl_merger`) | Qwen2-VL/2.5-VL, Qwen3-VL(-MoE), Qwen3.5/3.6/3.8 | supported: qwen3_5, Qwen3-VL (DeepStack), Qwen2-VL (`qwen2vl_merger`) and Qwen2.5-VL (`qwen2.5vl_merger`, windowed attention) |
-| SigLIP / LLaVA-like | siglip, llava, internvl, minicpmv, mobilenetv5 (Gemma 3n), gemma4v/uv, glm4v, kimivl, kimik25, lfm3vl, step3vl, magevl, mimovl, youtuvl, ling3vl, exaone4_5, nemotron-v2-vl, granite4-vision | Gemma 3/4, SmolVLM, InternVL, MiniCPM-V, GLM-4.xV, Kimi-VL, LFM2-VL, Step3-VL | missing (ViT tower graph exists in VisionTowerGraph; per-family resamplers/mergers and preprocessing missing) |
+| SigLIP / LLaVA-like | siglip, llava, internvl, minicpmv, mobilenetv5 (Gemma 3n), gemma4v/uv, kimivl, kimik25, lfm3vl, step3vl, magevl, mimovl, youtuvl, ling3vl, exaone4_5, nemotron-v2-vl, granite4-vision | Gemma 3/4, SmolVLM, InternVL, MiniCPM-V, GLM-4.xV, Kimi-VL, LFM2-VL, Step3-VL | missing (ViT tower graph exists in VisionTowerGraph; per-family resamplers/mergers and preprocessing missing; **done**: paddleocr (SigLIP tower + mlp_AR projector) and glm4v (patch norm, bicubic position grid, convolution merger, GLM projector) on the shared tower graph) |
 | Pixtral | pixtral | Mistral-3 / Ministral-3 / Pixtral | missing |
 | Llama 4 | llama4 | Llama 4 | missing |
 | OCR / document | deepseekocr(2), paddleocr, dotsocr, dots3note, hunyuanvl, cogvlm | DeepSeek-OCR, PaddleOCR-VL, dots.ocr, HunyuanOCR, CogVLM | missing |
