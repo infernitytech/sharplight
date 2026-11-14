@@ -10,7 +10,8 @@ namespace Sharplight.Gguf;
 /// temperature, which Mistral Large 3 <c>deepseek2</c> files carry too) and <c>plm</c> (PLM-1.8B: direct query projection, ungated squared-ReLU MLP,
 /// output head tied to the embedding). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
 /// split (and its key half transposed per head) into the canonical absorbed form; newer files carry <c>attn_k_b</c> /
-/// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer, <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part).
+/// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer, <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part),
+/// <c>glm5-next</c> (GLM-5.3-Flash) also hyper-connections (see the Glm5Next part).
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
@@ -23,7 +24,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     private const int GatingSigmoid = 2;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa", "glm5-next"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -85,7 +86,11 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             AddDeltaHyperParameters(md, a, g);
         }
 
-        if (g.Has("attention.indexer.top_k"))
+        if (IsGlm5Next(g))
+        {
+            AddGlm5NextHyperParameters(md, a, g);
+        }
+        else if (g.Has("attention.indexer.top_k"))
         {
             // DSA (deepseek32, glm-dsa): llama.cpp rotates the indexer's rope dimensions with NEOX pairs for DeepSeek-V3.2 and NORM pairs for GLM-5.
             md[a + "attention.indexer.token_budget"] = g.Int("attention.indexer.top_k");
@@ -212,6 +217,11 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             return $"layers.{layer}.{delta}";
         }
 
+        if (IsGlm5Next(g) && s_hyperConnections.TryGetValue(suffix, out var hyperConnection))
+        {
+            return $"layers.{layer}.{hyperConnection}";
+        }
+
         if (IsBailing3(g) && suffix == "attn_gate.weight")
         {
             return $"layers.{layer}.attention.gate.weight";   // one sigmoid gate per head
@@ -223,10 +233,18 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     /// <inheritdoc/>
     public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView g) => IsDeltaHybrid(g) ? DeltaVector(weight, g) ?? weight : weight;
 
-    /// <summary>Older files: the combined key/value up-projection splits into the per-head key (transposed) and value projections.</summary>
+    /// <summary>
+    /// Older files: the combined key/value up-projection splits into the per-head key (transposed) and value projections. GLM-5.3-Flash's k-pool
+    /// indexer tensors split into nothing (dropped).
+    /// </summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
         var m = GgufTensorNames.Block().Match(name);
+        if (m.Success && IsGlm5Next(g) && IsPoolIndexerTensor(m.Groups[2].Value))
+        {
+            return [];   // the k-pool indexer is not used (dense attention up to its budget)
+        }
+
         if (!m.Success || m.Groups[2].Value != "attn_kv_b.weight")
         {
             return null;

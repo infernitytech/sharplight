@@ -8,7 +8,8 @@ namespace Sharplight.HuggingFace;
 /// <summary>
 /// Delta-attention hybrids on the latent decoder: <c>kimi_linear</c> (Kimi-Linear: delta attention with low-rank decay / gate projections, latent
 /// attention without rotary embedding, <c>block_sparse_moe</c> experts named w1 / w3 / w2) and <c>bailing_hybrid</c> (Ling 3: delta attention with the
-/// bounded gate and full-rank projections, latent attention with rope and a per-head output gate, <c>attention.*</c> / <c>dense</c> names).
+/// bounded gate and full-rank projections, latent attention with rope and a per-head output gate, <c>attention.*</c> / <c>dense</c> names), and
+/// GLM-5.3-Flash (low-rank projections with the bounded gate, see <c>LatentDecoderHfMapping.Glm5Next.cs</c>).
 /// Layer kinds come from <c>layer_types</c> (or Kimi's 1-based <c>linear_attn_config.kda_layers</c>); the three short convolutions of a delta layer
 /// are joined into one [3·heads·D, kernel] weight.
 /// </summary>
@@ -18,7 +19,7 @@ internal sealed partial class LatentDecoderHfMapping
 
     private static bool IsBailingHybrid(HfConfig c) => c.ModelType == "bailing_hybrid";
 
-    private static bool IsDeltaHybrid(HfConfig c) => IsKimiLinear(c) || IsBailingHybrid(c);
+    private static bool IsDeltaHybrid(HfConfig c) => IsKimiLinear(c) || IsBailingHybrid(c) || IsGlm5Next(c);
 
     private static JsonElement? LinearConfig(HfConfig c) => c.Get("linear_attn_config") is { ValueKind: JsonValueKind.Object } j ? j : null;
 
@@ -63,9 +64,15 @@ internal sealed partial class LatentDecoderHfMapping
             md[a + "linear_attention.decay_bound"] = (float)(c.GetDouble("kda_lower_bound") ?? -5.0);
         }
 
-        if (IsKimiLinear(c))
+        // GLM-5.3-Flash: the bounded gate unless the config sets no lower bound.
+        if (IsGlm5Next(c) && (HfMappingHelpers.OptionalNumber(LinearConfig(c), "gate_lower_bound") ?? c.GetDouble("linear_lower_bound")) is { } bound)
         {
-            md[a + "rope.style"] = "none";   // the latent attention layers apply no rotary embedding
+            md[a + "linear_attention.decay_bound"] = (float)bound;
+        }
+
+        if (IsKimiLinear(c) || IsGlm5Next(c))
+        {
+            md[a + "rope.style"] = "none";   // the latent attention layers apply no rotary embedding (GLM-5.3-Flash has no rotary dimensions)
         }
     }
 
@@ -84,6 +91,12 @@ internal sealed partial class LatentDecoderHfMapping
             }
 
             return suffix.StartsWith("block_sparse_moe.", StringComparison.Ordinal) ? "mlp." + suffix["block_sparse_moe.".Length..] : suffix;
+        }
+
+        if (IsGlm5Next(c))
+        {
+            // transformers names the forget gate's tensors below self_attn.forget_gate.
+            return suffix.StartsWith("self_attn.forget_gate.", StringComparison.Ordinal) ? "self_attn." + suffix["self_attn.forget_gate.".Length..] : suffix;
         }
 
         if (suffix.StartsWith("attention.", StringComparison.Ordinal))
@@ -132,6 +145,10 @@ internal sealed partial class LatentDecoderHfMapping
                 }
 
                 parts[suffix[10] switch { 'q' => 0, 'k' => 1, _ => 2 }] = w;
+                return true;
+            case "self_attn.conv1d.weight":
+                // transformers' fused q / k / v convolution [3·heads·D, 1, kernel].
+                collector.Add(HfTransforms.ToF32(w, prefix + "linear_attention.conv1d.weight", new Shape(w.Shape[0].Fixed, w.Shape[-1].Fixed)));
                 return true;
             case "self_attn.dt_bias":
                 collector.Add(HfTransforms.ToF32(w, prefix + "linear_attention.dt_bias", new Shape(w.Shape.Elements())));

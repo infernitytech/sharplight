@@ -3,7 +3,8 @@ Builds tiny random Hugging Face checkpoints of bidirectional (embedding) familie
 EuroBERT (eurobert, saved as the masked-LM model), an EmbeddingGemma-style bidirectional Gemma 3 (gemma3_text with
 use_bidirectional_attention, symmetric sliding windows, sentence-transformers Pooling + two Dense modules) and ModernBERT (modernbert,
 saved as the base model: GeGLU, layer norms without bias, local layers with a symmetric window and their own rope base) and
-jina-embeddings-v3 (jina_embeddings_v3, the base model: XLM-RoBERTa post-norm layers with rope).
+jina-embeddings-v3 (jina_embeddings_v3, the base model: XLM-RoBERTa post-norm layers with rope) and EmbeddingGemma 2
+(embedding_gemma2_text: per-layer head sizes, projection-only per-layer embeddings, the embedding projection inside the model).
 
     python mk_tiny_encoders.py <models/hf directory> [family ...]
     python mk_tiny_encoders.py --reference <model directory> [...]   (references for an existing checkpoint)
@@ -39,6 +40,12 @@ FAMILIES = {
     # jina-embeddings-v3 (native transformers form): XLM-RoBERTa post-norm layers with rope instead of absolute positions.
     "jina-embeddings-v3": ("jina_embeddings_v3", dict(hidden_size=64, intermediate_size=128, num_hidden_layers=3, num_attention_heads=4,
                                                       max_position_embeddings=256, type_vocab_size=1), "JinaEmbeddingsV3Model", None),
+    # EmbeddingGemma 2: radius-4 bidirectional windows on layers 0-4, a wider full-attention layer 5 (head_dim 32, one key/value head),
+    # projection-only per-layer embeddings, the embedding projection to 48 dimensions inside the model.
+    "embeddinggemma2": ("embedding_gemma2_text", dict(hidden_size=64, intermediate_size=128, num_hidden_layers=6, num_attention_heads=4,
+                                                      num_key_value_heads=2, head_dim=16, global_head_dim=32, num_global_key_value_heads=1,
+                                                      sliding_window=4, hidden_size_per_layer_input=16, embedding_dim=48,
+                                                      max_position_embeddings=256), "EmbeddingGemma2TextModel", None),
 }
 
 # Token sequences: one shorter and two longer than the windows.
@@ -47,6 +54,9 @@ INPUTS = [[5, 77, 301, 12, 999, 4], [17 + 31 * i % 1000 for i in range(23)], [3 
 
 def randomize(model, scale=0.15):
     with torch.no_grad():
+        for n, b in model.named_buffers():
+            if n.endswith("layer_scalar"):
+                b.copy_(0.5 + torch.rand_like(b))   # a buffer, not a parameter: give it a value that matters as well
         for n, p in model.named_parameters():
             if p.dim() == 1:
                 p.copy_(1.0 + 0.3 * torch.randn_like(p) if n.endswith("weight") else 0.3 * torch.randn_like(p))

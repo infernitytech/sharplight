@@ -19,7 +19,7 @@ internal sealed partial class DecoderGraphBuilder
         var rotate = RotationOf(b, il, positions, freqFactors);
 
         var q = ClipQkv(b, b.Linear(h, p + "attention.q.weight", p + "attention.q.bias"));
-        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), il, heads, headDim, rotate);
+        q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), b.TryWeight(p + "attention.q_norm.bias"), il, heads, headDim, rotate);
         if (_hp.TemperatureOn(il))
         {
             q = b.Mul(q, AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength, _hp.TemperatureOffset, _hp.TemperaturePower), $"{p}q_tempered");
@@ -99,41 +99,60 @@ internal sealed partial class DecoderGraphBuilder
 
     /// <summary>
     /// Splits a projection into heads, applies the q/k norm and the rotary embedding (norm first, or rotation first when the model
-    /// norms after rope). The norm weight covers either the whole projection (heads · head dimension entries, applied before the split)
-    /// or one head (head dimension entries, applied after it); without a weight an unweighted norm is applied when the model asks for one.
+    /// norms after rope). The norm weight covers either the whole projection (heads · head dimension entries in one axis, applied before the
+    /// split), one head (head dimension entries, applied after it) or every head separately ([heads, head dimension], Chameleon); without a
+    /// weight an unweighted norm is applied when the model asks for one. <paramref name="normBias"/> (layer norm only) has the weight's shape.
     /// </summary>
-    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, int il, int heads, int headDim, Func<Value, Value> rotate)
+    private Value SplitHeads(GraphBuilder b, Value projection, Value? normWeight, Value? normBias, int il, int heads, int headDim, Func<Value, Value> rotate)
     {
         var x = projection;
-        if (normWeight is { } wholeNorm && wholeNorm.Shape.Elements() == (long)heads * headDim && wholeNorm.Shape[0].Fixed != headDim)
+        if (normWeight is { } wholeNorm && wholeNorm.Shape.Rank == 1 && wholeNorm.Shape.Elements() == (long)heads * headDim && wholeNorm.Shape[0].Fixed != headDim)
         {
-            x = b.RmsNorm(x, wholeNorm, _hp.Eps);
+            x = b.RmsNorm(x, wholeNorm, _hp.QkNormEps);
         }
 
         x = b.Reshape(x, 0, heads, headDim);
         if (_hp.QkNormAfterRope)
         {
-            return NormHead(b, rotate(x), normWeight, il, headDim);
+            return NormHead(b, rotate(x), normWeight, normBias, il, headDim);
         }
 
-        return rotate(NormHead(b, x, normWeight, il, headDim));
+        return rotate(NormHead(b, x, normWeight, normBias, il, headDim));
     }
 
-    // The per-head part of the q/k norm: a head-sized weight, a [heads, 1] gain per head after an unweighted norm (Talkie), or an
-    // unweighted norm when the model asks for one and has no weight.
-    private Value NormHead(GraphBuilder b, Value x, Value? normWeight, int il, int headDim)
+    // The per-head part of the q/k norm: a head-sized weight, a [heads, head dimension] weight with one gain (and bias) per head, a [heads, 1]
+    // gain per head after an unweighted norm (Talkie), or an unweighted norm when the model asks for one and has no weight.
+    private Value NormHead(GraphBuilder b, Value x, Value? normWeight, Value? normBias, int il, int headDim)
     {
-        if (normWeight is { } headNorm && headNorm.Shape[0].Fixed == headDim)
+        if (normWeight is { } headNorm && headNorm.Shape.Rank == 1 && headNorm.Shape[0].Fixed == headDim)
         {
-            return b.RmsNorm(x, headNorm, _hp.Eps);
+            return QkNorm(b, x, headNorm, normBias);
+        }
+
+        if (normWeight is { } perHead && perHead.Shape.Rank == 2 && perHead.Shape[1].Fixed == headDim)
+        {
+            var scaled = b.Mul(QkNorm(b, x, null, null), perHead);
+            return normBias is null ? scaled : b.Add(scaled, normBias);
         }
 
         if (normWeight is { } headGain && headGain.Shape.Rank == 2 && headGain.Shape[1].Fixed == 1)
         {
-            return b.Mul(b.RmsNorm(x, null, _hp.Eps), headGain);
+            return b.Mul(QkNorm(b, x, null, null), headGain);
         }
 
-        return normWeight is null && _hp.QkNormUnweightedOn(il) ? b.RmsNorm(x, null, _hp.Eps) : x;
+        return normWeight is null && _hp.QkNormUnweightedOn(il) ? QkNorm(b, x, null, null) : x;
+    }
+
+    // One q/k norm over the head dimension: RMS norm, or a mean-centred layer norm when attention.qk_norm_type is "layer".
+    private Value QkNorm(GraphBuilder b, Value x, Value? weight, Value? bias)
+    {
+        if (_hp.QkNormType != "layer")
+        {
+            return b.RmsNorm(x, weight, _hp.QkNormEps);
+        }
+
+        List<Value> operands = weight is null ? [x] : bias is null ? [x, weight] : [x, weight, bias];
+        return b.Emit1("LayerNorm", operands, Attributes.From(("eps", _hp.QkNormEps)));
     }
 
     /// <summary>Projects the layer input to rotated keys and values (k = v layers reuse the key projection for values).</summary>
@@ -149,7 +168,7 @@ internal sealed partial class DecoderGraphBuilder
             v = b.RmsNorm(v, null, _hp.Eps);
         }
 
-        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), il, kvHeads, headDim, rotate);
+        var k = SplitHeads(b, keyProjection, b.TryWeight(p + "attention.k_norm.weight"), b.TryWeight(p + "attention.k_norm.bias"), il, kvHeads, headDim, rotate);
         return (k, v);
     }
 

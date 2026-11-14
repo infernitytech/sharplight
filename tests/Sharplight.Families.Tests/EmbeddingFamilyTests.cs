@@ -37,6 +37,8 @@ public class EmbeddingFamilyTests
             "hf/tiny-random-modernbert",
             // jina-embeddings-v3 in transformers' native form (XLM-RoBERTa post-norm layers with rope).
             "hf/tiny-random-jina-embeddings-v3",
+            // EmbeddingGemma 2 (embedding_gemma2_text): per-layer head sizes, projection-only per-layer embeddings, the embedding projection.
+            "hf/tiny-random-embeddinggemma2",
             // T5 encoders (mk_tiny_t5.py): relative position bias, the 150-token input beyond the bias range.
             "hf/tiny-random-t5",
             "hf/tiny-random-t5-v1_1",

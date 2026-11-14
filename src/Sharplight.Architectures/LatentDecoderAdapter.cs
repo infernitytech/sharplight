@@ -13,7 +13,8 @@ namespace Sharplight.Architectures;
 /// <list type="bullet">
 /// <item><c>layer_count</c>, <c>hidden_size</c>, <c>context_length</c>, <c>norm_eps</c> (RMS norm epsilon, also of the compressed query and latent).</item>
 /// <item>Attention: <c>attention.head_count</c>, <c>attention.q_rank</c> (query compression rank, 0 = direct projection), <c>attention.latent_rank</c>
-/// (compressed key/value rank), <c>attention.nope_dim</c> / <c>attention.rope_dim</c> (non-rotary / rotary query-key dimensions per head),
+/// (compressed key/value rank), <c>attention.nope_dim</c> / <c>attention.rope_dim</c> (non-rotary / rotary query-key dimensions per head; 0 rotary
+/// dimensions cache the latent alone),
 /// <c>attention.value_dim</c>, <c>attention.scale</c> (softmax scale, default 1/sqrt(nope + rope); importers fold yarn's mscale² in).</item>
 /// <item>Rotary embedding of the rope parts: <c>rope.base</c>, <c>rope.style</c> ("gptj" interleaved pairs, the default, as DeepSeek; "neox"
 /// rotate-half), <c>rope.attention_scale</c> (factor on the rotated parts, yarn cos/sin magnitude, default 1); frequency scaling arrives as
@@ -29,14 +30,17 @@ namespace Sharplight.Architectures;
 /// <item>Query temperature (Mistral 4, Mistral Large 3): <c>attention.temperature_scale</c> (β, 0 = off) and <c>attention.temperature_length</c> (L) scale
 /// every query row by <c>1 + β · ln(1 + ⌊pos / L⌋)</c>.</item>
 /// <item>Mixture of experts with clamped SwiGLU experts: <c>moe.swiglu_clamp</c> (float[layer_count], 0 = plain) with <c>moe.swiglu_clamp_input</c>
-/// (see <see cref="ClampedSwigluActivation"/>); dense layers and shared experts keep the plain activation.</item>
+/// (see <see cref="ClampedSwigluActivation"/>); dense layers and shared experts keep the plain activation unless <c>mlp.swiglu_clamp</c>
+/// (float[layer_count], 0 = plain; with <c>mlp.swiglu_clamp_input</c> on the gate before the SiLU) clamps them too (experts without their own limit
+/// follow it).</item>
 /// <item>Sparse-attention indexer (DeepSeek-V3.2, GLM-5, Hunyuan v4): <c>attention.indexer.*</c> (<see cref="SparseAttentionIndexerOptions"/>) and per
 /// layer the weights <c>attention.indexer.{q_up,k,head_weights}.weight</c>, <c>attention.indexer.k_norm.{weight,bias}</c> (see
 /// <see cref="SparseAttentionIndexer"/>); a layer without them reuses the previous indexed layer's selection. When the context does not exceed the
 /// budget the indexer is left out (every row would keep every visible position).</item>
 /// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
 /// modules <c>layers.{i}.attention_hc.*</c> and <c>layers.{i}.mlp_hc.*</c> around the two sub-layers and the head <c>output_hc.*</c> before the
-/// output norm (weights on <see cref="StreamHyperConnections"/>). No draft head with hyper-connections.</item>
+/// output norm (weights on <see cref="StreamHyperConnections"/>; without <c>output_hc.*</c> the streams are averaged). No draft head with
+/// hyper-connections.</item>
 /// <item><c>embedding_scale</c> (factor on the token embeddings), <c>residual_scale</c> (factor on each sub-layer output before its residual
 /// add; MiniCPM's scale_depth/sqrt(layers)), <c>logit_scale</c> (factor on the final hidden state before the output head); all default 1.</item>
 /// </list>
