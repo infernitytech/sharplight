@@ -106,12 +106,16 @@ void pack8(float v[8], out uint4 hi, out uint4 mid, out uint4 lo)
 #endif
         l[j] = bf16_round(r);
 #else
-        h[j] = f32tof16(v[j]);
         m[j] = 0;
         l[j] = 0;
 #endif
     }
+#if PARTS == 1
+    hi = uint4(bit_cast<uint>(half2(half(v[0]), half(v[1]))), bit_cast<uint>(half2(half(v[2]), half(v[3]))),
+               bit_cast<uint>(half2(half(v[4]), half(v[5]))), bit_cast<uint>(half2(half(v[6]), half(v[7]))));
+#else
     hi = pack_words(h);
+#endif
     mid = pack_words(m);
     lo = pack_words(l);
 }

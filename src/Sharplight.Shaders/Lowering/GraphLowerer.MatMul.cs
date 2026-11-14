@@ -19,6 +19,12 @@ public sealed partial class GraphLowerer
     /// <summary>Grid size (workgroups) from which the 8-warp gemm_cm2 layout beats the 4-warp one.</summary>
     private const long LargeGridWorkgroups = 384;
 
+    /// <summary>
+    /// gemm_cm2 grids (workgroups, K splits included) below this run f32-weight matmuls on the SIMT GEMM instead, even under
+    /// reduced precision (see <see cref="SmallCoopGrid"/>).
+    /// </summary>
+    private const long SmallCoopGridWorkgroups = 96;
+
     private static readonly int NvTileTokens = DiagnosticSwitches.WorkgroupMatrixTile[0];
     private static readonly int NvTileColumns = DiagnosticSwitches.WorkgroupMatrixTile[1];
     private static readonly int NvTileK = DiagnosticSwitches.WorkgroupMatrixTile[2];
@@ -362,6 +368,13 @@ public sealed partial class GraphLowerer
         var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"));
 
         bool coop = CoopUsable(n, w.Type, K);
+        if (coop && w.Type == DataType.F32 && SmallCoopGrid(N, K, (x.Symbol is null ? x.Shape[0] : _opt.Compile.Bound(x.Symbol)) * rowsPerLead))
+        {
+            // f32 weights under reduced precision: a tensor-core grid that cannot fill the device (a few hundred rows, short K,
+            // so no split either) is slower than the f32 SIMT GEMM, which tiles finer and splits K further.
+            coop = false;
+        }
+
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
         bool workgroupMatrix = coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
@@ -390,10 +403,17 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// True when the f16 tensor-core GEMMs serve weights of <paramref name="type"/> with reduction length <paramref name="k"/>:
-    /// f16 matrix MMA (+ f16 arithmetic), the 32-wide subgroups gemm_cm is written for, K in 32-value blocks, and reduced
-    /// precision allowed for f32 weights.
+    /// True when the gemm_cm2 grid for <paramref name="rows"/> rows (tiles times K splits) stays under
+    /// <see cref="SmallCoopGridWorkgroups"/>: too few workgroups to occupy the device.
     /// </summary>
+    private static bool SmallCoopGrid(long n, long k, long rows)
+    {
+        int tileRows = Gemm2TileRowsFor(rows);
+        long columns = Gemm2Columns(tileRows);
+        int split = ChooseSplit(n, k, rows, tileRows, columns, DiagnosticSwitches.GemmBlockK == 64 && k % 64 == 0 ? 64 : 32);
+        return rows > MatvecMaxRows && (n + columns - 1) / columns * ((rows + tileRows - 1) / tileRows) * split < SmallCoopGridWorkgroups;
+    }
+
     /// <summary>
     /// <see cref="CoopUsable(DataType, long)"/> for matmul node <paramref name="n"/>: a node marked
     /// <see cref="StandardOps.F32ActivationsAttribute"/> (block-quantized ONNX weights, whose ORT reference keeps f32
@@ -401,6 +421,11 @@ public sealed partial class GraphLowerer
     /// </summary>
     private bool CoopUsable(Node n, DataType type, long k) => CoopUsable(type, k) && QuantizedActivationsAllowed(n);
 
+    /// <summary>
+    /// True when the f16 tensor-core GEMMs serve weights of <paramref name="type"/> with reduction length <paramref name="k"/>:
+    /// f16 matrix MMA (+ f16 arithmetic), the 32-wide subgroups gemm_cm is written for, K in 32-value blocks, and reduced
+    /// precision allowed for f32 weights.
+    /// </summary>
     private bool CoopUsable(DataType type, long k)
         => _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32 && k % 32 == 0
            && (type != DataType.F32 || _opt.Compile.AllowReducedPrecision);
