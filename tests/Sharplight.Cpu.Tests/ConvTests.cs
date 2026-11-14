@@ -36,6 +36,10 @@ public class ConvTests
         new("depthwise-wide-s1", 6, 13, 53, 6, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 6, true),   // vector interior + borders
         new("depthwise-wide-s2", 6, 13, 70, 6, 3, 3, [2, 2], [1, 1, 1, 1], [1, 1], 6, true),   // even-lane permute
         new("depthwise-wide-5x5-s2", 5, 12, 77, 5, 5, 5, [2, 2], [2, 2, 2, 2], [1, 1], 5, false),
+        new("1x1-s2-wide", 12, 11, 75, 40, 1, 1, [2, 2], [0, 0, 0, 0], [1, 1], 1, true),       // subsampled input, even-lane permute
+        new("1x1-s2-end-pad", 6, 9, 9, 5, 1, 1, [2, 2], [0, 0, 1, 1], [1, 1], 1, false),       // reads past the input: im2col
+        new("3x3-s2-wide", 7, 12, 77, 33, 3, 3, [2, 2], [1, 1, 1, 1], [1, 1], 1, true),        // im2col even-lane permute
+        new("7x7-s2-p3-wide", 3, 20, 90, 16, 7, 7, [2, 2], [3, 3, 3, 3], [1, 1], 1, false),
     ];
 
     public static IEnumerable<object[]> Params()

@@ -21,6 +21,8 @@ public class PoolTests
             ["avg-ceil-excl", "avg", 7, 9, new[] { 2, 2 }, new[] { 2, 2 }, new[] { 0, 0, 0, 0 }, new[] { 1, 1 }, true, false],
             ["avg-ceil-incl-pad", "avg", 6, 6, new[] { 3, 3 }, new[] { 2, 2 }, new[] { 1, 1, 1, 1 }, new[] { 1, 1 }, true, true],
             ["avg-ceil-incl-nopad", "avg", 8, 8, new[] { 3, 3 }, new[] { 2, 2 }, new[] { 0, 0, 0, 0 }, new[] { 1, 1 }, true, true],
+            ["max-3x3-s2-p1-wide", "max", 9, 61, new[] { 3, 3 }, new[] { 2, 2 }, new[] { 1, 1, 1, 1 }, new[] { 1, 1 }, false, false],
+            ["max-3x3-s1-p1-wide", "max", 9, 45, new[] { 3, 3 }, new[] { 1, 1 }, new[] { 1, 1, 1, 1 }, new[] { 1, 1 }, false, false],
             ["avg-7x7", "avg", 7, 7, new[] { 7, 7 }, new[] { 1, 1 }, new[] { 0, 0, 0, 0 }, new[] { 1, 1 }, false, false],
         ];
         foreach (var o in c)
