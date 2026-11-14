@@ -10,7 +10,8 @@ namespace Sharplight.Vision;
 /// <remarks>
 /// Canonical keys below <c>{architecture}.vision.sam.</c>: <c>layer_count</c>, <c>hidden_size</c>, <c>head_count</c>, <c>ffn_hidden_size</c>,
 /// <c>norm_eps</c>, <c>window</c>, <c>global_layers</c> (int[]), <c>position_grid</c>, <c>neck_channels</c>, <c>downsample_channels</c> (int[]),
-/// <c>global_size</c>, <c>tile_size</c>, <c>min_tiles</c>, <c>max_tiles</c>, <c>pad_value</c>.
+/// <c>global_size</c>, <c>tile_size</c>, <c>min_tiles</c>, <c>max_tiles</c>, <c>pad_value</c>, and for a query encoder <c>encoder</c>
+/// (<c>queries</c>; default <c>clip</c>), <c>query_kv_heads</c>, <c>query_rope_base</c>.
 /// <para>Weights of the first stage: <c>vision.sam.patch_embed.{weight [hidden, 3, p, p], bias}</c> (a stride-p convolution),
 /// <c>vision.sam.position_embedding.weight</c> [grid², hidden] (row-major grid; resampled with antialiased bicubic interpolation for views of
 /// another size), per layer <c>vision.sam.layers.{i}.</c> <c>input_norm</c>, <c>post_attention_norm</c> (LayerNorms), <c>attention.qkv</c>
@@ -25,7 +26,13 @@ namespace Sharplight.Vision;
 /// <c>vision.pre_norm</c>, then the <c>vision.layers.{i}.*</c> of <see cref="VisionParameters"/> (bidirectional). The class row is dropped,
 /// each remaining row becomes [second-stage output | feature map] and the projector <c>vision.projector.{weight,bias}</c> maps it to the
 /// language model's width.</para>
-/// <para>Layout of an image's rows: the views' rows in raster order with <c>vision.image_newline.weight</c> [1, out] after each row of
+/// <para>Second stage with <see cref="Encoder"/> <c>queries</c> (DeepSeek-OCR-2): a decoder-style encoder over [feature map | learned
+/// queries] (<c>vision.query_embedding.{n}.weight</c> [n, hidden], one set per feature count n): the <c>vision.layers.{i}.*</c> of
+/// <see cref="VisionParameters"/> (RMS norms, separate q / k / v projections with <see cref="QueryKvHeads"/> key-value heads, 1-D rotary
+/// embedding with base <see cref="QueryRopeBase"/> over positions 0, 1, … rotating the two head halves, gated MLP), where the feature rows attend
+/// to each other and every query row to all feature rows and the queries up to itself; then <c>vision.post_norm</c>; the query rows go through
+/// the projector. Views have no newline rows: the tiles' rows tile by tile, the global view's, the separator.</para>
+/// <para>Layout of an image's rows (<c>clip</c>): the views' rows in raster order with <c>vision.image_newline.weight</c> [1, out] after each row of
 /// positions; tiles are stitched into one grid first (a row of the grid runs through all tiles of a tile row). Tiles come first, then the global
 /// view, then <c>vision.view_separator.weight</c> [1, out].</para>
 /// </remarks>
@@ -70,6 +77,15 @@ public sealed record SamParameters
     public int MaxTiles { get; init; } = 9;
     /// <summary>8-bit value of the padding that makes the global view square.</summary>
     public int PadValue { get; init; } = 127;
+    /// <summary>The second stage: <c>clip</c> (a ViT with a class token over the feature map) or <c>queries</c> (a query encoder).</summary>
+    public string Encoder { get; init; } = "clip";
+    /// <summary>Key-value heads of the query encoder.</summary>
+    public int QueryKvHeads { get; init; }
+    /// <summary>Rotary base of the query encoder.</summary>
+    public float QueryRopeBase { get; init; } = 10000f;
+
+    /// <summary>Whether the layout puts a newline row after each row of positions (the <c>clip</c> second stage).</summary>
+    public bool Newlines => Encoder == "clip";
 
     /// <summary>Width of one backbone head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
@@ -115,6 +131,9 @@ public sealed record SamParameters
             MinTiles = Get("min_tiles", 2),
             MaxTiles = Get("max_tiles", 9),
             PadValue = Get("pad_value", 127),
+            Encoder = Get("encoder", "clip"),
+            QueryKvHeads = Get("query_kv_heads", 0),
+            QueryRopeBase = Get("query_rope_base", 10000f),
         };
         s.Validate();
         return s;
@@ -138,6 +157,12 @@ public sealed record SamParameters
         set("sam.min_tiles", MinTiles);
         set("sam.max_tiles", MaxTiles);
         set("sam.pad_value", PadValue);
+        if (Encoder != "clip")
+        {
+            set("sam.encoder", Encoder);
+            set("sam.query_kv_heads", QueryKvHeads);
+            set("sam.query_rope_base", QueryRopeBase);
+        }
     }
 
     private void Validate()
@@ -151,6 +176,11 @@ public sealed record SamParameters
         if (GlobalLayers.Any(l => l < 0 || l >= LayerCount))
         {
             throw new InvalidDataException("vision.sam: global_layers must be backbone layer indices.");
+        }
+
+        if (Encoder is not ("clip" or "queries"))
+        {
+            throw new InvalidDataException($"vision.sam: encoder '{Encoder}' is not supported (clip, queries).");
         }
 
         if (GlobalSize <= 0 || TileSize <= 0 || MinTiles < 1 || MaxTiles < MinTiles)

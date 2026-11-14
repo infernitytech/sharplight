@@ -1,4 +1,5 @@
-"""Image-processor reference of the DeepSeek-OCR family (transformers' UnlimitedOcrImageProcessor, the same steps as DeepSeek-OCR's remote code).
+"""Image-processor reference of the DeepSeek-OCR family (transformers' UnlimitedOcrImageProcessor, the same steps as DeepSeek-OCR's remote code, or
+DeepseekOcr2ImageProcessor for DeepSeek-OCR-2 checkpoints).
 
 Usage: python hf_ocr_preprocess_reference.py <model_dir> <width> <height>
 
@@ -16,6 +17,8 @@ import numpy as np
 import torch
 import transformers
 from transformers import AutoConfig, AutoTokenizer
+from transformers.models.deepseek_ocr2.image_processing_deepseek_ocr2 import DeepseekOcr2ImageProcessor
+from transformers.models.deepseek_ocr2.processing_deepseek_ocr2 import DeepseekOcr2Processor
 from transformers.models.unlimited_ocr.image_processing_unlimited_ocr import UnlimitedOcrImageProcessor
 from transformers.models.unlimited_ocr.processing_unlimited_ocr import UnlimitedOcrProcessor
 
@@ -23,9 +26,16 @@ model_dir, width, height = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 x = np.arange(width)[None, :]
 y = np.arange(height)[:, None]
 image = np.stack([(7 * x + 13 * y) % 256, (3 * x + 5 * y + 80) % 256, (x * y // 64) % 256], axis=0).astype(np.uint8)
-processor = UnlimitedOcrImageProcessor.from_pretrained(model_dir)
+with open(os.path.join(model_dir, "preprocessor_config.json")) as f:
+    ocr2 = json.load(f)["image_processor_type"] == "DeepseekOcr2ImageProcessor"
+processor = (DeepseekOcr2ImageProcessor if ocr2 else UnlimitedOcrImageProcessor).from_pretrained(model_dir)
 out = processor(images=[torch.from_numpy(image)], return_tensors="pt")
-columns, rows = out["patches_grid"][0]
+if ocr2:
+    from transformers.models.deepseek_ocr2.image_processing_deepseek_ocr2 import get_optimal_tiled_canvas
+    columns, rows = get_optimal_tiled_canvas((height, width), (processor.tile_size,) * 2, processor.min_patches, processor.max_patches) \
+        if out["num_local_patches"][0] else (0, 0)
+else:
+    columns, rows = out["patches_grid"][0]
 parts = [np.array([columns, rows], dtype=np.int32).tobytes(), out["pixel_values"][0].numpy().astype(np.float32).tobytes()]
 if "pixel_values_local" in out:
     parts.append(torch.stack(list(out["pixel_values_local"])).numpy().astype(np.float32).tobytes())
@@ -35,7 +45,7 @@ print("grid", columns, rows, "tiles", out["num_local_patches"][0])
 
 config = AutoConfig.from_pretrained(model_dir)
 model = getattr(transformers, config.architectures[0]).from_pretrained(model_dir, dtype=torch.float32).eval()
-full = UnlimitedOcrProcessor(processor, AutoTokenizer.from_pretrained(model_dir))
+full = (DeepseekOcr2Processor if ocr2 else UnlimitedOcrProcessor)(processor, AutoTokenizer.from_pretrained(model_dir))
 inputs = full(images=[torch.from_numpy(image)], text=["<image>\nFree OCR."], return_tensors="pt")
 with torch.no_grad():
     generated = model.generate(**inputs, max_new_tokens=12, do_sample=False)

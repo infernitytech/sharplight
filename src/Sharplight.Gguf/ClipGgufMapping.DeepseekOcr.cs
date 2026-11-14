@@ -12,10 +12,14 @@ namespace Sharplight.Gguf;
 /// rows <c>v.image_newline</c> / <c>v.view_seperator</c>. What the file does not store follows llama.cpp: 16-pixel patches, 1024-pixel global
 /// views and 640-pixel tiles, SAM global-attention layers 2, 5, 8 and 11, CLIP norms at 1e-5 with the quick GELU; widths the converter writes
 /// wrongly (the MLP sizes) come from the tensors. Both MLPs use the exact GELU of the reference (llama.cpp's SAM MLP the tanh approximation).
+/// Projector type <c>deepseekocr2</c> (DeepSeek-OCR-2) has the same SAM stage and a Qwen2 query encoder (<c>v.blk.*</c> with separate q / k / v,
+/// <c>v.post_ln</c>, the queries <c>v.resample_query_768</c> / <c>_1024</c>; rotary base 1e6 as llama.cpp fixes it), 768-pixel tiles and no
+/// newline rows.
 /// </summary>
 internal sealed partial class ClipGgufMapping
 {
     private const string DeepseekOcr = "deepseekocr";
+    private const string DeepseekOcr2 = "deepseekocr2";
 
     [GeneratedRegex(@"^v\.sam\.blk\.(\d+)\.(.+)$")]
     private static partial Regex SamBlock();
@@ -64,9 +68,15 @@ internal sealed partial class ClipGgufMapping
         ["mm.model.fc.bias"] = "vision.projector.bias",
         ["v.image_newline"] = "vision.image_newline.weight",
         ["v.view_seperator"] = "vision.view_separator.weight",
+        // DeepSeek-OCR-2's query encoder.
+        ["v.post_ln.weight"] = "vision.post_norm.weight",
+        ["v.resample_query_768.weight"] = "vision.query_embedding.144.weight",
+        ["v.resample_query_1024.weight"] = "vision.query_embedding.256.weight",
     };
 
-    private static bool IsDeepseekOcr(GgufMetadataView g) => g.Raw("projector_type") as string == DeepseekOcr;
+    private static bool IsDeepseekOcr(GgufMetadataView g) => g.Raw("projector_type") as string is DeepseekOcr or DeepseekOcr2;
+
+    private static bool IsDeepseekOcr2(GgufMetadataView g) => g.Raw("projector_type") as string == DeepseekOcr2;
 
     private static string? MapDeepseekOcrName(string name)
     {
@@ -95,16 +105,17 @@ internal sealed partial class ClipGgufMapping
         int samLayers = g.Int("vision.sam.block_count");
         var samPos = g.Tensor("v.sam.pos_embd.weight") ?? throw new InvalidDataException("clip GGUF: tensor v.sam.pos_embd.weight is missing.");
         int samPatch = (int)(g.Tensor("v.sam.patch_embd.weight") ?? throw new InvalidDataException("clip GGUF: tensor v.sam.patch_embd.weight is missing.")).Shape[2].Fixed;
+        bool queries = IsDeepseekOcr2(g);
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "layer_count"] = g.Int("vision.block_count"),
             [a + "hidden_size"] = g.Int("vision.embedding_length"),
             [a + "ffn_hidden_size"] = Rows(g, "v.blk.0.ffn_up.weight"),
             [a + "head_count"] = g.Int("vision.attention.head_count"),
-            // The file's epsilon is the SAM stage's; the CLIP stage uses 1e-5.
-            [a + "norm_eps"] = 1e-5f,
-            [a + "activation"] = "quick_gelu",
-            [a + "position_embedding_count"] = Rows(g, "v.position_embd.weight") - 1,
+            // The file's epsilon is the SAM stage's; the CLIP stage uses 1e-5, the query encoder the same 1e-6.
+            [a + "norm_eps"] = queries ? g.Float("vision.attention.layer_norm_epsilon", 1e-6f) : 1e-5f,
+            [a + "activation"] = queries ? "silu" : "quick_gelu",
+            [a + "position_embedding_count"] = queries ? 0 : Rows(g, "v.position_embd.weight") - 1,
             [a + "patch_size"] = samPatch,
             [a + "out_hidden_size"] = g.Int("vision.projection_dim"),
             [a + "image_token"] = "<image>",
@@ -119,11 +130,19 @@ internal sealed partial class ClipGgufMapping
             [s + "neck_channels"] = Rows(g, "v.sam.neck.0.weight"),
             [s + "downsample_channels"] = new[] { Rows(g, "v.sam.net_2.weight"), Rows(g, "v.sam.net_3.weight") },
             [s + "global_size"] = 1024,
-            [s + "tile_size"] = 640,
+            [s + "tile_size"] = queries ? 768 : 640,
             [s + "min_tiles"] = g.Int("vision.preproc_min_tiles", 2),
-            [s + "max_tiles"] = g.Int("vision.preproc_max_tiles", 9),
+            [s + "max_tiles"] = g.Int("vision.preproc_max_tiles", queries ? 6 : 9),
             [s + "pad_value"] = 127,
         };
+        if (queries)
+        {
+            md[a + "norm.type"] = "rms";
+            md[s + "encoder"] = "queries";
+            md[s + "query_kv_heads"] = g.Int("vision.attention.head_count_kv", 2);
+            md[s + "query_rope_base"] = 1e6f;
+        }
+
         md[a + "image_mean"] = g.Raw("vision.image_mean") is Array mean ? ToFloats(mean) : new[] { 0.5f, 0.5f, 0.5f };
         md[a + "image_std"] = g.Raw("vision.image_std") is Array std ? ToFloats(std) : new[] { 0.5f, 0.5f, 0.5f };
         return md;

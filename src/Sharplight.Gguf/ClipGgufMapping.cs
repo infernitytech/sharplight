@@ -15,7 +15,8 @@ namespace Sharplight.Gguf;
 /// names of the MLP's up and down projections (recognised by their shapes, as llama.cpp does). <c>paddleocr</c> (PaddleOCR-VL's SigLIP tower:
 /// learned position grid sized by its tensor, 2-D rotary embedding, trunk post-norm <c>v.post_ln</c>, projector <c>mm.input_norm</c> /
 /// <c>mm.1</c> / <c>mm.2</c>) and <c>glm4v</c> (GLM-4.1V: patch norm, bicubic position grid, convolution merger, GLM projector) belong to
-/// <c>decoder</c>, as does <c>deepseekocr</c> (DeepSeek-OCR and Unlimited-OCR: SAM and CLIP stages, see ClipGgufMapping.DeepseekOcr.cs).
+/// <c>decoder</c>, as do <c>deepseekocr</c> (DeepSeek-OCR and Unlimited-OCR: SAM and CLIP stages) and <c>deepseekocr2</c> (DeepSeek-OCR-2: SAM and a query
+/// encoder), see ClipGgufMapping.DeepseekOcr.cs.
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -78,6 +79,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
                 ["merger.norm_eps"] = 1e-5f, ["image_token"] = "<|image|>", ["position_embedding.interpolation"] = "bicubic",
             }),
         [DeepseekOcr] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "quick_gelu"),
+        [DeepseekOcr2] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "silu"),
     };
 
     private static Projector Find(GgufMetadataView g)

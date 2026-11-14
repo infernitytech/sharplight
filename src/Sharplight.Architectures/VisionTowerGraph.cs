@@ -123,19 +123,37 @@ internal static class VisionTowerGraph
 
     /// <summary>
     /// One pre-norm transformer block of the tower (<c>vision.layers.{il}.*</c>): bidirectional multi-head attention (fused or separate QKV,
-    /// optional 2-D rotary tables, optionally restricted to the <paramref name="windowSpans"/>) and a plain or gated MLP.
+    /// optional rotary tables, optionally restricted by <paramref name="mask"/>: i32 window spans or an f32 additive mask, see the Attention op)
+    /// and a plain or gated MLP. With <paramref name="kvHeads"/> (separate projections only) keys and values have fewer heads, each shared by a
+    /// group of query heads.
     /// </summary>
-    internal static Value EncoderLayer(GraphBuilder b, VisionParameters p, Value x, int il, Value? cos, Value? sinSigned, Value? windowSpans)
+    internal static Value EncoderLayer(GraphBuilder b, VisionParameters p, Value x, int il, Value? cos, Value? sinSigned, Value? mask, int kvHeads = 0)
     {
         int H = p.HiddenSize;
         int heads = p.HeadCount;
         int D = p.HeadDim;
+        Value? windowSpans = mask;
         string w = $"vision.layers.{il}.";
         // Row count: the symbolic patch count (kept by 0) or, in static graphs, the fixed one.
         long n = x.Shape[0].IsSymbolic ? 0 : x.Shape[0].Fixed;
         var h = Norm(b, p, x, w + "input_norm");
         Value qk;
         Value v;
+        if (kvHeads > 0 && kvHeads != heads)
+        {
+            var gq = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), n, heads, D);
+            var gk = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), n, kvHeads, D);
+            var gv = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), n, kvHeads, D);
+            if (cos is not null)
+            {
+                gq = Rotate(b, gq, cos, sinSigned!, D);
+                gk = Rotate(b, gk, cos, sinSigned!, D);
+            }
+
+            var ga = b.Emit1("Attention", mask is not null ? [gq, gk, gv, mask] : [gq, gk, gv], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+            return Mlp(b, p, b.Add(x, b.Linear(b.Reshape(ga, n, H), w + "attention.o.weight", w + "attention.o.bias"), $"{w}attn_residual"), w);
+        }
+
         if (b.HasWeight(w + "attention.qkv.weight"))
         {
             var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
@@ -160,8 +178,12 @@ internal static class VisionTowerGraph
         var attn = b.Emit1("Attention", windowSpans is not null ? [q, k, v, windowSpans] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
         var o = b.Linear(b.Reshape(attn, n, H), w + "attention.o.weight", w + "attention.o.bias");
         x = b.Add(x, o, $"{w}attn_residual");
+        return Mlp(b, p, x, w);
+    }
 
-        h = Norm(b, p, x, w + "post_attention_norm");
+    private static Value Mlp(GraphBuilder b, VisionParameters p, Value x, string w)
+    {
+        var h = Norm(b, p, x, w + "post_attention_norm");
         var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
         var act = b.HasWeight(w + "mlp.gate.weight")
             ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
