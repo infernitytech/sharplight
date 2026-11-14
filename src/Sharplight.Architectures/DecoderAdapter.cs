@@ -17,8 +17,7 @@ namespace Sharplight.Architectures;
 /// <item><c>attention.value_dim</c> (value head size when it differs from the key head size, default <c>attention.head_dim</c>; the value cache and the
 /// output projection input follow it, MiMo-V2) and <c>attention.value_scale</c> (constant factor on the attention output before the output projection, default 1).</item>
 /// <item><c>attention.alibi_max_bias</c> (default 0 = off): ALiBi, every score gets the slope of its head times the key-minus-query distance added (BLOOM, MPT use 8; the
-/// slopes are the ALiBi geometric sequence). Models with ALiBi have no rotary embedding (<c>rope.layers</c> all 0). The attention kernels of the Vulkan provider do not implement
-/// it: those layers run on the CPU provider (the model needs a CPU fallback device).</item>
+/// slopes are the ALiBi geometric sequence). Models with ALiBi have no rotary embedding (<c>rope.layers</c> all 0).</item>
 /// <item><c>rope.dim</c> (rotated dims, partial rotary when less than head_dim), <c>rope.base</c>, <c>rope.style</c>
 /// ("neox" = rotate-half pairs (i, i+dim/2), the default; "gptj" = interleaved pairs), <c>rope.local_base</c> (base of sliding layers,
 /// default rope.base), <c>rope.attention_scale</c> (cos/sin magnitude factor of the rotated dimensions, e.g. yarn; like the frequency factors it applies to the layers that are not sliding).

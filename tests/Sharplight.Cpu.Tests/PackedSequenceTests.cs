@@ -62,6 +62,58 @@ public class PackedSequenceTests
         Kit.AssertClose([.. exp], got, 2e-5, 2e-4);
     }
 
+    /// <summary>Sliding windows (symmetric when bidirectional) and ALiBi distance biases within packed sequences.</summary>
+    [Theory]
+    [InlineData(false, 3, false), InlineData(true, 3, false), InlineData(false, 0, true), InlineData(true, 0, true), InlineData(false, 4, true)]
+    public void AttentionWithinSpansWindowAlibi(bool causal, int window, bool alibi)
+    {
+        int Hq = 4;
+        int Hkv = 2;
+        int D = 16;
+        float scale = 0.25f;
+        int[] lengths = [5, 1, 9, 3];
+        var (spans, T) = RowSpans(lengths);
+        var q = Kit.Rand(T * Hq * D, 1);
+        var k = Kit.Rand(T * Hkv * D, 2);
+        var v = Kit.Rand(T * Hkv * D, 3);
+        float[]? slopes = alibi ? [0.5f, 0.25f, 0.125f, 0.0625f] : null;
+        var tg = new TestGraph();
+        var Tm = TestGraph.T;
+        var qi = tg.InF("q", Tm, Hq, D);
+        var ki = tg.InF("k", Tm, Hkv, D);
+        var vi = tg.InF("v", Tm, Hkv, D);
+        var si = tg.In("spans", DataType.I32, Tm, 2);
+        var attrs = new List<(string, object)> { ("scale", scale), ("causal", causal) };
+        if (window > 0)
+        {
+            attrs.Add(("window", window));
+        }
+
+        if (slopes is not null)
+        {
+            attrs.Add(("alibi_slopes", slopes));
+        }
+
+        tg.B.Output("o", tg.B.Emit1("Attention", [qi, ki, vi, si], Attributes.From([.. attrs])));
+        using var m = Kit.Compile(tg.B.Build());
+        Kit.Set(m, qi, q);
+        Kit.Set(m, ki, k);
+        Kit.Set(m, vi, v);
+        Kit.Set(m, si, spans);
+        var p = Kit.P(T);
+        m.Run(p);
+        var got = Kit.Out(m, "o", p);
+        var exp = new List<float>();
+        int first = 0;
+        foreach (int len in lengths)
+        {
+            exp.AddRange(Ref.Attention(Slice(q, first, len, Hq * D), len, Hq, D, Slice(k, first, len, Hkv * D), Slice(v, first, len, Hkv * D), len, Hkv, D, scale, 0, causal,
+                window: window, alibiSlopes: slopes));
+            first += len;
+        }
+        Kit.AssertClose([.. exp], got, 2e-5, 2e-4);
+    }
+
     [Fact]
     public void AttentionEmptySpanGivesZeros()
     {

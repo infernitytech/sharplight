@@ -33,7 +33,8 @@ internal sealed unsafe partial class AttentionOp
     /// <summary>Chooses the tiled kernel's vector width, or 0 when this attention needs the general path.</summary>
     private void InitTiled()
     {
-        bool plain = _rows is null && _spans is null && _pages is null && _mask is null && _alibiSlopes is null && _kQuant is null
+        bool symmetricWindow = _window > 0 && _offsetScalar is null && !_causal;
+        bool plain = _rows is null && _spans is null && _pages is null && _mask is null && _alibiSlopes is null && _kQuant is null && !symmetricWindow
             && _vQuant is null && _chunk == 0 && _softcap == 0f && _dv % ValueColumns == 0
             && _k.Strides[2] == 1 && _v.Strides[2] == 1;
         _tiledLanes = !plain ? 0 : CpuIsa.Use512 ? FloatLanes512.Count : CpuIsa.Use256 ? FloatLanes256.Count : 0;

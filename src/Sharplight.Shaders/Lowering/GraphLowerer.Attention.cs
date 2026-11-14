@@ -227,7 +227,7 @@ public sealed partial class GraphLowerer
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
-            ("SPANS", spans is not null), ("CAUSAL", causal)]);
+            ("SPANS", spans is not null), ("CAUSAL", causal), .. AlibiMacros(n)]);
         return new AttentionPlan
         {
             Node = n,
@@ -247,6 +247,21 @@ public sealed partial class GraphLowerer
             DV = DV,
             Macros = macros,
         };
+    }
+
+    /// <summary>
+    /// The HAS_ALIBI / ALIBI_SLOPES kernel macros of an attention node: its <c>alibi_slopes</c> become a constant array of the kernel
+    /// (round-trip float literals), so the slopes need no buffer and the kernels no extra binding.
+    /// </summary>
+    private static (string, object)[] AlibiMacros(Node n)
+    {
+        if (n.Attributes.Get<float[]?>("alibi_slopes", null) is not { } slopes)
+        {
+            return [("HAS_ALIBI", false)];
+        }
+
+        string literals = string.Join(", ", slopes.Select(s => s.ToString("R", CultureInfo.InvariantCulture) + "f"));
+        return [("HAS_ALIBI", true), ("ALIBI_SLOPES", "{ " + literals + " }")];
     }
 
     /// <summary>The shared f32 scratch buffer of split attention, grown to at least <paramref name="bytes"/>.</summary>
