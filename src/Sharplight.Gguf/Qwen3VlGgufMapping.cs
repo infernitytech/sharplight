@@ -13,7 +13,7 @@ internal sealed class Qwen3VlGgufMapping : IGgufArchitectureMapping, IGgufSplitM
     private readonly DecoderGgufMapping _text = new();
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen3vl", "qwen3vlmoe", "qwen2vl"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen3vl", "qwen3vlmoe", "qwen2vl", "paddleocr"];
 
     /// <inheritdoc/>
     public string Architecture => _text.Architecture;
@@ -40,7 +40,7 @@ internal sealed class Qwen3VlGgufMapping : IGgufArchitectureMapping, IGgufSplitM
             }
 
             md[Architecture + ".rope.sections"] = axes;
-            md[Architecture + ".rope.sections_interleaved"] = gguf.GgufArchitecture != "qwen2vl";
+            md[Architecture + ".rope.sections_interleaved"] = gguf.GgufArchitecture is "qwen3vl" or "qwen3vlmoe";
         }
 
         return md;
