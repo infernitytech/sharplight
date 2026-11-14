@@ -3540,7 +3540,7 @@ OUT_DIR=bench/results/s28/serve PORT=18377 SLOTS=64 bench/s16_serve.sh vllm qwen
 ## 29. Serving steps are power-limited; narrow fp8 tiles and deeper skinny prefetch tried and dropped (2026-11-14)
 
 Follow-up to section 28 (LLM performance, serving against vLLM). Base is `main` at `ba21180`, built side by side; base
-and new runs alternate. The GPU was shared with the user's applications (a game ran during part of the round) and with
+and new runs alternate. The GPU was shared with the user's applications and with
 other agents' test suites; runs disturbed by them are kept in the raw results but not used. Raw results:
 [`bench/results/s29/`](../bench/results/s29). No kernel change of this round made the end-to-end steps faster, so the
 branch ends with the source tree of `main`; this section records what was measured.
