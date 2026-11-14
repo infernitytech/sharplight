@@ -24,7 +24,7 @@ namespace Sharplight.Architectures;
 /// <c>attention.{q,k,v,o}.weight</c>, <c>mlp_norm.weight</c>, <c>mlp.up.weight</c>, optional <c>mlp.gate.weight</c> (gated: act(gate) · up),
 /// <c>mlp.down.weight</c>; per decoder layer also <c>cross_attention_norm.weight</c> and <c>cross_attention.{q,k,v,o}.weight</c>. Every
 /// projection and norm may have a <c>.bias</c>. <c>encoder.attention.relative_bias.weight</c> / <c>decoder.attention.relative_bias.weight</c>
-/// [buckets, heads] f32: T5's bucketed relative position bias, shared by all layers of the stack (a layer's own
+/// [buckets, heads] (f32, f16 or bf16): T5's bucketed relative position bias, shared by all layers of the stack (a layer's own
 /// <c>{stack}.layers.{i}.attention.relative_bias.weight</c> takes precedence; absent: no position information);
 /// <c>encoder.output_norm.weight</c>, <c>decoder.output_norm.weight</c>.</para>
 /// </remarks>

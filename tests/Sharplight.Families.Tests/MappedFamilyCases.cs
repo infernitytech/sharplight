@@ -125,6 +125,13 @@ internal static class MappedFamilyCases
         // no NextN block, one shared expert); hidden size 8, so the logits are flat (llama.cpp's top two differ by 0.0006 to 0.005 at steps 5, 7 and 15).
         new("tiny-random-clover-moe f32 GGUF (clover_moe gated delta net + gated attention, MoE with gated shared expert, llama.cpp 8ca5a80)",
             "gguf/tiny-random-clover-moe-f32.gguf", Prompt, "ids", [132029, 22595, 212119, 133773, 4415, 198543, 219592, 20547, 220921, 172932, 151129, 212119, 133773, 239941, 239941, 219592, 127405, 224729, 212119, 133773, 239941, 118789, 69541, 215913], ""),
+        // Encoder-decoder (tools/mk_tiny_t5.py; references from hf_greedy_reference.py, whose "prompt logits" are the first decoder step): the original T5
+        // (ReLU, output scaled by d_model^-0.5, bias saturating at distance 12, more decoder than encoder layers) and T5 v1.1 (gated tanh-GELU,
+        // attention width 48 next to d_model 64); both cut before a close call (top two within 0.014 of 3, 0.22 of 30) that f16 GPU paths may flip.
+        new("tiny-random-t5 HF (t5 relu, scaled tied head, relative position bias, cross-attention, transformers)", "hf/tiny-random-t5", Prompt, "ids",
+            [1014, 9202, 19881, 19881, 19881, 19881, 19881, 30559, 30559, 30559, 6135, 22296, 19306, 7712, 7712, 19716], ""),
+        new("tiny-random-t5-v1_1 HF (t5 gated-gelu, transformers)", "hf/tiny-random-t5-v1_1", Prompt, "ids",
+            [8847, 26621, 8889, 8889, 31376, 731, 731, 28428, 28176, 8298, 27172, 9762, 7827, 7827, 7827, 29378, 28529], ""),
         // Encoder-decoder: the prompt is encoded, the decoder starts from the pad token (llama.cpp b11177 llama-completion prints the same text).
         new("flan-t5-small Q4_K_M GGUF (t5 encoder-decoder, relative position bias, cross-attention, llama.cpp)", "gguf/flan-t5-small/flan-t5-small.Q4_K_M.gguf",
             "Write a short story about a cat who learns to fly.", "ids", [37, 1712, 19, 7070, 16, 8, 799, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5], ""),

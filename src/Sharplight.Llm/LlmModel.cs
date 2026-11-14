@@ -113,7 +113,9 @@ public sealed class LlmModel : IDisposable
         if (compiled.Graph.TryInput(InputRole.EncoderOutput) is not null)
         {
             sw.Restart();
-            encoder = CompiledModel.Compile(Definition.Graph(WellKnown.EncodeGraph), placement);
+            // The source sequence is encoded in one pass (bidirectional attention), up to a context's length.
+            int source = MaxSourceTokens(_options.ContextLength);
+            encoder = CompiledModel.Compile(Definition.Graph(WellKnown.EncodeGraph), PlacementFor(memoryLimit, _options.ContextLength, 1, source));
             _options.Log?.Invoke($"Compiled '{WellKnown.EncodeGraph}' in {sw.ElapsedMilliseconds} ms\n{encoder.Plan.Describe()}");
         }
 
@@ -240,16 +242,17 @@ public sealed class LlmModel : IDisposable
     /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>
     /// <param name="contextLength">KV-cache rows per sequence.</param>
     /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
-    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound) => new()
+    /// <param name="maxTokens">Rows per forward pass (default <see cref="LlmLoadOptions.MaxBatchTokens"/>).</param>
+    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound, long? maxTokens = null) => new()
     {
         Devices = DevicesWithLimit(memoryLimit),
         Fallback = _options.Fallback,
         ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
         Compile = new CompileOptions
         {
-            MaxTokens = _options.MaxBatchTokens,
+            MaxTokens = maxTokens ?? _options.MaxBatchTokens,
             ContextLength = contextLength,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = _options.MaxBatchTokens },
+            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
             DisabledFeatures = _options.DisabledFeatures,
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
@@ -258,6 +261,9 @@ public sealed class LlmModel : IDisposable
             SharedWeights = _sharedWeights,
         },
     };
+
+    /// <summary>Longest source sequence of an encoder-decoder model: a context's length, at least a batch.</summary>
+    private int MaxSourceTokens(int contextLength) => Math.Max(_options.MaxBatchTokens, contextLength);
 
     private void ReportReady(string graph) => new LoadProgressCounter(_options.Progress, LoadStage.Ready, 1, graph).Complete();
 

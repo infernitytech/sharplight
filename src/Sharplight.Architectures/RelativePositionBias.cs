@@ -22,20 +22,20 @@ internal sealed record RelativePositionBias(float[] Table, int Range)
     /// <paramref name="maxDistance"/>, beyond which every distance shares the last bucket; a causal decoder puts every key after the
     /// query into bucket 0. The bucket arithmetic follows Hugging Face's <c>_relative_position_bucket</c> in single precision.
     /// </summary>
-    /// <param name="weight">The bucket table [buckets, heads], f32.</param>
+    /// <param name="weight">The bucket table [buckets, heads] (f32, f16 or bf16).</param>
     /// <param name="maxDistance">Distance from which on the last bucket applies (T5: 128).</param>
     /// <param name="bidirectional">Encoder (true) or causal decoder (false) bucketing.</param>
-    /// <exception cref="InvalidDataException">The table is not a 2-D f32 tensor.</exception>
+    /// <exception cref="InvalidDataException">The table is not a 2-D f32, f16 or bf16 tensor.</exception>
     public static RelativePositionBias FromBuckets(WeightInfo weight, int maxDistance, bool bidirectional)
     {
-        if (weight.Type != DataType.F32 || weight.Shape.Rank != 2)
+        if (weight.Shape.Rank != 2 || (weight.Type != DataType.F32 && weight.Type != DataType.F16 && weight.Type != DataType.BF16))
         {
-            throw new InvalidDataException($"{weight.Name}: expected an f32 [buckets, heads] table, got {weight.Type}{weight.Shape}.");
+            throw new InvalidDataException($"{weight.Name}: expected an f32, f16 or bf16 [buckets, heads] table, got {weight.Type}{weight.Shape}.");
         }
 
         int buckets = (int)weight.Shape[0].Fixed;
         int heads = (int)weight.Shape[1].Fixed;
-        var values = MemoryMarshal.Cast<byte, float>(weight.ReadAll());
+        var values = Values(weight);
         int width = 2 * maxDistance + 1;
         var table = new float[heads * width];
         for (int d = -maxDistance; d <= maxDistance; d++)
@@ -48,6 +48,24 @@ internal sealed record RelativePositionBias(float[] Table, int Range)
         }
 
         return new RelativePositionBias(table, maxDistance);
+    }
+
+    private static float[] Values(WeightInfo weight)
+    {
+        var bytes = weight.ReadAll();
+        if (weight.Type == DataType.F32)
+        {
+            return MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+        }
+
+        var halves = MemoryMarshal.Cast<byte, ushort>(bytes);
+        var values = new float[halves.Length];
+        for (int i = 0; i < values.Length; i++)
+        {
+            values[i] = weight.Type == DataType.F16 ? (float)BitConverter.UInt16BitsToHalf(halves[i]) : BitConverter.Int32BitsToSingle(halves[i] << 16);
+        }
+
+        return values;
     }
 
     /// <summary>T5's bucket of the distance <paramref name="relative"/> (key position − query position).</summary>
