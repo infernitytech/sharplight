@@ -15,7 +15,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     /// <inheritdoc/>
     public IReadOnlyList<string> GgufArchitectures { get; } =
     [
-        "llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4", "muse-glimmer", "flint",
+        "llama", "qwen2", "qwen3", "gemma2", "gemma3", "phi3", "olmoe", "qwen3moe", "gemma4", "gemma3n", "muse-glimmer", "flint",
     ];
 
     /// <inheritdoc/>
@@ -33,6 +33,7 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         switch (architecture)
         {
             case "gemma4":
+            case "gemma3n":
                 return Gemma4Hyper(g);
             case "muse-glimmer":
                 return MuseHyper(g);
@@ -262,6 +263,11 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
     /// <summary>Phi-3 stores q/k/v as one tensor and gate/up as one tensor (gate rows first).</summary>
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
+        if (g.GgufArchitecture == "gemma3n")
+        {
+            return SplitAltUpProjections(name, t);
+        }
+
         if (g.GgufArchitecture != "phi3")
         {
             return null;
