@@ -2254,7 +2254,10 @@ Greedy CLI output, 200 tokens, base vs new (`ident/` holds the generated text):
 SpecBench accepted-draft counts are equal between the builds for every k and depth (22.5).
 
 Tests: `FusionTests.MatMulBias` (the bias fold at one and several rows), `Fp8GemmTests.DualMatchesSeparateBitwise`, and
-the `MatMulTests`, `Fp8GemmTests` and `FusionTests` classes. TESTSUITES
+the `MatMulTests`, `Fp8GemmTests` and `FusionTests` classes. On the branch rebased onto `main` (after section 21), the Cpu,
+Vulkan, Families, Serving and Studio suites pass, run one at a time. One Serving run failed `EngineFeatureTests.FairQueuing_LightTenantOvertakesHeavyTenantsBacklog`
+(an admission-order assertion) while other agents loaded the machine; it passed on 3 isolated reruns and on a full rerun.
+The 636-token FP8 output of the rebased build is identical to the outputs above.
 
 ### 22.8 Benchmark options
 
