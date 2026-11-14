@@ -1,5 +1,5 @@
 // BatchBench <model> [--slots 64] [--ctx 512] [--depth 256] [--sizes 1,2,4,8,16,32,64] [--reps 30] [--profile B[,B...]] [--profile-mode logits|greedy|sampled]
-//            [--modes logits,greedy,sampled,no-logits] [--profile-top 40]
+//            [--modes logits,greedy,sampled,no-logits] [--profile-top 40] [--batch 512] [--mixed D+P[x N],...]
 // <model> is a GGUF, a .slm package or a Hugging Face safetensors directory.
 // Prefills every slot with --depth random tokens, then times decode steps of the multi-sequence decoder for each batch size
 // (rows = batch size). Modes per step: "logits" = logits downloaded for every row and arg-max taken on the CPU (the path without a
@@ -9,6 +9,9 @@
 // --profile B prints the per-kernel profile (SHARPLIGHT_VK_PROFILE) of steps with B sequences in --profile-mode (default logits).
 // Per batch size it also prints the dispatch / barrier count of the step and the wall time of the first step at that size in the
 // first mode (includes recording the command buffers for the new shape) next to the warm minimum.
+// --mixed D+P,... times steps that mix D decode rows (slots 0..D-1) with prompt chunks of P rows (a fresh sequence from position 0
+// in each of the last slots, as the serving engine's chunked prefill feeds them); "D+PxN" splits P*N prompt rows over N sequences.
+// --batch sets the decoder's rows per step (default 512). With --mixed, --profile takes the index of the mixed entry instead.
 using System.Diagnostics;
 using Sharplight.Gguf;
 using Sharplight.Graph;
@@ -30,7 +33,7 @@ int reps = int.Parse(Opt("--reps", "30")!);
 var sizes = Opt("--sizes", "1,2,4,8,16,32,64")!.Split(',').Select(int.Parse).Where(s => s <= slots).ToArray();
 var provider = ProviderRegistry.Discover().First(x => x.Availability.IsAvailable && x.Provider.Name != "cpu").Provider;
 using var device = provider.OpenDevice(provider.GetDevices()[0], new DeviceOptions());
-using var model = LlmModel.Load(argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = 512 });
+using var model = LlmModel.Load(argv[0], new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = ctx, MaxBatchTokens = int.Parse(Opt("--batch", "512")!) });
 using var dec = (MultiSequenceDecoder)model.CreateBatchDecoder(slots, ctx);
 var sampler = (IDeviceSamplingDecoder)dec;
 Console.WriteLine($"decoder: {dec.GetType().Name}, slots {dec.SlotCount}, vocab {dec.VocabSize}, device sampling: {sampler.SamplesOnDevice}");
@@ -81,6 +84,66 @@ int profileTop = int.Parse(Opt("--profile-top", "40")!);
 Console.WriteLine("Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step");
 Console.WriteLine($"| batch | first ms | dispatches / barriers | {string.Join(" | ", modes)} |");
 Console.WriteLine($"|---|---|---|{string.Concat(modes.Select(_ => "---|"))}");
+string? mixed = Opt("--mixed");
+if (mixed is not null)
+{
+    string mode = modes[0];
+    Console.WriteLine($"| decode rows | prompt rows (sequences) | first ms | dispatches / barriers | {mode} wall min / median, GPU min | GPU ms per prompt row over decode-only |");
+    Console.WriteLine("|---|---|---|---|---|---|");
+    var baseline = new Dictionary<int, double>();
+    int entry = 0;
+    foreach (string spec in mixed.Split(','))
+    {
+        var parts = spec.Split('+');
+        int d = int.Parse(parts[0]);
+        var pp = parts[1].Split('x');
+        int p = int.Parse(pp[0]), n = pp.Length > 1 ? int.Parse(pp[1]) : (p > 0 ? 1 : 0);
+        List<SequenceInput> Inputs()
+        {
+            var list = Enumerable.Range(0, d).Select(s => new SequenceInput(s, new[] { rng.Next(1000, 30000) }, true)).ToList();
+            for (int j = 0; j < n; j++)
+            {
+                int slot = slots - 1 - j;
+                dec.Reset(slot);
+                list.Add(new SequenceInput(slot, Toks(p), true));
+            }
+
+            return list;
+        }
+
+        // Fresh prompt sequences each step: Reset is free and the next input starts at position 0.
+        var first = Stopwatch.StartNew();
+        Step(mode, Inputs());
+        double firstMs = first.Elapsed.TotalMilliseconds;
+        var stats = segments.Select(s => s.Stats(d + p * n)).Aggregate((0, 0), (a, x) => (a.Item1 + x.Dispatches, a.Item2 + x.Barriers));
+        for (int i = 0; i < 3; i++) Step(mode, Inputs());
+        var wall = new List<double>();
+        double gpu = double.MaxValue;
+        for (int i = 0; i < reps; i++)
+        {
+            var inputs = Inputs();
+            var sw = Stopwatch.StartNew();
+            Step(mode, inputs);
+            wall.Add(sw.Elapsed.TotalMilliseconds);
+            gpu = Math.Min(gpu, segments.Sum(s => s.LastGpuMs));
+        }
+
+        if (n == 0) baseline[d] = gpu;
+        string perRow = n > 0 && baseline.TryGetValue(d, out double b0) ? $"{(gpu - b0) / (p * n):F3}" : "";
+        Console.WriteLine($"| {d} | {p * n} ({n}) | {firstMs:F1} | {stats.Item1} / {stats.Item2} | {wall.Min():F2} / {Median(wall):F2}, {gpu:F2} | {perRow} |");
+        if (profileSizes.Contains(entry))
+        {
+            foreach (var seg in segments) { seg.Profile = true; seg.ResetProfile(); }
+            for (int i = 0; i < 10; i++) Step(mode, Inputs());
+            foreach (var seg in segments) { Console.WriteLine($"--- profile mixed {spec} ({mode})\n{seg.ProfileReport(profileTop)}"); seg.Profile = false; }
+        }
+
+        entry++;
+    }
+
+    return;
+}
+
 foreach (int b in sizes)
 {
     var inputs = Enumerable.Range(0, b).Select(s => new SequenceInput(s, new[] { rng.Next(1000, 30000) }, true)).ToList();

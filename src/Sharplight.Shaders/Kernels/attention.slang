@@ -18,6 +18,11 @@
 #ifndef SPLITS
 #define SPLITS 1
 #endif
+// MIX_RUN > 0 (multi-sequence steps that mix short and long runs): `decode` / `decode_combine` skip the rows of runs with at
+// least MIX_RUN rows and `fa` skips the runs with fewer, so the two kernels split one step's queries between them.
+#ifndef MIX_RUN
+#define MIX_RUN 0
+#endif
 #ifndef VRS
 #define VRS DV
 #endif
@@ -276,6 +281,12 @@ float4 load4(float* ptr)
 void decode_combine(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform DecodeCombineParams p)
 {
     uint h = gid.x, t = gid.y, tid = ltid.x;
+#if MULTI_SEQ && MIX_RUN > 0
+    if (p.seq[t * 4 + 2] >= MIX_RUN)
+    {
+        return;
+    }
+#endif
     uint jLo, L;
     uint64_t kvRow;
 #if MULTI_SEQ
@@ -671,6 +682,9 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint u = gid.z, blk = gid.y;
     int4 run = int4(p.runs[u * 4], p.runs[u * 4 + 1], p.runs[u * 4 + 2], p.runs[u * 4 + 3]);
     if (blk * FA_BR >= uint(run.z)) return;
+#if MIX_RUN > 0
+    if (uint(run.z) < MIX_RUN) return;
+#endif
     t0 = blk * FA_BR; qT = uint(run.z); qRow0 = uint(run.y);
     uint nPast = uint(run.w);
     kvRow = kv_base(uint(run.x));
@@ -1221,6 +1235,12 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
     uint t = gid.y;
     uint tid = ltid.x;
     uint kl = tid % KLANES, rg = tid / KLANES;
+#if MULTI_SEQ && MIX_RUN > 0
+    if (p.seq[t * 4 + 2] >= MIX_RUN)
+    {
+        return;
+    }
+#endif
 
     // Queries first: their loads do not depend on the key range.
     float q[HPW][DEC_KC * 8];
