@@ -87,6 +87,15 @@ internal static class GgufArchitectureMappings
         yield return new LagunaGgufMapping();
         yield return new BloomGgufMapping();
         yield return new MptGgufMapping();
+        yield return new TalkieGgufMapping();
+        yield return new NanbeigeGgufMapping();
+        yield return new ArcticGgufMapping();
+        yield return new DeciGgufMapping();
+        yield return new GrokGgufMapping();
+        yield return new MapleGgufMapping();
+        yield return new Step35GgufMapping();
+        yield return new Kolibri1GgufMapping();
+        yield return new RicursiveGgufMapping();
         yield return new EuroBertGgufMapping();
         yield return new NeoBertGgufMapping();
         yield return new LlamaEmbedGgufMapping();

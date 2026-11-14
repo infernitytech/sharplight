@@ -61,4 +61,29 @@ internal static class GgufMappingHelpers
 
         return Enumerable.Range(0, layerCount).Select(il => pattern == 0 || il % pattern != 0 ? 1 : 0).ToArray();
     }
+
+    /// <summary>
+    /// An integer key that llama.cpp reads with <c>get_key_or_arr</c>: the per-layer array when the file stores one (the first
+    /// <paramref name="layerCount"/> entries), otherwise the scalar repeated; <paramref name="fallback"/> repeated when the key is absent.
+    /// </summary>
+    public static int[] PerLayer(GgufMetadataView g, string key, int layerCount, int? fallback = null)
+    {
+        if (g.Raw(key) is Array values)
+        {
+            return values.Cast<object>().Take(layerCount).Select(Convert.ToInt32).ToArray();
+        }
+
+        return Enumerable.Repeat(fallback is { } value ? g.Int(key, value) : g.Int(key), layerCount).ToArray();
+    }
+
+    /// <summary>A float key that llama.cpp reads with <c>get_key_or_arr</c>: the per-layer array, or the scalar repeated (zeros when absent).</summary>
+    public static float[] PerLayerFloat(GgufMetadataView g, string key, int layerCount)
+    {
+        if (g.Raw(key) is Array values)
+        {
+            return values.Cast<object>().Take(layerCount).Select(Convert.ToSingle).ToArray();
+        }
+
+        return Enumerable.Repeat(g.Float(key, 0f), layerCount).ToArray();
+    }
 }

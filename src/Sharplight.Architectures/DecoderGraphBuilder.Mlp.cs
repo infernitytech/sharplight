@@ -8,17 +8,27 @@ internal sealed partial class DecoderGraphBuilder
 
     // Routed experts (plus the optional shared expert) through the shared MoE block.
     // routerInput: the layer input, for models whose router reads it instead of the normed rows (moe.router_input).
-    private Value MoeMlp(GraphBuilder b, Value h, string p, Value layerInput)
-        => MoeBlock.Build(b, h, p, "mlp.", _hp.Moe, _hp.NEmbd, _activation, _hp.RouterReadsLayerInput ? layerInput : null);
+    private Value MoeMlp(GraphBuilder b, Value h, string p, int il, Value layerInput)
+        => MoeBlock.Build(b, h, p, "mlp.", _hp.Moe, _hp.NEmbd, ExpertActivationOf(il), _hp.RouterReadsLayerInput ? layerInput : null,
+            DenseActivationOf(il));
 
-    private Value Mlp(GraphBuilder b, Value h, string p)
+    private Value Mlp(GraphBuilder b, Value h, string p, int il)
     {
         var up = b.Linear(h, p + "mlp.up.weight", p + "mlp.up.bias");
+        var activation = DenseActivationOf(il);
         var act = _hp.Gated
-            ? _activation.ActivateGated(b, b.Linear(h, p + "mlp.gate.weight", p + "mlp.gate.bias"), up, p)
-            : _activation.Activate(b, up, p);
+            ? activation.ActivateGated(b, b.Linear(h, p + "mlp.gate.weight", p + "mlp.gate.bias"), up, p)
+            : activation.Activate(b, up, p);
         return b.Linear(SubNorm(b, act, p + "mlp.sub_norm.weight"), p + "mlp.down.weight", p + "mlp.down.bias", $"{p}ffn_out");
     }
+
+    // The activation of the dense MLP and the shared expert of layer il: SwiGLU clamped to mlp.swiglu_clamp when the layer has a limit.
+    private IMlpActivation DenseActivationOf(int il)
+        => il < _hp.NLayer && _hp.SwigluClampOf(il) is > 0f and var limit ? new ClampedSwigluActivation(limit, _hp.SwigluClampInput) : _activation;
+
+    // The activation of the routed experts of layer il: SwiGLU clamped to moe.swiglu_clamp when the layer has a limit.
+    private IMlpActivation ExpertActivationOf(int il)
+        => il < _hp.NLayer && _hp.MoeSwigluClampOf(il) is > 0f and var limit ? new ClampedSwigluActivation(limit, _hp.MoeSwigluClampInput) : _activation;
 
     // BitNet sub-layer norm: an RMS norm of the input of the output projection (attention or MLP) when the layer has its weight.
     private Value SubNorm(GraphBuilder b, Value x, string weightName)
