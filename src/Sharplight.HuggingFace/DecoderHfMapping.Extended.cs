@@ -57,6 +57,34 @@ internal sealed partial class DecoderHfMapping
     private static string[] LayerTypes(HfConfig c, int layerCount)
         => c.GetStringArray("layer_types") ?? Enumerable.Repeat("full_attention", layerCount).ToArray();
 
+    /// <summary>
+    /// The head size of the full-attention layers: <c>global_head_dim</c>, else the <c>head_dim</c> of the first full layer in
+    /// <c>per_layer_config</c> (how transformers 5 writes a configuration made with <c>global_head_dim</c>), else <c>head_dim</c>.
+    /// </summary>
+    private static int GlobalHeadDim(HfConfig c)
+    {
+        if (c.GetInt("global_head_dim") is { } global)
+        {
+            return global;
+        }
+
+        if (c.Get("per_layer_config") is { ValueKind: JsonValueKind.Object } perLayer)
+        {
+            var types = LayerTypes(c, c.Int("num_hidden_layers"));
+            for (int il = 0; il < types.Length; il++)
+            {
+                if (types[il] == "full_attention"
+                    && perLayer.TryGetProperty(il.ToString(System.Globalization.CultureInfo.InvariantCulture), out var entry)
+                    && entry.TryGetProperty("head_dim", out var dim))
+                {
+                    return dim.GetInt32();
+                }
+            }
+        }
+
+        return c.Int("head_dim");
+    }
+
     /// <summary>Per-frequency divisors of the global layers' rope (Gemma 4 proportional rotary), or null.</summary>
     private static float[]? ExtendedRopeFactors(HfConfig c)
     {
@@ -70,7 +98,7 @@ internal sealed partial class DecoderHfMapping
             return null;
         }
 
-        int dim = c.GetInt("global_head_dim") ?? c.Int("head_dim");
+        int dim = GlobalHeadDim(c);
         int angles = (int)(HfMappingHelpers.NumberOr(full, "partial_rotary_factor", 1.0) * dim / 2);
         return RopeScaling.Proportional(dim, angles, (float)HfMappingHelpers.NumberOr(full, "factor", 1.0)).Factors;
     }
@@ -137,7 +165,7 @@ internal sealed partial class DecoderHfMapping
         int headCount = c.Int("num_attention_heads");
         int hidden = c.Int("hidden_size");
         int headDim = c.Int("head_dim");
-        int globalDim = c.GetInt("global_head_dim") ?? headDim;
+        int globalDim = GlobalHeadDim(c);
         int kvHeadCount = c.GetInt("num_key_value_heads") ?? headCount;
         int globalKvHeadCount = c.GetBool("attention_k_eq_v") == true ? c.GetInt("num_global_key_value_heads") ?? kvHeadCount : kvHeadCount;
         var types = LayerTypes(c, layerCount);
