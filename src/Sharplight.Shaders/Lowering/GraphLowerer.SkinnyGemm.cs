@@ -60,7 +60,7 @@ public sealed partial class GraphLowerer
     /// usable (<see cref="MatMulPlan.Coop"/>, which needs <see cref="DeviceFeatures.MatrixF16"/>, <see cref="DeviceFeatures.Float16"/> and 32-wide subgroups) and K splits into
     /// 32-value blocks. Weights are decoded to f16 as in gemm_cm2, so every format gemm_cm2 reads works here too.
     /// </summary>
-    private static bool UseSkinnyGemm(MatMulPlan p) => DiagnosticSwitches.SkinnyGemm && p.Coop && p.K % 32 == 0;
+    private static bool UseSkinnyGemm(MatMulPlan p) => DiagnosticSwitches.SkinnyGemm && p.Coop && !p.SplitHalf && p.K % 32 == 0;
 
     /// <summary>
     /// True when <paramref name="rows"/> activation rows are in the skinny GEMM's range for <paramref name="n"/> output rows,

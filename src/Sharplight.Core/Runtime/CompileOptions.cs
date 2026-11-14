@@ -23,6 +23,15 @@ public sealed class CompileOptions
     public bool AllowReducedPrecision { get; init; }
 
     /// <summary>
+    /// Allow f32-weight matmuls on f16 tensor cores in the error-compensated split form: each value becomes an f16 hi part plus
+    /// an f16 lo part and each product hi·hi + hi·lo + lo·hi, accumulated in f32. Much closer to f32 than f16 or TF32 products
+    /// (about 2^-22 relative error per value; values below 2^-3 lose some bits to f16 subnormals), yet not bit-for-bit f32,
+    /// so it is opt-in. Ignored where <see cref="AllowReducedPrecision"/> already permits plain f16 products, and on devices
+    /// without f16 matrix products (<see cref="DeviceFeatures.MatrixF16"/>).
+    /// </summary>
+    public bool SplitHalfMatMul { get; init; }
+
+    /// <summary>
     /// Compilation cache to use on a device (kernel binaries, pipeline caches): consulted before compiling and
     /// filled with everything the compilation used. Null = the provider's own per-user caches only.
     /// </summary>
@@ -92,6 +101,7 @@ public sealed class CompileOptions
         SymbolBounds = symbolBounds,
         DisabledFeatures = DisabledFeatures,
         AllowReducedPrecision = AllowReducedPrecision,
+        SplitHalfMatMul = SplitHalfMatMul,
         CacheFor = CacheFor,
         Progress = progress,
         CancellationToken = CancellationToken,

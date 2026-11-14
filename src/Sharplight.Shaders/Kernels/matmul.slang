@@ -586,10 +586,16 @@ using namespace linalg;
 #define GBN (WARPS_N * FRAG_N * 16)
 // GBK = 32: double-buffered shared tiles, one barrier per step. GBK = 64: single buffer (fits 48 KB) with twice the
 // work between register prefetches, which hides more global-load latency; two barriers per step.
+// GEMM_SPLIT (f32 x and W, not X_F16): every value is split into f16 hi + lo parts and each product is computed as
+// hi·hi + hi·lo + lo·hi (three tensor-core products, f32 accumulation): about 2^-22 relative error per value instead of f16's
+// 2^-11 (lo parts of values below 2^-3 lose bits to f16 subnormals). The hi and lo tiles are single buffered (GBK = 32).
 #ifndef GBK
 #define GBK 32
 #endif
-#if GBK == 32
+#ifndef GEMM_SPLIT
+#define GEMM_SPLIT 0
+#endif
+#if GBK == 32 && !GEMM_SPLIT
 #define GNBUF 2
 #else
 #define GNBUF 1
@@ -613,6 +619,32 @@ typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
 groupshared uint4 gA[GNBUF * GBM * GAS / 8];
 groupshared uint4 gB[GNBUF * GBN * GAS / 8];
+#if GEMM_SPLIT
+groupshared uint4 gAl[GBM * GAS / 8];
+groupshared uint4 gBl[GBN * GAS / 8];
+#endif
+#endif
+
+#if GEMM_SPLIT
+// Two values as packed f16 hi parts (rounded to 11 significant bits on the bits, which compilers cannot fold away) and lo parts.
+uint split_h2(float a, float b, out uint lo)
+{
+    float ha = asfloat((asuint(a) + 0x1000u) & 0xFFFFE000u);
+    float hb = asfloat((asuint(b) + 0x1000u) & 0xFFFFE000u);
+    lo = f32tof16(a - ha) | (f32tof16(b - hb) << 16);
+    return f32tof16(ha) | (f32tof16(hb) << 16);
+}
+
+// 8 values as packed hi parts (returned) and lo parts.
+uint4 split8(float v[8], out uint4 lo)
+{
+    uint4 hi;
+    hi.x = split_h2(v[0], v[1], lo.x);
+    hi.y = split_h2(v[2], v[3], lo.y);
+    hi.z = split_h2(v[4], v[5], lo.z);
+    hi.w = split_h2(v[6], v[7], lo.w);
+    return hi;
+}
 #endif
 
 uint q8x4_h2(uint u, half2 d, bool hi)
@@ -875,9 +907,21 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #else
     uint4 ws[GPF][GB_PER_T][2];
 #endif
+#if GEMM_SPLIT
+    uint4 xsl[GPF][GA_PER_T];   // lo parts (GEMM_SPLIT)
+    uint4 wsl[GPF][GB_PER_T][2];
+#endif
 
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
-#if X_F16
+#if GEMM_SPLIT
+    // Split mode: the lo parts go to xsl[set][it] of FETCH's register set and item.
+    #define GEMM_LOAD_X(t, k, dst)                                                                      \
+        { float v[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };                                                       \
+          if ((t) < ROWS_LIVE)                                                                          \
+          { float4* xp = (float4*)(p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)); float4 a = xp[0], b = xp[1]; \
+            v[0] = a.x; v[1] = a.y; v[2] = a.z; v[3] = a.w; v[4] = b.x; v[5] = b.y; v[6] = b.z; v[7] = b.w; } \
+          dst = split8(v, xsl[set][it]); }
+#elif X_F16
     // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
     uint64_t xrb[GA_PER_T];
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)
@@ -904,9 +948,23 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // Rows past N stage the decode of zero codes, which the stores never read back.
     #define WLOAD(set, it, row, g) { [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0; if (N % GBN == 0 || (row) < N) wload(wr[it], g, ws[set][it]); }
     #define WSTAGE(set, it, ob, row) { uint4 d[GW_UNIT / 8]; wdecode(ws[set][it], d); [ForceUnroll] for (uint u = 0; u < GW_UNIT / 8; u++) gB[(ob) + u] = d[u]; }
+#elif GEMM_SPLIT
+    #define WLOAD(set, it, row, g)                                                                      \
+        { ws[set][it][0] = 0; ws[set][it][1] = 0; wsl[set][it][0] = 0; wsl[set][it][1] = 0;             \
+          if (N % GBN == 0 || (row) < N)                                                                \
+          { float v[8];                                                                                 \
+            load8(wbase, ROW_BYTES, row, (g) * 2, v); ws[set][it][0] = split8(v, wsl[set][it][0]);       \
+            load8(wbase, ROW_BYTES, row, (g) * 2 + 1, v); ws[set][it][1] = split8(v, wsl[set][it][1]); } }
+    #define WSTAGE(set, it, ob, row)                                                                    \
+        { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; gBl[ob] = wsl[set][it][0]; gBl[(ob) + 1] = wsl[set][it][1]; }
 #else
     #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
+#endif
+#if GEMM_SPLIT
+    #define STAGE_LO_A(set, it, ia) gAl[ia] = xsl[set][it];
+#else
+    #define STAGE_LO_A(set, it, ia)
 #endif
 #if X_F16
     #define X_K(k0, q) (k0)
@@ -929,7 +987,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)                                                \
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
-        gA[((buf) * GBM * GAS + r * GAS + q * 8) / 8] = xs[set][it];                                    \
+        uint ia = ((buf) * GBM * GAS + r * GAS + q * 8) / 8;                                            \
+        gA[ia] = xs[set][it];                                                                           \
+        STAGE_LO_A(set, it, ia)                                                                         \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
@@ -937,6 +997,25 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         uint ob = ((buf) * GBN * GAS + r * GAS + q * GW_UNIT) / 8;                                      \
         WSTAGE(set, it, ob, n0 + r)                                                                     \
     }
+#if GEMM_SPLIT
+    // hi·lo and lo·hi before hi·hi (GNBUF = 1: the lo tiles are at offset 0).
+    #define SPLIT_LOAD_B(kk)                                                                            \
+        MatB2 bl[FRAG_N];                                                                               \
+        [ForceUnroll] for (int j = 0; j < FRAG_N; j++) bl[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gBl, ((wn + j * 16) * GAS + (kk)) / 8, GAS / 8);
+    #define SPLIT_PRODUCTS(i, kk)                                                                       \
+        {                                                                                               \
+            MatA2 al = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gAl, ((wm + (i) * 16) * GAS + (kk)) / 8, GAS / 8); \
+            [ForceUnroll]                                                                               \
+            for (int j = 0; j < FRAG_N; j++)                                                            \
+            {                                                                                           \
+                acc[i][j] = coopMatMulAdd<float, false>(al, b[j], acc[i][j]);                           \
+                acc[i][j] = coopMatMulAdd<float, false>(a, bl[j], acc[i][j]);                           \
+            }                                                                                           \
+        }
+#else
+    #define SPLIT_LOAD_B(kk)
+    #define SPLIT_PRODUCTS(i, kk)
+#endif
     // The MMAs of the staged step in buffer `buf` (K order: 16-value slices in sequence).
     #define COMPUTE(buf)                                                                                \
     {                                                                                                   \
@@ -946,10 +1025,12 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         {                                                                                               \
             MatB2 b[FRAG_N];                                                                            \
             [ForceUnroll] for (int j = 0; j < FRAG_N; j++) b[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, (bb + (wn + j * 16) * GAS + kk) / 8, GAS / 8); \
+            SPLIT_LOAD_B(kk)                                                                            \
             [ForceUnroll]                                                                               \
             for (int i = 0; i < FRAG_M; i++)                                                            \
             {                                                                                           \
                 MatA2 a = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, (ba + (wm + i * 16) * GAS + kk) / 8, GAS / 8); \
+                SPLIT_PRODUCTS(i, kk)                                                                   \
                 [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]); \
             }                                                                                           \
         }                                                                                               \
@@ -1014,6 +1095,9 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef FETCH
     #undef STAGE
     #undef GEMM_LOAD_X
+    #undef STAGE_LO_A
+    #undef SPLIT_LOAD_B
+    #undef SPLIT_PRODUCTS
     #undef ROW_OF
     #undef ROWS_LIVE
 

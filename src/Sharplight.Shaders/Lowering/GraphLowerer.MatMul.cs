@@ -227,7 +227,8 @@ public sealed partial class GraphLowerer
     /// <summary>Macros of gemm_cm2 for a tile of <paramref name="tileRows"/> tokens; 128-token tiles use the 4-warp (<paramref name="large"/> false) or 8-warp layout.</summary>
     private static Dictionary<string, string> Gemm2Macros(Dictionary<string, string> m, int tileRows, bool large)
     {
-        bool wideK = DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
+        bool split = m.TryGetValue("GEMM_SPLIT", out var splitMacro) && splitMacro == "1";
+        bool wideK = !split && DiagnosticSwitches.GemmBlockK == 64 && long.Parse(m["K"], CultureInfo.InvariantCulture) % 64 == 0;
         int[] layout = Gemm2Layout(tileRows, large, wideK);
         int threads = layout[0] * layout[1] * 32;
         int columns = layout[1] * layout[3] * 16;
@@ -337,7 +338,7 @@ public sealed partial class GraphLowerer
     /// </summary>
     private TensorRef? SharedHalfActivations(MatMulPlan p, bool intDot, bool skinny, long? quantizedGemmMinRows)
     {
-        if (!p.Coop || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations)
+        if (!p.Coop || p.SplitHalf || !DiagnosticSwitches.Gemm2 || !DiagnosticSwitches.GemmHalfActivations)
         {
             return null;
         }
@@ -362,7 +363,7 @@ public sealed partial class GraphLowerer
     private void EmitMatMulLaunches(MatMulPlan plan, TensorRef? half = null)
     {
         var activations = plan.X;
-        if (plan.Coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
+        if (plan.Coop && !plan.SplitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations)
         {
             // Tensor-core GEMMs (more than 8 rows) read an f16 copy of x made by a small conversion kernel: half the
             // bytes per tile load (x is re-read by every column tile). Matvecs keep reading f32 x. Separate launches,
@@ -411,14 +412,24 @@ public sealed partial class GraphLowerer
             coop = false;
         }
 
+        // f32 weights under strict precision: the split-f16 tensor-core GEMM when allowed (CompileOptions.SplitHalfMatMul), on
+        // grids large enough for tensor cores to beat the f32 SIMT GEMM.
+        long rowsBound = (x.Symbol is null ? x.Shape[0] : _opt.Compile.Bound(x.Symbol)) * rowsPerLead;
+        bool splitHalf = !coop && SplitHalfGemmUsable(n, w.Type, K) && !SmallCoopGrid(N, K, rowsBound);
+        if (splitHalf)
+        {
+            coop = true;
+            macros["GEMM_SPLIT"] = "1";
+        }
+
         // Workgroup-scope matrix GEMM (device-staged tiles, decode on load) for the formats it decodes.
-        bool workgroupMatrix = coop && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
+        bool workgroupMatrix = coop && !splitHalf && DiagnosticSwitches.Gemm2 && DiagnosticSwitches.GemmHalfActivations && PreferWorkgroupMatrixGemm
                                && _opt.Has(DeviceFeatures.MatrixWorkgroup) && K % NvTileK == 0 && format is 1 or 8 or 108;
         Func<long, int> splitRows = workgroupMatrix
             ? rows => ChooseSplit(N, K, rows, NvTileTokens, NvTileColumns, NvTileK)
             : coop
                 ? rows => ChooseSplit(N, K, rows, Gemm2TileRowsFor(rows), Gemm2Columns(Gemm2TileRowsFor(rows)),
-                    DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
+                    !splitHalf && DiagnosticSwitches.GemmBlockK == 64 && K % 64 == 0 ? 64 : 32)
                 : rows => ChooseSimtSplit(N, K, rows);
 
         return new MatMulPlan
@@ -433,10 +444,21 @@ public sealed partial class GraphLowerer
             RowsPerLead = rowsPerLead,
             Macros = macros,
             Coop = coop,
+            SplitHalf = splitHalf,
             WorkgroupMatrix = workgroupMatrix,
             SplitRows = splitRows,
         };
     }
+
+    /// <summary>
+    /// True when matmul <paramref name="n"/> with f32 weights runs on the split-f16 tensor-core GEMM (gemm_cm2 with GEMM_SPLIT):
+    /// requested by <see cref="CompileOptions.SplitHalfMatMul"/>, not needed because reduced precision is allowed, on devices
+    /// with f16 matrix products and 32-wide subgroups, K in 32-value blocks; <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> disables it.
+    /// </summary>
+    private bool SplitHalfGemmUsable(Node n, DataType type, long k)
+        => type == DataType.F32 && _opt.Compile.SplitHalfMatMul && !_opt.Compile.AllowReducedPrecision && DiagnosticSwitches.GemmSplitHalf
+           && DiagnosticSwitches.Gemm2 && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16) && _opt.SubgroupSize == 32
+           && k % 32 == 0 && n.Op.Name == "MatMul";
 
     /// <summary>
     /// True when the gemm_cm2 grid for <paramref name="rows"/> rows (tiles times K splits) stays under

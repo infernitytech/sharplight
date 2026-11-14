@@ -38,6 +38,12 @@ internal sealed class MatMulPlan
     /// <summary>True when tensor-core GEMMs are usable for this matmul.</summary>
     public required bool Coop { get; init; }
 
+    /// <summary>
+    /// True when the tensor-core GEMM serves f32 weights and activations in the split-f16 form (GEMM_SPLIT: hi and lo f16 parts,
+    /// three products, near-f32 accuracy); such matmuls read f32 x directly (no shared f16 copy, no skinny GEMM).
+    /// </summary>
+    public bool SplitHalf { get; init; }
+
     /// <summary>True when the workgroup-matrix GEMM replaces gemm_cm2 for prefill.</summary>
     public required bool WorkgroupMatrix { get; init; }
 
