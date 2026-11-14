@@ -59,6 +59,25 @@ public class SharedWeightsTests
         waiter.Dispose();
     }
 
+    /// <summary>A waiting compilation that is cancelled stops waiting; the filler's later cancellation (dispose unfilled) fails the rest.</summary>
+    [Fact]
+    public void WaitFilled_Cancels_And_CancelledFiller_FailsWaiters()
+    {
+        var shared = new SharedWeights();
+        var tg = new TestGraph();
+        tg.WF("w", [1, 2, 3, 4], 4);
+        var key = WeightBufferKey.For(tg.Weights["w"]);
+        var device = new object();
+        var filler = shared.Acquire(device, key, 16, () => new Handle(), _ => { });
+        using var waiter = shared.Acquire(device, key, 16, () => new Handle(), _ => { });
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        Assert.Throws<OperationCanceledException>(() => waiter.WaitFilled(cts.Token));
+        var blocked = Task.Run(() => Assert.Throws<InvalidOperationException>(waiter.WaitFilled), TestContext.Current.CancellationToken);
+        filler.Dispose();   // a cancelled upload: the segment is disposed without Filled()
+        Assert.True(blocked.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken), "the waiter hangs");
+    }
+
     [Fact]
     public void TwoCompilations_ShareCopiedWeights()
     {
