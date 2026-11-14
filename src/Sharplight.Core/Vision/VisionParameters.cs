@@ -25,7 +25,9 @@ namespace Sharplight.Vision;
 /// resampled to the image grid with align_corners; 0 = none), <c>rope.base</c> (axial 2-D rotary position
 /// embedding over (row, col), 0 = none);</item>
 /// <item><c>out_hidden_size</c> (width of the produced embeddings = hidden size of the language model),
-/// <c>merger.activation</c> (<c>gelu</c> | <c>gelu_tanh</c> | <c>silu</c>);</item>
+/// <c>merger.activation</c> (<c>gelu</c> | <c>gelu_tanh</c> | <c>silu</c>), <c>merger.norm_eps</c> (epsilon of the merger norm; default
+/// <c>norm_eps</c>);</item>
+/// <item><c>image_token</c> (text of the prompt placeholder that expands to the image rows; default <c>&lt;|image_pad|&gt;</c>);</item>
 /// <item><c>deepstack_layers</c> (int[], ascending tower layer indices; default none): DeepStack (Qwen3-VL). The output of each listed
 /// layer is merged like the final hidden states and projected by its own merger; the results are appended to the embedding row, which is
 /// then <see cref="EmbeddingWidth"/> = out_hidden_size·(1 + count) wide. The language model adds the k-th appended block to the hidden
@@ -39,7 +41,7 @@ namespace Sharplight.Vision;
 /// per layer <c>vision.layers.{i}.</c>: <c>input_norm</c> and <c>post_attention_norm</c> (LayerNorm weight+bias),
 /// <c>attention.qkv</c> (fused [3·hidden, hidden], rows ordered q | k | v, each head-major) or separate <c>attention.q</c>, <c>attention.k</c>,
 /// <c>attention.v</c>, then <c>attention.o</c>, <c>mlp.up</c>, <c>mlp.down</c> and optionally <c>mlp.gate</c> (gated MLP: act(gate)·up); norms
-/// without <c>.bias</c> when <c>norm.type</c> is <c>rms</c>; the patch embedding's bias is optional; the patch merger <c>vision.merger.norm</c> (LayerNorm over hidden, applied per patch before merging),
+/// without <c>.bias</c> when <c>norm.type</c> is <c>rms</c>; the patch embedding's bias is optional; optionally <c>vision.post_norm</c> (a norm of the trunk output, before the merger); the patch merger <c>vision.merger.norm</c> (LayerNorm over hidden, applied per patch before merging),
 /// <c>vision.merger.up</c> [m²·hidden, m²·hidden] and <c>vision.merger.down</c> [out_hidden, m²·hidden]; per DeepStack layer i
 /// <c>vision.deepstack.{i}.norm</c> (LayerNorm over m²·hidden, applied after merging), <c>vision.deepstack.{i}.up</c> and
 /// <c>vision.deepstack.{i}.down</c> (shapes of the merger's; same activation).</para>
@@ -66,6 +68,8 @@ public sealed record VisionParameters
     public const string WindowOrderInput = "window_order";
     /// <summary>Name of the output of the vision-encode graph, f32 [M, <see cref="EmbeddingWidth"/>].</summary>
     public const string EmbeddingsOutput = "embeddings";
+    /// <summary>The image placeholder of the Qwen-VL chat templates, the default <see cref="ImageToken"/>.</summary>
+    public const string DefaultImageToken = "<|image_pad|>";
     /// <summary>Symbol of the patch count N.</summary>
     public const string PatchSymbol = "N";
     /// <summary>Symbol of the merged token count M (N divided by <see cref="MergeUnit"/>).</summary>
@@ -107,6 +111,10 @@ public sealed record VisionParameters
     public int[] DeepstackLayers { get; init; } = [];
     /// <summary>Activation of the patch merger MLP: "gelu", "gelu_tanh" or "silu".</summary>
     public string MergerActivation { get; init; } = "gelu";
+    /// <summary>Epsilon of the patch merger's norm; null = <see cref="NormEps"/>.</summary>
+    public float? MergerNormEps { get; init; }
+    /// <summary>Text of the prompt placeholder that expands to one row per merged image token.</summary>
+    public string ImageToken { get; init; } = DefaultImageToken;
     /// <summary>Per-channel mean of the input normalization.</summary>
     public float[] ImageMean { get; init; } = [0.5f, 0.5f, 0.5f];
     /// <summary>Per-channel standard deviation of the input normalization.</summary>
@@ -155,6 +163,8 @@ public sealed record VisionParameters
             RopeBase = Get("rope.base", 0f),
             OutHiddenSize = Get<int>("out_hidden_size", 0),
             MergerActivation = Get("merger.activation", "gelu"),
+            MergerNormEps = md.ContainsKey(prefix + "merger.norm_eps") ? Get("merger.norm_eps", 0f) : null,
+            ImageToken = Get("image_token", DefaultImageToken),
             DeepstackLayers = Get("deepstack_layers", Array.Empty<int>()),
             ImageMean = Get("image_mean", new[] { 0.5f, 0.5f, 0.5f }),
             ImageStd = Get("image_std", new[] { 0.5f, 0.5f, 0.5f }),
@@ -198,6 +208,15 @@ public sealed record VisionParameters
         Set("rope.base", RopeBase);
         Set("out_hidden_size", OutHiddenSize);
         Set("merger.activation", MergerActivation);
+        if (MergerNormEps is float mergerEps)
+        {
+            Set("merger.norm_eps", mergerEps);
+        }
+
+        if (ImageToken != DefaultImageToken)
+        {
+            Set("image_token", ImageToken);
+        }
         if (DeepstackLayers.Length > 0)
         {
             Set("deepstack_layers", DeepstackLayers);

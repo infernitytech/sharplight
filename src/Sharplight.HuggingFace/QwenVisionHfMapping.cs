@@ -107,8 +107,15 @@ internal static partial class QwenVisionHfMapping
         }
 
         md[a + "rope.base"] = theta;
+        AddPreprocessorConfig(c, md, a);
+    }
 
-        // Image preprocessing (preprocessor_config.json): normalization and pixel bounds.
+    /// <summary>Image preprocessing from <c>preprocessor_config.json</c> (normalization and pixel bounds), over the defaults already in <paramref name="md"/>.</summary>
+    /// <param name="c">The checkpoint's config.</param>
+    /// <param name="md">Receives the entries.</param>
+    /// <param name="a">The key prefix (<c>{architecture}.vision.</c>).</param>
+    public static void AddPreprocessorConfig(HfConfig c, IDictionary<string, object> md, string a)
+    {
         string path = Path.Combine(c.Directory, "preprocessor_config.json");
         if (!File.Exists(path))
         {

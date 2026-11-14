@@ -179,4 +179,25 @@ public class LlamaCppReferenceTests
         using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
         Check($"tiny {which} rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, which == "qwen2-vl-wide" ? RainbowTinyQwen2Vl : RainbowTinyQwen25Vl, tolerance: 2e-4);
     }
+
+    // The tiny random PaddleOCR-VL (tools/mk_tiny_paddleocr_vl.py), its tower converted by llama.cpp b11177 (tools/convert_tiny_mmproj.py, projector
+    // type paddleocr): rainbow 280, 100 rows of 64.
+    private static readonly Expected RainbowTinyPaddleOcr56 = new(-35.144493f, [-0.8637f, 0.4443f, 1.7223f], [2.5447f, -2.8049f, 1.7900f], [-0.9414f, 1.3340f, 2.3642f], [2.5715f, -2.1133f, 1.6070f]);
+    private static readonly Expected RainbowTinyPaddleOcr = new(-761.359497f, [-0.7492f, -0.0714f, 1.4031f], [1.6669f, -1.7787f, 2.1794f], [-0.4176f, 1.0500f, 2.0769f], [2.9215f, -2.5334f, 1.1886f]);
+
+    /// <summary>PaddleOCR-VL's SigLIP tower (post-norm, projector merger, 2-D rotary embedding) from an f32 mmproj.</summary>
+    [Fact]
+    public void Tiny_paddleocr_vl_tower_matches_llama_cpp()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string gguf = Path.Combine(home, "models/gguf/tiny-random-paddleocr-vl-f32.gguf");
+        string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-paddleocr-vl-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny PaddleOCR-VL GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        // Sharplight follows transformers (TinyQwenVlImageTests), where llama.cpp deviates twice: its projector uses the tanh GELU (the reference the
+        // exact one; ~1e-3 here), and it resamples the learned position grid without align_corners (the reference with), which only matters when
+        // the patch grid differs from the learned one: at 56 pixels (the 4×4 grid itself) the towers agree to the GELU difference, at 280 to ~2e-2.
+        Check("tiny paddleocr-vl rainbow 56", Encode(model, Rainbow(56), 56), 4, 64, RainbowTinyPaddleOcr56, tolerance: 3e-3, sumTolerance: 1e-3);
+        Check("tiny paddleocr-vl rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, RainbowTinyPaddleOcr, tolerance: 3e-2, sumTolerance: 1e-3);
+    }
 }

@@ -6,6 +6,7 @@ Usage: python mk_tiny_paddleocr_vl.py <tokenizer_dir> <out_dir>
 sectioned, non-interleaved M-RoPE ([2, 3, 3] of a 16-wide head); the SigLIP-style vision tower is tiny (2 layers). Weights are drawn wider
 than the default init so the greedy continuation depends on the input.
 """
+import json
 import os
 import shutil
 import sys
@@ -32,6 +33,11 @@ with torch.no_grad():
             p.normal_(0.0, 0.1)
     model.lm_head.weight.mul_(4.0)   # wider logit margins for the greedy comparison
 model.save_pretrained(out, safe_serialization=True)
+# The processor defaults; llama.cpp's mmproj converter needs min_pixels / max_pixels from this file.
+with open(os.path.join(out, "preprocessor_config.json"), "w") as f:
+    json.dump({"image_processor_type": "PaddleOCRVLImageProcessor", "image_mean": [0.48145466, 0.4578275, 0.40821073],
+               "image_std": [0.26862954, 0.26130258, 0.27577711], "min_pixels": 147456, "max_pixels": 2359296, "patch_size": 14,
+               "temporal_patch_size": 1, "merge_size": 2}, f, indent=2)
 for f in os.listdir(tokenizer_dir):
     if f.startswith("tokenizer") or f in ("special_tokens_map.json", "added_tokens.json"):
         shutil.copy(os.path.join(tokenizer_dir, f), out)

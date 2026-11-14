@@ -63,7 +63,7 @@ public sealed class GgufImporter : IModelImporter
             string ggufArchitecture = files.Architecture ?? throw new InvalidDataException($"{path}: missing general.architecture");
             var mapping = GgufArchitectureMappings.Find(ggufArchitecture) ?? throw new NotSupportedException(
                 $"{path}: GGUF architecture '{ggufArchitecture}' has no canonical mapping. Supported: {string.Join(", ", GgufArchitectureMappings.All.SelectMany(m => m.GgufArchitectures))}");
-            var view = new GgufMetadataView(files.Metadata, ggufArchitecture);
+            var view = new GgufMetadataView(files.Metadata, ggufArchitecture, files.FindTensor);
 
             var weights = MapWeights(path, files, mapping, view);
             if (PrismHadamard.Applies(files.Metadata))

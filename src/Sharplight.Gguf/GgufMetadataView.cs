@@ -1,10 +1,13 @@
 namespace Sharplight.Gguf;
 
 /// <summary>Read access to GGUF metadata of one architecture (<c>{gguf_arch}.key</c>).</summary>
-internal sealed class GgufMetadataView(IReadOnlyDictionary<string, object> metadata, string ggufArchitecture)
+internal sealed class GgufMetadataView(IReadOnlyDictionary<string, object> metadata, string ggufArchitecture, Func<string, GgufTensorInfo?>? tensors = null)
 {
     /// <summary>All metadata of the file, with the full (architecture-prefixed) keys.</summary>
     public IReadOnlyDictionary<string, object> All => metadata;
+
+    /// <summary>A tensor of the file by its GGUF name, or null when it is absent (or the view was made without tensor access).</summary>
+    public GgufTensorInfo? Tensor(string name) => tensors?.Invoke(name);
 
     /// <summary>The <c>general.architecture</c> value; the prefix of every architecture-specific key.</summary>
     public string GgufArchitecture => ggufArchitecture;
