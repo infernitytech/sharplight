@@ -48,6 +48,9 @@ public class EmbeddingFamilyTests
             "gguf/tiny-random-gemma-embedding-f32.gguf",
             "gguf/tiny-random-modern-bert-f32.gguf",
             "gguf/tiny-random-jina-bert-v2-f32.gguf",
+            // t5encoder: tiny-random-t5's encoder alone (architectures T5EncoderModel, decoder tensors dropped) converted with convert_hf_to_gguf.py;
+            // the reference is transformers' T5EncoderModel (tools/hf_t5encoder_reference.py: llama-server's t5encoder embeddings disagree with it).
+            "gguf/tiny-random-t5encoder-f32.gguf",
             // Real checkpoints: ModernBERT-base and EuroBERT-210m (transformers, mk_tiny_encoders.py --reference), jina-embeddings-v2-small-en
             // converted with convert_hf_to_gguf.py (llama.cpp).
             "hf/ModernBERT-base",
