@@ -427,7 +427,7 @@ The remaining node-test failures are the same on CPU and Vulkan:
 
 The extra-suite failures are com.microsoft MurmurHash3 and WordConvEmbedding, which are not implemented.
 
-These ops run on Vulkan only through the CPU fallback: LinearAttention, CumSum/CumProd, Det, Inverse, GridSample, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer.
+These ops run on Vulkan only through the CPU fallback: LinearAttention, Det, Inverse, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer. CumSum, CumProd (since benchmarks section 26) and 4-D GridSample have Vulkan kernels; integer CumSum / CumProd inputs and volumetric GridSample still fall back.
 
 Operator schemas of onnx 1.23.2 (ai.onnx opset 28) and onnxruntime's com.microsoft contrib schemas.
 
