@@ -54,6 +54,27 @@ different models run at the same time. Images and documents can be attached by d
 
   Loading shows its stages (reading, building graphs, placement, kernel compilation with cached counts, weight upload) and can be
   cancelled. *Convert…* turns a GGUF, safetensors checkpoint or ONNX model into a `.slm` package.
+
+  *Inspect* (on a `.slm` card or in its context menu) opens the **package inspector**. *Open .slm file…* opens a package from
+  anywhere. The inspector reads only the section table, the definition and the weight and artifact indexes, never weight data,
+  so a 30 GB package opens in a fraction of a second. It shows everything in the file:
+  - *Overview*: the model (architecture, parameters, graphs, nodes, context length), the package file (format version, sizes by
+    section kind, reclaimable bytes), the source and conversion (repository, variant, revision, source format and files), the
+    tokenizer (model, vocabulary, merges, special tokens), the chat template and the states.
+  - *Graphs*: one tab per graph with its inputs, outputs and op histogram, and three views of it. The **graph** view is a layered
+    dataflow drawing that pans, zooms and finds nodes, colored by op category; selecting a node shows its attributes, its inputs
+    (type, shape, producer or weight), its outputs and its consumers. The **IR** view is the `--dump-graph` text with search,
+    go-to-producer and consumers. The **nodes** view is a filterable table (`op:` filters by op). All three share the selection.
+  - *Weights*: name, type, shape, bits per element, size and offset, sortable and filterable, with totals per type.
+  - *Artifacts*: every precompiled set (code and binary tiers per provider) with the profile it was built for (code target,
+    features, limits, device and driver identity), its entries (key, content hash, size, offset) and where it sits in the file.
+  - *Metadata*: the definition's properties and metadata, filterable, with the full value of the selected entry.
+  - *Sections*: the whole file in offset order (header, every section, the section table and unused gaps). Sections of a kind
+    this version does not know are listed raw with their size and offset; the other sections still open.
+
+  Lists and the graph drawing are virtualized, so a graph with 100,000 nodes stays responsive.
+
+  ![Package inspector](images/studio/studio-inspector.png)
 - *Resident* shows the loaded models: state (loading / ready / busy / sleeping / failed), device, memory, last use, and load progress.
   It also shows memory per device against its budget. *Unload* drains running requests for a few seconds and then frees the model.
 
@@ -153,10 +174,14 @@ keep using the user folder or to move or copy the models into the new store.
   download badges;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
-- a headless render of every page that fails on binding errors.
+- a headless render of every page that fails on binding errors;
+- the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
+  listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 
 `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
-calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here.
+calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
+`SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
+packages in both themes.
 
 ## Limitations
 

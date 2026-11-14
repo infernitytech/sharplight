@@ -3,9 +3,13 @@
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
              xmlns:views="using:Sharplight.Studio.Views"
              xmlns:conv="using:Sharplight.Studio.Converters"
+             xmlns:iv="using:Sharplight.Studio.Views.Inspector"
              x:Class="Sharplight.Studio.Views.ModelsPage"
              x:DataType="mvm:ModelsPageViewModel">
-  <DockPanel Margin="28,22,28,0">
+  <Panel>
+  <!-- The package inspector replaces the page while it is open. -->
+  <iv:PackageInspectorView DataContext="{Binding Library.Inspector}" IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+  <DockPanel Margin="28,22,28,0" IsVisible="{Binding Library.Inspector, Converter={x:Static ObjectConverters.IsNull}}">
     <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
       <TextBlock Classes="h1" Text="Models" />
       <TextBlock Classes="muted" Text="Find models on Hugging Face, keep them in your library, and load several at once on any device." />
@@ -62,4 +66,5 @@
       </TabItem>
     </TabControl>
   </DockPanel>
+  </Panel>
 </UserControl>

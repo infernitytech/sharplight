@@ -7,4 +7,8 @@ namespace Sharplight.Package;
 /// <param name="Attributes">Attributes formatted as <c>{key=value, ...}</c>.</param>
 /// <param name="Inputs">Input values formatted as <c>%id:name type[shape]</c> (weights, states and constants included).</param>
 /// <param name="Outputs">Output values.</param>
-public sealed record NodeInfo(int Id, string Op, string Group, string Attributes, IReadOnlyList<string> Inputs, IReadOnlyList<GraphValueInfo> Outputs);
+public sealed record NodeInfo(int Id, string Op, string Group, string Attributes, IReadOnlyList<string> Inputs, IReadOnlyList<GraphValueInfo> Outputs)
+{
+    /// <summary>The inputs in order, with their kind and producing node: the dataflow edges into this node.</summary>
+    public IReadOnlyList<NodeInputInfo> InputValues { get; init; } = [];
+}

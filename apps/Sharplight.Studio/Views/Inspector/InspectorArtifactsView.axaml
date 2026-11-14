@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorArtifactsView"
+             x:DataType="ivm:ArtifactsViewModel">
+  <Panel Margin="0,0,0,16">
+    <Border Classes="card" IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32">
+      <StackPanel Spacing="10" HorizontalAlignment="Center">
+        <Path Classes="icon huge" Data="{StaticResource IconChip}" HorizontalAlignment="Center" />
+        <TextBlock Classes="h2" Text="No precompiled artifacts" HorizontalAlignment="Center" />
+        <TextBlock Classes="muted" Text="Kernels are compiled when the model is loaded. Precompiling stores them in the package." HorizontalAlignment="Center" />
+      </StackPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="330,16,*" RowDefinitions="Auto,*" IsVisible="{Binding !IsEmpty}">
+      <TextBlock Grid.ColumnSpan="3" Classes="muted" Text="{Binding Summary}" Margin="0,0,0,10" TextWrapping="Wrap" />
+      <ListBox Grid.Row="1" Classes="plain" ItemsSource="{Binding Sets}" SelectedItem="{Binding SelectedSet}">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="ivm:ArtifactSetViewModel">
+            <Border Padding="14,10">
+              <DockPanel>
+                <Border DockPanel.Dock="Left" Width="34" Height="34" CornerRadius="9" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,12,0" VerticalAlignment="Top">
+                  <Path Classes="icon accent" Data="{StaticResource IconChip}" Width="16" Height="16" />
+                </Border>
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="section" Text="{Binding Heading}" />
+                  <TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="caption" Text="{Binding BuiltFor}" TextWrapping="Wrap" MaxHeight="48" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </DockPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <ContentControl Grid.Row="1" Grid.Column="2" Content="{Binding SelectedSet}">
+        <ContentControl.ContentTemplate>
+          <DataTemplate x:DataType="ivm:ArtifactSetViewModel">
+            <Grid RowDefinitions="Auto,Auto,*">
+              <Border Classes="card" Margin="0,0,0,12">
+                <StackPanel Spacing="8">
+                  <StackPanel Spacing="2">
+                    <TextBlock Classes="h2" Text="{Binding Label}" />
+                    <SelectableTextBlock Classes="caption mono" Text="{Binding Id}" TextWrapping="Wrap" />
+                    <TextBlock Classes="caption" Text="{Binding Sizes}" />
+                  </StackPanel>
+                  <Border Classes="divider" Margin="0,2" />
+                  <TextBlock Classes="section" Text="BUILT FOR" />
+                  <ItemsControl ItemsSource="{Binding Descriptor}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <UniformGrid Columns="2" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+              <DockPanel Grid.Row="1" Margin="0,0,0,10">
+                <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding EntrySummary}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                <TextBox PlaceholderText="Filter entries by key" Text="{Binding EntryFilter}" MaxWidth="420" MinWidth="280" HorizontalAlignment="Left" />
+              </DockPanel>
+              <Border Grid.Row="2" Classes="table">
+                <DockPanel>
+                  <Border DockPanel.Dock="Top" Classes="table-header">
+                    <Grid ColumnDefinitions="*,2*,90,130">
+                      <Button Classes="sort" Content="{Binding KeyHeader}" Command="{Binding SortByCommand}" CommandParameter="Key" />
+                      <TextBlock Grid.Column="1" Classes="th" Text="Content hash" />
+                      <Button Grid.Column="2" Classes="sort" Content="{Binding SizeHeader}" Command="{Binding SortByCommand}" CommandParameter="Size" />
+                      <Button Grid.Column="3" Classes="sort" Content="{Binding OffsetHeader}" Command="{Binding SortByCommand}" CommandParameter="Offset" />
+                    </Grid>
+                  </Border>
+                  <ListBox Classes="table" ItemsSource="{Binding Entries}">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="ivm:ArtifactEntryRow">
+                        <Grid ColumnDefinitions="*,2*,90,130" ToolTip.Tip="{Binding Key}">
+                          <TextBlock Classes="cell mono" Text="{Binding Prefix}" />
+                          <TextBlock Grid.Column="1" Classes="cell mono caption" Text="{Binding Hash}" />
+                          <TextBlock Grid.Column="2" Classes="cell" Text="{Binding Size}" />
+                          <TextBlock Grid.Column="3" Classes="cell mono caption" Text="{Binding OffsetText}" />
+                        </Grid>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                </DockPanel>
+              </Border>
+            </Grid>
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+    </Grid>
+  </Panel>
+</UserControl>

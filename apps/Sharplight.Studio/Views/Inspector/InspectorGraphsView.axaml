@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             xmlns:iv="using:Sharplight.Studio.Views.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorGraphsView"
+             x:DataType="ivm:GraphsViewModel">
+  <Panel Margin="0,0,0,16">
+    <Border Classes="card" IsVisible="{Binding IsEmpty}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="32">
+      <StackPanel Spacing="8" HorizontalAlignment="Center">
+        <Path Classes="icon huge" Data="{StaticResource IconLayers}" HorizontalAlignment="Center" />
+        <TextBlock Classes="muted" Text="No readable graph: the definition does not decode with this version." HorizontalAlignment="Center" />
+      </StackPanel>
+    </Border>
+    <Grid RowDefinitions="Auto,*" IsVisible="{Binding !IsEmpty}">
+      <ListBox Classes="chips" ItemsSource="{Binding Graphs}" SelectedItem="{Binding SelectedGraph}" Margin="0,0,0,10">
+        <ListBox.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" />
+          </ItemsPanelTemplate>
+        </ListBox.ItemsPanel>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="ivm:GraphViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Classes="chip" Text="{Binding Name}" FontWeight="Medium" />
+              <TextBlock Classes="caption" Text="{Binding Summary}" VerticalAlignment="Center" />
+            </StackPanel>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <ContentControl Grid.Row="1" Content="{Binding SelectedGraph}">
+        <ContentControl.ContentTemplate>
+          <DataTemplate x:DataType="ivm:GraphViewModel">
+            <iv:InspectorGraphView />
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+    </Grid>
+  </Panel>
+</UserControl>

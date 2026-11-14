@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorMetadataView"
+             x:DataType="ivm:MetadataViewModel">
+  <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*" Margin="0,0,0,16">
+    <DockPanel Margin="0,0,0,10">
+      <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Summary}" VerticalAlignment="Center" Margin="12,0,0,0" />
+      <TextBox PlaceholderText="Filter: key, value or source" Text="{Binding Filter}" MaxWidth="460" MinWidth="320" HorizontalAlignment="Left" />
+    </DockPanel>
+    <Border Grid.Row="1" Classes="table">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="table-header">
+          <Grid ColumnDefinitions="90,300,*">
+            <TextBlock Classes="th" Text="Source" />
+            <TextBlock Grid.Column="1" Classes="th" Text="Key" />
+            <TextBlock Grid.Column="2" Classes="th" Text="Value" />
+          </Grid>
+        </Border>
+        <ListBox Classes="table" ItemsSource="{Binding Values}" SelectedItem="{Binding SelectedValue}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="ivm:KeyValueRow">
+              <Grid ColumnDefinitions="90,300,*">
+                <TextBlock Classes="cell caption" Text="{Binding Source}" />
+                <TextBlock Grid.Column="1" Classes="cell mono" Text="{Binding Key}" ToolTip.Tip="{Binding Key}" />
+                <TextBlock Grid.Column="2" Classes="cell mono caption" Text="{Binding Value}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+    <Border Grid.Column="2" Grid.RowSpan="2" Classes="card">
+      <Panel>
+        <StackPanel Spacing="8" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    IsVisible="{Binding SelectedValue, Converter={x:Static ObjectConverters.IsNull}}">
+          <Path Classes="icon huge" Data="{StaticResource IconDocument}" HorizontalAlignment="Center" />
+          <TextBlock Classes="muted" Text="Select an entry to see its full value." HorizontalAlignment="Center" />
+        </StackPanel>
+        <DockPanel IsVisible="{Binding SelectedValue, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <StackPanel DockPanel.Dock="Top" Spacing="2" Margin="0,0,0,10" DataContext="{Binding SelectedValue}" x:DataType="ivm:KeyValueRow">
+            <TextBlock Classes="section" Text="{Binding Source}" />
+            <SelectableTextBlock Classes="mono" Text="{Binding Key}" TextWrapping="Wrap" FontWeight="SemiBold" />
+          </StackPanel>
+          <Border Classes="md-code" DataContext="{Binding SelectedValue}" x:DataType="ivm:KeyValueRow">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+              <SelectableTextBlock Classes="mono md-code-text" TextWrapping="Wrap" Text="{Binding Detail}" />
+            </ScrollViewer>
+          </Border>
+        </DockPanel>
+      </Panel>
+    </Border>
+  </Grid>
+</UserControl>

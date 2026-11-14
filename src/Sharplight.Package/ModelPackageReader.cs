@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 using Sharplight.Models;
 
@@ -42,6 +43,12 @@ public static class ModelPackageReader
             artifactSets.Add(new ArtifactSetInfo(ArtifactSetCodec.ReadDirectory(reader, s)));
         }
 
+        Span<byte> header = stackalloc byte[ModelPackage.HeaderSize];
+        fs.Seek(0, SeekOrigin.Begin);
+        fs.ReadExactly(header);
+        long tableOffset = BinaryPrimitives.ReadInt64LittleEndian(header[16..]);
+        long tableLength = sections.Sum(s => SectionTableEntryBytes + Encoding.UTF8.GetByteCount(s.Name));
+
         return new PackageInfo(
             path,
             length,
@@ -50,8 +57,21 @@ public static class ModelPackageReader
             weights,
             artifactSets,
             CompactedSize(sections),
+            tableOffset,
+            tableLength,
             () => DecodeDefinition(definitionBytes, weights, definitionSection.Name));
     }
+
+    /// <summary>
+    /// The kind tags of every section kind the format defines, in kind-number order: <c>DEFN</c>, <c>WIDX</c>, <c>WDAT</c>,
+    /// <c>KSET</c> (version 1) and <c>ARTS</c>. A <see cref="PackageSectionInfo.Kind"/> that is not in this list is a section of a
+    /// newer format version (its number), which readers skip.
+    /// </summary>
+    public static IReadOnlyList<string> SectionKinds { get; } =
+        [.. Enum.GetValues<PackageSectionKind>().Select(kind => new PackageSection(kind, "", 0, 0).Tag)];
+
+    /// <summary>Bytes of one section table entry without its name: kind, name length, offset and length.</summary>
+    private const int SectionTableEntryBytes = 24;
 
     private static DefinitionInfo DecodeDefinition(byte[] bytes, IReadOnlyList<PackageWeightInfo> weights, string sectionName)
     {
@@ -74,6 +94,6 @@ public static class ModelPackageReader
         }
 
         long table = PackageWriter.Align(end, PackageWriter.SectionAlignment);
-        return table + sections.Sum(s => 24L + Encoding.UTF8.GetByteCount(s.Name));
+        return table + sections.Sum(s => SectionTableEntryBytes + Encoding.UTF8.GetByteCount(s.Name));
     }
 }

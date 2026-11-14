@@ -232,7 +232,8 @@ public class ArtifactSetTests
         var legacy = info.ArtifactSets[0];
         Assert.True(legacy.IsLegacy);
         Assert.Equal((ArtifactTiers.Mixed, "fake", v1Target), (legacy.Tier, legacy.Provider, legacy.Id));
-        Assert.Equal([new ArtifactEntryInfo(FakeArtifactDevice.BinaryKey, 1), new ArtifactEntryInfo("kernel/k", 2)], legacy.Entries);
+        Assert.Equal([(FakeArtifactDevice.BinaryKey, 1L), ("kernel/k", 2L)], legacy.Entries.Select(e => (e.Key, e.Size)));
+        Assert.All(legacy.Entries, e => Assert.InRange(e.Offset, legacy.Offset, legacy.Offset + legacy.Length - e.Size));
 
         var source = new ModelPackageImporter().Open(p);
         try
