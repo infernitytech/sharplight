@@ -3162,3 +3162,187 @@ SHARPLIGHT_BENCH=1 dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharpli
   from section 25).
 * **Vulkan fallbacks**: Det / Inverse, integer CumSum and volumetric GridSample still run on the CPU.
 * **Measurement**: the CPU rows ran at load 10-30 and need a re-run on a quiet machine.
+
+## 27. ONNX parity round 4: CPU conv scheduling, fused Q/K/V projections, Vulkan Det / Inverse / volumetric GridSample (2026-11-14)
+
+Same machine and harness as section 26 (`bench/onnx/parity_bench.py`, 2 interleaved rounds, ORT 1.31 in the same
+session). Raw data is in `bench/results/s27/`.
+
+### 27.1 What changed
+
+* **CPU convolution scheduling** (`ConvOp`).
+  * The task split compares splitting the weight panels with splitting the output tiles by operand traffic. Blocks
+    that stay in L2 are counted once per thread. The plan aims at about 6 tasks per thread. `SHARPLIGHT_CPU_CONV_PLAN=tiles`
+    restores the old split.
+  * Strided 1x1 convs without leading padding subsample their input once and then run like the in-place 1x1 form.
+    resnet50's 256x56 → 128 stride-2 conv went from 98 to 63 µs.
+  * The stride-2 im2col gather and the subsample use an even-lane AVX-512 permute (`Simd.CompressEven`).
+  * The shifted stride-1 form runs each tap through the strided GEMM kernel when a group has at least 16 channels.
+  * The copy-out of a C block applies the epilogue in the same pass.
+* **Max pooling** runs per block of output rows: a vectorized vertical max, then the horizontal window. resnet50's
+  pool went from 258 to 39 µs.
+* **Parallel loops** (`CpuThreadJob`) give each participant one contiguous range and claim several items at a time;
+  idle participants steal from other ranges. Consecutive ops that split their outputs alike then run each region on
+  the same core. An empty `CpuParallel.For` over 1024 items went from 38 to 12 µs. `SHARPLIGHT_CPU_AFFINITY=0` goes
+  back to one shared counter.
+* **JIT**: executables compile methods with loops fully optimized on first use
+  (`TieredCompilationQuickJitForLoops=false`). Before, short runs and first runs measured tier-0 kernels: a 64-channel
+  3x3 conv took 0.66 ms instead of 0.11 ms.
+* **Strided copies out of transposed views** copy 16 x 16 tiles instead of one element per cache line. vit's
+  class-token Concat went from 380 to 111 µs.
+* **Fused sibling projections** (`OnnxImportOptions.FuseProjections`, default on, for both providers).
+  * Several MatMuls of one activation by constant weights with the same K become one MatMul over the concatenated
+    weights, followed by one slice per product. This covers an encoder's Q / K / V, or K / V where Q reads another
+    input (segformer).
+  * When each product's only reader is a bias Add, the biases are concatenated too.
+  * The CPU keeps reshapes of the slices as views, including merges of the symbolic batch axis. A missing
+    element-count check in the strided reshape, which this exposed, is fixed.
+  * Vulkan: the tensor-core GEMM splits K in two when two halves fill the last wave of about 192 tiles much better.
+    vit's [768 → 2304] product at 1576 rows went from 141 to 117 µs in split-f16 mode.
+  * `OnnxBench --no-fuse-projections` turns the fusion off for A/B runs.
+* **Vulkan kernels instead of the CPU fallback**:
+  * Det and Inverse: one thread per matrix, LU / Gauss-Jordan with partial pivoting in f32 (the CPU uses f64);
+  * volumetric GridSample: linear and nearest, all padding modes;
+  * CumSum / CumProd over int64 inputs, read and converted per element.
+* **Profiling**: `SHARPLIGHT_CPU_PROFILE=min` sums the per-instance minimum of every op. This is robust on a shared
+  machine. `CpuOp.Detail` prints the shapes of the slowest instances.
+* Tried and dropped:
+  * Winograd F(2x2, 3x3) on NCHW. It was accurate (RMS 1.30e-6 against 1.34e-6 for the direct conv). It was 20-25 %
+    faster for 64-channel 56x56 convs at b8, about 7 % at 128 channels, and slower with more channels or at b1: in
+    NCHW the input and output transforms cost about as much as the multiplies they save.
+  * Phase-plane shifted strided convs: 2x slower at b8.
+  * Forcing the shifted form for single-block convs: its padded copy costs about 20 µs.
+  * Reblocking the ~200-row encoder GEMMs, in two variants:
+    * makespan-optimal row blocks;
+    * several weight panels per task with K chunks outermost.
+
+    Neither beat the old plan in `BenchTests.MatMulThroughput` beyond its ±10 % noise. In the model, vit's
+    [3072 → 768] product takes 640 µs against 400 µs in isolation: each layer streams its 28 MB of weights from DRAM.
+
+### 27.2 CPU: Sharplight vs onnxruntime CPU EP (16 threads)
+
+Cells are min / median in ms. §26 is the `sl-cpu` min of section 26. The 1-minute load average was 7-34 (median 13,
+`cpu-load.log`). That is lower than in section 26 (median 21), so the interleaved SL / ORT ratio is the comparable
+number. The segformer rows are a re-run after the reshape fix (`cpu-segformer.log`). The full table is in
+`table-cpu.md`.
+
+| model | batch | §26 | sl-cpu | ort-cpu | SL / ORT (§26) | SL / ORT |
+|---|---|---|---|---|---|---|
+| resnet50 | 1 | 8.01 | 5.87 / 6.90 | 6.17 | 1.35x | **0.95x** |
+| resnet50 | 8 | 41.47 | 34.22 / 47.80 | 22.16 | 1.94x | 1.54x |
+| convnext-tiny | 1 | 20.40 | 14.02 / 21.11 | 13.55 | - | 1.03x |
+| convnext-tiny | 8 | 93.42 | 81.50 / 103.46 | 84.14 | 1.22x | **0.97x** |
+| efficientnet-lite4 | 1 | 8.25 | 6.92 / 8.79 | 4.36 | - | 1.59x |
+| mobilenetv2 | 1 | 2.24 | 1.98 / 2.80 | 1.61 | - | 1.23x |
+| mobilenetv2 | 8 | 14.16 | 10.78 / 18.77 | 7.04 | 1.73x | 1.53x |
+| yolov8n | 1 | 15.66 | 9.76 / 16.64 | 13.86 | - | **0.70x** |
+| yolov10n | 1 | 19.79 | 12.07 / 17.16 | 15.84 | - | **0.76x** |
+| ssd-10 (NMS) | 1 | 206.94 | 180.12 / 195.47 | 219.94 | 0.97x | **0.82x** |
+| bert-base (16 tok) | 1 | 13.66 | 9.61 / 11.89 | 12.18 | 1.20x | **0.79x** |
+| bert-base (16 tok) | 8 | 21.86 | 20.50 / 28.61 | 27.70 | 0.80x | **0.74x** |
+| vit-base | 1 | 24.70 | 19.77 / 27.57 | 23.04 | 1.11x | **0.86x** |
+| vit-base | 8 | 148.61 | 132.85 / 180.56 | 139.73 | 1.12x | **0.95x** |
+| whisper-tiny-encoder | 1 | 22.70 | 21.99 / 32.42 | 43.35 | 0.42x | **0.51x** |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 18.03 | 17.61 / 23.32 | 21.63 | - | **0.81x** |
+| segformer-b0 | 1 | 88.77 | 38.73 / 44.90 | 42.09 | 2.09x | **0.92x** |
+| segformer-b0 | 8 | 343.59 | 249.47 / 273.26 | 480.67 | 0.71x | **0.52x** |
+| mobilesam-encoder | 1 | 199.73 | 143.35 / 390.45 | 219.09 | 0.98x | **0.65x** |
+| raft-large | 1 | 1570.58 | 1230.48 / 2321.20 | 1767.96 | 0.98x | **0.70x** |
+
+* Every model at batch 1 except efficientnet-lite4 and mobilenetv2 is now level with or ahead of ORT. The
+  depthwise-heavy models (efficientnet, mobilenetv2) and resnet50 b8 are the gaps left.
+* resnet50 b1 (sum of per-op minima 7.0 → 5.8-6.0 ms) gained from the pool, the strided 1x1 convs, the stem's
+  vectorized stride-2 gather and the traffic-based split.
+  * At b8 the remaining gap is the 3x3 convs: about 13.9 ms against 8.5 ms in ORT's profiler, where NCHWc reaches
+    about 3.6 TFLOPS.
+* segformer b1 2.09x → 0.92x: its K / V projections from the reduced sequence are now one GEMM, and its convs and
+  pooling gained from the scheduling changes.
+* vit b1: sum of per-op minima 22.7 → 21.0 ms.
+  * The fused [768 → 2304] product takes 3.7 ms over 12 layers, against 5.6 ms for 36 separate products.
+  * The class-token Concat went from 380 to 111 µs.
+* ORT's medians are 1.1-2x its minima under this load, Sharplight's 1.1-1.9x.
+
+### 27.3 GPU: Sharplight Vulkan vs onnxruntime CUDA EP
+
+Cells are min / median in ms. SL / ORT is `sl-vulkan` (strict, f32-accurate) over `ort-cuda` (TF32). `(!)` marks a
+parity-check failure (expected for reduced precision, and for ssd-10 and phi-3.5 in every precision, as in section
+26). The full table is in `table-gpu.md`.
+
+| model | batch | §26 | sl-vulkan | sl-vulkan-split | sl-vulkan-rp | ort-cuda | ort-cuda-strict | SL / ORT CUDA |
+|---|---|---|---|---|---|---|---|---|
+| resnet50 | 1 | 0.81 | 0.82 / 1.00 | 0.80 | 0.69 (!) | 1.01 | 2.12 | **0.81x** |
+| resnet50 | 8 | 3.10 | 3.09 / 3.50 | 3.10 | 1.93 (!) | 2.00 | 3.73 | 1.55x |
+| convnext-tiny | 8 | 4.08 | 4.11 / 4.64 | 3.22 | 2.68 (!) | 2.56 | 4.04 | 1.61x |
+| mobilenetv2 | 8 | 0.73 | 0.73 / 0.76 | 0.73 | 0.67 (!) | 0.75 | 1.35 | **0.97x** |
+| bert-base (16 tok) | 1 | 1.22 | 1.22 / 1.43 | 1.21 | 1.19 (!) | 1.24 | 1.44 | **0.99x** |
+| bert-base (16 tok) | 8 | 3.72 | 3.55 / 4.59 | 3.39 | 3.34 (!) | 2.73 | 3.37 | 1.30x |
+| vit-base | 1 | 2.44 | 2.47 / 2.87 | 2.15 | 1.97 (!) | 1.34 | 2.46 | 1.84x |
+| vit-base | 8 | 9.85 | 9.77 / 11.38 | 7.19 | 4.86 (!) | 4.11 | 9.19 | 2.38x |
+| whisper-tiny-encoder | 1 | 1.81 | 1.84 / 2.09 | 1.60 | 1.30 (!) | 1.16 | 2.08 | 1.59x |
+| segformer-b0 | 8 | 20.66 | 21.12 / 24.84 | 20.46 | 18.54 | 42.55 | 46.83 | **0.50x** |
+| mobilesam-encoder | 1 | 5.96 | 5.89 / 6.85 | 5.20 | 4.39 (!) | 6.08 | 7.98 | **0.97x** |
+| raft-large | 1 | 54.98 | 56.17 / 62.50 | 56.38 | 43.32 (!) | 29.46 | 74.54 | 1.91x |
+
+GPU-timestamp minima (`table-gpu-timestamps.md`, unaffected by host load) moved by at most ±3 % against section 26 on
+every model. Fusing the projections is neutral on Vulkan:
+
+* In vit's per-dispatch profile, at b8 in strict precision, the fused [768 → 2304] SIMT GEMM takes 160 µs against
+  3 x 59 µs plus split-K reduces for the separate products.
+* Attention then copies the strided K and V into dense buffers (2 x 4 µs). The Vulkan attention kernels need dense
+  K / V rows.
+* The whole-graph minima stayed level: vit b8 9.65 → 9.64 ms strict, 6.95 → 7.01 split; bert b8 2.99 → 3.02.
+
+### 27.4 Correctness and tests
+
+New tests:
+* `ProjectionFusionTests`: the fused graph has one MatMul and three slices, and computes what the separate products
+  compute on the CPU and Vulkan;
+* `DeviceLinalgOpsTests`: Vulkan Det / Inverse / volumetric GridSample / int64 CumSum against the CPU over a symbolic
+  batch;
+* `TransposedCopyTests`;
+* `StridedReshapeTests`;
+* new conv and pool cases in the CPU tests.
+
+The Vulkan conformance tests of Det, Inverse, volumetric GridSample and CumSum pass without the CPU fallback.
+
+The branch was rebased onto `main`, and the suites ran one at a time under the suite lock:
+
+| suite | result |
+|---|---|
+| Cpu | 1214 tests, 0 failed, 36 skipped |
+| Vulkan | 1229 tests, 0 failed, 22 skipped |
+| Onnx (`-parallelMode none`) | 436 passed |
+| Package | 32 passed |
+| Families | 660 tests, 0 failed, 32 skipped |
+
+Conformance report (cpu and vulkan): 1829 of 1884 node tests and 170 of 172 extra tests pass on both providers, as in
+section 26. On Vulkan without the CPU fallback, 1778 node tests (94.4 %, was 1745) and 128 extra tests (was 127) pass.
+
+### 27.5 Commands
+
+```bash
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx ORT_PYTHON=~/venvs/ort/bin/python3   # plus the CUDA libs of bench/onnx/env.sh
+dotnet build bench/onnx/OnnxBench -c Release
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-split,sl-vulkan-rp,ort-cuda,ort-cuda-strict
+python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 2 --engines sl-cpu,ort-cpu
+python3 bench/results/s27/gpu_timestamp_table.py gpu.jsonl ../s26/gpu.jsonl
+SHARPLIGHT_CPU_PROFILE=min dotnet bench/onnx/OnnxBench/bin/Release/net11.0/OnnxBench.dll $SHARPLIGHT_ONNX_MODELS/ref/vit-base-patch16-224.json cpu --batch 1
+SHARPLIGHT_BENCH=1 dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -method "*MatMulThroughput"
+```
+
+### 27.6 Open gaps
+
+* **CPU convolution at b8 and depthwise convs**: resnet50 b8 1.54x, mobilenetv2 1.2-1.5x, efficientnet-lite4 1.6x.
+  * The 3x3 convs need a blocked layout (NCHWc or NHWC, propagated between convs, with transforms at the graph
+    boundaries) to reach ORT's ~3.6 TFLOPS.
+  * Winograd only pays off in such a layout.
+* **CPU encoder GEMMs from DRAM**: in the model, the ~200-row GEMMs run at about 60 % of their speed with the
+  weights in cache. Prefetching the next layer's weights or keeping activations resident would be the next step. The
+  task planner was not the limit.
+* **Vulkan f32 GEMMs against TF32** are unchanged: vit 1.8-2.4x, raft 1.9x, resnet50 / convnext b8 1.6x, whisper
+  1.6x.
+  * Not attempted: split f16 at f32-level accuracy (per-tile exponent offset for the subnormal lo parts), split f16
+    for convs and bmm, and the SIMT GEMM itself.
+* **Vulkan attention with strided K / V** would remove the two copies that the fused projections add.
+* **Detection models**: data-dependent counts still round-trip through the host (unchanged since section 25).
+* **Vulkan fallbacks left**: LinearAttention, DeformConv, Unique, string / ai.onnx.ml ops and TfIdfVectorizer.

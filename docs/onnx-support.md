@@ -410,9 +410,9 @@ SHARPLIGHT_CONFORMANCE_REPORT=report.jsonl SHARPLIGHT_CONFORMANCE_PROVIDERS=cpu,
 | com.microsoft ops imported (all / common set) | 22 / 22 | 53 / 52 |
 | com.microsoft ops with all tests passing | 7 / 47 | 45 / 47 |
 | node tests, cpu | 1800 / 1884 (95.5%) | 1829 / 1884 (97.1%) |
-| node tests, vulkan | 1790 (95.0%), 1706 (90.6%) without fallback | 1829 (97.1%), 1745 (92.6%) without fallback |
+| node tests, vulkan | 1790 (95.0%), 1706 (90.6%) without fallback | 1829 (97.1%), 1778 (94.4%) without fallback |
 | extra tests, cpu | 108 / 172 (62.8%) | 170 / 172 (98.8%) |
-| extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 127 (73.8%) without fallback |
+| extra tests, vulkan | 108 (62.8%), 66 (38.4%) without fallback | 170 (98.8%), 128 (74.4%) without fallback |
 
 The remaining node-test failures are the same on CPU and Vulkan:
 
@@ -427,7 +427,7 @@ The remaining node-test failures are the same on CPU and Vulkan:
 
 The extra-suite failures are com.microsoft MurmurHash3 and WordConvEmbedding, which are not implemented.
 
-These ops run on Vulkan only through the CPU fallback: LinearAttention, Det, Inverse, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer. CumSum, CumProd (since benchmarks section 26) and 4-D GridSample have Vulkan kernels; integer CumSum / CumProd inputs and volumetric GridSample still fall back.
+These ops run on Vulkan only through the CPU fallback: LinearAttention, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer. CumSum and CumProd (since benchmarks section 26, int32 / int64 inputs since section 27), GridSample (4-D, and 5-D linear / nearest since section 27), Det and Inverse (section 27, one thread per matrix in f32) have Vulkan kernels.
 
 Operator schemas of onnx 1.23.2 (ai.onnx opset 28) and onnxruntime's com.microsoft contrib schemas.
 
