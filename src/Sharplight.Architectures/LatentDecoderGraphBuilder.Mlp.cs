@@ -24,6 +24,9 @@ internal sealed partial class LatentDecoderGraphBuilder
             throw new InvalidDataException("latent_decoder: MoE weights present but moe.expert_count / moe.expert_used_count / moe.group_* are missing or inconsistent.");
         }
 
-        return MoeBlock.Build(b, h, p, "mlp.", _hp.Moe, _hp.HiddenSize, _activation);
+        int layer = int.Parse(p.Split('.')[^2], System.Globalization.CultureInfo.InvariantCulture);
+        bool clamped = !p.StartsWith("mtp.", StringComparison.Ordinal) && layer < _hp.MoeSwigluClamp.Length && _hp.MoeSwigluClamp[layer] > 0f;
+        var experts = clamped ? new ClampedSwigluActivation(_hp.MoeSwigluClamp[layer], _hp.MoeSwigluClampInput) : _activation;
+        return MoeBlock.Build(b, h, p, "mlp.", _hp.Moe, _hp.HiddenSize, experts, sharedActivation: _activation);
     }
 }

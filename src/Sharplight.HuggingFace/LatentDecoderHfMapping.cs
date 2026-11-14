@@ -7,7 +7,7 @@ namespace Sharplight.HuggingFace;
 /// <summary>
 /// Hugging Face checkpoints with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
 /// <c>LatentDecoderAdapter</c>): <c>deepseek_v2</c>, <c>deepseek_v3</c> / <c>kimi_k2</c>, <c>glm4_moe_lite</c> (GLM-4.7-Flash),
-/// <c>minicpm3</c> and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
+/// <c>minicpm3</c>, <c>hy_v4</c> (Hunyuan v4, <c>LatentDecoderHfMapping.HyV4.cs</c>) and <c>mistral4</c> (softmax routing over groups scored by their two best experts, Llama-4-style query temperature). The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
 /// tensors are stacked; multi-token-prediction layers (after <c>num_hidden_layers</c>) map like decoder layers below
 /// <c>mtp.layers.{j}.</c>, with their NextN tensors (<see cref="HfNextnTensors"/>).
 /// </summary>
@@ -17,7 +17,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     public string Architecture => "latent_decoder";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -74,11 +74,16 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         }
 
         AddTemperature(md, a, c);
+        if (IsHyV4(c))
+        {
+            AddHyV4HyperParameters(md, a, c);
+        }
+
         return md;
     }
 
     /// <summary>DeepSeek-V2 lays the rotary dimensions out in interleaved pairs; V3-style configs say so with rope_interleave (default true).</summary>
-    private static bool Interleaved(HfConfig c) => !IsMiniCpm(c) && (c.GetBool("rope_interleave") ?? true);
+    private static bool Interleaved(HfConfig c) => !IsMiniCpm(c) && !IsHyV4(c) && (c.GetBool("rope_interleave") ?? true);
 
     private static double YarnMagnitude(double factor, double mscale) => factor <= 1 ? 1.0 : 0.1 * mscale * Math.Log(factor) + 1.0;
 
@@ -226,7 +231,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var w = tensor.ToWeightInfo();
-            if (TryMapGlobal(c, name, w, collector))
+            if (TryMapGlobal(c, name, w, collector) || (IsHyV4(c) && TryMapHyV4Global(name, w, collector)))
             {
                 continue;
             }
@@ -249,7 +254,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
                     collector.Add(HfTransforms.Plain(w, prefix + nextn));
                 }
             }
-            else if (!TryMapLayer(c, prefix, suffix, w, collector, experts))
+            else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !(IsHyV4(c) && TryMapHyV4Layer(prefix, suffix, w, collector)))
             {
                 collector.AddUnmapped(name);
             }

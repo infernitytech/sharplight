@@ -53,6 +53,12 @@ internal static class MappedFamilyCases
         new("tiny-random-dbrx f32 GGUF (dbrx, llama.cpp)", "gguf/tiny-random-dbrx-f32.gguf", Prompt, "ids", DbrxIds, ""),
         // Mistral 4: latent attention with YaRN and query temperature (beyond 16 positions), softmax routing over expert groups, stacked experts.
         new("tiny-random-mistral4 HF (mistral4, transformers)", "hf/tiny-random-mistral4", Prompt, "ids", Mistral4Ids, ""),
+        // Hunyuan v4: latent attention with output gate and sinks, indexer in its dense regime, clamped SwiGLU experts, hyper-connections (3 streams).
+        new("tiny-random-hy-v4 HF (hy_v4, transformers)", "hf/tiny-random-hy-v4", Prompt, "ids",
+            [954, 350, 912, 711, 295, 223, 710, 662, 175, 970, 611, 547, 737, 462, 661, 35, 414, 81, 604, 808, 906, 627, 420, 522], ""),
+        // The same model with DeepSeek-V4's manifold-constrained hyper-connections (Sinkhorn stream mixing, tools/mk_tiny_hy_v4_mhc.py).
+        new("tiny-random-hy-v4-mhc HF (hy_v4 + DeepSeek-V4 mHC, transformers)", "hf/tiny-random-hy-v4-mhc", Prompt, "ids",
+            [954, 513, 60, 245, 773, 761, 713, 734, 7, 830, 644, 813, 624, 367, 165, 189, 509, 806, 825, 99, 784, 652, 986, 21], ""),
         // llama.cpp's converter (Mistral3ForConditionalGeneration path) drops the query temperature, so that GGUF follows llama.cpp, not transformers,
         // past position 16; with attention.temperature_scale / temperature_length added to the file llama.cpp and transformers agree.
         new("tiny-random-mistral4 f32 GGUF (mistral4, llama.cpp)", "gguf/tiny-random-mistral4-f32.gguf", Prompt, "ids",

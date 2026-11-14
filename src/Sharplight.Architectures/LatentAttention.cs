@@ -20,7 +20,9 @@ namespace Sharplight.Architectures;
 /// <c>attention.q_down.weight</c> [q_rank, hidden], <c>attention.q_down_norm.weight</c> [q_rank], <c>attention.q_up.weight</c>
 /// [H·(nope + rope), q_rank]; <c>attention.kv_down.weight</c> [latent + rope, hidden] (rows: latent, then the rotary key),
 /// <c>attention.kv_down_norm.weight</c> [latent]; <c>attention.k_up.weight</c> [H, latent, nope]; <c>attention.v_up.weight</c>
-/// [H, v, latent]; <c>attention.o.weight</c> [hidden, H·v]. Query rows per head are [nope | rope].
+/// [H, v, latent]; <c>attention.o.weight</c> [hidden, H·v]. Query rows per head are [nope | rope]. Optional: <c>attention.sinks</c> (f32 [H],
+/// a learned per-head logit that joins the softmax denominator without a value) and <c>attention.gate.weight</c> [H·v, hidden] (sigmoid
+/// output gate: every head's value is multiplied by sigmoid of this projection of the layer input before the output projection).
 /// </remarks>
 internal sealed class LatentAttention(LatentAttentionParameters parameters)
 {
@@ -85,9 +87,22 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
         }
 
         b.RuntimeScalar(WellKnown.PastScalar);
-        var attended = b.Emit1("CachedAttention", [query, state, state],
-            Attributes.From(("scale", p.Scale), ("offset", WellKnown.PastScalar), ("v_dims", (long)p.LatentRank)), $"{prefix}attn");   // [T, H, latent]
+        var attributes = Attributes.From(("scale", p.Scale), ("offset", WellKnown.PastScalar), ("v_dims", (long)p.LatentRank));
+        Value[] inputs = [query, state, state];
+        if (b.TryWeight(prefix + "attention.sinks") is { } sinks)
+        {
+            inputs = [query, state, state, sinks];
+            attributes = attributes.With("sinks", true);
+        }
+
+        var attended = b.Emit1("CachedAttention", inputs, attributes, $"{prefix}attn");                                    // [T, H, latent]
         var values = b.Emit1("MatMulId", [attended, b.Weight(prefix + "attention.v_up.weight"), headIds], null, $"{prefix}attn_values"); // [T, H, v]
+        if (b.TryWeight(prefix + "attention.gate.weight") is not null)
+        {
+            var gate = b.Reshape(b.Linear(h, prefix + "attention.gate.weight", name: $"{prefix}attn_gate"), 0, p.Heads, p.ValueDims);
+            values = b.Mul(values, b.Sigmoid(gate), $"{prefix}attn_gated");
+        }
+
         return b.Linear(b.Reshape(values, 0, p.Heads * p.ValueDims), prefix + "attention.o.weight", name: $"{prefix}attn_out");
     }
 

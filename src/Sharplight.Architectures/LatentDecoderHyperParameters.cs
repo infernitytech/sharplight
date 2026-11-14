@@ -9,7 +9,8 @@ namespace Sharplight.Architectures;
 internal sealed record LatentDecoderHyperParameters(
     int LayerCount, int HiddenSize, int Vocab, int ContextLength, float Eps, LatentAttentionParameters Attention,
     float RopeBase, string RopeStyle, string Activation, bool Gated, float EmbeddingScale, float ResidualScale, float LogitScale,
-    MoeOptions Moe, float TemperatureScale, float TemperatureLength)
+    MoeOptions Moe, float TemperatureScale, float TemperatureLength, StreamHyperConnectionOptions? HyperConnections, float[] MoeSwigluClamp,
+    bool MoeSwigluClampInput)
 {
     /// <summary>Reads and validates the hyper-parameters of a latent decoder source.</summary>
     /// <exception cref="InvalidDataException">A required key is missing or a routing key is unknown.</exception>
@@ -32,7 +33,8 @@ internal sealed record LatentDecoderHyperParameters(
             LayerCount: src.Arch<int>("layer_count"),
             HiddenSize: src.Arch<int>("hidden_size"),
             Vocab: embedding.Shape[0].IsSymbolic ? 0 : (int)embedding.Shape[0].Fixed,
-            ContextLength: src.Arch("context_length", 4096),
+            // A DSA indexer (attention.indexer.token_budget) keeps every visible token up to its budget; only that dense regime is implemented.
+            ContextLength: Math.Min(src.Arch("context_length", 4096), src.Arch("attention.indexer.token_budget", int.MaxValue)),
             Eps: attention.Eps,
             Attention: attention,
             RopeBase: src.Arch("rope.base", 10000f),
@@ -44,10 +46,18 @@ internal sealed record LatentDecoderHyperParameters(
             LogitScale: src.Arch("logit_scale", 1f),
             Moe: MoeOptions.Read(src),
             TemperatureScale: src.Arch("attention.temperature_scale", 0f),
-            TemperatureLength: src.Arch("attention.temperature_length", 0f));
+            TemperatureLength: src.Arch("attention.temperature_length", 0f),
+            HyperConnections: StreamHyperConnectionOptions.Read(src, attention.Eps),
+            MoeSwigluClamp: src.Arch("moe.swiglu_clamp", Array.Empty<float>()),
+            MoeSwigluClampInput: src.Arch("moe.swiglu_clamp_input", false));
         if (hp.TemperatureScale != 0f && hp.TemperatureLength <= 0f)
         {
             throw new InvalidDataException("latent_decoder: attention.temperature_scale needs a positive attention.temperature_length.");
+        }
+
+        if (hp.MoeSwigluClamp.Length is not 0 && hp.MoeSwigluClamp.Length != hp.LayerCount)
+        {
+            throw new InvalidDataException("latent_decoder: moe.swiglu_clamp must have layer_count entries.");
         }
 
         return hp;
