@@ -50,6 +50,10 @@ namespace Sharplight.Architectures;
 /// <c>moe.shared_scale</c> (factor on the shared expert, default 1); optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
 /// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
 /// before the attention norm, SmallThinker).</item>
+/// <item>Token-activated adapters (Granite Switch): <c>adapter_tokens.weight</c> [V, 8] (see <see cref="Models.AdapterTokenTable"/>) and
+/// <c>adapters.count</c> route every row to an adapter slot (<see cref="AdapterRouter"/>, a one-head causal attention with a KV cache of its own);
+/// the q/k/v/o/gate/up/down projections with <c>{projection}.lora_a</c> [S, R, K] / <c>{projection}.lora_b</c> [S, N, R] add the row's
+/// low-rank delta (<see cref="SwitchedLora"/>). No embeddings-input graph is built.</item>
 /// <item><c>attention.causal</c> (default true). False makes a bidirectional encoder out of the decoder's layers (EuroBERT, NeoBERT, ModernBERT,
 /// EmbeddingGemma, Llama embedding models): only <see cref="WellKnown.EmbedGraph"/> is built (mean pooling unless declared), every token attends to its
 /// whole sequence, sliding windows are symmetric (keys less than <c>attention.sliding_window</c> positions away on either side), no KV cache and no

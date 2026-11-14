@@ -44,6 +44,9 @@ public class ExtendedFamilyServingTests
             "gguf/tiny-random-glm5-next-sparse-f32.gguf",
             "gguf/tiny-random-mistral-large4-f32.gguf",
             "gguf/tiny-random-dots3note-f32.gguf",
+            // Round 9: per-token adapters (the router's KV cache next to the layers').
+            "hf/tiny-random-granite-switch",
+            "gguf/tiny-random-granite-switch-f32.gguf",
         ];
         foreach (string model in models)
         {

@@ -27,6 +27,8 @@ internal sealed partial class DecoderGraphBuilder
     private readonly int[] _kvExports;                            // layers whose keys and values the decode graphs export (a shared-KV drafter's)
     private Dictionary<int, (Value K, Value V)>? _kvExportValues; // while a trunk graph is built: the exported keys and values by layer
     private Dictionary<int, (Value K, Value V)>? _suppliedKv;     // while a shared-KV draft graph is built: keys and values from the input, by slot
+    private readonly (StateDefinition Key, StateDefinition Value)? _routerCache; // token-activated adapter routing (AdapterRouter): its KV cache
+    private Value? _adapterSlots;                                 // while a graph with adapter routing is built: every row's adapter slot, i32 [T, 1]
     private string _pooling = "last";
     private bool _normalize = true;
 
@@ -116,6 +118,15 @@ internal sealed partial class DecoderGraphBuilder
                 States.Add(_blockIndexerCache[slot] = BlockSparseIndexer.CreateKeyCache(_src.Weight, prefix, g, _options.KvCacheType));
             }
         }
+
+        // Token-activated adapters (Granite Switch): the router's single attention head has a cache of its own.
+        if (_hp.Causal && AdapterRouter.IsPresent(_src))
+        {
+            var router = AdapterRouter.CreateCaches(statePrefix + "adapter_router", _options.KvCacheTypeFor(AdapterRouter.HeadDim));
+            States.Add(router.Key);
+            States.Add(router.Value);
+            _routerCache = router;
+        }
     }
 
     /// <summary>The persistent states (KV caches) the graphs use.</summary>
@@ -176,7 +187,8 @@ internal sealed partial class DecoderGraphBuilder
             }
         }
 
-        if (_options.IncludeAuxiliaryGraphs)
+        // Adapter routing reads the token ids, so there is no embeddings-input graph.
+        if (_options.IncludeAuxiliaryGraphs && _routerCache is null)
         {
             graphs["decode_embeddings"] = BuildTrunk("decode_embeddings", embeddingsInput: true);
         }
@@ -221,7 +233,7 @@ internal sealed partial class DecoderGraphBuilder
             {
                 tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
                 positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, _hp.PositionAxes));
-                x = TokenEmbeddings(b, tokens);
+                x = TokenEmbeddings(b, RouteAdapters(b, tokens, rowSpans: null));
             }
 
             if (deepstackLayers >= 0)
@@ -270,6 +282,7 @@ internal sealed partial class DecoderGraphBuilder
 
         _tapValues = null;
         _kvExportValues = null;
+        _adapterSlots = null;
 
         return b.Build();
     }
@@ -299,14 +312,51 @@ internal sealed partial class DecoderGraphBuilder
         Value? perLayer = null;
         using (b.Group("input"))
         {
-            x = AddPositionEmbeddings(b, TokenEmbeddings(b, inp.Tokens), inp.Positions);
+            x = AddPositionEmbeddings(b, TokenEmbeddings(b, RouteAdapters(b, inp.Tokens, inp.RowSpans)), inp.Positions);
             if (_hp.PerLayerSize > 0)
             {
                 perLayer = PerLayerInputs(b, x, inp.Tokens);
             }
         }
 
-        return Layers(b, x, inp.Positions, FrequencyFactors(b), perLayer, inp.RowSpans);
+        var output = Layers(b, x, inp.Positions, FrequencyFactors(b), perLayer, inp.RowSpans);
+        _adapterSlots = null;
+        return output;
+    }
+
+    // Token-activated adapters: routes the rows (setting _adapterSlots for the projections, see Project) and returns the tokens to embed.
+    // Without a router the tokens are returned as they are.
+    private Value RouteAdapters(GraphBuilder b, Value tokens, Value? rowSpans)
+    {
+        if (!AdapterRouter.IsPresent(_src))
+        {
+            return tokens;
+        }
+
+        int adapters = _src.Arch("adapters.count", 0);
+        var (embedded, slots) = AdapterRouter.Route(b, tokens, adapters, (q, k, v) =>
+        {
+            if (rowSpans is not null)
+            {
+                return PackedSequences.Attention(b, q, k, v, rowSpans, 1f, causal: true, name: "adapter_router_attn");
+            }
+
+            var (keyCache, valueCache) = _routerCache ?? throw new InvalidOperationException("decoder: adapter routing needs causal attention.");
+            b.CacheWrite(b.State(keyCache), k);
+            b.CacheWrite(b.State(valueCache), v);
+            b.RuntimeScalar(WellKnown.PastScalar);
+            return b.Emit1("CachedAttention", [q, b.State(keyCache), b.State(valueCache)],
+                Attributes.From(("scale", 1f), ("offset", WellKnown.PastScalar)), "adapter_router_attn");
+        });
+        _adapterSlots = slots;
+        return embedded;
+    }
+
+    // A linear projection plus, with adapter routing, its switched low-rank delta (SwitchedLora).
+    private Value Project(GraphBuilder b, Value x, string weight, string? bias = null, string? name = null)
+    {
+        var projected = b.Linear(x, weight, bias, name);
+        return _adapterSlots is null ? projected : SwitchedLora.AddDelta(b, projected, x, weight, _adapterSlots);
     }
 
     private ComputeGraph BuildPacked(string name, bool classify)
