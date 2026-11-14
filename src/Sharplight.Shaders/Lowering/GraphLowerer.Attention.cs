@@ -463,7 +463,8 @@ public sealed partial class GraphLowerer
     /// <summary>
     /// The variants of a mixed multi-sequence step (see <see cref="MixedFlashMinRunRows"/>), or null when the attention has no
     /// run table or mixing is switched off (<c>SHARPLIGHT_ATTN_MIXED=0</c>). They apply above the decode kernel's row limit
-    /// whenever a step has more than one run; a step whose runs are all short or all long just skips the other kernel's
+    /// when a step has more than one run but too many runs for flash attention over all of them (fewer than 8 rows per run):
+    /// decode rows next to prompt chunks. A step whose runs are all short or all long just skips the other kernel's
     /// workgroups. Beyond <see cref="DecodeAttentionPlan.MaxRows"/> rows the decode kernel runs one key range per row
     /// (<c>DEC_SPLIT_ROWS</c>) and writes its output directly, so no combine is needed.
     /// </summary>
@@ -476,7 +477,8 @@ public sealed partial class GraphLowerer
             return null;
         }
 
-        Func<Bindings, bool> when = b => Rows(b, q) > decode.MaxRows && Rows(b, runs) > 1;
+        var flashAll = FlashWhen(plan);
+        Func<Bindings, bool> when = b => Rows(b, q) > decode.MaxRows && Rows(b, runs) > 1 && !flashAll(b);
         var decodeMacros = new Dictionary<string, string>(decode.Macros)
         {
             ["MIX_RUN"] = MixedFlashMinRunRows.ToString(CultureInfo.InvariantCulture),
