@@ -26,11 +26,26 @@ public sealed partial class GraphLowerer
     /// </summary>
     private static long SkinnyMaxRowsFor(long n) => DiagnosticSwitches.SkinnyGemmMaxRows ?? (n >= 4096 ? SkinnyMaxRows : n >= 1024 ? 8 : 0);
 
-    /// <summary>Workgroup subgroups a skinny GEMM launch aims for in total (keeps enough weight loads in flight).</summary>
-    private const long SkinnyTargetSubgroups = 2048;
+    /// <summary>
+    /// Subgroups a skinny GEMM launch aims for in total: below this, workgroups get 8 subgroups instead of 4, which keeps
+    /// enough weight loads in flight when there are few output rows (Blackwell, FP8 [17408→5120] at 4-16 rows: 70-80 µs
+    /// with 8 subgroups vs 84-92 µs with 4).
+    /// </summary>
+    private const long SkinnyTargetSubgroups = 1536;
 
-    /// <summary>Shared memory the skinny GEMM's staged slices may use.</summary>
-    private const int SkinnySharedBytes = 32 * 1024;
+    /// <summary>
+    /// Output rows from which a single (not dual) skinny GEMM gives each workgroup two weight fragments (32 rows) instead of
+    /// one: below, one fragment per workgroup doubles the grid (Blackwell, FP8 at 16 rows: [17408→5120] 80 vs 95 µs,
+    /// [5120→6144] 31 vs 39 µs); from here the grid is large anyway and two fragments share the staged activations
+    /// ([5120→12288] 56 vs 64 µs, [5120→10240] 46 vs 51 µs).
+    /// </summary>
+    private const long SkinnyTwoFragmentMinN = 10240;
+
+    /// <summary>
+    /// Shared memory the skinny GEMM's staged slices may use, at most the device's limit: 64-value K blocks with 8 subgroups
+    /// need 37 KB.
+    /// </summary>
+    private long SkinnySharedBytes => Math.Min(_opt.MaxSharedMemory, 48 * 1024);
 
     /// <summary>
     /// Token fragments (16 rows each) of the skinny GEMM variants; each serves rows up to 16 x its count (2 and 4 are only
@@ -101,7 +116,7 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length);
+            var (fn, sg, bk) = SkinnyConfig(n, k, fm, weights.Length, SkinnySharedBytes);
             var macros = new Dictionary<string, string>(baseMacros)
             {
                 ["X_STRIDE"] = activationStride.ToString(CultureInfo.InvariantCulture),
@@ -125,13 +140,14 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Skinny GEMM configuration for <paramref name="fm"/> token fragments: weight fragments per workgroup, subgroups splitting
-    /// K inside the workgroup and the K block. More subgroups when there are few weight rows, so the launch keeps enough loads
-    /// in flight; never more subgroups than K blocks.
+    /// K inside the workgroup and the K block. One weight fragment per workgroup except for wide single matrices, more
+    /// subgroups when there are few workgroups, so the launch keeps enough loads in flight; never more subgroups than K blocks.
+    /// The K block shrinks (then the subgroups halve) until the staged slices fit <paramref name="sharedBytes"/>.
     /// </summary>
-    private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices)
+    private static (int Fn, int Sg, int Bk) SkinnyConfig(long n, long k, int fm, int matrices, long sharedBytes)
     {
         int bk = k % 64 == 0 ? 64 : 32;
-        int fn = matrices > 1 || fm > 2 ? 1 : 2;
+        int fn = matrices > 1 || fm > 2 || n < SkinnyTwoFragmentMinN ? 1 : 2;
         long workgroups = (n + fn * 16 - 1) / (fn * 16);
         int sg = 4;
         while (sg < 8 && workgroups * sg < SkinnyTargetSubgroups && k / bk >= sg * 4)
@@ -145,7 +161,7 @@ public sealed partial class GraphLowerer
         }
 
         // Shared memory: every subgroup stages fm + fn * matrices fragments of 16 rows x (bk + 8) halves.
-        while (sg * (fm + fn * matrices) * 16 * (bk + 8) * 2 > SkinnySharedBytes)
+        while (sg * (fm + fn * matrices) * 16 * (bk + 8) * 2 > sharedBytes)
         {
             if (bk > 32)
             {

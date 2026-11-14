@@ -27,6 +27,12 @@ internal sealed class LoweringUnit
     public (Node A, Node B)? Dual;
 
     /// <summary>
+    /// An Add of a constant row vector (a bias) that is the only consumer of this single-node unit's MatMul: single activation
+    /// rows add it in the matvec's store instead of a separate elementwise launch.
+    /// </summary>
+    public Node? BiasAdd;
+
+    /// <summary>
     /// GatherAxis nodes (rows of a table selected by indices, e.g. the per-expert biases of the selected experts) whose
     /// rows this fused group reads in place instead of from a materialized gather.
     /// </summary>
@@ -48,7 +54,7 @@ internal sealed class LoweringUnit
         {
             if (Fused is null)
             {
-                return [.. Absorbed ?? [], Node!];
+                return BiasAdd is null ? [.. Absorbed ?? [], Node!] : [.. Absorbed ?? [], Node!, BiasAdd];
             }
 
             Node[] dual = Dual is { } pair ? [pair.A, pair.B] : [];

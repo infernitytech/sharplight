@@ -34,6 +34,9 @@ struct Params
     uint* scratch;
 #endif
     float* y;
+#if BIAS
+    float* bias;
+#endif
     uint T;
 };
 
@@ -203,6 +206,9 @@ void matvec_sk(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Pa
         float s2 = 0;
         [ForceUnroll] for (int i = 0; i < MV_SK_SG; i++) s2 += skPart2[tid][i];
         s = epi2(s, s2);
+#endif
+#if BIAS
+        s = s + p.bias[row];
 #endif
         p.y[uint64_t(tid) * Y_STRIDE + row] = s;
     }

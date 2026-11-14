@@ -123,17 +123,53 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [x, weightA, weightB], [y]);
 
-        // Larger batches: fp8 weights at 17-64 rows run one dual GEMM with the group as its epilogue; otherwise the regular
-        // matmuls and the elementwise group, skipped while a fused launch serves the rows.
+        // Larger batches: fp8 weights run one dual GEMM with the group as its epilogue from 17 rows (above 64 rows only where the
+        // separate GEMMs would not split K); otherwise the regular matmuls and the elementwise group, skipped while a fused
+        // launch serves the rows.
         long fusedBelow = fusedMaxRows;
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
-        long dualFp8Max = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
+        bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
-        long dualFp8Min = Fp8GemmMinRows;
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && (rows(b) < dualFp8Min || rows(b) > dualFp8Max);
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && !(dualFp8 && DualFp8Serves(rows(b), N, K));
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);
+        _launchCondition = outer;
+    }
+
+    /// <summary>
+    /// A matmul whose output only feeds the Add of a bias row vector (<see cref="LoweringUnit.BiasAdd"/>): single activation rows
+    /// on the f32 split-K matvec add the bias in its store (one launch and one dependency level less per projection, e.g. the
+    /// biased q / k / v / o projections of a decode step); other row counts, and formats whose single rows take the integer-dot
+    /// matvec, run the matmul and the Add as before. The fused store computes the same f32 sum as the Add kernel.
+    /// </summary>
+    private void LowerMatMulBias(Node matmul, Node add)
+    {
+        var w = Ref(matmul.Inputs[1]);
+        long N = w.Shape[0];
+        long K = w.Shape[1];
+        var outer = _launchCondition;
+        bool singleRowMatvec = K % 8 == 0 && K >= 1024 && (!UseIntDotMatvec(w.Type, K) || IntDotMinRows(w.Type) > 1);
+        if (singleRowMatvec)
+        {
+            var x = PrepareMatMulInput(Ref(matmul.Inputs[0]), "matmul", out long xStride, out long rowsPerLead);
+            var bias = Ref(add.Inputs[matmul.Output == add.Inputs[0] ? 1 : 0]);
+            var y = Produce(add.Output);
+            int format = WeightFormat(w.Type) ?? throw new NotSupportedException($"MatMul weight type {w.Type}");
+            int skSg = N <= 2048 || K >= 12288 ? 8 : 4;
+            var macros = Macros(("WFMT", format), ("K", K), ("N", N), ("X_STRIDE", xStride), ("Y_STRIDE", N), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"),
+                ("MV_COLS", 1), ("MV_SK_SG", skSg), ("BIAS", 1));
+            var tx = x;
+            Func<Bindings, long> rows = b => Rows(b, tx) * rowsPerLead;
+            Emit($"matmul {matmul.Output.Name} [{K}→{N}] {w.Type} +bias", [matmul, add],
+                [new KernelVariant(b => rows(b) == 1, Lib("matmul.slang", "matvec_sk", macros), _ => new Grid((uint)N))],
+                [Pointer(x), Pointer(w), Pointer(y), Pointer(bias), TokenArg(x, rowsPerLead)],
+                [x, w, bias], [y]);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) != 1;
+        }
+
+        LowerMatMul(matmul);
+        LowerElementwise([add], [add.Output]);
         _launchCondition = outer;
     }
 

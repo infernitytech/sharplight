@@ -31,6 +31,21 @@ internal static class TestSwitches
     /// <summary>Activation rows of the matmul benchmarks.</summary>
     public static int BenchmarkRows { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_ROWS"), out int rows) ? rows : 512;
 
+    /// <summary>
+    /// Weight copies the matmul benchmarks multiply in turn (default 1). With several copies whose total size exceeds the
+    /// GPU's last-level cache, every matmul reads its weights from memory, as in a model's step.
+    /// </summary>
+    public static int BenchmarkWeightCopies { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_COPIES"), out int copies) ? copies : 1;
+
+    /// <summary>
+    /// Profiled runs of each matmul benchmark (default 50; minimum times are reported). More runs give the GPU time to reach
+    /// its full clocks, which short benchmarks of fast kernels otherwise miss.
+    /// </summary>
+    public static int BenchmarkIterations { get; } = int.TryParse(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_ITERS"), out int iters) ? iters : 50;
+
+    /// <summary>True when the matmul benchmarks measure gate / up pairs, SiLU(x·Wa)·(x·Wb), instead of single matmuls.</summary>
+    public static bool BenchmarkDual { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_DUAL") == "1";
+
     /// <summary>True when the matmul benchmarks print their per-kernel profiles.</summary>
     public static bool BenchmarkReports { get; } = Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH_REPORT") == "1";
 }
