@@ -1,74 +1,10 @@
-using System.Buffers.Binary;
 using Sharplight.Graph;
-using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
 // com.microsoft contrib operators.
 internal sealed partial class OnnxTranslator
 {
-    private Value AttentionCore(Value q, Value k, Value v, int heads, float scale, bool causal, string name)
-    {
-        long hidden = q.Shape[2].Fixed;
-        long dh = hidden / heads;
-        long S = q.Shape[1].Fixed;
-        long Sk = k.Shape[1].Fixed;
-        long vh = v.Shape[2].Fixed / heads;
-        if (scale == 0)
-        {
-            scale = 1f / MathF.Sqrt(dh);
-        }
-
-        Value Heads(Value x, long d, long len) => _b.Permute(Rs(x, 0, len, heads, d), 0, 2, 1, 3);
-        var qh = Heads(q, dh, S);
-        var kh = Heads(k, dh, Sk);
-        var vv = Heads(v, vh, Sk);
-        var scores = Emit("BatchMatMul", [qh, kh], Attributes.From(("trans_b", true), ("alpha", scale)));
-        Heavy();
-        if (causal)
-        {
-            var mask = new byte[S * Sk * 4];
-            for (long i = 0; i < S; i++)
-            {
-                for (long j = 0; j < Sk; j++)
-                {
-                    BinaryPrimitives.WriteSingleLittleEndian(mask.AsSpan((int)((i * Sk + j) * 4), 4), j > i + (Sk - S) ? -1e9f : 0f);
-                }
-            }
-
-            scores = _b.Add(scores, _b.Constant(name + ".causal", DataType.F32, new Shape(S, Sk), mask));
-        }
-        var p = _b.Emit1("Softmax", [scores]);
-        var o = Emit("BatchMatMul", [p, vv]);
-        Heavy();
-        return Emit("Reshape", [_b.Permute(o, 0, 2, 1, 3)], Attributes.From(("shape", L(0, S, heads * vh))), name);
-    }
-
-    private void ContribAttention(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        if ((ins.Length > 3 && ins[3] is not null) || (ins.Length > 4 && ins[4] is not null) || (ins.Length > 5 && ins[5] is not null))
-        {
-            throw new NotSupportedException("Attention with mask_index, past or relative position bias");
-        }
-
-        if (n.Has("qkv_hidden_sizes"))
-        {
-            throw new NotSupportedException("Attention with unequal qkv_hidden_sizes");
-        }
-
-        var x = X(ins, 0);
-        var w = ConstIn(ins, 1, "Attention weights");
-        var qkv = _b.MatMul(x, WeightValue(w.Transposed([1, 0]), true, Nm(n) + ".qkv"));
-        Heavy();
-        if (ins.Length > 2 && ins[2] is not null)
-        {
-            qkv = _b.Add(qkv, X(ins, 2));
-        }
-
-        long h = qkv.Shape[2].Fixed / 3;
-        SetDyn(n, 0, AttentionCore(_b.Slice(qkv, 2, 0, h), _b.Slice(qkv, 2, h, h), _b.Slice(qkv, 2, 2 * h, h), (int)n.Int("num_heads", 1), n.Has("scale") ? n.Float("scale", 0) : 0f, n.Int("unidirectional", 0) != 0, Nm(n)));
-    }
-
     /// <summary>Translates a node of the com.microsoft domain.</summary>
     private void TranslateContrib(OnnxNode n, TranslatedTensor?[] ins)
     {
@@ -92,8 +28,74 @@ internal sealed partial class OnnxTranslator
             case "FusedConv":
                 FusedConv(n, ins);
                 break;
-            case "FusedMatMul":
+            case "FusedMatMul" or "TransposeMatMul":
                 FusedMatMul(n, ins);
+                break;
+            case "FusedGemm":
+                FusedGemm(n, ins);
+                break;
+            case "GemmFastGelu":
+                GemmFastGelu(n, ins);
+                break;
+            case "ScaledSiLU":
+                ScaledSilu(n, ins);
+                break;
+            case "BiasSplitGelu":
+                BiasSplitGelu(n, ins);
+                break;
+            case "GatedRMSNorm":
+                GatedRmsNorm(n, ins);
+                break;
+            case "CDist":
+                CDist(n, ins);
+                break;
+            case "ComplexMul" or "ComplexMulConj":
+                ComplexMul(n, ins, n.OpType == "ComplexMulConj");
+                break;
+            case "GroupNorm" or "SkipGroupNorm":
+                ContribGroupNorm(n, ins, n.OpType == "SkipGroupNorm");
+                break;
+            case "NhwcMaxPool":
+                NhwcMaxPool(n, ins);
+                break;
+            case "UnfoldTensor":
+                UnfoldTensor(n, ins);
+                break;
+            case "EmbedLayerNormalization":
+                EmbedLayerNorm(n, ins);
+                break;
+            case "CropAndResize":
+                CropAndResize(n, ins);
+                break;
+            case "MoE":
+                Moe(n, ins);
+                break;
+            case "GatherBlockQuantized":
+                GatherBlockQuantized(n, ins);
+                break;
+            case "NGramRepeatBlock":
+                NGramRepeatBlock(n, ins);
+                break;
+            case "Inverse":
+                Inverse(n, ins);
+                break;
+            case "ExpandDims":
+                ExpandDims(n, ins);
+                break;
+            case "MatMulIntegerToFloat":
+                MatMulIntegerToFloat(n, ins);
+                break;
+            case "DynamicQuantizeMatMul":
+                DynamicQuantizeMatMul(n, ins);
+                break;
+            case "QGemm":
+                QGemm(n, ins);
+                break;
+            case "MatMulInteger16":
+                MatMulInteger16(n, ins);
+                break;
+            case "QLinearWhere":
+                QLinearWhere(n, ins);
                 break;
             case "SkipLayerNormalization" or "SkipSimplifiedLayerNormalization":
                 SkipLayerNorm(n, ins);
@@ -172,13 +174,6 @@ internal sealed partial class OnnxTranslator
         SetDyn(n, 0, y);
     }
 
-    private void FusedMatMul(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        var attributes = Attributes.From(("trans_a", n.Int("transA", 0) != 0), ("trans_b", n.Int("transB", 0) != 0), ("alpha", n.Float("alpha", 1f)));
-        SetDyn(n, 0, Emit("BatchMatMul", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
-        Heavy();
-    }
-
     /// <summary>Residual add (plus optional bias) followed by LayerNorm or RMSNorm; output #3 is the pre-norm sum.</summary>
     private void SkipLayerNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
@@ -209,75 +204,23 @@ internal sealed partial class OnnxTranslator
         }
 
         SetDyn(n, 0, y);
-        if (n.Outputs.Count > 3 && n.Outputs[3] != "")
+        if (Wants(n, 1) || Wants(n, 2))
+        {
+            var (mean, invStd) = NormStatistics(sum, sum.Rank - 1, n.Float("epsilon", 1e-12f), simplified);
+            if (Wants(n, 1) && mean is not null)
+            {
+                SetDyn(n, 1, mean);
+            }
+
+            if (Wants(n, 2))
+            {
+                SetDyn(n, 2, invStd);
+            }
+        }
+
+        if (Wants(n, 3))
         {
             SetDyn(n, 3, sum);
         }
-    }
-
-    /// <summary>
-    /// MultiHeadAttention with separate query/key/value [B, S, H·D], optional bias, additive attention_bias [B or 1, H or 1, S, T] and
-    /// past key/value [B, H, P, D] (outputs present key/value [B, H, P+S, D]). A key_padding_mask is not supported.
-    /// </summary>
-    private void MultiHeadAttention(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        TranslatedTensor? In(int i) => i < ins.Length ? ins[i] : null;
-        if (In(4) is not null || In(8) is not null || n.Int("unidirectional", 0) != 0)
-        {
-            throw new NotSupportedException("MultiHeadAttention with key_padding_mask, past_sequence_length or unidirectional");
-        }
-
-        var q = X(ins, 0);
-        var k = X(ins, 1);
-        var v = X(ins, 2);
-        if (In(3) is not null)
-        {
-            long hidden = q.Shape[2].Fixed;
-            var bias = X(ins, 3);
-            q = _b.Add(q, _b.Slice(bias, 0, 0, hidden));
-            k = _b.Add(k, _b.Slice(bias, 0, hidden, hidden));
-            v = _b.Add(v, _b.Slice(bias, 0, 2 * hidden, hidden));
-        }
-
-        int heads = (int)n.Int("num_heads", 1);
-        float scale = n.Has("scale") ? n.Float("scale", 0) : 0f;
-        if (In(5) is null && In(6) is null)
-        {
-            SetDyn(n, 0, AttentionCore(q, k, v, heads, scale, false, Nm(n)));
-            return;
-        }
-
-        long s = q.Shape[1].Fixed;
-        long d = q.Shape[2].Fixed / heads;
-        long vd = v.Shape[2].Fixed / heads;
-        Value Heads(Value x, long dh) => _b.Permute(Rs(x, 0, x.Shape[1].Fixed, heads, dh), 0, 2, 1, 3);
-        var kh = Heads(k, d);
-        var vh = Heads(v, vd);
-        if (In(6) is not null)
-        {
-            kh = Emit("Concat", [X(ins, 6), kh], Attributes.From(("axis", 2L)));
-            vh = Emit("Concat", [X(ins, 7), vh], Attributes.From(("axis", 2L)));
-        }
-
-        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
-        {
-            SetDyn(n, 1, kh);
-        }
-
-        if (n.Outputs.Count > 2 && n.Outputs[2] != "")
-        {
-            SetDyn(n, 2, vh);
-        }
-
-        var scores = Emit("BatchMatMul", [Heads(q, d), kh], Attributes.From(("trans_b", true), ("alpha", scale != 0 ? scale : 1f / MathF.Sqrt(d))));
-        Heavy();
-        if (In(5) is not null)
-        {
-            scores = _b.Add(scores, X(ins, 5));
-        }
-
-        var o = Emit("BatchMatMul", [_b.Emit1("Softmax", [scores]), vh]);
-        Heavy();
-        SetDyn(n, 0, Emit("Reshape", [_b.Permute(o, 0, 2, 1, 3)], Attributes.From(("shape", L(0, s, heads * vd))), Nm(n)));
     }
 }

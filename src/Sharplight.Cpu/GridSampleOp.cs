@@ -2,7 +2,10 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>GridSample (ONNX/ORT semantics): linear, nearest, cubic; zeros / border / reflection padding.</summary>
+/// <summary>
+/// GridSample (ONNX/ORT semantics): 2-D linear, nearest, cubic and volumetric (5-D) trilinear, nearest; zeros / border / reflection
+/// padding. A 2-D sample is a volumetric one with a single depth slice, so both share the row decomposition over (n, do, ho).
+/// </summary>
 internal sealed unsafe class GridSampleOp : CpuOp
 {
     private readonly TRef _x;
@@ -12,6 +15,9 @@ internal sealed unsafe class GridSampleOp : CpuOp
     private readonly int _pad;
     private readonly bool _align; // mode 0 linear 1 nearest 2 cubic; pad 0 zeros 1 border 2 reflection
     private readonly int _c;
+    private readonly bool _volume;
+    private readonly int _d;
+    private readonly int _do;
     private readonly int _h;
     private readonly int _w;
     private readonly int _ho;
@@ -31,17 +37,21 @@ internal sealed unsafe class GridSampleOp : CpuOp
         _mode = mode switch { "nearest" => 1, "cubic" => 2, _ => 0 };
         _pad = padding switch { "border" => 1, "reflection" => 2, _ => 0 };
         _c = (int)x.Dims[1];
-        _h = (int)x.Dims[2];
-        _w = (int)x.Dims[3];
-        _ho = (int)y.Dims[2];
-        _wo = (int)y.Dims[3];
-        _body = Body;
+        _volume = x.Dims.Length == 5;
+        int s = _volume ? 1 : 0;
+        _d = _volume ? (int)x.Dims[2] : 1;
+        _do = _volume ? (int)y.Dims[2] : 1;
+        _h = (int)x.Dims[2 + s];
+        _w = (int)x.Dims[3 + s];
+        _ho = (int)y.Dims[2 + s];
+        _wo = (int)y.Dims[3 + s];
+        _body = _volume ? VolumeBody : Body;
     }
 
     public override void Run(RunParameters p)
     {
         _n = _x.Dim(0, p);
-        _rows = _n * _ho;
+        _rows = _n * _do * _ho;
         if (_rows * _wo * _c == 0)
         {
             return;
@@ -191,6 +201,63 @@ internal sealed unsafe class GridSampleOp : CpuOp
                         v = acc;
                     }
                     ((float*)_y.P)[((n * _c + c) * _ho + oh) * _wo + ow] = v;
+                }
+            }
+        }
+    }
+
+    private float Vx(float* vol, int z, int r, int c) =>
+        (uint)z < (uint)_d && (uint)r < (uint)_h && (uint)c < (uint)_w ? vol[((long)z * _h + r) * _w + c] : 0f;
+
+    private void VolumeBody(int chunk)
+    {
+        long s = chunk * _per;
+        long e = Math.Min(_rows, s + _per);
+        long plane = (long)_d * _h * _w;
+        long outPlane = (long)_do * _ho * _wo;
+        for (long row = s; row < e; row++)
+        {
+            long n = row / ((long)_do * _ho);
+            long inner = row % ((long)_do * _ho);
+            for (int ow = 0; ow < _wo; ow++)
+            {
+                long point = inner * _wo + ow;
+                float* gp = (float*)_g.P + (n * outPlane + point) * 3;
+                float fx = Coord(Denorm(gp[0], _w), _w);
+                float fy = Coord(Denorm(gp[1], _h), _h);
+                float fz = Coord(Denorm(gp[2], _d), _d);
+                for (int c = 0; c < _c; c++)
+                {
+                    float* vol = (float*)_x.P + (n * _c + c) * plane;
+                    float v;
+                    if (_mode == 1)
+                    {
+                        v = Vx(vol, (int)MathF.Round(fz, MidpointRounding.ToEven), (int)MathF.Round(fy, MidpointRounding.ToEven),
+                            (int)MathF.Round(fx, MidpointRounding.ToEven));
+                    }
+                    else
+                    {
+                        float x1 = MathF.Floor(fx);
+                        float y1 = MathF.Floor(fy);
+                        float z1 = MathF.Floor(fz);
+                        int xi = (int)x1;
+                        int yi = (int)y1;
+                        int zi = (int)z1;
+                        float dx = fx - x1;
+                        float dy = fy - y1;
+                        float dz = fz - z1;
+                        v = 0;
+                        for (int k = 0; k < 8; k++)
+                        {
+                            int bx = k & 1;
+                            int by = (k >> 1) & 1;
+                            int bz = k >> 2;
+                            float weight = (bx == 1 ? dx : 1 - dx) * (by == 1 ? dy : 1 - dy) * (bz == 1 ? dz : 1 - dz);
+                            v += weight * Vx(vol, zi + bz, yi + by, xi + bx);
+                        }
+                    }
+
+                    ((float*)_y.P)[(n * _c + c) * outPlane + point] = v;
                 }
             }
         }

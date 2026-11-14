@@ -5,5 +5,6 @@
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
     <InternalsVisibleTo Include="Sharplight.Onnx.Tests" />
+    <InternalsVisibleTo Include="Sharplight.Onnx.Conformance" />
   </ItemGroup>
 </Project>

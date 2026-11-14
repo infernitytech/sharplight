@@ -75,6 +75,8 @@ public sealed partial class GraphLowerer
                 }
 
                 break;
+            case "CumSum" when node.Attributes.Get("product", false):
+                return OpSupport.No("CumSum: cumulative products run on the CPU");
             case "CumSum":
             case "GroupNorm":
             case "ConvTranspose":
@@ -91,6 +93,11 @@ public sealed partial class GraphLowerer
         if (op == "ConvTranspose" && node.Inputs[1].Type == DataType.I32)
         {
             return OpSupport.No("ConvTranspose weight type");
+        }
+
+        if (op == "GridSample" && node.Inputs[0].Rank != 4)
+        {
+            return OpSupport.No("volumetric GridSample");
         }
 
         if (op == "GridSample" && !(a.Get("mode", "linear") is "linear" or "nearest" or "cubic"))

@@ -42,19 +42,20 @@ void pool(uint3 dtid : SV_DispatchThreadID, uniform PoolParams p)
     int cnt = 0;
     for (int kh = 0; kh < KH; kh++)
     {
-        int ih = hs + kh;
+        int ih = hs + kh * DH;
         if (uint(ih) >= uint(H)) continue;
         for (int kw = 0; kw < KW; kw++)
         {
-            int iw = ws + kw;
+            int iw = ws + kw * DW;
             if (uint(iw) >= uint(W)) continue;
             acc += xp[ih * XS_H + iw * XS_W];
             cnt++;
         }
     }
 #if COUNT_PAD
-    int he = min(hs + KH, H + PB), we = min(ws + KW, W + PR);
-    float div = float((he - hs) * (we - ws));
+    // taps inside the padded input (ceil_mode overhang is not counted)
+    int th = min(KH, (H + PB - 1 - hs) / DH + 1), tw = min(KW, (W + PR - 1 - ws) / DW + 1);
+    float div = float(th * tw);
 #else
     float div = float(cnt);
 #endif
@@ -214,8 +215,8 @@ float comb_cls(float a, float b, int cls)
 float init_cls(int cls)
 {
     if (cls == 0) return 0.0;
-    if (cls == 1) return -3.4028235e38;
-    if (cls == 2) return 3.4028235e38;
+    if (cls == 1) return -1.0 / 0.0;   // max/min of all -inf (+inf) rows stay infinite (masked attention rows)
+    if (cls == 2) return 1.0 / 0.0;
     return 1.0;
 }
 
@@ -305,7 +306,7 @@ void reduce(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Reduc
         }
         acc = reduce_threads(acc, tid, pass == 0 ? CLS : 0);
 #if MODE == 8
-        if (pass == 0) { M = acc; continue; }
+        if (pass == 0) { M = max(acc, -3.4028235e38); continue; }   // finite shift: an all -inf row gives log(0) = -inf
         acc = M + log(acc);
 #endif
 #if MODE == 1

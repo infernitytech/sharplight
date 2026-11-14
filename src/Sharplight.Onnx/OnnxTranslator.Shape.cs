@@ -354,7 +354,10 @@ internal sealed partial class OnnxTranslator
 
         var sizes = n.Has("split") ? n.Ints("split") : OptConst(ins, 1, "Split sizes")?.Ints();
         int outs = n.Outputs.Count;
-        sizes ??= Enumerable.Repeat(x.Shape[axis].Fixed / outs, outs).ToArray();
+        // Without sizes the axis splits into chunks of ceil(extent / outputs); the last one may be smaller (opset 18 num_outputs).
+        long extent = x.Shape[axis].Fixed;
+        long chunk = (extent + outs - 1) / outs;
+        sizes ??= Enumerable.Range(0, outs).Select(i => Math.Min(chunk, extent - i * chunk)).ToArray();
         long start = 0;
         for (int i = 0; i < outs; i++)
         {
@@ -398,12 +401,29 @@ internal sealed partial class OnnxTranslator
             }
         }
 
+        // [1, ..., 1, S, ...] with a symbolic S: the unit axes stay leading units in front of the symbolic outer axis.
+        int lead = Array.FindIndex(res, d => d != 1);
+        if (lead > 0 && SymbolicInts.IsSymbolic(res[lead]) && xd.Take(lead).All(d => d == 1))
+        {
+            xd = xd[lead..];
+            res = res[lead..];
+            rank -= lead;
+            if (x.Rank > rank)
+            {
+                x = Emit("Reshape", [x], Attributes.From(("shape", xd.Select(d => SymbolicInts.IsSymbolic(d) ? 0L : d).ToArray())));
+            }
+        }
+        else
+        {
+            lead = 0;
+        }
+
         if (res.Skip(1).Any(SymbolicInts.IsSymbolic))
         {
             throw new NotSupportedException("Expand to a symbolic extent at a position other than the outermost");
         }
 
-        if (x.Rank == rank && res.SequenceEqual(xd))
+        if (lead == 0 && x.Rank == rank && res.SequenceEqual(xd))
         {
             _env[n.Outputs[0]] = xt;
             return;
@@ -430,6 +450,7 @@ internal sealed partial class OnnxTranslator
         }
 
         SetDyn(n, 0, y);
+        _env[n.Outputs[0]].LeadingUnits = lead;
     }
 
     /// <summary>Shape of a dynamic tensor as a compile-time constant (symbolic dims are encoded as <see cref="SymbolicInts"/> codes).</summary>
@@ -503,8 +524,40 @@ internal sealed partial class OnnxTranslator
 
     private void Trilu(OnnxNode n, TranslatedTensor?[] ins)
     {
-        long k = ins.Length > 1 && ins[1] is not null ? ConstIn(ins, 1, "Trilu k").ScalarInt() : 0;
-        var attributes = Attributes.From(("upper", n.Int("upper", 1) != 0), ("k", k));
+        bool upper = n.Int("upper", 1) != 0;
+        if (ins.Length > 1 && ins[1] is { IsConst: false } runtimeK)
+        {
+            SetDyn(n, 0, TriluRuntimeK(X(ins, 0), runtimeK.V!, upper, Nm(n)));
+            return;
+        }
+
+        long k = ins.Length > 1 && ins[1] is not null ? ins[1]!.C!.ScalarInt() : 0;
+        var attributes = Attributes.From(("upper", upper), ("k", k));
         SetDyn(n, 0, Emit("Trilu", [X(ins, 0)], attributes, Nm(n)));
+    }
+
+    /// <summary>Trilu with a runtime diagonal offset: keeps x where the constant (column - row) grid is on the kept side of k.</summary>
+    private Value TriluRuntimeK(Value x, Value k, bool upper, string name)
+    {
+        if (x.Shape[x.Rank - 2].IsSymbolic)
+        {
+            throw new NotSupportedException("Trilu with a runtime k over a symbolic row count");
+        }
+
+        long rows = x.Shape[x.Rank - 2].Fixed;
+        long cols = x.Shape[x.Rank - 1].Fixed;
+        var offsets = new double[rows * cols];
+        for (long i = 0; i < rows; i++)
+        {
+            for (long j = 0; j < cols; j++)
+            {
+                offsets[i * cols + j] = j - i;
+            }
+        }
+
+        var grid = ConstValue(OnnxConst.FromFloats(OnnxType.Float, [rows, cols], offsets, name + ".diagonals"), name + ".diagonals");
+        var offset = k.Type == DataType.F32 ? k : Emit("Cast", [k], Attributes.From(("type", "f32")));
+        var keep = upper ? _b.Binary("GreaterEqual", grid, offset) : _b.Binary("LessEqual", grid, offset);
+        return Emit("Where", [keep, x, ConstValue(OnnxConst.Scalar(0f), name + ".zero")], null, name);
     }
 }

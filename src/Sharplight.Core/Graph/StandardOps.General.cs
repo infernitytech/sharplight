@@ -90,7 +90,7 @@ public static partial class StandardOps
         return [new(i[0].Type, new Shape(dims))];
     });
 
-    /// <summary>Cumulative sum along <c>axis</c>; attrs <c>exclusive</c>, <c>reverse</c> (bool).</summary>
+    /// <summary>Cumulative sum along <c>axis</c>; attrs <c>exclusive</c>, <c>reverse</c> (bool), <c>product</c> (bool: cumulative product instead).</summary>
     public static readonly OpSchema CumSum = new("CumSum", OpCategory.Reduction, 1, 1, SameF32);
 
     /// <summary>
@@ -162,14 +162,17 @@ public static partial class StandardOps
     });
 
     /// <summary>
-    /// Bilinear/nearest sampling of x [N, C, H, W] at normalized grid [N, HO, WO, 2] (x, y in [-1, 1]).
-    /// Attrs: <c>mode</c> ("linear"|"nearest"|"cubic"), <c>padding</c> ("zeros"|"border"|"reflection"), <c>align_corners</c>.
+    /// Bilinear/nearest/bicubic sampling of x [N, C, H, W] at the normalized grid [N, HO, WO, 2] (x, y in [-1, 1]), or volumetric
+    /// trilinear/nearest sampling of x [N, C, D, H, W] at grid [N, DO, HO, WO, 3] (x, y, z).
+    /// Attrs: <c>mode</c> ("linear"|"nearest"|"cubic"; cubic is 2-D only), <c>padding</c> ("zeros"|"border"|"reflection"), <c>align_corners</c>.
     /// </summary>
     public static readonly OpSchema GridSample = new("GridSample", OpCategory.Data, 2, 2, (i, a) =>
     {
         var x = i[0].Shape;
         var g = i[1].Shape;
-        return [new(DataType.F32, new Shape(x[0], x[1], g[1], g[2]))];
+        return x.Rank == 5
+            ? [new(DataType.F32, new Shape(x[0], x[1], g[1], g[2], g[3]))]
+            : [new(DataType.F32, new Shape(x[0], x[1], g[1], g[2]))];
     });
 
     /// <summary>

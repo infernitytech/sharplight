@@ -39,9 +39,7 @@ internal sealed partial class OnnxTranslator
         ["Softsign"] = "Softsign",
         ["Not"] = "Not",
         ["IsNaN"] = "IsNaN",
-        ["IsInf"] = "IsInf",
         ["Silu"] = "Silu",
-        ["Swish"] = "Silu",
     };
 
     /// <summary>ONNX unary ops with float attributes: (attribute, default) pairs, same names on the IR op.</summary>
@@ -100,6 +98,12 @@ internal sealed partial class OnnxTranslator
 
     private void Unary(OnnxNode n, TranslatedTensor?[] ins, string irOp)
     {
+        if (s_integerUnary.Contains(n.OpType) && AllIntegers(ins))
+        {
+            IntegerUnary(n, ins[0]!, irOp);
+            return;
+        }
+
         SetDyn(n, 0, Emit(irOp, [X(ins, 0)], null, Nm(n)));
     }
 
@@ -111,7 +115,20 @@ internal sealed partial class OnnxTranslator
 
     private void Binary(OnnxNode n, TranslatedTensor?[] ins, string irOp)
     {
+        if (s_integerBinary.Contains(n.OpType) && AllIntegers(ins))
+        {
+            IntegerBinary(n, ins, irOp);
+            return;
+        }
+
         string name = Nm(n);
+        if (n.OpType == "Pow" && OnnxType.IsInteger(ElemTypeOf(ins[0]!)))
+        {
+            // An integer base with a float exponent has an integer result: round away pow's approximation error (exp2 / log2 on GPUs).
+            SetDyn(n, 0, Emit("Round", [Emit(irOp, BroadcastOperands(ins, X(ins, 0, name + ".a"), X(ins, 1, name + ".b")))], null, name));
+            return;
+        }
+
         SetDyn(n, 0, Emit(irOp, BroadcastOperands(ins, X(ins, 0, name + ".a"), X(ins, 1, name + ".b")), null, name));
     }
 
@@ -149,26 +166,82 @@ internal sealed partial class OnnxTranslator
     private void Mod(OnnxNode n, TranslatedTensor?[] ins)
     {
         var attributes = Attributes.From(("fmod", n.Int("fmod", 0) != 0));
+        if (AllIntegers(ins))
+        {
+            IntegerBinary(n, ins, "Mod", attributes);
+            return;
+        }
+
         SetDyn(n, 0, Emit("Mod", [X(ins, 0), X(ins, 1)], attributes, Nm(n)));
     }
 
+    /// <summary>Clip with attribute or constant bounds (the IR Clip op); runtime bounds become Max / Min against the bound value.</summary>
     private void Clip(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
-        float? min = n.Has("min") ? n.Float("min", 0) : OptConst(ins, 1, "Clip min") is { } minConst ? minConst.ScalarF32() : null;
-        float? max = n.Has("max") ? n.Float("max", 0) : OptConst(ins, 2, "Clip max") is { } maxConst ? maxConst.ScalarF32() : null;
-        var bounds = new List<(string, object)>();
-        if (min is { } lower)
+        var (minConst, minValue) = ClipBound(n, ins, "min", 1);
+        var (maxConst, maxValue) = ClipBound(n, ins, "max", 2);
+        if (minValue is null && maxValue is null)
         {
-            bounds.Add(("min", lower));
+            var bounds = new List<(string, object)>();
+            if (minConst is { } lower)
+            {
+                bounds.Add(("min", lower));
+            }
+
+            if (maxConst is { } upper)
+            {
+                bounds.Add(("max", upper));
+            }
+
+            SetDyn(n, 0, Emit("Clip", [x], Attributes.From(bounds.ToArray()), Nm(n)));
+            return;
         }
 
-        if (max is { } upper)
+        // ONNX applies the lower bound first, then the upper one (min > max yields max everywhere). Integer tensors are
+        // clipped in f32 (exact for the ranges i32 carries here) because the CPU Max / Min kernels are f32-only.
+        bool integer = x.Type == DataType.I32;
+        Value ToF32(Value v) => v.Type == DataType.I32 ? Emit("Cast", [v], Attributes.From(("type", "f32"))) : v;
+        var y = ToF32(x);
+        minValue = minValue is null ? null : ToF32(minValue);
+        maxValue = maxValue is null ? null : ToF32(maxValue);
+        if (minConst is { } constLower)
         {
-            bounds.Add(("max", upper));
+            y = Emit("Clip", [y], Attributes.From(("min", constLower)));
         }
 
-        SetDyn(n, 0, Emit("Clip", [x], Attributes.From(bounds.ToArray()), Nm(n)));
+        if (minValue is not null)
+        {
+            y = Emit("Max", [y, minValue]);
+        }
+
+        if (maxConst is { } constUpper)
+        {
+            y = Emit("Clip", [y], Attributes.From(("max", constUpper)));
+        }
+
+        if (maxValue is not null)
+        {
+            y = Emit("Min", [y, maxValue]);
+        }
+
+        SetDyn(n, 0, integer ? Emit("Cast", [y], Attributes.From(("type", "i32")), Nm(n)) : y);
+    }
+
+    /// <summary>A Clip bound: an attribute or constant input, or a runtime value.</summary>
+    private static (float? Constant, Value? Runtime) ClipBound(OnnxNode n, TranslatedTensor?[] ins, string attribute, int input)
+    {
+        if (n.Has(attribute))
+        {
+            return (n.Float(attribute, 0), null);
+        }
+
+        if (ins.Length <= input || ins[input] is not { } bound)
+        {
+            return (null, null);
+        }
+
+        return bound.IsConst ? (bound.C!.ScalarF32(), null) : (null, bound.V!);
     }
 
     private void Gelu(OnnxNode n, TranslatedTensor?[] ins)
@@ -208,46 +281,25 @@ internal sealed partial class OnnxTranslator
         _env[n.Outputs[0]] = ins[0]!;
     }
 
+    /// <summary>
+    /// Dropout in inference: y = x and the mask (output #1) all true. Training mode (opset 12+: a constant training_mode input) is the
+    /// identity only for ratio 0; random dropout is not supported.
+    /// </summary>
     private void Dropout(OnnxNode n, TranslatedTensor?[] ins)
     {
-        CheckUnusedOutputs(n, 1);
+        bool training = OptConst(ins, 2, "Dropout training_mode") is { } mode && mode.Ints()[0] != 0;
+        float ratio = OptConst(ins, 1, "Dropout ratio") is { } r ? r.ScalarF32() : n.Float("ratio", 0.5f);
+        if (training && ratio != 0)
+        {
+            throw new NotSupportedException("Dropout in training mode (random masks are not reproducible)");
+        }
+
         _env[n.Outputs[0]] = ins[0]!;
-    }
-
-    private void Cast(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        int to = (int)n.Int("to", OnnxType.Float);
-        var x = ins[0]!;
-        Value v = x.V ?? AsValue(x);
-        if (to == OnnxType.Bool)
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
         {
-            v = Emit("NotEqual", [AsValue(x), _b.Constant("zero", DataType.F32, new Shape(1), new byte[4])], null, Nm(n));
+            var x = X(ins, 0);
+            var one = ConstValue(OnnxConst.Scalar(1f), Nm(n) + ".one");
+            SetDyn(n, 1, Emit("Where", [_b.Unary("IsNaN", x), one, one]));
         }
-        else if (OnnxType.IsFloat(to))
-        {
-            v = x.V is { Type.Kind: DataTypeKind.Int } ? AsValue(x) : v;
-        }
-        else if (v.Type == DataType.F32)
-        {
-            v = Emit("Cast", [v], Attributes.From(("type", "i32")), Nm(n));
-        }
-
-        _env[n.Outputs[0]] = TranslatedTensor.Dyn(v);
-    }
-
-    /// <summary>CastLike is a Cast to the element type of the second input (float when that input is dynamic).</summary>
-    private void CastLike(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        var like = ins[1]!;
-        int to = like.IsConst ? like.C!.ElemType : OnnxType.Float;
-        var toAttribute = new OnnxAttribute { Name = "to", Type = OnnxAttrType.Int, I = to };
-        var cast = new OnnxNode
-        {
-            OpType = "Cast",
-            Inputs = n.Inputs.Take(1).ToList(),
-            Outputs = n.Outputs,
-            Attributes = new Dictionary<string, OnnxAttribute> { ["to"] = toAttribute },
-        };
-        Cast(cast, ins);
     }
 }

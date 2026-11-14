@@ -32,7 +32,8 @@ internal sealed partial class OnnxTranslator
     {
         if (ins.Any(t => t is null || !t.IsConst))
         {
-            throw new NotSupportedException("Range over runtime tensor values has a data-dependent length");
+            RuntimeRange(n, ins);
+            return;
         }
 
         var start = ins[0]!.C!;

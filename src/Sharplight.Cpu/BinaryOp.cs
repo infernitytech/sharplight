@@ -64,8 +64,15 @@ internal sealed unsafe class BinaryOp : CpuOp
             return;
         }
 
-        _l = _y.Cols(p);
         int rank = _y.Rank;
+        if (rank == 0)
+        {
+            // Rank-0 operands (a full reduction without keepdims) have no stride entries.
+            Apply(_kind, (float*)_a.P, 0, (float*)_b.P, 0, (float*)_y.P, 1, _fmod);
+            return;
+        }
+
+        _l = _y.Cols(p);
         _top = rank - 2;
         long sa = _sa[rank - 1];
         long sb = _sb[rank - 1];

@@ -3,7 +3,7 @@ using Sharplight.Tensors;
 namespace Sharplight.Onnx;
 
 /// <summary>Host-side evaluation of constant subgraphs (shape computations, weight preprocessing).</summary>
-internal static class OnnxFold
+internal static partial class OnnxFold
 {
     /// <summary>Ops that can be evaluated when all their inputs are constants.</summary>
     public static readonly HashSet<string> Ops =
@@ -15,6 +15,7 @@ internal static class OnnxFold
         "Sin", "Cos", "Tan", "Asin", "Acos", "Atan", "Sinh", "Cosh", "Asinh", "Acosh", "Atanh", "Round", "Sign", "Softplus", "Softsign", "Mod", "IsNaN", "IsInf",
         "Tile", "NonZero", "EyeLike", "QuantizeLinear", "DequantizeLinear", "CastLike", "ArgMax", "ArgMin", "BatchNormalization",
         "MatMul",
+        "HannWindow", "HammingWindow", "BlackmanWindow", "MelWeightMatrix",
     ];
 
     /// <summary>
@@ -27,7 +28,7 @@ internal static class OnnxFold
     /// <summary>Whether <paramref name="n"/> should be evaluated on the host given that all its inputs are constants.</summary>
     public static bool ShouldFold(OnnxNode n, IReadOnlyList<OnnxConst?> ins)
     {
-        if (!Ops.Contains(n.OpType))
+        if (!Ops.Contains(n.OpType) || ins.Any(c => c?.Strings is not null))
         {
             return false;
         }
@@ -148,7 +149,7 @@ internal static class OnnxFold
             case "Dropout":
                 return [Input(n, ins, 0)];
             case "Cast":
-                return [Input(n, ins, 0).CastTo((int)n.Int("to", OnnxType.Float))];
+                return [Input(n, ins, 0).CastTo((int)n.Int("to", OnnxType.Float), n.Int("saturate", 1) != 0)];
             case "Shape":
                 return FoldShape(n, ins);
             case "Size":
@@ -246,6 +247,10 @@ internal static class OnnxFold
                 return [Reduce(n, Input(n, ins, 0), Optional(ins, 1))];
             case "MatMul":
                 return [MatMul(n, Input(n, ins, 0), Input(n, ins, 1))];
+            case "HannWindow" or "HammingWindow" or "BlackmanWindow":
+                return [FoldWindow(n, ins)];
+            case "MelWeightMatrix":
+                return [FoldMelWeightMatrix(n, ins)];
         }
         throw new NotSupportedException($"Constant folding of {n.OpType} is not implemented.");
     }
@@ -807,6 +812,17 @@ internal static class OnnxFold
             var i = n.Ints("value_ints")!;
             return OnnxConst.FromInts(OnnxType.Int64, [i.Length], i);
         }
+
+        if (n.Has("value_string"))
+        {
+            return OnnxConst.FromStrings([], [n.Str("value_string", "")]);
+        }
+
+        if (n.Has("value_strings"))
+        {
+            var s = n.Attributes["value_strings"].Strings;
+            return OnnxConst.FromStrings([s.Count], [.. s]);
+        }
         throw new NotSupportedException($"Constant node '{n.Name}' has no supported value attribute.");
     }
 
@@ -1313,7 +1329,8 @@ internal static class OnnxFold
         int axis = NormalizeAxis(n.Int("axis", 0), x.Rank);
         var sizes = n.Has("split") ? n.Ints("split")! : splitIn?.Ints();
         int outs = n.Outputs.Count;
-        sizes ??= Enumerable.Repeat(x.Dims[axis] / outs, outs).ToArray();
+        long chunk = (x.Dims[axis] + outs - 1) / outs;   // opset 18 num_outputs: the last chunk may be smaller
+        sizes ??= Enumerable.Range(0, outs).Select(i => Math.Min(chunk, x.Dims[axis] - i * chunk)).ToArray();
         var result = new List<OnnxConst>();
         long start = 0;
         foreach (var sz in sizes)

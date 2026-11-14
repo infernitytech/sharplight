@@ -21,7 +21,7 @@ public sealed partial class GraphLowerer
             throw new NotSupportedException($"copy {src.Type} → {dst.Type}");
         }
 
-        EmitElementwiseKernel(name, nodes ?? [], dst.Shape, dst.Symbol, [src], [(dst, "a0")], []);
+        EmitElementwiseKernel(name, nodes ?? [], dst.Shape, dst.Symbol, [src], [(dst, IsIntLocal(src.Type) ? "float(a0)" : "a0")], []);
     }
 
     /// <summary>
@@ -37,6 +37,7 @@ public sealed partial class GraphLowerer
         var names = new Dictionary<Value, string>();
         var shape = BoundShape(shapeValue);
         var loads = new Dictionary<int, string?>();
+        var intLocals = new HashSet<string>(StringComparer.Ordinal);
 
         int Input(Value v)
         {
@@ -68,7 +69,13 @@ public sealed partial class GraphLowerer
                 return names[v] = local;
             }
 
-            return names[v] = "a" + Input(v);
+            var name = names[v] = "a" + Input(v);
+            if (IsIntLocal(v.Type))
+            {
+                intLocals.Add(name);
+            }
+
+            return name;
         }
 
         string? headInput = null;
@@ -81,13 +88,24 @@ public sealed partial class GraphLowerer
         foreach (var node in group)
         {
             var args = node.Inputs.Select(Operand).ToArray();
-            string expression = OpExpr(node, args);
+            var (expression, isInt) = TypedOpExpr(node, args, [.. args.Select(intLocals.Contains)]);
             var local = "v" + statements.Count;
-            statements.Add($"float {local} = {expression};");
+            statements.Add($"{(isInt ? "int" : "float")} {local} = {expression};");
             names[node.Output] = local;
+            if (isInt)
+            {
+                intLocals.Add(local);
+            }
         }
 
-        var outs = outputs.Select(o => (Produce(o), names[o])).ToList();
+        string Stored(Value o)
+        {
+            string local = names[o];
+            bool isInt = intLocals.Contains(local);
+            return IsIntLocal(o.Type) == isInt ? local : isInt ? $"float({local})" : $"int({local})";
+        }
+
+        var outs = outputs.Select(o => (Produce(o), Stored(o))).ToList();
         var label = string.Join(",", group.Select(g => g.Op.Name));
         if (normTail is not null)
         {
@@ -182,7 +200,7 @@ public sealed partial class GraphLowerer
 
         for (int i = 0; i < outputs.Count; i++)
         {
-            sb.AppendLine($"  float* out{i};");
+            sb.AppendLine($"  {ElementwiseCodegen.PointerType(outputs[i].Ref.Type)}* out{i};");
         }
 
         sb.AppendLine("  uint n;");
@@ -193,10 +211,13 @@ public sealed partial class GraphLowerer
         ElementwiseCodegen.AppendCoordinates(sb, "  ", shape, pitches);
         for (int i = 0; i < inputs.Count; i++)
         {
-            string? load = loads is not null && loads.TryGetValue(i, out var custom) ? custom : ElementwiseCodegen.Load(inputs[i], i, shape);
+            bool customLoad = loads is not null && loads.ContainsKey(i);
+            string? load = customLoad ? loads![i] : IsIntLocal(inputs[i].Type)
+                ? $"p.in{i}[{ElementwiseCodegen.Offset(inputs[i], shape)}]"
+                : ElementwiseCodegen.Load(inputs[i], i, shape);
             if (load is not null)
             {
-                sb.AppendLine($"  float a{i} = {load};");
+                sb.AppendLine($"  {(IsIntLocal(inputs[i].Type) && !customLoad ? "int" : "float")} a{i} = {load};");
             }
         }
 
@@ -207,7 +228,7 @@ public sealed partial class GraphLowerer
 
         for (int i = 0; i < outputs.Count; i++)
         {
-            sb.AppendLine($"  p.out{i}[{ElementwiseCodegen.Offset(outputs[i].Ref, shape)}] = {outputs[i].Expr};");
+            sb.AppendLine($"  p.out{i}[{ElementwiseCodegen.Offset(outputs[i].Ref, shape)}] = {ElementwiseCodegen.Store(outputs[i].Ref.Type, outputs[i].Expr)};");
         }
 
         sb.AppendLine("}");
@@ -215,7 +236,7 @@ public sealed partial class GraphLowerer
         var kernel = _compiler.Compile("elementwise.slang", sb.ToString(), "main", _opt.Target, Macros(), _opt.Cache);
         KernelArg count = symbol is null ? new UIntArg((uint)ElementwiseCodegen.ElementCount(shape)) : new SymbolArg(symbol, inner);
         Emit(name, nodes,
-            [Always(kernel, b => new Grid(Grid.Div((symbol is null ? shape[0] : b[symbol]) * inner, 256)))],
+            [Always(kernel, b => new Grid(Grid.Div((symbol is not null ? b[symbol] : shape.Length == 0 ? 1 : shape[0]) * inner, 256)))],
             [.. inputs.Select(r => (KernelArg)Pointer(r)), .. outputs.Select(o => (KernelArg)Pointer(o.Ref)), count],
             inputs, outputs.Select(o => o.Ref));
     }

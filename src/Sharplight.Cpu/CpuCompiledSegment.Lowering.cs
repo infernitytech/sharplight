@@ -51,10 +51,16 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Cast":
                 LowerCast(n);
                 return;
-            case "Contiguous" or "Transfer":
+            case "Contiguous" or "Transfer" or "Reinterpret":
                 LowerCopy(n);
                 return;
 
+            case "Narrow":
+                LowerNarrow(n);
+                return;
+            case "BitAnd" or "BitOr" or "BitXor" or "ShiftLeft" or "ShiftRight" or "BitNot":
+                LowerInteger(n);
+                return;
             case "Clip":
                 LowerClip(n);
                 return;
@@ -73,6 +79,15 @@ internal sealed unsafe partial class CpuCompiledSegment
                 return;
             case "Pool":
                 LowerPool(n);
+                return;
+            case "PoolArgMax":
+                LowerPoolArgMax(n);
+                return;
+            case "DeformConv":
+                LowerDeformConv(n);
+                return;
+            case "MaxRoiPool":
+                LowerMaxRoiPool(n);
                 return;
             case "Reduce":
                 LowerReduce(n);
@@ -129,6 +144,15 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "OneHot":
                 LowerOneHot(n);
                 return;
+            case "Det":
+                LowerDet(n);
+                return;
+            case "Inverse":
+                LowerInverse(n);
+                return;
+            case "LinearAttention":
+                LowerLinearAttention(n);
+                return;
 
             case "Gather":
                 LowerGather(n);
@@ -182,6 +206,42 @@ internal sealed unsafe partial class CpuCompiledSegment
                 return;
             case "Unique":
                 LowerUnique(n);
+                return;
+            case "Dft":
+                LowerDft(n);
+                return;
+            case "Random":
+                LowerRandom(n);
+                return;
+            case "Multinomial":
+                LowerMultinomial(n);
+                return;
+            case "TfIdf":
+                LowerTfIdf(n);
+                return;
+            case "StringConst":
+                LowerStringConst(n);
+                return;
+            case "StringBinary":
+                LowerStringBinary(n);
+                return;
+            case "StringNormalize":
+                LowerStringNormalize(n);
+                return;
+            case "RegexMatch":
+                LowerRegexMatch(n);
+                return;
+            case "StringCast":
+                LowerStringCast(n);
+                return;
+            case "TreeEnsemble":
+                LowerTreeEnsemble(n);
+                return;
+            case "OneVsOne":
+                LowerOneVsOne(n);
+                return;
+            case "LabelEncode":
+                LowerLabelEncode(n);
                 return;
         }
 

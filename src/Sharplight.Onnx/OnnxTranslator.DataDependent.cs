@@ -85,6 +85,15 @@ internal sealed partial class OnnxTranslator
             conditionTensor = Synthetic("Reshape", [conditionTensor, flat]);
         }
 
+        if (conditionTensor.IsConst)
+        {
+            // A constant condition selects constant indices: a plain Gather along any axis.
+            var selected = conditionTensor.C!.Floats().Select((c, i) => (c, i)).Where(p => p.c != 0).Select(p => (long)p.i).ToArray();
+            var picked = TranslatedTensor.Const(OnnxConst.FromInts(OnnxType.Int64, [selected.Length], selected, Nm(n) + ".selected"));
+            _env[n.Outputs[0]] = Synthetic("Gather", [x, picked], IntAttribute("axis", axis));
+            return;
+        }
+
         var condition = conditionTensor.V ?? AsValue(conditionTensor);
         var bound = Sym(condition) ? condition.Shape[0] * condition.Shape.InnerElements : (Dim)condition.Shape.Elements();
         string count = NewDynamicSymbol("compress", bound);

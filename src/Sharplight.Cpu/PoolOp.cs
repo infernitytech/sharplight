@@ -111,10 +111,10 @@ internal sealed unsafe class PoolOp : CpuOp
                         long cnt;
                         if (_includePad)
                         {
-                            // window clipped to the padded input (ceil_mode overhang is not counted)
-                            long he = Math.Min(hs + _kh, _h + _pb);
-                            long we = Math.Min(ws + _kw, _w + _pr);
-                            cnt = (he - hs) * (we - ws);
+                            // taps inside the padded input (ceil_mode overhang is not counted)
+                            long th = Math.Min(_kh, (_h + _pb - 1 - hs) / _dh + 1);
+                            long tw = Math.Min(_kw, (_w + _pr - 1 - ws) / _dw + 1);
+                            cnt = th * tw;
                         }
                         else
                         {

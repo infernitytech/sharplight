@@ -10,7 +10,7 @@ namespace Sharplight.Package;
 public static class ModelPackageReader
 {
     /// <summary>Reads the structure of a package.</summary>
-    /// <param name="path">A package file (version 1 or 2).</param>
+    /// <param name="path">A package file (version 1 to 3).</param>
     /// <returns>A snapshot of the package; the file is closed again.</returns>
     /// <exception cref="InvalidDataException">The file is not a supported package or is damaged.</exception>
     public static PackageInfo Open(string path)
@@ -50,17 +50,17 @@ public static class ModelPackageReader
             weights,
             artifactSets,
             CompactedSize(sections),
-            () => DecodeDefinition(definitionBytes, weights));
+            () => DecodeDefinition(definitionBytes, weights, definitionSection.Name));
     }
 
-    private static DefinitionInfo DecodeDefinition(byte[] bytes, IReadOnlyList<PackageWeightInfo> weights)
+    private static DefinitionInfo DecodeDefinition(byte[] bytes, IReadOnlyList<PackageWeightInfo> weights, string sectionName)
     {
         var detached = weights.ToDictionary(
             w => w.Name,
             w => new WeightInfo { Name = w.Name, Type = w.Type, Shape = w.Shape, Source = new DetachedWeightSource(w.ByteSize) },
             StringComparer.Ordinal);
         using var reader = new BinaryReader(new MemoryStream(bytes, writable: false), Encoding.UTF8);
-        return new DefinitionInfo(DefinitionCodec.Read(reader, detached, []));
+        return new DefinitionInfo(DefinitionCodec.Read(reader, detached, [], sectionName));
     }
 
     /// <summary>Size of the file <see cref="ModelPackage.Compact"/> would write (same layout rules).</summary>

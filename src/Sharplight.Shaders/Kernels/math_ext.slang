@@ -82,4 +82,67 @@ float round_even(float x)
 }
 float sign_f(float x) { return x != x ? x : (x > 0.0 ? 1.0 : (x < 0.0 ? -1.0 : 0.0)); }
 float asinh_f(float x) { float a = abs(x); float r = log(a + sqrt(a * a + 1.0)); return x < 0.0 ? -r : r; }
-float mod_py(float a, float b) { float r = fmod(a, b); return (r != 0.0 && ((r < 0.0) != (b < 0.0))) ? r + b : r; }
+// Python-style remainder (sign of the divisor). An infinite divisor leaves a finite dividend of its sign unchanged and yields the divisor
+// for the other sign (as numpy does); fmod alone would compute a - b·trunc(a/b) = NaN on GPUs.
+float mod_py(float a, float b)
+{
+    if (isinf(b) && !isinf(a) && a == a)
+    {
+        return (a == 0.0 || ((a < 0.0) == (b < 0.0))) ? a : b;
+    }
+
+    float r = fmod(a, b);
+    return (r != 0.0 && ((r < 0.0) != (b < 0.0))) ? r + b : r;
+}
+
+// ---- narrow formats and exact integer arithmetic (graph ops Narrow, integer Add/Div/Mod/..., bitwise ops) ----
+
+// Rounds x to a float format with `mbits` mantissa bits and minimum normal exponent `emin`, to nearest even. Magnitudes above `maxv`
+// saturate (overflow 0), become infinity (1) or NaN (2); `fnuz` formats have no negative zero; `nanNegZero` maps NaN to -0 (FP4 E2M1).
+float narrow_float(float x, int mbits, int emin, float maxv, int overflow, bool fnuz, bool nanNegZero)
+{
+    if (x != x) return nanNegZero ? asfloat(0x80000000u) : x;
+    float a = abs(x);
+    float r = a;
+    if (!isinf(a))
+    {
+        int e = max(int((asuint(a) >> 23) & 255u) - 127, emin);
+        int k = mbits - e;
+        r = round_even(a * asfloat(uint(127 + k) << 23)) * asfloat(uint(127 - k) << 23);
+    }
+    if (r > maxv) r = overflow == 0 ? maxv : asfloat(overflow == 1 ? 0x7F800000u : 0x7FC00000u);
+    if (fnuz && r == 0.0) return 0.0;
+    return asfloat(asuint(r) | (asuint(x) & 0x80000000u));
+}
+float narrow_bf16(float x) { return bf2f(f2bf(x)); }
+
+int idiv(int a, int b) { return b == 0 ? 0 : (b == -1 ? -a : a / b); }
+int imod(int a, int b, bool cStyle)
+{
+    if (b == 0 || b == -1) return 0;
+    // Remainder by the truncating division: `%` on int may lower to an unsigned modulo.
+    int r = a - (a / b) * b;
+    return (!cStyle && r != 0 && ((r < 0) != (b < 0))) ? r + b : r;
+}
+int ipow(int a, int b)
+{
+    if (b < 0) return a == 1 ? 1 : (a == -1 ? ((b & 1) == 0 ? 1 : -1) : 0);
+    int r = 1;
+    int p = a;
+    while (b > 0)
+    {
+        if ((b & 1) != 0) r *= p;
+        p *= p;
+        b >>= 1;
+    }
+    return r;
+}
+int ishl(int a, int b) { return (b < 0 || b >= 32) ? 0 : a << b; }
+int ishr(int a, int b) { return (b < 0 || b >= 32) ? (a < 0 ? -1 : 0) : a >> b; }
+int ushr(int a, int b) { return (b < 0 || b >= 32) ? 0 : int(uint(a) >> uint(b)); }
+// Low `bits` bits of v (1..31), sign-extended when isSigned.
+int wrap_int(int v, int bits, bool isSigned)
+{
+    int s = 32 - bits;
+    return isSigned ? (v << s) >> s : int(uint(v) & ((1u << uint(bits)) - 1u));
+}

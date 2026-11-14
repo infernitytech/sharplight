@@ -1,7 +1,8 @@
 # Dynamic shapes, data-dependent sizes and control flow
 
 This document describes how Sharplight represents shapes that are not known when a graph is built: symbolic dimension
-expressions, data-dependent output sizes and runtime control flow (`If`, `Loop`, `Scan`). The guiding constraint is that
+expressions, data-dependent output sizes, runtime control flow (`If`, `Loop`, `Scan`) and ONNX sequences and optionals. The
+guiding constraint is that
 the static fast path does not change: a graph whose shapes are static (or whose only symbol is a caller-bound batch or
 token count) compiles to exactly the same kernels and runs through exactly the same code as before.
 
@@ -15,7 +16,7 @@ token count) compiles to exactly the same kernels and runs through exactly the s
 * `CompiledModel` runs segments (contiguous runs of nodes on one device) in order and moves boundary values through
   host memory. Nodes a device cannot run go to the fallback device (normally the CPU).
 
-All three new features are built on top of these mechanisms instead of replacing them.
+These features are built on top of these mechanisms instead of replacing them.
 
 ## 1. Symbolic dimension expressions
 
@@ -137,37 +138,94 @@ identical.
 
 ### IR
 
-The IR `If` op (`StandardOps.If`, category `ControlFlow`) holds its branches as ordinary `ComputeGraph`s in the
-attributes `then_branch` / `else_branch`. Values the branches read from the enclosing graph become explicit node inputs
-(`[cond, captured...]`) bound by name (`inputs`) to the branch graph inputs, so a branch is a self-contained graph;
-constants are embedded in the branch. Both branches produce the outputs named by `outputs`. Outputs whose shapes agree keep
-them; an output whose outermost dims differ gets a dynamic symbol (`output_symbols`) bounded by the larger branch.
+Control-flow ops (category `ControlFlow`) hold their subgraphs as ordinary `ComputeGraph`s in attributes. Values a subgraph reads
+from the enclosing graph become explicit node inputs bound by name to subgraph inputs, so every subgraph is self-contained;
+constants are embedded in it.
 
-A branch can be impossible to translate for the shapes known at import, typically because it is written for other inputs
-(silero-vad's 8 kHz branch with 16 kHz frames). Such a branch is replaced by its error message (`then_error` /
-`else_error`); the If imports, and taking that branch at run time throws with the message.
+* `If` (`StandardOps.If`): branches `then_branch` / `else_branch`, inputs `[cond, captured...]` bound to the branch inputs
+  named by `inputs`. Both branches produce the outputs named by `outputs`. Outputs whose shapes agree keep them; an output whose
+  outermost dims differ gets a dynamic symbol (`output_symbols`) bounded by the larger branch. A branch that cannot be
+  translated for the shapes known at import (silero-vad's 8 kHz branch with 16 kHz frames) is replaced by its error message
+  (`then_error` / `else_error`); taking it at run time throws with the message.
+* `Loop` (`StandardOps.Loop`): body `body`, inputs `[trip, cond, carried..., scan inputs..., captured...]` bound to the body
+  inputs named by `body_inputs` (whose first entry is the iteration number, an i32 `[1]`). The body returns the continue
+  condition, the next carried values and one slice per scan output (`body_outputs`). Carried values keep their type and shape
+  across iterations. Iteration `t` reads slice `t` of the outermost axis of each scan input; scan outputs are the per-iteration
+  slices stacked along a new outermost axis of extent `scan_extent`. `scan_input_reverse` / `scan_output_reverse` walk an
+  axis backwards, `trip_symbol` limits the iterations by a symbol expression (a scan over the batch axis). When the number of
+  iterations is only known at run time and there are scan outputs, `scan_extent` is a dynamic symbol (`count_symbol`) the node
+  binds after it ran, bounded by the trip count when that is known and by `OnnxImportOptions.RuntimeLoopScanBound` (default
+  4096) otherwise.
+
+ONNX `Scan` is a `Loop` without condition and iteration inputs: its scan axes are moved to the front (`Permute`) before the
+loop and the stacked outputs moved back after it, which works whenever the moved axis is not the symbolic one.
 
 ### Executor
 
-The planner gives every control-flow node a segment of its own that runs on the host. `CompiledModel.Compile` turns it
-into an `IfSegment`, which compiles each branch as a nested `CompiledModel` with the same placement options. Its
-`Execute` reads the condition from host memory, runs the chosen branch on the captured values and keeps the outputs in
-host memory, exactly like values crossing ordinary segment boundaries; the dynamic symbol of a disagreeing output is
-written into `RunParameters.Symbols`. Nested Ifs work recursively.
+The planner gives every control-flow node a segment of its own that runs on the host. `CompiledModel.Compile` turns it into
+an `IfSegment` or a `LoopSegment`, which compile the subgraphs once as nested `CompiledModel`s with the same placement options
+(so a body placed on Vulkan runs there, with the usual CPU fallback for ops Vulkan declines). Values cross the boundary
+through host memory, exactly like values crossing ordinary segment boundaries; host segments read graph constants (a constant
+trip count or condition) directly from the graph.
+
+* `IfSegment.Execute` reads the condition, runs the chosen branch on the captured values and publishes the dynamic symbol of a
+  disagreeing output.
+* `LoopSegment.Execute` passes the captured values to the body once, then per iteration the iteration number, the condition,
+  the carried values and one slice of each scan input; it runs the body, reads the condition and the carried values back and
+  appends the scan slices. A run that needs more iterations than the scan outputs were compiled for fails with a clear error.
+
+Nesting works recursively (an `If` inside a `Loop` body capturing values of both enclosing graphs).
 
 ### Translation strategy
 
-The translator removes control flow statically whenever it can, so the runtime construct is the last resort:
+The translator removes control flow statically whenever it can, so the runtime constructs are the fallback:
 
 1. `If` with a compile-time condition: the taken branch is inlined.
-2. `Loop` / `Scan` bodies run through the translator at import, iteration by iteration. Bodies that only compute constants
-   are evaluated (TF-style `arange` loops, up to `OnnxImportOptions.MaxLoopIterations`).
-3. Bodies that depend on runtime tensors are unrolled up to `OnnxImportOptions.MaxUnrolledLoop` (default 64) iterations,
-   so the body becomes ordinary nodes that fuse and run on the GPU. The trip count and the loop condition must be known
-   at import.
-4. Otherwise `If` becomes the runtime `If` node. There is no runtime `Loop` yet (see Limitations).
+2. `Loop` / `Scan` bodies that only compute constants are evaluated at import, iteration by iteration (TF-style `arange`
+   loops, up to `OnnxImportOptions.MaxLoopIterations`).
+3. Bodies that depend on runtime tensors are unrolled up to `OnnxImportOptions.MaxUnrolledLoop` (default 64) iterations when
+   the trip count and the condition are known at import, so the body becomes ordinary nodes that fuse and run on the GPU.
+4. Otherwise `If` becomes the runtime `If` node and `Loop` / `Scan` the runtime `Loop` node.
 
-## 4. DynamicQuantizeLinear with a symbolic batch
+The choice between 3 and 4 is made before anything is emitted: a dataflow pass over the body marks every value that depends
+on a runtime tensor (enclosing runtime values, carried values whose initial value or update is runtime, iterated to a fixed
+point; shapes and sizes count as known). A runtime trip count, a runtime initial or continue condition, a symbolic scan length
+or more than `MaxUnrolledLoop` iterations of a runtime body select the runtime loop.
+
+Values that subgraphs read from enclosing graphs count as reads of the node that owns the subgraph, so the translator's
+ordering, liveness and consumer analysis keep them (the expanded `AffineGrid` and `LinearAttention` functions define values
+that only their `If` / `Scan` bodies read).
+
+## 4. Sequences and optionals
+
+ONNX sequences and optionals have no IR representation: they are resolved by the translator, so providers never see them.
+
+* **Sequences whose structure is known at import** are lists of translated tensors (`TranslatedTensor.Sequence`). Every
+  sequence op becomes ordinary IR on the elements: `SequenceConstruct`, `SequenceEmpty`, `SequenceInsert` / `SequenceErase`
+  at a constant position, `SequenceAt` (a constant position picks the element; a runtime position stacks same-shaped elements
+  and gathers one row), `SequenceLength` (a constant), `SplitToSequence` (slices), `ConcatFromSequence` (`Concat`, with
+  `Unsqueeze` for `new_axis`) and `SequenceMap` (the body runs once per element at import, like an unrolled loop; elements may
+  have different shapes). Unrolled and import-time loops carry such lists like any other value, which covers the common
+  "append in a loop body, `ConcatFromSequence` after" pattern whenever the loop unrolls.
+* **Sequences whose length is only known at run time** come from a runtime `Loop` that appends one tensor per iteration to a
+  sequence that starts empty (`SequenceInsert` without position, the only use of the carried sequence in the body). The
+  appended tensor becomes a scan output, and the sequence is that stacked tensor (`TranslatedTensor.Stacked`: elements along
+  the outermost axis, length = the loop's count symbol). `SequenceAt` with a non-negative position, `SequenceLength` (a
+  symbolic constant), `SequenceInsert` at the end and `ConcatFromSequence` along axis 0 accept it; anything that would move the
+  symbolic length inward is rejected.
+* **Optionals** are their value, or an empty marker (`TranslatedTensor.None`). `Optional`, `OptionalHasElement` (a constant)
+  and `OptionalGetElement` are resolved at import; whether an optional holds a value is therefore always known at import.
+* `If` with a compile-time condition, `Identity`, `Loop` and `Scan` pass sequences and optionals through. A runtime `If` whose
+  branches return them, or subgraphs that read a runtime sequence of the enclosing graph, are rejected.
+
+Graph inputs and outputs: a sequence input is one graph input per element, named `name[k]`
+(`OnnxGraphAdapter.SequenceElementName`); its length is given by `OnnxImportOptions.SequenceInputLengths` and the element
+shapes by `InputShapes` under the element names. An optional input holds a value unless it is listed in
+`OnnxImportOptions.AbsentInputs`. A sequence output is one output per element when its length is known at import, or one
+output under the sequence's own name with the elements stacked along the outermost axis when it is not; an empty optional
+output has no graph output. The conformance harness feeds and compares `SequenceProto` / `OptionalProto` test data this way.
+
+## 5. DynamicQuantizeLinear with a symbolic batch
 
 `DynamicQuantizeLinear` needs min/max over the whole tensor, including the symbolic batch axis. `Reduce` now accepts the
 symbolic outermost axis (output extent 1). On the CPU the reduction loops over the bound value. The Vulkan `reduce`
@@ -183,21 +241,30 @@ keeps the compile-time constant.
 * **Data-dependent ops** force a host synchronization on GPU devices (the segment boundary) and, on Vulkan, a command
   buffer recording per new count value (amortized by the recording cache when counts repeat). Buffers are sized for the
   upper bound, so memory follows the bound, not the actual count.
-* **Runtime control flow** costs one host round trip per branch or iteration for the values crossing the boundary.
-  Subgraph weights are uploaded per subgraph, which doubles device weight memory for `If` nodes whose branches share
-  weights (CPU weights are memory mapped and shared). Unrolling and constant folding avoid this for the common cases.
+* **Runtime control flow** costs one host round trip per branch or iteration for the values crossing the boundary (a runtime
+  `Loop` copies its carried values and scan slices through host memory every iteration, and a GPU body is one submission
+  per iteration). Subgraph weights are uploaded per subgraph, which doubles device weight memory for `If` nodes whose branches
+  share weights (CPU weights are memory mapped and shared). Unrolling and constant folding avoid this for the common cases.
+* **Sequences and optionals** cost nothing at run time: they are resolved into ordinary IR at import.
 
 ## Limitations
 
 * Only the outermost dimension may be symbolic (static strides). Tensors whose dynamic dim moves inward, beyond the
   leading-unit-dim case above, are rejected with a clear error, as is reducing or transposing it away.
-* Runtime `Range`, `Reshape`, `Expand` whose *values* (not just shapes) come from tensor data are supported only when
-  the result can be expressed with symbols; truly value-dependent extents (GLiNER's `Range` up to the word count) are
-  not, since they would need a value-range analysis to bound them.
-* `Loop` whose trip count or condition depends on runtime tensors, or that needs more than `MaxUnrolledLoop` iterations
-  of a runtime body, is rejected: there is no runtime loop construct.
+* Runtime `Reshape` and `Expand` whose *values* (not just shapes) come from tensor data are supported only when the
+  result can be expressed with symbols. A runtime `Range` limit (with constant start and delta) is supported when a
+  value-range analysis proves an upper bound for it (GLiNER's `Range` up to the word count): the analysis walks the
+  ONNX graph back from the limit through constants, shapes, comparisons (0/1), casts and value-preserving ops,
+  `ReduceSum` over known extents, `ReduceMax` / `Max` / `Add` / `Mul`, and graph inputs with a declared bound
+  (`OnnxImportOptions.InputValueBounds`, values in `[0, bound]`). The range is then the prefix of the constant
+  sequence `start + i · delta` below that bound selected with `NonZero`, so its length is a dynamic symbol like
+  `NonZero`'s. A declared input bound is a contract: larger values at run time truncate the range. Runtime start or
+  delta, and limits bounded only by a symbolic extent, are not supported.
+* A runtime `Loop` needs loop-carried values of constant type and shape (a value that grows per iteration only works when the
+  loop unrolls), scan outputs without symbolic dims, and sequences carried through it only in the append pattern above.
+* A runtime `If` cannot return sequences or optionals, and the presence of an optional is fixed at import.
+* `SequenceInsert` / `SequenceErase` at a runtime position, and `SequenceMap` over a runtime-length sequence, are unsupported.
 * A gather along a data-dependent axis that is not the outermost (Grounding DINO's `NonZero` results indexing an inner
   axis), `Unique` with an `axis` and `Compress` on an inner axis are unsupported.
 * `Concat` along a symbolic outer axis and `RoiAlign` run on the CPU; on Vulkan this costs a host round trip per node.
-* Packages (`ModelPackage.Save`) reject graphs with dynamic symbols or runtime `If` nodes.
 * Subgraph weights are not shared between nested compiled models on accelerators.

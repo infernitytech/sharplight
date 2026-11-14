@@ -270,5 +270,9 @@ P("python bench/onnx/model_meta.py && python bench/onnx/make_report.py          
 P("# per-kernel GPU time of one model:  dotnet bench/onnx/SurveyRunner/bin/Release/net11.0/SurveyRunner.dll <manifest.json> vulkan --profile")
 P("```")
 P("Existing models are measured from their existing fixtures (`ref/*.json`, `ref/zoo/*.json`) without regenerating them. The harness reads the same manifest format as `ZooTests`.\n")
+# The operator coverage section (tools/onnx-coverage.py) is maintained separately: keep it when regenerating the survey.
+COVERAGE = "## Operator coverage"
+if os.path.exists(OUT) and COVERAGE in (old := open(OUT).read()):
+    L.append(old[old.index(COVERAGE):].rstrip())
 open(OUT, "w").write("\n".join(L) + "\n")
 print("wrote", OUT, len(rows), "models")

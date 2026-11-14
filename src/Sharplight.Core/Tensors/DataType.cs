@@ -94,6 +94,8 @@ public sealed class DataType : IEquatable<DataType>
     public static readonly DataType I64 = Register("i64", DataTypeKind.Int, 1, 8);
     /// <summary>Boolean stored as one byte.</summary>
     public static readonly DataType Bool = Register("bool", DataTypeKind.Bool, 1, 1);
+    /// <summary>Text: 32-bit handles into the run's <see cref="Sharplight.Runtime.StringHeap"/> (see <see cref="DataTypeKind.String"/>).</summary>
+    public static readonly DataType Str = Register("str", DataTypeKind.String, 1, 4);
 
     // ggml-style block quantization formats (layouts are identical across backends).
     /// <summary>ggml 4-bit blocks of 32 with an f16 scale (18 bytes).</summary>

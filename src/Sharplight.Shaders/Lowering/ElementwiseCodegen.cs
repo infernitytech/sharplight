@@ -89,6 +89,17 @@ internal static class ElementwiseCodegen
         throw new NotSupportedException($"elementwise input type {r.Type}");
     }
 
+    /// <summary>Slang expression converting a computed value to the stored element of type <paramref name="t"/> (16-bit floats as raw bits).</summary>
+    public static string Store(DataType t, string expr)
+    {
+        if (t == DataType.F16)
+        {
+            return $"f2h({expr})";
+        }
+
+        return t == DataType.BF16 ? $"f2bf({expr})" : expr;
+    }
+
     /// <summary>Slang pointee type used to read tensors of <paramref name="t"/> (16-bit floats are read as raw bits).</summary>
     public static string PointerType(DataType t)
     {

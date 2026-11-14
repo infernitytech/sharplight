@@ -15,4 +15,9 @@ public sealed class RunParameters
     /// device). Providers may skip downloading them to host memory; reading such an output afterwards returns unspecified data.
     /// </summary>
     public HashSet<string> SkipOutputs { get; } = new(StringComparer.Ordinal);
+    /// <summary>
+    /// The strings that <see cref="Tensors.DataType.Str"/> handles of this run refer to. <see cref="CompiledModel.Run"/> clears it and adds
+    /// the string inputs; string kernels add their results. Handles stay valid until the next run with these parameters.
+    /// </summary>
+    public StringHeap Strings { get; } = new();
 }

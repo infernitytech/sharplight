@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Tensors;
 
 namespace Sharplight.Onnx;
 
@@ -75,7 +76,9 @@ internal sealed partial class OnnxTranslator
 
             y = pieces.Count == 1 ? pieces[0] : _b.Concat(axis, pieces.ToArray());
         }
-        SetDyn(n, 0, Emit("Reshape", [y], Attributes.From(("shape", outDims)), Nm(n)));
+        bool scalar = outDims.Length == 0;   // a scalar index into a vector: an ONNX scalar, carried as [1]
+        SetDyn(n, 0, Emit("Reshape", [y], Attributes.From(("shape", scalar ? [1L] : outDims)), Nm(n)));
+        _env[n.Outputs[0]].Scalar = scalar;
     }
 
     private void GatherElements(OnnxNode n, TranslatedTensor?[] ins)
@@ -106,6 +109,18 @@ internal sealed partial class OnnxTranslator
     private void OneHot(OnnxNode n, TranslatedTensor?[] ins)
     {
         long depth = ConstIn(ins, 1, "OneHot depth").ScalarInt();
+        if (ins[2] is { IsConst: false } runtimeValues)
+        {
+            // off + onehot · (on - off) with the [off, on] pair read at run time.
+            var pair = runtimeValues.V!.Type == DataType.F32 ? runtimeValues.V! : Emit("Cast", [runtimeValues.V!], Attributes.From(("type", "f32")));
+            var off = _b.Slice(pair, 0, 0, 1);
+            var on = _b.Slice(pair, 0, 1, 1);
+            var hot = Emit("OneHot", [Idx(ins[0]!)], Attributes.From(("depth", depth), ("axis", n.Int("axis", -1)), ("on", 1f), ("off", 0f)));
+            var y = _b.Add(_b.Mul(hot, _b.Binary("Sub", on, off)), off);
+            SetDyn(n, 0, runtimeValues.V!.Type == DataType.F32 ? y : Emit("Cast", [y], Attributes.From(("type", runtimeValues.V!.Type.Name)), Nm(n)));
+            return;
+        }
+
         var values = ConstIn(ins, 2, "OneHot values").Floats();
         var attributes = Attributes.From(("depth", depth), ("axis", n.Int("axis", -1)), ("on", (float)values[1]), ("off", (float)values[0]));
         SetDyn(n, 0, Emit("OneHot", [Idx(ins[0]!)], attributes, Nm(n)));

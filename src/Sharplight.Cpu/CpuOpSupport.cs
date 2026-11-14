@@ -19,6 +19,11 @@ internal static partial class CpuOpSupport
     public static OpSupport Check(Node node)
     {
         string op = node.Op.Name;
+        if (IsIntegerElementwise(node))
+        {
+            return OpSupport.Yes;
+        }
+
         if (s_unaryOps.Contains(op) || s_binaryOps.Contains(op) || s_rowOps.Contains(op))
         {
             return AllF32(node);
@@ -27,9 +32,13 @@ internal static partial class CpuOpSupport
         return op switch
         {
             "Scale" or "Clip" or "BatchMatMul" or "CumSum" or "ArgReduce" or "TopK" or "GridSample" => AllF32(node),
+            "Det" or "Inverse" => AllF32(node),
+            "LinearAttention" => AllF32(node),
             "Conv" => CheckConv(node),
             "ConvTranspose" => CheckConvTranspose(node),
             "Pool" => CheckPool(node),
+            "PoolArgMax" => CheckPool(node),
+            "MaxRoiPool" or "DeformConv" => AllF32(node),
             "Reduce" => CheckReduce(node),
             "Pad" => CheckPad(node),
             "Resize" => CheckResize(node),
@@ -44,6 +53,8 @@ internal static partial class CpuOpSupport
             "Contiguous" or "Transfer" => node.Inputs[0].Type.IsQuantized ? OpSupport.No($"{op} of quantized data") : OpSupport.Yes,
             "Concat" => CheckConcat(node),
             "Cast" => CheckCast(node),
+            "Narrow" => CheckNarrow(node),
+            "Reinterpret" => OpSupport.Yes,
             "MatMul" => CheckMatMul(node),
             "MatMulId" => CheckMatMulId(node),
             "Gather" => CheckGather(node),
@@ -64,6 +75,14 @@ internal static partial class CpuOpSupport
             "RoiAlign" => node.Inputs[0].Type == DataType.F32 && node.Inputs[1].Type == DataType.F32 && node.Inputs[2].Type == DataType.I32
                 ? OpSupport.Yes : OpSupport.No("RoiAlign expects f32 x and rois and i32 batch indices"),
             "Sample" => OpSupport.Yes,
+            "Dft" => AllF32(node),
+            "Random" => OpSupport.Yes,
+            "TreeEnsemble" or "OneVsOne" => AllF32(node),
+            "LabelEncode" => node.Inputs[0].Type == DataType.F32 || node.Inputs[0].Type == DataType.I32 || node.Inputs[0].Type == DataType.Str
+                ? OpSupport.Yes : OpSupport.No("LabelEncode expects f32, i32 or str"),
+            "StringConst" or "StringBinary" or "StringNormalize" or "RegexMatch" or "StringCast" => OpSupport.Yes,
+            "TfIdf" => node.Inputs[0].Type == DataType.I32 ? OpSupport.Yes : OpSupport.No("TfIdf expects i32 token ids"),
+            "Multinomial" => node.Inputs[0].Type == DataType.F32 ? OpSupport.Yes : OpSupport.No("Multinomial expects f32 logits"),
             _ => OpSupport.No($"op '{op}' is not implemented by the CPU provider"),
         };
     }

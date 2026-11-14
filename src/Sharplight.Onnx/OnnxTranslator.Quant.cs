@@ -12,7 +12,7 @@ internal sealed partial class OnnxTranslator
     ];
 
     /// <summary>A scale or zero point as an f32 value broadcastable against a tensor (constant, or a runtime scalar).</summary>
-    private Value QParam(TranslatedTensor t, string name) => t.IsConst ? ConstValue(t.C!.CastTo(OnnxType.Float).Count == 1 ? t.C.CastTo(OnnxType.Float).Reshaped([1]) : t.C.CastTo(OnnxType.Float), name) : t.V!;
+    private Value QParam(TranslatedTensor t, string name) => t.IsConst ? ConstValue(t.C!.CastTo(OnnxType.Float).Count == 1 ? t.C.CastTo(OnnxType.Float).Reshaped([1]) : t.C.CastTo(OnnxType.Float), name) : AsValue(t);
 
     /// <summary>(q - zp) * scale.</summary>
     private Value Deq(TranslatedTensor x, TranslatedTensor scale, TranslatedTensor? zp, string name)
@@ -46,45 +46,7 @@ internal sealed partial class OnnxTranslator
         return Emit("Clip", [q], Attributes.From(("min", (float)lo), ("max", (float)hi)), name);
     }
 
-    private void QuantizeDequantize(OnnxNode n, TranslatedTensor?[] ins)
-    {
-        var x = X(ins, 0);
-        var sc = ConstIn(ins, 1, "scale");
-        var zp = OptConst(ins, 2, "zero point");
-        int axis = (int)n.Int("axis", 1);
-        var scV = ConstValue(Bcast(sc.CastTo(OnnxType.Float), x.Rank, axis), Nm(n) + ".scale");
-        Value zpV = zp is null ? null! : ConstValue(Bcast(zp.CastTo(OnnxType.Float), x.Rank, axis), Nm(n) + ".zp");
-        if (n.OpType == "DequantizeLinear")
-        {
-            var v = zp is null ? x : _b.Sub(x, zpV);
-            SetDyn(n, 0, Emit("Mul", [v, scV], null, Nm(n)));
-            return;
-        }
-        int et = zp?.ElemType ?? OnnxType.UInt8;
-        var q = Emit("Round", [_b.Binary("Div", x, scV)]);
-        if (zp is not null)
-        {
-            q = _b.Add(q, zpV);
-        }
-
-        var (lo, hi) = OnnxFold.Range(et);
-        SetDyn(n, 0, Emit("Clip", [q], Attributes.From(("min", (float)lo), ("max", (float)hi)), Nm(n)));
-    }
-
     // ---- quantization ----------------------------------------------------------------------------------------
-    /// <summary>Per-axis constant (scale/zero point) shaped for broadcasting against a tensor of rank <paramref name="rank"/>.</summary>
-    private OnnxConst Bcast(OnnxConst c, int rank, int axis)
-    {
-        if (c.Count == 1)
-        {
-            return c.Reshaped([1]);
-        }
-
-        var d = Enumerable.Repeat(1L, rank).ToArray();
-        d[axis < 0 ? axis + rank : axis] = c.Count;
-        return c.Reshaped(d);
-    }
-
     /// <summary>Dequantizes a constant (per-tensor/per-axis zero point and scale) to f32.</summary>
     private static OnnxConst DequantConst(OnnxConst x, OnnxConst scale, OnnxConst? zp, int axis = 0) => OnnxFold.Dequantize(x, scale, zp, axis);
 
@@ -92,7 +54,7 @@ internal sealed partial class OnnxTranslator
     {
         if (zpT is { IsConst: false })
         {
-            return _b.Sub(AsValue(a), zpT.V!);   // runtime zero point (DynamicQuantizeLinear)
+            return _b.Sub(AsValue(a), AsValue(zpT));   // runtime zero point (DynamicQuantizeLinear)
         }
 
         return ShiftZp(a, zpT?.C, nm);
@@ -139,20 +101,12 @@ internal sealed partial class OnnxTranslator
     }
 
     /// <summary>
-    /// y = clip(round(x / s) + zp, 0, 255) with s = (max(x,0) - min(x,0)) / 255 and zp = clip(round(-min(x,0) / s), 0, 255), over the whole tensor.
+    /// y = clip(round(x / s) + zp, 0, 255) with s = (max(x,0) - min(x,0)) / 255 (1 / 255 when both are 0) and zp = clip(round(-min(x,0) / s), 0, 255),
+    /// over the whole tensor.
     /// </summary>
     private void DynamicQuantize(OnnxNode n, TranslatedTensor?[] ins)
     {
-        var x = X(ins, 0);
-        var all = Enumerable.Range(0, x.Rank).Select(i => (long)i).ToArray();
-        var maxAttributes = Attributes.From(("mode", "max"), ("axes", all), ("keepdims", true));
-        var minAttributes = Attributes.From(("mode", "min"), ("axes", all), ("keepdims", true));
-        var hi = Emit("Clip", [Emit("Reduce", [x], maxAttributes)], Attributes.From(("min", 0f)));
-        var lo = Emit("Clip", [Emit("Reduce", [x], minAttributes)], Attributes.From(("max", 0f)));
-        var scale = _b.Scale(_b.Sub(hi, lo), 1f / 255f);
-        var byteRange = Attributes.From(("min", 0f), ("max", 255f));
-        var zeroPoint = Emit("Clip", [Emit("Round", [_b.Binary("Div", _b.Scale(lo, -1f), scale)])], byteRange);
-        var y = Emit("Clip", [_b.Add(Emit("Round", [_b.Binary("Div", x, scale)]), zeroPoint)], byteRange, Nm(n));
+        var (y, scale, zeroPoint) = DynamicQuantizeValues(X(ins, 0), Nm(n));
         SetDyn(n, 0, y);
         if (n.Outputs.Count > 1 && n.Outputs[1] != "")
         {
@@ -165,6 +119,24 @@ internal sealed partial class OnnxTranslator
         }
     }
 
+    /// <summary>DynamicQuantizeLinear of <paramref name="x"/>: the uint8 values (as f32), the scale and the zero point (both of rank x).</summary>
+    private (Value Q, Value Scale, Value ZeroPoint) DynamicQuantizeValues(Value x, string? name)
+    {
+        var all = Enumerable.Range(0, x.Rank).Select(i => (long)i).ToArray();
+        var maxAttributes = Attributes.From(("mode", "max"), ("axes", all), ("keepdims", true));
+        var minAttributes = Attributes.From(("mode", "min"), ("axes", all), ("keepdims", true));
+        var hi = Emit("Clip", [Emit("Reduce", [x], maxAttributes)], Attributes.From(("min", 0f)));
+        var lo = Emit("Clip", [Emit("Reduce", [x], minAttributes)], Attributes.From(("max", 0f)));
+        // scale = (max - min) / 255, or 1 / 255 for an all-zero tensor (min = max = 0).
+        var range = _b.Sub(hi, lo);
+        range = _b.Add(range, Emit("Equal", [range, ConstValue(OnnxConst.Scalar(0f).Reshaped([1]), "zero")]));
+        var scale = _b.Binary("Div", range, ConstValue(OnnxConst.Scalar(255f).Reshaped([1]), "qmax"));
+        var byteRange = Attributes.From(("min", 0f), ("max", 255f));
+        var zeroPoint = Emit("Clip", [Emit("Round", [_b.Binary("Div", _b.Scale(lo, -1f), scale)])], byteRange);
+        var y = Emit("Clip", [_b.Add(Emit("Round", [_b.Binary("Div", x, scale)]), zeroPoint)], byteRange, name);
+        return (y, scale, zeroPoint);
+    }
+
     private void MatMulInteger(OnnxNode n, TranslatedTensor?[] ins)
     {
         string name = Nm(n);
@@ -172,7 +144,7 @@ internal sealed partial class OnnxTranslator
         if (!ins[1]!.IsConst)
         {
             // Runtime B (e.g. attention scores of dynamically quantized activations): subtract its zero point and multiply as f32.
-            var shifted = Opt(ins, 3) is { } zeroPoint ? Synthetic("Sub", [ins[1]!, zeroPoint]) : ins[1]!;
+            var shifted = Opt(ins, 3) is { } zeroPoint ? Typed(_b.Sub(AsValue(ins[1]!), AsValue(zeroPoint)), OnnxType.Int32) : ins[1]!;
             _env[n.Outputs[0]] = Synthetic("MatMul", [TranslatedTensor.Dyn(a), shifted]);
             return;
         }
@@ -186,11 +158,40 @@ internal sealed partial class OnnxTranslator
     private void QLinearMatMul(OnnxNode n, TranslatedTensor?[] ins)
     {
         string name = Nm(n);
+        if (Enumerable.Range(1, 7).Any(i => Opt(ins, i) is { IsConst: false }))
+        {
+            QLinearMatMulRuntime(n, ins);
+            return;
+        }
+
         var a = ShiftZp(ins[0]!, OptConst(ins, 2, "a_zp"), name);
         var b = DequantConst(ConstIn(ins, 3, "B"), OnnxConst.Scalar(1f), OptConst(ins, 5, "b_zp"), 1);
         var acc = MatMulWeightOrBatch(a, b, name + ".mm");
         var multipliers = Multipliers(ConstIn(ins, 1, "a_scale").ScalarF32(), ConstIn(ins, 4, "b_scale"), ConstIn(ins, 6, "y_scale").ScalarF32());
         SetDyn(n, 0, Requant(acc, multipliers, acc.Rank - 1, OptConst(ins, 7, "y_zp"), name));
+    }
+
+    /// <summary>
+    /// QLinearMatMul with runtime B, scales or zero points: (a - a_zp) · (b - b_zp) as an f32 matmul of exact integers, requantized with
+    /// the multiplier a_scale · b_scale / y_scale computed at run time.
+    /// </summary>
+    private void QLinearMatMulRuntime(OnnxNode n, TranslatedTensor?[] ins)
+    {
+        string name = Nm(n);
+        var a = Typed(ShiftZp(ins[0]!, Opt(ins, 2), name), OnnxType.Int32);
+        var b = Opt(ins, 5) is { } bZeroPoint ? Typed(_b.Sub(AsValue(ins[3]!), QParam(bZeroPoint, name + ".bzp")), OnnxType.Int32) : ins[3]!;
+        var acc = AsValue(Synthetic("MatMul", [a, b]));
+        var multiplier = _b.Binary("Div", _b.Mul(QParam(ins[1]!, name + ".as"), QParam(ins[4]!, name + ".bs")), QParam(ins[6]!, name + ".ys"));
+        var q = Emit("Round", [_b.Mul(acc, multiplier)]);
+        var yZeroPoint = Opt(ins, 7);
+        if (yZeroPoint is not null)
+        {
+            q = _b.Add(q, QParam(yZeroPoint, name + ".yzp"));
+        }
+
+        int type = yZeroPoint is not null ? ElemTypeOf(yZeroPoint) : OnnxType.UInt8;
+        var (lo, hi) = OnnxFold.Range(type);
+        _env[n.Outputs[0]] = Typed(Emit("Clip", [q], Attributes.From(("min", (float)lo), ("max", (float)hi)), name), type);
     }
 
     /// <summary>onnxruntime's requantization multipliers a_scale · w_scale / y_scale, evaluated in f32 in the same order.</summary>

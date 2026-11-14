@@ -134,6 +134,19 @@ internal sealed class TestModel
         return this;
     }
 
+    /// <summary>A graph input or output with an explicit ValueInfo (any element type, or a sequence/optional type).</summary>
+    public TestModel Input(ProtoWriter valueInfo)
+    {
+        _inputs.Add(valueInfo.ToArray());
+        return this;
+    }
+
+    public TestModel Output(ProtoWriter valueInfo)
+    {
+        _outputs.Add(valueInfo.ToArray());
+        return this;
+    }
+
     public byte[] ToBytes()
     {
         var g = new ProtoWriter();
