@@ -58,7 +58,7 @@ internal static class MappedFamilyCases
         // Qwen3-VL-MoE text model: interleaved M-RoPE, fused [in, out]-ordered experts (tools/mk_tiny_qwen3_vl_moe.py; images: Sharplight.Vision.Tests).
         new("tiny-random-qwen3-vl-moe-wide HF (qwen3_vl_moe, transformers)", "hf/tiny-random-qwen3-vl-moe-wide", Prompt, "ids",
             [132910, 7463, 98835, 131008, 121579, 25524, 14632, 43177, 5803, 37018, 63405, 32384, 88973, 59478, 148260, 121114, 93445, 111806, 141353, 24164, 26457, 30288, 25830, 93701], ""),
-        // Qwen2-VL / Qwen2.5-VL language models: Qwen2 with sectioned (non-interleaved) M-RoPE; tower not imported (tools/mk_tiny_qwen2_vl.py).
+        // Qwen2-VL / Qwen2.5-VL language models: Qwen2 with sectioned (non-interleaved) M-RoPE (tools/mk_tiny_qwen2_vl.py); the image path is in Vision.Tests (TinyQwenVlImageTests).
         new("tiny-random-qwen2-vl-wide HF (qwen2_vl, transformers)", "hf/tiny-random-qwen2-vl-wide", Prompt, "ids", Qwen2VlIds, ""),
         new("tiny-random-qwen2-5-vl-wide HF (qwen2_5_vl, transformers)", "hf/tiny-random-qwen2-5-vl-wide", Prompt, "ids", Qwen25VlIds, ""),
         // The same checkpoints converted with convert_hf_to_gguf.py (qwen2vl); llama.cpp b11177 continues them with the transformers ids.

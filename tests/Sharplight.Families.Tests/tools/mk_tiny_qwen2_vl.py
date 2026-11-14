@@ -3,9 +3,11 @@
 Usage: python mk_tiny_qwen2_vl.py <qwen2_vl|qwen2_5_vl> <tokenizer_dir> <out_dir>
 
 <tokenizer_dir> holds a Qwen2 tokenizer (e.g. Qwen2.5-0.5B-Instruct). The language model is Qwen2 with sectioned M-RoPE ([2, 3, 3] of a
-16-wide head); the vision tower is tiny and is not imported. Weights are drawn wider than the default init so the greedy continuation
+16-wide head); the vision tower is tiny (2 layers; Qwen2.5-VL: windowed layer 0, full-attention layer 1). The Qwen2-VL processor's
+preprocessor_config.json is written too (tools/hf_image_reference.py produces the image references). Weights are drawn wider than the default init so the greedy continuation
 depends on the input.
 """
+import json
 import os
 import shutil
 import sys
@@ -42,4 +44,8 @@ model.save_pretrained(out, safe_serialization=True)
 for f in os.listdir(tokenizer_dir):
     if f.startswith("tokenizer") or f in ("vocab.json", "merges.txt"):
         shutil.copy(os.path.join(tokenizer_dir, f), out)
+with open(os.path.join(out, "preprocessor_config.json"), "w") as f:
+    json.dump({"image_processor_type": "Qwen2VLImageProcessor", "image_mean": [0.48145466, 0.4578275, 0.40821073],
+               "image_std": [0.26862954, 0.26130258, 0.27577711], "min_pixels": 3136, "max_pixels": 12845056, "patch_size": 14,
+               "temporal_patch_size": 2, "merge_size": 2}, f, indent=2)
 print("wrote", out)

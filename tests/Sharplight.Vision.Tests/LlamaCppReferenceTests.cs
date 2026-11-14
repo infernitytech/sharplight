@@ -71,7 +71,7 @@ public class LlamaCppReferenceTests
         return enc.Encode(enc.Preprocessor.Patchify(image, n, n));
     }
 
-    private void Check(string what, float[] emb, int rows, int dim, Expected e, double tolerance = 2e-3)
+    private void Check(string what, float[] emb, int rows, int dim, Expected e, double tolerance = 2e-3, double sumTolerance = 2e-4)
     {
         Assert.Equal(rows * dim, emb.Length);
         double sum = 0;
@@ -92,7 +92,7 @@ public class LlamaCppReferenceTests
         Console.Error.WriteLine($"{what}: sum {sum:F4} (llama.cpp {e.Sum:F4}; sum of |x| = {abs:F0}), worst corner-value difference {worst:E2} (llama.cpp prints 4 decimals)");
         // llama.cpp's CPU backend runs attention in f16 and the merger MLP with the tanh GELU: expect ~1e-3 level differences.
         Assert.True(worst < tolerance, $"{what}: corner values differ by {worst}");
-        Assert.True(Math.Abs(sum - e.Sum) < 2e-4 * abs, $"{what}: sum {sum} vs {e.Sum}");
+        Assert.True(Math.Abs(sum - e.Sum) < sumTolerance * abs, $"{what}: sum {sum} vs {e.Sum}");
     }
 
     private static readonly Expected Cb08 = new(-309.229736f, [-1.7434f, 0.0047f, 0.0853f], [-0.0603f, -0.0621f, 0.1089f], [-1.9890f, 0.0645f, 0.2862f], [-0.2158f, -0.0679f, 0.4822f]);
@@ -138,5 +138,45 @@ public class LlamaCppReferenceTests
         Assert.SkipUnless(File.Exists(Env.GgufVl2b) && File.Exists(Env.MmprojVl2b), "Qwen3-VL-2B GGUF or mmproj not available");
         using var model = LlmModel.Load(Env.GgufVl2b, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, Env.MmprojVl2b)], ImageTokens = new ImageTokenLimits(null, 64) });
         Check("Qwen3-VL-2B rainbow 224", Encode(model, Rainbow(224), 224), 49, 8192, RainbowVl2b, tolerance: 1e-2);
+    }
+
+    // Qwen2-VL-2B (F16 mmproj from ggml-org, legacy file with swapped MLP names; llama.cpp with -fa off) and Qwen2.5-VL-3B (windowed attention:
+    // the 10×10 merged grid is cut into 4×4, 4×2, 2×4 and 2×2 windows), rainbow 280 (100 output rows). These 32-layer towers carry large
+    // activations and llama.cpp's CPU backend rounds activations to f16 for the f16 weights: it moves by ~0.01 between its own flash-attention
+    // settings and sits ~0.05 from Sharplight (whose Hugging Face towers match transformers to 1e-4, see EndToEndTests), hence the tolerances.
+    private static readonly Expected RainbowQwen2Vl2b = new(437.983551f, [-2.5075f, 3.3956f, 2.4169f], [-8.3096f, 4.3038f, -2.5328f], [-2.2033f, -3.1810f, 1.1907f], [2.4686f, -0.0271f, -3.2378f]);
+    private static readonly Expected RainbowQwen25Vl3b = new(-1392.166870f, [-2.0526f, -0.1361f, 0.3495f], [-0.5053f, -0.0752f, -0.5379f], [1.3449f, -1.2042f, 2.3733f], [0.9005f, 0.2667f, -1.4410f]);
+
+    /// <summary>Qwen2-VL (LayerNorm, quick GELU, no learned positions) and Qwen2.5-VL (RMS norms, gated MLP, windowed attention) towers.</summary>
+    [Theory]
+    [InlineData("qwen2-vl")]
+    [InlineData("qwen2.5-vl")]
+    public void Qwen2_vl_towers_match_llama_cpp(string which)
+    {
+        bool v25 = which == "qwen2.5-vl";
+        string gguf = v25 ? Env.GgufQwen25Vl3b : Env.GgufQwen2Vl2b;
+        string mmproj = v25 ? Env.MmprojQwen25Vl3b : Env.MmprojQwen2Vl2b;
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), $"{which} GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        Check($"{which} rainbow 280", Encode(model, Rainbow(280), 280), 100, v25 ? 2048 : 1536, v25 ? RainbowQwen25Vl3b : RainbowQwen2Vl2b, tolerance: 0.08, sumTolerance: 1e-3);
+    }
+
+    // The tiny random Qwen2-VL / Qwen2.5-VL checkpoints (tools/mk_tiny_qwen2_vl.py) with their towers converted to f32 mmproj files by
+    // llama.cpp's converter: rainbow 280, 100 rows of 64.
+    private static readonly Expected RainbowTinyQwen2Vl = new(-53.060238f, [-0.0119f, 0.0175f, -0.2446f], [-0.4548f, 0.1236f, 0.1925f], [-0.1137f, 0.0334f, -0.1251f], [-0.3817f, 0.2224f, -0.1487f]);
+    private static readonly Expected RainbowTinyQwen25Vl = new(34.210281f, [-0.3658f, -0.1888f, 0.0046f], [0.0849f, 0.0598f, -0.3436f], [-0.1984f, -0.1687f, -0.0830f], [0.1798f, 0.1840f, -0.2941f]);
+
+    /// <summary>The tiny towers in f32 (no rounding on either side): llama.cpp and Sharplight agree to its printed precision.</summary>
+    [Theory]
+    [InlineData("qwen2-vl-wide")]
+    [InlineData("qwen2-5-vl-wide")]
+    public void Tiny_qwen2_vl_towers_match_llama_cpp(string which)
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string gguf = Path.Combine(home, $"models/gguf/tiny-random-{which}-f32.gguf");
+        string mmproj = Path.Combine(home, $"models/gguf/mmproj-tiny-random-{which}-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), $"tiny {which} GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        Check($"tiny {which} rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, which == "qwen2-vl-wide" ? RainbowTinyQwen2Vl : RainbowTinyQwen25Vl, tolerance: 2e-4);
     }
 }
