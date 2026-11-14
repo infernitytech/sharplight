@@ -18,7 +18,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
-        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "xing4_0"];
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "xing4_0", "kimi_k3", "kimi_k31"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -80,7 +80,11 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         }
 
         AddTemperature(md, a, c);
-        if (IsGlm5Next(c))
+        if (IsKimiK3(c))
+        {
+            AddKimiK3HyperParameters(md, a, c);
+        }
+        else if (IsGlm5Next(c))
         {
             AddGlm5NextHyperParameters(md, a, c);
         }
@@ -106,7 +110,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     /// DeepSeek-V3.2 and GLM-5 (DSA): a sparse-attention indexer picks <c>index_topk</c> tokens per query (Hunyuan v4 has one too, see
     /// <c>AddHyV4HyperParameters</c>).
     /// </summary>
-    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa" || IsGlm5Next(c);
+    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa" || IsGlm5Next(c) || (IsKimiK3(c) && DsaConfig(c) is not null);
 
     /// <summary>The DSA indexer tensors below <c>self_attn.indexer.</c>, HF suffix to canonical suffix (norm and head weights in f32).</summary>
     private static readonly Dictionary<string, string> s_indexerTensors = new(StringComparer.Ordinal)
@@ -296,10 +300,22 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         var collector = new HfWeightCollector();
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
         var convolutions = new SortedDictionary<string, WeightInfo?[]>(StringComparer.Ordinal);
+        var residualScores = new Dictionary<string, (WeightInfo? Norm, WeightInfo? Projection)>(StringComparer.Ordinal);
         int layers = c.Int("num_hidden_layers");
-        foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
+        foreach (var (fullName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var w = tensor.ToWeightInfo();
+            // Kimi K3: the text model below language_model., the vision tower is not imported.
+            if ((IsKimiK3(c) ? KimiK3TextName(fullName) : fullName) is not { } name)
+            {
+                continue;
+            }
+
+            if (IsKimiK3(c) && TryCollectResidualScore(name, w, residualScores))
+            {
+                continue;
+            }
+
             if (TryMapGlobal(c, name, w, collector) || (IsHyV4(c) && TryMapHyV4Global(name, w, collector)))
             {
                 continue;
@@ -340,6 +356,10 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             {
                 continue;
             }
+            else if (IsKimiK3(c) && TryMapLatentMoe(prefix, suffix, w, collector))
+            {
+                continue;
+            }
             else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !(IsHyV4(c) && TryMapHyV4Layer(prefix, suffix, w, collector)))
             {
                 collector.AddUnmapped(name);
@@ -357,6 +377,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         }
 
         AddJoinedConvolutions(convolutions, collector);
+        AddResidualScores(residualScores, collector);
         AddRopeFactors(c, collector);
         collector.ThrowIfUnmapped(c.ModelType);
         return collector.Weights;

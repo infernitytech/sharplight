@@ -28,6 +28,7 @@ internal sealed record LatentDecoderHyperParameters(
     {
         int nope = src.Arch<int>("attention.nope_dim");
         int rope = src.Arch<int>("attention.rope_dim");
+        float eps = src.Arch("norm_eps", 1e-6f);
         var attention = new LatentAttentionParameters(
             Heads: src.Arch<int>("attention.head_count"),
             QueryRank: src.Arch("attention.q_rank", 0),
@@ -37,7 +38,7 @@ internal sealed record LatentDecoderHyperParameters(
             ValueDims: src.Arch<int>("attention.value_dim"),
             Scale: src.Arch("attention.scale", 1f / MathF.Sqrt(nope + rope)),
             RopeMagnitude: src.Arch("rope.attention_scale", 1f),
-            Eps: src.Arch("norm_eps", 1e-6f));
+            Eps: src.Arch("attention.latent_norm_eps", eps));
         int slidingNope = src.Arch("attention.sliding.nope_dim", nope);
         var sliding = attention with
         {
@@ -54,7 +55,7 @@ internal sealed record LatentDecoderHyperParameters(
             HiddenSize: src.Arch<int>("hidden_size"),
             Vocab: embedding.Shape[0].IsSymbolic ? 0 : (int)embedding.Shape[0].Fixed,
             ContextLength: src.Arch("context_length", 4096),
-            Eps: attention.Eps,
+            Eps: eps,
             Attention: attention,
             RopeBase: src.Arch("rope.base", 10000f),
             RopeStyle: src.Arch("rope.style", "gptj"),
@@ -66,7 +67,7 @@ internal sealed record LatentDecoderHyperParameters(
             Moe: MoeOptions.Read(src),
             TemperatureScale: src.Arch("attention.temperature_scale", 0f),
             TemperatureLength: src.Arch("attention.temperature_length", 0f),
-            HyperConnections: StreamHyperConnectionOptions.Read(src, attention.Eps),
+            HyperConnections: StreamHyperConnectionOptions.Read(src, eps),
             MoeSwigluClamp: src.Arch("moe.swiglu_clamp", Array.Empty<float>()),
             MoeSwigluClampInput: src.Arch("moe.swiglu_clamp_input", false),
             Indexer: SparseAttentionIndexerOptions.Read(src),

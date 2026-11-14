@@ -13,7 +13,8 @@ namespace Sharplight.Gguf;
 /// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer, <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part),
 /// <c>glm5-next</c> (GLM-5.3-Flash) also hyper-connections (see the Glm5Next part), <c>mistral-large4</c> per-layer NoPE, shared caches and SSMax (see
 /// the MistralLarge4 part), <c>dots3note</c> sliding-window layers of a second geometry (see the Dots3Note part), <c>xing4_0</c> (Xing4.0) its
-/// variant of the hyper-connections (see the Xing40 part).
+/// variant of the hyper-connections (see the Xing40 part), <c>kimi-k3</c> / <c>kimi-k31</c> attention residuals, situ and latent MoE on
+/// Kimi-Linear (see the KimiK3 part).
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
@@ -26,7 +27,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     private const int GatingSigmoid = 2;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa", "glm5-next", "mistral-large4", "dots3note", "xing4_0"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa", "glm5-next", "mistral-large4", "dots3note", "xing4_0", "kimi-k3", "kimi-k31"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -103,6 +104,11 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
         if (IsXing40(g))
         {
             AddXing40HyperParameters(md, a, g);
+        }
+
+        if (IsKimiK3(g))
+        {
+            AddKimiK3HyperParameters(md, a, g);
         }
 
         if (IsMistralLarge4(g))
@@ -213,6 +219,11 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             return ropeName;
         }
 
+        if (name == "output_res_score.weight" && IsKimiK3(g))
+        {
+            return "output_res.score.weight";
+        }
+
         var m = GgufTensorNames.Block().Match(name);
         if (!m.Success)
         {
@@ -243,6 +254,11 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
         if (IsGlm5Next(g) && s_poolIndexer.TryGetValue(suffix, out var glm5Next))
         {
             return $"layers.{layer}.{glm5Next}";
+        }
+
+        if (IsKimiK3(g) && s_kimiK3.TryGetValue(suffix, out var kimi))
+        {
+            return $"layers.{layer}.{kimi}";
         }
 
         if (IsMistralLarge4(g) && s_mistralLarge4.TryGetValue(suffix, out var mistral))

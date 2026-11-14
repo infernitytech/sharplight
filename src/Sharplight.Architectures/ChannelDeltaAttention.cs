@@ -16,8 +16,8 @@ namespace Sharplight.Architectures;
 /// Weights below the layer prefix: <c>linear_attention.{q,k,v}.weight</c> [heads·D, hidden]; <c>linear_attention.conv1d.weight</c> f32
 /// [3·heads·D, kernel] (short causal convolutions of q, k and v, in that channel order, SiLU after); the decay input f either from
 /// <c>linear_attention.decay.weight</c> [heads·D, hidden] or low-rank from <c>linear_attention.decay_down.weight</c> [r, hidden] and
-/// <c>linear_attention.decay_up.weight</c> [heads·D, r]; <c>linear_attention.dt_bias</c> f32 [heads·D]; <c>linear_attention.a</c> f32 [heads]
-/// (A = −exp(A_log)); <c>linear_attention.beta.weight</c> [heads, hidden] (β = sigmoid); the output gate from <c>linear_attention.gate.weight</c>
+/// <c>linear_attention.decay_up.weight</c> [heads·D, r]; <c>linear_attention.dt_bias</c> f32 [heads·D]; <c>linear_attention.a</c> f32 [heads] (A = −exp(A_log),
+/// one decay rate per head) or [heads·D] (one per key channel of every head, Kimi K3); <c>linear_attention.beta.weight</c> [heads, hidden] (β = sigmoid); the output gate from <c>linear_attention.gate.weight</c>
 /// [heads·D, hidden] or <c>linear_attention.gate_down.weight</c> / <c>linear_attention.gate_up.weight</c>; <c>linear_attention.norm.weight</c> [D];
 /// <c>linear_attention.out.weight</c> [hidden, heads·D].
 /// </remarks>
@@ -71,7 +71,8 @@ internal sealed class ChannelDeltaAttention
 
         // Per-channel log decay [T, H, D].
         var f = b.Reshape(b.Add(Projection(b, h, w, "decay"), b.Weight(w + "dt_bias")), 0, _heads, _headDim);
-        var a = b.Reshape(b.Weight(w + "a"), _heads, 1);
+        var aWeight = b.Weight(w + "a");
+        var a = b.Reshape(aWeight, _heads, aWeight.Shape.Elements() == _heads ? 1 : _headDim);
         var g = _decayBound == 0f
             ? b.Mul(b.Softplus(f), a)
             : b.Scale(b.Sigmoid(b.Mul(f, b.Scale(a, -1f))), _decayBound);
