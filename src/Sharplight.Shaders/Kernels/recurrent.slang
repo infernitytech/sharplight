@@ -1,5 +1,14 @@
 // Recurrent-state kernels: causal depthwise conv with carried state, gated delta rule.
+//
+// ROLLBACK (multi-sequence rollback form, see RecurrentRollback): two more bindings after the runs table, commits [U, 4] i32
+// (replay rows, read bank, tentative flag, 0) and records [S, 2, KR, RW] f32. A run first replays the committed rows of the
+// slot's last tentative run from the read bank (state update only, no outputs); a tentative run then stores the state as it is
+// after the replay, records its own rows into the other bank and leaves the state unchanged by them.
 #include "common.slang"
+
+#ifndef ROLLBACK
+#define ROLLBACK 0
+#endif
 
 #ifdef KERNEL_CONV1D
 // ---------------------------------------------------------------------------------------------
@@ -15,6 +24,10 @@ struct ConvParams
     float* bias;
 #if MULTI_SEQ
     int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, KS-1, C]
+#endif
+#if ROLLBACK
+    int* commits;
+    float* records;   // record row: x [C]
 #endif
     uint T;
 };
@@ -39,10 +52,31 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = fresh ? 0.0 : state[uint64_t(j) * C + c];
     float wk[KS];
     [ForceUnroll] for (int j = 0; j < KS; j++) wk[j] = p.w[uint64_t(c) * KS + j];
+#if ROLLBACK
+    int4 cm = int4(p.commits[dtid.z * 4], p.commits[dtid.z * 4 + 1], p.commits[dtid.z * 4 + 2], p.commits[dtid.z * 4 + 3]);
+    bool tentative = cm.z != 0;
+    float* recIn = p.records + (uint64_t(run.x) * 2 + uint(cm.y)) * KR * RW + c;
+    float* recOut = p.records + (uint64_t(run.x) * 2 + uint(1 - cm.y)) * KR * RW + c;
+    uint replay = fresh ? 0u : uint(cm.x);
+    for (uint r = 0; r < replay; r++)
+    {
+        win[KS - 1] = recIn[uint64_t(r) * RW];
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
+    }
+    if (tentative)
+    {
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) state[uint64_t(j) * C + c] = win[j];
+    }
+#else
+    bool tentative = false;
+#endif
 
     for (uint t = tBeg; t < tEnd; t++)
     {
         win[KS - 1] = p.x[uint64_t(t) * XS + c];
+#if ROLLBACK
+        if (tentative) recOut[uint64_t(t - tBeg) * RW] = win[KS - 1];
+#endif
         float s = 0;
         [ForceUnroll] for (int j = 0; j < KS; j++) s += win[j] * wk[j];
 #if HAS_BIAS
@@ -54,7 +88,10 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
         p.y[uint64_t(t) * C + c] = s;
         [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
     }
-    [ForceUnroll] for (int j = 0; j < KS - 1; j++) state[uint64_t(j) * C + c] = win[j];
+    if (!tentative)
+    {
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) state[uint64_t(j) * C + c] = win[j];
+    }
 }
 
 #endif
@@ -79,6 +116,10 @@ struct DeltaParams
     float* o;
 #if MULTI_SEQ
     int* runs;   // [U, 4] (slot, first row, row count, first position); grid z = run; state [S, HV, DV, DK]
+#endif
+#if ROLLBACK
+    int* commits;
+    float* records;   // record row: per value head h at h * (DK + DV + 2): k [DK] (as read, before an absorbed L2 norm), v [DV], g, beta
 #endif
     uint T;
 };
@@ -144,26 +185,74 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
 #endif
     float M[EPL];
     [ForceUnroll] for (int e = 0; e < EPL; e++) M[e] = fresh ? 0.0 : st[e * LPR];
+#if ROLLBACK
+    // Rows r < replay come from the read bank (replayed, no outputs); row r >= replay is token tBeg + r - replay.
+    int4 cm = int4(p.commits[gid.z * 4], p.commits[gid.z * 4 + 1], p.commits[gid.z * 4 + 2], p.commits[gid.z * 4 + 3]);
+    uint replay = fresh ? 0u : uint(cm.x);
+    bool tentative = cm.z != 0;
+    bool recordShared = tentative && gid.y == 0;
+    float* recIn = p.records + (uint64_t(run.x) * 2 + uint(cm.y)) * KR * RW + uint64_t(h) * (DK + DV + 2);
+    float* recOut = p.records + (uint64_t(run.x) * 2 + uint(1 - cm.y)) * KR * RW + uint64_t(h) * (DK + DV + 2);
+#else
+    const uint replay = 0;
+    const bool tentative = false;
+#endif
+    uint rEnd = replay + (tEnd - tBeg);
 
-    for (uint t0 = tBeg; t0 < tEnd; t0 += TB)
+    for (uint r0 = 0; r0 < rEnd; r0 += TB)
     {
-        uint nt = min(uint(TB), tEnd - t0);
+        uint nt = min(uint(TB), rEnd - r0);
         GroupMemoryBarrierWithGroupSync();
         for (uint i = ltid.x; i < nt * DK; i += NT)
         {
-            uint tt = i / DK, c = i % DK;
-            sq[i] = p.q[uint64_t(t0 + tt) * QS0 + uint64_t(hk) * QS1 + c];
-            sk[i] = p.k[uint64_t(t0 + tt) * KS0 + uint64_t(hk) * KS1 + c];
+            uint tt = i / DK, c = i % DK, r = r0 + tt;
+#if ROLLBACK
+            if (r < replay) { sq[i] = 0.0; sk[i] = recIn[uint64_t(r) * RW + c]; continue; }
+#endif
+            uint64_t t = tBeg + r - replay;
+            sq[i] = p.q[t * QS0 + uint64_t(hk) * QS1 + c];
+            sk[i] = p.k[t * KS0 + uint64_t(hk) * KS1 + c];
+#if ROLLBACK
+            if (recordShared) recOut[uint64_t(r - replay) * RW + c] = sk[i];
+#endif
         }
         for (uint i = ltid.x; i < nt * DVB; i += NT)
         {
-            uint tt = i / DVB, c = i % DVB;
-            sv[i] = p.v[uint64_t(t0 + tt) * VS0 + uint64_t(h) * VS1 + gid.y * DVB + c];
+            uint tt = i / DVB, c = i % DVB, r = r0 + tt;
+#if ROLLBACK
+            if (r < replay) { sv[i] = recIn[uint64_t(r) * RW + DK + gid.y * DVB + c]; continue; }
+#endif
+            sv[i] = p.v[(tBeg + r - replay) * uint64_t(VS0) + uint64_t(h) * VS1 + gid.y * DVB + c];
+#if ROLLBACK
+            if (tentative) recOut[uint64_t(r - replay) * RW + DK + gid.y * DVB + c] = sv[i];
+#endif
         }
         for (uint i = ltid.x; i < nt; i += NT)
         {
-            sgd[i] = exp(p.g[uint64_t(t0 + i) * HV + h]);
-            sbeta[i] = p.beta[uint64_t(t0 + i) * HV + h];
+            uint r = r0 + i;
+            float gr, br;
+#if ROLLBACK
+            if (r < replay)
+            {
+                gr = recIn[uint64_t(r) * RW + DK + DV];
+                br = recIn[uint64_t(r) * RW + DK + DV + 1];
+            }
+            else
+#endif
+            {
+                uint64_t t = tBeg + r - replay;
+                gr = p.g[t * HV + h];
+                br = p.beta[t * HV + h];
+#if ROLLBACK
+                if (recordShared)
+                {
+                    recOut[uint64_t(r - replay) * RW + DK + DV] = gr;
+                    recOut[uint64_t(r - replay) * RW + DK + DV + 1] = br;
+                }
+#endif
+            }
+            sgd[i] = exp(gr);
+            sbeta[i] = br;
         }
         GroupMemoryBarrierWithGroupSync();
 #if NORM_Q || NORM_K
@@ -186,6 +275,13 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
 #endif
         for (uint tt = 0; tt < nt; tt++)
         {
+#if ROLLBACK
+            // A tentative run leaves the slot's state as it is after the replay.
+            if (tentative && r0 + tt == replay)
+            {
+                [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+            }
+#endif
 #if NORM_Q
             float qn = sqn[tt];
 #else
@@ -211,9 +307,12 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
             float oa[4] = { 0, 0, 0, 0 };
             [ForceUnroll] for (int e = 0; e < EPL; e++) { M[e] += kv[e] * dk; oa[e % 4] += M[e] * sq[base + e * LPR]; }
             float od = row_sum((oa[0] + oa[1]) + (oa[2] + oa[3])) * qn;
-            if (part == 0) p.o[(uint64_t(t0 + tt) * HV + h) * DV + j] = od * SCALE;
+            if (part == 0 && r0 + tt >= replay) p.o[(uint64_t(tBeg + r0 + tt - replay) * HV + h) * DV + j] = od * SCALE;
         }
     }
-    [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+    if (!tentative)
+    {
+        [ForceUnroll] for (int e = 0; e < EPL; e++) st[e * LPR] = M[e];
+    }
 }
 #endif

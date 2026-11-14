@@ -21,7 +21,12 @@ public sealed record ChatModelOptions
     /// Creates the speculator of each loaded instance (speculative decoding), or null for none. A factory rather than an
     /// instance because the engine owns and disposes its speculator, and a model may be loaded again after eviction.
     /// The decoder is then sized for the verification rows (<see cref="ISpeculator.MaxDraftTokens"/> + 1 per speculating
-    /// sequence); models without rollback support (recurrent state) run without speculation.
+    /// sequence), and models with recurrent state get their recurrent ops compiled for rollback of rejected drafts.
     /// </summary>
     public Func<LlmModel, ISpeculator?>? Speculator { get; init; }
+    /// <summary>
+    /// Multi-token-prediction speculation: drafts per step from the model's own MTP head (<see cref="LlmModel.CreateMtpSpeculator"/>),
+    /// 0 for none. Takes precedence over <see cref="Speculator"/> for models that have a draft head; others fall back to it.
+    /// </summary>
+    public int MtpDraftTokens { get; init; }
 }

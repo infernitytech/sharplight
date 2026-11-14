@@ -87,7 +87,9 @@ internal sealed class ServeOptionSet
         + "admission and preemption follow free cache blocks. Default: every slot reserves --ctx tokens.", helpName: "tokens");
     private readonly Option<int?> _stepTokens = OptionFactory.OptionalInteger("--step-tokens", "Token budget of one engine step (decode rows first, prompt chunks fill the rest; default: the model's batch size).", helpName: "tokens");
 
-    private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off; attention-only models).", 0, minimum: 0, helpName: "tokens");
+    private readonly Option<int> _draftTokens = OptionFactory.Integer("--speculate-ngram", "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
+    private readonly Option<int> _specMaxBatch = OptionFactory.Integer("--speculate-max-batch", "Speculate only while at most this many sequences decode (larger batches are compute bound).", 16, minimum: 1, helpName: "sequences");
+    private readonly Option<int> _mtpTokens = OptionFactory.Integer("--speculate-mtp", "Multi-token-prediction speculative decoding with the model's own MTP head: draft this many tokens per step (0 = off; models without a head fall back to --speculate-ngram).", 0, minimum: 0, helpName: "tokens");
 
     private readonly Option<string?> _mmproj = new("--mmproj")
     {
@@ -144,6 +146,8 @@ internal sealed class ServeOptionSet
         command.Options.Add(_stepTokens);
         command.Options.Add(_kvTokens);
         command.Options.Add(_draftTokens);
+        command.Options.Add(_mtpTokens);
+        command.Options.Add(_specMaxBatch);
         command.Options.Add(_mmproj);
         command.Options.Add(_chatTemplate);
         command.Options.Add(_temperature);
@@ -195,6 +199,8 @@ internal sealed class ServeOptionSet
             parseResult.GetValue(_stepTokens),
             parseResult.GetValue(_kvTokens),
             parseResult.GetValue(_draftTokens),
+            parseResult.GetValue(_mtpTokens),
+            parseResult.GetValue(_specMaxBatch),
             parseResult.GetValue(_mmproj),
             parseResult.GetValue(_chatTemplate),
             parseResult.GetValue(_temperature),

@@ -1106,3 +1106,78 @@ Payoffs are estimates from the measurements above (27B = Qwen3.8-27B FP8, the mo
 Not levers: single-stream decode (Sharplight 39.2 vs vLLM 39.5 tok/s on the 27B, 1.23-1.35x on the 1B models; both at the
 bandwidth roof), the decode-side delta rule (bandwidth roof, same state size as vLLM), sampling (0.1-0.5 %).
 
+
+## 17. Speculative decoding: MTP drafts with recurrent-state rollback (2026-11-14)
+
+Qwen3.8-27B is a hybrid (48 Gated DeltaNet + 16 gated-attention layers) with one MTP layer. Speculation needs the
+recurrent state of rejected drafts rolled back; Sharplight does that by record-and-replay inside the recurrent kernels
+(`Graph.RecurrentRollback`: a verification run leaves the state at its start and records its per-row op inputs, about 35 MB
+per slot for 3 drafts; the next run replays the kept rows before its own), so the target needs no state snapshots and no
+recomputation pass. The MTP head (`mtp_draft` graph) runs as its own small decoder on the target's hidden states and drafts
+greedily; verification keeps a draft while it equals the target's own sample (exact for greedy and sampled decoding). Greedy
+output is token-identical to decoding without speculation (CLI check on the Q8_0 GGUF and the FP8 checkpoint, 200 tokens each;
+tiny-model engine tests on CPU and Vulkan).
+
+Setup as section 16 (RTX PRO 6000 Blackwell Max-Q, shared GPU: the user's own apps were active during parts of the runs, see
+`bench/results/s17/*.gpu.txt`; numbers are single rounds and carry ~5-10 % noise). Model: `Qwen3.8-27B-Q8_0.gguf`
+(lmstudio-community, includes the NextN layer) and the FP8 checkpoint of section 16. The NVFP4 "MTP" GGUF is not loadable
+(separate `.scale` / `.input_scale` tensors that no importer maps). Raw output: `bench/results/s17/`.
+
+```bash
+dotnet build bench/SpecBench -c Release
+bench/SpecBench/bin/Release/net11.0/SpecBench <model> --drafts 0,1,2,3        # single stream, as vllm_single.py --text-prompt
+LOADGEN_PY=python3 NATURAL=1 ROUNDS=1 OUT_DIR=bench/results/s17 bench/s16_serve.sh sharplight qwen27b-q8-mtp3-b <gguf> "1 4 16 64" --speculate-mtp 3
+```
+
+### 17.1 Single stream
+
+`SpecBench`: natural-language prompt (the essay instruction of `vllm_single.py`, padded with random tokens to the depth), greedy,
+end-of-generation ignored, tg = 128 / (t(129 tokens) − t(1 token)), median of 5 (max in parentheses); one slot through the
+`InferenceEngine`. Mean accepted length per step = 1 + k · acceptance. vLLM rows: section 16.5 (FP8, same prompt).
+
+| k | Q8_0 @d47 tok/s | acceptance | Q8_0 @d4096 | acceptance | FP8 @d47 | acceptance | vLLM FP8 @d47 (acceptance) |
+|---|---|---|---|---|---|---|---|
+| off | 36.1 (37.9) | | 37.0 (38.9) | | 30.7 (36.3) | | 38.4 |
+| 1 | 71.0 (71.8) | 0.80 | 68.7 (77.3) | 0.83 | 26.7 (36.1) | 0.84 | 60.5 (0.84) |
+| 2 | 81.1 (90.6) | 0.71 | 73.3 (74.9) | 0.65 | 38.2 (44.9) | 0.76 | 70.6 (0.70) |
+| 3 | 86.6 (89.7) | 0.58 | 78.0 | 0.60 | 37.1 (38.5) | 0.59 | 74.7 (0.59) |
+
+* On the Q8_0 GGUF MTP is worth 1.9x (k = 1) to 2.4x (k = 3) single stream, ahead of vLLM's MTP on FP8 (1.58-1.95x, 74.7 tok/s
+  at k = 3). Acceptance matches vLLM's (0.84 / 0.70 / 0.59 for k = 1-3), which also checks the draft head itself.
+* On FP8 weights MTP barely pays: verification steps of 2-4 rows hit the small-batch cliff of the FP8 matvec (section 16.6,
+  lever #1: 23.9 / 39.3 / 62.5 ms at 1 / 2 / 4 rows), which eats the accepted tokens. The FP8 runs were also the noisiest
+  (another process on the GPU). Lever #1 is the prerequisite for MTP on FP8 / bf16 checkpoints.
+
+### 17.2 Serving
+
+`bench/s16_serve.sh` (64 slots, 512-token contexts, natural prompts of ~25 tokens, 128 output tokens, ignore_eos, one round),
+`--speculate-mtp 3`, engine defaults `SpeculationMaxBatch` 16 and `SpeculationMaxDraftRows` 16 (drafts per sequence =
+min(k, 16 / decoding sequences): k = 3 up to 5 sequences, 1 at 16, none above 16). Aggregate tok/s; acceptance from
+`/metrics`.
+
+| conc | off | MTP k = 3 (acceptance) | speedup | vLLM FP8 off | vLLM FP8 MTP k = 3 (speedup) |
+|---|---|---|---|---|---|
+| 1 | 35.3 | 80.5 (0.53) | 2.28x | 42 | 76 (1.81x) |
+| 4 | 147.6 | 183.8 (0.56) | 1.25x | 147 | 278 (1.89x) |
+| 16 | 327.7 | 479.3 (0.82) | 1.46x | 554 | 843 (1.52x) |
+| 64 | 824.3 | 905.1 (no drafts at c = 64; ramp and tail only) | 1.10x | 1370 | 965 (0.70x) |
+
+* MTP gains 1.25-2.3x up to 16 streams and is at parity at 64, where the engine stops speculating (801-905 vs 824-831 tok/s over
+  the two passes; vLLM loses 30 % there). The first baseline pass ran while another application loaded the GPU (c = 1: 25.7 tok/s).
+  The first pass with the old limit (`SpeculationMaxBatch` 8, `serve_*-mtp3_*` and `-mtp1_*`) had no drafts at c = 16 (1.09x);
+  allowing 16 sequences with one draft each gave 1.43x (`-mtp3-mb16`), hence the new defaults.
+* c = 4 gains least (1.25x): 4 × 4 verification rows make the target step 42 ms against 27 ms for 4 rows (16 rows of the int-dot
+  matvec, logits and hidden states for every row), plus three draft-head launches per step. A smaller k at c = 4 or device-side
+  verification (lever below) would recover part of it.
+* The remaining serving gap to vLLM is the batched-step gap of section 16 (levers #1-#3), which speculation multiplies but
+  does not close.
+
+### 17.3 What it costs and what is left
+
+* Memory: the record state is `[slots, 2, k + 1, W]` f32 per recurrent op (Qwen3.8-27B: about 35 MB per slot at k = 3, 2.2 GB
+  for 64 slots); the draft head adds its own copy of the embedding and LM head (2.5 GB for the Q8_0 27B; weights are not
+  shared between compiled models yet) and one attention layer's KV cache.
+* Verification reads back full logits rows (1 MB per row for the 248k vocabulary) and the hidden states of every row; a
+  device-side multi-row greedy / compare kernel would remove both from the speculative step.
+* Drafting is greedy only; drafting from the head's distribution with min(1, p/q) acceptance would raise acceptance for sampled
+  requests (vLLM does not do this for MTP either).

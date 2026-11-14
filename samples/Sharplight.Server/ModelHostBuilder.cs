@@ -102,8 +102,13 @@ internal sealed class ModelHostBuilder
         {
             Slots = spec.Slots ?? _settings.Slots,
             KvCacheTokens = _settings.KvCacheTokens,
-            Engine = new EngineOptions { MaxQueue = _settings.MaxQueue, PrefillChunk = _settings.PrefillChunk, MaxBatchTokens = _settings.StepTokens ?? 0 },
+            Engine = new EngineOptions
+            {
+                MaxQueue = _settings.MaxQueue, PrefillChunk = _settings.PrefillChunk, MaxBatchTokens = _settings.StepTokens ?? 0,
+                SpeculationMaxBatch = _settings.SpeculationMaxBatch,
+            },
             Speculator = _settings.NgramDraftTokens > 0 ? _ => new NgramSpeculator(_settings.NgramDraftTokens) : null,
+            MtpDraftTokens = _settings.MtpDraftTokens,
             Service = new ModelServiceOptions { ChatTemplate = templatePath is not null ? ReadTemplate(templatePath) : null },
         };
     }

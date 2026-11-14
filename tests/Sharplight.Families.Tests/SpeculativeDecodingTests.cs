@@ -1,0 +1,95 @@
+using Sharplight.Cpu;
+using Sharplight.HuggingFace;
+using Sharplight.Llm;
+using Sharplight.Llm.Serving;
+using Sharplight.Llm.Serving.Speculative;
+using Sharplight.Runtime;
+using Sharplight.Vulkan;
+
+namespace Sharplight.Families.Tests;
+
+/// <summary>
+/// End-to-end speculative decoding through the <see cref="InferenceEngine"/> on a model with recurrent layers (tiny random
+/// Qwen3.5 with an MTP layer): greedy output with the MTP head or n-gram drafts is token-identical to decoding without
+/// speculation, with several sequences in flight and drafts actually verified and rolled back.
+/// </summary>
+public class SpeculativeDecodingTests
+{
+    private static readonly string ModelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "hf", "tiny-random-qwen3.5-mtp");
+    private const int Slots = 3;
+    private const int Drafts = 3;
+
+    static SpeculativeDecodingTests() => HuggingFaceImporter.Register();
+
+    [Theory]
+    [InlineData(false, "mtp")]
+    [InlineData(false, "ngram")]
+    [InlineData(true, "mtp")]
+    [InlineData(true, "ngram")]
+    public async Task GreedyOutput_Matches_NonSpeculativeDecoding(bool vulkan, string speculator)
+    {
+        Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
+        using var device = OpenDevice(vulkan);
+        using var model = LlmModel.Load(ModelPath, new LlmLoadOptions
+        {
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false,
+        });
+        Assert.True(model.HasDraftHead);
+        var rng = new Random(11);
+        // Repetitive prompts give the n-gram speculator something to find; the random model's own output repeats too.
+        int[][] prompts = [.. Enumerable.Range(0, 4).Select(i =>
+        {
+            int[] motif = [.. Enumerable.Range(0, 3 + i).Select(_ => rng.Next(10, 5000))];
+            return Enumerable.Repeat(motif, 4).SelectMany(m => m).ToArray();
+        })];
+        var ct = TestContext.Current.CancellationToken;
+
+        var expected = await Generate(model, model.CreateBatchDecoder(Slots), null, prompts, ct);
+        var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
+        ISpeculator spec = speculator == "mtp" ? model.CreateMtpSpeculator(Slots, Drafts) : new NgramSpeculator(Drafts, minNgram: 1);
+        var (actual, metrics) = await GenerateWithMetrics(model, decoder, spec, prompts, ct);
+        for (int i = 0; i < prompts.Length; i++)
+        {
+            Assert.Equal(expected[i], actual[i]);
+        }
+
+        Assert.True(metrics.DraftTokens > 0, "no drafts were verified");
+        TestContext.Current.SendDiagnosticMessage($"{speculator}: {metrics.AcceptedDraftTokens} of {metrics.DraftTokens} drafts accepted");
+    }
+
+    private static async Task<int[][]> Generate(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, CancellationToken ct)
+        => (await GenerateWithMetrics(model, decoder, spec, prompts, ct)).Tokens;
+
+    private static async Task<(int[][] Tokens, EngineMetricsSnapshot Metrics)> GenerateWithMetrics(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, CancellationToken ct)
+    {
+        using var engine = new InferenceEngine(decoder, model.Tokenizer, new EngineOptions { Speculator = spec });
+        Assert.Equal(spec is not null, engine.Speculates);
+        var handles = prompts.Select(p => engine.Submit(new GenerationRequest
+        {
+            PromptTokens = p, MaxTokens = 40, StopAtEog = false, Logprobs = true, Sampling = SamplingParams.GreedyDefault,
+        }, ct)).ToList();
+        var results = await Task.WhenAll(handles.Select(h => h.CompleteAsync(ct)));
+        foreach (var r in results)
+        {
+            Assert.Null(r.Error);
+        }
+
+        return ([.. results.Select(r => r.Logprobs.Select(l => l.TokenId).ToArray())], engine.GetMetrics());
+    }
+
+    private static IComputeDevice OpenDevice(bool vulkan)
+    {
+        if (!vulkan)
+        {
+            var cpu = new CpuExecutionProvider();
+            return cpu.OpenDevice(cpu.GetDevices()[0]);
+        }
+
+        var p = new VulkanProvider();
+        Assert.SkipUnless(p.CheckAvailability().IsAvailable, "Vulkan is not available");
+        var devs = p.GetDevices();
+        var dev = devs.FirstOrDefault(d => d.Kind == DeviceKind.DiscreteGpu) ?? devs.FirstOrDefault();
+        Assert.SkipWhen(dev is null, "no Vulkan device");
+        return p.OpenDevice(dev!);
+    }
+}

@@ -97,6 +97,12 @@ internal sealed class CliOptionSet
         Description = "Enable the model's thinking mode (only for image prompts, where the chat template is always used).",
     };
 
+    private readonly Option<int> _speculateMtp = OptionFactory.Integer("--speculate-mtp",
+        "Speculative decoding with the model's multi-token-prediction head: draft this many tokens per step (0 = off).", 0, minimum: 0, helpName: "tokens");
+
+    private readonly Option<int> _speculateNgram = OptionFactory.Integer("--speculate-ngram",
+        "Prompt-lookup speculative decoding: draft up to this many tokens from earlier text (0 = off).", 0, minimum: 0, helpName: "tokens");
+
     /// <summary>Creates the root command; <paramref name="action"/> receives the validated settings.</summary>
     public RootCommand BuildCommand(Func<CliSettings, CancellationToken, Task<int>> action)
     {
@@ -121,6 +127,8 @@ internal sealed class CliOptionSet
         command.Options.Add(_temperature);
         command.Options.Add(_chat);
         command.Options.Add(_think);
+        command.Options.Add(_speculateMtp);
+        command.Options.Add(_speculateNgram);
         command.Validators.Add(ValidateCombination);
         command.SetAction(HubGuard.Guard((parseResult, cancellationToken) => action(Read(parseResult), cancellationToken)));
         return command;
@@ -159,7 +167,9 @@ internal sealed class CliOptionSet
             parseResult.GetValue(_maxNewTokens),
             parseResult.GetValue(_temperature),
             parseResult.GetValue(_chat),
-            parseResult.GetValue(_think));
+            parseResult.GetValue(_think),
+            parseResult.GetValue(_speculateMtp),
+            parseResult.GetValue(_speculateNgram));
 
         var runtime = _runtime.Read(parseResult);
         var pull = _pull.Read(parseResult, log => PrecompileTargets.Create(true, runtime.UseCpu, runtime.DeviceIndex, runtime.ContextLength,

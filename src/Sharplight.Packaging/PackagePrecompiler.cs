@@ -167,6 +167,11 @@ public static class PackagePrecompiler
             {
                 using var decoder = model.CreateBatchDecoder(options.Slots, options.ContextLength, kvCacheTokens: options.KvCacheTokens);
             }
+
+            if (options.DraftTokens > 0)
+            {
+                CompileSpeculative(model, options);
+            }
         }
 
         if (definition.Graphs.ContainsKey(WellKnown.EmbedGraph))
@@ -179,6 +184,38 @@ public static class PackagePrecompiler
         {
             Optional(WellKnown.ClassifyGraph, options,
                 () => Reranker.Load(packagePath, new RerankerLoadOptions { Devices = devices, Log = options.Log, Artifacts = artifacts }));
+        }
+    }
+
+    /// <summary>
+    /// The decoders speculative decoding compiles, sized as their callers size them: the CLI's one-slot decoder and draft head,
+    /// and the server's (logits rows for the slots plus the drafts of up to <see cref="Llm.Serving.EngineOptions.SpeculationMaxBatch"/>
+    /// speculating sequences).
+    /// </summary>
+    private static void CompileSpeculative(LlmModel model, PrecompileOptions options)
+    {
+        int k = options.DraftTokens;
+        using (model.CreateBatchDecoder(1, options.ContextLength, maxLogitsRows: k + 1, draftTokens: k))
+        {
+        }
+
+        if (model.HasDraftHead)
+        {
+            using var head = model.CreateMtpSpeculator(1, k, options.ContextLength);
+        }
+
+        if (options.Slots > 1)
+        {
+            int speculating = Math.Min(options.Slots, new Llm.Serving.EngineOptions().SpeculationMaxBatch);
+            using (model.CreateBatchDecoder(options.Slots, options.ContextLength, maxLogitsRows: options.Slots + (speculating * k),
+                kvCacheTokens: options.KvCacheTokens, draftTokens: k))
+            {
+            }
+
+            if (model.HasDraftHead)
+            {
+                using var head = model.CreateMtpSpeculator(options.Slots, k, options.ContextLength, options.KvCacheTokens);
+            }
         }
     }
 

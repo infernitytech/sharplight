@@ -25,14 +25,21 @@ public sealed record EngineOptions
     public TimeSpan FairShareHalfLife { get; init; } = TimeSpan.FromSeconds(60);
     /// <summary>
     /// Speculative decoding: proposes draft tokens that the target model verifies in one pass (the engine takes ownership).
-    /// Used only when the decoder can roll back rows (<see cref="IBatchDecoder.CanTruncate"/>, i.e. attention-only models) and
-    /// returns more than one logits row per step (<see cref="LlmModel.CreateBatchDecoder"/> with <c>maxLogitsRows</c>); it is
-    /// disposed and ignored otherwise.
+    /// Used only when the decoder can roll back the rows of rejected drafts (<see cref="IBatchDecoder.MaxSpeculativeRows"/> above 1:
+    /// attention-only models, or models with recurrent state from <see cref="LlmModel.CreateBatchDecoder"/> with
+    /// <c>draftTokens</c>), returns more than one logits row per step (<c>maxLogitsRows</c>) and, for a speculator that reads
+    /// hidden states, exposes them; it is disposed and ignored otherwise.
     /// </summary>
     public ISpeculator? Speculator { get; init; }
     /// <summary>
     /// Speculate only while at most this many sequences decode: large batches are compute bound, where verifying drafts costs
     /// more than it saves.
     /// </summary>
-    public int SpeculationMaxBatch { get; init; } = 8;
+    public int SpeculationMaxBatch { get; init; } = 16;
+    /// <summary>
+    /// Most draft rows verified per step over all sequences: with many sequences decoding, each gets
+    /// <c>SpeculationMaxDraftRows / sequences</c> drafts (at least 1, at most <see cref="ISpeculator.MaxDraftTokens"/>), so the
+    /// step grows less as the batch, and with it the compute share of the step, grows.
+    /// </summary>
+    public int SpeculationMaxDraftRows { get; init; } = 16;
 }

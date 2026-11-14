@@ -31,7 +31,8 @@ public sealed partial class GraphLowerer
         // Token inputs first (dense [T, H, N]), then for Wkv6 the bonus u [H, N]; Wkv7 has two more token inputs (a, b) before the state.
         var tokenInputs = n.Inputs.Take(stateInput).Select((v, i) => EnsureDense(Ref(v), $"{entry}-{i}")).ToArray();
         var state = Ref(n.Inputs[stateInput]);
-        var runs = n.Inputs.Length > stateInput + 1 ? DenseInput(n.Inputs[stateInput + 1], "seq-runs") : null;
+        var runs = RecurrentRuns(n, stateInput + 1);
+        var (commits, records, rollback) = RollbackBindings(n);
         var y = Produce(n.Output);
         long H = tokenInputs[0].Shape[1];
         long N = tokenInputs[0].Shape[2];
@@ -48,7 +49,7 @@ public sealed partial class GraphLowerer
         }
 
         long timeBlock = Math.Clamp(1024 / N, 1, 16);
-        var k = Lib("wkv.slang", entry, Macros(("H", H), ("N", N), ("LPR", lanesPerRow), ("RB", rowsPerBlock), ("TB", timeBlock), ("MULTI_SEQ", runs is not null)));
+        var k = Lib("wkv.slang", entry, Macros([("H", H), ("N", N), ("LPR", lanesPerRow), ("RB", rowsPerBlock), ("TB", timeBlock), ("MULTI_SEQ", runs is not null), .. rollback]));
 
         // Wkv7: r, w, k, v, a, b; Wkv6: r, k, v, w and u. The kernel binds (r, w, k, v, a-or-u, b-or-unused).
         TensorRef[] bound = entry == "wkv7"
@@ -56,7 +57,7 @@ public sealed partial class GraphLowerer
             : [tokenInputs[0], tokenInputs[3], tokenInputs[1], tokenInputs[2], tokenInputs[4], tokenInputs[4]];
         Emit($"{entry} {n.Output.Name}", [n],
             [Always(k, b => new Grid((uint)H, (uint)(N / rowsPerBlock), runs is null ? 1u : (uint)Rows(b, runs)))],
-            [.. bound.Select(r => Pointer(r)), Pointer(state), Pointer(y), .. SeqArgs(runs), TokenArg(tokenInputs[0])],
-            [.. tokenInputs, state, .. runs is null ? [] : (TensorRef[])[runs]], [y, state]);
+            [.. bound.Select(r => Pointer(r)), Pointer(state), Pointer(y), .. SeqArgs(runs, commits, records), TokenArg(tokenInputs[0])],
+            [.. tokenInputs, state, .. SequenceTables(runs, commits, records)], [y, state, .. records is null ? [] : (TensorRef[])[records]]);
     }
 }

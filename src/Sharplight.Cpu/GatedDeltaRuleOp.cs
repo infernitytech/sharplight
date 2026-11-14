@@ -3,7 +3,10 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Gated delta rule recurrence (per head sequential over tokens, rows of the state are independent).</summary>
+/// <summary>
+/// Gated delta rule recurrence (per head sequential over tokens, rows of the state are independent). Rollback form: a record row
+/// holds, per value head, k (DK), v (DV), g and beta; a tentative run advances a task-local copy of its state rows.
+/// </summary>
 internal sealed unsafe class GatedDeltaRuleOp : CpuOp
 {
     private readonly TRef _q;
@@ -24,10 +27,14 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
     private int _jPer;
     private readonly TRef? _runs;   // multi-sequence: [U, 4] (slot, firstRow, count, firstPos); state [S, Hv, Dv, Dk]
     private long _u;
+    private readonly RollbackTables? _rollback;
+    private float* _scratch;        // tentative runs: per task, a copy of its state rows
+    private long _scratchFloats;
     public override string Name => "GatedDeltaRule";
 
-    public GatedDeltaRuleOp(TRef q, TRef k, TRef v, TRef g, TRef beta, TRef state, TRef y, float scale, TRef? runs = null)
+    public GatedDeltaRuleOp(TRef q, TRef k, TRef v, TRef g, TRef beta, TRef state, TRef y, float scale, TRef? runs = null, RollbackTables? rollback = null)
     {
+        _rollback = rollback;
         _q = q;
         _k = k;
         _v = v;
@@ -83,8 +90,27 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
 
         _jChunks = Math.Max(1, Math.Min(_dv / 8, (CpuParallel.Threads * 2 + _hv - 1) / _hv));
         _jPer = (_dv + _jChunks - 1) / _jChunks;
+        if (_rollback is not null)
+        {
+            EnsureScratch((long)_hv * _jChunks * _jPer * _dk);
+        }
+
         CpuParallel.For(_hv * _jChunks, _body);
     }
+
+    private void EnsureScratch(long floats)
+    {
+        if (_scratchFloats >= floats)
+        {
+            return;
+        }
+
+        Mem.Free((byte*)_scratch);
+        _scratch = (float*)Mem.Alloc(floats * sizeof(float), false);
+        _scratchFloats = floats;
+    }
+
+    public override void Dispose() => Mem.Free((byte*)_scratch);
 
     private void Body(int task)
     {
@@ -97,19 +123,44 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
         long gs1 = _g.Strides[1];
         long bs0 = _beta.Strides[0];
         long bs1 = _beta.Strides[1];
+        long recordHead = (long)h * (_dk + _dv + 2);
         for (long u = 0; u < _u; u++)
         {
         long slot = 0;
         long t0 = 0;
         long t1 = _t;
+        long position = 0;
         if (_runs is not null)
         {
             int* r = (int*)_runs.P + u * 4;
             slot = r[0];
             t0 = r[1];
             t1 = t0 + r[2];
+            position = r[3];
         }
         float* S = (float*)_state.P + (slot * _hv + h) * (long)_dv * _dk;
+        var plan = _rollback?.Plan(u, slot, t1 - t0, position) ?? default;
+        for (int i = 0; i < plan.Replay; i++)
+        {
+            float* rec = plan.ReadRecords + i * _rollback!.Width + recordHead;
+            float decay = MathF.Exp(rec[_dk + _dv]);
+            float beta = rec[_dk + _dv + 1];
+            for (int j = j0; j < j1; j++)
+            {
+                float* row = S + (long)j * _dk;
+                float kv = Simd.Dot(row, rec, _dk) * decay;
+                DecayUpdateDot(row, rec, rec, decay, (rec[_dk + j] - kv) * beta, _dk);
+            }
+        }
+
+        if (plan.Tentative)
+        {
+            // The slot's state stays at the run's start: advance a copy of this task's rows (indexed like the state).
+            float* copy = _scratch + (long)task * _jPer * _dk;
+            Buffer.MemoryCopy(S + (long)j0 * _dk, copy, (long)(j1 - j0) * _dk * 4, (long)(j1 - j0) * _dk * 4);
+            S = copy - (long)j0 * _dk;
+        }
+
         for (long t = t0; t < t1; t++)
         {
             float* q = _q.F(t * _hk + hq);
@@ -118,6 +169,11 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
             float decay = MathF.Exp(((float*)_g.P)[t * gs0 + h * gs1]);
             float beta = ((float*)_beta.P)[t * bs0 + h * bs1];
             float* o = (float*)_y.P + (t * _hv + h) * _dv;
+            if (plan.Tentative)
+            {
+                Record(plan.WriteRecords + (t - t0) * _rollback!.Width + recordHead, k, v, ((float*)_g.P)[t * gs0 + h * gs1], beta, jc == 0, j0, j1);
+            }
+
             for (int j = j0; j < j1; j++)
             {
                 float* row = S + (long)j * _dk;
@@ -126,6 +182,22 @@ internal sealed unsafe class GatedDeltaRuleOp : CpuOp
                 o[j] = DecayUpdateDot(row, k, q, decay, delta, _dk) * _scale;
             }
         }
+        }
+    }
+
+    /// <summary>Writes this task's part of a record row: v[j0, j1) and, for the first task of the head, k, g and beta.</summary>
+    private void Record(float* rec, float* k, float* v, float g, float beta, bool head, int j0, int j1)
+    {
+        if (head)
+        {
+            Buffer.MemoryCopy(k, rec, _dk * 4, _dk * 4);
+            rec[_dk + _dv] = g;
+            rec[_dk + _dv + 1] = beta;
+        }
+
+        for (int j = j0; j < j1; j++)
+        {
+            rec[_dk + j] = v[j];
         }
     }
 

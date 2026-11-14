@@ -1,0 +1,19 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 83 %, 7057 MiB, 232.73 W, 2302 MHz, 14001 MHz, 71, P0
+2752, /usr/bin/kwin_wayland, 598 MiB
+4944, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/re
+82584, ~/.local/share/JetBrains/Toolbox/apps/rider/bin/rider, 342 MiB
+372002, ~/Documents/work/fakedreality/artifacts/bin/Sloport/debug/Sloport, 2344 MiB
+372385, samples/Sharplight.Cli/bin/Release/net11.0/sharplight, 42 MiB
+mtp k=0 depth=47: tg median 36.1 min 18.3 max 37.9 tok/s
+mtp k=0 depth=4096: tg median 37.0 min 34.4 max 38.9 tok/s
+mtp k=1 depth=47: tg median 71.0 min 65.5 max 71.8 tok/s acceptance 0.80 (283/355)
+mtp k=1 depth=4096: tg median 68.7 min 62.6 max 77.3 tok/s acceptance 0.83 (289/349)
+mtp k=2 depth=47: tg median 81.1 min 74.8 max 90.6 tok/s acceptance 0.71 (375/525)
+mtp k=2 depth=4096: tg median 73.3 min 66.1 max 74.9 tok/s acceptance 0.65 (360/555)
+mtp k=3 depth=47: tg median 86.6 min 77.9 max 89.7 tok/s acceptance 0.58 (402/698)
+mtp k=3 depth=4096: tg median 78.0 min 30.2 max 166.5 tok/s acceptance 0.60 (408/684)
+gpu util,memused,power,smclk,memclk,temp,pstate: 6 %, 9272 MiB, 192.05 W, 2340 MHz, 14001 MHz, 83, P0
+2752, /usr/bin/kwin_wayland, 598 MiB
+4944, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/re
+82584, ~/.local/share/JetBrains/Toolbox/apps/rider/bin/rider, 342 MiB
+372002, ~/Documents/work/fakedreality/artifacts/bin/Sloport/debug/Sloport, 4590 MiB

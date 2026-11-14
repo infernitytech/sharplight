@@ -73,7 +73,10 @@ and per compile like the other device features, with the contiguous path as the 
 - This replaces the per-slot prefix cache for paged decoders: reuse works across slots and between concurrent requests.
   Metrics: `kv_prefix_hit_tokens_total`, `kv_blocks_shared`.
 - Hybrid models: the recurrent state at the end of a shared prefix is not stored, so prefix sharing is disabled for models
-  with recurrent state (as speculation is). A later step can snapshot recurrent state at block boundaries.
+  with recurrent state. A later step can snapshot recurrent state at block boundaries. (Speculation works for them: rejected
+  drafts are rolled back by record-and-replay of the recurrent ops, see `Graph.RecurrentRollback`; the record state is
+  `[slots, 2, k + 1, W]` f32 per recurrent op, about 35 MB per slot for Qwen3.8-27B with 3 drafts, against about 160 MB of
+  recurrent state per slot that per-position snapshots would copy k + 1 times.)
 
 ### 2.4 Quantised KV storage (implemented)
 

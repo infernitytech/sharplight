@@ -3,7 +3,10 @@ using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Causal depthwise conv with carried state (+ optional SiLU).</summary>
+/// <summary>
+/// Causal depthwise conv with carried state (+ optional SiLU). Rollback form: a record row is the input row x [C]; replay shifts
+/// recorded rows into the window.
+/// </summary>
 internal sealed unsafe class CausalConv1dOp : CpuOp
 {
     private readonly TRef _x;
@@ -23,10 +26,12 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
     private readonly TRef? _runs;   // multi-sequence: [U, 4] (slot, firstRow, count, firstPos); state [S, K-1, C]
     private readonly long _slotStride;
     private long _u;
+    private readonly RollbackTables? _rollback;
     public override string Name => "CausalConv1d";
 
-    public CausalConv1dOp(TRef x, TRef w, TRef state, TRef y, bool silu, bool staticWeight, TRef? bias = null, TRef? runs = null)
+    public CausalConv1dOp(TRef x, TRef w, TRef state, TRef y, bool silu, bool staticWeight, TRef? bias = null, TRef? runs = null, RollbackTables? rollback = null)
     {
+        _rollback = rollback;
         _bias = bias;
         _x = x;
         _w = w;
@@ -101,6 +106,15 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
             {
                 new Span<float>((float*)_state.P + sl * _slotStride, (int)_slotStride).Clear();
             }
+
+            if (_rollback is not null)
+            {
+                var plan = _rollback.Plan(u, sl, cnt, ((int*)_runs!.P)[u * 4 + 3]);
+                for (int i = 0; i < plan.Replay; i++)
+                {
+                    PushRow((float*)_state.P + sl * _slotStride, plan.ReadRecords + i * _rollback.Width);
+                }
+            }
         }
         int chunks = (int)Math.Max(1, Math.Min(CpuParallel.Threads * 2L, _c / 256));
         _per = ((_c + chunks - 1) / chunks + 7) & ~7L;
@@ -108,8 +122,32 @@ internal sealed unsafe class CausalConv1dOp : CpuOp
         for (long u = 0; u < _u; u++)
         {
             var (sl, r0, cnt) = RunAt(u);
-            UpdateState((float*)_state.P + sl * _slotStride, r0, cnt);
+            var plan = _rollback?.Plan(u, sl, cnt, ((int*)_runs!.P)[u * 4 + 3]) ?? default;
+            if (!plan.Tentative)
+            {
+                UpdateState((float*)_state.P + sl * _slotStride, r0, cnt);
+                continue;
+            }
+
+            // A tentative run leaves the window at its start and records its input rows for a later replay.
+            for (long i = 0; i < cnt; i++)
+            {
+                Buffer.MemoryCopy(_x.F(r0 + i), plan.WriteRecords + i * _rollback!.Width, _c * 4, _c * 4);
+            }
         }
+    }
+
+    /// <summary>Shifts the window by one row and appends <paramref name="row"/> [C].</summary>
+    private void PushRow(float* st, float* row)
+    {
+        long km1 = _k - 1;
+        if (km1 == 0)
+        {
+            return;
+        }
+
+        Buffer.MemoryCopy(st + _c, st, (km1 - 1) * _c * 4, (km1 - 1) * _c * 4);
+        Buffer.MemoryCopy(row, st + (km1 - 1) * _c, _c * 4, _c * 4);
     }
 
     /// <summary>state := last K-1 rows of [state; x[r0 .. r0+t)].</summary>
