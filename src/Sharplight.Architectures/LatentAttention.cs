@@ -64,10 +64,15 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
     /// <param name="headIds">Head indices from <see cref="HeadIndices"/>.</param>
     /// <param name="rotate">Applies the layer's rotary embedding to a [T, heads, rope] tensor.</param>
     /// <param name="temperature">Optional per-row query factor [T, 1, 1] (<see cref="AttentionTemperature"/>), which scales the scores of a row.</param>
-    public Value Build(GraphBuilder b, Value h, string prefix, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature = null)
+    /// <param name="select">
+    /// Sparse attention: given the input of the query projection (the normalized compressed query, or <paramref name="h"/> without one), returns
+    /// the key positions every row attends, i32 [T, K] (<see cref="SparseAttentionIndexer"/>); null attends every visible position.
+    /// </param>
+    public Value Build(GraphBuilder b, Value h, string prefix, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature = null,
+        Func<Value, Value>? select = null)
     {
         var p = parameters;
-        var q = Query(b, h, prefix);                                                                                       // [T, H, nope + rope]
+        var q = Query(b, h, prefix, out var queryInput);                                                                   // [T, H, nope + rope]
         var queryNope = b.Slice(q, 2, 0, p.NopeDims);
         var queryRope = Magnitude(b, rotate(b.Slice(q, 2, p.NopeDims, p.RopeDims)));
 
@@ -95,6 +100,12 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
             attributes = attributes.With("sinks", true);
         }
 
+        if (select is not null)
+        {
+            inputs = [.. inputs, select(queryInput)];
+            attributes = attributes.With("selection", true);
+        }
+
         var attended = b.Emit1("CachedAttention", inputs, attributes, $"{prefix}attn");                                    // [T, H, latent]
         var values = b.Emit1("MatMulId", [attended, b.Weight(prefix + "attention.v_up.weight"), headIds], null, $"{prefix}attn_values"); // [T, H, v]
         if (b.TryWeight(prefix + "attention.gate.weight") is not null)
@@ -108,17 +119,19 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
         return b.Linear(b.Reshape(values, 0, p.Heads * p.ValueDims), prefix + "attention.o.weight", name: $"{prefix}attn_out");
     }
 
-    private Value Query(GraphBuilder b, Value h, string prefix)
+    // The query rows [T, H, nope + rope]; input = what the query up-projection reads (the normalized compressed query, or h).
+    private Value Query(GraphBuilder b, Value h, string prefix, out Value input)
     {
         var p = parameters;
         Value q;
         if (p.QueryRank > 0)
         {
-            var down = b.RmsNorm(b.Linear(h, prefix + "attention.q_down.weight"), b.Weight(prefix + "attention.q_down_norm.weight"), p.Eps);
-            q = b.Linear(down, prefix + "attention.q_up.weight", name: $"{prefix}q");
+            input = b.RmsNorm(b.Linear(h, prefix + "attention.q_down.weight"), b.Weight(prefix + "attention.q_down_norm.weight"), p.Eps);
+            q = b.Linear(input, prefix + "attention.q_up.weight", name: $"{prefix}q");
         }
         else
         {
+            input = h;
             q = b.Linear(h, prefix + "attention.q.weight", name: $"{prefix}q");
         }
 

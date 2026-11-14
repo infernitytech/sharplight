@@ -136,6 +136,45 @@ public sealed class WeightInfo
     public WeightInfo GatherRows(string name, IEnumerable<(long FirstRow, long Rows)> blocks)
         => ConcatRows(name, [.. blocks.Select(block => RowSlice(name, block.FirstRow, block.Rows))]);
 
+    /// <summary>
+    /// Views each outer row (of <paramref name="a"/>·<paramref name="b"/> elements, a-major) as an a×b matrix and transposes it, lazily:
+    /// the result is [rows, b·a], b-major. E.g. a convolution kernel [out, C, kh, kw] with a = C, b = kh·kw becomes the linear map of
+    /// window rows laid out (kh, kw, C).
+    /// </summary>
+    /// <param name="name">Name of the result.</param>
+    /// <param name="a">Outer extent of each row's matrix.</param>
+    /// <param name="b">Inner extent of each row's matrix.</param>
+    /// <exception cref="ArgumentException">The tensor is quantized or its rows do not hold a·b elements.</exception>
+    public WeightInfo TransposeRowBlocks(string name, long a, long b)
+    {
+        long rows = Shape[0].Fixed;
+        if (Type.IsQuantized || Shape.Elements() != rows * a * b)
+        {
+            throw new ArgumentException($"{Name}: cannot view rows of {Type}{Shape} as {a}×{b} matrices.");
+        }
+
+        var source = this;
+        int eb = Type.ElementSize;
+        return Derived(name, Type, new Shape(rows, a * b), () =>
+        {
+            var src = source.ReadAll();
+            var dst = new byte[src.Length];
+            for (long r = 0; r < rows; r++)
+            {
+                long row = r * a * b;
+                for (long i = 0; i < a; i++)
+                {
+                    for (long j = 0; j < b; j++)
+                    {
+                        Buffer.BlockCopy(src, (int)((row + i * b + j) * eb), dst, (int)((row + j * a + i) * eb), eb);
+                    }
+                }
+            }
+
+            return dst;
+        });
+    }
+
     /// <summary>Reads the whole tensor.</summary>
     public byte[] ReadAll()
     {

@@ -58,7 +58,25 @@ internal static partial class CpuOpSupport
             return OpSupport.No($"KV cache type {ins[1].Type}/{ins[2].Type} is not supported by the CPU provider (f32, f16, q8_0, q4_0)");
         }
 
+        int selectionInput = node.Attributes.Get("sinks", false) ? 4 : 3;
+        if (node.Attributes.Get("selection", false)
+            && (ins.Length <= selectionInput || ins[selectionInput].Type != DataType.I32 || node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))
+        {
+            return OpSupport.No("CachedAttention selection must be i32 [T, K] and cannot be combined with window or chunk");
+        }
+
         return OpSupport.Yes;
+    }
+
+    private static OpSupport CheckIndexerTopK(Node node)
+    {
+        var ins = node.Inputs;
+        if (ins[0].Type != DataType.F32 || ins[2].Type != DataType.F32)
+        {
+            return OpSupport.No("IndexerTopK q and weights must be f32");
+        }
+
+        return IsKvCacheType(ins[1].Type) ? OpSupport.Yes : OpSupport.No($"IndexerTopK key cache type {ins[1].Type} (f32 or f16)");
     }
 
     private static OpSupport CheckAttention(Node node)

@@ -105,6 +105,12 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
+        if (plan.Selection is not null)
+        {
+            EmitSelectedAttention(plan);
+            return;
+        }
+
         if (MqaAttention(plan) is { } mqa)
         {
             EmitMqaAttention(plan, mqa);
@@ -207,8 +213,10 @@ public sealed partial class GraphLowerer
 
         var output = Produce(n.Output);
         bool hasSinks = !full && n.Attributes.Get("sinks", false);
-        int sinksInputs = hasSinks ? 1 : 0;   // inputs: q, k, v, [sinks], [rows, runs]
+        bool hasSelection = !full && n.Attributes.Get("selection", false);
+        int sinksInputs = (hasSinks ? 1 : 0) + (hasSelection ? 1 : 0);   // inputs: q, k, v, [sinks], [selection], [rows, runs]
         TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
+        TensorRef? selection = hasSelection ? DenseInput(n.Inputs[2 + sinksInputs], "attn-selection") : null;   // sparse attention: [T, K] key positions
         long HQ = q.Shape[1];
         long D = q.Shape[2];
         long HKV = k.Shape[1];
@@ -249,7 +257,7 @@ public sealed partial class GraphLowerer
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
-            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), .. AlibiMacros(n)]);
+            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[1] ?? 0), .. AlibiMacros(n)]);
         return new AttentionPlan
         {
             Node = n,
@@ -263,6 +271,7 @@ public sealed partial class GraphLowerer
             Runs = runs,
             Pages = pages,
             Spans = spans,
+            Selection = selection,
             Cross = cross,
             HQ = HQ,
             HKV = HKV,
@@ -468,9 +477,33 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection)],
             split ? [o, part] : [o]);
+    }
+
+    /// <summary>
+    /// Sparse attention (a selection input): the per-(head, query) kernel visits only the selected key positions, so its cost follows the selection
+    /// width instead of the context. Long batches are sliced like the scalar kernel's on devices with a submission budget.
+    /// </summary>
+    private void EmitSelectedAttention(AttentionPlan plan)
+    {
+        var q = plan.Q;
+        long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
+        long sliceRows = maxRows;
+        if (_opt.SubmissionBudgetMs > 0)
+        {
+            long workPerRow = Math.Max(1, plan.HQ * plan.Selection!.Shape[1] * (plan.D + plan.DV));
+            sliceRows = Math.Clamp((long)(_opt.SubmissionBudgetMs * 3e6) / workPerRow, Math.Min(8, maxRows), maxRows);
+        }
+
+        var kernel = Lib("attention.slang", "main", plan.Macros);
+        for (long firstRow = 0; firstRow < maxRows; firstRow += sliceRows)
+        {
+            long first = firstRow;
+            var variant = new KernelVariant(b => Rows(b, q) > first, kernel, b => new Grid((uint)plan.HQ, (uint)Math.Min(sliceRows, Rows(b, q) - first)));
+            EmitAttentionLaunch(plan, [variant], plan.Output, first, split: false);
+        }
     }
 
     /// <summary>Merges the per-split partial results of the fixed-split attention kernel into the output.</summary>

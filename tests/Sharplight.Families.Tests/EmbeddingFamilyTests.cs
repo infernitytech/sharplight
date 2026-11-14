@@ -35,6 +35,8 @@ public class EmbeddingFamilyTests
             "hf/tiny-random-eurobert",
             "hf/tiny-random-embeddinggemma",
             "hf/tiny-random-modernbert",
+            // jina-embeddings-v3 in transformers' native form (XLM-RoBERTa post-norm layers with rope).
+            "hf/tiny-random-jina-embeddings-v3",
             // T5 encoders (mk_tiny_t5.py): relative position bias, the 150-token input beyond the bias range.
             "hf/tiny-random-t5",
             "hf/tiny-random-t5-v1_1",
@@ -48,6 +50,8 @@ public class EmbeddingFamilyTests
             "gguf/tiny-random-gemma-embedding-f32.gguf",
             "gguf/tiny-random-modern-bert-f32.gguf",
             "gguf/tiny-random-jina-bert-v2-f32.gguf",
+            "gguf/tiny-random-jina-bert-v3-f32.gguf",
+            "gguf/tiny-random-nomic-bert-moe-f32.gguf",
             // t5encoder: tiny-random-t5's encoder alone (architectures T5EncoderModel, decoder tensors dropped) converted with convert_hf_to_gguf.py;
             // the reference is transformers' T5EncoderModel (tools/hf_t5encoder_reference.py: llama-server's t5encoder embeddings disagree with it).
             "gguf/tiny-random-t5encoder-f32.gguf",

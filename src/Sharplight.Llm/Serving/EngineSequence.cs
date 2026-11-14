@@ -81,6 +81,8 @@ internal sealed class EngineSequence
     /// </summary>
     public int[]? Replay { get; set; }
     public int ReplayPos { get; set; }
+    /// <summary>Masked diffusion: the sequence being denoised (created at its first step), or null.</summary>
+    public DiffusionSequence? Diffusion { get; set; }
     /// <summary>Logical admission time (the newest running sequence is preempted first).</summary>
     public long AdmitTick { get; set; }
 

@@ -10,6 +10,9 @@ namespace Sharplight.Families.Tests;
 /// </summary>
 internal static class MappedFamilyCases
 {
+    private static readonly int[] Glm4vIds = [5905, 143123, 146707, 4073, 112255, 132989, 3497, 55373, 32310, 105637, 84533, 115245, 117628, 124811,
+        14440, 5610, 117557, 95723, 136998, 2304, 102407, 74617, 42512, 136914];
+
     private const string Prompt = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
 
     // Reference ids shared by a Hugging Face case and the GGUF converted from it (transformers and llama.cpp agree). Declared before All, which reads them.
@@ -68,7 +71,11 @@ internal static class MappedFamilyCases
         // The same checkpoints converted with convert_hf_to_gguf.py (qwen2vl); llama.cpp b11177 continues them with the transformers ids.
         new("tiny-random-qwen2-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-vl-wide-f32.gguf", Prompt, "ids", Qwen2VlIds, ""),
         new("tiny-random-qwen2-5-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-5-vl-wide-f32.gguf", Prompt, "ids", Qwen25VlIds, ""),
-        // PaddleOCR-VL language model: ERNIE-4.5 with sectioned M-RoPE (tools/mk_tiny_paddleocr_vl.py; the SigLIP tower is not imported). The GGUF
+        // GLM-4.1V language model: GLM-4 with sectioned M-RoPE on interleaved pairs of half of each head (tools/mk_tiny_glm4v.py; the image path is
+        // checked in Sharplight.Vision.Tests); the GGUF (convert_hf_to_gguf.py, glm4) gives the same ids in llama.cpp b11177.
+        new("tiny-random-glm4v HF (glm4v, transformers)", "hf/tiny-random-glm4v", Prompt, "ids", Glm4vIds, ""),
+        new("tiny-random-glm4v f32 GGUF (glm4 + M-RoPE, llama.cpp)", "gguf/tiny-random-glm4v-f32.gguf", Prompt, "ids", Glm4vIds, ""),
+        // PaddleOCR-VL language model: ERNIE-4.5 with sectioned M-RoPE (tools/mk_tiny_paddleocr_vl.py; the tower is checked in Sharplight.Vision.Tests). The GGUF
         // (convert_hf_to_gguf.py, paddleocr) matches llama.cpp 11139 (d79953103, Unsloth build); b11177 lacks the architecture.
         new("tiny-random-paddleocr-vl HF (paddleocr_vl, transformers)", "hf/tiny-random-paddleocr-vl", Prompt, "ids", PaddleOcrVlIds, ""),
         new("tiny-random-paddleocr-vl f32 GGUF (paddleocr, llama.cpp)", "gguf/tiny-random-paddleocr-vl-f32.gguf", Prompt, "ids", PaddleOcrVlIds, ""),
@@ -94,6 +101,21 @@ internal static class MappedFamilyCases
         // The glm-dsa GGUF is checked against transformers: llama.cpp b11177 leaves these ids at the 4th token (margin 0.15) on this file, while its
         // deepseek32 graph agrees on the same weights; the cause was not identified.
         new("tiny-random-glm-moe-dsa f32 GGUF (glm-dsa, transformers ids)", "gguf/tiny-random-glm-moe-dsa-f32.gguf", Prompt, "ids", DsaIds, ""),
+        // The sparse regime of the DSA indexer: the same checkpoints with index_topk 8 and 16 indexer heads (re-initialized so that no two scores
+        // tie at the top-k boundary, which torch.topk breaks arbitrarily; smallest relative boundary gap 4e-4), so every row past the 8th attends only
+        // to the 8 positions its indexer picks (IndexerTopK + CachedAttention with a selection); Hunyuan v4's third layer reuses the second's selection.
+        new("tiny-random-deepseek-v32-sparse HF (deepseek_v32, index_topk 8, transformers)", "hf/tiny-random-deepseek-v32-sparse", Prompt, "ids",
+            [432, 38, 701, 723, 524, 44, 416, 348, 234, 912, 335, 150, 765, 136, 158, 693, 241, 437, 57, 116, 868, 354, 889, 888], ""),
+        new("tiny-random-glm-moe-dsa-sparse HF (glm_moe_dsa, index_topk 8, transformers)", "hf/tiny-random-glm-moe-dsa-sparse", Prompt, "ids",
+            [717, 621, 1015, 82, 265, 324, 308, 701, 53, 752, 524, 692, 333, 974, 403, 528, 794, 52, 972, 438, 878, 691, 848, 912], ""),
+        // The sparse GGUFs (tools/convert_tiny_gguf.py): llama.cpp b11177 gives exactly the transformers ids on deepseek32; on glm-dsa it leaves them at
+        // the 6th token, as on the dense file above, so that one is checked against transformers.
+        new("tiny-random-deepseek-v32-sparse f32 GGUF (deepseek32, index_topk 8, llama.cpp)", "gguf/tiny-random-deepseek-v32-sparse-f32.gguf", Prompt,
+            "ids", [432, 38, 701, 723, 524, 44, 416, 348, 234, 912, 335, 150, 765, 136, 158, 693, 241, 437, 57, 116, 868, 354, 889, 888], ""),
+        new("tiny-random-glm-moe-dsa-sparse f32 GGUF (glm-dsa, index_topk 8, transformers ids)", "gguf/tiny-random-glm-moe-dsa-sparse-f32.gguf", Prompt,
+            "ids", [717, 621, 1015, 82, 265, 324, 308, 701, 53, 752, 524, 692, 333, 974, 403, 528, 794, 52, 972, 438, 878, 691, 848, 912], ""),
+        new("tiny-random-hy-v4-sparse HF (hy_v4, index_topk 8, shared indexer layer, transformers)", "hf/tiny-random-hy-v4-sparse", Prompt, "ids",
+            [527, 990, 126, 774, 644, 916, 723, 114, 388, 619, 770, 900, 223, 123, 432, 571, 708, 48, 271, 531, 758, 432, 658, 911], ""),
         // The same model with DeepSeek-V4's manifold-constrained hyper-connections (Sinkhorn stream mixing, tools/mk_tiny_hy_v4_mhc.py).
         new("tiny-random-hy-v4-mhc HF (hy_v4 + DeepSeek-V4 mHC, transformers)", "hf/tiny-random-hy-v4-mhc", Prompt, "ids",
             [954, 513, 60, 245, 773, 761, 713, 734, 7, 830, 644, 813, 624, 367, 165, 189, 509, 806, 825, 99, 784, 652, 986, 21], ""),

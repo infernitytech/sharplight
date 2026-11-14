@@ -10,8 +10,7 @@ namespace Sharplight.Gguf;
 /// temperature, which Mistral Large 3 <c>deepseek2</c> files carry too) and <c>plm</c> (PLM-1.8B: direct query projection, ungated squared-ReLU MLP,
 /// output head tied to the embedding). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
 /// split (and its key half transposed per head) into the canonical absorbed form; newer files carry <c>attn_k_b</c> /
-/// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer in its dense regime, with the context
-/// capped at <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part).
+/// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer, <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part).
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
@@ -88,8 +87,9 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
 
         if (g.Has("attention.indexer.top_k"))
         {
-            // DSA (deepseek32, glm-dsa): only the dense regime of the indexer is implemented, the context is capped at its budget.
+            // DSA (deepseek32, glm-dsa): llama.cpp rotates the indexer's rope dimensions with NEOX pairs for DeepSeek-V3.2 and NORM pairs for GLM-5.
             md[a + "attention.indexer.token_budget"] = g.Int("attention.indexer.top_k");
+            md[a + "attention.indexer.rope_style"] = g.GgufArchitecture == "glm-dsa" ? "gptj" : "neox";
         }
 
         // Mistral 4 / Mistral Large 3: Llama-4-style query temperature beyond the original context.
@@ -161,7 +161,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
         ["ffn_gate_shexp.weight"] = "mlp.shared.gate.weight",
         ["ffn_up_shexp.weight"] = "mlp.shared.up.weight",
         ["ffn_down_shexp.weight"] = "mlp.shared.down.weight",
-        // DSA indexer: kept under canonical names, not used by the dense regime.
+        // DSA indexer.
         ["indexer.attn_q_b.weight"] = "attention.indexer.q_up.weight",
         ["indexer.attn_k.weight"] = "attention.indexer.k.weight",
         ["indexer.k_norm.weight"] = "attention.indexer.k_norm.weight",

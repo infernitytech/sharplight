@@ -43,6 +43,11 @@
 #ifndef CAUSAL
 #define CAUSAL 0
 #endif
+// SELECTED > 0 (`main` only): sparse attention, query row t attends only the SELECTED key positions p.sel[t][..] (entries below 0 and
+// positions the row cannot see are skipped), e.g. a lightning indexer's top-k.
+#ifndef SELECTED
+#define SELECTED 0
+#endif
 #ifndef KV_FMT
 #define KV_FMT (KV_F16 ? FMT_F16 : FMT_F32)
 #endif
@@ -489,6 +494,9 @@ struct Params
 #if SPANS
     int* spans;  // [T, 2] (first key row, key count) per query row
 #endif
+#if SELECTED
+    int* sel;    // [T, SELECTED] key positions per query row
+#endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
 #if CROSS_ATTN
@@ -505,6 +513,9 @@ struct Params
 
 groupshared float sQ[D];
 groupshared float sP[WG];
+#if SELECTED
+groupshared uint sJ[WG];   // key position of every entry of the current chunk
+#endif
 groupshared float sRed[WG / SG];
 
 float reduce_max(float v, uint tid)
@@ -600,6 +611,10 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #else
     uint jBeg = jLo, jEnd = L;
 #endif
+#if SELECTED
+    jBeg = 0;          // entries of the selection; L stays the visible key count
+    jEnd = SELECTED;
+#endif
 
     float* qr = p.q + uint64_t(t) * QS0 + uint64_t(h) * QS1;
     for (uint i = tid; i < D; i += WG) sQ[i] = qr[i] * SCALE;
@@ -611,18 +626,26 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 
     for (uint c0 = jBeg; c0 < jEnd; c0 += WG)
     {
+#if SELECTED
+        int selected = c0 + tid < jEnd ? p.sel[uint64_t(t) * SELECTED + c0 + tid] : -1;
+        bool valid = selected >= 0 && uint(selected) < L;
+        uint j = valid ? uint(selected) : 0u;
+        sJ[tid] = j;
+#else
         uint j = c0 + tid;
+        bool valid = j < jEnd;
+#endif
         float s = -1e30;
-        if (j < jEnd) s = dot_k(p.kc, (kv_row(kvRow, j) + hk) * D);
+        if (valid) s = dot_k(p.kc, (kv_row(kvRow, j) + hk) * D);
 #if HAS_SOFTCAP
-        if (j < jEnd) s = SOFTCAP * tanh(s / SOFTCAP);
+        if (valid) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
 #if HAS_SCORE_BIAS
-        if (j < jEnd) s += score_bias(h, j, qPos);
+        if (valid) s += score_bias(h, j, qPos);
 #endif
         float mc = reduce_max(s, tid);
         float mNew = max(m, mc);
-        float pj = j < jEnd ? exp(s - mNew) : 0;
+        float pj = valid ? exp(s - mNew) : 0;
         sP[tid] = pj;
         float corr = exp(m - mNew);
         l = l * corr + reduce_sum(pj, tid);   // reduce_sum syncs, so sP is visible afterwards
@@ -635,7 +658,11 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             float a = acc[di] * corr;
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
+#if SELECTED
+                    a += sP[jj] * load_kv(p.vc, (kv_row(kvRow, sJ[jj]) + hk) * VRS + d);
+#else
                     a += sP[jj] * load_kv(p.vc, (kv_row(kvRow, c0 + jj) + hk) * VRS + d);
+#endif
             acc[di] = a;
         }
         GroupMemoryBarrierWithGroupSync();

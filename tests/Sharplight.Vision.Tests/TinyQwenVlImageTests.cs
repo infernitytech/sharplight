@@ -5,7 +5,9 @@ using Sharplight.Models;
 namespace Sharplight.Vision.Tests;
 
 /// <summary>
-/// Tiny random Qwen2-VL (LayerNorm, quick-GELU tower) and Qwen2.5-VL (RMS norms, gated MLP, windowed attention) checkpoints against
+/// Tiny random Qwen2-VL (LayerNorm, quick-GELU tower), Qwen2.5-VL (RMS norms, gated MLP, windowed attention) and PaddleOCR-VL (SigLIP tower
+/// with 2-D rotary embedding, post-norm and a projector merger; mk_tiny_paddleocr_vl.py) and GLM-4.1V (bicubic position grid, patch norm,
+/// convolution merger and GLM projector; mk_tiny_glm4v.py) checkpoints against
 /// transformers: the tower's merged-token embeddings, the prompt logits of an image prompt and the greedy continuation, on the CPU and the GPU.
 /// The checkpoints come from tests/Sharplight.Families.Tests/tools/mk_tiny_qwen2_vl.py, the references (reference_image.json next to the
 /// weights) from tools/hf_image_reference.py, which feeds the same synthetic normalized image into the tower without resizing.
@@ -37,6 +39,10 @@ public class TinyQwenVlImageTests
     [InlineData("tiny-random-qwen2-vl-wide", true)]
     [InlineData("tiny-random-qwen2-5-vl-wide", false)]
     [InlineData("tiny-random-qwen2-5-vl-wide", true)]
+    [InlineData("tiny-random-paddleocr-vl", false)]
+    [InlineData("tiny-random-paddleocr-vl", true)]
+    [InlineData("tiny-random-glm4v", false)]
+    [InlineData("tiny-random-glm4v", true)]
     public void Tiny_qwen_vl_image_prompt_matches_transformers(string name, bool gpu)
     {
         string dir = Path.Combine(Home, "models/hf", name);

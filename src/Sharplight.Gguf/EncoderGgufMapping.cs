@@ -5,8 +5,12 @@ namespace Sharplight.Gguf;
 
 /// <summary>
 /// llama.cpp bidirectional encoders (<c>bert</c> (BERT, MiniLM, bge, e5, and XLM-RoBERTa rerankers such as bge-reranker-v2-m3),
-/// <c>nomic-bert</c> (rotary, SwiGLU, fused qkv), <c>jina-bert-v2</c> (ALiBi with llama.cpp's fixed maximum bias 8, optional q/k projection
-/// norms and second attention norm, GeGLU whose fused up projection holds the activated half first)) → canonical <c>encoder</c> (vocabulary
+/// <c>nomic-bert</c> (rotary, SwiGLU, fused qkv), <c>nomic-bert-moe</c> (nomic-embed-text-v2-moe: rotary, fused qkv, GELU MLPs and, every
+/// <c>moe_every_n_layers</c>-th layer from the second, a softmax-routed mixture of GELU experts without renormalization; the converter
+/// drops the checkpoint's expert output bias, as llama.cpp does), <c>jina-bert-v2</c> (ALiBi with llama.cpp's fixed maximum bias 8, optional q/k projection
+/// norms and second attention norm, GeGLU whose fused up projection holds the activated half first), <c>jina-bert-v3</c> (jina-embeddings-v3:
+/// post-norm layers with rotary positions (neox pairing), fused qkv, GELU MLP; its task LoRA adapters are separate files and are not
+/// applied)) → canonical <c>encoder</c> (vocabulary
 /// documented on <c>EncoderAdapter</c>).
 /// llama.cpp's <c>pooling_type</c> becomes <see cref="CanonicalKeys.EmbeddingPooling"/>; the classifier head of ranking models
 /// (<c>cls</c> dense + <c>cls.output</c>) maps to <c>classifier.pre</c> / <c>classifier.out</c>. The converter already removed
@@ -15,7 +19,7 @@ namespace Sharplight.Gguf;
 internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["bert", "nomic-bert", "jina-bert-v2"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["bert", "nomic-bert", "nomic-bert-moe", "jina-bert-v2", "jina-bert-v3"];
     /// <inheritdoc/>
     public string Architecture => "encoder";
 
@@ -24,6 +28,10 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
     private static bool IsNomic(GgufMetadataView g) => g.GgufArchitecture == "nomic-bert";
 
     private static bool IsJina(GgufMetadataView g) => g.GgufArchitecture == "jina-bert-v2";
+
+    private static bool IsJinaV3(GgufMetadataView g) => g.GgufArchitecture == "jina-bert-v3";
+
+    private static bool IsNomicMoe(GgufMetadataView g) => g.GgufArchitecture == "nomic-bert-moe";
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
@@ -40,9 +48,17 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
             [a + "norm_eps"] = g.Float("attention.layer_norm_epsilon"),
             [a + "mlp.activation"] = IsNomic(g) ? "silu" : "gelu",
         };
-        if (IsNomic(g))
+        if (IsNomicMoe(g) && g.Int("expert_count", 0) > 0)
         {
-            md[a + "mlp.gated"] = true;
+            // llama.cpp: softmax gating, selected weights not renormalized, whatever the file says.
+            DecoderGgufMapping.AddMixtureOfExperts(md, a, g, normalizeWeights: false);
+            md[a + "moe.normalize_weights"] = false;
+            md[a + "moe.router_activation"] = "softmax";
+        }
+
+        if (IsNomic(g) || IsNomicMoe(g) || IsJinaV3(g))
+        {
+            md[a + "mlp.gated"] = IsNomic(g);
             md[a + "rope.base"] = g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase);
             md[a + "rope.dim"] = g.Int("rope.dimension_count", embeddingLength / headCount);
             md[a + "rope.style"] = "neox";
@@ -81,6 +97,9 @@ internal sealed class EncoderGgufMapping : IGgufArchitectureMapping, IGgufSplitM
         ["ffn_up"] = "mlp.up",
         ["ffn_gate"] = "mlp.gate",
         ["ffn_down"] = "mlp.down",
+        ["ffn_gate_inp"] = "mlp.router",
+        ["ffn_up_exps"] = "mlp.experts.up",
+        ["ffn_down_exps"] = "mlp.experts.down",
         ["layer_output_norm"] = "mlp_norm",
     };
 

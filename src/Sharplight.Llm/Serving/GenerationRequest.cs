@@ -42,4 +42,9 @@ public sealed record GenerationRequest
     public int TopLogprobs { get; init; }
     /// <summary>Hide control tokens from the generated text.</summary>
     public bool SkipSpecialTokens { get; init; }
+    /// <summary>
+    /// Masked-diffusion models (<see cref="DiffusionBatchDecoder"/>): the denoising schedule of the generated span of <see cref="MaxTokens"/>
+    /// tokens (null: the defaults of <see cref="DiffusionOptions"/>). Ignored by autoregressive models.
+    /// </summary>
+    public DiffusionOptions? Diffusion { get; init; }
 }

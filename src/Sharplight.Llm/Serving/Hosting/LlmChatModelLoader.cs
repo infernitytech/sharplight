@@ -23,12 +23,6 @@ public sealed class LlmChatModelLoader(string name, string path, LlmLoadOptions 
         try
         {
             ct.ThrowIfCancellationRequested();
-            if (model.IsDiffusion)
-            {
-                throw new NotSupportedException($"{name}: masked-diffusion models are not served by the continuous-batching engine; "
-                    + "use DiffusionGenerator or the Sharplight.Extensions.AI chat client.");
-            }
-
             // Speculation with the model's MTP head: rollback records, verification logits rows and the head itself. (A custom
             // speculator's draft count is known only once it is created at load; its records are not reserved here.)
             bool mtp = _chat.MtpDraftTokens > 0 && model.HasDraftHead;

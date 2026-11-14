@@ -197,15 +197,22 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         return (units, spans, order);
     }
 
-    /// <summary>Bilinear taps (align_corners) resampling the learned g×g position grid to the image grid, per patch.</summary>
+    /// <summary>Taps resampling the learned g×g position grid to the image grid, per patch (<see cref="VisionParameters.PositionInterpolation"/>).</summary>
     private (int[] Index, float[] Weight) PositionTaps(int[] positions, int gh, int gw)
     {
         int n = positions.Length / 2;
         int side = Math.Max(1, p.PositionGridSide);
-        var index = new int[n * 4];
-        var weight = new float[n * 4];
+        int taps = p.PositionTaps;
+        var index = new int[n * taps];
+        var weight = new float[n * taps];
         if (p.PositionEmbeddingCount == 0)
         {
+            return (index, weight);
+        }
+
+        if (taps == 16)
+        {
+            BicubicTaps(positions, gh, gw, side, index, weight);
             return (index, weight);
         }
 
@@ -227,6 +234,50 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
             index[i * 4 + 3] = r1 * side + c1; weight[i * 4 + 3] = wr1 * wc1;
         }
         return (index, weight);
+    }
+
+    /// <summary>
+    /// PyTorch's bicubic grid_sample of the patch centres (align_corners off, border padding, A = −0.75): source coordinate
+    /// (pos + 0.5)·side/count − 0.5, 4 taps per axis from floor − 1 to floor + 2, each tap clamped to the grid.
+    /// </summary>
+    private static void BicubicTaps(int[] positions, int gh, int gw, int side, int[] index, float[] weight)
+    {
+        static double Cubic1(double x, double a) => ((a + 2) * x - (a + 3)) * x * x + 1;          // |x| <= 1
+        static double Cubic2(double x, double a) => ((a * x - 5 * a) * x + 8 * a) * x - 4 * a;    // 1 < |x| < 2
+        static void Axis(int pos, int count, int side, Span<int> idx, Span<double> w)
+        {
+            const double A = -0.75;
+            double f = (pos + 0.5) * side / count - 0.5;
+            int f0 = (int)Math.Floor(f);
+            double t = f - f0;
+            w[0] = Cubic2(t + 1, A);
+            w[1] = Cubic1(t, A);
+            w[2] = Cubic1(1 - t, A);
+            w[3] = Cubic2(2 - t, A);
+            for (int k = 0; k < 4; k++)
+            {
+                idx[k] = Math.Clamp(f0 - 1 + k, 0, side - 1);
+            }
+        }
+
+        Span<int> ri = stackalloc int[4];
+        Span<int> ci = stackalloc int[4];
+        Span<double> rw = stackalloc double[4];
+        Span<double> cw = stackalloc double[4];
+        int n = positions.Length / 2;
+        for (int i = 0; i < n; i++)
+        {
+            Axis(positions[i * 2], gh, side, ri, rw);
+            Axis(positions[i * 2 + 1], gw, side, ci, cw);
+            for (int y = 0; y < 4; y++)
+            {
+                for (int x = 0; x < 4; x++)
+                {
+                    index[i * 16 + y * 4 + x] = ri[y] * side + ci[x];
+                    weight[i * 16 + y * 4 + x] = (float)(rw[y] * cw[x]);
+                }
+            }
+        }
     }
 
     // ---- antialiased bicubic resize (PIL / torch antialias=True semantics, Keys kernel a = -0.5) ----------------------

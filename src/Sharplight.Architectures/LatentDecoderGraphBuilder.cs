@@ -20,6 +20,10 @@ internal sealed partial class LatentDecoderGraphBuilder
     private readonly bool _longRope;
     private readonly Func<string, WeightInfo?>? _draft;
     private readonly StateDefinition? _draftCache;
+    private readonly SparseAttentionIndexer? _indexer;
+    private readonly StateDefinition?[] _indexerCaches;
+    private Value? _previousSelection;   // while a graph is built: the last indexer selection, which layers without their own indexer reuse
+    private Func<Value, Value>? _indexerRotate;   // while a graph is built: the indexer's rotary embedding
 
     /// <summary>Creates the builder and the latent cache state of every layer.</summary>
     public LatentDecoderGraphBuilder(ModelSource source, AdapterOptions options, LatentDecoderHyperParameters hyperParameters)
@@ -36,6 +40,16 @@ internal sealed partial class LatentDecoderGraphBuilder
         _deltaStates = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => ChannelDeltaAttention.IsPresent(_src.Weight, $"layers.{il}.")
             ? _delta.DefineStates($"layers.{il}") : ((StateDefinition, StateDefinition)?)null)];
         _caches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _deltaStates[il] is null ? _attention.CreateCache($"layers.{il}", options.KvCacheType) : null)];
+        // DSA indexer: only when the context exceeds its budget (below it every row keeps every visible position, the dense attention).
+        if (_hp.Indexer is { } indexer && runtimeContext > indexer.TokenBudget)
+        {
+            _indexer = new SparseAttentionIndexer(indexer);
+        }
+
+        _indexerCaches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _indexer is not null && _caches[il] is not null
+            && SparseAttentionIndexer.IsPresent(_src.Weight, $"layers.{il}.")
+                ? SparseAttentionIndexer.CreateKeyCache(_src.Weight, $"layers.{il}.", $"layers.{il}", options.KvCacheType)
+                : null)];
         // The NextN draft head (DeepSeek-V3: one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) with its own cache;
         // not with hyper-connections (the hidden state is several residual streams).
         _draft = _hp.HyperConnections is null ? MtpDraftHead.FirstNextnModule(_src.Weight) : null;
@@ -63,6 +77,11 @@ internal sealed partial class LatentDecoderGraphBuilder
                 else
                 {
                     states.Add(_caches[il]!);
+                }
+
+                if (_indexerCaches[il] is { } keys)
+                {
+                    states.Add(keys);
                 }
             }
 
@@ -127,6 +146,8 @@ internal sealed partial class LatentDecoderGraphBuilder
         var headIds = LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads);
         var rotate = Rotation(b, positions);
         var temperature = Temperature(b, positions);
+        _previousSelection = null;
+        _indexerRotate = _indexer is null ? null : IndexerRotation(b, positions);
         if (_hp.HyperConnections is { } hc)
         {
             x = StreamHyperConnections.Expand(b, x, hc.Streams);
@@ -177,11 +198,36 @@ internal sealed partial class LatentDecoderGraphBuilder
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
 
-    // The token mixer of a layer: delta attention for a trunk layer that has it, latent attention otherwise.
+    // The token mixer of a layer: delta attention for a trunk layer that has it, latent attention otherwise (sparse with an indexer; the draft
+    // layer attends densely: its proposals are verified by the trunk).
     private Value Mixer(GraphBuilder b, Value h, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature)
-        => il >= 0 && _deltaStates[il] is { } delta
-            ? _delta.Build(b, h, p, delta.Conv, delta.State)
-            : _attention.Build(b, h, p, il < 0 ? _draftCache! : _caches[il]!, headIds, rotate, temperature);
+    {
+        if (il >= 0 && _deltaStates[il] is { } delta)
+        {
+            return _delta.Build(b, h, p, delta.Conv, delta.State);
+        }
+
+        return _attention.Build(b, h, p, il < 0 ? _draftCache! : _caches[il]!, headIds, rotate, temperature, il < 0 ? null : Selection(b, h, p, il));
+    }
+
+    /// <summary>
+    /// The selection of a trunk layer's sparse attention: its own indexer's, or the previous indexed layer's when it has none (Hunyuan v4's
+    /// shared layers); null without an indexer.
+    /// </summary>
+    private Func<Value, Value>? Selection(GraphBuilder b, Value h, string p, int il)
+    {
+        if (_indexer is null)
+        {
+            return null;
+        }
+
+        if (_indexerCaches[il] is { } keys)
+        {
+            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, _hp.Attention.RopeDims, _indexerRotate!);
+        }
+
+        return _ => _previousSelection ?? throw new InvalidDataException($"latent_decoder: layer {il} reuses an indexer selection, but no earlier layer has an indexer.");
+    }
 
     // The layer on hyper-connected residual streams [T, N·H] (StreamHyperConnections modules attention_hc / mlp_hc around the sub-layers).
     private Value HyperConnectedLayer(GraphBuilder b, Value x, string p, int il, Value headIds, Func<Value, Value> rotate, Value? temperature,
@@ -212,13 +258,27 @@ internal sealed partial class LatentDecoderGraphBuilder
             return t => t;   // no positional rotation (Kimi-Linear's latent attention)
         }
 
+        return RopeOf(b, positions, _hp.RopeStyle, 1f);
+    }
+
+    /// <summary>The indexer's rotary embedding: the attention's frequencies and magnitude with the indexer's pairing style.</summary>
+    private Func<Value, Value> IndexerRotation(GraphBuilder b, Value positions)
+        => RopeOf(b, positions, _indexer!.Options.RopeStyle, _hp.Attention.RopeMagnitude);
+
+    private Func<Value, Value> RopeOf(GraphBuilder b, Value positions, string style, float magnitude)
+    {
         var factors = b.TryWeight("rope.freq_factors");
         if (_longRope && b.TryWeight("rope.freq_factors_long") is { } longFactors)
         {
             factors = longFactors;
         }
 
-        var attributes = Attributes.From(("dims", _hp.Attention.RopeDims), ("base", _hp.RopeBase), ("style", _hp.RopeStyle));
+        var attributes = Attributes.From(("dims", _hp.Attention.RopeDims), ("base", _hp.RopeBase), ("style", style));
+        if (magnitude != 1f)
+        {
+            attributes = attributes.With("attn_factor", magnitude);
+        }
+
         return t => b.Emit1("Rope", factors is null ? [t, positions] : [t, positions, factors], attributes);
     }
 }

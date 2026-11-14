@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", .. SpatialOpNames, .. GeneralOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -94,6 +94,7 @@ public sealed partial class GraphLowerer
         var opSpecific = op switch
         {
             "CachedAttention" => SupportsCachedAttention(node),
+            "IndexerTopK" => SupportsIndexerTopK(node),
             "CacheWrite" => SupportsKvRows(node.Inputs[0]),
             "Attention" => SupportsAttention(node),
             "SequencePool" => SupportsSequencePool(node),
@@ -126,6 +127,18 @@ public sealed partial class GraphLowerer
         return OpSupport.Yes;
     }
 
+    private static OpSupport SupportsIndexerTopK(Node node)
+    {
+        if (node.Inputs[1].Type != DataType.F32 && node.Inputs[1].Type != DataType.F16)
+        {
+            return OpSupport.No($"IndexerTopK: key cache type {node.Inputs[1].Type} (f32 or f16)");
+        }
+
+        return node.Inputs[0].Shape[2] is { IsSymbolic: false } keyDims && keyDims.Fixed % 8 == 0 && node.Inputs[0].Shape[1] is { IsSymbolic: false }
+            ? OpSupport.Yes
+            : OpSupport.No("IndexerTopK: the key size must be a multiple of 8");
+    }
+
     private static OpSupport SupportsCachedAttention(Node node)
     {
         if (node.Attributes.Get<float[]?>("alibi_slopes", null) is { } slopes && slopes.Length != node.Inputs[0].Shape[1].Fixed)
@@ -142,6 +155,13 @@ public sealed partial class GraphLowerer
         if (node.Attributes.Get("sinks", false) && node.Inputs[3].Type != DataType.F32)
         {
             return OpSupport.No("attention sinks must be f32");
+        }
+
+        int selectionInput = node.Attributes.Get("sinks", false) ? 4 : 3;
+        if (node.Attributes.Get("selection", false)
+            && (node.Inputs[selectionInput].Type != DataType.I32 || node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))
+        {
+            return OpSupport.No("CachedAttention: the selection must be i32 and cannot be combined with window or chunk");
         }
 
         // The key dot products read 8 (f16) / 4 (f32) elements per load.

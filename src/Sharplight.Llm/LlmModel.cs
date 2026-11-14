@@ -137,6 +137,31 @@ public sealed class LlmModel : IDisposable
     /// <exception cref="InvalidOperationException">The model is not a diffusion model or its vocabulary has no mask token.</exception>
     public DiffusionGenerator CreateDiffusionGenerator()
     {
+        int maskToken = DiffusionMaskToken();
+        int context = DiffusionContext(null);
+        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, _options.Devices, _options.Fallback, context, 1,
+            _options.DisabledFeatures, CacheFor, _options.Log);
+        ReportReady(WellKnown.DenoiseGraph);
+        return new DiffusionGenerator(runner, Tokenizer, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
+    }
+
+    /// <summary>
+    /// The batch decoder of a masked-diffusion model: the denoising pass compiled for passes of up to <paramref name="context"/> rows holding
+    /// up to <paramref name="slots"/> sequences (see <see cref="Serving.DiffusionBatchDecoder"/>).
+    /// </summary>
+    private Serving.DiffusionBatchDecoder CreateDiffusionDecoder(int slots, int context)
+    {
+        int maskToken = DiffusionMaskToken();
+        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, _options.Devices, _options.Fallback, context,
+            Math.Max(1, slots), _options.DisabledFeatures, CacheFor, _options.Log);
+        ReportReady(WellKnown.DenoiseGraph);
+        return new Serving.DiffusionBatchDecoder(runner, Math.Max(1, slots), context, maskToken, Definition.Property(WellKnown.DiffusionShiftLogits, false));
+    }
+
+    /// <summary>The mask token of a masked-diffusion model.</summary>
+    /// <exception cref="InvalidOperationException">The model is not a diffusion model or its vocabulary has no mask token.</exception>
+    private int DiffusionMaskToken()
+    {
         if (!IsDiffusion)
         {
             throw new InvalidOperationException($"{Definition.Name} is not a masked-diffusion model.");
@@ -147,13 +172,12 @@ public sealed class LlmModel : IDisposable
             throw new InvalidOperationException($"{Definition.Name}: the vocabulary declares no mask token.");
         }
 
-        int context = _options.ContextLength > 0 ? _options.ContextLength : Definition.Property(WellKnown.ContextLength, 4096);
-        var runner = PackedBatchRunner.Compile(Definition, WellKnown.DenoiseGraph, WellKnown.LogitsOutput, _options.Devices, _options.Fallback, context, 1,
-            _options.DisabledFeatures, CacheFor, _options.Log);
-        ReportReady(WellKnown.DenoiseGraph);
-        return new DiffusionGenerator(runner, Tokenizer, Convert.ToInt32(mask, System.Globalization.CultureInfo.InvariantCulture),
-            Definition.Property(WellKnown.DiffusionShiftLogits, false));
+        return Convert.ToInt32(mask, System.Globalization.CultureInfo.InvariantCulture);
     }
+
+    /// <summary>The longest sequence a diffusion pass handles: the requested context, the load options' or the model's.</summary>
+    private int DiffusionContext(int? contextLength)
+        => contextLength is > 0 ? contextLength.Value : _options.ContextLength > 0 ? _options.ContextLength : Definition.Property(WellKnown.ContextLength, 4096);
 
     /// <summary>
     /// True for encoder-decoder models (T5, ...; the model has an <see cref="WellKnown.EncodeGraph"/>): a session encodes the prompt as
@@ -165,7 +189,9 @@ public sealed class LlmModel : IDisposable
     /// Creates the decoder the serving layer batches requests over: with <paramref name="slots"/> &gt; 1 and a graph whose
     /// stateful ops all have multi-sequence forms, a <see cref="Serving.MultiSequenceDecoder"/> (rows of up to
     /// <paramref name="slots"/> sequences per forward pass, each with <paramref name="contextLength"/> tokens of context,
-    /// default the load option); otherwise a single-slot <see cref="Serving.SessionBatchDecoder"/>.
+    /// default the load option); otherwise a single-slot <see cref="Serving.SessionBatchDecoder"/>. A masked-diffusion model
+    /// (<see cref="IsDiffusion"/>) gets a <see cref="Serving.DiffusionBatchDecoder"/> whose denoising passes hold up to <paramref name="slots"/>
+    /// sequences of up to <paramref name="contextLength"/> tokens (prompt plus span; the remaining parameters do not apply).
     /// </summary>
     /// <param name="slots">Sequences decoded together.</param>
     /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
@@ -188,6 +214,11 @@ public sealed class LlmModel : IDisposable
     public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
         long? kvCacheTokens = null, int draftTokens = 0)
     {
+        if (IsDiffusion)
+        {
+            return CreateDiffusionDecoder(slots, DiffusionContext(contextLength));
+        }
+
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
         if (IsEncoderDecoder)
@@ -318,7 +349,8 @@ public sealed class LlmModel : IDisposable
     /// <summary>
     /// Device memory needed to serve this model with <paramref name="slots"/> concurrent sequences of
     /// <paramref name="contextLength"/> tokens (default the load option): weights + KV/recurrent state + activation bound.
-    /// Computed from the graph alone; nothing is allocated on a device.
+    /// Computed from the graph alone; nothing is allocated on a device. For a masked-diffusion model: weights + the activations of a
+    /// denoising pass over <paramref name="contextLength"/> rows (it has no per-sequence state).
     /// </summary>
     /// <param name="slots">Concurrent sequences.</param>
     /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
@@ -333,6 +365,17 @@ public sealed class LlmModel : IDisposable
     public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null, int draftTokens = 0, bool draftHead = false,
         int? maxLogitsRows = null)
     {
+        if (IsDiffusion)
+        {
+            // One denoising pass over up to the context's rows; no per-sequence state.
+            return PlacementPlanner.Estimate(Definition.Graph(WellKnown.DenoiseGraph), new CompileOptions
+            {
+                MaxTokens = DiffusionContext(contextLength),
+                ContextLength = 1,
+                SymbolBounds = new Dictionary<string, long> { [WellKnown.SequenceSymbol] = Math.Max(1, slots) },
+            }, 1, 0);
+        }
+
         int ctx = contextLength ?? _options.ContextLength;
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         bool multi = (slots > 1 || draftTokens > 0) && Graph.MultiSequence.IsSupported(graph, out _);

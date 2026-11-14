@@ -50,16 +50,35 @@ internal sealed unsafe partial class CpuCompiledSegment
         var v = Ref(ins[2]);
         var y = NewDense(n.Output);
         bool hasSinks = a.Get("sinks", false);
-        int sinksOffset = hasSinks ? 1 : 0; // inputs: q, k, v, [sinks], [rows, runs, [block table]]
+        bool hasSelection = a.Get("selection", false);
         TRef? sinks = hasSinks ? Ref(ins[3]) : null;
-        TRef? rows = ins.Length > 3 + sinksOffset ? Dense(Ref(ins[3 + sinksOffset])) : null;
-        TRef? table = ins.Length > 5 + sinksOffset ? Dense(Ref(ins[5 + sinksOffset])) : null;
+        int extra = (hasSinks ? 1 : 0) + (hasSelection ? 1 : 0);   // inputs: q, k, v, [sinks], [selection], [rows, runs, [block table]]
+        TRef? selection = hasSelection ? Dense(Ref(ins[2 + extra])) : null;
+        TRef? rows = ins.Length > 3 + extra ? Dense(Ref(ins[3 + extra])) : null;
+        TRef? table = ins.Length > 5 + extra ? Dense(Ref(ins[5 + extra])) : null;
         var attention = new AttentionOp(
             q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
             rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0),
             alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)),
-            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0));
-        AddStep(attention, Touched(q, k, v, sinks, rows, table, y));
+            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0), selection: selection);
+        AddStep(attention, Touched(q, k, v, sinks, selection, rows, table, y));
+        _refs[n.Output] = y;
+    }
+
+    /// <summary>Lightning-indexer key selection: q, key cache, head weights, [rows, runs, [block table]].</summary>
+    private void LowerIndexerTopK(Node n)
+    {
+        var a = n.Attributes;
+        var ins = n.Inputs;
+        var q = RowContig(Ref(ins[0]));
+        var keys = Ref(ins[1]);
+        var weights = RowContig(Ref(ins[2]));
+        var y = NewDense(n.Output);
+        TRef? rows = ins.Length > 3 ? Dense(Ref(ins[3])) : null;
+        TRef? table = ins.Length > 5 ? Dense(Ref(ins[5])) : null;
+        var select = new IndexerTopKOp(q, keys, weights, y, (int)a.Get<long>("k"), a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L),
+            table is null ? null : new KvPages(table, a.Get("block_size", 0L)));
+        AddStep(select, Touched(q, keys, weights, rows, table, y));
         _refs[n.Output] = y;
     }
 

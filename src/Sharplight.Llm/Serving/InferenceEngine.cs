@@ -19,6 +19,13 @@ namespace Sharplight.Llm.Serving;
 /// (<see cref="EngineOptions.Speculator"/>) that verifies several draft tokens of a sequence in one forward pass.
 /// </para>
 /// <para>
+/// Masked-diffusion models (a <see cref="DiffusionBatchDecoder"/>) are scheduled the same way, but a running request is a whole sequence
+/// (prompt plus a span of <see cref="GenerationRequest.MaxTokens"/> mask tokens) that every step denoises once, together with the other
+/// running sequences, on the schedule of <see cref="GenerationRequest.Diffusion"/>; the tokens are streamed as their blocks become final
+/// (the whole span at once without blocks). The reveal rule picks the most likely tokens, so sampling settings, log-probabilities and
+/// minimum lengths do not apply; output constraints are rejected.
+/// </para>
+/// <para>
 /// Thread safety: all members may be called from any thread. The engine owns the decoder and disposes it. Idle slots keep their
 /// context, so a later prompt that shares a prefix with it skips recomputing the shared part (<see cref="EngineOptions.PrefixCache"/>).
 /// </para>
@@ -56,6 +63,9 @@ public sealed class InferenceEngine : IDisposable
     private const int ParallelSamplingThreshold = 4;
 
     private readonly IBatchDecoder _decoder;
+    private readonly DiffusionBatchDecoder? _diffusion;
+    private static readonly DiffusionOptions DefaultDiffusion = new();
+    private readonly List<DiffusionSequence> _diffusionBatch = [];
     private readonly ITokenizer _tokenizer;
     private readonly EngineOptions _opt;
     private readonly EngineSlot[] _slots;
@@ -124,6 +134,7 @@ public sealed class InferenceEngine : IDisposable
     public InferenceEngine(IBatchDecoder decoder, ITokenizer tokenizer, EngineOptions? options = null)
     {
         _decoder = decoder;
+        _diffusion = decoder as DiffusionBatchDecoder;
         _deviceSampler = decoder is IDeviceSamplingDecoder { SamplesOnDevice: true } d ? d : null;
         _tokenizer = tokenizer;
         _opt = options ?? new();
@@ -201,11 +212,17 @@ public sealed class InferenceEngine : IDisposable
             throw new PromptTooLongException(n, ContextLength - 1);
         }
         int room = ContextLength - n;
+        int maxTokens = request.MaxTokens > 0 ? Math.Min(request.MaxTokens, room) : room;
+        if (_diffusion is not null)
+        {
+            maxTokens = DiffusionSpan(request, maxTokens);
+        }
+
         var ch = Channel.CreateUnbounded<GenerationChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
         long now = Stopwatch.GetTimestamp();
         EngineSequence? seq = null;
         var handle = new GenerationHandle(Interlocked.Increment(ref _nextId), ch, () => RequestCancel(seq!));
-        seq = new EngineSequence(handle.Id, request, ch.Writer, request.MaxTokens > 0 ? Math.Min(request.MaxTokens, room) : room, now);
+        seq = new EngineSequence(handle.Id, request, ch.Writer, maxTokens, now);
         if ((request.Timeout ?? _opt.DefaultTimeout) is { } to)
         {
             seq.DeadlineTicks = now + (long)(to.TotalSeconds * Stopwatch.Frequency);
@@ -238,6 +255,29 @@ public sealed class InferenceEngine : IDisposable
         }
 
         return handle;
+    }
+
+    /// <summary>
+    /// The span a diffusion request generates: <paramref name="maxTokens"/> (already capped by the context), rounded down to whole blocks.
+    /// </summary>
+    /// <exception cref="EngineException">The request has an output constraint or its schedule does not fit the span (code <c>invalid_request</c>).</exception>
+    private int DiffusionSpan(GenerationRequest request, int maxTokens)
+    {
+        var d = request.Diffusion ?? DefaultDiffusion;
+        int span = d.BlockLength > 0 ? maxTokens / d.BlockLength * d.BlockLength : maxTokens;
+        string? error = request.Constraint is not null
+            ? "Output constraints are not supported for masked-diffusion models."
+            : !DiffusionSequence.FitsSchedule(span, d)
+                ? $"The diffusion schedule (steps {d.Steps}, block length {d.BlockLength}) does not fit a span of {span} tokens: the span must be a "
+                    + "multiple of the block length and the steps a multiple of the block count."
+                : null;
+        if (error is not null)
+        {
+            Metrics.Rejected();
+            throw new EngineException(error, "invalid_request");
+        }
+
+        return span;
     }
 
     /// <summary>Submits a request and streams its chunks (admission errors are thrown on the first MoveNext).</summary>
@@ -678,6 +718,12 @@ public sealed class InferenceEngine : IDisposable
 
     private void StepOnce()
     {
+        if (_diffusion is not null)
+        {
+            StepDiffusion(_diffusion);
+            return;
+        }
+
         _inputs.Clear();
         _stepSeqs.Clear();
         _stepBaseLength.Clear();
@@ -723,6 +769,63 @@ public sealed class InferenceEngine : IDisposable
         }
 
         UpdateKvGauges();
+    }
+
+    /// <summary>
+    /// Masked diffusion: one denoising pass over every running sequence (their spans start as mask tokens at admission), then the tokens of
+    /// newly completed blocks are committed like sampled tokens (stop tokens, stop strings, streaming).
+    /// </summary>
+    private void StepDiffusion(DiffusionBatchDecoder decoder)
+    {
+        _stepSeqs.Clear();
+        _diffusionBatch.Clear();
+        int rows = 0;
+        foreach (var s in _active)
+        {
+            s.Diffusion ??= new DiffusionSequence(s.Prompt, s.MaxTokens, s.Request.Diffusion ?? DefaultDiffusion, decoder.MaskToken, decoder.ShiftLogits);
+            s.PromptPos = s.Prompt.Length;
+            _stepSeqs.Add(s);
+            _diffusionBatch.Add(s.Diffusion);
+            rows += s.Diffusion.Tokens.Length;
+        }
+
+        long t0 = Stopwatch.GetTimestamp();
+        var logits = decoder.Denoise(_diffusionBatch);
+        Metrics.Step(rows, _diffusionBatch.Count, Stopwatch.GetElapsedTime(t0));
+        int vocab = decoder.VocabSize;
+        if (_diffusionBatch.Count >= ParallelSamplingThreshold)
+        {
+            Parallel.For(0, _diffusionBatch.Count, i => _diffusionBatch[i].Apply(logits[i], vocab));
+        }
+        else
+        {
+            for (int i = 0; i < _diffusionBatch.Count; i++)
+            {
+                _diffusionBatch[i].Apply(logits[i], vocab);
+            }
+        }
+
+        for (int i = 0; i < _stepSeqs.Count; i++)
+        {
+            var s = _stepSeqs[i];
+            var sequence = _diffusionBatch[i];
+            _queue.Charge(s.Request.Tenant, sequence.Tokens.Length);
+            try
+            {
+                // Generated counts the committed tokens; each final token is committed as if it had been sampled after the ones before it.
+                while (s.Finished == 0 && s.Generated < sequence.Final)
+                {
+                    if (Commit(s, sequence.Generated.Span[s.Generated], null, s.Prompt.Length + s.Generated) is { } e)
+                    {
+                        Complete(s, e.Reason, null, e.StopSequence, flush: e.Flush);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Complete(s, FinishReason.Error, ex.Message, null);
+            }
+        }
     }
 
     /// <summary>

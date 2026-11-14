@@ -24,7 +24,9 @@ namespace Sharplight.Architectures;
 /// per layer <c>layers.{i}.</c>: <c>attention.{q,k,v,o}.weight</c> (+ optional <c>.bias</c>), optional <c>attention.{q,k}_norm.{weight,bias}</c>
 /// (LayerNorm of the whole q / k projection), <c>attention_norm.{weight,bias}</c> (LayerNorm of residual + attention output), optional
 /// <c>attention_norm_2.{weight,bias}</c> (LayerNorm of that plus the layer input once more), <c>mlp.up.weight</c>, optional <c>mlp.gate.weight</c> (gated), <c>mlp.down.weight</c>
-/// (+ optional biases), <c>mlp_norm.{weight,bias}</c> (LayerNorm of residual + MLP output). Optional classifier head on the first
+/// (+ optional biases), or instead a mixture of experts (<c>mlp.router.weight</c>, <c>mlp.experts.*</c>; see <see cref="MoeBlock"/>, routing from the
+/// <c>encoder.moe.*</c> keys of <see cref="MoeOptions"/>, the experts use <c>mlp.activation</c>; nomic-embed-text-v2-moe),
+/// <c>mlp_norm.{weight,bias}</c> (LayerNorm of residual + MLP output). Optional classifier head on the first
 /// row (cls): <c>classifier.pre.{weight,bias}</c> (dense + tanh; BERT pooler / RoBERTa head dense) and <c>classifier.out.{weight,bias}</c>
 /// [labels, H].</para>
 /// </remarks>
@@ -57,6 +59,7 @@ public sealed class EncoderAdapter : IModelAdapter
             ctx = (int)Math.Min(ctx, posTable.Shape[0].Fixed);
         }
 
+        MoeOptions? moe = null;
         string pooling = PackedSequences.NormalizePooling(options.EmbeddingPooling) ?? PackedSequences.NormalizePooling(src.Get<string?>(CanonicalKeys.EmbeddingPooling, null)) ?? "cls";
         bool normalize = options.EmbeddingNormalize ?? src.Get(CanonicalKeys.EmbeddingNormalize, true);
         bool hasTypes = src.Weight("token_type_embedding.weight") is not null;
@@ -138,9 +141,19 @@ public sealed class EncoderAdapter : IModelAdapter
                     x = LayerNorm(b, b.Add(x, layerInput), p + "attention_norm_2");
                 }
 
-                var up = b.Linear(x, p + "mlp.up.weight", p + "mlp.up.bias");
-                var h = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(up, Act(b, b.Linear(x, p + "mlp.gate.weight", p + "mlp.gate.bias"))) : Act(b, up);
-                h = b.Linear(h, p + "mlp.down.weight", p + "mlp.down.bias", $"{p}ffn_out");
+                Value h;
+                if (MoeBlock.IsPresent(b, p + "mlp."))
+                {
+                    moe ??= MoeOptions.Read(src);
+                    h = MoeBlock.Build(b, x, p, "mlp.", moe, nEmbd, MlpActivations.Create(act));
+                }
+                else
+                {
+                    var up = b.Linear(x, p + "mlp.up.weight", p + "mlp.up.bias");
+                    h = b.HasWeight(p + "mlp.gate.weight") ? b.Mul(up, Act(b, b.Linear(x, p + "mlp.gate.weight", p + "mlp.gate.bias"))) : Act(b, up);
+                    h = b.Linear(h, p + "mlp.down.weight", p + "mlp.down.bias", $"{p}ffn_out");
+                }
+
                 x = LayerNorm(b, b.Add(x, h), p + "mlp_norm");
             }
             using (b.Group("output"))

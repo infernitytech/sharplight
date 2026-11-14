@@ -12,7 +12,10 @@ namespace Sharplight.Gguf;
 /// full-attention layer every <c>clip.vision.n_wa_pattern</c> layers). A <c>qwen3vl_merger</c> tower with DeepStack layers
 /// (<c>clip.vision.is_deepstack_layers</c>, Qwen3-VL) belongs to the canonical <c>decoder</c> (the Qwen3-VL language model), one without to
 /// <c>qwen3_5</c>; Qwen2-VL and Qwen2.5-VL towers belong to <c>decoder</c>. Older files store separate q/k/v projections and some swap the
-/// names of the MLP's up and down projections (recognised by their shapes, as llama.cpp does).
+/// names of the MLP's up and down projections (recognised by their shapes, as llama.cpp does). <c>paddleocr</c> (PaddleOCR-VL's SigLIP tower:
+/// learned position grid sized by its tensor, 2-D rotary embedding, trunk post-norm <c>v.post_ln</c>, projector <c>mm.input_norm</c> /
+/// <c>mm.1</c> / <c>mm.2</c>) and <c>glm4v</c> (GLM-4.1V: patch norm, bicubic position grid, convolution merger, GLM projector) belong to
+/// <c>decoder</c>.
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -24,8 +27,13 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <summary>Placeholder; the real id depends on the projector type (see <see cref="ResolveArchitecture"/>).</summary>
     public string Architecture => "clip";
 
-    /// <summary>Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to and the processor defaults the file omits.</summary>
-    private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh", string NormType = "layer", bool LearnedPositions = true);
+    /// <summary>
+    /// Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to, the processor defaults the file omits, GGUF names whose
+    /// canonical name differs from the Qwen towers' (<c>Names</c>, checked first) and canonical hyper-parameters the file does not store
+    /// (<c>Extra</c>, without the <c>{architecture}.vision.</c> prefix).
+    /// </summary>
+    private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh",
+        string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
@@ -34,6 +42,41 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         // llama.cpp's default MLP activation (neither clip.use_gelu nor clip.use_silu) is the quick GELU of Qwen2-VL.
         ["qwen2vl_merger"] = new("decoder", TemporalPatchSize: 2, MinPixels: 3136, MaxPixels: 12845056, RopeBase: 10000f, DefaultActivation: "quick_gelu", LearnedPositions: false),
         ["qwen2.5vl_merger"] = new("decoder", TemporalPatchSize: 2, MinPixels: 3136, MaxPixels: 12845056, RopeBase: 10000f, DefaultActivation: "quick_gelu", NormType: "rms", LearnedPositions: false),
+        // PaddleOCR-VL: v.post_ln is the trunk's final norm, the projector is mm.input_norm / mm.1 / mm.2 (LayerNorm epsilon 1e-5 in the reference).
+        ["paddleocr"] = new("decoder", TemporalPatchSize: 1, MinPixels: 147456, MaxPixels: 2359296, RopeBase: 10000f,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.post_ln.weight"] = "vision.post_norm.weight",
+                ["v.post_ln.bias"] = "vision.post_norm.bias",
+                ["mm.input_norm.weight"] = "vision.merger.norm.weight",
+                ["mm.input_norm.bias"] = "vision.merger.norm.bias",
+                ["mm.1.weight"] = "vision.merger.up.weight",
+                ["mm.1.bias"] = "vision.merger.up.bias",
+                ["mm.2.weight"] = "vision.merger.down.weight",
+                ["mm.2.bias"] = "vision.merger.down.bias",
+            },
+            Extra: new Dictionary<string, object> { ["merger.norm_eps"] = 1e-5f, ["image_token"] = "<|IMAGE_PLACEHOLDER|>" }),
+        // GLM-4.1V: RMS norm after the patch embedding (v.norm_embd), bicubic position grid, final norm v.post_ln, the 2×2 convolution
+        // mm.patch_merger and the projector mm.model.fc → mm.post_norm (LayerNorm) → GELU → gated mm.gate / mm.up / mm.down.
+        ["glm4v"] = new("decoder", TemporalPatchSize: 2, MinPixels: 12544, MaxPixels: 9633792, RopeBase: 10000f, DefaultActivation: "silu", NormType: "rms",
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["v.norm_embd.weight"] = "vision.patch_norm.weight",
+                ["v.post_ln.weight"] = "vision.post_norm.weight",
+                ["mm.patch_merger.weight"] = "vision.merger.downsample.weight",
+                ["mm.patch_merger.bias"] = "vision.merger.downsample.bias",
+                ["mm.model.fc.weight"] = "vision.merger.proj.weight",
+                ["mm.model.fc.bias"] = "vision.merger.proj.bias",
+                ["mm.post_norm.weight"] = "vision.merger.proj_norm.weight",
+                ["mm.post_norm.bias"] = "vision.merger.proj_norm.bias",
+                ["mm.gate.weight"] = "vision.merger.gate.weight",
+                ["mm.up.weight"] = "vision.merger.up.weight",
+                ["mm.down.weight"] = "vision.merger.down.weight",
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["merger.norm_eps"] = 1e-5f, ["image_token"] = "<|image|>", ["position_embedding.interpolation"] = "bicubic",
+            }),
     };
 
     private static Projector Find(GgufMetadataView g)
@@ -74,10 +117,12 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             [a + "in_channels"] = 3,
             [a + "spatial_merge_size"] = g.Int("vision.spatial_merge_size", 2),
             // The learned position grid is (image_size / patch_size)² entries.
-            [a + "position_embedding_count"] = p.LearnedPositions ? (int)Math.Pow(g.Int("vision.image_size") / patch, 2) : 0,
+            // The learned position grid is (image_size / patch_size)² entries; PaddleOCR files store sqrt(max_pixels) as image_size, so the
+            // tensor's row count is taken when the file has it.
+            [a + "position_embedding_count"] = !p.LearnedPositions ? 0
+                : g.Tensor("v.position_embd.weight") is { } pos ? (int)pos.Shape[0].Fixed : (int)Math.Pow(g.Int("vision.image_size") / patch, 2),
             [a + "rope.base"] = p.RopeBase,
             [a + "out_hidden_size"] = g.Int("vision.projection_dim"),
-            [a + "merger.activation"] = "gelu",
             [a + "min_pixels"] = g.Has("vision.min_pixels") ? (long)g.Int("vision.min_pixels") : p.MinPixels,
             [a + "max_pixels"] = g.Has("vision.max_pixels") ? (long)g.Int("vision.max_pixels") : p.MaxPixels,
         };
@@ -104,6 +149,14 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         {
             md[a + "image_std"] = ToFloats(std);
         }
+
+        foreach (var (key, value) in p.Extra ?? new Dictionary<string, object>())
+        {
+            md[a + key] = value;
+        }
+
+        // The merger activation is the trunk's (GLM-4V's gated SiLU projector); the Qwen and PaddleOCR mergers use the exact GELU.
+        md[a + "merger.activation"] = p.Names?.ContainsKey("mm.gate.weight") == true ? md[a + "activation"] : "gelu";
 
         return md;
     }
@@ -160,6 +213,11 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (Find(g).Names is { } names && names.TryGetValue(name, out var projectorName))
+        {
+            return projectorName;
+        }
+
         if (s_global.TryGetValue(name, out var globalName))
         {
             return globalName;
@@ -184,6 +242,17 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
     {
         SwapLegacyMlpNames(weights, g);
+        if (weights.Remove("vision.merger.downsample.weight", out var kernel) && kernel.Shape.Rank == 4)
+        {
+            // GLM-4V's m×m convolution kernel [out, C, m, m] as the linear map of a merged row laid out (row, column, channel).
+            weights["vision.merger.downsample.weight"] = kernel.TransposeRowBlocks("vision.merger.downsample.weight", kernel.Shape[1].Fixed,
+                kernel.Shape[2].Fixed * kernel.Shape[3].Fixed);
+        }
+        else if (kernel is not null)
+        {
+            weights["vision.merger.downsample.weight"] = kernel;
+        }
+
         int frames = Find(g).TemporalPatchSize;
         var parts = new WeightInfo[frames];
         for (int t = 0; t < frames; t++)

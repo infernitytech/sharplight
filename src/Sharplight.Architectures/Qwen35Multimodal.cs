@@ -8,12 +8,12 @@ namespace Sharplight.Architectures;
 /// row per merged image patch whose embeddings come from the vision encoder. M-RoPE positions (axes: time, row, column,
 /// unused): an image whose output grid is ny × nx starting at position p gives its row r, column c the positions
 /// (p, p + r, p + c, 0); the text after the image continues at p + max(nx, ny). Text tokens use the same position on the
-/// first three axes. The same layout serves the generic <c>decoder</c> with a vision tower (Qwen3-VL, whose chat template and M-RoPE
-/// image positions are those of Qwen3.5); DeepStack blocks travel in the image rows' embeddings.
+/// first three axes. The same layout serves the generic <c>decoder</c> with a vision tower (Qwen2-VL, Qwen2.5-VL, Qwen3-VL and PaddleOCR-VL,
+/// whose M-RoPE image positions are those of Qwen3.5; the placeholder is the tower's <see cref="VisionParameters.ImageToken"/>, PaddleOCR-VL's
+/// <c>&lt;|IMAGE_PLACEHOLDER|&gt;</c>); DeepStack blocks travel in the image rows' embeddings.
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
-    private const string ImageToken = "<|image_pad|>";
     /// <inheritdoc/>
     public IReadOnlyList<string> Architectures => ["qwen3_5", "decoder"];
 
@@ -22,7 +22,8 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
     /// <inheritdoc/>
     public MultimodalPrompt Assemble(MultimodalContext context, ReadOnlySpan<int> tokens, IReadOnlyList<PreprocessedImage> images, int startPosition)
     {
-        int imagePad = context.RequireToken(ImageToken);
+        string imageToken = VisionParameters.Of(context.Model)?.ImageToken ?? VisionParameters.DefaultImageToken;
+        int imagePad = context.RequireToken(imageToken);
         int placeholders = 0;
         foreach (var t in tokens)
         {
@@ -34,7 +35,7 @@ public sealed class Qwen35Multimodal : IMultimodalArchitecture
 
         if (placeholders != images.Count)
         {
-            throw new ArgumentException($"The prompt has {placeholders} {ImageToken} placeholder(s) but {images.Count} image(s) were given.");
+            throw new ArgumentException($"The prompt has {placeholders} {imageToken} placeholder(s) but {images.Count} image(s) were given.");
         }
 
         int rows = tokens.Length - placeholders;

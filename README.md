@@ -23,8 +23,8 @@ Start with the [public API overview](docs/api-overview.md). Benchmarks against l
 | ONNX | ✓ | ✓ |
 | `.slm` package | ✓ | ✓ |
 
-Of the 172 architectures llama.cpp knows, 140 are supported end to end, 3 partially and
-29 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
+Of the 172 architectures llama.cpp knows, 142 are supported end to end, 3 partially and
+27 not yet ([docs/model-support.md](docs/model-support.md) has the full matrix). Supported (llama.cpp architecture names):
 
 | Family | Architectures |
 |---|---|
@@ -47,9 +47,9 @@ Of the 172 architectures llama.cpp knows, 140 are supported end to end, 3 partia
 | RNN | `rwkv6`, `rwkv6qwen2`, `rwkv7`, `arwkv7` |
 | Hybrid conv | `lfm2`, `lfm2moe`, `lfm3` |
 | Linear-attention hybrid | `kimi-linear`, `bailingmoe3`, `minimax-01` |
-| Masked diffusion | `dream`, `llada`, `llada-moe`, `rnd1` (decoded with `DiffusionGenerator`) |
+| Masked diffusion | `dream`, `llada`, `llada-moe`, `rnd1` (`DiffusionGenerator`, and served by the continuous-batching engine) |
 | Encoder-decoder | `t5` (plus the Hugging Face-only `bart`, `mbart`) |
-| Encoder | `t5encoder`, `bert`, `nomic-bert`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `eurobert` |
+| Encoder | `t5encoder`, `bert`, `nomic-bert`, `nomic-bert-moe`, `modern-bert`, `neo-bert`, `jina-bert-v2`, `jina-bert-v3`, `eurobert` |
 | Multimodal | `clip` |
 
 Weight types (CPU and Vulkan): F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K–Q6_K, IQ1_S/M, IQ2_XXS/XS/S, IQ3_XXS/S,

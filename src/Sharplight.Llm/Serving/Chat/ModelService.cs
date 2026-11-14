@@ -184,7 +184,7 @@ public sealed class ModelService
         {
             PromptTokens = prompt.Tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
             StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, Timeout = r.Timeout,
-            Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt),
+            Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Constraint = BuildConstraint(r, prompt), Diffusion = r.Diffusion,
         };
         return Start(template, r.N, () => new ChatOutputParser(useTools ? _formats : null, useTools ? names : null, prompt.StartsInReasoning, harmony: _harmony), ct);
     }
@@ -198,7 +198,7 @@ public sealed class ModelService
         {
             PromptTokens = tokens, Sampling = r.Sampling, MaxTokens = r.MaxTokens, MinTokens = r.MinTokens, StopAtEog = !r.IgnoreEos,
             StopStrings = r.StopStrings, StopTokenIds = r.StopTokenIds, Priority = r.Priority, Tenant = r.Tenant, Timeout = r.Timeout,
-            Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs,
+            Logprobs = r.Logprobs, TopLogprobs = r.TopLogprobs, Diffusion = r.Diffusion,
             Constraint = r.ResponseFormat is { } format ? Compile("completion|" + format.CacheKey, b => format.AddTo(b), null) : null,
         };
         return Start(template, r.N, null, ct);

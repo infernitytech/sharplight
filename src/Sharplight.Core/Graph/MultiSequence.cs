@@ -10,7 +10,7 @@ namespace Sharplight.Graph;
 /// <item>Adds inputs <see cref="InputRole.SequenceRows"/> [T, 4] and <see cref="InputRole.SequenceRuns"/> [U, 4] (see their docs).
 /// Rows of one slot form a run of consecutive rows in context order; positions inputs (rope) carry each row's own position.</item>
 /// <item>KV caches keep their [Ctx, ...] shape: compile with context length S · per-slot context; slot s owns rows
-/// [s · Ctx/S, (s + 1) · Ctx/S). CacheWrite gets the rows table, CachedAttention rows and runs tables; both attribute <c>slots</c>.</item>
+/// [s · Ctx/S, (s + 1) · Ctx/S). CacheWrite gets the rows table, CachedAttention and IndexerTopK rows and runs tables; all attribute <c>slots</c>.</item>
 /// <item>Paged (<see cref="Transform(ComputeGraph, int, int, int)"/> with a block size): the KV caches are pools of blocks of
 /// <c>block size</c> rows shared by all slots (compile with context length = pool rows), and the <see cref="InputRole.KvBlockTable"/>
 /// input [S, blocks per slot] maps each slot's positions to blocks; CacheWrite and CachedAttention get it as their last input
@@ -42,7 +42,7 @@ public static class MultiSequence
         public int RollbackRows { get; init; }
     }
 
-    private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6"];
+    private static readonly HashSet<string> s_supported = ["CacheWrite", "CachedAttention", "IndexerTopK", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6"];
 
     /// <summary>True when every stateful op of the graph has a multi-sequence form.</summary>
     public static bool IsSupported(ComputeGraph g, out string? reason)
@@ -192,7 +192,7 @@ public static class MultiSequence
                     ins.Add(rows);
                     attrs = attrs.With("slots", (long)slots);
                     break;
-                case "CachedAttention":
+                case "CachedAttention" or "IndexerTopK":
                     ins.Add(rows);
                     ins.Add(runs);
                     attrs = attrs.With("slots", (long)slots);
@@ -211,7 +211,7 @@ public static class MultiSequence
                     break;
             }
 
-            if (pages is not null && n.Op.Name is "CacheWrite" or "CachedAttention")
+            if (pages is not null && n.Op.Name is "CacheWrite" or "CachedAttention" or "IndexerTopK")
             {
                 ins.Add(pages);
                 attrs = attrs.With("block_size", (long)blockSize);

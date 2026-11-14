@@ -3,8 +3,8 @@ using Sharplight.Models;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// Hunyuan v4 (HF <c>hy_v4</c>): MLA with a sigmoid output gate and per-head attention sinks, a DSA indexer (only its dense regime:
-/// the context is capped at <c>index_topk</c>, where it keeps every visible token, so its weights are not needed), dense first layers and
+/// Hunyuan v4 (HF <c>hy_v4</c>): MLA with a sigmoid output gate and per-head attention sinks, a DSA indexer (rope dimensions at the end of each
+/// row; <c>indexer_types</c> "shared" layers have no indexer weights and reuse the previous layer's selection), dense first layers and
 /// MoE layers with clamped SwiGLU experts, and hyper-connections without a mixing matrix (<c>hc_mult</c> streams, expansion weights
 /// <c>hc_magnitude</c>·sigmoid + eps). Rotary dimensions use rotate-half pairs. A config with <c>hc_sinkhorn_iters</c> has DeepSeek-V4's modules
 /// instead (fn / base with N² more rows for the Sinkhorn-normalized stream mixing matrix, a third scale, expansion weights without + eps).
@@ -24,6 +24,9 @@ internal sealed partial class LatentDecoderHfMapping
         md[a + "hyper_connections.post_offset"] = sinkhorn > 0 ? 0f : eps;
         md[a + "hyper_connections.sinkhorn_iterations"] = sinkhorn;
         md[a + "attention.indexer.token_budget"] = c.GetInt("index_topk") ?? 2048;
+        md[a + "attention.indexer.rope_style"] = "neox";
+        md[a + "attention.indexer.rope_last"] = true;
+        md[a + "attention.indexer.norm_eps"] = (float)(c.GetDouble("rms_norm_eps") ?? 1e-6);
         if (c.GetDouble("swiglu_limit") is { } limit and > 0)
         {
             md[a + "moe.swiglu_clamp"] = Enumerable.Repeat((float)limit, layers).ToArray();
@@ -47,11 +50,6 @@ internal sealed partial class LatentDecoderHfMapping
 
     private static bool TryMapHyV4Layer(string prefix, string suffix, WeightInfo w, HfWeightCollector collector)
     {
-        if (suffix.StartsWith("self_attn.indexer.", StringComparison.Ordinal))
-        {
-            return true;   // dense regime only
-        }
-
         if (suffix == "self_attn.learnable_sink_param")
         {
             collector.Add(HfTransforms.ToF32(w, prefix + "attention.sinks"));

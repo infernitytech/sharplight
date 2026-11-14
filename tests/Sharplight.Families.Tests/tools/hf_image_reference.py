@@ -1,4 +1,4 @@
-"""Image references for tiny Qwen-VL checkpoints from Hugging Face transformers (fp32).
+"""Image references for tiny Qwen-VL, PaddleOCR-VL and GLM-4.1V checkpoints from Hugging Face transformers (fp32).
 
 Usage: python hf_image_reference.py <model_dir> [<width> <height>] [--new-tokens N]
 
@@ -26,7 +26,8 @@ config = AutoConfig.from_pretrained(model_dir)
 model = getattr(transformers, config.architectures[0]).from_pretrained(model_dir, dtype=torch.float32).eval()
 tokenizer = AutoTokenizer.from_pretrained(model_dir)
 vc = config.vision_config
-ps, m, tp = vc.patch_size, vc.spatial_merge_size, vc.temporal_patch_size
+paddle = config.model_type == "paddleocr_vl"   # SigLIP tower fed in raster order, projector merges; its own placeholder
+ps, m, tp = vc.patch_size, vc.spatial_merge_size, getattr(vc, "temporal_patch_size", 1)
 
 y, x = np.mgrid[0:height, 0:width].astype(np.float64)
 image = np.stack([np.sin(0.031 * x + 0.017 * (c + 1) * y + 0.5 * c) for c in range(3)], axis=0).astype(np.float32)   # [C, H, W]
@@ -34,14 +35,27 @@ gh, gw = height // ps, width // ps
 frames = np.repeat(image[None], tp, axis=0)                                                           # [T, C, H, W]
 patches = frames.reshape(1, tp, 3, gh // m, m, ps, gw // m, m, ps).transpose(0, 3, 6, 4, 7, 2, 1, 5, 8)
 pixel_values = torch.from_numpy(np.ascontiguousarray(patches).reshape(gh * gw, 3 * tp * ps * ps))
+if paddle:
+    raster = image.reshape(3, gh, ps, gw, ps).transpose(1, 3, 0, 2, 4)                                # [gh, gw, C, ps, ps]
+    pixel_values = torch.from_numpy(np.ascontiguousarray(raster).reshape(gh * gw, 3, ps, ps))
 grid = torch.tensor([[1, gh, gw]])
 tokens = gh * gw // (m * m)
 
 with torch.no_grad():
-    out = model.model.visual(pixel_values, grid_thw=grid)
-    embeddings = out.pooler_output if hasattr(out, "pooler_output") else out
-    pad = tokenizer.convert_tokens_to_ids("<|image_pad|>")
-    text = "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>\n<|im_start|>assistant\n"
+    if paddle:
+        embeddings = torch.cat(model.model.get_image_features(pixel_values, grid).pooler_output)
+        placeholder = "<|IMAGE_PLACEHOLDER|>"
+        text = "User: <|IMAGE_PLACEHOLDER|>Describe this image.\nAssistant: "
+    else:
+        out = model.model.visual(pixel_values, grid_thw=grid)
+        embeddings = out.pooler_output if hasattr(out, "pooler_output") else out
+        if config.model_type == "glm4v":
+            placeholder = "<|image|>"
+            text = "[gMASK]<sop><|user|>\n<|begin_of_image|><|image|><|end_of_image|>Describe this image.<|assistant|>\n"
+        else:
+            placeholder = "<|image_pad|>"
+            text = "<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>\n<|im_start|>assistant\n"
+    pad = tokenizer.convert_tokens_to_ids(placeholder)
     prompt_ids = tokenizer(text, add_special_tokens=False).input_ids
     expanded = []
     for t in prompt_ids:
