@@ -6,8 +6,9 @@ namespace Sharplight.HuggingFace;
 /// DeepSeek-OCR (remote code, <c>deepseek_vl_v2</c> with <c>DeepseekOCRForCausalLM</c>), DeepSeek-OCR-2 (<c>deepseek_ocr2</c>; remote-code
 /// <c>DeepseekOCR2ForCausalLM</c> checkpoints use <c>deepseek_vl_v2</c> too) and Unlimited-OCR (<c>unlimited_ocr</c>) → canonical <c>decoder</c>:
 /// the language model of <see cref="DeepseekOcrTextHfMapping"/>. Checkpoints come with the remote-code names (<c>model.layers.*</c>, which
-/// transformers also writes) or transformers' own (<c>model.language_model.*</c>); the image tower (<c>sam_model</c>, <c>vision_model</c>,
-/// <c>qwen2_model</c>, projector, newline and view separator) is not imported yet. DeepSeek-VL2 checkpoints (<c>deepseek_vl_v2</c> with latent
+/// transformers also writes) or transformers' own (<c>model.language_model.*</c>). The SAM + CLIP image tower of DeepSeek-OCR and Unlimited-OCR
+/// comes from <see cref="DeepseekOcrVisionHfMapping"/>; DeepSeek-OCR-2's tower (a Qwen2 query encoder over the SAM features) is not imported
+/// yet, so those checkpoints load as text models. DeepSeek-VL2 checkpoints (<c>deepseek_vl_v2</c> with latent
 /// attention) are rejected. Unlimited-OCR's "reference" sliding window (each token sees the prompt plus its last <c>sliding_window</c> tokens) is
 /// not modelled: attention is full, as in llama.cpp, which equals it until the generated text exceeds the window.
 /// </summary>
@@ -30,7 +31,15 @@ internal sealed class DeepseekOcrHfMapping : IHfArchitectureMapping
             throw new NotSupportedException("deepseek_vl_v2 with latent attention (DeepSeek-VL2) is not supported; only the DeepSeek-OCR models are.");
         }
 
-        return _text.MapHyperParameters(config, options);
+        var md = _text.MapHyperParameters(config, options);
+        if (!DeepseekOcrVisionHfMapping.HasClipTower(config))
+        {
+            return md;
+        }
+
+        var withVision = new Dictionary<string, object>(md);
+        DeepseekOcrVisionHfMapping.AddVisionHyperParameters(config, withVision, Architecture, config.Int("hidden_size"));
+        return withVision;
     }
 
     /// <inheritdoc/>
@@ -42,7 +51,25 @@ internal sealed class DeepseekOcrHfMapping : IHfArchitectureMapping
                 t => t.Key.StartsWith(LanguageModelPrefix, StringComparison.Ordinal) ? "model." + t.Key[LanguageModelPrefix.Length..] : t.Key,
                 t => t.Value,
                 StringComparer.Ordinal);
-        return _text.MapWeights(config, text, options);
+        var weights = _text.MapWeights(config, text, options);
+        if (!DeepseekOcrVisionHfMapping.HasClipTower(config))
+        {
+            return weights;
+        }
+
+        var all = new Dictionary<string, WeightInfo>(weights, StringComparer.Ordinal);
+        foreach (var (name, tensor) in tensors)
+        {
+            if (IsTowerTensor(name))
+            {
+                foreach (var w in DeepseekOcrVisionHfMapping.MapTowerTensor(name, tensor))
+                {
+                    all[w.Name] = w;
+                }
+            }
+        }
+
+        return all;
     }
 
     /// <summary>Whether a checkpoint tensor belongs to the image tower, its projector or its layout embeddings.</summary>

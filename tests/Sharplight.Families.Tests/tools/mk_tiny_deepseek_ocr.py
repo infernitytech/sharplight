@@ -110,9 +110,13 @@ v1_config = dict(language, architectures=["DeepseekOCRForCausalLM"], model_type=
                                    "n_embed": TEXT["hidden_size"], "projector_type": "linear"},
                  vision_config={"image_size": GLOBAL_SIZE, "mlp_ratio": SAM["mlp_dim"] / SAM["hidden_size"], "model_name": "deeplip_b_l", "model_type": "vision",
                                 "width": {"clip-l-14-224": {"heads": enc1["num_attention_heads"], "image_size": enc1["image_size"],
-                                                            "layers": enc1["num_hidden_layers"], "patch_size": 14, "width": enc1["hidden_size"]},
+                                                            "layers": enc1["num_hidden_layers"], "patch_size": 14, "width": enc1["hidden_size"],
+                                                            # Sizes the remote code fixes for the real model, given for the tiny one.
+                                                            "intermediate_size": enc1["intermediate_size"]},
                                           "sam_vit_b": {"downsample_channels": sam1["downsample_channels"], "global_attn_indexes": SAM["global_attn_indexes"],
-                                                        "heads": SAM["num_attention_heads"], "layers": SAM["num_hidden_layers"], "width": SAM["hidden_size"]}}})
+                                                        "heads": SAM["num_attention_heads"], "layers": SAM["num_hidden_layers"], "width": SAM["hidden_size"],
+                                                        "mlp_dim": SAM["mlp_dim"], "output_channels": SAM["output_channels"],
+                                                        "window_size": SAM["window_size"]}}})
 with open(os.path.join(v1, "config.json"), "w") as f:
     json.dump(v1_config, f, indent=2)
 copy_tokenizer(v1)

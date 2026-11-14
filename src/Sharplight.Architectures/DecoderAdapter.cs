@@ -97,9 +97,11 @@ namespace Sharplight.Architectures;
 /// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it), optional BitNet sub-norms <c>attention.sub_norm.weight</c> /
 /// <c>mlp.sub_norm.weight</c> (RMS norms of the inputs of the attention output and MLP down projections). A layer without <c>attention.v.weight</c> uses the
 /// key projection (before its norm) as value (Gemma 4 attention_k_eq_v).
-/// Optional vision tower (image input; requires <c>rope.sections</c>): hyper-parameters <c>decoder.vision.*</c> and weights <c>vision.*</c> as documented on
+/// Optional vision tower (image input; requires <c>rope.sections</c>, except a two-stage tower of fixed-size views (<see cref="SamParameters"/>), whose
+/// image rows take consecutive positions): hyper-parameters <c>decoder.vision.*</c> and weights <c>vision.*</c> as documented on
 /// <see cref="VisionParameters"/>, in the primary source or an auxiliary <see cref="AuxiliaryRoles.Mmproj"/> source. The definition then has the
-/// <see cref="WellKnown.VisionEncodeGraph"/> and <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (DeepStack blocks of the tower are added after
+/// <see cref="WellKnown.VisionEncodeGraph"/> (and for a two-stage tower with tiles <see cref="SamParameters.TileGraph"/>) and
+/// <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (DeepStack blocks of the tower are added after
 /// the first layers) and prompts are assembled by <see cref="Qwen35Multimodal"/>.
 /// Semantics: RMS norm weights multiply directly (any "1 + w" convention is folded in by the importer); q/k rows are in
 /// rotate-half (neox) order per head, whatever <c>rope.style</c> says about the pairing the rope op uses on them is the
@@ -148,7 +150,19 @@ public sealed class DecoderAdapter : IModelAdapter
                 owned.AddRange(visionSrc.OwnedResources);
             }
 
-            graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
+            if (vision.Sam is { } sam)
+            {
+                // Fixed-size views: the global view and, when it differs, the local tile each get their own static graph.
+                graphs[WellKnown.VisionEncodeGraph] = SamTowerGraph.Build(vision, visionSrc.Weight, WellKnown.VisionEncodeGraph, sam.GlobalSize);
+                if (sam.TileSize != sam.GlobalSize)
+                {
+                    graphs[SamParameters.TileGraph] = SamTowerGraph.Build(vision, visionSrc.Weight, SamParameters.TileGraph, sam.TileSize);
+                }
+            }
+            else
+            {
+                graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
+            }
             graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
         }
 
@@ -224,7 +238,7 @@ public sealed class DecoderAdapter : IModelAdapter
             throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
         }
 
-        if (hp.RopeSections.Length == 0)
+        if (hp.RopeSections.Length == 0 && vision.Sam is null)
         {
             throw new NotSupportedException("decoder: image input needs M-RoPE (rope.sections); the image prompt layout places image rows on a 2-D position grid.");
         }
