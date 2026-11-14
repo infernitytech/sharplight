@@ -115,6 +115,12 @@ internal static class MappedFamilyCases
             [431, 327, 402, 402, 77, 77, 25, 402, 773, 773, 767, 767, 960, 887, 888, 674, 455, 999, 333, 582, 938, 71, 164, 527], ""),
         new("tiny-random-ricursive f32 GGUF (ricursive value residual, channel gate, NoPE global layer, clamped SwiGLU, llama.cpp)", "gguf/tiny-random-ricursive-f32.gguf", Prompt, "ids",
             [169, 627, 119, 886, 874, 601, 729, 631, 100, 407, 503, 590, 1004, 961, 503, 797, 224, 719, 850, 503, 193, 193, 700, 231], ""),
+        // Transformers references (ids and last-prompt-position logits) of tiny checkpoints from mk_tiny_decoders.py, cut before a close call:
+        // PhiMoE's 19th step and Kolibri-1's 18th differ by less than 0.01 between the top two logits.
+        new("tiny-random-phimoe HF (phimoe layer norms, sparsemixer routing, sliding window, transformers)", "hf/tiny-random-phimoe", Prompt, "ids",
+            [948, 961, 961, 539, 539, 107, 665, 150, 948, 217, 254, 973, 884, 1016, 100, 401, 358, 546], ""),
+        new("tiny-random-kolibri1 HF (kolibri1 logit selection bias, sandwich norms, NoPE global layer, transformers)", "hf/tiny-random-kolibri1", Prompt, "ids",
+            [298, 196, 886, 442, 914, 489, 442, 661, 583, 292, 73, 997, 209, 829, 1003, 684, 935], ""),
         // Real checkpoints: bigcode/tiny_starcoder_py (gpt_bigcode, 164M) against transformers; inceptionai/jais-family-590m converted by llama.cpp's
         // converter (f16, muP scales folded into the embedding and the output head) against llama.cpp b11177.
         new("tiny_starcoder_py HF (gpt_bigcode, transformers)", "hf/tiny_starcoder_py", "def fibonacci(n):", "ids",
