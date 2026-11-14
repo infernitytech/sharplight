@@ -914,13 +914,13 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if GEMM_SPLIT
-    // Split mode: the lo parts go to xsl[set][it] of FETCH's register set and item.
-    #define GEMM_LOAD_X(t, k, dst)                                                                      \
+    // Split mode: the lo parts go to `lo` (xsl of FETCH's register set and item).
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
         { float v[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };                                                       \
           if ((t) < ROWS_LIVE)                                                                          \
           { float4* xp = (float4*)(p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)); float4 a = xp[0], b = xp[1]; \
             v[0] = a.x; v[1] = a.y; v[2] = a.z; v[3] = a.w; v[4] = b.x; v[5] = b.y; v[6] = b.z; v[7] = b.w; } \
-          dst = split8(v, xsl[set][it]); }
+          dst = split8(v, lo); }
 #elif X_F16
     // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
     uint64_t xrb[GA_PER_T];
@@ -929,10 +929,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         uint t = t0 + (tid + it * GTHREADS) / GQ;
         xrb[it] = uint64_t(p.x) + (uint64_t(ROW_OF(t < ROWS_LIVE ? t : t0)) * X_STRIDE + ((tid + it * GTHREADS) % GQ) * 8) * 2;
     }
-    #define GEMM_LOAD_X(t, k, dst)                                                                      \
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
         { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); }
 #else
-    #define GEMM_LOAD_X(t, k, dst)                                                                      \
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
         { float4 a = 0, b = 0;                                                                          \
           if ((t) < ROWS_LIVE) { float4* xp = (float4*)(p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)); a = xp[0]; b = xp[1]; } \
           dst = uint4(f32tof16(a.x) | (f32tof16(a.y) << 16), f32tof16(a.z) | (f32tof16(a.w) << 16),       \
@@ -962,8 +962,10 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #endif
 #if GEMM_SPLIT
+    #define XS_LO(set, it) xsl[set][it]
     #define STAGE_LO_A(set, it, ia) gAl[ia] = xsl[set][it];
 #else
+    #define XS_LO(set, it) 0
     #define STAGE_LO_A(set, it, ia)
 #endif
 #if X_F16
@@ -976,7 +978,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     {                                                                                                   \
         uint idx = tid + it * GTHREADS, r = idx / GQ, q = idx % GQ;                                       \
         uint t = t0 + r;                                                                                \
-        GEMM_LOAD_X(t, X_K(k0, q), xs[set][it])                                                         \
+        GEMM_LOAD_X(t, X_K(k0, q), xs[set][it], XS_LO(set, it))                                        \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < GB_PER_T; it++)                                                \
     {                                                                                                   \
@@ -1096,6 +1098,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef STAGE
     #undef GEMM_LOAD_X
     #undef STAGE_LO_A
+    #undef XS_LO
     #undef SPLIT_LOAD_B
     #undef SPLIT_PRODUCTS
     #undef ROW_OF
