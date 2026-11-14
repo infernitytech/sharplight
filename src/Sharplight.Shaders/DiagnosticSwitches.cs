@@ -215,11 +215,6 @@ internal static class DiagnosticSwitches
     /// <summary>Let the dual fp8 gate / up GEMM use 128-row tiles above 64 rows.</summary>
     public static bool Fp8DualGemmTall { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL_TALL");
 
-    /// <summary>
-    /// Narrow fp8 GEMM tiles for batches of one 64-row tile: "0" never, "1" always, null for the default rule.
-    /// </summary>
-    public static string? Fp8NarrowTiles { get; } = Read("SHARPLIGHT_FP8_NARROW");
-
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
 

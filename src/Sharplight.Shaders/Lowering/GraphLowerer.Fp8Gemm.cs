@@ -19,49 +19,7 @@ public sealed partial class GraphLowerer
 
     /// <summary>Emits the E4M3 activation quantization and the fp8 GEMM launches of a planned matmul (see <see cref="UseFp8Gemm"/>).</summary>
     private void EmitFp8Gemm(MatMulPlan p) => EmitQuantizedGemm(p, "fp8", ActivationCode.Fp8, 128,
-        (tileRows, split, narrow) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, narrow ? Fp8NarrowLayout : MmqLayout(tileRows), split)),
-        tokenTilesFirst: true, narrow: (rows, split) => Fp8NarrowServes(rows, p.N, split, 1));
-
-    /// <summary>
-    /// Layout (warps M, warps N, fragments M, fragments N) of the narrow fp8 GEMM tile: 64 rows by 64 columns on four subgroups,
-    /// half the width of the regular 64-row tile. Its workgroups use half the threads and shared memory, so several share a
-    /// compute unit where the regular tile's register use leaves room for one, and a batch of one row tile spreads over twice
-    /// as many workgroups. Every output element still sums the same K blocks in the same order.
-    /// </summary>
-    private static int[] Fp8NarrowLayout => [2, 2, 2, 2];
-
-    /// <summary>Output columns of the narrow fp8 GEMM tile.</summary>
-    private static int Fp8NarrowColumns => Fp8NarrowLayout[1] * Fp8NarrowLayout[3] * 16;
-
-    /// <summary>
-    /// True when a batch of <paramref name="rows"/> (at most one 64-row tile) runs the fp8 GEMM on narrow tiles: an
-    /// [·→<paramref name="n"/>] matmul split <paramref name="split"/> ways over K, <paramref name="matrices"/> weight matrices
-    /// per launch (2 for the dual GEMM). A regular tile's register use leaves room for one workgroup per compute unit, so its
-    /// grid runs in waves of one workgroup per unit; the narrow grid is twice as large and fits several workgroups per unit.
-    /// Narrow tiles serve when the regular grid fills its last wave poorly (under <see cref="Fp8NarrowMaxFill"/> of the waves
-    /// it occupies; Blackwell, 188 units: 192 / 272 / 384 workgroups run 7-15 % faster narrow, 160 / 320 workgroups 5-15 %
-    /// slower). Without a known compute unit count (<see cref="LoweringOptions.ComputeUnits"/>) the regular tiles serve.
-    /// <c>SHARPLIGHT_FP8_NARROW=0|1</c> forces the choice.
-    /// </summary>
-    private bool Fp8NarrowServes(long rows, long n, int split, int matrices)
-    {
-        if (rows > 64)
-        {
-            return false;
-        }
-
-        long workgroups = Grid.Div(n * matrices, MmqColumns(64)) * split;
-        long units = _opt.ComputeUnits;
-        return DiagnosticSwitches.Fp8NarrowTiles switch
-        {
-            "0" => false,
-            "1" => true,
-            _ => units > 0 && (double)workgroups / ((workgroups + units - 1) / units * units) < Fp8NarrowMaxFill,
-        };
-    }
-
-    /// <summary>Fill of the regular fp8 GEMM grid's waves below which single-tile batches take the narrow tiles.</summary>
-    private const double Fp8NarrowMaxFill = 0.8;
+        (tileRows, split) => Lib("gemm_fp8.slang", "gemm_fp8", Fp8GemmMacros(p.W.Type, p.N, p.K, tileRows, split)), tokenTilesFirst: true);
 
     /// <summary>
     /// Largest batch for which the dual fp8 GEMM serves every row count (one 64-row tile). Larger batches use it only where the
@@ -112,28 +70,15 @@ public sealed partial class GraphLowerer
         Func<Bindings, long> rows = b => Rows(b, x) * rowsPerLead;
         bool tall = DiagnosticSwitches.Fp8DualGemmTall && rowsMax > DualFp8AlwaysMaxRows && MmqLayout(128)[3] % 2 == 0;
         int TileRows(long r) => tall && r > DualFp8TallMinRows && (r + 127) / 128 * 2 == (r + 63) / 64 ? 128 : (int)DualFp8AlwaysMaxRows;
-        bool Narrow(long r) => Fp8NarrowServes(r, n, 1, 2);
-        var configs = new List<(int TileRows, bool Narrow)> { ((int)DualFp8AlwaysMaxRows, false) };
-        if (tall)
-        {
-            configs.Add((128, false));
-        }
-
-        if (Enumerable.Range((int)minRows, (int)Math.Max(0, Math.Min(rowsMax, DualFp8AlwaysMaxRows) - minRows + 1)).Any(r => Narrow(r)))
-        {
-            configs.Add(((int)DualFp8AlwaysMaxRows, true));
-        }
-
         var variants = new List<KernelVariant>();
-        foreach (var (tileRows, isNarrow) in configs)
+        foreach (int tileRows in tall ? new[] { 64, 128 } : [(int)DualFp8AlwaysMaxRows])
         {
-            var layout = isNarrow ? Fp8NarrowLayout : MmqLayout(tileRows);
-            int outputs = layout[1] * layout[3] * 16 / 2;
-            var macros = Fp8GemmMacros(weightA.Type, n, k, tileRows, layout, 1);
+            int outputs = MmqColumns(tileRows) / 2;
+            var macros = Fp8GemmMacros(weightA.Type, n, k, tileRows, 1);
             macros["DUAL"] = "1";
             macros["KERNEL_GEMM_FP8"] = "1";
             var kernel = _compiler.Compile("gemm_fp8_dual.slang", epilogueSource, "gemm_fp8", _opt.Target, macros, _opt.Cache);
-            variants.Add(new KernelVariant(b => DualFp8Serves(rows(b), n, k) && TileRows(rows(b)) == tileRows && Narrow(rows(b)) == isNarrow, kernel,
+            variants.Add(new KernelVariant(b => DualFp8Serves(rows(b), n, k) && TileRows(rows(b)) == tileRows, kernel,
                 b => new Grid(Grid.Div(rows(b), tileRows), Grid.Div(n, outputs))));
         }
 
@@ -142,8 +87,9 @@ public sealed partial class GraphLowerer
         return true;
     }
 
-    private Dictionary<string, string> Fp8GemmMacros(DataType type, long n, long k, int tileRows, int[] layout, int split)
+    private Dictionary<string, string> Fp8GemmMacros(DataType type, long n, long k, int tileRows, int split)
     {
+        var layout = MmqLayout(tileRows);
         if (layout[0] * layout[2] * 16 != tileRows)
         {
             throw new NotSupportedException($"fp8 GEMM layout {string.Join(',', layout)} does not give {tileRows}-token tiles.");

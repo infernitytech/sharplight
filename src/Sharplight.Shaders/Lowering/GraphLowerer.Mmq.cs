@@ -126,18 +126,16 @@ public sealed partial class GraphLowerer
     /// batches of at least <see cref="MmqMinRows"/> rows. The caller keeps its f16 GEMM launches off that range.
     /// </summary>
     private void EmitMmq(MatMulPlan p) => EmitQuantizedGemm(p, "mmq", ActivationCode.Q8_1, MmqBlockK(p.W.Type, p.K),
-        (tileRows, split, _) => Lib("mmq.slang", "gemm_mmq", MmqMacros(p.W.Type, p.N, p.K, tileRows, split)));
+        (tileRows, split) => Lib("mmq.slang", "gemm_mmq", MmqMacros(p.W.Type, p.N, p.K, tileRows, split)));
 
     /// <summary>
     /// Emits an 8-bit tensor-core GEMM (activations quantized to <paramref name="code"/>, 64- or 128-token tiles of the
     /// <see cref="MmqLayout"/> layouts, <paramref name="blockK"/> K values per staged step) with its split-K variants and
     /// reduction for batches of at least <see cref="QuantizedGemmMinRows"/> rows. <paramref name="kernel"/> compiles the GEMM for a
-    /// tile height, a K split and the tile width (true: the narrow layout <paramref name="narrow"/> selects for a batch and split;
-    /// the K split itself always follows the regular layout, so the choice does not change any sum); <paramref name="tokenTilesFirst"/>
-    /// when it reads grid x as the token tile (see gemm_fp8).
+    /// tile height and a K split; <paramref name="tokenTilesFirst"/> when it reads grid x as the token tile (see gemm_fp8).
     /// </summary>
-    private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, bool, CompiledKernel> kernel,
-        bool tokenTilesFirst = false, Func<long, int, bool>? narrow = null)
+    private void EmitQuantizedGemm(MatMulPlan p, string name, ActivationCode code, int blockK, Func<int, int, CompiledKernel> kernel,
+        bool tokenTilesFirst = false)
     {
 
         long n = p.N;
@@ -158,21 +156,12 @@ public sealed partial class GraphLowerer
         bool InRange(Bindings b) => p.RowCount(b) >= minRows;
         int Split(Bindings b) => QuantizedGemmSplit(n, k, p.RowCount(b), blockK);
 
-        bool Narrow(Bindings b) => narrow?.Invoke(p.RowCount(b), Split(b)) ?? false;
-        bool narrowUsed = narrow is not null && Enumerable.Range((int)minRows, (int)Math.Max(0, Math.Min(rowsMax, 64) - minRows + 1))
-            .Any(r => narrow(r, QuantizedGemmSplit(n, k, r, blockK)));
-        var configs = new List<(int TileRows, bool Narrow)> { (64, false), (128, false) };
-        if (narrowUsed)
-        {
-            configs.Add((64, true));
-        }
-
         var direct = new List<KernelVariant>();
-        foreach (var (tileRows, isNarrow) in configs)
+        foreach (int tileRows in new[] { 64, 128 })
         {
-            int columns = isNarrow ? Fp8NarrowColumns : MmqColumns(tileRows);
-            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == tileRows && Split(b) == 1 && Narrow(b) == isNarrow,
-                kernel(tileRows, 1, isNarrow),
+            int columns = MmqColumns(tileRows);
+            direct.Add(new KernelVariant(b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == tileRows && Split(b) == 1,
+                kernel(tileRows, 1),
                 b => TileGrid(p.RowCount(b), tileRows, columns)));
         }
 
@@ -181,30 +170,15 @@ public sealed partial class GraphLowerer
             [quantized, p.W], [p.Y]);
 
         // Split-K: the same tiles summing K ranges into partials, then the reduction of matmul.slang.
-        var tiledSplits = new SortedSet<(int TileRows, int Split, bool Narrow)>();
+        var tiledSplits = new SortedSet<(int TileRows, int Split)>();
         long scratchBytes = 0;
         for (long rows = minRows; rows <= rowsMax; rows = NextSplitProbe(rows, rowsMax))
         {
             int split = QuantizedGemmSplit(n, k, rows, blockK);
             if (split > 1)
             {
-                tiledSplits.Add((MmqTileRowsFor(rows), split, false));
+                tiledSplits.Add((MmqTileRowsFor(rows), split));
                 scratchBytes = Math.Max(scratchBytes, split * rows * n * 4);
-            }
-        }
-
-        // The narrow layout's splits: every split a single-tile batch may take (the probe above visits only tile ends).
-        if (narrowUsed)
-        {
-            for (long rows = minRows; rows <= Math.Min(rowsMax, 64); rows++)
-            {
-                int split = QuantizedGemmSplit(n, k, rows, blockK);
-                if (split > 1 && narrow!(rows, split))
-                {
-                    tiledSplits.Add((64, split, true));
-                    tiledSplits.Add((64, split, false));
-                    scratchBytes = Math.Max(scratchBytes, split * rows * n * 4);
-                }
             }
         }
 
@@ -216,9 +190,9 @@ public sealed partial class GraphLowerer
         var scratch = SplitScratch(scratchBytes);
         var partial = new TensorRef(scratch, 0, DataType.F32, [scratchBytes / 4], [1], null);
         var partialVariants = tiledSplits.Select(ts => new KernelVariant(
-            b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == ts.TileRows && Split(b) == ts.Split && Narrow(b) == ts.Narrow,
-            kernel(ts.TileRows, ts.Split, ts.Narrow),
-            b => TileGrid(p.RowCount(b), ts.TileRows, ts.Narrow ? Fp8NarrowColumns : MmqColumns(ts.TileRows), (uint)ts.Split)));
+            b => InRange(b) && MmqTileRowsFor(p.RowCount(b)) == ts.TileRows && Split(b) == ts.Split,
+            kernel(ts.TileRows, ts.Split),
+            b => TileGrid(p.RowCount(b), ts.TileRows, MmqColumns(ts.TileRows), (uint)ts.Split)));
         Emit($"{label} {name} split-k", [p.Node], [.. partialVariants],
             [Pointer(quantized), Pointer(p.W), new PointerArg(scratch, 0), TokenArg(p.X, p.RowsPerLead)],
             [quantized, p.W], [partial]);

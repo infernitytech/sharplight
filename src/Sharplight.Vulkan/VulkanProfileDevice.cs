@@ -33,7 +33,7 @@ internal sealed class VulkanProfileDevice : IComputeDevice
             Capabilities = profile.Properties,
         };
         EnabledFeatures = DeviceFeatures.Effective(Info.Features, options.DisabledFeatures);
-        _code = new SpirvCodeGenerator(profile.SubgroupSize, profile.MaxSharedMemory, profile.ComputeUnits, EnabledFeatures,
+        _code = new SpirvCodeGenerator(profile.SubgroupSize, profile.MaxSharedMemory, EnabledFeatures,
             SpirvCodeGenerator.EffectiveSubmissionBudget(profile.SubmissionBudgetMs, options),
             options.KernelCacheDirectory ?? SlangCompiler.DefaultCacheDirectory);
         ArtifactTargets = [_code.CreateCodeTarget(Info.Provider)];

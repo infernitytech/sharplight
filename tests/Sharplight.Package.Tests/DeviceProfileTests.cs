@@ -15,7 +15,6 @@ public class DeviceProfileTests
         CodeTarget = "spirv_1_6",
         SubgroupSize = 64,
         MaxSharedMemory = 65536,
-        ComputeUnits = 12,
         Features = [DeviceFeatures.Float16, DeviceFeatures.MatrixF16, DeviceFeatures.SubgroupOps],
         SubmissionBudgetMs = 250,
         Properties = new Dictionary<string, string> { ["coopmat_shapes"] = "16x16x16:f16*f16+f32->f32" },
@@ -33,7 +32,6 @@ public class DeviceProfileTests
         Assert.Equal(profile.Features, copy.Features);
         Assert.Equal(DeviceKind.IntegratedGpu, copy.Kind);
         Assert.Equal(250, copy.SubmissionBudgetMs);
-        Assert.Equal(12, copy.ComputeUnits);
         Assert.Equal(DeviceProfile.CurrentFormatVersion, copy.FormatVersion);
     }
 
@@ -44,7 +42,6 @@ public class DeviceProfileTests
         Assert.Equal([DeviceFeatures.Float16, DeviceFeatures.SubgroupOps], reduced.Features);
         Assert.Equal("no matrix", reduced.Name);
         Assert.Equal(64, reduced.SubgroupSize);
-        Assert.Equal(12, reduced.ComputeUnits);
     }
 
     [Theory]
