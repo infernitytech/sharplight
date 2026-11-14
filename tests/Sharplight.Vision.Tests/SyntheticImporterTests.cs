@@ -244,13 +244,6 @@ public class SyntheticImporterTests : IDisposable
     public void Unsupported_towers_fail_loudly()
     {
         var hf = HfTensors();
-        string dir = WriteHf(hf);
-        // Deepstack features would be silently wrong: refuse them.
-        var cfg = File.ReadAllText(Path.Combine(dir, "config.json")).Replace("\"deepstack_visual_indexes\":[]", "\"deepstack_visual_indexes\":[1]");
-        File.WriteAllText(Path.Combine(dir, "config.json"), cfg);
-        using var config = HfConfig.Load(dir);
-        Assert.Throws<NotSupportedException>(() => new Qwen35HfMapping().MapHyperParameters(config, HfImportOptions.Default));
-
         string gg = WriteMmproj(hf);
         // An unknown projector type has no mapping.
         var bytes = File.ReadAllBytes(gg);

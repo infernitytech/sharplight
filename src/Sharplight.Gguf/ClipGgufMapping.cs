@@ -7,7 +7,9 @@ namespace Sharplight.Gguf;
 /// <summary>
 /// llama.cpp vision projector files ("mmproj", GGUF architecture <c>clip</c>) → the canonical vision vocabulary documented on
 /// <c>Sharplight.Vision.VisionParameters</c>. The file's <c>clip.projector_type</c> selects the tower layout and the text
-/// architecture it belongs to; supported: <c>qwen3vl_merger</c> (Qwen3-VL / Qwen3.5 family ViT with 2×2 patch merger).
+/// architecture it belongs to; supported: <c>qwen3vl_merger</c> (Qwen3-VL / Qwen3.5 family ViT with 2×2 patch merger). A tower with
+/// DeepStack layers (<c>clip.vision.is_deepstack_layers</c>, Qwen3-VL) belongs to the canonical <c>decoder</c> (the Qwen3-VL language
+/// model), one without to <c>qwen3_5</c>.
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -36,18 +38,20 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     }
 
     /// <inheritdoc/>
-    public string ResolveArchitecture(GgufMetadataView g) => Find(g).Architecture;
+    public string ResolveArchitecture(GgufMetadataView g) => DeepstackLayers(g).Length > 0 ? DeepstackArchitecture : Find(g).Architecture;
+
+    /// <summary>Text architecture of towers with DeepStack layers (Qwen3-VL: Qwen3 with M-RoPE, the generic decoder).</summary>
+    private const string DeepstackArchitecture = "decoder";
+
+    private static int[] DeepstackLayers(GgufMetadataView g) => g.Raw("vision.is_deepstack_layers") is Array flags
+        ? Enumerable.Range(0, flags.Length).Where(i => Convert.ToBoolean(flags.GetValue(i))).ToArray()
+        : [];
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         var p = Find(g);
-        if (g.Raw("vision.is_deepstack_layers") is Array ds && ds.Cast<object>().Any(v => Convert.ToBoolean(v)))
-        {
-            throw new NotSupportedException("Vision towers with deepstack layers are not supported yet.");
-        }
-
-        string a = p.Architecture + ".vision.";
+        string a = ResolveArchitecture(g) + ".vision.";
         int patch = g.Int("vision.patch_size");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -69,6 +73,11 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             [a + "min_pixels"] = g.Has("vision.min_pixels") ? (long)g.Int("vision.min_pixels") : p.MinPixels,
             [a + "max_pixels"] = g.Has("vision.max_pixels") ? (long)g.Int("vision.max_pixels") : p.MaxPixels,
         };
+        if (DeepstackLayers(g) is { Length: > 0 } deepstack)
+        {
+            md[a + "deepstack_layers"] = deepstack;
+        }
+
         if (g.Raw("vision.image_mean") is Array mean)
         {
             md[a + "image_mean"] = ToFloats(mean);
@@ -86,6 +95,9 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
 
     [GeneratedRegex(@"^v\.blk\.(\d+)\.(.+)$")]
     private static partial Regex Block();
+
+    [GeneratedRegex(@"^v\.deepstack\.(\d+)\.(norm|fc1|fc2)\.(weight|bias)$")]
+    private static partial Regex Deepstack();
 
     /// <summary>Per-block tensors, GGUF suffix to canonical suffix.</summary>
     private static readonly Dictionary<string, string> s_layer = new(StringComparer.Ordinal)
@@ -126,6 +138,13 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         if (s_global.TryGetValue(name, out var globalName))
         {
             return globalName;
+        }
+
+        var ds = Deepstack().Match(name);
+        if (ds.Success)
+        {
+            string module = ds.Groups[2].Value switch { "fc1" => "up", "fc2" => "down", _ => "norm" };
+            return $"vision.deepstack.{ds.Groups[1].Value}.{module}.{ds.Groups[3].Value}";
         }
 
         var m = Block().Match(name);

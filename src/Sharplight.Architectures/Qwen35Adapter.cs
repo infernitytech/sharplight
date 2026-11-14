@@ -260,6 +260,11 @@ public sealed class Qwen35Adapter : IModelAdapter
         };
         if (vision is not null)
         {
+            if (vision.DeepstackLayers.Length > 0)
+            {
+                throw new NotSupportedException("qwen3_5: vision towers with DeepStack layers belong to the decoder architecture (Qwen3-VL).");
+            }
+
             if (vision.OutHiddenSize != hp.NEmbd)
             {
                 throw new InvalidDataException($"The vision tower produces {vision.OutHiddenSize}-wide embeddings but the language model's hidden size is {hp.NEmbd}.");

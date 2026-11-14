@@ -107,7 +107,7 @@ internal sealed partial class DecoderGraphBuilder
         {
             try
             {
-                graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.NEmbd, positionAxes: 1, _hp.Eps, layers: 1, (b, x, j, positions) =>
+                graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.NEmbd, _hp.PositionAxes, _hp.Eps, layers: 1, (b, x, j, positions) =>
                 {
                     string p = $"mtp.layers.{j}.";
                     var slot = new LayerSlot(_hp.NLayer + j, _hp.LogicalLayers + j);
@@ -144,26 +144,44 @@ internal sealed partial class DecoderGraphBuilder
         return graphs;
     }
 
-    private ComputeGraph BuildTrunk(string name, bool embeddingsInput)
+    /// <summary>
+    /// The <see cref="WellKnown.DecodeMultimodalGraph"/>: token ids plus an embeddings input [T, H·(1 + <paramref name="deepstackLayers"/>)] and
+    /// a row mask [T, 1]. Rows with mask 1 take their input from the first H columns instead of the token embedding; the k-th further block
+    /// of H columns (DeepStack, zero on text rows) is added to the hidden state after layer k.
+    /// </summary>
+    public ComputeGraph BuildMultimodal(int deepstackLayers) => BuildTrunk(WellKnown.DecodeMultimodalGraph, embeddingsInput: false, deepstackLayers);
+
+    private ComputeGraph BuildTrunk(string name, bool embeddingsInput, int deepstackLayers = -1)
     {
         var b = new GraphBuilder(name, _src.Weight);
         var T = Dim.Sym(WellKnown.TokenSymbol);
         Value x;
         Value positions;
         Value? perLayer = null;
+        Value? deepstack = null;
         using (b.Group("input"))
         {
             Value? tokens = null;
             if (embeddingsInput)
             {
                 x = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, _hp.NEmbd));
-                positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
+                positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, _hp.PositionAxes));
             }
             else
             {
                 tokens = b.Input("tokens", InputRole.TokenIds, DataType.I32, new Shape(T));
-                positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, 1));
+                positions = b.Input("positions", InputRole.Positions, DataType.I32, new Shape(T, _hp.PositionAxes));
                 x = TokenEmbeddings(b, tokens);
+            }
+
+            if (deepstackLayers >= 0)
+            {
+                // Media rows: x = tok·(1 − mask) + emb·mask.
+                var emb = b.Input("embeddings", InputRole.Embeddings, DataType.F32, new Shape(T, (long)_hp.NEmbd * (1 + deepstackLayers)));
+                var mask = b.Input("embedding_mask", InputRole.EmbeddingMask, DataType.F32, new Shape(T, 1));
+                var media = deepstackLayers == 0 ? emb : b.Slice(emb, 1, 0, _hp.NEmbd);
+                x = b.Add(b.Mul(x, b.Scale(mask, -1f, 1f)), b.Mul(media, mask), "inp_mixed");
+                deepstack = deepstackLayers == 0 ? null : b.Slice(emb, 1, _hp.NEmbd, (long)_hp.NEmbd * deepstackLayers);
             }
 
             x = AddPositionEmbeddings(b, x, positions);
@@ -174,7 +192,7 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
-        x = Layers(b, x, positions, FrequencyFactors(b), perLayer, rowSpans: null);
+        x = Layers(b, x, positions, FrequencyFactors(b), perLayer, rowSpans: null, deepstack);
 
         using (b.Group("output"))
         {
@@ -289,8 +307,10 @@ internal sealed partial class DecoderGraphBuilder
 
     // The transformer layers; rowSpans selects packed-sequence attention (no KV cache) instead of cached attention. With layer loops
     // (layer_loops) the physical layers run several times, each pass with KV caches of its own, optionally separated by the output norm.
-    private Value Layers(GraphBuilder b, Value x, Value positions, Value? freqFactors, Value? perLayer, Value? rowSpans)
+    // deepstack: [T, H·K] blocks added to the hidden state after the first K layers (Qwen3-VL DeepStack).
+    private Value Layers(GraphBuilder b, Value x, Value positions, Value? freqFactors, Value? perLayer, Value? rowSpans, Value? deepstack = null)
     {
+        int deepstackLayers = deepstack is null ? 0 : (int)(deepstack.Shape[-1].Fixed / _hp.NEmbd);
         var packedKv = new Dictionary<int, (Value K, Value V)>();
         var embeddings = x;
         for (int logical = 0; logical < _hp.LogicalLayers; logical++)
@@ -321,6 +341,11 @@ internal sealed partial class DecoderGraphBuilder
             if (b.TryWeight(p + "output_scale") is { } oscale)
             {
                 x = b.Mul(x, oscale, $"{p}scaled");
+            }
+
+            if (logical < deepstackLayers)
+            {
+                x = b.Add(x, b.Slice(deepstack!, 1, (long)logical * _hp.NEmbd, _hp.NEmbd), $"{p}deepstack_out");
             }
         }
 

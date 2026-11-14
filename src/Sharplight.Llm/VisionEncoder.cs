@@ -69,8 +69,8 @@ public sealed class VisionEncoder : IDisposable
         _embWeight = g.Inputs.FirstOrDefault(v => v.Input!.Name == VisionParameters.EmbeddingWeightInput)!;
     }
 
-    /// <summary>Width of one embedding row (the language model's hidden size).</summary>
-    public int EmbeddingSize => Parameters.OutHiddenSize;
+    /// <summary>Width of one embedding row: the language model's hidden size, times 1 + the number of DeepStack layers.</summary>
+    public int EmbeddingSize => Parameters.EmbeddingWidth;
 
     /// <summary>Resizes, normalizes and patchifies an image (see <see cref="VisionPreprocessor"/>).</summary>
     public PreprocessedImage Preprocess(ImageInput image) => Preprocessor.Process(image);

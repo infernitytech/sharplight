@@ -10,7 +10,8 @@ namespace Sharplight.Architectures;
 /// <see cref="VisionParameters"/> and <c>vision.*</c> weights (documented on <see cref="VisionParameters"/>):
 /// patch embedding (a MatMul over the patchified input) + learned position embedding (bilinear taps) → pre-norm
 /// transformer blocks (LayerNorm, fused-QKV bidirectional multi-head attention with axial 2-D rotary embedding, MLP)
-/// → patch merger (LayerNorm, m×m merge, 2-layer MLP) producing embeddings of the language model's hidden size.
+/// → patch merger (LayerNorm, m×m merge, 2-layer MLP) producing embeddings of the language model's hidden size. DeepStack towers
+/// (Qwen3-VL) also merge the outputs of selected layers (m×m merge, LayerNorm, 2-layer MLP each) and append them to the embedding row.
 /// Shared by every architecture that uses such a tower; it does not know which file the weights came from.
 /// </summary>
 internal static class VisionTowerGraph
@@ -57,6 +58,7 @@ internal static class VisionTowerGraph
             (cos, sinSigned) = RotaryTables(b, p, positions);
         }
 
+        var deepstack = new List<Value>();
         for (int il = 0; il < p.LayerCount; il++)
         {
             using var _ = b.Group($"vision.layers.{il}");
@@ -80,22 +82,28 @@ internal static class VisionTowerGraph
             var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
             var down = b.Linear(Activation(b, up, p.Activation), w + "mlp.down.weight", w + "mlp.down.bias");
             x = b.Add(x, down, $"{w}l_out");
+            if (Array.IndexOf(p.DeepstackLayers, il) >= 0)
+            {
+                string d = $"vision.deepstack.{il}.";
+                var merged = LayerNorm(b, Merge(b, x, p), d + "norm", eps);
+                var dsUp = b.Linear(merged, d + "up.weight", d + "up.bias");
+                deepstack.Add(b.Linear(Activation(b, dsUp, p.MergerActivation), d + "down.weight", d + "down.bias", $"{d}out"));
+            }
         }
 
         using (b.Group("merger"))
         {
-            var h = LayerNorm(b, x, "vision.merger.norm", eps);
-            if (p.MergeUnit > 1)
-            {
-                h = b.Emit1("Reshape", [h], Attributes.From(("shape", new long[] { 0, (long)p.MergeUnit * H }), ("outer_symbol", VisionParameters.MergedSymbol)));
-            }
-
+            var h = Merge(b, LayerNorm(b, x, "vision.merger.norm", eps), p);
             var up = b.Linear(h, "vision.merger.up.weight", "vision.merger.up.bias");
             var down = b.Linear(Activation(b, up, p.MergerActivation), "vision.merger.down.weight", "vision.merger.down.bias", VisionParameters.EmbeddingsOutput);
-            b.Output(VisionParameters.EmbeddingsOutput, down);
+            b.Output(VisionParameters.EmbeddingsOutput, deepstack.Count == 0 ? down : b.Concat(1, [down, .. deepstack]));
         }
         return b.Build();
     }
+
+    // m×m neighbouring patches (consecutive in merge-window order) → one row of m²·hidden.
+    private static Value Merge(GraphBuilder b, Value x, VisionParameters p) => p.MergeUnit == 1 ? x
+        : b.Emit1("Reshape", [x], Attributes.From(("shape", new long[] { 0, (long)p.MergeUnit * p.HiddenSize }), ("outer_symbol", VisionParameters.MergedSymbol)));
 
     private static Value LayerNorm(GraphBuilder b, Value x, string name, float eps)
         => b.Emit1("LayerNorm", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps)));

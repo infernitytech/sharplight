@@ -6,33 +6,44 @@ using Sharplight.Tensors;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// Vision tower of Hugging Face Qwen3.5 checkpoints (<c>vision_config</c> + <c>preprocessor_config.json</c> +
+/// Vision tower of Hugging Face Qwen3-VL and Qwen3.5 checkpoints (<c>vision_config</c> + <c>preprocessor_config.json</c> +
 /// <c>model.visual.*</c> tensors) → the canonical vision vocabulary documented on <c>Sharplight.Vision.VisionParameters</c>.
+/// Qwen3-VL's DeepStack mergers (<c>deepstack_merger_list.{j}</c>, fed by tower layer <c>deepstack_visual_indexes[j]</c>) become
+/// <c>vision.deepstack.{layer}.*</c>.
 /// </summary>
-internal sealed partial class Qwen35HfMapping
+internal static partial class QwenVisionHfMapping
 {
     [GeneratedRegex(@"^(?:model\.)?visual\.blocks\.(\d+)\.(.+)$")]
     private static partial Regex VisualBlock();
 
-    private static JsonElement? VisionConfig(HfConfig c)
+    [GeneratedRegex(@"^(?:model\.)?visual\.deepstack_merger_list\.(\d+)\.(norm|linear_fc1|linear_fc2)\.(weight|bias)$")]
+    private static partial Regex DeepstackMerger();
+
+    /// <summary>The <c>vision_config</c> object, or null when the checkpoint has no vision tower.</summary>
+    public static JsonElement? VisionConfig(HfConfig c)
         => c.Root.TryGetProperty("vision_config", out var v) && v.ValueKind == JsonValueKind.Object ? v : null;
 
-    private static bool IsVisionTensor(string name) => name.StartsWith("model.visual.", StringComparison.Ordinal) || name.StartsWith("visual.", StringComparison.Ordinal);
+    /// <summary>Whether <paramref name="name"/> is a tensor of the vision tower.</summary>
+    public static bool IsVisionTensor(string name) => name.StartsWith("model.visual.", StringComparison.Ordinal) || name.StartsWith("visual.", StringComparison.Ordinal);
 
-    /// <summary>Adds <c>qwen3_5.vision.*</c> when the checkpoint has a vision tower.</summary>
-    private void AddVisionHyperParameters(HfConfig c, Dictionary<string, object> md)
+    /// <summary>Tower layers feeding the DeepStack mergers (<c>vision_config.deepstack_visual_indexes</c>), empty for none.</summary>
+    private static int[] DeepstackLayers(JsonElement vc)
+        => vc.TryGetProperty("deepstack_visual_indexes", out var ds) && ds.ValueKind == JsonValueKind.Array ? ds.EnumerateArray().Select(e => e.GetInt32()).ToArray() : [];
+
+    /// <summary>Adds <c>{architecture}.vision.*</c> when the checkpoint has a vision tower.</summary>
+    public static void AddVisionHyperParameters(HfConfig c, IDictionary<string, object> md, string architecture)
     {
         if (VisionConfig(c) is not { } vc)
         {
             return;
         }
 
-        string a = Architecture + ".vision.";
+        string a = architecture + ".vision.";
         int Int(string k) => vc.TryGetProperty(k, out var v) ? v.GetInt32() : throw new InvalidDataException($"config.json vision_config.{k} is missing.");
         int IntOr(string k, int d) => vc.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : d;
-        if (vc.TryGetProperty("deepstack_visual_indexes", out var ds) && ds.ValueKind == JsonValueKind.Array && ds.GetArrayLength() > 0)
+        if (DeepstackLayers(vc) is { Length: > 0 } deepstack)
         {
-            throw new NotSupportedException("Vision towers with deepstack features (deepstack_visual_indexes) are not supported yet.");
+            md[a + "deepstack_layers"] = deepstack;
         }
 
         md[a + "layer_count"] = Int("depth");
@@ -153,10 +164,23 @@ internal sealed partial class Qwen35HfMapping
         => w.Shape.Rank == 1 ? HfTransforms.ToF32(w, name) : HfTransforms.Plain(w, name);
 
     /// <summary>Maps one <c>model.visual.*</c> tensor; null when it has no canonical counterpart.</summary>
-    private static WeightInfo? MapVisionTensor(string rawName, SafetensorsTensor t)
+    public static WeightInfo? MapVisionTensor(HfConfig c, string rawName, SafetensorsTensor t)
     {
         string name = rawName.StartsWith("model.", StringComparison.Ordinal) ? rawName["model.".Length..] : rawName;
         var w = t.ToWeightInfo();
+        if (DeepstackMerger().Match(rawName) is { Success: true } ds)
+        {
+            var layers = DeepstackLayers(VisionConfig(c)!.Value);
+            int j = int.Parse(ds.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+            if (j >= layers.Length)
+            {
+                throw new InvalidDataException($"{rawName}: DeepStack merger {j} has no entry in vision_config.deepstack_visual_indexes.");
+            }
+
+            string module = ds.Groups[2].Value switch { "linear_fc1" => "up", "linear_fc2" => "down", _ => "norm" };
+            return PlainVision(w, $"vision.deepstack.{layers[j]}.{module}.{ds.Groups[3].Value}");
+        }
+
         if (name == "visual.patch_embed.proj.weight")
         {
             // The patch-embedding convolution kernel is flattened to [hidden, rest], the canonical 2-D form.

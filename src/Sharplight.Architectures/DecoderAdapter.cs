@@ -1,4 +1,5 @@
 using Sharplight.Models;
+using Sharplight.Vision;
 
 namespace Sharplight.Architectures;
 
@@ -67,6 +68,9 @@ namespace Sharplight.Architectures;
 /// <c>attention.layer_head_dims</c>, <c>attention.layer_kv_head_counts</c>, <c>attention.kv_source_layers</c> (layer whose K/V cache this layer
 /// reads; its own index when it owns one. A shared layer has no k/v projections and no cache of its own — Gemma 4 "KV sharing"),
 /// <c>rope.layers</c> (1 = rotary on, 0 = NoPE layer; default all 1), <c>rope.local_dim</c> (rotated dims of sliding layers, default rope.dim).
+/// <c>rope.sections</c> (int[4]: M-RoPE, the rotated frequencies are split over the position axes time, row, column, extra; the decode graphs then
+/// take positions [T, 4]) with <c>rope.sections_interleaved</c> (default false: contiguous sections, Qwen2-VL; true: frequencies cycle through the
+/// axes, Qwen3-VL).
 /// <c>attention.qk_norm_unweighted</c> (bool: q/k get a weight-less RMS norm when the layer has no q/k norm weight),
 /// <c>attention.v_norm</c> (bool: v gets a weight-less RMS norm), <c>post_norm_eps</c> (epsilon of attention.out_norm / mlp.out_norm, default norm_eps).</item>
 /// <item>Per-layer embeddings (Gemma 3n/4 "PLE"; present when <c>per_layer.size</c> = P &gt; 0): weights <c>per_layer.embedding.weight</c> [V, L·P],
@@ -85,6 +89,10 @@ namespace Sharplight.Architectures;
 /// optional <c>output_scale</c> (f32 [1]: the layer's output is multiplied by it), optional BitNet sub-norms <c>attention.sub_norm.weight</c> /
 /// <c>mlp.sub_norm.weight</c> (RMS norms of the inputs of the attention output and MLP down projections). A layer without <c>attention.v.weight</c> uses the
 /// key projection (before its norm) as value (Gemma 4 attention_k_eq_v).
+/// Optional vision tower (image input; requires <c>rope.sections</c>): hyper-parameters <c>decoder.vision.*</c> and weights <c>vision.*</c> as documented on
+/// <see cref="VisionParameters"/>, in the primary source or an auxiliary <see cref="AuxiliaryRoles.Mmproj"/> source. The definition then has the
+/// <see cref="WellKnown.VisionEncodeGraph"/> and <see cref="WellKnown.DecodeMultimodalGraph"/> graphs (DeepStack blocks of the tower are added after
+/// the first layers) and prompts are assembled by <see cref="Qwen35Multimodal"/>.
 /// Semantics: RMS norm weights multiply directly (any "1 + w" convention is folded in by the importer); q/k rows are in
 /// rotate-half (neox) order per head, whatever <c>rope.style</c> says about the pairing the rope op uses on them is the
 /// importer's concern (a llama.cpp "normal"-rope checkpoint is un-permuted on import so canonical weights are format independent).
@@ -105,6 +113,30 @@ public sealed class DecoderAdapter : IModelAdapter
         var graphBuilder = new DecoderGraphBuilder(src, options, hp);
         var graphs = graphBuilder.BuildGraphs();
 
+        // Vision tower: in the primary source or an auxiliary "mmproj" source, same canonical names either way.
+        var visionSrc = sources.Auxiliary.GetValueOrDefault(AuxiliaryRoles.Mmproj) ?? src;
+        var vision = VisionParameters.FromMetadata(visionSrc.Metadata, visionSrc.Architecture + ".vision.");
+        var weights = src.Weights;
+        var owned = new List<IDisposable>(src.OwnedResources);
+        if (vision is not null)
+        {
+            CheckVision(src, visionSrc, vision, hp);
+            if (!ReferenceEquals(visionSrc, src))
+            {
+                var merged = new Dictionary<string, WeightInfo>(src.Weights, StringComparer.Ordinal);
+                foreach (var (k, w) in visionSrc.Weights)
+                {
+                    merged[k] = w;
+                }
+
+                weights = merged;
+                owned.AddRange(visionSrc.OwnedResources);
+            }
+
+            graphs[WellKnown.VisionEncodeGraph] = VisionTowerGraph.Build(vision, visionSrc.Weight);
+            graphs[WellKnown.DecodeMultimodalGraph] = graphBuilder.BuildMultimodal(vision.DeepstackLayers.Length);
+        }
+
         var eos = new List<int>();
         if (src.Has(CanonicalKeys.TokenizerEosId))
         {
@@ -116,28 +148,53 @@ public sealed class DecoderAdapter : IModelAdapter
             eos.Add(src.Get<int>(CanonicalKeys.TokenizerEotId));
         }
 
+        var props = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead))
+        {
+            [WellKnown.VocabSize] = hp.Vocab,
+            [WellKnown.ContextLength] = hp.ContextLength,
+            [WellKnown.EmbeddingLength] = hp.NEmbd,
+            [WellKnown.PositionAxes] = hp.PositionAxes,
+            [WellKnown.EosTokenIds] = eos.ToArray(),
+            ["n_layer"] = hp.NLayer,
+            [WellKnown.EmbeddingPooling] = graphBuilder.Pooling,
+            [WellKnown.EmbeddingNormalize] = graphBuilder.Normalize,
+            [WellKnown.CausalAttention] = hp.Causal,
+            [WellKnown.ClassifierLabels] = hp.Vocab,
+        };
+        vision?.WriteProperties(props);
         return new ModelDefinition
         {
             Architecture = src.Architecture,
             Name = src.Get(CanonicalKeys.Name, src.Architecture),
-            Weights = src.Weights,
+            Weights = weights,
             Graphs = graphs,
             States = graphBuilder.States,
             SourceMetadata = src.Metadata,
-            OwnedResources = src.OwnedResources,
-            Properties = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead))
-            {
-                [WellKnown.VocabSize] = hp.Vocab,
-                [WellKnown.ContextLength] = hp.ContextLength,
-                [WellKnown.EmbeddingLength] = hp.NEmbd,
-                [WellKnown.PositionAxes] = 1,
-                [WellKnown.EosTokenIds] = eos.ToArray(),
-                ["n_layer"] = hp.NLayer,
-                [WellKnown.EmbeddingPooling] = graphBuilder.Pooling,
-                [WellKnown.EmbeddingNormalize] = graphBuilder.Normalize,
-                [WellKnown.CausalAttention] = hp.Causal,
-                [WellKnown.ClassifierLabels] = hp.Vocab,
-            },
+            OwnedResources = owned,
+            Properties = props,
         };
+    }
+
+    private static void CheckVision(ModelSource src, ModelSource visionSrc, VisionParameters vision, DecoderHyperParameters hp)
+    {
+        if (!string.Equals(visionSrc.Architecture, src.Architecture, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new NotSupportedException($"The vision tower source '{visionSrc.Path}' belongs to architecture '{visionSrc.Architecture}', not '{src.Architecture}'.");
+        }
+
+        if (hp.RopeSections.Length == 0)
+        {
+            throw new NotSupportedException("decoder: image input needs M-RoPE (rope.sections); the image prompt layout places image rows on a 2-D position grid.");
+        }
+
+        if (vision.OutHiddenSize != hp.NEmbd)
+        {
+            throw new InvalidDataException($"The vision tower produces {vision.OutHiddenSize}-wide embeddings but the language model's hidden size is {hp.NEmbd}.");
+        }
+
+        if (vision.DeepstackLayers.Length >= hp.LogicalLayers)
+        {
+            throw new InvalidDataException($"The vision tower has {vision.DeepstackLayers.Length} DeepStack layers but the language model only {hp.LogicalLayers} layers.");
+        }
     }
 }

@@ -15,6 +15,9 @@ internal static class Env
     public static readonly string Mmproj27 = Path.Combine(Home, ".lmstudio/models/lmstudio-community/Qwen3.8-27B-GGUF/mmproj-Qwen3.8-27B-BF16.gguf");
     public static readonly string Mmproj08 = Path.Combine(AppContext.BaseDirectory, "../../../../../.work/mmproj-0.8B-f32.gguf");
     public static readonly string Gguf08 = Path.Combine(Home, "models/gguf/Qwen3.5-0.8B/Qwen3.5-0.8B-BF16.gguf");
+    public static readonly string GgufVl2b = Path.Combine(Home, "models/gguf/Qwen3-VL-2B-Instruct/Qwen3VL-2B-Instruct-Q4_K_M.gguf");
+    public static readonly string MmprojVl2b = Path.Combine(Home, "models/gguf/Qwen3-VL-2B-Instruct/mmproj-Qwen3VL-2B-Instruct-F16.gguf");
+    public static readonly string HfVl2b = Path.Combine(Home, "models/hf/Qwen3-VL-2B-Instruct");
 
     static Env()
     {

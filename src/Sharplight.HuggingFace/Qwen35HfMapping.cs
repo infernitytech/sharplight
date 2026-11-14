@@ -9,7 +9,7 @@ namespace Sharplight.HuggingFace;
 /// (names and semantics documented on <c>Qwen35Adapter</c>). Weight semantics: norm weights get the
 /// implicit +1 folded in (except the linear-attention gated norm), A = -exp(A_log), conv1d as [C, K] f32,
 /// and linear-attention V heads reordered from grouped to tiled order when key heads != value heads.
-/// The vision tower is mapped in <c>Qwen35HfVision.cs</c>.
+/// The vision tower is mapped by <see cref="QwenVisionHfMapping"/>.
 /// </summary>
 internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
 {
@@ -79,7 +79,7 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         }
 
         // TODO: rope scaling (yarn / linear) parameters are not mapped yet; the adapter does not consume them.
-        AddVisionHyperParameters(c, md);
+        QwenVisionHfMapping.AddVisionHyperParameters(c, md, Architecture);
         return md;
     }
 
@@ -231,15 +231,15 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
         // Some checkpoints nest the tower below the language model (model.language_model.visual.*).
         rawName = rawName.Replace("model.language_model.visual.", "model.visual.", StringComparison.Ordinal);
 
-        // Vision tower → canonical vision.* weights (Qwen35HfVision.cs); skipped if the config has no vision_config.
-        if (IsVisionTensor(rawName))
+        // Vision tower → canonical vision.* weights; skipped if the config has no vision_config.
+        if (QwenVisionHfMapping.IsVisionTensor(rawName))
         {
-            if (VisionConfig(c) is null)
+            if (QwenVisionHfMapping.VisionConfig(c) is null)
             {
                 return TensorOutcome.Skipped;
             }
 
-            return Add(collector, MapVisionTensor(rawName, tensor));
+            return Add(collector, QwenVisionHfMapping.MapVisionTensor(c, rawName, tensor));
         }
 
         if (rawName.Contains("visual.") || rawName.Contains("vision_") || rawName.Contains("vision.") || rawName.Contains("audio")

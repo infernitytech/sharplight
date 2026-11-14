@@ -19,8 +19,14 @@ internal sealed record DecoderHyperParameters(
     int[] QkNormLayers, bool RopeLocalFreqFactors, float TemperatureScale, float TemperatureLength, float TemperatureOffset, int[] TemperatureLayers,
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
-    bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst)
+    bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved)
 {
+    /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
+    public const int MRopeAxes = 4;
+
+    /// <summary>Position axes of the decode graphs: <see cref="MRopeAxes"/> with M-RoPE, otherwise 1.</summary>
+    public int PositionAxes => RopeSections.Length > 0 ? MRopeAxes : 1;
+
     /// <summary>Reads and validates the hyper-parameters of a decoder source.</summary>
     /// <exception cref="InvalidDataException">A per-layer array has the wrong length or the head counts are inconsistent.</exception>
     public static DecoderHyperParameters Read(ModelSource src)
@@ -97,7 +103,9 @@ internal sealed record DecoderHyperParameters(
             TemperaturePower: src.Arch("attention.temperature_power", false),
             NormPreservingResidual: src.Arch("residual.norm_preserving", false),
             AttentionHeadNorm: src.Arch("attention.out_head_norm", false),
-            PostNormWeightFirst: src.Arch("post_norm.weight_first", false));
+            PostNormWeightFirst: src.Arch("post_norm.weight_first", false),
+            RopeSections: src.Arch("rope.sections", Array.Empty<int>()),
+            RopeSectionsInterleaved: src.Arch("rope.sections_interleaved", false));
 
         if (hp.NHead % hp.NHeadKv != 0)
         {

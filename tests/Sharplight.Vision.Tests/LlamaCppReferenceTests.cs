@@ -127,4 +127,16 @@ public class LlamaCppReferenceTests
         // itself by ~2e-3 between flash-attention settings, so allow 1e-2 on these O(1) values.
         Check("27B rainbow 224", Encode(model, Rainbow(224), 224), 49, 5120, Rainbow27, tolerance: 1e-2);
     }
+
+    // Qwen3-VL-2B (F16 mmproj): rows of 8192 = the 2048-wide embedding followed by the three DeepStack blocks (tower layers 5, 11, 17).
+    private static readonly Expected RainbowVl2b = new(2216.004883f, [0.3656f, 0.1490f, -0.7372f], [-0.3639f, -1.0530f, 0.5021f], [0.5162f, 0.3421f, 0.0272f], [0.4566f, -1.2593f, 0.2115f]);
+
+    /// <summary>A DeepStack tower (Qwen3-VL-2B): the merger output and the DeepStack blocks, as llama.cpp concatenates them.</summary>
+    [Fact]
+    public void Qwen3_vl_2b_deepstack_tower_matches_llama_cpp()
+    {
+        Assert.SkipUnless(File.Exists(Env.GgufVl2b) && File.Exists(Env.MmprojVl2b), "Qwen3-VL-2B GGUF or mmproj not available");
+        using var model = LlmModel.Load(Env.GgufVl2b, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, Env.MmprojVl2b)], ImageTokens = new ImageTokenLimits(null, 64) });
+        Check("Qwen3-VL-2B rainbow 224", Encode(model, Rainbow(224), 224), 49, 8192, RainbowVl2b, tolerance: 1e-2);
+    }
 }
