@@ -82,6 +82,7 @@ internal static class GgufArchitectureMappings
         yield return new BeamGgufMapping();
         yield return new MuseSparkGgufMapping();
         yield return new DeepseekGgufMapping();
+        yield return new Deepseek2OcrGgufMapping();
         yield return new BailingMoeGgufMapping();
         yield return new Cohere2MoeGgufMapping();
         yield return new HunyuanMoeGgufMapping();

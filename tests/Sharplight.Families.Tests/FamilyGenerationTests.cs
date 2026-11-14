@@ -171,6 +171,8 @@ public class FamilyGenerationTests
         .. LinearAttentionFamilyCases.All,
         // Bring-up round 7: Chameleon (per-head q/k layer norms, swin norm, suppressed image-token logits), ...
         .. ExtendedFamilyCases.All,
+        // Bring-up round 9: the DeepSeek-OCR language model (deepseek2-ocr: DeepSeek-V2 MoE with multi-head attention).
+        .. DeepseekOcrFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
