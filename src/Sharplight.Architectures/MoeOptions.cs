@@ -33,10 +33,14 @@ namespace Sharplight.Architectures;
 /// <param name="SparseMixerJitter">The ε of <see cref="MoeScoreFunction.SparseMixer"/> routing (<c>moe.sparsemixer_jitter</c>, default 0.01).</param>
 /// <param name="NormEps">Epsilon of the latent input norm (<c>norm_eps</c>).</param>
 /// <param name="PostNormEps">Epsilon of the expert output norm (<c>post_norm_eps</c>, default <c>norm_eps</c>).</param>
+/// <param name="AdjugateGroupSize">Consecutive routed experts that share one adjugate expert (<c>moe.adjugate_group_size</c>, GroveMoE 2);
+/// see <see cref="MoeBlock"/>.</param>
+/// <param name="AdjugateScale">Factor on the adjugate experts' output (<c>moe.adjugate_scale</c>, GroveMoE 0.05).</param>
 internal sealed record MoeOptions(
     int Experts, int ExpertsUsed, MoeScoreFunction ScoreFunction, bool NormalizeWeights, float WeightsScale,
     int Groups = 1, int GroupsUsed = 1, MoeGroupScore GroupScore = MoeGroupScore.TopTwoSum, bool WeightsBeforeExperts = false, float SharedScale = 1f,
-    bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f, float NormEps = 1e-5f, float PostNormEps = 1e-5f)
+    bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f, float NormEps = 1e-5f, float PostNormEps = 1e-5f,
+    int AdjugateGroupSize = 1, float AdjugateScale = 1f)
 {
     /// <summary>Reads the <c>moe.*</c> keys of <paramref name="source"/>.</summary>
     /// <param name="source">The model source.</param>
@@ -77,7 +81,9 @@ internal sealed record MoeOptions(
             RouterSoftCap: source.Arch("moe.router_logit_softcap", 0f),
             SparseMixerJitter: source.Arch("moe.sparsemixer_jitter", 0.01f),
             NormEps: source.Arch("norm_eps", 1e-5f),
-            PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)));
+            PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)),
+            AdjugateGroupSize: Math.Max(1, source.Arch("moe.adjugate_group_size", 1)),
+            AdjugateScale: source.Arch("moe.adjugate_scale", 1f));
     }
 
     /// <summary>Whether the counts describe a usable configuration.</summary>

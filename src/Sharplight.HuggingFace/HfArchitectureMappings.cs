@@ -93,6 +93,7 @@ internal static class HfArchitectureMappings
         yield return new DreamHfMapping();
         yield return new LladaHfMapping();
         yield return new ModernBertHfMapping();
+        yield return new GroveMoeHfMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>
