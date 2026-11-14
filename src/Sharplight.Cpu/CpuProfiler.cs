@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Sharplight.Models;
 using Sharplight.Runtime;
 
@@ -49,6 +50,7 @@ internal static class CpuProfiler
         Interlocked.Increment(ref slot[1]);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Print()
     {
         if (s_minimum)
@@ -70,6 +72,7 @@ internal static class CpuProfiler
     }
 
     /// <summary>Sum of the per-instance minima, grouped by op name, then the slowest instances with their details.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void PrintMinimum()
     {
         double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;

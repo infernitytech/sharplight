@@ -4,29 +4,60 @@ using Sharplight.Runtime;
 namespace Sharplight.Vulkan.Tests;
 
 /// <summary>
-/// The split-f16 tensor-core GEMM (<see cref="CompileOptions.SplitHalfMatMul"/>) on f32 weights: its error against an f64
-/// reference sits close to the f32 SIMT GEMM's and far below single f16 products (reduced precision).
+/// The split-f16 tensor-core GEMM (<see cref="CompileOptions.SplitHalfMatMul"/>, the strict-precision default for f32 weights):
+/// its error against an f64 reference is at most that of the f32 SIMT GEMM, for values far outside f16's range too, and far
+/// below single f16 products (reduced precision).
 /// </summary>
 public sealed class SplitHalfGemmTests
 {
-    /// <summary>Encoder-like shapes: weights of magnitude ~0.03 (lo parts in the f16 subnormal range), activations ~1.</summary>
+    /// <summary>
+    /// Encoder-like shapes (weights ~0.03, activations ~1), shapes off the tile grid (split-K, partial tiles), and value
+    /// ranges f16 cannot hold: activations up to 1e6, weights around 1e-7, rows spanning 2^±20.
+    /// </summary>
     [Theory]
-    [InlineData(1024, 768, 2048)]
-    [InlineData(1000, 384, 1536)]
-    [InlineData(1576, 3072, 768)]
-    public void ErrorBetweenF32AndHalf(int rows, int k, int n)
+    [InlineData(1024, 768, 2048, 0.03f, 1f, false)]
+    [InlineData(1000, 384, 1536, 0.03f, 1f, false)]
+    [InlineData(1576, 3072, 768, 0.03f, 1f, false)]
+    [InlineData(197, 768, 2304, 0.03f, 1f, false)]
+    [InlineData(300, 96, 200, 1f, 1f, false)]
+    [InlineData(1024, 768, 1024, 1e-7f, 1e6f, false)]
+    [InlineData(1024, 768, 1024, 1e3f, 1e-6f, false)]
+    [InlineData(1024, 768, 1024, 0.03f, 1f, true)]
+    public void ErrorAtMostF32(int rows, int k, int n, float weightScale, float activationScale, bool wideRange)
     {
         Gpu.Require();
-        var x = Rnd.F((long)rows * k, 1);
-        var w = Rnd.F((long)n * k, 2, 0.03f);
+        var x = Rnd.F((long)rows * k, 1, activationScale);
+        var w = Rnd.F((long)n * k, 2, weightScale);
+        if (wideRange)
+        {
+            // Every value scaled by 2^e with e in [-20, 20], and a zero row.
+            var rng = new Random(3);
+            for (long i = 0; i < x.Length; i++)
+            {
+                x[i] = MathF.ScaleB(x[i], rng.Next(-20, 21));
+            }
+
+            for (long i = 0; i < w.Length; i++)
+            {
+                w[i] = MathF.ScaleB(w[i], rng.Next(-20, 21));
+            }
+
+            Array.Clear(x, 0, k);
+        }
+
         var expected = Reference(x, w, rows, k, n);
         double strict = RelativeRms(Run(x, w, rows, k, n, split: false, reduced: false), expected);
-        double split = RelativeRms(Run(x, w, rows, k, n, split: true, reduced: false), expected);
+        var splitResult = Run(x, w, rows, k, n, split: true, reduced: false);
+        double split = RelativeRms(splitResult, expected);
         double reduced = RelativeRms(Run(x, w, rows, k, n, split: false, reduced: true), expected);
-        TestContext.Current.TestOutputHelper?.WriteLine($"[{rows} x {k}] x [{k} -> {n}]: relative rms strict {strict:E2}, split-f16 {split:E2}, f16 {reduced:E2}");
+        TestContext.Current.TestOutputHelper?.WriteLine($"[{rows} x {k}] x [{k} -> {n}] w~{weightScale} x~{activationScale}{(wideRange ? " wide" : "")}: relative rms f32 SIMT {strict:E2}, split-f16 {split:E2}, f16 {reduced:E2}");
         Assert.True(strict < 1e-6, $"strict {strict:E2}");
-        Assert.True(split < 1e-5, $"split-f16 {split:E2}");
-        Assert.True(split * 20 < reduced, $"split-f16 {split:E2} vs f16 {reduced:E2}");
+        Assert.True(split <= strict * 1.1, $"split-f16 {split:E2} vs f32 SIMT {strict:E2}");
+        Assert.All(splitResult, v => Assert.True(float.IsFinite(v)));
+        if (wideRange)
+        {
+            Assert.All(splitResult.AsSpan(0, n).ToArray(), v => Assert.Equal(0f, v));
+        }
     }
 
     private static float[] Run(float[] x, float[] w, int rows, int k, int n, bool split, bool reduced)

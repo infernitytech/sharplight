@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -46,6 +47,7 @@ internal sealed unsafe class RoiAlignOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Roi(int r)
     {
         float* box = (float*)_rois.P + r * 4L;

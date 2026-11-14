@@ -80,11 +80,12 @@ public sealed partial class GraphLowerer
         CopyNonMaterializedOutputs();
 
         _arena.Bytes = Math.Max(256, _alloc.HighWater);
+        var resetLaunches = BuildResetLaunches();
         return new KernelProgram
         {
-            Buffers = _buffers,
+            Buffers = WithoutUnusedWeights(resetLaunches),
             Launches = _launches,
-            ResetLaunches = BuildResetLaunches(),
+            ResetLaunches = resetLaunches,
             InputRefs = _inputRefs,
             OutputRefs = _outputRefs,
             RuntimeBuffer = _runtime,
@@ -92,6 +93,37 @@ public sealed partial class GraphLowerer
             Symbols = CollectSymbols(),
             ProducedSymbols = _producedSymbols,
         };
+    }
+
+    /// <summary>
+    /// The buffers without weights no launch reads, e.g. the f32 copy of a weight that every consumer reads in a derived form
+    /// (the split f16 parts): they are neither allocated nor uploaded.
+    /// </summary>
+    private List<BufferDecl> WithoutUnusedWeights(IReadOnlyList<KernelLaunch> resetLaunches)
+    {
+        var used = new HashSet<BufferDecl>();
+        foreach (var launch in _launches.Concat(resetLaunches))
+        {
+            foreach (var arg in launch.Args)
+            {
+                if (arg is PointerArg pointer)
+                {
+                    used.Add(pointer.Buffer);
+                }
+            }
+
+            foreach (var range in launch.Reads.Concat(launch.Writes))
+            {
+                used.Add(range.Buffer);
+            }
+        }
+
+        foreach (var r in _inputRefs.Values.Concat(_outputRefs.Values))
+        {
+            used.Add(r.Buffer);
+        }
+
+        return [.. _buffers.Where(b => b.Kind != BufferKind.Weight || used.Contains(b))];
     }
 
     private void LowerUnits(List<LoweringUnit> units)

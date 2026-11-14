@@ -113,24 +113,27 @@ Section 23 loads the operands of small-batch matmuls straight into the tensor-co
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 
-ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25, 26 and 27), min latency in ms at
+ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25-27 and 30), min latency in ms at
 batch 1. Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off
-("strict"). The CPU columns use 16 threads on both engines, from section 27 (interleaved with ORT, load average 7-34).
-Section 26 fuses the attention of ONNX encoders on both providers and adds an opt-in split-f16 tensor-core GEMM
-(`CompileOptions.SplitHalfMatMul`, 2-7x the f32 error), which takes vit b8 from 9.85 to 7.15 ms.
-Section 27 reworks the CPU conv and parallel-loop scheduling and fuses the Q / K / V projections: on the CPU, resnet50
-b1 went from 1.35x to 0.95x of ORT and segformer b1 from 2.1x to 0.92x.
+("strict"). The CPU columns use 16 threads on both engines, from section 30 (interleaved with ORT, load average
+8-28).
+Section 30 makes the split-f16 tensor-core GEMM f32-accurate (row-scaled parts, promoted tensor-core sums) and the
+strict default for f32 matmuls and convs: resnet50 b8 went from 1.55x to 1.13x of TF32 ORT on the GPU, raft from 1.9x
+to 1.3x. Channels-last convs on the CPU take mobilenetv2 b1 from 1.23x to 0.58x of ORT and resnet50 b8 from 1.54x to
+0.89x. Faster / Mask R-CNN no longer round-trip every data-dependent count through the host (wall 119 / 137 ms → 12 /
+14 ms).
 
 | Model | Sharplight Vulkan | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
 |---|---:|---:|---:|---:|---:|
-| resnet50 | 0.82 | 1.01 | 2.12 | 5.9 | 6.2 |
-| mobilenetv2 | 0.41 | 0.35 | 0.65 | 2.0 | 1.6 |
-| yolov10n | 1.26 | 1.18 | 2.30 | 12.1 | 15.8 |
-| bert-base (16 tokens) | 1.22 | 1.24 | 1.44 | 9.6 | 12.2 |
-| vit-base | 2.47 | 1.34 | 2.46 | 19.8 | 23.0 |
-| segformer-b0 | 2.88 | 2.37 | 3.43 | 38.7 | 42.1 |
-| whisper-tiny encoder | 1.84 | 1.16 | 2.08 | 22.0 | 43.4 |
-| mobilesam encoder | 5.89 | 6.08 | 7.98 | 143 | 219 |
+| resnet50 | 0.77 | 1.02 | 2.12 | 4.6 | 6.3 |
+| mobilenetv2 | 0.38 | 0.37 | 0.65 | 1.0 | 1.7 |
+| yolov10n | 1.19 | 1.21 | 2.42 | 9.3 | 16.9 |
+| bert-base (16 tokens) | 1.27 | 1.40 | 1.50 | 9.8 | 12.5 |
+| vit-base | 2.36 | 1.38 | 2.60 | 21.3 | 24.1 |
+| segformer-b0 | 2.91 | 2.32 | 3.41 | 23.3 | 45.4 |
+| whisper-tiny encoder | 1.78 | 1.19 | 2.07 | 21.5 | 43.0 |
+| mobilesam encoder | 5.26 | 6.14 | 8.16 | 131 | 222 |
+| faster r-cnn (fasterrcnn-12) | 9.7 | 7.9 | 13.2 | - | - |
 
 ## Building
 

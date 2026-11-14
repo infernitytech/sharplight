@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -49,6 +50,7 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static long[] AlignedBatchStrides(TRef t, long[] od, RunParameters p)
     {
         int br = od.Length;
@@ -68,6 +70,7 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
         return s;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         int ra = _a.Rank;
@@ -142,6 +145,7 @@ internal sealed unsafe class BatchMatMulOp : CpuOp
         CpuParallel.For((int)tasks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int MR = Gemm.MR;

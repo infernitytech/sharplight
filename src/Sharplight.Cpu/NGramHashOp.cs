@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -27,6 +28,7 @@ internal sealed unsafe class NGramHashOp : CpuOp
         _stopCuts = stopCuts;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long t = _window.Dim(0, p);

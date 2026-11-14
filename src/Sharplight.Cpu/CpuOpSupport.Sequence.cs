@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -162,6 +163,7 @@ internal static partial class CpuOpSupport
             : OpSupport.No("SelectiveScan dt_bias/A/D must be f32-convertible");
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static OpSupport CheckGatedDeltaRule(Node node)
     {
         var ins = node.Inputs;
@@ -187,6 +189,7 @@ internal static partial class CpuOpSupport
     }
 
     /// <summary>RWKV recurrences: f32 activations and state; the optional trailing sequence-runs table is i32 (<paramref name="inputs"/> counts the inputs before it).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static OpSupport CheckWkv(Node node, int inputs)
     {
         for (int i = 0; i < inputs; i++)

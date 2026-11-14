@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -18,6 +19,7 @@ internal sealed unsafe class TRef
 
     public long Dim(int i, RunParameters p) => i == 0 && Sym is not null ? SymbolicExpression.Evaluate(Sym, p.Symbols) : Dims[i];
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public long Elements(RunParameters p)
     {
         long n = 1;
@@ -31,6 +33,7 @@ internal sealed unsafe class TRef
 
     public long Cols(RunParameters p) => Rank == 0 ? 1 : Dim(Rank - 1, p);
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public long Rows(RunParameters p)
     {
         long n = 1;
@@ -56,6 +59,7 @@ internal sealed unsafe class TRef
     }
 
     /// <summary>Pointer to row <paramref name="row"/> (row = linear index over all but the last axis).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public byte* RowPtr(long row)
     {
         long off = 0;
@@ -97,6 +101,7 @@ internal sealed unsafe class TRef
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static long[] RowMajor(long[] dims)
     {
         var s = new long[dims.Length];

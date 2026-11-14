@@ -208,7 +208,11 @@ public sealed partial class GraphLowerer
         }
     }
 
-    /// <summary>Resolves the operands of an Attention / CachedAttention node and builds the kernel macros.</summary>
+    /// <summary>
+    /// Resolves the operands of an Attention / CachedAttention node and builds the kernel macros. Bidirectional attention reads
+    /// f32 K / V with wider row strides (e.g. slices of a fused Q / K / V projection) in place when the kernels that serve it
+    /// (the encoder flash kernel) takes strided rows; otherwise they are copied to dense rows.
+    /// </summary>
     private AttentionPlan PlanAttention(Node n)
     {
         // "Attention": bidirectional self-attention over K/V given as plain tensors (vision encoders), every query sees all T keys.
@@ -221,7 +225,8 @@ public sealed partial class GraphLowerer
             q = DenseTemp(q, "attn-q");
         }
 
-        if (full)
+        bool stridedKv = full && DiagnosticSwitches.AttentionStridedKv && StridedKvReadable(k) && StridedKvReadable(v);
+        if (full && !stridedKv)
         {
             k = AsDenseF32(k, "attn-k");
             v = AsDenseF32(v, "attn-v");
@@ -298,7 +303,15 @@ public sealed partial class GraphLowerer
             throw new NotSupportedException("The compressed cache must have the key cache's type.");
         }
 
-        return new AttentionPlan
+        if (stridedKv)
+        {
+            macros["KV_KS0"] = k.Strides[0].ToString(CultureInfo.InvariantCulture);
+            macros["KV_KS1"] = k.Strides[1].ToString(CultureInfo.InvariantCulture);
+            macros["KV_VS0"] = v.Strides[0].ToString(CultureInfo.InvariantCulture);
+            macros["KV_VS1"] = v.Strides[1].ToString(CultureInfo.InvariantCulture);
+        }
+
+        AttentionPlan Build() => new AttentionPlan
         {
             Node = n,
             Full = full,
@@ -322,7 +335,30 @@ public sealed partial class GraphLowerer
             DV = DV,
             Macros = macros,
         };
+        var plan = Build();
+        if (stridedKv && (!CanUseFlashAttention(plan) || !EncoderFlash(plan) || MqaAttention(plan) is not null))
+        {
+            // Another kernel serves this attention: dense K / V rows (the plan's other operands are unchanged).
+            k = AsDenseF32(k, "attn-k");
+            v = AsDenseF32(v, "attn-v");
+            foreach (var key in (string[])["KV_KS0", "KV_KS1", "KV_VS0", "KV_VS1"])
+            {
+                macros.Remove(key);
+            }
+
+            plan = Build();
+        }
+
+        return plan;
     }
+
+    /// <summary>
+    /// True when the strided-K/V kernels can read <paramref name="t"/> in place: f32 [T, H, D] with unit element stride, row
+    /// and head strides in 8-value groups and 16-byte alignment.
+    /// </summary>
+    private static bool StridedKvReadable(TensorRef t)
+        => t.Rank == 3 && t.Type == DataType.F32 && t.Strides[2] == 1 && t.Strides[1] % 8 == 0 && t.Strides[0] % 8 == 0 && t.ByteOffset % 16 == 0
+           && t.Shape[2] % 8 == 0;
 
     /// <summary>
     /// The HAS_ALIBI / ALIBI_SLOPES and HAS_POS_BIAS / POS_BIAS_RANGE / POS_BIAS_TABLE kernel macros of an attention node: its

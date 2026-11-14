@@ -6,6 +6,9 @@ namespace Sharplight.Onnx;
 // Gather and scatter style operators.
 internal sealed partial class OnnxTranslator
 {
+    /// <summary>Most scattered constant Gather indices lowered as slices plus a concat; more become one GatherAxis.</summary>
+    private const int GatherSliceLimit = 4;
+
     private void Gather(OnnxNode n, TranslatedTensor?[] ins)
     {
         var x = X(ins, 0);
@@ -61,20 +64,15 @@ internal sealed partial class OnnxTranslator
         {
             y = SliceAxis(x, axis, idx[0], idx.Length);
         }
+        else if (idx.Length > GatherSliceLimit)
+        {
+            // Many scattered constant indices: one gather with a constant index tensor (a slice per index costs a launch each).
+            y = Emit("GatherAxis", [x, Idx(TranslatedTensor.Const(OnnxConst.FromInts(OnnxType.Int64, [idx.Length], idx)))], Attributes.From(("axis", (long)axis)));
+        }
         else
         {
-            if (idx.Length > 4096)
-            {
-                throw new NotSupportedException($"Gather with {idx.Length} indices");
-            }
-
-            var pieces = idx.Select(i => SliceAxis(x, axis, i, 1)).ToList();
-            while (pieces.Count > 64)
-            {
-                pieces = pieces.Chunk(64).Select(c => c.Length == 1 ? c[0] : _b.Concat(axis, c)).ToList();
-            }
-
-            y = pieces.Count == 1 ? pieces[0] : _b.Concat(axis, pieces.ToArray());
+            var pieces = idx.Select(i => SliceAxis(x, axis, i, 1)).ToArray();
+            y = pieces.Length == 1 ? pieces[0] : _b.Concat(axis, pieces);
         }
         bool scalar = outDims.Length == 0;   // a scalar index into a vector: an ONNX scalar, carried as [1]
         SetDyn(n, 0, Emit("Reshape", [y], Attributes.From(("shape", scalar ? [1L] : outDims)), Nm(n)));

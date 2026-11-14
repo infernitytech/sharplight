@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using Sharplight.Runtime;
 
@@ -80,6 +81,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _t = _x.Dim(0, p);
@@ -122,6 +124,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
 
     private static float Softplus(float v) => v > 20f ? v : (float)Math.Log(1.0 + Math.Exp(v));
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int h = task / _pChunks;
@@ -199,6 +202,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     }
 
     /// <summary>Advances rows [p0, p1) of head <paramref name="h"/> by one token; writes y unless <paramref name="y"/> is null (replay).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void StepRow(float* S, float dtRaw, float* B, float* C, float* x, float* y, int h, int p0, int p1, float bias, float A, float D)
     {
         float dt = MathF.Max(Softplus(dtRaw + bias), _dtMin);
@@ -216,6 +220,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     }
 
     /// <summary>row[i] = row[i]·exp(dt·a[i]) + b[i]·coef (a decay per state element, Mamba-1); returns dot(row, c).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DecayUpdateDotPerState(float* row, float* b, float* c, float* a, float dt, float coef, long n)
     {
         float sum = 0;
@@ -230,6 +235,7 @@ internal sealed unsafe class SelectiveScanOp : CpuOp
     }
 
     /// <summary>row = row*decay + b*coef; returns dot(row, c).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float DecayUpdateDot(float* row, float* b, float* c, float decay, float coef, long n)
     {
         long i = 0;

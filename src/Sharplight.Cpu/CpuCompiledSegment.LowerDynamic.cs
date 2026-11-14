@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 
 namespace Sharplight.Cpu;
@@ -32,6 +33,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void LowerUnique(Node n)
     {
         var x = Dense(Ref(n.Inputs[0]));

@@ -5,10 +5,12 @@ using Sharplight.Tensors;
 namespace Sharplight.Shaders.Lowering;
 
 /// <summary>
-/// Convolutions as implicit GEMMs on cooperative matrices (conv_cm.slang). Strict precision: every operand split into three
-/// bf16 parts, six products (about 24 mantissa bits, f32 equivalent; <see cref="DeviceFeatures.MatrixBF16"/>). Reduced
-/// precision: one f16 product (<see cref="DeviceFeatures.MatrixF16"/>), else two bf16 parts and three products (about 16
-/// bits). Without those features the SIMT conv_gemm runs.
+/// Convolutions as implicit GEMMs on cooperative matrices (conv_cm.slang). Strict precision: f32 weights that are graph
+/// constants run in the split-f16 form (scaled f16 hi + lo parts, three products, f32 accuracy;
+/// <see cref="DeviceFeatures.MatrixF16"/>, <see cref="CompileOptions.SplitHalfMatMul"/>, <c>SHARPLIGHT_CONV_SPLIT_F16=0</c>
+/// disables it); otherwise every operand is split into three bf16 parts, six products (about 24 mantissa bits, f32
+/// equivalent; <see cref="DeviceFeatures.MatrixBF16"/>). Reduced precision: one f16 product, else two bf16 parts and three
+/// products (about 16 bits). Without those features the SIMT conv_gemm runs.
 /// </summary>
 public sealed partial class GraphLowerer
 {
@@ -16,9 +18,15 @@ public sealed partial class GraphLowerer
     private const long ConvMatrixWarpRows = 64;
     private const long ConvMatrixTileK = 32;
 
-    /// <summary>Operand parts (1: f16, 2: bf16 hi + lo, 3: bf16 hi + mid + lo) and pixel columns of the tile.</summary>
+    /// <summary>
+    /// Operand parts (1: f16, 2: bf16 hi + lo, 3: bf16 hi + mid + lo, 4: split f16 hi + lo with scales) and pixel columns of
+    /// the tile.
+    /// </summary>
     private readonly record struct ConvMatrixForm(int Parts, long TileColumns)
     {
+        /// <summary>Shared operand tiles per operand (the split f16 form stages two).</summary>
+        public int Tiles => Parts == 4 ? 2 : Parts;
+
         /// <summary>Pixel fragments of 16 per subgroup (FRAG_N): three-part operands use a 64-column tile to fit shared memory.</summary>
         public int FragN => (int)(TileColumns / 64);
     }
@@ -38,17 +46,23 @@ public sealed partial class GraphLowerer
     /// 4 * <paramref name="warpsM"/> subgroups.
     /// </summary>
     private static long ConvMatrixSharedBytes(int warpsM, ConvMatrixForm form)
-        => form.Parts * (warpsM * ConvMatrixWarpRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2 + warpsM * 4 * 256 * 4;
+        => form.Tiles * (warpsM * ConvMatrixWarpRows + form.TileColumns) * (ConvMatrixTileK + 8) * 2 + warpsM * 4 * 256 * 4
+           + (form.Parts == 4 ? form.TileColumns / 16 * 4 : 0);
 
-    /// <summary>Subgroup rows of the conv_cm tile: 2 (128 channels) when OG fills it and shared memory allows, else 1.</summary>
+    /// <summary>
+    /// Subgroup rows of the conv_cm tile: 2 (128 channels) when OG fills it and shared memory allows, else 1. The split f16 form
+    /// needs at least two k groups of a pixel per thread (B_ITEMS = 2 * FRAG_N / WARPS_M, its 16-pixel blocks within one
+    /// subgroup): 2 only with tiles of at least 128 pixels.
+    /// </summary>
     private int ConvMatrixWarpsM(long OG, ConvMatrixForm form)
-        => OG >= 2 * ConvMatrixWarpRows && ConvMatrixSharedBytes(2, form) <= _opt.MaxSharedMemory ? 2 : 1;
+        => OG >= 2 * ConvMatrixWarpRows && ConvMatrixSharedBytes(2, form) <= _opt.MaxSharedMemory && (form.Parts != 4 || form.TileColumns >= 128) ? 2 : 1;
 
     /// <summary>
     /// Which conv_cm form applies (null: none), see the class remarks. <paramref name="columns"/> is the output map size,
     /// <paramref name="batchBound"/> the largest batch and <paramref name="groups"/> the conv groups.
     /// </summary>
-    private ConvMatrixForm? ChooseConvMatrixForm(long K, long OG, long columns, int weightFormat, long batchBound = 1, long groups = 1)
+    private ConvMatrixForm? ChooseConvMatrixForm(long K, long OG, long columns, int weightFormat, long batchBound = 1, long groups = 1,
+        bool splitWeights = false)
     {
         if (_opt.SubgroupSize != 32 || weightFormat is not (0 or 1 or 2) || K < ConvMatrixMinK || OG < ConvMatrixMinChannels
             || DiagnosticSwitches.ConvNoMatrix)
@@ -62,9 +76,10 @@ public sealed partial class GraphLowerer
         // Those convs are bound by staging the im2col tile, not by the products, so fewer, wider tiles are slower even with a
         // sixth of the products of the strict form.
         long reducedColumns = (columns * Math.Max(1, batchBound) + 127) / 128 * ((OG + 127) / 128) * groups < TargetWorkgroups ? 64 : 128;
+        bool splitHalf = splitWeights && f16 && weightFormat == 0 && _opt.Compile.SplitHalfMatMul && DiagnosticSwitches.ConvSplitHalf;
         ConvMatrixForm? form = _opt.Compile.AllowReducedPrecision
             ? f16 ? new ConvMatrixForm(1, reducedColumns) : bf16 ? new ConvMatrixForm(2, reducedColumns) : null
-            : bf16 ? new ConvMatrixForm(3, 64) : null;
+            : splitHalf ? new ConvMatrixForm(4, reducedColumns) : bf16 ? new ConvMatrixForm(3, 64) : null;
         return form is { } f && columns * Math.Max(1, batchBound) >= ConvMatrixMinColumns && ConvMatrixSharedBytes(1, f) <= _opt.MaxSharedMemory ? f : null;
     }
 
@@ -100,10 +115,17 @@ public sealed partial class GraphLowerer
         long K = w.Shape[1] * w.Shape[2] * w.Shape[3];
         int format = WeightFormat(w.Type) ?? -1;
         long bound = x.Symbol is null ? x.Shape[0] : Bound(Dim.Sym(x.Symbol));
-        if (ChooseConvMatrixForm(K, OG, HW, format, bound, G) is not { } form)
+        // Strict precision with f16 matrices: constant f32 weights split on the host (null otherwise: the bf16 form).
+        var splitWeights = !_opt.Compile.AllowReducedPrecision && w.Type == DataType.F32 && _opt.Has(DeviceFeatures.MatrixF16)
+            ? SplitWeights(n.Inputs[1], w) : null;
+        if (ChooseConvMatrixForm(K, OG, HW, format, bound, G, splitWeights is not null) is not { } form)
         {
             return false;
         }
+
+        var weightArgs = form.Parts == 4 ? splitWeights!.Value.Parts : w;
+        KernelArg[] scaleArgs = form.Parts == 4 ? [Pointer(splitWeights!.Value.Scales)] : [];
+        TensorRef[] scaleReads = form.Parts == 4 ? [splitWeights!.Value.Scales] : [];
 
         int warpsM = ConvMatrixWarpsM(OG, form);
         long tileRows = warpsM * ConvMatrixWarpRows;
@@ -132,13 +154,13 @@ public sealed partial class GraphLowerer
             var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
             return (kernel, batch => new Grid(Grid.Div(batch * HW, form.TileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
         });
-        string label = $"{name} {form.Parts switch { 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
+        string label = $"{name} {form.Parts switch { 4 => "split-f16", 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
         var dst = ws ?? y;
         var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
         var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];
         Emit(useWorkspace ? label + " gemm" : label, nodes, variants,
-            [Pointer(x), Pointer(w), Pointer(biasPointer), Pointer(dst), .. useWorkspace ? [] : resArgs, TokenArg(x)],
-            [.. bias is null || useWorkspace ? [x, w] : new[] { x, w, bias }, .. useWorkspace ? [] : resReads], [dst]);
+            [Pointer(x), Pointer(weightArgs), Pointer(biasPointer), Pointer(dst), .. scaleArgs, .. useWorkspace ? [] : resArgs, TokenArg(x)],
+            [.. bias is null || useWorkspace ? [x, weightArgs] : new[] { x, weightArgs, bias }, .. scaleReads, .. useWorkspace ? [] : resReads], [dst]);
         if (!useWorkspace)
         {
             return true;

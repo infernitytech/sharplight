@@ -1,5 +1,6 @@
-using Sharplight.Tensors;
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -71,6 +72,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
         _body = Body;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long t = _x.Dim(0, p);
@@ -117,6 +119,7 @@ internal sealed unsafe class CacheWriteOp : CpuOp
 
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long s = c * _per;

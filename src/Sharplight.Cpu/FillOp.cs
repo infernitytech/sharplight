@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -8,6 +9,7 @@ internal sealed unsafe class FillOp(TRef y, double start, double delta) : CpuOp
 {
     public override string Name => "Fill";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long rows = y.Rank == 0 ? 1 : y.Dim(0, p);

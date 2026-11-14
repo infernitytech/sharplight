@@ -278,6 +278,18 @@ uint64_t kv_row(uint64_t base, uint j)
 #endif
 }
 
+// First element of K / V head hk in cache row `row` (a kv_row, a multiple of HKV) for the kernels that take strided K / V
+// (main, fe): the row and head strides KV_KS0 / KV_KS1 and KV_VS0 / KV_VS1 (multiples of 8 values) default to dense rows;
+// wider row strides read slices of a fused Q / K / V projection in place.
+#ifndef KV_KS0
+#define KV_KS0 (uint64_t(HKV) * D)
+#define KV_KS1 D
+#define KV_VS0 (uint64_t(HKV) * VRS)
+#define KV_VS1 VRS
+#endif
+#define K_ELEM(row, hk) ((row) / HKV * (KV_KS0) + uint64_t(hk) * (KV_KS1))
+#define V_ELEM(row, hk) ((row) / HKV * (KV_VS0) + uint64_t(hk) * (KV_VS1))
+
 // ---------------------------------------------------------------------------------------------
 // Split-K flash decoding (`decode` + `decode_combine`, few queries against a KV cache). A workgroup handles HPW query
 // heads that share one KV head (GQA group), so K/V rows are read once per group, and one contiguous range of keys of one
@@ -726,7 +738,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
         bool valid = j < jEnd;
 #endif
         float s = -1e30;
-        if (valid) s = dot_k(p.kc, (kv_row(kvRow, j) + hk) * D);
+        if (valid) s = dot_k(p.kc, K_ELEM(kv_row(kvRow, j), hk));
 #if HAS_SOFTCAP
         if (valid) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
@@ -752,9 +764,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
             if (d < DV)
                 for (uint jj = 0; jj < cnt; jj++)
 #if RAW_SELECTED
-                    a += sP[jj] * load_kv(p.vc, (kv_row(kvRow, sJ[jj]) + hk) * VRS + d);
+                    a += sP[jj] * load_kv(p.vc, V_ELEM(kv_row(kvRow, sJ[jj]), hk) + d);
 #else
-                    a += sP[jj] * load_kv(p.vc, (kv_row(kvRow, c0 + jj) + hk) * VRS + d);
+                    a += sP[jj] * load_kv(p.vc, V_ELEM(kv_row(kvRow, c0 + jj), hk) + d);
 #endif
             acc[di] = a;
         }
@@ -1251,14 +1263,14 @@ void fe_fetch(out Kv8 kb[FE_KPT], out Kv8 vb[FE_VPT], uint8_t* kc, uint8_t* vc, 
     {
         uint i = tid + k * FE_T, r = i / FE_KC, c = (i % FE_KC) * 8;
         bool valid = i < FE_BC * FE_KC && j0 + r < jEnd && c < D;
-        kb[k] = valid ? load_kv8(kc, (kv_row(kvRow, j0 + r) + hk) * D + c) : zero_kv8();
+        kb[k] = valid ? load_kv8(kc, K_ELEM(kv_row(kvRow, j0 + r), hk) + c) : zero_kv8();
     }
     [ForceUnroll]
     for (uint k = 0; k < FE_VPT; k++)
     {
         uint i = tid + k * FE_T, r = i / FE_VC, c = (i % FE_VC) * 8;
         bool valid = i < FE_BC * FE_VC && j0 + r < jEnd && c < DV;
-        vb[k] = valid ? load_kv8(vc, (kv_row(kvRow, j0 + r) + hk) * VRS + c) : zero_kv8();
+        vb[k] = valid ? load_kv8(vc, V_ELEM(kv_row(kvRow, j0 + r), hk) + c) : zero_kv8();
     }
 }
 

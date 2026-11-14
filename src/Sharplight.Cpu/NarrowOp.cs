@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -42,6 +43,7 @@ internal sealed unsafe class NarrowOp : CpuOp
         CpuParallel.For(chunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int chunk)
     {
         long start = chunk * _per;
@@ -61,6 +63,7 @@ internal sealed unsafe class NarrowOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void NarrowIntegers(int* x, int* y)
     {
         var (min, max) = NumericFormats.IntegerRange(_format);
@@ -71,6 +74,7 @@ internal sealed unsafe class NarrowOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void NarrowFloats(float* x, float* y)
     {
         switch (_format)
