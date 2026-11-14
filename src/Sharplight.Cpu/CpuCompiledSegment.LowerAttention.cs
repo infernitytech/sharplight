@@ -70,7 +70,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
-    /// <summary>Lightning-indexer key selection: q, key cache, [head weights], [position gate], [rows, runs, [block table]].</summary>
+    /// <summary>Lightning-indexer key selection: q, key cache, [head weights], [position gate or pool norm], [rows, runs, [block table]].</summary>
     private void LowerIndexerTopK(Node n)
     {
         var a = n.Attributes;
@@ -79,15 +79,15 @@ internal sealed unsafe partial class CpuCompiledSegment
         var q = RowContig(Ref(ins[0]));
         var keys = Ref(ins[1]);
         TRef? weights = selection.PerHead ? null : RowContig(Ref(ins[2]));
-        TRef? positionGate = selection.Pooled ? RowContig(RefF32(ins[selection.TableInput - 1])) : null;
+        TRef? poolInput = selection.HasPoolInput ? RowContig(RefF32(ins[selection.TableInput - 1])) : null;
         var y = NewDense(n.Output);
         int tables = selection.TableInput;
         TRef? rows = ins.Length > tables ? Dense(Ref(ins[tables])) : null;
         TRef? table = ins.Length > tables + 2 ? Dense(Ref(ins[tables + 2])) : null;
         long compression = a.Get("compression", 1L);
-        var select = new IndexerTopKOp(q, keys, weights, positionGate, y, selection, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L),
+        var select = new IndexerTopKOp(q, keys, weights, poolInput, y, selection, a.Get("offset", WellKnown.PastScalar), rows, (int)a.Get("slots", 1L),
             table is null ? null : new KvPages(table, a.Get("block_size", 0L), compression), compression);
-        AddStep(select, Touched(q, keys, weights, positionGate, rows, table, y));
+        AddStep(select, Touched(q, keys, weights, poolInput, rows, table, y));
         _refs[n.Output] = y;
     }
 

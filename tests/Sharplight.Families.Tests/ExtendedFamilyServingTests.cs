@@ -62,6 +62,9 @@ public class ExtendedFamilyServingTests
             "hf/tiny-random-kimi-k31-shared-f32",
             "gguf/tiny-random-kimi-k31-shared-f32.gguf",
             "hf/tiny-random-kimi-k3",
+            // Round 9: QSA block selection in its sparse regime (budget of two blocks of 4 plus the tail).
+            "hf/tiny-random-qwen3.8-flash-next-sparse",
+            "gguf/tiny-random-qwen3.8-flash-next-sparse-f32.gguf",
         ];
         foreach (string model in models)
         {

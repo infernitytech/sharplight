@@ -181,6 +181,8 @@ public class FamilyGenerationTests
         .. MoeVariantFamilyCases.All,
         // Bring-up round 9: per-token switched adapters (Granite Switch).
         .. AdapterFamilyCases.All,
+        // Bring-up round 9: QSA block selection (Qwen3.8-Flash-Next) in its sparse regime.
+        .. SparseQsaCases.All,
         // Bring-up round 9: Kimi K3 (attention residuals, situ, latent MoE on Kimi-Linear) and K3.1 (DSA indexer without rope).
         .. KimiK3FamilyCases.All,
         // Bring-up round 9: DeepSeek-V4 (compressed-KV attention, hash routing).

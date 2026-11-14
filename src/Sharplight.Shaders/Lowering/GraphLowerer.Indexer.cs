@@ -28,7 +28,7 @@ public sealed partial class GraphLowerer
         var q = EnsureDense(AsF32(Ref(n.Inputs[0]), "indexer-q"), "indexer-q");
         var keys = Ref(n.Inputs[1]);
         var weights = selection.PerHead ? null : EnsureDense(AsF32(Ref(n.Inputs[2]), "indexer-w"), "indexer-w");
-        var gate = selection.Pooled ? EnsureDense(AsF32(Ref(n.Inputs[selection.TableInput - 1]), "indexer-gate"), "indexer-gate") : null;
+        var gate = selection.HasPoolInput ? EnsureDense(AsF32(Ref(n.Inputs[selection.TableInput - 1]), "indexer-gate"), "indexer-gate") : null;
         var output = Produce(n.Output);
         int tableInput = selection.TableInput;
         var seq = n.Inputs.Length > tableInput ? DenseInput(n.Inputs[tableInput], "seq-rows") : null;
@@ -48,6 +48,8 @@ public sealed partial class GraphLowerer
 
         var macros = Macros([.. PageMacros(n, pages), ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, keys)),
             ("H", heads), ("D", dims), ("BUDGET", selection.Budget), ("GROUP", selection.Group), ("GROUP_POOLED", selection.Pooled),
+            ("GROUP_MEAN", selection.Mean), ("POOL_NORM", selection.PoolNormEps > 0f), ("POOL_EPS", selection.PoolNormEps), ("POOL_ROPE", selection.PoolRopeDims),
+            ("POOL_BASE", selection.PoolRopeBase),
             ("LOCAL", selection.Local), ("TAIL", selection.Tail), ("PER_HEAD", selection.PerHead), ("WIDTH", selection.Width), ("CTX", context),
             ("KEY_F16", keys.Type == DataType.F16), ("WG", IndexerWorkgroup), ("RT_N_PAST", seq is null ? Slot(n) : 0)]);
         var scoreKernel = Lib("indexer.slang", "index_scores", macros);

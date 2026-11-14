@@ -241,6 +241,10 @@ public static partial class StandardOps
     /// pools each group to one key, per channel d <c>Σ_i softmax_i(gate[i, d] + position_gate[i, d]) · key[i, d]</c> over its members; only
     /// complete groups are candidates. Attribute <c>tail</c> (bool) appends the row's visible positions of its incomplete group (G − 1 entries,
     /// −1 padded), so the output is [T, k + G − 1] (GLM-5.3 k-pool indexer).</item>
+    /// <item><c>group_score</c> "mean": a group's key is the mean of its members' cache rows, RMS-normed when attribute <c>pool_norm_eps</c> &gt; 0
+    /// (then an extra input after w, the norm weight [D] f32) and, with <c>pool_rope_dims</c> = R &gt; 0, its first R channels rotated (neox
+    /// pairs, base <c>pool_rope_base</c>) at the group's first position; only complete groups are candidates, <c>tail</c> as for "pooled"
+    /// (Qwen QSA block selection).</item>
     /// </list>
     /// Attribute <c>local</c> (int, default 0): the row's latest <c>local</c> groups (its own and the ones before it) are always picked.
     /// Attribute <c>per_head</c> (bool): there is no w input; every head selects for itself with the score <c>q[t, h] · key[j]</c> (no relu) and
