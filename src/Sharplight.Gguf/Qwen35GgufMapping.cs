@@ -25,6 +25,12 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     public string Architecture => "qwen3_5";
 
     /// <inheritdoc/>
+    public string? PartialSupport(string ggufArchitecture)
+        => string.Equals(ggufArchitecture, Qwen4ExpArchitecture, StringComparison.OrdinalIgnoreCase)
+            ? "the QSA block indexer runs in its dense regime only, which caps the context at the indexer budget; the MTP layer is not used"
+            : null;
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         int nextnLayers = g.Int("nextn_predict_layers", 0);

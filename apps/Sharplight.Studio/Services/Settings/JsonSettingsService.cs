@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Sharplight.Hub;
 using Sharplight.Studio.Models;
 
 namespace Sharplight.Studio.Services.Settings;
@@ -10,6 +11,7 @@ internal sealed class JsonSettingsService : ISettingsService
     private readonly string? _commandLineStore;
     private readonly Lock _lock = new();
     private AppSettings _current;
+    private ModelStoreResolution? _store;
 
     public JsonSettingsService(string path, string? commandLineStore)
     {
@@ -31,10 +33,29 @@ internal sealed class JsonSettingsService : ISettingsService
     }
 
     /// <inheritdoc/>
-    public string StoreRoot => StoreLocation.Resolve(_commandLineStore, Current.ModelsDirectory).Root;
+    public string StoreRoot => Store.Root;
 
     /// <inheritdoc/>
-    public string StoreRootSource => StoreLocation.Resolve(_commandLineStore, Current.ModelsDirectory).Source;
+    public string StoreRootSource => Store.Description;
+
+    /// <summary>The store in effect, resolved once per settings change (the application folder check writes a probe file).</summary>
+    private ModelStoreResolution Store
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _store ??= StoreLocation.Resolve(_commandLineStore, _current);
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public string? FindPreviousStore()
+    {
+        var store = Store;
+        return store.Source is ModelStoreSource.CommandLine or ModelStoreSource.EnvironmentVariable ? null : ModelStore.FindPreviousStore(store)?.Root;
+    }
 
     /// <inheritdoc/>
     public event EventHandler? Changed;
@@ -45,6 +66,7 @@ internal sealed class JsonSettingsService : ISettingsService
         lock (_lock)
         {
             _current = change(_current);
+            _store = null;
             Save(_path, _current);
         }
 

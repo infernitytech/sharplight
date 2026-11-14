@@ -12,6 +12,9 @@ public sealed partial class GraphLowerer
     /// <summary>Queries up to which decode attention splits the keys over several workgroups (flash decoding).</summary>
     private const long SplitMaxRows = 4;
 
+    /// <summary>Workgroups that key-split flash attention aims for (a few per compute unit on large GPUs).</summary>
+    private const long FlashTargetWorkgroups = 768;
+
     /// <summary>Multi-sequence query rows (batched decode) up to which split-K decoding replaces the per-head kernel.</summary>
     private const long DecodeMaxSequenceRows = 64;
 
@@ -138,7 +141,9 @@ public sealed partial class GraphLowerer
         var decode = DecodeAttention(plan, flash, sliceRows);
         int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
         bool split = decode is null && !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
-        var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits) : o;
+        int keySplits = flash && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
+        var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
+            : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
 
         // Steps of many sequences beyond the decode kernel's rows that are not long runs only (decode rows next to prompt
@@ -173,7 +178,7 @@ public sealed partial class GraphLowerer
 
             if (slice == 0 && flash)
             {
-                variants.Add(FlashVariant(plan));
+                variants.Add(FlashVariant(plan, keySplits));
             }
 
             if (slices == 1)
@@ -186,10 +191,14 @@ public sealed partial class GraphLowerer
                     b => new Grid((uint)plan.HQ, (uint)Math.Min(sliceRows, Rows(b, q) - firstRow))));
             }
 
-            EmitAttentionLaunch(plan, variants, part, firstRow, split || decode is not null);
+            EmitAttentionLaunch(plan, variants, part, firstRow, split || decode is not null || keySplits > 1);
         }
 
-        if (decode is not null)
+        if (keySplits > 1)
+        {
+            EmitFlashCombine(plan, part, keySplits);
+        }
+        else if (decode is not null)
         {
             EmitDecodeCombine(plan, part, decode);
         }
@@ -243,15 +252,27 @@ public sealed partial class GraphLowerer
         TensorRef? seq = null;
         TensorRef? runs = null;
         TensorRef? spans = null;
+        TensorRef? mask = null;
         TensorRef? pages = null;
         bool causal = full && n.Attributes.Get("causal", false);
         if (full && n.Inputs.Length > 3)
         {
-            spans = DenseInput(n.Inputs[3], "attn-spans");
+            if (n.Inputs[3].Type == DataType.I32)
+            {
+                spans = DenseInput(n.Inputs[3], "attn-spans");
+            }
+            else
+            {
+                mask = DenseInput(n.Inputs[3], "attn-mask");
+            }
         }
 
+        // Batched form: equal-length sequences attend within themselves (query rows / SEQ_ROWS sequences).
+        long sequenceRows = full ? BatchedAttention.SequenceRows(n) : 0;
+        long sequenceKeys = sequenceRows > 0 ? BatchedAttention.SequenceKeys(n) : 0;
+
         // Cross-attention (keys of another sequence, e.g. an encoder's output): the kernels take the key count as a parameter.
-        bool cross = full && spans is null && n.Inputs[0].Shape[0] != n.Inputs[1].Shape[0];
+        bool cross = full && spans is null && sequenceRows == 0 && n.Inputs[0].Shape[0] != n.Inputs[1].Shape[0];
 
         if (!full && n.Inputs.Length > 3 + sinksInputs)
         {
@@ -268,7 +289,9 @@ public sealed partial class GraphLowerer
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
-            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1), .. AlibiMacros(n),
+            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1),
+            ("SEQ_ROWS", sequenceRows), ("SEQ_KEYS", sequenceKeys), ("HAS_MASK", mask is not null), ("MASK_PER_ROW", mask is not null && n.Inputs[3].Rank == 2),
+            .. AlibiMacros(n),
             ("COMP_ATTN", compressed is not null), ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compressed is null ? 0 : SlotContext(n, compressed))]);
         if (compressed is not null && compressed.Type != k.Type)
         {
@@ -288,6 +311,8 @@ public sealed partial class GraphLowerer
             Runs = runs,
             Pages = pages,
             Spans = spans,
+            Mask = mask,
+            SequenceRows = sequenceRows,
             Selection = selection,
             Compressed = compressed,
             Cross = cross,
@@ -346,8 +371,10 @@ public sealed partial class GraphLowerer
         long paddedD = (plan.D + 15) / 16 * 16;
         long paddedDV = (plan.DV + 63) / 64 * 64;
         long paddedKV = Math.Max(paddedD, paddedDV);
-        long sharedBytes = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 32 * 4 + 32 * 40 * 2 + 32 * 64 * 4;
-        bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type) || (plan.K.Type == DataType.F32 && (plan.Full || _opt.Compile.AllowReducedPrecision));
+        long halfTiles = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 40 * 2;
+        long sharedBytes = halfTiles * (SplitFlash(plan) ? 2 : 1) + 32 * 32 * 4 + 32 * 64 * 4;
+        bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type)
+                           || (plan.K.Type == DataType.F32 && (_opt.Compile.AllowReducedPrecision || SplitFlash(plan)));
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
@@ -375,17 +402,91 @@ public sealed partial class GraphLowerer
     /// Tensor-core flash attention. Multi-sequence: fa blocks never straddle sequences (grid z = runs); for short runs
     /// (batched decode) the per-query kernels win.
     /// </summary>
-    private KernelVariant FlashVariant(AttentionPlan plan)
+    private KernelVariant FlashVariant(AttentionPlan plan, int keySplits)
     {
         var q = plan.Q;
         var runs = plan.Runs;
-        var kernel = Lib("attention.slang", "fa", plan.Macros);
+        var macros = new Dictionary<string, string>(plan.Macros) { ["FA_SPLIT"] = SplitFlash(plan) ? "1" : "0", ["FA_KSPLIT"] = keySplits.ToString(CultureInfo.InvariantCulture) };
+        bool encoder = EncoderFlash(plan);
+        var kernel = Lib("attention.slang", encoder ? "fe" : "fa", macros);
+        uint blockRows = encoder ? 64u : 32u;
+        if (plan.SequenceRows > 0)
+        {
+            long sequenceRows = plan.SequenceRows;
+            return new KernelVariant(FlashWhen(plan), kernel,
+                b => new Grid((uint)plan.HQ, Grid.Div(sequenceRows, blockRows), (uint)(Rows(b, q) / sequenceRows * keySplits)));
+        }
+
         if (runs is null)
         {
-            return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32)));
+            return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), blockRows), (uint)keySplits));
         }
 
         return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32), (uint)Rows(b, runs)));
+    }
+
+    /// <summary>
+    /// Whether flash attention runs the encoder kernel <c>fe</c> (64 queries per workgroup, each subgroup keeping its query
+    /// fragments and output accumulators in registers): plain bidirectional attention over f32 or f16 K/V (an optional
+    /// additive mask, batched or cross form) with padded head sizes up to 128, unless <c>SHARPLIGHT_ATTN_FE=0</c>.
+    /// </summary>
+    private bool EncoderFlash(AttentionPlan plan)
+    {
+        var a = plan.Node.Attributes;
+        bool plain = plan.Full && plan.Spans is null && plan.Sinks is null && plan.Runs is null && plan.Selection is null
+                     && a.Get("window", 0) == 0 && !a.Get("causal", false) && a.Get("softcap", 0f) <= 0
+                     && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
+        bool kv = (plan.K.Type == DataType.F32 || plan.K.Type == DataType.F16) && plan.V.Type == plan.K.Type;
+        long paddedD = (plan.D + 15) / 16 * 16;
+        long paddedDV = (plan.DV + 15) / 16 * 16;
+        long kvHalves = 2 * 32 * (paddedD + 8) + 2 * 32 * (paddedDV + 8);
+        long buffer = Math.Max(kvHalves, 2 * 64 * (paddedD + 8)) * 2;
+        long sharedBytes = buffer + 4 * 16 * 32 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
+        return DiagnosticSwitches.AttentionEncoderFlash && plain && kv && paddedD <= 128 && paddedDV <= 128
+               && sharedBytes <= _opt.MaxSharedMemory;
+    }
+
+    /// <summary>
+    /// Whether flash attention over f32 K/V runs in the split-f16 form (FA_SPLIT: hi·hi + hi·lo + lo·hi products, near-f32
+    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Reduced precision uses
+    /// single f16 products.
+    /// </summary>
+    private bool SplitFlash(AttentionPlan plan)
+        => plan.K.Type == DataType.F32 && !_opt.Compile.AllowReducedPrecision && DiagnosticSwitches.AttentionSplitHalf;
+
+    /// <summary>
+    /// Key ranges per query block of bidirectional flash attention (FA_KSPLIT): enough workgroups for about
+    /// <see cref="FlashTargetWorkgroups"/>, at least two key tiles per range, at most 8 ranges; 1 when the attention has spans,
+    /// a window, causal masking or sinks, or when <c>SHARPLIGHT_ATTN_FA_KSPLIT=0</c>.
+    /// </summary>
+    private int FlashKeySplits(AttentionPlan plan, long maxRows)
+    {
+        var a = plan.Node.Attributes;
+        if (!plan.Full || plan.Spans is not null || plan.Sinks is not null || a.Get("window", 0) > 0 || a.Get("causal", false)
+            || !DiagnosticSwitches.AttentionFlashKeySplit)
+        {
+            return 1;
+        }
+
+        long sequences = plan.SequenceRows > 0 ? Math.Max(1, maxRows / plan.SequenceRows) : 1;
+        long rowsPerSequence = plan.SequenceRows > 0 ? plan.SequenceRows : maxRows;
+        long keys = plan.SequenceRows > 0 ? BatchedAttention.SequenceKeys(plan.Node) : plan.K.Symbol is null ? plan.K.Shape[0] : Bound(Dim.Sym(plan.K.Symbol));
+        long blockRows = EncoderFlash(plan) ? 64 : 32;
+        long workgroups = plan.HQ * ((rowsPerSequence + blockRows - 1) / blockRows) * sequences;
+        long wanted = (FlashTargetWorkgroups + workgroups - 1) / workgroups;
+        return (int)Math.Clamp(Math.Min(wanted, (keys + 31) / 32 / 2), 1, 8);
+    }
+
+    /// <summary>Merges the key-range partials of split flash attention into the output.</summary>
+    private void EmitFlashCombine(AttentionPlan plan, TensorRef part, int keySplits)
+    {
+        var q = plan.Q;
+        var o = plan.Output;
+        var macros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = keySplits.ToString(CultureInfo.InvariantCulture) };
+        Emit($"attention {plan.Node.Output.Name} combine", [plan.Node],
+            [new KernelVariant(FlashWhen(plan), Lib("attention.slang", "combine", macros), b => new Grid((uint)plan.HQ, (uint)Rows(b, q)))],
+            [Pointer(part), Pointer(o), Pointer(o), TokenArg(q)],
+            [part], [o]);
     }
 
     /// <summary>Bindings for which the flash variant is chosen (when the device supports it).</summary>
@@ -495,8 +596,8 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask)],
             split ? [o, part] : [o]);
     }
 

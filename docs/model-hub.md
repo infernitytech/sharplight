@@ -1,19 +1,19 @@
 # Pulling models from Hugging Face
 
 `sharplight-server` and `sharplight` can search the Hugging Face Hub, download a model, convert it to a `.slm` package and
-run or serve it, in the style of `ollama pull` / `ollama run`. Both use the same model store, so a model pulled with one is
-available to the other. The reusable parts live in two libraries:
+run or serve it, in the style of `ollama pull` / `ollama run`. Both resolve the model store the same way (see [Store](#store)),
+so with a shared store a model pulled with one is available to the other. The reusable parts live in two libraries:
 
 | Assembly | Role | Main entry points |
 |---|---|---|
-| `Sharplight.Packaging` | Convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert`, `sharplight-server` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
+| `Sharplight.Package.Import` | Convert a source model (any registered importer) to a `.slm` package and precompile kernels into it, on a device or for a device profile; shared by `sharplight-convert`, `sharplight-server` and `sharplight` | `ModelConverter`, `ConversionOptions`, `PackagePrecompiler`, `PrecompileOptions` |
 | `Sharplight.Hub` | Hugging Face client, resumable verified downloads, file selection, local model store, pull pipeline | `HubClient`, `FileDownloader`, `ModelFileSelector`, `ModelStore`, `ModelPuller`, `ModelReference` |
 
 Neither references a format importer: `Sharplight.Hub` only looks at file names (to pick a GGUF quantization or the
 safetensors/ONNX files of a checkpoint) and hands the downloaded files to `ModelConverter`, which goes through the
 importers the host registered (`GgufImporter.Register()`, `HuggingFaceImporter.Register()`, `OnnxImporter.Register()`).
 
-The command-line side is shared too: `samples/Sharplight.Samples.Hub` holds the `pull`, `search`, `list`, `show` and `rm`
+The command-line side is shared too: `samples/Sharplight.Samples.Hub` holds the `pull`, `search`, `list`, `show`, `rm` and `store`
 commands, the `--models-dir` and pull options, the console progress display and `ModelResolver`, which turns a model
 argument (a file, a stored name or a Hugging Face name, pulled when missing) into a package path. `HubCommands.AddTo` adds
 the commands to an executable's root command; `sharplight-server` and `sharplight` both do.
@@ -85,12 +85,43 @@ The store root is, in order of precedence:
 
 1. `--models-dir DIR`;
 2. the `SHARPLIGHT_MODELS` environment variable;
-3. `models` next to the executable, if that directory exists (a portable install: create it to keep models with the binaries);
-4. the per-user store, `sharplight/models` in the local application data directory (`~/.local/share/sharplight/models` on
-   Linux, `%LOCALAPPDATA%\sharplight\models` on Windows, `~/Library/Application Support/sharplight/models` on macOS).
+3. the location chosen in the settings: Studio's settings page, or for the command-line tools the shared file
+   `sharplight/store.json` in the per-user configuration directory (`~/.config` or `XDG_CONFIG_HOME` on Linux, `%APPDATA%` on
+   Windows, `~/Library/Application Support` on macOS), written by `store use`;
+4. the default: the **application folder**, `data` next to the executable (`AppContext.BaseDirectory`), created on first use.
 
-The per-user default is what lets `sharplight` and `sharplight-server` share models although they are built into different
-directories. `list` prints the store it reads. Each model lives in `<root>/<owner>/<repo>/<tag>/` with:
+A location is one of three choices:
+
+| Choice | Directory |
+|---|---|
+| Application folder (default) | `<application directory>/data` |
+| User folder | `sharplight/models` in the local application data directory: `~/.local/share/sharplight/models` on Linux (following `XDG_DATA_HOME`), `%LOCALAPPDATA%\sharplight\models` on Windows, `~/Library/Application Support/sharplight/models` on macOS. Shared by every Sharplight executable of the user. |
+| Custom folder | Any directory |
+
+When the application folder is not writable (installed under `/usr` or Program Files, a read-only AppImage or other read-only
+mount, inside a macOS `.app` bundle), the user folder is used instead and the source says so ("Default: user folder, the
+application folder is not writable"). Tools unpacked into one directory share its `data` folder; tools built into different
+directories (`sharplight` and `sharplight-server` in a source checkout) share models through the user folder or a custom one
+(`store use user`).
+
+```
+sharplight store                    # the store in effect and why
+sharplight store use user           # or: application, or a directory
+sharplight store migrate [--copy]   # move the models of the previous store (the user folder) into the store in effect
+```
+
+Earlier versions stored models in the user folder by default. When nothing chose the store explicitly, the store in effect has
+no models and the user folder (or a `models` folder next to the executable) has some, the tools print a one-line hint, and
+Studio offers once to keep using the user folder or to move or copy the models (`ModelStore.FindPreviousStore`,
+`ModelStoreTransfer`). Everything that writes models follows the store root: pulls write their partial downloads
+(`source/*.partial`), the pending package and the manifest inside the model's directory; Studio converts local models into
+`converted/` in the store by default. `sharplight-convert convert` writes exactly the `dst` it is given.
+
+The kernel cache is not part of the store: compiled kernels are cached per user in `sharplight/kernels` in the local application
+data directory (`~/.local/share/sharplight/kernels` on Linux) and shared by every model and tool.
+
+`ModelStore.Resolve` returns the root with its source (`ModelStoreResolution`); applications with their own settings pass
+their choice as `ModelStoreSettings`. `list` prints the store it reads. Each model lives in `<root>/<owner>/<repo>/<tag>/` with:
 
 | File | Content |
 |---|---|

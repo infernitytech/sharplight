@@ -1,5 +1,5 @@
 using Sharplight.Hub;
-using Sharplight.Packaging;
+using Sharplight.Package.Import;
 
 namespace Sharplight.Samples.Hub;
 

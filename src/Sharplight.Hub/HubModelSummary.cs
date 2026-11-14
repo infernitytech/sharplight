@@ -10,6 +10,13 @@ namespace Sharplight.Hub;
 /// <param name="Parameters">Parameter count reported by the Hub (GGUF or safetensors metadata), or <see langword="null"/>.</param>
 /// <param name="Formats">Formats the repository's files provide.</param>
 /// <param name="Variants">Pullable variants (GGUF quantizations, ONNX model files); empty for a single checkpoint.</param>
+/// <param name="GgufArchitecture">The <c>general.architecture</c> the Hub read from the repository's GGUF files, or <see langword="null"/>.</param>
+/// <param name="ModelType">The <c>model_type</c> of the repository's <c>config.json</c> as the Hub reports it, or <see langword="null"/>.</param>
+/// <param name="QuantizationMethod">
+/// The <c>quantization_config.quant_method</c> of the repository's <c>config.json</c> as the Hub reports it (<c>mlx</c> for an MLX
+/// configuration without a method), or <see langword="null"/>.
+/// </param>
+/// <param name="HasProjectorOnly">The repository's GGUF files are all multimodal projectors (mmproj).</param>
 public sealed record HubModelSummary(
     string Id,
     long Downloads,
@@ -19,4 +26,8 @@ public sealed record HubModelSummary(
     string? Pipeline,
     long? Parameters,
     IReadOnlyList<ModelFormat> Formats,
-    IReadOnlyList<string> Variants);
+    IReadOnlyList<string> Variants,
+    string? GgufArchitecture = null,
+    string? ModelType = null,
+    string? QuantizationMethod = null,
+    bool HasProjectorOnly = false);

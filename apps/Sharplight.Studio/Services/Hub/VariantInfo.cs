@@ -6,4 +6,5 @@ namespace Sharplight.Studio.Services.Hub;
 /// <param name="FileCount">Files downloaded.</param>
 /// <param name="HasProjector">A vision projector is downloaded with it.</param>
 /// <param name="Recommended">The variant pulled without a tag.</param>
-internal sealed record VariantInfo(string Tag, long Bytes, int FileCount, bool HasProjector, bool Recommended);
+/// <param name="PrimaryPath">The model file (the first shard of a split GGUF) or checkpoint directory in the repository.</param>
+internal sealed record VariantInfo(string Tag, long Bytes, int FileCount, bool HasProjector, bool Recommended, string PrimaryPath = "");

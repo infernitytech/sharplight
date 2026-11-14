@@ -275,11 +275,16 @@ public static partial class StandardOps
     /// is its last <c>window</c> keys, without it the symmetric window of bidirectional sliding-window encoders such as ModernBERT and EmbeddingGemma).
     /// Optional fourth input, by type:
     /// <list type="bullet">
-    /// <item>f32 [T, S]: additive mask added to the scaled scores.</item>
+    /// <item>f32 [T, S]: additive mask added to the scaled scores; f32 [S]: one additive bias per key row for every query (a
+    /// key-padding mask).</item>
     /// <item>i32 [T, 2] spans (packed sequences, see <see cref="Models.InputRole.RowSpans"/>): query row t sees key rows
     /// [first, first + count) of its span; with <c>causal</c> additionally only rows ≤ t (self-attention, so q and k rows
     /// coincide). An empty span yields zeros. Lets one pass attend independently within many concatenated sequences.</item>
     /// </list>
+    /// Batched form (attributes <c>sequence_rows</c> = R &gt; 0 and <c>sequence_keys</c> = L &gt; 0, bidirectional, without spans,
+    /// window or position biases): the T query rows are T / R sequences of R rows and the S key rows the same number of
+    /// sequences of L rows; query rows [b·R, (b+1)·R) see only key rows [b·L, (b+1)·L). Batched encoders (B images or
+    /// sentences) run as one op over [B·R, H, D] queries this way.
     /// </summary>
     public static readonly OpSchema Attention = new("Attention", OpCategory.Composite, 3, 4, (i, a) =>
     {

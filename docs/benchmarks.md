@@ -2940,3 +2940,225 @@ SHARPLIGHT_BENCH=1 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 \
 * **Detection models**: each data-dependent count ends a Vulkan segment and goes through host memory. The R-CNNs take
   about 100 ms wall against about 34 ms of GPU time.
 * **Measurement**: the CPU rows need a re-run on a quiet machine.
+
+## 26. ONNX parity round 3: fused encoder attention, split-f16 tensor-core GEMM (2026-11-14)
+
+The third round of section 21 on the same machine, models and harness (`bench/onnx/parity_bench.py`). Raw data is in
+[`bench/results/s26/`](../bench/results/s26). onnxruntime 1.31.1 (CPU EP, CUDA EP with TF32 and with TF32 off) was
+re-run in this session, interleaved with Sharplight: every model runs all engines back to back, two rounds.
+
+How the numbers were taken:
+
+* Cells are min / median in ms over a process's runs, minimum over the two rounds.
+* The GPU was shared with the desktop and two other agents. The GPU-timestamp minimum (26.3) is not affected by host
+  load; wall-clock medians are.
+* The CPU rows ran at a load average of 10-30 (median 21) from the other agents' builds and test suites (`cpu-load.log`), so they
+  are upper bounds.
+* New engine `sl-vulkan-split`: Sharplight with `CompileOptions.SplitHalfMatMul` (`OnnxBench --split-f16`).
+
+### 26.1 What changed
+
+* **Fused attention for ONNX encoders.** The translator recognises `MatMul → (scale) → (mask Add) → Softmax → MatMul`
+  when nothing else reads the probabilities, in the rank-4 head layout of vit / bert / segformer exports and the
+  rank-3 `[B·H, S, D]` layout of whisper exports, and emits one `Attention` op. com.microsoft `Attention` and
+  `MultiHeadAttention` without requested scores take the same op. `OnnxImportOptions.FuseAttention = false` keeps
+  the elementary ops.
+  * The `Attention` op got a batched form (`sequence_rows` / `sequence_keys`: equal-length sequences that only see
+    their own keys, `BatchedAttention`) and f32 additive masks (one bias per key row, or `[T, S]`).
+  * CPU: the tiled kernel takes the batched form and masks, and reads full f32 K/V blocks in place instead of copying
+    them per task. Whisper-tiny encoder attention (1500 rows, 6 heads) runs at about 2 TFLOPS
+    (`BenchTests.EncoderAttentionThroughput`, default thread count, loaded machine).
+* **Strict precision for f32 attention on Vulkan.** The flash kernel ran f32 K/V through single f16 products whenever
+  the device had f16 matrices, also under strict precision. Now:
+  * strict precision splits Q, K, V and P into f16 hi + lo parts and computes hi·hi + hi·lo + lo·hi (three
+    tensor-core products, f32 accumulation, P scaled by 2^12 before its split). The split rounds on the bits, since
+    the compiler folds a `float(half(x))` round trip to `x`, which had silently left the lo parts at zero;
+  * reduced precision keeps single f16 products;
+  * `SHARPLIGHT_ATTN_SPLIT_F16=0` sends strict f32 attention to the scalar kernel.
+  * Accuracy against the CPU oracle (`FullAttentionTests`): within 5e-6 absolute and relative under strict precision.
+* **Encoder flash kernel `fe`** for plain bidirectional attention (no spans, window, causal mask, score biases,
+  softcap or sinks; optional mask, batched or cross form; padded head sizes up to 128).
+  * 64 queries per workgroup of 4 subgroups. Each subgroup keeps its Q fragments and O accumulators in registers for
+    the whole key loop and rescales O with an element-wise product by a matrix of row factors.
+  * The next K/V tile is fetched into registers during the current one: two workgroup barriers per 32-key tile
+    instead of about five in `fa`.
+  * Key ranges split over several workgroups (combine kernel) when there are few query blocks.
+  * whisper-tiny: 180 → 115 µs per layer (split f16, strict). `SHARPLIGHT_ATTN_FE=0` falls back to `fa`.
+* **Split-f16 tensor-core GEMM, opt-in** (`CompileOptions.SplitHalfMatMul`). `gemm_cm2` with `GEMM_SPLIT` splits f32
+  activations and weights into f16 hi + lo parts while staging and computes the same three products.
+  * Relative RMS error against an f64 reference (`SplitHalfGemmTests`, weights ~0.03, activations ~1):
+
+    | shape | f32 SIMT (strict) | split f16 | single f16 (reduced) |
+    |---|---|---|---|
+    | 1024 x 768 → 2048 | 3.5e-7 | 1.7e-6 | 2.6e-4 |
+    | 1000 x 384 → 1536 | 1.8e-7 | 1.2e-6 | 2.6e-4 |
+    | 1576 x 3072 → 768 | 5.0e-7 | 2.9e-6 | 2.6e-4 |
+
+    About 5-7x the f32 error and 100-200x below single f16 products (TF32 has the same 10-bit mantissa as f16). The lo
+    parts of values below 2^-3 lose bits to f16 subnormals, which is most of the gap to f32. Because it is not
+    f32-exact, it stays opt-in.
+  * It needs `DeviceFeatures.MatrixF16`; `SHARPLIGHT_GEMM_SPLIT_F16=0` disables it. Grids too small for tensor cores
+    keep the SIMT GEMM, as under reduced precision.
+  * Section 21.5 found a three-part bf16 split slower than the SIMT GEMM at these sizes. Two f16 parts (3 products
+    instead of 6) are faster: vit b8 [768→3072] 201 → 147 µs, whisper [384→1536] 55 → 37 µs.
+* **Vulkan CumProd**: the generated scan kernel in product mode instead of the CPU fallback.
+* Tried and dropped: two vectors of query rows per CPU attention task (more reuse of each K/V value). It halved the
+  task count, and vit's 197-row sequences then had too few tasks: 94 → 207 µs per layer; whisper was even.
+
+### 26.2 GPU: Sharplight Vulkan vs onnxruntime CUDA EP
+
+Cells are min / median in ms; §25 is the `sl-vulkan` min of section 25. SL / ORT is `sl-vulkan` (strict, f32-accurate)
+over `ort-cuda` (TF32). `(!)` marks a parity-check failure. The full table is in `table-gpu.md`.
+
+| model | batch | §25 | sl-vulkan | sl-vulkan-split | sl-vulkan-rp | ort-cuda | ort-cuda-strict | SL / ORT CUDA |
+|---|---|---|---|---|---|---|---|---|
+| resnet50 | 1 | 0.81 | 0.81 / 0.82 | 0.81 | 0.70 (!) | 1.01 | 2.11 | **0.80x** |
+| resnet50 | 8 | 3.09 | 3.10 / 3.30 | 3.09 | 1.93 (!) | 1.99 | 3.71 | 1.56x |
+| convnext-tiny | 1 | 1.12 | 1.13 / 1.22 | 1.12 | 1.13 | 1.01 | 1.40 | 1.12x |
+| convnext-tiny | 8 | 4.05 | 4.08 / 4.15 | 3.20 | 2.66 (!) | 2.55 | 4.00 | 1.60x |
+| efficientnet-lite4 | 1 | 0.88 | 0.84 / 0.86 | 0.84 | 0.76 | 0.67 | 7.93 | 1.25x |
+| mobilenetv2 | 1 | 0.42 | 0.41 / 0.43 | 0.41 | 0.38 (!) | 0.37 | 0.65 | 1.11x |
+| mobilenetv2 | 8 | 0.73 | 0.73 / 0.74 | 0.72 | 0.67 (!) | 0.75 | 1.34 | **0.97x** |
+| yolov8n | 1 | 1.37 | 1.38 / 2.04 | 1.38 | 1.34 (!) | 1.31 | 2.76 | 1.05x |
+| yolov10n | 1 | 1.26 | 1.27 / 3.76 | 1.27 | 1.25 (!) | 1.17 | 2.31 | 1.08x |
+| ssd-10 (NMS) | 1 | 18.27 (!) | 17.72 (!) | 17.68 (!) | 9.04 (!) | 11.22 | 22.83 | 1.58x |
+| bert-base (16 tok) | 1 | 1.30 | 1.22 / 3.70 | 1.22 | 1.18 (!) | 1.24 | 1.43 | **0.98x** |
+| bert-base (16 tok) | 8 | 4.40 | 3.72 / 9.89 | 3.46 | 3.32 (!) | 3.17 | 3.37 | 1.17x |
+| vit-base | 1 | 2.61 | 2.44 / 3.00 | 2.14 | 1.95 (!) | 1.35 | 2.47 | 1.80x |
+| vit-base | 8 | 10.13 | 9.85 / 11.14 | 7.15 | 4.82 (!) | 4.00 | 9.33 | 2.47x |
+| whisper-tiny-encoder | 1 | 2.38 | **1.81** / 2.06 | 1.65 | 1.40 (!) | 1.18 | 2.09 | 1.53x |
+| qwen2.5-0.5b q4 (MatMulNBits) | 1 | 3.44 | 3.15 / 13.82 | 3.17 | 2.44 (!) | 3.81 | 3.83 | **0.83x** |
+| phi3.5-mini q4f16 (GQA) | 1 | 4.55 (!) | 4.53 (!) | 4.55 (!) | 3.44 (!) | 3.49 | 3.50 | 1.30x |
+| segformer-b0 | 1 | 3.43 | 2.81 / 7.06 | 2.87 | 2.68 | 2.40 | 3.46 | 1.17x |
+| segformer-b0 | 8 | 22.95 | 20.66 / 23.50 | 20.58 | 18.61 | 33.11 | 23.28 | **0.62x** |
+| mobilesam-encoder | 1 | 5.96 | 5.96 / 7.70 | 5.20 | 4.40 (!) | 6.28 | 8.16 | **0.95x** |
+| raft-large | 1 | 55.99 | 54.98 / 60.49 | 55.03 | 42.06 (!) | 30.71 | 73.52 | 1.79x |
+
+* As in section 25, the `sl-vulkan-rp` parity failures are expected: reduced precision is opt-in, and its f16 products
+  miss the strict f32 tolerance.
+* ssd-10 and phi-3.5 fail parity in every precision, as in section 21: ssd-10 orders tied detections differently, and
+  phi-3.5's fp16 reference is noisy.
+* `sl-vulkan-split` passes parity on every model that passes in strict precision.
+* ORT's segformer b8 min (33.11, median 115.51) was disturbed and is not a real lead. `ort-cuda-strict` gives 23.28.
+
+Against `ort-cuda-strict` (no TF32, the like-for-like comparison with f32 products), strict Sharplight is now ahead or
+level on every model except bert b8 (3.72 against 3.37 wall; GPU time 2.99), vit b8 (9.85 against 9.33) and phi-3.5.
+whisper went from 2.38 to 1.81 ms (strict ORT: 2.09), and vit b1 from 2.61 to 2.44 (2.47).
+
+### 26.3 GPU timestamps and split-f16 accuracy
+
+GPU-timestamp minimum in ms, which host load does not affect, and the worst relative RMS of any output against
+onnxruntime's CPU EP (`table-gpu-timestamps.md`):
+
+| model | batch | §25 strict | strict | split f16 | reduced | worst rms (strict / split / reduced) |
+|---|---|---|---|---|---|---|
+| whisper-tiny-encoder | 1 | 2.16 | **1.70** | 1.55 | 1.30 | 3.1e-6 / 3.2e-6 / 4.7e-4 |
+| vit-base | 1 | 2.52 | 2.39 | 2.09 | 1.91 | 1.7e-6 / 2.2e-6 / 4.9e-4 |
+| vit-base | 8 | 9.89 | 9.65 | **6.95** | 4.72 | 1.6e-6 / 1.1e-5 / 5.9e-4 |
+| bert-base | 8 | 3.04 | 2.99 | 2.89 | 2.82 | 2.2e-6 / 2.8e-6 / 2.5e-4 |
+| segformer-b0 | 1 | 2.71 | 2.55 | 2.55 | 2.38 | 2.4e-6 / 2.2e-6 / 9.3e-5 |
+| segformer-b0 | 8 | 17.34 | 16.19 | 15.97 | 14.03 | 3.0e-6 / 2.4e-6 / 1.7e-4 |
+| convnext-tiny | 8 | 4.00 | 4.00 | **3.15** | 2.62 | 3.3e-6 / 7.4e-6 / 6.4e-4 |
+| mobilesam-encoder | 1 | 5.65 | 5.62 | 5.01 | 4.24 | 1.3e-6 / 3.4e-6 / 5.9e-4 |
+
+* Strict precision gains come from fused attention: whisper 21 %, segformer 6-7 %, vit 2-4 % (attention is a smaller
+  share of vit, and its 197-key sequences already ran well as bmm).
+* Split f16 takes another 9 % on whisper and 28 % on vit b8, and 21 % on convnext b8. Its error stays within 1.1e-5,
+  2-7x strict and 20-50x below reduced precision. ORT's TF32 default rounds its inputs to the same 10-bit mantissa as
+  single f16, so the split should also be more accurate than that default. This was not measured.
+* The models where split f16 does nothing (resnet50, mobilenet, YOLO) have their matmul time in convs or in grids too
+  small for tensor cores.
+
+### 26.4 CPU: Sharplight vs onnxruntime CPU EP (16 threads, loaded machine)
+
+Cells are min / median in ms; §25 is the `sl-cpu` min of section 25. During the run the 1-minute load average was
+10-30 (median 21, `cpu-load.log`), from other agents' builds and test suites. Both engines were interleaved, so the
+SL / ORT ratios are fairer than the absolute numbers. Medians are 1.5-6x the minima. The full table is in
+`table-cpu.md`.
+
+| model | batch | §25 | sl-cpu | ort-cpu | SL / ORT |
+|---|---|---|---|---|---|
+| resnet50 | 1 | 10.52 | 8.01 / 11.40 | 5.92 | 1.35x |
+| resnet50 | 8 | 42.32 | 41.47 / 56.98 | 21.39 | 1.94x |
+| convnext-tiny | 8 | 102.09 | 93.42 / 111.91 | 76.27 | 1.22x |
+| mobilenetv2 | 8 | 12.62 | 14.16 / 55.11 | 8.18 | 1.73x |
+| ssd-10 (NMS) | 1 | 197.58 | 206.94 / 301.35 | 212.38 | **0.97x** |
+| bert-base (16 tok) | 1 | 13.06 | 13.66 / 37.17 | 11.43 | 1.20x |
+| bert-base (16 tok) | 8 | 22.94 | 21.86 / 65.89 | 27.47 | **0.80x** |
+| vit-base | 1 | 25.93 | 24.70 / 38.45 | 22.25 | 1.11x |
+| vit-base | 8 | 167.72 | **148.61** / 271.10 | 132.91 | 1.12x |
+| whisper-tiny-encoder | 1 | 45.19 | **22.70** / 53.11 | 54.08 | **0.42x** |
+| segformer-b0 | 1 | 113.94 | 88.77 / 99.66 | 42.52 | 2.09x |
+| segformer-b0 | 8 | 450.82 | **343.59** / 378.87 | 481.19 | **0.71x** |
+| mobilesam-encoder | 1 | 229.03 | 199.73 / 585.75 | 204.09 | **0.98x** |
+| raft-large | 1 | 1841.66 | 1570.58 / 1636.30 | 1606.12 | **0.98x** |
+
+* Fused CPU attention:
+  * whisper-tiny's encoder halved, 45.2 → 22.7 ms. That is 0.42x of ORT in this run, and 0.58x of ORT's idle-machine
+    39.45 ms from section 21.
+  * segformer b8 is 24 % faster and vit b8 11 %.
+* segformer b1 (2.1x behind ORT) was not profiled in this round.
+* The conv models (resnet50, mobilenetv2, efficientnet) did not change this round. Their rows move with the load.
+
+### 26.5 Correctness and tests
+
+The branch was rebased onto `main` (after bring-up round 8). The suites ran one at a time under the suite lock. A last
+rebase onto the NuGet packaging commits was followed by a full build and a Package re-run (29 passed).
+
+| suite | result |
+|---|---|
+| Cpu | 1193 tests, 0 failed, 31 skipped |
+| Vulkan | 1229 tests, 0 failed, 22 skipped |
+| Onnx (`-parallelMode none`) | 426 passed |
+| Package | 29 passed |
+| Families | 660 tests, 0 failed, 32 skipped |
+
+* The first Families run lost 8 CPU generation tests to "model does not fit" while another agent's 26 GB benchmark
+  held RAM. It passed when re-run with 50 GB available.
+* ONNX conformance report (CPU and Vulkan): node tests 1829 / 1884 on both providers (the same 8 wrong and 47 import
+  failures as in section 25), extra suites 170 / 172.
+  * Vulkan without the CPU fallback: 1745 → 1772 node tests (`docs/onnx-support.md` had last been generated before
+    the section 25 detection ops); ai.onnx ops fully on Vulkan 147 → 152.
+  * CumProd, NonMaxSuppression, RoiAlign, Compress and MaxPool (indices) no longer touch the CPU.
+
+New tests:
+
+* `AttentionPatternTests` (ONNX): both export layouts fuse, masks, fusion off, probabilities with a second reader,
+  fused against elementary on CPU and Vulkan.
+* `BatchedAttentionTests` (CPU): batched form and both mask forms on the tiled and general kernels.
+* `FullAttentionTests` (Vulkan): strict and reduced accuracy of the split flash kernel, masks, batched cross attention.
+* `SplitHalfGemmTests` (Vulkan): the error table above.
+* `DataOpTests.CumProd` (Vulkan).
+* `BenchTests.EncoderAttentionThroughput` (CPU, `SHARPLIGHT_BENCH=1`).
+
+### 26.6 Commands
+
+```bash
+export SHARPLIGHT_ONNX_MODELS=~/models/onnx ORT_PYTHON=~/venvs/ort/bin/python3   # plus the CUDA libs of bench/onnx/env.sh
+dotnet build bench/onnx/OnnxBench -c Release
+python3 bench/onnx/parity_bench.py run gpu.jsonl --rounds 2 --engines sl-vulkan,sl-vulkan-split,sl-vulkan-rp,ort-cuda,ort-cuda-strict
+python3 bench/onnx/parity_bench.py run cpu.jsonl --rounds 2 --engines sl-cpu,ort-cpu
+python3 bench/onnx/parity_bench.py table gpu.jsonl
+SHARPLIGHT_BENCH=1 dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -method "*EncoderAttentionThroughput"
+```
+
+### 26.7 Open gaps
+
+* **Vulkan f32 GEMMs against TF32.** In strict precision, vit (1.8-2.5x), raft (1.8x), convnext b8 and resnet50 b8
+  (1.6x) and whisper (1.5x) still trail `ort-cuda`.
+  * The opt-in split-f16 GEMM closes part of the gap: vit b8 is at 1.8x and whisper at 1.4x.
+  * Making split f16 the strict default would need f32-level accuracy. The lo parts lose bits to f16 subnormals,
+    which a per-tile exponent offset could fix.
+  * Split f16 for convs (the implicit-GEMM conv kernels) and for bmm was not done.
+  * The f32 SIMT GEMM was not changed in this round.
+* **QKV projection fusion**: the three Q / K / V matmuls of the encoders still run as three GEMMs (vit b1 has
+  197-row grids that underfill the GPU).
+* **CPU convolution**: resnet50 is still at 1.35x / 1.9x of ORT and mobilenetv2 b8 at 1.7x. Not attempted in this round:
+  NCHWc or NHWC layouts with layout propagation, Winograd for the 3x3 convs (51 % of resnet50's CPU time in
+  `SHARPLIGHT_CPU_PROFILE`), and output-channel blocking of the 1x1 convs (about 37 %).
+* **CPU transformer GEMMs**: vit and bert b1 are at 1.1-1.2x. Their time is in the ~200-row GEMMs, which were not
+  reblocked.
+* **Detection models**: each data-dependent count still ends a Vulkan segment and goes through host memory (unchanged
+  from section 25).
+* **Vulkan fallbacks**: Det / Inverse, integer CumSum and volumetric GridSample still run on the CPU.
+* **Measurement**: the CPU rows ran at load 10-30 and need a re-run on a quiet machine.

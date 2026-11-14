@@ -40,6 +40,8 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly long _compressedSlotRows;    // multi-sequence: compressed cache rows per slot
     private readonly KvPages? _compressedPages;   // paged multi-sequence: the block table addressing the compressed cache
     private readonly bool _cHalf;
+    private readonly long _sequenceRows;  // > 0: batched form, query rows [b·R, (b+1)·R) see key rows [b·L, (b+1)·L)
+    private readonly long _sequenceKeys;  // L of the batched form
     private long _t;
     private long _past;
     private long _s;
@@ -53,8 +55,10 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
-        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null, CompressedKv? compressed = null)
+        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0, TRef? selection = null, CompressedKv? compressed = null, long sequenceRows = 0, long sequenceKeys = 0)
     {
+        _sequenceRows = sequenceRows;
+        _sequenceKeys = sequenceKeys;
         _selection = selection;
         _compressed = compressed;
         if (compressed is not null)
@@ -131,7 +135,14 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         }
 
         _s = _k.Dim(0, p);
-        if (_spans is not null)
+        if (_sequenceRows > 0)
+        {
+            if (_t % _sequenceRows != 0 || _s != _t / _sequenceRows * _sequenceKeys)
+            {
+                throw new InvalidOperationException($"Batched attention: {_t} query rows and {_s} key rows are not whole sequences of {_sequenceRows} / {_sequenceKeys} rows.");
+            }
+        }
+        else if (_spans is not null)
         {
             int* sp = (int*)_spans.P;
             for (long t = 0; t < _t; t++)
@@ -229,7 +240,13 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 int slot = -1;   // paged: the query's slot
                 long j0 = 0;
                 long queryPosition;   // the query's position on the key axis (window and ALiBi distances)
-                if (_spans is not null)
+                if (_sequenceRows > 0)
+                {
+                    j0 = t / _sequenceRows * _sequenceKeys;
+                    n = j0 + _sequenceKeys;
+                    queryPosition = t;
+                }
+                else if (_spans is not null)
                 {
                     int* sp = (int*)_spans.P + t * 2;
                     j0 = sp[0];
@@ -295,8 +312,8 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                 }
 
                 n = Math.Max(n, j0);
-                float* mrow = _mask is null ? null : (float*)_mask.P + t * _mask.Strides[0];
-                long mstride = _mask is null ? 0 : _mask.Strides[1];
+                float* mrow = MaskRow(t);
+                long mstride = _mask is null ? 0 : MaskColumnStride;
                 if (_chunk > 0)
                 {
                     j0 = Math.Max(j0, (n - 1) / _chunk * _chunk);
@@ -426,6 +443,12 @@ internal sealed unsafe partial class AttentionOp : CpuOp
             }
         }
     }
+    /// <summary>The additive mask row of query row <paramref name="t"/> (a one-row mask serves every query), or null without a mask.</summary>
+    private float* MaskRow(long t) => _mask is null ? null : (float*)_mask.P + (_mask.Dims.Length == 1 ? 0 : t * _mask.Strides[0]);
+
+    /// <summary>Element stride between the key columns of the mask.</summary>
+    private long MaskColumnStride => _mask!.Strides[^1];
+
     /// <summary>
     /// The selected key positions of query row <paramref name="t"/> and query head <paramref name="h"/> that it can see (below
     /// <paramref name="visible"/>), in a per-thread buffer that stays valid until the next call on the thread. A rank-3 selection [T, Hs, K] has

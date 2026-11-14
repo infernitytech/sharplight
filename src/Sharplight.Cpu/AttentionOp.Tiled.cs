@@ -1,8 +1,8 @@
 namespace Sharplight.Cpu;
 
-// Tiled ("flash") attention for the common case: one sequence, f32/f16 K and V, causal or full, optional sliding window and
-// sinks. A task owns the query rows of one KV head that fit into the vector lanes (heads of the GQA group x consecutive
-// tokens, one row per lane), streams the keys in blocks and keeps a running softmax per lane, so every K/V row is converted
+// Tiled ("flash") attention for the common case: one sequence (or the equal-length sequences of the batched form), f32/f16 K
+// and V, causal or full, optional sliding window, additive mask and sinks. A task owns the query rows of one KV head that fit
+// into the vector lanes (heads of the GQA group x consecutive tokens, one row per lane), streams the keys in blocks and keeps a running softmax per lane, so every K/V row is converted
 // once per task and every multiply-add works on a full vector of rows. Short queries (decode) split the keys over several
 // tasks whose partial results are merged afterwards.
 internal sealed unsafe partial class AttentionOp
@@ -26,6 +26,7 @@ internal sealed unsafe partial class AttentionOp
     private int _tokensPerTask;
     private int _headBlocks;
     private int _tokenBlocks;
+    private int _blocksPerSequence;
     private int _splits;
     private long _splitKeys;
     private float* _partials;
@@ -34,7 +35,7 @@ internal sealed unsafe partial class AttentionOp
     private void InitTiled()
     {
         bool symmetricWindow = _window > 0 && _offsetScalar is null && !_causal;
-        bool plain = _selection is null && _compressed is null && _rows is null && _spans is null && _pages is null && _mask is null && _alibiSlopes is null && _positionBias is null && _kQuant is null && !symmetricWindow
+        bool plain = _selection is null && _compressed is null && _rows is null && _spans is null && _pages is null && _alibiSlopes is null && _positionBias is null && _kQuant is null && !symmetricWindow
             && _vQuant is null && _chunk == 0 && _softcap == 0f && _dv % ValueColumns == 0
             && _k.Strides[2] == 1 && _v.Strides[2] == 1;
         _tiledLanes = !plain ? 0 : CpuIsa.Use512 ? FloatLanes512.Count : CpuIsa.Use256 ? FloatLanes256.Count : 0;
@@ -46,6 +47,13 @@ internal sealed unsafe partial class AttentionOp
     /// <summary>Visible keys [first, end) of query row <paramref name="t"/>.</summary>
     private void VisibleKeys(long t, out long first, out long end)
     {
+        if (_sequenceRows > 0)
+        {
+            first = t / _sequenceRows * _sequenceKeys;
+            end = first + _sequenceKeys;
+            return;
+        }
+
         end = _offsetScalar is not null ? _past + t + 1 : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
         first = _window > 0 ? Math.Max(0, end - _window) : 0;
     }
@@ -56,14 +64,16 @@ internal sealed unsafe partial class AttentionOp
         bool rowPath = _t <= RowPathMaxTokens;
         int lanes = rowPath ? group : _tiledLanes;
         _headsPerTask = rowPath ? group : Math.Min(group, lanes);
+        long sequenceRows = _sequenceRows > 0 ? _sequenceRows : _t;   // token blocks never straddle sequences
         _tokensPerTask = rowPath ? 1 : Math.Max(1, lanes / _headsPerTask);
         _headBlocks = (group + _headsPerTask - 1) / _headsPerTask;
-        _tokenBlocks = (int)((_t + _tokensPerTask - 1) / _tokensPerTask);
+        _blocksPerSequence = (int)((sequenceRows + _tokensPerTask - 1) / _tokensPerTask);
+        _tokenBlocks = (int)(_t / sequenceRows * _blocksPerSequence);
         long baseTasks = (long)_hkv * _headBlocks * _tokenBlocks;
         VisibleKeys(_t - 1, out _, out long maxEnd);
         _splits = 1;
         int threads = CpuParallel.Threads;
-        if (baseTasks < 2L * threads)
+        if (baseTasks < 2L * threads && _sequenceRows <= 0)
         {
             long wanted = (2L * threads + baseTasks - 1) / baseTasks;
             _splits = (int)Math.Clamp(Math.Min(wanted, maxEnd / MinKeysPerSplit), 1, 64);
@@ -76,7 +86,7 @@ internal sealed unsafe partial class AttentionOp
             _partials = (float*)ThreadScratch.Get(ThreadScratch.Caller, baseTasks * _splits * lanes * (_dv + 2L) * sizeof(float));
         }
 
-        var body = rowPath ? _rowTask! : lanes == FloatLanes512.Count ? _tiled512! : _tiled256!;
+        var body = rowPath ? _rowTask! : _tiledLanes == FloatLanes512.Count ? _tiled512! : _tiled256!;
         CpuParallel.For((int)(baseTasks * _splits), body);
         if (_splits > 1)
         {
@@ -127,9 +137,10 @@ internal sealed unsafe partial class AttentionOp
             }
 
             float* k = KeyRow(row, (f + j) * ks0 + hk * ks1);
+            float bias = _mask is null ? 0f : MaskRow(t)[(f + j) * MaskColumnStride];
             for (int r = 0; r < group; r++)
             {
-                sc[(long)r * n + j] = Simd.Dot(qs + (long)r * d, k, d);
+                sc[(long)r * n + j] = Simd.Dot(qs + (long)r * d, k, d) + bias;
             }
         }
 
@@ -218,8 +229,10 @@ internal sealed unsafe partial class AttentionOp
         int group = _hq / _hkv;
         int h0 = hk * group + headBlock * _headsPerTask;
         int heads = Math.Min(_headsPerTask, group - headBlock * _headsPerTask);
-        long t0 = (long)tokenBlock * _tokensPerTask;
-        int tokens = (int)Math.Min(_tokensPerTask, _t - t0);
+        long sequenceRows = _sequenceRows > 0 ? _sequenceRows : _t;
+        long withinSequence = (long)(tokenBlock % _blocksPerSequence) * _tokensPerTask;
+        long t0 = tokenBlock / _blocksPerSequence * sequenceRows + withinSequence;
+        int tokens = (int)Math.Min(_tokensPerTask, sequenceRows - withinSequence);
         int d = _d;
         int dv = _dv;
 
@@ -272,11 +285,36 @@ internal sealed unsafe partial class AttentionOp
         new Span<float>(ot, dv * lanes).Clear();
         var m = TL.Load(state);
         var l = TL.Load(state + lanes);
+        long ks0 = _k.Strides[0];
+        long kOffset = hk * _k.Strides[1];
+        long vs0 = _v.Strides[0];
+        long vOffset = hk * _v.Strides[1];
         for (long jb = kbeg; jb < kend; jb += KeyBlock)
         {
             int nk = (int)Math.Min(KeyBlock, kend - jb);
-            LoadKeyValueBlock(kb, vb, hk, jb, nk);
-            Scores<TL>(qt, kb, sc, d, lanes);
+
+            // Full blocks of f32 rows are read in place; f16 rows and the last partial block are converted / zero-padded.
+            float* keys = kb;
+            float* values = vb;
+            long kStride = d;
+            long vStride = dv;
+            if (nk == KeyBlock && !_kHalf && !_vHalf)
+            {
+                keys = (float*)_k.P + jb * ks0 + kOffset;
+                values = (float*)_v.P + jb * vs0 + vOffset;
+                kStride = ks0;
+                vStride = vs0;
+            }
+            else
+            {
+                LoadKeyValueBlock(kb, vb, hk, jb, nk);
+            }
+
+            Scores<TL>(qt, keys, kStride, sc, d, lanes);
+            if (_mask is not null)
+            {
+                AddMask(sc, lanes, t0, tokens, jb, nk);
+            }
 
             var blockMax = TL.Broadcast(float.NegativeInfinity);
             for (int j = 0; j < KeyBlock; j++)
@@ -292,14 +330,14 @@ internal sealed unsafe partial class AttentionOp
             var sum = TL.Zero;
             for (int j = 0; j < KeyBlock; j++)
             {
-                var p = TL.Exp(TL.Subtract(TL.Load(sc + j * lanes), mSafe));
-                TL.Store(p, sc + j * lanes);
-                sum = TL.Add(sum, p);
+                var pv = TL.Exp(TL.Subtract(TL.Load(sc + j * lanes), mSafe));
+                TL.Store(pv, sc + j * lanes);
+                sum = TL.Add(sum, pv);
             }
 
             l = TL.Fma(l, alpha, sum);
             m = mNew;
-            AccumulateValues<TL>(sc, vb, ot, alpha, dv, lanes);
+            AccumulateValues<TL>(sc, values, vStride, ot, alpha, dv, lanes);
         }
 
         TL.Store(m, state);
@@ -320,6 +358,26 @@ internal sealed unsafe partial class AttentionOp
                 {
                     pr[2 + c] = ot[(long)c * lanes + r];
                 }
+            }
+        }
+    }
+
+    /// <summary>Adds the mask to the scores sc[j][lanes] of keys [jb, jb + nk); lane r holds token r / heads per task.</summary>
+    private void AddMask(float* sc, int lanes, long t0, int tokens, long jb, int nk)
+    {
+        long ms1 = MaskColumnStride;
+        for (int r = 0; r < lanes; r++)
+        {
+            int ti = r / _headsPerTask;
+            if (ti >= tokens)
+            {
+                continue;
+            }
+
+            float* m = MaskRow(t0 + ti) + jb * ms1;
+            for (int j = 0; j < nk; j++)
+            {
+                sc[(long)j * lanes + r] += m[j * ms1];
             }
         }
     }
@@ -382,19 +440,22 @@ internal sealed unsafe partial class AttentionOp
         }
     }
 
-    /// <summary>sc[j][lanes] = sum_i qt[i][lanes] * kb[j][i] for the whole key block, eight keys at a time.</summary>
-    private static void Scores<TL>(float* qt, float* kb, float* sc, int d, int lanes) where TL : struct, IFloatLanes<TL>
+    /// <summary>
+    /// sc[j][lanes] = sum_i qt[i][lanes] * kb[j][i] for the whole key block (key rows <paramref name="kStride"/> apart), eight
+    /// keys at a time.
+    /// </summary>
+    private static void Scores<TL>(float* qt, float* kb, long kStride, float* sc, int d, int lanes) where TL : struct, IFloatLanes<TL>
     {
         for (int j = 0; j < KeyBlock; j += ScoreKeys)
         {
-            float* k0 = kb + (long)j * d;
-            float* k1 = k0 + d;
-            float* k2 = k1 + d;
-            float* k3 = k2 + d;
-            float* k4 = k3 + d;
-            float* k5 = k4 + d;
-            float* k6 = k5 + d;
-            float* k7 = k6 + d;
+            float* k0 = kb + j * kStride;
+            float* k1 = k0 + kStride;
+            float* k2 = k1 + kStride;
+            float* k3 = k2 + kStride;
+            float* k4 = k3 + kStride;
+            float* k5 = k4 + kStride;
+            float* k6 = k5 + kStride;
+            float* k7 = k6 + kStride;
             float* q = qt;
             var a0 = TL.Zero;
             var a1 = TL.Zero;
@@ -429,8 +490,11 @@ internal sealed unsafe partial class AttentionOp
         }
     }
 
-    /// <summary>ot[c][lanes] = alpha * ot[c][lanes] + sum_j p[j][lanes] * vb[j][c], eight value columns at a time.</summary>
-    private static void AccumulateValues<TL>(float* p, float* vb, float* ot, TL alpha, int dv, int lanes) where TL : struct, IFloatLanes<TL>
+    /// <summary>
+    /// ot[c][lanes] = alpha * ot[c][lanes] + sum_j p[j][lanes] * vb[j][c] (value rows <paramref name="vStride"/> apart), eight
+    /// value columns at a time.
+    /// </summary>
+    private static void AccumulateValues<TL>(float* p, float* vb, long vStride, float* ot, TL alpha, int dv, int lanes) where TL : struct, IFloatLanes<TL>
     {
         for (int c = 0; c < dv; c += ValueColumns)
         {
@@ -445,7 +509,7 @@ internal sealed unsafe partial class AttentionOp
             var o7 = TL.Multiply(TL.Load(o + 7 * lanes), alpha);
             float* v = vb + c;
             float* pj = p;
-            for (int j = 0; j < KeyBlock; j++, v += dv, pj += lanes)
+            for (int j = 0; j < KeyBlock; j++, v += vStride, pj += lanes)
             {
                 var pv = TL.Load(pj);
                 o0 = TL.Fma(pv, TL.Broadcast(v[0]), o0);

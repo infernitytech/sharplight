@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             xmlns:iv="using:Sharplight.Studio.Views.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorSectionsView"
+             x:DataType="ivm:SectionsViewModel">
+  <Grid ColumnDefinitions="*,16,360" RowDefinitions="Auto,*" Margin="0,0,0,16">
+    <TextBlock Classes="muted" Text="{Binding Summary}" Margin="0,0,0,10" VerticalAlignment="Center" />
+    <Border Grid.Row="1" Classes="table">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="table-header">
+          <Grid ColumnDefinitions="78,*,130,130,90,120">
+            <TextBlock Classes="th" Text="Kind" />
+            <TextBlock Grid.Column="1" Classes="th" Text="Name" />
+            <TextBlock Grid.Column="2" Classes="th" Text="Offset" />
+            <TextBlock Grid.Column="3" Classes="th" Text="End" />
+            <TextBlock Grid.Column="4" Classes="th" Text="Size" />
+            <TextBlock Grid.Column="5" Classes="th" Text="Share of file" />
+          </Grid>
+        </Border>
+        <ListBox Classes="table" ItemsSource="{Binding Rows}" SelectedItem="{Binding SelectedRow}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="ivm:SectionRow">
+              <Grid ColumnDefinitions="78,*,130,130,90,120" ToolTip.Tip="{Binding Title}">
+                <Border Classes="kind" Classes.unknown="{Binding !IsDecoded}">
+                  <TextBlock Text="{Binding Kind}" />
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,4,12,4">
+                  <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="caption mono" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                             IsVisible="{Binding Name, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+                <TextBlock Grid.Column="2" Classes="cell mono caption" Text="{Binding OffsetText}" />
+                <TextBlock Grid.Column="3" Classes="cell mono caption" Text="{Binding EndText}" />
+                <TextBlock Grid.Column="4" Classes="cell" Text="{Binding Size}" />
+                <Grid Grid.Column="5" ColumnDefinitions="*,52" VerticalAlignment="Center">
+                  <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent}" MinWidth="0" />
+                  <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Share}" HorizontalAlignment="Right" />
+                </Grid>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <ScrollViewer Grid.Column="2" Grid.RowSpan="2">
+      <StackPanel Spacing="14">
+        <Border Classes="card" IsVisible="{Binding SelectedRow, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <StackPanel Spacing="10" DataContext="{Binding SelectedRow}" x:DataType="ivm:SectionRow">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border Classes="kind" Classes.unknown="{Binding !IsDecoded}">
+                <TextBlock Text="{Binding Kind}" />
+              </Border>
+              <TextBlock Classes="h2" Text="{Binding Title}" />
+            </StackPanel>
+            <TextBlock Classes="muted" Text="{Binding Description}" TextWrapping="Wrap" />
+            <Border Classes="warn" IsVisible="{Binding !IsDecoded}">
+              <TextBlock Text="This version of Sharplight does not know this section kind. Loading skips it." TextWrapping="Wrap" />
+            </Border>
+            <Grid ColumnDefinitions="100,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+              <TextBlock Classes="caption" Text="Name" Margin="0,2" />
+              <SelectableTextBlock Grid.Column="1" Classes="mono" Text="{Binding Name}" TextWrapping="Wrap" Margin="0,2" />
+              <TextBlock Grid.Row="1" Classes="caption" Text="Offset" Margin="0,2" />
+              <SelectableTextBlock Grid.Row="1" Grid.Column="1" Classes="mono" Text="{Binding OffsetText}" Margin="0,2" />
+              <TextBlock Grid.Row="2" Classes="caption" Text="End" Margin="0,2" />
+              <SelectableTextBlock Grid.Row="2" Grid.Column="1" Classes="mono" Text="{Binding EndText}" Margin="0,2" />
+              <TextBlock Grid.Row="3" Classes="caption" Text="Length" Margin="0,2" />
+              <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ExactSize}" TextWrapping="Wrap" Margin="0,2" />
+              <TextBlock Grid.Row="4" Classes="caption" Text="Share of file" Margin="0,2" />
+              <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Share}" Margin="0,2" />
+            </Grid>
+            <Button Classes="accent small" HorizontalAlignment="Left" IsVisible="{Binding CanShow}" Content="{Binding ShowLabel}"
+                    Click="OnShow" />
+          </StackPanel>
+        </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="h3" Text="Bytes by kind" />
+            <ItemsControl ItemsSource="{Binding KindTotals}" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

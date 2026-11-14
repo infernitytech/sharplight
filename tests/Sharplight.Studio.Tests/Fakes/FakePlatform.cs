@@ -13,10 +13,16 @@ internal sealed class FakePlatform : IPlatformServices, IUiDispatcher, IThemeSer
 
     public Func<SystemSample>? Sampler { get; set; }
 
-    public Task<IReadOnlyList<string>> PickFilesAsync(string title, IReadOnlyList<FileFilter> filters, bool allowMultiple) =>
-        Task.FromResult<IReadOnlyList<string>>([]);
+    /// <summary>What the file picker returns.</summary>
+    public IReadOnlyList<string> PickedFiles { get; set; } = [];
 
-    public Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
+    public Task<IReadOnlyList<string>> PickFilesAsync(string title, IReadOnlyList<FileFilter> filters, bool allowMultiple) =>
+        Task.FromResult(PickedFiles);
+
+    /// <summary>What <see cref="PickFolderAsync"/> returns (null = cancelled).</summary>
+    public string? Folder { get; set; }
+
+    public Task<string?> PickFolderAsync(string title) => Task.FromResult(Folder);
 
     public Task<string?> PickSaveFileAsync(string title, string suggestedName, FileFilter filter) => Task.FromResult<string?>(null);
 

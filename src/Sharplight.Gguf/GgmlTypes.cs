@@ -1,3 +1,4 @@
+using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.Gguf;
@@ -92,9 +93,9 @@ internal static class GgmlTypes
     }
 
     /// <summary>Returns the data type for a ggml type id.</summary>
-    /// <exception cref="NotSupportedException">The id is unknown or removed.</exception>
+    /// <exception cref="UnsupportedWeightFormatException">The id is unknown or removed.</exception>
     public static DataType GetDataType(int ggmlType) => TryGetDataType(ggmlType)
-        ?? throw new NotSupportedException($"Unsupported ggml tensor type id {ggmlType}.");
+        ?? throw new UnsupportedWeightFormatException($"ggml type id {ggmlType}", $"Unsupported ggml tensor type id {ggmlType}.");
 
     /// <summary>Returns the ggml type id for a data type.</summary>
     /// <exception cref="NotSupportedException">The type has no ggml id.</exception>

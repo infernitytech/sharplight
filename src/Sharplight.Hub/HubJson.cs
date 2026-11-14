@@ -63,6 +63,8 @@ internal static class HubJson
             var files = model.TryGetProperty("siblings", out var siblings) && siblings.ValueKind == JsonValueKind.Array
                 ? siblings.EnumerateArray().Select(sibling => String(sibling, "rfilename")).OfType<string>().ToList()
                 : [];
+            var config = model.TryGetProperty("config", out var configValue) && configValue.ValueKind == JsonValueKind.Object ? configValue : default;
+            var gguf = model.TryGetProperty("gguf", out var ggufValue) && ggufValue.ValueKind == JsonValueKind.Object ? ggufValue : default;
             results.Add(new HubModelSummary(
                 id,
                 Int64(model, "downloads") ?? 0,
@@ -72,10 +74,25 @@ internal static class HubJson
                 String(model, "pipeline_tag"),
                 Parameters(model),
                 Formats(files),
-                ModelFileSelector.ListVariants(files)));
+                ModelFileSelector.ListVariants(files),
+                gguf.ValueKind == JsonValueKind.Object ? String(gguf, "architecture") : null,
+                config.ValueKind == JsonValueKind.Object ? String(config, "model_type") : null,
+                config.ValueKind == JsonValueKind.Object ? QuantizationMethod(config) : null,
+                files.Any(GgufFileName.IsGguf) && files.Where(GgufFileName.IsGguf).All(GgufFileName.IsProjector)));
         }
 
         return results;
+    }
+
+    /// <summary>The <c>quant_method</c> of a configuration's <c>quantization_config</c> (<c>mlx</c> for MLX's, which has none).</summary>
+    private static string? QuantizationMethod(JsonElement config)
+    {
+        if (!config.TryGetProperty("quantization_config", out var quantization) || quantization.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return String(quantization, "quant_method") ?? (quantization.TryGetProperty("bits", out _) ? "mlx" : null);
     }
 
     private static JsonDocument Parse(string json)

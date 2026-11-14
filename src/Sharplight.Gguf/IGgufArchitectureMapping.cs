@@ -44,4 +44,14 @@ internal interface IGgufArchitectureMapping
     /// layouts (e.g. <c>clip</c> projector types) override it; default: <see cref="Architecture"/>.
     /// </summary>
     public string ResolveArchitecture(GgufMetadataView gguf) => Architecture;
+
+    /// <summary>
+    /// What restricts one of <see cref="GgufArchitectures"/> when it runs only in part (as <c>docs/model-support.md</c> lists it as
+    /// partial), or null when it is fully supported. Default: null.
+    /// </summary>
+    /// <param name="ggufArchitecture">One of <see cref="GgufArchitectures"/>.</param>
+    public string? PartialSupport(string ggufArchitecture) => null;
+
+    /// <summary>The files of this architecture are multimodal projectors (mmproj), loaded next to a language model, not models of their own.</summary>
+    public bool IsProjector => false;
 }

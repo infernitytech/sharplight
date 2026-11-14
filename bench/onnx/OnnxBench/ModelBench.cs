@@ -33,6 +33,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         result["model"] = manifest.Name;
         result["batch"] = batch;
         result["reducedPrecision"] = arguments.ReducedPrecision;
+        result["splitHalf"] = arguments.SplitHalf;
 
         IExecutionProvider provider = arguments.Provider == "cpu" ? new CpuExecutionProvider() : new VulkanProvider();
         var availability = provider.CheckAvailability();
@@ -113,6 +114,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
                     {
                         SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch },
                         AllowReducedPrecision = arguments.ReducedPrecision,
+                        SplitHalfMatMul = arguments.SplitHalf,
                     },
                     ReservePerDevice = 256L << 20,
                 });

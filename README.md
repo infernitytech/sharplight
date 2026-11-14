@@ -108,20 +108,22 @@ Section 23 loads the operands of small-batch matmuls straight into the tensor-co
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 
-ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21 and 25), min latency in ms at batch 1.
-Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off ("strict").
-The CPU columns use 16 threads on both engines and come from the idle-machine runs of section 21 (section 25 could only
-measure the CPU under heavy background load).
+ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21, 25 and 26), min latency in ms at
+batch 1. Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off
+("strict"). The CPU columns use 16 threads on both engines: the convnets come from the idle-machine runs of section 21,
+the transformer rows from section 26 (interleaved with ORT, under background load).
+Section 26 fuses the attention of ONNX encoders on both providers and adds an opt-in split-f16 tensor-core GEMM
+(`CompileOptions.SplitHalfMatMul`, 2-7x the f32 error), which takes vit b8 from 9.85 to 7.15 ms.
 
 | Model | Sharplight Vulkan | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
 |---|---:|---:|---:|---:|---:|
-| resnet50 | 0.81 | 1.02 | 2.11 | 8.2 | 5.7 |
-| mobilenetv2 | 0.42 | 0.35 | 0.65 | 2.1 | 1.6 |
-| yolov10n | 1.26 | 1.17 | 2.31 | 15.5 | 15.2 |
-| bert-base (16 tokens) | 1.30 | 1.24 | 1.44 | 11.4 | 11.4 |
-| vit-base | 2.61 | 1.34 | 2.46 | 26.1 | 21.2 |
-| whisper-tiny encoder | 2.38 | 1.17 | 2.08 | 44.9 | 39.5 |
-| mobilesam encoder | 5.96 | 6.15 | 8.00 | 215 | 196 |
+| resnet50 | 0.81 | 1.01 | 2.11 | 8.2 | 5.7 |
+| mobilenetv2 | 0.41 | 0.37 | 0.65 | 2.1 | 1.6 |
+| yolov10n | 1.27 | 1.17 | 2.31 | 15.5 | 15.2 |
+| bert-base (16 tokens) | 1.22 | 1.24 | 1.43 | 13.7 | 11.4 |
+| vit-base | 2.44 | 1.35 | 2.47 | 24.7 | 22.3 |
+| whisper-tiny encoder | 1.81 | 1.18 | 2.09 | 22.7 | 54.1 |
+| mobilesam encoder | 5.96 | 6.28 | 8.16 | 200 | 204 |
 
 ## Building
 
@@ -145,19 +147,32 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 | `samples/Sharplight.Cli` | `sharplight` | Chat / generate / benchmark from the command line; pulls Hugging Face models like the server |
 | `samples/Sharplight.Server` | `sharplight-server` | Serve one or several models over HTTP; search, pull and run Hugging Face models ([docs/model-hub.md](docs/model-hub.md)) |
 | `samples/Sharplight.Convert` | `sharplight-convert` | Convert models to `.slm` packages, precompile, inspect |
-| `samples/Sharplight.PackageViewer` | `sharplight-viewer` | Avalonia viewer for `.slm` packages (graphs, IR, weights, artifacts) |
 | `samples/Sharplight.OnnxRun` | `sharplight-onnxrun` | Run an ONNX model on the CPU or Vulkan provider |
 
 Defaults keep near-f32 accuracy; `--reduced-precision` opts in to faster f16 kernel paths where they exist.
+
+Downloaded and converted models are stored in a `data` folder next to the executable, or in the per-user folder
+(`~/.local/share/sharplight/models` on Linux) when the application directory is not writable. `--models-dir`,
+`SHARPLIGHT_MODELS` or `sharplight store use user|application|DIR` choose another location; `store migrate` moves models
+from the per-user folder used by earlier versions ([docs/model-hub.md](docs/model-hub.md#store)). Compiled kernels are cached
+per user (`~/.local/share/sharplight/kernels`).
 
 ## Sharplight Studio
 
 A desktop app (Avalonia) to search and download Hugging Face models and convert them automatically. It chats with several
 resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
-APIs. It also records per-model speed and latency statistics.
+APIs. It also records per-model speed and latency statistics. Models go to a `data` folder next to the app by default; the
+settings page switches to the per-user folder or a custom one. Its package inspector shows everything in a `.slm` file:
+metadata, tokenizer, the execution graphs (drawn, as IR and as a table), weights, precompiled artifacts and the raw section
+layout.
+
+On Linux, download the AppImage from the [releases](https://github.com/infernitytech/sharplight/releases), make it
+executable and run it; nothing else needs to be installed (a `.tar.gz` of the same self-contained app is attached too).
+From source:
 
 ```sh
 dotnet run -c Release --project apps/Sharplight.Studio
+packaging/linux/build-appimage.sh <version>   # builds the AppImage into artifacts/studio
 ```
 
 ![Sharplight Studio](docs/images/studio/studio-chat.png)

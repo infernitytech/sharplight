@@ -26,10 +26,35 @@ different models run at the same time. Images and documents can be attached by d
 ![Discover](images/studio/studio-discover.png)
 
 - *Discover* searches Hugging Face (format filter, gated models hidden on request) and lists a repository's quantizations with
-  their sizes.
-- *Library* lists the model store (the same store and resolution as the command-line tools: `--models-dir`, the setting,
-  `SHARPLIGHT_MODELS`, a `models` folder next to the app, then the per-user default) and any added `.gguf`, `.slm` or `.onnx`
-  files. *Load* opens the load options:
+  their sizes. Each quantization gets an approximate fit badge for this machine (*Fits*, *Fits on 2 GPUs*, *Fits after unloading*,
+  *CPU offload ~40 %*, *Too large*), and the selected one's verdict is explained above the download button (it never blocks the
+  download). The estimate takes the download size as weights and sizes the KV cache for the default load settings from the
+  model's dimensions: the start of a GGUF file (a range request) or the checkpoint's `config.json`. Without them it assumes a
+  generous share of the weights.
+- Discover also says whether a model is likely to import and run, from the same metadata reads (nothing extra is downloaded). The
+  verdicts are *Supported*, *Partially supported*, *Unsupported architecture &lt;name&gt;*, *Unsupported weight format &lt;type&gt;*,
+  *Projector* (an mmproj file, loaded with its language model), *Checked at import* (ONNX) and *Unknown* (the metadata could not be
+  read). Each search result gets a badge from what the Hub's search reports (the GGUF architecture, or a checkpoint's `model_type`
+  and quantization method), and results that are likely not to import are listed after the others. Each quantization gets a badge
+  too, with the reason in its tooltip, and the selected one's verdict is in the box above the download button. Downloading always
+  stays possible.
+
+  ![Discover with an unsupported architecture](images/studio/studio-discover-unsupported.png)
+
+  The checks come from the importers, not from lists in Studio:
+  - GGUF: `general.architecture` against the registered mappings (`GgufSupport`). Partial support is what a mapping declares, e.g.
+    Qwen3.8-Flash-Next (`qwen4exp`), whose block indexer runs in its dense regime only. When the recommended quantization is
+    opened, or another one is selected, its tensor table is read too: a prefix of up to 32 MiB, fetched in steps. Every ggml type id
+    must be known and have CPU kernels (`CpuExecutionProvider.SupportsWeightType`). Every provider falls back to the CPU, so a type
+    without CPU kernels, such as `Q8_K`, cannot load. Of a split GGUF only the first shard's tensors are read.
+  - Hugging Face checkpoints: the `model_type` against the mappings (`HfSupport`), and the quantization in `config.json` (and
+    ModelOpt's `hf_quant_config.json`). FP8 (block scales, compressed-tensors with 8-bit float weights, ModelOpt FP8) and MXFP4 for
+    gpt-oss are read. GPTQ, AWQ, bitsandbytes, MLX, integer or 4-bit compressed-tensors, ModelOpt NVFP4 and similar packed formats
+    are not, and the importer now rejects them with that reason. A method that is not known gives *Unknown*.
+  - ONNX: the opset imports (domain and version) are read by skipping the graph by its length (`OnnxOpsetScanner`), usually in one
+    or two range requests. Operators are checked when the model is imported.
+- *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
+  then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files. *Load* opens the load options:
   - device;
   - context length;
   - parallel slots;
@@ -39,8 +64,44 @@ different models run at the same time. Images and documents can be attached by d
   - CPU offload;
   - the **Reduced precision** opt-in.
 
+  Below the options, a memory estimate follows every change: the engine's footprint (weights, KV cache, activations) computed
+  from the model's graph for these settings, against each device's free and total memory and the residency reserve. It says
+  whether the model fits, fits after unloading other models (naming them, and whether they unload by themselves), needs CPU
+  offload (with the share that would run on the CPU, against system memory), or does not fit at all. Suggestions (shorter
+  context, smaller KV cache, one slot, turning on offload, splitting over all GPUs, a smaller quantization in the library) apply
+  with a click. With several GPUs the device list also offers *All GPUs (split)*, which splits the layers in proportion to their
+  free memory.
+
+  ![Load options with the memory estimate](images/studio/studio-load-fit-offload.png)
+
   Loading shows its stages (reading, building graphs, placement, kernel compilation with cached counts, weight upload) and can be
   cancelled. *Convert…* turns a GGUF, safetensors checkpoint or ONNX model into a `.slm` package.
+
+  When a download's conversion or a load fails because of the model, the error starts with the reason: *Unsupported architecture
+  &lt;name&gt;* or *Unsupported weight format &lt;type&gt;*. The reason comes from the importer's error
+  (`UnsupportedArchitectureException`, `UnsupportedWeightFormatException`). Otherwise Studio reads the file itself: a GGUF header and
+  tensor table, a checkpoint's `config.json`, or a package's stored weight types.
+
+  *Inspect* (on a `.slm` card or in its context menu) opens the **package inspector**. *Open .slm file…* opens a package from
+  anywhere. The inspector reads only the section table, the definition and the weight and artifact indexes, never weight data,
+  so a 30 GB package opens in a fraction of a second. It shows everything in the file:
+  - *Overview*: the model (architecture, parameters, graphs, nodes, context length), the package file (format version, sizes by
+    section kind, reclaimable bytes), the source and conversion (repository, variant, revision, source format and files), the
+    tokenizer (model, vocabulary, merges, special tokens), the chat template and the states.
+  - *Graphs*: one tab per graph with its inputs, outputs and op histogram, and three views of it. The **graph** view is a layered
+    dataflow drawing that pans, zooms and finds nodes, colored by op category; selecting a node shows its attributes, its inputs
+    (type, shape, producer or weight), its outputs and its consumers. The **IR** view is the `--dump-graph` text with search,
+    go-to-producer and consumers. The **nodes** view is a filterable table (`op:` filters by op). All three share the selection.
+  - *Weights*: name, type, shape, bits per element, size and offset, sortable and filterable, with totals per type.
+  - *Artifacts*: every precompiled set (code and binary tiers per provider) with the profile it was built for (code target,
+    features, limits, device and driver identity), its entries (key, content hash, size, offset) and where it sits in the file.
+  - *Metadata*: the definition's properties and metadata, filterable, with the full value of the selected entry.
+  - *Sections*: the whole file in offset order (header, every section, the section table and unused gaps). Sections of a kind
+    this version does not know are listed raw with their size and offset; the other sections still open.
+
+  Lists and the graph drawing are virtualized, so a graph with 100,000 nodes stays responsive.
+
+  ![Package inspector](images/studio/studio-inspector.png)
 - *Resident* shows the loaded models: state (loading / ready / busy / sleeping / failed), device, memory, last use, and load progress.
   It also shows memory per device against its budget. *Unload* drains running requests for a few seconds and then frees the model.
 
@@ -74,7 +135,11 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 
 **Settings.**
 - Theme (dark, light, system) and accent palette.
-- Models directory and Hugging Face token (falls back to `HF_TOKEN`).
+- Model store: **application folder** (`data` next to the app, the default), **user folder** (`~/.local/share/sharplight/models`
+  on Linux, shared with the command-line tools of the user) or a **custom folder** picked with a folder dialog. The page shows the
+  store in use and why (for example "Default: application folder", or "Default: user folder, the application folder is not
+  writable" for a read-only install), and *Open folder* opens it. `--models-dir` and `SHARPLIGHT_MODELS` take precedence.
+- Hugging Face token (falls back to `HF_TOKEN`).
 - Precompile after download, and whether to keep the source files.
 - Load defaults.
 - Residency:
@@ -96,7 +161,11 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 |---|---|
 | Settings (`settings.json`), including the download queue | `sharplight/studio` under the roaming application data directory (`~/.config` on Linux) |
 | Conversations and statistics (`studio.db`) | `sharplight/studio` under the local application data directory (`~/.local/share` on Linux) |
-| Models | The model store shared with the command-line tools |
+| Models | The model store: `data` next to the app by default, else the folder chosen in the settings (see above); converted local models go to `converted/` in it by default |
+| Compiled kernels | `sharplight/kernels` under the local application data directory (`~/.local/share` on Linux), shared by every tool |
+
+When the model store in effect is empty while the user folder (the default of earlier versions) has models, Studio offers once to
+keep using the user folder or to move or copy the models into the new store.
 
 `SHARPLIGHT_STUDIO_HOME` moves settings and data into one directory (portable use).
 
@@ -128,12 +197,22 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 - the pure helpers;
 - the SQLite stores and settings;
 - the downloads queue (pause, resume, cancel, restore after restart);
+- fit estimates: the planner (unloading, offload, system memory, split GPUs), the load panel's estimate and suggestions, and the
+  download badges;
+- compatibility checks before downloading, on the tiny GGUFs and Hugging Face configs under `~/models` when present (an unmapped
+  architecture, an mmproj projector, a partial architecture, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
+  unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
+  library's import errors;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
-- a headless render of every page that fails on binding errors.
+- a headless render of every page that fails on binding errors;
+- the package inspector: every tab of a small package, a view for every section kind the format defines, unknown sections
+  listed raw, the linked graph, IR and node selection, the graph layout, and a 100,000-node graph that stays virtualized.
 
 `RealModelTests` loads two small GGUF models (Qwen3-0.6B, SmolLM2-360M) when they are on disk. It chats with both at once and
-calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here.
+calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to save the page screenshots used here. With
+`SHARPLIGHT_INSPECTOR_PACKAGES` (a list of `.slm` paths, separated like `PATH`), the inspector renders every tab of those
+packages in both themes.
 
 ## Limitations
 
@@ -141,7 +220,12 @@ calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to
   are not batched with the model's text engine, and this memory is not counted in the residency budget.
 - **Conversion progress.** Conversion during a download reports its log, not a percentage. Precompilation reports kernel counts
   per graph.
-- **Fit check.** Whether a model fits is decided by the host's footprint estimate when it is loaded: it evicts idle models,
-  offloads to the CPU when allowed, or refuses the load. The load panel does not show the estimate beforehand.
+- **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
+  applications), and the vision tower of an image conversation is not counted. Download badges are approximate: they know the
+  file sizes and, where readable, the attention dimensions, not the exact graph.
+- **Compatibility checks.** They are likely verdicts, not guarantees. A mapped architecture can still use a hyper-parameter or
+  tensor layout its mapping rejects; that only shows at import. Quantizations other than the recommended one share the
+  architecture's verdict until they are selected and their tensor tables are read. A tensor table beyond 32 MiB from the start of
+  the file is not read. ONNX operators are not checked before import.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

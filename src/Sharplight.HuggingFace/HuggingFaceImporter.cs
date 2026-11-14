@@ -66,7 +66,9 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     /// A model source named after the directory. It owns the memory-mapped shards; dispose it to unmap them.
     /// </returns>
     /// <exception cref="FileNotFoundException"><paramref name="path"/> is neither a directory nor a <c>.safetensors</c> file, or the checkpoint has no shards.</exception>
-    /// <exception cref="NotSupportedException">The <c>model_type</c> is unsupported or tensors have no canonical mapping.</exception>
+    /// <exception cref="NotSupportedException">Tensors have no canonical mapping.</exception>
+    /// <exception cref="UnsupportedArchitectureException">The <c>model_type</c> has no mapping.</exception>
+    /// <exception cref="UnsupportedWeightFormatException">The checkpoint is quantized with a method the importer does not read (see <see cref="HfSupport.GetQuantizationSupport"/>).</exception>
     public static ModelSource Open(string path, HfImportOptions? options = null)
     {
         options ??= HfImportOptions.Default;
@@ -76,9 +78,10 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
         string weightsDir = decision?.BackboneDirectory ?? dir;
         using var config = HfConfig.Load(weightsDir);
         var mapping = HfArchitectureMappings.Find(config.ModelType)
-            ?? throw new NotSupportedException(
+            ?? throw new UnsupportedArchitectureException(config.ModelType ?? string.Join(", ", config.Architectures),
                 $"Hugging Face model_type '{config.ModelType}' ({string.Join(", ", config.Architectures)}) is not supported. " +
                 $"Supported: {string.Join(", ", HfArchitectureMappings.All.SelectMany(m => m.ModelTypes))}.");
+        RejectUnsupportedQuantization(config, dir);
 
         var checkpoint = SafetensorsCheckpoint.Open(weightsDir);
         List<IDisposable> owned = [checkpoint];
@@ -148,6 +151,20 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
             }
 
             throw;
+        }
+    }
+
+    /// <summary>Fails early, with the method's name, for checkpoints whose quantized weights cannot be read.</summary>
+    /// <exception cref="UnsupportedWeightFormatException">The quantization method is not read.</exception>
+    private static void RejectUnsupportedQuantization(HfConfig config, string dir)
+    {
+        string modelOptPath = Path.Combine(dir, "hf_quant_config.json");
+        using var modelOpt = File.Exists(modelOptPath) ? System.Text.Json.JsonDocument.Parse(File.ReadAllText(modelOptPath)) : null;
+        var quantization = HfSupport.AssessQuantization(config, modelOpt?.RootElement);
+        if (quantization.Level == SupportLevel.Unsupported)
+        {
+            throw new UnsupportedWeightFormatException(quantization.Method!,
+                $"{new DirectoryInfo(dir).Name}: weights quantized with {quantization.Method} are not supported (supported: unquantized, FP8, MXFP4 for gpt-oss).");
         }
     }
 }

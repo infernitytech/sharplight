@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>GGUF importer for Sharplight: reads llama.cpp model files (all ggml quantization formats) into Sharplight models.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>

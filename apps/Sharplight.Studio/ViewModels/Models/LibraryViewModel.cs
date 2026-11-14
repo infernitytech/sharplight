@@ -2,8 +2,10 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Platform;
 using Sharplight.Studio.Services.Runtime;
+using Sharplight.Studio.ViewModels.Inspector;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
@@ -11,6 +13,7 @@ namespace Sharplight.Studio.ViewModels.Models;
 internal sealed partial class LibraryViewModel : ObservableObject
 {
     private static readonly FileFilter s_modelFiles = new("Models", ["*.slm", "*.gguf", "*.onnx"]);
+    private static readonly FileFilter s_packageFiles = new("Sharplight packages", ["*.slm"]);
 
     private readonly StudioServices _services;
     private readonly INavigator _navigator;
@@ -41,6 +44,10 @@ internal sealed partial class LibraryViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsPanelOpen))]
     public partial ConvertViewModel? ConvertPanel { get; set; }
+
+    /// <summary>The open package inspector (shown instead of the models page), or null.</summary>
+    [ObservableProperty]
+    public partial PackageInspectorViewModel? Inspector { get; set; }
 
     /// <summary>Listing.</summary>
     [ObservableProperty]
@@ -73,7 +80,7 @@ internal sealed partial class LibraryViewModel : ObservableObject
             Entries.Clear();
             foreach (var entry in entries)
             {
-                Entries.Add(new LibraryEntryViewModel(entry) { IsLoaded = loadedPaths.Contains(entry.Path) });
+                Entries.Add(new LibraryEntryViewModel(entry) { IsLoaded = loadedPaths.Contains(entry.Path), Library = this });
             }
 
             Status = Entries.Count == 1 ? "1 model" : $"{Entries.Count} models";
@@ -95,9 +102,54 @@ internal sealed partial class LibraryViewModel : ObservableObject
     private void Load(LibraryEntryViewModel entry)
     {
         ConvertPanel = null;
-        LoadPanel = new LoadOptionsViewModel(entry, _services, OnLoaded, () => LoadPanel = null);
+        LoadPanel = new LoadOptionsViewModel(entry, _services, OnLoaded, () => LoadPanel = null,
+            () => [.. Entries.Select(other => other.Entry)], OpenVariant);
     }
 
+    /// <summary>Switches the load panel to another library model (a smaller quantization the estimate suggests).</summary>
+    private void OpenVariant(LibraryEntry variant)
+    {
+        if (Entries.FirstOrDefault(other => other.Entry.Path == variant.Path) is { } entry)
+        {
+            LoadPanel?.CloseCommand.Execute(null);
+            Load(entry);
+        }
+    }
+
+
+    /// <summary>Opens the package inspector for a library model.</summary>
+    [RelayCommand]
+    public Task InspectAsync(LibraryEntryViewModel entry) => OpenInspectorAsync(entry.Entry.Path, entry.Entry.Manifest);
+
+    /// <summary>Opens the package inspector for any <c>.slm</c> file the user picks.</summary>
+    [RelayCommand]
+    private async Task OpenPackageFileAsync()
+    {
+        var files = await _services.Platform.PickFilesAsync("Open .slm package", [s_packageFiles], allowMultiple: false);
+        if (files.Count > 0)
+        {
+            await OpenInspectorAsync(files[0], null);
+        }
+    }
+
+    /// <summary>Opens the package inspector for <paramref name="path"/> and reads the package.</summary>
+    /// <returns>Whether the package was read.</returns>
+    public Task<bool> OpenInspectorAsync(string path, Sharplight.Hub.ModelManifest? manifest)
+    {
+        var inspector = new PackageInspectorViewModel(path, manifest, () => Inspector = null);
+        Inspector = inspector;
+        return inspector.LoadAsync();
+    }
+
+    [RelayCommand]
+    private void OpenEntryFolder(LibraryEntryViewModel entry)
+    {
+        var folder = Directory.Exists(entry.Entry.Path) ? entry.Entry.Path : Path.GetDirectoryName(entry.Entry.Path);
+        if (folder is not null && Directory.Exists(folder))
+        {
+            _services.Platform.Open(folder);
+        }
+    }
 
     [RelayCommand]
     private async Task DeleteAsync(LibraryEntryViewModel entry)

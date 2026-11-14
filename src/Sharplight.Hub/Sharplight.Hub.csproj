@@ -3,7 +3,7 @@
     <Description>Hugging Face Hub client and local model store: search, resumable verified downloads, conversion to .slm packages.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Sharplight.Packaging/Sharplight.Packaging.csproj" />
+    <ProjectReference Include="../Sharplight.Package.Import/Sharplight.Package.Import.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Sharplight.Hub.Tests" />

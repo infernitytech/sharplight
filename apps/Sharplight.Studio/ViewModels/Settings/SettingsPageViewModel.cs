@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Sharplight.Hub;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
@@ -66,7 +67,18 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     [ObservableProperty]
     public partial AccentPalette Accent { get; set; }
 
-    /// <summary>Model store chosen here (empty = default resolution).</summary>
+    /// <summary>Model store location choices.</summary>
+    public IReadOnlyList<StoreLocationChoice> StoreLocations => StoreLocationChoice.All;
+
+    /// <summary>Where the model store is: application folder (default), user folder or <see cref="ModelsDirectory"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCustomStore))]
+    public partial StoreLocationChoice StoreLocation { get; set; } = StoreLocationChoice.All[0];
+
+    /// <summary>The custom store folder is in use, so its path can be edited.</summary>
+    public bool IsCustomStore => StoreLocation.Value == ModelStoreLocation.Custom;
+
+    /// <summary>The custom model store folder.</summary>
     [ObservableProperty]
     public partial string ModelsDirectory { get; set; } = "";
 
@@ -187,6 +199,18 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
     /// <summary>Features disabled through <c>SHARPLIGHT_DISABLE_FEATURES</c>.</summary>
     public string EnvironmentDisabled => DeviceFeatures.DisabledByEnvironment.Count == 0 ? "" : "Disabled by SHARPLIGHT_DISABLE_FEATURES: " + string.Join(", ", DeviceFeatures.DisabledByEnvironment);
 
+    /// <summary>Shows the store settings again (they can change outside this page, e.g. by the store migration offer).</summary>
+    public override Task ActivateAsync()
+    {
+        _initializing = true;
+        var settings = _services.Settings.Current;
+        StoreLocation = StoreLocationChoice.Get(Services.Settings.StoreLocation.Effective(settings));
+        ModelsDirectory = settings.ModelsDirectory ?? "";
+        RefreshStore();
+        _initializing = false;
+        return Task.CompletedTask;
+    }
+
     partial void OnThemeChanged(ThemeChoice value)
     {
         Save();
@@ -204,6 +228,8 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
             _services.Theme.Apply(Theme.Value, value.Name);
         }
     }
+
+    partial void OnStoreLocationChanged(StoreLocationChoice value) => Save();
 
     partial void OnModelsDirectoryChanged(string value) => Save();
 
@@ -262,14 +288,28 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         if (folder is not null)
         {
             ModelsDirectory = folder;
+            StoreLocation = StoreLocationChoice.Get(ModelStoreLocation.Custom);
         }
     }
 
     [RelayCommand]
-    private void ResetModelsDirectory() => ModelsDirectory = "";
+    private void ResetModelsDirectory() => StoreLocation = StoreLocationChoice.Get(ModelStoreLocation.Application);
 
     [RelayCommand]
-    private void OpenModelsDirectory() => _services.Platform.Open(StoreRoot);
+    private void OpenModelsDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(StoreRoot);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Message = $"Cannot create {StoreRoot}: {error.Message}";
+            return;
+        }
+
+        _services.Platform.Open(StoreRoot);
+    }
 
     [RelayCommand]
     private void ResetDefaults()
@@ -300,6 +340,7 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         var settings = _services.Settings.Current;
         Theme = ThemeChoice.All.First(choice => choice.Value == settings.Theme);
         Accent = AccentPalette.Get(settings.Accent);
+        StoreLocation = StoreLocationChoice.Get(Services.Settings.StoreLocation.Effective(settings));
         ModelsDirectory = settings.ModelsDirectory ?? "";
         HuggingFaceToken = settings.HuggingFaceToken ?? "";
         DefaultSystemPrompt = settings.DefaultSystemPrompt;
@@ -356,6 +397,11 @@ internal sealed partial class SettingsPageViewModel : PageViewModel
         {
             Theme = Theme.Value,
             Accent = Accent.Name,
+            // Never chosen and still the default: stays unset, so the store is reported as the default.
+            ModelsLocation = current.ModelsLocation is null && Services.Settings.StoreLocation.ToStoreSettings(current) is null
+                && StoreLocation.Value == ModelStoreLocation.Application
+                ? null
+                : StoreLocation.Value,
             ModelsDirectory = string.IsNullOrWhiteSpace(ModelsDirectory) ? null : ModelsDirectory.Trim(),
             HuggingFaceToken = string.IsNullOrWhiteSpace(HuggingFaceToken) ? null : HuggingFaceToken.Trim(),
             DefaultSystemPrompt = DefaultSystemPrompt,

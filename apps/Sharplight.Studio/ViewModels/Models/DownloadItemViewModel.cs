@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Hub;
 using Sharplight.Studio.Services.Platform;
 
@@ -192,7 +193,7 @@ internal sealed partial class DownloadItemViewModel : ObservableObject
         catch (Exception error) when (error is not OutOfMemoryException)
         {
             Phase = PullPhase.Failed;
-            Message = error.Message;
+            Message = ImportFailure.Describe(error, error.Message);
         }
         finally
         {

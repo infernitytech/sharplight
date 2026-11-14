@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorIrView"
+             x:DataType="ivm:IrViewModel">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="ivm:IrReferenceRow">
+      <TextBlock TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Target.Text}">
+        <Run Text="{Binding Label}" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" />
+        <Run Text="{Binding Target.Preview}" />
+      </TextBlock>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+  <Grid ColumnDefinitions="*,12,340">
+    <Border Classes="table">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="table-header" Padding="10,8">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+              <TextBlock Classes="caption" Text="{Binding SearchStatus}" VerticalAlignment="Center" Margin="0,0,6,0" />
+              <Button Classes="small" Content="Previous" Command="{Binding FindPreviousCommand}" />
+              <Button Classes="small" Content="Next" Command="{Binding FindNextCommand}" />
+              <Button Classes="small" Command="{Binding BackCommand}" ToolTip.Tip="Return to the previously selected line">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                  <Path Classes="icon" Data="{StaticResource IconChevronLeft}" Width="11" Height="11" />
+                  <TextBlock Text="Back" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+            <TextBox PlaceholderText="Find in the IR (Enter: next, Shift+Enter: previous)" Text="{Binding SearchText}" Margin="0,0,10,0">
+              <TextBox.KeyBindings>
+                <KeyBinding Gesture="Enter" Command="{Binding FindNextCommand}" />
+                <KeyBinding Gesture="Shift+Enter" Command="{Binding FindPreviousCommand}" />
+              </TextBox.KeyBindings>
+            </TextBox>
+          </DockPanel>
+        </Border>
+        <ListBox x:Name="Lines" Classes="code" ItemsSource="{Binding Lines}" SelectedItem="{Binding SelectedLine}" SelectionChanged="OnLineSelected">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="ivm:IrLineRow">
+              <StackPanel Orientation="Horizontal">
+                <TextBlock Width="60" Margin="0,0,12,0" Foreground="{DynamicResource TextMutedBrush}" TextAlignment="Right" Text="{Binding Number}" />
+                <TextBlock Text="{Binding Text}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Column="2" Classes="card" Padding="14">
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,*,Auto,2*">
+        <TextBlock Classes="section" Text="SELECTED LINE" />
+        <Panel Grid.Row="1" Margin="0,4,0,8">
+          <TextBlock Classes="caption" Text="Select a line." IsVisible="{Binding SelectedLine, Converter={x:Static ObjectConverters.IsNull}}" />
+          <SelectableTextBlock Classes="mono" FontSize="12" TextWrapping="Wrap" MaxHeight="110"
+                               DataContext="{Binding SelectedLine}" x:DataType="ivm:IrLineRow" Text="{Binding Text}" />
+        </Panel>
+        <TextBlock Grid.Row="2" Classes="section" Text="READS (GO TO PRODUCER)" />
+        <ListBox Grid.Row="3" Classes="code" ItemsSource="{Binding Producers}" SelectionChanged="OnReferenceSelected" />
+        <TextBlock Grid.Row="4" Classes="section" Text="USED BY" Margin="0,8,0,0" />
+        <ListBox Grid.Row="5" Classes="code" ItemsSource="{Binding Consumers}" SelectionChanged="OnReferenceSelected" />
+        <TextBlock Grid.Row="6" Classes="section" Text="NEIGHBORHOOD (&lt; PRODUCERS, &gt; CONSUMERS)" Margin="0,8,0,0" />
+        <ListBox Grid.Row="7" Classes="code" ItemsSource="{Binding Neighborhood}" SelectionChanged="OnReferenceSelected" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

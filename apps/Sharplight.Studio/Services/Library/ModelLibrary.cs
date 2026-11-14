@@ -1,5 +1,5 @@
 using Sharplight.Hub;
-using Sharplight.Packaging;
+using Sharplight.Package.Import;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Settings;
 
@@ -69,6 +69,7 @@ internal sealed class ModelLibrary : IModelLibrary
         EngineBootstrap.Register();
         await Task.Run(() =>
         {
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(destination))!);
             var options = new ConversionOptions { Log = log.Report };
             ModelConverter.Convert(source, destination, options, projector is null ? null : [(ProjectorRole, projector)]);
         }, cancellationToken).ConfigureAwait(false);

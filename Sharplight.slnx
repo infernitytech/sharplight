@@ -12,7 +12,7 @@
     <Project Path="src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
     <Project Path="src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
     <Project Path="src/Sharplight.Package/Sharplight.Package.csproj" />
-    <Project Path="src/Sharplight.Packaging/Sharplight.Packaging.csproj" />
+    <Project Path="src/Sharplight.Package.Import/Sharplight.Package.Import.csproj" />
     <Project Path="src/Sharplight.Hub/Sharplight.Hub.csproj" />
     <Project Path="src/Sharplight.AspNetCore/Sharplight.AspNetCore.csproj" />
     <Project Path="src/Sharplight.Extensions.AI/Sharplight.Extensions.AI.csproj" />
@@ -30,7 +30,6 @@
     <Project Path="samples/Sharplight.Server/Sharplight.Server.csproj" />
     <Project Path="samples/Sharplight.AgentHost/Sharplight.AgentHost.csproj" />
     <Project Path="samples/Sharplight.Convert/Sharplight.Convert.csproj" />
-    <Project Path="samples/Sharplight.PackageViewer/Sharplight.PackageViewer.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Sharplight.Cpu.Tests/Sharplight.Cpu.Tests.csproj" />
@@ -43,7 +42,6 @@
     <Project Path="tests/Sharplight.Onnx.Tests/Sharplight.Onnx.Tests.csproj" />
     <Project Path="tests/Sharplight.Onnx.Conformance/Sharplight.Onnx.Conformance.csproj" />
     <Project Path="tests/Sharplight.Package.Tests/Sharplight.Package.Tests.csproj" />
-    <Project Path="tests/Sharplight.PackageViewer.Tests/Sharplight.PackageViewer.Tests.csproj" />
     <Project Path="tests/Sharplight.Templating.Tests/Sharplight.Templating.Tests.csproj" />
     <Project Path="tests/Sharplight.Serving.Tests/Sharplight.Serving.Tests.csproj" />
     <Project Path="tests/Sharplight.Studio.Tests/Sharplight.Studio.Tests.csproj" />

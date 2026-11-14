@@ -1,0 +1,67 @@
+name: Studio
+
+# Builds Sharplight Studio for Linux as an AppImage (one file, no install, no .NET needed) plus a .tar.gz of the same
+# self-contained app folder. Pushes to main upload them as a build artifact; a release tag v* (created with `nbgv tag`)
+# also attaches them to the GitHub release of that tag.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['docs/**', 'bench/**', '**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04 # the oldest supported glibc the AppImage then runs on
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the version height
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Version
+        id: nbgv
+        uses: dotnet/nbgv@v0.4
+        with:
+          setAllVars: true
+
+      - name: Build AppImage
+        run: packaging/linux/build-appimage.sh "${{ steps.nbgv.outputs.NuGetPackageVersion }}" artifacts/studio
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sharplight-studio-${{ steps.nbgv.outputs.NuGetPackageVersion }}-linux-x64
+          path: artifacts/studio
+          if-no-files-found: error
+
+  release:
+    needs: appimage
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and upload its assets
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sharplight-studio-*
+          merge-multiple: true
+          path: studio
+
+      - name: Attach to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          if [[ "$TAG" == *-* ]]; then prerelease="--prerelease"; fi
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Sharplight $TAG" --generate-notes $prerelease
+          fi
+          gh release upload "$TAG" studio/* --repo "$GITHUB_REPOSITORY" --clobber

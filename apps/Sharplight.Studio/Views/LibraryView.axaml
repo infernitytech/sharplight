@@ -13,6 +13,7 @@
             <Path Classes="icon" Data="{StaticResource IconRefresh}" Width="13" Height="13" />
           </Button>
           <Button Classes="small" Command="{Binding OpenStoreFolderCommand}" Content="Open folder" />
+          <Button Classes="small" Command="{Binding OpenPackageFileCommand}" Content="Open .slm file…" ToolTip.Tip="Inspect a package that is not in the library" />
           <Button Classes="small" Command="{Binding OpenConvertCommand}" Content="Convert…" />
           <Button Classes="accent small" Command="{Binding AddFileCommand}">
             <StackPanel Orientation="Horizontal" Spacing="6">
@@ -40,11 +41,26 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="mvm:LibraryEntryViewModel">
                 <Border Classes="card" Margin="0,0,0,10" Padding="16,14">
+                  <Border.ContextMenu>
+                    <ContextMenu>
+                      <MenuItem Header="Load…" Command="{Binding Library.LoadCommand}" CommandParameter="{Binding}" />
+                      <MenuItem Header="Inspect package" IsEnabled="{Binding IsPackage}"
+                                Command="{Binding Library.InspectCommand}" CommandParameter="{Binding}" />
+                      <MenuItem Header="Open containing folder" Command="{Binding Library.OpenEntryFolderCommand}" CommandParameter="{Binding}" />
+                    </ContextMenu>
+                  </Border.ContextMenu>
                   <DockPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                       <Border Classes="badge tools" IsVisible="{Binding IsLoaded}">
                         <TextBlock Text="Resident" />
                       </Border>
+                      <Button Classes="small" IsVisible="{Binding IsPackage}" ToolTip.Tip="Inspect the package: structure, graphs, weights and precompiled kernels"
+                              Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).InspectCommand}" CommandParameter="{Binding}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <Path Classes="icon" Data="{StaticResource IconLayers}" Width="12" Height="12" />
+                          <TextBlock Text="Inspect" />
+                        </StackPanel>
+                      </Button>
                       <Button Classes="accent small" Command="{Binding $parent[ItemsControl].((mvm:LibraryViewModel)DataContext).LoadCommand}" CommandParameter="{Binding}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                           <Path Classes="icon" Data="{StaticResource IconPlay}" Width="11" Height="11" />

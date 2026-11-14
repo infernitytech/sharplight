@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Tokenizers for Sharplight: BPE, SentencePiece, WordPiece and Unigram, compatible with Hugging Face and GGUF vocabularies.</Description>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Sharplight.Core/Sharplight.Core.csproj" />
   </ItemGroup>

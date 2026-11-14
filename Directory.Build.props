@@ -12,10 +12,31 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsAotCompatible Condition="'$(OutputType)' != 'Exe'">true</IsAotCompatible>
+    <!-- Versions come from version.json and the git height (Nerdbank.GitVersioning, SemVer 2). -->
     <Authors>Sharplight contributors</Authors>
+    <Copyright>Copyright (c) Sharplight contributors</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/infernitytech/sharplight</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/infernitytech/sharplight</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <Version>0.1.0-alpha</Version>
+    <PackageTags>llm;inference;gguf;onnx;vulkan;ai;transformers</PackageTags>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <!-- Only the libraries under src/ ship as NuGet packages. -->
+  <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/src/'))">
+    <IsPackable>true</IsPackable>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('/src/'))">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
   <!-- Tests and samples are not public API: no XML documentation requirement. -->
   <PropertyGroup Condition="$(MSBuildProjectDirectory.Contains('/tests/')) Or $(MSBuildProjectDirectory.Contains('/samples/'))">
     <NoWarn>$(NoWarn);CS1591</NoWarn>

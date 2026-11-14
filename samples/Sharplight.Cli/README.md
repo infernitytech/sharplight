@@ -4,7 +4,7 @@ Loads a model (GGUF file, `.slm` package, Hugging Face checkpoint directory, a s
 that is pulled first) and generates text, describes images, dumps logits or benchmarks it on a Vulkan GPU or the CPU. Run
 `--help` for every option.
 
-It shares the model store and the `pull`, `search`, `list`, `show` and `rm` commands with `sharplight-server` (see
+It shares the model store resolution and the `pull`, `search`, `list`, `show`, `rm` and `store` commands with `sharplight-server` (see
 [docs/model-hub.md](../../docs/model-hub.md)):
 
 ```bash

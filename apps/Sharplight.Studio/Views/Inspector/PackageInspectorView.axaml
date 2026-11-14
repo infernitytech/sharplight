@@ -1,0 +1,85 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             xmlns:iv="using:Sharplight.Studio.Views.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.PackageInspectorView"
+             x:DataType="ivm:PackageInspectorViewModel">
+  <UserControl.KeyBindings>
+    <KeyBinding Gesture="Escape" Command="{Binding CloseCommand}" />
+  </UserControl.KeyBindings>
+  <UserControl.DataTemplates>
+    <!-- A labelled fact (overview cards, descriptors, node attributes). -->
+    <DataTemplate DataType="ivm:FactRow">
+      <Grid ColumnDefinitions="150,*" Margin="0,3">
+        <TextBlock Classes="caption" Text="{Binding Label}" VerticalAlignment="Top" Margin="0,1,12,0" TextTrimming="CharacterEllipsis" />
+        <SelectableTextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontSize="13" />
+      </Grid>
+    </DataTemplate>
+    <!-- A share of a whole with a bar. -->
+    <DataTemplate DataType="ivm:ShareRow">
+      <Grid ColumnDefinitions="130,*,72,58" Margin="0,4">
+        <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+          <TextBlock Text="{Binding Label}" FontSize="13" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="caption" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <ProgressBar Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding Percent}" VerticalAlignment="Center" MinWidth="0" />
+        <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Size}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="3" Classes="caption" Text="{Binding Share}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+      </Grid>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <DockPanel Margin="28,20,28,0">
+    <!-- Header -->
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+      <Button DockPanel.Dock="Left" Classes="ghost icon" Command="{Binding CloseCommand}" ToolTip.Tip="Back to the library (Esc)"
+              VerticalAlignment="Center" Margin="-8,0,6,0">
+        <Path Classes="icon" Data="{StaticResource IconChevronLeft}" />
+      </Button>
+      <Border DockPanel.Dock="Left" Width="44" Height="44" CornerRadius="11" Background="{DynamicResource AccentSoftBrush}" Margin="0,0,14,0">
+        <Path Classes="icon accent" Data="{StaticResource IconLayers}" Width="20" Height="20" />
+      </Border>
+      <ProgressBar DockPanel.Dock="Right" Classes="thin" Width="140" IsIndeterminate="True" IsVisible="{Binding IsLoading}" VerticalAlignment="Center" />
+      <StackPanel Spacing="2" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Classes="caption" Text="Library" />
+          <Path Classes="icon" Data="{StaticResource IconChevronRight}" Width="10" Height="10" VerticalAlignment="Center" />
+          <TextBlock Classes="caption" Text="Package inspector" />
+        </StackPanel>
+        <TextBlock Classes="h1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+        <TextBlock Classes="caption" Text="{Binding Status}" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </DockPanel>
+
+    <Border DockPanel.Dock="Top" Classes="warn" IsVisible="{Binding HasError}" Margin="0,10,0,0">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Path Classes="icon" Data="{StaticResource IconWarning}" Stroke="{DynamicResource WarningBrush}" />
+        <TextBlock Text="{Binding Error}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Panel IsVisible="{Binding IsLoaded}">
+      <TabControl Classes="pills" Padding="0,12,0,0" DataContext="{Binding Package}" x:DataType="ivm:PackageInspection"
+                  SelectedIndex="{Binding SelectedTab}">
+        <TabItem Header="Overview">
+          <iv:InspectorOverviewView DataContext="{Binding Overview}" />
+        </TabItem>
+        <TabItem Header="Graphs">
+          <iv:InspectorGraphsView DataContext="{Binding Graphs}" />
+        </TabItem>
+        <TabItem Header="Weights">
+          <iv:InspectorWeightsView DataContext="{Binding Weights}" />
+        </TabItem>
+        <TabItem Header="Artifacts">
+          <iv:InspectorArtifactsView DataContext="{Binding Artifacts}" />
+        </TabItem>
+        <TabItem Header="Metadata">
+          <iv:InspectorMetadataView DataContext="{Binding Metadata}" />
+        </TabItem>
+        <TabItem Header="Sections">
+          <iv:InspectorSectionsView DataContext="{Binding Sections}" />
+        </TabItem>
+      </TabControl>
+    </Panel>
+  </DockPanel>
+</UserControl>

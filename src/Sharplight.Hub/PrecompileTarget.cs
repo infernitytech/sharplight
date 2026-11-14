@@ -1,4 +1,4 @@
-using Sharplight.Packaging;
+using Sharplight.Package.Import;
 using Sharplight.Runtime;
 
 namespace Sharplight.Hub;

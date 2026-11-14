@@ -43,6 +43,12 @@ internal sealed class AttentionPlan
     /// <summary>"Attention" with i32 spans: the key range each query may see.</summary>
     public TensorRef? Spans { get; init; }
 
+    /// <summary>"Attention" with an additive f32 score mask ([rows, key rows], or [key rows] for every query).</summary>
+    public TensorRef? Mask { get; init; }
+
+    /// <summary>Batched "Attention": query rows per sequence (0 when not batched).</summary>
+    public long SequenceRows { get; init; }
+
     /// <summary>"Attention" over the keys of another sequence (cross-attention): the key row count is a kernel parameter.</summary>
     public bool Cross { get; init; }
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
@@ -134,5 +135,41 @@ public class BenchTests
         double keys = tokens == 1 ? past + 1 : (tokens + 1) / 2.0;
         double gflops = 4.0 * tokens * Hq * D * keys / sec / 1e9;
         Report($"Attention T={tokens,-4} past={past,-5} {sec * 1e6,9:F1} us  {gflops,8:F1} GFLOP/s  (p10 of {iters} runs, threads {CpuParallel.Threads}, {CpuIsa.Name(CpuIsa.Level)})");
+    }
+
+    /// <summary>Bidirectional encoder attention over f32 Q/K/V: whisper-tiny (1500 rows, 6 heads) and ViT-B (197 rows, 12 heads).</summary>
+    [Theory]
+    [InlineData(1500, 6, 64), InlineData(197, 12, 64)]
+    public void EncoderAttentionThroughput(int rows, int heads, int d)
+    {
+        Assert.SkipUnless(Environment.GetEnvironmentVariable("SHARPLIGHT_BENCH") == "1", "set SHARPLIGHT_BENCH=1 to run benchmarks");
+        var tg = new TestGraph();
+        var qi = tg.InF("q", TestGraph.T, heads, d);
+        var ki = tg.InF("k", TestGraph.T, heads, d);
+        var vi = tg.InF("v", TestGraph.T, heads, d);
+        tg.B.Output("o", tg.B.Emit1("Attention", [qi, ki, vi], Attributes.From(("scale", 1f / MathF.Sqrt(d)))));
+        using var m = Kit.Compile(tg.B.Build(), maxTokens: rows);
+        Kit.Set(m, qi, Kit.Rand(rows * heads * d, 1));
+        Kit.Set(m, ki, Kit.Rand(rows * heads * d, 2));
+        Kit.Set(m, vi, Kit.Rand(rows * heads * d, 3));
+        var p = Kit.P(rows);
+        for (int i = 0; i < 5; i++)
+        {
+            m.Run(p);
+        }
+
+        const int Iters = 50;
+        var times = new double[Iters];
+        for (int i = 0; i < Iters; i++)
+        {
+            long t0 = Stopwatch.GetTimestamp();
+            m.Run(p);
+            times[i] = Stopwatch.GetElapsedTime(t0).TotalSeconds;
+        }
+
+        Array.Sort(times);
+        double sec = times[Iters / 10];
+        double gflops = 4.0 * rows * rows * heads * d / sec / 1e9;
+        Report($"EncoderAttention rows={rows,-5} heads={heads,-3} {sec * 1e6,9:F1} us  {gflops,8:F1} GFLOP/s  (p10 of {Iters} runs, threads {CpuParallel.Threads}, {CpuIsa.Name(CpuIsa.Level)})");
     }
 }

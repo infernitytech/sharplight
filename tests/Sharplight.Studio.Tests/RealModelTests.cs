@@ -90,4 +90,34 @@ public sealed class RealModelTests
         await runtime.UnloadAsync("qwen");
         Assert.Equal(["smol"], runtime.LoadedModels.Select(model => model.Id));
     }
+
+    [Fact]
+    public async Task EstimateFootprint_FollowsTheSettings_AndDeviceMemoryListsSystemMemory()
+    {
+        Assert.SkipUnless(File.Exists(s_qwen), "small test model not found");
+        using var runtime = new EngineModelRuntime(() => new ResidencySettings());
+        var ct = TestContext.Current.CancellationToken;
+        var settings = new LoadSettings { ContextLength = 1024, BatchTokens = 128, Slots = 1 };
+        var request = new ModelLoadRequest("qwen", s_qwen, settings, []);
+
+        var footprint = await runtime.EstimateFootprintAsync(request, ct);
+        Assert.InRange(footprint.WeightBytes, new FileInfo(s_qwen).Length / 2, new FileInfo(s_qwen).Length * 2);
+        Assert.True(footprint.StateBytes > 0 && footprint.ActivationBytes > 0);
+
+        // The KV cache grows with the context and slots and shrinks with a quantized cache type.
+        var longer = await runtime.EstimateFootprintAsync(request with { Settings = settings with { ContextLength = 4096 } }, ct);
+        Assert.InRange(longer.StateBytes, footprint.StateBytes * 3, footprint.StateBytes * 5);
+        var twoSlots = await runtime.EstimateFootprintAsync(request with { Settings = settings with { Slots = 2 } }, ct);
+        Assert.True(twoSlots.StateBytes > footprint.StateBytes);
+        var q8 = await runtime.EstimateFootprintAsync(request with { Settings = settings with { KvCacheType = "q8_0" } }, ct);
+        Assert.True(q8.StateBytes < footprint.StateBytes * 0.7);
+        Assert.Equal(footprint.WeightBytes, q8.WeightBytes);
+
+        var memory = await runtime.GetDeviceMemoryAsync([], ct);
+        // The first non-GPU device is the CPU's system memory (a software rasterizer may follow it), as the runtime offloads to it.
+        var system = memory.First(device => !device.IsGpu);
+        Assert.Equal(runtime.Devices.First(device => !device.IsGpu).Id, system.Id);
+        Assert.True(system.TotalBytes > 0 && system.FreeBytes > 0 && system.FreeBytes <= system.TotalBytes);
+        Assert.All(memory.Where(device => device.IsGpu), device => Assert.True(device.TotalBytes > 0));
+    }
 }

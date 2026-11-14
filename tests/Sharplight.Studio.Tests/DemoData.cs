@@ -33,6 +33,19 @@ internal static class DemoData
         - Two chats on *different* models run side by side
         """;
 
+    /// <summary>Search results with a supported GGUF, a GGUF of an architecture without a mapping, and a GPTQ checkpoint.</summary>
+    public static IReadOnlyList<HubModelSummary> CompatibilityResults { get; } =
+    [
+        new HubModelSummary("Qwen/Qwen3-4B-GGUF", 268_000, 640, false, "gguf", "text-generation", 4_020_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
+            GgufArchitecture: "qwen3"),
+        new HubModelSummary("example-lab/HRM-Text-1B-GGUF", 41_000, 210, false, "gguf", "text-generation", 1_100_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "Q8_0"],
+            GgufArchitecture: "hrm_text"),
+        new HubModelSummary("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", 96_000, 120, false, "transformers", "text-generation", 7_610_000_000, [ModelFormat.Safetensors], [],
+            ModelType: "qwen2", QuantizationMethod: "gptq"),
+        new HubModelSummary("Qwen/Qwen3-4B", 1_120_000, 450, false, "transformers", "text-generation", 4_020_000_000, [ModelFormat.Safetensors], [],
+            ModelType: "qwen3"),
+    ];
+
     public static async Task FillAsync(TestServices services)
     {
         var qwen = services.Runtime.Add(new FakeModel("qwen3-0.6b", ModelCapabilities.Chat | ModelCapabilities.Reasoning | ModelCapabilities.Tools)
@@ -148,13 +161,13 @@ internal static class DemoData
 
         services.Hub.Results.AddRange(
         [
-            new HubModelSummary("Qwen/Qwen3-8B-GGUF", 412_000, 1820, false, "gguf", "text-generation", 8_190_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q5_K_M", "Q8_0"]),
-            new HubModelSummary("unsloth/gemma-3-12b-it-GGUF", 238_000, 960, false, "gguf", "image-text-to-text", 11_800_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "mmproj-F16"]),
-            new HubModelSummary("meta-llama/Llama-3.2-3B-Instruct", 1_920_000, 2100, true, "transformers", "text-generation", 3_210_000_000, [ModelFormat.Safetensors], []),
+            new HubModelSummary("Qwen/Qwen3-8B-GGUF", 412_000, 1820, false, "gguf", "text-generation", 8_190_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q5_K_M", "Q8_0"], GgufArchitecture: "qwen3"),
+            new HubModelSummary("unsloth/gemma-3-12b-it-GGUF", 238_000, 960, false, "gguf", "image-text-to-text", 11_800_000_000, [ModelFormat.Gguf], ["Q4_K_M", "Q6_K", "mmproj-F16"], GgufArchitecture: "gemma3"),
+            new HubModelSummary("meta-llama/Llama-3.2-3B-Instruct", 1_920_000, 2100, true, "transformers", "text-generation", 3_210_000_000, [ModelFormat.Safetensors], [], ModelType: "llama"),
             new HubModelSummary("onnx-community/Qwen3-0.6B-ONNX", 18_400, 75, false, "transformers.js", "text-generation", 600_000_000, [ModelFormat.Onnx], ["model_q4f16", "model_fp16"]),
         ]);
 
-        services.Settings.StoreRoot = "~/.local/share/sharplight/models";
+        services.Settings.ApplicationRoot = "/opt/sharplight-studio/data";
         services.Hub.FirstUpdate = new PullUpdate(PullPhase.Downloading, "Pulling Qwen/Qwen3-8B-GGUF:Q4_K_M", Received: 2_140_000_000, Total: 5_030_000_000,
             File: "Qwen3-8B-Q4_K_M.gguf", FileReceived: 2_140_000_000, FileSize: 5_030_000_000);
         await services.Server.StartAsync(new ServerSettings(), CancellationToken.None);

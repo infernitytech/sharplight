@@ -37,9 +37,11 @@ public sealed class DownloadsViewModelTests
         Assert.Contains("model.gguf", item.FileText);
         Assert.Equal(new PendingDownload(s_reference.ToString(), 1000, false), Assert.Single(services.Settings.Current.Downloads));
 
+        // The pull finishes on another thread: the phase turns Completed before the queue is updated and the model announced, so
+        // wait for the announcement (the last step) rather than the phase.
         services.Hub.Release();
-        await WaitFor(() => item.Phase == PullPhase.Completed);
-        Assert.NotNull(stored);
+        await WaitFor(() => Volatile.Read(ref stored) is not null);
+        Assert.Equal(PullPhase.Completed, item.Phase);
         Assert.Equal(0, downloads.ActiveCount);
         Assert.Empty(services.Settings.Current.Downloads);
     }

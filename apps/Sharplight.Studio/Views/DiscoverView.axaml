@@ -61,6 +61,10 @@
                     <Border Classes="badge" IsVisible="{Binding Parameters, Converter={x:Static ObjectConverters.IsNotNull}}">
                       <TextBlock Text="{Binding Parameters}" />
                     </Border>
+                    <Border x:Name="RepositoryCompatibility" DataContext="{Binding Compatibility}" x:DataType="mvm:CompatibilityBadgeViewModel"
+                            Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" ToolTip.Tip="{Binding ToolTip}">
+                      <TextBlock Text="{Binding Text}" />
+                    </Border>
                     <TextBlock Classes="caption" Text="{Binding Variants}" VerticalAlignment="Center" />
                   </StackPanel>
                 </StackPanel>
@@ -91,31 +95,80 @@
               </Button>
             </StackPanel>
           </StackPanel>
-          <Button DockPanel.Dock="Bottom" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding DownloadCommand}" Margin="0,12,0,0" Padding="0,9">
+          <Button DockPanel.Dock="Bottom" Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Command="{Binding DownloadCommand}" Margin="0,8,0,0" Padding="0,9">
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Path Classes="icon" Data="{StaticResource IconDownload}" />
               <TextBlock Text="Download, convert and add to the library" />
             </StackPanel>
           </Button>
+          <!-- Approximate fit of the selected variant: a warning before downloading (the download stays possible) -->
+          <Border DockPanel.Dock="Bottom" x:Name="DownloadFit" DataContext="{Binding SelectedFit}" x:DataType="mvm:FitBadgeViewModel" Margin="0,12,0,0"
+                  IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
+                  Classes="callout" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}">
+            <StackPanel Spacing="4">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <Path Classes="icon ok" Data="{StaticResource IconCheck}" Width="14" Height="14" IsVisible="{Binding IsGood}" />
+                <Path Classes="icon warn" Data="{StaticResource IconWarning}" Width="14" Height="14" IsVisible="{Binding IsWarning}" />
+                <Path Classes="icon bad" Data="{StaticResource IconWarning}" Width="14" Height="14" IsVisible="{Binding IsBad}" />
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" />
+              </StackPanel>
+              <TextBlock Text="{Binding Detail}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <!-- Likely compatibility of the selected variant (architecture and weight formats); downloading stays possible -->
+          <Border DockPanel.Dock="Bottom" x:Name="DownloadCompatibility" DataContext="{Binding SelectedCompatibility}" x:DataType="mvm:CompatibilityBadgeViewModel" Margin="0,12,0,0"
+                  IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
+                  Classes="callout" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}">
+            <StackPanel Spacing="4">
+              <StackPanel Orientation="Horizontal" Spacing="7">
+                <Path Classes="icon ok" Data="{StaticResource IconCheck}" Width="14" Height="14" IsVisible="{Binding IsGood}" />
+                <Path Classes="icon warn" Data="{StaticResource IconWarning}" Width="14" Height="14" IsVisible="{Binding IsWarning}" />
+                <Path Classes="icon bad" Data="{StaticResource IconWarning}" Width="14" Height="14" IsVisible="{Binding IsBad}" />
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="Wrap" />
+              </StackPanel>
+              <TextBlock Text="{Binding Detail}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
           <ProgressBar DockPanel.Dock="Top" IsIndeterminate="True" IsVisible="{Binding IsLoadingDetails}" Margin="0,0,0,8" />
-          <TextBlock DockPanel.Dock="Top" Classes="section" Text="QUANTIZATIONS" Margin="0,0,0,6" />
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+              <ProgressBar Classes="thin" IsIndeterminate="True" Width="40" VerticalAlignment="Center" IsVisible="{Binding IsEstimatingFit}" />
+              <TextBlock Classes="caption" FontSize="11" Text="Fit on this machine is approximate"
+                         ToolTip.Tip="Estimated before downloading from the file sizes and the model's dimensions, for the default load settings" />
+            </StackPanel>
+            <TextBlock Classes="section" Text="QUANTIZATIONS" />
+          </DockPanel>
           <ListBox Classes="plain" ItemsSource="{Binding Variants}" SelectedItem="{Binding SelectedVariant}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="mvm:VariantViewModel">
                 <DockPanel Margin="10,8">
                   <TextBlock DockPanel.Dock="Right" Text="{Binding Size}" FontWeight="Medium" VerticalAlignment="Center" />
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Text="{Binding Tag}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Border Classes="badge accent" IsVisible="{Binding Recommended}">
-                      <TextBlock Text="Recommended" />
-                    </Border>
-                    <Border Classes="badge vision" IsVisible="{Binding HasProjector}" ToolTip.Tip="Comes with a vision projector (mmproj)">
-                      <TextBlock Text="Vision" />
-                    </Border>
-                    <Border Classes="badge tools" IsVisible="{Binding IsStored}">
-                      <TextBlock Text="In library" />
-                    </Border>
-                    <TextBlock Classes="caption" Text="{Binding Files}" VerticalAlignment="Center" />
+                  <Border DockPanel.Dock="Right" DataContext="{Binding Fit}" x:DataType="mvm:FitBadgeViewModel" Margin="0,0,10,0"
+                          IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
+                          Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" ToolTip.Tip="{Binding ToolTip}">
+                    <TextBlock Text="{Binding Text}" />
+                  </Border>
+                  <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="{Binding Tag}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                      <Border Classes="badge accent" IsVisible="{Binding Recommended}">
+                        <TextBlock Text="Recommended" />
+                      </Border>
+                      <Border Classes="badge vision" IsVisible="{Binding HasProjector}" ToolTip.Tip="Comes with a vision projector (mmproj)">
+                        <TextBlock Text="Vision" />
+                      </Border>
+                      <Border Classes="badge tools" IsVisible="{Binding IsStored}">
+                        <TextBlock Text="In library" />
+                      </Border>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Border DataContext="{Binding Compatibility}" x:DataType="mvm:CompatibilityBadgeViewModel"
+                              IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
+                              Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" ToolTip.Tip="{Binding ToolTip}">
+                        <TextBlock Text="{Binding ShortText}" />
+                      </Border>
+                      <TextBlock Classes="caption" Text="{Binding Files}" VerticalAlignment="Center" />
+                    </StackPanel>
                   </StackPanel>
                 </DockPanel>
               </DataTemplate>

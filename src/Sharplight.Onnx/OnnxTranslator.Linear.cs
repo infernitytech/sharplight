@@ -64,6 +64,10 @@ internal sealed partial class OnnxTranslator
             var w = WeightValue(bT.C!.Transposed([1, 0]), keepHalf: true, name + ".weight");
             y = Emit("MatMul", [aT.V!, w], null, name);
         }
+        else if (!aT.IsConst && !bT.IsConst && TryDecomposedAttention(n, aT, bT))
+        {
+            return;
+        }
         else
         {
             var a = AsValue(aT);

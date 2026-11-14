@@ -33,19 +33,25 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 - **Chunked delta rule in rollback-form graphs**: with speculation on, prompt prefill uses the token-serial kernels and
   loses the 5–25 % prefill gain of §18. Replay the committed rows, then hand long runs to the chunked kernel.
 - **ONNX operator coverage**: control flow (Loop, If, Scan), sequences and the rest of the opset.
-- **ONNX latency parity with onnxruntime** (§21, §25). Done:
+- **ONNX latency parity with onnxruntime** (§21, §25, §26). Done:
   - conv / matmul epilogues on CPU and Vulkan, prepacked weights, decomposed LayerNorm / GELU and attention-scale
     translation, block-quantized MatMulNBits;
   - the 128x128 SIMT GEMM, bmm split-K, the CPU conv as one implicit GEMM (with a shifted stride-1 form);
-  - Vulkan NMS / RoiAlign / MaxPool indices / NonZero;
-  - the reduced-precision device loss and its batch-1 slowness.
+  - Vulkan NMS / RoiAlign / MaxPool indices / NonZero, CumProd;
+  - the reduced-precision device loss and its batch-1 slowness;
+  - fused encoder attention (decomposed MatMul → Softmax → MatMul and com.microsoft Attention / MultiHeadAttention)
+    on the CPU tiled kernel and a Vulkan flash kernel with split-f16 products in strict precision;
+  - an opt-in split-f16 tensor-core GEMM for f32 matmuls (`SplitHalfMatMul`, not f32-exact).
 
   Open gaps:
-  - Vulkan f32 GEMMs against ORT's TF32: vit, whisper, bert b8 and raft at 1.6-2.6x;
-  - no flash-style fusion of the decomposed attention (MatMul → Softmax → MatMul) on either provider;
-  - CPU convolution at 1.4-2x behind ORT on resnet50: NHWC / blocked layouts with propagation, Winograd;
-  - CPU GEMM at ~200 rows (vit) and CPU attention for batched encoders;
-  - detection models round-trip each data-dependent count through the host (R-CNN: 100 ms wall, 34 ms GPU).
+  - Vulkan f32 GEMMs against ORT's TF32 in strict precision: vit, raft, whisper, resnet50 / convnext b8 at 1.5-2.5x;
+    split f16 at f32-level accuracy (subnormal lo parts), split f16 for convs and bmm;
+  - QKV projection fusion for encoders;
+  - CPU convolution at 1.35-1.9x behind ORT on resnet50: NCHWc / NHWC layouts with propagation, Winograd, 1x1
+    output-channel blocking;
+  - CPU GEMM at ~200 rows (vit, bert b1 at 1.1-1.2x);
+  - detection models round-trip each data-dependent count through the host (R-CNN: 100 ms wall, 34 ms GPU);
+  - Vulkan Det / Inverse, integer CumSum and volumetric GridSample run on the CPU fallback.
 - **Sharplight Studio**: desktop app (Avalonia) for model search, download, conversion, chat and serving.
 
 ## Performance ideas

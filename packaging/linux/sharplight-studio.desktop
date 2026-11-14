@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Sharplight Studio
+GenericName=Local AI model studio
+Comment=Search, download, chat with and serve local language models
+Exec=sharplight-studio %U
+Icon=sharplight-studio
+Terminal=false
+Categories=Development;Science;ArtificialIntelligence;
+Keywords=LLM;AI;GGUF;ONNX;chat;inference;
+StartupWMClass=sharplight-studio

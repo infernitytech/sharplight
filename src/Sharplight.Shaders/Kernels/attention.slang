@@ -43,6 +43,34 @@
 #ifndef CAUSAL
 #define CAUSAL 0
 #endif
+// SEQ_ROWS > 0 (FULL_ATTN only, without SPANS, CROSS_ATTN, WINDOW, CAUSAL or score biases): the batched form, query rows
+// [b·SEQ_ROWS, (b+1)·SEQ_ROWS) see only key rows [b·SEQ_KEYS, (b+1)·SEQ_KEYS) (equal-length sequences of a batch).
+#ifndef SEQ_ROWS
+#define SEQ_ROWS 0
+#endif
+#ifndef SEQ_KEYS
+#define SEQ_KEYS 0
+#endif
+// HAS_MASK (FULL_ATTN only): p.mask is an additive f32 score mask, dense [rows, key rows] with MASK_PER_ROW, else one bias
+// per key row shared by every query.
+#ifndef HAS_MASK
+#define HAS_MASK 0
+#endif
+#ifndef MASK_PER_ROW
+#define MASK_PER_ROW 0
+#endif
+// FA_SPLIT (`fa` only): f32 Q/K/V/P are each split into two f16 parts (hi + lo) and every product is formed as
+// hi·hi + hi·lo + lo·hi on the tensor cores, which keeps about 22 significant bits (near-f32 accuracy) for values within
+// the f16 range. P is scaled by 2^12 before the split, so the lo parts of small probabilities stay normal.
+#ifndef FA_SPLIT
+#define FA_SPLIT 0
+#endif
+// FA_KSPLIT > 1 (`fa`, FULL_ATTN without SPANS, WINDOW, CAUSAL or sinks): the keys of every query block are split into FA_KSPLIT
+// ranges, one workgroup each (grid z = sequence · FA_KSPLIT + range), which write unnormalized partials like SPLITS for `combine`.
+// Gives short or few-head encoders enough workgroups to fill the device.
+#ifndef FA_KSPLIT
+#define FA_KSPLIT 1
+#endif
 // SELECTED > 0 (`main` only): sparse attention, query row t attends only the SELECTED key positions p.sel[t][..] (entries below 0 and
 // positions the row cannot see are skipped), e.g. a lightning indexer's top-k.
 #ifndef SELECTED
@@ -511,12 +539,33 @@ struct Params
 #if COMP_ATTN
     uint8_t* cc; // compressed cache [entries, HKV, VRS]
 #endif
+#if HAS_MASK
+    float* mask; // additive score mask (see HAS_MASK)
+#endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
 #if CROSS_ATTN
     uint S;      // key rows (FULL_ATTN cross-attention: K/V are [S, HKV, D], independent of the T queries)
 #endif
 };
+
+#if HAS_MASK
+// Offset of query row t's mask row in p.mask (0 when one row serves every query).
+uint64_t mask_row(uint T, uint S, uint t)
+{
+#if MASK_PER_ROW
+#if SEQ_ROWS
+    return uint64_t(t) * (uint64_t(T / SEQ_ROWS) * SEQ_KEYS);
+#elif CROSS_ATTN
+    return uint64_t(t) * S;
+#else
+    return uint64_t(t) * T;
+#endif
+#else
+    return 0;
+#endif
+}
+#endif
 
 
 
@@ -587,7 +636,12 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     uint tid = ltid.x;
     uint hk = h / (HQ / HKV);
     uint64_t kvRow = 0;   // multi-sequence: first cache row (x HKV) of the query's slot
-#if FULL_ATTN && SPANS
+    uint keyBase = 0;     // batched form: first key row of the query's sequence
+#if FULL_ATTN && SEQ_ROWS
+    keyBase = t / SEQ_ROWS * SEQ_KEYS;
+    kvRow = uint64_t(keyBase) * HKV;
+    uint L = SEQ_KEYS;
+#elif FULL_ATTN && SPANS
     uint spBeg = uint(p.spans[t * 2]);
     uint L = spBeg + uint(p.spans[t * 2 + 1]);
 #if CAUSAL
@@ -641,6 +695,13 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
     float* qr = p.q + uint64_t(t) * QS0 + uint64_t(h) * QS1;
     for (uint i = tid; i < D; i += WG) sQ[i] = qr[i] * SCALE;
     GroupMemoryBarrierWithGroupSync();
+#if HAS_MASK
+#if CROSS_ATTN
+    float* maskRow = p.mask + mask_row(p.T, p.S, t) + keyBase;
+#else
+    float* maskRow = p.mask + mask_row(p.T, 0, t) + keyBase;
+#endif
+#endif
 
     float m = -1e30, l = 0;
     float acc[DPT];
@@ -664,6 +725,9 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
 #if HAS_SCORE_BIAS
         if (valid) s += score_bias(h, j, qPos);
+#endif
+#if HAS_MASK
+        if (valid) s += maskRow[j];
 #endif
         float mc = reduce_max(s, tid);
         float mNew = max(m, mc);
@@ -767,6 +831,17 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
 }
 
+#if FA_SPLIT
+// x as hi + lo: hi is x rounded to 11 significant bits (exact in f16 within its normal range), lo the remainder. The rounding
+// works on the bits: compilers may fold a float(half(x)) round trip to x, which would leave lo = 0.
+void fa_split(float x, out half hi, out half lo)
+{
+    float h = asfloat((asuint(x) + 0x1000u) & 0xFFFFE000u);
+    hi = half(h);
+    lo = half(x - h);
+}
+#endif
+
 #ifdef KERNEL_FA
 // ---------------------------------------------------------------------------------------------
 // Flash attention for many queries (prefill) on tensor cores. A workgroup handles FA_BR consecutive queries of one
@@ -800,8 +875,15 @@ groupshared half faKV[FA_BC * FA_KS];
 groupshared float faS[FA_BR * FA_SS];
 groupshared half faP[FA_BR * FA_PS];
 groupshared float faO[FA_BR * FA_DC];
+#if FA_SPLIT
+groupshared half faQl[FA_BR * FA_QS];   // lo parts (FA_SPLIT)
+groupshared half faKVl[FA_BC * FA_KS];
+groupshared half faPl[FA_BR * FA_PS];
+#define FA_P_SCALE 4096.0
+#endif
 
-// Rows j0.. of K or V (dim columns of rows rowStride wide, zero-padded to dimP) into faKV as f16; rows >= L are zero.
+// Rows j0.. of K or V (dim columns of rows rowStride wide, zero-padded to dimP) into faKV as f16 (FA_SPLIT: hi parts in faKV,
+// lo parts in faKVl); rows >= L are zero.
 void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint dim, uint rowStride, uint dimP, uint tid)
 {
     uint per = dimP / 8;
@@ -814,11 +896,26 @@ void fa_load_kv(uint8_t* cache, uint64_t kvRow, uint j0, uint L, uint hk, uint d
         {
             float v[8];
             unpack_kv8(load_kv8(cache, (kv_row(kvRow, j) + hk) * rowStride + c), v);
-            [ForceUnroll] for (uint e = 0; e < 8; e++) faKV[o + e] = half(v[e]);
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+#if FA_SPLIT
+                fa_split(v[e], faKV[o + e], faKVl[o + e]);
+#else
+                faKV[o + e] = half(v[e]);
+#endif
+            }
         }
         else
         {
-            [ForceUnroll] for (uint e = 0; e < 8; e++) faKV[o + e] = 0.0h;
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                faKV[o + e] = 0.0h;
+#if FA_SPLIT
+                faKVl[o + e] = 0.0h;
+#endif
+            }
         }
     }
 }
@@ -835,7 +932,13 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint hk = h / (HQ / HKV);
     uint64_t kvRow = 0;
     uint qT = p.T, qRow0 = 0;   // query rows of this sequence; first global row
-#if FULL_ATTN
+    uint keyBase = 0;           // batched form: first key row of the sequence
+#if FULL_ATTN && SEQ_ROWS
+    // Batched form: workgroup (h, blk, b) handles query tile blk of sequence b (grid z = sequences).
+    uint nPast = 0;
+    qT = SEQ_ROWS; qRow0 = gid.z / FA_KSPLIT * SEQ_ROWS; keyBase = gid.z / FA_KSPLIT * SEQ_KEYS;
+    kvRow = uint64_t(keyBase) * HKV;
+#elif FULL_ATTN
     uint nPast = 0;
 #elif MULTI_SEQ
     // Blocks never straddle sequences: workgroup (h, blk, u) handles query tile blk of run u (grid z = runs,
@@ -856,7 +959,13 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     for (uint i = tid; i < FA_BR * FA_DP; i += FA_T)
     {
         uint r = i / FA_DP, d = i % FA_DP, t = t0 + r;
+#if FA_SPLIT
+        // Unscaled (SCALE is applied to the f32 scores), so small entries keep their lo parts.
+        float x = t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] : 0.0;
+        fa_split(x, faQ[r * FA_QS + d], faQl[r * FA_QS + d]);
+#else
         faQ[r * FA_QS + d] = half(t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] * SCALE : 0.0);
+#endif
     }
 
     uint row = tid / 4, sub = tid % 4;
@@ -889,7 +998,9 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     if (jMin >= jMax) { jMin = 0; jMax = 0; }
     uint L = jMax, jFirst = jMin / FA_BC * FA_BC;
 #else
-#if FULL_ATTN
+#if FULL_ATTN && SEQ_ROWS
+    uint L = SEQ_KEYS, rowEnd = SEQ_KEYS;
+#elif FULL_ATTN
 #if CROSS_ATTN
     uint L = p.S, rowEnd = p.S;
 #else
@@ -913,9 +1024,23 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     jFirst = max(jFirst, (nPast + t0) / CHUNK * CHUNK / FA_BC * FA_BC);           // the block's first query's chunk
 #endif
 #endif
+#if HAS_MASK
+#if CROSS_ATTN
+    float* maskRow = p.mask + mask_row(p.T, p.S, qRow0 + min(tq, qT - 1)) + keyBase;
+#else
+    float* maskRow = p.mask + mask_row(p.T, 0, qRow0 + min(tq, qT - 1)) + keyBase;
+#endif
+#endif
+#if FA_KSPLIT > 1
+    uint ksplit = gid.z % FA_KSPLIT;
+    uint kPer = ((L - jFirst + FA_KSPLIT - 1) / FA_KSPLIT + FA_BC - 1) / FA_BC * FA_BC;
+    uint jStart = min(L, jFirst + ksplit * kPer), jStop = min(L, jStart + kPer);
+#else
+    uint jStart = jFirst, jStop = L;
+#endif
     GroupMemoryBarrierWithGroupSync();
 
-    for (uint j0 = jFirst; j0 < L; j0 += FA_BC)
+    for (uint j0 = jStart; j0 < jStop; j0 += FA_BC)
     {
         fa_load_kv(p.kc, kvRow, j0, L, hk, D, D, FA_DP, tid);
         GroupMemoryBarrierWithGroupSync();
@@ -929,6 +1054,12 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
             {
                 FaA a = FaA.Load<CoopMatMatrixLayout.RowMajor>(faQ, qa + k, FA_QS);
                 FaB b = FaB.Load<CoopMatMatrixLayout.ColumnMajor>(faKV, kb + k, FA_KS);
+#if FA_SPLIT
+                FaA al = FaA.Load<CoopMatMatrixLayout.RowMajor>(faQl, qa + k, FA_QS);
+                FaB bl = FaB.Load<CoopMatMatrixLayout.ColumnMajor>(faKVl, kb + k, FA_KS);
+                sacc = coopMatMulAdd<float, false>(al, b, sacc);
+                sacc = coopMatMulAdd<float, false>(a, bl, sacc);
+#endif
                 sacc = coopMatMulAdd<float, false>(a, b, sacc);
             }
             sacc.Store<CoopMatMatrixLayout.RowMajor>(faS, (sg / 2) * 16 * FA_SS + (sg % 2) * 16, FA_SS);
@@ -945,13 +1076,20 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         {
             uint c = sub * 8 + e, j = j0 + c;
             float sc = faS[row * FA_SS + c];
+#if FA_SPLIT
+            sc *= SCALE;
+#endif
 #if HAS_SOFTCAP
             sc = SOFTCAP * tanh(sc / SOFTCAP);
 #endif
 #if HAS_SCORE_BIAS
             sc += score_bias(h, j, faQueryPos);
 #endif
-            sv[e] = rowValid && j < rowEnd && j >= rowBeg ? sc : -1e30;
+            bool visible = rowValid && j < rowEnd && j >= rowBeg && j < jStop;
+#if HAS_MASK
+            if (visible) sc += maskRow[j];
+#endif
+            sv[e] = visible ? sc : -1e30;
             mx = max(mx, sv[e]);
         }
         mx = max(mx, QuadReadAcrossX(mx));
@@ -964,7 +1102,11 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         {
             float pe = sv[e] > -1e29 ? exp(sv[e] - mNew) : 0.0;
             ps += pe;
+#if FA_SPLIT
+            fa_split(pe * FA_P_SCALE, faP[row * FA_PS + sub * 8 + e], faPl[row * FA_PS + sub * 8 + e]);
+#else
             faP[row * FA_PS + sub * 8 + e] = half(pe);
+#endif
         }
         ps += QuadReadAcrossX(ps);
         ps += QuadReadAcrossY(ps);
@@ -987,16 +1129,38 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
                 {
                     FaA a = FaA.Load<CoopMatMatrixLayout.RowMajor>(faP, rb * 16 * FA_PS + k, FA_PS);
                     FaB b = FaB.Load<CoopMatMatrixLayout.RowMajor>(faKV, k * FA_KS + c * FA_DC + cb * 16, FA_KS);
+#if FA_SPLIT
+                    FaA al = FaA.Load<CoopMatMatrixLayout.RowMajor>(faPl, rb * 16 * FA_PS + k, FA_PS);
+                    FaB bl = FaB.Load<CoopMatMatrixLayout.RowMajor>(faKVl, k * FA_KS + c * FA_DC + cb * 16, FA_KS);
+                    acc = coopMatMulAdd<float, false>(al, b, acc);
+                    acc = coopMatMulAdd<float, false>(a, bl, acc);
+#endif
                     acc = coopMatMulAdd<float, false>(a, b, acc);
                 }
                 acc.Store<CoopMatMatrixLayout.RowMajor>(faO, rb * 16 * FA_DC + cb * 16, FA_DC);
             }
             GroupMemoryBarrierWithGroupSync();
+#if FA_SPLIT
+            [ForceUnroll] for (uint e = 0; e < 16; e++) o[c * 16 + e] += faO[row * FA_DC + sub * 16 + e] * (1.0 / FA_P_SCALE);
+#else
             [ForceUnroll] for (uint e = 0; e < 16; e++) o[c * 16 + e] += faO[row * FA_DC + sub * 16 + e];
+#endif
             GroupMemoryBarrierWithGroupSync();
         }
     }
 
+#if FA_KSPLIT > 1
+    if (rowValid)
+    {
+        // Unnormalized partial of this key range (see SPLITS): part[range][row][h] = (o[DV], m, l).
+        float* ps = p.part + ((uint64_t(ksplit) * p.T + qRow0 + tq) * HQ + h) * (DV + 2);
+        [ForceUnroll]
+        for (uint c = 0; c < FA_NC; c++)
+            [ForceUnroll] for (uint e = 0; e < 16; e++) if (c * FA_DC + sub * 16 + e < DV) ps[c * FA_DC + sub * 16 + e] = o[c * 16 + e];
+        if (sub == 0) { ps[DV] = m; ps[DV + 1] = l; }
+    }
+    return;
+#endif
 #if HAS_SINKS
     {
         float sk = p.sinks[h], mf = max(m, sk), cf = exp(m - mf);
@@ -1011,6 +1175,299 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
         [ForceUnroll]
         for (uint c = 0; c < FA_NC; c++)
             [ForceUnroll] for (uint e = 0; e < 16; e++) if (c * FA_DC + sub * 16 + e < DV) orow[c * FA_DC + sub * 16 + e] = o[c * 16 + e] * inv;
+    }
+}
+#endif
+
+#ifdef KERNEL_FE
+// ---------------------------------------------------------------------------------------------
+// Flash attention for bidirectional encoders: FULL_ATTN without SPANS, WINDOW, score biases, softcap or sinks (optional
+// HAS_MASK, SEQ_ROWS, CROSS_ATTN, FA_KSPLIT, FA_SPLIT). A workgroup handles FE_BR = 64 queries of one head with 4 subgroups;
+// subgroup sg owns rows sg * 16 .. + 16 for the whole key loop, so its query fragments and output accumulators stay in
+// registers and its scores and probabilities only pass through its own shared slices (subgroup barriers). The workgroup shares
+// the K/V tiles of FE_BC keys, fetched into registers one tile ahead: two workgroup barriers per tile. FA_SPLIT: Q, K, V and P
+// in two f16 parts (three products each, near-f32 accuracy); otherwise single f16 products. SCALE multiplies the f32 scores; P
+// is scaled by 2^12 before its f16 conversion. Head sizes are zero-padded to 16 (D % 8 == DV % 8 == 0, padded sizes <= 128);
+// 32-wide subgroups.
+using namespace linalg;
+#define FE_BR 64
+#define FE_BC 32
+#define FE_T 128
+#define FE_DP ((D + 15) / 16 * 16)
+#define FE_DVP ((DV + 15) / 16 * 16)
+#define FE_QS (FE_DP + 8)
+#define FE_KS (FE_DP + 8)
+#define FE_VS (FE_DVP + 8)
+#define FE_PS (FE_BC + 8)
+#define FE_KT (FE_BC * FE_KS)                      // halves of one K part
+#define FE_VT (FE_BC * FE_VS)                      // halves of one V part
+#define FE_QT (FE_BR * FE_QS)                      // halves of one staged Q part
+#define FE_KVH (2 * FE_KT + 2 * FE_VT)
+#define FE_BUF (FE_KVH > 2 * FE_QT ? FE_KVH : 2 * FE_QT)
+#define FE_KC (FE_DP / 8)                           // 8-value chunks per K row
+#define FE_VC (FE_DVP / 8)
+#define FE_KPT ((FE_BC * FE_KC + FE_T - 1) / FE_T)  // K chunks per thread and tile
+#define FE_VPT ((FE_BC * FE_VC + FE_T - 1) / FE_T)
+#define FE_ND (FE_DP / 16)
+#define FE_NO (FE_DVP / 16)
+#define FE_P_SCALE 4096.0
+typealias FeA = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixA>;
+typealias FeB = CoopMat<half, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixB>;
+typealias FeC = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.MatrixAccumulator>;
+
+groupshared half feBuf[FE_BUF];               // staged Q (hi, lo), then the K / V tiles (hi, lo each)
+groupshared float feS[4 * 16 * FE_BC];        // per-subgroup scores, then output staging
+groupshared half feP[4 * 16 * FE_PS];         // per-subgroup probabilities (hi parts)
+#if FA_SPLIT
+groupshared half fePl[4 * 16 * FE_PS];        // (lo parts)
+#endif
+groupshared float feC[4 * 256];               // per-subgroup row factors as 16 x 16 matrices
+
+// x into feBuf[index] (FA_SPLIT: hi part there, lo part at loIndex).
+void fe_put(float x, uint index, uint loIndex)
+{
+#if FA_SPLIT
+    half hi, lo;
+    fa_split(x, hi, lo);
+    feBuf[index] = hi;
+    feBuf[loIndex] = lo;
+#else
+    feBuf[index] = half(x);
+#endif
+}
+
+// Loads of K and V rows j0 .. j0 + FE_BC into registers (rows >= jEnd and padding columns are zero).
+void fe_fetch(out Kv8 kb[FE_KPT], out Kv8 vb[FE_VPT], uint8_t* kc, uint8_t* vc, uint64_t kvRow, uint j0, uint jEnd, uint hk, uint tid)
+{
+    [ForceUnroll]
+    for (uint k = 0; k < FE_KPT; k++)
+    {
+        uint i = tid + k * FE_T, r = i / FE_KC, c = (i % FE_KC) * 8;
+        bool valid = i < FE_BC * FE_KC && j0 + r < jEnd && c < D;
+        kb[k] = valid ? load_kv8(kc, (kv_row(kvRow, j0 + r) + hk) * D + c) : zero_kv8();
+    }
+    [ForceUnroll]
+    for (uint k = 0; k < FE_VPT; k++)
+    {
+        uint i = tid + k * FE_T, r = i / FE_VC, c = (i % FE_VC) * 8;
+        bool valid = i < FE_BC * FE_VC && j0 + r < jEnd && c < DV;
+        vb[k] = valid ? load_kv8(vc, (kv_row(kvRow, j0 + r) + hk) * VRS + c) : zero_kv8();
+    }
+}
+
+// Fetched rows into feBuf as f16 parts: K hi at 0, K lo at FE_KT, V hi at 2·FE_KT, V lo at 2·FE_KT + FE_VT.
+void fe_store(Kv8 kb[FE_KPT], Kv8 vb[FE_VPT], uint tid)
+{
+    [ForceUnroll]
+    for (uint k = 0; k < FE_KPT; k++)
+    {
+        uint i = tid + k * FE_T;
+        if (i < FE_BC * FE_KC)
+        {
+            float v[8];
+            unpack_kv8(kb[k], v);
+            uint o = i / FE_KC * FE_KS + (i % FE_KC) * 8;
+            [ForceUnroll] for (uint e = 0; e < 8; e++) fe_put(v[e], o + e, FE_KT + o + e);
+        }
+    }
+    [ForceUnroll]
+    for (uint k = 0; k < FE_VPT; k++)
+    {
+        uint i = tid + k * FE_T;
+        if (i < FE_BC * FE_VC)
+        {
+            float v[8];
+            unpack_kv8(vb[k], v);
+            uint o = 2 * FE_KT + i / FE_VC * FE_VS + (i % FE_VC) * 8;
+            [ForceUnroll] for (uint e = 0; e < 8; e++) fe_put(v[e], o + e, FE_VT + o + e);
+        }
+    }
+}
+
+[shader("compute")]
+[numthreads(FE_T, 1, 1)]
+void fe(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
+{
+    uint h = gid.x, t0 = gid.y * FE_BR;
+    uint tid = ltid.x, sg = tid / 32, lane = tid % 32;
+    uint hk = h / (HQ / HKV);
+#if SEQ_ROWS
+    uint seq = gid.z / FA_KSPLIT;
+    uint qT = SEQ_ROWS, qRow0 = seq * SEQ_ROWS, keyBase = seq * SEQ_KEYS, L = SEQ_KEYS;
+#elif CROSS_ATTN
+    uint qT = p.T, qRow0 = 0, keyBase = 0, L = p.S;
+#else
+    uint qT = p.T, qRow0 = 0, keyBase = 0, L = p.T;
+#endif
+    uint64_t kvRow = uint64_t(keyBase) * HKV;
+    uint ksplit = gid.z % FA_KSPLIT;
+    uint kPer = ((L + FA_KSPLIT - 1) / FA_KSPLIT + FE_BC - 1) / FE_BC * FE_BC;
+    uint jStart = min(L, ksplit * kPer), jStop = min(L, jStart + kPer);
+
+    // Q (unscaled) through shared memory into register fragments.
+    for (uint i = tid; i < FE_BR * FE_DP; i += FE_T)
+    {
+        uint r = i / FE_DP, d = i % FE_DP, t = t0 + r;
+        float x = t < qT && d < D ? p.q[uint64_t(qRow0 + t) * QS0 + uint64_t(h) * QS1 + d] : 0.0;
+        fe_put(x, r * FE_QS + d, FE_QT + r * FE_QS + d);
+    }
+    Kv8 kb[FE_KPT];
+    Kv8 vb[FE_VPT];
+    fe_fetch(kb, vb, p.kc, p.vc, kvRow, jStart, jStop, hk, tid);
+    GroupMemoryBarrierWithGroupSync();
+    FeA qa[FE_ND];
+#if FA_SPLIT
+    FeA qal[FE_ND];
+#endif
+    [ForceUnroll]
+    for (uint k = 0; k < FE_ND; k++)
+    {
+        qa[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, sg * 16 * FE_QS + k * 16, FE_QS);
+#if FA_SPLIT
+        qal[k] = FeA.Load<CoopMatMatrixLayout.RowMajor>(feBuf, FE_QT + sg * 16 * FE_QS + k * 16, FE_QS);
+#endif
+    }
+    FeC o[FE_NO];
+    [ForceUnroll] for (uint i = 0; i < FE_NO; i++) o[i] = FeC(0.0);
+
+    // Softmax: two adjacent lanes per row, 16 key columns each.
+    uint row = lane / 2, col0 = (lane % 2) * 16;
+    uint tq = t0 + sg * 16 + row;
+    bool rowValid = tq < qT;
+#if HAS_MASK
+#if CROSS_ATTN
+    float* maskRow = p.mask + mask_row(p.T, p.S, qRow0 + min(tq, qT - 1)) + keyBase;
+#else
+    float* maskRow = p.mask + mask_row(p.T, 0, qRow0 + min(tq, qT - 1)) + keyBase;
+#endif
+#endif
+    float m = -1e30, l = 0;
+    uint sBase = sg * 16 * FE_BC, pBase = sg * 16 * FE_PS, cBase = sg * 256;
+
+    for (uint j0 = jStart; j0 < jStop; j0 += FE_BC)
+    {
+        GroupMemoryBarrierWithGroupSync();   // the previous tile (or the staged Q) is no longer read
+        fe_store(kb, vb, tid);
+        GroupMemoryBarrierWithGroupSync();
+        if (j0 + FE_BC < jStop)
+        {
+            fe_fetch(kb, vb, p.kc, p.vc, kvRow, j0 + FE_BC, jStop, hk, tid);   // in flight during this tile
+        }
+
+        // S (16 rows x FE_BC keys) of this subgroup.
+        [ForceUnroll]
+        for (uint kh = 0; kh < FE_BC / 16; kh++)
+        {
+            FeC s = FeC(0.0);
+            [ForceUnroll]
+            for (uint k = 0; k < FE_ND; k++)
+            {
+                FeB b = FeB.Load<CoopMatMatrixLayout.ColumnMajor>(feBuf, kh * 16 * FE_KS + k * 16, FE_KS);
+#if FA_SPLIT
+                FeB bl = FeB.Load<CoopMatMatrixLayout.ColumnMajor>(feBuf, FE_KT + kh * 16 * FE_KS + k * 16, FE_KS);
+                s = coopMatMulAdd<float, false>(qal[k], b, s);
+                s = coopMatMulAdd<float, false>(qa[k], bl, s);
+#endif
+                s = coopMatMulAdd<float, false>(qa[k], b, s);
+            }
+            s.Store<CoopMatMatrixLayout.RowMajor>(feS, sBase + kh * 16, FE_BC);
+        }
+        GroupMemoryBarrierWithWaveSync();
+
+        float sv[16];
+        float mx = -1e30;
+        [ForceUnroll]
+        for (uint e = 0; e < 16; e++)
+        {
+            uint j = j0 + col0 + e;
+            float sc = feS[sBase + row * FE_BC + col0 + e] * SCALE;
+            bool visible = rowValid && j < jStop;
+#if HAS_MASK
+            if (visible) sc += maskRow[j];
+#endif
+            sv[e] = visible ? sc : -1e30;
+            mx = max(mx, sv[e]);
+        }
+        mx = max(mx, WaveReadLaneAt(mx, lane ^ 1));
+        float mNew = max(m, mx);
+        float corr = exp(m - mNew);
+        m = mNew;
+        float ps = 0;
+        [ForceUnroll]
+        for (uint e = 0; e < 16; e++)
+        {
+            float pe = sv[e] > -1e29 ? exp(sv[e] - m) : 0.0;
+            ps += pe;
+#if FA_SPLIT
+            half hi, lo;
+            fa_split(pe * FE_P_SCALE, hi, lo);
+            feP[pBase + row * FE_PS + col0 + e] = hi;
+            fePl[pBase + row * FE_PS + col0 + e] = lo;
+#else
+            feP[pBase + row * FE_PS + col0 + e] = half(pe * FE_P_SCALE);
+#endif
+        }
+        ps += WaveReadLaneAt(ps, lane ^ 1);
+        l = l * corr + ps;
+        [ForceUnroll] for (uint e = 0; e < 8; e++) feC[cBase + row * 16 + (lane % 2) * 8 + e] = corr;
+        GroupMemoryBarrierWithWaveSync();
+
+        FeC cm = FeC.Load<CoopMatMatrixLayout.RowMajor>(feC, cBase, 16);
+        [ForceUnroll] for (uint i = 0; i < FE_NO; i++) o[i] = o[i] * cm;
+        [ForceUnroll]
+        for (uint kh = 0; kh < FE_BC / 16; kh++)
+        {
+            FeA pa = FeA.Load<CoopMatMatrixLayout.RowMajor>(feP, pBase + kh * 16, FE_PS);
+#if FA_SPLIT
+            FeA pal = FeA.Load<CoopMatMatrixLayout.RowMajor>(fePl, pBase + kh * 16, FE_PS);
+#endif
+            [ForceUnroll]
+            for (uint i = 0; i < FE_NO; i++)
+            {
+                FeB v = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, 2 * FE_KT + kh * 16 * FE_VS + i * 16, FE_VS);
+#if FA_SPLIT
+                FeB vl = FeB.Load<CoopMatMatrixLayout.RowMajor>(feBuf, 2 * FE_KT + FE_VT + kh * 16 * FE_VS + i * 16, FE_VS);
+                o[i] = coopMatMulAdd<float, false>(pal, v, o[i]);
+                o[i] = coopMatMulAdd<float, false>(pa, vl, o[i]);
+#endif
+                o[i] = coopMatMulAdd<float, false>(pa, v, o[i]);
+            }
+        }
+        GroupMemoryBarrierWithWaveSync();   // corr and P read before the next tile rewrites them
+    }
+
+    // Row factors: 1 / (2^12 · l) for the output; 1 / 2^12 for unnormalized partials (part[range][row][h] = (o[DV], m, l)).
+    float f = (FA_KSPLIT > 1 ? 1.0 : (l > 0 ? 1.0 / l : 0.0)) * (1.0 / FE_P_SCALE);
+    [ForceUnroll] for (uint e = 0; e < 8; e++) feC[cBase + row * 16 + (lane % 2) * 8 + e] = f;
+#if FA_KSPLIT > 1
+    if (rowValid && lane % 2 == 0)
+    {
+        float* pr = p.part + ((uint64_t(ksplit) * p.T + qRow0 + tq) * HQ + h) * (DV + 2);
+        pr[DV] = m;
+        pr[DV + 1] = l;
+    }
+#endif
+    GroupMemoryBarrierWithWaveSync();
+    FeC fm = FeC.Load<CoopMatMatrixLayout.RowMajor>(feC, cBase, 16);
+    [ForceUnroll]
+    for (uint i = 0; i < FE_NO; i++)
+    {
+        (o[i] * fm).Store<CoopMatMatrixLayout.RowMajor>(feS, sBase, 16);
+        GroupMemoryBarrierWithWaveSync();
+        [ForceUnroll]
+        for (uint e = 0; e < 8; e++)
+        {
+            uint idx = lane * 8 + e, r = idx / 16, d = i * 16 + idx % 16, t = t0 + sg * 16 + r;
+            if (t < qT && d < DV)
+            {
+#if FA_KSPLIT > 1
+                p.part[((uint64_t(ksplit) * p.T + qRow0 + t) * HQ + h) * (DV + 2) + d] = feS[sBase + idx];
+#else
+                p.o[(uint64_t(qRow0 + t) * HQ + h) * DV + d] = feS[sBase + idx];
+#endif
+            }
+        }
+        GroupMemoryBarrierWithWaveSync();
     }
 }
 #endif

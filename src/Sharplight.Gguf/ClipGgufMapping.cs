@@ -31,6 +31,9 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <summary>Placeholder; the real id depends on the projector type (see <see cref="ResolveArchitecture"/>).</summary>
     public string Architecture => "clip";
 
+    /// <inheritdoc/>
+    public bool IsProjector => true;
+
     /// <summary>
     /// Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to, the processor defaults the file omits, GGUF names whose
     /// canonical name differs from the Qwen towers' (<c>Names</c>, checked first) and canonical hyper-parameters the file does not store

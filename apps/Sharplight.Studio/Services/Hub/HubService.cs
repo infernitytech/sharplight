@@ -1,6 +1,8 @@
 using Sharplight.Hub;
-using Sharplight.Packaging;
+using Sharplight.Package.Import;
 using Sharplight.Runtime;
+using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Settings;
 
@@ -66,6 +68,70 @@ internal sealed class HubService : IHubService, IDisposable
     }
 
     /// <inheritdoc/>
+    public async Task<ModelProbe> ProbeAsync(RepositoryDetails details, VariantInfo variant, bool readWeightFormats, CancellationToken cancellationToken)
+    {
+        var client = CreateClient();
+        var repo = details.Repository;
+        try
+        {
+            switch (details.Format)
+            {
+                case ModelFormat.Gguf when variant.PrimaryPath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase):
+                    return await VariantProbe.ProbeGgufAsync((offset, count, token) => client.GetFileRangeAsync(repo, variant.PrimaryPath, offset, count, token),
+                        readWeightFormats, cancellationToken).ConfigureAwait(false);
+                case ModelFormat.Safetensors or ModelFormat.Onnx:
+                    bool onnx = variant.PrimaryPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase);
+                    var directory = onnx ? variant.PrimaryPath[..Math.Max(0, variant.PrimaryPath.LastIndexOf('/'))] : variant.PrimaryPath;
+                    var configPath = FindNear(repo, directory, "config.json");
+                    string? config = configPath is null ? null : await client.GetFileTextAsync(repo, configPath, cancellationToken).ConfigureAwait(false);
+                    var shape = config is null ? null : ModelShapeReader.FromConfig(config);
+                    ModelCompatibility compatibility;
+                    if (onnx)
+                    {
+                        long size = repo.Files.FirstOrDefault(file => file.Path == variant.PrimaryPath)?.Size ?? 0;
+                        compatibility = await VariantProbe.ProbeOnnxAsync((offset, count, token) => client.GetFileRangeAsync(repo, variant.PrimaryPath, offset, count, token),
+                            size, cancellationToken).ConfigureAwait(false);
+                    }
+                    else if (config is null)
+                    {
+                        compatibility = ModelCompatibility.Unknown("The checkpoint has no config.json, so the architecture is not known.");
+                    }
+                    else
+                    {
+                        var modelOptPath = FindNear(repo, directory, "hf_quant_config.json");
+                        string? modelOpt = modelOptPath is null ? null : await client.GetFileTextAsync(repo, modelOptPath, cancellationToken).ConfigureAwait(false);
+                        compatibility = CompatibilityChecker.FromConfig(config, modelOpt);
+                    }
+
+                    return new ModelProbe(shape, compatibility, compatibility);
+                default:
+                    var unknown = ModelCompatibility.Unknown("The repository has no model file whose metadata can be read before downloading.");
+                    return new ModelProbe(null, unknown, unknown);
+            }
+        }
+        catch (Exception error) when (error is HubException or HttpRequestException or InvalidDataException)
+        {
+            var unknown = ModelCompatibility.Unknown($"The metadata could not be read before downloading ({error.Message}).");
+            return new ModelProbe(null, unknown, unknown);
+        }
+    }
+
+    /// <summary>A file in <paramref name="directory"/> of the repository, else at its root, else null.</summary>
+    private static string? FindNear(HubRepository repo, string directory, string name)
+    {
+        var near = directory.Length == 0 ? name : $"{directory.TrimEnd('/')}/{name}";
+        foreach (var path in new[] { near, name })
+        {
+            if (repo.Files.Any(file => file.Path == path))
+            {
+                return path;
+            }
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc/>
     public async Task<ModelManifest> PullAsync(ModelReference reference, IProgress<PullUpdate> progress, CancellationToken cancellationToken)
     {
         EngineBootstrap.Register();
@@ -122,14 +188,18 @@ internal sealed class HubService : IHubService, IDisposable
 
     private static VariantInfo ToVariant(ModelSelection selection, bool recommended)
     {
-        return new VariantInfo(selection.Tag, selection.TotalBytes, selection.Files.Count, selection.ProjectorPath is not null, recommended);
+        return new VariantInfo(selection.Tag, selection.TotalBytes, selection.Files.Count, selection.ProjectorPath is not null, recommended, selection.PrimaryPath);
     }
 
     private PrecompileTarget? CreatePrecompileTarget(PullProgressTracker tracker, CancellationToken cancellationToken)
     {
         var settings = _settings.Current;
-        var gpu = DeviceCatalog.Discover().FirstOrDefault(entry => entry.Option.IsGpu
-            && (settings.DefaultLoad.DeviceId is null || entry.Option.Id == settings.DefaultLoad.DeviceId));
+        var gpus = DeviceCatalog.Discover().Where(entry => entry.Option.IsGpu).ToList();
+        var gpu = gpus.FirstOrDefault(entry => entry.Option.Id == settings.DefaultLoad.DeviceId);
+        if (gpu.Provider is null && settings.DefaultLoad.DeviceId is null or ComputeDeviceOption.AllGpusId)
+        {
+            gpu = gpus.FirstOrDefault();
+        }
         if (gpu.Provider is null)
         {
             return null;

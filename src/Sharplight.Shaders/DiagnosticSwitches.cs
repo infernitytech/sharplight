@@ -216,6 +216,30 @@ internal static class DiagnosticSwitches
     /// <summary>True when tensor-core flash attention may be used.</summary>
     public static bool AttentionFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FA");
 
+    /// <summary>
+    /// True (default) when flash attention over f32 K/V may run in the split-f16 form under strict precision (two f16 parts per
+    /// value, three tensor-core products); <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c> leaves those to the f32 scalar kernel.
+    /// </summary>
+    public static bool AttentionSplitHalf { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when bidirectional flash attention with few query blocks may split each block's keys over several
+    /// workgroups (merged by a combine kernel); <c>SHARPLIGHT_ATTN_FA_KSPLIT=0</c> keeps one workgroup per block.
+    /// </summary>
+    public static bool AttentionFlashKeySplit { get; } = IsNotZero("SHARPLIGHT_ATTN_FA_KSPLIT");
+
+    /// <summary>
+    /// True (default) when plain bidirectional attention (encoders: no spans, window, causal mask, score biases, softcap or
+    /// sinks) may use the encoder flash kernel <c>fe</c>; <c>SHARPLIGHT_ATTN_FE=0</c> uses the general flash kernel.
+    /// </summary>
+    public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
+
+    /// <summary>
+    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation asks for it
+    /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> keeps them on the f32 SIMT GEMM.
+    /// </summary>
+    public static bool GemmSplitHalf { get; } = IsNotZero("SHARPLIGHT_GEMM_SPLIT_F16");
+
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");
 

@@ -64,5 +64,8 @@ public sealed class GraphInfo
         node.Group,
         node.Attributes.ToString(),
         [.. node.Inputs.Select(v => v.ToString())],
-        [.. node.Outputs.Select(v => new GraphValueInfo(v.Name, v.Type, v.Shape, ""))]);
+        [.. node.Outputs.Select(v => new GraphValueInfo(v.Name, v.Type, v.Shape, ""))])
+    {
+        InputValues = [.. node.Inputs.Select(v => new NodeInputInfo(v.Id, v.Kind, v.Name, v.Type, v.Shape, v.Producer?.Id ?? -1))],
+    };
 }
