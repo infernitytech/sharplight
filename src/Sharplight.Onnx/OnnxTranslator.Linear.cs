@@ -61,6 +61,11 @@ internal sealed partial class OnnxTranslator
         Value y;
         if (!aT.IsConst && bT.IsConst && bT.C!.Rank == 2 && aT.V!.Rank >= 2)
         {
+            if (aT.LeadingUnits == 0 && TryFusedProjections(n, aT.V!, bT.C!))
+            {
+                return;
+            }
+
             var w = WeightValue(bT.C!.Transposed([1, 0]), keepHalf: true, name + ".weight");
             y = Emit("MatMul", [aT.V!, w], null, name);
         }

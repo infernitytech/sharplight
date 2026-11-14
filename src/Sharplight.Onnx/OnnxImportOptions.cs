@@ -68,6 +68,13 @@ public sealed class OnnxImportOptions
     /// </summary>
     public bool FuseAttention { get; init; } = true;
 
+    /// <summary>
+    /// Translates several MatMuls of one activation by constant weights of the same input size (an encoder's Q, K and V
+    /// projections, with their bias Adds) as one MatMul over the concatenated weights followed by slices (default true). The
+    /// result is the same as the separate products; false keeps them separate.
+    /// </summary>
+    public bool FuseProjections { get; init; } = true;
+
     /// <summary>Placement group size: number of compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group; values below 1 act as 1.</summary>
     public int GroupSize { get; init; } = 8;
 }

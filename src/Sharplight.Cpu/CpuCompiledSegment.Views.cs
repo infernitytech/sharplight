@@ -150,6 +150,14 @@ internal sealed unsafe partial class CpuCompiledSegment
                 inner.CopyTo(newStrides, 1);
                 return View(source, newDims, newStrides, 0, symbol);
             }
+
+            // The symbolic axis merges with (or splits into) inner axes, e.g. [B, S, D] slice → [B·S, H, Dh]: both views lead with
+            // the symbolic axis and the leading stride of a view does not depend on its count, so the strides computed for the
+            // bounds hold for every count.
+            if (TryReshapeStrides(source.Dims, source.Strides, newDims, out newStrides))
+            {
+                return View(source, newDims, newStrides, 0, symbol);
+            }
         }
         else if (source.Sym is null && symbol is null && TryReshapeStrides(source.Dims, source.Strides, newDims, out newStrides))
         {

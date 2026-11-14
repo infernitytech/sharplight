@@ -700,7 +700,10 @@ public sealed partial class GraphLowerer
         long steps = K / blockK;
         if (tiles >= 192)
         {
-            return 1;
+            // Many tiles: split only when two K halves fill the last wave of ~192 concurrent tiles clearly better
+            // (e.g. 234 tiles: 61 % → 81 % of two / three waves).
+            static double Fill(long count) => (double)count / ((count + 191) / 192 * 192);
+            return steps >= 8 && tiles < 768 && Fill(2 * tiles) > Fill(tiles) + 0.15 ? 2 : 1;
         }
 
         int split = 1;

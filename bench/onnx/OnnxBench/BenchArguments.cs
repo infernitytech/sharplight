@@ -6,7 +6,7 @@ namespace OnnxBench;
 internal sealed class BenchArguments
 {
     public const string Usage =
-        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--split-f16]\n" +
+        "usage: OnnxBench <manifest.json> <cpu|vulkan> [--runs N] [--budget-s S] [--batch B] [--device D] [--profile] [--reduced-precision] [--split-f16] [--no-fuse-projections]\n" +
         "  the \"model\" entry of the manifest resolves against $SHARPLIGHT_ONNX_MODELS.";
 
     public required string ManifestPath { get; init; }
@@ -23,6 +23,9 @@ internal sealed class BenchArguments
     public bool ReducedPrecision { get; init; }
     /// <summary>f32 matmuls on the split-f16 tensor-core GEMM (CompileOptions.SplitHalfMatMul).</summary>
     public bool SplitHalf { get; init; }
+
+    /// <summary>Keeps sibling projections separate (OnnxImportOptions.FuseProjections = false).</summary>
+    public bool NoProjectionFusion { get; init; }
 
     public static BenchArguments? Parse(string[] args)
     {
@@ -49,6 +52,7 @@ internal sealed class BenchArguments
             Profile = options.Contains("--profile"),
             ReducedPrecision = options.Contains("--reduced-precision"),
             SplitHalf = options.Contains("--split-f16"),
+            NoProjectionFusion = options.Contains("--no-fuse-projections"),
         };
     }
 }
