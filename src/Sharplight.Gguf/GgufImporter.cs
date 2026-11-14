@@ -54,14 +54,16 @@ public sealed class GgufImporter : IModelImporter
     /// to unmap the file.
     /// </returns>
     /// <exception cref="InvalidDataException">The file is malformed or two tensors map to the same canonical name.</exception>
-    /// <exception cref="NotSupportedException">The architecture or some tensors have no canonical mapping.</exception>
+    /// <exception cref="NotSupportedException">Some tensors have no canonical mapping.</exception>
+    /// <exception cref="UnsupportedArchitectureException">The architecture has no mapping.</exception>
+    /// <exception cref="UnsupportedWeightFormatException">A tensor's ggml type id is unknown.</exception>
     public static ModelSource Open(string path)
     {
         var files = GgufModelFiles.Open(path);
         try
         {
             string ggufArchitecture = files.Architecture ?? throw new InvalidDataException($"{path}: missing general.architecture");
-            var mapping = GgufArchitectureMappings.Find(ggufArchitecture) ?? throw new NotSupportedException(
+            var mapping = GgufArchitectureMappings.Find(ggufArchitecture) ?? throw new UnsupportedArchitectureException(ggufArchitecture,
                 $"{path}: GGUF architecture '{ggufArchitecture}' has no canonical mapping. Supported: {string.Join(", ", GgufArchitectureMappings.All.SelectMany(m => m.GgufArchitectures))}");
             var view = new GgufMetadataView(files.Metadata, ggufArchitecture, files.FindTensor);
 

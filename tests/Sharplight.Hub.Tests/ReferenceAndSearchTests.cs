@@ -125,4 +125,68 @@ public sealed class ReferenceAndSearchTests
         Assert.Equal("abc", info.Commit);
         Assert.Equal(architecture, info.Architecture);
     }
+
+    [Fact]
+    public void SearchResultsCarryWhatTheCompatibilityCheckNeeds()
+    {
+        const string Json = """
+            [
+              {"id":"o/gguf","gguf":{"architecture":"hrm_text"},"siblings":[{"rfilename":"m-Q4_K_M.gguf"}]},
+              {"id":"o/gptq","config":{"model_type":"qwen2","quantization_config":{"bits":4,"quant_method":"gptq"}},
+               "siblings":[{"rfilename":"config.json"},{"rfilename":"model.safetensors"}]},
+              {"id":"o/mlx","config":{"model_type":"qwen3_5","quantization_config":{"bits":8}},
+               "siblings":[{"rfilename":"config.json"},{"rfilename":"model.safetensors"}]},
+              {"id":"o/mmproj","gguf":{"architecture":"clip"},"siblings":[{"rfilename":"mmproj-model-f16.gguf"},{"rfilename":"README.md"}]}
+            ]
+            """;
+
+        var results = HubJson.ParseSearch(Json);
+
+        Assert.Equal("hrm_text", results[0].GgufArchitecture);
+        Assert.Null(results[0].ModelType);
+        Assert.False(results[0].HasProjectorOnly);
+        Assert.Equal("qwen2", results[1].ModelType);
+        Assert.Equal("gptq", results[1].QuantizationMethod);
+        Assert.Equal("mlx", results[2].QuantizationMethod);
+        Assert.True(results[3].HasProjectorOnly);
+        Assert.Empty(results[3].Formats);
+    }
+
+    [Fact]
+    public async Task SearchExpandsTheConfiguration()
+    {
+        using var hub = new FakeHub { Intercept = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("[]") } };
+        using var http = hub.CreateClient();
+        var client = new HubClient(http, hub.Options());
+
+        await client.SearchAsync(new HubSearchQuery { Text = "qwen" }, TestContext.Current.CancellationToken);
+
+        var query = Uri.UnescapeDataString(Assert.Single(hub.Requests).RequestUri!.Query);
+        Assert.Contains("expand[]=config", query, StringComparison.Ordinal);
+        Assert.Contains("expand[]=gguf", query, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RangeReadsReturnTheRequestedBytes()
+    {
+        using var hub = new FakeHub();
+        var content = FakeRepository.Content("model.onnx", 5000);
+        hub.Add("owner/model").With("model.onnx", content);
+        using var http = hub.CreateClient();
+        var client = new HubClient(http, hub.Options());
+        var repository = await client.GetRepositoryAsync("owner/model", "main", TestContext.Current.CancellationToken);
+
+        var middle = await client.GetFileRangeAsync(repository, "model.onnx", 1000, 300, TestContext.Current.CancellationToken);
+        var tail = await client.GetFileRangeAsync(repository, "model.onnx", 4900, 300, TestContext.Current.CancellationToken);
+        var beyond = await client.GetFileRangeAsync(repository, "model.onnx", 6000, 300, TestContext.Current.CancellationToken);
+        var prefix = await client.GetFilePrefixAsync(repository, "model.onnx", 100, TestContext.Current.CancellationToken);
+
+        Assert.Equal(content[1000..1300], middle);
+        Assert.Equal(content[4900..], tail);
+        Assert.Empty(beyond);
+        Assert.Equal(content[..100], prefix);
+
+        hub.IgnoreRanges = true;
+        await Assert.ThrowsAsync<HubException>(() => client.GetFileRangeAsync(repository, "model.onnx", 1000, 300, TestContext.Current.CancellationToken));
+    }
 }

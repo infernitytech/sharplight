@@ -1,15 +1,24 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using Sharplight.Hub;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Compatibility;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
 /// <summary>A search result.</summary>
-internal sealed class HubResultViewModel
+internal sealed partial class HubResultViewModel : ObservableObject
 {
     public HubResultViewModel(HubModelSummary summary)
     {
         Summary = summary;
+        Compatibility = new CompatibilityBadgeViewModel(CompatibilityChecker.FromSummary(summary));
     }
+
+    /// <summary>
+    /// The likely compatibility: from the search summary at first, from the files' metadata once the repository was opened.
+    /// </summary>
+    [ObservableProperty]
+    public partial CompatibilityBadgeViewModel Compatibility { get; set; }
 
     /// <summary>The Hub's data.</summary>
     public HubModelSummary Summary { get; }

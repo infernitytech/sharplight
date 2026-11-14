@@ -11,7 +11,7 @@ namespace Sharplight.Hub;
 /// </summary>
 public sealed partial class HubClient
 {
-    private static readonly string[] s_searchExpansions = ["downloads", "likes", "gated", "library_name", "pipeline_tag", "gguf", "safetensors", "siblings"];
+    private static readonly string[] s_searchExpansions = ["downloads", "likes", "gated", "library_name", "pipeline_tag", "gguf", "safetensors", "siblings", "config"];
 
     private readonly HttpClient _http;
     private readonly HubClientOptions _options;
@@ -91,8 +91,23 @@ public sealed partial class HubClient
     /// <param name="count">Bytes to read from the start of the file.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>Up to <paramref name="count"/> bytes (fewer when the file is shorter).</returns>
-    public async Task<byte[]> GetFilePrefixAsync(HubRepository repository, string path, int count, CancellationToken cancellationToken = default)
+    public Task<byte[]> GetFilePrefixAsync(HubRepository repository, string path, int count, CancellationToken cancellationToken = default)
+        => GetFileRangeAsync(repository, path, 0, count, cancellationToken);
+
+    /// <summary>
+    /// Downloads <paramref name="count"/> bytes of a file starting at <paramref name="offset"/> (an HTTP range request), e.g. to read a
+    /// section of a model file that follows a part not worth downloading.
+    /// </summary>
+    /// <param name="repository">The resolved repository.</param>
+    /// <param name="path">The file's path in the repository.</param>
+    /// <param name="offset">The first byte to read.</param>
+    /// <param name="count">Bytes to read.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Up to <paramref name="count"/> bytes (fewer when the file ends earlier).</returns>
+    /// <exception cref="HubException">The server ignored the range of a request that does not start at the beginning of the file.</exception>
+    public async Task<byte[]> GetFileRangeAsync(HubRepository repository, string path, long offset, int count, CancellationToken cancellationToken = default)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
         var uri = GetFileUri(repository, path);
         for (int attempt = 1; ; attempt++)
@@ -102,11 +117,21 @@ public sealed partial class HubClient
             try
             {
                 using var request = HubRequests.Get(uri, _options);
-                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, count - 1);
+                request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, offset + count - 1);
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
+                if (response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+                {
+                    return [];
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     throw HubRequests.Failure(response, path, repository.Id, _options);
+                }
+
+                if (offset > 0 && response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                {
+                    throw new HubException($"{path}: the server does not answer range requests.");
                 }
 
                 await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);

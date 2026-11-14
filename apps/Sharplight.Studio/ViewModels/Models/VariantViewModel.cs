@@ -41,4 +41,8 @@ internal sealed partial class VariantViewModel : ObservableObject
 
     /// <summary>The fit is estimated.</summary>
     public bool HasFit => Fit is not null;
+
+    /// <summary>The likely compatibility, once the metadata was read.</summary>
+    [ObservableProperty]
+    public partial CompatibilityBadgeViewModel? Compatibility { get; set; }
 }

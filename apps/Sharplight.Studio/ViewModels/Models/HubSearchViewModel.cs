@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Hub;
 
@@ -18,6 +19,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private readonly Func<IReadOnlySet<string>> _storedNames;
     private readonly FitAdvisor _advisor;
     private CancellationTokenSource? _details;
+    private RepositoryDetails? _openDetails;
 
     public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames)
     {
@@ -57,8 +59,14 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     /// <summary>The variant to download.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DownloadCommand))]
-    [NotifyPropertyChangedFor(nameof(SelectedFit), nameof(HasFitWarning), nameof(HasFitOk))]
+    [NotifyPropertyChangedFor(nameof(SelectedFit), nameof(HasFitWarning), nameof(HasFitOk), nameof(SelectedCompatibility))]
     public partial VariantViewModel? SelectedVariant { get; set; }
+
+    /// <summary>The likely compatibility of the selected variant (shown above the download button; downloading stays possible).</summary>
+    public CompatibilityBadgeViewModel? SelectedCompatibility => SelectedVariant?.Compatibility;
+
+    /// <summary>The latest read of a selected variant's weight formats (for tests).</summary>
+    internal Task CompatibilityCheck { get; private set; } = Task.CompletedTask;
 
     /// <summary>The approximate fit of the selected variant, once estimated.</summary>
     public FitBadgeViewModel? SelectedFit => SelectedVariant?.Fit;
@@ -111,6 +119,15 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
     partial void OnHideGatedChanged(bool value) => _ = SearchAsync();
 
+    partial void OnSelectedVariantChanged(VariantViewModel? value)
+    {
+        if (value?.Compatibility?.Compatibility is { WeightsChecked: false } verdict && !verdict.IsUnsupported
+            && verdict.State != CompatibilityState.Projector && _openDetails is { } details && _details is { } cancellation)
+        {
+            CompatibilityCheck = CheckWeightFormatsAsync(details, value, cancellation.Token);
+        }
+    }
+
     partial void OnSelectedFormatChanged(FormatFilter value) => _ = SearchAsync();
 
     [RelayCommand]
@@ -127,9 +144,11 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         {
             var results = await _services.Hub.SearchAsync(new HubSearchQuery { Text = Query.Trim(), Format = SelectedFormat.Format, Limit = ResultLimit }, CancellationToken.None);
             Results.Clear();
-            foreach (var result in results.Where(result => !HideGated || !result.Gated))
+            // Results that are likely not to import go last; the Hub's order (downloads) is kept otherwise.
+            foreach (var result in results.Where(result => !HideGated || !result.Gated).Select(result => new HubResultViewModel(result))
+                .OrderBy(result => result.Compatibility.IsBad))
             {
-                Results.Add(new HubResultViewModel(result));
+                Results.Add(result);
             }
 
             Status = Results.Count == 0 ? "No models found." : $"{Results.Count} models";
@@ -173,6 +192,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         Variants.Clear();
         Files.Clear();
         DetailFormat = null;
+        _openDetails = null;
         try
         {
             var details = await _services.Hub.GetDetailsAsync(result.Id, cancellation.Token);
@@ -195,7 +215,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
             DetailFormat = details.Format?.ToString() ?? "No supported model files";
             SelectedVariant = Variants.FirstOrDefault(variant => variant.Recommended) ?? Variants.FirstOrDefault();
-            FitEstimate = EstimateFitAsync(details, [.. Variants], cancellation.Token);
+            FitEstimate = EstimateFitAsync(result, details, [.. Variants], cancellation.Token);
         }
         catch (Exception error) when (error is HubException or HttpRequestException or OperationCanceledException)
         {
@@ -214,23 +234,53 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Badges every variant with its approximate fit for the default load settings: the download size as weights and the KV cache
-    /// from the dimensions read from the recommended variant (a GGUF header or the checkpoint's configuration), when they can be read.
+    /// Reads the recommended variant's metadata (a GGUF header and tensor table, the checkpoint's configuration, an ONNX model's opsets)
+    /// and badges every variant with its likely compatibility and its approximate fit for the default load settings: the download size
+    /// as weights and the KV cache from the dimensions read, when they can be read. The other variants share the architecture's
+    /// verdict until they are selected, which reads their own weight formats.
     /// </summary>
-    private async Task EstimateFitAsync(RepositoryDetails details, IReadOnlyList<VariantViewModel> variants, CancellationToken cancellationToken)
+    private async Task EstimateFitAsync(HubResultViewModel result, RepositoryDetails details, IReadOnlyList<VariantViewModel> variants, CancellationToken cancellationToken)
     {
         if (variants.Count == 0)
         {
             IsEstimatingFit = false;
+            if (details.Format is null)
+            {
+                result.Compatibility = new CompatibilityBadgeViewModel(ModelCompatibility.Unknown("The repository has no GGUF, safetensors or ONNX model files."));
+            }
+
             return;
         }
 
         IsEstimatingFit = true;
         try
         {
-            var memory = await _advisor.GetMemoryAsync(cancellationToken);
             var source = variants.FirstOrDefault(variant => variant.Recommended) ?? variants[0];
-            var shape = await _services.Hub.GetShapeAsync(details, source.Info, cancellationToken);
+            var probe = await _services.Hub.ProbeAsync(details, source.Info, readWeightFormats: true, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            foreach (var variant in variants)
+            {
+                variant.Compatibility = new CompatibilityBadgeViewModel(ReferenceEquals(variant, source) ? probe.Compatibility : probe.ArchitectureCompatibility);
+            }
+
+            if (probe.ArchitectureCompatibility.State != CompatibilityState.Unknown)
+            {
+                result.Compatibility = new CompatibilityBadgeViewModel(probe.ArchitectureCompatibility);
+            }
+
+            _openDetails = details;
+            OnPropertyChanged(nameof(SelectedCompatibility));
+            if (SelectedVariant is { } selected && !ReferenceEquals(selected, source))
+            {
+                OnSelectedVariantChanged(selected);
+            }
+
+            var shape = probe.Shape;
+            var memory = await _advisor.GetMemoryAsync(cancellationToken);
             var settings = _services.Settings.Current.DefaultLoad;
             int context = DownloadEstimate.Context(shape, settings);
             foreach (var variant in variants)
@@ -254,6 +304,24 @@ internal sealed partial class HubSearchViewModel : ObservableObject
             {
                 IsEstimatingFit = false;
             }
+        }
+    }
+
+    /// <summary>Reads a selected variant's own weight formats (its GGUF tensor table) and updates its badge.</summary>
+    private async Task CheckWeightFormatsAsync(RepositoryDetails details, VariantViewModel variant, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var probe = await _services.Hub.ProbeAsync(details, variant.Info, readWeightFormats: true, cancellationToken);
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                variant.Compatibility = new CompatibilityBadgeViewModel(probe.Compatibility);
+                OnPropertyChanged(nameof(SelectedCompatibility));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Another repository was opened.
         }
     }
 }

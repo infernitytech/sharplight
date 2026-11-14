@@ -2,6 +2,7 @@ using Sharplight.Hub;
 using Sharplight.Package.Import;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
+using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Settings;
 
@@ -14,9 +15,6 @@ namespace Sharplight.Studio.Services.Hub;
 internal sealed class HubService : IHubService, IDisposable
 {
     private const int PrecompileSlots = 4;
-
-    /// <summary>Bytes read from the start of a GGUF file for its dimensions: usually the first suffices.</summary>
-    private static readonly int[] s_headerPrefixes = [1 << 20, 16 << 20];
 
     private readonly ISettingsService _settings;
     private readonly HttpClient _http = HubClientOptions.CreateHttpClient();
@@ -70,7 +68,7 @@ internal sealed class HubService : IHubService, IDisposable
     }
 
     /// <inheritdoc/>
-    public async Task<ModelShape?> GetShapeAsync(RepositoryDetails details, VariantInfo variant, CancellationToken cancellationToken)
+    public async Task<ModelProbe> ProbeAsync(RepositoryDetails details, VariantInfo variant, bool readWeightFormats, CancellationToken cancellationToken)
     {
         var client = CreateClient();
         var repo = details.Repository;
@@ -79,46 +77,58 @@ internal sealed class HubService : IHubService, IDisposable
             switch (details.Format)
             {
                 case ModelFormat.Gguf when variant.PrimaryPath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase):
-                    // The dimensions come before the tokenizer in the metadata as GGUF writers lay it out; read more only when not.
-                    foreach (int bytes in s_headerPrefixes)
-                    {
-                        var prefix = await client.GetFilePrefixAsync(repo, variant.PrimaryPath, bytes, cancellationToken).ConfigureAwait(false);
-                        if (ModelShapeReader.FromGgufPrefix(prefix) is { } shape)
-                        {
-                            return shape;
-                        }
-
-                        if (prefix.Length < bytes)
-                        {
-                            break;
-                        }
-                    }
-
-                    return null;
+                    return await VariantProbe.ProbeGgufAsync((offset, count, token) => client.GetFileRangeAsync(repo, variant.PrimaryPath, offset, count, token),
+                        readWeightFormats, cancellationToken).ConfigureAwait(false);
                 case ModelFormat.Safetensors or ModelFormat.Onnx:
-                    var directory = variant.PrimaryPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase)
-                        ? variant.PrimaryPath[..Math.Max(0, variant.PrimaryPath.LastIndexOf('/'))]
-                        : variant.PrimaryPath;
-                    var config = directory.Length == 0 ? "config.json" : $"{directory.TrimEnd('/')}/config.json";
-                    if (!repo.Files.Any(file => file.Path == config))
+                    bool onnx = variant.PrimaryPath.EndsWith(".onnx", StringComparison.OrdinalIgnoreCase);
+                    var directory = onnx ? variant.PrimaryPath[..Math.Max(0, variant.PrimaryPath.LastIndexOf('/'))] : variant.PrimaryPath;
+                    var configPath = FindNear(repo, directory, "config.json");
+                    string? config = configPath is null ? null : await client.GetFileTextAsync(repo, configPath, cancellationToken).ConfigureAwait(false);
+                    var shape = config is null ? null : ModelShapeReader.FromConfig(config);
+                    ModelCompatibility compatibility;
+                    if (onnx)
                     {
-                        config = "config.json";
+                        long size = repo.Files.FirstOrDefault(file => file.Path == variant.PrimaryPath)?.Size ?? 0;
+                        compatibility = await VariantProbe.ProbeOnnxAsync((offset, count, token) => client.GetFileRangeAsync(repo, variant.PrimaryPath, offset, count, token),
+                            size, cancellationToken).ConfigureAwait(false);
+                    }
+                    else if (config is null)
+                    {
+                        compatibility = ModelCompatibility.Unknown("The checkpoint has no config.json, so the architecture is not known.");
+                    }
+                    else
+                    {
+                        var modelOptPath = FindNear(repo, directory, "hf_quant_config.json");
+                        string? modelOpt = modelOptPath is null ? null : await client.GetFileTextAsync(repo, modelOptPath, cancellationToken).ConfigureAwait(false);
+                        compatibility = CompatibilityChecker.FromConfig(config, modelOpt);
                     }
 
-                    if (!repo.Files.Any(file => file.Path == config))
-                    {
-                        return null;
-                    }
-
-                    return ModelShapeReader.FromConfig(await client.GetFileTextAsync(repo, config, cancellationToken).ConfigureAwait(false));
+                    return new ModelProbe(shape, compatibility, compatibility);
                 default:
-                    return null;
+                    var unknown = ModelCompatibility.Unknown("The repository has no model file whose metadata can be read before downloading.");
+                    return new ModelProbe(null, unknown, unknown);
             }
         }
         catch (Exception error) when (error is HubException or HttpRequestException or InvalidDataException)
         {
-            return null;
+            var unknown = ModelCompatibility.Unknown($"The metadata could not be read before downloading ({error.Message}).");
+            return new ModelProbe(null, unknown, unknown);
         }
+    }
+
+    /// <summary>A file in <paramref name="directory"/> of the repository, else at its root, else null.</summary>
+    private static string? FindNear(HubRepository repo, string directory, string name)
+    {
+        var near = directory.Length == 0 ? name : $"{directory.TrimEnd('/')}/{name}";
+        foreach (var path in new[] { near, name })
+        {
+            if (repo.Files.Any(file => file.Path == path))
+            {
+                return path;
+            }
+        }
+
+        return null;
     }
 
     /// <inheritdoc/>
