@@ -165,18 +165,27 @@ public sealed partial class GraphLowerer
     private static readonly ConvTile[] s_convTiles =
         [new(128, 128, 8, 8), new(128, 64, 8, 4), new(64, 64, 4, 4), new(64, 32, 4, 4), new(32, 64, 4, 4), new(32, 32, 4, 4)];
     private const int ConvBK = 32;
-    private const long TargetWorkgroups = 480;
+    private const long ConvTargetWorkgroups = 480;
+
+    /// <summary>
+    /// Workgroups the convolution and batched-matmul tilings aim for: 480 on a large GPU, fewer on devices that run few at once
+    /// (<see cref="LoweringOptions.ConcurrentWorkgroups"/>), where K splits only add partial-sum traffic.
+    /// </summary>
+    private long TargetWorkgroups => _opt.ConcurrentWorkgroups > 0 ? Math.Min(ConvTargetWorkgroups, _opt.ConcurrentWorkgroups) : ConvTargetWorkgroups;
 
     private sealed record ConvCfg(ConvTile Tile, int Split, long Kps);
 
     /// <summary>Most output channels of a single-group convolution served by conv_narrow.</summary>
     private const long ConvNarrowMaxOutputs = 8;
 
-    private static ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
+    private ConvCfg ChooseConv(long N, long OG, long G, long HW, long K)
     {
         long NC = N * HW;
         ConvTile? best = null;
         long bestWgs = 0;
+        // Devices with a known capacity count workgroups in 256-thread units (the small tiles have 64 threads).
+        bool weighted = _opt.ConcurrentWorkgroups > 0;
+        long Units(long wgs, ConvTile t) => weighted ? Math.Max(1, wgs * t.NT / 256) : wgs;
         foreach (var t in s_convTiles)
         {
             // Avoid grossly oversized tiles for small problems.
@@ -190,7 +199,7 @@ public sealed partial class GraphLowerer
                 continue;
             }
 
-            long wgs = ((NC + t.BN - 1) / t.BN) * ((OG + t.BM - 1) / t.BM) * G;
+            long wgs = Units(((NC + t.BN - 1) / t.BN) * ((OG + t.BM - 1) / t.BM) * G, t);
             if (wgs >= TargetWorkgroups)
             {
                 return new ConvCfg(t, 1, K);
