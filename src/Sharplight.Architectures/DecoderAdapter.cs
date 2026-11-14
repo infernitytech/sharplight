@@ -42,8 +42,8 @@ namespace Sharplight.Architectures;
 /// <c>moe.expert_count</c>, <c>moe.expert_used_count</c> (top-k per token), <c>moe.ffn_hidden_size</c> (the experts' inner size;
 /// <c>ffn_hidden_size</c> then only describes dense layers) and the routing keys of <see cref="MoeOptions"/>: <c>moe.router_activation</c>
 /// ("softmax" (default), "sigmoid", "softmax_topk", "sqrt_softplus"), <c>moe.normalize_weights</c> (default false), <c>moe.weights_scale</c>,
-/// <c>moe.group_count</c> / <c>moe.group_used_count</c> / <c>moe.group_score</c> (group-limited top-k), <c>moe.weights_before_experts</c>;
-/// optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
+/// <c>moe.group_count</c> / <c>moe.group_used_count</c> / <c>moe.group_score</c> (group-limited top-k), <c>moe.weights_before_experts</c>,
+/// <c>moe.shared_scale</c> (factor on the shared expert, default 1); optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
 /// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
 /// before the attention norm, SmallThinker).</item>
 /// <item>Attention temperature (Llama 4, Mistral 3): <c>attention.temperature_scale</c> (β, 0 = off), <c>attention.temperature_length</c> (L),

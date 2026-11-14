@@ -18,6 +18,7 @@ internal static class MappedFamilyCases
     private static readonly int[] MellumIds = [284, 372, 193, 882, 837, 650, 835, 351, 351, 194, 713, 284, 713, 284, 936, 571, 936, 533, 533, 701, 533, 434, 777, 602];
     private static readonly int[] DbrxIds = [127, 66, 518, 974, 553, 697, 900, 55, 121, 457, 1001, 456, 637, 454, 413, 646, 60, 651, 884, 519, 44, 766, 848, 2];
     private static readonly int[] Mistral4Ids = [505, 539, 72, 499, 752, 892, 325, 610, 338, 241, 662, 957, 502, 902, 979, 752, 892, 443, 713, 752, 892, 433, 43, 471];
+    private static readonly int[] Cohere2MoeIds = [747, 3, 30, 630, 225, 225, 225, 656, 685, 411, 7, 747, 29, 98, 929, 372, 859, 11, 319, 470, 747, 29, 567, 11];
     private static readonly int[] GraniteMoeSwaIds = [571, 412, 744, 569, 985, 115, 180, 319, 399, 186, 551, 455, 264, 553, 952, 760, 172, 635, 585, 53, 799, 91, 819, 245];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
@@ -58,6 +59,10 @@ internal static class MappedFamilyCases
             [505, 539, 72, 499, 448, 785, 593, 138, 878, 128, 560, 807, 128, 683, 287, 274, 96, 902, 923, 527, 304, 127, 878, 362], ""),
         new("tiny-random-mistral4-temperature f32 GGUF (mistral4 query temperature, llama.cpp)", "gguf/tiny-random-mistral4-temperature-f32.gguf", Prompt, "ids",
             Mistral4Ids, ""),
+        // Cohere2-MoE: parallel layer-norm blocks, a rotary dense first layer, sliding rotary MoE layers and a global NoPE layer, a shared expert averaged
+        // with the routed sum.
+        new("tiny-random-cohere2-moe HF (cohere2_moe, transformers)", "hf/tiny-random-cohere2-moe", Prompt, "ids", Cohere2MoeIds, ""),
+        new("tiny-random-cohere2-moe f32 GGUF (cohere2moe, llama.cpp)", "gguf/tiny-random-cohere2-moe-f32.gguf", Prompt, "ids", Cohere2MoeIds, ""),
         // llama.cpp-only families: tiny random GGUF files from tools/mk_tiny_gguf.py (llama.cpp tensor names and keys), greedy ids of llama.cpp b11177 (CPU).
         // ALiBi (Refact, Jais, Baichuan-13B) runs on the CPU provider when a GPU is used.
         new("tiny-random-refact f32 GGUF (refact ALiBi, llama.cpp)", "gguf/tiny-random-refact-f32.gguf", Prompt, "ids",

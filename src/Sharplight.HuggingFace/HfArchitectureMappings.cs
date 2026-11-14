@@ -53,6 +53,7 @@ internal static class HfArchitectureMappings
         yield return new GraniteSwaHfMapping();
         yield return new MellumHfMapping();
         yield return new DbrxHfMapping();
+        yield return new Cohere2MoeHfMapping();
         yield return new HyV3HfMapping();
         yield return new ExaoneMoeHfMapping();
         yield return new BitnetHfMapping();

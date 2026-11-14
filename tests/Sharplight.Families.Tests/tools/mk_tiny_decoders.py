@@ -81,6 +81,12 @@ EXTRA = {
                                   routed_scaling_factor=1.5, max_position_embeddings=256,
                                   rope_parameters=dict(rope_type="yarn", rope_theta=10000.0, factor=4.0, original_max_position_embeddings=16,
                                                        beta_fast=32.0, beta_slow=1.0, mscale_all_dim=1.0, mscale=1.0, llama_4_scaling_beta=0.1))),
+    # Cohere2-MoE: parallel layer-norm blocks, a rotary dense first layer, sliding rotary MoE layers and one global NoPE layer, softmax over the
+    # top-k logits, a shared expert averaged with the routed sum.
+    "cohere2-moe": ("cohere2_moe", dict(hidden_size=64, intermediate_size=48, prefix_dense_intermediate_size=96, num_hidden_layers=5,
+                                        num_attention_heads=4, num_key_value_heads=2, head_dim=16, num_experts=4, num_experts_per_tok=2,
+                                        num_shared_experts=1, max_position_embeddings=256, sliding_window=8, first_k_dense_replace=1,
+                                        logit_scale=0.5)),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})
