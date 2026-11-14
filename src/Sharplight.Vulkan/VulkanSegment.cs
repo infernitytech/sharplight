@@ -12,7 +12,7 @@ namespace Sharplight.Vulkan;
 /// decode). Per-step values (n_past) live in a small host-visible runtime buffer, so the decode
 /// command buffer is recorded once and re-submitted for every token.
 /// </summary>
-public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment
+public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
     private readonly VulkanDevice _dev;
     private readonly KernelProgram _program;
@@ -23,6 +23,8 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
     private readonly Dictionary<string, VkCommandBuffer[]> _recorded = [];
+    /// <summary>Inputs copied from an earlier segment's device output instead of from staging (<see cref="TryForwardFrom"/>).</summary>
+    private readonly Dictionary<BufferDecl, (Allocation Source, long SourceOffset)> _forwarded = [];
     private readonly Queue<string> _recordOrder = new();
     /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
     private const int MaxRecordings = 64;
@@ -229,6 +231,30 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         data.CopyTo(new Span<byte>(a.Mapped + r.ByteOffset, data.Length));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The input's device buffer is then filled by a device-to-device copy from the producer's output buffer at the start of the
+    /// command buffer. Both segments must run on the same device; the run submits them one after the other.
+    /// </remarks>
+    public bool TryForwardFrom(Value input, ICompiledSegment producer)
+    {
+        if (!DiagnosticSwitches.DeviceForwarding || producer is not VulkanSegment source || source._dev != _dev
+            || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
+        {
+            return false;
+        }
+
+        _forwarded[r.Buffer] = (source._alloc[o.Buffer], o.ByteOffset - r.ByteOffset);
+        foreach (var cbs in _recorded.Values)
+        {
+            FreeCbs(cbs);
+        }
+
+        _recorded.Clear();
+        _recordOrder.Clear();
+        return true;
     }
 
     /// <inheritdoc />
@@ -773,8 +799,27 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private void RecordInputCopies(VkCommandBuffer cb, Bindings b)
     {
         Copy(cb, _staging[_program.RuntimeBuffer], _alloc[_program.RuntimeBuffer], 0, 256);
+        if (_forwarded.Count > 0)
+        {
+            // The producers' kernels wrote the forwarded values in earlier submissions.
+            Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferRead);
+        }
+
         foreach (var r in _program.InputRefs.Values)
         {
+            if (_forwarded.TryGetValue(r.Buffer, out var f))
+            {
+                ulong size = UsedBytes(r, b);
+                if (size > 0)
+                {
+                    var dst = _alloc[r.Buffer];
+                    var region = new VkBufferCopy { srcOffset = f.Source.Offset + (ulong)(r.ByteOffset + f.SourceOffset), dstOffset = dst.Offset + (ulong)r.ByteOffset, size = size };
+                    _dev.Api.vkCmdCopyBuffer(cb, f.Source.Buffer, dst.Buffer, 1, &region);
+                }
+
+                continue;
+            }
+
             Copy(cb, _staging[r.Buffer], _alloc[r.Buffer], (ulong)r.ByteOffset, UsedBytes(r, b));
         }
 
