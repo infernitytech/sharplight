@@ -381,6 +381,22 @@ def bailing_parameters(writer):
     writer.add_value_length(24)
 
 
+LATENT, NOPE, ROPE, VALUE = 32, 16, 8, 16
+
+
+def plm_block():
+    # Multi-head latent attention with a direct query projection and the combined key/value up-projection, ungated squared-ReLU MLP.
+    return {"attn_norm.weight": norm(HIDDEN), "attn_q.weight": weight(HEADS * (NOPE + ROPE), HIDDEN), "attn_kv_a_mqa.weight": weight(LATENT + ROPE, HIDDEN),
+            "attn_kv_a_norm.weight": norm(LATENT), "attn_kv_b.weight": weight(HEADS * (NOPE + VALUE), LATENT), "attn_output.weight": weight(HIDDEN, HEADS * VALUE),
+            "ffn_norm.weight": norm(HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+
+
+def plm_parameters(writer):
+    writer.add_kv_lora_rank(LATENT)
+    writer.add_key_length(NOPE + ROPE)
+    writer.add_value_length(VALUE)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -417,6 +433,9 @@ models = {
     # Bailing MoE V1: a head size (rope.dimension_count) other than hidden / heads, renormalized top-k weights.
     "bailingmoe": lambda path: write_family(path, "bailingmoe", 22, lambda layer: moe_block(head_dim=24), parameters=bailing_parameters,
                                             rope_dim=24),
+    # PLM: latent attention without query compression, squared-ReLU MLP, output head tied to the embedding.
+    "plm": lambda path: write_family(path, "plm", 24, lambda layer: plm_block(), parameters=plm_parameters, rope_dim=ROPE, kv_heads=HEADS,
+                                     global_tensors=lambda vocab: {"output.weight": None}),
 }
 for name, write in models.items():
     if not only or name in only:

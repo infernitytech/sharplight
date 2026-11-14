@@ -87,5 +87,8 @@ internal static class MappedFamilyCases
             [593, 248, 303, 176, 746, 405, 657, 36, 658, 237, 613, 780, 765, 958, 427, 467, 96, 383, 720, 246, 784, 804, 625], ""),
         new("tiny-random-bailingmoe f32 GGUF (bailingmoe head size from rope dims, shared expert, llama.cpp)", "gguf/tiny-random-bailingmoe-f32.gguf", Prompt, "ids",
             [300, 213, 142, 313, 242, 3, 23, 909, 549, 667, 667, 159, 734, 7, 125, 313, 832, 210, 714, 314, 36, 213, 563, 7], ""),
+        // PLM: llama.cpp b11177 needs -fa off for it (its flash-attention path fails on value heads narrower than the key heads).
+        new("tiny-random-plm f32 GGUF (plm latent attention, squared ReLU, llama.cpp)", "gguf/tiny-random-plm-f32.gguf", Prompt, "ids",
+            [963, 201, 799, 975, 558, 169, 855, 545, 234, 639, 43, 975, 909, 201, 903, 855, 381, 331, 934, 826, 104, 652, 558, 903], ""),
     ];
 }

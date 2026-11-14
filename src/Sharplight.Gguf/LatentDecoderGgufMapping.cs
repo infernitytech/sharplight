@@ -7,7 +7,8 @@ namespace Sharplight.Gguf;
 /// llama.cpp architectures with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
 /// <c>LatentDecoderAdapter</c>): <c>deepseek2</c> (DeepSeek-V2/V2-Lite/V3/R1, Kimi-K2, GLM-4.7-Flash, Moonlight) and
 /// <c>minicpm3</c>, and <c>mistral4</c> (Mistral Small 4: softmax routing with group scores of the two best experts, fused gate+up experts, query
-/// temperature, which Mistral Large 3 <c>deepseek2</c> files carry too). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
+/// temperature, which Mistral Large 3 <c>deepseek2</c> files carry too) and <c>plm</c> (PLM-1.8B: direct query projection, ungated squared-ReLU MLP,
+/// output head tied to the embedding). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
 /// split (and its key half transposed per head) into the canonical absorbed form; newer files carry <c>attn_k_b</c> /
 /// <c>attn_v_b</c> directly.
 /// </summary>
@@ -22,7 +23,7 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
     private const int GatingSigmoid = 2;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -59,6 +60,12 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
             [a + "rope.style"] = IsMiniCpm(g) ? "neox" : "gptj",
         };
         GgufMappingHelpers.AddContextLength(md, a, g);
+
+        if (g.GgufArchitecture == "plm")
+        {
+            md[a + "mlp.activation"] = "relu2";
+            md[a + "mlp.gated"] = false;
+        }
 
         if (IsMiniCpm(g))
         {
