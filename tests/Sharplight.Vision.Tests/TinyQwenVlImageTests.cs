@@ -12,7 +12,9 @@ namespace Sharplight.Vision.Tests;
 /// post-norm blocks, GLU projector, visual experts and grouped positions in the language model; mk_tiny_cogvlm.py, references from its remote code) checkpoints against
 /// transformers: the tower's merged-token embeddings, the prompt logits of an image prompt and the greedy continuation, on the CPU and the GPU.
 /// The checkpoints come from tests/Sharplight.Families.Tests/tools/mk_tiny_qwen2_vl.py, the references (reference_image.json next to the
-/// weights) from tools/hf_image_reference.py, which feeds the same synthetic normalized image into the tower without resizing.
+/// weights) from tools/hf_image_reference.py, which feeds the same synthetic normalized image into the tower without resizing. The GGUF
+/// variants run the f32 GGUF and mmproj files converted by llama.cpp (tools/convert_tiny_mmproj.py, convert_tiny_cogvlm.py) against the same
+/// references: the image path end to end through the GGUF mappings (image token, projector, layout and positions from the mmproj).
 /// </summary>
 public class TinyQwenVlImageTests
 {
@@ -56,13 +58,46 @@ public class TinyQwenVlImageTests
         Assert.SkipUnless(File.Exists(refPath), $"{name} or its reference_image.json not available");
         var slot = gpu ? Env.Vulkan() : Env.Cpu();
         Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 256, ImageTokens = new ImageTokenLimits(null, 128) });
+        CheckImagePrompt(model, refPath, name, gpu);
+    }
+
+    [Theory]
+    [InlineData("tiny-random-qwen2-vl-wide", false)]
+    [InlineData("tiny-random-qwen2-vl-wide", true)]
+    [InlineData("tiny-random-qwen2-5-vl-wide", false)]
+    [InlineData("tiny-random-qwen2-5-vl-wide", true)]
+    [InlineData("tiny-random-paddleocr-vl", false)]
+    [InlineData("tiny-random-paddleocr-vl", true)]
+    [InlineData("tiny-random-glm4v", false)]
+    [InlineData("tiny-random-glm4v", true)]
+    [InlineData("tiny-random-hunyuan-vl", false)]
+    [InlineData("tiny-random-hunyuan-vl", true)]
+    [InlineData("tiny-random-cogvlm", false)]
+    [InlineData("tiny-random-cogvlm", true)]
+    public void Tiny_vl_gguf_mmproj_image_prompt_matches_transformers(string name, bool gpu)
+    {
+        string refPath = Path.Combine(Home, "models/hf", name, "reference_image.json");
+        string gguf = Path.Combine(Home, "models/gguf", $"{name}-f32.gguf");
+        string mmproj = Path.Combine(Home, "models/gguf", $"mmproj-{name}-f32.gguf");
+        Assert.SkipUnless(File.Exists(refPath) && File.Exists(gguf) && File.Exists(mmproj), $"{name}: reference_image.json, GGUF or mmproj not available");
+        var slot = gpu ? Env.Vulkan() : Env.Cpu();
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions
+        {
+            Devices = [slot!], ContextLength = 256, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 128),
+        });
+        CheckImagePrompt(model, refPath, name + " GGUF", gpu);
+    }
+
+    // The tower's embeddings, the prompt's top logits and the greedy continuation against reference_image.json.
+    private static void CheckImagePrompt(LlmModel model, string refPath, string name, bool gpu)
+    {
         using var doc = JsonDocument.Parse(File.ReadAllBytes(refPath));
         var r = doc.RootElement;
         int width = r.GetProperty("width").GetInt32();
         int height = r.GetProperty("height").GetInt32();
         var expected = r.GetProperty("embeddings").EnumerateArray().Select(e => e.GetSingle()).ToArray();
-
-        using var model = LlmModel.Load(dir, new LlmLoadOptions { Devices = [slot!], ContextLength = 256, ImageTokens = new ImageTokenLimits(null, 128) });
         using var vision = model.CreateVisionEncoder();
         var image = vision.Preprocessor.Patchify(SineImage(width, height), width, height);
         Assert.Equal(r.GetProperty("image_tokens").GetInt32(), image.TokenCount);

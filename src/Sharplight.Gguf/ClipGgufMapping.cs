@@ -34,11 +34,12 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// Tower layout of one <c>clip.projector_type</c>: the text architecture it belongs to, the processor defaults the file omits, GGUF names whose
     /// canonical name differs from the Qwen towers' (<c>Names</c>, checked first) and canonical hyper-parameters the file does not store
     /// (<c>Extra</c>, without the <c>{architecture}.vision.</c> prefix). <c>ClassToken</c>: an EVA2-CLIP tower whose first position row belongs to
-    /// the class token (<c>v.class_embd</c>) and whose images are resized to the fixed square <c>clip.vision.image_size</c>.
+    /// the class token (<c>v.class_embd</c>) and whose images are resized to the fixed square <c>clip.vision.image_size</c>. <c>ExactGelu</c>:
+    /// <c>clip.use_gelu</c> means the exact GELU of the checkpoint (llama.cpp runs every GELU as the tanh approximation).
     /// </summary>
     private sealed record Projector(string Architecture, int TemporalPatchSize, long MinPixels, long MaxPixels, float RopeBase, string DefaultActivation = "gelu_tanh",
         string NormType = "layer", bool LearnedPositions = true, IReadOnlyDictionary<string, string>? Names = null, IReadOnlyDictionary<string, object>? Extra = null,
-        bool ClassToken = false);
+        bool ClassToken = false, bool ExactGelu = false);
 
     // Processor defaults of the Qwen3-VL family (the file does not store them; same as its Hugging Face preprocessor_config.json).
     private static readonly Dictionary<string, Projector> s_projectors = new(StringComparer.Ordinal)
@@ -86,7 +87,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         // bilinearly, no rotary embedding; the perceiver projector mm.pre_norm (RMS) → 2×2 convolution mm.0 → GELU → 1×1 convolution mm.2 →
         // newline column v.image_newline → mm.model.fc → begin / end rows mm.image_begin / mm.image_end → mm.post_norm (RMS), the RMS norms
         // with the trunk's epsilon. v.view_seperator is unused.
-        ["hunyuanvl"] = new("decoder", TemporalPatchSize: 1, MinPixels: 262144, MaxPixels: 4194304, RopeBase: 0f,
+        ["hunyuanvl"] = new("decoder", TemporalPatchSize: 1, MinPixels: 262144, MaxPixels: 4194304, RopeBase: 0f, ExactGelu: true,
             Names: new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["mm.pre_norm.weight"] = "vision.merger.norm.weight",
@@ -167,7 +168,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             [a + "head_count"] = g.Int("vision.attention.head_count"),
             [a + "norm_eps"] = g.Float("vision.attention.layer_norm_epsilon", 1e-6f),
             // ggml's GELU is the tanh approximation.
-            [a + "activation"] = g.Raw("use_silu") is true ? "silu" : g.Raw("use_gelu") is true ? "gelu_tanh" : p.DefaultActivation,
+            [a + "activation"] = g.Raw("use_silu") is true ? "silu" : g.Raw("use_gelu") is true ? (p.ExactGelu ? "gelu" : "gelu_tanh") : p.DefaultActivation,
             [a + "norm.type"] = p.NormType,
             [a + "patch_size"] = patch,
             [a + "temporal_patch_size"] = p.TemporalPatchSize,
