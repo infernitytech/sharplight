@@ -95,5 +95,12 @@ internal static class MappedFamilyCases
         // PLM: llama.cpp b11177 needs -fa off for it (its flash-attention path fails on value heads narrower than the key heads).
         new("tiny-random-plm f32 GGUF (plm latent attention, squared ReLU, llama.cpp)", "gguf/tiny-random-plm-f32.gguf", Prompt, "ids",
             [963, 201, 799, 975, 558, 169, 855, 545, 234, 639, 43, 975, 909, 201, 903, 855, 381, 331, 934, 826, 104, 652, 558, 903], ""),
+        // Real checkpoints: bigcode/tiny_starcoder_py (gpt_bigcode, 164M) against transformers; inceptionai/jais-family-590m converted by llama.cpp's
+        // converter (f16, muP scales folded into the embedding and the output head) against llama.cpp b11177.
+        new("tiny_starcoder_py HF (gpt_bigcode, transformers)", "hf/tiny_starcoder_py", "def fibonacci(n):", "ids",
+            [284, 415, 310, 610, 225, 34, 44, 291, 442, 225, 34, 284, 813, 44, 291, 442, 28176, 34682, 26, 96, 31, 35, 27, 474], ""),
+        new("jais-family-590m f16 GGUF (jais ALiBi, llama.cpp)", "gguf/jais-family-590m/jais-family-590m-f16.gguf", "The capital of France is", "ids",
+            [330, 5199, 371, 14707, 14, 1248, 455, 330, 10308, 371, 330, 15309, 371, 330, 1824, 725, 13, 417, 13, 18913, 932, 14, 1248, 455], "",
+            NeedsCpuFallback: true),
     ];
 }
