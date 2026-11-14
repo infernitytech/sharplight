@@ -76,7 +76,12 @@ namespace Sharplight.Architectures;
 /// <c>attention.v_norm</c> (bool: v gets a weight-less RMS norm), <c>post_norm_eps</c> (epsilon of attention.out_norm / mlp.out_norm, default norm_eps).
 /// <c>attention.qk_norm_type</c> ("rms" (default) or "layer": the q/k norms are mean-centred layer norms that add <c>attention.{q,k}_norm.bias</c> when present)
 /// with <c>attention.qk_norm_eps</c> (default norm_eps); a q/k norm weight of shape [heads, head_dim] gives every head its own gain and bias (Chameleon).
-/// <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs: those token ids get the lowest float as logit, Chameleon's image tokens).</item>
+/// <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs: those token ids get the lowest float as logit, Chameleon's image tokens).
+/// <c>norm.groups</c> (RMS norms of the residual stream normalize G equal slices of the hidden size separately before the full-width weight,
+/// default 1; K2-Horizon); <c>attention.gate_softplus_beta</c> (β of the softplus output gate, softplus(β·x)/β, default 1).</item>
+/// <item>Routed value experts (MoVA, K2-Horizon): layers with <c>attention.value_experts.weight</c> [E, kv_heads · head_dim, H] compute their values as
+/// Σ_k w_k·silu(W_k·h) over the experts their router picks (<see cref="ValueExperts"/>, keys <c>attention.value_experts.*</c> of
+/// <see cref="ValueExpertOptions"/>) instead of the value projection.</item>
 /// <item>Block-sparse attention (MiniMax-M3): <c>attention.block_indexer.*</c> (<see cref="BlockSparseIndexerOptions"/>) and per layer the weights
 /// <c>attention.block_indexer.{q,k,q_norm,k_norm}.weight</c> (see <see cref="BlockSparseIndexer"/>): those layers attend only the key blocks their
 /// indexer picks per key-value group. When the context does not exceed the budget the indexer is left out (every block would be picked).</item>

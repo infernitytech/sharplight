@@ -20,7 +20,8 @@ internal sealed record DecoderHyperParameters(
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
     bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved,
-    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges)
+    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, int NormGroups, float GateSoftplusBeta,
+    ValueExpertOptions? ValueExperts)
 {
     /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
     public const int MRopeAxes = 4;
@@ -111,7 +112,10 @@ internal sealed record DecoderHyperParameters(
             ActivationSparsity: src.Arch("mlp.activation_sparsity", Array.Empty<float>()),
             QkNormType: src.Arch("attention.qk_norm_type", "rms"),
             QkNormEps: src.Arch("attention.qk_norm_eps", src.Arch("norm_eps", 1e-5f)),
-            SuppressedTokenRanges: src.Arch("logits.suppressed_ranges", Array.Empty<int>()));
+            SuppressedTokenRanges: src.Arch("logits.suppressed_ranges", Array.Empty<int>()),
+            NormGroups: src.Arch("norm.groups", 1),
+            GateSoftplusBeta: src.Arch("attention.gate_softplus_beta", 1f),
+            ValueExperts: ValueExpertOptions.Read(src));
 
         if (hp.QkNormType is not ("rms" or "layer"))
         {

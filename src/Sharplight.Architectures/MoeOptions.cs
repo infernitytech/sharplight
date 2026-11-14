@@ -48,16 +48,7 @@ internal sealed record MoeOptions(
     /// <exception cref="InvalidDataException">The router activation or group score is unknown.</exception>
     public static MoeOptions Read(ModelSource source, bool normalizeDefault = false)
     {
-        string activation = source.Arch("moe.router_activation", "softmax");
-        var score = activation switch
-        {
-            "softmax" => MoeScoreFunction.Softmax,
-            "sigmoid" => MoeScoreFunction.Sigmoid,
-            "softmax_topk" => MoeScoreFunction.SoftmaxSelected,
-            "sqrt_softplus" => MoeScoreFunction.SqrtSoftplus,
-            "sparsemixer" => MoeScoreFunction.SparseMixer,
-            _ => throw new InvalidDataException($"{source.Architecture}: unknown moe.router_activation '{activation}'."),
-        };
+        var score = ScoreFunctionOf(source, "moe.router_activation");
         string groupScore = source.Arch("moe.group_score", "top2_sum");
         var group = groupScore switch
         {
@@ -84,6 +75,22 @@ internal sealed record MoeOptions(
             PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)),
             AdjugateGroupSize: Math.Max(1, source.Arch("moe.adjugate_group_size", 1)),
             AdjugateScale: source.Arch("moe.adjugate_scale", 1f));
+    }
+
+    /// <summary>Reads a router activation key ("softmax" (default), "sigmoid", "softmax_topk", "sqrt_softplus" or "sparsemixer").</summary>
+    /// <exception cref="InvalidDataException">The activation is unknown.</exception>
+    public static MoeScoreFunction ScoreFunctionOf(ModelSource source, string key)
+    {
+        string activation = source.Arch(key, "softmax");
+        return activation switch
+        {
+            "softmax" => MoeScoreFunction.Softmax,
+            "sigmoid" => MoeScoreFunction.Sigmoid,
+            "softmax_topk" => MoeScoreFunction.SoftmaxSelected,
+            "sqrt_softplus" => MoeScoreFunction.SqrtSoftplus,
+            "sparsemixer" => MoeScoreFunction.SparseMixer,
+            _ => throw new InvalidDataException($"{source.Architecture}: unknown {key} '{activation}'."),
+        };
     }
 
     /// <summary>Whether the counts describe a usable configuration.</summary>

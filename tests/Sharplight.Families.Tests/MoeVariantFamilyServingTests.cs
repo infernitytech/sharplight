@@ -30,6 +30,8 @@ public class MoeVariantFamilyServingTests
         [
             "hf/tiny-random-grovemoe",
             "gguf/tiny-random-grovemoe-f32.gguf",
+            "hf/tiny-random-k2-horizon",
+            "gguf/tiny-random-k2-horizon-f32.gguf",
         ];
         foreach (string model in models)
         {

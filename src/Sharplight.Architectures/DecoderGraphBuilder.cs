@@ -47,7 +47,7 @@ internal sealed partial class DecoderGraphBuilder
         _src = source;
         _options = adapterOptions;
         _hp = hyperParameters;
-        _norm = new DecoderNorm(_hp.NormType);
+        _norm = new DecoderNorm(_hp.NormType, _hp.NormGroups);
         _activation = MlpActivations.Create(_hp);
         int origCtx = _src.Arch("rope.original_context_length", 0);
         int runtimeCtx = _options.ContextLength > 0 ? _options.ContextLength : _hp.ContextLength;

@@ -94,6 +94,7 @@ internal static class HfArchitectureMappings
         yield return new LladaHfMapping();
         yield return new ModernBertHfMapping();
         yield return new GroveMoeHfMapping();
+        yield return new K2HorizonHfMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its model types; later registrations win.</summary>

@@ -162,7 +162,10 @@ internal sealed partial class DecoderGraphBuilder
         int headDim = _hp.HeadDimOf(il);
         int kvHeads = _hp.KvHeadsOf(il);
         var keyProjection = ClipQkv(b, b.Linear(h, p + "attention.k.weight", p + "attention.k.bias"));
-        var valueProjection = b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, b.Linear(valueInput, p + "attention.v.weight", p + "attention.v.bias")) : keyProjection;
+        string valueExperts = p + "attention.value_experts.";
+        var valueProjection = ValueExperts.IsPresent(b, valueExperts)
+            ? ValueExperts.Build(b, valueInput, valueExperts, _hp.ValueExperts ?? throw new InvalidDataException($"{valueExperts}weight needs attention.value_experts.count."))
+            : b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, b.Linear(valueInput, p + "attention.v.weight", p + "attention.v.bias")) : keyProjection;
         var v = b.Reshape(valueProjection, 0, kvHeads, _hp.ValueDimOf(il));
         if (_hp.VNorm)
         {
@@ -242,10 +245,17 @@ internal sealed partial class DecoderGraphBuilder
                 projection = b.Add(projection, gateBias.Shape[0].Fixed == heads ? b.Reshape(gateBias, heads, 1) : b.Reshape(gateBias, heads, perHead ? 1 : valueDim));
             }
 
-            scaled = b.Mul(scaled, _hp.GateActivation == "softplus" ? b.Softplus(projection) : b.Sigmoid(projection));
+            scaled = b.Mul(scaled, _hp.GateActivation == "softplus" ? SoftplusGate(b, projection) : b.Sigmoid(projection));
         }
 
         var flat = b.Reshape(scaled, 0, heads * valueDim);
         return b.Linear(SubNorm(b, flat, p + "attention.sub_norm.weight"), p + "attention.o.weight", p + "attention.o.bias", $"{p}attn_out");
+    }
+
+    // softplus(β·x)/β with β = attention.gate_softplus_beta (K2-Horizon: ln 2, i.e. log2(1 + 2^x)); plain softplus for β = 1.
+    private Value SoftplusGate(GraphBuilder b, Value projection)
+    {
+        float beta = _hp.GateSoftplusBeta;
+        return beta == 1f ? b.Softplus(projection) : b.Scale(b.Softplus(b.Scale(projection, beta)), 1f / beta);
     }
 }
