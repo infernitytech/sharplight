@@ -42,6 +42,11 @@ public class EmbeddingFamilyTests
             "gguf/tiny-random-gemma-embedding-f32.gguf",
             "gguf/tiny-random-modern-bert-f32.gguf",
             "gguf/tiny-random-jina-bert-v2-f32.gguf",
+            // Real checkpoints: ModernBERT-base and EuroBERT-210m (transformers, mk_tiny_encoders.py --reference), jina-embeddings-v2-small-en
+            // converted with convert_hf_to_gguf.py (llama.cpp).
+            "hf/ModernBERT-base",
+            "hf/EuroBERT-210m",
+            "gguf/real-embed/jina-embeddings-v2-small-en-f32.gguf",
         ];
         foreach (string model in models)
         {

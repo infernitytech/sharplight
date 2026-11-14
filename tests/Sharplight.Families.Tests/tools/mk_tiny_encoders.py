@@ -5,6 +5,7 @@ use_bidirectional_attention, symmetric sliding windows, sentence-transformers Po
 saved as the base model: GeGLU, layer norms without bias, local layers with a symmetric window and their own rope base).
 
     python mk_tiny_encoders.py <models/hf directory> [family ...]
+    python mk_tiny_encoders.py --reference <model directory> [...]   (references for an existing checkpoint)
 
 Every model is written to <dir>/tiny-random-<family>/ in fp32 safetensors with the GPT-2-style tokenizer of tiny-random-GPTNeoXForCausalLM,
 plus reference_embeddings.json: a few token-id sequences (longer than the sliding windows) and their mean-pooled final hidden states, passed
@@ -74,6 +75,22 @@ def write_dense_modules(out, hidden, sizes):
         json.dump(modules, f, indent=2)
     return layers
 
+
+def reference_only(model_dir):
+    """--reference <model dir>: reference_embeddings.json for an existing checkpoint (its base model, eager attention, mean pooling)."""
+    model = transformers.AutoModel.from_pretrained(model_dir, attn_implementation="eager", dtype=torch.float32)
+    model.eval()
+    with torch.no_grad():
+        embeddings = [model(input_ids=torch.tensor([ids])).last_hidden_state[0].mean(dim=0).tolist() for ids in INPUTS]
+    with open(os.path.join(model_dir, "reference_embeddings.json"), "w") as f:
+        json.dump({"pooling": "mean", "inputs": INPUTS, "embeddings": embeddings}, f)
+    print("wrote", os.path.join(model_dir, "reference_embeddings.json"))
+
+
+if sys.argv[1] == "--reference":
+    for model_dir in sys.argv[2:]:
+        reference_only(os.path.expanduser(model_dir))
+    sys.exit(0)
 
 for name, (model_type, arguments, cls, dense) in FAMILIES.items():
     if only and name not in only:
