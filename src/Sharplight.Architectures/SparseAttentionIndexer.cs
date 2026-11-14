@@ -16,6 +16,8 @@ namespace Sharplight.Architectures;
 /// scaled by 1/sqrt(H·D) (the reference's per-head and softmax scales; positive factors commute with the relu). The rotary part of q and k
 /// (the layer's rope dimensions, at the start or at the end of each row) is rotated like the attention's, with the indexer's pairing style.
 /// The selection is <c>IndexerTopK</c>; rows that see at most the budget keep every position.
+/// Mistral Large 4: the query input is LayerNorm(h) with <c>attention.indexer.q_norm.{weight,bias}</c> instead of the attention's query input,
+/// and <c>attention.indexer.ssmax.{weight,bias}</c> scale the indexer heads (<see cref="ScalableSoftmax"/>, before the relu).
 /// Pooled keys (<see cref="SparseAttentionIndexerOptions.PoolSize"/> = G &gt; 1, GLM-5.3): the cache rows hold the key and a gate
 /// <c>attention.indexer.pool_gate.weight</c> [D, hidden] · h; the indexer scores one key per G consecutive positions (per channel the softmax
 /// over the members of gate + <c>attention.indexer.pool_position.weight</c> [G, D] weights their keys) and picks budget / G whole pools,
@@ -50,11 +52,20 @@ internal sealed class SparseAttentionIndexer(SparseAttentionIndexerOptions optio
     /// <param name="keyCache">The layer's key cache (<see cref="CreateKeyCache"/>).</param>
     /// <param name="ropeDims">Rotary dimensions of each query and key.</param>
     /// <param name="rotate">Applies the indexer's rotary embedding to a [T, heads, <paramref name="ropeDims"/>] tensor.</param>
-    public Value Select(GraphBuilder b, Value h, Value queryInput, string prefix, StateDefinition keyCache, int ropeDims, Func<Value, Value> rotate)
+    /// <param name="logPositions">ln(pos + 1) of every row (<see cref="ScalableSoftmax.LogPositions"/>) when the model has SSMax factors.</param>
+    public Value Select(GraphBuilder b, Value h, Value queryInput, string prefix, StateDefinition keyCache, int ropeDims, Func<Value, Value> rotate,
+        Value? logPositions = null)
     {
         int heads = (int)b.Weight(prefix + "attention.indexer.head_weights.weight").Shape[0].Fixed;
         int dims = (int)b.Weight(prefix + "attention.indexer.k.weight").Shape[0].Fixed;
+        if (b.HasWeight(prefix + "attention.indexer.q_norm.weight"))
+        {
+            queryInput = b.Emit1("LayerNorm", [h, b.Weight(prefix + "attention.indexer.q_norm.weight"), b.Weight(prefix + "attention.indexer.q_norm.bias")],
+                Attributes.From(("eps", options.NormEps)), $"{prefix}indexer_q_norm");
+        }
+
         var q = b.Reshape(b.Linear(queryInput, prefix + "attention.indexer.q_up.weight", name: $"{prefix}indexer_q"), 0, heads, dims);
+        q = ScalableSoftmax.Apply(b, q, logPositions, prefix + "attention.indexer.ssmax");
         var k = b.Emit1("LayerNorm", [b.Linear(h, prefix + "attention.indexer.k.weight"), b.Weight(prefix + "attention.indexer.k_norm.weight"),
             b.Weight(prefix + "attention.indexer.k_norm.bias")], Attributes.From(("eps", options.NormEps)), $"{prefix}indexer_k");
         q = Rotate(b, q, dims, ropeDims, rotate);

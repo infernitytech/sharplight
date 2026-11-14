@@ -11,7 +11,8 @@ namespace Sharplight.Gguf;
 /// output head tied to the embedding). Files written by older converters store the key/value up-projection as one <c>attn_kv_b</c> tensor, which is
 /// split (and its key half transposed per head) into the canonical absorbed form; newer files carry <c>attn_k_b</c> /
 /// <c>attn_v_b</c> directly. <c>deepseek32</c> and <c>glm-dsa</c> (DeepSeek-V3.2, GLM-5: the DSA indexer, <c>attention.indexer.top_k</c>). <c>kimi-linear</c> and <c>bailingmoe3</c> add delta-attention layers (see the DeltaAttention part),
-/// <c>glm5-next</c> (GLM-5.3-Flash) also hyper-connections (see the Glm5Next part).
+/// <c>glm5-next</c> (GLM-5.3-Flash) also hyper-connections (see the Glm5Next part), <c>mistral-large4</c> per-layer NoPE, shared caches and SSMax (see
+/// the MistralLarge4 part), <c>dots3note</c> sliding-window layers of a second geometry (see the Dots3Note part).
 /// </summary>
 internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
@@ -24,7 +25,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     private const int GatingSigmoid = 2;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa", "glm5-next"];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["deepseek2", "minicpm3", "mistral4", "plm", "kimi-linear", "bailingmoe3", "deepseek32", "glm-dsa", "glm5-next", "mistral-large4", "dots3note"];
 
     /// <inheritdoc/>
     public string Architecture => "latent_decoder";
@@ -35,7 +36,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     private static int QueryKeyDims(GgufMetadataView g) => g.Int("attention.key_length_mla", g.Int("attention.key_length"));
 
     private static int ValueDims(GgufMetadataView g)
-        => g.Int("attention.value_length_mla", g.Int("attention.value_length", g.Int("embedding_length") / g.Int("attention.head_count")));
+        => g.Int("attention.value_length_mla", g.Int("attention.value_length", g.Int("embedding_length") / HeadCount(g)));
 
     private static int TrunkLayers(GgufMetadataView g) => g.Int("block_count") - g.Int("nextn_predict_layers", 0);
 
@@ -50,7 +51,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             [a + "layer_count"] = layers,
             [a + "hidden_size"] = g.Int("embedding_length"),
             [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
-            [a + "attention.head_count"] = g.Int("attention.head_count"),
+            [a + "attention.head_count"] = HeadCount(g),
             [a + "attention.q_rank"] = g.Int("attention.q_lora_rank", 0),
             [a + "attention.latent_rank"] = g.Int("attention.kv_lora_rank"),
             [a + "attention.nope_dim"] = QueryKeyDims(g) - ropeDims,
@@ -98,6 +99,16 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             AddGlm5NextHyperParameters(md, a, g);
         }
 
+        if (IsMistralLarge4(g))
+        {
+            AddMistralLarge4HyperParameters(md, a, g);
+        }
+
+        if (IsDots3Note(g))
+        {
+            AddDots3NoteHyperParameters(md, a, g);
+        }
+
         // Mistral 4 / Mistral Large 3: Llama-4-style query temperature beyond the original context.
         if (g.Float("attention.temperature_scale", 0f) is var temperature && temperature != 0f)
         {
@@ -118,7 +129,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     private static float AttentionScale(GgufMetadataView g)
     {
         float scale = 1f / MathF.Sqrt(QueryKeyDims(g));
-        if (g.Raw("rope.scaling.type") is "yarn" && g.Has("rope.scaling.yarn_log_multiplier"))
+        if (g.Raw("rope.scaling.type") is "yarn" && g.Has("rope.scaling.yarn_log_multiplier") && !IsMistralLarge4(g))
         {
             float mscale = 1f + g.Float("rope.scaling.yarn_log_multiplier") * MathF.Log(g.Float("rope.scaling.factor"));
             scale *= mscale * mscale;
@@ -223,6 +234,16 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             return $"layers.{layer}.{glm5Next}";
         }
 
+        if (IsMistralLarge4(g) && s_mistralLarge4.TryGetValue(suffix, out var mistral))
+        {
+            return $"layers.{layer}.{mistral}";
+        }
+
+        if (IsDots3Note(g) && s_dots3Note.TryGetValue(suffix, out var dots))
+        {
+            return $"layers.{layer}.{dots}";
+        }
+
         if (IsBailing3(g) && suffix == "attn_gate.weight")
         {
             return $"layers.{layer}.attention.gate.weight";   // one sigmoid gate per head
@@ -232,7 +253,15 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
     }
 
     /// <inheritdoc/>
-    public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView g) => IsDeltaHybrid(g) ? DeltaVector(weight, g) ?? weight : weight;
+    public WeightInfo MapWeight(WeightInfo weight, GgufMetadataView g)
+    {
+        if (weight.Name == "rope.freq_factors" && g.Raw("rope.scaling.type") is "yarn")
+        {
+            return YarnLearnedFactors(weight, g);
+        }
+
+        return IsDeltaHybrid(g) ? DeltaVector(weight, g) ?? weight : weight;
+    }
 
     /// <summary>
     /// Older files: the combined key/value up-projection splits into the per-head key (transposed) and value projections.
@@ -249,7 +278,7 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
         string prefix = layer < TrunkLayers(g) ? $"layers.{layer}." : $"mtp.layers.{layer - TrunkLayers(g)}.";
         int ropeDims = g.Int("rope.dimension_count");
         var (keyUp, valueUp) = LatentAttentionWeights.SplitKeyValueUp(
-            t, g.Int("attention.head_count"), QueryKeyDims(g) - ropeDims, ValueDims(g),
+            t, HeadCount(g), QueryKeyDims(g) - ropeDims, ValueDims(g),
             prefix + "attention.k_up.weight", prefix + "attention.v_up.weight",
             static w => GgmlBlockDecoder.Decode(w.Type, w.ReadAll()));
         return [keyUp, valueUp];
@@ -263,17 +292,17 @@ internal sealed partial class LatentDecoderGgufMapping : IGgufArchitectureMappin
             yield return joined;
         }
 
+        if (SlidingYarnFactors(g) is { } sliding)
+        {
+            yield return sliding;
+        }
+
         if (weights.ContainsKey("rope.freq_factors") || g.Raw("rope.scaling.type") is not "yarn")
         {
             yield break;
         }
 
-        var yarn = RopeScaling.Yarn(
-            g.Int("rope.dimension_count"),
-            g.Float("rope.freq_base", GgufMappingHelpers.DefaultRopeBase),
-            g.Float("rope.scaling.factor"),
-            g.Int("rope.scaling.original_context_length"));
-        var factors = yarn.Factors;
+        var factors = YarnFactors(g);
         yield return WeightInfo.Derived("rope.freq_factors", DataType.F32, new Shape(factors.Length), () =>
         {
             var bytes = new byte[factors.Length * 4];
