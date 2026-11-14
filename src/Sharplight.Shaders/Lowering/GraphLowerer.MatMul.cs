@@ -500,8 +500,10 @@ public sealed partial class GraphLowerer
         }
 
         (WeightInfo Parts, WeightInfo Scales) Create()
-            => (WeightInfo.Derived(weight.Name + ":split-f16", DataType.F16, new Shape(rows, 2 * k), () => SplitScaleTable.Split(Source(), rows, k)),
-                WeightInfo.Derived(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k)));
+            => (Transient(weight.Name + ":split-f16", DataType.F16, new Shape(rows, 2 * k), () => SplitScaleTable.Split(Source(), rows, k)),
+                Transient(weight.Name + ":split-scale", DataType.F32, new Shape(rows), () => SplitScaleTable.Scales(Source(), rows, k)));
+        static WeightInfo Transient(string name, DataType type, Shape shape, Func<byte[]> produce)
+            => new() { Name = name, Type = type, Shape = shape, Source = new TransientWeightSource(type.ByteSize(shape.Elements()), produce) };
 
         // Model weights: one derived pair per source tensor, so shared-weight registries upload it once for every compilation.
         var (partsInfo, scalesInfo) = weight.Kind == ValueKind.Weight ? SplitWeightCache.Get(weight.Weight!, rows, k, Create) : Create();
