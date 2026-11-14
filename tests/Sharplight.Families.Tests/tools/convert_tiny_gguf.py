@@ -6,7 +6,7 @@ BailingMoeV3ForCausalLM with the original config keys) and minimax (renamed Mini
 rotary_dim keys; llama.cpp supports only equal alpha factors and beta factors of 1, so the checkpoint must be written with those) and
 minimax_m3_vl (the published sparse_attention_config / moe_layer_freq / n_shared_experts / scoring_func keys added) and glm5_next
 (the published linear_attn_config / mla_use_nope / first_k_dense_replace keys added). kimi_k3 (Kimi K3 / K3.1 in the published layout,
-mk_tiny_kimi_k3.py) is taken as it is.
+mk_tiny_kimi_k3.py) is taken as it is, except that latent-attention layers without an indexer are allowed (indexer.types false).
 The converter is patched to take the GPT-2 style tokenizer.json of the tiny checkpoints.
 
     python convert_tiny_gguf.py <llama.cpp source> <checkpoint directory> <output .gguf>
@@ -134,6 +134,21 @@ with tempfile.TemporaryDirectory() as work:
     elif kind == "kimi_k3":
         from conversion import kimi_k3
         kimi_k3.KimiK3Model.set_vocab = lambda self: self._set_vocab_gpt2()   # the tiny tokenizer is not Kimi's tiktoken vocabulary
+        set_k31_parameters = kimi_k3.KimiK31Model.set_gguf_parameters
+
+        def set_shared_indexer_parameters(self):
+            # The converter expects an indexer on every full-attention layer; the others share the previous selection (indexer.types false).
+            dsa = self.hparams["dsa_config"]
+            own = list(dsa["dsa_layers"])
+            dsa["dsa_layers"] = list(self.hparams["linear_attn_config"]["full_attn_layers"])
+            add_types = self.gguf_writer.add_indexer_types
+            self.gguf_writer.add_indexer_types = lambda value: add_types([(il + 1) in own for il in range(len(value))])
+            try:
+                set_k31_parameters(self)
+            finally:
+                dsa["dsa_layers"] = own
+                del self.gguf_writer.add_indexer_types
+        kimi_k3.KimiK31Model.set_gguf_parameters = set_shared_indexer_parameters
     if kind in ("kimi_linear", "bailing_hybrid", "minimax", "minimax_m3_vl"):
         # An unknown model type keeps the converter from loading the config through transformers, whose attribute maps drop the original keys.
         config["model_type"] = kind + "_original"

@@ -58,6 +58,10 @@ public class ExtendedFamilyServingTests
             // Kimi K3.1: the indexer without rope in its sparse regime (8 positions).
             "hf/tiny-random-kimi-k31-f32",
             "gguf/tiny-random-kimi-k31-f32.gguf",
+            // Kimi K3.1 with a layer that reuses the previous layer's selection; the original checkpoint (MXFP4 experts, tiktoken).
+            "hf/tiny-random-kimi-k31-shared-f32",
+            "gguf/tiny-random-kimi-k31-shared-f32.gguf",
+            "hf/tiny-random-kimi-k3",
         ];
         foreach (string model in models)
         {

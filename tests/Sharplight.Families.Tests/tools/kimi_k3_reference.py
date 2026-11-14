@@ -4,7 +4,8 @@ checkpoint) with the parts of the flash-linear-attention package it imports writ
 RMS norm and the Kimi delta rule as a token loop). K3.1 ("gated DSA", llama.cpp kimi-k31) has no published modeling code: with a dsa_config the
 latent-attention layers get the lightning indexer of llama.cpp's graph (q from the normalized compressed query, LayerNorm'd shared key, per-head
 weights scaled by 1/sqrt(heads * dims), no rotary embedding; score = sum_h w_h * relu(q_h . k)) and attend only to the index_topk best visible
-positions (all of them while a row sees at most index_topk). Used by mk_tiny_kimi_k3.py.
+positions (all of them while a row sees at most index_topk). As in llama.cpp, every latent-attention layer is sparse: one that is not in dsa_layers
+(GGUF attention.indexer.types false) has no indexer and reuses the selection of the last layer that has one. Used by mk_tiny_kimi_k3.py.
 
     from kimi_k3_reference import load_text_model
     model = load_text_model(<remote code dir>, text_config dict, state dict or None)
@@ -136,14 +137,17 @@ class LightningIndexer(nn.Module):
 def _dsa_forward(original):
     def forward(self, hidden_states, attention_mask=None, position_ids=None, past_key_values=None, **kwargs):
         if getattr(self, "indexer", None) is None:
-            return original(self, hidden_states, attention_mask, position_ids, past_key_values, **kwargs)
+            if getattr(self, "shares", None) is None:
+                return original(self, hidden_states, attention_mask, position_ids, past_key_values, **kwargs)
+            # a latent-attention layer without an indexer reuses the selection of the last layer that has one
+            return original(self, hidden_states, self.shares.selection, position_ids, past_key_values, **kwargs)
         assert past_key_values is None
         q_latent = self.q_a_layernorm(self.q_a_proj(hidden_states))
         scores = self.indexer.scores(hidden_states, q_latent)
         if self.record is not None:
             self.record.append(scores.detach())
-        selection = self.indexer.selection_mask(scores)
-        return original(self, hidden_states, selection, position_ids, past_key_values, **kwargs)
+        self.selection = self.indexer.selection_mask(scores)
+        return original(self, hidden_states, self.selection, position_ids, past_key_values, **kwargs)
     return forward
 
 
@@ -157,10 +161,16 @@ def load_text_model(code_dir, text_config, state=None):
         remote.KimiMLAAttention.forward = _dsa_forward(remote.KimiMLAAttention.forward)
         remote.KimiMLAAttention._dsa_patched = True
     model = remote.KimiLinearForCausalLM(config)
+    last_indexed = None
     for i, layer in enumerate(model.model.layers):
         attention = layer.self_attn
         attention.record = None
         attention.indexer = LightningIndexer(config, dsa) if dsa is not None and (i + 1) in dsa["dsa_layers"] else None
+        if attention.indexer is not None:
+            last_indexed = attention
+        elif dsa is not None and (i + 1) in config.linear_attn_config["full_attn_layers"]:
+            assert last_indexed is not None, f"latent-attention layer {i + 1} has no indexer and no earlier layer has one"
+            object.__setattr__(attention, "shares", last_indexed)   # a plain reference, not a submodule
     if state is not None:
         missing, unexpected = model.load_state_dict(state, strict=False)
         if missing or unexpected:
