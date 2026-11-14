@@ -47,6 +47,9 @@ public class ExtendedFamilyServingTests
             // Round 9: Kimi K3 (attention residuals per row, delta attention, latent MoE).
             "hf/tiny-random-kimi-k3-f32",
             "gguf/tiny-random-kimi-k3-f32.gguf",
+            // Kimi K3.1: the indexer without rope in its sparse regime (8 positions).
+            "hf/tiny-random-kimi-k31-f32",
+            "gguf/tiny-random-kimi-k31-f32.gguf",
         ];
         foreach (string model in models)
         {

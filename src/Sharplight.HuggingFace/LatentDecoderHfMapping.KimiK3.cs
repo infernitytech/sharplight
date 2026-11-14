@@ -1,18 +1,22 @@
+using System.Text.Json;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// Kimi K3 (HF <c>kimi_k3</c>, the language model below <c>language_model.</c>; the vision tower is not imported): Kimi-Linear
+/// Kimi K3 and K3.1 (HF <c>kimi_k3</c> / <c>kimi_k31</c>, the language model below <c>language_model.</c>; the vision tower is not imported): Kimi-Linear
 /// layers with block attention residuals (<c>attn_res_block_size</c>; the per-layer <c>*_res_norm</c> / <c>*_res_proj</c> pairs become one score vector
 /// each), the situ activation in every MLP (<c>activation_situ_beta</c> / <c>activation_situ_linear_beta</c>), latent MoE (<c>routed_expert_hidden_size</c>,
 /// <c>routed_expert_norm</c> after the expert sum), the bounded delta-attention gate (<c>linear_attn_config.gate_lower_bound</c>) with a full-rank output
-/// gate and one decay rate per key channel shared by the heads (<c>A_log</c> [head_dim]), and a sigmoid output gate on the latent attention.
+/// gate and one decay rate per key channel shared by the heads (<c>A_log</c> [head_dim]), and a sigmoid output gate on the latent attention. K3.1 adds
+/// a DSA indexer without rotary embedding to the latent-attention layers (<c>dsa_config</c>).
 /// </summary>
 internal sealed partial class LatentDecoderHfMapping
 {
-    private static bool IsKimiK3(HfConfig c) => c.ModelType == "kimi_k3";
+    private static bool IsKimiK3(HfConfig c) => c.ModelType is "kimi_k3" or "kimi_k31";
+
+    private static JsonElement? DsaConfig(HfConfig c) => c.Get("dsa_config") is { ValueKind: JsonValueKind.Object } j ? j : null;
 
     private static void AddKimiK3HyperParameters(Dictionary<string, object> md, string a, HfConfig c)
     {
@@ -34,6 +38,13 @@ internal sealed partial class LatentDecoderHfMapping
         if (HfMappingHelpers.OptionalNumber(LinearConfig(c), "gate_lower_bound") is { } bound)
         {
             md[a + "linear_attention.decay_bound"] = (float)bound;
+        }
+
+        if (DsaConfig(c) is { } dsa)
+        {
+            md[a + "attention.indexer.token_budget"] = (int)HfMappingHelpers.NumberOr(dsa, "index_topk", 2048);
+            md[a + "attention.indexer.rope_style"] = "none";
+            md[a + "attention.indexer.norm_eps"] = (float)(HfMappingHelpers.OptionalNumber(dsa, "index_norm_eps") ?? c.GetDouble("rms_norm_eps") ?? 1e-6);
         }
     }
 

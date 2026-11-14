@@ -278,7 +278,9 @@ internal sealed partial class LatentDecoderGraphBuilder
 
         if (_indexerCaches[il] is { } keys)
         {
-            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, _attentions[il].Parameters.RopeDims, _indexerRotate!, _logPositions);
+            // An indexer without rotary embedding (Kimi K3.1) scores the whole rows as they are.
+            int ropeDims = _indexer.Options.RopeStyle == "none" ? 0 : _attentions[il].Parameters.RopeDims;
+            return queryInput => _previousSelection = _indexer.Select(b, h, queryInput, p, keys, ropeDims, _indexerRotate!, _logPositions);
         }
 
         return _ => _previousSelection ?? throw new InvalidDataException($"latent_decoder: layer {il} reuses an indexer selection, but no earlier layer has an indexer.");
@@ -340,7 +342,7 @@ internal sealed partial class LatentDecoderGraphBuilder
 
     /// <summary>The indexer's rotary embedding: the attention's frequencies and magnitude with the indexer's pairing style.</summary>
     private Func<Value, Value> IndexerRotation(GraphBuilder b, Value positions)
-        => RopeOf(b, positions, _indexer!.Options.RopeStyle, _hp.Attention.RopeMagnitude);
+        => _indexer!.Options.RopeStyle == "none" ? t => t : RopeOf(b, positions, _indexer.Options.RopeStyle, _hp.Attention.RopeMagnitude);
 
     private Func<Value, Value> RopeOf(GraphBuilder b, Value positions, string style, float magnitude, float? ropeBase = null,
         string factorsName = "rope.freq_factors")

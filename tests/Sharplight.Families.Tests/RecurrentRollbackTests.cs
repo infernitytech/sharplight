@@ -39,6 +39,7 @@ public class RecurrentRollbackTests
         { "hf/tiny-random-lfm2", "CausalConv1d (short conv)" },
         { "hf/tiny-random-kimi-linear-f32", "GatedDeltaRule (per-channel decay), CausalConv1d" },
         { "hf/tiny-random-kimi-k3-f32", "GatedDeltaRule (bounded per-channel decay), CausalConv1d, attention residuals" },
+        { "hf/tiny-random-kimi-k31-f32", "GatedDeltaRule (bounded per-channel decay), CausalConv1d, attention residuals, sparse indexer" },
         { "hf/tiny-random-minimax", "GatedDeltaRule (additive rule, time-invariant decay)" },
     };
 

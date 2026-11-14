@@ -18,7 +18,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } =
-        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "kimi_k3"];
+        ["deepseek_v2", "deepseek_v3", "kimi_k2", "glm4_moe_lite", "minicpm3", "mistral4", "hy_v4", "kimi_linear", "bailing_hybrid", "deepseek_v32", "glm_moe_dsa", "glm5_next", "glm5_next_text", "kimi_k3", "kimi_k31"];
 
     private static bool IsMiniCpm(HfConfig c) => c.ModelType == "minicpm3";
 
@@ -106,7 +106,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     /// DeepSeek-V3.2 and GLM-5 (DSA): a sparse-attention indexer picks <c>index_topk</c> tokens per query (Hunyuan v4 has one too, see
     /// <c>AddHyV4HyperParameters</c>).
     /// </summary>
-    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa" || IsGlm5Next(c);
+    private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa" || IsGlm5Next(c) || (IsKimiK3(c) && DsaConfig(c) is not null);
 
     /// <summary>The DSA indexer tensors below <c>self_attn.indexer.</c>, HF suffix to canonical suffix (norm and head weights in f32).</summary>
     private static readonly Dictionary<string, string> s_indexerTensors = new(StringComparer.Ordinal)
