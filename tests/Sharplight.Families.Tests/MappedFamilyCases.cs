@@ -132,6 +132,8 @@ internal static class MappedFamilyCases
             [1014, 9202, 19881, 19881, 19881, 19881, 19881, 30559, 30559, 30559, 6135, 22296, 19306, 7712, 7712, 19716], ""),
         new("tiny-random-t5-v1_1 HF (t5 gated-gelu, transformers)", "hf/tiny-random-t5-v1_1", Prompt, "ids",
             [8847, 26621, 8889, 8889, 31376, 731, 731, 28428, 28176, 8298, 27172, 9762, 7827, 7827, 7827, 29378, 28529], ""),
+        new("flan-t5-small HF (t5 gated-gelu, separate LM head, transformers)", "hf/flan-t5-small", "Write a short story about a cat who learns to fly.", "ids",
+            [37, 1712, 19, 7070, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3], ""),
         // Encoder-decoder: the prompt is encoded, the decoder starts from the pad token (llama.cpp b11177 llama-completion prints the same text).
         new("flan-t5-small Q4_K_M GGUF (t5 encoder-decoder, relative position bias, cross-attention, llama.cpp)", "gguf/flan-t5-small/flan-t5-small.Q4_K_M.gguf",
             "Write a short story about a cat who learns to fly.", "ids", [37, 1712, 19, 7070, 16, 8, 799, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5], ""),
