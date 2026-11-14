@@ -101,6 +101,21 @@ The latest round (section 23) loads the operands of small-batch matmuls straight
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 
+ONNX models against onnxruntime 1.31 on the same machine (benchmarks sections 21 and 25), min latency in ms at batch 1.
+Sharplight runs its f32-accurate default. ORT's CUDA EP is shown with its default TF32 and with TF32 off ("strict").
+The CPU columns use 16 threads on both engines and come from the idle-machine runs of section 21 (section 25 could only
+measure the CPU under heavy background load).
+
+| Model | Sharplight Vulkan | ORT CUDA (TF32) | ORT CUDA strict | Sharplight CPU | ORT CPU |
+|---|---:|---:|---:|---:|---:|
+| resnet50 | 0.81 | 1.02 | 2.11 | 8.2 | 5.7 |
+| mobilenetv2 | 0.42 | 0.35 | 0.65 | 2.1 | 1.6 |
+| yolov10n | 1.26 | 1.17 | 2.31 | 15.5 | 15.2 |
+| bert-base (16 tokens) | 1.30 | 1.24 | 1.44 | 11.4 | 11.4 |
+| vit-base | 2.61 | 1.34 | 2.46 | 26.1 | 21.2 |
+| whisper-tiny encoder | 2.38 | 1.17 | 2.08 | 44.9 | 39.5 |
+| mobilesam encoder | 5.96 | 6.15 | 8.00 | 215 | 196 |
+
 ## Building
 
 ```sh

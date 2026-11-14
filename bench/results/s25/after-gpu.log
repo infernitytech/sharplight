@@ -1,0 +1,42 @@
+r0 resnet50 b1 sl-vulkan: ok min 0.81 med 0.832 parity True 
+r0 resnet50 b1 sl-vulkan-rp: ok min 0.705 med 0.715 parity False 
+r0 resnet50 b8 sl-vulkan: ok min 3.09 med 3.101 parity True 
+r0 resnet50 b8 sl-vulkan-rp: ok min 1.929 med 1.966 parity False 
+r0 convnext-tiny b1 sl-vulkan: ok min 1.121 med 1.128 parity True 
+r0 convnext-tiny b1 sl-vulkan-rp: ok min 1.12 med 1.13 parity True 
+r0 convnext-tiny b8 sl-vulkan: ok min 4.048 med 4.415 parity True 
+r0 convnext-tiny b8 sl-vulkan-rp: ok min 2.747 med 2.851 parity False 
+r0 efficientnet-lite4 b1 sl-vulkan: ok min 0.883 med 0.901 parity True 
+r0 efficientnet-lite4 b1 sl-vulkan-rp: ok min 0.757 med 0.807 parity True 
+r0 mobilenetv2 b1 sl-vulkan: ok min 0.443 med 0.52 parity True 
+r0 mobilenetv2 b1 sl-vulkan-rp: ok min 0.432 med 1.675 parity False 
+r0 mobilenetv2 b8 sl-vulkan: ok min 0.762 med 0.811 parity True 
+r0 mobilenetv2 b8 sl-vulkan-rp: ok min 0.683 med 1.128 parity False 
+r0 yolov8n b1 sl-vulkan: ok min 1.373 med 1.393 parity True 
+r0 yolov8n b1 sl-vulkan-rp: ok min 2.126 med 4.024 parity False 
+r0 yolov10n b1 sl-vulkan: ok min 1.261 med 1.271 parity True 
+r0 yolov10n b1 sl-vulkan-rp: ok min 1.279 med 1.589 parity False 
+r0 ssd-10 (NMS) b1 sl-vulkan: ok min 24.913 med 30.435 parity False 
+r0 ssd-10 (NMS) b1 sl-vulkan-rp: ok min 12.72 med 14.893 parity False 
+r0 bert-base (16 tok) b1 sl-vulkan: ok min 1.378 med 4.059 parity True 
+r0 bert-base (16 tok) b1 sl-vulkan-rp: ok min 1.4 med 2.107 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan: ok min 8.325 med 10.784 parity True 
+r0 bert-base (16 tok) b8 sl-vulkan-rp: ok min 4.428 med 8.059 parity True 
+r0 vit-base b1 sl-vulkan: ok min 2.713 med 3.232 parity True 
+r0 vit-base b1 sl-vulkan-rp: ok min 2.244 med 2.365 parity False 
+r0 vit-base b8 sl-vulkan: ok min 10.478 med 11.78 parity True 
+r0 vit-base b8 sl-vulkan-rp: ok min 10.485 med 13.845 parity False 
+r0 whisper-tiny-encoder b1 sl-vulkan: ok min 2.379 med 2.985 parity True 
+r0 whisper-tiny-encoder b1 sl-vulkan-rp: ok min 2.086 med 2.647 parity False 
+r0 segformer-b0 b1 sl-vulkan: ok min 4.075 med 16.259 parity True 
+r0 segformer-b0 b1 sl-vulkan-rp: ok min 3.284 med 4.705 parity True 
+r0 segformer-b0 b8 sl-vulkan: ok min 23.32 med 24.511 parity True 
+r0 segformer-b0 b8 sl-vulkan-rp: ok min 21.272 med 23.926 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan: ok min 3.438 med 5.419 parity True 
+r0 qwen2.5-0.5b q4 (MatMulNBits) b1 sl-vulkan-rp: ok min 3.037 med 3.68 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan: ok min 5.288 med 5.674 parity False 
+r0 phi3.5-mini q4f16 (GQA) b1 sl-vulkan-rp: ok min 4.955 med 5.639 parity False 
+r0 mobilesam-encoder b1 sl-vulkan: ok min 5.958 med 6.308 parity True 
+r0 mobilesam-encoder b1 sl-vulkan-rp: ok min 4.678 med 5.071 parity False 
+r0 raft-large b1 sl-vulkan: ok min 55.994 med 59.375 parity True 
+r0 raft-large b1 sl-vulkan-rp: ok min 44.151 med 46.441 parity False 
