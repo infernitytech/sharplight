@@ -401,17 +401,18 @@ uint4 load16_any(uint64_t at)
     return q;
 }
 
-// MXFP4R (WeightRepack.Mxfp4Split): rows in groups of 16, each group [16 rows x K/2 code bytes][16 rows x K/32 E8M0 scales],
-// rowBytes = 17 K / 32 as in MXFP4. Block b of row `row` has its 16 code bytes (16-byte aligned) at
-// mxfp4r_codes(..) + 16 b and its scale at mxfp4r_scales(..) + b. `table` is the start of the matrix (a multiple of 16 rows).
+// MXFP4R (WeightRepack.Mxfp4Split): rows in groups of 16, each group [16 rows x K/2 code bytes][K/32 blocks x 16 rows E8M0
+// scales], rowBytes = 17 K / 32 as in MXFP4. Block b of row `row` has its 16 code bytes (16-byte aligned) at
+// mxfp4r_codes(..) + 16 b and its scale at mxfp4r_scale(.., b): the scales of one block of a row group are 16 adjacent bytes,
+// so the rows of a tile read their scales from a few sectors. `table` is the start of the matrix (a multiple of 16 rows).
 uint64_t mxfp4r_codes(uint8_t* table, uint64_t rowBytes, uint row)
 {
     return uint64_t(table) + uint64_t(row >> 4) * 16 * rowBytes + uint64_t(row & 15) * (rowBytes / 17 * 16);
 }
 
-uint64_t mxfp4r_scales(uint8_t* table, uint64_t rowBytes, uint row)
+uint mxfp4r_scale(uint8_t* table, uint64_t rowBytes, uint row, uint block)
 {
-    return uint64_t(table) + uint64_t(row >> 4) * 16 * rowBytes + 256 * (rowBytes / 17) + uint64_t(row & 15) * (rowBytes / 17);
+    return uint(*(uint8_t*)(uint64_t(table) + uint64_t(row >> 4) * 16 * rowBytes + 256 * (rowBytes / 17) + uint64_t(block) * 16 + (row & 15)));
 }
 
 // Start of row `row`. The address is computed on integers: NVIDIA's driver truncates a 64-bit OpPtrAccessChain index on a byte
@@ -557,7 +558,7 @@ void load8(uint8_t* table, uint64_t rowBytes, uint tableRow, uint g, out float v
 #elif WFMT == FMT_MXFP4R
     // Group g: codes 8 (g & 1) .. + 8 of block g / 4, low nibbles for g & 2 == 0, else high.
     uint2 q = *(uint2*)(mxfp4r_codes(table, rowBytes, tableRow) + uint64_t(g >> 2) * 16 + (g & 1) * 8) >> ((g & 2) * 2);
-    float d = e8m0_half(uint(*(uint8_t*)(mxfp4r_scales(table, rowBytes, tableRow) + (g >> 2))));
+    float d = e8m0_half(mxfp4r_scale(table, rowBytes, tableRow, g >> 2));
     [ForceUnroll]
     for (int i = 0; i < 8; i++)
         v[i] = fp4_value(((i < 4 ? q.x : q.y) >> (8 * (i & 3))) & 0xF) * d;

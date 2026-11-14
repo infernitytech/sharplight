@@ -262,14 +262,52 @@ public sealed class StatefulTests
         Diff.Check("CausalConv1d", tg.B.Build(), steps, atol: 2e-5, rtol: 1e-4, maxTokens: 8, what: $"C={C} K={K} silu={silu}");
     }
 
+    /// <summary>
+    /// The token-by-token gated delta rule against the CPU oracle over several steps; with a 16-bit state (rounded after every
+    /// token row on both sides) the tolerance covers roundings that land on the other side of a tie-break.
+    /// </summary>
     [Theory]
-    [InlineData(2, 4, 16, 8)]
-    [InlineData(1, 3, 128, 128)]
-    [InlineData(4, 4, 32, 64)]
-    [InlineData(2, 2, 64, 32)]
-    public void GatedDeltaRuleAcrossSteps(int Hk, int Hv, int Dk, int Dv)
+    [InlineData(2, 4, 16, 8, "f32")]
+    [InlineData(1, 3, 128, 128, "f32")]
+    [InlineData(4, 4, 32, 64, "f32")]
+    [InlineData(2, 2, 64, 32, "f32")]
+    [InlineData(2, 4, 16, 8, "bf16")]
+    [InlineData(1, 3, 128, 128, "bf16")]
+    [InlineData(2, 2, 64, 32, "f16")]
+    [InlineData(1, 3, 128, 128, "f16")]
+    public void GatedDeltaRuleAcrossSteps(int Hk, int Hv, int Dk, int Dv, string stateType)
     {
         Gpu.Require();
+        var (g, splits) = DeltaRuleSteps(Hk, Hv, Dk, Dv, DataType.Get(stateType), [3, 1, 2, 1]);
+        var steps = splits[0];
+        var (atol, rtol) = stateType == "f32" ? (2e-4, 2e-3) : (2e-3, 2e-2);
+        Diff.Check("GatedDeltaRule", g, steps, atol: atol, rtol: rtol, maxTokens: 8, what: $"Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv} state={stateType}");
+    }
+
+    /// <summary>
+    /// A 16-bit state is rounded after every token row, so the token-by-token kernel gives bit-identical outputs however the
+    /// tokens are split into steps (a several-row speculative verification run matches decoding one token at a time).
+    /// </summary>
+    [Theory]
+    [InlineData("bf16")]
+    [InlineData("f16")]
+    [InlineData("f32")]
+    public void GatedDeltaRuleOutputsDoNotDependOnStepSplit(string stateType)
+    {
+        Gpu.Require();
+        var type = DataType.Get(stateType);
+        var (g, splits) = DeltaRuleSteps(1, 3, 128, 128, type, [4, 1, 3], [1, 1, 1, 1, 1, 1, 1, 1]);
+        float[] a = [.. Diff.RunVulkan(g, splits[0], maxTokens: 8).SelectMany(x => x)];
+        float[] b = [.. Diff.RunVulkan(g, splits[1], maxTokens: 8).SelectMany(x => x)];
+        Assert.Equal(a, b);
+    }
+
+    /// <summary>
+    /// A gated delta rule graph (state of <paramref name="stateType"/>) and, per split of the same rows (step sizes), its steps;
+    /// the rows' inputs depend only on their position, not on the split.
+    /// </summary>
+    private static (ComputeGraph Graph, List<Step>[] Splits) DeltaRuleSteps(int Hk, int Hv, int Dk, int Dv, DataType stateType, params int[][] splits)
+    {
         var tg = new TG();
         var D = TG.T;
         var qi = tg.InF("q", D, Hk, Dk);
@@ -277,23 +315,45 @@ public sealed class StatefulTests
         var vi = tg.InF("v", D, Hv, Dv);
         var gi = tg.InF("g", D, Hv);
         var bi = tg.InF("b", D, Hv);
-        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        var st = tg.State("ssm", stateType, StateKind.Recurrent, Hv, Dv, Dk);
         tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [qi, ki, vi, gi, bi, st], Attributes.From(("scale", 1f / MathF.Sqrt(Dk))), writes: [st])[0]);
-        int[] chunks = [3, 1, 2, 1];
-        var steps = chunks.Select((c, i) => new Step(c, 0,
-            (qi, Rnd.F(c * Hk * Dk, 1 + i, 1f)), (ki, Rnd.F(c * Hk * Dk, 11 + i, 0.3f)), (vi, Rnd.F(c * Hv * Dv, 21 + i)),
-            (gi, Rnd.F(c * Hv, 31 + i).Select(v => -Math.Abs(v)).ToArray()), (bi, Rnd.F(c * Hv, 41 + i).Select(Math.Abs).ToArray()))).ToList();
-        Diff.Check("GatedDeltaRule", tg.B.Build(), steps, atol: 2e-4, rtol: 2e-3, maxTokens: 8, what: $"Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv}");
+        int total = splits[0].Sum();
+        var q = Rnd.F(total * Hk * Dk, 1, 1f);
+        var k = Rnd.F(total * Hk * Dk, 11, 0.3f);
+        var v = Rnd.F(total * Hv * Dv, 21);
+        var g = Rnd.F(total * Hv, 31).Select(x => -Math.Abs(x)).ToArray();
+        var b = Rnd.F(total * Hv, 41).Select(Math.Abs).ToArray();
+        List<Step> Steps(int[] chunks)
+        {
+            var steps = new List<Step>();
+            int t0 = 0;
+            foreach (int c in chunks)
+            {
+                steps.Add(new Step(c, 0, (qi, q[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]), (ki, k[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]),
+                    (vi, v[(t0 * Hv * Dv)..((t0 + c) * Hv * Dv)]), (gi, g[(t0 * Hv)..((t0 + c) * Hv)]), (bi, b[(t0 * Hv)..((t0 + c) * Hv)])));
+                t0 += c;
+            }
+
+            return steps;
+        }
+
+        return (tg.B.Build(), [.. splits.Select(Steps)]);
     }
 
-    /// <summary>Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention) against the CPU.</summary>
+    /// <summary>
+    /// Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention) against the CPU,
+    /// also with a 16-bit state.
+    /// </summary>
     [Theory]
     [InlineData(true, false, false, 2, 4, 32, 32)]
     [InlineData(true, false, false, 1, 2, 128, 128)]
     [InlineData(false, true, true, 2, 4, 16, 8)]
     [InlineData(true, true, false, 4, 4, 64, 32)]
     [InlineData(false, false, true, 2, 2, 64, 32)]
-    public void GatedDeltaRuleVariantsAcrossSteps(bool channel, bool additive, bool constantGates, int Hk, int Hv, int Dk, int Dv)
+    [InlineData(true, false, false, 1, 2, 128, 128, "bf16")]
+    [InlineData(true, true, false, 4, 4, 64, 32, "f16")]
+    [InlineData(false, true, true, 2, 4, 16, 8, "bf16")]
+    public void GatedDeltaRuleVariantsAcrossSteps(bool channel, bool additive, bool constantGates, int Hk, int Hv, int Dk, int Dv, string stateType = "f32")
     {
         Gpu.Require();
         var tg = new TG();
@@ -303,7 +363,7 @@ public sealed class StatefulTests
         var vi = tg.InF("v", D, Hv, Dv);
         var gi = constantGates ? tg.WF("g", Rnd.F(Hv, 31).Select(v => -Math.Abs(v)).ToArray(), Hv) : channel ? tg.InF("g", D, Hv, Dk) : tg.InF("g", D, Hv);
         var bi = constantGates ? tg.WF("b", Rnd.F(Hv, 41).Select(Math.Abs).ToArray(), Hv) : tg.InF("b", D, Hv);
-        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        var st = tg.State("ssm", DataType.Get(stateType), StateKind.Recurrent, Hv, Dv, Dk);
         var attributes = Attributes.From(("scale", 1f / MathF.Sqrt(Dk)), ("rule", additive ? "additive" : "delta"));
         tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [qi, ki, vi, gi, bi, st], attributes, writes: [st])[0]);
         int[] chunks = [3, 1, 2, 1];
@@ -321,7 +381,8 @@ public sealed class StatefulTests
 
             return new Step(c, 0, [.. inputs]);
         }).ToList();
-        Diff.Check("GatedDeltaRule", tg.B.Build(), steps, atol: 2e-4, rtol: 2e-3, maxTokens: 8,
-            what: $"channel={channel} additive={additive} constant={constantGates} Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv}");
+        var (atol, rtol) = stateType == "f32" ? (2e-4, 2e-3) : (2e-3, 2e-2);
+        Diff.Check("GatedDeltaRule", tg.B.Build(), steps, atol: atol, rtol: rtol, maxTokens: 8,
+            what: $"channel={channel} additive={additive} constant={constantGates} Hk={Hk} Hv={Hv} Dk={Dk} Dv={Dv} state={stateType}");
     }
 }

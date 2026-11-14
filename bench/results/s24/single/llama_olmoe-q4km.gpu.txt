@@ -1,0 +1,1 @@
+gpu before: 77 %, 9569 MiB, 121.44 W, 2325 MHz

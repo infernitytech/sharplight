@@ -33,6 +33,56 @@ public class StatefulOpTests
         Kit.AssertClose(S, s3, 1e-5, 1e-4);
     }
 
+    /// <summary>
+    /// A 16-bit state is rounded after every token row: the outputs and the final state follow a reference that rounds the state
+    /// after each token, and they do not depend on how the tokens are split into calls (a speculative verification run of
+    /// several rows matches token-by-token decoding). The 16-bit state stays close to the f32 one.
+    /// </summary>
+    [Theory]
+    [InlineData("bf16", 2e-2)]
+    [InlineData("f16", 4e-3)]
+    public void GatedDeltaRule16BitStateRoundsEveryRow(string type, double vsF32)
+    {
+        int T = 6;
+        int Hk = 2;
+        int Hv = 4;
+        int Dk = 32;
+        int Dv = 16;
+        float scale = 1f / MathF.Sqrt(Dk);
+        var stateType = type == "bf16" ? DataType.BF16 : DataType.F16;
+        var q = Kit.Rand(T * Hk * Dk, 1);
+        var k = Kit.Rand(T * Hk * Dk, 2, 0.3f);
+        var v = Kit.Rand(T * Hv * Dv, 3);
+        var g = Kit.Rand(T * Hv, 4).Select(x => -Math.Abs(x) * 0.2f).ToArray();
+        var b = Kit.Rand(T * Hv, 5).Select(x => Math.Abs(x)).ToArray();
+
+        var S = new float[Hv * Dv * Dk];
+        var exp = new float[T * Hv * Dv];
+        for (int t = 0; t < T; t++)
+        {
+            var o = Ref.Delta(q[(t * Hk * Dk)..((t + 1) * Hk * Dk)], k[(t * Hk * Dk)..((t + 1) * Hk * Dk)], v[(t * Hv * Dv)..((t + 1) * Hv * Dv)],
+                g[(t * Hv)..((t + 1) * Hv)], b[(t * Hv)..((t + 1) * Hv)], S, 1, Hk, Hv, Dk, Dv, scale);
+            o.CopyTo(exp, t * Hv * Dv);
+            for (int i = 0; i < S.Length; i++)
+            {
+                S[i] = stateType == DataType.BF16 ? Simd.BFloatToFloat(Simd.FloatToBFloat(S[i])) : (float)(Half)S[i];
+            }
+        }
+
+        var once = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [T], out var s1, stateType);
+        var single = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [1, 1, 1, 1, 1, 1], out var s2, stateType);
+        var split = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [4, 2], out var s3, stateType);
+        Kit.AssertClose(exp, once, 1e-3, 1e-2, $"{type} vs rounded reference");
+        Kit.AssertClose(S, s1, 1e-3, 1e-2, $"{type} state vs rounded reference");
+        Assert.Equal(once, single);
+        Assert.Equal(once, split);
+        Assert.Equal(s1, s2);
+        Assert.Equal(s1, s3);
+
+        var f32 = GgmlCrossCheckTests.RunDelta(q, k, v, g, b, null!, T, Hk, Hv, Dk, Dv, scale, [T], out _);
+        Kit.AssertClose(f32, once, vsF32, vsF32 * 10, $"{type} vs f32 state");
+    }
+
     [Fact]
     public void GatedDeltaRuleLargeHeadDimParallelRows()
     {
@@ -54,11 +104,15 @@ public class StatefulOpTests
         Kit.AssertClose(S, st, 1e-4, 1e-3);
     }
 
-    /// <summary>Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention), split over calls.</summary>
+    /// <summary>
+    /// Per-channel decay (Kimi delta attention), the additive rule and time-invariant gates (lightning attention), split over calls.
+    /// A 16-bit state stays close to the f32 reference and, rounded after every row, gives the same outputs however the tokens are split.
+    /// </summary>
     [Theory]
     [InlineData(true, false, false, 16, 8), InlineData(true, false, false, 32, 32), InlineData(false, true, true, 16, 8), InlineData(true, true, false, 24, 16),
-     InlineData(false, false, true, 16, 16), InlineData(false, false, false, 16, 8)]
-    public void GatedDeltaRuleVariants(bool channel, bool additive, bool constantGates, int Dk, int Dv)
+     InlineData(false, false, true, 16, 16), InlineData(false, false, false, 16, 8),
+     InlineData(true, false, false, 32, 32, "bf16"), InlineData(true, true, false, 24, 16, "f16"), InlineData(false, true, true, 16, 8, "bf16")]
+    public void GatedDeltaRuleVariants(bool channel, bool additive, bool constantGates, int Dk, int Dv, string stateType = "f32")
     {
         int T = 5;
         int Hk = 2;
@@ -79,31 +133,46 @@ public class StatefulOpTests
         var vi = tg.InF("v", TestGraph.T, Hv, Dv);
         var gi = constantGates ? tg.WF("g", g, Hv) : channel ? tg.InF("g", TestGraph.T, Hv, Dk) : tg.InF("g", TestGraph.T, Hv);
         var bi = constantGates ? tg.WF("b", b, Hv) : tg.InF("b", TestGraph.T, Hv);
-        var st = tg.State("ssm", DataType.F32, StateKind.Recurrent, Hv, Dv, Dk);
+        var st = tg.State("ssm", DataType.Get(stateType), StateKind.Recurrent, Hv, Dv, Dk);
         var attributes = Attributes.From(("scale", scale), ("rule", additive ? "additive" : "delta"));
         tg.B.Output("o", tg.B.Emit("GatedDeltaRule", [qi, ki, vi, gi, bi, st], attributes, writes: [st])[0]);
-        using var m = Kit.Compile(tg.B.Build(), maxTokens: 8);
-        var got = new List<float>();
-        int t0 = 0;
-        int gw = Hv * (channel ? Dk : 1);
-        foreach (int c in new[] { 2, 1, 2 })
+        var graph = tg.B.Build();
+        float[] Run(int[] chunks)
         {
-            Kit.Set(m, qi, q[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
-            Kit.Set(m, ki, k[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
-            Kit.Set(m, vi, v[(t0 * Hv * Dv)..((t0 + c) * Hv * Dv)]);
-            if (!constantGates)
+            using var m = Kit.Compile(graph, maxTokens: 8);
+            var got = new List<float>();
+            int t0 = 0;
+            int gw = Hv * (channel ? Dk : 1);
+            foreach (int c in chunks)
             {
-                Kit.Set(m, gi, g[(t0 * gw)..((t0 + c) * gw)]);
-                Kit.Set(m, bi, b[(t0 * Hv)..((t0 + c) * Hv)]);
+                Kit.Set(m, qi, q[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
+                Kit.Set(m, ki, k[(t0 * Hk * Dk)..((t0 + c) * Hk * Dk)]);
+                Kit.Set(m, vi, v[(t0 * Hv * Dv)..((t0 + c) * Hv * Dv)]);
+                if (!constantGates)
+                {
+                    Kit.Set(m, gi, g[(t0 * gw)..((t0 + c) * gw)]);
+                    Kit.Set(m, bi, b[(t0 * Hv)..((t0 + c) * Hv)]);
+                }
+
+                var p = Kit.P(c);
+                m.Run(p);
+                got.AddRange(Kit.Out(m, "o", p));
+                t0 += c;
             }
 
-            var p = Kit.P(c);
-            m.Run(p);
-            got.AddRange(Kit.Out(m, "o", p));
-            t0 += c;
+            return [.. got];
         }
 
-        Kit.AssertClose(exp, got.ToArray(), 1e-5, 1e-4, $"channel={channel} additive={additive} constant={constantGates}");
+        var split = Run([2, 1, 2]);
+        string what = $"channel={channel} additive={additive} constant={constantGates} state={stateType}";
+        if (stateType == "f32")
+        {
+            Kit.AssertClose(exp, split, 1e-5, 1e-4, what);
+            return;
+        }
+
+        Kit.AssertClose(exp, split, 2e-2, 1e-1, what);
+        Assert.Equal(split, Run([T]));
     }
 
     [Theory]

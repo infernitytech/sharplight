@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using Sharplight.Graph;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
@@ -95,6 +96,164 @@ public sealed partial class GraphLowerer
         return half;
     }
 
+    /// <summary>
+    /// Two expert products of the same activations and routing (gate / up) whose outputs only feed one elementwise group, which
+    /// may also read per-expert rows of f32 tables through the same routing (<paramref name="gathers"/>, e.g. the experts' biases):
+    /// batches on the int-dot expert matvec (decode) run one launch that computes both products and applies the group in its
+    /// store; other batches run the two products and the group.
+    /// </summary>
+    private void LowerDualMatMulId(Node a, Node bNode, List<Node> gathers, List<Node> group, Value output)
+    {
+        var w = Ref(a.Inputs[1]);
+        long N = w.Shape[1];
+        long K = w.Shape[2];
+        var outer = _launchCondition;
+        if (UseIntDotMatvec(a, w.Type, K))
+        {
+            var x = PrepareMatMulInput(Ref(a.Inputs[0]), "matmul-id", out long xs, out long rowsPerLead);
+            var ids = Ref(a.Inputs[2]);
+            if (!ids.IsDense || ids.Type != DataType.I32)
+            {
+                ids = DenseTemp(ids, "matmul-id ids");
+            }
+
+            long S = ids.Shape[1];
+            var y = Produce(output);
+            var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
+                ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
+            string source = DualExpertEpilogueSource(a, bNode, gathers, group, output, N);
+            long mv = DiagnosticSwitches.MoeIntDotMaxItems;
+            var tids = ids;
+            EmitIntDotExpertMatvec($"matmul-id2 {output.Name} [{w.Shape[0]}x{K}→{N}]x2 {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]",
+                [.. gathers, a, bNode, .. group], a, x, xs, rowsPerLead, [w, Ref(bNode.Inputs[1])], ids, y, m, mv, S,
+                [.. gathers.Select(g => Ref(g.Inputs[0]))],
+                macros => _compiler.Compile("mmvq_moe_dual.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache));
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
+        }
+
+        LowerMatMulId(a);
+        LowerMatMulId(bNode);
+        LowerElementwise(group, [output]);
+        _launchCondition = outer;
+    }
+
+    /// <summary>
+    /// The routed-expert sum of a MoE block (<see cref="LoweringUnit.ExpertSum"/>): batches on the int-dot expert matvec run one
+    /// launch per token that computes the product of every slot, applies the group (which may read the gathered per-expert rows and
+    /// per-slot scalars) and sums the slots in order, as the narrow ReduceSum does; other batches run the product, the group and the
+    /// sum.
+    /// </summary>
+    private void LowerExpertSum(Node product, List<Node> gathers, List<Node> group, Node permute, Node reduce)
+    {
+        var w = Ref(product.Inputs[1]);
+        long N = w.Shape[1];
+        long K = w.Shape[2];
+        var summed = permute.Inputs[0];
+        var outer = _launchCondition;
+        // One subgroup per slot: the workgroup holds S subgroups.
+        if (UseIntDotMatvec(product, w.Type, K) && product.Inputs[2].Shape[1] is { IsSymbolic: false } slotDim
+            && slotDim.Fixed * _opt.SubgroupSize <= 1024)
+        {
+            var x = PrepareMatMulInput(Ref(product.Inputs[0]), "matmul-id", out long xs, out long rowsPerLead);
+            var ids = Ref(product.Inputs[2]);
+            if (!ids.IsDense || ids.Type != DataType.I32)
+            {
+                ids = DenseTemp(ids, "matmul-id ids");
+            }
+
+            long S = ids.Shape[1];
+            var inGroup = group.Select(g => g.Output).ToHashSet();
+            var gathered = gathers.Select(g => g.Output).ToHashSet();
+            var scalars = group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v) && !gathered.Contains(v)).Distinct()
+                .Select(Ref).ToList();
+            var y = Produce(reduce.Output);
+            var m = Macros(("WFMT", WeightFormat(w.Type)!.Value), ("K", K), ("N", N), ("E", w.Shape[0]), ("S", S), ("PER_SLOT", x.Rank == 3),
+                ("X_STRIDE", xs), ("ROW_BYTES", w.Type.ByteSize(K) + "ull"), ("EXPERT_BYTES", w.Type.ByteSize(K) * N + "ull"));
+            string source = ExpertSumEpilogueSource(product, gathers, [.. group.SelectMany(g => g.Inputs).Where(v => v != product.Output && !inGroup.Contains(v)
+                && !gathered.Contains(v)).Distinct()], scalars, group, summed, N);
+            long mv = DiagnosticSwitches.MoeIntDotMaxItems;
+            var tids = ids;
+            EmitIntDotExpertMatvec($"matmul-id-sum {reduce.Output.Name} [{w.Shape[0]}x{K}→{N}] {w.Type} fused[{string.Join(",", group.Select(g => g.Op.Name))}]+slot-sum",
+                [.. gathers, product, .. group, permute, reduce], product, x, xs, rowsPerLead, [w], ids, y, m, mv, S,
+                [.. gathers.Select(g => Ref(g.Inputs[0])), .. scalars],
+                macros => _compiler.Compile("mmvq_moe_sum.slang", source, "moe_mmvq", _opt.Target, macros, _opt.Cache), slotSum: true);
+            _launchCondition = b => (outer?.Invoke(b) ?? true) && Rows(b, tids) * S > mv;
+        }
+
+        LowerMatMulId(product);
+        LowerElementwise(group, [summed]);
+        LowerNodeOp(permute);
+        LowerNodeOp(reduce);
+        _launchCondition = outer;
+    }
+
+    /// <summary>
+    /// Source of the <c>MOE_EPI1</c> epilogue of the slot-sum expert matvec: the group over the product, the gathered rows and the
+    /// per-slot scalars (element (t, s) at t * stride0 + s * stride1).
+    /// </summary>
+    private static string ExpertSumEpilogueSource(Node product, List<Node> gathers, List<Value> scalarValues, List<TensorRef> scalars, List<Node> group,
+        Value output, long n)
+    {
+        var name = new Dictionary<Value, string> { [product.Output] = "m0" };
+        for (int i = 0; i < gathers.Count; i++)
+        {
+            name[gathers[i].Output] = "g" + i;
+        }
+
+        for (int i = 0; i < scalarValues.Count; i++)
+        {
+            name[scalarValues[i]] = "c" + i;
+        }
+
+        var src = new StringBuilder();
+        src.AppendLine("#include \"math_ext.slang\"");
+        src.AppendLine($"#define MOE_EPI_FIELDS {string.Concat(gathers.Select((_, i) => $"float* gt{i}; "))}{string.Concat(scalars.Select((_, i) => $"float* sc{i}; "))}");
+        src.AppendLine($"float epi1(float m0{string.Concat(gathers.Select((_, i) => $", float g{i}"))}{string.Concat(scalars.Select((_, i) => $", float c{i}"))}) {{");
+        foreach (var node in group)
+        {
+            var local = "v" + name.Count;
+            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            name[node.Output] = local;
+        }
+
+        src.AppendLine($"  return {name[output]};");
+        src.AppendLine("}");
+        string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[uint64_t(e) * {n} + (n)]"));
+        string perSlot = string.Concat(scalars.Select((r, i) =>
+            $", p.sc{i}[uint64_t(t) * {r.Strides[0]} + uint64_t(s) * {r.Strides[1]}]"));
+        src.AppendLine($"#define MOE_EPI1(m0, e, n, t, s) epi1(m0{rows}{perSlot})");
+        src.AppendLine("#include \"mmvq.slang\"");
+        return src.ToString();
+    }
+
+    /// <summary>Source of the <c>MOE_EPI</c> epilogue of the dual expert matvec: the group over both products and the gathered rows.</summary>
+    private static string DualExpertEpilogueSource(Node a, Node bNode, List<Node> gathers, List<Node> group, Value output, long n)
+    {
+        var name = new Dictionary<Value, string> { [a.Output] = "m0", [bNode.Output] = "m1" };
+        for (int i = 0; i < gathers.Count; i++)
+        {
+            name[gathers[i].Output] = "g" + i;
+        }
+
+        var src = new StringBuilder();
+        src.AppendLine("#include \"math_ext.slang\"");
+        src.AppendLine($"#define MOE_EPI_FIELDS {string.Concat(gathers.Select((_, i) => $"float* gt{i}; "))}");
+        src.AppendLine($"float epi2(float m0, float m1{string.Concat(gathers.Select((_, i) => $", float g{i}"))}) {{");
+        foreach (var node in group)
+        {
+            var local = "v" + name.Count;
+            src.AppendLine($"  float {local} = {OpExpr(node, [.. node.Inputs.Select(i => name[i])])};");
+            name[node.Output] = local;
+        }
+
+        src.AppendLine($"  return {name[output]};");
+        src.AppendLine("}");
+        string rows = string.Concat(gathers.Select((_, i) => $", p.gt{i}[uint64_t(e) * {n} + (n)]"));
+        src.AppendLine($"#define MOE_EPI(m0, m1, e, n) epi2(m0, m1{rows})");
+        src.AppendLine("#include \"mmvq.slang\"");
+        return src.ToString();
+    }
+
     private void LowerMatMulId(Node n)
     {
         var x = Ref(n.Inputs[0]);
@@ -187,11 +346,25 @@ public sealed partial class GraphLowerer
                 groupedMacros["X_STRIDE"] = K.ToString(CultureInfo.InvariantCulture);
             }
 
+            // Split tiles: the 64- and 128-row launches skip routing tiles of at most half their height (an expert's last tile
+            // with few rows), which a second launch runs on half-height tiles. Each output row keeps its K order, so the result
+            // does not depend on the tile height.
+            bool split = DiagnosticSwitches.MoeSplitTiles;
+            Dictionary<string, string> Rows(int t, string limit, int rows)
+                => new(Gemm2Macros(groupedMacros, t, large: false)) { [limit] = rows.ToString(CultureInfo.InvariantCulture) };
             Emit(label + " gemm-cm2", [n],
                 [.. coopTiles.Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
-                    Lib("matmul.slang", "gemm_cm2", Gemm2Macros(groupedMacros, t, large: false)),
+                    Lib("matmul.slang", "gemm_cm2", split && t > 32 ? Rows(t, "MOE_MIN_ROWS", t / 2 + 1) : Gemm2Macros(groupedMacros, t, large: false)),
                     b => new Grid(Grid.Div(N, Gemm2Columns(t)), tiles(b))))],
                 gargs, [gemmX, w, scratch], [y]);
+            if (split)
+            {
+                Emit(label + " gemm-cm2 half tiles", [n],
+                    [.. coopTiles.Where(t => t > 32).Select(t => new KernelVariant(b => items(b) > mv && tile(b) == t,
+                        Lib("matmul.slang", "gemm_cm2", Rows(t / 2, "MOE_MAX_ROWS", t / 2)),
+                        b => new Grid(Grid.Div(N, Gemm2Columns(t / 2)), tiles(b))))],
+                    gargs, [gemmX, w, scratch], [y]);
+            }
         }
         else if (coop)
         {

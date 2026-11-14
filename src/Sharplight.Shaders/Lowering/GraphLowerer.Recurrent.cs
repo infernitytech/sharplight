@@ -77,6 +77,11 @@ public sealed partial class GraphLowerer
             args, reads, [st]);
     }
 
+    /// <summary>The <c>STATE_FMT</c> of a recurrent state type (<c>state16.slang</c>): 0 f32, 1 f16, 2 bf16.</summary>
+    private static int RecurrentStateFormat(DataType type)
+        => type == DataType.F32 ? 0 : type == DataType.F16 ? 1 : type == DataType.BF16 ? 2
+            : throw new NotSupportedException($"recurrent state type {type}");
+
     private void LowerDeltaRule(Node n)
     {
         // q/k may come straight from an absorbed L2Norm: read its input and normalize in the kernel.
@@ -129,7 +134,7 @@ public sealed partial class GraphLowerer
             ("NORM_Q", normQ is not null), ("EPS_Q", normQ?.Attributes.Get<float>("eps") ?? 0f),
             ("NORM_K", normK is not null), ("EPS_K", normK?.Attributes.Get<float>("eps") ?? 0f),
             ("MULTI_SEQ", runs is not null), ("CHANNEL_DECAY", channelDecay), ("ADDITIVE", additive),
-            ("G_TS", gRank == 1 ? 0 : HV), ("B_TS", betaRank == 1 ? 0 : HV));
+            ("G_TS", gRank == 1 ? 0 : HV), ("B_TS", betaRank == 1 ? 0 : HV), ("STATE_FMT", RecurrentStateFormat(st.Type)));
         if (chunked is { } plan && records is null)
         {
             EmitChunkedDeltaRule(nodes, plan, common, chunkMin, q, k, v, g, beta, st, o, runs);

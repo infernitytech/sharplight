@@ -1,0 +1,10 @@
+xUnit.net v3 In-Process Runner v4.0.3+384aa7f0b4 (64-bit .NET 11.0.0)
+[37m  Discovering: Sharplight.Families.Tests
+[0m[37m  Discovered:  Sharplight.Families.Tests
+[0m[37m  Starting:    Sharplight.Families.Tests
+[0m[90m    Sharplight.Families.Tests.RecurrentStateAccuracyTests.SixteenBitStateAgreesWithF32(checkpoint: "hf-vllm/Qwen3.8-27B-FP8", stateType: "bf16", minAgreement: 0.94999999999999996) [OUTPUT] hf-vllm/Qwen3.8-27B-FP8 state bf16: same top-1 193/193, within 2% of the spread 193/193 (100.0%), mean KL 1.41E-005, max |logit diff| / spread 7.08E-003
+[0m[90m    Sharplight.Families.Tests.RecurrentStateAccuracyTests.SixteenBitStateAgreesWithF32(checkpoint: "hf-vllm/Qwen3.8-27B-FP8", stateType: "f16", minAgreement: 0.94999999999999996) [OUTPUT] hf-vllm/Qwen3.8-27B-FP8 state f16: same top-1 193/193, within 2% of the spread 193/193 (100.0%), mean KL 2.38E-007, max |logit diff| / spread 6.37E-004
+[0m[37m  Finished:    Sharplight.Families.Tests (ID = '33f0c4a5d884d68097a65423cf6cfb1d52cdcf84b8aba3e18671257f5715acd1')
+[0m[37m=== TEST EXECUTION SUMMARY ===
+[0m[37m   Sharplight.Families.Tests  Total: 2, Errors: 0, Failed: 0, Skipped: 0, Not Run: 0, Time: 73.042s
+[0m[0m

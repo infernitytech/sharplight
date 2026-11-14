@@ -68,22 +68,24 @@ Test system for all numbers below:
 | llama.cpp | b11177, official CUDA 13, Vulkan and CPU builds |
 
 Single stream on the GPU (Sharplight on Vulkan) against llama.cpp b11177 with its **CUDA** backend (`llama-bench -ngl 99
--fa 1`), same GGUF files, tokens per second (2026-11-13). Prefill is 512 prompt tokens. Dense rows: median of 3 runs, decode at depth 0.
-Ministral and MoE rows: best of 3 runs, decode after the 512-token prompt, llama.cpp run right after on the same GPU. The GPU was
-shared with a desktop session, so differences under about 5 % are noise. gpt-oss decode was updated on 2026-11-14 after
-the matmul bias fusion of benchmarks section 22.
+-fa 1 -p 512 -n 128 -r 3`, mean of 3), same GGUF files, tokens per second (2026-11-14, benchmarks section 24). Prefill is
+512 prompt tokens. Dense rows: median of 3 runs, decode at depth 0. Ministral and MoE rows: best of 3 runs, decode after
+the 512-token prompt. llama.cpp ran right after Sharplight on the same GPU. The GPU was shared with a desktop session and
+other jobs, so differences under about 5 % are noise; llama.cpp's own pp512 varied by up to 10 % between its three samples.
+The gpt-oss row comes from the interleaved runs of section 24.3, because llama.cpp's decode samples in the table run
+were disturbed (133-333 tok/s).
 
 | Model | Prefill Sharplight | Prefill llama.cpp | | Decode Sharplight | Decode llama.cpp | |
 |---|---:|---:|---:|---:|---:|---:|
-| Llama-3.2-1B Q8_0 | 55057 | 58918 | 0.93x | 749 | 739 | 1.01x |
-| Gemma-3-1B Q8_0 | 45270 | 45353 | 1.00x | 560 | 538 | 1.04x |
-| Ministral-3-3B Q4_K_M | 19817 | 20666 | 0.96x | 376 | 396 | 0.95x |
-| Mistral-7B Q4_K_M | 9496 | 11229 | 0.85x | 248 | 246 | 1.01x |
-| Qwen3.8-27B Q8_0 | 2656 | 3058 | 0.87x | 43.9 | 48.5 | 0.90x |
-| OLMoE-1B-7B Q4_K_M (MoE) | 26791 | 26541 | 1.01x | 761 | 816 | 0.93x |
-| ERNIE-4.5-21B-A3B Q4_K_M (MoE) | 10405 | 10383 | 1.00x | 320 | 365 | 0.88x |
-| Nemotron-3-Nano-30B-A3B Q4_K_M (hybrid MoE) | 9327 | 8464 | 1.10x | 309 | 338 | 0.91x |
-| gpt-oss-20b MXFP4 (MoE) | 11831 | 17432 | 0.68x | 322 | 345 | 0.93x |
+| Llama-3.2-1B Q8_0 | 58843 | 54082 | 1.09x | 767 | 741 | 1.03x |
+| Gemma-3-1B Q8_0 | 51922 | 40645 | 1.28x | 576 | 530 | 1.09x |
+| Ministral-3-3B Q4_K_M | 20069 | 19443 | 1.03x | 385 | 377 | 1.02x |
+| Mistral-7B Q4_K_M | 10456 | 11530 | 0.91x | 256 | 227 | 1.13x |
+| Qwen3.8-27B Q8_0 | 3249 | 2921 | 1.11x | 43.1 | 48.0 | 0.90x |
+| OLMoE-1B-7B Q4_K_M (MoE) | 30295 | 29117 | 1.04x | 817 | 808 | 1.01x |
+| ERNIE-4.5-21B-A3B Q4_K_M (MoE) | 11280 | 9333 | 1.21x | 337 | 337 | 1.00x |
+| Nemotron-3-Nano-30B-A3B Q4_K_M (hybrid MoE) | 9889 | 8065 | 1.23x | 326 | 309 | 1.05x |
+| gpt-oss-20b MXFP4 (MoE) | 16276 | 17081 | 0.95x | 331 | 342 | 0.97x |
 
 Qwen3.8-27B (hybrid gated-delta-net + attention), output tokens/s after a 16-token prompt, same GGUF files; GPU rows on the RTX
 PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physical cores (2026-11-13, idle machine):
@@ -97,7 +99,10 @@ PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physi
 | llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
 
 Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
-The latest round (section 23) loads the operands of small-batch matmuls straight into the tensor-core fragments. A decode step
+Section 24 reworked the MoE kernels: gpt-oss-20b prefill went from 0.68x to 0.95x of llama.cpp CUDA at 512 tokens and to
+1.10x at 2048, and MoE decode runs 4 instead of 8 launches per layer. An opt-in bf16 delta-rule state (`--reduced-precision`)
+makes 64-sequence decode steps on the 27B 9 % faster.
+Section 23 loads the operands of small-batch matmuls straight into the tensor-core fragments. A decode step
 of 16 sequences on the 27B takes 29.6 ms instead of 34.3 ms with FP8 weights, and 29.3 ms instead of 33.7 ms with Q8_0.
 MTP speculative decoding on the FP8 model is 8 % faster.
 

@@ -46,7 +46,7 @@ public sealed class RuntimeOptionSet
     public Option<bool> ReducedPrecision { get; } = new("--reduced-precision")
     {
         Description = "Opt-in: faster kernels at reduced (f16) precision where the default keeps near-f32 accuracy "
-            + "(e.g. one f16 product in the chunked delta rule of Qwen3.5-style models).",
+            + "(e.g. one f16 product in the chunked delta rule of Qwen3.5-style models, and their delta-rule state in bf16).",
     };
 
     /// <summary>Adds all options to <paramref name="command"/>.</summary>

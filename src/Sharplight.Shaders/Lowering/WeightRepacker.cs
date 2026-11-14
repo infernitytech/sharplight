@@ -82,7 +82,8 @@ public static class WeightRepacker
         }
     }
 
-    // One 16-row group of 17-byte blocks { u8 e; u8 qs[16] } → codes of every row (16 bytes per block), then scales.
+    // One 16-row group of 17-byte blocks { u8 e; u8 qs[16] } → codes of every row (16 bytes per block), then the scales block by
+    // block (the 16 rows' scales of a block are adjacent).
     private static void SplitMxfp4Group(ReadOnlySpan<byte> src, Span<byte> dst, int blocks)
     {
         var codes = dst[..(Mxfp4GroupRows * blocks * 16)];
@@ -92,7 +93,7 @@ public static class WeightRepacker
             for (int b = 0; b < blocks; b++)
             {
                 var blk = src.Slice((row * blocks + b) * 17, 17);
-                scales[row * blocks + b] = blk[0];
+                scales[b * Mxfp4GroupRows + row] = blk[0];
                 blk[1..].CopyTo(codes.Slice((row * blocks + b) * 16, 16));
             }
         }

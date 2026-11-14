@@ -208,23 +208,44 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
         }
     }
 
-    /// <summary>Overwrites a state tensor with host data (f32 states; used by tests and for state restore).</summary>
+    /// <summary>Overwrites a state tensor with host data (f32, f16 or bf16 states, rounded to nearest; used by tests and for state restore).</summary>
     public void TestSetState(Value state, float[] data)
     {
         var r = _refs[state];
-        if (r.Type != DataType.F32)
+        if (r.Type == DataType.F32)
         {
-            throw new NotSupportedException("f32 states only");
+            data.AsSpan().CopyTo(new Span<float>(r.P, data.Length));
         }
-
-        data.AsSpan().CopyTo(new Span<float>(r.P, data.Length));
+        else if (r.Type == DataType.F16 || r.Type == DataType.BF16)
+        {
+            var d = (ushort*)r.P;
+            for (int i = 0; i < data.Length; i++)
+            {
+                d[i] = r.Type == DataType.F16 ? Simd.FloatToHalf(data[i]) : Simd.FloatToBFloat(data[i]);
+            }
+        }
+        else
+        {
+            throw new NotSupportedException("f32, f16 and bf16 states only");
+        }
     }
 
-    /// <summary>Reads back an f32 state tensor.</summary>
+    /// <summary>Reads back an f32, f16 or bf16 state tensor as f32.</summary>
     public float[] TestGetState(Value state)
     {
         var r = _refs[state];
         var result = new float[r.MaxElements];
+        if (r.Type == DataType.F16 || r.Type == DataType.BF16)
+        {
+            var s = (ushort*)r.P;
+            for (int i = 0; i < result.Length; i++)
+            {
+                result[i] = r.Type == DataType.F16 ? Simd.HalfToFloat(s[i]) : Simd.BFloatToFloat(s[i]);
+            }
+
+            return result;
+        }
+
         new Span<float>(r.P, result.Length).CopyTo(result);
         return result;
     }

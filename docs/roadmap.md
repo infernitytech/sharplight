@@ -20,10 +20,11 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - close the remaining gap to f16's ~1.65 TB/s;
   - fold the small [5120→48] split-K matmuls (~0.9 ms per step);
   - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
-  - re-measure serving against vLLM.
-- **Reduced-precision delta-rule state** (opt-in, `--reduced-precision`): an f16 / bf16 recurrent state for the gated
-  delta rule, about a quarter of the 64-row decode step (§19.6). Needs the state type through the op, its CPU
-  reference, both kernels, rollback records and snapshots (§22.10).
+  - serving against vLLM (§24.5): 0.93x / 0.85x / 0.73x / 0.65x at 1 / 4 / 16 / 64 streams; the batched decode step
+    is the gap.
+- **Reduced-precision delta-rule state**: done as an opt-in (`--reduced-precision` stores it as bf16; 64-row step
+  -8.6 %, 16-row -2.7 % on the 27B FP8, §24.6). Next: round the chunked prefill per chunk like the token-by-token
+  kernel, and 16-bit states for Mamba / RWKV.
 - **Fewer glue launches per batched step**: f16 activation copies, fp8 quantization and split-K reductions are 3–7 % of
   GPU time. Produce the copy in the preceding norm / elementwise epilogue (§19.6).
 - **MTP follow-ups** (§17): share the embedding / LM-head buffers between the target and the draft head (2.5 GB on the
@@ -51,11 +52,15 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
 
 GPU (Vulkan):
 
-- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.83x / 0.72x of vLLM at 512 / 2048 tokens (§22.2).
-- **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K only ties the f16 path today and stays opt-in (§13).
-  27B Q4_K_M prefill is still 2–4 % behind llama.cpp CUDA (§18).
-- **MoE expert GEMMs**: gpt-oss prefill is at 11079 tok/s against a 17432 target (§14). gpt-oss decode is at 0.93x of
-  llama.cpp CUDA after the matmul-bias fusion (§22.3); a fused MoE gate/up for decode is next.
+- **Faster FP8 prefill GEMM**: 27B FP8 prefill is at 0.83x / 0.72x of vLLM at 512 / 2048 tokens (§22.2). A
+  workgroup-scope matrix (`VK_NV_cooperative_matrix2`) version was 1.6x slower than `gemm_fp8` (§24.4); the fetch
+  needs a deeper kernel-managed pipeline within the 48 KB of shared memory Vulkan exposes.
+- **K-quant MMQ**: the integer-dot path for Q4_K / Q5_K / Q6_K is still 6 % slower than the f16 path on the 27B
+  Q4_K_M (§24.4) and stays opt-in; any int8 path changes greedy output against the f16 default. 27B Q4_K_M prefill
+  is still 2–4 % behind llama.cpp CUDA (§18).
+- **MoE expert GEMMs**: gpt-oss is at 0.95x / 1.10x of llama.cpp CUDA at pp512 / pp2048 and 0.97x in decode (§24).
+  Left: the expert GEMM's weight fetch (64-row tiles still about 65 % full before the split launch), and the
+  dual gate/up and slot-sum fusions for the batched expert GEMM (they cover the int-dot matvec only).
 - **Chunked delta rule, split form**: the sequential part now waits between steps rather than on tensor cores. FLA's
   split (short sequential state pass plus a parallel output kernel) needs 100–400 MB scratch for an estimated 1–2 % of
   prefill (§18).
@@ -79,7 +84,12 @@ Defaults keep near-f32 accuracy, except that matmuls over 2+ activation rows mul
 `--reduced-precision` (`LlmLoadOptions.AllowReducedPrecision`,
 `CompileOptions.AllowReducedPrecision`) opts in to faster f16 paths, e.g. one f16 product instead of two in the chunked
 delta rule: about 3 % of 27B prefill, 10 % at FP8 with 512-token prompts, and no difference in greedy output in the tests
-of §18.
+of §18. It also stores the gated delta rule's recurrent state in bf16 (`LlmLoadOptions.RecurrentStateType`, diagnostic
+override `SHARPLIGHT_RECURRENT_STATE=f32|bf16|f16`): the token-by-token kernel rounds the state after every row (so MTP
+verification still matches plain decoding), the chunked prefill once per run. On the 27B FP8 it halves the `delta_rule`
+kernel (226 → 108 us per layer at 64 decode rows) and cuts the step GPU time by about 3 % at 16 rows and 9 % at 64. f16 is
+more accurate but its integer round-to-nearest-even conversion eats most of the gain (−1.4 % at 64 rows). Open: rounding the
+chunked form per chunk instead of per run, and 16-bit states for the other recurrences (`SelectiveScan`, `Wkv6/7`).
 
 ## Multi-node inference
 

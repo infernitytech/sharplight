@@ -1,0 +1,12 @@
+round 1 f32 exit 0
+round 1 bf16 exit 0
+round 1 f16 exit 0
+round 2 f32 exit 0
+round 2 bf16 exit 0
+round 2 f16 exit 0
+round 3 f32 exit 0
+round 3 bf16 exit 0
+round 3 f16 exit 0
+profile f32 exit 0
+profile bf16 exit 0
+ALLDONE

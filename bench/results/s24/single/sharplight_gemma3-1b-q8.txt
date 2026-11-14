@@ -1,0 +1,12 @@
+[N=512 run=1] gpu: 97 %, 9570 MiB, 198.73 W, 2310 MHz
+[N=512 run=1] prefill 512 tok: best 10 ms = 49596.1 tok/s | decode: best 570.06, median 563.60, mean 493.23 tok/s | GPU ms/step: best 1.68, median 1.69, wall best 1.75
+[N=512 run=2] gpu: 92 %, 9570 MiB, 112.97 W, 2287 MHz
+[N=512 run=2] prefill 512 tok: best 10 ms = 51971.3 tok/s | decode: best 572.80, median 568.57, mean 562.16 tok/s | GPU ms/step: best 1.68, median 1.69, wall best 1.75
+[N=512 run=3] gpu: 66 %, 9570 MiB, 116.11 W, 2280 MHz
+[N=512 run=3] prefill 512 tok: best 10 ms = 51922.2 tok/s | decode: best 570.13, median 561.77, mean 553.60 tok/s | GPU ms/step: best 1.68, median 1.69, wall best 1.75
+[N=16 run=1] gpu: 0 %, 9570 MiB, 115.93 W, 2280 MHz
+[N=16 run=1] prefill 16 tok: best 3 ms = 6058.8 tok/s | decode: best 581.16, median 574.05, mean 567.80 tok/s | GPU ms/step: best 1.65, median 1.66, wall best 1.72
+[N=16 run=2] gpu: 74 %, 9570 MiB, 107.06 W, 2295 MHz
+[N=16 run=2] prefill 16 tok: best 3 ms = 6036.1 tok/s | decode: best 580.69, median 575.84, mean 564.51 tok/s | GPU ms/step: best 1.64, median 1.66, wall best 1.72
+[N=16 run=3] gpu: 2 %, 9570 MiB, 106.40 W, 2272 MHz
+[N=16 run=3] prefill 16 tok: best 3 ms = 6038.9 tok/s | decode: best 586.20, median 579.11, mean 573.17 tok/s | GPU ms/step: best 1.64, median 1.66, wall best 1.71

@@ -1,0 +1,2 @@
+gpu before: 2 %, 9872 MiB, 135.15 W, 2340 MHz
+prefill 2048 tok: best 142 ms = 14473.4 tok/s | decode: best 271.25, median 247.68, mean 249.68 tok/s | GPU ms/step: best 3.59, median 3.79, wall best 3.69

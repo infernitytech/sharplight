@@ -1,0 +1,1 @@
+gpu before: 2 %, 9878 MiB, 151.84 W, 2340 MHz

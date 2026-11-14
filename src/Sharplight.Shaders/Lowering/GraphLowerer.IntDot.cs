@@ -167,17 +167,32 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void EmitIntDotExpertMatvec(string label, Node n, TensorRef x, long xStride, long rowsPerLead, TensorRef w, TensorRef ids, TensorRef y,
         Dictionary<string, string> macros, long maxItems, long slots)
+        => EmitIntDotExpertMatvec(label, [n], n, x, xStride, rowsPerLead, [w], ids, y, macros, maxItems, slots, [], m => Lib("mmvq.slang", "moe_mmvq", m));
+
+    /// <summary>
+    /// The int-dot expert matvec over one or two expert matrices (<paramref name="weights"/>; with two, the kernel source that
+    /// <paramref name="compile"/> builds defines the epilogue <c>MOE_EPI</c>, which may read the per-expert <paramref name="tables"/>).
+    /// </summary>
+    private void EmitIntDotExpertMatvec(string label, Node[] nodes, Node n, TensorRef x, long xStride, long rowsPerLead, TensorRef[] weights, TensorRef ids,
+        TensorRef y, Dictionary<string, string> macros, long maxItems, long slots, TensorRef[] tables, Func<Dictionary<string, string>, CompiledKernel> compile,
+        bool slotSum = false)
     {
+        var w = weights[0];
         long N = w.Shape[1];
         long K = w.Shape[2];
         // Activation rows: one per token, or one per (token, slot) item when x is per slot (rowsPerLead = slots).
         long maxRows = Math.Max(1, rowsPerLead == 1 ? maxItems / slots : maxItems);
-        var quantized = QuantizedActivations(label, [n], n.Inputs[0], x, xStride, rowsPerLead, K, 1, maxRows);
+        var quantized = QuantizedActivations(label, nodes, n.Inputs[0], x, xStride, rowsPerLead, K, 1, maxRows);
         Func<Bindings, long> items = b => Rows(b, ids) * slots;
         int lanesPerRow = Math.Min(_opt.SubgroupSize, DiagnosticSwitches.IntDotLayout is { Length: > 2 } forced ? forced[2] : _opt.SubgroupSize);
         int rowsPerGroup = DiagnosticSwitches.IntDotLayout is { } layout ? layout[0] : 1;
         int subgroups = DiagnosticSwitches.IntDotLayout is { } layout2 ? layout2[1] : 4;
-        long rowsPerWorkgroup = subgroups * (_opt.SubgroupSize / lanesPerRow) * rowsPerGroup;
+        if (slotSum)
+        {
+            subgroups = (int)slots;   // one subgroup per slot
+        }
+
+        long rowsPerWorkgroup = (slotSum ? 1 : subgroups) * (_opt.SubgroupSize / lanesPerRow) * rowsPerGroup;
         var m = new Dictionary<string, string>(macros)
         {
             ["MQ_COLS"] = "1",
@@ -185,12 +200,14 @@ public sealed partial class GraphLowerer
             ["MQ_SG"] = subgroups.ToString(CultureInfo.InvariantCulture),
             ["MQ_LPR"] = lanesPerRow.ToString(CultureInfo.InvariantCulture),
             ["KERNEL_MOE_MMVQ"] = "1",
+            ["DUAL"] = (weights.Length - 1).ToString(CultureInfo.InvariantCulture),
+            ["SLOT_SUM"] = slotSum ? "1" : "0",
         };
-        Emit(label + " int-dot", [n],
-            [new KernelVariant(b => items(b) <= maxItems && Rows(b, x) * rowsPerLead <= maxRows, Lib("mmvq.slang", "moe_mmvq", m),
-                b => new Grid(Grid.Div(N, rowsPerWorkgroup), (uint)Math.Max(1, items(b))))],
-            [Pointer(quantized), Pointer(w), Pointer(ids), Pointer(y), TokenArg(ids)],
-            [quantized, w, ids], [y]);
+        Emit(label + " int-dot", nodes,
+            [new KernelVariant(b => items(b) <= maxItems && Rows(b, x) * rowsPerLead <= maxRows, compile(m),
+                b => new Grid(Grid.Div(N, rowsPerWorkgroup), (uint)Math.Max(1, slotSum ? Rows(b, ids) : items(b))))],
+            [Pointer(quantized), .. weights.Select(Pointer), Pointer(ids), Pointer(y), .. tables.Select(Pointer), TokenArg(ids)],
+            [quantized, .. weights, ids, .. tables], [y]);
     }
 
     /// <summary>Frees the arena allocations tied to <paramref name="root"/> and forgets the q8 copies made of it.</summary>

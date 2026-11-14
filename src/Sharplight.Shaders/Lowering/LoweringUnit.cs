@@ -41,6 +41,12 @@ internal sealed class LoweringUnit
     /// </summary>
     public List<Node>? Gathers;
 
+    /// <summary>
+    /// An expert product (MatMulId) feeding this group, and the Permute and ReduceSum that sum the group's output over the
+    /// expert slots of each token: decode-sized batches compute the products, the group and the slot sum in one launch.
+    /// </summary>
+    public (Node Product, Node Permute, Node Reduce)? ExpertSum;
+
     /// <summary>Nodes computed inside this unit's kernel (e.g. L2Norm of delta-rule q/k).</summary>
     public List<Node>? Absorbed;
 
@@ -63,6 +69,11 @@ internal sealed class LoweringUnit
             Node[] dual = Dual is { } pair ? [pair.A, pair.B] : ConvHead is null ? [] : [ConvHead];
             Node[] head = NormHead is null ? [] : [NormHead];
             Node[] tail = NormTail is null ? [] : [NormTail];
+            if (ExpertSum is { } sum)
+            {
+                return [.. Gathers ?? [], sum.Product, .. Fused, sum.Permute, sum.Reduce];
+            }
+
             return [.. Gathers ?? [], .. dual, .. head, .. Fused, .. tail];
         }
     }

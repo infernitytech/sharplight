@@ -135,7 +135,20 @@ public sealed partial class GraphLowerer
     {
         if (unit.Dual is { } dual)
         {
-            LowerDualMatMul(dual.A, dual.B, unit.Fused!, unit.FusedOutputs![0]);
+            if (dual.A.Op.Name == "MatMulId")
+            {
+                LowerDualMatMulId(dual.A, dual.B, unit.Gathers ?? [], unit.Fused!, unit.FusedOutputs![0]);
+            }
+            else
+            {
+                LowerDualMatMul(dual.A, dual.B, unit.Fused!, unit.FusedOutputs![0]);
+            }
+
+            FreeTemps();
+        }
+        else if (unit.ExpertSum is { } sum)
+        {
+            LowerExpertSum(sum.Product, unit.Gathers ?? [], unit.Fused!, sum.Permute, sum.Reduce);
             FreeTemps();
         }
         else if (unit.ConvHead is { } conv)

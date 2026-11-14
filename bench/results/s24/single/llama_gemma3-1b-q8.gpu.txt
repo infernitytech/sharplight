@@ -1,0 +1,1 @@
+gpu before: 60 %, 9570 MiB, 107.28 W, 2295 MHz

@@ -1,0 +1,30 @@
+Graph optimization (sharplight-ir/1): decode 2074 -> 2074 nodes, decode_embeddings 2073 -> 2073 nodes [29 ms]
+Loaded Qwen3.6-35B-A3B (qwen3_5): 733 tensors, 22.12 GB, vocab 248320 [243 ms]
+Compiling 193 / 193, 193 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 22.12 / 22.12 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 2490 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 42 groups, 20.70 GiB weights+state
+1 segment(s): [0@0: 2075 nodes]
+Ready (decode)
+Write a short poem about the sea.
+
+<think>
+Thinking Process:
+
+1.  **Deconstruct the request:**
+    *   Topic: The sea.
+    *   Format: Short poem.
+
+2.  **Brainstorming imagery and themes:**
+    *   *Keywords:* Waves, salt, blue, endless, rhythm, shore, moon, tides, whisper, roar, depth, mystery.
+    *   *Themes:* Power, calm, timelessness, connection to the moon, life source.
+
+3.  **Drafting - Attempt 1 (Mental or rough text):**
+    The sea is blue and wide.
+    It crashes on the shore with pride.
+    The waves go up and down.
+    The fish swim all around.
+    *Critique:* Too simple, rhymes are cliché ("wide/pride", "down/around"), lacks poetic depth.
+
+4.  **Drafting - Attempt 2 (Focusing on rhythm and better
+prompt: 8 tok in 48 ms (165.9 tok/s) | generated: 200 tok, 230.73 tok/s

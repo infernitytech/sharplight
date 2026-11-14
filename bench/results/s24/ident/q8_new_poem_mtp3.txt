@@ -1,0 +1,25 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [44 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [287 ms]
+Write a short poem about the sea.Compiling 219 / 219, 219 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 28.58 / 28.58 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' for 1 sequences x 2048 tokens in 3578 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 26.93 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Uploading weights 0.45 / 0.45 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiling 176 / 176, 176 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'mtp_draft' for 1 sequences, 3 drafts, in 461 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 3 groups, 0.43 GiB weights+state
+1 segment(s): [0@0: 37 nodes]
+Ready (mtp_draft)
+
+
+<think>
+The user wants a short poem about the sea. Let me think about what angle to take. There are countless ways to write about the sea - its power, its calm, its mystery, its colors, its sound, its vastness. Let me aim for something that captures a specific, evocative moment rather than being generic. I'll go for something that plays with the duality of the sea - its stillness and its motion, its silence and its sound. Let me keep it short - maybe 8-12 lines. I'll aim for a natural rhythm without forcing a strict rhyme scheme, though some loose rhyme could add musicality. Let me draft:
+
+I want to capture the sea as both ancient and ever-present, the way it holds memory, the way it speaks in a language older than words. Let me write something with sensory detail - the sound, the color, the feeling of standing at the edge.
+
+Let me try:
+
+The sea
+prompt: 8 tok in 106 ms (75.3 tok/s) | generated: 200 tok, 90.90 tok/s | mtp drafts: 122/231 accepted (53%)
