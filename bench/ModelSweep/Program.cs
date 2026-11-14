@@ -145,7 +145,7 @@ namespace ModelSweep
         private const string TestText = "The capital of France is Paris. 1234567 +-*/ ünïcödé 日本語 \n\n  spaces\t<tab>";
 
         /// <summary>Header-derived facts of a GGUF variant.</summary>
-        internal sealed record GgufHeader(IReadOnlyDictionary<string, object> Metadata, Dictionary<int, int> Types);
+        internal sealed record GgufHeader(IReadOnlyDictionary<string, object> Metadata, Dictionary<int, int> Types, List<GgufTensorEntry> Tensors);
 
         /// <summary>The variant of a GGUF path: the path without the shard suffix and the extension.</summary>
         public static string VariantKey(string path)
@@ -167,6 +167,7 @@ namespace ModelSweep
             Directory.CreateDirectory(dir);
             IReadOnlyDictionary<string, object>? metadata = null;
             var types = new Dictionary<int, int>();
+            var tensors = new List<GgufTensorEntry>();
             foreach (var shard in shards)
             {
                 int count = 1 << 21;
@@ -190,6 +191,7 @@ namespace ModelSweep
                 }
 
                 metadata ??= GgufHeaderProbe.ReadMetadata(prefix);
+                tensors.AddRange(GgufHeaderProbe.ReadTensorTable(prefix) ?? []);
                 foreach (var (type, n) in shardTypes)
                 {
                     types[type] = types.GetValueOrDefault(type) + n;
@@ -200,7 +202,7 @@ namespace ModelSweep
                 file.Write(prefix);
             }
 
-            return new GgufHeader(metadata!, types);
+            return new GgufHeader(metadata!, types, tensors);
         }
 
         /// <summary>Small files fully, every safetensors shard as its JSON header in a sparse file of the real size.</summary>
@@ -271,7 +273,19 @@ namespace ModelSweep
                 }
             }
 
-            return level == SupportLevel.Partial ? "partial" : "supported";
+            if (GgufSupport.IsDraftModel(arch))
+            {
+                return "draft model";
+            }
+
+            // The importer mapping run on the header (hyper-parameters, features, every tensor name).
+            var validation = GgufSupport.Validate(header.Metadata, header.Tensors);
+            if (validation.Problems.Count > 0)
+            {
+                return "mapping: " + OneLine(string.Join("; ", validation.Problems));
+            }
+
+            return (level == SupportLevel.Partial ? "partial" : "supported") + (validation.IsComplete ? "" : " (incomplete)");
         }
 
         private static string CheckConfig(string dir)
@@ -306,6 +320,16 @@ namespace ModelSweep
                 return $"unknown quantization {quantization.Method}";
             }
 
+            if (HfSupport.IsDraftModel(modelType))
+            {
+                return "draft model";
+            }
+
+            if (HfSupport.Validate(json) is { Count: > 0 } problems)
+            {
+                return "mapping: " + OneLine(string.Join("; ", problems));
+            }
+
             return (level == SupportLevel.Partial ? "partial" : "supported") + (quantization.Method is { } m ? $" ({m})" : "");
         }
 
@@ -335,7 +359,7 @@ namespace ModelSweep
                 stream.ReadExactly(prefix);
                 var meta = GgufHeaderProbe.ReadMetadata(prefix);
                 var t = GgufHeaderProbe.ReadTensorTypes(prefix) ?? new Dictionary<int, int>();
-                header = new GgufHeader(meta, new Dictionary<int, int>(t));
+                header = new GgufHeader(meta, new Dictionary<int, int>(t), [.. GgufHeaderProbe.ReadTensorTable(prefix) ?? []]);
                 arch = meta.GetValueOrDefault("general.architecture") as string ?? "?";
                 types = string.Join(",", header.Types.OrderByDescending(p => p.Value).Select(p => $"{TypeName(p.Key)}:{p.Value}"));
                 check = Check(header);
