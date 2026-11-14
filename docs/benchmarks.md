@@ -2633,22 +2633,24 @@ resnet50 b1 8.2 ms against 9.2 ms without it, and b8 the same within noise, so i
 
 ### 25.4 Correctness and tests
 
-The branch was rebased onto `main` (after section 23). The suites ran one at a time:
+The branch was rebased onto `main` (after section 23, then again onto the bring-up round 6 merge, with the symbolic-k
+TopK moved onto the shared `radix_select.slang`). The suites ran one at a time:
 
 | suite | result |
 |---|---|
-| Cpu | 1177 passed, 29 skipped |
-| Vulkan | 1171 passed, 18 skipped |
+| Cpu | 1177 passed, 29 skipped (first rebase) |
+| Package | 29 passed (first rebase) |
+| Vulkan | 1176 passed, 18 skipped |
 | Onnx (`-parallelMode none`) | 415 passed |
-| Package | 29 passed |
+| Families | 589 passed, 30 skipped |
 
-* **Families did not complete on this branch.** It was killed twice for lack of memory while other agents' suites ran:
-  once by the kernel OOM killer and once by the session's memory-pressure reaper. No test failed before the kills.
+* The ONNX conformance report (CPU and Vulkan) is unchanged from `main`: node tests 1829 / 1884 on both providers
+  (8 wrong: the six Bernoulli RNG tests, `nonzero_example`, `strnormalizer ... twodim`), extra suites 170 / 172.
+  The detection-op branch also measured Vulkan without fallback at 1745 → 1763.
+* Families was OOM-killed twice on the first rebase while other agents' suites ran; it passed on the final branch when
+  run alone with more than 45 GB available.
 * An Onnx run that overlapped another suite failed `Zoo_Cpu(nomic-moe)` with "model does not fit" (available RAM).
-  The isolated re-run passed.
-* The ONNX conformance report was not re-run on the final branch, because it was stopped together with Families. The
-  detection-op branch ran it on its own base: node tests 1829 / 1884 on CPU and Vulkan (unchanged), Vulkan without
-  fallback 1745 → 1763, extra suites 170 / 172 (unchanged).
+  The isolated re-runs passed.
 
 New tests:
 
@@ -2693,4 +2695,4 @@ SHARPLIGHT_BENCH=1 SHARPLIGHT_CPU_THREADS=16 taskset -c 0-15 \
   * The GEMMs at about 200 rows (vit b1) are about 78 % of the time.
 * **Detection models**: each data-dependent count ends a Vulkan segment and goes through host memory. The R-CNNs take
   about 100 ms wall against about 34 ms of GPU time.
-* **Measurement**: the CPU rows, the Families suite and the conformance report need a re-run on a quiet machine.
+* **Measurement**: the CPU rows need a re-run on a quiet machine.
