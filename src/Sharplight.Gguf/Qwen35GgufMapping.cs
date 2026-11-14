@@ -7,7 +7,8 @@ namespace Sharplight.Gguf;
 /// llama.cpp <c>qwen35</c> (Qwen3.5 / 3.6 / 3.8 dense hybrid), <c>qwen35moe</c> (the MoE variants) and <c>qwen3next</c>
 /// (Qwen3-Next / Qwen3-Coder-Next: plain partial RoPE, fused <c>ssm_ba</c>, value heads grouped by key head) and
 /// <c>qwen4exp</c> (Qwen3.8-Flash-Next: hyper-connections, hashed n-gram embedding, QSA indexer, sigmoid linear-attention
-/// output gate) → canonical <c>qwen3_5</c>.
+/// output gate) and <c>clover_moe</c> (Clover: the qwen35moe layers with plain 1-D rope and the linear-attention layers given by
+/// <c>attention.recurrent_layers</c> or <c>full_attention_interval</c>) → canonical <c>qwen3_5</c>.
 /// </summary>
 internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMapping
 {
@@ -17,7 +18,7 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     private const string SharedExpertGate = "mlp.shared.input_gate.weight";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen35", "qwen35moe", Qwen3NextArchitecture, Qwen4ExpArchitecture];
+    public IReadOnlyList<string> GgufArchitectures { get; } = ["qwen35", "qwen35moe", Qwen3NextArchitecture, Qwen4ExpArchitecture, "clover_moe"];
 
     /// <inheritdoc/>
     public string Architecture => "qwen3_5";
@@ -47,6 +48,7 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
             [a + "mtp.layer_count"] = nextnLayers,
         };
         GgufMappingHelpers.AddContextLength(md, a, g);
+        CheckRecurrentLayers(g, (int)md[a + "layer_count"], (int)md[a + "full_attention_interval"]);
         if (g.Has("expert_count"))
         {
             md[a + "moe.expert_count"] = g.Int("expert_count");
@@ -81,6 +83,23 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
         }
 
         return md;
+    }
+
+    /// <summary>The canonical layer pattern is periodic (every interval-th layer attends); a file whose per-layer flags differ is not supported.</summary>
+    private static void CheckRecurrentLayers(GgufMetadataView g, int layerCount, int interval)
+    {
+        if (g.Raw("attention.recurrent_layers") is not Array flags)
+        {
+            return;
+        }
+
+        for (int il = 0; il < Math.Min(layerCount, flags.Length); il++)
+        {
+            if (Convert.ToBoolean(flags.GetValue(il)) != ((il + 1) % interval != 0))
+            {
+                throw new NotSupportedException($"{g.GgufArchitecture}: attention.recurrent_layers is not every {interval}-th layer attention.");
+            }
+        }
     }
 
     /// <summary>Hyper-connections, the n-gram embedding (PLE), the QSA indexer and the sigmoid output gate of <c>qwen4exp</c>.</summary>

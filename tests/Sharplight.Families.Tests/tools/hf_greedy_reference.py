@@ -5,6 +5,8 @@ Usage: python hf_greedy_reference.py <model_dir> <new_tokens> <prompt> [--logits
 Prints the generated ids and, per step, the margin between the best and second-best logit (small margins mean the case is
 sensitive to rounding and makes a poor golden reference). With --logits the logits of the last prompt position are written to
 <model_dir>/reference_logits.json ({"prompt", "prompt_ids", "logits"}); FamilyGenerationTests compares them when the file is present.
+Encoder-decoder models (T5): the prompt is the encoder input, generation starts from the decoder start token, and the "prompt logits"
+are those of the first decoder step.
 """
 import json
 import os
@@ -19,6 +21,8 @@ write_logits = "--logits" in sys.argv[1:]
 model_dir, new_tokens, prompt = args[0], int(args[1]), args[2]
 config = AutoConfig.from_pretrained(model_dir)
 model_class = getattr(transformers, config.architectures[0])
+if getattr(config, "is_encoder_decoder", False):
+    model_class = transformers.AutoModelForSeq2SeqLM   # base checkpoints (BartModel, T5Model) with their LM head
 model, info = model_class.from_pretrained(model_dir, dtype=torch.float32, output_loading_info=True)
 if info["missing_keys"]:
     # Some tiny checkpoints nest the text model several times (model.language_model.language_model.language_model.*), which
@@ -44,16 +48,24 @@ tokenizer = AutoTokenizer.from_pretrained(model_dir)
 ids = tokenizer(prompt, return_tensors="pt").input_ids
 generated, margins = [], []
 prompt_logits = None
+encoder_decoder = getattr(config, "is_encoder_decoder", False)
+decoder_ids = torch.tensor([[config.decoder_start_token_id]]) if encoder_decoder else None
 with torch.no_grad():
     for _ in range(new_tokens):
-        logits = model(input_ids=ids).logits[0, -1]
+        if encoder_decoder:
+            logits = model(input_ids=ids, decoder_input_ids=decoder_ids).logits[0, -1]
+        else:
+            logits = model(input_ids=ids).logits[0, -1]
         if prompt_logits is None:
             prompt_logits = logits.tolist()
         top = torch.topk(logits, 2)
         margins.append(float(top.values[0] - top.values[1]))
         next_id = int(top.indices[0])
         generated.append(next_id)
-        ids = torch.cat([ids, torch.tensor([[next_id]])], dim=1)
+        if encoder_decoder:
+            decoder_ids = torch.cat([decoder_ids, torch.tensor([[next_id]])], dim=1)
+        else:
+            ids = torch.cat([ids, torch.tensor([[next_id]])], dim=1)
 print("prompt ids:", tokenizer(prompt).input_ids)
 print("ids:", ",".join(str(i) for i in generated))
 print("text:", repr(tokenizer.decode(generated)))

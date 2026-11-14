@@ -72,6 +72,72 @@ public class EndToEndTests
         AssertShapes(Describe(model, Env.Shapes()));
     }
 
+    /// <summary>Qwen3-VL (generic decoder with interleaved M-RoPE) with a DeepStack tower from its mmproj, on the CPU and the GPU.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Gguf_qwen3_vl_2b_with_deepstack_mmproj_describes_the_image(bool gpu)
+    {
+        Assert.SkipUnless(File.Exists(Env.GgufVl2b) && File.Exists(Env.MmprojVl2b), "Qwen3-VL-2B GGUF or mmproj not available");
+        var slot = gpu ? Env.Vulkan() : Env.Cpu();
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = LlmModel.Load(Env.GgufVl2b, Options(slot!, (AuxiliaryRoles.Mmproj, Env.MmprojVl2b)));
+        Assert.True(model.SupportsImages);
+        AssertShapes(Describe(model, Env.Shapes()));
+    }
+
+    // transformers 5 (Qwen3VLForConditionalGeneration, f32) on the shapes image with the same prompt: the last prompt row's top-5 logits
+    // and the greedy continuation.
+    private static readonly int[] Vl2bTop = [1986, 785, 28715, 2124, 8420];
+    private static readonly float[] Vl2bTopLogits = [37.6835f, 35.2783f, 30.8774f, 29.6936f, 28.3085f];
+    private static readonly int[] Vl2bGreedy = [1986, 2168, 18689, 1378, 52484, 20816, 389, 264, 14396, 4158, 4004, 13, 576, 20816, 525, 264, 2518, 12671, 323, 264, 6303, 9334, 382, 12, 576, 2518, 12671, 374, 34228, 389, 279, 2115];
+
+    /// <summary>Qwen3-VL-2B from its Hugging Face checkpoint (tower with DeepStack mergers in the same source) against transformers.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Hf_qwen3_vl_2b_matches_transformers(bool gpu)
+    {
+        Assert.SkipUnless(Directory.Exists(Env.HfVl2b), "Qwen3-VL-2B (HF) not available");
+        var slot = gpu ? Env.Vulkan() : Env.Cpu();
+        Assert.SkipWhen(slot is null, "no Vulkan device");
+        using var model = LlmModel.Load(Env.HfVl2b, Options(slot!));
+        using var vision = model.CreateVisionEncoder();
+        Assert.Equal(4 * 2048, vision.EmbeddingSize);
+        using var session = model.CreateSession(WellKnown.DecodeMultimodalGraph);
+        var template = new ChatTemplate(model.ChatTemplate!, "", "");
+        var prompt = template.Render([new ChatMessage("user", Parts: [ChatContentPart.Image(), ChatContentPart.FromText(Question)])], addGenerationPrompt: true);
+        var tokens = model.Tokenizer.Encode(prompt, addSpecial: true, parseSpecial: true);
+        var images = new[] { vision.Preprocess(Env.Shapes()) };
+        var mm = MultimodalRegistry.Find(vision.Definition.Architecture)!.Assemble(new MultimodalContext(vision.Definition, t => Single(model, t)), tokens, images, 0);
+        Assert.Equal(114, mm.Length);
+        var logits = session.Process(mm, images.Select(vision.Encode).ToList());
+        var top = Enumerable.Range(0, logits.Length).OrderByDescending(i => logits[i]).Take(5).ToArray();
+        Console.Error.WriteLine($"  top {string.Join(", ", top.Select(i => $"{i}:{logits[i]:F4}"))}");
+        Assert.Equal(Vl2bTop, top);
+        for (int i = 0; i < top.Length; i++)
+        {
+            Assert.True(Math.Abs(logits[top[i]] - Vl2bTopLogits[i]) < (gpu ? 0.15f : 0.02f), $"logit {top[i]}: {logits[top[i]]} vs {Vl2bTopLogits[i]}");
+        }
+
+        var ids = new List<int>();
+        int next = top[0];
+        while (ids.Count < Vl2bGreedy.Length)
+        {
+            ids.Add(next);
+            var l = session.Process([next]);
+            next = Enumerable.Range(0, l.Length).MaxBy(i => l[i]);
+        }
+
+        Assert.Equal(Vl2bGreedy, ids.ToArray());
+    }
+
+    private static int? Single(LlmModel model, string text)
+    {
+        var ids = model.Tokenizer.Encode(text, addSpecial: false, parseSpecial: true);
+        return ids.Length == 1 ? ids[0] : null;
+    }
+
     [Fact]
     public void Gguf_without_mmproj_has_no_images()
     {

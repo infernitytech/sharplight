@@ -35,6 +35,12 @@ public class EmbeddingFamilyTests
             "hf/tiny-random-eurobert",
             "hf/tiny-random-embeddinggemma",
             "hf/tiny-random-modernbert",
+            // T5 encoders (mk_tiny_t5.py): relative position bias, the 150-token input beyond the bias range.
+            "hf/tiny-random-t5",
+            "hf/tiny-random-t5-v1_1",
+            // BART-family encoders (mk_tiny_bart.py): learned positions, post-norm (BART) and pre-norm with scaled embeddings (mBART).
+            "hf/tiny-random-bart",
+            "hf/tiny-random-mbart",
             // llama.cpp references.
             "gguf/tiny-random-eurobert-f32.gguf",
             "gguf/tiny-random-neo-bert-f32.gguf",

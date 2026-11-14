@@ -4,7 +4,7 @@ namespace Sharplight.Architectures;
 
 /// <summary>
 /// Decoder-only transformer with multi-head latent attention (canonical arch <c>latent_decoder</c>): DeepSeek-V2/V2-Lite/V3/R1,
-/// Kimi-K2, GLM-4.7-Flash, Mistral 4, MiniCPM3 and PLM are this graph with different hyper-parameters. Attention is the
+/// Kimi-K2, GLM-4.7-Flash, Mistral 4, MiniCPM3, PLM and Hunyuan v4 are this graph with different hyper-parameters. Attention is the
 /// <see cref="LatentAttention"/> block (latent KV cache, absorbed queries); the feed-forward part is a gated MLP or a routed
 /// mixture of experts with optional shared experts.
 /// </summary>
@@ -28,6 +28,13 @@ namespace Sharplight.Architectures;
 /// sum of the two best selection scores of a group) or "max" (DeepSeek-V2)).</item>
 /// <item>Query temperature (Mistral 4, Mistral Large 3): <c>attention.temperature_scale</c> (β, 0 = off) and <c>attention.temperature_length</c> (L) scale
 /// every query row by <c>1 + β · ln(1 + ⌊pos / L⌋)</c>.</item>
+/// <item>Mixture of experts with clamped SwiGLU experts: <c>moe.swiglu_clamp</c> (float[layer_count], 0 = plain) with <c>moe.swiglu_clamp_input</c>
+/// (see <see cref="ClampedSwigluActivation"/>); dense layers and shared experts keep the plain activation.</item>
+/// <item>Sparse-attention indexer: <c>attention.indexer.token_budget</c> (DSA top-k). Only the dense regime is implemented: the context is
+/// capped at the budget, where the indexer keeps every visible token, so the indexer weights are not used.</item>
+/// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
+/// modules <c>layers.{i}.attention_hc.*</c> and <c>layers.{i}.mlp_hc.*</c> around the two sub-layers and the head <c>output_hc.*</c> before the
+/// output norm (weights on <see cref="StreamHyperConnections"/>). No draft head with hyper-connections.</item>
 /// <item><c>embedding_scale</c> (factor on the token embeddings), <c>residual_scale</c> (factor on each sub-layer output before its residual
 /// add; MiniCPM's scale_depth/sqrt(layers)), <c>logit_scale</c> (factor on the final hidden state before the output head); all default 1.</item>
 /// </list>

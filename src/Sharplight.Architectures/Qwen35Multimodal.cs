@@ -8,13 +8,14 @@ namespace Sharplight.Architectures;
 /// row per merged image patch whose embeddings come from the vision encoder. M-RoPE positions (axes: time, row, column,
 /// unused): an image whose output grid is ny × nx starting at position p gives its row r, column c the positions
 /// (p, p + r, p + c, 0); the text after the image continues at p + max(nx, ny). Text tokens use the same position on the
-/// first three axes.
+/// first three axes. The same layout serves the generic <c>decoder</c> with a vision tower (Qwen3-VL, whose chat template and M-RoPE
+/// image positions are those of Qwen3.5); DeepStack blocks travel in the image rows' embeddings.
 /// </summary>
 public sealed class Qwen35Multimodal : IMultimodalArchitecture
 {
     private const string ImageToken = "<|image_pad|>";
     /// <inheritdoc/>
-    public IReadOnlyList<string> Architectures => ["qwen3_5"];
+    public IReadOnlyList<string> Architectures => ["qwen3_5", "decoder"];
 
     private const int Axes = 4;
 

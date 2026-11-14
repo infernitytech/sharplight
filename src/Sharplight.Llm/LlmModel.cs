@@ -109,9 +109,25 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, _options.ContextLength, rowBound: _options.MaxBatchTokens);
         var compiled = CompiledModel.Compile(WithSamplingHead(Definition.Graph(graph)), placement);
         _options.Log?.Invoke($"Compiled '{graph}' in {sw.ElapsedMilliseconds} ms\n{compiled.Plan.Describe()}");
+        CompiledModel? encoder = null;
+        if (compiled.Graph.TryInput(InputRole.EncoderOutput) is not null)
+        {
+            sw.Restart();
+            // The source sequence is encoded in one pass (bidirectional attention), up to a context's length.
+            int source = MaxSourceTokens(_options.ContextLength);
+            encoder = CompiledModel.Compile(Definition.Graph(WellKnown.EncodeGraph), PlacementFor(memoryLimit, _options.ContextLength, 1, source));
+            _options.Log?.Invoke($"Compiled '{WellKnown.EncodeGraph}' in {sw.ElapsedMilliseconds} ms\n{encoder.Plan.Describe()}");
+        }
+
         ReportReady(graph);
-        return new InferenceSession(compiled);
+        return new InferenceSession(compiled, encoder, Definition.Property(WellKnown.DecoderStartToken, 0));
     }
+
+    /// <summary>
+    /// True for encoder-decoder models (T5, ...; the model has an <see cref="WellKnown.EncodeGraph"/>): a session encodes the prompt as
+    /// the source sequence and generates the decoder's output from the start token (see <see cref="InferenceSession.IsEncoderDecoder"/>).
+    /// </summary>
+    public bool IsEncoderDecoder => Definition.Graphs.ContainsKey(WellKnown.EncodeGraph);
 
     /// <summary>
     /// Creates the decoder the serving layer batches requests over: with <paramref name="slots"/> &gt; 1 and a graph whose
@@ -142,7 +158,12 @@ public sealed class LlmModel : IDisposable
     {
         var graph = Definition.Graph(WellKnown.DecodeGraph);
         string? why = null;
-        if ((slots <= 1 && draftTokens <= 0) || !Graph.MultiSequence.IsSupported(graph, out why))
+        if (IsEncoderDecoder)
+        {
+            why = "encoder-decoder model";
+        }
+
+        if ((slots <= 1 && draftTokens <= 0) || IsEncoderDecoder || !Graph.MultiSequence.IsSupported(graph, out why))
         {
             if (slots > 1 || draftTokens > 0)
             {
@@ -221,16 +242,17 @@ public sealed class LlmModel : IDisposable
     /// <param name="memoryLimit">Bytes the primary device may hold, or null for the devices as configured.</param>
     /// <param name="contextLength">KV-cache rows per sequence.</param>
     /// <param name="rowBound">Upper bound of the <c>R</c> symbol (rows whose logits are read per step).</param>
-    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound) => new()
+    /// <param name="maxTokens">Rows per forward pass (default <see cref="LlmLoadOptions.MaxBatchTokens"/>).</param>
+    private PlacementOptions PlacementFor(long? memoryLimit, int contextLength, long rowBound, long? maxTokens = null) => new()
     {
         Devices = DevicesWithLimit(memoryLimit),
         Fallback = _options.Fallback,
         ReservePerDevice = _options.ReservePerDevice ?? (memoryLimit is null ? DefaultReserve : 0),
         Compile = new CompileOptions
         {
-            MaxTokens = _options.MaxBatchTokens,
+            MaxTokens = maxTokens ?? _options.MaxBatchTokens,
             ContextLength = contextLength,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound },
+            SymbolBounds = new Dictionary<string, long> { ["R"] = rowBound, [WellKnown.EncoderSymbol] = MaxSourceTokens(contextLength) },
             DisabledFeatures = _options.DisabledFeatures,
             AllowReducedPrecision = _options.AllowReducedPrecision,
             CacheFor = CacheFor,
@@ -239,6 +261,9 @@ public sealed class LlmModel : IDisposable
             SharedWeights = _sharedWeights,
         },
     };
+
+    /// <summary>Longest source sequence of an encoder-decoder model: a context's length, at least a batch.</summary>
+    private int MaxSourceTokens(int contextLength) => Math.Max(_options.MaxBatchTokens, contextLength);
 
     private void ReportReady(string graph) => new LoadProgressCounter(_options.Progress, LoadStage.Ready, 1, graph).Complete();
 

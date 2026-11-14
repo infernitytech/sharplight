@@ -18,6 +18,8 @@ internal sealed unsafe partial class AttentionOp : CpuOp
     private readonly int _chunk;        // > 0: chunked attention (a query at p sees only keys [p - p % _chunk, p])
     private readonly float _softcap;    // > 0: scores = cap * tanh(scores / cap)
     private readonly float[]? _alibiSlopes;   // ALiBi: per query head slope; scores get -slope * |key - query position|
+    private readonly float[]? _positionBias;  // learned relative position bias: [Hq, 2R+1] by clamped key - query distance (T5)
+    private readonly int _positionBiasRange;  // R
     private readonly string? _offsetScalar;   // non-null => cached attention
     private readonly bool _causal;
     private readonly int _hq;
@@ -45,9 +47,11 @@ internal sealed unsafe partial class AttentionOp : CpuOp
 
     public AttentionOp(TRef q, TRef k, TRef v, TRef? mask, TRef y, float scale, string? offsetScalar, bool causal, int window = 0, float softcap = 0f,
         TRef? rows = null, int slots = 1, TRef? sinks = null, TRef? spans = null, int valueDims = 0, int chunk = 0, float[]? alibiSlopes = null,
-        KvPages? pages = null)
+        KvPages? pages = null, float[]? positionBias = null, int positionBiasRange = 0)
     {
         _alibiSlopes = alibiSlopes;
+        _positionBias = positionBias;
+        _positionBiasRange = positionBiasRange;
         _chunk = chunk;
         _pages = pages;
         _spans = spans;
@@ -85,6 +89,11 @@ internal sealed unsafe partial class AttentionOp : CpuOp
         if (alibiSlopes is not null && alibiSlopes.Length != _hq)
         {
             throw new ArgumentException($"ALiBi needs one slope per query head ({_hq}), got {alibiSlopes.Length}.");
+        }
+
+        if (positionBias is not null && positionBias.Length != _hq * (2 * positionBiasRange + 1))
+        {
+            throw new ArgumentException($"position_bias needs {_hq} x {2 * positionBiasRange + 1} entries (heads x distances), got {positionBias.Length}.");
         }
 
         _body = Body;
@@ -264,6 +273,12 @@ internal sealed unsafe partial class AttentionOp : CpuOp
                     if (_alibiSlopes is not null)
                     {
                         dot -= _alibiSlopes[h] * Math.Abs(j - queryPosition);
+                    }
+
+                    if (_positionBias is not null)
+                    {
+                        long distance = Math.Clamp(j - queryPosition, -_positionBiasRange, _positionBiasRange);
+                        dot += _positionBias[h * (2 * _positionBiasRange + 1) + distance + _positionBiasRange];
                     }
 
                     if (mrow != null)

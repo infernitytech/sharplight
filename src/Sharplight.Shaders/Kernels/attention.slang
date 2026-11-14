@@ -7,7 +7,9 @@
 //         (KV_F16: KV_FMT == FMT_F16), WG (threads, = chunk of keys),
 //         WINDOW (> 0: a query sees only keys less than WINDOW positions away: its last WINDOW keys when causal, the symmetric
 //         window of bidirectional encoders with FULL_ATTN), HAS_ALIBI + ALIBI_SLOPES (initializer list of HQ floats: scores get
-//         -slope[h] * |key position - query position|),
+//         -slope[h] * |key position - query position|), HAS_POS_BIAS + POS_BIAS_RANGE + POS_BIAS_TABLE (initializer list of
+//         HQ * (2 * POS_BIAS_RANGE + 1) floats: scores of head h get table[h][clamp(key position - query position, ±RANGE) + RANGE],
+//         a learned relative position bias such as T5's),
 //         CHUNK (> 0: a query at position p sees only keys [p - p % CHUNK, p]; Llama 4 chunked attention), HAS_SOFTCAP + SOFTCAP
 //         (cap value: scores = SOFTCAP * tanh(scores / SOFTCAP)), HAS_SINKS (p.sinks[h]: per-head logit that only joins the softmax denominator).
 // SPLITS > 1 (flash decoding, few queries): the keys of each (head, query) are split into SPLITS contiguous ranges,
@@ -27,6 +29,11 @@
 #endif
 #ifndef VRS
 #define VRS DV
+#endif
+// CROSS_ATTN (FULL_ATTN only, without SPANS, WINDOW or CAUSAL): the keys are a separate sequence of S rows (parameter S), every
+// query sees all of them (encoder-decoder cross-attention).
+#ifndef CROSS_ATTN
+#define CROSS_ATTN 0
 #endif
 // SPANS (FULL_ATTN only): spans [T, 2] (first key row, count) per query row — packed independent sequences; with CAUSAL a
 // query row t additionally sees only key rows <= t.
@@ -49,6 +56,28 @@ static const float kAlibiSlopes[HQ] = ALIBI_SLOPES;
 float alibi_bias(uint h, uint j, uint qp)
 {
     return -kAlibiSlopes[h] * abs(float(j) - float(qp));
+}
+#endif
+#ifndef HAS_POS_BIAS
+#define HAS_POS_BIAS 0
+#endif
+#if HAS_POS_BIAS
+static const float kPosBias[HQ * (2 * POS_BIAS_RANGE + 1)] = POS_BIAS_TABLE;
+#endif
+#define HAS_SCORE_BIAS (HAS_ALIBI || HAS_POS_BIAS)
+#if HAS_SCORE_BIAS
+// Additive score bias of head h for key position j and query position qp (ALiBi and/or the learned relative position bias).
+float score_bias(uint h, uint j, uint qp)
+{
+    float b = 0;
+#if HAS_ALIBI
+    b += alibi_bias(h, j, qp);
+#endif
+#if HAS_POS_BIAS
+    int d = clamp(int(j) - int(qp), -POS_BIAS_RANGE, POS_BIAS_RANGE);
+    b += kPosBias[h * (2 * POS_BIAS_RANGE + 1) + uint(d + POS_BIAS_RANGE)];
+#endif
+    return b;
 }
 #endif
 #define KV_QUANT (KV_FMT == FMT_Q8_0 || KV_FMT == FMT_Q4_0)
@@ -462,6 +491,9 @@ struct Params
 #endif
     uint T;
     uint row0;   // first query row of this launch (long prefills are sliced into several launches)
+#if CROSS_ATTN
+    uint S;      // key rows (FULL_ATTN cross-attention: K/V are [S, HKV, D], independent of the T queries)
+#endif
 };
 
 
@@ -530,7 +562,11 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #endif
     L = max(L, spBeg);
 #elif FULL_ATTN
+#if CROSS_ATTN
+    uint L = p.S;   // cross-attention: every query sees all S keys
+#else
     uint L = p.T;   // bidirectional: every query sees all T keys (K/V are the dense [T, HKV, D] tensors of this launch)
+#endif
 #elif MULTI_SEQ
     uint L = uint(p.seq[t * 4 + 1]) + 1;
     kvRow = kv_base(uint(p.seq[t * 4]));
@@ -581,8 +617,8 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 #if HAS_SOFTCAP
         if (j < jEnd) s = SOFTCAP * tanh(s / SOFTCAP);
 #endif
-#if HAS_ALIBI
-        if (j < jEnd) s += alibi_bias(h, j, qPos);
+#if HAS_SCORE_BIAS
+        if (j < jEnd) s += score_bias(h, j, qPos);
 #endif
         float mc = reduce_max(s, tid);
         float mNew = max(m, mc);
@@ -641,7 +677,7 @@ void main(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params 
 // registers, so rescaling rows is plain arithmetic — then P·V with cooperative matrices, staged through shared memory
 // in FA_DC-wide chunks and accumulated into the registers. Causal: query t sees keys [0, n_past + t]; FULL_ATTN:
 // every key of the launch (bidirectional); WINDOW: only the last WINDOW keys (FULL_ATTN: the symmetric window); HAS_SOFTCAP: capped
-// scores; HAS_ALIBI: distance biases.
+// scores; HAS_ALIBI / HAS_POS_BIAS: distance biases.
 // Head sizes are zero-padded in shared memory (D to 16, DV to 64), so D % 8 == DV % 8 == 0 suffices.
 // K/V: any KV_FMT (converted to f16 in shared memory). Requires padded D, DV <= 256 and 32-wide subgroups with quad operations.
 using namespace linalg;
@@ -728,7 +764,7 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint row = tid / 4, sub = tid % 4;
     uint tq = t0 + row;
     bool rowValid = tq < qT;
-#if HAS_ALIBI
+#if HAS_SCORE_BIAS
     uint faQueryPos = nPast + tq;   // FULL_ATTN: nPast = 0, the row itself
 #endif
     float m = -1e30, l = 0;
@@ -756,7 +792,11 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
     uint L = jMax, jFirst = jMin / FA_BC * FA_BC;
 #else
 #if FULL_ATTN
+#if CROSS_ATTN
+    uint L = p.S, rowEnd = p.S;
+#else
     uint L = p.T, rowEnd = p.T;
+#endif
 #else
     uint L = nPast + min(qT, t0 + FA_BR);   // keys needed by the block's last query
     uint rowEnd = nPast + tq + 1;            // this row's causal end
@@ -810,8 +850,8 @@ void fa(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Params p)
 #if HAS_SOFTCAP
             sc = SOFTCAP * tanh(sc / SOFTCAP);
 #endif
-#if HAS_ALIBI
-            sc += alibi_bias(h, j, faQueryPos);
+#if HAS_SCORE_BIAS
+            sc += score_bias(h, j, faQueryPos);
 #endif
             sv[e] = rowValid && j < rowEnd && j >= rowBeg ? sc : -1e30;
             mx = max(mx, sv[e]);
@@ -1380,8 +1420,8 @@ void decode(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Param
 #if HAS_SOFTCAP
                 s[i][g] = SOFTCAP * tanh(s[i][g] / SOFTCAP);
 #endif
-#if HAS_ALIBI
-                s[i][g] += alibi_bias(h0 + g, c0 + i * DEC_NRG + rg, L - 1);
+#if HAS_SCORE_BIAS
+                s[i][g] += score_bias(h0 + g, c0 + i * DEC_NRG + rg, L - 1);
 #endif
                 if (c0 + i * DEC_NRG + rg < jEnd) mNew = max(mNew, s[i][g]);
             }

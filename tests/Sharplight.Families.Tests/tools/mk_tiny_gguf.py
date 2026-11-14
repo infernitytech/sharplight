@@ -507,6 +507,104 @@ def ricursive_parameters(writer):
     writer.add_swiglu_clamp([0.8, 0.0, 1.0, 0.9, 0.7])
 
 
+LFM3_KINDS, LFM3_HEAD = ["conv", "sliding", "conv", "full"], 24
+
+
+def lfm3_block(layer):
+    # Gated short convolution, or attention with q/k norms, a head size other than hidden / heads and a per-head sigmoid gate; sandwich norms.
+    t = {"attn_norm.weight": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN), "post_attention_norm.weight": norm(HIDDEN), "post_ffw_norm.weight": norm(HIDDEN),
+         "ffn_gate.weight": weight(FFN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+    if LFM3_KINDS[layer] == "conv":
+        t.update({"shortconv.conv.weight": weight(HIDDEN, 3), "shortconv.in_proj.weight": weight(3 * HIDDEN, HIDDEN),
+                  "shortconv.out_proj.weight": weight(HIDDEN, HIDDEN)})
+    else:
+        q, kv = HEADS * LFM3_HEAD, KV_HEADS * LFM3_HEAD
+        t.update({"attn_q.weight": weight(q, HIDDEN), "attn_k.weight": weight(kv, HIDDEN), "attn_v.weight": weight(kv, HIDDEN), "attn_output.weight": weight(HIDDEN, q),
+                  "attn_q_norm.weight": norm(LFM3_HEAD), "attn_k_norm.weight": norm(LFM3_HEAD), "attn_gate.weight": weight(HEADS, HIDDEN)})
+    return t
+
+
+def lfm3_parameters(writer):
+    writer.add_shortconv_l_cache(3)
+    writer.add_key_length(LFM3_HEAD)
+    writer.add_value_length(LFM3_HEAD)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([kind == "sliding" for kind in LFM3_KINDS])
+    writer.add_rope_freq_base_swa(1000.0)
+
+
+def lfm3_globals(vocab):
+    # The converter expresses the partial rotation (factor 0.5) of the full-attention layers as frequency factors that stop the upper pairs.
+    pairs = LFM3_HEAD // 2
+    return {"rope_freqs.weight": np.array([1.0] * (pairs // 2) + [1e30] * (pairs - pairs // 2), dtype=np.float32)}
+
+
+LATENT = 32
+
+
+def maion_coder_block(layer):
+    # q/k norms and sandwich norms; every second layer routes its experts in a latent space of LATENT channels.
+    t = qk_norm_block(post_attention_norm__weight=lambda: norm(HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN))
+    if layer % 2 == 1:
+        for name in ("ffn_gate.weight", "ffn_up.weight", "ffn_down.weight"):
+            t.pop(name)
+        t.update({"ffn_gate_inp.weight": weight(EXPERTS, HIDDEN), "ffn_latent_down.weight": weight(LATENT, HIDDEN), "ffn_latent_up.weight": weight(HIDDEN, LATENT),
+                  "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT), "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT),
+                  "ffn_down_exps.weight": weight(EXPERTS, LATENT, EXPERT_FFN)})
+    return t
+
+
+def maion_coder_parameters(writer):
+    moe_parameters(shared=0)(writer)
+    writer.add_interleave_moe_layer_step(2)
+    writer.add_moe_latent_size(LATENT)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, True, True, False])
+
+
+def beam_block(layer):
+    # A dense first layer, then experts with a selection bias; q/k norms, a per-channel gate with one bias per head, sandwich norms.
+    t = qk_norm_block(llama_block if layer == 0 else lambda: moe_block(shared=0), attn_gate__weight=lambda: weight(HIDDEN, HIDDEN),
+                      attn_gate__bias=lambda: bias(HEADS), post_attention_norm__weight=lambda: norm(HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN))
+    if layer:
+        t["exp_probs_b.bias"] = bias(EXPERTS)
+    return t
+
+
+def beam_parameters(writer):
+    moe_parameters(shared=0, dense_lead=1, scale=2.5, norm_weights=True)(writer)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, True, False])
+    writer.add_rope_freq_base_swa(1000.0)
+    writer.add_float32("beam.attention.temperature_scale", 0.5)
+    writer.add_uint32("beam.attention.temperature_length", 4)
+    writer.add_final_logit_softcapping(20.0)
+
+
+def muse_spark_block():
+    # Every layer routes in a latent space (selection bias, latent input norm, expert output norm); per-channel gate, learned residual weights.
+    t = qk_norm_block(lambda: moe_block(shared=0), attn_gate__weight=lambda: weight(HIDDEN, HIDDEN), post_ffw_norm__weight=lambda: norm(HIDDEN),
+                      attn_resid_alpha__weight=lambda: norm(HIDDEN), attn_resid_beta__weight=lambda: norm(HIDDEN), ffn_resid_alpha__weight=lambda: norm(HIDDEN),
+                      ffn_resid_beta__weight=lambda: norm(HIDDEN), exp_probs_b__bias=lambda: bias(EXPERTS), ffn_pre_exp_norm__weight=lambda: norm(LATENT),
+                      ffn_post_exp_norm__weight=lambda: norm(LATENT))
+    t.update({"ffn_latent_down.weight": weight(LATENT, HIDDEN), "ffn_latent_up.weight": weight(HIDDEN, LATENT),
+              "ffn_gate_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT), "ffn_up_exps.weight": weight(EXPERTS, EXPERT_FFN, LATENT),
+              "ffn_down_exps.weight": weight(EXPERTS, LATENT, EXPERT_FFN)})
+    return t
+
+
+def muse_spark_parameters(writer):
+    moe_parameters(shared=0, scale=1.5, norm_weights=True)(writer)
+    writer.add_uint32("muse-spark.expert_gating_func", 2)
+    writer.add_moe_latent_size(LATENT)
+    writer.add_post_norm_eps(1e-6)
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, True, False])
+    writer.add_rope_freq_base_swa(1000.0)
+    writer.add_logit_scale(0.8)
+    writer.add_final_logit_softcapping(20.0)
+
+
 def bidirectional(extra=None):
     # Embedding models: llama.cpp reads attention.causal = false and runs them without a KV cache.
     def parameters(writer):
@@ -633,6 +731,12 @@ models = {
     "ricursive": lambda path: write_family(path, "ricursive", 33, lambda layer: qk_norm_block(llama_block, attn_gate__weight=lambda: weight(HIDDEN, HIDDEN),
                                            attn_vres_lambda__weight=lambda: bias(1), post_attention_norm__weight=lambda: norm(HIDDEN),
                                            post_ffw_norm__weight=lambda: norm(HIDDEN)), parameters=ricursive_parameters, layers=5),
+    # LFM3 (llama.cpp after b11177): conv / sliding attention / conv / full attention, see lfm3_block.
+    "lfm3": lambda path: write_family(path, "lfm3", 34, lfm3_block, parameters=lfm3_parameters, layers=len(LFM3_KINDS),
+                                      kv_heads=[0 if kind == "conv" else KV_HEADS for kind in LFM3_KINDS], rope_dim=LFM3_HEAD, global_tensors=lfm3_globals),
+    "maion-coder": lambda path: write_family(path, "maion-coder", 35, maion_coder_block, parameters=maion_coder_parameters, layers=4),
+    "beam": lambda path: write_family(path, "beam", 36, beam_block, parameters=beam_parameters),
+    "muse-spark": lambda path: write_family(path, "muse-spark", 37, lambda layer: muse_spark_block(), parameters=muse_spark_parameters),
     # Bidirectional embedding models (references from llama-server's /embedding, tools/llamacpp_embeddings.py).
     "eurobert": lambda path: write_family(path, "eurobert", 40, lambda layer: llama_block(), parameters=bidirectional(),
                                           global_tensors=lambda vocab: {"output.weight": None}),

@@ -37,6 +37,9 @@ internal sealed class AttentionPlan
     /// <summary>"Attention" with i32 spans: the key range each query may see.</summary>
     public TensorRef? Spans { get; init; }
 
+    /// <summary>"Attention" over the keys of another sequence (cross-attention): the key row count is a kernel parameter.</summary>
+    public bool Cross { get; init; }
+
     /// <summary>Query heads.</summary>
     public required long HQ { get; init; }
 

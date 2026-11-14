@@ -19,6 +19,7 @@ internal static class GgufArchitectureMappings
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());
+        Register(new T5GgufMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);
@@ -72,6 +73,10 @@ internal static class GgufArchitectureMappings
         yield return new GraniteSwaGgufMapping();
         yield return new MellumGgufMapping();
         yield return new DbrxGgufMapping();
+        yield return new PhimoeGgufMapping();
+        yield return new MaionCoderGgufMapping();
+        yield return new BeamGgufMapping();
+        yield return new MuseSparkGgufMapping();
         yield return new DeepseekGgufMapping();
         yield return new BailingMoeGgufMapping();
         yield return new Cohere2MoeGgufMapping();

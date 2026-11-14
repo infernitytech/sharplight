@@ -10,6 +10,9 @@ namespace Sharplight.Llm;
 /// counter; persistent state (KV cache, recurrent state) lives inside the compiled model.
 /// Not thread-safe: use one session per sequence and drive it from one thread at a time. Create with
 /// <see cref="LlmModel.CreateSession"/>; most callers use it through a <see cref="Generator"/>.
+/// <para>Encoder-decoder models (<see cref="IsEncoderDecoder"/>): the first <see cref="Process(ReadOnlySpan{int})"/> of a context takes
+/// the source sequence, runs the encoder over it and starts the decoder with the model's start token; later calls continue the
+/// decoder (generated tokens). <see cref="Position"/> counts decoder rows.</para>
 /// </summary>
 public sealed class InferenceSession : IDisposable
 {
@@ -33,6 +36,12 @@ public sealed class InferenceSession : IDisposable
     private readonly float[] _logits;
     private readonly RunParameters _run = new();
     private int[] _posBuf = [];
+    private readonly CompiledModel? _encoder;
+    private readonly Value? _encoderOutputInput;
+    private readonly int[] _decoderStart;
+    private readonly List<int> _pendingSource = [];
+    private float[] _encoded = [];
+    private int _encodedRows;
 
     /// <summary>Number of logits per step (the model's vocabulary size).</summary>
     public int VocabSize { get; }
@@ -49,9 +58,18 @@ public sealed class InferenceSession : IDisposable
     public bool SupportsEmbeddings => _embeddings is not null && _embeddingMask is not null;
     /// <summary>The compiled graph (placement plan, profiling and device state).</summary>
     public CompiledModel Compiled => _compiled;
+    /// <summary>
+    /// Whether the session runs an encoder-decoder model: the first <see cref="Process(ReadOnlySpan{int})"/> of a context encodes the
+    /// source sequence (see the class remarks).
+    /// </summary>
+    public bool IsEncoderDecoder => _encoder is not null;
+    /// <summary>Longest source sequence an encoder-decoder session can encode (0 for decoder-only models).</summary>
+    public int MaxSourceTokens => _encoder is null ? 0 : (int)_encoder.Options.MaxTokens;
 
-    internal InferenceSession(CompiledModel compiled)
+    internal InferenceSession(CompiledModel compiled, CompiledModel? encoder = null, int decoderStartToken = 0)
     {
+        _encoder = encoder;
+        _decoderStart = [decoderStartToken];
         _compiled = compiled;
         _graph = compiled.Graph;
         _tokens = _graph.Input(InputRole.TokenIds);
@@ -71,6 +89,11 @@ public sealed class InferenceSession : IDisposable
         ContextLength = (int)compiled.Options.ContextLength;
         VocabSize = (int)_graph.Outputs["logits"].Shape[-1].Fixed;
         _logits = new float[VocabSize];
+        _encoderOutputInput = _graph.TryInput(InputRole.EncoderOutput);
+        if ((_encoder is null) != (_encoderOutputInput is null))
+        {
+            throw new ArgumentException("An encoder-decoder session needs both the encoder and a decoder graph with an encoder-output input.");
+        }
     }
 
     /// <summary>Clears the context (KV cache / recurrent state).</summary>
@@ -79,6 +102,8 @@ public sealed class InferenceSession : IDisposable
         _compiled.ResetState();
         Position = 0;
         RopePosition = 0;
+        _pendingSource.Clear();
+        _encodedRows = 0;
     }
 
     /// <summary>
@@ -95,6 +120,13 @@ public sealed class InferenceSession : IDisposable
             throw new ArgumentException("No tokens.");
         }
 
+        if (_encoder is not null && Position == 0)
+        {
+            // A new context of an encoder-decoder model: the tokens are the source sequence; the decoder starts from its start token.
+            Encode(tokens);
+            tokens = _decoderStart;
+        }
+
         if (Position + tokens.Length > ContextLength)
         {
             throw new InvalidOperationException($"Context full ({Position} + {tokens.Length} > {ContextLength}).");
@@ -107,6 +139,52 @@ public sealed class InferenceSession : IDisposable
             tokens = tokens[n..];
         }
         return _logits;
+    }
+
+    /// <summary>
+    /// Encoder-decoder sessions: buffers part of the source sequence of a new context; the next <see cref="Process(ReadOnlySpan{int})"/>
+    /// encodes the buffered tokens followed by its own (prompts fed in chunks).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The session is not encoder-decoder or its decoder has already started.</exception>
+    internal void AppendSource(ReadOnlySpan<int> tokens)
+    {
+        if (_encoder is null || Position != 0)
+        {
+            throw new InvalidOperationException("Source tokens can only be added to a new context of an encoder-decoder model.");
+        }
+
+        _pendingSource.AddRange(tokens);
+    }
+
+    /// <summary>Runs the encoder over the buffered source tokens plus <paramref name="tokens"/> and keeps its output for the decoder.</summary>
+    private void Encode(ReadOnlySpan<int> tokens)
+    {
+        var encoder = _encoder!;
+        int[] source = [.. _pendingSource, .. tokens];
+        _pendingSource.Clear();
+        if (source.Length > MaxSourceTokens)
+        {
+            throw new InvalidOperationException($"Source sequence too long ({source.Length} > {MaxSourceTokens} tokens).");
+        }
+
+        var graph = encoder.Graph;
+        encoder.SetInput(graph.Input(InputRole.TokenIds), source.AsSpan());
+        if (graph.TryInput(InputRole.Positions) is { } positions)
+        {
+            encoder.SetInput<int>(positions, Enumerable.Range(0, source.Length).ToArray());
+        }
+
+        var run = new RunParameters();
+        run.Symbols[WellKnown.TokenSymbol] = source.Length;
+        encoder.Run(run);
+        int hidden = (int)_encoderOutputInput!.Shape[-1].Fixed;
+        if (_encoded.Length < source.Length * hidden)
+        {
+            _encoded = new float[MaxSourceTokens * hidden];
+        }
+
+        encoder.GetOutput<float>(WellKnown.EncoderOutput, _encoded.AsSpan(0, source.Length * hidden));
+        _encodedRows = source.Length;
     }
 
     /// <summary>The logits of the last processed row (the buffer returned by <see cref="Process(ReadOnlySpan{int})"/>).</summary>
@@ -226,6 +304,12 @@ public sealed class InferenceSession : IDisposable
 
         _run.Symbols[WellKnown.TokenSymbol] = T;
         _run.Symbols["R"] = 1;
+        if (_encoderOutputInput is not null)
+        {
+            _compiled.SetInput<float>(_encoderOutputInput, _encoded.AsSpan(0, _encodedRows * (int)_encoderOutputInput.Shape[-1].Fixed));
+            _run.Symbols[WellKnown.EncoderSymbol] = _encodedRows;
+        }
+
         _run.Scalars[WellKnown.PastScalar] = Position;
         _run.SkipOutputs.Clear();
         if (sample || !wantLogits)
@@ -316,5 +400,9 @@ public sealed class InferenceSession : IDisposable
     }
 
     /// <summary>Releases the device memory of the compiled graph.</summary>
-    public void Dispose() => _compiled.Dispose();
+    public void Dispose()
+    {
+        _compiled.Dispose();
+        _encoder?.Dispose();
+    }
 }

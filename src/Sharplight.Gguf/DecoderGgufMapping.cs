@@ -211,6 +211,9 @@ internal sealed partial class DecoderGgufMapping : IGgufArchitectureMapping, IGg
         // Gemma 2/3: llama.cpp's post_attention_norm / post_ffw_norm are the norms of the sub-layer outputs.
         ["post_attention_norm.weight"] = "attention.out_norm.weight",
         ["post_ffw_norm.weight"] = "mlp.out_norm.weight",
+        // Experts in a latent space (Maion-Coder, Muse Spark).
+        ["ffn_latent_down.weight"] = "mlp.latent_down.weight",
+        ["ffn_latent_up.weight"] = "mlp.latent_up.weight",
     };
 
     /// <summary>Rope frequency tensors that sit outside the layers.</summary>

@@ -231,6 +231,9 @@ public sealed partial class GraphLowerer
             spans = DenseInput(n.Inputs[3], "attn-spans");
         }
 
+        // Cross-attention (keys of another sequence, e.g. an encoder's output): the kernels take the key count as a parameter.
+        bool cross = full && spans is null && n.Inputs[0].Shape[0] != n.Inputs[1].Shape[0];
+
         if (!full && n.Inputs.Length > 3 + sinksInputs)
         {
             seq = DenseInput(n.Inputs[3 + sinksInputs], "seq-rows");
@@ -246,7 +249,7 @@ public sealed partial class GraphLowerer
             ("QS0", q.Strides[0]), ("QS1", q.Strides[1]), ("SCALE", n.Attributes.Get("scale", 1f)), ("KV_F16", k.Type == DataType.F16), ("KV_FMT", KvFormat(k.Type)),
             ("FULL_ATTN", full), ("RT_N_PAST", full || seq is not null ? 0 : Slot(n)), ("WINDOW", window), ("CHUNK", n.Attributes.Get("chunk", 0)),
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
-            ("SPANS", spans is not null), ("CAUSAL", causal), .. AlibiMacros(n)]);
+            ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), .. AlibiMacros(n)]);
         return new AttentionPlan
         {
             Node = n,
@@ -260,6 +263,7 @@ public sealed partial class GraphLowerer
             Runs = runs,
             Pages = pages,
             Spans = spans,
+            Cross = cross,
             HQ = HQ,
             HKV = HKV,
             D = D,
@@ -269,19 +273,25 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>
-    /// The HAS_ALIBI / ALIBI_SLOPES kernel macros of an attention node: its <c>alibi_slopes</c> become a constant array of the kernel
-    /// (round-trip float literals), so the slopes need no buffer and the kernels no extra binding.
+    /// The HAS_ALIBI / ALIBI_SLOPES and HAS_POS_BIAS / POS_BIAS_RANGE / POS_BIAS_TABLE kernel macros of an attention node: its
+    /// <c>alibi_slopes</c> and <c>position_bias</c> become constant arrays of the kernel (round-trip float literals), so they need no buffer
+    /// and the kernels no extra binding.
     /// </summary>
     private static (string, object)[] AlibiMacros(Node n)
     {
+        (string, object)[] positionBias = n.Attributes.Get<float[]?>("position_bias", null) is { } table
+            ? [("HAS_POS_BIAS", true), ("POS_BIAS_RANGE", n.Attributes.Get("position_bias_range", 0)), ("POS_BIAS_TABLE", Literals(table))]
+            : [("HAS_POS_BIAS", false)];
         if (n.Attributes.Get<float[]?>("alibi_slopes", null) is not { } slopes)
         {
-            return [("HAS_ALIBI", false)];
+            return [("HAS_ALIBI", false), .. positionBias];
         }
 
-        string literals = string.Join(", ", slopes.Select(s => s.ToString("R", CultureInfo.InvariantCulture) + "f"));
-        return [("HAS_ALIBI", true), ("ALIBI_SLOPES", "{ " + literals + " }")];
+        return [("HAS_ALIBI", true), ("ALIBI_SLOPES", Literals(slopes)), .. positionBias];
     }
+
+    /// <summary>A Slang initializer list of round-trip float literals.</summary>
+    private static string Literals(float[] values) => "{ " + string.Join(", ", values.Select(s => s.ToString("R", CultureInfo.InvariantCulture) + "f")) + " }";
 
     /// <summary>The shared f32 scratch buffer of split attention, grown to at least <paramref name="bytes"/>.</summary>
     private TensorRef AttentionScratch(long bytes)
@@ -458,7 +468,7 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans), TokenArg(plan.Q), new UIntArg((uint)firstRow)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
             [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans)],
             split ? [o, part] : [o]);
     }

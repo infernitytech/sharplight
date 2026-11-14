@@ -81,4 +81,18 @@ public static class WellKnown
     public const string CausalAttention = "causal_attention";
     /// <summary>Label count of <see cref="ClassifyGraph"/> (int; the vocabulary size for decoders).</summary>
     public const string ClassifierLabels = "classifier_labels";
+
+    /// <summary>
+    /// Encoder pass of an encoder-decoder model (T5, BART): input token ids [T] (the whole source sequence, bidirectional attention)
+    /// and, when the model has learned positions, positions [T, 1]; output <see cref="EncoderOutput"/> [T, H]. Its output feeds the
+    /// <see cref="InputRole.EncoderOutput"/> input [<see cref="EncoderSymbol"/>, H] of the model's <see cref="DecodeGraph"/>, whose
+    /// cross-attention reads it on every step.
+    /// </summary>
+    public const string EncodeGraph = "encode";
+    /// <summary>Name of the output of <see cref="EncodeGraph"/> (the encoded source sequence, one row per source token).</summary>
+    public const string EncoderOutput = "encoder_output";
+    /// <summary>Symbol of the source-sequence length (rows of the <see cref="InputRole.EncoderOutput"/> input).</summary>
+    public const string EncoderSymbol = "E";
+    /// <summary>Property of encoder-decoder models: the token the decoder starts from (int; T5: the pad token).</summary>
+    public const string DecoderStartToken = "decoder_start_token";
 }

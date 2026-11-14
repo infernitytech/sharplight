@@ -131,7 +131,7 @@ public sealed class HybridAdapter : IModelAdapter
 
             if (layer.Keys is not null)
             {
-                var attended = attention.Build(b, h, positions, p, layer.Keys, layer.Values!);
+                var attended = attention.Build(b, h, positions, il, p, layer.Keys, layer.Values!);
                 mixed = mixed is null ? attended : b.Add(mixed, attended);
             }
 

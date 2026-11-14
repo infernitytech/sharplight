@@ -15,6 +15,8 @@ internal static class MappedFamilyCases
     // Reference ids shared by a Hugging Face case and the GGUF converted from it (transformers and llama.cpp agree). Declared before All, which reads them.
     private static readonly int[] BigCodeIds = [66, 85, 139, 469, 469, 469, 469, 469, 799, 469, 469, 469, 469, 799, 901, 469, 469, 469, 469, 469, 469, 799, 194, 937];
     private static readonly int[] Jais2Ids = [102, 955, 428, 102, 955, 1009, 899, 1009, 38, 102, 633, 428, 831, 535, 75, 38, 955, 1009, 899, 1009, 393, 393, 899, 102];
+    private static readonly int[] Qwen2VlIds = [29748, 94318, 1328, 41714, 62760, 29185, 64018, 7892, 30722, 97510, 94694, 82309, 131534, 138164, 47340, 95434, 13334, 130984, 129733, 130287, 133750, 15219, 58636, 17515];
+    private static readonly int[] Qwen25VlIds = [100505, 114647, 51648, 47348, 40605, 114014, 91380, 37734, 64948, 108835, 14851, 135520, 147170, 30162, 144562, 54336, 51142, 56149, 112305, 102190, 111473, 102928, 23433, 99645];
     private static readonly int[] MellumIds = [284, 372, 193, 882, 837, 650, 835, 351, 351, 194, 713, 284, 713, 284, 936, 571, 936, 533, 533, 701, 533, 434, 777, 602];
     private static readonly int[] DbrxIds = [127, 66, 518, 974, 553, 697, 900, 55, 121, 457, 1001, 456, 637, 454, 413, 646, 60, 651, 884, 519, 44, 766, 848, 2];
     private static readonly int[] Mistral4Ids = [505, 539, 72, 499, 752, 892, 325, 610, 338, 241, 662, 957, 502, 902, 979, 752, 892, 443, 713, 752, 892, 433, 43, 471];
@@ -53,6 +55,21 @@ internal static class MappedFamilyCases
         new("tiny-random-dbrx f32 GGUF (dbrx, llama.cpp)", "gguf/tiny-random-dbrx-f32.gguf", Prompt, "ids", DbrxIds, ""),
         // Mistral 4: latent attention with YaRN and query temperature (beyond 16 positions), softmax routing over expert groups, stacked experts.
         new("tiny-random-mistral4 HF (mistral4, transformers)", "hf/tiny-random-mistral4", Prompt, "ids", Mistral4Ids, ""),
+        // Qwen3-VL-MoE text model: interleaved M-RoPE, fused [in, out]-ordered experts (tools/mk_tiny_qwen3_vl_moe.py; images: Sharplight.Vision.Tests).
+        new("tiny-random-qwen3-vl-moe-wide HF (qwen3_vl_moe, transformers)", "hf/tiny-random-qwen3-vl-moe-wide", Prompt, "ids",
+            [132910, 7463, 98835, 131008, 121579, 25524, 14632, 43177, 5803, 37018, 63405, 32384, 88973, 59478, 148260, 121114, 93445, 111806, 141353, 24164, 26457, 30288, 25830, 93701], ""),
+        // Qwen2-VL / Qwen2.5-VL language models: Qwen2 with sectioned (non-interleaved) M-RoPE; tower not imported (tools/mk_tiny_qwen2_vl.py).
+        new("tiny-random-qwen2-vl-wide HF (qwen2_vl, transformers)", "hf/tiny-random-qwen2-vl-wide", Prompt, "ids", Qwen2VlIds, ""),
+        new("tiny-random-qwen2-5-vl-wide HF (qwen2_5_vl, transformers)", "hf/tiny-random-qwen2-5-vl-wide", Prompt, "ids", Qwen25VlIds, ""),
+        // The same checkpoints converted with convert_hf_to_gguf.py (qwen2vl); llama.cpp b11177 continues them with the transformers ids.
+        new("tiny-random-qwen2-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-vl-wide-f32.gguf", Prompt, "ids", Qwen2VlIds, ""),
+        new("tiny-random-qwen2-5-vl-wide f32 GGUF (qwen2vl, llama.cpp)", "gguf/tiny-random-qwen2-5-vl-wide-f32.gguf", Prompt, "ids", Qwen25VlIds, ""),
+        // Hunyuan v4: latent attention with output gate and sinks, indexer in its dense regime, clamped SwiGLU experts, hyper-connections (3 streams).
+        new("tiny-random-hy-v4 HF (hy_v4, transformers)", "hf/tiny-random-hy-v4", Prompt, "ids",
+            [954, 350, 912, 711, 295, 223, 710, 662, 175, 970, 611, 547, 737, 462, 661, 35, 414, 81, 604, 808, 906, 627, 420, 522], ""),
+        // The same model with DeepSeek-V4's manifold-constrained hyper-connections (Sinkhorn stream mixing, tools/mk_tiny_hy_v4_mhc.py).
+        new("tiny-random-hy-v4-mhc HF (hy_v4 + DeepSeek-V4 mHC, transformers)", "hf/tiny-random-hy-v4-mhc", Prompt, "ids",
+            [954, 513, 60, 245, 773, 761, 713, 734, 7, 830, 644, 813, 624, 367, 165, 189, 509, 806, 825, 99, 784, 652, 986, 21], ""),
         // llama.cpp's converter (Mistral3ForConditionalGeneration path) drops the query temperature, so that GGUF follows llama.cpp, not transformers,
         // past position 16; with attention.temperature_scale / temperature_length added to the file llama.cpp and transformers agree.
         new("tiny-random-mistral4 f32 GGUF (mistral4, llama.cpp)", "gguf/tiny-random-mistral4-f32.gguf", Prompt, "ids",
@@ -108,6 +125,45 @@ internal static class MappedFamilyCases
         // output, matched byte for byte by these ids.
         new("tiny-random-maple f32 GGUF (maple NoPE global layers, sliding window, clamped SwiGLU experts, llama.cpp)", "gguf/tiny-random-maple-f32.gguf", Prompt, "ids",
             [883, 210, 498, 883, 498, 94, 579, 498, 498, 498, 878, 498, 878, 498, 878, 498, 878, 498, 216, 498, 216, 498, 216, 498], ""),
+        // LFM3 is newer than b11177: reference ids from llama.cpp 8ca5a80 (CPU, greedy over libllama).
+        new("tiny-random-lfm3 f32 GGUF (lfm3 short convs, sliding layers on their own base, partial rope by frequency factors, head gate, sandwich norms, llama.cpp)",
+            "gguf/tiny-random-lfm3-f32.gguf", Prompt, "ids",
+            [285, 285, 1008, 437, 460, 781, 775, 279, 151, 874, 968, 677, 888, 294, 388, 659, 120, 307, 225, 937, 602, 464, 783, 874], ""),
+        new("tiny-random-maion-coder f32 GGUF (maion-coder NoPE full layers, sandwich norms, experts in a latent space, llama.cpp 8ca5a80)",
+            "gguf/tiny-random-maion-coder-f32.gguf", Prompt, "ids",
+            [625, 315, 49, 387, 716, 49, 49, 592, 233, 638, 130, 730, 135, 930], ""),   // cut before step 14, where llama.cpp's top two differ by 3e-4
+        new("tiny-random-beam f32 GGUF (beam norm-preserving residual, power temperature on NoPE layers, biased head gate, sigmoid experts, softcap, llama.cpp 8ca5a80)",
+            "gguf/tiny-random-beam-f32.gguf", Prompt, "ids",
+            [98, 914, 609, 904, 75, 768, 564, 364, 698, 436, 939, 861, 967, 389, 520, 36, 578, 726, 620, 98, 903, 655, 27, 243], ""),
+        new("tiny-random-muse-spark f32 GGUF (muse-spark learned residual weights, head output norm, latent experts with in/out norms, llama.cpp 8ca5a80)",
+            "gguf/tiny-random-muse-spark-f32.gguf", Prompt, "ids",
+            [432, 958, 117, 785, 827, 79, 707, 1010, 232, 232, 403, 301, 1000, 347, 644, 598, 216, 232, 597, 149, 492, 653, 37, 591], ""),
+        // Clover: the tiny Qwen3.5-MoE checkpoint converted by llama.cpp and retargeted (tools/retarget_gguf.py: arch clover_moe, no M-RoPE sections,
+        // no NextN block, one shared expert); hidden size 8, so the logits are flat (llama.cpp's top two differ by 0.0006 to 0.005 at steps 5, 7 and 15).
+        new("tiny-random-clover-moe f32 GGUF (clover_moe gated delta net + gated attention, MoE with gated shared expert, llama.cpp 8ca5a80)",
+            "gguf/tiny-random-clover-moe-f32.gguf", Prompt, "ids", [132029, 22595, 212119, 133773, 4415, 198543, 219592, 20547, 220921, 172932, 151129, 212119, 133773, 239941, 239941, 219592, 127405, 224729, 212119, 133773, 239941, 118789, 69541, 215913], ""),
+        // Encoder-decoder (tools/mk_tiny_t5.py; references from hf_greedy_reference.py, whose "prompt logits" are the first decoder step): the original T5
+        // (ReLU, output scaled by d_model^-0.5, bias saturating at distance 12, more decoder than encoder layers) and T5 v1.1 (gated tanh-GELU,
+        // attention width 48 next to d_model 64); both cut before a close call (top two within 0.014 of 3, 0.22 of 30) that f16 GPU paths may flip.
+        new("tiny-random-t5 HF (t5 relu, scaled tied head, relative position bias, cross-attention, transformers)", "hf/tiny-random-t5", Prompt, "ids",
+            [1014, 9202, 19881, 19881, 19881, 19881, 19881, 30559, 30559, 30559, 6135, 22296, 19306, 7712, 7712, 19716], ""),
+        new("tiny-random-t5-v1_1 HF (t5 gated-gelu, transformers)", "hf/tiny-random-t5-v1_1", Prompt, "ids",
+            [8847, 26621, 8889, 8889, 31376, 731, 731, 28428, 28176, 8298, 27172, 9762, 7827, 7827, 7827, 29378, 28529], ""),
+        new("flan-t5-small HF (t5 gated-gelu, separate LM head, transformers)", "hf/flan-t5-small", "Write a short story about a cat who learns to fly.", "ids",
+            [37, 1712, 19, 7070, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3], ""),
+        // BART family on the same adapter (tools/mk_tiny_bart.py): post-norm LayerNorms, learned positions (offset 2), embedding norm, final logits bias;
+        // mBART: pre-norm with final norms and scaled embeddings.
+        new("tiny-random-bart HF (bart post-norm, learned positions, transformers)", "hf/tiny-random-bart", Prompt, "ids",
+            [847, 634, 955, 634, 955, 634, 955, 634, 634, 955, 634, 634, 955, 634], ""),
+        new("tiny-random-mbart HF (mbart pre-norm, scaled embeddings, transformers)", "hf/tiny-random-mbart", Prompt, "ids",
+            [862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862], ""),
+        new("bart-base HF (bart, real checkpoint, transformers)", "hf/bart-base", Prompt, "ids",
+            [0, 133, 812, 9, 1470, 16, 10, 343, 14, 6, 11, 5, 76, 23137, 8, 1684, 6, 21, 684, 13, 171, 383, 215, 25], ""),
+        // Encoder-decoder: the prompt is encoded, the decoder starts from the pad token (llama.cpp b11177 llama-completion prints the same text).
+        new("flan-t5-small Q4_K_M GGUF (t5 encoder-decoder, relative position bias, cross-attention, llama.cpp)", "gguf/flan-t5-small/flan-t5-small.Q4_K_M.gguf",
+            "Write a short story about a cat who learns to fly.", "ids", [37, 1712, 19, 7070, 16, 8, 799, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5], ""),
+        new("LFM3-1.7B Q8_0 GGUF (lfm3, llama.cpp 8ca5a80)", "gguf/LFM3-1.7B/LFM3-1.7B-Q8_0.gguf", "The capital of France is", "ids",
+            [4741, 63908, 597, 5205, 302, 3888, 355, 18943, 63908, 597, 5205, 302, 5881, 355, 2076, 59405, 63908, 597, 5205, 302, 5177, 355, 36038, 63908], ""),
         new("tiny-random-step35 f32 GGUF (step35 per-layer heads, half rope on full layers, head gate, sigmoid experts, clamped SwiGLU, llama.cpp)", "gguf/tiny-random-step35-f32.gguf", Prompt, "ids",
             [817, 475, 244, 560, 259, 346, 19, 862, 229, 587, 978, 519, 142, 725, 987, 180, 765, 891, 519, 162, 138, 168, 903, 41], ""),
         new("tiny-random-kolibri1 f32 GGUF (kolibri1 logit selection bias, sigmoid experts, NoPE global layers, sandwich norms, llama.cpp)", "gguf/tiny-random-kolibri1-f32.gguf", Prompt, "ids",
@@ -117,6 +173,10 @@ internal static class MappedFamilyCases
         // Transformers references (ids and last-prompt-position logits) of tiny checkpoints from mk_tiny_decoders.py, cut before a close call:
         // PhiMoE's 19th step and Kolibri-1's 18th differ by less than 0.01 between the top two logits.
         new("tiny-random-phimoe HF (phimoe layer norms, sparsemixer routing, sliding window, transformers)", "hf/tiny-random-phimoe", Prompt, "ids",
+            [948, 961, 961, 539, 539, 107, 665, 150, 948, 217, 254, 973, 884, 1016, 100, 401, 358, 546], ""),
+        // The same checkpoint converted by llama.cpp's converter (architecture renamed to PhiMoEForCausalLM, original_max_position_embeddings added, GPT-2
+        // vocabulary; see tools/convert_phimoe_gguf.py). Checked against transformers: llama.cpp runs phimoe with RMS norms and softmax routing.
+        new("tiny-random-phimoe f32 GGUF (phimoe layer norms, sparsemixer routing, transformers)", "gguf/tiny-random-phimoe-f32.gguf", Prompt, "ids",
             [948, 961, 961, 539, 539, 107, 665, 150, 948, 217, 254, 973, 884, 1016, 100, 401, 358, 546], ""),
         new("tiny-random-kolibri1 HF (kolibri1 logit selection bias, sandwich norms, NoPE global layer, transformers)", "hf/tiny-random-kolibri1", Prompt, "ids",
             [298, 196, 886, 442, 914, 489, 442, 661, 583, 292, 73, 997, 209, 829, 1003, 684, 935], ""),

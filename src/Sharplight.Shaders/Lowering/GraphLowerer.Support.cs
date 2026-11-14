@@ -131,6 +131,12 @@ public sealed partial class GraphLowerer
             return OpSupport.No("CachedAttention: ALiBi needs one slope per query head");
         }
 
+        if (node.Attributes.Get<float[]?>("position_bias", null) is { } bias
+            && bias.Length != node.Inputs[0].Shape[1].Fixed * (2L * node.Attributes.Get("position_bias_range", 0) + 1))
+        {
+            return OpSupport.No("CachedAttention: position_bias needs heads x (2 * range + 1) entries");
+        }
+
         if (node.Attributes.Get("sinks", false) && node.Inputs[3].Type != DataType.F32)
         {
             return OpSupport.No("attention sinks must be f32");
@@ -176,6 +182,12 @@ public sealed partial class GraphLowerer
             return OpSupport.No("Attention: ALiBi needs one slope per query head");
         }
 
+        if (node.Attributes.Get<float[]?>("position_bias", null) is { } bias
+            && bias.Length != node.Inputs[0].Shape[1].Fixed * (2L * node.Attributes.Get("position_bias_range", 0) + 1))
+        {
+            return OpSupport.No("Attention: position_bias needs heads x (2 * range + 1) entries");
+        }
+
         var inputs = node.Inputs;
         bool spans = inputs.Length == 4 && inputs[3].Type == DataType.I32 && inputs[3].Rank == 2 && inputs[3].Shape[1] == 2;
         bool causal = node.Attributes.Get("causal", false);
@@ -197,9 +209,20 @@ public sealed partial class GraphLowerer
         }
 
         bool selfAttention = inputs[0].Shape[0] == inputs[1].Shape[0];
-        if (!spans && (causal || !selfAttention))
+        if (!spans && causal && !selfAttention)
         {
-            return OpSupport.No("Attention: causal or cross attention needs i32 spans");
+            return OpSupport.No("Attention: causal attention must be self-attention");
+        }
+
+        if (!spans && causal)
+        {
+            return OpSupport.No("Attention: causal attention needs i32 spans");
+        }
+
+        bool scoreBias = node.Attributes.Has("alibi_slopes") || node.Attributes.Has("position_bias") || node.Attributes.Get("window", 0) > 0;
+        if (!spans && !selfAttention && scoreBias)
+        {
+            return OpSupport.No("Attention: cross-attention takes no position bias or window");
         }
 
         if (spans && causal && !selfAttention)

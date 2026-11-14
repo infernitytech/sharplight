@@ -21,6 +21,10 @@ namespace Sharplight.Vision;
 /// embedding over (row, col), 0 = none);</item>
 /// <item><c>out_hidden_size</c> (width of the produced embeddings = hidden size of the language model),
 /// <c>merger.activation</c> (<c>gelu</c> | <c>gelu_tanh</c> | <c>silu</c>);</item>
+/// <item><c>deepstack_layers</c> (int[], ascending tower layer indices; default none): DeepStack (Qwen3-VL). The output of each listed
+/// layer is merged like the final hidden states and projected by its own merger; the results are appended to the embedding row, which is
+/// then <see cref="EmbeddingWidth"/> = out_hidden_size·(1 + count) wide. The language model adds the k-th appended block to the hidden
+/// state after its k-th layer;</item>
 /// <item>preprocessing: <c>image_mean</c>, <c>image_std</c> (float[in_channels]), <c>min_pixels</c>, <c>max_pixels</c>
 /// (long; 0 = unlimited; bounds of the resized image area).</item>
 /// </list>
@@ -30,10 +34,12 @@ namespace Sharplight.Vision;
 /// per layer <c>vision.layers.{i}.</c>: <c>input_norm</c> and <c>post_attention_norm</c> (LayerNorm weight+bias),
 /// <c>attention.qkv</c> (fused [3·hidden, hidden], rows ordered q | k | v, each head-major), <c>attention.o</c>,
 /// <c>mlp.up</c>, <c>mlp.down</c>; the patch merger <c>vision.merger.norm</c> (LayerNorm over hidden, applied per patch before merging),
-/// <c>vision.merger.up</c> [m²·hidden, m²·hidden] and <c>vision.merger.down</c> [out_hidden, m²·hidden].</para>
+/// <c>vision.merger.up</c> [m²·hidden, m²·hidden] and <c>vision.merger.down</c> [out_hidden, m²·hidden]; per DeepStack layer i
+/// <c>vision.deepstack.{i}.norm</c> (LayerNorm over m²·hidden, applied after merging), <c>vision.deepstack.{i}.up</c> and
+/// <c>vision.deepstack.{i}.down</c> (shapes of the merger's; same activation).</para>
 /// <para><b>Graph contract</b> (<see cref="WellKnown.VisionEncodeGraph"/>): inputs <see cref="PatchesInput"/> [N, K],
 /// <see cref="PositionsInput"/> i32 [N, 2] (row, col), <see cref="EmbeddingIndexInput"/> i32 [N, 4],
-/// <see cref="EmbeddingWeightInput"/> f32 [N, 4]; symbols <c>N</c> = patches, <c>M</c> = N / m² (the merger reshapes N → M); output <see cref="EmbeddingsOutput"/> f32 [M, out_hidden]. Patches are ordered in merge-window
+/// <see cref="EmbeddingWeightInput"/> f32 [N, 4]; symbols <c>N</c> = patches, <c>M</c> = N / m² (the merger reshapes N → M); output <see cref="EmbeddingsOutput"/> f32 [M, <see cref="EmbeddingWidth"/>]. Patches are ordered in merge-window
 /// order (see <see cref="VisionPreprocessor"/>). Inputs are produced by <see cref="VisionPreprocessor"/>.</para>
 /// </remarks>
 public sealed record VisionParameters
@@ -47,7 +53,7 @@ public sealed record VisionParameters
     public const string EmbeddingIndexInput = "position_embedding_index";
     /// <summary>Name of the position-embedding tap weights input, f32 [N, 4].</summary>
     public const string EmbeddingWeightInput = "position_embedding_weight";
-    /// <summary>Name of the output of the vision-encode graph, f32 [M, <see cref="OutHiddenSize"/>].</summary>
+    /// <summary>Name of the output of the vision-encode graph, f32 [M, <see cref="EmbeddingWidth"/>].</summary>
     public const string EmbeddingsOutput = "embeddings";
     /// <summary>Symbol of the patch count N.</summary>
     public const string PatchSymbol = "N";
@@ -80,6 +86,8 @@ public sealed record VisionParameters
     public float RopeBase { get; init; }
     /// <summary>Width of the produced embeddings; equals the hidden size of the language model.</summary>
     public int OutHiddenSize { get; init; }
+    /// <summary>Tower layers whose outputs feed DeepStack mergers (ascending); empty for none.</summary>
+    public int[] DeepstackLayers { get; init; } = [];
     /// <summary>Activation of the patch merger MLP: "gelu", "gelu_tanh" or "silu".</summary>
     public string MergerActivation { get; init; } = "gelu";
     /// <summary>Per-channel mean of the input normalization.</summary>
@@ -91,6 +99,8 @@ public sealed record VisionParameters
     /// <summary>Upper bound of the resized image area in pixels; 0 = unlimited.</summary>
     public long MaxPixels { get; init; }
 
+    /// <summary>Width of one row of the encoder output: the embedding followed by one DeepStack block per DeepStack layer.</summary>
+    public int EmbeddingWidth => OutHiddenSize * (1 + DeepstackLayers.Length);
     /// <summary>Width of one attention head.</summary>
     public int HeadDim => HiddenSize / HeadCount;
     /// <summary>Values per patch: in_channels · temporal_patch_size · patch_size².</summary>
@@ -125,6 +135,7 @@ public sealed record VisionParameters
             RopeBase = Get("rope.base", 0f),
             OutHiddenSize = Get<int>("out_hidden_size", 0),
             MergerActivation = Get("merger.activation", "gelu"),
+            DeepstackLayers = Get("deepstack_layers", Array.Empty<int>()),
             ImageMean = Get("image_mean", new[] { 0.5f, 0.5f, 0.5f }),
             ImageStd = Get("image_std", new[] { 0.5f, 0.5f, 0.5f }),
             MinPixels = Get("min_pixels", 0L),
@@ -160,6 +171,11 @@ public sealed record VisionParameters
         Set("rope.base", RopeBase);
         Set("out_hidden_size", OutHiddenSize);
         Set("merger.activation", MergerActivation);
+        if (DeepstackLayers.Length > 0)
+        {
+            Set("deepstack_layers", DeepstackLayers);
+        }
+
         Set("image_mean", ImageMean);
         Set("image_std", ImageStd);
         Set("min_pixels", MinPixels);
@@ -186,6 +202,14 @@ public sealed record VisionParameters
         if (ImageMean.Length != InChannels || ImageStd.Length != InChannels)
         {
             throw new InvalidDataException("vision: image_mean/std must have in_channels entries.");
+        }
+
+        for (int i = 0; i < DeepstackLayers.Length; i++)
+        {
+            if (DeepstackLayers[i] < 0 || DeepstackLayers[i] >= LayerCount || (i > 0 && DeepstackLayers[i] <= DeepstackLayers[i - 1]))
+            {
+                throw new InvalidDataException("vision: deepstack_layers must be ascending tower layer indices.");
+            }
         }
 
         if (PositionEmbeddingCount > 0 && PositionGridSide * PositionGridSide != PositionEmbeddingCount)
