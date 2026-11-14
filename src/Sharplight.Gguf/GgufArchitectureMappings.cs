@@ -17,7 +17,9 @@ internal static class GgufArchitectureMappings
         Register(new Rwkv7GgufMapping());
         Register(new Rwkv6GgufMapping());
         Register(new LatentDecoderGgufMapping());
+        Register(new DeepSeek4GgufMapping());
         Register(new Eagle3GgufMapping());
+        Register(new Gemma4AssistantGgufMapping());
         Register(new ClipGgufMapping());
         Register(new DecoderGgufMapping());
         Register(new EncoderGgufMapping());
@@ -84,6 +86,7 @@ internal static class GgufArchitectureMappings
         yield return new BeamGgufMapping();
         yield return new MuseSparkGgufMapping();
         yield return new DeepseekGgufMapping();
+        yield return new Deepseek2OcrGgufMapping();
         yield return new BailingMoeGgufMapping();
         yield return new Cohere2MoeGgufMapping();
         yield return new HunyuanMoeGgufMapping();
@@ -114,6 +117,12 @@ internal static class GgufArchitectureMappings
         yield return new LlamaEmbedGgufMapping();
         yield return new GemmaEmbeddingGgufMapping();
         yield return new ModernBertGgufMapping();
+        yield return new HrmTextGgufMapping();
+        yield return new SenseNovaU1GgufMapping();
+        yield return new LimiteGgufMapping();
+        yield return new GroveMoeGgufMapping();
+        yield return new K2HorizonGgufMapping();
+        yield return new GraniteSwitchGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>

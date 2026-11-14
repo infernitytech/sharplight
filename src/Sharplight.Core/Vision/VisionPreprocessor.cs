@@ -5,7 +5,9 @@ namespace Sharplight.Vision;
 /// <see cref="VisionParameters"/>: aspect-preserving "smart" resize to a multiple of patch_size·merge_size within the
 /// pixel bounds, or to the fixed square <c>image_size</c> (antialiased bicubic), per-channel normalization, patchification (the still image is repeated to fill
 /// temporal_patch_size frames) in spatial-merge-window order (window by window when the tower has windowed attention), plus the position inputs (row/col per patch and the
-/// taps into the learned position grid) and, for towers with row separators or boundary rows, the output layout.
+/// bilinear taps into the learned position grid, align_corners semantics) and, for towers with row separators or boundary rows, the output
+/// layout. Two-stage towers of fixed-size views (<see cref="VisionParameters.Sam"/>) get a global view and local tiles instead (see
+/// <see cref="PreprocessedImage.TileColumns"/>).
 /// </summary>
 public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? limits = null)
 {
@@ -57,6 +59,11 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         if (p.InChannels != 3)
         {
             throw new NotSupportedException($"Only 3-channel images are supported (in_channels {p.InChannels}).");
+        }
+
+        if (p.Sam is not null)
+        {
+            return ViewPreprocessor.Process(p, image);
         }
 
         var (tw, th) = TargetSize(image.Width, image.Height);
@@ -331,61 +338,14 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
         }
     }
 
-    // ---- antialiased bicubic resize (PIL / torch antialias=True semantics, Keys kernel a = -0.5) ----------------------
-    private static double Cubic(double x)
-    {
-        const double a = -0.5;
-        x = Math.Abs(x);
-        if (x < 1)
-        {
-            return ((a + 2) * x - (a + 3)) * x * x + 1;
-        }
-
-        if (x < 2)
-        {
-            return (((x - 5) * x + 8) * x - 4) * a;
-        }
-
-        return 0;
-    }
-
-    private static (int[] Start, int[] Count, float[] Weights, int Max) Coefficients(int inSize, int outSize)
-    {
-        double scale = (double)inSize / outSize;
-        double filterScale = Math.Max(scale, 1.0);
-        double support = 2.0 * filterScale;
-        int max = (int)Math.Ceiling(support) * 2 + 1;
-        var start = new int[outSize];
-        var count = new int[outSize];
-        var w = new float[outSize * max];
-        for (int x = 0; x < outSize; x++)
-        {
-            double center = (x + 0.5) * scale;
-            int xmin = Math.Max((int)(center - support + 0.5), 0);
-            int xmax = Math.Min((int)(center + support + 0.5), inSize);
-            double sum = 0;
-            var tmp = new double[xmax - xmin];
-            for (int i = 0; i < tmp.Length; i++)
-            {
-                tmp[i] = Cubic((xmin + i - center + 0.5) / filterScale);
-                sum += tmp[i];
-            }
-            start[x] = xmin;
-            count[x] = tmp.Length;
-            for (int i = 0; i < tmp.Length; i++)
-            {
-                w[x * max + i] = (float)(tmp[i] / sum);
-            }
-        }
-        return (start, count, w, max);
-    }
-
+    // ---- antialiased bicubic resize (PIL / torch antialias=True semantics, Keys kernel a = -0.5; see ImageResampling) ----------
     /// <summary>Antialiased bicubic resize of interleaved 8-bit RGB (rounded and clamped to 8 bits like the reference).</summary>
     internal static byte[] ResizeBicubic(byte[] src, int sw, int sh, int dw, int dh)
     {
-        var (hs, hc, hw, hm) = Coefficients(sw, dw);
-        var (vs, vc, vw, vm) = Coefficients(sh, dh);
-        // Horizontal pass keeps float precision, vertical pass rounds.
+        var (hs, hc, hw, hm) = ImageResampling.Coefficients(sw, dw);
+        var (vs, vc, vw, vm) = ImageResampling.Coefficients(sh, dh);
+        // Both passes round and clamp to 8 bits, as PIL (and torchvision's antialiased resize of uint8 images) does; the intermediate clamp
+        // matters next to sharp edges, where the kernel overshoots.
         var tmp = new float[(long)sh * dw * 3];
         Parallel.For(0, sh, y =>
         {
@@ -403,9 +363,9 @@ public sealed class VisionPreprocessor(VisionParameters p, ImageTokenLimits? lim
                     b += src[s + 2] * w;
                 }
                 int o = (y * dw + x) * 3;
-                tmp[o] = r;
-                tmp[o + 1] = g;
-                tmp[o + 2] = b;
+                tmp[o] = Clamp8(r);
+                tmp[o + 1] = Clamp8(g);
+                tmp[o + 2] = Clamp8(b);
             }
         });
         var dst = new byte[(long)dw * dh * 3];

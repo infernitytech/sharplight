@@ -18,6 +18,10 @@ namespace Sharplight.Llm.Serving.Speculative;
 /// for chained drafts) take hidden-state rows of [target part | chained part]: the observed rows fill the first part and leave the second zero,
 /// chained rows the reverse. A head with its own vocabulary maps its argmax through the model's <see cref="Models.WellKnown.DraftTokenMap"/>.
 /// </para>
+/// <para>
+/// An anchored head (<see cref="Models.WellKnown.DraftAnchored"/>, Gemma 4 assistants) drafts every token at the same position: each chained row
+/// replaces the head's last verified row, with that row's input except for its first part, which carries the head's own output.
+/// </para>
 /// </remarks>
 public sealed class MtpSpeculator : ISpeculator
 {
@@ -26,6 +30,8 @@ public sealed class MtpSpeculator : ISpeculator
     private readonly int _targetWidth;     // width of the observed target rows (the start of every input row)
     private readonly int _chainWidth;      // width of the head's own hidden output (fed back at the end of every input row)
     private readonly int[]? _tokenMap;
+    private readonly bool _anchored;
+    private readonly float[] _anchor;      // anchored heads: the last observed row of each active sequence, the base of its chained rows
     private readonly MtpRowBuffer[] _buffers;
     private readonly int[] _verified;
     private readonly List<SpeculationRequest> _active = [];
@@ -40,7 +46,7 @@ public sealed class MtpSpeculator : ISpeculator
     private readonly int[] _argmax;
     private readonly float[] _argmaxLogprobs;
 
-    internal MtpSpeculator(MultiSequenceDecoder draft, int maxDraftTokens, int[]? tokenMap = null)
+    internal MtpSpeculator(MultiSequenceDecoder draft, int maxDraftTokens, int[]? tokenMap = null, bool anchored = false)
     {
         _draft = draft;
         _hidden = draft.HiddenInputSize;
@@ -50,7 +56,8 @@ public sealed class MtpSpeculator : ISpeculator
             throw new ArgumentException("The draft decoder needs a hidden-states input at least as wide as its hidden output.", nameof(draft));
         }
 
-        _targetWidth = _hidden == _chainWidth ? _hidden : _hidden - _chainWidth;
+        _anchored = anchored;
+        _targetWidth = _hidden == _chainWidth || anchored ? _hidden : _hidden - _chainWidth;
         _tokenMap = tokenMap;
         MaxDraftTokens = Math.Max(1, maxDraftTokens);
         _draft.CaptureHiddenStates = true;
@@ -59,6 +66,7 @@ public sealed class MtpSpeculator : ISpeculator
         _tokenScratch = new int[draft.SlotCount];
         _hiddenScratch = new float[_hidden * Math.Max(draft.SlotCount, 16)];
         _chain = new float[_chainWidth * draft.SlotCount];
+        _anchor = anchored ? new float[_hidden * draft.SlotCount] : [];
         _deviceArgmax = draft is IDeviceSamplingDecoder { SamplesOnDevice: true } d ? d : null;
         _greedyRows = [.. Enumerable.Repeat<SamplingRow?>(SamplingRow.Greedy(), draft.SlotCount)];
         _argmax = new int[draft.MaxLogitsRows];
@@ -196,6 +204,11 @@ public sealed class MtpSpeculator : ISpeculator
             r.Draft[0] = _argmax[u];
             r.Count = 1;
             _draft.HiddenStates(u, buf.Count).Span[((buf.Count - 1) * _chainWidth)..].CopyTo(_chain.AsSpan(u * _chainWidth, _chainWidth));
+            if (_anchored)
+            {
+                buf.Hidden[((buf.Count - 1) * _hidden)..].CopyTo(_anchor.AsSpan(u * _hidden, _hidden));
+            }
+
             _verified[r.Slot] = buf.End;
             buf.Clear();
         }
@@ -217,8 +230,19 @@ public sealed class MtpSpeculator : ISpeculator
                 _tokenScratch[n] = r.Draft[j - 1];
                 _inputs.Add(new SequenceInput(r.Slot, _tokenScratch.AsMemory(n, 1)));
                 var chained = _hiddenScratch.AsSpan(n * _hidden, _hidden);
-                chained[..(_hidden - _chainWidth)].Clear();
-                _chain.AsSpan(u * _chainWidth, _chainWidth).CopyTo(chained[(_hidden - _chainWidth)..]);
+                if (_anchored)
+                {
+                    // The row replaces the last verified one: same position, same target part, the head's output in front.
+                    _draft.Truncate(r.Slot, _verified[r.Slot] - 1);
+                    _anchor.AsSpan(u * _hidden, _hidden).CopyTo(chained);
+                    _chain.AsSpan(u * _chainWidth, _chainWidth).CopyTo(chained);
+                }
+                else
+                {
+                    chained[..(_hidden - _chainWidth)].Clear();
+                    _chain.AsSpan(u * _chainWidth, _chainWidth).CopyTo(chained[(_hidden - _chainWidth)..]);
+                }
+
                 n++;
             }
 

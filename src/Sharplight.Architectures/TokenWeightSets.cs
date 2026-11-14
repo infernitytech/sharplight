@@ -37,8 +37,13 @@ internal static class TokenWeightSets
             return b.Linear(x, prefix + module + ".weight", prefix + module + ".bias", name);
         }
 
-        var text = b.Linear(x, prefix + module + ".weight", prefix + module + ".bias");
-        var mediaRows = b.Linear(x, media + ".weight", media + ".bias");
-        return b.Add(b.Mul(text, b.Scale(mask, -1f, 1f)), b.Mul(mediaRows, mask), name);
+        return Mix(b, b.Linear(x, prefix + module + ".weight", prefix + module + ".bias"), b.Linear(x, media + ".weight", media + ".bias"), mask, name);
     }
+
+    /// <summary>Whether the layer <paramref name="prefix"/> has a media weight set for <paramref name="module"/>.</summary>
+    public static bool Has(GraphBuilder b, string prefix, string module) => b.HasWeight(prefix + MediaInfix + module + ".weight");
+
+    /// <summary>Picks every row from <paramref name="text"/> or <paramref name="media"/> by <paramref name="mask"/> (1 = media).</summary>
+    public static Value Mix(GraphBuilder b, Value text, Value media, Value mask, string? name = null)
+        => b.Add(b.Mul(text, b.Scale(mask, -1f, 1f)), b.Mul(media, mask), name);
 }

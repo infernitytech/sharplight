@@ -5,6 +5,9 @@ namespace Sharplight.Architectures;
 
 internal sealed partial class DecoderGraphBuilder
 {
+    /// <summary>Per-token value embeddings [vocab, KvH·D] that layers with <c>attention.value_embedding_gate.weight</c> add to their values.</summary>
+    private const string ValueEmbeddingWeight = "value_embedding.weight";
+
     /// <summary>
     /// Emits the attention block of one layer pass. With <paramref name="rowSpans"/> the layer attends within packed sequences
     /// (keys and values stay in <paramref name="packedKv"/>, keyed by cache slot); otherwise it reads and writes the KV cache of its slot.
@@ -18,7 +21,7 @@ internal sealed partial class DecoderGraphBuilder
         int heads = _hp.HeadsOf(il);
         var rotate = RotationOf(b, il, positions, freqFactors);
 
-        var q = ClipQkv(b, TokenWeightSets.Linear(b, h, _mediaMask, p, "attention.q"));
+        var q = ClipQkv(b, ProjectSets(b, h, p, "attention.q"));
         q = SplitHeads(b, q, b.TryWeight(p + "attention.q_norm.weight"), b.TryWeight(p + "attention.q_norm.bias"), il, heads, headDim, rotate);
         if (_hp.TemperatureOn(il))
         {
@@ -26,9 +29,17 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         int sourceSlot = slot.Slot - il + _hp.KvSourceOf(il);
+        Value? ownValues = null;
         if (sourceSlot == slot.Slot)
         {
-            var (k, v) = ProjectKeyValue(b, h, ValueInput(b, h, p, embeddings), p, il, rotate);
+            // A shared-KV drafter's layers attend keys and values its target computed (graph inputs), not projections of their own.
+            var (k, v) = _suppliedKv is { } supplied ? supplied[slot.Slot] : ProjectKeyValue(b, h, ValueInput(b, h, p, embeddings), p, il, rotate);
+            ownValues = v;
+            if (rowSpans is null)
+            {
+                _kvExportValues?.TryAdd(il, (k, v));
+            }
+
             if (rowSpans is not null)
             {
                 packedKv[slot.Slot] = (k, v);
@@ -46,11 +57,12 @@ internal sealed partial class DecoderGraphBuilder
             var (packedK, packedV) = packedKv[sourceSlot];
             var packed = PackedSequences.Attention(b, q, packedK, packedV, rowSpans, _hp.AttnScale, _hp.Causal, _hp.SoftCap, $"{p}attn", _hp.AlibiSlopes(heads),
                 _hp.Windowed(il) ? _hp.Window : 0);
-            return AttentionOutput(b, packed, h, p, heads, _hp.ValueDimOf(il));
+            return AttentionOutput(b, ExclusiveAttention(b, packed, ownValues, p, heads), h, p, heads, _hp.ValueDimOf(il));
         }
 
         var selection = _blockIndexerCache[slot.Slot] is { } indexerKeys ? _blockIndexer!.Select(b, h, p, indexerKeys, rotate) : null;
-        return AttentionOutput(b, CachedAttention(b, q, p, il, sourceSlot, selection), h, p, heads, _hp.ValueDimOf(il));
+        var attention = ExclusiveAttention(b, CachedAttention(b, q, p, il, sourceSlot, selection), ownValues, p, heads);
+        return AttentionOutput(b, attention, h, p, heads, _hp.ValueDimOf(il));
     }
 
     /// <summary>
@@ -66,6 +78,29 @@ internal sealed partial class DecoderGraphBuilder
 
         var x0 = embeddings ?? throw new InvalidOperationException($"{p}attention.value_residual needs the input embeddings.");
         return b.Add(x0, b.Mul(b.Sub(h, x0), b.Sigmoid(lambda)), $"{p}value_input");
+    }
+
+    /// <summary>
+    /// Exclusive self attention (XSA, Limite): with <c>attention.exclusive.weight</c> α [heads] each head's output y loses α times its component
+    /// along the token's own value direction, y − α·(y·v̂)·v̂ with v̂ = v / max(‖v‖, <c>attention.exclusive_eps</c>) of the head's key-value group.
+    /// </summary>
+    private Value ExclusiveAttention(GraphBuilder b, Value attention, Value? ownValues, string p, int heads)
+    {
+        if (b.TryWeight(p + "attention.exclusive.weight") is not { } alpha)
+        {
+            return attention;
+        }
+
+        var v = ownValues ?? throw new InvalidOperationException($"{p}attention.exclusive needs the layer's own values (no KV sharing).");
+        int kvHeads = checked((int)v.Shape[1].Fixed);
+        int dim = checked((int)v.Shape[2].Fixed);
+        int group = heads / kvHeads;
+        float minSquare = _hp.ExclusiveAttentionEps * _hp.ExclusiveAttentionEps;
+        var squares = b.Emit1("Clip", [b.Unary("ReduceSum", b.Mul(v, v))], Attributes.From(("min", minSquare), ("max", float.MaxValue)));
+        var direction = b.Reshape(b.Binary("Div", v, b.Unary("Sqrt", squares)), 0, kvHeads, 1, dim);
+        var y = b.Reshape(attention, 0, kvHeads, group, dim);
+        var projection = b.Mul(b.Unary("ReduceSum", b.Mul(y, direction)), b.Reshape(alpha, kvHeads, group, 1));
+        return b.Reshape(b.Sub(y, b.Mul(direction, projection), $"{p}attn_exclusive"), 0, heads, dim);
     }
 
     /// <summary>Clamps a q/k/v projection to ±<c>attention.clip_qkv</c> (OLMo 1) when the model asks for it.</summary>
@@ -148,9 +183,20 @@ internal sealed partial class DecoderGraphBuilder
         return normWeight is null && _hp.QkNormUnweightedOn(il) ? QkNorm(b, x, null, null) : x;
     }
 
-    // One q/k norm over the head dimension: RMS norm, or a mean-centred layer norm when attention.qk_norm_type is "layer".
+    // One q/k norm over the head dimension: RMS norm, or a mean-centred layer norm when attention.qk_norm_type is "layer". With
+    // attention.qk_norm_groups = G the RMS norm runs over G equal parts of each head separately (SenseNova-U1's temporal and spatial halves),
+    // the weight still covering the whole head.
     private Value QkNorm(GraphBuilder b, Value x, Value? weight, Value? bias)
     {
+        if (_hp.QkNormType != "layer" && _hp.QkNormGroups > 1)
+        {
+            int heads = checked((int)x.Shape[1].Fixed);
+            int headDim = checked((int)x.Shape[2].Fixed);
+            var parts = b.RmsNorm(b.Reshape(x, 0, heads * _hp.QkNormGroups, headDim / _hp.QkNormGroups), null, _hp.QkNormEps);
+            var normed = b.Reshape(parts, 0, heads, headDim);
+            return weight is null ? normed : b.Mul(normed, weight);
+        }
+
         if (_hp.QkNormType != "layer")
         {
             return b.RmsNorm(x, weight, _hp.QkNormEps);
@@ -165,9 +211,20 @@ internal sealed partial class DecoderGraphBuilder
     {
         int headDim = _hp.HeadDimOf(il);
         int kvHeads = _hp.KvHeadsOf(il);
-        var keyProjection = ClipQkv(b, TokenWeightSets.Linear(b, h, _mediaMask, p, "attention.k"));
-        var valueProjection = b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, TokenWeightSets.Linear(b, valueInput, _mediaMask, p, "attention.v")) : keyProjection;
+        var keyProjection = ClipQkv(b, ProjectSets(b, h, p, "attention.k"));
+        string valueExperts = p + "attention.value_experts.";
+        var valueProjection = ValueExperts.IsPresent(b, valueExperts)
+            ? ValueExperts.Build(b, valueInput, valueExperts, _hp.ValueExperts ?? throw new InvalidDataException($"{valueExperts}weight needs attention.value_experts.count."))
+            : b.HasWeight(p + "attention.v.weight") ? ClipQkv(b, ProjectSets(b, valueInput, p, "attention.v")) : keyProjection;
         var v = b.Reshape(valueProjection, 0, kvHeads, _hp.ValueDimOf(il));
+        if (b.TryWeight(p + "attention.value_embedding_gate.weight") is not null)
+        {
+            // Value embeddings (Limite): v += value_embedding[token] · sigmoid(gate(h)), one gate per key-value head.
+            var table = _valueEmbeddings ?? throw new InvalidOperationException($"{p}attention.value_embedding_gate needs token inputs.");
+            var gate = b.Reshape(b.Sigmoid(b.Linear(h, p + "attention.value_embedding_gate.weight")), 0, kvHeads, 1);
+            v = b.Add(v, b.Mul(b.Reshape(table, 0, kvHeads, _hp.ValueDimOf(il)), gate), $"{p}v_embedded");
+        }
+
         if (_hp.VNorm)
         {
             v = b.RmsNorm(v, null, _hp.Eps);
@@ -246,10 +303,17 @@ internal sealed partial class DecoderGraphBuilder
                 projection = b.Add(projection, gateBias.Shape[0].Fixed == heads ? b.Reshape(gateBias, heads, 1) : b.Reshape(gateBias, heads, perHead ? 1 : valueDim));
             }
 
-            scaled = b.Mul(scaled, _hp.GateActivation == "softplus" ? b.Softplus(projection) : b.Sigmoid(projection));
+            scaled = b.Mul(scaled, _hp.GateActivation == "softplus" ? SoftplusGate(b, projection) : b.Sigmoid(projection));
         }
 
         var flat = b.Reshape(scaled, 0, heads * valueDim);
-        return TokenWeightSets.Linear(b, SubNorm(b, flat, p + "attention.sub_norm.weight"), _mediaMask, p, "attention.o", $"{p}attn_out");
+        return ProjectSets(b, SubNorm(b, flat, p + "attention.sub_norm.weight"), p, "attention.o", $"{p}attn_out");
+    }
+
+    // softplus(β·x)/β with β = attention.gate_softplus_beta (K2-Horizon: ln 2, i.e. log2(1 + 2^x)); plain softplus for β = 1.
+    private Value SoftplusGate(GraphBuilder b, Value projection)
+    {
+        float beta = _hp.GateSoftplusBeta;
+        return beta == 1f ? b.Softplus(projection) : b.Scale(b.Softplus(b.Scale(projection, beta)), 1f / beta);
     }
 }

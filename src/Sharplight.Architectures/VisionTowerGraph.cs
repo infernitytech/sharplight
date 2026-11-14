@@ -79,8 +79,6 @@ internal static class VisionTowerGraph
             x = b.Concat(0, x, classRow);
         }
 
-        bool postNorm = p.NormPlacement == "post";
-
         Value? cos = null;
         Value? sinSigned = null;
         if (p.RopeBase > 0)
@@ -92,43 +90,8 @@ internal static class VisionTowerGraph
         for (int il = 0; il < p.LayerCount; il++)
         {
             using var _ = b.Group($"vision.layers.{il}");
-            string w = $"vision.layers.{il}.";
-            var h = postNorm ? x : Norm(b, p, x, w + "input_norm");
-            Value qk;
-            Value v;
-            if (b.HasWeight(w + "attention.qkv.weight"))
-            {
-                var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
-                qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), 0, 2 * heads, D);                       // [N, 2·heads, D]
-                v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), 0, heads, D);
-            }
-            else
-            {
-                var q0 = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), 0, heads, D);
-                var k0 = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), 0, heads, D);
-                qk = b.Concat(1, q0, k0);
-                v = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), 0, heads, D);
-            }
-
-            if (cos is not null)
-            {
-                qk = Rotate(b, qk, cos, sinSigned!, D);
-            }
-
-            var q = b.Slice(qk, 1, 0, heads);
-            var k = b.Slice(qk, 1, heads, heads);
             bool windowed = windowSpans is not null && Array.IndexOf(p.FullAttentionLayers, il) < 0;
-            var attn = b.Emit1("Attention", windowed ? [q, k, v, windowSpans!] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
-            var o = b.Linear(b.Reshape(attn, 0, H), w + "attention.o.weight", w + "attention.o.bias");
-            x = b.Add(x, postNorm ? Norm(b, p, o, w + "input_norm") : o, $"{w}attn_residual");
-
-            h = postNorm ? x : Norm(b, p, x, w + "post_attention_norm");
-            var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
-            var act = b.HasWeight(w + "mlp.gate.weight")
-                ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
-                : Activation(b, up, p.Activation);
-            var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
-            x = b.Add(x, postNorm ? Norm(b, p, down, w + "post_attention_norm") : down, $"{w}l_out");
+            x = EncoderLayer(b, p, x, il, cos, sinSigned, windowed ? windowSpans : null);
             if (Array.IndexOf(p.DeepstackLayers, il) >= 0)
             {
                 string d = $"vision.deepstack.{il}.";
@@ -212,15 +175,66 @@ internal static class VisionTowerGraph
     private static Value MergerNorm(GraphBuilder b, VisionParameters p, Value x, string name)
         => Norm(b, p with { NormType = p.MergerNormType ?? p.NormType }, x, name, p.MergerNormEps);
 
+    /// <summary>
+    /// One transformer block of the tower (<c>vision.layers.{il}.*</c>), pre-norm or post-norm (<see cref="VisionParameters.NormPlacement"/>): bidirectional multi-head attention (fused or separate QKV,
+    /// optional 2-D rotary tables, optionally restricted to the <paramref name="windowSpans"/>) and a plain or gated MLP. Post-norm blocks
+    /// (EVA2-CLIP) norm the attention and MLP outputs before their residuals: x + norm(attn(x)), x + norm(mlp(x)).
+    /// </summary>
+    internal static Value EncoderLayer(GraphBuilder b, VisionParameters p, Value x, int il, Value? cos, Value? sinSigned, Value? windowSpans)
+    {
+        int H = p.HiddenSize;
+        int heads = p.HeadCount;
+        int D = p.HeadDim;
+        string w = $"vision.layers.{il}.";
+        // Row count: the symbolic patch count (kept by 0) or, in static graphs, the fixed one.
+        long n = x.Shape[0].IsSymbolic ? 0 : x.Shape[0].Fixed;
+        bool postNorm = p.NormPlacement == "post";
+        var h = postNorm ? x : Norm(b, p, x, w + "input_norm");
+        Value qk;
+        Value v;
+        if (b.HasWeight(w + "attention.qkv.weight"))
+        {
+            var qkv = b.Linear(h, w + "attention.qkv.weight", w + "attention.qkv.bias");          // [N, 3H]: q | k | v
+            qk = b.Reshape(b.Slice(qkv, 1, 0, 2L * H), n, 2 * heads, D);                       // [N, 2·heads, D]
+            v = b.Reshape(b.Slice(qkv, 1, 2L * H, H), n, heads, D);
+        }
+        else
+        {
+            var q0 = b.Reshape(b.Linear(h, w + "attention.q.weight", w + "attention.q.bias"), n, heads, D);
+            var k0 = b.Reshape(b.Linear(h, w + "attention.k.weight", w + "attention.k.bias"), n, heads, D);
+            qk = b.Concat(1, q0, k0);
+            v = b.Reshape(b.Linear(h, w + "attention.v.weight", w + "attention.v.bias"), n, heads, D);
+        }
+
+        if (cos is not null)
+        {
+            qk = Rotate(b, qk, cos, sinSigned!, D);
+        }
+
+        var q = b.Slice(qk, 1, 0, heads);
+        var k = b.Slice(qk, 1, heads, heads);
+        var attn = b.Emit1("Attention", windowSpans is not null ? [q, k, v, windowSpans] : [q, k, v], Attributes.From(("scale", 1f / MathF.Sqrt(D)), ("causal", false)), $"{w}attn");
+        var o = b.Linear(b.Reshape(attn, n, H), w + "attention.o.weight", w + "attention.o.bias");
+        x = b.Add(x, postNorm ? Norm(b, p, o, w + "input_norm") : o, $"{w}attn_residual");
+
+        h = postNorm ? x : Norm(b, p, x, w + "post_attention_norm");
+        var up = b.Linear(h, w + "mlp.up.weight", w + "mlp.up.bias");
+        var act = b.HasWeight(w + "mlp.gate.weight")
+            ? b.Mul(Activation(b, b.Linear(h, w + "mlp.gate.weight", w + "mlp.gate.bias"), p.Activation), up)
+            : Activation(b, up, p.Activation);
+        var down = b.Linear(act, w + "mlp.down.weight", w + "mlp.down.bias");
+        return b.Add(x, postNorm ? Norm(b, p, down, w + "post_attention_norm") : down, $"{w}l_out");
+    }
+
     // m×m neighbouring patches (consecutive in merge-window order) → one row of m²·hidden.
     private static Value Merge(GraphBuilder b, Value x, VisionParameters p) => p.MergeUnit == 1 ? x
         : b.Emit1("Reshape", [x], Attributes.From(("shape", new long[] { 0, (long)p.MergeUnit * p.HiddenSize }), ("outer_symbol", VisionParameters.MergedSymbol)));
 
-    private static Value Norm(GraphBuilder b, VisionParameters p, Value x, string name, float? eps = null) => p.NormType == "rms"
+    internal static Value Norm(GraphBuilder b, VisionParameters p, Value x, string name, float? eps = null) => p.NormType == "rms"
         ? b.RmsNorm(x, b.Weight(name + ".weight"), eps ?? p.NormEps)
         : b.Emit1("LayerNorm", [x, b.Weight(name + ".weight"), b.Weight(name + ".bias")], Attributes.From(("eps", eps ?? p.NormEps)));
 
-    private static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
+    internal static Value Activation(GraphBuilder b, Value x, string kind) => kind switch
     {
         "gelu_tanh" => b.Unary("GeluTanh", x),
         "gelu" => b.Unary("Gelu", x),

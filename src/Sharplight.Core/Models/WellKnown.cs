@@ -63,6 +63,13 @@ public static class WellKnown
     /// pre-norm or intermediate state), the adapter adds that output to the decode graph and names it here.
     /// </summary>
     public const string DraftHiddenSource = "draft_hidden_source";
+    /// <summary>
+    /// Whether a <see cref="DraftGraph"/> drafts every token of a step from the same position (bool property; absent: false). Such a head
+    /// (Gemma 4 assistants: the queries of the pending token's position against the target's keys and values) keeps one row per verified target
+    /// row; a further draft replaces the head's last row instead of adding one, with that row's hidden-state input except for the first
+    /// <see cref="HiddenOutput"/>-wide part, which carries the head's previous output.
+    /// </summary>
+    public const string DraftAnchored = "draft_anchored";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 

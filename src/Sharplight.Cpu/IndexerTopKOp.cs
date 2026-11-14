@@ -26,6 +26,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     private readonly TRef? _rows;        // multi-sequence: [T, 4] (slot, position, ...) per query row
     private readonly long _slotContext;  // multi-sequence: cache rows per slot
     private readonly KvPages? _pages;    // paged multi-sequence cache
+    private readonly long _compression;  // positions per key cache row (compressed cache: a row at position p sees entries [0, (p + 1) / r))
     private readonly Action<int> _body;
     private long _past;
     private long _per;
@@ -37,8 +38,9 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
     public override string Name => "IndexerTopK";
 
     public IndexerTopKOp(TRef q, TRef keys, TRef? weights, TRef? positionGate, TRef y, IndexerSelection selection, string offsetScalar, TRef? rows = null,
-        int slots = 1, KvPages? pages = null)
+        int slots = 1, KvPages? pages = null, long compression = 1)
     {
+        _compression = Math.Max(1, compression);
         _q = q;
         _keys = keys;
         _weights = weights;
@@ -78,7 +80,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
                 throw new InvalidOperationException($"Runtime scalar '{_offsetScalar}' was not provided.");
             }
 
-            if (_past < 0 || _past + t > _keys.Dims[0])
+            if (_past < 0 || (_past + t) / _compression > _keys.Dims[0])
             {
                 throw new InvalidOperationException($"Indexer key cache overflow: n_past {_past} + T {t} > context {_keys.Dims[0]}.");
             }
@@ -91,12 +93,12 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
             {
                 if (_pages is not null)
                 {
-                    for (long pos = rw[row * 4 + 1]; pos >= 0; pos -= _pages.BlockSize)
+                    for (long entry = Visible(rw[row * 4 + 1]) - 1; entry >= 0; entry -= Math.Max(1, _pages.BlockSize / _compression))
                     {
-                        _pages.Check(rw[row * 4], pos, _keys.Dims[0]);
+                        _pages.Check(rw[row * 4], entry, _keys.Dims[0]);
                     }
                 }
-                else if ((uint)rw[row * 4] >= slots || (uint)rw[row * 4 + 1] >= _slotContext)
+                else if ((uint)rw[row * 4] >= slots || Visible(rw[row * 4 + 1]) > _slotContext)
                 {
                     throw new InvalidOperationException($"Sequence row {row}: slot {rw[row * 4]} / position {rw[row * 4 + 1]} out of range.");
                 }
@@ -127,13 +129,13 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
         if (_rows is not null)
         {
             int* rw = (int*)_rows.P + t * 4;
-            visible = rw[1] + 1L;
+            visible = Visible(rw[1]);
             rowBase = rw[0] * _slotContext;
             slot = _pages is null ? -1 : rw[0];
         }
         else
         {
-            visible = _past + t + 1;
+            visible = Visible(_past + t);
         }
 
         int group = _selection.Group;
@@ -328,4 +330,7 @@ internal sealed unsafe class IndexerTopKOp : CpuOp
 
         public float* Pooled { get; } = pooled;
     }
+
+    // Key rows a query at this position sees: positions [0, position], or the complete windows of a compressed cache.
+    private long Visible(long position) => (position + 1) / _compression;
 }

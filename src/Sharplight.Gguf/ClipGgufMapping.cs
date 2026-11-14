@@ -17,7 +17,8 @@ namespace Sharplight.Gguf;
 /// <c>mm.1</c> / <c>mm.2</c>) and <c>glm4v</c> (GLM-4.1V: patch norm, bicubic position grid, convolution merger, GLM projector) belong to
 /// <c>decoder</c>; <c>hunyuanvl</c> (HunyuanOCR / Hunyuan-VL: half-pixel bilinear position grid, perceiver projector with convolution
 /// merger, newline column, begin / end rows and RMS norms) and <c>cogvlm</c> (CogVLM's EVA2-CLIP: fixed image size, class token, post-norm blocks,
-/// GLU projector, begin / end rows; the language model's visual experts are in the text file) to <c>decoder</c> as well.
+/// GLU projector, begin / end rows; the language model's visual experts are in the text file) to <c>decoder</c> as well,
+/// as does <c>deepseekocr</c> (DeepSeek-OCR and Unlimited-OCR: SAM and CLIP stages, see ClipGgufMapping.DeepseekOcr.cs).
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -124,6 +125,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
                 ["norm.placement"] = "post", ["class_token"] = true, ["spatial_merge_size"] = 1, ["merger.activation"] = "silu", ["merger.norm_eps"] = 1e-5f,
                 ["merger.boundary"] = true, ["image_positions"] = "grouped", ["media_weight_rows"] = "all_but_last", ["image_token"] = "<unk>",
             }),
+        [DeepseekOcr] = new("decoder", TemporalPatchSize: 1, MinPixels: 0, MaxPixels: 0, RopeBase: 0f, DefaultActivation: "quick_gelu"),
     };
 
     // Placeholder name of a projector tensor the tower never reads (dropped by Transform).
@@ -151,6 +153,11 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     {
         var p = Find(g);
         string a = ResolveArchitecture(g) + ".vision.";
+        if (IsDeepseekOcr(g))
+        {
+            return DeepseekOcrHyperParameters(g, a);
+        }
+
         int patch = g.Int("vision.patch_size");
         var md = new Dictionary<string, object>(StringComparer.Ordinal)
         {
@@ -275,6 +282,11 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <inheritdoc/>
     public string? MapWeightName(string name, GgufMetadataView g)
     {
+        if (IsDeepseekOcr(g))
+        {
+            return MapDeepseekOcrName(name);
+        }
+
         if (Find(g).Names is { } names && names.TryGetValue(name, out var projectorName))
         {
             return projectorName;
@@ -303,6 +315,12 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <inheritdoc/>
     public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
     {
+        if (IsDeepseekOcr(g))
+        {
+            TransformDeepseekOcr(weights);
+            return;
+        }
+
         weights.Remove(UnusedWeight);
         SplitClassPosition(weights);
         SwapLegacyMlpNames(weights, g);
