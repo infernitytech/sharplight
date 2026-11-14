@@ -8,5 +8,5 @@ gpu util,memused,power,smclk: 77 %, 48837 MiB, 280.94 W, 2197 MHz
 1838425, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
 1839008, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
 1839300, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
-2217850, ~/.local/share/docdictator/models/runtime.llama-b11177-vulkan/llama-server, 38209 MiB
-2233918, ~/.local/share/docdictator/models/runtime.llama-b11177-cuda13/llama-completion, 552 MiB
+2217850, $LLAMA_ROOT/runtime.llama-b11177-vulkan/llama-server, 38209 MiB
+2233918, $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-completion, 552 MiB

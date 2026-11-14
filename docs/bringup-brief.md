@@ -25,7 +25,7 @@ docs/api-overview.md.
   their tools/ for how references are generated; a Python venv with transformers may be needed).
 - Real model parity: greedy generation on CPU and Vulkan matches the llama.cpp reference output in
   docs/model-support.md section 8.1 (or a reference you generate with the llama.cpp binaries at
-  ~/.local/share/docdictator/models/runtime.llama-b11177-{cuda13,vulkan,cpu}/, LD_LIBRARY_PATH = that dir), plus a
+  $LLAMA_ROOT/runtime.llama-b11177-{cuda13,vulkan,cpu}/, LD_LIBRARY_PATH = that dir), plus a
   logits-level check where feasible. Add the case to tests/Sharplight.Families.Tests (skips when the model is missing).
 - Performance sanity: `sharplight <model> --bench 512` versus `llama-bench -m <model> -p 512 -n 64` (CUDA and Vulkan
   builds). Note results in your report; large gaps are a finding, not necessarily your job to fix.

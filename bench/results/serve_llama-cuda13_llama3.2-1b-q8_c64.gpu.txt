@@ -12,4 +12,4 @@ gpu util,memused,power,smclk: 56 %, 20606 MiB, 174.57 W, 2310 MHz
 2169406, dotnet, 12 MiB
 2170438, ~/Documents/work/sharplight/.claude/worktrees/agent-ab957ef699cef9e7c/tests/Sharplight.Em
 2170526, ~/Documents/work/sharplight/tests/Sharplight.Vision.Tests/bin/Release/net11.0/Sharplight.
-2170693, ~/.local/share/docdictator/models/runtime.llama-b11177-cuda13/llama-server, 2978 MiB
+2170693, $LLAMA_ROOT/runtime.llama-b11177-cuda13/llama-server, 2978 MiB

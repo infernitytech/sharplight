@@ -685,7 +685,7 @@ Tiny random checkpoints (weights random, structure real) are for graph/shape/map
 ## 9. Reproducing the references
 
 ```bash
-D=~/.local/share/docdictator/models/runtime.llama-b11177-cuda13   # or -vulkan / -cpu
+D=$LLAMA_ROOT/runtime.llama-b11177-cuda13   # or -vulkan / -cpu
 LD_LIBRARY_PATH=$D $D/llama-completion -m MODEL.gguf -p 'The capital of France is' -n 16 \
     --temp 0 --top-k 1 --seed 1 -c 512 -no-cnv --no-display-prompt -t 16 --no-warmup -ngl 99 </dev/null
 ```

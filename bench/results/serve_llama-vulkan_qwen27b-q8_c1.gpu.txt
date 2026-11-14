@@ -9,4 +9,4 @@ gpu util,memused,power,smclk: 0 %, 48883 MiB, 91.76 W, 2340 MHz
 1839008, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
 1839300, ~/Documents/work/sharplight/samples/Sharplight.Serve/bin/Release/net11.0/sharplight-serve
 2213105, python, 652 MiB
-2217850, ~/.local/share/docdictator/models/runtime.llama-b11177-vulkan/llama-server, 38153 MiB
+2217850, $LLAMA_ROOT/runtime.llama-b11177-vulkan/llama-server, 38153 MiB

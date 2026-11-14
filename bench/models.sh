@@ -9,4 +9,5 @@ MODELS=(
   "olmoe-q4km|$M/gguf/OLMoE-1B-7B-0924-Instruct/OLMoE-1B-7B-0924-Instruct-Q4_K_M.gguf"
   "nemotron30b-q4km|$M/gguf/NVIDIA-Nemotron-3-Nano-30B-A3B/NVIDIA-Nemotron-3-Nano-30B-A3B-Q4_K_M.gguf"
 )
-LLAMA_ROOT=$HOME/.local/share/docdictator/models
+# Folder holding the llama.cpp runtime.llama-b11177-{cuda13,vulkan,cpu} builds; override with LLAMA_ROOT.
+LLAMA_ROOT=${LLAMA_ROOT:-$HOME/.local/share/llama.cpp}
