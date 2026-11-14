@@ -4,8 +4,8 @@ using System.Runtime.Intrinsics.X86;
 
 namespace Sharplight.Cpu;
 
-/// <summary>Low level SIMD helpers (AVX-512 / AVX2 / scalar fallbacks).</summary>
-internal static unsafe class Simd
+/// <summary>Low level SIMD helpers (AVX-512 / AVX2 / Arm64 NEON / scalar fallbacks).</summary>
+internal static unsafe partial class Simd
 {
     // ---- float dot products -------------------------------------------------------------------
     public static float Dot(float* a, float* b, long n)
@@ -51,6 +51,10 @@ internal static unsafe class Simd
             }
 
             sum = Vector256.Sum((s0 + s1) + (s2 + s3));
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            sum = DotNeon(a, b, n, ref i);
         }
         for (; i < n; i++)
         {
@@ -122,6 +126,14 @@ internal static unsafe class Simd
             r1 = Vector256.Sum(a1);
             r2 = Vector256.Sum(a2);
             r3 = Vector256.Sum(a3);
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            Dot4Neon(x, w0, w1, w2, w3, n, ref i, res);
+            r0 = res[0];
+            r1 = res[1];
+            r2 = res[2];
+            r3 = res[3];
         }
         for (; i < n; i++)
         {
@@ -215,6 +227,10 @@ internal static unsafe class Simd
             res[6] = Vector256.Sum(c2);
             res[7] = Vector256.Sum(c3);
         }
+        else if (CpuIsa.UseNeon)
+        {
+            Dot4x2Neon(x0, x1, w0, w1, w2, w3, n, ref i, res);
+        }
         for (; i < n; i++)
         {
             float xa = x0[i];
@@ -262,6 +278,10 @@ internal static unsafe class Simd
             }
             sum = Vector256.Sum(s0);
         }
+        else if (CpuIsa.UseNeon)
+        {
+            sum = SumSqNeon(a, n, ref i);
+        }
         for (; i < n; i++)
         {
             sum += a[i] * a[i];
@@ -283,6 +303,10 @@ internal static unsafe class Simd
             }
 
             sum = Vector256.Sum(s);
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            sum = SumNeon(a, n, ref i);
         }
         for (; i < n; i++)
         {
@@ -306,6 +330,10 @@ internal static unsafe class Simd
 
             var h = Vector128.Max(s.GetLower(), s.GetUpper());
             m = MathF.Max(MathF.Max(h.GetElement(0), h.GetElement(1)), MathF.Max(h.GetElement(2), h.GetElement(3)));
+        }
+        else if (CpuIsa.UseNeon && n >= 4)
+        {
+            m = MaxNeon(a, n, ref i);
         }
         for (; i < n; i++)
         {
@@ -366,6 +394,10 @@ internal static unsafe class Simd
 
             sum = Vector256.Sum(acc);
         }
+        else if (CpuIsa.UseNeon)
+        {
+            sum = ExpShiftedNeon(x, n, shift, ref i);
+        }
 
         for (; i < n; i++)
         {
@@ -388,6 +420,10 @@ internal static unsafe class Simd
                 (Vector256.Load(src + i) * sv).Store(dst + i);
             }
         }
+        else if (CpuIsa.UseNeon)
+        {
+            ScaleNeon(src, dst, s, n, ref i);
+        }
         for (; i < n; i++)
         {
             dst[i] = src[i] * s;
@@ -405,6 +441,10 @@ internal static unsafe class Simd
             {
                 (Vector256.Load(src + i) * sv * Vector256.Load(w + i)).Store(dst + i);
             }
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            ScaleMulNeon(src, w, dst, s, n, ref i);
         }
         for (; i < n; i++)
         {
@@ -431,6 +471,10 @@ internal static unsafe class Simd
             {
                 Vector256.FusedMultiplyAdd(Vector256.Load(v + i), pv, Vector256.Load(acc + i)).Store(acc + i);
             }
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            AxpyNeon(acc, v, p, n, ref i);
         }
         for (; i < n; i++)
         {
@@ -502,6 +546,10 @@ internal static unsafe class Simd
                 HalfBitsToSingle(Avx2.ConvertToVector256Int32(Vector128.Load(src + i)).AsUInt32()).Store(dst + i);
             }
         }
+        else if (CpuIsa.UseNeon)
+        {
+            HalfToFloatNeon(src, dst, n, ref i);
+        }
 
         for (; i < n; i++)
         {
@@ -525,6 +573,10 @@ internal static unsafe class Simd
             {
                 Vector256.ShiftLeft(Avx2.ConvertToVector256Int32(Vector128.Load(src + i)).AsUInt32(), 16).AsSingle().Store(dst + i);
             }
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            BFloatToFloatNeon(src, dst, n, ref i);
         }
 
         for (; i < n; i++)
@@ -564,6 +616,10 @@ internal static unsafe class Simd
 
             sum = Vector256.Sum(s0);
         }
+        else if (CpuIsa.UseNeon)
+        {
+            sum = DotHalfNeon(a, h, n, ref i);
+        }
         for (; i < n; i++)
         {
             sum += a[i] * HalfToFloat(h[i]);
@@ -592,6 +648,10 @@ internal static unsafe class Simd
                 Vector256.FusedMultiplyAdd(HalfBitsToSingle(Avx2.ConvertToVector256Int32(Vector128.Load(h + i)).AsUInt32()), pv, Vector256.Load(acc + i)).Store(acc + i);
             }
         }
+        else if (CpuIsa.UseNeon)
+        {
+            AxpyHalfNeon(acc, h, p, n, ref i);
+        }
         for (; i < n; i++)
         {
             acc[i] += p * HalfToFloat(h[i]);
@@ -614,6 +674,10 @@ internal static unsafe class Simd
             var ov = Vector256.Create(offset);
             Vector256.FusedMultiplyAdd(Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(v)), sv, ov).Store(dst);
             Vector256.FusedMultiplyAdd(Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Sse2.ShiftRightLogical128BitLane(v, 8))), sv, ov).Store(dst + 8);
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            StoreU8x16Neon(v, scale, offset, dst);
         }
         else
         {
@@ -639,6 +703,10 @@ internal static unsafe class Simd
             var ov = Vector256.Create(offset);
             Vector256.FusedMultiplyAdd(Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(v)), sv, ov).Store(dst);
             Vector256.FusedMultiplyAdd(Vector256.ConvertToSingle(Avx2.ConvertToVector256Int32(Sse2.ShiftRightLogical128BitLane(v, 8))), sv, ov).Store(dst + 8);
+        }
+        else if (CpuIsa.UseNeon)
+        {
+            StoreI8x16Neon(v, scale, offset, dst);
         }
         else
         {

@@ -6,6 +6,7 @@
     <Project Path="src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
     <Project Path="src/Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <Project Path="src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
+    <Project Path="src/Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" />
     <Project Path="src/Sharplight.Llm/Sharplight.Llm.csproj" />
     <Project Path="src/Sharplight.Templating/Sharplight.Templating.csproj" />
     <Project Path="src/Sharplight.Architectures/Sharplight.Architectures.csproj" />

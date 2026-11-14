@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.Arm;
 using System.Runtime.Intrinsics.X86;
 using Sharplight.Graph;
 using Sharplight.Runtime;
@@ -54,6 +55,13 @@ internal sealed class CpuDevice : IComputeDevice
             ["isa"] = CpuIsa.Name(CpuIsa.Level),
             ["vector_bits"] = Vector512.IsHardwareAccelerated ? "512" : Vector256.IsHardwareAccelerated ? "256" : "128",
         };
+        if (AdvSimd.Arm64.IsSupported)
+        {
+            capabilities["neon"] = Flag(true);
+            capabilities["dotprod"] = Flag(Dp.IsSupported);
+            capabilities["rdm"] = Flag(Rdm.IsSupported);
+        }
+
         long total = HostCpuInfo.MemInfo("MemTotal") ?? GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         return new DeviceInfo
         {
@@ -71,12 +79,12 @@ internal sealed class CpuDevice : IComputeDevice
 
     /// <summary>
     /// Provider-neutral features of the host: <see cref="DeviceFeatures.IntDot"/> when the kernels have packed int8 dot products
-    /// (AVX2 <c>vpmaddubsw</c> or VNNI), which enables the quantized-activation matmul for quantized weights.
+    /// (AVX2 <c>vpmaddubsw</c>, VNNI or Arm64 <c>sdot</c>), which enables the quantized-activation matmul for quantized weights.
     /// </summary>
     private static HashSet<string> DetectFeatures()
     {
         var features = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (CpuIsa.Level >= CpuIsaLevel.Avx2)
+        if (CpuIsa.HasPackedIntDot)
         {
             features.Add(DeviceFeatures.IntDot);
         }

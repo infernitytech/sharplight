@@ -228,6 +228,13 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
             exts.Add("VK_KHR_pipeline_executable_properties");
         }
 
+        // A portability implementation (MoltenVK) requires its subset extension to be enabled. None of the subset's optional
+        // features are requested: the compute kernels use no events, image views, samplers or graphics state.
+        if (Phys.PortabilitySubset)
+        {
+            exts.Add("VK_KHR_portability_subset");
+        }
+
         var extNames = exts.Select(e => (nint)Marshal.StringToHGlobalAnsi(e)).ToArray();
         VkDevice device;
         try

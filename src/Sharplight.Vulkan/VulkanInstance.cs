@@ -15,7 +15,8 @@ internal sealed unsafe class VulkanInstance
 
     public VulkanInstance(bool validation)
     {
-        vkInitialize().CheckResult();
+        // null everywhere but macOS, where the bundled MoltenVK (or SHARPLIGHT_VULKAN_LIBRARY) is tried first.
+        vkInitialize(VulkanLibrary.Resolve()).CheckResult();
         uint ver = 0;
         vkEnumerateInstanceVersion(&ver);
         ApiVersion = new VkVersion(ver);

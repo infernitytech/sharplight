@@ -8,7 +8,7 @@ namespace Sharplight.Cpu;
 /// the kernel computes one MR x NR tile of C (row-major, leading dimension ldc):
 /// C = (acc ? C : bias ? bias[row] : 0) + sum_k A[k][i] * B[k][j].
 /// </summary>
-internal static unsafe class Gemm
+internal static unsafe partial class Gemm
 {
     public static readonly int MR;
     public static readonly int NR;
@@ -21,7 +21,7 @@ internal static unsafe class Gemm
             MR = 8;
             NR = 32;
         }
-        else if (CpuIsa.Use256)
+        else if (CpuIsa.Use256 || CpuIsa.UseNeon)
         {
             MR = 6;
             NR = 16;
@@ -39,6 +39,10 @@ internal static unsafe class Gemm
         if (NR == 32)
         {
             K8x32(a, b, ldb, c, ldc, kc, bias, acc);
+        }
+        else if (NR == 16 && CpuIsa.UseNeon)
+        {
+            K6x16Neon(a, b, ldb, null, c, ldc, kc, bias, acc);
         }
         else if (NR == 16)
         {
@@ -59,6 +63,10 @@ internal static unsafe class Gemm
         if (NR == 32)
         {
             K8x32Gather(a, b, bOffsets, c, ldc, kc, bias, acc);
+        }
+        else if (NR == 16 && CpuIsa.UseNeon)
+        {
+            K6x16Neon(a, b, 0, bOffsets, c, ldc, kc, bias, acc);
         }
         else if (NR == 16)
         {

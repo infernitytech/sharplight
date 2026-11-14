@@ -6,4 +6,12 @@
     <ProjectReference Include="../Sharplight.Shaders/Sharplight.Shaders.csproj" />
     <PackageReference Include="Vortice.Vulkan" />
   </ItemGroup>
+  <!--
+    macOS has no system Vulkan: builds there, or with -p:SharplightBundleMoltenVK=true (to cross-publish for osx-arm64), copy
+    the bundled MoltenVK into every application output (transitively). The Sharplight.Vulkan package does not depend on it;
+    applications for macOS add the Sharplight.Vulkan.MoltenVK package themselves.
+  -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) Or '$(SharplightBundleMoltenVK)' == 'true'">
+    <ProjectReference Include="../Sharplight.Vulkan.MoltenVK/Sharplight.Vulkan.MoltenVK.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+  </ItemGroup>
 </Project>
