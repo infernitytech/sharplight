@@ -15,7 +15,7 @@ internal sealed unsafe class ConvOp : CpuOp
     private readonly TRef _x;
     private readonly TRef _y;
     private readonly TRef? _bias;
-    private readonly ConvEpilogue? _epilogue;
+    private readonly OutputEpilogue? _epilogue;
     private readonly int _c;
     private readonly int _h;
     private readonly int _w;
@@ -66,7 +66,7 @@ internal sealed unsafe class ConvOp : CpuOp
 
     public override string Name => (_depthwise ? "Conv.depthwise" : _direct ? "Conv.1x1" : "Conv") + _epilogue?.Label;
 
-    private ConvOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw, ConvEpilogue? epilogue)
+    private ConvOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw, OutputEpilogue? epilogue)
     {
         _x = x;
         _y = y;
@@ -127,7 +127,7 @@ internal sealed unsafe class ConvOp : CpuOp
         _bpack = _tilePack ? null : (float*)Mem.Alloc(tiles * _kg * NR * 4, false);
     }
 
-    public static ConvOp Create(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int[] strides, int[] pads, int[] dil, ConvEpilogue? epilogue)
+    public static ConvOp Create(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int[] strides, int[] pads, int[] dil, OutputEpilogue? epilogue)
         => new(x, wDense, kh, kw, bias, y, groups, strides[0], strides[1], pads[0], pads[1], dil[0], dil[1], epilogue);
 
     public override void Dispose()

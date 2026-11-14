@@ -13,7 +13,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var weight = RefF32(ins[1]);
         TRef? bias = ins.Length > 2 ? Dense(RefF32(ins[2])) : null;
         var y = NewDense(n.Output);
-        var epilogue = AbsorbConvEpilogue(n.Output, y);
+        var epilogue = AbsorbEpilogue(n.Output, y);
         var conv = ConvOp.Create(
             x, (float*)(weight.Buf.Ptr + weight.Offset * 4), (int)weight.Dims[2], (int)weight.Dims[3], bias, y, (int)a.Get("groups", 1L),
             Ints(a, "strides", 1, 1), Ints(a, "pads", 0, 0, 0, 0), Ints(a, "dilations", 1, 1), epilogue);

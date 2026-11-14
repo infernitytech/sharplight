@@ -50,15 +50,31 @@ internal sealed unsafe partial class CpuCompiledSegment
     }
 
     /// <summary>
-    /// Absorbs the elementwise tail of a conv producing <paramref name="y"/> (value <paramref name="output"/>): an Add of a
-    /// same-shaped, already computed dense tensor, then one unary activation, each the sole consumer of the previous value.
-    /// The absorbed nodes' outputs alias <paramref name="y"/>. Returns null when nothing can be fused.
+    /// Absorbs the elementwise tail of an op producing <paramref name="y"/> (value <paramref name="output"/>): with
+    /// <paramref name="columnBias"/>, an Add of a constant vector over the last axis; then an Add of a same-shaped, already
+    /// computed dense tensor; then one unary activation, each the sole consumer of the previous value. The absorbed nodes'
+    /// outputs alias <paramref name="y"/>. Returns null when nothing can be fused.
     /// </summary>
-    private ConvEpilogue? AbsorbConvEpilogue(Value output, TRef y)
+    private OutputEpilogue? AbsorbEpilogue(Value output, TRef y, bool columnBias = false)
     {
-        TRef? residual = null;
+        TRef? biasVector = null;
+        long columns = output.Shape.Rank > 0 && !output.Shape[-1].IsSymbolic ? output.Shape[-1].Fixed : 0;
         var current = output;
         var absorbed = new List<Node>();
+        if (columnBias && columns > 0 && SoleConsumer(current) is { Op.Name: "Add" } biasAdd)
+        {
+            var other = biasAdd.Inputs[0] == current ? biasAdd.Inputs[1] : biasAdd.Inputs[0];
+            if (IsStatic(other) && other.Type == Tensors.DataType.F32 && other.Shape.Rank <= output.Shape.Rank
+                && other.Shape.Dims.All(d => !d.IsSymbolic) && other.Shape.Dims.Aggregate(1L, (acc, d) => acc * d.Fixed) == columns
+                && other.Shape[-1].Fixed == columns && biasAdd.Output.Shape.Equals(output.Shape) && Ref(other) is { IsDense: true } b)
+            {
+                biasVector = b;
+                absorbed.Add(biasAdd);
+                current = biasAdd.Output;
+            }
+        }
+
+        TRef? residual = null;
         if (SoleConsumer(current) is { Op.Name: "Add" } add)
         {
             var other = add.Inputs[0] == current ? add.Inputs[1] : add.Inputs[0];
@@ -98,7 +114,10 @@ internal sealed unsafe partial class CpuCompiledSegment
             _refs[node.Output] = y;
         }
 
-        return new ConvEpilogue { Residual = residual, Activation = activation, Scale = scale, Bias = bias };
+        return new OutputEpilogue
+        {
+            ColumnBias = biasVector, Columns = Math.Max(1, columns), Residual = residual, Activation = activation, Scale = scale, Bias = bias,
+        };
     }
 
     /// <summary>
