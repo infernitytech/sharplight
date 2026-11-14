@@ -44,6 +44,13 @@ public sealed class LlmModel : IDisposable
     public ITokenizer Tokenizer { get; }
     /// <summary>The Jinja chat template stored in the model file (<c>tokenizer.chat_template</c>), or null if it has none.</summary>
     public string? ChatTemplate { get; }
+    /// <summary>
+    /// Weight buffers shared by everything compiled from this model (sessions, batch decoders, the draft head): on devices that
+    /// support it (<see cref="IComputeDevice.SharesWeights"/>) each tensor is uploaded once per device, so e.g. the MTP head reuses
+    /// the decoder's embedding and LM head.
+    /// </summary>
+    public SharedWeights SharedWeights => _sharedWeights;
+    private readonly SharedWeights _sharedWeights = new();
     private readonly LlmLoadOptions _options;
     private readonly CompilationArtifacts _artifacts;
 
@@ -149,7 +156,7 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged,
-            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0);
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DecodeGraph);
@@ -162,11 +169,15 @@ public sealed class LlmModel : IDisposable
     /// </summary>
     public bool HasDraftHead => Definition.Graphs.ContainsKey(WellKnown.DraftGraph);
 
+    /// <summary>The decode-graph output the draft head reads as hidden states (<see cref="WellKnown.DraftHiddenSource"/>).</summary>
+    private string DraftHiddenSource => Definition.Properties.TryGetValue(WellKnown.DraftHiddenSource, out var v) && v is string s ? s : WellKnown.HiddenOutput;
+
     /// <summary>
     /// Compiles the model's multi-token-prediction head (<see cref="WellKnown.DraftGraph"/>) into a speculator for an
     /// <see cref="Serving.InferenceEngine"/> (<see cref="Serving.EngineOptions.Speculator"/>) over a decoder from
     /// <see cref="CreateBatchDecoder"/> with the same <paramref name="slots"/>, context and <paramref name="draftTokens"/>. The head
-    /// has its own KV cache (one attention layer per MTP layer) and its own copy of the embedding and LM head.
+    /// has its own KV cache (one attention layer per MTP layer); its embedding and LM head are the decoder's buffers on devices that
+    /// share weights (<see cref="SharedWeights"/>).
     /// </summary>
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
@@ -187,8 +198,10 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(null, ctx, rowBound: slots);
         // A paged head cache gets a block per slot more than the target's: its rows run up to draftTokens past the target's.
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, deviceSampling: false, paged);
+        // With a device sampling head the draft tokens (greedy) are chosen on the device: only token ids come back.
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged);
         _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(WellKnown.DraftGraph);   // placement, compile and upload progress come through the compile options
         return new Serving.Speculative.MtpSpeculator(dec, draftTokens);
     }
 
@@ -223,6 +236,7 @@ public sealed class LlmModel : IDisposable
             CacheFor = CacheFor,
             Progress = _options.Progress,
             CancellationToken = _options.CancellationToken,
+            SharedWeights = _sharedWeights,
         },
     };
 
@@ -252,18 +266,56 @@ public sealed class LlmModel : IDisposable
     /// <param name="slots">Concurrent sequences.</param>
     /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">Paged KV cache of this many tokens shared by the slots (see <see cref="CreateBatchDecoder"/>), or null.</param>
-    public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null)
+    /// <param name="draftTokens">
+    /// Speculative decoding (as <see cref="CreateBatchDecoder"/>'s <c>draftTokens</c>): adds the rollback record states of the
+    /// recurrent ops (<see cref="Graph.RecurrentRollback.RecordStateBytes"/>) and sizes the logits rows for verification.
+    /// </param>
+    /// <param name="draftHead">Also count the MTP draft head (<see cref="CreateMtpSpeculator"/>): its own weights (the ones it shares
+    /// with the decoder are counted once), its KV cache and activations.</param>
+    /// <param name="maxLogitsRows">Logits rows per step (default <paramref name="slots"/> · (<paramref name="draftTokens"/> + 1)).</param>
+    public ModelFootprint EstimateFootprint(int slots = 1, int? contextLength = null, long? kvCacheTokens = null, int draftTokens = 0, bool draftHead = false,
+        int? maxLogitsRows = null)
     {
         int ctx = contextLength ?? _options.ContextLength;
         var graph = Definition.Graph(WellKnown.DecodeGraph);
-        bool multi = slots > 1 && Graph.MultiSequence.IsSupported(graph, out _);
-        return PlacementPlanner.Estimate(graph, new CompileOptions
+        bool multi = (slots > 1 || draftTokens > 0) && Graph.MultiSequence.IsSupported(graph, out _);
+        long paged = multi && kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
+        long rows = maxLogitsRows ?? (long)slots * (Math.Max(0, draftTokens) + 1);
+        var fp = PlacementPlanner.Estimate(graph, new CompileOptions
         {
             MaxTokens = _options.MaxBatchTokens,
             ContextLength = ctx,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? slots : _options.MaxBatchTokens },
-        }, multi ? slots : 1, multi && kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0);
+            SymbolBounds = new Dictionary<string, long> { ["R"] = multi ? Math.Min(rows, _options.MaxBatchTokens) : _options.MaxBatchTokens },
+        }, multi ? slots : 1, paged);
+        if (!multi || draftTokens <= 0)
+        {
+            return fp;
+        }
+
+        long records = Graph.RecurrentRollback.RecordStateBytes(graph, slots, draftTokens + 1);
+        fp = fp with { StateBytes = fp.StateBytes + records };
+        if (!draftHead || !HasDraftHead)
+        {
+            return fp;
+        }
+
+        // The head (see CreateMtpSpeculator): its paged cache runs a block per slot ahead of the decoder's; the embedding and LM
+        // head are the decoder's buffers (shared weights), so only its own weights count.
+        var head = Definition.Graph(WellKnown.DraftGraph);
+        long headPaged = paged > 0 ? PagedRows(kvCacheTokens!.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
+        var headFp = PlacementPlanner.Estimate(head, new CompileOptions
+        {
+            MaxTokens = _options.MaxBatchTokens,
+            ContextLength = ctx,
+            SymbolBounds = new Dictionary<string, long> { ["R"] = slots },
+        }, slots, headPaged);
+        var decoderSources = WeightsOf(graph).Select(w => w.Source).ToHashSet(ReferenceEqualityComparer.Instance);
+        long shared = WeightsOf(head).Where(w => decoderSources.Contains(w.Source)).DistinctBy(w => w.Source, ReferenceEqualityComparer.Instance).Sum(w => w.ByteSize);
+        return new ModelFootprint(fp.WeightBytes + headFp.WeightBytes - shared, fp.StateBytes + headFp.StateBytes, fp.ActivationBytes + headFp.ActivationBytes);
     }
+
+    private static IEnumerable<WeightInfo> WeightsOf(ComputeGraph graph)
+        => graph.Nodes.SelectMany(n => n.Inputs).Select(v => v.Weight).OfType<WeightInfo>().Distinct();
 
     /// <summary>Cache rows of a paged KV cache of <paramref name="tokens"/> tokens (whole blocks).</summary>
     private static long PagedRows(long tokens)

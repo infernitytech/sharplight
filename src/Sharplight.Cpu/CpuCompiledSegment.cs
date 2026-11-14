@@ -14,7 +14,7 @@ namespace Sharplight.Cpu;
 /// arithmetic), <c>Arena</c> (liveness-based packing), <c>Lowering</c> (node dispatch) and one <c>Lower*</c> file per
 /// op category.
 /// </remarks>
-internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
+internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPartialOutputSegment
 {
     private readonly GraphSegment _segment;
     private readonly CompileOptions _options;
@@ -27,6 +27,9 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
     private readonly List<Buf> _bufs = [];
     private readonly List<TRef> _allRefs = [];
     private readonly List<nint> _owned = [];
+    /// <summary>Weight memory held through <see cref="CompileOptions.SharedWeights"/> (freed with the last holder).</summary>
+    private readonly List<IDisposable> _leases = [];
+    private readonly CpuDevice _device;
     private readonly List<(Buf State, long Bytes)> _stateBufs = [];
     private readonly Dictionary<string, long> _symbolBounds = new(StringComparer.Ordinal);
     private byte* _arena;
@@ -40,6 +43,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
     {
         _segment = segment;
         _options = options;
+        _device = device;
         _features = options.FeaturesFor(device);
         try
         {
@@ -128,6 +132,45 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
     }
 
     /// <inheritdoc />
+    public void GetOutput(Value value, long byteOffset, Span<byte> destination)
+    {
+        if (!_refs.TryGetValue(value, out var r))
+        {
+            throw new ArgumentException($"{value} is not a value of this segment.");
+        }
+
+        var p = _last ?? throw new InvalidOperationException("GetOutput called before Execute.");
+        var dims = new long[r.Rank];
+        for (int i = 0; i < dims.Length; i++)
+        {
+            dims[i] = r.Dim(i, p);
+        }
+
+        long bytes = r.Elements(p) * r.ElemSize;
+        if (byteOffset < 0 || byteOffset + destination.Length > bytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(byteOffset), $"Range [{byteOffset}, {byteOffset + destination.Length}) outside the {bytes}-byte output.");
+        }
+
+        var dense = TRef.RowMajor(dims);
+        bool contiguous = true;
+        for (int i = 0; i < dims.Length; i++)
+        {
+            contiguous &= dims[i] <= 1 || r.Strides[i] == dense[i];
+        }
+
+        if (contiguous)
+        {
+            new ReadOnlySpan<byte>(r.P + byteOffset, destination.Length).CopyTo(destination);
+            return;
+        }
+
+        var whole = new byte[bytes];
+        GetOutput(value, whole);
+        whole.AsSpan(checked((int)byteOffset), destination.Length).CopyTo(destination);
+    }
+
+    /// <inheritdoc />
     public void GetOutput(Value value, Span<byte> destination)
     {
         if (!_refs.TryGetValue(value, out var r))
@@ -212,6 +255,12 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
         }
 
         _owned.Clear();
+        foreach (var lease in _leases)
+        {
+            lease.Dispose();
+        }
+
+        _leases.Clear();
         _bufs.Clear();
         _steps.Clear();
     }

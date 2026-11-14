@@ -12,11 +12,12 @@ internal interface IDeviceSamplingDecoder
     public bool SamplesOnDevice { get; }
 
     /// <summary>
-    /// Like <see cref="IBatchDecoder.Step"/>; inputs with one logits row (<see cref="SequenceInput.OutputRows"/> = 1) and a
-    /// <paramref name="sampling"/> entry get their token chosen on the device (written to <paramref name="tokens"/> /
-    /// <paramref name="logprobs"/> at the input's index; the returned logits entry is empty); the other inputs get their logits as
-    /// from <see cref="IBatchDecoder.Step"/>.
+    /// Like <see cref="IBatchDecoder.Step"/>; inputs with a <paramref name="sampling"/> entry get a token chosen on the device for
+    /// each of their logits rows (row j of an input with the entry's <see cref="SamplingRow.Counter"/> + j, so speculative
+    /// verification rows draw exactly what decoding them one by one would); the tokens and log-probabilities are written to
+    /// <paramref name="tokens"/> / <paramref name="logprobs"/> by logits row (the inputs' rows consecutively, in input order) and
+    /// the input's logits entry is empty. The other inputs get their logits as from <see cref="IBatchDecoder.Step"/>.
     /// </summary>
-    /// <exception cref="ArgumentException">An input with a sampling entry returns more than one logits row.</exception>
+    /// <exception cref="ArgumentException"><paramref name="tokens"/> or <paramref name="logprobs"/> is shorter than the step's logits rows.</exception>
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs);
 }

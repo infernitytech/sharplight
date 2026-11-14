@@ -27,28 +27,29 @@ internal sealed class FakeDeviceSamplingDecoder(FakeBatchDecoder inner) : IBatch
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
     {
         var logits = inner.Step(inputs).ToArray();
-        for (int i = 0; i < inputs.Count; i++)
+        for (int i = 0, first = 0; i < inputs.Count; first += inputs[i].OutputRows, i++)
         {
             if (!inputs[i].WantLogits || i >= sampling.Count || sampling[i] is not { } row)
             {
                 continue;
             }
 
-            if (inputs[i].OutputRows != 1)
+            // Every logits row (speculative verification rows too), the counter advancing per row; outputs by logits row.
+            int vocab = inner.VocabSize;
+            for (int j = 0; j < inputs[i].OutputRows; j++)
             {
-                throw new ArgumentException("Device sampling needs exactly one logits row.");
+                SampledRows.Add((inputs[i].Slot, row with { Counter = row.Counter + (uint)j }));
+                var span = logits[i].Span.Slice(j * vocab, vocab);
+                int best = 0;
+                for (int t = 1; t < span.Length; t++)
+                {
+                    best = span[t] > span[best] ? t : best;
+                }
+
+                tokens[first + j] = best;
+                logprobs[first + j] = -0.5f;
             }
 
-            SampledRows.Add((inputs[i].Slot, row));
-            var span = logits[i].Span;
-            int best = 0;
-            for (int t = 1; t < span.Length; t++)
-            {
-                best = span[t] > span[best] ? t : best;
-            }
-
-            tokens[i] = best;
-            logprobs[i] = -0.5f;
             logits[i] = Memory<float>.Empty;
         }
 

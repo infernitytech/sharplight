@@ -1182,6 +1182,55 @@ min(k, 16 / decoding sequences): k = 3 up to 5 sequences, 1 at 16, none above 16
 * Drafting is greedy only; drafting from the head's distribution with min(1, p/q) acceptance would raise acceptance for sampled
   requests (vLLM does not do this for MTP either).
 
+(The first two items are addressed in 17.4.)
+
+### 17.4 Follow-up: shared weights, device-side verification, rollback-form prefill, NextN heads (2026-11-14)
+
+Changes:
+
+* **Shared weights** (`CompileOptions.SharedWeights`, `IComputeDevice.SharesWeights`, CPU and Vulkan): compiled models of one
+  source share device buffers per weight (keyed by device, source, type, size and the provider's repack layout; reference
+  counted). The draft head now reuses the decoder's embedding and LM head: on the Q8_0 27B that is 2.70 GB (2 × 1.35 GB Q8_0)
+  no longer duplicated; the head's own compilation is 0.43 GiB weights + state (its NextN layer and KV cache).
+* **Device-side verification**: with device sampling (the default), every verification row is sampled on the GPU (greedy, or
+  from the seeded stream at the row's position, so seeded sampling stays identical to decoding without speculation), and the
+  step reads back one token and log-probability per row instead of 1 MB logits rows. Hidden states are downloaded only for the
+  rows the draft head consumes, and not at all on steps without a capture (they were read in full every step). The draft head
+  takes its argmax on the device too.
+* **Footprint**: `EstimateFootprint(..., draftTokens, draftHead, maxLogitsRows)` counts the record states and the head (its own
+  weights only); the hosted loader reserves them before admission.
+* **Rollback-form prefill** (item of section 18.1): with speculation enabled, long prompt runs take the chunked delta rule and
+  token-parallel conv1d after the token kernel replays committed rows.
+* **NextN heads** for DeepSeek-V3 (`latent_decoder`) and GLM-4.5 (`decoder`), HF and GGUF; tiny-model engine tests show
+  greedy identity on CPU and Vulkan (no real checkpoint was available to measure acceptance).
+* The Families-suite segfault was a GC-moved extension-name array passed to `vkCreateDevice` (fixed by pinning it through
+  the call); 6 / 6 full-suite runs pass after the fix, 1 / 3 before.
+
+Correctness: greedy CLI output on `Qwen3.8-27B-Q8_0.gguf` with `--speculate-mtp 3` is identical to no speculation (200 tokens
+on an 8-token prompt, 140 tokens on a 636-token prompt that goes through the chunked rollback prefill; acceptance 53 % / 49 %).
+Serving runs before/after show identical step counts and accepted drafts (e.g. c = 16: 292 steps, 3648 / 4462 accepted).
+
+**Measurements.** The GPU was shared during all of these runs (another agent's 27B process at ~100 % utilisation for most
+of them, plus a game), so absolute numbers are about half of 17.1 / 17.2 and only interleaved A/B comparisons mean
+anything. Raw output: `bench/results/s17b/`.
+
+Serving c = 4, `--speculate-mtp 3`, three interleaved rounds (aggregate tok/s, mean inter-token latency):
+
+| round | before (main) | after |
+|---|---|---|
+| 1 | 86.2 (43.2 ms) | 91.0 (40.9 ms) |
+| 2 | 82.7 (45.1 ms) | 86.7 (42.9 ms) |
+| 3 | 83.9 (44.4 ms) | 87.0 (43.0 ms) |
+
+Device verification gains about 5 % at c = 4 under contention (the step is dominated by the shared GPU; the saved transfers
+are a fixed ~16 MB per step). A single c = 1 / 4 / 16 / 64 pass gave 35.9 → 36.3, 137 → 89 (the "before" run hit an idle window;
+not reproduced by the interleaved rounds above), 231 → 257 and 447 → 481 tok/s.
+
+Single stream (`SpecBench`, k = 0 / 3, depths 47 and 4096): only the first "before" run had an idle GPU (k = 3: 92.9 tok/s at
+d47, 78.8 at d4096; TTFT at d4096 1601 ms without speculation and 1760 ms with it, so the rollback form cost about 10 % of
+prefill before the change). The "after" runs were all contended and are not comparable. A clean single-stream and TTFT
+comparison is still to be done on an idle GPU.
+
 ## 18. Chunked gated delta rule and token-parallel conv1d for prefill (2026-11-14)
 
 Levers 6 and 7 of section 16.8. Kernels: `src/Sharplight.Shaders/Kernels/chunked.slang` (new), `recurrent.slang`
@@ -1248,13 +1297,13 @@ identical to the old kernel (model logits relRms 0.0).
 **State layout:** unchanged (delta-rule state `[slot, HV, DV, DK]` f32, conv state `[slot, KS-1, C]` f32).
 
 **Rollback form (section 17).** Graphs built with `MultiSequence.Transform(..., rollbackRows)` have a commits table and
-record banks, and their recurrent ops keep the token-by-token `delta_rule` and the per-channel `conv1d`, which replay and
-record rows. The chunked delta rule and the token-parallel conv1d serve only the plain single- and multi-sequence forms.
-Honouring the commits table in the chunked kernels (replay the committed rows first, record tentative rows, skip the
-state store) is an open item. Verify batches are short (k + 1 rows per sequence), but a decoder with speculation
-enabled runs prompt prefill through the same rollback-form graph, so its prefill does not get the gains of this section yet.
-A natural split: the token-by-token kernel replays the committed rows (a few per slot) in a first launch, then the chunked
-form serves non-tentative long runs from the replayed state.
+record banks. Their recurrent ops run the token-by-token `delta_rule` / per-channel `conv1d` first: every run replays its
+committed rows (from the read bank) into the slot's state, and short runs (tentative verification runs, decode) then
+process, record and store as before. Runs longer than the threshold (64 rows for the delta rule, 16 for conv1d, at least
+k + 1 so a tentative run never qualifies) stop after the replay and store the replayed state; the chunked delta rule and
+`conv1d_tokens` / `conv1d_state` then serve them from that state, after a barrier. So a decoder with speculation enabled
+gets this section's prefill gains too (17.4). `RecurrentRollbackTests` covers a partially kept speculative round followed
+by a 64-row run against the reference.
 
 ### 18.2 Accuracy
 

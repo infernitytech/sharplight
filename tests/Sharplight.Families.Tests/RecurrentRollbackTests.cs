@@ -118,6 +118,21 @@ public class RecurrentRollbackTests
         var expected = reference.Step([new SequenceInput(0, new[] { pending })]);
         AssertClose(expected[0].Span, next[0].Span, "continuation");
         Assert.True(maxKeepSeen > 1);
+
+        // A round keeping part of its rows, then a run long enough for the prefill kernels (chunked delta rule, token-parallel
+        // conv1d): the replay of the kept rows must precede them.
+        pending = LogitsMath.ArgMax(next[0].Span);
+        int[] partial = [pending, .. Enumerable.Range(0, DraftTokens).Select(_ => rng.Next(1, Math.Min(vocab, 1000)))];
+        int length = speculative.Length(0);
+        var partialRows = speculative.Step([new SequenceInput(0, partial, true, partial.Length, Speculative: true)]).ToArray()[0].ToArray();
+        const int Kept = 2;
+        speculative.Truncate(0, length + Kept);
+        var keptRef = reference.Step([new SequenceInput(0, partial[..Kept])]);
+        AssertClose(keptRef[0].Span, partialRows.AsSpan((Kept - 1) * vocab, vocab), "partial round");
+        int[] longRun = [LogitsMath.ArgMax(keptRef[0].Span), .. Enumerable.Range(0, 63).Select(_ => rng.Next(1, Math.Min(vocab, 1000)))];
+        var longSpec = speculative.Step([new SequenceInput(0, longRun)]);
+        var longRef = reference.Step([new SequenceInput(0, longRun)]);
+        AssertClose(longRef[0].Span, longSpec[0].Span, "long run after a rollback");
     }
 
     /// <summary>Greedy logits after <paramref name="context"/> plus <paramref name="token"/>, from a fresh single-sequence session.</summary>

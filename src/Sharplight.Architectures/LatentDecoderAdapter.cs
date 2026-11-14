@@ -72,7 +72,7 @@ public sealed class LatentDecoderAdapter : IModelAdapter
             States = graphBuilder.States,
             SourceMetadata = src.Metadata,
             OwnedResources = src.OwnedResources,
-            Properties = new Dictionary<string, object>
+            Properties = new Dictionary<string, object>(MtpDraftHead.NextnProperties(graphBuilder.HasDraftHead))
             {
                 [WellKnown.VocabSize] = hp.Vocab,
                 [WellKnown.ContextLength] = hp.ContextLength,

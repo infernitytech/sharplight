@@ -8,7 +8,8 @@ namespace Sharplight.HuggingFace;
 /// Hugging Face checkpoints with multi-head latent attention → canonical <c>latent_decoder</c> (vocabulary documented on
 /// <c>LatentDecoderAdapter</c>): <c>deepseek_v2</c>, <c>deepseek_v3</c> / <c>kimi_k2</c>, <c>glm4_moe_lite</c> (GLM-4.7-Flash) and
 /// <c>minicpm3</c>. The combined <c>kv_b_proj</c> is split into the per-head absorbed key/value up-projections; per-expert
-/// tensors are stacked; multi-token-prediction layers (after <c>num_hidden_layers</c>) are kept under <c>mtp.*</c>.
+/// tensors are stacked; multi-token-prediction layers (after <c>num_hidden_layers</c>) map like decoder layers below
+/// <c>mtp.layers.{j}.</c>, with their NextN tensors (<see cref="HfNextnTensors"/>).
 /// </summary>
 internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 {
@@ -196,7 +197,7 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig c, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options)
     {
         var collector = new HfWeightCollector();
-        var experts = new SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>>();
+        var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
         int layers = c.Int("num_hidden_layers");
         foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
@@ -215,24 +216,29 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
 
             int layer = int.Parse(m.Groups[1].Value);
             string suffix = m.Groups[2].Value;
-            if (layer >= layers)
+            // Multi-token-prediction (NextN) layers follow the trunk: an ordinary layer plus the NextN tensors, below mtp.layers.{j}.
+            string prefix = layer < layers ? $"layers.{layer}." : $"mtp.layers.{layer - layers}.";
+            if (layer >= layers && HfNextnTensors.Suffixes.TryGetValue(suffix, out var nextn))
             {
-                collector.Add(HfTransforms.Plain(w, $"mtp.layers.{layer - layers}.{suffix}"));   // multi-token prediction: not part of the decode graph
+                if (nextn is not null)
+                {
+                    collector.Add(HfTransforms.Plain(w, prefix + nextn));
+                }
             }
-            else if (!TryMapLayer(c, layer, suffix, w, collector, experts))
+            else if (!TryMapLayer(c, prefix, suffix, w, collector, experts))
             {
                 collector.AddUnmapped(name);
             }
         }
 
-        foreach (var ((layer, kind), byIndex) in experts)
+        foreach (var ((prefix, kind), byIndex) in experts)
         {
             if (byIndex.Keys.Max() != byIndex.Count - 1)
             {
-                throw new InvalidDataException($"layer {layer}: expert indices of {kind} are not contiguous.");
+                throw new InvalidDataException($"{prefix}: expert indices of {kind} are not contiguous.");
             }
 
-            collector.Add(WeightInfo.Stack($"layers.{layer}.mlp.experts.{kind}.weight", [.. byIndex.Values]));
+            collector.Add(WeightInfo.Stack($"{prefix}mlp.experts.{kind}.weight", [.. byIndex.Values]));
         }
 
         AddRopeFactors(c, collector);
@@ -263,13 +269,12 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
     }
 
     private static bool TryMapLayer(
-        HfConfig c, int layer, string suffix, WeightInfo w, HfWeightCollector collector,
-        SortedDictionary<(int Layer, string Kind), SortedDictionary<int, WeightInfo>> experts)
+        HfConfig c, string prefix, string suffix, WeightInfo w, HfWeightCollector collector,
+        SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>> experts)
     {
-        string prefix = $"layers.{layer}.";
         if (ExpertName().Match(suffix) is { Success: true } expert)
         {
-            var key = (layer, expert.Groups[2].Value);
+            var key = (prefix, expert.Groups[2].Value);
             if (!experts.TryGetValue(key, out var byIndex))
             {
                 experts[key] = byIndex = [];

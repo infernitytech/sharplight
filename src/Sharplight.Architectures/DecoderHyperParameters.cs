@@ -112,6 +112,14 @@ internal sealed record DecoderHyperParameters(
         return hp;
     }
 
+    /// <summary>
+    /// True when every layer has the same shape and attention kind (none of the per-layer arrays, no per-layer embeddings), so a
+    /// layer index past <see cref="NLayer"/> (an MTP layer) has the hyper-parameters of the trunk's layers.
+    /// </summary>
+    public bool UniformLayers => LayerHeadDims.Length == 0 && LayerHeadCounts.Length == 0 && LayerKvHeads.Length == 0 && KvSource.Length == 0
+        && RopeLayers.Length == 0 && SlidingLayers.Length == 0 && QkNormLayers.Length == 0 && TemperatureLayers.Length == 0
+        && ChunkLayers.Length == 0 && PerLayerSize == 0;
+
     /// <summary>Head dimension of layer <paramref name="il"/>.</summary>
     public int HeadDimOf(int il) => LayerHeadDims.Length > 0 ? LayerHeadDims[il] : HeadDim;
 

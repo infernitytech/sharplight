@@ -1,5 +1,6 @@
 using Sharplight.Graph;
 using Sharplight.Models;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
@@ -109,20 +110,43 @@ internal sealed unsafe partial class CpuCompiledSegment
         if (mapped != 0)
         {
             buf.Ptr = (byte*)mapped;
+            _weightBytes += bytes;
+        }
+        else if (_options.SharedWeights is { } shared)
+        {
+            // One copy per model source, shared with its other compiled models (e.g. a draft head's embedding and LM head).
+            var lease = shared.Acquire(_device, WeightBufferKey.For(w), bytes, () => new CpuWeightMemory(bytes), m => m.Free());
+            _leases.Add(lease);
+            buf.Ptr = lease.Buffer.Pointer;
+            if (lease.MustFill)
+            {
+                ReadWeight(source, buf.Ptr, bytes);
+                lease.Filled();
+                _weightBytes += bytes;
+            }
+            else
+            {
+                lease.WaitFilled();
+            }
         }
         else
         {
             buf.Ptr = AllocateOwned(bytes, false);
-            const long chunk = 1L << 30;
-            for (long offset = 0; offset < bytes; offset += chunk)
-            {
-                source.Read(offset, new Span<byte>(buf.Ptr + offset, (int)Math.Min(chunk, bytes - offset)));
-            }
+            ReadWeight(source, buf.Ptr, bytes);
+            _weightBytes += bytes;
         }
 
-        _weightBytes += bytes;
         _weightBufs[w] = buf;
         return buf;
+    }
+
+    private static void ReadWeight(IWeightSource source, byte* destination, long bytes)
+    {
+        const long chunk = 1L << 30;
+        for (long offset = 0; offset < bytes; offset += chunk)
+        {
+            source.Read(offset, new Span<byte>(destination + offset, (int)Math.Min(chunk, bytes - offset)));
+        }
     }
 
     private static bool IsStatic(Value v) => v.Kind is ValueKind.Weight or ValueKind.Constant;
@@ -195,8 +219,29 @@ internal sealed unsafe partial class CpuCompiledSegment
 
         var format = Quant.FormatOf(r.Type) ?? throw new NotSupportedException($"Weight type {r.Type} cannot be converted to f32.");
         long elems = r.MaxElements;
-        var buf = new Buf { Bytes = elems * 4, Ptr = AllocateOwned(elems * 4, false), Name = v.Name + ".f32" };
-        Quant.Dequantize(format, r.Buf.Ptr, elems, (float*)buf.Ptr);
+        var buf = new Buf { Bytes = elems * 4, Name = v.Name + ".f32" };
+        if (v.Weight is { } w && _options.SharedWeights is { } shared)
+        {
+            var lease = shared.Acquire(_device, WeightBufferKey.For(w, "cpu:f32"), elems * 4, () => new CpuWeightMemory(elems * 4), m => m.Free());
+            _leases.Add(lease);
+            buf.Ptr = lease.Buffer.Pointer;
+            if (lease.MustFill)
+            {
+                Quant.Dequantize(format, r.Buf.Ptr, elems, (float*)buf.Ptr);
+                lease.Filled();
+                _ownedBytes += elems * 4;
+            }
+            else
+            {
+                lease.WaitFilled();
+            }
+        }
+        else
+        {
+            buf.Ptr = AllocateOwned(elems * 4, false);
+            Quant.Dequantize(format, r.Buf.Ptr, elems, (float*)buf.Ptr);
+        }
+
         cached = Register(new TRef { Type = DataType.F32, Dims = r.Dims, Strides = TRef.RowMajor(r.Dims), Buf = buf });
         _f32Cache[v] = cached;
         return cached;

@@ -16,6 +16,8 @@ internal sealed partial class LatentDecoderGraphBuilder
     private readonly IMlpActivation _activation;
     private readonly StateDefinition[] _caches;
     private readonly bool _longRope;
+    private readonly Func<string, WeightInfo?>? _draft;
+    private readonly StateDefinition? _draftCache;
 
     /// <summary>Creates the builder and the latent cache state of every layer.</summary>
     public LatentDecoderGraphBuilder(ModelSource source, AdapterOptions options, LatentDecoderHyperParameters hyperParameters)
@@ -28,18 +30,35 @@ internal sealed partial class LatentDecoderGraphBuilder
         int runtimeContext = options.ContextLength > 0 ? options.ContextLength : _hp.ContextLength;
         _longRope = originalContext > 0 && runtimeContext > originalContext;
         _caches = [.. Enumerable.Range(0, _hp.LayerCount).Select(il => _attention.CreateCache($"layers.{il}", options.KvCacheType))];
+        // The NextN draft head (DeepSeek-V3: one MTP layer after the trunk's, see MtpDraftHead.FirstNextnModule) with its own cache.
+        _draft = MtpDraftHead.FirstNextnModule(_src.Weight);
+        if (_draft is not null)
+        {
+            _draftCache = _attention.CreateCache("mtp.layers.0", options.KvCacheType);
+        }
+
         IncludeEmbeddingsGraph = options.IncludeAuxiliaryGraphs;
     }
 
-    /// <summary>The persistent states (one latent cache per layer).</summary>
-    public List<StateDefinition> States => [.. _caches];
+    /// <summary>The persistent states (one latent cache per layer, and the draft layer's).</summary>
+    public List<StateDefinition> States => _draftCache is null ? [.. _caches] : [.. _caches, _draftCache];
+
+    /// <summary>Whether the model has a NextN draft head (<see cref="WellKnown.DraftGraph"/>).</summary>
+    public bool HasDraftHead => _draft is not null;
 
     private bool IncludeEmbeddingsGraph { get; }
 
-    /// <summary>Builds the graphs: token decode and, with auxiliary graphs, decode from embeddings.</summary>
+    /// <summary>Builds the graphs: token decode, the draft head when the model has one and, with auxiliary graphs, decode from embeddings.</summary>
     public Dictionary<string, ComputeGraph> BuildGraphs()
     {
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = Build(WellKnown.DecodeGraph, embeddingsInput: false) };
+        if (_draft is not null)
+        {
+            graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.HiddenSize, positionAxes: 1, _hp.Eps, layers: 1,
+                (b, x, j, positions) => Layer(b, x, $"mtp.layers.{j}.", _draftCache!, LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads), Rotation(b, positions)),
+                chainNormalized: true);
+        }
+
         if (IncludeEmbeddingsGraph)
         {
             graphs["decode_embeddings"] = Build("decode_embeddings", embeddingsInput: true);
@@ -76,7 +95,8 @@ internal sealed partial class LatentDecoderGraphBuilder
         var rotate = Rotation(b, positions);
         for (int il = 0; il < _hp.LayerCount; il++)
         {
-            x = Layer(b, x, il, headIds, rotate);
+            using var _ = b.Group($"layers.{il}");
+            x = Layer(b, x, $"layers.{il}.", _caches[il], headIds, rotate);
         }
 
         using (b.Group("output"))
@@ -96,12 +116,11 @@ internal sealed partial class LatentDecoderGraphBuilder
         return b.Build();
     }
 
-    private Value Layer(GraphBuilder b, Value x, int il, Value headIds, Func<Value, Value> rotate)
+    // One decoder layer: weights below p, latent cache `cache`.
+    private Value Layer(GraphBuilder b, Value x, string p, StateDefinition cache, Value headIds, Func<Value, Value> rotate)
     {
-        using var _ = b.Group($"layers.{il}");
-        string p = $"layers.{il}.";
         var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-        var attention = _attention.Build(b, h, p, _caches[il], headIds, rotate);
+        var attention = _attention.Build(b, h, p, cache, headIds, rotate);
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
 
         h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");

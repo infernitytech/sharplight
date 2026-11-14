@@ -1,0 +1,7 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 100 %, 88046 MiB, 299.19 W, 1980 MHz, 14001 MHz, 89, P0
+2752, /usr/bin/kwin_wayland, 608 MiB
+4944, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/re
+82584, ~/.local/share/JetBrains/Toolbox/apps/rider/bin/rider, 343 MiB
+484390, S:\steamapps\common\Warhammer Survivors\WarhammerSurvivors.exe, 1194 MiB
+496899, <tmp>
+498430, <tmp>

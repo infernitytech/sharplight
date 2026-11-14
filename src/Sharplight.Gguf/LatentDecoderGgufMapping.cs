@@ -159,9 +159,11 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
         string suffix = m.Groups[2].Value;
         if (layer >= TrunkLayers(g))
         {
-            // Multi-token-prediction (NextN) layers follow the trunk; their tensors stay under mtp.* and are not part of the decode graph.
-            string mtpName = suffix.StartsWith("nextn.", StringComparison.Ordinal) || suffix == "attn_kv_b.weight" ? suffix : s_layer.GetValueOrDefault(suffix) ?? suffix;
-            return $"mtp.layers.{layer - TrunkLayers(g)}.{mtpName}";
+            // Multi-token-prediction (NextN) layers follow the trunk: ordinary layers plus the NextN tensors, below mtp.layers.{j}.
+            string mtpPrefix = $"mtp.layers.{layer - TrunkLayers(g)}.";
+            return GgufDecoderFamilyMapping.NextnTensors.TryGetValue(suffix, out var nextn) || s_layer.TryGetValue(suffix, out nextn)
+                ? mtpPrefix + nextn
+                : mtpPrefix + suffix;   // unknown to the head: kept under its GGUF name
         }
 
         return s_layer.TryGetValue(suffix, out var canonical) ? $"layers.{layer}.{canonical}" : null;
@@ -171,12 +173,13 @@ internal sealed class LatentDecoderGgufMapping : IGgufArchitectureMapping, IGguf
     public IReadOnlyList<WeightInfo>? Split(string name, WeightInfo t, GgufMetadataView g)
     {
         var m = GgufTensorNames.Block().Match(name);
-        if (!m.Success || m.Groups[2].Value != "attn_kv_b.weight" || int.Parse(m.Groups[1].Value) >= TrunkLayers(g))
+        if (!m.Success || m.Groups[2].Value != "attn_kv_b.weight")
         {
             return null;
         }
 
-        string prefix = $"layers.{m.Groups[1].Value}.";
+        int layer = int.Parse(m.Groups[1].Value);
+        string prefix = layer < TrunkLayers(g) ? $"layers.{layer}." : $"mtp.layers.{layer - TrunkLayers(g)}.";
         int ropeDims = g.Int("rope.dimension_count");
         var (keyUp, valueUp) = LatentAttentionWeights.SplitKeyValueUp(
             t, g.Int("attention.head_count"), QueryKeyDims(g) - ropeDims, ValueDims(g),

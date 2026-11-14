@@ -71,7 +71,7 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
     public IReadOnlyList<Memory<float>> Step(IReadOnlyList<SequenceInput> inputs, IReadOnlyList<SamplingRow?> sampling, Span<int> tokens, Span<float> logprobs)
     {
         var res = new Memory<float>[inputs.Count];
-        for (int i = 0; i < inputs.Count; i++)
+        for (int i = 0, row0 = 0; i < inputs.Count; row0 += inputs[i].OutputRows, i++)
         {
             Check(inputs[i].Slot);
             if (inputs[i].OutputRows > 1)
@@ -81,7 +81,7 @@ public sealed class SessionBatchDecoder(InferenceSession session, bool ownsSessi
 
             if (inputs[i].WantLogits && i < sampling.Count && sampling[i] is { } row)
             {
-                (tokens[i], logprobs[i]) = session.ProcessSampled(inputs[i].Tokens.Span, row);
+                (tokens[row0], logprobs[row0]) = session.ProcessSampled(inputs[i].Tokens.Span, row);
                 continue;
             }
 

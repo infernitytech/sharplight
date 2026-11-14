@@ -83,6 +83,8 @@ public sealed class InferenceEngine : IDisposable
     private readonly IDeviceSamplingDecoder? _deviceSampler;
     private SamplingRow?[] _deviceRows = [];
     private int[] _sampledTokens = [];
+    // Per input of the step: index of its first logits row in _sampledTokens / _sampledLogprobs.
+    private int[] _deviceRowOffset = [];
     private float[] _sampledLogprobs = [];
 
     // Speculative decoding (null when off or unsupported by the decoder).
@@ -963,8 +965,10 @@ public sealed class InferenceEngine : IDisposable
 
     /// <summary>
     /// Fills <see cref="_deviceRows"/> for this step's inputs (null for inputs sampled on the CPU) and returns whether any input is
-    /// sampled on the device. The device takes inputs with a single logits row (no drafts to verify) whose request needs no masks
-    /// (output constraint, minimum length) and no CPU-only sampling feature (see <see cref="RequestSampler.DeviceRow"/>).
+    /// sampled on the device. The device takes inputs whose request needs no masks (output constraint, minimum length) and no
+    /// CPU-only sampling feature (see <see cref="RequestSampler.DeviceRow"/>), including speculative ones: every verification row is
+    /// sampled there (row j with the random-stream counter advanced by j, exactly as decoding without drafts would), and only the
+    /// tokens come back; the accepted prefix is then the drafts that equal them.
     /// </summary>
     private bool PrepareDeviceSampling()
     {
@@ -978,15 +982,22 @@ public sealed class InferenceEngine : IDisposable
         {
             int n = Math.Max(count, _slots.Length);
             _deviceRows = new SamplingRow?[n];
-            _sampledTokens = new int[n];
-            _sampledLogprobs = new float[n];
+            _deviceRowOffset = new int[n];
+        }
+
+        if (_sampledTokens.Length < _decoder.MaxLogitsRows)
+        {
+            _sampledTokens = new int[_decoder.MaxLogitsRows];
+            _sampledLogprobs = new float[_decoder.MaxLogitsRows];
         }
 
         bool any = false;
-        for (int i = 0; i < count; i++)
+        for (int i = 0, row = 0; i < count; i++)
         {
             var s = _stepSeqs[i];
-            _deviceRows[i] = _inputs[i].OutputRows == 1 && s.Finished == 0 && s.Matcher is null && s.Generated >= s.Request.MinTokens
+            _deviceRowOffset[i] = row;
+            row += _inputs[i].OutputRows;
+            _deviceRows[i] = _inputs[i].OutputRows >= 1 && s.Finished == 0 && s.Matcher is null && s.Generated >= s.Request.MinTokens
                 ? s.Sampler.DeviceRow(s.Generated, s.Request.Logprobs, s.Request.TopLogprobs)
                 : null;
             any |= _deviceRows[i] is not null;
@@ -1016,10 +1027,23 @@ public sealed class InferenceEngine : IDisposable
         {
             if (_deviceSampler is not null && _deviceRows[i] is not null)
             {
-                // Chosen on the device: only the token (and its log-probability, without alternatives) came back.
-                int sampled = _sampledTokens[i];
-                var lps = s.Request.Logprobs ? new List<TokenLogprob> { new(sampled, TokenText(sampled), _sampledLogprobs[i], []) } : null;
-                outcome.Ending = Commit(s, sampled, lps, baseLength + 1);
+                // Chosen on the device: only the tokens (and their log-probabilities, without alternatives) came back, one per row;
+                // drafts are kept while they equal the row before them.
+                int first = _deviceRowOffset[i];
+                for (int j = 0; j < rows; j++)
+                {
+                    int sampled = _sampledTokens[first + j];
+                    var lps = s.Request.Logprobs ? new List<TokenLogprob> { new(sampled, TokenText(sampled), _sampledLogprobs[first + j], []) } : null;
+                    bool matchesDraft = j + 1 < rows && s.Input[j + 1] == sampled;
+                    outcome.Ending = Commit(s, sampled, lps, baseLength + j + 1);
+                    if (outcome.Ending is not null || !matchesDraft)
+                    {
+                        return;
+                    }
+
+                    outcome.Accepted++;
+                }
+
                 return;
             }
 

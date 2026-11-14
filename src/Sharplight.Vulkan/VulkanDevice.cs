@@ -64,6 +64,8 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     public IReadOnlyList<ArtifactTarget> ArtifactTargets { get; }
     private bool Has(string feature) => EnabledFeatures.Contains(feature);
     public long AvailableMemory => GetMemoryInfo().Available;
+    /// <inheritdoc />
+    public bool SharesWeights => true;
 
     /// <summary>Live memory figures: VK_EXT_memory_budget when the driver has it (accounts for other processes), else our own tally against the configured budget.</summary>
     public DeviceMemoryInfo GetMemoryInfo()
@@ -227,16 +229,21 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
         }
 
         var extNames = exts.Select(e => (nint)Marshal.StringToHGlobalAnsi(e)).ToArray();
-        var dci = new VkDeviceCreateInfo { pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci };
-        fixed (nint* en = extNames)
-        {
-            dci.enabledExtensionCount = (uint)extNames.Length;
-            dci.ppEnabledExtensionNames = (byte**)en;
-        }
         VkDevice device;
         try
         {
-            instanceApi.vkCreateDevice(Phys.Handle, &dci, null, &device).CheckResult();
+            // The name array must stay pinned until vkCreateDevice returns: a pointer taken in a fixed block that ends before the
+            // call dangles once the GC compacts the heap (parallel test collections allocate heavily while devices are created),
+            // and the loader then crashes validating the names.
+            fixed (nint* en = extNames)
+            {
+                var dci = new VkDeviceCreateInfo
+                {
+                    pNext = &f2, queueCreateInfoCount = 1, pQueueCreateInfos = &qci,
+                    enabledExtensionCount = (uint)extNames.Length, ppEnabledExtensionNames = (byte**)en,
+                };
+                instanceApi.vkCreateDevice(Phys.Handle, &dci, null, &device).CheckResult();
+            }
         }
         finally
         {

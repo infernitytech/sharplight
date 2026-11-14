@@ -135,11 +135,13 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
 
     /// <summary>
     /// Decoder layers without the multi-token-prediction (NextN) blocks that some converters append after them (<c>nextn_predict_layers</c>).
-    /// The NextN tensors are kept under <c>mtp.layers.{j}.</c>; the decoder graph does not use them.
+    /// The NextN blocks are kept under <c>mtp.layers.{j}.</c> (the draft head, see <c>MtpDraftHead.FirstNextnModule</c>).
     /// </summary>
     protected static int TrunkLayerCount(GgufMetadataView g) => g.Int("block_count") - g.Int("nextn_predict_layers", 0);
 
-    /// <summary>NextN-only tensors of an MTP block, GGUF suffix to canonical suffix.</summary>
+    /// <summary>NextN-only tensors of an MTP block, GGUF suffix to canonical suffix (shared with the other decoder mappings).</summary>
+    internal static IReadOnlyDictionary<string, string> NextnTensors => s_nextn;
+
     private static readonly Dictionary<string, string> s_nextn = new(StringComparer.Ordinal)
     {
         ["nextn.eh_proj.weight"] = "fc.weight",

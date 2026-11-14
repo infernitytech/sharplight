@@ -45,6 +45,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly int[] _pendingRows = [], _pendingBase = [], _pendingKeep = [], _readBank = [];
     // Hidden states: the "hidden" output [T, H] read after a step when captured; the draft-head input [T, H] when the graph has one.
     private readonly int _hiddenSize, _hiddenInputSize;
+    private readonly string _hiddenOutput;
     private float[] _hiddenBuf = [];
     private int[] _inputRows = [];
 
@@ -94,8 +95,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// <param name="kvBlockSize">Paged cache: tokens per block (0: each slot owns <paramref name="contextLength"/> rows).</param>
     /// <param name="kvBlocks">Paged cache: blocks in the pool (the compiled cache rows / <paramref name="kvBlockSize"/>).</param>
     /// <param name="rollbackRows">Rollback rows the recurrent ops were compiled with (<see cref="MultiSequence.Result.RollbackRows"/>).</param>
+    /// <param name="hiddenOutput">The graph output <see cref="HiddenStates"/> reads (default <see cref="WellKnown.HiddenOutput"/>).</param>
     internal MultiSequenceDecoder(CompiledModel compiled, int slots, int contextLength, bool hasRecurrentState, int maxLogitsRows, int kvBlockSize = 0, int kvBlocks = 0,
-        int rollbackRows = 0)
+        int rollbackRows = 0, string? hiddenOutput = null)
     {
         _compiled = compiled;
         var g = compiled.Graph;
@@ -109,7 +111,8 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _commits = g.TryInput(InputRole.SequenceCommits);
         _hiddenInput = g.TryInput(InputRole.HiddenStates);
         _hiddenInputSize = _hiddenInput is null ? 0 : (int)_hiddenInput.Shape[-1].Fixed;
-        _hiddenSize = g.Outputs.TryGetValue(WellKnown.HiddenOutput, out var hidden) ? (int)hidden.Shape[-1].Fixed : 0;
+        _hiddenOutput = hiddenOutput ?? WellKnown.HiddenOutput;
+        _hiddenSize = g.Outputs.TryGetValue(_hiddenOutput, out var hidden) ? (int)hidden.Shape[-1].Fixed : 0;
         if (_blockTable is not null)
         {
             KvBlockSize = kvBlockSize;
@@ -174,8 +177,9 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     /// Most rows of one speculative input whose recurrent state can be rolled back (pending token plus drafts); 0 for none.
     /// Only used by models with recurrent state (attention-only models roll back any number of rows).
     /// </param>
+    /// <param name="hiddenOutput">The graph output a draft head reads as hidden states (default <see cref="WellKnown.HiddenOutput"/>).</param>
     internal static MultiSequenceDecoder Create(ComputeGraph graph, int slots, int contextLength, int maxBatchTokens, PlacementOptions placement, bool deviceSampling,
-        long kvCacheTokens = 0, int rollbackRows = 0)
+        long kvCacheTokens = 0, int rollbackRows = 0, string? hiddenOutput = null)
     {
         int blockSize = kvCacheTokens > 0 ? DefaultKvBlockSize : 0;
         int blocksPerSlot = blockSize > 0 ? (contextLength + blockSize - 1) / blockSize : 0;
@@ -204,10 +208,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 CacheFor = c.CacheFor,
                 Progress = c.Progress,
                 CancellationToken = c.CancellationToken,
+                SharedWeights = c.SharedWeights,
             },
         });
         bool recurrent = ms.States.Keys.Any(s => !MultiSequence.IsKvState(s));
-        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows);
+        return new MultiSequenceDecoder(compiled, slots, contextLength, recurrent, maxLogitsRows, blockSize, kvBlocks, ms.RollbackRows, hiddenOutput);
     }
 
     /// <inheritdoc/>
@@ -422,6 +427,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
 
         bool needLogits = SetSamplingRows(inputs, sampling, R, anyLogits, out bool anySampled);
+        if (anySampled && (tokens.Length < R || logprobs.Length < R))
+        {
+            throw new ArgumentException($"The step samples {R} rows on the device; the token and log-probability spans are shorter.");
+        }
 
         _compiled.SetInput(_tokens, _tokBuf.AsSpan(0, T));
         if (_positions is not null)
@@ -450,6 +459,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             _run.SkipOutputs.Add("logits");
         }
 
+        if (_hiddenSize > 0 && !CaptureHiddenStates)
+        {
+            _run.SkipOutputs.Add(_hiddenOutput);
+        }
+
         _compiled.Run(_run);
         for (int u = 0; u < count; u++)
         {
@@ -464,7 +478,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         if (CaptureHiddenStates && _hiddenSize > 0)
         {
-            ReadHiddenStates(inputs, T);
+            NoteHiddenRows(inputs);
         }
 
         if (needLogits)
@@ -482,10 +496,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         for (int u = 0, r = 0; u < count; u++)
         {
             int rows = inputs[u].OutputRows;
-            if (rows == 1 && u < sampling.Count && sampling[u] is not null)
+            if (rows > 0 && u < sampling.Count && sampling[u] is not null)
             {
-                tokens[u] = _sampledBuf[r];
-                logprobs[u] = _logprobBuf[r];
+                _sampledBuf.AsSpan(r, rows).CopyTo(tokens[r..]);
+                _logprobBuf.AsSpan(r, rows).CopyTo(logprobs[r..]);
                 _results[u] = Memory<float>.Empty;
             }
             else
@@ -518,14 +532,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         }
     }
 
-    /// <summary>Downloads the hidden states of the step's <paramref name="rows"/> rows (see <see cref="HiddenStates"/>).</summary>
-    private void ReadHiddenStates(IReadOnlyList<SequenceInput> inputs, int rows)
+    /// <summary>
+    /// After a step with <see cref="CaptureHiddenStates"/>: remembers where each input's rows start. Nothing is read yet;
+    /// <see cref="HiddenStates"/> reads only the rows asked for (e.g. the kept rows of a verification input).
+    /// </summary>
+    private void NoteHiddenRows(IReadOnlyList<SequenceInput> inputs)
     {
-        if (_hiddenBuf.Length < rows * _hiddenSize)
-        {
-            _hiddenBuf = new float[(long)MaxBatchTokens * _hiddenSize];
-        }
-
         if (_inputRows.Length < SlotCount)
         {
             _inputRows = new int[SlotCount];
@@ -535,11 +547,10 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         {
             _inputRows[u] = _runBuf[u * 4 + 1];
         }
-
-        _compiled.GetOutput<float>(WellKnown.HiddenOutput, _hiddenBuf.AsSpan(0, rows * _hiddenSize));
     }
 
     /// <inheritdoc/>
+    /// <remarks>Reads just these rows from the device's output (valid until the next step).</remarks>
     /// <exception cref="InvalidOperationException">Hidden states were not captured in the last step.</exception>
     public ReadOnlyMemory<float> HiddenStates(int input, int rows)
     {
@@ -548,7 +559,14 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
             throw new InvalidOperationException("Hidden states are not captured (set CaptureHiddenStates before the step).");
         }
 
-        return _hiddenBuf.AsMemory(_inputRows[input] * _hiddenSize, rows * _hiddenSize);
+        if (_hiddenBuf.Length < (long)rows * _hiddenSize)
+        {
+            _hiddenBuf = new float[(long)Math.Max(rows, 16) * _hiddenSize];
+        }
+
+        var destination = _hiddenBuf.AsMemory(0, rows * _hiddenSize);
+        _compiled.GetOutput(_hiddenOutput, (long)_inputRows[input] * _hiddenSize * sizeof(float), MemoryMarshal.AsBytes(destination.Span));
+        return destination;
     }
 
     /// <summary>
@@ -724,17 +742,13 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         {
             int outputRows = inputs[u].OutputRows;
             var row = u < sampling.Count ? sampling[u] : null;
-            if (row is not null && outputRows != 1)
-            {
-                throw new ArgumentException($"Input {u} is sampled on the device but returns {outputRows} logits rows (device sampling needs exactly one).");
-            }
-
             for (int i = 0; i < outputRows; i++)
             {
                 var dst = _paramBuf.AsSpan(r++ * SamplingRow.Width, SamplingRow.Width);
                 if (row is { } sampled)
                 {
-                    sampled.WriteTo(dst);
+                    // Row i of a verification input continues the sequence's random stream.
+                    (sampled with { Counter = unchecked(sampled.Counter + (uint)i) }).WriteTo(dst);
                     anySampled = true;
                 }
                 else

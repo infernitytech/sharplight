@@ -9,6 +9,11 @@
 #ifndef ROLLBACK
 #define ROLLBACK 0
 #endif
+// PAR_MIN (rollback form with the token-parallel conv1d): runs of at least this many rows are computed by conv1d_tokens /
+// conv1d_state; conv1d only replays their committed rows first. 0: conv1d serves every run.
+#ifndef PAR_MIN
+#define PAR_MIN 0
+#endif
 
 #if defined(KERNEL_CONV1D) || defined(KERNEL_CONV1D_TOKENS) || defined(KERNEL_CONV1D_STATE)
 // ---------------------------------------------------------------------------------------------
@@ -58,6 +63,15 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     float* recIn = p.records + (uint64_t(run.x) * 2 + uint(cm.y)) * KR * RW + c;
     float* recOut = p.records + (uint64_t(run.x) * 2 + uint(1 - cm.y)) * KR * RW + c;
     uint replay = fresh ? 0u : uint(cm.x);
+#if PAR_MIN
+    // Runs of PAR_MIN rows or more take the token-parallel kernels (after this one): here they only replay their committed
+    // rows into the state (never tentative: the lowering keeps PAR_MIN above the record rows).
+    if (run.z >= PAR_MIN)
+    {
+        if (replay == 0) return;
+        tEnd = tBeg;
+    }
+#endif
     for (uint r = 0; r < replay; r++)
     {
         win[KS - 1] = recIn[uint64_t(r) * RW];
@@ -119,6 +133,9 @@ void conv1d_tokens(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
     uint tBeg = uint(run.y), n = uint(run.z);
     bool fresh = run.w == 0;
+#if PAR_MIN
+    if (run.z < PAR_MIN) return;   // walked by conv1d
+#endif
 #else
     float* state = p.state;
     uint tBeg = 0, n = p.T;
@@ -163,6 +180,9 @@ void conv1d_state(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
     uint tBeg = uint(run.y), n = uint(run.z);
     bool fresh = run.w == 0;
+#if PAR_MIN
+    if (run.z < PAR_MIN) return;   // walked by conv1d
+#endif
 #else
     float* state = p.state;
     uint tBeg = 0, n = p.T;
@@ -258,11 +278,19 @@ void delta_rule(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform D
 
 #if MULTI_SEQ
     int4 run = int4(p.runs[(gid.z) * 4], p.runs[(gid.z) * 4 + 1], p.runs[(gid.z) * 4 + 2], p.runs[(gid.z) * 4 + 3]);
-#if SEQ_MAX_ROWS
+#if SEQ_MAX_ROWS && ROLLBACK
+    // Longer runs take the chunked form (chunked.slang), which runs after this kernel: here they only replay their committed
+    // rows into the state (never tentative: the lowering keeps SEQ_MAX_ROWS at or above the record rows).
+    bool handoff = run.z > SEQ_MAX_ROWS;
+    if (handoff && (run.w == 0 || p.commits[gid.z * 4] == 0)) return;
+#elif SEQ_MAX_ROWS
     if (run.z > SEQ_MAX_ROWS) return;   // longer runs take the chunked form (chunked.slang)
 #endif
     float* st = p.state + ((uint64_t(run.x) * HV + h) * DV + j) * DK + part;
     uint tBeg = uint(run.y), tEnd = uint(run.y + run.z);
+#if SEQ_MAX_ROWS && ROLLBACK
+    if (handoff) tEnd = tBeg;
+#endif
     bool fresh = run.w == 0;   // a sequence starting at position 0 starts from zero state
 #else
     float* st = p.state + (uint64_t(h) * DV + j) * DK + part;

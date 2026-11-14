@@ -51,6 +51,13 @@ public static class WellKnown
     public const string DraftGraph = "mtp_draft";
     /// <summary>Number of draft (MTP / NextN) layers a model ships (int; 0 or absent: no <see cref="DraftGraph"/>).</summary>
     public const string DraftLayers = "draft_layers";
+    /// <summary>
+    /// Name of the decode-graph output a model's <see cref="DraftGraph"/> reads as its hidden states (string property; absent:
+    /// <see cref="HiddenOutput"/>, the state after the final norm, which the MTP heads of Qwen3.5 / Qwen3-Next and the NextN heads
+    /// of DeepSeek-V3 / GLM-4.5 read). For a head trained on another tap of the decoder (e.g. an EAGLE-style head on a
+    /// pre-norm or intermediate state), the adapter adds that output to the decode graph and names it here.
+    /// </summary>
+    public const string DraftHiddenSource = "draft_hidden_source";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 

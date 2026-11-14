@@ -41,6 +41,13 @@ public sealed class CompileOptions
     /// </summary>
     public CancellationToken CancellationToken { get; init; }
 
+    /// <summary>
+    /// Weight buffers shared with other compilations of the same model source (null: this compilation uploads its own copy of
+    /// every weight). Devices that support it (<see cref="IComputeDevice.SharesWeights"/>) reuse buffers another compiled model
+    /// on the same device already holds, e.g. a draft head reusing the decoder's embedding and LM head.
+    /// </summary>
+    public SharedWeights? SharedWeights { get; init; }
+
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
 
@@ -88,5 +95,6 @@ public sealed class CompileOptions
         CacheFor = CacheFor,
         Progress = progress,
         CancellationToken = CancellationToken,
+        SharedWeights = SharedWeights,
     };
 }
