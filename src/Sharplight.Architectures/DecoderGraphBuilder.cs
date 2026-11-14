@@ -39,7 +39,7 @@ internal sealed partial class DecoderGraphBuilder
     public DecoderGraphBuilder(ModelSource source, AdapterOptions adapterOptions, DecoderHyperParameters hyperParameters, int[]? taps = null)
     {
         _taps = taps ?? [];
-        if (_taps.Any(il => il < 0 || il > hyperParameters.LogicalLayers) || (_taps.Length > 0 && hyperParameters.AltUpStreams > 0))
+        if (_taps.Any(il => il < 0 || il > hyperParameters.LogicalLayers) || (_taps.Length > 0 && (hyperParameters.AltUpStreams > 0 || hyperParameters.Cycles is not null)))
         {
             throw new InvalidDataException($"decoder: cannot export the inputs of layers {string.Join(", ", _taps)}.");
         }
@@ -64,7 +64,7 @@ internal sealed partial class DecoderGraphBuilder
         _vCache = new StateDefinition?[slots];
         for (int slot = 0; slot < slots; slot++)
         {
-            int il = slot < logical ? slot % _hp.NLayer : _hp.NLayer;
+            int il = slot < logical ? _hp.PhysicalLayerOf(slot) : _hp.NLayer;
             string g = slot < logical ? $"layers.{slot}" : $"mtp.layers.{slot - logical}";
             int sourceSlot = slot - il + _hp.KvSourceOf(il);
             if (sourceSlot != slot)
@@ -99,7 +99,7 @@ internal sealed partial class DecoderGraphBuilder
         _blockIndexerCache = new StateDefinition?[slots];
         for (int slot = 0; slot < slots && _blockIndexer is not null; slot++)
         {
-            string prefix = slot < logical ? $"layers.{slot % _hp.NLayer}." : "mtp.layers.0.";
+            string prefix = slot < logical ? $"layers.{_hp.PhysicalLayerOf(slot)}." : "mtp.layers.0.";
             if (_kCache[slot] is not null && BlockSparseIndexer.IsPresent(_src.Weight, prefix))
             {
                 string g = slot < logical ? $"layers.{slot}" : "mtp.layers.0";
@@ -241,7 +241,7 @@ internal sealed partial class DecoderGraphBuilder
 
         using (b.Group("output"))
         {
-            var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+            var hidden = OutputNorm(b, x);
             var rows = b.Gather(hidden, outRows, "selected_rows");
             b.Output("logits", Logits(b, rows));
             b.Output("hidden", hidden);
@@ -267,7 +267,7 @@ internal sealed partial class DecoderGraphBuilder
         var x = PackedLayers(b, inp);
         using (b.Group("output"))
         {
-            var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+            var hidden = OutputNorm(b, x);
             b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
         }
 
@@ -300,14 +300,14 @@ internal sealed partial class DecoderGraphBuilder
         {
             if (!classify)
             {
-                var hidden = _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
+                var hidden = OutputNorm(b, x);
                 PackedSequences.EmbeddingsOutput(b, hidden, inp.SequenceSpans, _pooling, _normalize);
             }
             else
             {
                 // Score heads read the language model head at each sequence's last row (e.g. "yes" / "no" logits).
                 var last = PackedSequences.Pool(b, x, inp.SequenceSpans, "last", "last_rows");
-                var hidden = _norm.Apply(b, last, "output_norm.weight", _hp.Eps, "result_norm");
+                var hidden = OutputNorm(b, last);
                 b.Output(WellKnown.LogitsOutput, Logits(b, hidden));
             }
         }
@@ -385,6 +385,11 @@ internal sealed partial class DecoderGraphBuilder
     // deepstack: [T, H·K] blocks added to the hidden state after the first K layers (Qwen3-VL DeepStack).
     private Value Layers(GraphBuilder b, Value x, Value positions, Value? freqFactors, Value? perLayer, Value? rowSpans, Value? deepstack = null)
     {
+        if (_hp.Cycles is { } cycles)
+        {
+            return CycleLayers(b, x, cycles, positions, freqFactors, rowSpans);
+        }
+
         int deepstackLayers = deepstack is null ? 0 : (int)(deepstack.Shape[-1].Fixed / _hp.NEmbd);
         var packedKv = new Dictionary<int, (Value K, Value V)>();
         var embeddings = x;
@@ -439,6 +444,32 @@ internal sealed partial class DecoderGraphBuilder
 
         return streams > 0 ? AltUp.Collapse(b, x, streams, _hp.NEmbd) : x;
     }
+
+    // Hierarchical cycles (HRM-Text): the low and high stacks run alternately, every pass with KV caches of its own (see HierarchicalCycles).
+    private Value CycleLayers(GraphBuilder b, Value x, HierarchicalCycleOptions cycles, Value positions, Value? freqFactors, Value? rowSpans)
+    {
+        var packedKv = new Dictionary<int, (Value K, Value V)>();
+        var embeddings = x;
+        return HierarchicalCycles.Build(b, x, cycles, _norm, _hp.Eps, (input, slotBase, layerBase) =>
+        {
+            var h = input;
+            for (int i = 0; i < cycles.StackLayers; i++)
+            {
+                using var _ = b.Group($"layers.{slotBase + i}");
+                string p = $"layers.{layerBase + i}.";
+                var slot = new LayerSlot(layerBase + i, slotBase + i);
+                h = _hp.ParallelResidual
+                    ? ParallelLayer(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings)
+                    : SequentialLayer(b, h, p, slot, positions, freqFactors, rowSpans, packedKv, embeddings);
+            }
+
+            return h;
+        });
+    }
+
+    // The final norm of the trunk. Hierarchical cycles end with the high stack's norm, so a model with cycles and no output norm weight has none.
+    private Value OutputNorm(GraphBuilder b, Value x)
+        => _hp.Cycles is not null && !b.HasWeight("output_norm.weight") ? x : _norm.Apply(b, x, "output_norm.weight", _hp.Eps, "result_norm");
 
     // One layer over AltUp streams [T, S·H] (Gemma 3n): the streams are mixed into predictions, the active prediction runs through the
     // sequential layer, its output corrects every prediction. The per-layer embedding contribution, gated by the active corrected stream

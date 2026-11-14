@@ -112,6 +112,7 @@ internal static class GgufArchitectureMappings
         yield return new LlamaEmbedGgufMapping();
         yield return new GemmaEmbeddingGgufMapping();
         yield return new ModernBertGgufMapping();
+        yield return new HrmTextGgufMapping();
     }
 
     /// <summary>Registers <paramref name="mapping"/> for each of its GGUF architectures; later registrations win.</summary>
