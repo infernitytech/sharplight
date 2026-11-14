@@ -203,6 +203,20 @@ public sealed class DataOpTests
         Diff.Check("CumSum", tg.B.Build(), new Step(3, 0, (x, Rnd.F(135, 1))), atol: 1e-5, what: $"excl={exclusive} rev={reverse}");
     }
 
+    /// <summary>Cumulative products (CumProd) on the GPU, on values around 1 so the products stay in range.</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void CumProd(bool exclusive, bool reverse)
+    {
+        Gpu.Require();
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 5, 9);
+        var attributes = Attributes.From(("axis", 2L), ("exclusive", exclusive), ("reverse", reverse), ("product", true));
+        tg.B.Output("p", tg.B.Emit1("CumSum", [x], attributes));
+        Diff.Check("CumProd", tg.B.Build(), new Step(3, 0, (x, Rnd.Pos(135, 1, 0.5f, 1.5f))), atol: 1e-5, rtol: 1e-5, what: $"excl={exclusive} rev={reverse}");
+    }
+
     [Theory]
     [InlineData("max", 1, true, false)]
     [InlineData("min", 1, true, false)]

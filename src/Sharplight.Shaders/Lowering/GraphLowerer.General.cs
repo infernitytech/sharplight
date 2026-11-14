@@ -75,8 +75,6 @@ public sealed partial class GraphLowerer
                 }
 
                 break;
-            case "CumSum" when node.Attributes.Get("product", false):
-                return OpSupport.No("CumSum: cumulative products run on the CPU");
             case "CumSum":
             case "GroupNorm":
             case "ConvTranspose":
@@ -470,15 +468,17 @@ public sealed partial class GraphLowerer
         var y = Produce(n.Output);
         int axis = NormAxis(n.Attributes.Get("axis", 0L), x.Rank);
         bool excl = n.Attributes.Get("exclusive", false), rev = n.Attributes.Get("reverse", false);
+        bool product = n.Attributes.Get("product", false);
         var iter = (long[])x.Shape.Clone();
         long len = iter[axis];
         iter[axis] = 1;
         var d = Enumerable.Range(0, x.Rank).Select(Dn).ToArray();
         var cj = d.Select((c, k) => k == axis ? "j" : c).ToArray();
-        string body = $"  float acc = 0.0;\n  for (uint i = 0; i < {len}u; i++) {{\n    uint j = {(rev ? $"{len - 1}u - i" : "i")};\n" +
+        string step = product ? "acc *= v;" : "acc += v;";
+        string body = $"  float acc = {(product ? "1.0" : "0.0")};\n  for (uint i = 0; i < {len}u; i++) {{\n    uint j = {(rev ? $"{len - 1}u - i" : "i")};\n" +
             $"    float v = p.in0[{Lin(x, cj)}];\n" +
-            (excl ? $"    p.out0[{Lin(y, cj)}] = acc; acc += v;\n" : $"    acc += v; p.out0[{Lin(y, cj)}] = acc;\n") + "  }";
-        EmitGen("cumsum", [n], iter, x.Symbol, [x], [y], body);
+            (excl ? $"    p.out0[{Lin(y, cj)}] = acc; {step}\n" : $"    {step} p.out0[{Lin(y, cj)}] = acc;\n") + "  }";
+        EmitGen(product ? "cumprod" : "cumsum", [n], iter, x.Symbol, [x], [y], body);
     }
 
     private void LowerArgReduce(Node n)

@@ -427,13 +427,13 @@ The remaining node-test failures are the same on CPU and Vulkan:
 
 The extra-suite failures are com.microsoft MurmurHash3 and WordConvEmbedding, which are not implemented.
 
-These ops run on Vulkan only through the CPU fallback: LinearAttention, CumSum/CumProd, Det, Inverse, GridSample, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer.
+These ops run on Vulkan only through the CPU fallback: LinearAttention, Det, Inverse, DeformConv, Unique, the string and ai.onnx.ml tree / label ops, and TfIdfVectorizer. CumSum, CumProd (since benchmarks section 26) and 4-D GridSample have Vulkan kernels; integer CumSum / CumProd inputs and volumetric GridSample still fall back.
 
 Operator schemas of onnx 1.23.2 (ai.onnx opset 28) and onnxruntime's com.microsoft contrib schemas.
 
 | domain | operators | importer | cpu: all tests pass | vulkan: all tests pass | vulkan: without CPU fallback |
 |---|---|---|---|---|---|
-| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 147 |
+| ai.onnx | 203 | 201 | 161 / 192 with tests | 161 / 192 with tests | 152 |
 | ai.onnx.ml | 19 | 16 | 16 / 16 with tests | 16 / 16 with tests | 9 |
 | ai.onnx.preview | 1 | 1 | 1 / 1 with tests | 1 / 1 with tests | 1 |
 | ai.onnx.preview.training | 4 | 3 | 3 / 3 with tests | 3 / 3 with tests | 3 |
@@ -445,7 +445,7 @@ Node tests:
 | provider | tests | pass | pass without CPU fallback | wrong | import fail | compile fail | run fail | harness unsupported |
 |---|---|---|---|---|---|---|---|---|
 | cpu | 1884 | 1829 (97.1%) | 1829 (97.1%) | 8 | 47 | 0 | 0 | 0 |
-| vulkan | 1884 | 1829 (97.1%) | 1745 (92.6%) | 8 | 47 | 0 | 0 | 0 |
+| vulkan | 1884 | 1829 (97.1%) | 1772 (94.1%) | 8 | 47 | 0 | 0 | 0 |
 
 Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 
@@ -490,7 +490,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | CenterCropPad | 18 | yes | 6/6 | 6/6 |  |
 | Clip | 1, 6, 11, 12, 13 | yes | 15/15 | 15/15 |  |
 | Col2Im | 18 | yes | 5/5 | 5/5 |  |
-| Compress | 9, 11, 28 | yes | 5/5 | 5/5 (3 via CPU) |  |
+| Compress | 9, 11, 28 | yes | 5/5 | 5/5 |  |
 | Concat | 1, 4, 11, 13 | yes | 207/207 | 207/207 |  |
 | ConcatFromSequence | 11 | yes | - | - |  |
 | Constant | 1, 9, 11, 12, 13, 19, 21, 23, 24, 25 | yes | 344/344 | 344/344 |  |
@@ -500,7 +500,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | ConvTranspose | 1, 11, 22 | yes | 11/11 | 11/11 |  |
 | Cos | 7, 22 | yes | 8/8 | 8/8 |  |
 | Cosh | 9, 22 | yes | 2/2 | 2/2 |  |
-| CumProd | 26 | yes | 9/9 | 9/9 (9 via CPU) |  |
+| CumProd | 26 | yes | 9/9 | 9/9 |  |
 | CumSum | 11, 14 | yes | 9/9 | 9/9 |  |
 | DFT | 17, 20 | yes | 12/12 | 12/12 (2 via CPU) |  |
 | DeformConv | 19, 22 | yes | 4/4 | 4/4 (4 via CPU) |  |
@@ -558,7 +558,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | MatMul | 1, 9, 13 | yes | 115/115 | 115/115 |  |
 | MatMulInteger | 10 | yes | 1/1 | 1/1 |  |
 | Max | 1, 6, 8, 12, 13 | yes | 27/27 | 27/27 |  |
-| MaxPool | 1, 8, 10, 11, 12, 22 | yes | 19/19 | 19/19 (2 via CPU) |  |
+| MaxPool | 1, 8, 10, 11, 12, 22 | yes | 19/19 | 19/19 |  |
 | MaxRoiPool | 1, 22 | yes | - | - |  |
 | MaxUnpool | 9, 11, 22 | yes | 2/2 | 2/2 |  |
 | Mean | 1, 6, 8, 13 | yes | 3/3 | 3/3 |  |
@@ -571,7 +571,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | Multinomial | 7, 22 | yes | - | - |  |
 | Neg | 1, 6, 13 | yes | 43/43 | 43/43 |  |
 | NegativeLogLikelihoodLoss | 12, 13, 22 | yes | 52/52 | 52/52 |  |
-| NonMaxSuppression | 10, 11 | yes | 10/10 | 10/10 (10 via CPU) |  |
+| NonMaxSuppression | 10, 11 | yes | 10/10 | 10/10 |  |
 | NonZero | 9, 13 | yes | 0/1 | 0/1 |  |
 | Not | 1 | yes | 96/96 | 96/96 |  |
 | OneHot | 9, 11, 28 | yes | 6/6 | 6/6 |  |
@@ -608,7 +608,7 @@ Extra tests (ai.onnx.ml, strings, signal, com.microsoft; onnxruntime outputs):
 | Reshape | 1, 5, 13, 14, 19, 21, 23, 24, 25 | yes | 219/220 | 219/220 |  |
 | Resize | 10, 11, 13, 18, 19 | yes | 39/39 | 39/39 |  |
 | ReverseSequence | 10, 28 | yes | 3/3 | 3/3 |  |
-| RoiAlign | 10, 16, 22 | yes | 3/3 | 3/3 (3 via CPU) |  |
+| RoiAlign | 10, 16, 22 | yes | 3/3 | 3/3 |  |
 | RotaryEmbedding | 23 | yes | 8/8 | 8/8 |  |
 | Round | 11, 22 | yes | 4/4 | 4/4 |  |
 | STFT | 17 | yes | 3/3 | 3/3 (1 via CPU) |  |

@@ -61,6 +61,13 @@ public sealed class OnnxImportOptions
     /// </summary>
     public bool AllowHalfBlockScales { get; init; }
 
+    /// <summary>
+    /// Translates attention written out as <c>MatMul → [scale] → [mask Add] → Softmax → MatMul</c> as one fused Attention op,
+    /// which providers run as flash attention (default true). The result matches the decomposed form within f32 rounding
+    /// (the softmax is evaluated online); false keeps the elementary ops.
+    /// </summary>
+    public bool FuseAttention { get; init; } = true;
+
     /// <summary>Placement group size: number of compute-heavy ops (Conv/MatMul/Gemm/BatchMatMul) per group; values below 1 act as 1.</summary>
     public int GroupSize { get; init; } = 8;
 }

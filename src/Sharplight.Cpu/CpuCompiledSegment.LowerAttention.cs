@@ -85,7 +85,10 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
-    /// <summary>Attention over full K/V; the optional fourth input is either an f32 mask or i32 per-row [start, end) spans.</summary>
+    /// <summary>
+    /// Attention over full K/V; the optional fourth input is either an f32 mask ([T, S] or one row for all queries) or i32 per-row
+    /// [start, end) spans. <c>sequence_rows</c> / <c>sequence_keys</c> select the batched form.
+    /// </summary>
     private void LowerAttention(Node n)
     {
         var a = n.Attributes;
@@ -99,7 +102,8 @@ internal sealed unsafe partial class CpuCompiledSegment
         var attention = new AttentionOp(
             q, k, v, hasSpans ? null : extra, y, a.Get("scale", 1f), null, a.Get("causal", false), a.Get("window", 0), a.Get("softcap", 0f),
             spans: hasSpans ? extra : null, alibiSlopes: a.Get<float[]?>("alibi_slopes", null),
-            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0));
+            positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0),
+            sequenceRows: BatchedAttention.SequenceRows(n), sequenceKeys: BatchedAttention.SequenceKeys(n));
         AddStep(attention, Touched(q, k, v, extra, y));
         _refs[n.Output] = y;
     }
