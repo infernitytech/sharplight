@@ -21,6 +21,7 @@ internal static class HfArchitectureMappings
         Register(new DecoderHfMapping());
         Register(new EncoderHfMapping());
         Register(new T5HfMapping());
+        Register(new BartHfMapping());
         foreach (var family in DecoderFamilies())
         {
             Register(family);

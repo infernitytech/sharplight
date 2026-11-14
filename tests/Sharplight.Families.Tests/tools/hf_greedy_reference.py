@@ -21,6 +21,8 @@ write_logits = "--logits" in sys.argv[1:]
 model_dir, new_tokens, prompt = args[0], int(args[1]), args[2]
 config = AutoConfig.from_pretrained(model_dir)
 model_class = getattr(transformers, config.architectures[0])
+if getattr(config, "is_encoder_decoder", False):
+    model_class = transformers.AutoModelForSeq2SeqLM   # base checkpoints (BartModel, T5Model) with their LM head
 model, info = model_class.from_pretrained(model_dir, dtype=torch.float32, output_loading_info=True)
 if info["missing_keys"]:
     # Some tiny checkpoints nest the text model several times (model.language_model.language_model.language_model.*), which

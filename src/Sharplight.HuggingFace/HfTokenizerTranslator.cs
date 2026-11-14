@@ -40,6 +40,13 @@ internal static partial class HfTokenizerTranslator
 
         var model = tok.GetProperty("model");
         string modelType = model.TypeName();
+        if (modelType.Length == 0)
+        {
+            // Files written by older tokenizers releases (e.g. facebook/bart-base) leave the type out; the model's fields tell it.
+            modelType = model.TryGetProperty("merges", out _) ? "BPE"
+                : model.TryGetProperty("max_input_chars_per_word", out _) ? "WordPiece"
+                : model.TryGetProperty("vocab", out var vocab) && vocab.ValueKind == JsonValueKind.Array ? "Unigram" : "";
+        }
 
         // SentencePiece-style (Llama 2, Mistral, Gemma, Phi-3): BPE with byte fallback, scores come from tokenizer.model.
         if (modelType == "BPE" && model.IsTrue("byte_fallback") && File.Exists(Path.Combine(dir, "tokenizer.model")))

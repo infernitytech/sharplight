@@ -134,6 +134,14 @@ internal static class MappedFamilyCases
             [8847, 26621, 8889, 8889, 31376, 731, 731, 28428, 28176, 8298, 27172, 9762, 7827, 7827, 7827, 29378, 28529], ""),
         new("flan-t5-small HF (t5 gated-gelu, separate LM head, transformers)", "hf/flan-t5-small", "Write a short story about a cat who learns to fly.", "ids",
             [37, 1712, 19, 7070, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3], ""),
+        // BART family on the same adapter (tools/mk_tiny_bart.py): post-norm LayerNorms, learned positions (offset 2), embedding norm, final logits bias;
+        // mBART: pre-norm with final norms and scaled embeddings.
+        new("tiny-random-bart HF (bart post-norm, learned positions, transformers)", "hf/tiny-random-bart", Prompt, "ids",
+            [847, 634, 955, 634, 955, 634, 955, 634, 634, 955, 634, 634, 955, 634], ""),
+        new("tiny-random-mbart HF (mbart pre-norm, scaled embeddings, transformers)", "hf/tiny-random-mbart", Prompt, "ids",
+            [862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862, 862], ""),
+        new("bart-base HF (bart, real checkpoint, transformers)", "hf/bart-base", Prompt, "ids",
+            [0, 133, 812, 9, 1470, 16, 10, 343, 14, 6, 11, 5, 76, 23137, 8, 1684, 6, 21, 684, 13, 171, 383, 215, 25], ""),
         // Encoder-decoder: the prompt is encoded, the decoder starts from the pad token (llama.cpp b11177 llama-completion prints the same text).
         new("flan-t5-small Q4_K_M GGUF (t5 encoder-decoder, relative position bias, cross-attention, llama.cpp)", "gguf/flan-t5-small/flan-t5-small.Q4_K_M.gguf",
             "Write a short story about a cat who learns to fly.", "ids", [37, 1712, 19, 7070, 16, 8, 799, 5, 216, 19, 3, 9, 3, 89, 3822, 5, 216, 19, 3, 9, 3, 89, 3822, 5], ""),
