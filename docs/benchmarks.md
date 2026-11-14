@@ -2672,14 +2672,27 @@ llama.cpp decode samples (133-333 tok/s). The README uses the interleaved 24.3 n
 
 ### 24.8 Correctness
 
-Greedy CLI output, 200 tokens, long (~650-token) and short prompts, against `main` at `d0d3ea6`: identical for gpt-oss-20b,
-OLMoE, Qwen3.6-35B-A3B, Qwen2.5-0.5B, Mistral-7B Q4_K_M, the 27B Q4_K_M, Q8_0 and FP8. MTP k = 3 against
-non-speculative output on the 27B Q8_0 and FP8: identical. A 1921-token prompt on gpt-oss (128-row expert tiles,
-split) gives the same output with and without split tiles.
+Greedy CLI output, 200 tokens, long (~650-token) and short prompts, the merged branch against `main` at `4b20f55`
+(`ident/`):
 
-Tests: new `MoeTests.RoutedExpertBlock` (gate/up with per-expert biases, activation, down with bias, router weights and
-slot sum; mxfp4 / q4_k / q8_0; 1-70 tokens; S = 2, 4, 8) on the dual and slot-sum launches and the prefill path;
-`MoeTests` and `FusionTests` pass on the NVIDIA GPU, `MoeTests` on llvmpipe.
+* Identical for gpt-oss-20b, OLMoE, Qwen3.6-35B-A3B, Qwen2.5-0.5B, Mistral-7B Q4_K_M, and the 27B Q4_K_M, Q8_0 and FP8.
+* MTP k = 3 against non-speculative output on the 27B Q8_0 and FP8: identical text.
+* A 1921-token prompt on gpt-oss (128-row expert tiles) gives the same output with and without split tiles.
+
+Tests:
+
+* New `MoeTests.RoutedExpertBlock`: gate/up with per-expert biases, activation, down with bias, router weights and slot
+  sum; mxfp4 / q4_k / q8_0; 1-70 tokens; S = 2, 4, 8. It covers the dual and slot-sum launches and the prefill path.
+  `MoeTests` passes on llvmpipe.
+* New tests for the bf16 / f16 delta-rule state:
+  * CPU and Vulkan against the reference, including channel decay, the additive rule and time-invariant gates;
+  * split-invariance and chunked prefill;
+  * rollback (Families);
+  * `RecurrentStateAccuracyTests` (large).
+  The Vulkan ones pass on the NVIDIA GPU and llvmpipe.
+* On the merged branch, run one at a time under the suite lock: Cpu 1182 (29 skipped), Vulkan 1202 (22 skipped), Families
+  628 (32 skipped; OOM-killed once while the machine had 8 GB free, passed alone), Serving 283 and Vision 94 (5 skipped)
+  pass.
 
 ### 24.9 Commands
 

@@ -1,14 +1,14 @@
-Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [35 ms]
-Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [230 ms]
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [44 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [287 ms]
 Write a short poem about the sea.Compiling 219 / 219, 219 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 28.58 / 28.58 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' for 1 sequences x 2048 tokens in 3504 ms
+Compiled 'decode' for 1 sequences x 2048 tokens in 3578 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 26.93 GiB weights+state
 1 segment(s): [0@0: 2037 nodes]
 Ready (decode)
 Uploading weights 0.45 / 0.45 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Compiling 176 / 176, 176 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'mtp_draft' for 1 sequences, 3 drafts, in 756 ms
+Compiled 'mtp_draft' for 1 sequences, 3 drafts, in 461 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 3 groups, 0.43 GiB weights+state
 1 segment(s): [0@0: 37 nodes]
 Ready (mtp_draft)
@@ -22,4 +22,4 @@ I want to capture the sea as both ancient and ever-present, the way it holds mem
 Let me try:
 
 The sea
-prompt: 8 tok in 95 ms (84.6 tok/s) | generated: 200 tok, 89.87 tok/s | mtp drafts: 122/231 accepted (53%)
+prompt: 8 tok in 106 ms (75.3 tok/s) | generated: 200 tok, 90.90 tok/s | mtp drafts: 122/231 accepted (53%)

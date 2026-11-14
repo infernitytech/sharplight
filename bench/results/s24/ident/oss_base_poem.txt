@@ -1,8 +1,8 @@
-Graph optimization (sharplight-ir/1): decode 1108 -> 1108 nodes, decode_embeddings 1107 -> 1107 nodes [37 ms]
-Loaded gpt-oss-20b (decoder): 460 tensors, 12.10 GB, vocab 201088 [333 ms]
-Compiling 118 / 118, 118 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Graph optimization (sharplight-ir/1): decode 1108 -> 1108 nodes, decode_embeddings 1107 -> 1107 nodes [32 ms]
+Loaded gpt-oss-20b (decoder): 460 tensors, 12.10 GB, vocab 201088 [414 ms]
+Compiling 119 / 119, 119 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 12.10 / 12.10 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 1901 ms
+Compiled 'decode' in 1761 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 26 groups, 11.36 GiB weights+state
 1 segment(s): [0@0: 1109 nodes]
 Ready (decode)
@@ -40,4 +40,4 @@ The sea, a place of mystery and awe,
 A place where
 
 The sea, a place of mystery
-prompt: 8 tok in 37 ms (214.9 tok/s) | generated: 200 tok, 316.82 tok/s
+prompt: 8 tok in 36 ms (222.5 tok/s) | generated: 200 tok, 327.49 tok/s

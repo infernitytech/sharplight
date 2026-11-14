@@ -1,8 +1,8 @@
 Graph optimization (sharplight-ir/1): decode 604 -> 604 nodes, decode_embeddings 603 -> 603 nodes, embed 556 -> 556 nodes, classify 556 -> 556 nodes [15 ms]
-Loaded qwen2.5-0.5b-instruct (decoder): 291 tensors, 0.67 GB, vocab 151936 [172 ms]
-Compiling 74 / 74, 74 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Loaded qwen2.5-0.5b-instruct (decoder): 291 tensors, 0.67 GB, vocab 151936 [163 ms]
 Uploading weights 0.67 / 0.67 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 582 ms
+Compiling 74 / 74, 74 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 581 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 26 groups, 0.65 GiB weights+state
 1 segment(s): [0@0: 605 nodes]
 Ready (decode)
@@ -32,4 +32,4 @@ A place where the ocean's secrets are found,
 A place where the sea's beauty is seen. 
 
 The sea is
-prompt: 8 tok in 25 ms (314.5 tok/s) | generated: 200 tok, 837.90 tok/s
+prompt: 8 tok in 21 ms (388.8 tok/s) | generated: 200 tok, 853.59 tok/s

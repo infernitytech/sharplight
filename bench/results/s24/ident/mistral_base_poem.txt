@@ -1,8 +1,8 @@
-Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [24 ms]
-Loaded Mistral-7B-Instruct-v0.3 (decoder): 291 tensors, 4.37 GB, vocab 32768 [88 ms]
+Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [26 ms]
+Loaded Mistral-7B-Instruct-v0.3 (decoder): 291 tensors, 4.37 GB, vocab 32768 [98 ms]
 Compiling 141 / 141, 141 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 4.37 / 4.37 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 955 ms
+Compiled 'decode' in 794 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 34 groups, 4.32 GiB weights+state
 1 segment(s): [0@0: 709 nodes]
 Ready (decode)
@@ -31,4 +31,4 @@ To explore its secrets, far and rare.
 The sea, a symbol of the unknown,
 A place where dreams are often sown.
 Its beauty and its power,
-prompt: 9 tok in 40 ms (224.4 tok/s) | generated: 200 tok, 218.91 tok/s
+prompt: 9 tok in 40 ms (222.2 tok/s) | generated: 200 tok, 236.46 tok/s

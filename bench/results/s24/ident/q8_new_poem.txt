@@ -1,8 +1,8 @@
 Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [38 ms]
-Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [309 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [271 ms]
 Compiling 220 / 220, 220 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 28.58 / 28.58 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 3705 ms
+Compiled 'decode' in 3388 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 26.89 GiB weights+state
 1 segment(s): [0@0: 2037 nodes]
 Ready (decode)
@@ -16,4 +16,4 @@ I want to capture the sea as both ancient and ever-present, the way it holds mem
 Let me try:
 
 The sea
-prompt: 8 tok in 75 ms (107.3 tok/s) | generated: 200 tok, 41.87 tok/s
+prompt: 8 tok in 85 ms (94.6 tok/s) | generated: 200 tok, 41.88 tok/s

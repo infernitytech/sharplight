@@ -1,8 +1,8 @@
-Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [23 ms]
-Loaded Mistral-7B-Instruct-v0.3 (decoder): 291 tensors, 4.37 GB, vocab 32768 [92 ms]
+Graph optimization (sharplight-ir/1): decode 708 -> 708 nodes, decode_embeddings 707 -> 707 nodes, embed 644 -> 644 nodes, classify 644 -> 644 nodes [29 ms]
+Loaded Mistral-7B-Instruct-v0.3 (decoder): 291 tensors, 4.37 GB, vocab 32768 [108 ms]
 Uploading weights 4.37 / 4.37 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiling 141 / 141, 3 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 3931 ms
+Compiling 141 / 141, 141 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 1118 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 34 groups, 4.32 GiB weights+state
 1 segment(s): [0@0: 709 nodes]
 Ready (decode)
@@ -11,4 +11,4 @@ Ready (decode)
 1. Follow the Sharplight code style, which includes one type per file, file-scoped namespaces, and explicit accessibility.
 2. Use C# 14 extension blocks for extensions, and always use braces for control flow structures.
 3. Make everything `internal` or `private` by default, and document public types and members with XML documentation.
-prompt: 706 tok in 136 ms (5183.3 tok/s) | generated: 81 tok, 206.85 tok/s
+prompt: 706 tok in 134 ms (5252.1 tok/s) | generated: 81 tok, 219.58 tok/s

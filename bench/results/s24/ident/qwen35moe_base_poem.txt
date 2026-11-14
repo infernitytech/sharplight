@@ -1,8 +1,8 @@
-Graph optimization (sharplight-ir/1): decode 2074 -> 2074 nodes, decode_embeddings 2073 -> 2073 nodes [28 ms]
+Graph optimization (sharplight-ir/1): decode 2074 -> 2074 nodes, decode_embeddings 2073 -> 2073 nodes [27 ms]
 Loaded Qwen3.6-35B-A3B (qwen3_5): 733 tensors, 22.12 GB, vocab 248320 [242 ms]
-Compiling 180 / 180, 180 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiling 184 / 184, 184 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 22.12 / 22.12 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 2681 ms
+Compiled 'decode' in 2600 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 42 groups, 20.70 GiB weights+state
 1 segment(s): [0@0: 2075 nodes]
 Ready (decode)
@@ -27,4 +27,4 @@ Thinking Process:
     *Critique:* Too simple, rhymes are cliché ("wide/pride", "down/around"), lacks poetic depth.
 
 4.  **Drafting - Attempt 2 (Focusing on rhythm and better
-prompt: 8 tok in 47 ms (169.5 tok/s) | generated: 200 tok, 244.78 tok/s
+prompt: 8 tok in 50 ms (158.5 tok/s) | generated: 200 tok, 260.37 tok/s

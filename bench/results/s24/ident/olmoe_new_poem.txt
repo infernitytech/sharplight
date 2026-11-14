@@ -1,8 +1,8 @@
-Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [22 ms]
-Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [109 ms]
-Compiling 105 / 105, 105 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Graph optimization (sharplight-ir/1): decode 516 -> 516 nodes, decode_embeddings 515 -> 515 nodes, embed 484 -> 484 nodes, classify 484 -> 484 nodes [23 ms]
+Loaded OLMoE 1B 7B 0924 Instruct (decoder): 195 tensors, 4.21 GB, vocab 50304 [114 ms]
 Uploading weights 4.21 / 4.21 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 848 ms
+Compiling 106 / 106, 106 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 943 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 18 groups, 4.17 GiB weights+state
 1 segment(s): [0@0: 517 nodes]
 Ready (decode)
@@ -38,4 +38,4 @@ And the world comes alive.
 The sea is a place of wonder,
 A place of endless delight,
 A place where the sea
-prompt: 8 tok in 20 ms (406.0 tok/s) | generated: 200 tok, 787.76 tok/s
+prompt: 8 tok in 19 ms (424.4 tok/s) | generated: 200 tok, 786.39 tok/s

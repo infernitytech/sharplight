@@ -1,8 +1,8 @@
-Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [40 ms]
-Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 16.80 GB, vocab 248320 [263 ms]
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [35 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 16.80 GB, vocab 248320 [242 ms]
 Compiling 236 / 236, 236 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 16.54 / 16.54 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 2244 ms
+Compiled 'decode' in 2263 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 15.67 GiB weights+state
 1 segment(s): [0@0: 2037 nodes]
 Ready (decode)
@@ -18,4 +18,4 @@ The sea keeps its own calendar—
 no dates, no names,
 just the slow arithmetic of tides
 pulling the
-prompt: 8 tok in 71 ms (113.1 tok/s) | generated: 200 tok, 65.85 tok/s
+prompt: 8 tok in 64 ms (124.8 tok/s) | generated: 200 tok, 68.05 tok/s

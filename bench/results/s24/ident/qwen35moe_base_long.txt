@@ -1,8 +1,8 @@
 Graph optimization (sharplight-ir/1): decode 2074 -> 2074 nodes, decode_embeddings 2073 -> 2073 nodes [29 ms]
-Loaded Qwen3.6-35B-A3B (qwen3_5): 733 tensors, 22.12 GB, vocab 248320 [308 ms]
-Compiling 180 / 180, 176 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Loaded Qwen3.6-35B-A3B (qwen3_5): 733 tensors, 22.12 GB, vocab 248320 [260 ms]
+Compiling 184 / 184, 105 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
 Uploading weights 22.12 / 22.12 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
-Compiled 'decode' in 4298 ms
+Compiled 'decode' in 5964 ms
 slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 42 groups, 20.70 GiB weights+state
 1 segment(s): [0@0: 2075 nodes]
 Ready (decode)
@@ -13,4 +13,4 @@ Ready (decode)
 </think>
 
 Mechanical style rules, such as brace usage, explicit accessibility, file-scoped namespaces, and XML documentation requirements, are enforced as build errors via `.editorconfig` and `Directory.Build.props`, while additional checks like one-type-per-file are handled by scripts and code review. Code structure must adhere to specific conventions, including placing each type in its own file, using C# 14 extension blocks, and ensuring folder structures mirror namespaces, with nested types reserved only for small, private implementation details. Finally, readability and safety are prioritized through mandatory braces for all control flow statements, early returns to minimize nesting, and a strict policy of sealing classes by default while explicitly documenting public API contracts.
-prompt: 636 tok in 181 ms (3512.8 tok/s) | generated: 145 tok, 255.52 tok/s
+prompt: 636 tok in 186 ms (3416.1 tok/s) | generated: 145 tok, 251.36 tok/s
