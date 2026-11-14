@@ -42,7 +42,7 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
         {
             [a + "layer_count"] = layerCount,
             [a + "hidden_size"] = g.Int("embedding_length"),
-            [a + "norm_eps"] = g.Float("attention.layer_norm_rms_epsilon"),
+            [a + "norm_eps"] = g.Has("attention.layer_norm_rms_epsilon") ? g.Float("attention.layer_norm_rms_epsilon") : g.Float("attention.layer_norm_epsilon"),   // newer converters write only the latter
             [a + "block_kinds"] = kinds,
             [a + "mlp.activation"] = "relu2",
             [a + "ssm.conv_kernel"] = g.Int("ssm.conv_kernel"),
@@ -98,6 +98,8 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
         ["ffn_down_exps.weight"] = "moe.experts.down.weight",
         ["ffn_up_shexp.weight"] = "moe.shared.up.weight",
         ["ffn_down_shexp.weight"] = "moe.shared.down.weight",
+        ["ffn_latent_down.weight"] = "moe.latent_down.weight",
+        ["ffn_latent_up.weight"] = "moe.latent_up.weight",
     };
 
     /// <inheritdoc/>

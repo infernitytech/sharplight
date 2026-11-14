@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Models;
 using Sharplight.Tensors;
@@ -95,11 +94,6 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
 
     private static void AddMixtureOfExperts(Dictionary<string, object> md, string a, HfConfig c)
     {
-        if (c.Get("moe_latent_size") is { ValueKind: not JsonValueKind.Null })
-        {
-            throw new NotSupportedException("nemotron_h: latent-space experts (moe_latent_size) are not supported yet.");
-        }
-
         int groupCount = c.GetInt("n_group") ?? 1;
         if (groupCount > 1 && (c.GetInt("topk_group") ?? 1) != groupCount)
         {
@@ -136,6 +130,8 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
         ["mixer.gate.weight"] = "moe.router.weight",
         ["mixer.shared_experts.up_proj.weight"] = "moe.shared.up.weight",
         ["mixer.shared_experts.down_proj.weight"] = "moe.shared.down.weight",
+        ["mixer.fc1_latent_proj.weight"] = "moe.latent_down.weight",
+        ["mixer.fc2_latent_proj.weight"] = "moe.latent_up.weight",
     };
 
     /// <summary>Per-layer tensors converted to F32 (state-space parameters and the router bias), HF suffix to canonical suffix.</summary>
