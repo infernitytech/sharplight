@@ -43,6 +43,12 @@ public sealed class DeviceProfile
     /// <summary>Shared (workgroup) memory per workgroup in bytes.</summary>
     public required long MaxSharedMemory { get; init; }
 
+    /// <summary>
+    /// Compute units of the device (NVIDIA SMs, AMD CUs, ...) that workgroup grids are sized against; 0 when unknown (the code
+    /// generator then keeps the choices that do not depend on it).
+    /// </summary>
+    public int ComputeUnits { get; init; }
+
     /// <summary>Device features (<see cref="DeviceFeatures"/> names) the device may use, ordinally sorted.</summary>
     public IReadOnlyList<string> Features { get; init; } = [];
 
@@ -69,6 +75,7 @@ public sealed class DeviceProfile
             CodeTarget = CodeTarget,
             SubgroupSize = SubgroupSize,
             MaxSharedMemory = MaxSharedMemory,
+            ComputeUnits = ComputeUnits,
             Features = [.. Features.Where(f => !removed.Contains(f))],
             SubmissionBudgetMs = SubmissionBudgetMs,
             Properties = Properties,
@@ -106,7 +113,7 @@ public sealed class DeviceProfile
             throw new InvalidDataException($"Device profile format {profile.FormatVersion} is not supported (this version reads 1 to {CurrentFormatVersion}).");
         }
 
-        if (profile.SubgroupSize <= 0 || profile.MaxSharedMemory <= 0 || profile.Provider.Length == 0 || profile.CodeTarget.Length == 0)
+        if (profile.SubgroupSize <= 0 || profile.MaxSharedMemory <= 0 || profile.ComputeUnits < 0 || profile.Provider.Length == 0 || profile.CodeTarget.Length == 0)
         {
             throw new InvalidDataException("Not a valid device profile: provider, code target, subgroup size and shared memory are required.");
         }

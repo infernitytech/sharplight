@@ -29,6 +29,11 @@ internal sealed unsafe class PhysicalDeviceInfo
     /// <summary>Nanoseconds per timestamp tick.</summary>
     public float TimestampPeriod { get; }
     public uint MaxSharedMemory { get; }
+    /// <summary>
+    /// Compute units (NVIDIA SMs, AMD CUs, Arm shader cores) from VK_NV_shader_sm_builtins, VK_AMD_shader_core_properties or
+    /// VK_ARM_shader_core_builtins; 0 when the driver reports none of them.
+    /// </summary>
+    public uint ComputeUnits { get; }
     public uint[] MaxWorkgroupCount { get; }
     public bool CooperativeMatrix { get; }
     public bool CooperativeMatrix2 { get; }
@@ -77,7 +82,29 @@ internal sealed unsafe class PhysicalDeviceInfo
             Extensions.Add(VulkanInstance.Name(e));
         }
 
-        var sub = new VkPhysicalDeviceSubgroupProperties();
+        var sm = new VkPhysicalDeviceShaderSMBuiltinsPropertiesNV();
+        var amdCores = new VkPhysicalDeviceShaderCorePropertiesAMD();
+        var armCores = new VkPhysicalDeviceShaderCoreBuiltinsPropertiesARM();
+        void* coreChain = null;
+        if (Extensions.Contains("VK_NV_shader_sm_builtins"))
+        {
+            sm.pNext = coreChain;
+            coreChain = &sm;
+        }
+
+        if (Extensions.Contains("VK_AMD_shader_core_properties"))
+        {
+            amdCores.pNext = coreChain;
+            coreChain = &amdCores;
+        }
+
+        if (Extensions.Contains("VK_ARM_shader_core_builtins"))
+        {
+            armCores.pNext = coreChain;
+            coreChain = &armCores;
+        }
+
+        var sub = new VkPhysicalDeviceSubgroupProperties { pNext = coreChain };
         var ssc = new VkPhysicalDeviceSubgroupSizeControlProperties { pNext = &sub };
         var idp = new VkPhysicalDeviceIDProperties { pNext = &ssc };
         var props2 = new VkPhysicalDeviceProperties2 { pNext = &idp };
@@ -94,6 +121,9 @@ internal sealed unsafe class PhysicalDeviceInfo
         MaxPushConstants = p.limits.maxPushConstantsSize;
         TimestampPeriod = p.limits.timestampPeriod;
         MaxSharedMemory = p.limits.maxComputeSharedMemorySize;
+        ComputeUnits = sm.shaderSMCount > 0 ? sm.shaderSMCount
+            : amdCores.shaderEngineCount > 0 ? amdCores.shaderEngineCount * amdCores.shaderArraysPerEngineCount * amdCores.computeUnitsPerShaderArray
+            : armCores.shaderCoreCount;
         MaxWorkgroupCount = [p.limits.maxComputeWorkGroupCount[0], p.limits.maxComputeWorkGroupCount[1], p.limits.maxComputeWorkGroupCount[2]];
         Uuid = Convert.ToHexString(new ReadOnlySpan<byte>(idp.deviceUUID, 16));
         DeviceId = p.deviceID;
@@ -312,6 +342,7 @@ internal sealed unsafe class PhysicalDeviceInfo
             ["coopvec_types"] = string.Join(" ", CoopVecTypes),
             ["integer_dot_product"] = IntegerDotProduct.ToString(),
             ["max_shared_memory"] = MaxSharedMemory.ToString(),
+            ["compute_units"] = ComputeUnits.ToString(),
             ["max_push_constants"] = MaxPushConstants.ToString(),
             ["memory_budget"] = MemoryBudgetExt.ToString(),
         },

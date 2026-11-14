@@ -17,10 +17,12 @@ internal sealed class SpirvCodeGenerator
     /// <summary>Artifact kind of the code tier.</summary>
     public const string CodeKind = "spirv";
 
-    public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, string kernelCacheDirectory)
+    public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, int computeUnits, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs,
+        string kernelCacheDirectory)
     {
         SubgroupSize = subgroupSize;
         MaxSharedMemory = maxSharedMemory;
+        ComputeUnits = computeUnits;
         EnabledFeatures = enabledFeatures;
         SubmissionBudgetMs = submissionBudgetMs;
         Compiler = new SlangCompiler(kernelCacheDirectory);
@@ -32,6 +34,9 @@ internal sealed class SpirvCodeGenerator
     public int SubgroupSize { get; }
 
     public long MaxSharedMemory { get; }
+
+    /// <summary>Compute units of the device; 0 when unknown.</summary>
+    public int ComputeUnits { get; }
 
     /// <summary>Detected features minus the device-level disables.</summary>
     public IReadOnlySet<string> EnabledFeatures { get; }
@@ -77,6 +82,7 @@ internal sealed class SpirvCodeGenerator
             Target = ShaderTarget.SpirV,
             SubgroupSize = SubgroupSize,
             MaxSharedMemory = MaxSharedMemory,
+            ComputeUnits = ComputeUnits,
             Features = options.FeaturesFor(device),
             Compile = options,
             SubmissionBudgetMs = SubmissionBudgetMs,
@@ -103,6 +109,7 @@ internal sealed class SpirvCodeGenerator
         CodeTarget = CodeTarget,
         SubgroupSize = SubgroupSize,
         MaxSharedMemory = MaxSharedMemory,
+        ComputeUnits = ComputeUnits,
         Features = [.. EnabledFeatures.Order(StringComparer.Ordinal)],
         SubmissionBudgetMs = SubmissionBudgetMs,
         Properties = properties,
