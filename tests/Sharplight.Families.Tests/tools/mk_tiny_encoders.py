@@ -2,7 +2,8 @@
 Builds tiny random Hugging Face checkpoints of bidirectional (embedding) families and their reference embeddings:
 EuroBERT (eurobert, saved as the masked-LM model), an EmbeddingGemma-style bidirectional Gemma 3 (gemma3_text with
 use_bidirectional_attention, symmetric sliding windows, sentence-transformers Pooling + two Dense modules) and ModernBERT (modernbert,
-saved as the base model: GeGLU, layer norms without bias, local layers with a symmetric window and their own rope base).
+saved as the base model: GeGLU, layer norms without bias, local layers with a symmetric window and their own rope base) and
+jina-embeddings-v3 (jina_embeddings_v3, the base model: XLM-RoBERTa post-norm layers with rope).
 
     python mk_tiny_encoders.py <models/hf directory> [family ...]
     python mk_tiny_encoders.py --reference <model directory> [...]   (references for an existing checkpoint)
@@ -35,6 +36,9 @@ FAMILIES = {
     "modernbert": ("modernbert", dict(hidden_size=64, intermediate_size=96, num_hidden_layers=4, num_attention_heads=4, max_position_embeddings=256,
                                       local_attention=8, global_attn_every_n_layers=3, global_rope_theta=160000.0, local_rope_theta=10000.0,
                                       hidden_activation="gelu", norm_bias=False), "ModernBertModel", None),
+    # jina-embeddings-v3 (native transformers form): XLM-RoBERTa post-norm layers with rope instead of absolute positions.
+    "jina-embeddings-v3": ("jina_embeddings_v3", dict(hidden_size=64, intermediate_size=128, num_hidden_layers=3, num_attention_heads=4,
+                                                      max_position_embeddings=256, type_vocab_size=1), "JinaEmbeddingsV3Model", None),
 }
 
 # Token sequences: one shorter and two longer than the windows.

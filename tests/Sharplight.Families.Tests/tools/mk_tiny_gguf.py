@@ -8,7 +8,7 @@ from ~/models/hf/tiny-random-falcon with convert_hf_to_gguf.py.
     PYTHONPATH=<llama.cpp>/gguf-py python mk_tiny_gguf.py <tokenizer gguf> <output directory> [name ...]
 
 Files: <output directory>/tiny-random-<name>-f32.gguf for every name of the models table below (only the named ones when names are given). The
-bidirectional embedding families (eurobert, neo-bert, llama-embed, gemma-embedding, modern-bert, jina-bert-v2) get their references from llamacpp_embeddings.py. Norm weights
+bidirectional embedding families (eurobert, neo-bert, llama-embed, gemma-embedding, modern-bert, jina-bert-v2, jina-bert-v3) get their references from llamacpp_embeddings.py. Norm weights
 and biases are randomized so that every tensor matters.
 """
 import os, sys
@@ -676,6 +676,14 @@ def jina_bert_v2_parameters(writer):
     writer.add_token_type_count(2)
 
 
+def jina_bert_v3_block():
+    # Post-norm BERT layer (XLM-RoBERTa) with a fused, biased q/k/v projection rotated by rope (neox pairing) and a plain GELU MLP.
+    return {"attn_qkv.weight": weight(3 * HIDDEN, HIDDEN), "attn_qkv.bias": bias(3 * HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN),
+            "attn_output.bias": bias(HIDDEN), "attn_output_norm.weight": norm(HIDDEN), "attn_output_norm.bias": bias(HIDDEN),
+            "ffn_up.weight": weight(FFN, HIDDEN), "ffn_up.bias": bias(FFN), "ffn_down.weight": weight(HIDDEN, FFN), "ffn_down.bias": bias(HIDDEN),
+            "layer_output_norm.weight": norm(HIDDEN), "layer_output_norm.bias": bias(HIDDEN)}
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -757,6 +765,11 @@ models = {
                                               parameters=bidirectional(jina_bert_v2_parameters),
                                               global_tensors=lambda vocab: {"output.weight": None, "output_norm.weight": None, "output_norm.bias": None,
                                                                             "token_types.weight": weight(2, HIDDEN), "token_embd_norm.weight": norm(HIDDEN),
+                                                                            "token_embd_norm.bias": bias(HIDDEN)}),
+    "jina-bert-v3": lambda path: write_family(path, "jina-bert-v3", 46, lambda layer: jina_bert_v3_block(), kv_heads=HEADS, layer_norm=True,
+                                              parameters=bidirectional(lambda w: w.add_token_type_count(1)),
+                                              global_tensors=lambda vocab: {"output.weight": None, "output_norm.weight": None, "output_norm.bias": None,
+                                                                            "token_types.weight": weight(1, HIDDEN), "token_embd_norm.weight": norm(HIDDEN),
                                                                             "token_embd_norm.bias": bias(HIDDEN)}),
 }
 for name, write in models.items():

@@ -4,11 +4,12 @@ using Sharplight.Models;
 namespace Sharplight.HuggingFace;
 
 /// <summary>
-/// Hugging Face bidirectional encoders (<c>bert</c>, <c>roberta</c>, <c>xlm-roberta</c>, <c>nomic_bert</c>) → canonical <c>encoder</c>
+/// Hugging Face bidirectional encoders (<c>bert</c>, <c>roberta</c>, <c>xlm-roberta</c>, <c>nomic_bert</c>, <c>jina_embeddings_v3</c>) → canonical <c>encoder</c>
 /// (vocabulary documented on <c>EncoderAdapter</c>). Base models (<c>BertModel</c>, embedding checkpoints) and sequence
 /// classifiers (<c>*ForSequenceClassification</c>, cross-encoder rerankers) are both handled; model prefixes (<c>bert.</c>,
 /// <c>roberta.</c>) are dropped, RoBERTa's position table is cut to start at position 0 (its first padding_idx + 1 rows are never
-/// used), nomic-bert's fused qkv is split zero-copy.
+/// used), nomic-bert's and jina-embeddings-v3's fused qkv is split zero-copy. jina-embeddings-v3 (transformers' native form, saved under the
+/// original names <c>encoder.layers.N.mixer.*</c>) is XLM-RoBERTa with rope instead of absolute positions and post-norm GELU layers.
 /// </summary>
 internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
 {
@@ -21,11 +22,13 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
     public string Architecture => "encoder";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["bert", "roberta", "xlm-roberta", "nomic_bert"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["bert", "roberta", "xlm-roberta", "nomic_bert", "jina_embeddings_v3"];
 
     private static bool IsRoberta(HfConfig c) => c.ModelType is "roberta" or "xlm-roberta";
 
     private static bool IsNomic(HfConfig c) => c.ModelType == "nomic_bert";
+
+    private static bool IsJinaV3(HfConfig c) => c.ModelType == "jina_embeddings_v3";
 
     /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
@@ -53,6 +56,16 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
             "silu" or "swish" => "silu",
             var other => throw new NotSupportedException($"{c.ModelType}: activation '{other}' is not supported."),
         };
+        if (IsJinaV3(c))
+        {
+            // Rope over the whole head (rotate-half pairing), no position table.
+            md[a + "rope.dim"] = c.Int("hidden_size") / c.Int("num_attention_heads");
+            md[a + "rope.base"] = (float)(c.RopeDouble("rope_theta", "rope_theta") ?? 20000.0);
+            md[a + "rope.style"] = "neox";
+            md[a + "context_length"] = maxPositions;
+            return md;
+        }
+
         if ((c.GetString("position_embedding_type") ?? "absolute") != "absolute")
         {
             throw new NotSupportedException($"{c.ModelType}: position_embedding_type '{c.GetString("position_embedding_type")}' is not supported.");
@@ -108,6 +121,7 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
     private static readonly Dictionary<string, string> s_nomicLayer = new(StringComparer.Ordinal)
     {
         ["attn.out_proj"] = "attention.o",
+        ["mixer.out_proj"] = "attention.o",
         ["norm1"] = "attention_norm",
         ["mlp.fc11"] = "mlp.up",
         ["mlp.fc12"] = "mlp.gate",
@@ -219,10 +233,10 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
 
         string prefix = $"layers.{m.Groups[1].Value}.";
         string rest = m.Groups[2].Value;
-        if (rest is "attn.Wqkv.weight" or "attn.Wqkv.bias")
+        if (rest is "attn.Wqkv.weight" or "attn.Wqkv.bias" or "mixer.Wqkv.weight" or "mixer.Wqkv.bias")
         {
-            // nomic-bert's fused qkv: q rows first, then k, then v.
-            string parameter = rest["attn.Wqkv.".Length..];
+            // nomic-bert's / jina-embeddings-v3's fused qkv: q rows first, then k, then v.
+            string parameter = rest[(rest.LastIndexOf('.') + 1)..];
             collector.Add(info.RowSlice(prefix + "attention.q." + parameter, 0, hidden));
             collector.Add(info.RowSlice(prefix + "attention.k." + parameter, hidden, hidden));
             collector.Add(info.RowSlice(prefix + "attention.v." + parameter, 2 * hidden, hidden));
@@ -232,7 +246,7 @@ internal sealed partial class EncoderHfMapping : IHfArchitectureMapping
         int dot = rest.LastIndexOf('.');
         string module = rest[..dot];
         string parameterName = rest[(dot + 1)..];
-        var table = IsNomic(c) ? s_nomicLayer : s_bertLayer;
+        var table = IsNomic(c) || IsJinaV3(c) ? s_nomicLayer : s_bertLayer;
         if (!table.TryGetValue(module, out var canonicalModule))
         {
             throw new NotSupportedException($"{c.ModelType}: tensor '{rawName}' has no canonical mapping.");
