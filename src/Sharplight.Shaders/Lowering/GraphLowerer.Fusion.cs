@@ -104,7 +104,8 @@ public sealed partial class GraphLowerer
 
             if (IsFusable(n))
             {
-                bool joins = open is not null && n.Outputs[0].Shape.Equals(open[0].Outputs[0].Shape) && n.Inputs.Any(openValues!.Contains);
+                bool joins = open is not null && n.Outputs[0].Shape.Equals(open[0].Outputs[0].Shape) && n.Inputs.Any(openValues!.Contains)
+                    && ExternalInputCount([.. open, n]) <= MaxFusedInputs;
                 if (!joins)
                 {
                     Close();
@@ -123,6 +124,19 @@ public sealed partial class GraphLowerer
 
         Close();
         return units;
+    }
+
+    /// <summary>
+    /// Most tensors a fused elementwise kernel reads: each is an 8-byte device address in the push constants, which the Vulkan spec only
+    /// guarantees 128 bytes of (outputs and sizes need the rest). Longer chains (e.g. a 16-tap position-embedding resampling) split.
+    /// </summary>
+    private const int MaxFusedInputs = 12;
+
+    /// <summary>Distinct values a group reads that no node of the group produces.</summary>
+    private static int ExternalInputCount(IReadOnlyList<Node> group)
+    {
+        var produced = group.Select(n => n.Output).ToHashSet();
+        return group.SelectMany(n => n.Inputs).Where(v => !produced.Contains(v)).Distinct().Count();
     }
 
     /// <summary>Units an elementwise group looks back for groups to merge (bounds the pass's cost on large graphs).</summary>
@@ -151,7 +165,7 @@ public sealed partial class GraphLowerer
                 }
 
                 var outputs = earlier.Select(n => n.Output).ToHashSet();
-                if (!later.Any(n => n.Inputs.Any(outputs.Contains)))
+                if (!later.Any(n => n.Inputs.Any(outputs.Contains)) || ExternalInputCount([.. earlier, .. later]) > MaxFusedInputs)
                 {
                     continue;
                 }
