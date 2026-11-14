@@ -9,7 +9,9 @@
 // three to four per MMA). The accumulator element layout is probed as in mmq.slang (PAIR: NVIDIA's mma fragment pattern).
 //
 // Workgroup = F8_WM x F8_WN subgroups, each owning F8_FM x F8_FN 16x16 output fragments; K is walked in steps of 128 values
-// staged in shared memory, the next step prefetched into registers during the MMAs. SPLITK > 1: workgroup z sums its share
+// staged in shared memory, the next step prefetched into registers during the MMAs. (Measured on Blackwell at 512 rows: the
+// MMAs and shared-memory loads alone run at ~520 TFLOPS; the global fetch of both operands brings that down to ~280, and
+// neither double-buffered shared memory nor 64-row tiles hide it.) SPLITK > 1: workgroup z sums its share
 // of K into slice z of y ([SPLITK][T][N], reduced by splitk_reduce in matmul.slang).
 //
 // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
@@ -221,37 +223,30 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             }
         }
 
+        // One output column fragment at a time: the block accumulator holds F8_FM fragments rather than F8_FM x F8_FN, which
+        // frees registers (10-13 % faster from 256 rows) at the cost of reloading the A fragments per column fragment.
         [MaxIters(F8_WBLOCKS)] [loop]
         for (uint wb = 0; wb < F8_WBLOCKS; wb++)
         {
-            AccF c[F8_FM][F8_FN];
-            [ForceUnroll] for (int i = 0; i < F8_FM; i++) [ForceUnroll] for (int j = 0; j < F8_FN; j++) c[i][j] = AccF(0.0);
-            [ForceUnroll]
-            for (uint m = 0; m < F8_MMAS; m++)
-            {
-                uint kw = (wb * WBLOCK + m * 32) / 4;
-                MatB8 b[F8_FN];
-                [ForceUnroll]
-                for (int j = 0; j < F8_FN; j++)
-                {
-                    b[j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
-                }
-                [ForceUnroll]
-                for (int i = 0; i < F8_FM; i++)
-                {
-                    MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
-                    [ForceUnroll]
-                    for (int j = 0; j < F8_FN; j++)
-                    {
-                        c[i][j] = coopMatMulAdd<float, false>(a, b[j], c[i][j]);
-                    }
-                }
-            }
-
             uint bs = wb * F8_BN;
             [ForceUnroll]
             for (int j = 0; j < F8_FN; j++)
             {
+                AccF c[F8_FM];
+                [ForceUnroll] for (int i = 0; i < F8_FM; i++) c[i] = AccF(0.0);
+                [ForceUnroll]
+                for (uint m = 0; m < F8_MMAS; m++)
+                {
+                    uint kw = (wb * WBLOCK + m * 32) / 4;
+                    MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
+                    [ForceUnroll]
+                    for (int i = 0; i < F8_FM; i++)
+                    {
+                        MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
+                        c[i] = coopMatMulAdd<float, false>(a, b, c[i]);
+                    }
+                }
+
                 float ws[4];
                 if (PAIR)
                 {
@@ -266,12 +261,12 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
                     {
                         if (PAIR)
                         {
-                            acc[i][j][e] += c[i][j][e] * (xr[i][e >> 2] * ws[e & 3]);
+                            acc[i][j][e] += c[i][e] * (xr[i][e >> 2] * ws[e & 3]);
                         }
                         else
                         {
                             uint r = uint(index[e]) >> 4, col = uint(index[e]) & 15;
-                            acc[i][j][e] += c[i][j][e] * (sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col]);
+                            acc[i][j][e] += c[i][e] * (sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col]);
                         }
                     }
                 }
