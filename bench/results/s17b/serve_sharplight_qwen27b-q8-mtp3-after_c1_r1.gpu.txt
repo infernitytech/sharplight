@@ -1,0 +1,7 @@
+gpu util,memused,power,smclk,memclk,temp,pstate: 99 %, 85411 MiB, 300.09 W, 2175 MHz, 14001 MHz, 86, P0
+2752, /usr/bin/kwin_wayland, 607 MiB
+4944, /opt/google/chrome/chrome --type=gpu-process --ozone-platform=wayland --render-node-override=/dev/dri/re
+82584, ~/.local/share/JetBrains/Toolbox/apps/rider/bin/rider, 343 MiB
+484390, S:\steamapps\common\Warhammer Survivors\WarhammerSurvivors.exe, 1194 MiB
+500674, <tmp>
+500781, ~/Documents/work/sharplight/.claude/worktrees/agent-adc6c621c9e0a2208/samples/Sharplight.S

@@ -1,0 +1,224 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes [40 ms]
+Loaded Qwen_Qwen3.8 27B (qwen3_5): 866 tensors, 29.04 GB, vocab 248320 [294 ms]
+[load] lower segment 0: 108 ms (100 launches, 31 buffers)
+[load] upload segment 0: 382 ms, 3.15 GB
+[load] kernels and pipelines segment 0: waited 176 ms for 170 kernels; slang CompileStatistics { Compiled = 0, DiskHits = 170, CompileTime = 00:00:00 }; 170 pipelines, 572 ms summed
+Compiled 'mtp_draft' for 64 sequences, 3 drafts, in 864 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 3 groups, 3.06 GiB weights+state
+1 segment(s): [0@0: 36 nodes]
+[load] lower segment 0: 144 ms (5323 launches, 1090 buffers)
+[load] upload segment 0: 3734 ms, 28.58 GB
+[load] kernels and pipelines segment 0: waited 233 ms for 211 kernels; slang CompileStatistics { Compiled = 0, DiskHits = 240, CompileTime = 00:00:00 }; 240 pipelines, 823 ms summed
+Compiled 'decode' for 64 sequences x 512 tokens in 4393 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 40.04 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Model 'Qwen3.8-27B-Q8_0' loaded in 5570 ms (estimated 40938 MiB, resident 41300 MiB).
+Serving 'Qwen3.8-27B-Q8_0' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18080
+  Qwen3.8-27B-Q8_0 [Chat] Loaded 41299 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 54653 MiB, used 45414 MiB (ours 45399 MiB), available 9239 MiB
+[load] record T=25,U=1,R=1 skip:3084: 14 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=1,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=1,R=4: 18 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=2,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=2,U=1,R=2: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=1,R=1 skip:3084: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=1,R=3: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=1,U=1,R=1 skip:3084: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=28,U=1,R=1 skip:3084: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=28,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=73,U=3,R=3 skip:3084: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=73,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=37,U=4,R=13: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=35,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=16,U=4,R=16: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=15,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=12,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=13,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=10,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=14,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=16,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=9,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=6,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=15,U=4,R=15: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=14,U=4,R=14: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=5,U=2,R=5: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=78,U=4,R=7: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=78,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=5,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=12,U=3,R=12: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=9,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=40,U=4,R=13: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=38,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=5,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=2,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=10,U=3,R=10: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=31,U=3,R=7: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=27,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=31,U=3,R=9: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=28,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=35,U=4,R=13: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=32,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=10,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=30,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=6,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=34,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=27,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=33,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=34,U=4,R=12: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=30,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=33,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=36,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=13,U=4,R=13: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=2,R=8: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=64,U=4,R=10: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=62,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=12,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=6,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=5,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=2,R=7: 13 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=98,U=4,R=4 skip:3084: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=98,U=4,R=4: 1 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=9,U=3,R=9: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=379,U=16,R=19: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=379,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=32,U=16,R=32: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=31,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=28,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=27,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=30,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=32,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=29,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=26,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=28,U=15,R=15: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=31,U=16,R=31: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=27,U=15,R=15: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=30,U=15,R=30: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=52,U=15,R=28: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=47,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=49,U=14,R=27: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=39,U=10,R=10: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=73,U=14,R=24: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=63,U=9,R=9: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=67,U=12,R=21: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=62,U=9,R=9: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=124,U=15,R=24: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=116,U=11,R=11: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=47,U=14,R=25: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=42,U=11,R=11: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=73,U=14,R=25: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=70,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=74,U=15,R=28: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=72,U=15,R=15: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=55,U=16,R=31: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=54,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=26,U=15,R=15: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=22,U=12,R=12: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=50,U=14,R=26: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=40,U=10,R=10: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=75,U=14,R=24: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=66,U=9,R=9: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=123,U=15,R=24: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=117,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=45,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=76,U=15,R=28: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=72,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=50,U=15,R=28: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=44,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=47,U=14,R=14: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=76,U=16,R=30: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=73,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=29,U=15,R=15: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=14,R=14: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=54,U=16,R=30: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=52,U=15,R=15: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=51,U=15,R=27: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=47,U=12,R=12: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=40,U=9,R=9: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=70,U=13,R=22: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=64,U=10,R=10: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=98,U=13,R=23: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=94,U=11,R=11: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=104,U=15,R=26: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=99,U=12,R=12: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=52,U=13,R=25: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=50,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=99,U=16,R=29: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=97,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=58,U=16,R=31: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=57,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=24,U=16,R=16: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=14,R=14: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=29,U=15,R=29: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=22,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=27,U=14,R=27: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=24,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=26,U=13,R=26: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=13,R=13: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=13,R=25: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=20,U=11,R=11: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=22,U=11,R=22: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=6,R=6: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=18,U=8,R=18: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=6,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=14,U=5,R=14: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=2,U=2,R=2: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=1,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=3,R=4: 4 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=25,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=77,U=4,R=7: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=76,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=15,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=13,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=10,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=16,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=12,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=14,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=9,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=4,R=4: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=3,R=3: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=23,U=1,R=1: 0 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=22,R=24: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=41,R=40 skip:3084: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=59,R=58 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=196,U=64,R=64 skip:3084: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=64,U=64,R=64 skip:3084: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=63,U=63,R=63 skip:3084: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=86,U=64,R=64 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=44,U=44,R=44 skip:3084: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=45,R=44 skip:3084: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=58,R=57 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=216,U=64,R=64 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=88,U=64,R=64 skip:3084: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=45,U=45,R=45 skip:3084: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=501,U=46,R=46 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=467,U=45,R=45 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=57,R=56 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=232,U=64,R=64 skip:3084: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=26,U=26,R=26 skip:3084: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=8,R=8 skip:3084: 5 ms in 1 command buffer(s), of which 0 pipelines 0 ms
