@@ -32,7 +32,7 @@ internal static class Diff
     }
 
     private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx, IReadOnlySet<string>? disabledFeatures = null,
-        bool allowReducedPrecision = false, bool cpuFallback = false)
+        bool allowReducedPrecision = false, bool cpuFallback = false, long rowInvariantRows = 0)
         => CompiledModel.Compile(g, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = dev }],
@@ -44,6 +44,7 @@ internal static class Diff
                 SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens, [Models.WellKnown.RunSymbol] = maxTokens },
                 DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
                 AllowReducedPrecision = allowReducedPrecision,
+                RowInvariantRows = rowInvariantRows,
             },
             ReservePerDevice = 0,
         });
@@ -75,11 +76,15 @@ internal static class Diff
         }
     }
 
-    /// <summary>Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.</summary>
-    public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null)
+    /// <summary>
+    /// Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.
+    /// <paramref name="rowInvariantRows"/> sets <see cref="CompileOptions.RowInvariantRows"/>.
+    /// </summary>
+    public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null,
+        long rowInvariantRows = 0)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures);
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, rowInvariantRows: rowInvariantRows);
         var results = new List<float[]>();
         foreach (var s in steps)
         {

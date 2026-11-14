@@ -112,7 +112,7 @@ public sealed partial class GraphLowerer
             TensorRef? weight = normTail.Inputs.Length > 1 ? Ref(normTail.Inputs[1]) : null;
             EmitRowNormKernel($"fused[{label}]+{normTail.Op.Name}", [.. group, normTail], shape, shapeValue.Symbol,
                 inputs, preStmts: statements, normExpr: names[normTail.Inputs[0]], pass1Outputs: outs, postStmts: [],
-                pass2Outputs: [(Produce(normTail.Output), "nrm")], weight, normTail.Op.Name == "RmsNorm" ? 0 : 1, normTail.Attributes.Get<float>("eps"));
+                pass2Outputs: [(Produce(normTail.Output), "nrm")], weight, normTail.Op.Name == "RmsNorm" ? 0 : 1, normTail.Attributes.Get<float>("eps"), [normTail.Output]);
             return;
         }
 
@@ -121,7 +121,7 @@ public sealed partial class GraphLowerer
             TensorRef? weight = normHead.Inputs.Length > 1 ? Ref(normHead.Inputs[1]) : null;
             EmitRowNormKernel($"{normHead.Op.Name}+fused[{label}]", [normHead, .. group], shape, shapeValue.Symbol,
                 inputs, preStmts: [], normExpr: headInput!, pass1Outputs: [], postStmts: statements,
-                pass2Outputs: outs, weight, normHead.Op.Name == "RmsNorm" ? 0 : 1, normHead.Attributes.Get<float>("eps"));
+                pass2Outputs: outs, weight, normHead.Op.Name == "RmsNorm" ? 0 : 1, normHead.Attributes.Get<float>("eps"), [.. outputs]);
             return;
         }
 
@@ -148,8 +148,11 @@ public sealed partial class GraphLowerer
     /// </summary>
     private void EmitRowNormKernel(string name, IEnumerable<Node> nodes, long[] shape, string? symbol, List<TensorRef> inputs,
         List<string> preStmts, string normExpr, List<(TensorRef Ref, string Expr)> pass1Outputs, List<string> postStmts,
-        List<(TensorRef Ref, string Expr)> pass2Outputs, TensorRef? w, int mode, float eps)
+        List<(TensorRef Ref, string Expr)> pass2Outputs, TensorRef? w, int mode, float eps, IReadOnlyList<Value>? pass2Values = null)
     {
+        pass2Outputs = [.. pass2Outputs];
+        var pass2RowRanges = new Dictionary<int, (long Min, long Max)>();
+        AddHalfCopyOutputs(pass2Values, pass2Outputs, pass2RowRanges);
         var source = new RowNormKernelSource
         {
             Shape = shape,
@@ -159,6 +162,7 @@ public sealed partial class GraphLowerer
             Pass1Outputs = pass1Outputs,
             PostStatements = postStmts,
             Pass2Outputs = pass2Outputs,
+            Pass2RowRanges = pass2RowRanges,
             HasWeight = w is not null,
             Mode = mode,
             Epsilon = eps,

@@ -215,7 +215,9 @@ public sealed class LlmModel : IDisposable
     /// Speculative decoding: the most draft tokens per sequence and step the decoder must verify and roll back (0: none). Models
     /// with recurrent state get their recurrent ops compiled in rollback form for <c>draftTokens + 1</c> rows (see
     /// <see cref="Graph.RecurrentRollback"/>; <see cref="Serving.IBatchDecoder.MaxSpeculativeRows"/>), and a single slot still
-    /// gets a multi-sequence decoder. Size <paramref name="maxLogitsRows"/> for the verification rows as well.
+    /// gets a multi-sequence decoder. Size <paramref name="maxLogitsRows"/> for the verification rows as well. Steps of up to
+    /// <c>draftTokens + 1</c> rows compute every row as a single-row step would (<see cref="CompileOptions.RowInvariantRows"/>),
+    /// so verified greedy output is token-identical to decoding without speculation.
     /// </param>
     public Serving.IBatchDecoder CreateBatchDecoder(int slots, int? contextLength = null, long? memoryLimit = null, int? maxLogitsRows = null,
         long? kvCacheTokens = null, int draftTokens = 0)
@@ -246,7 +248,7 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged,
-            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes);
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource, textPositionAxes: TextPositionAxes, invariantRows: draftTokens > 0 ? draftTokens + 1 : 0);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DecodeGraph);

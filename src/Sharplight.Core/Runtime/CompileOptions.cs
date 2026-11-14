@@ -32,6 +32,15 @@ public sealed class CompileOptions
     public bool SplitHalfMatMul { get; init; }
 
     /// <summary>
+    /// Steps of up to this many activation rows compute every row bit-identically to a step of that row alone (0: no such
+    /// guarantee). Speculative decoding needs it for its verification rows (the pending token plus drafts of one sequence):
+    /// greedy output then equals decoding without speculation. Matmuls and decode attention run their single-row arithmetic
+    /// for these rows instead of the faster batched kernels (integer-dot or tensor-core matvecs with quantized or f16
+    /// activations, fewer key splits). Backends honor it up to their matrix-vector range (8 rows on Vulkan).
+    /// </summary>
+    public long RowInvariantRows { get; init; }
+
+    /// <summary>
     /// Compilation cache to use on a device (kernel binaries, pipeline caches): consulted before compiling and
     /// filled with everything the compilation used. Null = the provider's own per-user caches only.
     /// </summary>
@@ -112,6 +121,7 @@ public sealed class CompileOptions
         DisabledFeatures = DisabledFeatures,
         AllowReducedPrecision = AllowReducedPrecision,
         SplitHalfMatMul = SplitHalfMatMul,
+        RowInvariantRows = RowInvariantRows,
         CacheFor = CacheFor,
         Progress = progress,
         CancellationToken = CancellationToken,

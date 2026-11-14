@@ -11,13 +11,14 @@ internal sealed class HazardTracker
     /// <summary>Launches examined ahead of the first deferred one when filling a barrier batch (see <see cref="Order"/>).</summary>
     private const int Lookahead = 32;
 
-    private readonly List<BufferRange> _pendingWrites = [];
+    private readonly List<(BufferRange Range, object? Group)> _pendingWrites = [];
     private readonly List<BufferRange> _pendingReads = [];
 
     /// <summary>True when <paramref name="launch"/> conflicts with a launch recorded since the last barrier.</summary>
     public bool Conflicts(KernelLaunch launch)
-        => launch.Reads.Any(r => _pendingWrites.Any(w => w.Overlaps(r)))
-           || launch.Writes.Any(w => _pendingWrites.Any(p => p.Overlaps(w)) || _pendingReads.Any(p => p.Overlaps(w)));
+        => launch.Reads.Any(r => _pendingWrites.Any(w => w.Range.Overlaps(r)))
+           || launch.Writes.Any(w => _pendingWrites.Any(p => p.Range.Overlaps(w) && (p.Group is null || !ReferenceEquals(p.Group, launch.WriteGroup)))
+                                     || _pendingReads.Any(p => p.Overlaps(w)));
 
     /// <summary>Forgets all pending accesses (a barrier was placed).</summary>
     public void Clear()
@@ -29,7 +30,7 @@ internal sealed class HazardTracker
     /// <summary>Records the accesses of <paramref name="launch"/> as pending.</summary>
     public void Add(KernelLaunch launch)
     {
-        _pendingWrites.AddRange(launch.Writes);
+        _pendingWrites.AddRange(launch.Writes.Select(w => (w, launch.WriteGroup)));
         _pendingReads.AddRange(launch.Reads);
     }
 

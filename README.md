@@ -101,6 +101,9 @@ PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physi
 | llama.cpp CPU | 2.89 ± 0.03 | 1.69 ± 0.00 |
 
 Deep-context decode, batched serving (with vLLM), load times and the open gaps are in [docs/benchmarks.md](docs/benchmarks.md).
+Section 28 makes MTP speculative decoding reproduce plain greedy output on long prompts (verification rows now use the
+single-row arithmetic), removes a barrier between the MoE expert-tile launches (gpt-oss-20b prefill +10 %), and re-runs
+serving against vLLM (0.69-0.82x at 1-64 streams on the 27B FP8).
 Section 24 reworked the MoE kernels: gpt-oss-20b prefill went from 0.68x to 0.95x of llama.cpp CUDA at 512 tokens and to
 1.10x at 2048, and MoE decode runs 4 instead of 8 launches per layer. An opt-in bf16 delta-rule state (`--reduced-precision`)
 makes 64-sequence decode steps on the 27B 9 % faster.
