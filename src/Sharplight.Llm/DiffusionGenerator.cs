@@ -41,76 +41,20 @@ public sealed class DiffusionGenerator : IDisposable
     public int[] Generate(ReadOnlySpan<int> prompt, GenerationOptions options, Action<ReadOnlyMemory<int>>? onStep = null)
     {
         int span = options.MaxNewTokens;
-        int length = prompt.Length + span;
-        if (prompt.IsEmpty || span <= 0)
+        if (prompt.Length + span > ContextLength)
         {
-            throw new ArgumentException("Diffusion needs a non-empty prompt and at least one token to generate.");
+            throw new ArgumentException($"Prompt and generated span ({prompt.Length + span} tokens) exceed the context ({ContextLength}).");
         }
 
-        if (length > ContextLength)
+        var sequence = new DiffusionSequence(prompt, span, options.Diffusion, _maskToken, _shiftLogits);
+        while (!sequence.Done)
         {
-            throw new ArgumentException($"Prompt and generated span ({length} tokens) exceed the context ({ContextLength}).");
+            var logits = _runner.Run([new PackedSequence(sequence.Tokens)])[0];
+            sequence.Apply(logits, _vocab);
+            onStep?.Invoke(sequence.Generated);
         }
 
-        var d = options.Diffusion;
-        int steps = d.Steps > 0 ? d.Steps : span;
-        int blockLength = d.BlockLength > 0 ? d.BlockLength : span;
-        if (span % blockLength != 0 || steps % (span / blockLength) != 0)
-        {
-            throw new ArgumentException($"The span ({span}) must be a multiple of the block length ({blockLength}) and the steps ({steps}) of the block count.");
-        }
-
-        bool timestep = d.BlockLength <= 0;
-        int blocks = span / blockLength;
-        int stepsPerBlock = steps / blocks;
-        var tokens = new int[length];
-        prompt.CopyTo(tokens);
-        Array.Fill(tokens, _maskToken, prompt.Length, span);
-        var masked = new List<int>(blockLength);
-        var candidates = new List<(float Confidence, int Position, int Token)>(blockLength);
-        for (int block = 0; block < blocks; block++)
-        {
-            int start = prompt.Length + block * blockLength;
-            int end = start + blockLength;
-            int[] plan = timestep ? [] : TransferPlan(CountMasked(tokens, start, end), stepsPerBlock);
-            for (int step = 0; step < stepsPerBlock; step++)
-            {
-                masked.Clear();
-                for (int i = start; i < end; i++)
-                {
-                    if (tokens[i] == _maskToken)
-                    {
-                        masked.Add(i);
-                    }
-                }
-
-                if (masked.Count == 0)
-                {
-                    break;
-                }
-
-                var logits = _runner.Run([new PackedSequence(tokens)])[0];
-                candidates.Clear();
-                foreach (int pos in masked)
-                {
-                    int row = _shiftLogits ? Math.Max(pos - 1, 0) : pos;
-                    var (token, confidence) = Predict(logits.AsSpan(row * _vocab, _vocab), d.Unmasking);
-                    candidates.Add((confidence, pos, token));
-                }
-
-                int count = timestep ? TimestepCount(step, stepsPerBlock, masked.Count, d.Eps) : plan[step];
-                // Most confident first; ties go to the earlier position.
-                candidates.Sort(static (a, b) => a.Confidence != b.Confidence ? b.Confidence.CompareTo(a.Confidence) : a.Position.CompareTo(b.Position));
-                for (int i = 0; i < Math.Min(count, candidates.Count); i++)
-                {
-                    tokens[candidates[i].Position] = candidates[i].Token;
-                }
-
-                onStep?.Invoke(tokens.AsMemory(prompt.Length, span));
-            }
-        }
-
-        var generated = tokens.AsSpan(prompt.Length);
+        var generated = sequence.Generated.Span;
         if (options.StopAtEog)
         {
             for (int i = 0; i < generated.Length; i++)
@@ -128,81 +72,6 @@ public sealed class DiffusionGenerator : IDisposable
     /// <summary>Generates for <paramref name="prompt"/> (encoded with special tokens) and returns the decoded text.</summary>
     public string Generate(string prompt, GenerationOptions options, bool parseSpecial = true)
         => _tokenizer.Decode(Generate(_tokenizer.Encode(prompt, addSpecial: true, parseSpecial: parseSpecial), options));
-
-    /// <summary>The most likely token of one row and the confidence the unmasking rule gives it.</summary>
-    private static (int Token, float Confidence) Predict(ReadOnlySpan<float> logits, DiffusionUnmasking unmasking)
-    {
-        int best = 0;
-        float max = float.NegativeInfinity, second = float.NegativeInfinity;
-        for (int i = 0; i < logits.Length; i++)
-        {
-            float l = logits[i];
-            if (l > max)
-            {
-                second = max;
-                max = l;
-                best = i;
-            }
-            else if (l > second)
-            {
-                second = l;
-            }
-        }
-
-        double sum = 0, weighted = 0;
-        for (int i = 0; i < logits.Length; i++)
-        {
-            double z = logits[i] - max;
-            double e = Math.Exp(z);
-            sum += e;
-            weighted += e * z;
-        }
-
-        float confidence = unmasking switch
-        {
-            DiffusionUnmasking.Margin => (float)((1.0 - Math.Exp(second - max)) / sum),
-            // Σ p·log p = Σ e·z / sum − log sum (z = logit − max, e = exp z).
-            DiffusionUnmasking.Entropy => (float)(weighted / sum - Math.Log(sum)),
-            _ => (float)(1.0 / sum),
-        };
-        return (best, confidence);
-    }
-
-    private int CountMasked(int[] tokens, int start, int end)
-    {
-        int n = 0;
-        for (int i = start; i < end; i++)
-        {
-            n += tokens[i] == _maskToken ? 1 : 0;
-        }
-
-        return n;
-    }
-
-    /// <summary>LLaDA's schedule: <paramref name="masked"/> tokens spread over the steps, the remainder on the first ones.</summary>
-    private static int[] TransferPlan(int masked, int steps)
-    {
-        var plan = new int[steps];
-        for (int i = 0; i < steps; i++)
-        {
-            plan[i] = masked / steps + (i < masked % steps ? 1 : 0);
-        }
-
-        return plan;
-    }
-
-    /// <summary>Dream's timestep schedule: the share 1 − t(s+1)/t(s) of the masked positions, everything at the last step.</summary>
-    private static int TimestepCount(int step, int steps, int masked, float eps)
-    {
-        if (step >= steps - 1)
-        {
-            return masked;
-        }
-
-        float t = 1f - (float)step / steps * (1f - eps);
-        float s = 1f - (float)(step + 1) / steps * (1f - eps);
-        return (int)(masked * (1f - s / t));
-    }
 
     /// <summary>Releases the compiled graph.</summary>
     public void Dispose() => _runner.Dispose();
