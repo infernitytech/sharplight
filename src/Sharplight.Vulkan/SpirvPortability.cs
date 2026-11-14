@@ -5,8 +5,8 @@ namespace Sharplight.Vulkan;
 /// <summary>
 /// SPIR-V rewrites for layered Vulkan implementations that translate kernels to another shading language (MoltenVK translates
 /// them to MSL with SPIRV-Cross). Applied only on devices that report <c>VK_KHR_portability_subset</c>; every other device gets
-/// the kernels unchanged. Both rewrites keep the module's meaning and only avoid constructs SPIRV-Cross translates wrongly for
-/// buffer-device-address pointers:
+/// the kernels unchanged. The rewrites keep the module's meaning and only avoid constructs SPIRV-Cross translates wrongly for
+/// buffer-device-address pointers and subgroup operations:
 /// <list type="bullet">
 /// <item><c>OpCopyLogical</c> of a struct with pointer members (Slang copies every push-constant parameter block from its laid-out
 /// type to a logical twin) is translated member by member with a dereference of each pointer member
@@ -16,6 +16,9 @@ namespace Sharplight.Vulkan;
 /// the element value instead of its address (<c>reinterpret_cast&lt;device float4*&gt;(_70.o[i])</c>). Such access chains
 /// become address arithmetic: <c>ConvertUToPtr(ConvertPtrToU(base) + index * ArrayStride)</c>. A base that is itself an
 /// <c>OpPtrAccessChain</c> result is then used as a pointer value too and is rewritten the same way.</item>
+/// <item>A subgroup operation (<c>OpGroupNonUniform*</c>) whose only use is in a later, divergent block is forwarded into that
+/// block (<c>if (lane == 0) y[row] = simd_sum(acc);</c>), where only the active lanes take part. Each one gets an extra
+/// <c>OpCopyObject</c> use, which makes SPIRV-Cross evaluate it into a temporary where the kernel computes it.</item>
 /// </list>
 /// </summary>
 internal static class SpirvPortability
@@ -47,7 +50,11 @@ internal static class SpirvPortability
     private const ushort OpBitcast = 124;
     private const ushort OpIAdd = 128;
     private const ushort OpIMul = 132;
+    private const ushort OpCopyObject = 83;
+    private const ushort OpGroupNonUniformElect = 333;
+    private const ushort OpGroupNonUniformQuadSwap = 366;
     private const ushort OpCopyLogical = 400;
+    private const ushort OpGroupNonUniformRotateKHR = 4431;
 
     /// <summary>Returns <paramref name="code"/> with the rewrites above, or <paramref name="code"/> itself when none apply.</summary>
     public static byte[] Rewrite(byte[] code)
@@ -119,6 +126,12 @@ internal static class SpirvPortability
                 }
 
                 body.AddRange(_words.AsSpan(at, count));
+                if (IsGroupOperation(op) && count >= 4)
+                {
+                    // A second use makes SPIRV-Cross evaluate the subgroup operation in its own block (see the summary).
+                    body.AddRange([Word(OpCopyObject, 4), _words[at + 1], _bound++, _words[at + 2]]);
+                    changed = true;
+                }
             }
 
             if (!changed)
@@ -278,6 +291,9 @@ internal static class SpirvPortability
             body.AddRange([Word(OpConvertUToPtr, 4), resultType, result, address]);
             return true;
         }
+
+        /// <summary>True for the <c>OpGroupNonUniform*</c> instructions (all of them have a result type and id).</summary>
+        private static bool IsGroupOperation(ushort op) => op is >= OpGroupNonUniformElect and <= OpGroupNonUniformQuadSwap or OpGroupNonUniformRotateKHR;
 
         private uint UlongType()
         {
