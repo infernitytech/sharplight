@@ -2589,7 +2589,24 @@ Neither produced a change in this round:
   `gemm_fp8`, so outputs would not be bit-identical either. Vulkan reports 48 KB of shared memory per workgroup on this
   driver, which limits the stages a kernel-managed pipeline can hold.
 
-### 24.5 Correctness
+### 24.5 Serving against vLLM
+
+`bench/s16_serve.sh` as in section 22.6 (~250-token prompts, 128 output tokens, ignore_eos, a 64-slot server, 2 rounds),
+Qwen3.8-27B-FP8, Sharplight from this branch, then vLLM 0.33 with `--gpu-memory-utilization 0.5`. A first attempt ran
+while another agent benchmarked the 27B on the same GPU (c = 1 at 27 tok/s) and was discarded. In the repeated run one
+round each at c = 4 and c = 16 was disturbed again (91 and 261 tok/s); the table gives both rounds.
+
+| conc | vLLM FP8 (2 rounds) | Sharplight (2 rounds) | SL best / vLLM | TTFT P50 / P95 SL | vLLM | ITL mean SL | vLLM |
+|---|---|---|---|---|---|---|---|
+| 1 | 43, 42 | 40, 38 | 0.93x | 80 / 87 | 61 / 80 | 25.3 | 23.2 |
+| 4 | 142, 153 | 130, 91 | 0.85x | 232 / 365 | 192 / 232 | 35.7 | 25.9 |
+| 16 | 504, 522 | 261, 381 | 0.73x | 379 / 1531 | 621 / 670 | 47.7 | 26.6 |
+| 64 | 1157, 1153 | 725, 752 | 0.65x | 517 / 4669 | 1708 / 2301 | 75.7 | 40.3 |
+
+The undisturbed rounds match section 22.6 (40 / 130 / 381 / 741-752): this round does not change the dense 27B
+path. The gap to vLLM at 16-64 streams remains the batched decode step (sections 19-23).
+
+### 24.6 Correctness
 
 Greedy CLI output, 200 tokens, long (~650-token) and short prompts, against `main` at `d0d3ea6`: identical for gpt-oss-20b,
 OLMoE, Qwen3.6-35B-A3B, Qwen2.5-0.5B, Mistral-7B Q4_K_M, the 27B Q4_K_M, Q8_0 and FP8. MTP k = 3 against
