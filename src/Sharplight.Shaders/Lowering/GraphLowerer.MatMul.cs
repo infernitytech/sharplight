@@ -149,7 +149,7 @@ public sealed partial class GraphLowerer
         long N = w.Shape[0];
         long K = w.Shape[1];
         var outer = _launchCondition;
-        bool singleRowMatvec = K % 8 == 0 && K >= 1024 && (!UseIntDotMatvec(w.Type, K) || IntDotMinRows(w.Type) > 1);
+        bool singleRowMatvec = K % 8 == 0 && K >= 1024 && (!UseIntDotMatvec(matmul, w.Type, K) || IntDotMinRows(w.Type) > 1);
         if (singleRowMatvec)
         {
             var x = PrepareMatMulInput(Ref(matmul.Inputs[0]), "matmul", out long xStride, out long rowsPerLead);
