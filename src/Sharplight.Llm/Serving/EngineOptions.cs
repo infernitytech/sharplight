@@ -35,7 +35,7 @@ public sealed record EngineOptions
     /// Speculate only while at most this many sequences decode: large batches are compute bound, where verifying drafts costs
     /// more than it saves.
     /// </summary>
-    public int SpeculationMaxBatch { get; init; } = 8;
+    public int SpeculationMaxBatch { get; init; } = 16;
     /// <summary>
     /// Most draft rows verified per step over all sequences: with many sequences decoding, each gets
     /// <c>SpeculationMaxDraftRows / sequences</c> drafts (at least 1, at most <see cref="ISpeculator.MaxDraftTokens"/>), so the

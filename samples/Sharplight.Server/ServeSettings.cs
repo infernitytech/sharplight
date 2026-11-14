@@ -20,6 +20,7 @@ namespace Sharplight.Server;
 /// <param name="KvCacheTokens">Paged KV cache size in tokens shared by the slots; null reserves the full context per slot.</param>
 /// <param name="NgramDraftTokens">Draft length of prompt-lookup speculation; 0 disables it.</param>
 /// <param name="MtpDraftTokens">Draft length of multi-token-prediction speculation (models with an MTP head); 0 disables it.</param>
+/// <param name="SpeculationMaxBatch">Speculate only while at most this many sequences decode.</param>
 /// <param name="MmprojPath">Default vision projector.</param>
 /// <param name="ChatTemplatePath">Chat template file replacing the models' own.</param>
 /// <param name="DefaultTemperature">Temperature for requests that give none.</param>
@@ -47,6 +48,7 @@ internal sealed record ServeSettings(
     long? KvCacheTokens,
     int NgramDraftTokens,
     int MtpDraftTokens,
+    int SpeculationMaxBatch,
     string? MmprojPath,
     string? ChatTemplatePath,
     float DefaultTemperature,
