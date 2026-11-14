@@ -68,7 +68,8 @@ Test system for all numbers below:
 Single stream on the GPU (Sharplight on Vulkan) against llama.cpp b11177 with its **CUDA** backend (`llama-bench -ngl 99
 -fa 1`), same GGUF files, tokens per second (2026-11-13). Prefill is 512 prompt tokens. Dense rows: median of 3 runs, decode at depth 0.
 Ministral and MoE rows: best of 3 runs, decode after the 512-token prompt, llama.cpp run right after on the same GPU. The GPU was
-shared with a desktop session, so differences under about 5 % are noise.
+shared with a desktop session, so differences under about 5 % are noise. gpt-oss decode was updated on 2026-11-14 after
+the matmul bias fusion of benchmarks section 22.
 
 | Model | Prefill Sharplight | Prefill llama.cpp | | Decode Sharplight | Decode llama.cpp | |
 |---|---:|---:|---:|---:|---:|---:|
@@ -80,7 +81,7 @@ shared with a desktop session, so differences under about 5 % are noise.
 | OLMoE-1B-7B Q4_K_M (MoE) | 26791 | 26541 | 1.01x | 761 | 816 | 0.93x |
 | ERNIE-4.5-21B-A3B Q4_K_M (MoE) | 10405 | 10383 | 1.00x | 320 | 365 | 0.88x |
 | Nemotron-3-Nano-30B-A3B Q4_K_M (hybrid MoE) | 9327 | 8464 | 1.10x | 309 | 338 | 0.91x |
-| gpt-oss-20b MXFP4 (MoE) | 11831 | 17432 | 0.68x | 310 | 345 | 0.90x |
+| gpt-oss-20b MXFP4 (MoE) | 11831 | 17432 | 0.68x | 322 | 345 | 0.93x |
 
 Qwen3.8-27B (hybrid gated-delta-net + attention), output tokens/s after a 16-token prompt, same GGUF files; GPU rows on the RTX
 PRO 6000, CPU rows on the Ryzen 9 9950X with both engines pinned to its 16 physical cores (2026-11-13, idle machine):

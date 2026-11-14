@@ -1,0 +1,28 @@
+Ready (decode)
+--- rendered prompt ---
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+<|im_start|>user
+Write a short poem about the sea.<|im_end|>
+<|im_start|>assistant
+
+-----------------------
+The sea, a vast and deep,
+A place of endless blue,
+A place where the waves dance,
+A place where the winds blow.
+
+It's a place of mystery,
+A place of wonder,
+A place where the sun sets,
+A place where the stars shine.
+
+It's a place of peace,
+A place of calm,
+A place where the sea calls,
+A place where the sea sings.
+
+The sea, a place of beauty,
+A place of beauty,
+A place where the sea laughs,
+A place where the sea sings.

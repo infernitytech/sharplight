@@ -1,0 +1,12 @@
+[Qwen3.8-27B-FP8 base r1] gpu util,memused,power,smclk,memclk,temp,pstate: 6 %, 9553 MiB, 37.87 W, 240 MHz, 810 MHz, 63, P5
+[Qwen3.8-27B-FP8 base r1] prefill 512 tok: best 119 ms = 4310.1 tok/s | decode: best 43.02, median 42.51, mean 42.45 tok/s | GPU ms/step: best 23.11, median 23.39, wall best 23.24
+[Qwen3.8-27B-FP8 new r1] gpu util,memused,power,smclk,memclk,temp,pstate: 2 %, 9553 MiB, 132.82 W, 2340 MHz, 14001 MHz, 66, P0
+[Qwen3.8-27B-FP8 new r1] prefill 512 tok: best 119 ms = 4316.8 tok/s | decode: best 42.68, median 42.35, mean 42.29 tok/s | GPU ms/step: best 23.27, median 23.48, wall best 23.43
+[Qwen3.8-27B-FP8 base r2] gpu util,memused,power,smclk,memclk,temp,pstate: 2 %, 9579 MiB, 128.15 W, 2340 MHz, 14001 MHz, 67, P0
+[Qwen3.8-27B-FP8 base r2] prefill 512 tok: best 271 ms = 1888.0 tok/s | decode: best 42.16, median 41.98, mean 36.34 tok/s | GPU ms/step: best 23.52, median 23.64, wall best 23.72
+[Qwen3.8-27B-FP8 new r2] gpu util,memused,power,smclk,memclk,temp,pstate: 2 %, 9552 MiB, 141.64 W, 2340 MHz, 14001 MHz, 70, P0
+[Qwen3.8-27B-FP8 new r2] prefill 512 tok: best 119 ms = 4307.1 tok/s | decode: best 42.57, median 42.10, mean 42.03 tok/s | GPU ms/step: best 23.35, median 23.63, wall best 23.49
+[Qwen3.8-27B-FP8 base r3] gpu util,memused,power,smclk,memclk,temp,pstate: 2 %, 9552 MiB, 136.66 W, 2340 MHz, 14001 MHz, 71, P0
+[Qwen3.8-27B-FP8 base r3] prefill 512 tok: best 121 ms = 4214.7 tok/s | decode: best 42.34, median 41.96, mean 41.91 tok/s | GPU ms/step: best 23.47, median 23.69, wall best 23.62
+[Qwen3.8-27B-FP8 new r3] gpu util,memused,power,smclk,memclk,temp,pstate: 2 %, 9552 MiB, 137.52 W, 2340 MHz, 14001 MHz, 71, P0
+[Qwen3.8-27B-FP8 new r3] prefill 512 tok: best 119 ms = 4310.7 tok/s | decode: best 42.46, median 41.95, mean 41.91 tok/s | GPU ms/step: best 23.43, median 23.72, wall best 23.55

@@ -1,0 +1,40 @@
+decoder: MultiSequenceDecoder, slots 64, vocab 248320, device sampling: True
+Per mode: wall ms min / median, GPU ms min; first = wall ms of the first step at this batch size (records the shape); dispatches / barriers per step
+| batch | first ms | dispatches / barriers | greedy |
+|---|---|---|---|
+| 16 | 78.8 | 1334 / 917 | 33.31 / 34.08, 33.04 |
+--- profile batch 16 (greedy)
+GPU time 679.21 ms
+   202.328 ms  29.8%   1280x  min    139.3 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] skinny gemm_sk T=16,16,16
+   136.356 ms  20.1%   1280x  min     95.6 us  matmul [17408→5120] f8e4m3_b128 skinny gemm_sk T=16,16,16
+    49.018 ms   7.2%    960x  min     46.4 us  matmul [5120→10240] f8e4m3_b128 skinny gemm_sk T=16,16,16
+    48.883 ms   7.2%   1280x  min     34.2 us  matmul [6144→5120] f8e4m3_b128 skinny gemm_sk T=16,16,16
+    45.330 ms   6.7%    960x  min     39.4 us  matmul [5120→6144] f8e4m3_b128 skinny gemm_sk T=16,16,16
+    37.318 ms   5.5%    960x  min     36.2 us  delta_rule delta_rule T=16,16,16
+    32.737 ms   4.8%     20x  min   1608.7 us  matmul [5120→248320] bf16 skinny gemm_sk T=16,16,16
+    24.958 ms   3.7%    320x  min     69.1 us  matmul [5120→12288] f8e4m3_b128 skinny gemm_sk T=16,16,16
+    18.033 ms   2.7%   1920x  min      7.6 us  matmul [5120→48] bf16 split-k gemm_cm2 T=16,16,16
+    14.221 ms   2.1%   2560x  min      4.5 us  fused[Add]+RmsNorm main T=16,16,16
+     7.896 ms   1.2%    640x  min     11.3 us  matmul [5120→1024] f8e4m3_b128 split-k gemm_cm2 T=16,16,16
+     7.857 ms   1.2%    320x  min     23.4 us  attention decode T=16,16,16
+     7.464 ms   1.1%   2560x  min      2.0 us  matmul split-k reduce splitk_reduce T=16,16,16
+     6.245 ms   0.9%    960x  min      4.1 us  conv1d conv1d T=16,16,16
+     5.619 ms   0.8%   1280x  min      3.2 us  matmul [17408→5120] f8e4m3_b128 x→f16 to_f16 T=16,16,16
+     5.407 ms   0.8%   1280x  min      2.7 us  matmul2 [5120→17408]x2 f8e4m3_b128 fused[Silu,Mul] x→f16 to_f16 T=16,16,16
+     5.239 ms   0.8%   1280x  min      3.1 us  matmul [6144→5120] f8e4m3_b128 x→f16 to_f16 T=16,16,16
+     3.953 ms   0.6%    960x  min      3.1 us  RmsNorm+fused[Silu,Mul] main T=16,16,16
+     3.937 ms   0.6%    960x  min      3.1 us  matmul [5120→10240] f8e4m3_b128 x→f16 to_f16 T=16,16,16
+     3.320 ms   0.5%    960x  min      2.9 us  matmul [5120→48] bf16 x→f16 to_f16 T=16,16,16
+     2.219 ms   0.3%    960x  min      2.0 us  fused[Add,Softplus,Mul] main T=16,16,16
+     1.967 ms   0.3%    960x  min      2.0 us  fused[Sigmoid] main T=16,16,16
+     1.918 ms   0.3%    320x  min      4.1 us  attention combine decode_combine T=16,16,16
+     1.328 ms   0.2%    320x  min      4.1 us  rope+norm rope_row T=16,16,16
+     1.315 ms   0.2%    320x  min      4.1 us  rope+norm+cache_write rope_row T=16,16,16
+     1.314 ms   0.2%    320x  min      4.1 us  matmul [5120→12288] f8e4m3_b128 x→f16 to_f16 T=16,16,16
+     1.309 ms   0.2%    320x  min      3.1 us  cache_write cache_write T=16,16,16
+     0.722 ms   0.1%     20x  min     34.4 us  sample sample T=16,16,16
+     0.665 ms   0.1%    320x  min      2.0 us  fused[Sigmoid,Mul] main T=16,16,16
+     0.169 ms   0.0%     40x  min      3.7 us  gather gather T=16,16,16
+     0.082 ms   0.0%     20x  min      4.1 us  RmsNorm main T=16,16,16
+     0.082 ms   0.0%     20x  min      4.1 us  matmul [5120→248320] bf16 x→f16 to_f16 T=16,16,16
+

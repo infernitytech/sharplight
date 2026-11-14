@@ -1,0 +1,18 @@
+Ready (decode)
+--- rendered prompt ---
+<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.
+Knowledge cutoff: 2024-06
+Current date: 2026-11-14
+
+Reasoning: medium
+
+# Valid channels: analysis, commentary, final. Channel must be included for every message.<|end|><|start|>user<|message|>Write a short poem about the sea.<|end|><|start|>assistant
+-----------------------
+<|channel|>analysis<|message|>The user wants a short poem about the sea. We should produce a short poem. Probably 4-8 lines. Use imagery, maybe personification. Keep it concise. Let's produce something evocative.<|end|><|start|>assistant<|channel|>final<|message|>Beneath the moon’s soft silver sigh,  
+The sea hums a lullaby of waves,  
+Each ripple a whispered promise,  
+A tide that cradles secrets in its arms.  
+
+Its depths hold stories older than stars,  
+And foam that kisses shorelines with a sigh—  
+A restless heart that beats in salt and wind

@@ -1,0 +1,25 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes, decode_multimodal 2040 -> 2040 nodes, vision_encode 773 -> 773 nodes [67 ms]
+Loaded Qwen3.8-27B-FP8 (qwen3_5): 1199 tensors, 31.64 GB, vocab 248320 [520 ms]
+Compiling 195 / 195, 195 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 30.23 / 30.23 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 6544 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 28.43 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+--- rendered prompt ---
+<|im_start|>system
+Reasoning effort is set to xhigh. Please think carefully through the task, validate key assumptions, consider plausible alternatives, and prioritize correctness, consistency, and clarity in the final answer.<|im_end|>
+<|im_start|>user
+Write a short poem about the sea.<|im_end|>
+<|im_start|>assistant
+<think>
+
+-----------------------
+We need to respond to user: "Write a short poem about the sea." Simple. Just produce a short poem. Ensure final only poem maybe.
+</think>
+
+The sea breathes in, the sea breathes out,  
+a silver hush on the shore,  
+where waves write letters to the sand  
+and carry them evermore.
+prompt: 60 tok in 116 ms (519.3 tok/s) | generated: 70 tok, 39.26 tok/s
