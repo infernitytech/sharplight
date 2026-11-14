@@ -23,6 +23,7 @@ internal static class HfArchitectureMappings
         Register(new MiniMaxHfMapping());
         Register(new MambaHfMapping());
         Register(new LatentDecoderHfMapping());
+        Register(new DeepseekV4HfMapping());
         Register(new Eagle3HfMapping());
         Register(new Gemma4AssistantHfMapping());
         Register(new DecoderHfMapping());

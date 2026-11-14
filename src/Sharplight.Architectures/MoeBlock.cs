@@ -11,7 +11,8 @@ namespace Sharplight.Architectures;
 /// <remarks>
 /// Canonical weights below <c>prefix</c> (e.g. <c>layers.3.mlp.</c>):
 /// <list type="bullet">
-/// <item>Optional selection bias <c>router_bias</c> [E] (see <see cref="MoeRouter"/>).</item>
+/// <item>Optional selection bias <c>router_bias</c> [E] (see <see cref="MoeRouter"/>); optional hash-routing table <c>router.token_experts</c>
+/// (i32 [V, k], the fixed experts of every token).</item>
 /// <item><c>router.weight</c> [E, H] with an optional logit bias <c>router.bias</c> [E] (gpt-oss).</item>
 /// <item>Experts, rank 3: <c>experts.up.weight</c> [E, I, H], <c>experts.down.weight</c> [E, H, I] and either
 /// <c>experts.gate.weight</c> [E, I, H] or the fused <c>experts.gate_up.weight</c> [E, 2I, H] (gate rows first). Without a gate the
@@ -49,12 +50,14 @@ internal static class MoeBlock
     /// layer input before the norm); null = <paramref name="h"/>.</param>
     /// <param name="sharedActivation">The shared expert's activation when it differs from the routed experts' (per-branch SwiGLU clamps);
     /// null = <paramref name="activation"/>.</param>
+    /// <param name="tokens">Token ids i32 [T] of the rows for hash routing (<c>router.token_experts</c>, see <see cref="MoeRouter"/>); null
+    /// when the graph has none.</param>
     public static Value Build(GraphBuilder b, Value h, string layerPrefix, string block, MoeOptions options, int hidden, IMlpActivation activation,
-        Value? routerInput = null, IMlpActivation? sharedActivation = null)
+        Value? routerInput = null, IMlpActivation? sharedActivation = null, Value? tokens = null)
     {
         string prefix = layerPrefix + block;
         int k = options.ExpertsUsed;
-        var (weights, ids) = MoeRouter.Route(b, routerInput ?? h, prefix, options);
+        var (weights, ids) = MoeRouter.Route(b, routerInput ?? h, prefix, options, tokens);
         var slotWeights = b.Reshape(weights, 0, k, 1);                                                                           // [T, k, 1]
         var latentDown = b.TryWeight(prefix + "latent_down.weight");
         int width = latentDown is null ? hidden : (int)latentDown.Shape[0].Fixed;

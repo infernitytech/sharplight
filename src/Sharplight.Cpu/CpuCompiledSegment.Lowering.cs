@@ -186,6 +186,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "CausalConv1d":
                 LowerCausalConv1d(n);
                 return;
+            case "WindowPool":
+                LowerWindowPool(n);
+                return;
             case "SelectiveScan":
                 LowerSelectiveScan(n);
                 return;
