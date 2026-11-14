@@ -12,7 +12,7 @@ public sealed class ArtifactSetInfo
         Offset = directory.Section.Offset;
         Length = directory.Section.Length;
         Descriptor = directory.Descriptor;
-        Entries = [.. directory.Entries.Select(e => new ArtifactEntryInfo(e.Key, e.Length))];
+        Entries = [.. directory.Entries.Select(e => new ArtifactEntryInfo(e.Key, e.Length) { Offset = e.Offset })];
         TotalBytes = Entries.Sum(e => e.Size);
     }
 

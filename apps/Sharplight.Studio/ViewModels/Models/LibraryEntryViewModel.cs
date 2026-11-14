@@ -16,6 +16,9 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
     /// <summary>The model.</summary>
     public LibraryEntry Entry { get; }
 
+    /// <summary>The library listing the entry, for the commands of its context menu.</summary>
+    public LibraryViewModel? Library { get; init; }
+
     /// <summary>Id used when loading.</summary>
     public string Id => Entry.Id;
 
@@ -42,6 +45,9 @@ internal sealed partial class LibraryEntryViewModel : ObservableObject
 
     /// <summary>A file outside the store.</summary>
     public bool IsLocalFile => Entry.IsLocalFile;
+
+    /// <summary>A <c>.slm</c> package file, which the package inspector can open.</summary>
+    public bool IsPackage => Entry.Path.EndsWith(Sharplight.Package.ModelPackage.Extension, StringComparison.OrdinalIgnoreCase) && File.Exists(Entry.Path);
 
     /// <summary>Loaded right now.</summary>
     [ObservableProperty]

@@ -22,6 +22,16 @@ internal static class ByteFormat
         return value.ToString(format, CultureInfo.InvariantCulture) + " " + s_units[unit];
     }
 
+    /// <summary>The exact count with thousands separators and the rounded size, e.g. <c>1,048,576 B (1.0 MB)</c>.</summary>
+    public static string Exact(long bytes) =>
+        bytes < 1024 ? Format(bytes) : $"{bytes.ToString("N0", CultureInfo.InvariantCulture)} B ({Format(bytes)})";
+
+    /// <summary>An offset or count with thousands separators, e.g. <c>4,972,912</c>.</summary>
+    public static string Number(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
+
+    /// <summary>A count with its noun, e.g. <c>1 entry</c>, <c>1,024 entries</c>.</summary>
+    public static string Count(long value, string singular, string plural) => $"{Number(value)} {(value == 1 ? singular : plural)}";
+
     /// <summary><c>12.3 MB/s</c>.</summary>
     public static string Rate(double bytesPerSecond) => Format((long)bytesPerSecond) + "/s";
 

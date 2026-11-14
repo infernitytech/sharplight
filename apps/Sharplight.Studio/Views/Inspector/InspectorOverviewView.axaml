@@ -1,0 +1,102 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorOverviewView"
+             x:DataType="ivm:OverviewViewModel">
+  <ScrollViewer>
+    <Grid ColumnDefinitions="*,16,*" Margin="0,0,0,16">
+      <StackPanel Spacing="14">
+        <Border Classes="warn" IsVisible="{Binding HasDefinitionError}">
+          <StackPanel Spacing="4">
+            <TextBlock FontWeight="SemiBold" Text="The definition does not decode with this version" />
+            <SelectableTextBlock Text="{Binding DefinitionError}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon accent" Data="{StaticResource IconModels}" />
+              <TextBlock Classes="h3" Text="Model" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Model}" />
+          </StackPanel>
+        </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon accent" Data="{StaticResource IconDocument}" />
+              <TextBlock Classes="h3" Text="Package file" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Package}" />
+            <Border Classes="divider" Margin="0,4" />
+            <TextBlock Classes="section" Text="SIZE BY SECTION KIND" />
+            <ItemsControl ItemsSource="{Binding KindTotals}" />
+          </StackPanel>
+        </Border>
+        <Border Classes="card" IsVisible="{Binding HasSource}">
+          <StackPanel Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon accent" Data="{StaticResource IconDownload}" />
+              <TextBlock Classes="h3" Text="Source and conversion" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Source}" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+
+      <StackPanel Grid.Column="2" Spacing="14">
+        <Border Classes="card" IsVisible="{Binding HasTokenizer}">
+          <StackPanel Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="icon accent" Data="{StaticResource IconKey}" />
+              <TextBlock Classes="h3" Text="Tokenizer" />
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding Tokenizer}" />
+          </StackPanel>
+        </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding ChatTemplateSize}" VerticalAlignment="Center" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Path Classes="icon accent" Data="{StaticResource IconChat}" />
+                <TextBlock Classes="h3" Text="Chat template" />
+              </StackPanel>
+            </DockPanel>
+            <TextBlock Classes="muted" Text="No chat template is stored." IsVisible="{Binding !HasChatTemplate}" />
+            <Border Classes="md-code" IsVisible="{Binding HasChatTemplate}">
+              <ScrollViewer MaxHeight="380" HorizontalScrollBarVisibility="Auto">
+                <SelectableTextBlock Classes="mono md-code-text" Text="{Binding ChatTemplate}" />
+              </ScrollViewer>
+            </Border>
+          </StackPanel>
+        </Border>
+        <Border Classes="card" IsVisible="{Binding HasStates}">
+          <StackPanel Spacing="10">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding States.Count, StringFormat='{}{0} states'}" VerticalAlignment="Center" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Path Classes="icon accent" Data="{StaticResource IconMemory}" />
+                <TextBlock Classes="h3" Text="States" />
+              </StackPanel>
+            </DockPanel>
+            <ScrollViewer MaxHeight="280">
+              <ItemsControl ItemsSource="{Binding States}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="ivm:StateRow">
+                    <Grid ColumnDefinitions="*,*,90,90" Margin="0,3">
+                      <TextBlock Classes="cell mono" Text="{Binding Name}" />
+                      <TextBlock Grid.Column="1" Classes="cell mono" Text="{Binding TypeShape}" />
+                      <TextBlock Grid.Column="2" Classes="cell caption" Text="{Binding Kind}" />
+                      <TextBlock Grid.Column="3" Classes="cell caption" Text="{Binding Group}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

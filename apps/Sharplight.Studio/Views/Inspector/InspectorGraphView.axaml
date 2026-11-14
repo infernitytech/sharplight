@@ -1,0 +1,235 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             xmlns:iv="using:Sharplight.Studio.Views.Inspector"
+             xmlns:c="using:Sharplight.Studio.Controls"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorGraphView"
+             x:DataType="ivm:GraphViewModel">
+  <Grid RowDefinitions="Auto,*">
+    <!-- Toolbar: view switch, search or filter, totals -->
+    <DockPanel Margin="0,0,0,10">
+      <Border DockPanel.Dock="Left" Classes="segments" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="2">
+          <Button Classes="segment" Classes.selected="{Binding IsGraphMode}" Content="Graph" Command="{Binding SetModeCommand}" CommandParameter="Graph" />
+          <Button Classes="segment" Classes.selected="{Binding IsIrMode}" Content="IR" Command="{Binding SetModeCommand}" CommandParameter="Ir" />
+          <Button Classes="segment" Classes.selected="{Binding IsNodesMode}" Content="Nodes" Command="{Binding SetModeCommand}" CommandParameter="Nodes" />
+        </StackPanel>
+      </Border>
+      <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Stats}" VerticalAlignment="Center" Margin="12,0,0,0" />
+      <Panel Margin="12,0,0,0">
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsGraphMode}">
+          <TextBox Width="280" PlaceholderText="Find a node: op, output name or layer" Text="{Binding NodeSearch}">
+            <TextBox.KeyBindings>
+              <KeyBinding Gesture="Enter" Command="{Binding FindNodeCommand}" />
+              <KeyBinding Gesture="Shift+Enter" Command="{Binding FindPreviousNodeCommand}" />
+            </TextBox.KeyBindings>
+          </TextBox>
+          <Button Classes="small" Command="{Binding FindNodeCommand}" ToolTip.Tip="Next match (Enter)">
+            <Path Classes="icon" Data="{StaticResource IconSearch}" Width="13" Height="13" />
+          </Button>
+          <TextBlock Classes="caption" Text="{Binding SearchStatus}" VerticalAlignment="Center" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding IsNodesMode}">
+          <TextBox Width="420" PlaceholderText="Filter: op, name, layer, shapes or attributes; op:MatMul matches the op exactly" Text="{Binding NodeFilter}" />
+          <TextBlock Classes="caption" Text="{Binding NodeSummary}" VerticalAlignment="Center" />
+        </StackPanel>
+      </Panel>
+    </DockPanel>
+
+    <Grid Grid.Row="1" ColumnDefinitions="236,12,*,Auto">
+      <!-- Inputs, outputs, op histogram -->
+      <Border Classes="card" Padding="14">
+        <Grid RowDefinitions="Auto,Auto,*">
+          <ScrollViewer MaxHeight="300">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="section" Text="INPUTS" />
+              <ItemsControl ItemsSource="{Binding Inputs}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="ivm:GraphValueRow">
+                    <StackPanel Margin="0,0,0,6">
+                      <TextBlock Classes="mono" Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                      <TextBlock Classes="caption" Text="{Binding TypeShape}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="caption" Text="{Binding Role}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="section" Text="OUTPUTS" Margin="0,4,0,0" />
+              <ItemsControl ItemsSource="{Binding Outputs}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="ivm:GraphValueRow">
+                    <StackPanel Margin="0,0,0,6">
+                      <TextBlock Classes="mono" Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12" />
+                      <TextBlock Classes="caption" Text="{Binding TypeShape}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+          <DockPanel Grid.Row="1" Margin="0,10,0,6">
+            <Button DockPanel.Dock="Right" Classes="ghost small" Content="Clear" Command="{Binding ClearOpCommand}" Padding="6,2"
+                    IsVisible="{Binding SelectedOp, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="section" Text="OPS" VerticalAlignment="Center" ToolTip.Tip="Select an op to highlight its nodes and filter the node list" />
+          </DockPanel>
+          <ListBox Grid.Row="2" Classes="plain" ItemsSource="{Binding OpHistogram}" SelectedItem="{Binding SelectedOp}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="ivm:OpCountRow">
+                <Grid ColumnDefinitions="*,Auto" Margin="8,4" ToolTip.Tip="{Binding Op}">
+                  <StackPanel Spacing="3">
+                    <TextBlock Text="{Binding Op}" FontSize="12.5" TextTrimming="CharacterEllipsis" />
+                    <ProgressBar Classes="thin" Minimum="0" Maximum="100" Value="{Binding Percent}" MinWidth="0" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Count}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+
+      <!-- Graph, IR or node list -->
+      <Panel Grid.Column="2">
+        <Border Classes="table" IsVisible="{Binding IsGraphMode}">
+          <Panel>
+            <c:GraphCanvas x:Name="Canvas" Layout="{Binding Layout}" SelectedNodeId="{Binding SelectedNodeId}" HighlightOp="{Binding HighlightOp}" />
+            <Border Classes="overlay" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="10">
+              <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button Classes="ghost small" Content="−" ToolTip.Tip="Zoom out (Ctrl+wheel)" Click="OnZoomOut" MinWidth="30" />
+                <Button Classes="ghost small" Content="+" ToolTip.Tip="Zoom in (Ctrl+wheel)" Click="OnZoomIn" MinWidth="30" />
+                <Button Classes="ghost small" Content="Fit" ToolTip.Tip="Show the whole graph" Click="OnFit" />
+                <Button Classes="ghost small" Content="Top" ToolTip.Tip="Back to the inputs" Click="OnTop" />
+                <Button Classes="ghost small" Content="Selection" ToolTip.Tip="Center the selected node" Click="OnCenter" />
+              </StackPanel>
+            </Border>
+            <Border Classes="overlay" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10" Padding="10,5">
+              <TextBlock Classes="caption" Text="Drag to pan · wheel to scroll · Ctrl+wheel to zoom · click a node for details" />
+            </Border>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" IsVisible="{Binding IsLoading}">
+              <ProgressBar IsIndeterminate="True" Width="180" />
+              <TextBlock Classes="caption" Text="{Binding NodeSummary}" HorizontalAlignment="Center" />
+            </StackPanel>
+          </Panel>
+        </Border>
+
+        <Panel IsVisible="{Binding IsIrMode}">
+          <iv:InspectorIrView DataContext="{Binding Ir}" />
+        </Panel>
+
+        <Border Classes="table" IsVisible="{Binding IsNodesMode}">
+          <DockPanel>
+            <Border DockPanel.Dock="Top" Classes="table-header">
+              <Grid ColumnDefinitions="64,150,110,230,*">
+                <TextBlock Classes="th" Text="#" />
+                <TextBlock Grid.Column="1" Classes="th" Text="Op" />
+                <TextBlock Grid.Column="2" Classes="th" Text="Layer" />
+                <TextBlock Grid.Column="3" Classes="th" Text="Outputs" />
+                <TextBlock Grid.Column="4" Classes="th" Text="Inputs" />
+              </Grid>
+            </Border>
+            <ListBox x:Name="NodeList" Classes="table" ItemsSource="{Binding Nodes}" SelectedItem="{Binding SelectedNode}" SelectionChanged="OnNodeSelectionChanged">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="ivm:NodeRow">
+                  <Grid ColumnDefinitions="64,150,110,230,*" ToolTip.Tip="{Binding Attributes}">
+                    <TextBlock Classes="cell mono caption" Text="{Binding Id}" />
+                    <TextBlock Grid.Column="1" Classes="cell" Text="{Binding Op}" FontWeight="Medium" />
+                    <TextBlock Grid.Column="2" Classes="cell caption" Text="{Binding Group}" />
+                    <TextBlock Grid.Column="3" Classes="cell mono" Text="{Binding Outputs}" />
+                    <TextBlock Grid.Column="4" Classes="cell mono caption" Text="{Binding Inputs}" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+        </Border>
+      </Panel>
+
+      <!-- Node details -->
+      <Border Grid.Column="3" Classes="card" Width="330" Margin="12,0,0,0" Padding="16" IsVisible="{Binding ShowsDetails}">
+        <Panel>
+          <StackPanel Spacing="8" VerticalAlignment="Center" HorizontalAlignment="Center"
+                      IsVisible="{Binding Details, Converter={x:Static ObjectConverters.IsNull}}">
+            <Path Classes="icon huge" Data="{StaticResource IconInfo}" HorizontalAlignment="Center" />
+            <TextBlock Classes="muted" Text="Select a node to see its attributes, shapes and weights." TextWrapping="Wrap" TextAlignment="Center" />
+          </StackPanel>
+          <ScrollViewer IsVisible="{Binding Details, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <ContentControl Content="{Binding Details}">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="ivm:NodeDetailsViewModel">
+                  <StackPanel Spacing="10">
+                    <StackPanel Spacing="2">
+                      <SelectableTextBlock Classes="h2" Text="{Binding Op}" FontSize="17" FontWeight="SemiBold" />
+                      <TextBlock Classes="caption" Text="{Binding Caption}" />
+                    </StackPanel>
+
+                    <TextBlock Classes="section" Text="ATTRIBUTES" IsVisible="{Binding HasAttributes}" />
+                    <ItemsControl ItemsSource="{Binding Attributes}" IsVisible="{Binding HasAttributes}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="ivm:FactRow">
+                          <Grid ColumnDefinitions="110,*" Margin="0,2">
+                            <TextBlock Classes="caption" Text="{Binding Label}" TextTrimming="CharacterEllipsis" Margin="0,1,8,0" />
+                            <SelectableTextBlock Grid.Column="1" Classes="mono" Text="{Binding Value}" TextWrapping="Wrap" FontSize="12" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Classes="section" Text="INPUTS" />
+                    <ItemsControl ItemsSource="{Binding Inputs}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="ivm:NodeInputRow">
+                          <Grid ColumnDefinitions="Auto,*" Margin="0,0,0,8">
+                            <Border Classes="kind" Margin="0,1,8,0" VerticalAlignment="Top">
+                              <TextBlock Text="{Binding Kind}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="1">
+                              <SelectableTextBlock Classes="mono" Text="{Binding Name}" TextWrapping="Wrap" FontSize="12" />
+                              <TextBlock Classes="caption mono" Text="{Binding TypeShape}" TextTrimming="CharacterEllipsis" FontSize="11.5" />
+                              <Button Classes="ghost small" Padding="0,1" IsVisible="{Binding HasProducer}" HorizontalAlignment="Left"
+                                      Tag="{Binding Producer}" Click="OnGoToNode">
+                                <TextBlock Classes="accent" Text="{Binding Detail, StringFormat='from {0}'}" FontSize="12" />
+                              </Button>
+                              <TextBlock Classes="caption" Text="{Binding Detail}" IsVisible="{Binding !HasProducer}" />
+                            </StackPanel>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="caption" Text="{Binding WeightSummary}" />
+
+                    <TextBlock Classes="section" Text="OUTPUTS" />
+                    <ItemsControl ItemsSource="{Binding Outputs}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="ivm:GraphValueRow">
+                          <StackPanel Spacing="1" Margin="0,0,0,6">
+                            <SelectableTextBlock Classes="mono" Text="{Binding Name}" TextWrapping="Wrap" FontSize="12" />
+                            <TextBlock Classes="caption mono" Text="{Binding TypeShape}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Classes="section" Text="USED BY" IsVisible="{Binding HasConsumers}" />
+                    <ItemsControl ItemsSource="{Binding Consumers}" IsVisible="{Binding HasConsumers}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="ivm:NodeLinkRow">
+                          <Button Classes="small" Margin="0,0,6,6" ToolTip.Tip="{Binding Group}"
+                                  Tag="{Binding Id}" Click="OnGoToNode" Content="{Binding Label}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+          </ScrollViewer>
+        </Panel>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

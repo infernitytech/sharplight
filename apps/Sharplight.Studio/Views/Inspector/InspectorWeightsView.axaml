@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ivm="using:Sharplight.Studio.ViewModels.Inspector"
+             x:Class="Sharplight.Studio.Views.Inspector.InspectorWeightsView"
+             x:DataType="ivm:WeightsViewModel">
+  <Grid ColumnDefinitions="*,16,320" RowDefinitions="Auto,*" Margin="0,0,0,16">
+    <DockPanel Margin="0,0,0,10">
+      <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding Summary}" VerticalAlignment="Center" Margin="12,0,0,0" />
+      <TextBox PlaceholderText="Filter: name, type or shape" Text="{Binding Filter}" MaxWidth="460" HorizontalAlignment="Left" MinWidth="320" />
+    </DockPanel>
+
+    <Border Grid.Row="1" Classes="table">
+      <DockPanel>
+        <Border DockPanel.Dock="Top" Classes="table-header">
+          <Grid ColumnDefinitions="*,90,170,64,90,130">
+            <Button Classes="sort" Content="{Binding NameHeader}" Command="{Binding SortByCommand}" CommandParameter="Name" />
+            <Button Grid.Column="1" Classes="sort" Content="{Binding TypeHeader}" Command="{Binding SortByCommand}" CommandParameter="Type" />
+            <Button Grid.Column="2" Classes="sort" Content="{Binding ShapeHeader}" Command="{Binding SortByCommand}" CommandParameter="Shape" />
+            <Button Grid.Column="3" Classes="sort" Content="{Binding BitsHeader}" Command="{Binding SortByCommand}" CommandParameter="Bits" ToolTip.Tip="Stored bits per element" />
+            <Button Grid.Column="4" Classes="sort" Content="{Binding SizeHeader}" Command="{Binding SortByCommand}" CommandParameter="Size" />
+            <Button Grid.Column="5" Classes="sort" Content="{Binding OffsetHeader}" Command="{Binding SortByCommand}" CommandParameter="Offset" />
+          </Grid>
+        </Border>
+        <ListBox Classes="table" ItemsSource="{Binding Weights}" SelectedItem="{Binding SelectedWeight}">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="ivm:WeightRow">
+              <Grid ColumnDefinitions="*,90,170,64,90,130">
+                <TextBlock Classes="cell mono" Text="{Binding Name}" ToolTip.Tip="{Binding Name}" />
+                <TextBlock Grid.Column="1" Classes="cell mono" Text="{Binding Type}" Foreground="{DynamicResource AccentBrush}" />
+                <TextBlock Grid.Column="2" Classes="cell mono" Text="{Binding Shape}" />
+                <TextBlock Grid.Column="3" Classes="cell mono caption" Text="{Binding Bits}" />
+                <TextBlock Grid.Column="4" Classes="cell" Text="{Binding Size}" />
+                <TextBlock Grid.Column="5" Classes="cell mono caption" Text="{Binding OffsetText}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <ScrollViewer Grid.Column="2" Grid.RowSpan="2">
+      <StackPanel Spacing="14">
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="h3" Text="By stored type" />
+            <TextBlock Classes="caption" Text="{Binding Totals}" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding TypeTotals}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="ivm:ShareRow">
+                  <Grid ColumnDefinitions="70,*,64" Margin="0,4">
+                    <StackPanel VerticalAlignment="Center">
+                      <TextBlock Classes="mono" Text="{Binding Label}" FontSize="12" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3" Margin="0,0,10,0">
+                      <ProgressBar Minimum="0" Maximum="100" Value="{Binding Percent}" MinWidth="0" />
+                      <TextBlock Classes="caption" Text="{Binding Detail}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Size}" FontSize="12.5" HorizontalAlignment="Right" />
+                      <TextBlock Classes="caption" Text="{Binding Share}" HorizontalAlignment="Right" />
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+        <Border Classes="card" IsVisible="{Binding SelectedWeight, Converter={x:Static ObjectConverters.IsNotNull}}">
+          <StackPanel Spacing="6" DataContext="{Binding SelectedWeight}" x:DataType="ivm:WeightRow">
+            <TextBlock Classes="section" Text="SELECTED WEIGHT" />
+            <SelectableTextBlock Classes="mono" Text="{Binding Name}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,4,0,0">
+              <TextBlock Classes="caption" Text="Stored type" />
+              <SelectableTextBlock Grid.Column="1" Classes="mono" Text="{Binding Type}" />
+              <TextBlock Grid.Row="1" Classes="caption" Text="Shape" />
+              <SelectableTextBlock Grid.Row="1" Grid.Column="1" Classes="mono" Text="{Binding Shape}" />
+              <TextBlock Grid.Row="2" Classes="caption" Text="Elements" />
+              <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Elements, StringFormat='{}{0:N0}'}" />
+              <TextBlock Grid.Row="3" Classes="caption" Text="Bits per element" />
+              <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Bits}" />
+              <TextBlock Grid.Row="4" Classes="caption" Text="Size" />
+              <SelectableTextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Bytes, StringFormat='{}{0:N0} B'}" />
+              <TextBlock Grid.Row="5" Classes="caption" Text="Offset" />
+              <SelectableTextBlock Grid.Row="5" Grid.Column="1" Classes="mono" Text="{Binding OffsetText}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

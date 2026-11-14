@@ -146,7 +146,6 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 | `samples/Sharplight.Cli` | `sharplight` | Chat / generate / benchmark from the command line; pulls Hugging Face models like the server |
 | `samples/Sharplight.Server` | `sharplight-server` | Serve one or several models over HTTP; search, pull and run Hugging Face models ([docs/model-hub.md](docs/model-hub.md)) |
 | `samples/Sharplight.Convert` | `sharplight-convert` | Convert models to `.slm` packages, precompile, inspect |
-| `samples/Sharplight.PackageViewer` | `sharplight-viewer` | Avalonia viewer for `.slm` packages (graphs, IR, weights, artifacts) |
 | `samples/Sharplight.OnnxRun` | `sharplight-onnxrun` | Run an ONNX model on the CPU or Vulkan provider |
 
 Defaults keep near-f32 accuracy; `--reduced-precision` opts in to faster f16 kernel paths where they exist.
@@ -162,7 +161,9 @@ per user (`~/.local/share/sharplight/kernels`).
 A desktop app (Avalonia) to search and download Hugging Face models and convert them automatically. It chats with several
 resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
 APIs. It also records per-model speed and latency statistics. Models go to a `data` folder next to the app by default; the
-settings page switches to the per-user folder or a custom one.
+settings page switches to the per-user folder or a custom one. Its package inspector shows everything in a `.slm` file:
+metadata, tokenizer, the execution graphs (drawn, as IR and as a table), weights, precompiled artifacts and the raw section
+layout.
 
 On Linux, download the AppImage from the [releases](https://github.com/infernitytech/sharplight/releases), make it
 executable and run it; nothing else needs to be installed (a `.tar.gz` of the same self-contained app is attached too).

@@ -2,7 +2,7 @@
 
 Status: container v3 (v2 plus control-flow subgraphs and data-dependent symbols in the IR), artifact tiers, inspection API,
 device profiles, `sharplight-convert` (convert, info, profile, precompile --device/--profile, strip, compact), the graph
-optimization phase (run by `convert` unless `--no-optimize`) and the package viewer (`Sharplight.PackageViewer`) are
+optimization phase (run by `convert` unless `--no-optimize`) and the package inspector in Sharplight Studio are
 implemented; a separate `optimize` command is not yet (2026-11-13).
 
 ## Goals
@@ -18,7 +18,7 @@ implemented; a separate `optimize` command is not yet (2026-11-13).
   A model can ship with no artifacts, with code for some profiles, and/or with binaries for some well-known device/driver pairs.
 - Extensible: providers, tiers and artifact kinds are named by strings and described by key/value descriptors; a reader skips
   what it does not understand. Adding a provider needs no format change.
-- Tooling: a converter CLI (`sharplight-convert`) and a small Avalonia viewer (`Sharplight.PackageViewer`).
+- Tooling: a converter CLI (`sharplight-convert`) and the package inspector in Sharplight Studio.
 
 ## Graph optimization phase (Sharplight.Core)
 
@@ -141,7 +141,13 @@ decoded on first access: architecture, name, states, raw properties and metadata
 `GraphInfo` per graph with node count, op histogram, inputs/outputs as `GraphValueInfo` (type, shape, role), weight and state
 counts, a lazily built node table of `NodeInfo` (id, op, group, attributes, inputs, outputs), and the lazily built textual IR
 `GraphInfo.Ir`: one `IrLine` per line of `ComputeGraph.Dump` (depth, kind, text, scope, node id, defined and used value ids;
-control-flow subgraphs get their own scope)). Used by `sharplight-convert info` and the viewer.
+control-flow subgraphs get their own scope)). Used by `sharplight-convert info` and the Studio package inspector.
+
+For viewers that show the whole file: `PackageInfo.HeaderLength`, `SectionTableOffset` and `SectionTableLength` locate the
+header and the section table (together with `Sections` they cover the file, apart from unused gaps);
+`ModelPackageReader.SectionKinds` lists the tags of every section kind this version defines (any other tag is an unknown
+kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset; and `NodeInfo.InputValues`
+(`NodeInputInfo`: value id, kind, name, type, shape, producing node id or -1) gives the dataflow edges of a graph.
 
 ## Tools
 
@@ -165,12 +171,11 @@ control-flow subgraphs get their own scope)). Used by `sharplight-convert info` 
   device remembers which kernels were compiled with each model-level cache; when its own driver cache also holds other
   pipelines (seeded from the per-user cache file, or other models compiled on the device), the export recreates the model's
   pipelines into a fresh driver cache (Qwen3-0.6B: 4.9 MiB instead of the 140+ MiB per-user cache).
-- `Sharplight.PackageViewer` (samples/Sharplight.PackageViewer, Avalonia 11; `sharplight-viewer [file.slm]`, open dialog or drag
-  and drop): overview (version, size, reclaimable bytes, section table, filterable properties/metadata), graphs (inputs/outputs,
-  op histogram, virtualized filterable node table, IR view in the `--dump-graph` format with search, go-to-producer / consumers,
-  dataflow neighborhood, linked to the node table), weights (sortable/filterable, totals per type), artifact sets by provider
-  and tier with descriptors and entries. Light/dark theme follows the OS. Qwen3-0.6B Q8_0 with both tiers (624 MiB) opens in
-  about 0.1-0.15 s; a 100k-node graph builds its node table and IR in about 1.2 s on a background thread.
+- The package inspector in Sharplight Studio (*Library* › *Inspect*, or *Open .slm file…*; see [studio.md](studio.md)):
+  overview (model, file, source, tokenizer, chat template, states), graphs (a pan/zoom dataflow drawing, the IR view in the
+  `--dump-graph` format and a node table, all linked; node attributes, inputs with producers, consumers), weights
+  (sortable/filterable, totals per type), artifact sets with the profile they were built for and their entries, metadata, and
+  the raw section layout including unknown kinds. It reads no weight or entry data.
 
 ## Measured load times
 

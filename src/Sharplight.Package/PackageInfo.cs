@@ -9,7 +9,7 @@ public sealed class PackageInfo
     private readonly Lazy<DefinitionInfo> _definition;
 
     internal PackageInfo(string path, long fileSize, int version, IReadOnlyList<PackageSectionInfo> sections, IReadOnlyList<PackageWeightInfo> weights,
-        IReadOnlyList<ArtifactSetInfo> artifactSets, long compactedSize, Func<DefinitionInfo> definition)
+        IReadOnlyList<ArtifactSetInfo> artifactSets, long compactedSize, long sectionTableOffset, long sectionTableLength, Func<DefinitionInfo> definition)
     {
         Path = path;
         FileSize = fileSize;
@@ -19,6 +19,8 @@ public sealed class PackageInfo
         WeightBytes = weights.Sum(w => w.ByteSize);
         ArtifactSets = artifactSets;
         ReclaimableBytes = Math.Max(0, fileSize - compactedSize);
+        SectionTableOffset = sectionTableOffset;
+        SectionTableLength = sectionTableLength;
         _definition = new(definition);
     }
 
@@ -30,6 +32,15 @@ public sealed class PackageInfo
 
     /// <summary>Format version of the file (1 or 2, see <see cref="ModelPackage.Version"/>).</summary>
     public int Version { get; }
+
+    /// <summary>Bytes of the file header at offset 0 (magic, format version, section table location).</summary>
+    public int HeaderLength => ModelPackage.HeaderSize;
+
+    /// <summary>Absolute file offset of the section table (written last, after the sections).</summary>
+    public long SectionTableOffset { get; }
+
+    /// <summary>Length of the section table in bytes.</summary>
+    public long SectionTableLength { get; }
 
     /// <summary>The section table in file-table order.</summary>
     public IReadOnlyList<PackageSectionInfo> Sections { get; }
