@@ -132,24 +132,7 @@ internal sealed record DecoderHyperParameters(
     /// ALiBi slopes of <paramref name="heads"/> query heads (the geometric sequence of the ALiBi paper, as BLOOM and llama.cpp compute it for the
     /// largest power of two of heads and the interleaved halves beyond it), or null when <c>attention.alibi_max_bias</c> is 0.
     /// </summary>
-    public float[]? AlibiSlopes(int heads)
-    {
-        if (AlibiMaxBias <= 0f)
-        {
-            return null;
-        }
-
-        int powerOfTwo = 1 << (int)Math.Floor(Math.Log2(heads));
-        float first = MathF.Pow(2f, -AlibiMaxBias / powerOfTwo);
-        float second = MathF.Pow(2f, -AlibiMaxBias / 2f / powerOfTwo);
-        var slopes = new float[heads];
-        for (int head = 0; head < heads; head++)
-        {
-            slopes[head] = head < powerOfTwo ? MathF.Pow(first, head + 1) : MathF.Pow(second, 2 * (head - powerOfTwo) + 1);
-        }
-
-        return slopes;
-    }
+    public float[]? AlibiSlopes(int heads) => Architectures.AlibiSlopes.Of(heads, AlibiMaxBias);
 
     /// <summary>Number of query heads of layer <paramref name="il"/>.</summary>
     public int HeadsOf(int il) => LayerHeadCounts.Length > 0 ? LayerHeadCounts[il] : NHead;
