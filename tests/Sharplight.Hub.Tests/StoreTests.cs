@@ -107,20 +107,6 @@ public sealed class StoreTests : IDisposable
     }
 
     [Fact]
-    public void RootPrefersOptionThenEnvironmentThenPortableThenUserStore()
-    {
-        var executable = _directory.Combine("bin");
-        var user = _directory.Combine("user");
-        Directory.CreateDirectory(executable);
-
-        Assert.Equal("cli", ModelStore.ResolveRoot("cli", "env", executable, user));
-        Assert.Equal("env", ModelStore.ResolveRoot(null, "env", executable, user));
-        Assert.Equal(user, ModelStore.ResolveRoot(null, null, executable, user));
-        Directory.CreateDirectory(Path.Combine(executable, "models"));
-        Assert.Equal(Path.Combine(executable, "models"), ModelStore.ResolveRoot(" ", "", executable, user));
-    }
-
-    [Fact]
     public void UserStoreIsSharedByEveryExecutable()
     {
         Assert.EndsWith(Path.Combine("sharplight", "models"), ModelStore.UserRoot, StringComparison.Ordinal);

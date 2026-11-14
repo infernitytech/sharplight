@@ -149,11 +149,18 @@ dotnet run -c Release --project samples/Sharplight.Server -- serve qwen3-0.6b:q8
 
 Defaults keep near-f32 accuracy; `--reduced-precision` opts in to faster f16 kernel paths where they exist.
 
+Downloaded and converted models are stored in a `data` folder next to the executable, or in the per-user folder
+(`~/.local/share/sharplight/models` on Linux) when the application directory is not writable. `--models-dir`,
+`SHARPLIGHT_MODELS` or `sharplight store use user|application|DIR` choose another location; `store migrate` moves models
+from the per-user folder used by earlier versions ([docs/model-hub.md](docs/model-hub.md#store)). Compiled kernels are cached
+per user (`~/.local/share/sharplight/kernels`).
+
 ## Sharplight Studio
 
 A desktop app (Avalonia) to search and download Hugging Face models and convert them automatically. It chats with several
 resident models at once (Markdown, reasoning, image and document attachments) and serves them over the OpenAI and Anthropic
-APIs. It also records per-model speed and latency statistics.
+APIs. It also records per-model speed and latency statistics. Models go to a `data` folder next to the app by default; the
+settings page switches to the per-user folder or a custom one.
 
 On Linux, download the AppImage from the [releases](https://github.com/infernitytech/sharplight/releases), make it
 executable and run it; nothing else needs to be installed (a `.tar.gz` of the same self-contained app is attached too).

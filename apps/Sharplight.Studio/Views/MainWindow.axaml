@@ -9,9 +9,9 @@
         Title="Sharplight Studio"
         Width="1440" Height="900" MinWidth="980" MinHeight="620"
         WindowStartupLocation="CenterScreen">
-  <Grid ColumnDefinitions="232,*" RowDefinitions="*,Auto">
+  <Grid ColumnDefinitions="232,*" RowDefinitions="Auto,*,Auto">
     <!-- Sidebar -->
-    <Border Grid.RowSpan="2" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
+    <Border Grid.RowSpan="3" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
       <DockPanel Margin="14,18,14,14">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="6,0,0,22">
           <Border Width="34" Height="34" CornerRadius="10" Background="{DynamicResource AccentGradientBrush}">
@@ -85,15 +85,30 @@
       </DockPanel>
     </Border>
 
+    <!-- One-time offer to move the models of a previous store -->
+    <Border Grid.Column="1" Classes="hint" Margin="28,16,28,0" IsVisible="{Binding StoreMigration.IsOpen}">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+          <Button Classes="small" Content="Keep using the old folder" Command="{Binding StoreMigration.KeepPreviousCommand}"
+                  IsVisible="{Binding !StoreMigration.IsDone}" />
+          <Button Classes="small" Content="Move models" Command="{Binding StoreMigration.MoveCommand}" IsVisible="{Binding !StoreMigration.IsDone}" />
+          <Button Classes="small" Content="Copy models" Command="{Binding StoreMigration.CopyCommand}" IsVisible="{Binding !StoreMigration.IsDone}" />
+          <Button Classes="small" Content="{Binding StoreMigration.DismissText}"
+                  Command="{Binding StoreMigration.DismissCommand}" IsEnabled="{Binding !StoreMigration.IsBusy}" />
+        </StackPanel>
+        <TextBlock Text="{Binding StoreMigration.Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
+      </DockPanel>
+    </Border>
+
     <!-- Page -->
-    <TransitioningContentControl Grid.Column="1" Content="{Binding CurrentPage}">
+    <TransitioningContentControl Grid.Column="1" Grid.Row="1" Content="{Binding CurrentPage}">
       <TransitioningContentControl.PageTransition>
         <CrossFade Duration="0:0:0.14" />
       </TransitioningContentControl.PageTransition>
     </TransitioningContentControl>
 
     <!-- Status bar -->
-    <Border Grid.Column="1" Grid.Row="1" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="16,4">
+    <Border Grid.Column="1" Grid.Row="2" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="16,4">
       <DockPanel>
         <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding DeviceText}" VerticalAlignment="Center" />
         <StackPanel Orientation="Horizontal" Spacing="18">

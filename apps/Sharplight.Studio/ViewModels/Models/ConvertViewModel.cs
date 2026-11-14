@@ -5,11 +5,17 @@ using Sharplight.Studio.Services.Platform;
 
 namespace Sharplight.Studio.ViewModels.Models;
 
-/// <summary>The convert panel: a local GGUF / checkpoint / ONNX model (with an optional vision projector) to a <c>.slm</c> package.</summary>
+/// <summary>
+/// The convert panel: a local GGUF / checkpoint / ONNX model (with an optional vision projector) to a <c>.slm</c> package, by default
+/// in the <c>converted</c> folder of the model store.
+/// </summary>
 internal sealed partial class ConvertViewModel : ObservableObject
 {
     private static readonly FileFilter s_models = new("Models", ["*.gguf", "*.onnx", "*.safetensors", "*.slm"]);
     private static readonly FileFilter s_projectors = new("Vision projectors", ["*.gguf"]);
+
+    /// <summary>Folder in the model store that converted packages go to by default.</summary>
+    internal const string ConvertedDirectoryName = "converted";
 
     private readonly StudioServices _services;
     private readonly Action _converted;
@@ -49,8 +55,8 @@ internal sealed partial class ConvertViewModel : ObservableObject
     {
         if (Destination.Length == 0 && value.Length > 0)
         {
-            var directory = Path.GetDirectoryName(value.TrimEnd(Path.DirectorySeparatorChar)) ?? "";
-            Destination = Path.Combine(directory, Path.GetFileNameWithoutExtension(value.TrimEnd(Path.DirectorySeparatorChar)) + ".slm");
+            var name = Path.GetFileNameWithoutExtension(value.TrimEnd(Path.DirectorySeparatorChar));
+            Destination = Path.Combine(_services.Settings.StoreRoot, ConvertedDirectoryName, name + ".slm");
         }
     }
 

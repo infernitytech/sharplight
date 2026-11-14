@@ -57,19 +57,31 @@
       <Border Classes="card">
         <StackPanel Spacing="12">
           <TextBlock Classes="h3" Text="Models" />
-          <StackPanel>
-            <TextBlock Classes="label" Text="Models directory" />
+          <StackPanel Spacing="6">
+            <TextBlock Classes="label" Text="Where downloaded and converted models are stored" />
             <DockPanel>
-              <Button DockPanel.Dock="Right" Classes="small" Content="Open" Command="{Binding OpenModelsDirectoryCommand}" Margin="6,0,0,0" />
+              <Button DockPanel.Dock="Right" Classes="small" Content="Open folder" Command="{Binding OpenModelsDirectoryCommand}" Margin="6,0,0,0" />
               <Button DockPanel.Dock="Right" Classes="small" Content="Default" Command="{Binding ResetModelsDirectoryCommand}" Margin="6,0,0,0" />
-              <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseModelsDirectoryCommand}" Margin="6,0,0,0" />
-              <TextBox Text="{Binding ModelsDirectory}" PlaceholderText="Default: like the command-line tools" />
+              <ComboBox ItemsSource="{Binding StoreLocations}" SelectedItem="{Binding StoreLocation}" MinWidth="200">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="setvm:StoreLocationChoice">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
             </DockPanel>
-            <TextBlock Classes="caption" Margin="0,4,0,0" TextWrapping="Wrap">
+            <TextBlock Classes="caption" Text="{Binding StoreLocation.Description}" TextWrapping="Wrap" />
+            <DockPanel IsVisible="{Binding IsCustomStore}">
+              <Button DockPanel.Dock="Right" Classes="small" Content="Browse…" Command="{Binding BrowseModelsDirectoryCommand}" Margin="6,0,0,0" />
+              <TextBox Text="{Binding ModelsDirectory}" PlaceholderText="Folder for the model store" />
+            </DockPanel>
+            <TextBlock Classes="caption" TextWrapping="Wrap">
               <Run Text="In use:" />
               <Run Text="{Binding StoreRoot, Mode=OneWay}" FontWeight="Medium" />
               <Run Text="{Binding StoreRootSource, Mode=OneWay, StringFormat='({0})'}" />
             </TextBlock>
+            <TextBlock Classes="caption" TextWrapping="Wrap"
+                       Text="--models-dir and SHARPLIGHT_MODELS take precedence over this setting. Compiled GPU kernels are cached per user, not in the model store." />
           </StackPanel>
           <StackPanel>
             <TextBlock Classes="label" Text="Hugging Face token (for gated models and higher rate limits)" />
