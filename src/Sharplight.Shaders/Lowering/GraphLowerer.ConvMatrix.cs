@@ -90,7 +90,8 @@ public sealed partial class GraphLowerer
     }
 
     /// <summary>Lowers a (non-depthwise) conv through conv_cm when <see cref="ChooseConvMatrixForm"/> allows; false otherwise.</summary>
-    private bool TryLowerConvMatrix(Node n, TensorRef x, TensorRef w, TensorRef? bias, TensorRef y, (string, object)[] common, string name)
+    private bool TryLowerConvMatrix(Node n, Node[] nodes, ConvEpilogueCode? epilogue, TensorRef x, TensorRef w, TensorRef? bias, TensorRef y,
+        (string, object)[] common, string name)
     {
         long G = n.Attributes.Get("groups", 1L);
         long O = w.Shape[0];
@@ -128,14 +129,16 @@ public sealed partial class GraphLowerer
         macros.Add(("A_VEC", K % 8 == 0));
         var variants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
-            var kernel = Lib("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]));
+            var kernel = ConvKernel("conv_cm.slang", "conv_cm", Macros([.. macros, ("SPLITK", cfg.Split), ("KPS", cfg.Kps)]), useWorkspace ? null : epilogue);
             return (kernel, batch => new Grid(Grid.Div(batch * HW, form.TileColumns), Grid.Div(OG, tileRows), (uint)(G * cfg.Split)));
         });
         string label = $"{name} {form.Parts switch { 3 => "bf16x6", 2 => "bf16x3", _ => "f16" }} cm";
         var dst = ws ?? y;
-        Emit(useWorkspace ? label + " gemm" : label, [n], variants,
-            [Pointer(x), Pointer(w), Pointer(biasPointer), Pointer(dst), TokenArg(x)],
-            bias is null || useWorkspace ? [x, w] : [x, w, bias], [dst]);
+        var resArgs = epilogue?.Residual is { } resRef ? new KernelArg[] { Pointer(resRef) } : [];
+        var resReads = epilogue?.Residual is { } resRead ? new[] { resRead } : [];
+        Emit(useWorkspace ? label + " gemm" : label, nodes, variants,
+            [Pointer(x), Pointer(w), Pointer(biasPointer), Pointer(dst), .. useWorkspace ? [] : resArgs, TokenArg(x)],
+            [.. bias is null || useWorkspace ? [x, w] : new[] { x, w, bias }, .. useWorkspace ? [] : resReads], [dst]);
         if (!useWorkspace)
         {
             return true;
@@ -143,12 +146,12 @@ public sealed partial class GraphLowerer
 
         var reduceVariants = ChooseVariants(x.Symbol, bound, choose, cfg =>
         {
-            var kernel = Lib("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)));
+            var kernel = ConvKernel("conv.slang", "conv_splitk_reduce", Macros(("SPLITK", cfg.Split), ("O", O), ("HW", HW), ("HAS_BIAS", bias is not null)), epilogue);
             return (kernel, batch => new Grid(Grid.Div(batch * O * HW, 256)));
         });
-        Emit(label + " reduce", [n], reduceVariants,
-            [Pointer(dst), Pointer(biasPointer), Pointer(y), CountArg(x, O * HW)],
-            bias is null ? [dst] : [dst, bias], [y]);
+        Emit(label + " reduce", nodes, reduceVariants,
+            [Pointer(dst), Pointer(biasPointer), Pointer(y), .. resArgs, CountArg(x, O * HW)],
+            [.. bias is null ? [dst] : new[] { dst, bias }, .. resReads], [y]);
         return true;
     }
 }

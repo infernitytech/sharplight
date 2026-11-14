@@ -12,6 +12,8 @@ namespace Sharplight.Shaders;
 /// count, between 2 and 8; more threads make the weight upload that overlaps the compilation slower).</item>
 /// <item><c>SHARPLIGHT_NO_DUAL=1</c>: do not fuse gate/up matmul pairs into one dual matvec.</item>
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
+/// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
+/// own launch instead of in the convolution's store.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -96,6 +98,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>Disables adding matmul biases in the single-row matvec (separate Add launches instead).</summary>
     public static bool NoBiasFold { get; } = IsSet("SHARPLIGHT_NO_BIAS_FOLD");
+
+    /// <summary>Disables the convolution epilogue fusion (elementwise consumers of a conv computed in its store).</summary>
+    public static bool NoConvEpilogue { get; } = IsSet("SHARPLIGHT_NO_CONV_EPILOGUE");
 
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");

@@ -26,6 +26,9 @@ internal sealed class LoweringUnit
     /// <summary>Two matmuls (sharing x) whose outputs only feed this group: lowered as one dual matvec for small batches.</summary>
     public (Node A, Node B)? Dual;
 
+    /// <summary>A convolution whose output only feeds this group: one launch computes it with the group as its store epilogue.</summary>
+    public Node? ConvHead;
+
     /// <summary>
     /// An Add of a constant row vector (a bias) that is the only consumer of this single-node unit's MatMul: single activation
     /// rows add it in the matvec's store instead of a separate elementwise launch.
@@ -57,7 +60,7 @@ internal sealed class LoweringUnit
                 return BiasAdd is null ? [.. Absorbed ?? [], Node!] : [.. Absorbed ?? [], Node!, BiasAdd];
             }
 
-            Node[] dual = Dual is { } pair ? [pair.A, pair.B] : [];
+            Node[] dual = Dual is { } pair ? [pair.A, pair.B] : ConvHead is null ? [] : [ConvHead];
             Node[] head = NormHead is null ? [] : [NormHead];
             Node[] tail = NormTail is null ? [] : [NormTail];
             return [.. Gathers ?? [], .. dual, .. head, .. Fused, .. tail];

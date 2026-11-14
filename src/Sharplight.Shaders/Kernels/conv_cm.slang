@@ -13,6 +13,7 @@
 // Extra macros: PARTS (1-3) FRAG_N (1 or 2 pixel fragments per subgroup) WARPS_M (1 or 2) A_VEC (K % 8 == 0: weights loaded in groups of 8) SPLITK KPS (K per split,
 // multiple of 32).
 #include "common.slang"
+#include "conv_epilogue.slang"
 using namespace linalg;
 
 #define KHW (KH * KW)
@@ -45,6 +46,9 @@ struct ConvParams
     uint8_t* w;
     float* bias;
     float* y;
+#if EPI_RES
+    float* res;
+#endif
     uint N;
 };
 
@@ -366,10 +370,14 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
                     uint pix = col - n * HW;
                     uint o = g * OG + m;
                     float v = sC[sg * 256 + w];
-#if HAS_BIAS && SPLITK == 1
+                    uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
+#if SPLITK == 1
+#if HAS_BIAS
                     v += p.bias[o];
 #endif
-                    p.y[outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix] = v;
+                    CONV_EPI(v, idx);
+#endif
+                    p.y[idx] = v;
                 }
             }
             GroupMemoryBarrierWithGroupSync();
