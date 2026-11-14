@@ -219,19 +219,21 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
             return w;
         }
 
-        int headCount = g.Int("attention.head_count");
-        if (w.Name.EndsWith("attention.q.weight", StringComparison.Ordinal) || w.Name.EndsWith("attention.q.bias", StringComparison.Ordinal))
+        bool query = w.Name.EndsWith("attention.q.weight", StringComparison.Ordinal) || w.Name.EndsWith("attention.q.bias", StringComparison.Ordinal);
+        bool key = w.Name.EndsWith("attention.k.weight", StringComparison.Ordinal) || w.Name.EndsWith("attention.k.bias", StringComparison.Ordinal);
+        if (!query && !key)
         {
-            return DecoderGgufMapping.UnpermuteRows(w, headCount);
+            return w;
         }
 
-        if (w.Name.EndsWith("attention.k.weight", StringComparison.Ordinal) || w.Name.EndsWith("attention.k.bias", StringComparison.Ordinal))
-        {
-            return DecoderGgufMapping.UnpermuteRows(w, g.Int("attention.head_count_kv", headCount));
-        }
-
-        return w;
+        // Head counts of the tensor's layer (they vary per layer in some families); NextN blocks follow the trunk's first layer.
+        var m = s_canonicalLayer.Match(w.Name);
+        int layer = m.Success ? int.Parse(m.Groups[1].Value) : 0;
+        var (heads, kvHeads) = HeadsOf(g, layer);
+        return DecoderGgufMapping.UnpermuteRows(w, query ? heads : kvHeads);
     }
+
+    private static readonly System.Text.RegularExpressions.Regex s_canonicalLayer = new(@"^layers\.(\d+)\.", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <inheritdoc/>
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
