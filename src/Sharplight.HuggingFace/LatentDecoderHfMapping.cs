@@ -87,16 +87,56 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
         else if (HasIndexer(c))
         {
             md[a + "attention.indexer.token_budget"] = c.Int("index_topk");
+            // DeepSeek-V3.2 rotates the indexer's rope dimensions in rotate-half pairs, GLM-5 in interleaved ones (like its attention).
+            md[a + "attention.indexer.rope_style"] = c.ModelType == "glm_moe_dsa" ? "gptj" : "neox";
         }
 
         return md;
     }
 
     /// <summary>
-    /// DeepSeek-V3.2 and GLM-5 (DSA): a sparse-attention indexer picks <c>index_topk</c> tokens per query. Only its dense regime is implemented
-    /// (the context is capped at the budget, where every visible token is kept).
+    /// DeepSeek-V3.2 and GLM-5 (DSA): a sparse-attention indexer picks <c>index_topk</c> tokens per query (Hunyuan v4 has one too, see
+    /// <c>AddHyV4HyperParameters</c>).
     /// </summary>
     private static bool HasIndexer(HfConfig c) => c.ModelType is "deepseek_v32" or "glm_moe_dsa";
+
+    /// <summary>The DSA indexer tensors below <c>self_attn.indexer.</c>, HF suffix to canonical suffix (norm and head weights in f32).</summary>
+    private static readonly Dictionary<string, string> s_indexerTensors = new(StringComparer.Ordinal)
+    {
+        ["wq_b.weight"] = "attention.indexer.q_up.weight",
+        ["wk.weight"] = "attention.indexer.k.weight",
+        ["k_norm.weight"] = "attention.indexer.k_norm.weight",
+        ["k_norm.bias"] = "attention.indexer.k_norm.bias",
+        ["weights_proj.weight"] = "attention.indexer.head_weights.weight",
+    };
+
+    /// <summary>
+    /// Maps a DSA indexer tensor of a trunk layer; the NextN layers' indexers are dropped (the draft layer attends densely). False when the
+    /// suffix is not an indexer tensor.
+    /// </summary>
+    private static bool TryMapIndexer(string prefix, string suffix, WeightInfo w, HfWeightCollector collector)
+    {
+        const string Indexer = "self_attn.indexer.";
+        if (!suffix.StartsWith(Indexer, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (prefix.StartsWith("mtp.", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (!s_indexerTensors.TryGetValue(suffix[Indexer.Length..], out var canonical))
+        {
+            return false;
+        }
+
+        collector.Add(canonical.Contains("q_up", StringComparison.Ordinal) || canonical.EndsWith("k.weight", StringComparison.Ordinal)
+            ? HfTransforms.Plain(w, prefix + canonical)
+            : HfTransforms.ToF32(w, prefix + canonical));
+        return true;
+    }
 
     /// <summary>DeepSeek-V2 lays the rotary dimensions out in interleaved pairs; V3-style configs say so with rope_interleave (default true).</summary>
     private static bool Interleaved(HfConfig c) => !IsMiniCpm(c) && !IsHyV4(c) && (c.GetBool("rope_interleave") ?? true);
@@ -275,9 +315,9 @@ internal sealed partial class LatentDecoderHfMapping : IHfArchitectureMapping
             {
                 continue;
             }
-            else if (HasIndexer(c) && suffix.StartsWith("self_attn.indexer.", StringComparison.Ordinal))
+            else if ((HasIndexer(c) || IsHyV4(c)) && TryMapIndexer(prefix, suffix, w, collector))
             {
-                continue;   // only the dense regime of the indexer is implemented: it keeps every visible token, its weights are not needed
+                continue;
             }
             else if (!TryMapLayer(c, prefix, suffix, w, collector, experts) && !(IsHyV4(c) && TryMapHyV4Layer(prefix, suffix, w, collector)))
             {

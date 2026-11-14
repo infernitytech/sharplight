@@ -10,7 +10,7 @@ internal sealed record LatentDecoderHyperParameters(
     int LayerCount, int HiddenSize, int Vocab, int ContextLength, float Eps, LatentAttentionParameters Attention,
     float RopeBase, string RopeStyle, string Activation, bool Gated, float EmbeddingScale, float ResidualScale, float LogitScale,
     MoeOptions Moe, float TemperatureScale, float TemperatureLength, StreamHyperConnectionOptions? HyperConnections, float[] MoeSwigluClamp,
-    bool MoeSwigluClampInput)
+    bool MoeSwigluClampInput, SparseAttentionIndexerOptions? Indexer)
 {
     /// <summary>Reads and validates the hyper-parameters of a latent decoder source.</summary>
     /// <exception cref="InvalidDataException">A required key is missing or a routing key is unknown.</exception>
@@ -33,8 +33,7 @@ internal sealed record LatentDecoderHyperParameters(
             LayerCount: src.Arch<int>("layer_count"),
             HiddenSize: src.Arch<int>("hidden_size"),
             Vocab: embedding.Shape[0].IsSymbolic ? 0 : (int)embedding.Shape[0].Fixed,
-            // A DSA indexer (attention.indexer.token_budget) keeps every visible token up to its budget; only that dense regime is implemented.
-            ContextLength: Math.Min(src.Arch("context_length", 4096), src.Arch("attention.indexer.token_budget", int.MaxValue)),
+            ContextLength: src.Arch("context_length", 4096),
             Eps: attention.Eps,
             Attention: attention,
             RopeBase: src.Arch("rope.base", 10000f),
@@ -49,7 +48,8 @@ internal sealed record LatentDecoderHyperParameters(
             TemperatureLength: src.Arch("attention.temperature_length", 0f),
             HyperConnections: StreamHyperConnectionOptions.Read(src, attention.Eps),
             MoeSwigluClamp: src.Arch("moe.swiglu_clamp", Array.Empty<float>()),
-            MoeSwigluClampInput: src.Arch("moe.swiglu_clamp_input", false));
+            MoeSwigluClampInput: src.Arch("moe.swiglu_clamp_input", false),
+            Indexer: SparseAttentionIndexerOptions.Read(src));
         if (hp.TemperatureScale != 0f && hp.TemperatureLength <= 0f)
         {
             throw new InvalidDataException("latent_decoder: attention.temperature_scale needs a positive attention.temperature_length.");
