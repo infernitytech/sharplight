@@ -1,0 +1,17 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes, decode_multimodal 2040 -> 2040 nodes, vision_encode 773 -> 773 nodes [55 ms]
+Loaded Qwen3.8-27B-FP8 (qwen3_5): 1199 tensors, 31.64 GB, vocab 248320 [378 ms]
+[load] lower segment 0: 149 ms (5208 launches, 996 buffers)
+Compiling 198 / 198, 198 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 30.23 / 30.23 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+[load] upload segment 0: 4933 ms, 30.23 GB
+[load] kernels and pipelines segment 0: waited 175 ms for 198 kernels; slang CompileStatistics { Compiled = 0, DiskHits = 198, CompileTime = 00:00:00 }; 198 pipelines, 527 ms summed
+Compiled 'decode' for 64 sequences x 512 tokens in 5629 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 39.51 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Model 'Qwen3' loaded in 6023 ms (estimated 42571 MiB, resident 40785 MiB).
+Serving 'Qwen3' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18190
+  Qwen3 [Chat] Loaded 40785 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 87697 MiB, used 42650 MiB (ours 42640 MiB), available 45047 MiB
+[load] record T=250,U=1,R=1 skip:2984,2987: 55 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=1,U=1,R=1 skip:2984,2987: 24 ms in 1 command buffer(s), of which 0 pipelines 0 ms

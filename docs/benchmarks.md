@@ -1600,3 +1600,239 @@ They pass on the NVIDIA GPU, on the AMD iGPU (no cooperative matrices, so the fa
 * **Serving at 16-64 streams** is at 0.68x of vLLM. The decode step is close (48 vs ~42 ms at 64 rows); the rest of the gap
   is in mixed prefill / decode steps, where a 512-row prompt chunk shares the step with the decodes (TTFT p95 4.6 s vs
   vLLM's 2.4 s at c = 64).
+
+## 20. Mixed prefill / decode steps, fp8 GEMM rework, dual fp8 gate/up GEMM (2026-11-14)
+
+Follow-up to section 19.6. Everything is generic at kernel-selection level. Kernels: `attention.slang` (`MIX_RUN`),
+`recurrent.slang` (multi-sequence `conv1d_tokens`) and `gemm_fp8.slang` (accumulators, `DUAL`, grid order). Lowering:
+`GraphLowerer.Attention.cs`, `GraphLowerer.Recurrent.cs`, `GraphLowerer.Fp8Gemm.cs`, `GraphLowerer.MatMul.cs` and
+`GraphLowerer.Mmq.cs`. BatchBench gained `--mixed D+P[xN],...`, which times steps of D decode rows plus N prompt chunks
+of P rows on fresh sequences, and `--batch`, which sets the rows per step.
+
+Raw results are in [`bench/results/s20/`](../bench/results/s20):
+
+* `batch/`: BatchBench and profiles.
+* `spec/`: SpecBench.
+* Top level: serving.
+* `disturbed/`: runs that overlapped other GPU work and were repeated. The user's applications, including a Sharplight
+  Studio session at 100 % GPU, ran during parts of this work. Every serving run now samples the GPU's other compute
+  applications and is repeated when one was busy.
+* `disturbed/pre-identity-fix/`: runs of an intermediate build, described in 20.2.
+
+### 20.1 Where the serving time goes, and why the scheduler is unchanged
+
+`BatchBench --mixed` times steps that carry D decode rows plus prompt chunks. On the 27B FP8 (`main`), a step costs the
+decode-only step plus 0.23-0.30 ms of GPU time per prompt row. The chunk size (64-2047 rows) and the number of prompts in
+the step (1-8) hardly matter (`batch/mixed_fp8_base_costmodel.txt`):
+
+| decode rows | prompt rows (prompts) | GPU ms | ms per prompt row over decode-only |
+|---|---|---|---|
+| 64 | 0 | 45.4 | |
+| 64 | 64 (1) / 448 (1) / 1984 (1) | 64.8 / 180.6 / 617.6 | 0.304 / 0.302 / 0.288 |
+| 64 | 1000 (4) / 1750 (7) | 338.3 / 560.7 | 0.293 / 0.294 |
+| 16 | 240 (1) / 1008 (1) / 2000 (8) | 89.9 / 296.6 / 571.0 | 0.229 / 0.260 / 0.268 |
+| 1 | 511 (1) / 2047 (1) | 148.7 / 579.8 | 0.244 / 0.272 |
+
+The total GPU time of a serving run is therefore about (steps × decode-step time) + (prompt rows × per-row cost). The
+token budget per step (`--step-tokens`, `EngineOptions.MaxBatchTokens`) and the chunk size (`--prefill-chunk`,
+`EngineOptions.PrefillChunk`) only move work between steps. They trade TTFT against ITL tails but cannot change throughput.
+
+The closed-loop c = 64 run fits this model: 422 steps × ~50 ms plus 48 000 prompt rows × 0.28 ms is about 34.5 s, against
+34.2 s measured. It runs in waves, because all 64 requests start and finish together: a few prefill-heavy steps, then
+about 128 decode steps. vLLM (chunked prefill, `max_num_batched_tokens` 8192) has the same structure, 390 iterations at
+about 42 ms per 64-row step. Its prompt rows cost roughly half as much as Sharplight's, which is also why its c = 64
+TTFT p95 is about half of ours.
+
+So there is no scheduler change and no new option. The levers are the per-row prefill cost and the decode step, both
+kernel work. The two knobs stay in `EngineOptions` and the server; the shared hosting layer (Studio) keeps the defaults.
+
+Two kernel-selection problems did show up in mixed steps, and both are fixed:
+
+* **Attention.** A step with decode rows next to a prompt chunk (more than 64 rows, fewer than 8 rows per run) fell to the
+  scalar per-head kernel: 1.09 ms per attention layer at 64 decode rows plus a 448-row chunk. Such steps now launch the
+  split-K decode kernel for runs shorter than 16 rows and flash attention for the longer runs (80 + 127 µs).
+  * The decode kernel uses one key range per row and writes its output directly, so no combine is needed.
+  * Each kernel skips the other's rows (`MIX_RUN`).
+  * Steps that flash attention covers alone keep flash only.
+  * `SHARPLIGHT_ATTN_MIXED=0` restores one kernel per step.
+* **conv1d.** The multi-sequence `conv1d_tokens` grid had one z-slice per run over the whole batch's row tiles, so 65
+  runs launched 65x the blocks (184 µs per layer). It now tiles the batch's rows once (16 µs). Each block looks up its run
+  by binary search and moves its sliding window to the next run where one begins.
+
+### 20.2 fp8 GEMM
+
+* **Per-column-fragment block accumulators.** The per-weight-block f32 accumulator now holds one column fragment at a
+  time (`F8_FM` fragments instead of `F8_FM × F8_FN`). This frees registers and is 10-13 % faster from 256 rows. 27B
+  shapes at T = 1024, in TFLOPS:
+
+  | shape | before | after |
+  |---|---|---|
+  | [5120→17408] | 257 | 281 |
+  | [17408→5120] | 233 | 261 |
+  | [5120→6144] | 198 | 223 |
+
+* **Token tiles first.** Consecutive workgroups now share a weight tile (grid x = token tiles). Each weight byte is then
+  fetched from memory about once, even when the matrix does not fit the 128 MB L2: [17408→5120] at T = 2048 goes from
+  1.93 to 1.44 ms. The same order on the int8 MMQ GEMM made no difference and is not used.
+* **Dual fp8 GEMM for gate / up pairs at 17-64 rows** (one 64-row tile). One launch reads the E4M3 activations once and
+  multiplies both weight matrices. Their 16-row fragments alternate in the B tile, so one thread holds gate and up of the
+  same output and stores SiLU(gate)·up as the epilogue. Before, this was two GEMMs, each with split-K partials and a
+  reduction, plus an elementwise launch. On the 27B: 139 µs at 32 rows (vs 2 × 84 µs plus reductions) and 147.5 µs at
+  64 rows (vs 2 × 89 µs). `SHARPLIGHT_FP8_DUAL=0` restores the separate launches.
+  * An intermediate build (`disturbed/pre-identity-fix/`) also ran it above 64 rows. Prefill was 4-6 % faster (pp512
+    4375 vs 4212, pp2048 4344 vs 4114 tok/s), but the fused epilogue rounds differently from the separate launches. That changed greedy output
+    on a 636-token FP8 prompt after about 120 tokens (a near tie). Prompt prefill therefore keeps the separate GEMMs, and
+    stays bit-identical to `main` (see 20.7).
+* **What limits the kernel** (recorded in `gemm_fp8.slang`). Without the global loads, the MMAs plus shared-memory
+  traffic run at about 520 TFLOPS, against 282 for the whole kernel at T = 512. These were tried and are no faster:
+  * double-buffered shared memory;
+  * 64-row tiles for large T;
+  * 128×256 tiles (register spills);
+  * a deeper prefetch in the skinny GEMM.
+
+Precision is unchanged: E4M3 activations with one f32 scale per 128 values from 17 rows (section 19.1), and the f32
+matvec for single rows.
+
+### 20.3 Step times
+
+BatchBench on the 27B: minimum GPU ms per step (timestamps) over 2 interleaved process runs per build, on an otherwise
+idle GPU; base = `main`.
+
+Decode rows only (`--ctx 2048 --sizes ...`), FP8:
+
+| rows | base | new | dispatches / barriers, base → new |
+|---|---|---|---|
+| 1 | 22.1 | 22.8 | 901 / 596 → 901 / 596 |
+| 4 | 29.0 | 29.1 | 1206 / 853 (unchanged) |
+| 16 | 33.8 | 33.9 | 1334 / 917 (unchanged) |
+| 32 | 34.8 | 34.1 | 1830 / 1269 → 1574 / 1141 |
+| 64 | 45.6 | 44.2 | 1830 / 1269 → 1574 / 1141 |
+
+Up to 16 rows the kernels are unchanged, so differences there are noise (±3 %). At 32 / 64 rows the dual GEMM saves 2-3 %
+and 256 launches / 128 barriers per step.
+
+Mixed steps (`--slots 72 --ctx 4096 --batch 2048 --mixed ...`, final build). "Prompt rows" are fresh sequences next to the
+decode rows:
+
+| decode + prompt rows (prompts) | FP8 base | FP8 new | speedup | Q8_0 base | Q8_0 new | speedup |
+|---|---|---|---|---|---|---|
+| 64 + 64 (1) | 64.2 | 61.6 | 1.04x | 75.9 | 73.0 | 1.04x |
+| 64 + 448 (1) | 179.4 | 162.4 | **1.10x** | 215.7 | 199.8 | **1.08x** |
+| 64 + 1000 (4) | 327.9 | 300.5 | 1.09x | 405.7 | 401.4 | 1.01x |
+| 16 + 240 (1) | 85.8 | 86.8 | 0.99x | 105.6 | 105.8 | 1.00x |
+| 16 + 1000 (4) | 284.0 | 264.1 | 1.08x | 351.2 | 349.2 | 1.01x |
+| 4 + 508 (1) | 145.7 | 148.6 | 0.98x | 181.9 | 181.7 | 1.00x |
+| 1 + 2047 (1) | 566.5 | 544.1 | 1.04x | 719.8 | 699.3 | 1.03x |
+
+GPU-time profile of the FP8 64 + 448 step (ms per 10 steps; `batch/prof_mixed_fp8_base.txt` vs
+`prof_mixed_fp8_final.txt`):
+
+| category | base | new |
+|---|---|---|
+| attention | 190.7 | 37.1 |
+| recurrent | 219.4 | 133.9 |
+| dense GEMM | 1269.2 | 1199.3 |
+| total | 1891.6 | 1589.1 |
+
+The profiled steps are a little slower than unprofiled ones because profiling keeps program order.
+
+### 20.4 Prefill
+
+`sharplight --bench N --batch N` on the FP8 checkpoint, best of 3 interleaved runs per build (`prefill.txt`); vLLM from
+section 16.3.
+
+| | base | new | speedup | vLLM | new / vLLM |
+|---|---|---|---|---|---|
+| pp512 | 4038 | 4212 | 1.04x | 5171 | 0.81x |
+| pp2048 | 3781 | 4114 | **1.09x** | 5944 | **0.69x** |
+
+Section 16.3 had 0.55x / 0.51x; section 18's chunked delta rule and this section's GEMM work closed part of that. Q8_0
+prefill (int8 MMQ) is unchanged.
+
+### 20.5 Serving against vLLM
+
+`bench/s16_serve.sh` as in section 19.3: ~250-token prompts, 128 output tokens, ignore_eos, a 64-slot server, 2 rounds.
+Each concurrency got its own server start, and base, new and vLLM 0.33 alternated. Values are aggregate tok/s, TTFT
+P50 / P95 in ms and mean ITL in ms, each the mean of 2 rounds; c = 16 is the mean of 4, because single runs varied by ±5 %
+(337-362 tok/s for either build).
+
+| conc | vLLM FP8 | SL base | SL new | new / base | SL / vLLM, base → new | TTFT P50 / P95, SL base → new | vLLM TTFT | ITL SL base → new | vLLM ITL |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 43 | 38 | 38 | 1.00x | 0.87x → **0.87x** | 87 / 88 → 82 / 83 | 60 / 62 | 26.0 → 26.1 | 22.7 |
+| 4 | 154 | 123 | 124 | 1.01x | 0.80x → **0.80x** | 226 / 260 → 216 / 261 | 183 / 193 | 31.2 → 30.9 | 24.9 |
+| 16 | 562 | 350 | 352 | 1.01x | 0.62x → **0.63x** | 304 / 1013 → 296 / 1035 | 574 / 579 | 42.6 → 42.3 | 24.3 |
+| 64 | 1095 | 704 | 741 | **1.05x** | 0.64x → **0.68x** | 546 / 4977 → 512 / 4775 | 1855 / 2505 | 79.0 → 74.8 | 42.8 |
+
+* **c = 64: +5 %**, with TTFT P95 down by 0.2 s and mean ITL down by 4 ms. Its prefill-heavy steps run the faster fp8 GEMMs; its decode steps run
+  the dual GEMM at 64 rows.
+* **c = 1 / 4 / 16 are unchanged.** Their decode steps of 1-16 rows use kernels this section does not touch, and the 1-row
+  matvec is already at about 1.6 TB/s.
+* **Absolute numbers are a few percent below section 19.3** for both base and new, on a warmer, power-capped GPU (300 W,
+  83-89 °C during the runs). vLLM measured the same as in section 19. The ratios to vLLM above are therefore slightly
+  lower than in section 19 for the same code: base 0.64x at c = 64 here vs 0.68x there.
+
+### 20.6 MTP on FP8
+
+SpecBench as in section 19.4 (natural-language prompt, greedy, median of 5), base and new run back to back
+(`spec/`). The new build here is the intermediate one of 20.2, which differs from the final build only in prefill above 64
+rows; the verification steps run the same kernels. Values are tok/s:
+
+| k | base @d47 | new @d47 | base @d4096 | new @d4096 | acceptance (new, d47 / d4096) |
+|---|---|---|---|---|---|
+| off | 38.1 | 38.7 | 37.6 | 38.0 | |
+| 1 | 54.6 | 58.2 | 52.7 | 54.7 | 0.86 / 0.80 |
+| 2 | 70.2 | 73.8 | 62.6 | 70.2 | 0.78 / 0.73 |
+| 3 | 71.3 | 74.1 | 65.5 | 67.8 | 0.57 / 0.57 |
+
+Verification steps of 2-4 rows use the same kernels as before. The 3-5 % differences are within this period's run-to-run
+spread: k = 3 at d47 ranged 64-81 tok/s per run.
+
+### 20.7 Correctness
+
+* Greedy CLI output (200 tokens, a 636-token prompt and a short chat prompt) is token-identical between `main` and this
+  build on the FP8 checkpoint and on the Q8_0 GGUF.
+* With `--speculate-mtp 3` the output is identical to non-speculative decoding, on both builds and both formats.
+
+Two earlier versions broke this and were changed, not tolerated:
+
+* the dual fp8 GEMM above 64 rows (20.2);
+* a `conv1d_tokens` that summed each output via direct loads instead of the sliding window. The compiler rounds the two
+  differently, and that changed MTP output on the Q8_0.
+
+Tests:
+
+* `FusionTests`: dual gate/up at 1-140 rows, including 70 / 140 rows of FP8.
+* `MultiSequenceTests`: a step of more than 64 rows that mixes decode rows with prompt chunks.
+* `Fp8GemmTests`, `MatMulTests`, `PagedAttentionTests`.
+
+The Cpu, Vulkan, Serving and Studio suites pass on the rebased branch (the Families run was interrupted). `MultiSequenceTests` for qwen2.5-0.5b on the CPU provider
+fail on `main` as well (rms 1.7e-3 against a 1e-3 bound at step 2).
+
+### 20.8 Commands
+
+```bash
+dotnet build Sharplight.slnx -c Release && dotnet build bench/BatchBench -c Release && dotnet build bench/SpecBench -c Release
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 1,2,3,4,8,12,16,32,64
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --slots 72 --ctx 4096 --batch 2048 --modes greedy --reps 5 \
+  --mixed 64+0,64+64,64+448,64+250x4,16+0,16+240,16+250x4,4+0,4+508,1+0,1+511,1+2047
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --slots 72 --ctx 4096 --batch 2048 --mixed 64+448,1+2047 --profile 0,1
+samples/Sharplight.Cli/bin/Release/net11.0/sharplight <Qwen3.8-27B-FP8 dir> --bench 2048 --ctx 2304 --batch 2048
+bench/SpecBench/bin/Release/net11.0/SpecBench <Qwen3.8-27B-FP8 dir> --drafts 0,1,2,3 --depths 47,4096
+OUT_DIR=bench/results/s20 PORT=18190 SLOTS=64 bench/s16_serve.sh sharplight qwen27b-fp8-new <dir> "64"   # one concurrency per server
+OUT_DIR=bench/results/s20 PORT=18190 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "64" --gpu-memory-utilization 0.5
+```
+
+### 20.9 Open issues
+
+* **Per-row prefill cost** decides serving at 16-64 streams and its TTFT (20.1). It is about 0.24 ms per row here against
+  about 0.17 ms for vLLM at pp2048, and GEMMs are 79 % of it.
+  * The fp8 GEMM is bound by global-memory fetch, at 282 TFLOPS against about 520 without it. A TMA-like asynchronous
+    copy, or a workgroup-scope 32×32 fp8 MMA with fewer, larger loads, is the next thing to try.
+  * The dual GEMM above 64 rows was worth 4-6 % of prefill but must round like the separate launches to keep greedy output
+    unchanged. Bit-matching its epilogue would recover that gain.
+* **16-row decode step** (33.9 ms vs vLLM's 24.3 ms ITL at c = 16). The skinny GEMM reaches 0.8-1.2 TB/s at 16 rows,
+  against 1.6 TB/s for the matvec, because every workgroup re-reads x. The narrow [5120→48] bf16 projections still take
+  split-K launches.
+* **Delta rule at 64 decode rows** (section 19.6): unchanged, about a quarter of the step. An opt-in bf16 state behind
+  `--reduced-precision` is the remaining lever.
+* **Glue launches**: f16 copies, fp8 quantization and split-K reductions are 3 % of the mixed step.

@@ -1,0 +1,51 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes, decode_multimodal 2040 -> 2040 nodes, vision_encode 773 -> 773 nodes [59 ms]
+Loaded Qwen3.8-27B-FP8 (qwen3_5): 1199 tensors, 31.64 GB, vocab 248320 [413 ms]
+[load] lower segment 0: 174 ms (5208 launches, 996 buffers)
+Compiling 198 / 198, 198 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 30.23 / 30.23 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+[load] upload segment 0: 5866 ms, 30.23 GB
+[load] kernels and pipelines segment 0: waited 46 ms for 198 kernels; slang CompileStatistics { Compiled = 0, DiskHits = 198, CompileTime = 00:00:00 }; 198 pipelines, 497 ms summed
+Compiled 'decode' for 64 sequences x 512 tokens in 6403 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 39.51 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Model 'Qwen3' loaded in 6834 ms (estimated 42571 MiB, resident 40785 MiB).
+Serving 'Qwen3' (both API, VRAM reserve 1.00 GiB) on http://127.0.0.1:18190
+  Qwen3 [Chat] Loaded 40785 MiB
+  NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: total 97887 MiB, budget 90056 MiB, used 42650 MiB (ours 42640 MiB), available 47405 MiB
+[load] record T=512,U=3,R=2 skip:2984,2987: 54 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=490,U=4,R=4 skip:2984,2987: 52 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=4,U=4,R=4 skip:2984,2987: 23 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=2,U=2,R=2 skip:2984,2987: 23 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=250,U=1,R=1 skip:2984,2987: 36 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=4,R=3 skip:2984,2987: 32 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=6,R=5 skip:2984,2987: 13 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=8,R=7 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=10,R=9 skip:2984,2987: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=12,R=11 skip:2984,2987: 13 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=14,R=13 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=16,R=15 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=230,U=16,R=16 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=16,U=16,R=16 skip:2984,2987: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=15,U=15,R=15 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=263,U=14,R=14 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=14,R=14 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=512,U=15,R=14 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=265,U=16,R=16 skip:2984,2987: 12 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=264,U=15,R=15 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=262,U=13,R=13 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=508,U=14,R=14 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=17,U=16,R=16 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=265,U=15,R=15 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=14,U=14,R=14 skip:2984,2987: 11 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=12,U=12,R=12 skip:2984,2987: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=10,U=10,R=10 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=8,U=8,R=8 skip:2984,2987: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=6,U=6,R=6 skip:2984,2987: 9 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=3,U=3,R=3 skip:2984,2987: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=1,U=1,R=1 skip:2984,2987: 10 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=264,U=14,R=14 skip:2984,2987: 20 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=13,U=13,R=13 skip:2984,2987: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=11,U=11,R=11 skip:2984,2987: 8 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=9,U=9,R=9 skip:2984,2987: 7 ms in 1 command buffer(s), of which 0 pipelines 0 ms
+[load] record T=7,U=7,R=7 skip:2984,2987: 6 ms in 1 command buffer(s), of which 0 pipelines 0 ms

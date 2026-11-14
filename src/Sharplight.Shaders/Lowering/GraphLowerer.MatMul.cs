@@ -71,8 +71,8 @@ public sealed partial class GraphLowerer
 
     /// <summary>
     /// Two matmuls sharing x whose outputs only feed one elementwise group (e.g. SwiGLU gate/up + silu·mul):
-    /// for up to 8 rows one dual matvec computes both and applies the group per element. Larger batches run
-    /// the regular launches (matmul, matmul, elementwise), which are skipped for small batches.
+    /// small batches run one dual matvec / int-dot matvec / skinny GEMM that computes both and applies the group per element,
+    /// fp8 weights from 17 rows the dual fp8 GEMM; other batches run the regular launches (matmul, matmul, elementwise).
     /// </summary>
     private void LowerDualMatMul(Node a, Node bNode, List<Node> group, Value output)
     {
@@ -123,8 +123,14 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [x, weightA, weightB], [y]);
 
-        // Larger batches: the regular matmuls and the elementwise group, skipped while a fused launch serves the rows.
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedMaxRows;
+        // Larger batches: fp8 weights at 17-64 rows run one dual GEMM with the group as its epilogue; otherwise the regular
+        // matmuls and the elementwise group, skipped while a fused launch serves the rows.
+        long fusedBelow = fusedMaxRows;
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
+        long dualFp8Max = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
+            xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
+        long dualFp8Min = Fp8GemmMinRows;
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && (rows(b) < dualFp8Min || rows(b) > dualFp8Max);
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);

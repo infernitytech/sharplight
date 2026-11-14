@@ -41,10 +41,13 @@ public sealed partial class GraphLowerer
             ("HAS_BIAS", cb is not null), ("MULTI_SEQ", runs is not null), ("TOK", tok), .. rollback,
             ("PAR_MIN", records is not null && parallelForm ? parallelMin : 0)]);
         var k = Lib("recurrent.slang", "conv1d", macros);
-        KernelArg[] args = [Pointer(x), Pointer(w), Pointer(st), Pointer(y), Pointer(cb ?? y), .. SeqArgs(runs, commits, records), TokenArg(x)];
+        KernelArg[] args = [Pointer(x), Pointer(w), Pointer(st), Pointer(y), Pointer(cb ?? y), .. SeqArgs(runs, commits, records), TokenArg(x),
+            .. runs is null ? [] : (KernelArg[])[TokenArg(runs)]];
         TensorRef[] reads = [x, w, st, .. cb is null ? [] : (TensorRef[])[cb], .. SequenceTables(runs, commits, records)];
         TensorRef[] recordWrites = records is null ? [] : [records];
         uint Runs(Bindings b) => runs is null ? 1u : (uint)Rows(b, runs);
+        // conv1d_tokens: one block per TOK rows of the batch (multi-sequence blocks look up the run of each row).
+        Grid TokenGrid(Bindings b) => new(Grid.Div(C, 128), Grid.Div(Rows(b, x), tok), 1);
         if (!parallelForm)
         {
             Emit($"conv1d {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(C, 128), 1, Runs(b)))], args, reads, [y, st, .. recordWrites]);
@@ -60,13 +63,12 @@ public sealed partial class GraphLowerer
         {
             // The walk first (replay, short runs, records), then the long runs from the replayed state.
             Emit($"conv1d {n.Output.Name}", [n], [Always(k, b => new Grid(Grid.Div(C, 128), 1, Runs(b)))], args, reads, [y, st, .. recordWrites]);
-            Emit($"conv1d {n.Output.Name}", [n], [new KernelVariant(parallel, tokens, b => new Grid(Grid.Div(C, 128), Grid.Div(Rows(b, x), tok), Runs(b)))],
-                args, reads, [y]);
+            Emit($"conv1d {n.Output.Name}", [n], [new KernelVariant(parallel, tokens, TokenGrid)], args, reads, [y]);
         }
         else
         {
             Emit($"conv1d {n.Output.Name}", [n],
-                [new KernelVariant(parallel, tokens, b => new Grid(Grid.Div(C, 128), Grid.Div(Rows(b, x), tok), Runs(b))),
+                [new KernelVariant(parallel, tokens, TokenGrid),
                  new KernelVariant(_ => true, k, b => new Grid(Grid.Div(C, 128), 1, Runs(b)))],
                 args, reads, [y, st]);
         }

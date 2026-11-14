@@ -35,6 +35,9 @@ struct ConvParams
     float* records;   // record row: x [C]
 #endif
     uint T;
+#if MULTI_SEQ
+    uint U;   // runs in the table (conv1d_tokens looks up the run of each row)
+#endif
 };
 
 [shader("compute")]
@@ -109,8 +112,10 @@ void conv1d(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 }
 
 // Token-parallel form for prefill (the loop above walks every token of a run in turn and is latency bound):
-// conv1d_tokens computes TOK consecutive outputs of one channel per thread (grid y = token block, z = run) from x and the
-// old state; conv1d_state then writes the new state (the last KS-1 inputs of each run) after a barrier.
+// conv1d_tokens computes TOK consecutive outputs of one channel per thread (grid y = token block; single sequence: of the
+// whole batch with a sliding window; multi-sequence: of the batch's rows, each looking up its run, so a step with many
+// one-row runs launches no empty blocks) from x and the old state; conv1d_state then writes the new state (the last KS-1
+// inputs of each run) after a barrier.
 #ifndef TOK
 #define TOK 8
 #endif
@@ -129,18 +134,62 @@ void conv1d_tokens(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
     uint c = dtid.x;
     if (c >= C) return;
 #if MULTI_SEQ
-    int4 run = int4(p.runs[(dtid.z) * 4], p.runs[(dtid.z) * 4 + 1], p.runs[(dtid.z) * 4 + 2], p.runs[(dtid.z) * 4 + 3]);
-    float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
-    uint tBeg = uint(run.y), n = uint(run.z);
-    bool fresh = run.w == 0;
-#if PAR_MIN
-    if (run.z < PAR_MIN) return;   // walked by conv1d
+    uint r0 = dtid.y * TOK;
+    if (r0 >= p.T) return;
+    // Run of the block's first row (runs cover the rows consecutively, in order).
+    uint lo = 0, hi = p.U - 1;
+    while (lo < hi)
+    {
+        uint mid = (lo + hi + 1) / 2;
+        if (uint(p.runs[mid * 4 + 1]) <= r0) lo = mid; else hi = mid - 1;
+    }
+
+    uint u = lo;
+    int4 run = int4(p.runs[u * 4], p.runs[u * 4 + 1], p.runs[u * 4 + 2], p.runs[u * 4 + 3]);
+    float wk[KS];
+    [ForceUnroll] for (int j = 0; j < KS; j++) wk[j] = p.w[uint64_t(c) * KS + j];
+#if HAS_BIAS
+    float bias = p.bias[c];
 #endif
+    // Sliding window as in the single-sequence form (same arithmetic), refilled from x / the state where a run begins.
+    float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
+    float win[KS];
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, uint(run.y), run.w == 0, int(r0) - run.y - (KS - 1) + j, c);
+    for (uint i = 0; i < TOK; i++)
+    {
+        uint t = r0 + i;
+        if (t >= p.T) break;
+        if (t >= uint(run.y + run.z))
+        {
+            while (t >= uint(run.y + run.z))
+            {
+                u++;
+                run = int4(p.runs[u * 4], p.runs[u * 4 + 1], p.runs[u * 4 + 2], p.runs[u * 4 + 3]);
+            }
+
+            state = p.state + uint64_t(run.x) * (KS - 1) * C;
+            [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, uint(run.y), run.w == 0, int(t) - run.y - (KS - 1) + j, c);
+        }
+
+        win[KS - 1] = p.x[uint64_t(t) * XS + c];
+        float s = 0;
+        [ForceUnroll] for (int j = 0; j < KS; j++) s += win[j] * wk[j];
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
+#if PAR_MIN
+        if (run.z < PAR_MIN) continue;   // walked by conv1d
+#endif
+#if HAS_BIAS
+        s += bias;
+#endif
+#if ACT_SILU
+        s = s / (1.0 + exp(-s));
+#endif
+        p.y[uint64_t(t) * C + c] = s;
+    }
 #else
     float* state = p.state;
     uint tBeg = 0, n = p.T;
     bool fresh = false;
-#endif
     uint i0 = dtid.y * TOK;
     if (i0 >= n) return;
     float win[KS];
@@ -167,6 +216,7 @@ void conv1d_tokens(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
         p.y[uint64_t(t) * C + c] = s;
         [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
     }
+#endif
 }
 
 [shader("compute")]

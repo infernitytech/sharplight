@@ -15,6 +15,12 @@ public sealed partial class GraphLowerer
     /// <summary>Multi-sequence query rows (batched decode) up to which split-K decoding replaces the per-head kernel.</summary>
     private const long DecodeMaxSequenceRows = 64;
 
+    /// <summary>
+    /// Mixed multi-sequence steps (decode rows next to prompt chunks): runs of at least this many rows go to flash attention,
+    /// shorter ones (decode rows, speculative verification rows) to split-K decoding.
+    /// </summary>
+    private const long MixedFlashMinRunRows = 16;
+
     private BufferDecl? _attnScratch;
 
     /// <summary>Index of the runtime scalar holding the cache position of a stateful node.</summary>
@@ -122,11 +128,24 @@ public sealed partial class GraphLowerer
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits) : o;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
 
+        // Steps of many sequences beyond the decode kernel's rows that are not long runs only (decode rows next to prompt
+        // chunks): split-K decoding for the short runs, then flash attention for the long ones.
+        var mixed = flash && slices == 1 && decode is not null ? MixedAttention(plan, decode) : null;
+        if (mixed is not null)
+        {
+            EmitAttentionLaunch(plan, [mixed.Value.Decode], part, 0, true);
+        }
+
         var scalarKernel = Lib("attention.slang", "main", plan.Macros);
         for (int slice = 0; slice < slices; slice++)
         {
             long firstRow = slice * sliceRows;
             var variants = new List<KernelVariant>();
+            if (mixed is not null)
+            {
+                variants.Add(mixed.Value.Flash);
+            }
+
             if (slice == 0 && decode is not null)
             {
                 variants.Add(new KernelVariant(decode.When, Lib("attention.slang", "decode", decode.Macros),
@@ -454,6 +473,35 @@ public sealed partial class GraphLowerer
             [new KernelVariant(b => Rows(b, q) <= SplitMaxRows, Lib("attention.slang", "combine", splitMacros), b => new Grid((uint)plan.HQ, (uint)Rows(b, q)))],
             [Pointer(part), Pointer(o), Pointer(sinks ?? o), TokenArg(q)],
             sinks is null ? [part] : [part, sinks], [o]);
+    }
+
+    /// <summary>
+    /// The variants of a mixed multi-sequence step (see <see cref="MixedFlashMinRunRows"/>), or null when the attention has no
+    /// run table or mixing is switched off (<c>SHARPLIGHT_ATTN_MIXED=0</c>). They apply above the decode kernel's row limit
+    /// when a step has more than one run but too many runs for flash attention over all of them (fewer than 8 rows per run):
+    /// decode rows next to prompt chunks. A step whose runs are all short or all long just skips the other kernel's
+    /// workgroups. Beyond <see cref="DecodeAttentionPlan.MaxRows"/> rows the decode kernel runs one key range per row
+    /// (<c>DEC_SPLIT_ROWS</c>) and writes its output directly, so no combine is needed.
+    /// </summary>
+    private (KernelVariant Decode, KernelVariant Flash)? MixedAttention(AttentionPlan plan, DecodeAttentionPlan decode)
+    {
+        var q = plan.Q;
+        var runs = plan.Runs;
+        if (runs is null || !DiagnosticSwitches.AttentionMixed)
+        {
+            return null;
+        }
+
+        var flashAll = FlashWhen(plan);
+        Func<Bindings, bool> when = b => Rows(b, q) > decode.MaxRows && Rows(b, runs) > 1 && !flashAll(b);
+        var decodeMacros = new Dictionary<string, string>(decode.Macros)
+        {
+            ["MIX_RUN"] = MixedFlashMinRunRows.ToString(CultureInfo.InvariantCulture),
+            ["DEC_SPLIT_ROWS"] = decode.MaxRows.ToString(CultureInfo.InvariantCulture),
+        };
+        var flashMacros = new Dictionary<string, string>(plan.Macros) { ["MIX_RUN"] = MixedFlashMinRunRows.ToString(CultureInfo.InvariantCulture) };
+        return (new KernelVariant(when, Lib("attention.slang", "decode", decodeMacros), b => new Grid((uint)decode.Groups, (uint)Rows(b, q), 1)),
+            new KernelVariant(when, Lib("attention.slang", "fa", flashMacros), b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 32), (uint)Rows(b, runs))));
     }
 
     /// <summary>Merges the partials of the rows that split-K decoding ran in more than one key range.</summary>

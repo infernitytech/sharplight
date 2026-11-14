@@ -35,7 +35,9 @@ namespace Sharplight.Shaders;
 /// <c>SHARPLIGHT_MMQ_BK=32|64|128</c>: preferred K step of the int8 GEMM (default 128, 64 for Q6_K).</item>
 /// <item><c>SHARPLIGHT_FP8_GEMM=0</c>: run prefill matmuls with block-scaled E4M3 weights on the f16 tensor-core GEMM instead of the
 /// fp8 one (<c>gemm_fp8.slang</c>, E4M3 activations). Disabling <c>matrix_fp8</c> turns it off as well.
-/// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).</item>
+/// <c>SHARPLIGHT_FP8_GEMM_MIN_ROWS=n</c>: activation rows from which the fp8 GEMM serves a matmul (default 17).
+/// <c>SHARPLIGHT_FP8_DUAL=0</c>: run gate/up style matmul pairs as two fp8 GEMMs plus the elementwise launch instead of one
+/// dual fp8 GEMM with the elementwise group as its epilogue.</item>
 /// <item><c>SHARPLIGHT_GEMM2=0</c>: use the older gemm_cm tensor-core GEMM instead of gemm_cm2.</item>
 /// <item><c>SHARPLIGHT_GEMM2_CFG=wm,wn,fm,fn</c>: force one gemm_cm2 warp/fragment layout (must give 128x128 tiles).</item>
 /// <item><c>SHARPLIGHT_GEMM2_SKINNY=0</c>: always use 128-token gemm_cm2 tiles (no 32/64-token tiles for small batches).</item>
@@ -139,6 +141,9 @@ internal static class DiagnosticSwitches
     /// <summary>False keeps E4M3-weight prefill matmuls off the fp8 tensor-core GEMM.</summary>
     public static bool Fp8Gemm { get; } = IsNotZero("SHARPLIGHT_FP8_GEMM");
 
+    /// <summary>False runs fused matmul pairs (gate/up) as two fp8 GEMMs and an elementwise launch instead of one dual fp8 GEMM.</summary>
+    public static bool Fp8DualGemm { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL");
+
     /// <summary>False selects gemm_cm instead of gemm_cm2.</summary>
     public static bool Gemm2 { get; } = IsNotZero("SHARPLIGHT_GEMM2");
 
@@ -189,6 +194,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Split-K decode tuning: target workgroups, minimum keys per split, maximum splits, [rows per lane group and batch].</summary>
     public static int[] AttentionDecodeConfig { get; } = (Read("SHARPLIGHT_ATTN_DECODE_CFG") ?? "1024,128,64").Split(',').Select(int.Parse).ToArray();
+
+    /// <summary>
+    /// True (default) when multi-sequence steps that mix decode rows with prompt chunks split attention between split-K decoding
+    /// (short runs) and flash attention (long runs); <c>SHARPLIGHT_ATTN_MIXED=0</c> keeps one kernel for the whole step.
+    /// </summary>
+    public static bool AttentionMixed { get; } = IsNotZero("SHARPLIGHT_ATTN_MIXED");
 
     /// <summary>True when multi-sequence batches may use flash attention.</summary>
     public static bool AttentionSequenceFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_SEQ_FA");

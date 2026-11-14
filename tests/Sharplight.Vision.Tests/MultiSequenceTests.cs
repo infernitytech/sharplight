@@ -87,14 +87,15 @@ public class MultiSequenceTests
 
         // Script: per step, (slot, tokens) inputs. Slot 0 is reset and reused for a new sequence at step 5.
         // Shapes cover: prompts of several flash-attention tiles next to decode rows, short mixed rows (per-query
-        // attention kernel), pure batched decode (split kernel) and a slot starting over (fresh recurrent state).
+        // attention kernel), pure batched decode (split kernel), steps of more than 64 rows that split attention between
+        // split-K decoding (short runs) and flash attention (long runs), and a slot starting over (fresh recurrent state).
         var steps = new List<(int Slot, int[] Tokens)[]>
         {
             new[] { (0, Tokens(1, 40)), (1, Tokens(2, 7)) },
             new[] { (0, Tokens(3, 1)), (1, Tokens(4, 1)), (2, Tokens(5, 70)) },
             new[] { (0, Tokens(6, 1)), (1, Tokens(7, 1)), (2, Tokens(8, 1)), (3, Tokens(9, 3)) },
             new[] { (0, Tokens(10, 1)), (1, Tokens(11, 1)), (2, Tokens(12, 1)), (3, Tokens(13, 1)) },
-            new[] { (1, Tokens(14, 2)), (2, Tokens(15, 33)) },
+            new[] { (1, Tokens(14, 2)), (2, Tokens(15, 33)), (3, Tokens(23, 30)) },   // > 64 rows: decode + flash attention split
             new[] { (0, Tokens(16, 9)), (3, Tokens(17, 1)) },   // slot 0: new sequence
             new[] { (0, Tokens(18, 1)), (1, Tokens(19, 1)), (2, Tokens(20, 1)), (3, Tokens(21, 1)) },
         };
@@ -133,7 +134,9 @@ public class MultiSequenceTests
                     bool kQuant = device == "vulkan" && path.Contains("Q4_K", StringComparison.OrdinalIgnoreCase);
                     bool loose = kQuant || model.StartsWith("mamba", StringComparison.Ordinal) || model.StartsWith("rwkv", StringComparison.Ordinal);
                     Assert.True(rms < (device == "cpu" ? 1e-3 : loose ? 1e-2 : 5e-3), $"step {s} slot {key.Item1}: rms {rms:G3} maxAbs {maxAbs:G3}");
-                    Assert.Equal(ArgMax(want), ArgMax(row));
+                    int wantTop = ArgMax(want), gotTop = ArgMax(row);
+                    Assert.True(wantTop == gotTop,
+                        $"step {s} slot {key.Item1}: top token {gotTop} vs {wantTop} (logits {row[gotTop]:G4} / {row[wantTop]:G4}, reference {want[gotTop]:G4} / {want[wantTop]:G4}, rms {rms:G3})");
                     Assert.Equal(sess.Position, dec.Length(key.Item1));
                 }
             }

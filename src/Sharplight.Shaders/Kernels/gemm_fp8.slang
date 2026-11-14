@@ -9,12 +9,19 @@
 // three to four per MMA). The accumulator element layout is probed as in mmq.slang (PAIR: NVIDIA's mma fragment pattern).
 //
 // Workgroup = F8_WM x F8_WN subgroups, each owning F8_FM x F8_FN 16x16 output fragments; K is walked in steps of 128 values
-// staged in shared memory, the next step prefetched into registers during the MMAs. SPLITK > 1: workgroup z sums its share
+// staged in shared memory, the next step prefetched into registers during the MMAs. (Measured on Blackwell at 512 rows: the
+// MMAs and shared-memory loads alone run at ~520 TFLOPS; the global fetch of both operands brings that down to ~280, and
+// neither double-buffered shared memory nor 64-row tiles hide it.) SPLITK > 1: workgroup z sums its share
 // of K into slice z of y ([SPLITK][T][N], reduced by splitk_reduce in matmul.slang).
 //
+// DUAL (SPLITK = 1, F8_FN even): two weight matrices of the same shape (w, w2; e.g. gate and up) share the activations. The
+// B tile's 16-row fragments alternate between them (fragment 2i: rows of w, 2i + 1: the same rows of w2), so each thread
+// holds both results of an output element and stores `epi2(a, b)` (defined by the including generated source, e.g.
+// silu(a) * b); a workgroup covers F8_BN / 2 outputs.
+//
 // Specialization macros: KERNEL_GEMM_FP8 / KERNEL_QUANTIZE_FP8, WBLOCK (32 or 128), K, N, Y_STRIDE, ROW_BYTES, F8_WM, F8_WN,
-// F8_FM, F8_FN, SPLITK, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE (quantize_fp8). Requires K % 128 == 0 and
-// 32-lane subgroups.
+// F8_FM, F8_FN, SPLITK, DUAL, F8_GENERIC_LAYOUT (1: per-element scale loads), X_STRIDE (quantize_fp8). Requires K % 128 == 0
+// and 32-lane subgroups.
 #include "common.slang"
 using namespace linalg;
 
@@ -89,6 +96,12 @@ void quantize_fp8(uint3 dtid : SV_DispatchThreadID, uniform QuantParams p)
 #ifndef F8_GENERIC_LAYOUT
 #define F8_GENERIC_LAYOUT 0
 #endif
+#ifndef DUAL
+#define DUAL 0
+#endif
+#if DUAL && (SPLITK != 1 || F8_FN % 2 != 0)
+#error "the dual fp8 GEMM needs SPLITK = 1 and an even F8_FN"
+#endif
 
 #define F8_THREADS (F8_WM * F8_WN * 32)
 #define F8_BM (F8_WM * F8_FM * 16)
@@ -108,9 +121,23 @@ struct Params
 {
     uint8_t* x;
     uint8_t* w;
+#if DUAL
+    uint8_t* w2;
+#endif
     float* y;
     uint T;
 };
+
+// Weight matrix and output row of B tile row r (n0: the workgroup's first output row).
+#if DUAL
+#define F8_BN_OUT (F8_BN / 2)
+#define F8_WPTR(r) ((((r) / 16) & 1) != 0 ? p.w2 : p.w)
+#define F8_WROW(n0, r) ((n0) + ((r) / 32) * 16 + (r) % 16)
+#else
+#define F8_BN_OUT F8_BN
+#define F8_WPTR(r) p.w
+#define F8_WROW(n0, r) ((n0) + (r))
+#endif
 
 typealias MatA8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 16, 32, CoopMatMatrixUse.MatrixA>;
 typealias MatB8 = CoopMat<FloatE4M3, MemoryScope.Subgroup, 32, 16, CoopMatMatrixUse.MatrixB>;
@@ -127,8 +154,10 @@ groupshared float sBS[F8_WBLOCKS * F8_BN];
 void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
 {
     uint sg = tid / 32;
-    uint n0 = gid.x * F8_BN;
-    uint t0 = gid.y * F8_BM;
+    // Grid x = token tile, y = weight tile: consecutive workgroups share a weight tile, so each weight byte comes from memory
+    // about once even when the matrix (or a dual pair) is larger than the L2 cache.
+    uint n0 = gid.y * F8_BN_OUT;
+    uint t0 = gid.x * F8_BM;
     uint wm = (sg / F8_WN) * (F8_FM * 16);
     uint wn = (sg % F8_WN) * (F8_FN * 16);
     uint r0 = uint(index[0]) >> 4, c0 = uint(index[0]) & 15;
@@ -161,14 +190,14 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     [ForceUnroll] for (uint it = 0; it < F8_B_ITEMS; it++)                                              \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx / (F8_BK / 4), word = idx % (F8_BK / 4);              \
-        uint8_t* row = rowStart(p.w, ROW_BYTES, min(n0 + r, uint(N) - 1));                              \
+        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));                              \
         uint blk = ((k0) + word * 4) / WBLOCK;                                                          \
         if (idx < F8_BN * F8_BK / 4) wq[it] = *(uint*)(row + (uint64_t(blk) * (WBLOCK + 4) + 4 + ((k0) + word * 4) % WBLOCK)); \
     }                                                                                                   \
     [ForceUnroll] for (uint it = 0; it < F8_BS_ITEMS; it++)                                             \
     {                                                                                                   \
         uint idx = tid + it * F8_THREADS, r = idx % F8_BN, bl = idx / F8_BN;                            \
-        uint8_t* row = rowStart(p.w, ROW_BYTES, min(n0 + r, uint(N) - 1));                              \
+        uint8_t* row = rowStart(F8_WPTR(r), ROW_BYTES, min(F8_WROW(n0, r), uint(N) - 1));                              \
         if (idx < F8_BN * F8_WBLOCKS) wsc[it] = *(float*)(row + uint64_t((k0) / WBLOCK + bl) * (WBLOCK + 4)); \
     }
     #define STAGE()                                                                                     \
@@ -221,37 +250,30 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
             }
         }
 
+        // One output column fragment at a time: the block accumulator holds F8_FM fragments rather than F8_FM x F8_FN, which
+        // frees registers (10-13 % faster from 256 rows) at the cost of reloading the A fragments per column fragment.
         [MaxIters(F8_WBLOCKS)] [loop]
         for (uint wb = 0; wb < F8_WBLOCKS; wb++)
         {
-            AccF c[F8_FM][F8_FN];
-            [ForceUnroll] for (int i = 0; i < F8_FM; i++) [ForceUnroll] for (int j = 0; j < F8_FN; j++) c[i][j] = AccF(0.0);
-            [ForceUnroll]
-            for (uint m = 0; m < F8_MMAS; m++)
-            {
-                uint kw = (wb * WBLOCK + m * 32) / 4;
-                MatB8 b[F8_FN];
-                [ForceUnroll]
-                for (int j = 0; j < F8_FN; j++)
-                {
-                    b[j] = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
-                }
-                [ForceUnroll]
-                for (int i = 0; i < F8_FM; i++)
-                {
-                    MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
-                    [ForceUnroll]
-                    for (int j = 0; j < F8_FN; j++)
-                    {
-                        c[i][j] = coopMatMulAdd<float, false>(a, b[j], c[i][j]);
-                    }
-                }
-            }
-
             uint bs = wb * F8_BN;
             [ForceUnroll]
             for (int j = 0; j < F8_FN; j++)
             {
+                AccF c[F8_FM];
+                [ForceUnroll] for (int i = 0; i < F8_FM; i++) c[i] = AccF(0.0);
+                [ForceUnroll]
+                for (uint m = 0; m < F8_MMAS; m++)
+                {
+                    uint kw = (wb * WBLOCK + m * 32) / 4;
+                    MatB8 b = MatB8.Load<CoopMatMatrixLayout.ColumnMajor>(sB, (wn + j * 16) * F8_RS + kw, F8_RS);
+                    [ForceUnroll]
+                    for (int i = 0; i < F8_FM; i++)
+                    {
+                        MatA8 a = MatA8.Load<CoopMatMatrixLayout.RowMajor>(sA, (wm + i * 16) * F8_RS + kw, F8_RS);
+                        c[i] = coopMatMulAdd<float, false>(a, b, c[i]);
+                    }
+                }
+
                 float ws[4];
                 if (PAIR)
                 {
@@ -266,12 +288,12 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
                     {
                         if (PAIR)
                         {
-                            acc[i][j][e] += c[i][j][e] * (xr[i][e >> 2] * ws[e & 3]);
+                            acc[i][j][e] += c[i][e] * (xr[i][e >> 2] * ws[e & 3]);
                         }
                         else
                         {
                             uint r = uint(index[e]) >> 4, col = uint(index[e]) & 15;
-                            acc[i][j][e] += c[i][j][e] * (sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col]);
+                            acc[i][j][e] += c[i][e] * (sAS[wm + i * 16 + r] * sBS[bs + wn + j * 16 + col]);
                         }
                     }
                 }
@@ -290,6 +312,19 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
     [ForceUnroll]
     for (int i = 0; i < F8_FM; i++)
     {
+#if DUAL
+        [ForceUnroll]
+        for (int j = 0; j < F8_FN; j += 2)
+        {
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                uint t = t0 + wm + i * 16 + (uint(index[e]) >> 4);
+                uint n = n0 + wn / 2 + (j / 2) * 16 + (uint(index[e]) & 15);
+                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = epi2(acc[i][j][e], acc[i][j + 1][e]);
+            }
+        }
+#else
         [ForceUnroll]
         for (int j = 0; j < F8_FN; j++)
         {
@@ -301,6 +336,7 @@ void fp8_tile<let PAIR : bool>(uint3 gid, uint tid, Params p, int index[8])
                 if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = acc[i][j][e];
             }
         }
+#endif
     }
 }
 
