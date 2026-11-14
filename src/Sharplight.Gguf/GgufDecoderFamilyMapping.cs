@@ -65,7 +65,7 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
     protected virtual IReadOnlyDictionary<string, string>? LayerTensorOverrides => null;
 
     /// <summary>Canonical weights the metadata determines on top of the rope factors (e.g. activation parameters).</summary>
-    protected virtual IEnumerable<WeightInfo> FamilySyntheticWeights(GgufMetadataView g) => [];
+    protected virtual IEnumerable<WeightInfo> FamilySyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights) => [];
 
     /// <summary>Query and key/value head counts of layer <paramref name="layer"/> (used to split fused q/k/v tensors).</summary>
     protected virtual (int Heads, int KvHeads) HeadsOf(GgufMetadataView g, int layer)
@@ -226,5 +226,5 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
 
     /// <inheritdoc/>
     public IEnumerable<WeightInfo> SyntheticWeights(GgufMetadataView g, IReadOnlyDictionary<string, WeightInfo> weights)
-        => DecoderGgufMapping.RopeFrequencyFactors(g, weights).Concat(FamilySyntheticWeights(g));
+        => DecoderGgufMapping.RopeFrequencyFactors(g, weights).Concat(FamilySyntheticWeights(g, weights));
 }

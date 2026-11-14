@@ -241,6 +241,109 @@ def write_plamo2(path, tokenizer_path, seed):
     print("wrote", path)
 
 
+def write_family(path, arch, seed, layer_tensors, parameters=None, layers=LAYERS, kv_heads=KV_HEADS, layer_norm=False, global_tensors=None, rope_dim=HEAD_DIM):
+    # The llama-like families of the later bring-up rounds: one seed per model (independent of which models are written), the shared keys, an
+    # RMS (or biased layer) output norm and an untied output head; layer_tensors(layer) returns the tensors of one block, global_tensors(vocab) any
+    # replacement of the global ones (a None value drops a tensor) and parameters(writer) the family's own keys.
+    global rng
+    rng = np.random.default_rng(seed)
+    reader = GGUFReader(tokenizer)
+    vocab = len(reader.fields["tokenizer.ggml.tokens"].contents())
+    writer = GGUFWriter(path, arch)
+    writer.add_name(f"tiny random {arch}")
+    writer.add_context_length(CONTEXT)
+    writer.add_embedding_length(HIDDEN)
+    writer.add_block_count(layers)
+    writer.add_feed_forward_length(FFN)
+    writer.add_head_count(HEADS)
+    writer.add_head_count_kv(kv_heads)
+    if layer_norm:
+        writer.add_layer_norm_eps(1e-5)
+    else:
+        writer.add_layer_norm_rms_eps(1e-5)
+    writer.add_rope_dimension_count(rope_dim)
+    writer.add_rope_freq_base(10000.0)
+    if parameters:
+        parameters(writer)
+    copy_tokenizer(reader, writer)
+    tensors = {"token_embd.weight": weight(vocab, HIDDEN), "output_norm.weight": norm(HIDDEN), "output.weight": weight(vocab, HIDDEN)}
+    if layer_norm:
+        tensors["output_norm.bias"] = bias(HIDDEN)
+    for name, value in (global_tensors(vocab) if global_tensors else {}).items():
+        if value is None:
+            tensors.pop(name)
+        else:
+            tensors[name] = value
+    for layer in range(layers):
+        for name, value in layer_tensors(layer).items():
+            tensors[f"blk.{layer}.{name}"] = value
+    for name, value in tensors.items():
+        writer.add_tensor(name, value)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    print("wrote", path)
+
+
+def llama_block(kv_heads=KV_HEADS, attn_bias=False, out_bias=False, layer_norm=False, gated=True, ffn_bias=False, fused_qkv=False, ffn_norm=True):
+    # One pre-norm block with llama.cpp's tensor names; the variations cover the layer-norm / biased / fused / ungated families.
+    kv = kv_heads * HEAD_DIM
+    t = {"attn_norm.weight": norm(HIDDEN), "attn_output.weight": weight(HIDDEN, HIDDEN), "ffn_up.weight": weight(FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+    if fused_qkv:
+        t["attn_qkv.weight"] = weight(HIDDEN + 2 * kv, HIDDEN)
+    else:
+        t.update({"attn_q.weight": weight(HIDDEN, HIDDEN), "attn_k.weight": weight(kv, HIDDEN), "attn_v.weight": weight(kv, HIDDEN)})
+    if attn_bias:
+        if fused_qkv:
+            t["attn_qkv.bias"] = bias(HIDDEN + 2 * kv)
+        else:
+            t.update({"attn_q.bias": bias(HIDDEN), "attn_k.bias": bias(kv), "attn_v.bias": bias(kv)})
+    if out_bias:
+        t["attn_output.bias"] = bias(HIDDEN)
+    if ffn_norm:
+        t["ffn_norm.weight"] = norm(HIDDEN)
+    if layer_norm:
+        t["attn_norm.bias"] = bias(HIDDEN)
+        if ffn_norm:
+            t["ffn_norm.bias"] = bias(HIDDEN)
+    if gated:
+        t["ffn_gate.weight"] = weight(FFN, HIDDEN)
+    if ffn_bias:
+        t.update({"ffn_up.bias": bias(FFN), "ffn_down.bias": bias(HIDDEN)})
+        if gated:
+            t["ffn_gate.bias"] = bias(FFN)
+    return t
+
+
+def plamo3_block():
+    # llama.cpp loads the two post norms without the ".weight" suffix.
+    qkv = HIDDEN + 2 * KV_HEADS * HEAD_DIM
+    return {"attn_norm.weight": norm(HIDDEN), "attn_qkv.weight": weight(qkv, HIDDEN), "attn_q_norm.weight": norm(HEAD_DIM), "attn_k_norm.weight": norm(HEAD_DIM),
+            "attn_output.weight": weight(HIDDEN, HIDDEN), "post_attention_norm": norm(HIDDEN), "ffn_norm.weight": norm(HIDDEN),
+            "post_ffw_norm": norm(HIDDEN), "ffn_up.weight": weight(2 * FFN, HIDDEN), "ffn_down.weight": weight(HIDDEN, FFN)}
+
+
+def with_tensors(block, **extra):
+    t = block()
+    for name, make in extra.items():
+        t[name.replace("__", ".")] = make()
+    return t
+
+
+def plamo3_parameters(writer):
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern(2)
+    writer.add_rope_freq_base_swa(1000.0)
+
+
+def spark_parameters(writer):
+    writer.add_sliding_window(8)
+    writer.add_sliding_window_pattern([True, False, True])
+    writer.add_rope_freq_base_swa(1000.0)
+    writer.add_rope_dimension_count_swa(HEAD_DIM)
+
+
 tokenizer, out = sys.argv[1], os.path.expanduser(sys.argv[2])
 only = sys.argv[3:]
 os.makedirs(out, exist_ok=True)
@@ -254,6 +357,23 @@ models = {
     "arwkv7-nogate": lambda path: write_rwkv(path, "arwkv7", tokenizer, 2, ARWKV_HIDDEN, ARWKV_HEAD_SIZE, arwkv7_parameters(False), lambda layer, hidden: arwkv7_layer(layer, hidden, False)),
     "plamo2": lambda path: write_plamo2(path, tokenizer, 4),
     "rwkv6qwen2": lambda path: write_rwkv(path, "rwkv6qwen2", tokenizer, 3, HIDDEN, HEAD_DIM, rwkv6qwen2_parameters, rwkv6qwen2_layer),
+    # Later bring-up rounds (write_family, one seed each).
+    "refact": lambda path: write_family(path, "refact", 10, lambda layer: llama_block(kv_heads=1), kv_heads=1),
+    "jais": lambda path: write_family(path, "jais", 11, lambda layer: llama_block(attn_bias=True, out_bias=True, layer_norm=True, ffn_bias=True, fused_qkv=True),
+                                      parameters=lambda w: w.add_max_alibi_bias(8.0), layer_norm=True),
+    "orion": lambda path: write_family(path, "orion", 12, lambda layer: llama_block(layer_norm=True), layer_norm=True),
+    # CodeShell without token_embd: llama.cpp embeds through the output projection.
+    "codeshell": lambda path: write_family(path, "codeshell", 13, lambda layer: llama_block(attn_bias=True, out_bias=True, layer_norm=True, gated=False, ffn_bias=True, fused_qkv=True),
+                                          layer_norm=True, global_tensors=lambda vocab: {"token_embd.weight": None}),
+    "plamo": lambda path: write_family(path, "plamo", 14, lambda layer: llama_block(ffn_norm=False)),
+    "plamo3": lambda path: write_family(path, "plamo3", 15, lambda layer: plamo3_block(), parameters=plamo3_parameters),
+    "pangu-embedded": lambda path: write_family(path, "pangu-embedded", 16, lambda layer: llama_block(attn_bias=True, out_bias=True)),
+    "maincoder": lambda path: write_family(path, "maincoder", 17, lambda layer: with_tensors(llama_block, attn_q_norm__weight=lambda: norm(HEAD_DIM), attn_k_norm__weight=lambda: norm(HEAD_DIM))),
+    "spark2_5": lambda path: write_family(path, "spark2_5", 18, lambda layer: with_tensors(llama_block, attn_gate__weight=lambda: weight(HEADS, HIDDEN)), parameters=spark_parameters,
+                                          rope_dim=8),
+    # Baichuan's position scheme depends on the depth: 32 layers rotary (7B), 40 layers ALiBi (13B).
+    "baichuan": lambda path: write_family(path, "baichuan", 19, lambda layer: llama_block(), layers=32),
+    "baichuan-alibi": lambda path: write_family(path, "baichuan", 20, lambda layer: llama_block(), layers=40),
 }
 for name, write in models.items():
     if not only or name in only:

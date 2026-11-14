@@ -58,6 +58,16 @@ internal static class GgufArchitectureMappings
         yield return new Ernie45MoeGgufMapping();
         yield return new RoutedMoeGgufMapping();
         yield return new Qwen2MoeGgufMapping();
+        yield return new RefactGgufMapping();
+        yield return new JaisGgufMapping();
+        yield return new OrionGgufMapping();
+        yield return new CodeShellGgufMapping();
+        yield return new PlamoGgufMapping();
+        yield return new Plamo3GgufMapping();
+        yield return new PanguEmbeddedGgufMapping();
+        yield return new MaincoderGgufMapping();
+        yield return new Spark25GgufMapping();
+        yield return new BaichuanGgufMapping();
         yield return new HunyuanMoeGgufMapping();
         yield return new ExaoneMoeGgufMapping();
         yield return new SmallThinkerGgufMapping();
