@@ -49,7 +49,10 @@ namespace Sharplight.Architectures;
 /// <c>moe.group_count</c> / <c>moe.group_used_count</c> / <c>moe.group_score</c> (group-limited top-k), <c>moe.weights_before_experts</c>,
 /// <c>moe.shared_scale</c> (factor on the shared expert, default 1); optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
 /// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
-/// before the attention norm, SmallThinker).</item>
+/// before the attention norm, SmallThinker). A layer with <c>mlp.routed_in_norm.weight</c> runs its dense MLP and its routed experts side by side
+/// (Gemma 4 MoE): the dense MLP on the normed rows with its output normed by <c>mlp.dense_out_norm.weight</c>, the experts on
+/// routed_in_norm(x) with their sum normed by <c>mlp.routed_out_norm.weight</c>, the router on x (with <c>mlp.router.input_scale</c>), and
+/// <c>mlp.out_norm.weight</c> applied to the sum of both branches.</item>
 /// <item>Token-activated adapters (Granite Switch): <c>adapter_tokens.weight</c> [V, 8] (see <see cref="Models.AdapterTokenTable"/>) and
 /// <c>adapters.count</c> route every row to an adapter slot (<see cref="AdapterRouter"/>, a one-head causal attention with a KV cache of its own);
 /// the q/k/v/o/gate/up/down projections with <c>{projection}.lora_a</c> [S, R, K] / <c>{projection}.lora_b</c> [S, N, R] add the row's

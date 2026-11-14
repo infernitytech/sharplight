@@ -653,7 +653,10 @@ internal sealed partial class DecoderGraphBuilder
 
         var ffnResidual = x;
         var normed = PreNorm(b, x, p + "post_attention_norm.weight", $"{p}post_attn_norm");
-        var ffn = SubLayerOutput(b, FeedForward(b, normed, p, slot.Layer, residual), p + "mlp.out_norm.weight");
+        var branches = b.HasWeight(p + "mlp.routed_in_norm.weight")
+            ? DenseAndRoutedFeedForward(b, ffnResidual, normed, p, slot.Layer)
+            : FeedForward(b, normed, p, slot.Layer, residual);
+        var ffn = SubLayerOutput(b, branches, p + "mlp.out_norm.weight");
         var output = ResidualAdd(b, ffn, ffnResidual, 2 * (slot.Layer + 1) + 1, p + "mlp.", $"{p}l_out");
         if (b.HasWeight(p + "moe_norm.weight"))
         {
@@ -662,6 +665,27 @@ internal sealed partial class DecoderGraphBuilder
         }
 
         return output;
+    }
+
+    // Dense MLP and routed experts side by side on the same rows x (Gemma 4 MoE layers): the dense MLP reads the normed rows (post_attention_norm)
+    // and its output is normed by mlp.dense_out_norm; the experts read routed_in_norm(x), the router reads x itself (normalized by its
+    // router.input_scale), and their sum is normed by mlp.routed_out_norm. The branch outputs are added; mlp.out_norm then applies to the sum.
+    private Value DenseAndRoutedFeedForward(GraphBuilder b, Value x, Value normed, string p, int il)
+    {
+        var dense = Mlp(b, normed, p, il);
+        if (b.HasWeight(p + "mlp.dense_out_norm.weight"))
+        {
+            dense = _norm.Apply(b, dense, p + "mlp.dense_out_norm.weight", _hp.PostNormEps, $"{p}dense_out_norm");
+        }
+
+        var routedInput = _norm.Apply(b, x, p + "mlp.routed_in_norm.weight", _hp.Eps, $"{p}routed_in_norm");
+        var routed = MoeBlock.Build(b, routedInput, p, "mlp.", _hp.Moe, _hp.NEmbd, ExpertActivationOf(il), x, DenseActivationOf(il));
+        if (b.HasWeight(p + "mlp.routed_out_norm.weight"))
+        {
+            routed = _norm.Apply(b, routed, p + "mlp.routed_out_norm.weight", _hp.PostNormEps, $"{p}routed_out_norm");
+        }
+
+        return b.Add(dense, routed, $"{p}ffn_branches");
     }
 
     // LAuReL (Gemma 3n): a low-rank residual of the attention input h next to the attention, (x + h + norm(right(left(h)))) / √2.

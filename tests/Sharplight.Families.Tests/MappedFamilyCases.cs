@@ -22,6 +22,7 @@ internal static class MappedFamilyCases
     private static readonly int[] Qwen25VlIds = [100505, 114647, 51648, 47348, 40605, 114014, 91380, 37734, 64948, 108835, 14851, 135520, 147170, 30162, 144562, 54336, 51142, 56149, 112305, 102190, 111473, 102928, 23433, 99645];
     private static readonly int[] PaddleOcrVlIds = [99062, 55574, 46677, 32238, 1295, 91525, 78870, 20180, 85000, 17957, 7947, 12389, 34887, 41762, 70708, 19790, 68134, 57003, 97493, 25135, 64129, 48776, 76918, 100341];
     private static readonly int[] Gemma3nIds = [229263, 79300, 9819, 9819, 6714, 95609, 93586, 7779, 4699, 141656, 141656, 34880, 96518, 16959, 81769, 244910, 172013, 49641, 209259, 90671, 56071, 126215, 107049, 22];
+    private static readonly int[] Gemma4MoeIds = [188398, 31439, 118808, 115379, 26449, 71380, 65464, 237190, 124412, 135249, 253534, 171789, 232803, 97617, 10879, 179652, 85008, 116370, 247048, 243242, 58319, 187824, 233874, 91051];
     private static readonly int[] MellumIds = [284, 372, 193, 882, 837, 650, 835, 351, 351, 194, 713, 284, 713, 284, 936, 571, 936, 533, 533, 701, 533, 434, 777, 602];
     private static readonly int[] DbrxIds = [127, 66, 518, 974, 553, 697, 900, 55, 121, 457, 1001, 456, 637, 454, 413, 646, 60, 651, 884, 519, 44, 766, 848, 2];
     private static readonly int[] Mistral4Ids = [505, 539, 72, 499, 752, 892, 325, 610, 338, 241, 662, 957, 502, 902, 979, 752, 892, 443, 713, 752, 892, 433, 43, 471];
@@ -89,6 +90,11 @@ internal static class MappedFamilyCases
         // it (it fixes the per-layer input width at 256 and the LAuReL rank at 64), so the GGUF is checked against the transformers ids and the real
         // E2B checkpoint below against llama.cpp b11177.
         new("tiny-random-gemma-3n-wide f32 GGUF (gemma3n, transformers ids)", "gguf/tiny-random-gemma-3n-wide-f32.gguf", Prompt, "ids", Gemma3nIds, ""),
+        // Gemma 4 MoE (26B-A4B layout): a dense MLP and routed experts side by side in every layer, the router on its own norm and input
+        // scale, renormalized softmax weights times a per-expert scale, fused gate/up experts (tools/mk_tiny_gemma4_moe.py, float32). The
+        // transformers ids (prompt with BOS) equal llama.cpp b11177's on the converted GGUF.
+        new("tiny-random-gemma4-moe HF (gemma4_text MoE, transformers)", "hf/tiny-random-gemma4-moe", Prompt, "ids", Gemma4MoeIds, ""),
+        new("tiny-random-gemma4-moe f32 GGUF (gemma4 MoE, llama.cpp)", "gguf/tiny-random-gemma4-moe-f32.gguf", Prompt, "ids", Gemma4MoeIds, ""),
         // A prompt whose greedy continuation has log-probability margins of at least 2.4 in llama.cpp ("The capital of France is" turns on 0.19).
         new("gemma-3n-E2B-it Q4_K_M GGUF (gemma3n, llama.cpp)", "gguf/gemma-3n-E2B-it/gemma-3n-E2B-it-Q4_K_M.gguf", "Water boils at a temperature of", "ids",
             [236743, 236770, 236771, 236771, 237366, 236780, 568, 236778, 236770, 236778, 237366, 236811, 236768, 657], ""),
