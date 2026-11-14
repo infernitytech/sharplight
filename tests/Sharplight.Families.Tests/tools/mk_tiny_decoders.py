@@ -12,6 +12,7 @@ Every model is written to <dir>/tiny-random-<family>/ in fp32 safetensors; the t
 Norm weights and biases are randomized so that every parameter matters. Reference ids and logits: hf_greedy_reference.py --logits.
 """
 import os, sys, shutil, torch
+import transformers
 from transformers import (AutoConfig, AutoModelForCausalLM, BloomConfig, GPT2Config, GPTJConfig, NemotronConfig, GemmaConfig, FalconConfig, MptConfig)
 
 root = os.path.expanduser(sys.argv[1])
@@ -72,6 +73,14 @@ EXTRA = {
     "dbrx": ("dbrx", dict(d_model=64, n_heads=4, n_layers=3, max_seq_len=256,
                           attn_config=dict(kv_n_heads=2, clip_qkv=0.6, rope_theta=10000.0),
                           ffn_config=dict(ffn_hidden_size=48, moe_num_experts=4, moe_top_k=2))),
+    # Mistral 4: latent attention, YaRN, query temperature beyond 16 positions, softmax routing over 2 groups (scored by their best two experts),
+    # a leading dense layer and a shared expert.
+    "mistral4": ("mistral4", dict(hidden_size=64, intermediate_size=96, moe_intermediate_size=24, num_hidden_layers=3, num_attention_heads=4,
+                                  num_key_value_heads=4, kv_lora_rank=32, q_lora_rank=48, qk_rope_head_dim=8, qk_nope_head_dim=16, v_head_dim=16,
+                                  n_routed_experts=8, n_group=2, topk_group=1, num_experts_per_tok=2, first_k_dense_replace=1, n_shared_experts=1,
+                                  routed_scaling_factor=1.5, max_position_embeddings=256,
+                                  rope_parameters=dict(rope_type="yarn", rope_theta=10000.0, factor=4.0, original_max_position_embeddings=16,
+                                                       beta_fast=32.0, beta_slow=1.0, mscale_all_dim=1.0, mscale=1.0, llama_4_scaling_beta=0.1))),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})
@@ -79,13 +88,15 @@ for name, (model_type, arguments) in EXTRA.items():
 # Most families use seed 0 and weights of scale 0.15; the ALiBi models tend to repeat one token or tie their logits at it with those, so BLOOM and MPT pick their own.
 seeds = {"bloom": 3, "mpt": 2}
 scales = {"bloom": 0.5, "mpt": 0.5}
+# Causal-LM classes the auto mapping does not list.
+classes = {"mistral4": "Mistral4ForCausalLM"}
 only = sys.argv[2:]
 
 for name, config in configs.items():
     if only and name not in only:
         continue
     torch.manual_seed(seeds.get(name, 0))
-    model = AutoModelForCausalLM.from_config(config)
+    model = getattr(transformers, classes[name])._from_config(config) if name in classes else AutoModelForCausalLM.from_config(config)
     with torch.no_grad():
         for n, p in model.named_parameters():
             if p.dim() == 1:

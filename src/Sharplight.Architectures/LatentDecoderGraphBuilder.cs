@@ -55,7 +55,8 @@ internal sealed partial class LatentDecoderGraphBuilder
         if (_draft is not null)
         {
             graphs[WellKnown.DraftGraph] = MtpDraftHead.Build(_draft, _hp.HiddenSize, positionAxes: 1, _hp.Eps, layers: 1,
-                (b, x, j, positions) => Layer(b, x, $"mtp.layers.{j}.", _draftCache!, LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads), Rotation(b, positions)),
+                (b, x, j, positions) => Layer(b, x, $"mtp.layers.{j}.", _draftCache!, LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads), Rotation(b, positions),
+                    Temperature(b, positions)),
                 chainNormalized: true);
         }
 
@@ -93,10 +94,11 @@ internal sealed partial class LatentDecoderGraphBuilder
         var outRows = b.Input("output_rows", InputRole.OutputRows, DataType.I32, new Shape(Dim.Sym("R")));
         var headIds = LatentAttention.HeadIndices(b, positions, _hp.Attention.Heads);
         var rotate = Rotation(b, positions);
+        var temperature = Temperature(b, positions);
         for (int il = 0; il < _hp.LayerCount; il++)
         {
             using var _ = b.Group($"layers.{il}");
-            x = Layer(b, x, $"layers.{il}.", _caches[il], headIds, rotate);
+            x = Layer(b, x, $"layers.{il}.", _caches[il], headIds, rotate, temperature);
         }
 
         using (b.Group("output"))
@@ -117,16 +119,20 @@ internal sealed partial class LatentDecoderGraphBuilder
     }
 
     // One decoder layer: weights below p, latent cache `cache`.
-    private Value Layer(GraphBuilder b, Value x, string p, StateDefinition cache, Value headIds, Func<Value, Value> rotate)
+    private Value Layer(GraphBuilder b, Value x, string p, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature)
     {
         var h = b.RmsNorm(x, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
-        var attention = _attention.Build(b, h, p, cache, headIds, rotate);
+        var attention = _attention.Build(b, h, p, cache, headIds, rotate, temperature);
         x = b.Add(ResidualBranch(b, attention), x, $"{p}attn_residual");
 
         h = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
         var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
         return b.Add(ResidualBranch(b, ffn), x, $"{p}l_out");
     }
+
+    /// <summary>The query temperature of every row (Mistral 4 / Mistral Large 3), or null when the model has none.</summary>
+    private Value? Temperature(GraphBuilder b, Value positions)
+        => _hp.TemperatureScale == 0f ? null : AttentionTemperature.Build(b, positions, _hp.TemperatureScale, _hp.TemperatureLength);
 
     private Value ResidualBranch(GraphBuilder b, Value branch) => _hp.ResidualScale == 1f ? branch : b.Scale(branch, _hp.ResidualScale);
 

@@ -61,7 +61,8 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
     /// <param name="cache">The layer's latent cache (<see cref="CreateCache"/>).</param>
     /// <param name="headIds">Head indices from <see cref="HeadIndices"/>.</param>
     /// <param name="rotate">Applies the layer's rotary embedding to a [T, heads, rope] tensor.</param>
-    public Value Build(GraphBuilder b, Value h, string prefix, StateDefinition cache, Value headIds, Func<Value, Value> rotate)
+    /// <param name="temperature">Optional per-row query factor [T, 1, 1] (<see cref="AttentionTemperature"/>), which scales the scores of a row.</param>
+    public Value Build(GraphBuilder b, Value h, string prefix, StateDefinition cache, Value headIds, Func<Value, Value> rotate, Value? temperature = null)
     {
         var p = parameters;
         var q = Query(b, h, prefix);                                                                                       // [T, H, nope + rope]
@@ -77,6 +78,12 @@ internal sealed class LatentAttention(LatentAttentionParameters parameters)
         // Absorbed query: per head W_UK,hᵀ · q_nope through an expert-indexed product (expert = head).
         var queryLatent = b.Emit1("MatMulId", [queryNope, b.Weight(prefix + "attention.k_up.weight"), headIds], null, $"{prefix}q_latent");
         var query = b.Concat(2, queryLatent, queryRope);                                                                   // [T, H, latent + rope]
+        if (temperature is not null)
+        {
+            // The absorbed query is linear in the original one, so tempering it scales the scores exactly as tempering q would.
+            query = b.Mul(query, temperature, $"{prefix}q_tempered");
+        }
+
         b.RuntimeScalar(WellKnown.PastScalar);
         var attended = b.Emit1("CachedAttention", [query, state, state],
             Attributes.From(("scale", p.Scale), ("offset", WellKnown.PastScalar), ("v_dims", (long)p.LatentRank)), $"{prefix}attn");   // [T, H, latent]

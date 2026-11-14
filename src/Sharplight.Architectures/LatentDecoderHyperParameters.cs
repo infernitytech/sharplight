@@ -9,7 +9,7 @@ namespace Sharplight.Architectures;
 internal sealed record LatentDecoderHyperParameters(
     int LayerCount, int HiddenSize, int Vocab, int ContextLength, float Eps, LatentAttentionParameters Attention,
     float RopeBase, string RopeStyle, string Activation, bool Gated, float EmbeddingScale, float ResidualScale, float LogitScale,
-    MoeOptions Moe)
+    MoeOptions Moe, float TemperatureScale, float TemperatureLength)
 {
     /// <summary>Reads and validates the hyper-parameters of a latent decoder source.</summary>
     /// <exception cref="InvalidDataException">A required key is missing or a routing key is unknown.</exception>
@@ -42,7 +42,14 @@ internal sealed record LatentDecoderHyperParameters(
             EmbeddingScale: src.Arch("embedding_scale", 1f),
             ResidualScale: src.Arch("residual_scale", 1f),
             LogitScale: src.Arch("logit_scale", 1f),
-            Moe: MoeOptions.Read(src));
+            Moe: MoeOptions.Read(src),
+            TemperatureScale: src.Arch("attention.temperature_scale", 0f),
+            TemperatureLength: src.Arch("attention.temperature_length", 0f));
+        if (hp.TemperatureScale != 0f && hp.TemperatureLength <= 0f)
+        {
+            throw new InvalidDataException("latent_decoder: attention.temperature_scale needs a positive attention.temperature_length.");
+        }
+
         return hp;
     }
 }
