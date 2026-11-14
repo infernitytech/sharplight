@@ -156,7 +156,7 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(memoryLimit, ctx, rowBound: Math.Max(slots, maxLogitsRows ?? 1));
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value) : 0;
         var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged,
-            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0);
+            rollbackRows: draftTokens > 0 ? draftTokens + 1 : 0, hiddenOutput: DraftHiddenSource);
         string kv = paged > 0 ? $", paged KV cache of {paged} tokens" : "";
         _options.Log?.Invoke($"Compiled '{WellKnown.DecodeGraph}' for {slots} sequences x {ctx} tokens{kv} in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         ReportReady(WellKnown.DecodeGraph);
@@ -168,6 +168,9 @@ public sealed class LlmModel : IDisposable
     /// <see cref="CreateMtpSpeculator"/> works.
     /// </summary>
     public bool HasDraftHead => Definition.Graphs.ContainsKey(WellKnown.DraftGraph);
+
+    /// <summary>The decode-graph output the draft head reads as hidden states (<see cref="WellKnown.DraftHiddenSource"/>).</summary>
+    private string DraftHiddenSource => Definition.Properties.TryGetValue(WellKnown.DraftHiddenSource, out var v) && v is string s ? s : WellKnown.HiddenOutput;
 
     /// <summary>
     /// Compiles the model's multi-token-prediction head (<see cref="WellKnown.DraftGraph"/>) into a speculator for an
@@ -195,7 +198,8 @@ public sealed class LlmModel : IDisposable
         var placement = PlacementFor(null, ctx, rowBound: slots);
         // A paged head cache gets a block per slot more than the target's: its rows run up to draftTokens past the target's.
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
-        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, deviceSampling: false, paged);
+        // With a device sampling head the draft tokens (greedy) are chosen on the device: only token ids come back.
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, _options.MaxBatchTokens, placement, UsesDeviceSampling, paged);
         _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
         return new Serving.Speculative.MtpSpeculator(dec, draftTokens);
     }

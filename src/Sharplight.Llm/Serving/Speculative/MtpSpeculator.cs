@@ -1,3 +1,5 @@
+using Sharplight.Graph;
+
 namespace Sharplight.Llm.Serving.Speculative;
 
 /// <summary>
@@ -23,6 +25,12 @@ public sealed class MtpSpeculator : ISpeculator
     private readonly int[] _tokenScratch;
     private float[] _hiddenScratch;
     private readonly float[] _chain;
+    // The head's greedy choice per input of a draft step: on the device when the head has a sampling head (only token ids come
+    // back), else the arg-max of its downloaded logits.
+    private readonly IDeviceSamplingDecoder? _deviceArgmax;
+    private readonly SamplingRow?[] _greedyRows;
+    private readonly int[] _argmax;
+    private readonly float[] _argmaxLogprobs;
 
     internal MtpSpeculator(MultiSequenceDecoder draft, int maxDraftTokens)
     {
@@ -40,6 +48,26 @@ public sealed class MtpSpeculator : ISpeculator
         _tokenScratch = new int[draft.SlotCount];
         _hiddenScratch = new float[_hidden * Math.Max(draft.SlotCount, 16)];
         _chain = new float[_hidden * draft.SlotCount];
+        _deviceArgmax = draft is IDeviceSamplingDecoder { SamplesOnDevice: true } d ? d : null;
+        _greedyRows = [.. Enumerable.Repeat<SamplingRow?>(SamplingRow.Greedy(), draft.SlotCount)];
+        _argmax = new int[draft.MaxLogitsRows];
+        _argmaxLogprobs = new float[draft.MaxLogitsRows];
+    }
+
+    /// <summary>Runs the head on <see cref="_inputs"/> (one logits row each) and leaves each input's greedy token in <see cref="_argmax"/>.</summary>
+    private void DraftStep()
+    {
+        if (_deviceArgmax is not null)
+        {
+            _deviceArgmax.Step(_inputs, new ArraySegment<SamplingRow?>(_greedyRows, 0, _inputs.Count), _argmax, _argmaxLogprobs);
+            return;
+        }
+
+        var logits = _draft.Step(_inputs);
+        for (int u = 0; u < _inputs.Count; u++)
+        {
+            _argmax[u] = LogitsMath.ArgMax(logits[u].Span);
+        }
     }
 
     /// <inheritdoc/>
@@ -137,12 +165,12 @@ public sealed class MtpSpeculator : ISpeculator
         }
 
         _draft.SetHiddenInput(_hiddenScratch.AsSpan(0, total * _hidden));
-        var logits = _draft.Step(_inputs);
+        DraftStep();
         for (int u = 0; u < _active.Count; u++)
         {
             var r = _active[u];
             var buf = _buffers[r.Slot];
-            r.Draft[0] = LogitsMath.ArgMax(logits[u].Span);
+            r.Draft[0] = _argmax[u];
             r.Count = 1;
             _draft.HiddenStates(u, buf.Count).Span[((buf.Count - 1) * _hidden)..].CopyTo(_chain.AsSpan(u * _hidden, _hidden));
             _verified[r.Slot] = buf.End;
@@ -175,7 +203,7 @@ public sealed class MtpSpeculator : ISpeculator
             }
 
             _draft.SetHiddenInput(_hiddenScratch.AsSpan(0, n * _hidden));
-            logits = _draft.Step(_inputs);
+            DraftStep();
             for (int u = 0, k = 0; u < _active.Count; u++)
             {
                 var r = _active[u];
@@ -184,7 +212,7 @@ public sealed class MtpSpeculator : ISpeculator
                     continue;
                 }
 
-                r.Draft[j] = LogitsMath.ArgMax(logits[k].Span);
+                r.Draft[j] = _argmax[k];
                 r.Count = j + 1;
                 _draft.HiddenStates(k, 1).Span.CopyTo(_chain.AsSpan(u * _hidden, _hidden));
                 k++;

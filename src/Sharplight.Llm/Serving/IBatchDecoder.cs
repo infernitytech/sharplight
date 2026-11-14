@@ -53,7 +53,7 @@ public interface IBatchDecoder : IDisposable
     }
     /// <summary>
     /// Hidden states [rows, <see cref="HiddenSize"/>] of the first <paramref name="rows"/> rows of input <paramref name="input"/>
-    /// of the last <see cref="Step"/>, captured with <see cref="CaptureHiddenStates"/>. Valid until the next step.
+    /// of the last <see cref="Step"/>, captured with <see cref="CaptureHiddenStates"/>. Valid until the next step or call.
     /// </summary>
     /// <exception cref="NotSupportedException">The decoder does not expose hidden states.</exception>
     public ReadOnlyMemory<float> HiddenStates(int input, int rows) => throw new NotSupportedException("This decoder does not expose hidden states.");

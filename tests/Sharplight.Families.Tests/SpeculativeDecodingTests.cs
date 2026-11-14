@@ -24,17 +24,32 @@ public class SpeculativeDecodingTests
     static SpeculativeDecodingTests() => HuggingFaceImporter.Register();
 
     [Theory]
-    [InlineData(false, "mtp")]
-    [InlineData(false, "ngram")]
-    [InlineData(true, "mtp")]
-    [InlineData(true, "ngram")]
-    public async Task GreedyOutput_Matches_NonSpeculativeDecoding(bool vulkan, string speculator)
+    [InlineData(false, "mtp", false)]
+    [InlineData(false, "ngram", false)]
+    [InlineData(true, "mtp", false)]
+    [InlineData(true, "ngram", false)]
+    [InlineData(true, "mtp", true)]
+    [InlineData(true, "ngram", true)]
+    public async Task GreedyOutput_Matches_NonSpeculativeDecoding(bool vulkan, string speculator, bool deviceSampling)
+        => await Matches_NonSpeculativeDecoding(vulkan, speculator, deviceSampling, SamplingParams.GreedyDefault);
+
+    /// <summary>
+    /// Seeded sampling verified on the device: every verification row draws from the sequence's random stream at the position it
+    /// would have without drafts, so the output is not just equally distributed but identical to decoding without speculation.
+    /// </summary>
+    [Theory]
+    [InlineData("mtp")]
+    [InlineData("ngram")]
+    public async Task SeededSampling_OnDevice_Matches_NonSpeculativeDecoding(string speculator)
+        => await Matches_NonSpeculativeDecoding(true, speculator, true, new SamplingParams { Temperature = 0.5f, TopK = 4, Seed = 5 });
+
+    private static async Task Matches_NonSpeculativeDecoding(bool vulkan, string speculator, bool deviceSampling, SamplingParams sampling)
     {
         Assert.SkipUnless(Directory.Exists(ModelPath), $"{ModelPath} not present");
         using var device = OpenDevice(vulkan);
         using var model = LlmModel.Load(ModelPath, new LlmLoadOptions
         {
-            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = false,
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 512, MaxBatchTokens = 64, DeviceSampling = deviceSampling,
         });
         Assert.True(model.HasDraftHead);
         var rng = new Random(11);
@@ -46,16 +61,18 @@ public class SpeculativeDecodingTests
         })];
         var ct = TestContext.Current.CancellationToken;
 
-        var expected = await Generate(model, model.CreateBatchDecoder(Slots), null, prompts, ct);
+        var expected = await Generate(model, model.CreateBatchDecoder(Slots), null, prompts, sampling, ct);
         var decoder = model.CreateBatchDecoder(Slots, maxLogitsRows: Slots * (Drafts + 1), draftTokens: Drafts);
         ISpeculator spec = speculator == "mtp" ? model.CreateMtpSpeculator(Slots, Drafts) : new NgramSpeculator(Drafts, minNgram: 1);
-        var (actual, metrics) = await GenerateWithMetrics(model, decoder, spec, prompts, ct);
+        var (actual, metrics) = await GenerateWithMetrics(model, decoder, spec, prompts, sampling, ct);
         for (int i = 0; i < prompts.Length; i++)
         {
             Assert.Equal(expected[i], actual[i]);
         }
 
         Assert.True(metrics.DraftTokens > 0, "no drafts were verified");
+        // The random MTP head rarely guesses right; the n-gram drafts of the repetitive prompts must be accepted (rows past the first verified).
+        Assert.True(speculator != "ngram" || metrics.AcceptedDraftTokens > 0, $"no draft was accepted ({metrics.DraftTokens} verified)");
         TestContext.Current.SendDiagnosticMessage($"{speculator}: {metrics.AcceptedDraftTokens} of {metrics.DraftTokens} drafts accepted");
     }
 
@@ -92,16 +109,16 @@ public class SpeculativeDecodingTests
         Assert.Equal(resident, model.SharedWeights.ResidentBytes);
     }
 
-    private static async Task<int[][]> Generate(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, CancellationToken ct)
-        => (await GenerateWithMetrics(model, decoder, spec, prompts, ct)).Tokens;
+    private static async Task<int[][]> Generate(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, SamplingParams sampling, CancellationToken ct)
+        => (await GenerateWithMetrics(model, decoder, spec, prompts, sampling, ct)).Tokens;
 
-    private static async Task<(int[][] Tokens, EngineMetricsSnapshot Metrics)> GenerateWithMetrics(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, CancellationToken ct)
+    private static async Task<(int[][] Tokens, EngineMetricsSnapshot Metrics)> GenerateWithMetrics(LlmModel model, IBatchDecoder decoder, ISpeculator? spec, int[][] prompts, SamplingParams sampling, CancellationToken ct)
     {
         using var engine = new InferenceEngine(decoder, model.Tokenizer, new EngineOptions { Speculator = spec });
         Assert.Equal(spec is not null, engine.Speculates);
         var handles = prompts.Select(p => engine.Submit(new GenerationRequest
         {
-            PromptTokens = p, MaxTokens = 40, StopAtEog = false, Logprobs = true, Sampling = SamplingParams.GreedyDefault,
+            PromptTokens = p, MaxTokens = 40, StopAtEog = false, Logprobs = true, Sampling = sampling,
         }, ct)).ToList();
         var results = await Task.WhenAll(handles.Select(h => h.CompleteAsync(ct)));
         foreach (var r in results)
