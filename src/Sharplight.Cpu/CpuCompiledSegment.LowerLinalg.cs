@@ -13,6 +13,14 @@ internal sealed unsafe partial class CpuCompiledSegment
         _refs[n.Output] = y;
     }
 
+    private void LowerInverse(Node n)
+    {
+        var x = Dense(RefF32(n.Inputs[0]));
+        var y = NewDense(n.Output);
+        AddStep(new InverseOp(x, y), x, y);
+        _refs[n.Output] = y;
+    }
+
     private void LowerLinearAttention(Node n)
     {
         var a = n.Attributes;

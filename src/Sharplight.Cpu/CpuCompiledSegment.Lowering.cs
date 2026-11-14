@@ -147,6 +147,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "Det":
                 LowerDet(n);
                 return;
+            case "Inverse":
+                LowerInverse(n);
+                return;
             case "LinearAttention":
                 LowerLinearAttention(n);
                 return;

@@ -122,6 +122,13 @@ internal sealed partial class OnnxTranslator
         }
 
         string name = Nm(n);
+        if (n.OpType == "Pow" && OnnxType.IsInteger(ElemTypeOf(ins[0]!)))
+        {
+            // An integer base with a float exponent has an integer result: round away pow's approximation error (exp2 / log2 on GPUs).
+            SetDyn(n, 0, Emit("Round", [Emit(irOp, BroadcastOperands(ins, X(ins, 0, name + ".a"), X(ins, 1, name + ".b")))], null, name));
+            return;
+        }
+
         SetDyn(n, 0, Emit(irOp, BroadcastOperands(ins, X(ins, 0, name + ".a"), X(ins, 1, name + ".b")), null, name));
     }
 

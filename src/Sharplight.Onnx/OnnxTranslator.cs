@@ -399,7 +399,8 @@ internal sealed partial class OnnxTranslator
         => n.Domain is "" or "ai.onnx" ? IsSupported(n.OpType)
             : n.Domain == "ai.onnx.ml" ? s_mlOps.Contains(n.OpType)
             : n.Domain == "ai.onnx.preview" ? s_previewOps.Contains(n.OpType)
-            : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType));
+            : n.Domain == "ai.onnx.preview.training" ? s_trainingOps.Contains(n.OpType)
+            : n.Domain == "com.microsoft" && (s_contribOps.Contains(n.OpType) || s_quantContrib.Contains(n.OpType) || s_contribAliases.Contains(n.OpType));
 
     // ---- group handling --------------------------------------------------------------------------------
     private void NextGroup()
@@ -529,6 +530,7 @@ internal sealed partial class OnnxTranslator
 
     private void HandleNode(OnnxNode n)
     {
+        n = Canonical(n);
         var ins = new TranslatedTensor?[n.Inputs.Count];
         for (int i = 0; i < ins.Length; i++)
         {

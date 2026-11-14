@@ -237,7 +237,7 @@ internal sealed partial class OnnxTranslator
     /// <summary>RMSNormalization over the axes from <c>axis</c> on, with a constant or runtime scale.</summary>
     private void RmsNorm(OnnxNode n, TranslatedTensor?[] ins)
     {
-        CheckUnusedOutputs(n, 1);
+        CheckUnusedOutputs(n, 2);
         var x = X(ins, 0);
         int axis = NormalizeAxis(n.Int("axis", -1), x.Rank);
         var (rows, d) = NormalizedRows(x, axis, "RMSNormalization");
@@ -252,6 +252,25 @@ internal sealed partial class OnnxTranslator
         }
 
         SetDyn(n, 0, y);
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            // SimplifiedLayerNormalization's inv_std_var.
+            SetDyn(n, 1, NormStatistics(x, axis, n.Float("epsilon", 1e-5f), true).InvStd);
+        }
+    }
+
+    /// <summary>
+    /// The statistics of a normalization over the axes from <paramref name="axis"/> on (kept as unit axes): the mean (null for RMS
+    /// normalization) and 1 / sqrt(variance + eps), the variance being the mean square for RMS normalization.
+    /// </summary>
+    private (Value? Mean, Value InvStd) NormStatistics(Value x, int axis, float eps, bool rms)
+    {
+        var axes = Enumerable.Range(axis, x.Rank - axis).Select(a => (long)a).ToArray();
+        var mean = Attributes.From(("mode", "mean"), ("axes", axes), ("keepdims", true));
+        Value? average = rms ? null : Emit("Reduce", [x], mean);
+        var centered = average is null ? x : _b.Sub(x, average);
+        var variance = Emit("Reduce", [_b.Mul(centered, centered)], mean);
+        return (average, _b.Unary("Rsqrt", _b.Scale(variance, 1f, eps)));
     }
 
     private void LocalResponseNorm(OnnxNode n, TranslatedTensor?[] ins)

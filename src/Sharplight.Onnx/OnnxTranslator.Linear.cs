@@ -337,7 +337,7 @@ internal sealed partial class OnnxTranslator
         long N = n.Int("N", 0);
         long bits = n.Int("bits", 4);
         long bs = n.Int("block_size", 32);
-        if (bits is not (4 or 8))
+        if (bits is not (2 or 4 or 8))
         {
             throw new NotSupportedException($"MatMulNBits with {bits} bits");
         }
@@ -365,11 +365,14 @@ internal sealed partial class OnnxTranslator
                 {
                     long blk = k / bs;
                     long j = k % bs;
-                    int v = bits == 4 ? (q[(r * nb + blk) * blobPerBlock + j / 2] >> (int)(4 * (j & 1))) & 0xF : q[(r * nb + blk) * blobPerBlock + j];
-                    int z = bits == 4 ? 8 : 128;
+                    // Values of fewer than 8 bits are packed from the low bits up; zero points likewise, one row per output column.
+                    int perByte = (int)(8 / bits);
+                    int mask = (1 << (int)bits) - 1;
+                    int v = (q[(r * nb + blk) * blobPerBlock + j / perByte] >> (int)(bits * (j % perByte))) & mask;
+                    int z = 1 << (int)(bits - 1);
                     if (zb is not null)
                     {
-                        z = bits == 4 ? (zb[r * zpRow + blk / 2] >> (int)(4 * (blk & 1))) & 0xF : zb[r * nb + blk];
+                        z = (zb[r * zpRow + blk / perByte] >> (int)(bits * (blk % perByte))) & mask;
                     }
 
                     res[r * K + k] = (float)((v - z) * sc[r * nb + blk]);

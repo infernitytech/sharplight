@@ -106,7 +106,22 @@ internal sealed partial class OnnxTranslator
     /// </summary>
     private void DynamicQuantize(OnnxNode n, TranslatedTensor?[] ins)
     {
-        var x = X(ins, 0);
+        var (y, scale, zeroPoint) = DynamicQuantizeValues(X(ins, 0), Nm(n));
+        SetDyn(n, 0, y);
+        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
+        {
+            SetDyn(n, 1, Rs(scale, 1));
+        }
+
+        if (n.Outputs.Count > 2 && n.Outputs[2] != "")
+        {
+            SetDyn(n, 2, Rs(zeroPoint, 1));
+        }
+    }
+
+    /// <summary>DynamicQuantizeLinear of <paramref name="x"/>: the uint8 values (as f32), the scale and the zero point (both of rank x).</summary>
+    private (Value Q, Value Scale, Value ZeroPoint) DynamicQuantizeValues(Value x, string? name)
+    {
         var all = Enumerable.Range(0, x.Rank).Select(i => (long)i).ToArray();
         var maxAttributes = Attributes.From(("mode", "max"), ("axes", all), ("keepdims", true));
         var minAttributes = Attributes.From(("mode", "min"), ("axes", all), ("keepdims", true));
@@ -118,17 +133,8 @@ internal sealed partial class OnnxTranslator
         var scale = _b.Binary("Div", range, ConstValue(OnnxConst.Scalar(255f).Reshaped([1]), "qmax"));
         var byteRange = Attributes.From(("min", 0f), ("max", 255f));
         var zeroPoint = Emit("Clip", [Emit("Round", [_b.Binary("Div", _b.Scale(lo, -1f), scale)])], byteRange);
-        var y = Emit("Clip", [_b.Add(Emit("Round", [_b.Binary("Div", x, scale)]), zeroPoint)], byteRange, Nm(n));
-        SetDyn(n, 0, y);
-        if (n.Outputs.Count > 1 && n.Outputs[1] != "")
-        {
-            SetDyn(n, 1, Rs(scale, 1));
-        }
-
-        if (n.Outputs.Count > 2 && n.Outputs[2] != "")
-        {
-            SetDyn(n, 2, Rs(zeroPoint, 1));
-        }
+        var y = Emit("Clip", [_b.Add(Emit("Round", [_b.Binary("Div", x, scale)]), zeroPoint)], byteRange, name);
+        return (y, scale, zeroPoint);
     }
 
     private void MatMulInteger(OnnxNode n, TranslatedTensor?[] ins)

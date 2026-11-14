@@ -38,6 +38,9 @@ internal sealed partial class OnnxTranslator
     [
         "Gelu", "BiasGelu", "FastGelu", "QuickGelu", "FusedConv", "FusedMatMul", "SkipLayerNormalization", "SkipSimplifiedLayerNormalization",
         "SimplifiedLayerNormalization", "Attention", "MultiHeadAttention", "BiasAdd", "MatMulNBits", "GroupQueryAttention", "RotaryEmbedding",
+        "TransposeMatMul", "FusedGemm", "GemmFastGelu", "ScaledSiLU", "BiasSplitGelu", "GatedRMSNorm", "CDist", "ComplexMul", "ComplexMulConj",
+        "GroupNorm", "SkipGroupNorm", "NhwcMaxPool", "UnfoldTensor", "EmbedLayerNormalization", "CropAndResize", "MoE", "GatherBlockQuantized",
+        "NGramRepeatBlock", "Inverse", "ExpandDims", "MatMulIntegerToFloat", "DynamicQuantizeMatMul", "QGemm", "MatMulInteger16", "QLinearWhere",
     ];
 
     // ai.onnx.preview operators.
@@ -49,9 +52,10 @@ internal sealed partial class OnnxTranslator
     /// <summary>Every operator the translator accepts, domain-qualified except for the default domain (for coverage reports).</summary>
     public static IEnumerable<string> SupportedOperators
         => s_dynamicOps.Concat(OnnxFold.Ops).Concat(s_contribInDefaultDomain)
-            .Concat(s_contribOps.Concat(s_quantContrib).Select(op => "com.microsoft." + op))
+            .Concat(s_contribOps.Concat(s_quantContrib).Concat(s_contribAliases).Select(op => "com.microsoft." + op))
             .Concat(s_mlOps.Select(op => "ai.onnx.ml." + op))
             .Concat(s_previewOps.Select(op => "ai.onnx.preview." + op))
+            .Concat(s_trainingOps.Select(op => "ai.onnx.preview.training." + op))
             .Distinct().Order(StringComparer.Ordinal);
 
     public static bool IsSupported(string opType) => s_dynamicOps.Contains(opType) || OnnxFold.Ops.Contains(opType) || s_contribInDefaultDomain.Contains(opType);
@@ -62,6 +66,12 @@ internal sealed partial class OnnxTranslator
         if (n.Domain == "com.microsoft" || s_contribInDefaultDomain.Contains(n.OpType))
         {
             TranslateContrib(n, ins);
+            return;
+        }
+
+        if (n.Domain == "ai.onnx.preview.training")
+        {
+            TranslateTraining(n, ins);
             return;
         }
 
