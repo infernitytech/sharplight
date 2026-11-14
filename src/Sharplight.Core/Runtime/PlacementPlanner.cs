@@ -37,7 +37,7 @@ public static class PlacementPlanner
         var (groupOrder, groupBytes) = MeasureGroups(graph, options.Compile);
         var groupDevice = AssignGroups(groupOrder, groupBytes, options, slots.Count, fallbackSlot, out long[] used);
         var nodeSlot = AssignNodes(graph, slots, groupDevice, fallbackSlot);
-        var segments = BuildSegments(graph, nodeSlot);
+        var segments = BuildSegments(graph, nodeSlot, slots);
         return new PlacementPlan
         {
             Slots = slots,
@@ -344,14 +344,25 @@ public static class PlacementPlanner
         return s.Type.ByteSize(elems);
     }
 
-    private static List<GraphSegment> BuildSegments(ComputeGraph graph, int[] nodeSlot)
+    /// <summary>
+    /// Whether <paramref name="n"/> publishes a data-dependent count (its <c>count_symbol</c> attribute names one of the graph's
+    /// dynamic symbols).
+    /// </summary>
+    private static bool PublishesCount(Node n, ComputeGraph graph)
+        => n.Op.Category != OpCategory.ControlFlow && n.Attributes.Get("count_symbol", "") is { Length: > 0 } symbol
+           && graph.DynamicSymbols.Any(d => d.Key == symbol);
+
+    private static List<GraphSegment> BuildSegments(ComputeGraph graph, int[] nodeSlot, List<DeviceSlot> slots)
     {
         var runs = new List<(int Slot, List<Node> Nodes)>();
         for (int i = 0; i < graph.Nodes.Count; i++)
         {
             // A control-flow node runs alone in a host segment.
             bool controlFlow = graph.Nodes[i].Op.Category == OpCategory.ControlFlow;
-            if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i] || controlFlow || runs[^1].Nodes[^1].Op.Category == OpCategory.ControlFlow)
+            // A GPU learns a data-dependent count only when its segment has finished (the count is read back with the outputs), so
+            // a node that publishes one ends its segment there; the CPU publishes it as soon as the node has run.
+            bool afterCount = runs.Count > 0 && slots[runs[^1].Slot].Device.Info.Kind != DeviceKind.Cpu && PublishesCount(runs[^1].Nodes[^1], graph);
+            if (runs.Count == 0 || runs[^1].Slot != nodeSlot[i] || controlFlow || runs[^1].Nodes[^1].Op.Category == OpCategory.ControlFlow || afterCount)
             {
                 runs.Add((nodeSlot[i], []));
             }

@@ -5,13 +5,28 @@
 //   topk_rows:     one workgroup of WG threads per row (radix select of the k-th key, ordered collection, bitonic sort).
 //                  Macros: WG (power of two, 256), P2 (power of two >= K). Uses only shared memory and barriers.
 //   topk_subgroup: one subgroup (SG lanes) per row for small K (<= 16): per-lane sorted lists merged by subgroup reductions.
+//   topk_serial:   one thread per row (O(K * LEN)); only with DYNAMIC, for k beyond the shared-memory sort.
+// DYNAMIC = 1: LEN and K are push constants (p.len, p.k: a symbolic axis or k, e.g. k = min(200, detections)), K <= LEN; the
+// macros K and P2 then give the bound of k. topk_rows and topk_serial only.
 // Grid: x * 65535 + y covers the rows; rows beyond p.rows return immediately.
 #include "common.slang"
 // The radix selection compares topk_key (declared below; Slang resolves global declarations in any order).
 #define RADIX_KEY(v) topk_key(v)
 #include "radix_select.slang"
 
+#ifndef DYNAMIC
+#define DYNAMIC 0
+#endif
+
+#if DYNAMIC
+struct TopKParams { float* x; float* vals; int* idx; uint rows; uint len; uint k; };
+#define TOPK_LEN(p) (p.len)
+#define TOPK_K(p) min(p.k, p.len)
+#else
 struct TopKParams { float* x; float* vals; int* idx; uint rows; };
+#define TOPK_LEN(p) uint(LEN)
+#define TOPK_K(p) uint(K)
+#endif
 
 // Order-preserving key: larger key = better element (for LARGEST = 0 the order is reversed).
 uint topk_key(float v)
@@ -24,8 +39,8 @@ uint topk_key(float v)
 }
 
 uint topk_row(uint3 gid) { return gid.y * 65535u + gid.x; }
-uint64_t topk_in_base(uint row) { return uint64_t(row / INNER) * (uint64_t(LEN) * INNER) + (row % INNER); }
-uint64_t topk_out_base(uint row) { return uint64_t(row / INNER) * (uint64_t(K) * INNER) + (row % INNER); }
+uint64_t topk_in_base(uint row, uint len) { return uint64_t(row / INNER) * (uint64_t(len) * INNER) + (row % INNER); }
+uint64_t topk_out_base(uint row, uint k) { return uint64_t(row / INNER) * (uint64_t(k) * INNER) + (row % INNER); }
 
 #ifdef KERNEL_TOPK_ROWS
 groupshared uint sKey[P2];
@@ -42,19 +57,26 @@ void topk_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform To
     }
 
     uint tid = ltid.x;
-    float* xr = p.x + topk_in_base(row);
+    uint len = TOPK_LEN(p);
+    uint kSel = TOPK_K(p);
+    if (kSel == 0u)
+    {
+        return;
+    }
+
+    float* xr = p.x + topk_in_base(row, len);
 
     // 1. Radix select: the key T of the k-th best element and the number of elements equal to T that belong to the top k.
     uint threshold;
     uint needEq;
-    radix_threshold(tid, xr, INNER, LEN, K, threshold, needEq);
-    uint greater = K - needEq;
+    radix_threshold(tid, xr, INNER, len, kSel, threshold, needEq);
+    uint greater = kSel - needEq;
 
     // 2. Ordered collection: thread t owns the contiguous chunk [t*C, (t+1)*C); elements equal to the threshold are
     //    taken in index order (lowest indices win ties), elements above it all go into slots [0, greater).
-    const uint C = (LEN + WG - 1) / WG;
-    uint begin = min(tid * C, uint(LEN));
-    uint end = min(begin + C, uint(LEN));
+    uint chunk = (len + WG - 1) / WG;
+    uint begin = min(tid * chunk, len);
+    uint end = min(begin + chunk, len);
     uint gtSlot;
     uint eqRank;
     radix_ranks(tid, xr, INNER, begin, end, threshold, gtSlot, eqRank);
@@ -77,7 +99,7 @@ void topk_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform To
             eqRank++;
         }
     }
-    for (uint s = K + tid; s < P2; s += WG)
+    for (uint s = kSel + tid; s < P2; s += WG)
     {
         sKey[s] = 0u;
         sIdx[s] = 0xFFFFFFFFu;
@@ -113,8 +135,8 @@ void topk_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform To
         }
     }
 
-    uint64_t ob = topk_out_base(row);
-    for (uint r = tid; r < K; r += WG)
+    uint64_t ob = topk_out_base(row, kSel);
+    for (uint r = tid; r < kSel; r += WG)
     {
         uint j = sIdx[r];
         p.vals[ob + uint64_t(r) * INNER] = xr[uint64_t(j) * INNER];
@@ -135,7 +157,7 @@ void topk_subgroup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifor
     }
 
     uint lane = ltid.x;
-    float* xr = p.x + topk_in_base(row);
+    float* xr = p.x + topk_in_base(row, LEN);
 
     // Each lane keeps its best K elements (over indices lane, lane + SG, ...) sorted best first; indices arrive in
     // increasing order, so an equal key goes behind the ones already kept.
@@ -167,7 +189,7 @@ void topk_subgroup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifor
     }
 
     // K rounds: the best list head across the subgroup wins and is popped from its lane.
-    uint64_t ob = topk_out_base(row);
+    uint64_t ob = topk_out_base(row, K);
     for (uint r = 0; r < K; r++)
     {
         uint best = WaveActiveMax(keys[0]);
@@ -184,6 +206,46 @@ void topk_subgroup(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, unifor
             keys[K - 1] = 0u;
             ids[K - 1] = 0xFFFFFFFFu;
         }
+    }
+}
+#endif
+
+#ifdef KERNEL_TOPK_SERIAL
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void topk_serial(uint3 dtid : SV_DispatchThreadID, uniform TopKParams p)
+{
+    uint row = dtid.x;
+    if (row >= p.rows)
+    {
+        return;
+    }
+
+    uint len = TOPK_LEN(p);
+    uint kSel = TOPK_K(p);
+    float* xr = p.x + topk_in_base(row, len);
+    uint64_t ob = topk_out_base(row, kSel);
+    // Selection in rank order: round r takes the best element after the previous pick (key descending, index ascending).
+    uint previousKey = 0u;
+    uint previousIndex = 0u;
+    for (uint r = 0u; r < kSel; r++)
+    {
+        uint bestKey = 0u;
+        uint best = 0xFFFFFFFFu;
+        for (uint j = 0u; j < len; j++)
+        {
+            uint k = topk_key(xr[uint64_t(j) * INNER]);
+            bool after = r == 0u || k < previousKey || (k == previousKey && j > previousIndex);
+            if (after && (best == 0xFFFFFFFFu || k > bestKey))
+            {
+                bestKey = k;
+                best = j;
+            }
+        }
+        p.vals[ob + uint64_t(r) * INNER] = xr[uint64_t(best) * INNER];
+        p.idx[ob + uint64_t(r) * INNER] = int(best);
+        previousKey = bestKey;
+        previousIndex = best;
     }
 }
 #endif

@@ -70,4 +70,24 @@ public sealed class TopKTests
         Diff.Check("TopK.axis", tg.B.Build(), new Step(2, 0, (x, Rnd.F(2 * 300 * 6, 11))), atol: 0, rtol: 0,
             what: $"k={k} noSubgroups={disableSubgroups}", disabledFeatures: disableSubgroups ? s_noSubgroups : null);
     }
+
+    /// <summary>
+    /// A symbolic k along the symbolic outermost axis (<c>min(K, T)</c>, the detection post-processing pattern): the workgroup kernel,
+    /// and the serial kernel for k bounds beyond its shared-memory sort.
+    /// </summary>
+    [Theory]
+    [InlineData(200, 1, 700, 3)]       // k = 200 of 700
+    [InlineData(200, 1, 150, 4)]       // k = all 150 rows
+    [InlineData(50, 3, 400, 5)]        // three columns
+    [InlineData(9000, 1, 2500, 6)]     // serial kernel
+    public void SymbolicK(long kMax, int columns, int rows, int seed)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, columns);
+        var outs = tg.B.Emit("TopK", [x], Attributes.From(("k_symbol", $"min({kMax},T)"), ("axis", 0L), ("largest", true)));
+        tg.B.Output("v", outs[0]);
+        tg.B.Output("i", outs[1]);
+        var data = Rnd.F((long)rows * columns, seed).Select(v => MathF.Round(v * 50) / 50).ToArray();
+        Diff.Check("TopK.symbolic", tg.B.Build(), new Step(rows, 0, (x, data)), atol: 0, rtol: 0, maxTokens: 3000, what: $"k=min({kMax},T) columns={columns} T={rows}");
+    }
 }

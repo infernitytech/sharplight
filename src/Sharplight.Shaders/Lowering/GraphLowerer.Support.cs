@@ -10,7 +10,7 @@ public sealed partial class GraphLowerer
 
     private static readonly HashSet<string> s_supported =
         [.. s_elementwise, "Reshape", "Slice", "Permute", "Contiguous", "Concat", "Gather", "MatMul", "RmsNorm", "L2Norm",
-         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", .. SpatialOpNames, .. GeneralOpNames];
+         "Rope", "CacheWrite", "CachedAttention", "IndexerTopK", "Attention", "CausalConv1d", "GatedDeltaRule", "SelectiveScan", "Wkv7", "Wkv6", "MatMulId", "SequencePool", "Sample", "NGramHash", .. SpatialOpNames, .. GeneralOpNames, .. DetectionOpNames];
 
     /// <summary>Kernel weight-format ids (the <c>WFMT</c> macro of the kernel library) per tensor type.</summary>
     private static readonly Dictionary<DataType, int> s_weightFormats = new()
@@ -76,6 +76,11 @@ public sealed partial class GraphLowerer
             return SupportsGeneral(node);
         }
 
+        if (s_detectionOps.Contains(op))
+        {
+            return SupportsDetection(node);
+        }
+
         if (op is "Wkv7" or "Wkv6")
         {
             return SupportsWkv(node, op == "Wkv7" ? 7 : 6);
@@ -102,8 +107,6 @@ public sealed partial class GraphLowerer
             "MatMul" => SupportsMatMul(node),
             "Rope" => SupportsRope(node),
             _ when s_elementwise.Contains(op) => SupportsElementwise(node),
-            "Concat" when node.Output.Shape[0].IsSymbolic && node.Inputs.Any(i => i.Shape[0] != node.Output.Shape[0])
-                => OpSupport.No("Concat along the symbolic axis (offsets known only at run time)"),
             _ => OpSupport.Yes,
         };
         if (!opSpecific.IsSupported)

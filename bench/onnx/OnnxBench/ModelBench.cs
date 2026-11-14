@@ -119,6 +119,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
                 result["compileMs"] = Math.Round(watch.Elapsed.TotalMilliseconds);
                 result["segments"] = compiled.Plan.Segments.Count;
                 result["fallbackSegments"] = compiled.Plan.Segments.Count(s => s.DeviceSlot != 0);
+                result["fallbackOps"] = FallbackOps(compiled.Plan, device);
                 result["fixedBatch"] = fixBatch;
                 return (definition, graph, compiled);
             }
@@ -254,6 +255,12 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
 
         result["profile"] = string.Join("\n", segments.Select(s => s.ProfileReport(40)));
     }
+
+    /// <summary>Ops of the nodes placed on the fallback device (views excluded), with their count and the main device's refusal.</summary>
+    private static Dictionary<string, string> FallbackOps(PlacementPlan plan, IComputeDevice device)
+        => plan.Segments.Where(s => s.DeviceSlot != 0).SelectMany(s => s.Nodes).Where(n => n.Op.Category != OpCategory.View)
+            .GroupBy(n => n.Op.Name)
+            .ToDictionary(g => g.Key, g => $"{g.Count()}x: {Truncate(device.Supports(g.First()).Reason, 160)}");
 
     private static string Truncate(string? s, int n = 600) => s is null ? "" : s.Length > n ? s[..n] + "..." : s;
 }

@@ -25,4 +25,11 @@ public sealed class KernelProgram
     public required IReadOnlyDictionary<string, int> ScalarSlots { get; init; }
     /// <summary>Symbolic dimensions the program depends on; every execution must bind all of them.</summary>
     public required IReadOnlyList<string> Symbols { get; init; }
+    /// <summary>
+    /// Data-dependent symbols the program computes (the counts of NonMaxSuppression and friends), each an i32 scalar a kernel writes into
+    /// an <see cref="BufferKind.Output"/> buffer. They are not in <see cref="Symbols"/>: launches are recorded with each one at its
+    /// compile-time bound (only the producer's own output depends on it, and the placement ends the segment there), and the backend
+    /// reads the value back after the execution and publishes it in <see cref="Runtime.RunParameters.Symbols"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, TensorRef> ProducedSymbols { get; init; } = new Dictionary<string, TensorRef>();
 }
