@@ -85,12 +85,34 @@ jobs:
 
       - name: LLM smoke test (CPU)
         if: (success() || failure()) && steps.model.outcome == 'success'
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32
+        run: |
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-cpu.txt"
+          grep -q Paris "$RUNNER_TEMP/smoke-cpu.txt"
 
       - name: LLM smoke test (Vulkan via MoltenVK)
         if: (success() || failure()) && steps.model.outcome == 'success'
         timeout-minutes: 15
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32
+        run: |
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-vulkan.txt"
+          grep -q Paris "$RUNNER_TEMP/smoke-vulkan.txt"
+
+      # Which device setting changes the Vulkan output: MoltenVK fast math, and each optional feature disabled in turn.
+      - name: Vulkan smoke variants (diagnostic)
+        if: (success() || failure()) && steps.model.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 25
+        run: |
+          cli=samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll
+          variant() {
+            echo "=== $*"
+            env "$@" dotnet $cli "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 12 2>&1 | grep -E '^The capital|rror' | head -3
+          }
+          variant MVK_CONFIG_FAST_MATH_ENABLED=0
+          variant SHARPLIGHT_DISABLE_FEATURES=subgroup_size_control
+          variant SHARPLIGHT_DISABLE_FEATURES=int_dot
+          variant SHARPLIGHT_DISABLE_FEATURES=fp16
+          variant SHARPLIGHT_DISABLE_FEATURES=subgroup_ops
+          variant SHARPLIGHT_DISABLE_FEATURES=all MVK_CONFIG_FAST_MATH_ENABLED=0
 
       - name: CPU kernel tiers (decode and prefill)
         if: (success() || failure()) && steps.model.outcome == 'success'
@@ -170,7 +192,9 @@ jobs:
 
       - name: LLM smoke test (CPU)
         if: (success() || failure()) && steps.model.outcome == 'success'
-        run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32
+        run: |
+          dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --cpu -p "$SMOKE_PROMPT" -n 32 | tee "$RUNNER_TEMP/smoke-cpu.txt"
+          grep -q Paris "$RUNNER_TEMP/smoke-cpu.txt"
 
       - name: CPU kernel tiers (decode and prefill)
         if: (success() || failure()) && steps.model.outcome == 'success'
