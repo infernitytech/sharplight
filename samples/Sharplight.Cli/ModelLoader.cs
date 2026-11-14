@@ -9,7 +9,7 @@ namespace Sharplight.Cli;
 /// <summary>Opens the requested devices, loads the model onto them and creates the decode session.</summary>
 internal static class ModelLoader
 {
-    public static LoadedModel Load(CliSettings settings, string modelPath)
+    public static LoadedModel Load(CliSettings settings, string modelPath, CancellationToken cancellationToken)
     {
         var runtime = settings.Runtime;
         var provider = SampleRuntime.SelectProvider(runtime.UseCpu);
@@ -30,6 +30,7 @@ internal static class ModelLoader
             })
             .ToList();
         var fallback = runtime.CpuOffload ? OpenCpuFallback() : null;
+        var progress = new ConsoleLoadProgress();
 
         var loadOptions = new LlmLoadOptions
         {
@@ -41,7 +42,9 @@ internal static class ModelLoader
             MaxBatchTokens = runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,
             AllowReducedPrecision = runtime.ReducedPrecision,
-            Log = Console.Error.WriteLine,
+            Log = progress.Log,
+            Progress = progress,
+            CancellationToken = cancellationToken,
         };
 
         var model = LlmModel.Load(modelPath, loadOptions);

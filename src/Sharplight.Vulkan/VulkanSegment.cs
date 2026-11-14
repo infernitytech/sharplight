@@ -149,19 +149,36 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         }
 
         using var uploader = new WeightUploader(_dev, _pool);
-        var materialized = WeightCopier.MaterializeInBackground(weights);
+        var ct = _options.CancellationToken;
+        var materialized = WeightCopier.MaterializeInBackground(weights, ct);
+        var progress = new LoadProgressCounter(_options.Progress, LoadStage.Uploading, weights.Sum(b => b.Bytes), _dev.Info.Name);
         try
         {
             foreach (var buffer in weights)
             {
+                // A cancelled upload still completes the copies in flight before the staging buffers are released.
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 uploader.Upload(buffer, _alloc[buffer]);
+                progress.Add(buffer.Bytes);
             }
 
             uploader.Complete();
+            ct.ThrowIfCancellationRequested();
         }
         finally
         {
-            materialized.Wait();
+            try
+            {
+                materialized.Wait(CancellationToken.None);
+            }
+            catch (AggregateException) when (ct.IsCancellationRequested)
+            {
+                // The background reads stopped because of the cancellation.
+            }
         }
     }
 

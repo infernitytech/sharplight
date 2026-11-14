@@ -38,6 +38,7 @@ internal sealed class ChatRepl(RunSettings settings)
         var provider = SampleRuntime.SelectProvider(runtime.UseCpu);
         using var device = provider.OpenDevice(SampleRuntime.GetDevice(provider, runtime.DeviceIndex), deviceOptions);
         using var fallback = runtime.CpuOffload && !runtime.UseCpu ? OpenCpu() : null;
+        var progress = new ConsoleLoadProgress();
         var load = new LlmLoadOptions
         {
             Devices = [new DeviceSlot { Device = device }],
@@ -46,7 +47,9 @@ internal sealed class ChatRepl(RunSettings settings)
             MaxBatchTokens = runtime.BatchTokens,
             KvCacheType = runtime.KvCacheType,
             AllowReducedPrecision = runtime.ReducedPrecision,
-            Log = Console.Error.WriteLine,
+            Log = progress.Log,
+            Progress = progress,
+            CancellationToken = cancellationToken,
         };
         // A multi-sequence decoder can roll its context back to the part the next turn's prompt shares (the template rewrites the
         // end of earlier answers, e.g. drops their reasoning), which the single-slot decoder cannot; a paged pool of one context

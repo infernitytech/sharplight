@@ -48,9 +48,12 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment
                 Ref(input);
             }
 
+            var progress = new LoadProgressCounter(options.Progress, LoadStage.Compiling, segment.Nodes.Count, device.Info.Name);
             foreach (var node in segment.Nodes)
             {
+                options.CancellationToken.ThrowIfCancellationRequested();
                 Lower(node, device);
+                progress.Add();
             }
 
             foreach (var output in segment.Outputs)
