@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Tensors;
 
 namespace Sharplight.Architectures;
 
@@ -21,6 +22,9 @@ namespace Sharplight.Architectures;
 /// router and the shared expert read the full rows. An optional <c>latent_in_norm.weight</c> [L] RMS-normalizes the latent rows (Muse Spark).</item>
 /// <item>Optional <c>experts.out_norm.weight</c> [H or L]: every selected expert's output is multiplied by it and then RMS-normalized
 /// (epsilon <c>post_norm_eps</c>) before the routing weights apply (Muse Spark).</item>
+/// <item>Optional adjugate experts <c>adjugate_experts.{gate,up,down}.weight</c> [E / g, I_a, H] (GroveMoE): one small expert per group of g
+/// (<c>moe.adjugate_group_size</c>) consecutive routed experts; each slot adds the output of its expert's group, scaled by
+/// <c>moe.adjugate_scale</c>, before the routing weight applies.</item>
 /// <item>Optional shared expert: <c>shared.{gate,up,down}.weight</c> (a gated MLP; without <c>shared.gate</c> an ungated
 /// act(up) MLP), optionally scaled per token by
 /// sigmoid(h · <c>shared.input_gate.weight</c>) with the gate weight [1, H], and by <c>moe.shared_scale</c>.</item>
@@ -60,12 +64,15 @@ internal static class MoeBlock
         }
 
         var expertInput = options.WeightsBeforeExperts ? b.Mul(b.Reshape(rows, 0, 1, width), slotWeights) : rows;                // [T, (k,) H or L]
-        var act = ExpertActivations(b, expertInput, prefix, ids, Gated);
-        var down = WithExpertBias(b, b.Emit1("MatMulId", [act, b.Weight(prefix + "experts.down.weight"), ids], null, $"{prefix}experts_down"),
-            prefix + "experts.down.bias", ids);                                                                                  // [T, k, H]
+        var down = ExpertBank(b, expertInput, prefix, "experts", ids, Gated);                                                // [T, k, H]
         if (b.TryWeight(prefix + "experts.out_norm.weight") is { } outNorm)
         {
             down = b.RmsNorm(b.Mul(down, outNorm), null, options.PostNormEps);
+        }
+
+        if (b.HasWeight(prefix + "adjugate_experts.down.weight"))
+        {
+            down = b.Add(down, AdjugateExperts(b, expertInput, prefix, ids, options, Gated), $"{prefix}experts_with_adjugate");
         }
 
         var weighted = options.WeightsBeforeExperts ? down : b.Mul(down, slotWeights);
@@ -96,26 +103,48 @@ internal static class MoeBlock
             => gate is null ? function.Activate(b, up, layerPrefix) : function.ActivateGated(b, gate, up, layerPrefix);
     }
 
-    // Gated (separate or fused gate/up) or ungated expert MLP inputs to the down projection: [T, k, I].
-    private static Value ExpertActivations(GraphBuilder b, Value h, string prefix, Value ids, Func<Value?, Value, Value> activation)
+    /// <summary>
+    /// Adjugate experts (GroveMoE): one small expert per group of <see cref="MoeOptions.AdjugateGroupSize"/> consecutive routed experts,
+    /// weights <c>adjugate_experts.{gate,up,down}.weight</c> [E / g, I_a, H]. Every slot also runs the adjugate expert of its routed expert's
+    /// group (index ids / g) on the same input; its output, scaled by <see cref="MoeOptions.AdjugateScale"/>, joins the slot's output before
+    /// the routing weight applies. Two slots in the same group run that group's adjugate expert twice, as in the reference.
+    /// </summary>
+    /// <returns>The scaled adjugate outputs per slot [T, k, H].</returns>
+    private static Value AdjugateExperts(GraphBuilder b, Value h, string prefix, Value ids, MoeOptions options, Func<Value?, Value, Value> activation)
     {
-        if (b.TryWeight(prefix + "experts.gate_up.weight") is { } gateUpWeight)
+        var groupSize = b.Constant($"{prefix}adjugate_group_size", DataType.I32, new Shape(1), BitConverter.GetBytes(options.AdjugateGroupSize));
+        var groupIds = b.Binary("Div", ids, groupSize, $"{prefix}adjugate_ids");                                                   // i32 [T, k]
+        var output = ExpertBank(b, h, prefix, "adjugate_experts", groupIds, activation);
+        return options.AdjugateScale == 1f ? output : b.Scale(output, options.AdjugateScale);
+    }
+
+    // One bank of expert MLPs (weights below {prefix}{bankName}.) applied to the selected slots: gated (separate or fused gate/up) or
+    // ungated activation, then the down projection, with the optional per-expert biases. Output [T, k, H].
+    private static Value ExpertBank(GraphBuilder b, Value h, string prefix, string bankName, Value ids, Func<Value?, Value, Value> activation)
+    {
+        string bank = $"{prefix}{bankName}.";
+        string name = $"{prefix}{bankName}_";
+        var act = ExpertActivations(b, h, bank, name, ids, activation);
+        return WithExpertBias(b, b.Emit1("MatMulId", [act, b.Weight(bank + "down.weight"), ids], null, name + "down"), bank + "down.bias", ids);
+    }
+
+    // Gated (separate or fused gate/up) or ungated expert MLP inputs to the down projection: [T, k, I].
+    private static Value ExpertActivations(GraphBuilder b, Value h, string bank, string name, Value ids, Func<Value?, Value, Value> activation)
+    {
+        if (b.TryWeight(bank + "gate_up.weight") is { } gateUpWeight)
         {
             long width = gateUpWeight.Shape[1].Fixed / 2;
-            var gateUp = WithExpertBias(b, b.Emit1("MatMulId", [h, gateUpWeight, ids], null, $"{prefix}experts_gate_up"),
-                prefix + "experts.gate_up.bias", ids);                                                                         // [T, k, 2I]
+            var gateUp = WithExpertBias(b, b.Emit1("MatMulId", [h, gateUpWeight, ids], null, name + "gate_up"), bank + "gate_up.bias", ids);  // [T, k, 2I]
             return activation(b.Slice(gateUp, 2, 0, width), b.Slice(gateUp, 2, width, width));
         }
 
-        var up = WithExpertBias(b, b.Emit1("MatMulId", [h, b.Weight(prefix + "experts.up.weight"), ids], null, $"{prefix}experts_up"),
-            prefix + "experts.up.bias", ids);
-        if (b.TryWeight(prefix + "experts.gate.weight") is not { } gateWeight)
+        var up = WithExpertBias(b, b.Emit1("MatMulId", [h, b.Weight(bank + "up.weight"), ids], null, name + "up"), bank + "up.bias", ids);
+        if (b.TryWeight(bank + "gate.weight") is not { } gateWeight)
         {
             return activation(null, up);
         }
 
-        var gate = WithExpertBias(b, b.Emit1("MatMulId", [h, gateWeight, ids], null, $"{prefix}experts_gate"),
-            prefix + "experts.gate.bias", ids);
+        var gate = WithExpertBias(b, b.Emit1("MatMulId", [h, gateWeight, ids], null, name + "gate"), bank + "gate.bias", ids);
         return activation(gate, up);
     }
 

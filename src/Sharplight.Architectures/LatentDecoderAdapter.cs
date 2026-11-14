@@ -38,7 +38,7 @@ namespace Sharplight.Architectures;
 /// <c>attention.indexer.k_norm.{weight,bias}</c> (pooled keys also <c>attention.indexer.{pool_gate,pool_position}.weight</c>; see
 /// <see cref="SparseAttentionIndexer"/>); a layer without them reuses the previous indexed layer's selection. When the context does not exceed the
 /// budget the indexer is left out (every row would keep every visible position).</item>
-/// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
+/// <item>Hyper-connections (Hunyuan v4, DeepSeek-V4 mHC, Xing4.0): <c>hyper_connections.*</c> (<see cref="StreamHyperConnectionOptions"/>); per layer the
 /// modules <c>layers.{i}.attention_hc.*</c> and <c>layers.{i}.mlp_hc.*</c> around the two sub-layers and the head <c>output_hc.*</c> before the
 /// output norm (weights on <see cref="StreamHyperConnections"/>; without <c>output_hc.*</c> the streams are averaged). No draft head with
 /// hyper-connections.</item>

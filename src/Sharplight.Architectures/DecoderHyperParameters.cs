@@ -20,7 +20,8 @@ internal sealed record DecoderHyperParameters(
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
     bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved,
-    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, HierarchicalCycleOptions? Cycles = null, int QkNormGroups = 1,
+    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges, int NormGroups, float GateSoftplusBeta,
+    ValueExpertOptions? ValueExperts, HierarchicalCycleOptions? Cycles = null, int QkNormGroups = 1,
     DenseConnectionOptions? DenseConnections = null, float ExclusiveAttentionEps = 0f, float[]? LogitSigmoidCap = null)
 {
     /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
@@ -113,6 +114,9 @@ internal sealed record DecoderHyperParameters(
             QkNormType: src.Arch("attention.qk_norm_type", "rms"),
             QkNormEps: src.Arch("attention.qk_norm_eps", src.Arch("norm_eps", 1e-5f)),
             SuppressedTokenRanges: src.Arch("logits.suppressed_ranges", Array.Empty<int>()),
+            NormGroups: src.Arch("norm.groups", 1),
+            GateSoftplusBeta: src.Arch("attention.gate_softplus_beta", 1f),
+            ValueExperts: ValueExpertOptions.Read(src),
             Cycles: HierarchicalCycleOptions.Read(src, src.Arch<int>("layer_count")),
             QkNormGroups: src.Arch("attention.qk_norm_groups", 1),
             DenseConnections: DenseConnectionOptions.Read(src, src.Arch<int>("layer_count")),

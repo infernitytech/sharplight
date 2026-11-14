@@ -277,12 +277,12 @@ internal sealed partial class LatentDecoderGraphBuilder
         var (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "attention_hc.", hc, _hp.HiddenSize);
         var h = b.RmsNorm(input, b.Weight(p + "input_norm.weight"), _hp.Eps, $"{p}attn_norm");
         var attention = Mixer(b, h, p, il, headIds, rotate, temperature);
-        x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc.Streams, _hp.HiddenSize, $"{p}attn_residual");
+        x = StreamHyperConnections.Merge(b, x, ResidualBranch(b, attention), post, mixing, hc, _hp.HiddenSize, $"{p}attn_residual");
 
         (input, post, mixing) = StreamHyperConnections.Collapse(b, x, p + "mlp_hc.", hc, _hp.HiddenSize);
         h = b.RmsNorm(input, b.Weight(p + "post_attention_norm.weight"), _hp.Eps, $"{p}post_attn_norm");
         var ffn = MoeBlock.IsPresent(b, p + "mlp.") ? Experts(b, h, p) : Mlp(b, h, p, "mlp.", $"{p}ffn_out");
-        return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc.Streams, _hp.HiddenSize, $"{p}l_out");
+        return StreamHyperConnections.Merge(b, x, ResidualBranch(b, ffn), post, mixing, hc, _hp.HiddenSize, $"{p}l_out");
     }
 
     /// <summary>The query temperature of every row (Mistral 4 / Mistral Large 3), or null when the model has none.</summary>

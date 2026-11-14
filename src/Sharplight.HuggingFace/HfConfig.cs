@@ -51,10 +51,12 @@ internal sealed partial class HfConfig : IDisposable
     /// <summary>
     /// The model type: the root <c>model_type</c> (e.g. "qwen3_5"), falling back to text_config's, then to the model type of a
     /// remote-code <c>architectures</c> class whose configs omit it (e.g. <c>BailingMoeV2ForCausalLM</c>). EAGLE-3 drafters, whose configs say
-    /// <c>llama</c>, are <c>eagle3</c>.
+    /// <c>llama</c>, are <c>eagle3</c>; remote-code classes whose configs name another family (<c>GroveMoeForCausalLM</c>, configs say
+    /// <c>qwen3_moe</c>) get their own type.
     /// </summary>
     public string? ModelType
         => Eagle3HfMapping.IsDrafter(this) ? "eagle3"
+            : Architectures.Select(a => s_remoteCodeOverrides.GetValueOrDefault(a)).FirstOrDefault(t => t is not null) is { } overridden ? overridden
             : Root.TryGetProperty("model_type", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString()
             : GetString("model_type") ?? Architectures.Select(a => s_remoteCodeModelTypes.GetValueOrDefault(a)).FirstOrDefault(t => t is not null);
 
@@ -62,6 +64,13 @@ internal sealed partial class HfConfig : IDisposable
     private static readonly Dictionary<string, string> s_remoteCodeModelTypes = new(StringComparer.Ordinal)
     {
         ["BailingMoeV2ForCausalLM"] = "bailing_moe_v2",
+    };
+
+    // Remote-code causal-LM classes whose config.json names another family's model_type (GroveMoE says qwen3_moe): the class decides.
+    private static readonly Dictionary<string, string> s_remoteCodeOverrides = new(StringComparer.Ordinal)
+    {
+        ["GroveMoeForCausalLM"] = "grove_moe",
+        ["modeling_grove_moe.GroveMoeForCausalLM"] = "grove_moe",
     };
 
     /// <summary>The <c>architectures</c> class names (e.g. "Qwen3ForCausalLM"); empty when absent.</summary>

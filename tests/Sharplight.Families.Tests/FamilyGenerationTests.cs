@@ -175,6 +175,8 @@ public class FamilyGenerationTests
         .. CrossLayerFamilyCases.All,
         // Bring-up round 9: the DeepSeek-OCR language model (deepseek2-ocr: DeepSeek-V2 MoE with multi-head attention).
         .. DeepseekOcrFamilyCases.All,
+        // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
+        .. MoeVariantFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback)
