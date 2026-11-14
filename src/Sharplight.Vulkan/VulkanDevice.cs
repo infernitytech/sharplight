@@ -696,6 +696,12 @@ internal sealed unsafe class VulkanDevice : IComputeDevice
     {
         // Waits for a kernel that is still compiling; that time is not pipeline creation.
         var spirv = kernel.Code;
+        if ((Phys.PortabilitySubset && DiagnosticSwitches.PortabilityRewrite) || DiagnosticSwitches.PortabilityRewriteAll)
+        {
+            // Layered implementations (MoltenVK) translate SPIR-V to another language; avoid constructs they mistranslate.
+            spirv = SpirvPortability.Rewrite(spirv);
+        }
+
         long startTicks = Stopwatch.GetTimestamp();
         try
         {

@@ -75,10 +75,6 @@ jobs:
         if: success() || failure()
         run: dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharplight.Cpu.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/cpu-tests.xml"
 
-      - name: Vulkan suite (MoltenVK)
-        if: success() || failure()
-        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/vulkan-tests.xml"
-
       - name: Smoke model
         if: success() || failure()
         id: model
@@ -93,6 +89,7 @@ jobs:
 
       - name: LLM smoke test (Vulkan via MoltenVK)
         if: steps.model.outcome == 'success'
+        timeout-minutes: 15
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" -p "$SMOKE_PROMPT" -n 32
 
       - name: CPU kernel tiers (decode and prefill)
@@ -106,7 +103,14 @@ jobs:
       - name: Vulkan benchmark (MoltenVK)
         if: steps.model.outcome == 'success'
         continue-on-error: true
+        timeout-minutes: 15
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
+
+      # Last, and time-boxed: the paravirtual runner GPU is slow, and a failing kernel must not hide the steps above.
+      - name: Vulkan suite (MoltenVK)
+        if: success() || failure()
+        timeout-minutes: 50
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -xml "$RUNNER_TEMP/vulkan-tests.xml"
 
       - uses: actions/upload-artifact@v4
         if: success() || failure()

@@ -18,6 +18,9 @@ namespace Sharplight.Vulkan;
 /// independent launches (<see cref="HazardTracker.Order"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
+/// <item><c>SHARPLIGHT_VK_SPIRV_PORTABILITY=0</c>: on portability-subset devices (MoltenVK), create pipelines from the
+/// kernels as compiled instead of applying <see cref="SpirvPortability.Rewrite"/>; <c>=all</c> applies the rewrite on
+/// every device (to check the rewritten kernels on a native driver).</item>
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
 /// <c>submission_budget_ms</c> device setting wins over it.</item>
@@ -51,6 +54,12 @@ internal static class DiagnosticSwitches
 
     /// <summary>Prints each recorded launch.</summary>
     public static bool ListLaunches { get; } = IsSet("SHARPLIGHT_VK_LIST_LAUNCHES");
+
+    /// <summary>True when kernels for portability-subset devices get <see cref="SpirvPortability.Rewrite"/> (the default).</summary>
+    public static bool PortabilityRewrite { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") != "0";
+
+    /// <summary>True when <see cref="SpirvPortability.Rewrite"/> applies on every device (<c>SHARPLIGHT_VK_SPIRV_PORTABILITY=all</c>).</summary>
+    public static bool PortabilityRewriteAll { get; } = Read("SHARPLIGHT_VK_SPIRV_PORTABILITY") == "all";
 
     /// <summary>Prints load-phase timings.</summary>
     public static bool LoadTiming { get; } = IsSet("SHARPLIGHT_LOAD_TIMING");
