@@ -1,3 +1,5 @@
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -13,6 +15,7 @@ internal sealed unsafe class ConvOp : CpuOp
     private readonly TRef _x;
     private readonly TRef _y;
     private readonly TRef? _bias;
+    private readonly ConvEpilogue? _epilogue;
     private readonly int _c;
     private readonly int _h;
     private readonly int _w;
@@ -36,12 +39,14 @@ internal sealed unsafe class ConvOp : CpuOp
     private readonly int _nt;
     private readonly bool _depthwise;
     private readonly bool _direct;
+    private readonly bool _tilePack;
     private readonly float* _apack;     // packed weights [g][panel][k][MR]
     private readonly float* _wdw;       // depthwise: dense f32 weights [O, KH*KW]
     private readonly float* _bpack;     // packed im2col [tile][k][NR]
     private readonly Action<int> _packBody;
     private readonly Action<int> _gemmBody;
     private readonly Action<int> _dwBody;
+    private readonly Action<int> _tileBody;
 
     // per-run state
     private long _n;
@@ -59,13 +64,14 @@ internal sealed unsafe class ConvOp : CpuOp
     private long _planes;
     private long _perChunk;
 
-    public override string Name => _depthwise ? "Conv.depthwise" : _direct ? "Conv.1x1" : "Conv";
+    public override string Name => (_depthwise ? "Conv.depthwise" : _direct ? "Conv.1x1" : "Conv") + _epilogue?.Label;
 
-    private ConvOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw)
+    private ConvOp(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int sh, int sw, int pt, int pl, int dh, int dw, ConvEpilogue? epilogue)
     {
         _x = x;
         _y = y;
         _bias = bias;
+        _epilogue = epilogue;
         _c = (int)x.Dims[1];
         _h = (int)x.Dims[2];
         _w = (int)x.Dims[3];
@@ -88,6 +94,7 @@ internal sealed unsafe class ConvOp : CpuOp
         _packBody = PackBody;
         _gemmBody = GemmBody;
         _dwBody = DwBody;
+        _tileBody = TileBody;
         _depthwise = _g == _c && _cg == 1;
         if (_depthwise)
         {
@@ -101,6 +108,9 @@ internal sealed unsafe class ConvOp : CpuOp
         _mp = (_mg + MR - 1) / MR;
         _nt = (_hw + NR - 1) / NR;
         _direct = kh == 1 && kw == 1 && sh == 1 && sw == 1 && pt == 0 && pl == 0 && _hw == _h * _w && ((long)_hw * 4) % 4096 != 0;
+        // Small weights and K (early high-resolution layers): every task packs its own B tiles into thread scratch and runs all
+        // weight panels over them, so the im2col buffer never leaves the cache.
+        _tilePack = !_direct && (long)_mg * _kg * 4 <= TilePackMaxWeightBytes && _kg <= TilePackMaxK;
         long aBytes = (long)_g * _mp * _kg * MR * 4;
         _apack = (float*)Mem.Alloc(aBytes, true);
         for (int g = 0; g < _g; g++)
@@ -114,11 +124,11 @@ internal sealed unsafe class ConvOp : CpuOp
         }
 
         long tiles = _direct ? 1 : _nt;
-        _bpack = (float*)Mem.Alloc(tiles * _kg * NR * 4, false);
+        _bpack = _tilePack ? null : (float*)Mem.Alloc(tiles * _kg * NR * 4, false);
     }
 
-    public static ConvOp Create(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int[] strides, int[] pads, int[] dil)
-        => new(x, wDense, kh, kw, bias, y, groups, strides[0], strides[1], pads[0], pads[1], dil[0], dil[1]);
+    public static ConvOp Create(TRef x, float* wDense, int kh, int kw, TRef? bias, TRef y, int groups, int[] strides, int[] pads, int[] dil, ConvEpilogue? epilogue)
+        => new(x, wDense, kh, kw, bias, y, groups, strides[0], strides[1], pads[0], pads[1], dil[0], dil[1], epilogue);
 
     public override void Dispose()
     {
@@ -155,6 +165,14 @@ internal sealed unsafe class ConvOp : CpuOp
                 _grp = g;
                 _xg = (float*)_x.P + ((long)img * _c + (long)g * _cg) * _h * _w;
                 _yg = (float*)_y.P + ((long)img * _o + (long)g * _mg) * _hw;
+                if (_tilePack)
+                {
+                    _ntt = Math.Max(1, (int)Math.Min(TilePackMaxTilesPerTask, _nt / (4L * CpuParallel.Threads)));
+                    _nBlocks = (_nt + _ntt - 1) / _ntt;
+                    CpuParallel.For(_nBlocks, _tileBody);
+                    continue;
+                }
+
                 // phase 1: im2col into packed panels (only the partial tail tile when the input is read in place)
                 bool tail = _hw % NR != 0;
                 if (!_direct || tail)
@@ -203,10 +221,15 @@ internal sealed unsafe class ConvOp : CpuOp
             return;
         }
 
+        PackTile(tile, c0, c1, _bpack + (_direct ? 0 : (long)tile * _kg * Gemm.NR));
+    }
+
+    /// <summary>Fills the im2col rows of channels [c0, c1) of output tile <paramref name="tile"/> into the [k][NR] panel.</summary>
+    private void PackTile(int tile, int c0, int c1, float* panel)
+    {
         int NR = Gemm.NR;
         long p0 = (long)tile * NR;
         int ncols = (int)Math.Min(NR, _hw - p0);
-        float* panel = _bpack + (_direct ? 0 : (long)tile * _kg * NR);
         int* segOh = stackalloc int[NR];
         int* segOw = stackalloc int[NR];
         int* segJ = stackalloc int[NR];
@@ -286,6 +309,70 @@ internal sealed unsafe class ConvOp : CpuOp
         }
     }
 
+    /// <summary>Largest per-group weight size and reduction length of the tile-packed path (A about the size of L2, a B tile in L1/L2; tuned on Zen 5).</summary>
+    private const long TilePackMaxWeightBytes = 1024 * 1024;
+    private const int TilePackMaxK = 1152;
+
+    /// <summary>Most output tiles per task of the tile-packed path.</summary>
+    private const int TilePackMaxTilesPerTask = 8;
+
+    /// <summary>Tile-packed path: task = a run of output tiles; each tile is packed into thread scratch, then every weight panel runs over it.</summary>
+    private void TileBody(int task)
+    {
+        int MR = Gemm.MR;
+        int NR = Gemm.NR;
+        int t0 = task * _ntt;
+        int t1 = Math.Min(_nt, t0 + _ntt);
+        float* panel = (float*)ThreadScratch.Get(ThreadScratch.Worker, (long)_kg * NR * 4);
+        float* bias = stackalloc float[MR];
+        long kg = _kg;
+        for (int t = t0; t < t1; t++)
+        {
+            PackTile(t, 0, _cg, panel);
+            long n0 = (long)t * NR;
+            int cols = (int)Math.Min(NR, _hw - n0);
+            for (int p = 0; p < _mp; p++)
+            {
+                int rows = Math.Min(MR, _mg - p * MR);
+                float* bi = null;
+                if (_bias0 != null)
+                {
+                    for (int i = 0; i < MR; i++)
+                    {
+                        bias[i] = i < rows ? _bias0[_grp * _mg + p * MR + i] : 0f;
+                    }
+
+                    bi = bias;
+                }
+
+                float* c = _yg + (long)p * MR * _hw + n0;
+                for (int kb = 0; kb < kg; kb += Gemm.KC)
+                {
+                    int kc = (int)Math.Min(Gemm.KC, kg - kb);
+                    float* a = _apack + ((long)(_grp * _mp + p) * kg + kb) * MR;
+                    float* b = panel + (long)kb * NR;
+                    if (rows == MR && cols == NR)
+                    {
+                        Gemm.Tile(a, b, NR, c, _hw, kc, bi, kb > 0);
+                    }
+                    else
+                    {
+                        Gemm.TileEdge(a, b, NR, c, _hw, kc, bi, kb > 0, rows, cols);
+                    }
+                }
+
+                if (_epilogue is { } epilogue)
+                {
+                    long offset = c - (float*)_y.P;
+                    for (int i = 0; i < rows; i++)
+                    {
+                        epilogue.Apply(c + (long)i * _hw, offset + (long)i * _hw, cols);
+                    }
+                }
+            }
+        }
+    }
+
     private void GemmBody(int task)
     {
         int MR = Gemm.MR;
@@ -344,16 +431,35 @@ internal sealed unsafe class ConvOp : CpuOp
                     {
                         Gemm.TileEdge(a, b, ldb, c, _hw, kc, bi, acc, rows, cols);
                     }
+
+                    if (_epilogue is { } epilogue && kb + kc >= kg)
+                    {
+                        long offset = c - (float*)_y.P;
+                        for (int i = 0; i < rows; i++)
+                        {
+                            epilogue.Apply(c + (long)i * _hw, offset + (long)i * _hw, cols);
+                        }
+                    }
                 }
             }
         }
     }
+
+    /// <summary>Interior outputs per row from which the depthwise rows use the vector loops instead of one AXPY per tap.</summary>
+    private const int DwVectorMinWidth = 16;
 
     private void DwBody(int chunk)
     {
         long s = chunk * _perChunk;
         long e = Math.Min(_planes, s + _perChunk);
         int mult = _o / _c;
+        int taps = _kh * _kw;
+        Vector512<float>* w512 = stackalloc Vector512<float>[CpuIsa.Use512 ? taps : 0];
+        Vector256<float>* w256 = stackalloc Vector256<float>[CpuIsa.Use256 && !CpuIsa.Use512 ? taps : 0];
+        // Interior outputs: every tap of the row is inside the input, so the vector loop needs no bounds checks.
+        int owLo = Math.Min(_wo, (_pl + _sw - 1) / _sw);
+        int lastTap = (_kw - 1) * _dw - _pl;
+        int owHi = _w - 1 - lastTap < 0 ? owLo : Math.Clamp((_w - 1 - lastTap) / _sw + 1, owLo, _wo);
         for (long pl = s; pl < e; pl++)
         {
             long n = pl / _o;
@@ -361,46 +467,167 @@ internal sealed unsafe class ConvOp : CpuOp
             int c = o / mult;
             float* xp = (float*)_x.P + (n * _c + c) * _h * _w;
             float* yp = (float*)_y.P + pl * _hw;
-            float* wt = _wdw + (long)o * _kh * _kw;
+            float* wt = _wdw + (long)o * taps;
             float bv = _bias0 == null ? 0f : _bias0[o];
+            for (int t = 0; t < taps; t++)
+            {
+                if (CpuIsa.Use512)
+                {
+                    w512[t] = Vector512.Create(wt[t]);
+                }
+                else if (CpuIsa.Use256)
+                {
+                    w256[t] = Vector256.Create(wt[t]);
+                }
+            }
+
             for (int oh = 0; oh < _ho; oh++)
             {
                 float* yr = yp + (long)oh * _wo;
-                new Span<float>(yr, _wo).Fill(bv);
-                for (int fh = 0; fh < _kh; fh++)
+                int fh0 = 0;
+                int fh1 = _kh;
+                while (fh0 < _kh && (uint)(oh * _sh - _pt + fh0 * _dh) >= (uint)_h)
                 {
-                    int ih = oh * _sh - _pt + fh * _dh;
-                    if ((uint)ih >= (uint)_h)
+                    fh0++;
+                }
+
+                while (fh1 > fh0 && (uint)(oh * _sh - _pt + (fh1 - 1) * _dh) >= (uint)_h)
+                {
+                    fh1--;
+                }
+
+                float* row0 = xp + (long)(oh * _sh - _pt) * _w;
+                if (owHi - owLo < DwVectorMinWidth || _sw > 2 || !CpuIsa.Use256)
+                {
+                    DwAxpyRow(yr, row0, wt, bv, fh0, fh1);
+                }
+                else
+                {
+                    int ow = owLo;
+                    if (CpuIsa.Use512)
                     {
-                        continue;
+                        ow = DwRow512(yr, row0, w512, bv, fh0, fh1, owLo, owHi);
                     }
 
-                    float* xr = xp + (long)ih * _w;
-                    for (int fw = 0; fw < _kw; fw++)
+                    if (_sw == 1)
                     {
-                        float wv = wt[fh * _kw + fw];
-                        int off = fw * _dw - _pl;
-                        int lo = off >= 0 ? 0 : (-off + _sw - 1) / _sw;
-                        int hi = _w - 1 - off < 0 ? 0 : Math.Min(_wo, (_w - 1 - off) / _sw + 1);
-                        if (hi <= lo)
-                        {
-                            continue;
-                        }
+                        ow = CpuIsa.Use512 ? DwRow256(yr, row0, (Vector256<float>*)null, wt, bv, fh0, fh1, ow, owHi) : DwRow256(yr, row0, w256, wt, bv, fh0, fh1, ow, owHi);
+                    }
 
-                        if (_sw == 1)
-                        {
-                            Simd.Axpy(yr + lo, xr + off + lo, wv, hi - lo);
-                        }
-                        else
-                        {
-                            for (int ow = lo; ow < hi; ow++)
-                            {
-                                yr[ow] += wv * xr[ow * _sw + off];
-                            }
-                        }
+                    DwScalar(yr, row0, wt, bv, fh0, fh1, 0, owLo);
+                    DwScalar(yr, row0, wt, bv, fh0, fh1, ow, _wo);
+                }
+
+                _epilogue?.Apply(yr, yr - (float*)_y.P, _wo);
+            }
+        }
+    }
+
+    /// <summary>Interior outputs [owLo, owHi) in steps of 16 (stride 1, or 2 by an even-lane permute); returns the first one left.</summary>
+    private int DwRow512(float* yr, float* row0, Vector512<float>* w, float bias, int fh0, int fh1, int owLo, int owHi)
+    {
+        var even = Vector512.Create(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30);
+        int ow = owLo;
+        // Stride 2 loads 32 inputs per tap; the last one is past the final output's tap and must still be inside the row.
+        for (; ow + 16 <= owHi && (_sw == 1 || (ow + 15) * 2 - _pl + (_kw - 1) * _dw + 1 < _w); ow += 16)
+        {
+            var acc = Vector512.Create(bias);
+            for (int fh = fh0; fh < fh1; fh++)
+            {
+                float* xr = row0 + (long)fh * _dh * _w + ow * _sw - _pl;
+                for (int fw = 0; fw < _kw; fw++)
+                {
+                    float* p = xr + fw * _dw;
+                    var v = _sw == 1 ? Vector512.Load(p) : Avx512F.PermuteVar16x32x2(Vector512.Load(p), even, Vector512.Load(p + 16));
+                    acc = Vector512.FusedMultiplyAdd(v, w[fh * _kw + fw], acc);
+                }
+            }
+
+            acc.Store(yr + ow);
+        }
+
+        return ow;
+    }
+
+    /// <summary>Interior outputs [owLo, owHi) in steps of 8, stride 1 (weights splatted in <paramref name="w"/>, or from <paramref name="wt"/> when null); returns the first one left.</summary>
+    private int DwRow256(float* yr, float* row0, Vector256<float>* w, float* wt, float bias, int fh0, int fh1, int owLo, int owHi)
+    {
+        int ow = owLo;
+        for (; ow + 8 <= owHi; ow += 8)
+        {
+            var acc = Vector256.Create(bias);
+            for (int fh = fh0; fh < fh1; fh++)
+            {
+                float* xr = row0 + (long)fh * _dh * _w + ow - _pl;
+                for (int fw = 0; fw < _kw; fw++)
+                {
+                    var wv = w != null ? w[fh * _kw + fw] : Vector256.Create(wt[fh * _kw + fw]);
+                    acc = Vector256.FusedMultiplyAdd(Vector256.Load(xr + fw * _dw), wv, acc);
+                }
+            }
+
+            acc.Store(yr + ow);
+        }
+
+        return ow;
+    }
+
+    /// <summary>
+    /// One output row as one AXPY per tap over the valid output range (rows too narrow for the interior vector loop, strides
+    /// above 2, or no 256-bit vectors).
+    /// </summary>
+    private void DwAxpyRow(float* yr, float* row0, float* wt, float bias, int fh0, int fh1)
+    {
+        new Span<float>(yr, _wo).Fill(bias);
+        for (int fh = fh0; fh < fh1; fh++)
+        {
+            float* xr = row0 + (long)fh * _dh * _w;
+            for (int fw = 0; fw < _kw; fw++)
+            {
+                float wv = wt[fh * _kw + fw];
+                int off = fw * _dw - _pl;
+                int lo = off >= 0 ? 0 : (-off + _sw - 1) / _sw;
+                int hi = _w - 1 - off < 0 ? 0 : Math.Min(_wo, (_w - 1 - off) / _sw + 1);
+                if (hi <= lo)
+                {
+                    continue;
+                }
+
+                if (_sw == 1)
+                {
+                    Simd.Axpy(yr + lo, xr + off + lo, wv, hi - lo);
+                }
+                else
+                {
+                    for (int ow = lo; ow < hi; ow++)
+                    {
+                        yr[ow] += wv * xr[ow * _sw + off];
                     }
                 }
             }
+        }
+    }
+
+    /// <summary>Outputs [ow0, ow1) of one row with bounds checks (borders and remainders of the vector loops).</summary>
+    private void DwScalar(float* yr, float* row0, float* wt, float bias, int fh0, int fh1, int ow0, int ow1)
+    {
+        for (int ow = ow0; ow < ow1; ow++)
+        {
+            float acc = bias;
+            for (int fh = fh0; fh < fh1; fh++)
+            {
+                float* xr = row0 + (long)fh * _dh * _w;
+                for (int fw = 0; fw < _kw; fw++)
+                {
+                    int iw = ow * _sw - _pl + fw * _dw;
+                    if ((uint)iw < (uint)_w)
+                    {
+                        acc = MathF.FusedMultiplyAdd(xr[iw], wt[fh * _kw + fw], acc);
+                    }
+                }
+            }
+
+            yr[ow] = acc;
         }
     }
 }

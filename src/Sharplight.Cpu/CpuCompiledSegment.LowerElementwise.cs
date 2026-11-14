@@ -13,29 +13,25 @@ internal sealed unsafe partial class CpuCompiledSegment
             return;
         }
 
-        var a = n.Attributes;
         var x = RowContig(RefF32(n.Inputs[0]));
         var y = NewDense(n.Output);
-        UnaryOp op = kind switch
-        {
-            UnaryKind.HardSigmoid => new UnaryOp(kind, x, y, a.Get("alpha", 0.2f), a.Get("beta", 0.5f)),
-            UnaryKind.Elu or UnaryKind.Celu or UnaryKind.ThresholdedRelu => new UnaryOp(kind, x, y, a.Get("alpha", 1f)),
-            UnaryKind.Selu => new UnaryOp(kind, x, y, a.Get("alpha", 1.67326319217681884765625f), a.Get("gamma", 1.05070102214813232421875f)),
-            UnaryKind.LeakyRelu => new UnaryOp(kind, x, y, a.Get("alpha", 0.01f)),
-            _ => new UnaryOp(kind, x, y),
-        };
-        AddStep(op, x, y);
+        var (scale, bias) = UnaryParameters(kind, n.Attributes);
+        AddStep(new UnaryOp(kind, x, y, scale, bias), x, y);
         _refs[n.Output] = y;
     }
 
-    private void LowerClip(Node n)
+    /// <summary>The two <see cref="UnaryOp"/> parameters of a unary node of <paramref name="kind"/> (Clip: min and max).</summary>
+    private static (float Scale, float Bias) UnaryParameters(UnaryKind kind, Attributes a) => kind switch
     {
-        var a = n.Attributes;
-        var x = RowContig(RefF32(n.Inputs[0]));
-        var y = NewDense(n.Output);
-        AddStep(new UnaryOp(UnaryKind.Clip, x, y, a.Get("min", float.NegativeInfinity), a.Get("max", float.PositiveInfinity)), x, y);
-        _refs[n.Output] = y;
-    }
+        UnaryKind.HardSigmoid => (a.Get("alpha", 0.2f), a.Get("beta", 0.5f)),
+        UnaryKind.Elu or UnaryKind.Celu or UnaryKind.ThresholdedRelu => (a.Get("alpha", 1f), 0f),
+        UnaryKind.Selu => (a.Get("alpha", 1.67326319217681884765625f), a.Get("gamma", 1.05070102214813232421875f)),
+        UnaryKind.LeakyRelu => (a.Get("alpha", 0.01f), 0f),
+        UnaryKind.Clip => (a.Get("min", float.NegativeInfinity), a.Get("max", float.PositiveInfinity)),
+        _ => (1f, 0f),
+    };
+
+    private void LowerClip(Node n) => LowerUnary(n, UnaryKind.Clip);
 
     private void LowerScale(Node n)
     {
