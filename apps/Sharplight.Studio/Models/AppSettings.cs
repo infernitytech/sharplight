@@ -42,6 +42,15 @@ internal sealed record AppSettings
     /// <summary>Device features never to use (provider-neutral names such as <c>matrix_f16</c>).</summary>
     public IReadOnlyList<string> DisabledFeatures { get; init; } = [];
 
+    /// <summary>
+    /// Frame the main window with the system's title bar instead of Studio's own one (which is used only where the window manager
+    /// moves and resizes windows on request).
+    /// </summary>
+    public bool UseSystemTitleBar { get; init; }
+
+    /// <summary>Discover lists only repositories and quantizations whose compatibility badge is <c>Supported</c>.</summary>
+    public bool ShowOnlySupported { get; init; }
+
     /// <summary>Compile the GPU kernels into a package right after it was downloaded and converted.</summary>
     public bool PrecompileAfterDownload { get; init; } = true;
 

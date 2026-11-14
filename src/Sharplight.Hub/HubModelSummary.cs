@@ -17,6 +17,7 @@ namespace Sharplight.Hub;
 /// configuration without a method), or <see langword="null"/>.
 /// </param>
 /// <param name="HasProjectorOnly">The repository's GGUF files are all multimodal projectors (mmproj).</param>
+/// <param name="CreatedAt">When the repository was created, or <see langword="null"/> when the Hub did not say.</param>
 public sealed record HubModelSummary(
     string Id,
     long Downloads,
@@ -30,4 +31,5 @@ public sealed record HubModelSummary(
     string? GgufArchitecture = null,
     string? ModelType = null,
     string? QuantizationMethod = null,
-    bool HasProjectorOnly = false);
+    bool HasProjectorOnly = false,
+    DateTimeOffset? CreatedAt = null);

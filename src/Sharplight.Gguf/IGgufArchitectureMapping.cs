@@ -16,6 +16,15 @@ internal interface IGgufArchitectureMapping
     /// <summary>Canonical architecture id (e.g. "qwen3_5").</summary>
     public string Architecture { get; }
 
+    /// <summary>
+    /// The hyper-parameters or features of this file that the mapping (or the adapter it maps to) does not run, as one reason each; none
+    /// when it accepts the file. The importer rejects a file with reasons before mapping it, and <see cref="GgufSupport.Validate"/> reports
+    /// them before the file is downloaded (from its header), so a mapping names a variant it rejects here instead of throwing while it maps.
+    /// Only metadata and the tensor table (<see cref="GgufMetadataView.Tensor"/>) may be read, never tensor data. Default: none.
+    /// </summary>
+    /// <param name="gguf">The file's metadata and tensors.</param>
+    public IEnumerable<string> Validate(GgufMetadataView gguf) => [];
+
     /// <summary>Canonical <c>{arch}.*</c> hyper-parameters (full keys) from the GGUF metadata.</summary>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView gguf);
 

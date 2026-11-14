@@ -18,6 +18,15 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
             : Enumerable.Repeat(g.Int(key, 0), layerCount).ToArray();
 
     /// <inheritdoc/>
+    public IEnumerable<string> Validate(GgufMetadataView gguf)
+    {
+        if (gguf.GgufArchitecture == "nemotron_h_moe" && gguf.Int("expert_group_count", 1) > 1)
+        {
+            yield return "nemotron_h_moe: group-limited expert routing is not supported yet.";
+        }
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         string a = Architecture + ".";
@@ -53,11 +62,6 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
 
         if (moeArchitecture)
         {
-            if (g.Int("expert_group_count", 1) > 1)
-            {
-                throw new NotSupportedException("nemotron_h_moe: group-limited expert routing is not supported yet.");
-            }
-
             md[a + "moe.expert_count"] = g.Int("expert_count");
             md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
             md[a + "moe.normalize_weights"] = g.Bool("expert_weights_norm", true);

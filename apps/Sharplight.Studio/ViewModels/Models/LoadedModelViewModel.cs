@@ -110,12 +110,12 @@ internal sealed partial class LoadedModelViewModel : ObservableObject
         };
         if (settings.NgramDraftTokens > 0)
         {
-            parts.Add($"n-gram drafts {settings.NgramDraftTokens}");
+            parts.Add($"lookup drafts {settings.NgramDraftTokens}");
         }
 
         if (settings.MtpDraftTokens > 0 && Model.Capabilities.HasFlag(ModelCapabilities.DraftHead))
         {
-            parts.Add($"MTP drafts {settings.MtpDraftTokens}");
+            parts.Add($"draft head {settings.MtpDraftTokens} tokens");
         }
 
         if (settings.CpuOffload)

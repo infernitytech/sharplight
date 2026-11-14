@@ -54,7 +54,10 @@ public sealed class GgufImporter : IModelImporter
     /// to unmap the file.
     /// </returns>
     /// <exception cref="InvalidDataException">The file is malformed or two tensors map to the same canonical name.</exception>
-    /// <exception cref="NotSupportedException">Some tensors have no canonical mapping.</exception>
+    /// <exception cref="NotSupportedException">
+    /// Some tensors have no canonical mapping, or the mapping rejects the file's hyper-parameters or features (the same checks as
+    /// <see cref="GgufSupport.Validate"/>).
+    /// </exception>
     /// <exception cref="UnsupportedArchitectureException">The architecture has no mapping.</exception>
     /// <exception cref="UnsupportedWeightFormatException">A tensor's ggml type id is unknown.</exception>
     public static ModelSource Open(string path)
@@ -66,22 +69,12 @@ public sealed class GgufImporter : IModelImporter
             var mapping = GgufArchitectureMappings.Find(ggufArchitecture) ?? throw new UnsupportedArchitectureException(ggufArchitecture,
                 $"{path}: GGUF architecture '{ggufArchitecture}' has no canonical mapping. Supported: {string.Join(", ", GgufArchitectureMappings.All.SelectMany(m => m.GgufArchitectures))}");
             var view = new GgufMetadataView(files.Metadata, ggufArchitecture, files.FindTensor);
-
-            var weights = MapWeights(path, files, mapping, view);
-            if (PrismHadamard.Applies(files.Metadata))
+            if (mapping.Validate(view).ToList() is { Count: > 0 } problems)
             {
-                PrismHadamard.Apply(weights, files.Metadata, name => mapping.MapWeightName(name, view));
+                throw new NotSupportedException($"{path}: {string.Join(" ", problems)}");
             }
 
-            if (mapping is IGgufWeightTransformer transformer)
-            {
-                transformer.Transform(weights, view);
-            }
-
-            string architecture = mapping.ResolveArchitecture(view);
-            var metadata = MapMetadata(files.Metadata, mapping, view);
-            metadata[CanonicalKeys.Architecture] = architecture;
-            mapping.RefineHyperParameters(metadata, view, weights);
+            var (architecture, metadata, weights) = Map(path, files.Metadata, files.Tensors, mapping, view);
             return new ModelSource
             {
                 Format = "gguf",
@@ -99,12 +92,42 @@ public sealed class GgufImporter : IModelImporter
         }
     }
 
+    /// <summary>
+    /// The mapping steps of an import after <see cref="IGgufArchitectureMapping.Validate"/>: canonical weights (renamed, split, transformed)
+    /// and canonical metadata. They read tensor data only lazily, so <see cref="GgufSupport.Validate"/> runs them on a header alone.
+    /// </summary>
+    /// <param name="path">The file, for errors.</param>
+    /// <param name="gguf">The GGUF metadata.</param>
+    /// <param name="tensors">Every tensor of every shard.</param>
+    /// <param name="mapping">The architecture's mapping.</param>
+    /// <param name="view">The metadata view over <paramref name="gguf"/> and <paramref name="tensors"/>.</param>
+    internal static (string Architecture, Dictionary<string, object> Metadata, Dictionary<string, WeightInfo> Weights) Map(string path,
+        IReadOnlyDictionary<string, object> gguf, IReadOnlyList<GgufTensorInfo> tensors, IGgufArchitectureMapping mapping, GgufMetadataView view)
+    {
+        var weights = MapWeights(path, tensors, mapping, view);
+        if (PrismHadamard.Applies(gguf))
+        {
+            PrismHadamard.Apply(weights, gguf, name => mapping.MapWeightName(name, view));
+        }
+
+        if (mapping is IGgufWeightTransformer transformer)
+        {
+            transformer.Transform(weights, view);
+        }
+
+        string architecture = mapping.ResolveArchitecture(view);
+        var metadata = MapMetadata(gguf, mapping, view);
+        metadata[CanonicalKeys.Architecture] = architecture;
+        mapping.RefineHyperParameters(metadata, view, weights);
+        return (architecture, metadata, weights);
+    }
+
     /// <summary>Renames every tensor (splitting fused ones, adding synthetic ones) to its canonical weight.</summary>
-    private static Dictionary<string, WeightInfo> MapWeights(string path, GgufModelFiles files, IGgufArchitectureMapping mapping, GgufMetadataView view)
+    private static Dictionary<string, WeightInfo> MapWeights(string path, IReadOnlyList<GgufTensorInfo> tensors, IGgufArchitectureMapping mapping, GgufMetadataView view)
     {
         var weights = new Dictionary<string, WeightInfo>(StringComparer.Ordinal);
         var unmapped = new List<string>();
-        foreach (var tensor in files.Tensors)
+        foreach (var tensor in tensors)
         {
             if (mapping is IGgufSplitMapping splitter && splitter.Split(tensor.Name, tensor.ToWeightInfo(), view) is { } parts)
             {

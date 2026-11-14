@@ -152,6 +152,27 @@ public sealed class ReferenceAndSearchTests
         Assert.Empty(results[3].Formats);
     }
 
+    [Theory]
+    [InlineData(HubSortOrder.Trending, "sort=trendingScore")]
+    [InlineData(HubSortOrder.Newest, "sort=createdAt")]
+    [InlineData(HubSortOrder.Likes, "sort=likes")]
+    [InlineData(HubSortOrder.Downloads, "sort=downloads")]
+    public async Task ListingWithoutText_SortsAndReadsTheCreationDate(HubSortOrder sort, string expected)
+    {
+        const string answer = """[{"id": "o/m-GGUF", "downloads": 5, "likes": 2, "createdAt": "2026-10-01T12:30:00.000Z", "siblings": [{"rfilename": "m-Q4_K_M.gguf"}]}]""";
+        using var hub = new FakeHub { Intercept = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(answer) } };
+        using var http = hub.CreateClient();
+        var client = new HubClient(http, hub.Options());
+
+        var results = await client.SearchAsync(new HubSearchQuery { Sort = sort, Format = ModelFormat.Gguf }, TestContext.Current.CancellationToken);
+
+        var query = Uri.UnescapeDataString(Assert.Single(hub.Requests).RequestUri!.Query);
+        Assert.Contains(expected, query, StringComparison.Ordinal);
+        Assert.DoesNotContain("search=", query, StringComparison.Ordinal);
+        Assert.Contains("expand[]=createdAt", query, StringComparison.Ordinal);
+        Assert.Equal(new DateTimeOffset(2026, 10, 1, 12, 30, 0, TimeSpan.Zero), Assert.Single(results).CreatedAt);
+    }
+
     [Fact]
     public async Task SearchExpandsTheConfiguration()
     {

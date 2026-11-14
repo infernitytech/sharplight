@@ -198,4 +198,40 @@ public static class HfSupport
 
     private static string? String(JsonElement element, string name)
         => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    /// <summary>
+    /// The reasons importing a checkpoint fails, from its <c>config.json</c> alone (before the checkpoint is downloaded): no mapping for
+    /// its model type, the mapping's feature checks, and its hyper-parameter mapping. Tensors are not read. Empty when the configuration
+    /// maps; the quantization is assessed separately (<see cref="GetQuantizationSupport"/>).
+    /// </summary>
+    /// <param name="configJson">The text of <c>config.json</c>.</param>
+    public static IReadOnlyList<string> Validate(string configJson)
+    {
+        using var config = TryParse(configJson);
+        if (config is null)
+        {
+            return ["config.json is not a JSON object."];
+        }
+
+        if (HfArchitectureMappings.Find(config.ModelType) is not { } mapping)
+        {
+            return [$"Hugging Face model_type '{config.ModelType}' has no mapping."];
+        }
+
+        try
+        {
+            if (mapping.Validate(config).ToList() is { Count: > 0 } problems)
+            {
+                return problems;
+            }
+
+            mapping.MapHyperParameters(config, HfImportOptions.Default);
+            return [];
+        }
+        catch (Exception error) when (error is NotSupportedException or InvalidDataException or KeyNotFoundException or FormatException
+            or InvalidOperationException or InvalidCastException or JsonException)
+        {
+            return [error.Message];
+        }
+    }
 }

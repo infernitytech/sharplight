@@ -17,6 +17,7 @@ internal sealed record ModelCompatibility(CompatibilityState State, string? Subj
         CompatibilityState.Partial => "Partially supported",
         CompatibilityState.UnsupportedArchitecture => $"Unsupported architecture {Subject}",
         CompatibilityState.UnsupportedWeightFormat => $"Unsupported weight format {Subject}",
+        CompatibilityState.UnsupportedVariant => $"Unsupported variant of {Subject}",
         CompatibilityState.Projector => "Projector",
         CompatibilityState.DraftModel => "Draft model",
         CompatibilityState.CheckedAtImport => "Checked at import",
@@ -24,7 +25,8 @@ internal sealed record ModelCompatibility(CompatibilityState State, string? Subj
     };
 
     /// <summary>Importing or loading is expected to fail.</summary>
-    public bool IsUnsupported => State is CompatibilityState.UnsupportedArchitecture or CompatibilityState.UnsupportedWeightFormat;
+    public bool IsUnsupported => State is CompatibilityState.UnsupportedArchitecture or CompatibilityState.UnsupportedWeightFormat
+        or CompatibilityState.UnsupportedVariant;
 
     /// <summary>A verdict that the metadata could not be read.</summary>
     /// <param name="reason">Why.</param>
