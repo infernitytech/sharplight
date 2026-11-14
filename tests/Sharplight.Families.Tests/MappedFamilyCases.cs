@@ -122,5 +122,9 @@ internal static class MappedFamilyCases
         new("jais-family-590m f16 GGUF (jais ALiBi, llama.cpp)", "gguf/jais-family-590m/jais-family-590m-f16.gguf", "The capital of France is", "ids",
             [330, 5199, 371, 14707, 14, 1248, 455, 330, 10308, 371, 330, 15309, 371, 330, 1824, 725, 13, 417, 13, 18913, 932, 14, 1248, 455], "",
             NeedsCpuFallback: true),
+        // Nanbeige4.2-3B: 22 layers looped twice (44 KV slots) with the output norm between the loops; llama.cpp b11177 text up to the first
+        // close call (after " Pluto." the top two differ by 0.2 nats; on "The capital of France is" two llama.cpp runs with different thread counts already part at token 10).
+        new("Nanbeige4.2-3B Q4_K_M GGUF (nanbeige layer loops, llama.cpp)", "gguf/Nanbeige4.2-3B/Nanbeige_Nanbeige4.2-3B-Q4_K_M.gguf",
+            "The planets of the solar system in order from the Sun are Mercury, Venus, Earth, Mars,", "text", [], " Jupiter, Saturn, Uranus, Neptune, and Pluto.", Tokens: 11),
     ];
 }
