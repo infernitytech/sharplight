@@ -11,8 +11,9 @@ namespace Sharplight.Onnx.Conformance;
 /// </summary>
 /// <remarks>
 /// Sharplight's IR erases some ONNX element types (int64 travels as i32, double and float16 compute as f32, bool as 0/1), so values are
-/// compared numerically: integer and bool outputs exactly, float outputs with <c>|a - e| &lt;= atol + rtol·|e|</c>. A scalar and a
-/// one-element vector are the same shape.
+/// compared numerically: integer and bool outputs exactly, float outputs with <c>|a - e| &lt;= atol + rtol·|e|</c>, where rtol is at least
+/// two units in the last place of a bfloat16 or float16 output (the reference rounds intermediate results to that precision, Sharplight
+/// computes them in f32). A scalar and a one-element vector are the same shape.
 /// </remarks>
 internal static class NodeTestRunner
 {
@@ -32,7 +33,11 @@ internal static class NodeTestRunner
                 return sets.Count > 1 ? outcome with { Message = $"{Path.GetFileName(set)}: {outcome.Message}" } : outcome;
             }
 
-            result = outcome.Pinned.Length > 0 ? outcome : result;
+            result = result with
+            {
+                Pinned = outcome.Pinned.Length > 0 ? outcome.Pinned : result.Pinned,
+                FallbackOps = [.. result.FallbackOps.Union(outcome.FallbackOps).Order(StringComparer.Ordinal)],
+            };
         }
 
         return result;
@@ -96,17 +101,19 @@ internal static class NodeTestRunner
         // Sharplight compiles static shapes: inputs that define shapes, axes or other import-time parameters (Reshape targets, reduction
         // axes, pads, ...) are passed as tensors by the node tests but are initializers in real models. When the importer needs them as
         // constants, the test is retried with them pinned (OnnxImportOptions.ConstantInputs), first the integer inputs, then every input
-        // but the first (float scales, bounds and weights). String inputs are never pinned.
+        // but the first (float scales, bounds and weights), then every input (operators whose every operand defines the output shape,
+        // such as a float Range). String inputs are never pinned.
         ComputeGraph? graph = null;
         string importError = "";
         int pinLevel = 0;
-        for (; pinLevel <= 2 && graph is null; pinLevel++)
+        for (; pinLevel <= 3 && graph is null; pinLevel++)
         {
             var pinned = inputs.Where(p => p.Value.Strings is null && pinLevel switch
             {
                 0 => false,
                 1 => !p.Value.IsFloat,
-                _ => owner[p.Key] != inputInfos[0].Name,
+                2 => owner[p.Key] != inputInfos[0].Name,
+                _ => true,
             }).ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
             if (pinLevel > 0 && pinned.Count == 0)
             {
@@ -175,6 +182,12 @@ internal static class NodeTestRunner
             return new(NodeTestStatus.CompileFail, Describe(e));
         }
 
+        string[] fallbackOps = fallback is null ? [] : [.. compiled.Plan.Segments
+            .Where(s => ReferenceEquals(compiled.Plan.Slots[s.DeviceSlot].Device, fallback))
+            .SelectMany(s => s.Nodes)
+            .Select(n => n.Op.Name)
+            .Distinct()
+            .Order(StringComparer.Ordinal)];
         using (compiled)
         {
             var run = new RunParameters();
@@ -231,7 +244,7 @@ internal static class NodeTestRunner
             }
         }
 
-        return pinnedNames.Length == 0 ? NodeTestOutcome.Passed : NodeTestOutcome.Passed with { Pinned = pinnedNames };
+        return NodeTestOutcome.Passed with { Pinned = pinnedNames, FallbackOps = fallbackOps };
     }
 
     /// <summary>Import errors that pinning inputs to constants can resolve.</summary>
@@ -239,7 +252,9 @@ internal static class NodeTestRunner
         => message.Contains("compile-time constant", StringComparison.Ordinal)
             || message.Contains("data-dependent", StringComparison.Ordinal)
             || message.Contains("runtime-dependent", StringComparison.Ordinal)
-            || message.Contains("runtime tensor", StringComparison.Ordinal);
+            || message.Contains("runtime tensor", StringComparison.Ordinal)
+            || message.Contains("upper bound", StringComparison.Ordinal)
+            || message.Contains("Only the outermost dimension may be symbolic", StringComparison.Ordinal);
 
     /// <summary>
     /// Compares an expected output with the graph outputs: a tensor by its name, a sequence either element by element
@@ -308,11 +323,17 @@ internal static class NodeTestRunner
                 : $"output '{name}' [{first}] = \"{(first < got.Length ? got[first] : "")}\", expected \"{(first < want.Length ? want[first] : "")}\"";
         }
 
+        double rtol = expected.ElemType switch
+        {
+            OnnxType.BFloat16 => 1.0 / 64,
+            OnnxType.Float16 => 1.0 / 512,
+            _ => Rtol,
+        };
         for (int i = 0; i < values.Length; i++)
         {
-            if (!Close(expected.Values[i], values[i], expected.IsFloat))
+            if (!Close(expected.Values[i], values[i], expected.IsFloat, rtol))
             {
-                int bad = Enumerable.Range(0, values.Length).Count(j => !Close(expected.Values[j], values[j], expected.IsFloat));
+                int bad = Enumerable.Range(0, values.Length).Count(j => !Close(expected.Values[j], values[j], expected.IsFloat, rtol));
                 return $"output '{name}' [{i}] = {values[i]}, expected {expected.Values[i]} ({bad} of {values.Length} elements differ)";
             }
         }
@@ -320,8 +341,8 @@ internal static class NodeTestRunner
         return null;
     }
 
-    private static bool Close(double e, double a, bool isFloat)
-        => isFloat ? (double.IsNaN(e) && double.IsNaN(a)) || e == a || Math.Abs(a - e) <= Atol + Rtol * Math.Abs(e) : a == e;
+    private static bool Close(double e, double a, bool isFloat, double rtol)
+        => isFloat ? (double.IsNaN(e) && double.IsNaN(a)) || e == a || Math.Abs(a - e) <= Atol + rtol * Math.Abs(e) : a == e;
 
     private static bool SameShape(long[] expected, long[] actual)
     {

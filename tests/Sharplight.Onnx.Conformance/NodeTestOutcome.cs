@@ -9,4 +9,7 @@ internal sealed record NodeTestOutcome(NodeTestStatus Status, string Message)
 
     /// <summary>Inputs that had to be pinned to their test values at import (shape-defining inputs; see NodeTestRunner).</summary>
     public string[] Pinned { get; init; } = [];
+
+    /// <summary>IR operators that were placed on the fallback device (empty when everything ran on the tested device).</summary>
+    public string[] FallbackOps { get; init; } = [];
 }
