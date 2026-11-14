@@ -1,0 +1,40 @@
+== round 1 depth 1
+    54.634 ms  94.6%    800x  min     63.5 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=4
+    54.882 ms  94.7%    800x  min     65.5 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+    34.793 ms  91.8%    800x  min     41.0 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=4
+    20.188 ms  86.7%    800x  min     18.4 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=4
+    59.069 ms  95.3%    800x  min     67.6 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=16
+    74.029 ms  96.1%    800x  min     71.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+    38.562 ms  92.9%    800x  min     45.0 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=16
+    22.105 ms  88.3%    800x  min     24.5 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=16
+   108.849 ms  97.2%    800x  min    129.0 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== round 1 depth 2
+    61.240 ms  95.2%    800x  min     71.6 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=4
+    62.309 ms  95.2%    800x  min     71.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+    40.434 ms  92.9%    800x  min     45.0 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=4
+    21.075 ms  87.2%    800x  min     22.5 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=4
+    67.677 ms  95.9%    800x  min     77.8 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=16
+    86.099 ms  96.7%    800x  min     77.8 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+    53.835 ms  94.8%    800x  min     51.2 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=16
+    28.004 ms  90.5%    800x  min     28.6 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=16
+   111.817 ms  97.2%    800x  min    133.1 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== round 2 depth 1
+    54.769 ms  94.6%    800x  min     63.5 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=4
+    55.965 ms  94.7%    800x  min     65.5 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+    34.981 ms  91.8%    800x  min     40.9 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=4
+    21.197 ms  87.2%    800x  min     18.4 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=4
+    59.443 ms  95.3%    800x  min     69.6 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=16
+    62.045 ms  95.5%    800x  min     69.6 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+    38.416 ms  92.9%    800x  min     43.0 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=16
+    22.708 ms  88.5%    800x  min     24.6 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=16
+   110.590 ms  97.2%    800x  min    131.0 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16
+== round 2 depth 2
+    62.243 ms  95.3%    800x  min     69.6 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=4
+    63.901 ms  95.4%    800x  min     71.7 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=4
+    41.564 ms  93.0%    800x  min     46.5 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=4
+    24.287 ms  88.6%    800x  min     20.4 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=4
+    68.876 ms  95.9%    800x  min     77.8 us  matmul [5120→17408] f8e4m3_b128r skinny gemm_sk T=16
+    69.416 ms  95.9%    800x  min     77.8 us  matmul [17408→5120] f8e4m3_b128r skinny gemm_sk T=16
+    45.295 ms  93.9%    800x  min     51.2 us  matmul [5120→10240] f8e4m3_b128r skinny gemm_sk T=16
+    27.233 ms  90.3%    800x  min     26.6 us  matmul [6144→5120] f8e4m3_b128r skinny gemm_sk T=16
+   112.556 ms  97.2%    800x  min    135.2 us  matmul2 [5120→17408]x2 f8e4m3_b128r fused[Silu,Mul] skinny gemm_sk T=16

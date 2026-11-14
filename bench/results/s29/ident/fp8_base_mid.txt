@@ -1,0 +1,14 @@
+Graph optimization (sharplight-ir/1): decode 2036 -> 2036 nodes, mtp_draft 36 -> 36 nodes, decode_embeddings 2035 -> 2035 nodes, decode_multimodal 2040 -> 2040 nodes, vision_encode 773 -> 773 nodes [69 ms]
+Loaded Qwen3.8-27B-FP8 (qwen3_5): 1199 tensors, 31.64 GB, vocab 248320 [615 ms]
+Compiling 200 / 200, 200 cached (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Uploading weights 30.23 / 30.23 GB (NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition)
+Compiled 'decode' in 8790 ms
+slot 0 NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition: 66 groups, 28.43 GiB weights+state
+1 segment(s): [0@0: 2037 nodes]
+Ready (decode)
+Explain in a few paragraphs how a lighthouse keeper in the nineteenth century would have maintained the lamp, what the daily routine looked like, and why the job was considered so lonely.
+
+For a nineteenth-century lighthouse keeper, the maintenance of the lamp was the central, sacred duty of the day, requiring a meticulous and often exhausting regimen. The keeper was responsible for keeping the lens and the wick in pristine condition, as a single smudge of soot or a misaligned glass panel could render the light invisible to ships in a fog or storm. This involved hours of polishing the massive Fresnel lens with chamois cloths and specialized solutions, a task that required a steady hand and an eagle eye. The wick itself had to be trimmed and adjusted with precision to ensure a steady, bright flame without excessive smoke. In the early part of the century, this meant tending to oil or whale oil lamps; later, it involved managing kerosene or even early electric bulbs, each with its own specific requirements for fuel levels and electrical connections.
+
+The daily routine was a rigid cycle of vigilance and labor, dictated by the tides and the changing light.
+prompt: 37 tok in 118 ms (313.9 tok/s) | generated: 200 tok, 30.55 tok/s

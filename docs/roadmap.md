@@ -22,6 +22,10 @@ Numbers below refer to sections of [benchmarks.md](benchmarks.md).
   - make Q8_0 at 5–8 rows use the direct GEMM (10–13 % faster) without changing greedy MTP output (§23.3);
   - serving against vLLM (§28.6): 0.81x / 0.82x / 0.69x / 0.77x at 1 / 4 / 16 / 64 streams (bf16 state opt-in: 0.83x /
     0.85x / 0.71x / 0.80x); mixed decode + prompt steps are 70 % fp8 GEMM at 100-500 rows and 20 % delta rule (§28.4).
+  - sustained serving steps on the 300 W Max-Q card run at the power cap (SM clock 1.6-1.8 GHz, §29.2): narrow fp8
+    tiles that were 5-24 % faster in micro-benchmarks gave no end-to-end gain (§29.1). Prefer changes that move fewer
+    bytes or do fewer operations over wave-fill and occupancy tuning, and confirm every kernel win on full steps.
+  - the f32 delta-rule state already streams at the memory bandwidth (§29.4); only the opt-in bf16 state makes it cheaper.
 - **Reduced-precision delta-rule state**: done as an opt-in (`--reduced-precision` stores it as bf16; 64-row step
   -8.6 %, 16-row -2.7 % on the 27B FP8, §24.6). Next: round the chunked prefill per chunk like the token-by-token
   kernel, and 16-bit states for Mamba / RWKV.
