@@ -39,6 +39,15 @@ internal sealed partial class DecoderHfMapping
         ["laurel.linear_left.weight"] = "laurel.left.weight",
         ["laurel.linear_right.weight"] = "laurel.right.weight",
         ["laurel.post_laurel_norm.weight"] = "laurel.norm.weight",
+        // Gemma 4 MoE layers: routed experts next to the dense MLP, each branch with its own norms.
+        ["pre_feedforward_layernorm_2.weight"] = "mlp.routed_in_norm.weight",
+        ["post_feedforward_layernorm_1.weight"] = "mlp.dense_out_norm.weight",
+        ["post_feedforward_layernorm_2.weight"] = "mlp.routed_out_norm.weight",
+        ["router.proj.weight"] = "mlp.router.weight",
+        ["router.scale"] = "mlp.router.input_scale",
+        ["router.per_expert_scale"] = "mlp.experts.output_scale",
+        ["experts.gate_up_proj"] = "mlp.experts.gate_up.weight",
+        ["experts.down_proj"] = "mlp.experts.down.weight",
     };
 
     /// <summary>The <c>rope_parameters</c> object of one layer type (<c>full_attention</c> / <c>sliding_attention</c>), or null.</summary>
@@ -123,11 +132,6 @@ internal sealed partial class DecoderHfMapping
 
     private IReadOnlyDictionary<string, object> Gemma4Hyper(HfConfig c)
     {
-        if (c.GetBool("enable_moe_block") == true)
-        {
-            throw new NotSupportedException("Gemma 4 mixture-of-experts blocks are not supported yet.");
-        }
-
         string a = Architecture + ".";
         int layerCount = c.Int("num_hidden_layers");
         int headCount = c.Int("num_attention_heads");
@@ -169,6 +173,16 @@ internal sealed partial class DecoderHfMapping
         if (c.GetDouble("final_logit_softcapping") is { } softcap && softcap > 0)
         {
             md[a + "final_logit_softcap"] = (float)softcap;
+        }
+
+        // Gemma 4 MoE (26B-A4B): softmax routing, the selected weights renormalized (then scaled per expert).
+        if (c.GetBool("enable_moe_block") == true)
+        {
+            md[a + "moe.expert_count"] = c.Int("num_experts");
+            md[a + "moe.expert_used_count"] = c.Int("top_k_experts");
+            md[a + "moe.ffn_hidden_size"] = c.Int("moe_intermediate_size");
+            md[a + "moe.router_activation"] = "softmax";
+            md[a + "moe.normalize_weights"] = true;
         }
 
         int sharedKvLayers = c.GetInt("num_kv_shared_layers") ?? 0;

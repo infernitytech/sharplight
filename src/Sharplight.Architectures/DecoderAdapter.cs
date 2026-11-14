@@ -49,7 +49,10 @@ namespace Sharplight.Architectures;
 /// <c>moe.group_count</c> / <c>moe.group_used_count</c> / <c>moe.group_score</c> (group-limited top-k), <c>moe.weights_before_experts</c>,
 /// <c>moe.shared_scale</c> (factor on the shared expert, default 1); optional selection bias <c>mlp.router_bias</c>, logit bias <c>mlp.router.bias</c>, per-expert biases <c>mlp.experts.*.bias</c> and a
 /// shared expert <c>mlp.shared.*</c>. <c>moe.router_input</c> ("normed" (default) or "layer_input": the router reads the layer input
-/// before the attention norm, SmallThinker).</item>
+/// before the attention norm, SmallThinker). A layer with <c>mlp.routed_in_norm.weight</c> runs its dense MLP and its routed experts side by side
+/// (Gemma 4 MoE): the dense MLP on the normed rows with its output normed by <c>mlp.dense_out_norm.weight</c>, the experts on
+/// routed_in_norm(x) with their sum normed by <c>mlp.routed_out_norm.weight</c>, the router on x (with <c>mlp.router.input_scale</c>), and
+/// <c>mlp.out_norm.weight</c> applied to the sum of both branches.</item>
 /// <item><c>attention.causal</c> (default true). False makes a bidirectional encoder out of the decoder's layers (EuroBERT, NeoBERT, ModernBERT,
 /// EmbeddingGemma, Llama embedding models): only <see cref="WellKnown.EmbedGraph"/> is built (mean pooling unless declared), every token attends to its
 /// whole sequence, sliding windows are symmetric (keys less than <c>attention.sliding_window</c> positions away on either side), no KV cache and no

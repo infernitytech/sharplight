@@ -48,6 +48,12 @@ public class FamilyGenerationTests
             [496, 3184, 3953, 7489, 60708, 236761, 60708, 1053, 5324, 506, 2258, 529, 69597, 5122, 532, 6114, 506, 5268, 3730, 529, 506, 12461, 236761, 2625, 9312, 11704, 1116, 2668, 684, 506, 52160, 5442, 236764, 24595, 228535, 532, 10685, 506, 11707, 12847], ""),
         new("gemma-4-E2B-it BF16 GGUF (llama.cpp)", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-BF16.gguf", P1, "text", [], Gemma4Story),
         new("gemma-4-E2B-it Q8_0 GGUF (llama.cpp CPU)", "gguf/gemma-4-E2B-it/gemma-4-E2B-it-Q8_0.gguf", P1, "text", [], Gemma4Story),
+        // Gemma 4 26B-A4B (MoE: a dense MLP and 128 routed experts side by side in every layer), Unsloth's UD-Q4_K_XL mix (Q8_0, Q5_1, Q4_K,
+        // Q5_K). The prompt is the chat turn written out (the raw continuation of an instruct prompt degenerates); llama.cpp b11177 (CPU and
+        // Vulkan) gives this text with log-probability margins of at least 13.
+        new("gemma-4-26B-A4B-it UD-Q4_K_XL GGUF (gemma4 MoE, llama.cpp)", "gguf/gemma-4-26B-A4B-it/gemma-4-26B-A4B-it-UD-Q4_K_XL.gguf",
+            "<|turn>user\nList the first ten prime numbers, separated by commas.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>", "text", [],
+            "2, 3, 5, 7, 11, 13, 17, 19, 23, ", Large: true, Tokens: 32),
         // Nemotron-H Nano 4B: Mamba-2 / attention / relu² MLP hybrid.
         new("NVIDIA-Nemotron-3-Nano-4B HF (transformers)", "hf/NVIDIA-Nemotron-3-Nano-4B", "The capital of France is", "ids",
             [6993, 2613, 5646, 1681, 2925, 1338, 3890, 1395, 2156, 2258, 31544, 1063, 1531, 4098, 8223, 1429, 11018, 1307, 1278, 3629, 21166, 1395, 2925, 10555, 1321, 2342, 1925, 1395, 2925, 1338, 3890, 2878], ""),

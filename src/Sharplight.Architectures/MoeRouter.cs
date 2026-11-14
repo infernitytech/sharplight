@@ -19,7 +19,10 @@ internal static class MoeRouter
     /// <summary>
     /// Routes the rows of <paramref name="h"/> [T, H] with the router weight <c>{prefix}router.weight</c> [E, H] and the optional
     /// logit bias <c>{prefix}router.bias</c> [E]. With the optional selection bias <c>{prefix}router_bias</c> [E] the bias only decides
-    /// which experts are selected; the mixing weights are the unbiased scores of the selected experts.
+    /// which experts are selected; the mixing weights are the unbiased scores of the selected experts. With the optional router input scale
+    /// <c>{prefix}router.input_scale</c> [H] the router reads rms_norm(h) · H^(-1/2) · input_scale (norm without a weight, epsilon
+    /// <see cref="MoeOptions.NormEps"/>) instead of h (Gemma 4). With the optional per-expert output scale <c>{prefix}experts.output_scale</c> [E]
+    /// each selected expert's mixing weight is multiplied by its scale, last (Gemma 4's per-expert scale).
     /// </summary>
     /// <returns>Mixing weights f32 [T, k] and expert indices i32 [T, k].</returns>
     /// <exception cref="InvalidDataException">The options do not describe a usable configuration.</exception>
@@ -28,6 +31,12 @@ internal static class MoeRouter
         if (!options.IsValid)
         {
             throw new InvalidDataException($"{prefix}: MoE weights present but moe.expert_count / moe.expert_used_count / moe.group_count are missing or inconsistent.");
+        }
+
+        if (b.TryWeight(prefix + "router.input_scale") is { } inputScale)
+        {
+            int hidden = (int)inputScale.Shape[0].Fixed;
+            h = b.Mul(b.Scale(b.RmsNorm(h, null, options.NormEps), 1f / MathF.Sqrt(hidden)), inputScale, $"{prefix}router_input");
         }
 
         var logits = b.Linear(h, prefix + "router.weight", prefix + "router.bias");
@@ -65,6 +74,11 @@ internal static class MoeRouter
         if (options.WeightsScale != 1f)
         {
             weights = b.Scale(weights, options.WeightsScale);
+        }
+
+        if (b.TryWeight(prefix + "experts.output_scale") is { } expertScale)
+        {
+            weights = b.Mul(weights, PickExpertScales(b, expertScale, ids, prefix, options), $"{prefix}router_scaled_weights");
         }
 
         return (weights, ids);
@@ -125,6 +139,15 @@ internal static class MoeRouter
         int k = options.ExpertsUsed;
         var onehot = OneHot(b, ids, experts, k, $"{prefix}expert_iota");                                                        // [T, k, E]
         return b.Reshape(b.Emit1("ReduceSum", [b.Mul(onehot, b.Reshape(scores, 0, 1, experts))]), 0, k);                        // [T, k]
+    }
+
+    // The per-expert scales [E] of the selected experts ids [T, k]: [T, k], by the same one-hot pick as the scores.
+    private static Value PickExpertScales(GraphBuilder b, Value scales, Value ids, string prefix, MoeOptions options)
+    {
+        int experts = options.Experts;
+        int k = options.ExpertsUsed;
+        var onehot = OneHot(b, ids, experts, k, $"{prefix}expert_scale_iota");                                                  // [T, k, E]
+        return b.Reshape(b.Emit1("ReduceSum", [b.Mul(onehot, b.Reshape(scales, 1, 1, experts))]), 0, k);                        // [T, k]
     }
 
     // f32 one-hot rows [T, k, n] of the indices [T, k] (1 where ids[t, s] == j).
