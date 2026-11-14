@@ -198,7 +198,7 @@ public class GgufRoundTripTests : IDisposable
         Assert.Equal(DataType.Q6_K, GgmlTypes.GetDataType(14));
         Assert.Equal(DataType.BF16, GgmlTypes.GetDataType(30));
         Assert.Equal(DataType.MXFP4, GgmlTypes.GetDataType(39));
-        Assert.Throws<NotSupportedException>(() => GgmlTypes.GetDataType(31));
+        Assert.Equal("ggml type id 31", Assert.Throws<Sharplight.Models.UnsupportedWeightFormatException>(() => GgmlTypes.GetDataType(31)).WeightFormat);
     }
 
     [Fact]

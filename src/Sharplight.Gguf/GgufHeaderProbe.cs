@@ -8,6 +8,9 @@ public static unsafe class GgufHeaderProbe
 {
     private const int HeaderBytes = 24;
 
+    /// <summary>The most dimensions a tensor may have (as <see cref="GgufFile"/> accepts).</summary>
+    private const uint MaxTensorDimensions = 8;
+
     /// <summary>The metadata key/values that the prefix contains completely, in file order (empty when it is not GGUF).</summary>
     /// <param name="prefix">The first bytes of a GGUF file.</param>
     public static IReadOnlyDictionary<string, object> ReadMetadata(ReadOnlySpan<byte> prefix)
@@ -45,6 +48,73 @@ public static unsafe class GgufHeaderProbe
         }
 
         return metadata;
+    }
+
+    /// <summary>
+    /// The ggml type ids of the tensors in the tensor table, with the number of tensors of each, when the prefix holds the whole table
+    /// (it follows the metadata, so the prefix must cover both); null when it ends earlier or is not GGUF. Of a split model, only the
+    /// tensors of the shard the prefix belongs to are listed.
+    /// </summary>
+    /// <param name="prefix">The first bytes of a GGUF file.</param>
+    /// <returns>Type id → tensor count; ids may be unknown to this version (see <see cref="GgufSupport.GetTensorType"/>).</returns>
+    public static IReadOnlyDictionary<int, int>? ReadTensorTypes(ReadOnlySpan<byte> prefix)
+    {
+        if (prefix.Length < HeaderBytes)
+        {
+            return null;
+        }
+
+        fixed (byte* data = prefix)
+        {
+            var reader = new GgufReader(data, prefix.Length);
+            try
+            {
+                if (reader.ReadU32() != GgufFile.Magic || reader.ReadU32() is not (2 or 3))
+                {
+                    return null;
+                }
+
+                ulong tensorCount = reader.ReadU64();
+                ulong kvCount = reader.ReadU64();
+                if (tensorCount > (ulong)prefix.Length || kvCount > (ulong)prefix.Length)
+                {
+                    return null;
+                }
+
+                for (ulong i = 0; i < kvCount; i++)
+                {
+                    reader.ReadString();
+                    reader.ReadValue((GgufValueType)reader.ReadU32());
+                }
+
+                var types = new Dictionary<int, int>();
+                for (ulong i = 0; i < tensorCount; i++)
+                {
+                    reader.ReadString();
+                    uint dimensions = reader.ReadU32();
+                    if (dimensions > MaxTensorDimensions)
+                    {
+                        return null;
+                    }
+
+                    for (uint d = 0; d < dimensions; d++)
+                    {
+                        reader.ReadU64();
+                    }
+
+                    int type = (int)reader.ReadU32();
+                    reader.ReadU64();
+                    types[type] = types.GetValueOrDefault(type) + 1;
+                }
+
+                return types;
+            }
+            catch (Exception error) when (error is InvalidDataException or OverflowException)
+            {
+                // The prefix ends before the end of the tensor table (or the file is malformed).
+                return null;
+            }
+        }
     }
 
     /// <summary>The model dimensions in the metadata the prefix contains (see <see cref="ReadMetadata"/>).</summary>

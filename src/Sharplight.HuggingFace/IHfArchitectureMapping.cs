@@ -24,4 +24,11 @@ internal interface IHfArchitectureMapping
     /// (vision tower, ...) are skipped; tensors that are neither mapped nor skipped must throw.
     /// </summary>
     public IReadOnlyDictionary<string, WeightInfo> MapWeights(HfConfig config, IReadOnlyDictionary<string, SafetensorsTensor> tensors, HfImportOptions options);
+
+    /// <summary>
+    /// What restricts one of <see cref="ModelTypes"/> when it runs only in part (as <c>docs/model-support.md</c> lists it as partial),
+    /// or null when it is fully supported. Default: null.
+    /// </summary>
+    /// <param name="modelType">One of <see cref="ModelTypes"/>.</param>
+    public string? PartialSupport(string modelType) => null;
 }

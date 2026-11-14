@@ -41,9 +41,17 @@ internal sealed partial class HfConfig : IDisposable
     /// <summary>Loads <c>config.json</c> from <paramref name="directory"/>; trailing commas are tolerated.</summary>
     public static HfConfig Load(string directory)
     {
-        var path = Path.Combine(directory, "config.json");
+        return Parse(File.ReadAllText(Path.Combine(directory, "config.json")), directory);
+    }
+
+    /// <summary>Parses the text of a <c>config.json</c>; trailing commas are tolerated.</summary>
+    /// <param name="text">The file's text.</param>
+    /// <param name="directory">The checkpoint directory, or empty when the config was read without one (e.g. from the Hub).</param>
+    /// <exception cref="JsonException">The text is not JSON.</exception>
+    public static HfConfig Parse(string text, string directory)
+    {
         // Python's json module writes non-finite numbers as bare Infinity / NaN (e.g. Mamba-2 time_step_limit), which JSON proper lacks.
-        string text = NonFiniteLiteral().Replace(File.ReadAllText(path), m => m.Value switch { "-Infinity" => "-1e308", "Infinity" => "1e308", _ => "null" });
+        text = NonFiniteLiteral().Replace(text, m => m.Value switch { "-Infinity" => "-1e308", "Infinity" => "1e308", _ => "null" });
         var document = JsonDocument.Parse(text, new JsonDocumentOptions { AllowTrailingCommas = true });
         return new HfConfig(document, directory);
     }

@@ -21,6 +21,12 @@ internal sealed partial class Qwen35HfMapping : IHfArchitectureMapping
     /// <inheritdoc/>
     public IReadOnlyList<string> ModelTypes { get; } = ["qwen3_5", "qwen3_5_text", "qwen3_5_moe", "qwen3_5_moe_text", Qwen3NextModelType, Qwen4ExpModelType, Qwen4ExpTextModelType];
 
+    /// <inheritdoc/>
+    public string? PartialSupport(string modelType)
+        => modelType is Qwen4ExpModelType or Qwen4ExpTextModelType
+            ? "the QSA block indexer runs in its dense regime only, which caps the context at the indexer budget; the MTP layer is not used"
+            : null;
+
     // ---- hyper-parameters ---------------------------------------------------------------------
 
     /// <inheritdoc/>

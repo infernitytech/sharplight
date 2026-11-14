@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services;
+using Sharplight.Studio.Services.Compatibility;
 using Sharplight.Studio.Services.Fit;
 using Sharplight.Studio.Services.Library;
 using Sharplight.Studio.Services.Runtime;
@@ -217,7 +218,7 @@ internal sealed partial class LoadOptionsViewModel : ObservableObject
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            Status = error.GetBaseException().Message;
+            Status = ImportFailure.Describe(error, error.GetBaseException().Message, Entry.Entry.Path);
         }
         finally
         {

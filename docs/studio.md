@@ -31,6 +31,28 @@ different models run at the same time. Images and documents can be attached by d
   download). The estimate takes the download size as weights and sizes the KV cache for the default load settings from the
   model's dimensions: the start of a GGUF file (a range request) or the checkpoint's `config.json`. Without them it assumes a
   generous share of the weights.
+- Discover also says whether a model is likely to import and run, from the same metadata reads (nothing extra is downloaded). The
+  verdicts are *Supported*, *Partially supported*, *Unsupported architecture &lt;name&gt;*, *Unsupported weight format &lt;type&gt;*,
+  *Projector* (an mmproj file, loaded with its language model), *Checked at import* (ONNX) and *Unknown* (the metadata could not be
+  read). Each search result gets a badge from what the Hub's search reports (the GGUF architecture, or a checkpoint's `model_type`
+  and quantization method), and results that are likely not to import are listed after the others. Each quantization gets a badge
+  too, with the reason in its tooltip, and the selected one's verdict is in the box above the download button. Downloading always
+  stays possible.
+
+  ![Discover with an unsupported architecture](images/studio/studio-discover-unsupported.png)
+
+  The checks come from the importers, not from lists in Studio:
+  - GGUF: `general.architecture` against the registered mappings (`GgufSupport`). Partial support is what a mapping declares, e.g.
+    Qwen3.8-Flash-Next (`qwen4exp`), whose block indexer runs in its dense regime only. When the recommended quantization is
+    opened, or another one is selected, its tensor table is read too: a prefix of up to 32 MiB, fetched in steps. Every ggml type id
+    must be known and have CPU kernels (`CpuExecutionProvider.SupportsWeightType`). Every provider falls back to the CPU, so a type
+    without CPU kernels, such as `Q8_K`, cannot load. Of a split GGUF only the first shard's tensors are read.
+  - Hugging Face checkpoints: the `model_type` against the mappings (`HfSupport`), and the quantization in `config.json` (and
+    ModelOpt's `hf_quant_config.json`). FP8 (block scales, compressed-tensors with 8-bit float weights, ModelOpt FP8) and MXFP4 for
+    gpt-oss are read. GPTQ, AWQ, bitsandbytes, MLX, integer or 4-bit compressed-tensors, ModelOpt NVFP4 and similar packed formats
+    are not, and the importer now rejects them with that reason. A method that is not known gives *Unknown*.
+  - ONNX: the opset imports (domain and version) are read by skipping the graph by its length (`OnnxOpsetScanner`), usually in one
+    or two range requests. Operators are checked when the model is imported.
 - *Library* lists the model store (resolved like the command-line tools: `--models-dir`, `SHARPLIGHT_MODELS`, the setting,
   then the `data` folder next to the app) and any added `.gguf`, `.slm` or `.onnx` files. *Load* opens the load options:
   - device;
@@ -54,6 +76,11 @@ different models run at the same time. Images and documents can be attached by d
 
   Loading shows its stages (reading, building graphs, placement, kernel compilation with cached counts, weight upload) and can be
   cancelled. *Convert…* turns a GGUF, safetensors checkpoint or ONNX model into a `.slm` package.
+
+  When a download's conversion or a load fails because of the model, the error starts with the reason: *Unsupported architecture
+  &lt;name&gt;* or *Unsupported weight format &lt;type&gt;*. The reason comes from the importer's error
+  (`UnsupportedArchitectureException`, `UnsupportedWeightFormatException`). Otherwise Studio reads the file itself: a GGUF header and
+  tensor table, a checkpoint's `config.json`, or a package's stored weight types.
 - *Resident* shows the loaded models: state (loading / ready / busy / sleeping / failed), device, memory, last use, and load progress.
   It also shows memory per device against its budget. *Unload* drains running requests for a few seconds and then frees the model.
 
@@ -151,6 +178,10 @@ keep using the user folder or to move or copy the models into the new store.
 - the downloads queue (pause, resume, cancel, restore after restart);
 - fit estimates: the planner (unloading, offload, system memory, split GPUs), the load panel's estimate and suggestions, and the
   download badges;
+- compatibility checks before downloading, on the tiny GGUFs and Hugging Face configs under `~/models` when present (an unmapped
+  architecture, an mmproj projector, a partial architecture, real quantized tensor tables read from a prefix, synthetic `Q8_K` and
+  unknown type ids, quantized checkpoints, ONNX opsets read behind the graph), the result order, the per-quantization badges and the
+  library's import errors;
 - conversations: streaming, versions, branches, stop, model switching and concurrent chats;
 - the server page;
 - a headless render of every page that fails on binding errors.
@@ -167,5 +198,9 @@ calls the embedded server. Set `SHARPLIGHT_STUDIO_SCREENSHOTS` to a directory to
 - **Fit estimates.** The load panel's estimate is the engine's own, but free memory can change before the load (other
   applications), and the vision tower of an image conversation is not counted. Download badges are approximate: they know the
   file sizes and, where readable, the attention dimensions, not the exact graph.
+- **Compatibility checks.** They are likely verdicts, not guarantees. A mapped architecture can still use a hyper-parameter or
+  tensor layout its mapping rejects; that only shows at import. Quantizations other than the recommended one share the
+  architecture's verdict until they are selected and their tensor tables are read. A tensor table beyond 32 MiB from the start of
+  the file is not read. ONNX operators are not checked before import.
 - **GPU utilisation.** The "Engine busy" chart is the share of time the engines spend stepping, not GPU utilisation read from the
   driver.

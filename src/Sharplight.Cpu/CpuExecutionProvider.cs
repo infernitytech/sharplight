@@ -1,4 +1,5 @@
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 
 namespace Sharplight.Cpu;
 
@@ -44,4 +45,16 @@ public sealed class CpuExecutionProvider : IExecutionProvider
 
     /// <summary>Registers the CPU provider with <see cref="ProviderRegistry"/>.</summary>
     public static void Register() => ProviderRegistry.Register(() => new CpuExecutionProvider());
+
+    /// <summary>
+    /// The CPU provider has kernels for weights of this element type (float, the supported ggml block quantizations, FP8). Every graph op that
+    /// a GPU provider lacks falls back to the CPU, so a weight type without CPU kernels cannot be loaded at all (e.g. <c>q8_k</c>, which
+    /// ggml uses for activations only).
+    /// </summary>
+    /// <param name="type">The stored element type of a weight.</param>
+    public static bool SupportsWeightType(DataType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return Quant.FormatOf(type) is not null;
+    }
 }
