@@ -3346,3 +3346,193 @@ SHARPLIGHT_BENCH=1 dotnet tests/Sharplight.Cpu.Tests/bin/Release/net11.0/Sharpli
 * **Vulkan attention with strided K / V** would remove the two copies that the fused projections add.
 * **Detection models**: data-dependent counts still round-trip through the host (unchanged since section 25).
 * **Vulkan fallbacks left**: LinearAttention, DeformConv, Unique, string / ai.onnx.ml ops and TfIdfVectorizer.
+
+## 28. Row-invariant MTP verification, MoE tile launches without a barrier, norm-written f16 copies; serving against vLLM (2026-11-14)
+
+Follow-up to section 24 (LLM performance; section 26 is the ONNX round). Base is `main` at `66a55a8` (correctness runs: the branch rebased on `44622a2` against that `main`), built side by side; base and new runs alternate. The GPU was shared
+with the user's applications and other agents throughout, so the tables use minimum GPU times or best rounds and give
+every round. Raw results: [`bench/results/s28/`](../bench/results/s26).
+
+### 28.1 MTP output differed from plain decoding on long prompts (fixed)
+
+On a 832-token prompt, the 27B Q8_0 with `--speculate-mtp 3` produced different text from plain decoding (the plain output
+matched `main`). Cause: a verification step runs 1 + k rows of one sequence, and several kernels choose their arithmetic by
+row count:
+
+* Q8_0 weights: one row takes the f32 split-K matvec, 2-8 rows the integer-dot matvec on q8_1-quantized activations
+  (logit differences around 0.2);
+* FP8 weights: 2-16 rows take the skinny tensor-core GEMM on f16 activations;
+* decode attention: the number of key splits depends on the row count;
+* the f32 matvec itself: its variants for 2, 4 and 8 rows were contracted differently by the driver from the 1-row
+  variant (last-bit differences, enough to flip a near-tie after a few hundred tokens).
+
+So the rows of a verification step did not reproduce the logits of the single-row steps they replace, and on long
+outputs a near-tie eventually flipped a token.
+
+The fix keeps verification steps on the single-row arithmetic:
+
+* `CompileOptions.RowInvariantRows` (`SHARPLIGHT_ROW_INVARIANT`): steps of up to that many rows (capped at the matvec range,
+  8 on Vulkan) compute every row bit-identically to a step of that row alone. `LlmModel.CreateBatchDecoder` sets it to
+  k + 1 when it verifies k drafts.
+* `GraphLowerer.RowInvariance.cs`: in such compiles, the f32 matvec serves 2, 4 and 8 rows with the single-row kernel and K
+  split, the integer-dot matvec and the skinny GEMM start above the range, formats whose single rows use the integer-dot
+  matvec keep its single-row layout, and decode attention splits keys as for one row (`DEC_INVARIANT_ROWS`).
+* `matmul.slang` (`dot8`, `MV_FMA_CHAIN`): row-invariant compiles write the sum of each 8-weight group as an explicit fma
+  chain in every matvec variant. Plain compiles keep the plain sum: the chain matched the driver's contraction on the 27B
+  models but not on gpt-oss-20b and OLMoE (a first version used it everywhere and changed their short-prompt output).
+
+Tests: `RowInvarianceTests` (Vulkan): single-row steps against 2-, 3- and 4-row steps, bit for bit, for f32, f16, bf16, q8_0,
+q4_k, q6_k and block FP8 weights, single and as gate / up pairs. The K-quants rely on the driver contracting their
+int-dot variants alike; it does at these shapes but not at all (q4_k [2048→48] differs in the last bit), so verification
+on K-quant weights is not guaranteed bit-exact. `VerificationRowInvarianceTests` (Families): verify-step rows against
+single-row session steps over a prompt and 1-row / 4-row decode, bit for bit, on Qwen3-0.6B Q8_0 and (large) the 27B
+Q8_0 GGUF and FP8 checkpoint.
+
+MTP throughput with row-invariant verification (`SpecBench`, depth 47, tg tok/s, k = 0 / 1 / 3, two interleaved
+rounds; acceptance identical between builds; `spec/`):
+
+| build | round 1 | round 2 |
+|---|---|---|
+| FP8 base | 39.7 / 66.6 / 90.5 | 39.2 / 67.6 / 89.0 |
+| FP8 new | 39.8 / 67.8 / 86.1 | 38.8 / 66.5 / 82.0 |
+| Q8_0 base | 40.2 / 74.7 / 97.7 | 39.3 / 78.5 / 103.0 |
+| Q8_0 new | 37.3 / 77.2 / 95.1 | 39.8 / 76.0 / 98.1 |
+
+Verification on the single-row arithmetic costs about 5-8 % at k = 3 on FP8 (the 4-row step no longer takes the skinny
+GEMM) and is within noise on Q8_0. k = 1 is unchanged.
+
+### 28.2 MoE: the two expert-tile launches without a barrier
+
+Section 24 split the expert GEMM into a full-height launch and a half-height launch for an expert's short last tile. Both
+write disjoint rows of the same output, but the hazard tracker ordered them with a barrier. `KernelLaunch.WriteGroup` lets
+launches declare disjoint writes; `HazardTracker` does not order writes within one group (reads still order against them).
+gpt-oss-20b pp512 (CLI `--bench 512`, interleaved, best of 4 inside each run): base 13271 / 13951 / 13721, new 14417 /
+15689 / 15197 tok/s (+10 %). With `SHARPLIGHT_NORM_HALF_COPY=0` the new build gives 15909 / 15474 / 15649, so the gain is
+the barrier. Decode is unchanged (316-331 tok/s in both).
+
+### 28.3 Fewer glue launches: the norm writes the f16 copy; tall dual fp8 tiles
+
+* `GraphLowerer.HalfCopies.cs`, `RowNormKernelSource.cs`: a row norm whose output feeds matmuls over non-f32 weights also
+  stores the f16 copy the tensor-core GEMMs read, for steps in the skinny range (2-16 rows); larger steps convert into the
+  same buffer. The stored value is `f32tof16` of the f32 output, so it is bit-identical to the conversion kernel.
+  `SHARPLIGHT_NORM_HALF_COPY=0` disables it. 27B FP8 at 16 rows: 1334 → 1158 dispatches and 917 → 789 barriers per step.
+  The GPU time did not change measurably on the Blackwell (three interleaved rounds with the switch: 27.2 / 28.2 / 30.0 ms
+  off, 27.8 / 28.4 / 27.5 ms on). The separate conversions were 4.5 % of the profiled step, but profiling serializes
+  launches; unprofiled, they overlap with their neighbours. Letting the norm write the copy at every row count made the
+  171-row mixed step 1.3 ms slower, hence the 16-row cap.
+* `GraphLowerer.Fp8Gemm.cs`: the dual fp8 gate / up GEMM uses 128-row tiles above 256 rows where they pad no more rows
+  than 64-row tiles (`SHARPLIGHT_FP8_DUAL_TALL=0` keeps 64). 512-row prefill step on the 27B FP8: 139.4 / 141.0 → 134.1 /
+  135.4 ms (-3 to -4 %). 384 rows: 110.4 / 111.8 → 106.9 / 107.9 ms. At 128 and 171 rows the tall tiles were slower
+  (44.7 → 49.9 and 71.0 → 80.0 ms), because the grid has half the workgroups.
+* Tried and dropped: the skinny GEMM up to 64 rows (`SHARPLIGHT_SKINNY_MAX_ROWS=64`): 32 rows 32.3 → 39.1 ms, 64 rows 42.4
+  → 60.1 ms.
+
+### 28.4 Where the serving steps go
+
+The serving gap to vLLM at 16-64 streams is the cost of mixed steps (decode rows of every stream plus prompt chunks of
+new requests), not host overhead. Server metrics of section 24.5: c = 1 averages 25.2 ms per step at 2.9 rows (BatchBench
+1-row step: 23-24 ms), c = 16 41 ms at 46 rows, c = 64 80 ms at 172 rows. BatchBench `--mixed` reproduces such steps
+(27B FP8, minimum GPU time, `batch/mixed_prof_new.txt`):
+
+| step | GPU ms |
+|---|---:|
+| 16 decode rows | 29.3 |
+| 16 decode + 32 prompt rows | 32.5 |
+| 63 decode rows | 42.2 |
+| 63 decode + 108 prompt rows | 77.4 |
+
+Profile of the 171-row mixed step (10 steps):
+
+* GEMMs 70 %: dual gate/up 290.8 µs per layer (64-row tiles, 3 row tiles; about 210 TFLOPS), [17408→5120] 163.7 µs,
+  [5120→10240] 98.2 µs; the bf16 [5120→48] split-K pair 2.3 %.
+* Gated delta rule 20 %: the token-by-token kernel for the 63 decode rows 234.5 µs per layer, memory-bound on the f32
+  state (3 MB per sequence and layer, read and written). The opt-in bf16 state halves that traffic; vLLM keeps this
+  state in the model dtype (bf16).
+* Glue (activation quantization, split-K reductions, norms) about 5 %.
+
+So the remaining levers are the fp8 GEMM's efficiency at 100-500 rows (section 22.10: about 280 of about 520 TFLOPS) and
+the state precision. In this round, skinny-GEMM and tile-height changes did not help in the 32-171 row range (28.3).
+
+### 28.5 Single stream: 27B Q8_0 decode and Mistral-7B prefill
+
+27B Q8_0, one-row decode profile (`batch/prof_q8_1row.txt`, minimum per launch; weights 1.0625 bytes per value):
+
+| matvec | µs | TB/s |
+|---|---:|---:|
+| gate/up [5120→17408]x2 (dual) | 114.2 | 1.66 |
+| down [17408→5120] | 67.0 | 1.41 |
+| [5120→10240] | 39.1 | 1.42 |
+| [6144→5120] | 24.7 | 1.35 |
+| LM head [5120→248320] | 1010.8 | 1.34 |
+
+The dual matvec is close to the bandwidth limit, while the single ones run at 1.34-1.42 TB/s; norms and the 96 small
+[5120→48] matvecs add about 0.8 ms per token. llama.cpp's 48.0 tok/s (20.8 ms per token) corresponds to about 1.45 TB/s
+over the whole model. Closing the gap needs a different K split or work per workgroup in the single matvecs, which changes
+the summation order and therefore greedy output. Under this round's output-identity rule it was not changed. The same
+holds for Mistral-7B Q4_K_M pp512 (0.91x), whose GEMM tiling sets the accumulation order. Both are listed as open issues.
+
+### 28.6 Serving against vLLM
+
+`bench/s16_serve.sh` as in section 24.5 (~250-token prompts, 128 output tokens, ignore_eos, a 64-slot server), 27B FP8,
+port 18377. Rounds 1-2: Sharplight, then vLLM 0.33 (`--gpu-memory-utilization 0.5`), then Sharplight with the opt-in
+bf16 delta-rule state (`SHARPLIGHT_RECURRENT_STATE=bf16`). A first attempt ran while another application loaded the GPU (c = 1 at
+22 tok/s) and was discarded. A third round (vLLM, then Sharplight, `serve/round3/`) was disturbed for both engines
+(vLLM c = 1 at 38.9 instead of 47) and is not used in the ratios.
+
+Aggregate output tok/s (rounds 1, 2), TTFT P50 / P95 and mean ITL in ms (round 1):
+
+| conc | vLLM | Sharplight | SL bf16 state | SL best / vLLM best | bf16 / vLLM | TTFT SL | vLLM | ITL SL | vLLM |
+|---|---|---|---|---:|---:|---|---|---:|---:|
+| 1 | 47, 47 | 38, 36 | 39, 37 | 0.81x | 0.83x | 82 / 86 | 61 / 102 | 25.8 | 20.8 |
+| 4 | 165, 165 | 135, 133 | 138, 141 | 0.82x | 0.85x | 231 / 275 | 183 / 185 | 28.2 | 23.1 |
+| 16 | 552, 548 | 380, 383 | 382, 393 | 0.69x | 0.71x | 293 / 996 | 595 / 597 | 39.1 | 24.7 |
+| 64 | 980, 1004 | 769, 748 | 799, 804 | 0.77x | 0.80x | 491 / 4532 | 1733 / 7258 | 72.4 | 40.0 |
+
+Sharplight is at its section 24.5 level (40 / 130 / 381 / 752 then, 38 / 135 / 383 / 769 now). vLLM measured faster at
+1-16 streams (43 / 153 / 522 then) and slower at 64 (1157 then), so the ratios moved mostly with vLLM's run-to-run spread on
+the shared GPU. The bf16 state adds 2-5 % at 16-64 streams. Single-stream ITL is 25.8 ms against a 22.5-23.5 ms
+BatchBench step; the server's step average includes the prompt steps of each new request (section 28.4).
+
+### 28.7 Correctness
+
+Greedy CLI output, 200 tokens, a short and a ~650-token prompt (`ident/p_*.txt`), the branch rebased on `main` at
+`44622a2` against that `main` (`ident/`; an earlier run against `66a55a8` gave the same result):
+
+* Identical for the 27B FP8, Q8_0 and Q4_K_M, gpt-oss-20b, OLMoE, Mistral-7B Q4_K_M and Qwen2.5-0.5B.
+* MTP k = 3 against non-speculative output on the 27B FP8 and Q8_0, short, long and the 832-token prompt that diverged
+  before (`ident/p_full.txt`): identical text. On `main` the Q8_0 output of the 832-token prompt diverged.
+
+Tests, run one at a time under the suite lock on the branch rebased on `44622a2`: Cpu 1214 (36 skipped), Vulkan 1277
+(22 skipped), Families 663 (34 skipped), Serving 283 and Vision 94 (5 skipped) pass. (On an earlier rebase, Families was
+OOM-killed once while other applications and jobs held memory, and passed when re-run.) New: `RowInvarianceTests` and `NormHalfCopyTests` (Vulkan), `VerificationRowInvarianceTests`
+(Families, two large cases with `SHARPLIGHT_TEST_LARGE=1`).
+
+### 28.8 Commands
+
+```bash
+# Identity (base = git archive of main, built separately)
+sharplight <model> -p "$(cat p_long.txt)" -n 200 --ctx 2048 [--speculate-mtp 3]
+# MTP throughput
+bench/SpecBench/bin/Release/net11.0/SpecBench <model> --drafts 0,1,3
+# Batched and mixed steps, profiles
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --sizes 1,16,64 --reps 30
+bench/BatchBench/bin/Release/net11.0/BatchBench <model> --ctx 2048 --modes greedy --mixed 63+0,63+108x1,16+0,16+112x1,0+512x1 --profile 1
+# gpt-oss prefill
+sharplight gpt-oss-20b-MXFP4.gguf --bench 512 --ctx 768
+# Serving
+OUT_DIR=bench/results/s28/serve PORT=18377 SLOTS=64 bench/s16_serve.sh sharplight qwen27b-fp8 <dir> "1 4 16 64"
+OUT_DIR=bench/results/s28/serve PORT=18377 SLOTS=64 bench/s16_serve.sh vllm qwen27b-fp8 <dir> "1 4 16 64" --gpu-memory-utilization 0.5
+```
+
+### 28.9 Open issues
+
+* **Serving at 16-64 streams** (0.69-0.80x of vLLM): mixed steps are dominated by the fp8 GEMM at 100-500 rows (about
+  210 TFLOPS on the dual gate/up at 171 rows) and the f32 delta-rule state (28.4). Next: a more efficient fp8 GEMM pipeline
+  and, if accepted as a default, the bf16 state.
+* **MTP verification cost**: k = 3 on FP8 is 5-8 % slower because the 4-row verification steps use the single-row matvec.
+  A row-invariant skinny GEMM (the same K order for 1-4 rows) would recover it.
+* **K-quant verification** is bit-exact only where the driver contracts the int-dot variants alike (28.1).
+* **27B Q8_0 decode and Mistral-7B pp512** (0.90x / 0.91x of llama.cpp): reaching llama.cpp's bandwidth needs a different
+  summation order in the single matvecs and the K-quant GEMM, which changes greedy output (28.5).
+* **Norm-written f16 copies** cut launches and barriers but not Blackwell GPU time; their value on GPUs with costlier
+  dispatch is unmeasured. Elementwise and matmul epilogues (attention gate, SwiGLU output) still feed separate conversions.
