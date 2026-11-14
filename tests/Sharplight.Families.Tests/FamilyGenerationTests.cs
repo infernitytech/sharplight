@@ -71,6 +71,10 @@ public class FamilyGenerationTests
         new("tiny-random-nemotron-h-latent HF (transformers)", "hf/tiny-random-nemotron-h-latent", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
         new("tiny-random-nemotron-h-latent f32 GGUF (transformers, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-latent-f32.gguf", P2, "ids",
             NemotronLatentIds, "", NeedsCpuFallback: true),
+        // Heterogeneous ("Puzzle", Nemotron 3.5 Bolt): the second MoE layer has 6 of the 8 experts and selects 3, the first 2
+        // (expert_used_count per layer; tools/mk_tiny_nemotron_h_puzzle.py), vs llama.cpp 8ca5a80 (CPU and Vulkan agree).
+        new("tiny-random-nemotron-h-puzzle f32 GGUF (llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-puzzle-f32.gguf", P2, "text", [],
+            "emblance 얼른 propuls shortestombo�ှိ� 시장odu Dio pojedaccepted últim+(-toggle힌 Moyen", NeedsCpuFallback: true, Tokens: 16),
         // Gemma 4 E4B finetune (NVIDIA Nemotron 3.5 Bolt E4B, arch gemma4): IQ4_NL per-layer embedding table, 42 layers with 18 shared-KV layers.
         new("NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf", "def fibonacci(n):", "text", [],
             "\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint"),

@@ -16,6 +16,8 @@ public class GgufSweepFixtureTests
     [InlineData("DeepSeek-V4-Flash-0731-UD-Q2_K_XL")]
     [InlineData("Qwen3.8-Flash-Next-UD-IQ1_M")] // the n-gram convolution stored in BF16
     [InlineData("Llama-3.2-1B-Instruct-Q4_0_4_4")] // the interleaved Q4_0 type 31
+    [InlineData("embeddinggemma-2-Q8_0")] // the gemma-embedding2 architecture, mapped since
+    [InlineData("NVIDIA-Nemotron-3.5-Bolt-74B-A9B-UD-IQ1_M")] // the latent experts (ffn_latent_down / ffn_latent_up) of nemotron_h_moe
     public void ReleasedHeader_IsAccepted(string name)
     {
         var header = File.ReadAllBytes(Fixture(name));

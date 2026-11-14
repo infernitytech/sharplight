@@ -63,7 +63,13 @@ internal sealed class NemotronHGgufMapping : IGgufArchitectureMapping
         if (moeArchitecture)
         {
             md[a + "moe.expert_count"] = g.Int("expert_count");
-            md[a + "moe.expert_used_count"] = g.Int("expert_used_count");
+            // Heterogeneous ("Puzzle") models store the selection count per layer (0 for layers without experts).
+            var used = PerLayer(g, "expert_used_count", layerCount);
+            md[a + "moe.expert_used_count"] = used.Max();
+            if (used.Where(u => u > 0).Distinct().Count() > 1)
+            {
+                md[a + "moe.layer_expert_used_counts"] = used;
+            }
             md[a + "moe.normalize_weights"] = g.Bool("expert_weights_norm", true);
             if (g.Has("expert_weights_scale") && g.Float("expert_weights_scale") is var weightsScale && weightsScale != 1f)
             {
