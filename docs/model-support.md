@@ -44,7 +44,7 @@ Format-specific code lives only in Sharplight.Gguf / Sharplight.HuggingFace / Sh
 
 ### 2.2 What DecoderAdapter expresses (documented in its XML remarks)
 
-GQA/MQA; per-head QK RMS norm (weighted or unweighted), value norm; partial rotary, neox/gptj pairing, local rope base, yarn/llama3/longrope frequency factors, attention scale; sliding window with per-layer pattern; logit soft-capping and final soft-capping; attention sinks; sigmoid attention output gate; per-layer head dim / kv heads / KV sharing / NoPE layers; k = v layers; sandwich norms (`attention.out_norm`, `mlp.out_norm`); embedding scale, embedding norm, logit scale; gated or ungated MLP (silu/gelu/gelu_tanh/relu) with optional biases; MoE (softmax or sigmoid scores, renormalisation, weight scale, rank-3 expert weights through MatMulId, ungated shared expert, leading dense layers); Gemma 3n/4 per-layer embeddings. Waves 0 and 2 added: layer norm (with bias, or non-parametric), parallel residual, residual-branch scale, ReLU^2 / xIELU / SwiGLU-OAI activations, learned absolute positions, q/k norm after rope, per-layer head counts, q/k/v clamping, biased output head (`DecoderNorm`, `IMlpActivation` and the `Sequential`/`Parallel` layer topology in Sharplight.Architectures). Later rounds added routing bias and groups, ALiBi (CPU kernel; GPU sessions run those layers on the CPU provider), `moe.shared_scale` and query temperature on the latent decoder as well.
+GQA/MQA; per-head QK RMS norm (weighted or unweighted), value norm; partial rotary, neox/gptj pairing, local rope base, yarn/llama3/longrope frequency factors, attention scale; sliding window with per-layer pattern; logit soft-capping and final soft-capping; attention sinks; sigmoid attention output gate; per-layer head dim / kv heads / KV sharing / NoPE layers; k = v layers; sandwich norms (`attention.out_norm`, `mlp.out_norm`); embedding scale, embedding norm, logit scale; gated or ungated MLP (silu/gelu/gelu_tanh/relu) with optional biases; MoE (softmax or sigmoid scores, renormalisation, weight scale, rank-3 expert weights through MatMulId, ungated shared expert, leading dense layers); Gemma 3n/4 per-layer embeddings. Waves 0 and 2 added: layer norm (with bias, or non-parametric), parallel residual, residual-branch scale, ReLU^2 / xIELU / SwiGLU-OAI activations, learned absolute positions, q/k norm after rope, per-layer head counts, q/k/v clamping, biased output head (`DecoderNorm`, `IMlpActivation` and the `Sequential`/`Parallel` layer topology in Sharplight.Architectures). Later rounds added routing bias and groups, ALiBi (CPU and Vulkan kernels: scalar, split-K decode and flash attention), bidirectional decoder layers (`attention.causal` = false: embedding graph only, symmetric sliding window, `embedding_projection.{i}` Dense layers after pooling), `moe.shared_scale` and query temperature on the latent decoder as well.
 
 ### 2.3 Graph ops available (Sharplight.Core StandardOps)
 
@@ -115,7 +115,7 @@ Next in line: M-RoPE + DeepStack in the decoder adapter (qwen2vl/qwen3vl/glm4v/p
 | `M2H` | **Mamba-2 inside a generic hybrid layer stack (parallel or interleaved with attention/MoE)**. Granite-4.0-H (interleaved Mamba2 + attention + MoE with shared expert), Falcon-H1 (attention and Mamba2 in parallel in one layer, multipliers), Jamba, PLaMo-2. | 5 | 8 | M | SelectiveScan + CausalConv1d exist and NemotronHAdapter composes them; needs a shared per-layer block factory |
 | `KDA` | **Kimi Delta Attention (per-channel-gated delta rule) / lightning variants**. gated delta rule with a per-key-channel decay instead of a per-head scalar (Kimi-Linear, Ling-3/Ring-linear, GLM5-next, Kimi K3). | 5 | 8 | M | GatedDeltaRule exists with scalar gate; needs per-channel gate variant |
 | `TMP` | **Attention temperature tuning and chunked-local attention**. Llama 4 NoPE layers scale q by log(floor((pos+1)/floor_scale)+1)*attn_scale+1; iRoPE chunked attention mask; Mistral-3/4 use the same scale. | 3 | 6 | S | **done**: per-layer query temperature (`attention.temperature_scale/length/offset/layers`) and chunked attention (`attention.chunk_size/chunk_layers`, CachedAttention `chunk` on CPU and Vulkan) |
-| `ALIBI` | **ALiBi / additive score bias in cached attention**. Bloom, MPT, Baichuan-13B, Refact, Jais, Jina-BERT-v2; same plumbing serves T5 relative-position buckets. | 5 | 5 | M | **done** as the provider-neutral attribute `alibi_slopes` (float[Hq]) on CachedAttention / Attention (`attention.alibi_max_bias` in the decoder); the CPU provider implements it, the Vulkan attention kernels do not, so those layers fall back to the CPU (the placement keeps every node that touches a KV cache on the same device) |
+| `ALIBI` | **ALiBi / additive score bias in cached attention**. Bloom, MPT, Baichuan-13B, Refact, Jais, Jina-BERT-v2; same plumbing serves T5 relative-position buckets. | 5 | 5 | M | **done** as the provider-neutral attribute `alibi_slopes` (float[Hq]) on CachedAttention / Attention (`attention.alibi_max_bias` in the decoder); the CPU provider and the Vulkan attention kernels (scalar, split-K decode, flash; slopes baked in as a specialization) implement it, for causal and bidirectional (symmetric |i - j|) attention |
 | `CONV` | **Gated short-conv layer (LFM2/LFM3)**. in_proj -> (B, C, x); y = C * conv_k3(B * x); out_proj; interleaved with GQA layers and (lfm2moe) MoE. | 3 | 5 | S | CausalConv1d exists; needs adapter + state plumbing |
 | `YARNM` | **YaRN attention factor on MLA softmax scale**. mscale^2 folded into the MLA scale (rope.attention_scale exists for non-MLA). | 2 | 5 | S | **done** with MLA (`attention.scale` of latent_decoder) |
 | `DSTACK` | **DeepStack vision injection**. Qwen3-VL adds vision-tower intermediate features to the hidden state of the first N decoder layers. ClipGgufMapping throws NotSupported for is_deepstack_layers today. | 2 | 5 | M | missing: extra graph inputs per early layer + tower taps |
@@ -163,7 +163,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `llama4` | Llama 4 Scout/Maverick | GQA, RMS, chunked-local attn + NoPE layers, qk-l2norm, MoE sigmoid + shared, attn temperature | **supported** | - (vision tower not imported) | llama4_text | hf/tiny-random-llama-4 (incl. a 160-token prompt across the 128-token chunk) |
 | `deci` | Llama-3.x-Nemotron-51B (NAS) | per-layer GQA/skip-attn/ffn-mult, RMS | **partial** | `MAP`, `LAYERVAR` | deci | - |
 | `mistral3` | Ministral-3, Mistral-Small-3.x (+pixtral mmproj) | GQA, RMS, SwiGLU, yarn, llama4-style attn temperature | **supported** | `MMPROJ` (Pixtral) | mistral3 / ministral3 | gguf/Ministral-3-3B-Instruct-2512 (+mmproj), hf/tiny-random-mistral-3, hf/tiny-random-ministral3 |
-| `llama-embed` | Llama embedding models (pooled) | llama graph + pooling head | **partial** | `POOL`, `MAP` | - | - |
+| `llama-embed` | Llama embedding models (pooled) | llama graph + pooling head | **supported** (causal unless the file declares `attention.causal` = false, as in llama.cpp) | - | - | gguf/tiny-random-llama-embed-f32 (bidirectional, vs llama-server /embedding; tests/Sharplight.Families.Tests/EmbeddingFamilyTests.cs) |
 
 ### Qwen
 
@@ -199,7 +199,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `gemma3n` | Gemma 3n E2B/E4B | AltUp, LAuReL, PLE, KV sharing, sparse FFN activation | **missing** | `ALTUP`, `LAUREL`, `PLE` | gemma3n | gguf/gemma-3n-E2B-it, hf/tiny-random-gemma-3n |
 | `gemma4` | Gemma 4 (E2B/E4B/12B/MoE) | PLE, KV sharing, per-layer head dims, NoPE globals, k=v, MoE sigmoid | **supported** | - | gemma4 | - |
 | `gemma4-assistant` | Gemma 4 MTP assistants | drafter (centroid head, KV from target) | **missing** | `SPECDEC` | - | - |
-| `gemma-embedding` | EmbeddingGemma | bidirectional gemma3 + pooling | **missing** | `ENC`, `POOL` | gemma3_text (embedding) | - |
+| `gemma-embedding` | EmbeddingGemma | bidirectional gemma3 + pooling | **supported** (bidirectional decoder layers, symmetric window, Dense projections after pooling; embeddinggemma-300m is gated and was not run) | - | gemma3_text (`use_bidirectional_attention`, sentence-transformers Dense modules) | hf/tiny-random-embeddinggemma (vs transformers), gguf/tiny-random-gemma-embedding-f32 (vs llama.cpp) |
 | `gemma-embedding2` | EmbeddingGemma 2 | bidirectional gemma + PLE + pooling | **missing** | `ENC`, `POOL` | - | - |
 
 ### Phi
@@ -348,15 +348,15 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | `gptj` | GPT-J | parallel residual, interleaved partial rope, LN | **supported**| -| gptj | hf/tiny-random-GPTJForCausalLM |
 | `gptneox` | Pythia, StableLM-alpha, RedPajama | parallel residual (opt), LN, partial rope, fused qkv | **supported**| -| gpt_neox | gguf/pythia-160m, hf/tiny-random-GPTNeoXForCausalLM |
 | `falcon` | Falcon 7B/40B/180B | MQA/GQA, LN, parallel residual, GELU, rope | **supported**| -| falcon | hf/tiny-random-FalconForCausalLM |
-| `mpt` | MPT-7B/30B | ALiBi, LN, QK-clip, GELU | **supported** (CPU; attention on the CPU when a GPU is used; q/k layer norms (`qk_ln`) not supported; not run on a real model) | - | mpt | hf/tiny-random-mpt, gguf/tiny-random-mpt-f32 |
-| `bloom` | BLOOM | ALiBi, LN, GELU | **supported** (CPU; attention on the CPU when a GPU is used; `bloom` pre-tokenizer checked against llama.cpp) | - | bloom | gguf/bloom-560m (Q4_K_M vs llama.cpp Vulkan), hf/tiny-random-bloom, gguf/tiny-random-bloom-f32 |
-| `refact` | Refact | ALiBi, RMS | **supported** | - | - | gguf/tiny-random-refact-f32.gguf (ALiBi on the CPU provider) |
-| `baichuan` | Baichuan 1/2 (13B: ALiBi) | RMS, SwiGLU, rope (7B) or ALiBi (13B) | **supported** | - | baichuan | gguf/tiny-random-baichuan-f32.gguf, gguf/tiny-random-baichuan-alibi-f32.gguf (ALiBi on the CPU provider) |
+| `mpt` | MPT-7B/30B | ALiBi, LN, QK-clip, GELU | **supported** (q/k layer norms (`qk_ln`) not supported; not run on a real model) | - | mpt | hf/tiny-random-mpt, gguf/tiny-random-mpt-f32 |
+| `bloom` | BLOOM | ALiBi, LN, GELU | **supported** (`bloom` pre-tokenizer checked against llama.cpp) | - | bloom | gguf/bloom-560m (Q4_K_M vs llama.cpp Vulkan), hf/tiny-random-bloom, gguf/tiny-random-bloom-f32 |
+| `refact` | Refact | ALiBi, RMS | **supported** | - | - | gguf/tiny-random-refact-f32.gguf |
+| `baichuan` | Baichuan 1/2 (13B: ALiBi) | RMS, SwiGLU, rope (7B) or ALiBi (13B) | **supported** | - | baichuan | gguf/tiny-random-baichuan-f32.gguf, gguf/tiny-random-baichuan-alibi-f32.gguf |
 | `stablelm` | StableLM 2 / 3B | LN, QK-norm (per head), partial rope, SwiGLU | **supported**| -| stablelm | gguf/stablelm-2-1_6b, hf/tiny-random-StableLmForCausalLM |
 | `codeshell` | CodeShell | LN, rope, GELU | **supported** | - | - | gguf/tiny-random-codeshell-f32.gguf |
 | `orion` | Orion-14B | LN, SwiGLU, rope | **supported** | - | - | gguf/tiny-random-orion-f32.gguf |
 | `xverse` | XVERSE | RMS, SwiGLU, rope | **supported (GGUF, tiny random vs llama.cpp)**| -| - | gguf/tiny-random-xverse-f32 |
-| `jais` | Jais | ALiBi, LN, SwiGLU | **supported** | - | jais | gguf/tiny-random-jais-f32.gguf (ALiBi on the CPU provider) |
+| `jais` | Jais | ALiBi, LN, SwiGLU | **supported** | - | jais | gguf/tiny-random-jais-f32.gguf |
 | `jais2` | Jais 2 | LN, ReLU2, rope | **supported** | - | jais2 | hf/tiny-random-jais2, gguf/tiny-random-jais2-f32.gguf |
 
 ### SSM
@@ -402,13 +402,13 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 | Arch | Models | llama.cpp blocks | Status | Missing in Sharplight | HF type | Test assets |
 |---|---|---|---|---|---|---|
 | `bert` | BERT, MiniLM, bge, e5, rerankers | bidirectional, post-LN, abs pos + token types, GELU, pooling | **supported** | - | bert, roberta, xlm-roberta | all-MiniLM-L6-v2, bge-small-en-v1.5, bge-reranker-base / -v2-m3 (Sharplight.Embeddings.Tests) |
-| `modern-bert` | ModernBERT | bidirectional, local/global rope, GeGLU, LN | **missing** | `ENC`, `POOL`, `LN` | modernbert | hf/tiny-random-ModernBertForMaskedLM |
+| `modern-bert` | ModernBERT, Granite Embedding R2 | bidirectional, local/global rope, GeGLU, LN | **supported** (canonical decoder with `attention.causal` = false; llama.cpp's converter rejects the masked-LM checkpoints, so the real model was checked through the HF importer only) | - | modernbert | hf/ModernBERT-base (vs transformers), hf/tiny-random-modernbert (vs transformers), gguf/tiny-random-modern-bert-f32 (vs llama.cpp) |
 | `nomic-bert` | nomic-embed-text v1/1.5 | bidirectional, rope, SwiGLU | **supported** | - | nomic_bert | nomic-embed-text-v1.5 f16 / Q8_0 GGUF (Sharplight.Embeddings.Tests) |
 | `nomic-bert-moe` | nomic-embed-text-v2-moe | bidirectional + MoE | **missing** | `ENC`, `POOL`, `LN` | - | - |
-| `neo-bert` | NeoBERT | bidirectional, RMS, SwiGLU, rope | **missing** | `ENC`, `POOL` | - | - |
-| `jina-bert-v2` | jina-embeddings-v2 | bidirectional, ALiBi | **missing** | `ENC`, `POOL`, `ALIBI` | - | - |
+| `neo-bert` | NeoBERT | bidirectional, RMS, SwiGLU, rope | **supported** (GGUF; NeoBERT's HF code is remote-only) | - | - | gguf/tiny-random-neo-bert-f32 (vs llama.cpp) |
+| `jina-bert-v2` | jina-embeddings-v2 | bidirectional, ALiBi | **supported** (GGUF; encoder adapter with ALiBi, q/k projection norms, second attention norm, GeGLU) | - | - | gguf/real-embed/jina-embeddings-v2-small-en-f32 (converted, vs llama.cpp), gguf/tiny-random-jina-bert-v2-f32 (vs llama.cpp) |
 | `jina-bert-v3` | jina-embeddings-v3 | bidirectional, rope, LoRA tasks | **missing** | `ENC`, `POOL` | - | - |
-| `eurobert` | EuroBERT | bidirectional llama-like | **missing** | `ENC`, `POOL` | - | - |
+| `eurobert` | EuroBERT | bidirectional llama-like | **supported** | - | eurobert | hf/EuroBERT-210m (vs transformers), hf/tiny-random-eurobert (vs transformers), gguf/tiny-random-eurobert-f32 (vs llama.cpp) |
 
 ### Encoder-decoder
 
