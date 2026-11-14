@@ -246,6 +246,12 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool ConvSplitHalf { get; } = IsNotZero("SHARPLIGHT_CONV_SPLIT_F16");
 
+    /// <summary>
+    /// True (default) when bidirectional attention reads strided f32 K / V (slices of a fused projection) in place;
+    /// <c>SHARPLIGHT_ATTN_STRIDED_KV=0</c> copies them to dense rows first.
+    /// </summary>
+    public static bool AttentionStridedKv { get; } = IsNotZero("SHARPLIGHT_ATTN_STRIDED_KV");
+
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");
 
