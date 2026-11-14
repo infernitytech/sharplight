@@ -123,14 +123,14 @@ public sealed partial class GraphLowerer
             [Pointer(x), Pointer(weightA), Pointer(weightB), Pointer(y), TokenArg(x, rowsPerLead)],
             [x, weightA, weightB], [y]);
 
-        // Larger batches: fp8 weights from the fp8 GEMM's rows on run one dual GEMM with the group as its epilogue; otherwise
-        // the regular matmuls and the elementwise group, skipped while a fused launch serves the rows.
+        // Larger batches: fp8 weights at 17-64 rows run one dual GEMM with the group as its epilogue; otherwise the regular
+        // matmuls and the elementwise group, skipped while a fused launch serves the rows.
         long fusedBelow = fusedMaxRows;
         _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow;
-        bool dualFp8 = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
+        long dualFp8Max = EmitDualFp8Gemm($"matmul2 {output.Name} [{K}→{N}]x2 {weightA.Type} fused[{groupNames}]", [a, bNode, .. group], a.Inputs[0], x,
             xStride, rowsPerLead, weightA, weightB, y, N, K, DualEpilogueSource(a, bNode, group, output, "gemm_fp8.slang"));
-        long regularMax = dualFp8 ? Fp8GemmMinRows - 1 : long.MaxValue;
-        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && rows(b) <= regularMax;
+        long dualFp8Min = Fp8GemmMinRows;
+        _launchCondition = b => (outer?.Invoke(b) ?? true) && rows(b) > fusedBelow && (rows(b) < dualFp8Min || rows(b) > dualFp8Max);
         LowerMatMul(a);
         LowerMatMul(bNode);
         LowerElementwise(group, [output]);

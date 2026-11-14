@@ -76,7 +76,7 @@ public sealed class FusionTests
         // silu(g) * u multiplies by the other factor.
         bool intDot = fmt is "q8_0" or "q4_k";
         double atol = intDot ? 6e-1 : t > 1 ? 1e-1 : 2e-3, rtol = intDot || t > 1 ? 1e-2 : 1e-3;
-        // 17+ rows of fp8 weights: the dual fp8 GEMM (E4M3 activations, 64- and 128-row tiles).
+        // 17-64 rows of fp8 weights: the dual fp8 GEMM (E4M3 activations, one 64-row tile); 70 and 140 rows: the separate GEMMs.
         Diff.Check("Fusion.dual." + fmt, tg.B.Build(), new Step(t, 0, (x, Rnd.F((long)t * K, 3)), (x2, Rnd.F((long)t * 256, 4))), atol: atol, rtol: rtol,
             maxTokens: Math.Max(64, t), what: $"T={t}");
     }

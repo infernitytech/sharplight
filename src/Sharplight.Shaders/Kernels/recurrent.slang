@@ -151,23 +151,33 @@ void conv1d_tokens(uint3 dtid : SV_DispatchThreadID, uniform ConvParams p)
 #if HAS_BIAS
     float bias = p.bias[c];
 #endif
+    // Sliding window as in the single-sequence form (same arithmetic), refilled from x / the state where a run begins.
+    float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
+    float win[KS];
+    [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, uint(run.y), run.w == 0, int(r0) - run.y - (KS - 1) + j, c);
     for (uint i = 0; i < TOK; i++)
     {
         uint t = r0 + i;
         if (t >= p.T) break;
-        while (t >= uint(run.y + run.z))
+        if (t >= uint(run.y + run.z))
         {
-            u++;
-            run = int4(p.runs[u * 4], p.runs[u * 4 + 1], p.runs[u * 4 + 2], p.runs[u * 4 + 3]);
+            while (t >= uint(run.y + run.z))
+            {
+                u++;
+                run = int4(p.runs[u * 4], p.runs[u * 4 + 1], p.runs[u * 4 + 2], p.runs[u * 4 + 3]);
+            }
+
+            state = p.state + uint64_t(run.x) * (KS - 1) * C;
+            [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = conv_in(p, state, uint(run.y), run.w == 0, int(t) - run.y - (KS - 1) + j, c);
         }
 
+        win[KS - 1] = p.x[uint64_t(t) * XS + c];
+        float s = 0;
+        [ForceUnroll] for (int j = 0; j < KS; j++) s += win[j] * wk[j];
+        [ForceUnroll] for (int j = 0; j < KS - 1; j++) win[j] = win[j + 1];
 #if PAR_MIN
         if (run.z < PAR_MIN) continue;   // walked by conv1d
 #endif
-        float* state = p.state + uint64_t(run.x) * (KS - 1) * C;
-        int li = int(t) - run.y;
-        float s = 0;
-        [ForceUnroll] for (int j = 0; j < KS; j++) s += wk[j] * conv_in(p, state, uint(run.y), run.w == 0, li - (KS - 1) + j, c);
 #if HAS_BIAS
         s += bias;
 #endif
