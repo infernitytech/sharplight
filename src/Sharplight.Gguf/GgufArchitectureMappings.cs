@@ -68,6 +68,8 @@ internal static class GgufArchitectureMappings
         yield return new MaincoderGgufMapping();
         yield return new Spark25GgufMapping();
         yield return new BaichuanGgufMapping();
+        yield return new Jais2GgufMapping();
+        yield return new GraniteSwaGgufMapping();
         yield return new HunyuanMoeGgufMapping();
         yield return new ExaoneMoeGgufMapping();
         yield return new SmallThinkerGgufMapping();

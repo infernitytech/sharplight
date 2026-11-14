@@ -48,6 +48,19 @@ EXTRA = {
                                              num_experts_per_tok=2, max_position_embeddings=256)),
     # StarCoder 1 / SantaCoder: GPT-2 layout with linear weights and one key/value head.
     "gpt-bigcode": ("gpt_bigcode", dict(n_embd=64, n_layer=3, n_head=4, n_positions=256, multi_query=True)),
+    # Jais 2: layer norms, squared-ReLU MLP, biases.
+    "jais2": ("jais2", dict(hidden_size=64, intermediate_size=128, num_hidden_layers=3, num_attention_heads=4, num_key_value_heads=2,
+                            max_position_embeddings=256, attention_bias=True, mlp_bias=True)),
+    # Granite SWA: sinks, sliding layers (window 8 so that the prompt exceeds it), a NoPE layer and a second rotary base through layer_rope_theta.
+    "granite-swa": ("granite_swa", dict(hidden_size=64, intermediate_size=128, num_hidden_layers=4, num_attention_heads=4, num_key_value_heads=2,
+                                        max_position_embeddings=256, sliding_window=8, embedding_multiplier=2.0, residual_multiplier=0.5,
+                                        attention_multiplier=0.2, logits_scaling=2.0,
+                                        layer_types=["full_attention", "sliding_attention", "sliding_attention", "full_attention"],
+                                        layer_rope_theta=[0, 1000.0, 1000.0, 10000.0])),
+    "granitemoe-swa": ("granitemoe_swa", dict(hidden_size=64, intermediate_size=48, shared_intermediate_size=80, num_hidden_layers=4,
+                                              num_attention_heads=4, num_key_value_heads=2, num_local_experts=4, num_experts_per_tok=2,
+                                              max_position_embeddings=256, sliding_window=8, embedding_multiplier=2.0, residual_multiplier=0.5,
+                                              attention_multiplier=0.2, logits_scaling=2.0)),
 }
 for name, (model_type, arguments) in EXTRA.items():
     configs[name] = AutoConfig.for_model(model_type, **{**COMMON, **arguments})

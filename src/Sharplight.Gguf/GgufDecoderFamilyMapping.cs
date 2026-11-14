@@ -179,6 +179,15 @@ internal abstract class GgufDecoderFamilyMapping : IGgufArchitectureMapping, IGg
                 }
 
                 return [t.RowSlice(prefix + "mlp.gate.weight", 0, ffnLength), t.RowSlice(prefix + "mlp.up.weight", ffnLength, ffnLength)];
+            case "ffn_up_shexp.weight":
+                // A shared expert stored with its gate rows first, then the up rows (Granite MoE shared).
+                int sharedLength = g.Int("expert_shared_feed_forward_length", 0);
+                if (sharedLength == 0 || t.Shape[0].Fixed != 2 * sharedLength)
+                {
+                    return null;
+                }
+
+                return [t.RowSlice(prefix + "mlp.shared.gate.weight", 0, sharedLength), t.RowSlice(prefix + "mlp.shared.up.weight", sharedLength, sharedLength)];
             default:
                 return null;
         }

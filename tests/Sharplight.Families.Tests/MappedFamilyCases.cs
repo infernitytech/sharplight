@@ -14,6 +14,8 @@ internal static class MappedFamilyCases
 
     // Reference ids shared by a Hugging Face case and the GGUF converted from it (transformers and llama.cpp agree). Declared before All, which reads them.
     private static readonly int[] BigCodeIds = [66, 85, 139, 469, 469, 469, 469, 469, 799, 469, 469, 469, 469, 799, 901, 469, 469, 469, 469, 469, 469, 799, 194, 937];
+    private static readonly int[] Jais2Ids = [102, 955, 428, 102, 955, 1009, 899, 1009, 38, 102, 633, 428, 831, 535, 75, 38, 955, 1009, 899, 1009, 393, 393, 899, 102];
+    private static readonly int[] GraniteMoeSwaIds = [571, 412, 744, 569, 985, 115, 180, 319, 399, 186, 551, 455, 264, 553, 952, 760, 172, 635, 585, 53, 799, 91, 819, 245];
 
     /// <summary>The cases, appended to the case list of <see cref="FamilyGenerationTests"/>.</summary>
     public static readonly Case[] All =
@@ -26,6 +28,15 @@ internal static class MappedFamilyCases
         // StarCoder 1 / SantaCoder (gpt_bigcode / starcoder): GPT-2 layout, linear weights, one key/value head.
         new("tiny-random-gpt-bigcode HF (gpt_bigcode, transformers)", "hf/tiny-random-gpt-bigcode", Prompt, "ids", BigCodeIds, ""),
         new("tiny-random-gpt-bigcode f32 GGUF (starcoder, llama.cpp)", "gguf/tiny-random-gpt-bigcode-f32.gguf", Prompt, "ids", BigCodeIds, ""),
+        // Jais 2: layer norms, squared-ReLU MLP with biases.
+        new("tiny-random-jais2 HF (jais2, transformers)", "hf/tiny-random-jais2", Prompt, "ids", Jais2Ids, ""),
+        new("tiny-random-jais2 f32 GGUF (jais2, llama.cpp)", "gguf/tiny-random-jais2-f32.gguf", Prompt, "ids", Jais2Ids, ""),
+        // Granite SWA: muP scales, sinks, sliding layers, a NoPE layer and a second rotary base (layer_rope_theta, which llama.cpp's converter does not
+        // carry over, so the GGUF case uses the MoE checkpoint with one theta).
+        new("tiny-random-granite-swa HF (granite_swa, transformers)", "hf/tiny-random-granite-swa", Prompt, "ids",
+            [279, 531, 430, 882, 826, 179, 383, 108, 831, 753, 113, 961, 355, 615, 355, 974, 214, 686, 686, 686, 686, 262, 859, 859], ""),
+        new("tiny-random-granitemoe-swa HF (granitemoe_swa, shared expert, transformers)", "hf/tiny-random-granitemoe-swa", Prompt, "ids", GraniteMoeSwaIds, ""),
+        new("tiny-random-granitemoe-swa f32 GGUF (granite_swa, llama.cpp)", "gguf/tiny-random-granitemoe-swa-f32.gguf", Prompt, "ids", GraniteMoeSwaIds, ""),
         // llama.cpp-only families: tiny random GGUF files from tools/mk_tiny_gguf.py (llama.cpp tensor names and keys), greedy ids of llama.cpp b11177 (CPU).
         // ALiBi (Refact, Jais, Baichuan-13B) runs on the CPU provider when a GPU is used.
         new("tiny-random-refact f32 GGUF (refact ALiBi, llama.cpp)", "gguf/tiny-random-refact-f32.gguf", Prompt, "ids",
