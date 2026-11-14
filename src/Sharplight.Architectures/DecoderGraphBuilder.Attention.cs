@@ -87,6 +87,10 @@ internal sealed partial class DecoderGraphBuilder
         {
             // M-RoPE over (time, row, column, extra); the packed-sequence graphs carry one position axis (text: every axis equal, plain RoPE).
             rope = rope.With("sections", _hp.RopeSections).With("interleaved", _hp.RopeSectionsInterleaved);
+            if (_hp.RopeSectionsPerElement)
+            {
+                rope = rope.With("sections_per_element", true);
+            }
         }
 
         bool scaled = !sliding || _hp.RopeLocalFreqFactors;

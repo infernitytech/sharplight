@@ -71,7 +71,8 @@ namespace Sharplight.Architectures;
 /// <c>rope.layers</c> (1 = rotary on, 0 = NoPE layer; default all 1), <c>rope.local_dim</c> (rotated dims of sliding layers, default rope.dim).
 /// <c>rope.sections</c> (int[4]: M-RoPE, the rotated frequencies are split over the position axes time, row, column, extra; the decode graphs then
 /// take positions [T, 4]) with <c>rope.sections_interleaved</c> (default false: contiguous sections, Qwen2-VL; true: frequencies cycle through the
-/// axes, Qwen3-VL).
+/// axes, Qwen3-VL) or <c>rope.sections_per_element</c> (default false; true: the sections partition the rotated elements two by two instead of the
+/// rotation pairs, so the two elements of a pair can follow different axes: XD-RoPE, Hunyuan-VL).
 /// <c>attention.qk_norm_unweighted</c> (bool: q/k get a weight-less RMS norm when the layer has no q/k norm weight),
 /// <c>attention.v_norm</c> (bool: v gets a weight-less RMS norm), <c>post_norm_eps</c> (epsilon of attention.out_norm / mlp.out_norm, default norm_eps).
 /// <c>attention.qk_norm_type</c> ("rms" (default) or "layer": the q/k norms are mean-centred layer norms that add <c>attention.{q,k}_norm.bias</c> when present)
@@ -201,6 +202,12 @@ public sealed class DecoderAdapter : IModelAdapter
         if (graphBuilder.IsDiffusion)
         {
             props[WellKnown.DiffusionShiftLogits] = src.Arch("diffusion.shift_logits", false);
+        }
+
+        if (hp.RopeSectionsPerElement)
+        {
+            // XD-RoPE rotates text tokens on every axis, the extra one included.
+            props[WellKnown.TextPositionAxes] = DecoderHyperParameters.MRopeAxes;
         }
 
         vision?.WriteProperties(props);

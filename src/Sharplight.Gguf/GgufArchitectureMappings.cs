@@ -37,6 +37,7 @@ internal static class GgufArchitectureMappings
         yield return new Glm4GgufMapping();
         yield return new Ernie45GgufMapping();
         yield return new HunyuanDenseGgufMapping();
+        yield return new HunyuanVlGgufMapping();
         yield return new ExaoneGgufMapping();
         yield return new Exaone4GgufMapping();
         yield return new SeedOssGgufMapping();

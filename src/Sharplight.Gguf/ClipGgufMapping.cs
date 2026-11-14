@@ -15,7 +15,8 @@ namespace Sharplight.Gguf;
 /// names of the MLP's up and down projections (recognised by their shapes, as llama.cpp does). <c>paddleocr</c> (PaddleOCR-VL's SigLIP tower:
 /// learned position grid sized by its tensor, 2-D rotary embedding, trunk post-norm <c>v.post_ln</c>, projector <c>mm.input_norm</c> /
 /// <c>mm.1</c> / <c>mm.2</c>) and <c>glm4v</c> (GLM-4.1V: patch norm, bicubic position grid, convolution merger, GLM projector) belong to
-/// <c>decoder</c>.
+/// <c>decoder</c>; <c>hunyuanvl</c> (HunyuanOCR / Hunyuan-VL: half-pixel bilinear position grid, perceiver projector with convolution
+/// merger, newline column, begin / end rows and RMS norms) to <c>decoder</c> as well.
 /// The source is imported with the canonical id of the text architecture so adapters can use it as an auxiliary
 /// source with role <c>mmproj</c>.
 /// </summary>
@@ -77,7 +78,31 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
             {
                 ["merger.norm_eps"] = 1e-5f, ["image_token"] = "<|image|>", ["position_embedding.interpolation"] = "bicubic",
             }),
+        // HunyuanOCR / Hunyuan-VL: the 128×128 learned position grid (class-token row already dropped by the converter) resampled half-pixel
+        // bilinearly, no rotary embedding; the perceiver projector mm.pre_norm (RMS) → 2×2 convolution mm.0 → GELU → 1×1 convolution mm.2 →
+        // newline column v.image_newline → mm.model.fc → begin / end rows mm.image_begin / mm.image_end → mm.post_norm (RMS), the RMS norms
+        // with the trunk's epsilon. v.view_seperator is unused.
+        ["hunyuanvl"] = new("decoder", TemporalPatchSize: 1, MinPixels: 262144, MaxPixels: 4194304, RopeBase: 0f,
+            Names: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["mm.pre_norm.weight"] = "vision.merger.norm.weight",
+                ["mm.model.fc.weight"] = "vision.merger.out.weight",
+                ["mm.model.fc.bias"] = "vision.merger.out.bias",
+                ["v.image_newline"] = "vision.merger.row_separator",
+                ["mm.image_begin"] = "vision.merger.begin",
+                ["mm.image_end"] = "vision.merger.end",
+                ["mm.post_norm.weight"] = "vision.merger.out_norm.weight",
+                ["v.view_seperator"] = UnusedWeight,
+            },
+            Extra: new Dictionary<string, object>
+            {
+                ["image_token"] = "<\uFF5Chy_place\u2581holder\u2581no\u2581102\uFF5C>", ["position_embedding.interpolation"] = "bilinear_half_pixel",
+                ["merger.norm.type"] = "rms", ["merger.row_separator"] = true, ["merger.boundary"] = true, ["image_positions"] = "sequential",
+            }),
     };
+
+    // Placeholder name of a projector tensor the tower never reads (dropped by Transform).
+    private const string UnusedWeight = "vision.unused";
 
     private static Projector Find(GgufMetadataView g)
     {
@@ -123,8 +148,8 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
                 : g.Tensor("v.position_embd.weight") is { } pos ? (int)pos.Shape[0].Fixed : (int)Math.Pow(g.Int("vision.image_size") / patch, 2),
             [a + "rope.base"] = p.RopeBase,
             [a + "out_hidden_size"] = g.Int("vision.projection_dim"),
-            [a + "min_pixels"] = g.Has("vision.min_pixels") ? (long)g.Int("vision.min_pixels") : p.MinPixels,
-            [a + "max_pixels"] = g.Has("vision.max_pixels") ? (long)g.Int("vision.max_pixels") : p.MaxPixels,
+            [a + "min_pixels"] = Pixels(g, "min_pixels") ?? p.MinPixels,
+            [a + "max_pixels"] = Pixels(g, "max_pixels") ?? p.MaxPixels,
         };
         if (DeepstackLayers(g) is { Length: > 0 } deepstack)
         {
@@ -162,6 +187,10 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     }
 
     private static float[] ToFloats(Array a) => a.Cast<object>().Select(Convert.ToSingle).ToArray();
+
+    // The processor's pixel bounds, as clip.vision.min_pixels or (current converters) clip.vision.image_min_pixels.
+    private static long? Pixels(GgufMetadataView g, string key)
+        => g.Has("vision." + key) ? g.Int("vision." + key) : g.Has("vision.image_" + key) ? g.Int("vision.image_" + key) : null;
 
     [GeneratedRegex(@"^v\.blk\.(\d+)\.(.+)$")]
     private static partial Regex Block();
@@ -241,6 +270,7 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
     /// <inheritdoc/>
     public void Transform(Dictionary<string, WeightInfo> weights, GgufMetadataView g)
     {
+        weights.Remove(UnusedWeight);
         SwapLegacyMlpNames(weights, g);
         if (weights.Remove("vision.merger.downsample.weight", out var kernel) && kernel.Shape.Rank == 4)
         {
@@ -251,6 +281,18 @@ internal sealed partial class ClipGgufMapping : IGgufArchitectureMapping, IGgufW
         else if (kernel is not null)
         {
             weights["vision.merger.downsample.weight"] = kernel;
+        }
+
+        // HunyuanVL's projector convolutions: the m×m kernel mm.0 [out, C, m, m] as the linear map of a merged row laid out (row, column,
+        // channel), the 1×1 kernel mm.2 [out, in, 1, 1] as a plain linear map.
+        if (weights.TryGetValue("vision.merger.up.weight", out var up) && up.Shape.Rank == 4)
+        {
+            weights["vision.merger.up.weight"] = up.TransposeRowBlocks("vision.merger.up.weight", up.Shape[1].Fixed, up.Shape[2].Fixed * up.Shape[3].Fixed);
+        }
+
+        if (weights.TryGetValue("vision.merger.down.weight", out var down) && down.Shape.Rank == 4)
+        {
+            weights["vision.merger.down.weight"] = down.As("vision.merger.down.weight", new Shape(down.Shape[0].Fixed, down.Shape.Elements() / down.Shape[0].Fixed));
         }
 
         int frames = Find(g).TemporalPatchSize;

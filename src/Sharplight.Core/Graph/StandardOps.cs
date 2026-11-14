@@ -175,7 +175,9 @@ public static partial class StandardOps
     /// Rotary position embedding on x [T, H, D] with positions i32 [T, A] (A position axes; A=1 for
     /// plain RoPE, &gt;1 for multi-axis / M-RoPE). Attributes:
     /// <c>dims</c> (rotated dims, ≤ D), <c>base</c>, <c>style</c> ("neox" pairs (i, i+dims/2), "gptj" pairs (2i, 2i+1)),
-    /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style),
+    /// <c>sections</c> (int[] per-axis frequency sections, optional), <c>interleaved</c> (bool, Qwen3-VL style), <c>sections_per_element</c>
+    /// (bool, XD-RoPE: the sections partition the rotated elements two by two rather than the rotation pairs, element e taking the axis of
+    /// pair section e / 2, so the two elements of a neox pair can follow different axes),
     /// <c>freq_scale</c> (float, default 1), <c>attn_factor</c> (float, default 1: cos and sin of the rotated dimensions are multiplied by it, the YaRN magnitude; dimensions beyond <c>dims</c> stay unscaled). Optional third input: f32 [dims/2] per-frequency divisors
     /// (θᵢ = position · base^(-2i/dims) · freq_scale / factorᵢ; llama3 / yarn / longrope scaling, see <c>RopeScaling</c>).
     /// </summary>

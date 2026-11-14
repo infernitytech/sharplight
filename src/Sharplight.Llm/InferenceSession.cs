@@ -32,6 +32,7 @@ public sealed class InferenceSession : IDisposable
     private float[] _embBuf = [];
     private float[] _maskBuf = [];
     private readonly int _posAxes;
+    private readonly int _textPositionAxes;   // leading position axes that carry a text token's position (the rest are 0)
     private readonly int _maxTokens;
     private readonly float[] _logits;
     private readonly RunParameters _run = new();
@@ -66,9 +67,10 @@ public sealed class InferenceSession : IDisposable
     /// <summary>Longest source sequence an encoder-decoder session can encode (0 for decoder-only models).</summary>
     public int MaxSourceTokens => _encoder is null ? 0 : (int)_encoder.Options.MaxTokens;
 
-    internal InferenceSession(CompiledModel compiled, CompiledModel? encoder = null, int decoderStartToken = 0)
+    internal InferenceSession(CompiledModel compiled, CompiledModel? encoder = null, int decoderStartToken = 0, int textPositionAxes = WellKnown.DefaultTextPositionAxes)
     {
         _encoder = encoder;
+        _textPositionAxes = textPositionAxes;
         _decoderStart = [decoderStartToken];
         _compiled = compiled;
         _graph = compiled.Graph;
@@ -243,8 +245,8 @@ public sealed class InferenceSession : IDisposable
             {
                 for (int a = 0; a < _posAxes; a++)
                 {
-                    // Text tokens use the same position on the temporal/height/width axes (M-RoPE), extra axes 0.
-                    _posBuf[t * _posAxes + a] = a < 3 ? RopePosition + t : 0;
+                    // Text tokens use the same position on the leading axes (M-RoPE: temporal/height/width), extra axes 0.
+                    _posBuf[t * _posAxes + a] = a < _textPositionAxes ? RopePosition + t : 0;
                 }
             }
 

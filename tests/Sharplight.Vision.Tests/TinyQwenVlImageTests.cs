@@ -7,7 +7,8 @@ namespace Sharplight.Vision.Tests;
 /// <summary>
 /// Tiny random Qwen2-VL (LayerNorm, quick-GELU tower), Qwen2.5-VL (RMS norms, gated MLP, windowed attention) and PaddleOCR-VL (SigLIP tower
 /// with 2-D rotary embedding, post-norm and a projector merger; mk_tiny_paddleocr_vl.py) and GLM-4.1V (bicubic position grid, patch norm,
-/// convolution merger and GLM projector; mk_tiny_glm4v.py) checkpoints against
+/// convolution merger and GLM projector; mk_tiny_glm4v.py) and HunyuanOCR (half-pixel bilinear position grid, perceiver projector with a newline
+/// column and begin / end rows, XD-RoPE positions in the language model; mk_tiny_hunyuan_vl.py) checkpoints against
 /// transformers: the tower's merged-token embeddings, the prompt logits of an image prompt and the greedy continuation, on the CPU and the GPU.
 /// The checkpoints come from tests/Sharplight.Families.Tests/tools/mk_tiny_qwen2_vl.py, the references (reference_image.json next to the
 /// weights) from tools/hf_image_reference.py, which feeds the same synthetic normalized image into the tower without resizing.
@@ -43,6 +44,8 @@ public class TinyQwenVlImageTests
     [InlineData("tiny-random-paddleocr-vl", true)]
     [InlineData("tiny-random-glm4v", false)]
     [InlineData("tiny-random-glm4v", true)]
+    [InlineData("tiny-random-hunyuan-vl", false)]
+    [InlineData("tiny-random-hunyuan-vl", true)]
     public void Tiny_qwen_vl_image_prompt_matches_transformers(string name, bool gpu)
     {
         string dir = Path.Combine(Home, "models/hf", name);
@@ -63,7 +66,8 @@ public class TinyQwenVlImageTests
         var embeddings = vision.Encode(image);
         var (maxAbs, _, rms) = Env.Compare(embeddings, expected);
         Console.Error.WriteLine($"{name} ({(gpu ? "Vulkan" : "CPU")}): embeddings max |diff| {maxAbs:E2}, relative rms {rms:E2}");
-        Assert.True(maxAbs < (gpu ? 2e-3f : 2e-4f), $"embeddings differ by {maxAbs}");
+        // The GPU's reduced-precision accumulation leaves ~5e-4 relative rms on the GLM-4V and HunyuanVL towers (O(1) outputs after their norms).
+        Assert.True(maxAbs < (gpu ? 3e-3f : 2e-4f), $"embeddings differ by {maxAbs}");
 
         var promptIds = r.GetProperty("prompt_ids").EnumerateArray().Select(e => e.GetInt32()).ToArray();
         var mm = MultimodalRegistry.Find(model.Definition.Architecture)!.Assemble(new MultimodalContext(model.Definition, t => Single(model, t)), promptIds, [image], 0);

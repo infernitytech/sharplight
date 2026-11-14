@@ -220,4 +220,26 @@ public class LlamaCppReferenceTests
         Check("tiny paddleocr-vl rainbow 56", Encode(model, Rainbow(56), 56), 4, 64, RainbowTinyPaddleOcr56, tolerance: 3e-3, sumTolerance: 1e-3);
         Check("tiny paddleocr-vl rainbow 280", Encode(model, Rainbow(280), 280), 100, 64, RainbowTinyPaddleOcr, tolerance: 3e-2, sumTolerance: 1e-3);
     }
+
+    // The tiny random HunyuanOCR (tools/mk_tiny_hunyuan_vl.py), its tower converted by llama.cpp 8ca5a80 (tools/convert_tiny_mmproj.py, projector
+    // type hunyuanvl): rainbow 128 (the 8×8 learned grid) and 256, 4×4 and 8×8 merged tokens laid out as begin, rows + newline, end (22 and 74 rows
+    // of 64). The corner rows are the begin / end rows, the sums cover the grid.
+    private static readonly Expected RainbowTinyHunyuanVl128 = new(-41.017681f, [-0.9619f, -0.6089f, 0.0212f], [1.0161f, -1.9559f, -0.8365f], [-1.6948f, -0.0750f, -1.4260f], [-0.0261f, -0.4545f, -0.3607f]);
+    private static readonly Expected RainbowTinyHunyuanVl256 = new(-127.309135f, [-0.9619f, -0.6089f, 0.0212f], [1.0161f, -1.9559f, -0.8365f], [-1.6948f, -0.0750f, -1.4260f], [-0.0261f, -0.4545f, -0.3607f]);
+
+    /// <summary>HunyuanOCR's tower (half-pixel bilinear position grid, perceiver projector with newline column and begin / end rows) from an f32 mmproj.</summary>
+    [Fact]
+    public void Tiny_hunyuan_vl_tower_matches_llama_cpp()
+    {
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string gguf = Path.Combine(home, "models/gguf/tiny-random-hunyuan-vl-f32.gguf");
+        string mmproj = Path.Combine(home, "models/gguf/mmproj-tiny-random-hunyuan-vl-f32.gguf");
+        Assert.SkipUnless(File.Exists(gguf) && File.Exists(mmproj), "tiny HunyuanOCR GGUF or mmproj not available");
+        using var model = LlmModel.Load(gguf, new LlmLoadOptions { Devices = [Env.Cpu()], ContextLength = 64, Auxiliary = [(AuxiliaryRoles.Mmproj, mmproj)], ImageTokens = new ImageTokenLimits(null, 100) });
+        // Sharplight follows transformers (TinyQwenVlImageTests), where llama.cpp deviates: it resamples the learned position grid with scale
+        // (n + 0.1) / grid (the reference to exactly n), which shifts the grid slightly even at the native size, and its GELUs are the tanh
+        // approximation.
+        Check("tiny hunyuan-vl rainbow 128", Encode(model, Rainbow(128), 128), 22, 64, RainbowTinyHunyuanVl128, tolerance: 3e-2, sumTolerance: 1e-3);
+        Check("tiny hunyuan-vl rainbow 256", Encode(model, Rainbow(256), 256), 74, 64, RainbowTinyHunyuanVl256, tolerance: 3e-2, sumTolerance: 1e-3);
+    }
 }

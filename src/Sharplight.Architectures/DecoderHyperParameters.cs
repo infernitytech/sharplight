@@ -20,7 +20,7 @@ internal sealed record DecoderHyperParameters(
     int ChunkSize, int[] ChunkLayers, int ValueDim, float ValueScale, float RopeAttentionScale, string GateActivation, float AlibiMaxBias,
     float[] SwigluClamp, bool SwigluClampInput, float[] MoeSwigluClamp, bool MoeSwigluClampInput, int LayerLoops, bool LoopNorm, bool Causal,
     bool TemperaturePower, bool NormPreservingResidual, bool AttentionHeadNorm, bool PostNormWeightFirst, int[] RopeSections, bool RopeSectionsInterleaved,
-    int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges)
+    bool RopeSectionsPerElement, int AltUpStreams, float[] ActivationSparsity, string QkNormType, float QkNormEps, int[] SuppressedTokenRanges)
 {
     /// <summary>Number of M-RoPE position axes (time, row, column, extra) when <see cref="RopeSections"/> is set, else 1.</summary>
     public const int MRopeAxes = 4;
@@ -107,6 +107,7 @@ internal sealed record DecoderHyperParameters(
             PostNormWeightFirst: src.Arch("post_norm.weight_first", false),
             RopeSections: src.Arch("rope.sections", Array.Empty<int>()),
             RopeSectionsInterleaved: src.Arch("rope.sections_interleaved", false),
+            RopeSectionsPerElement: src.Arch("rope.sections_per_element", false),
             AltUpStreams: src.Arch("altup.streams", 0),
             ActivationSparsity: src.Arch("mlp.activation_sparsity", Array.Empty<float>()),
             QkNormType: src.Arch("attention.qk_norm_type", "rms"),
