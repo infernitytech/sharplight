@@ -18,14 +18,15 @@ internal sealed class SpirvCodeGenerator
     public const string CodeKind = "spirv";
 
     public SpirvCodeGenerator(int subgroupSize, long maxSharedMemory, IReadOnlySet<string> enabledFeatures, double submissionBudgetMs, int concurrentWorkgroups,
-        string kernelCacheDirectory)
+        int computeUnits)
     {
         ConcurrentWorkgroups = concurrentWorkgroups;
+        ComputeUnits = computeUnits;
         SubgroupSize = subgroupSize;
         MaxSharedMemory = maxSharedMemory;
         EnabledFeatures = enabledFeatures;
         SubmissionBudgetMs = submissionBudgetMs;
-        Compiler = new SlangCompiler(kernelCacheDirectory);
+        Compiler = new SlangCompiler();
     }
 
     /// <summary>The Slang profile of every kernel (<c>spirv_1_6</c>).</summary>
@@ -43,6 +44,13 @@ internal sealed class SpirvCodeGenerator
 
     /// <summary>See <see cref="DeviceInfo.ConcurrentWorkgroups"/>.</summary>
     public int ConcurrentWorkgroups { get; }
+
+    /// <summary>See <see cref="LoweringOptions.ComputeUnits"/>.</summary>
+    public int ComputeUnits { get; }
+
+    /// <summary>Compute units recorded in a device's capabilities or a profile's properties (<c>compute_units</c>), 0 if absent.</summary>
+    public static int ComputeUnitsOf(IReadOnlyDictionary<string, string> properties)
+        => properties.TryGetValue("compute_units", out var v) && int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out int units) ? units : 0;
 
     public SlangCompiler Compiler { get; }
 
@@ -86,6 +94,7 @@ internal sealed class SpirvCodeGenerator
             Compile = options,
             SubmissionBudgetMs = SubmissionBudgetMs,
             ConcurrentWorkgroups = ConcurrentWorkgroups,
+            ComputeUnits = ComputeUnits,
             Cache = cache,
         });
         // Variants of different launches often share one kernel.

@@ -242,6 +242,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         var segments = compiled.Segments.OfType<VulkanSegment>().ToArray();
         var wall = new List<double>();
         var gpu = new List<double>();
+        var reads = new List<double>();
         var total = Stopwatch.StartNew();
         var watch = new Stopwatch();
         while (wall.Count < arguments.Runs && (wall.Count < MinRuns || total.Elapsed.TotalSeconds < arguments.BudgetSeconds))
@@ -253,12 +254,14 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
 
             watch.Restart();
             compiled.Run(run);
+            double ran = watch.Elapsed.TotalMilliseconds;
             foreach (var (name, buffer) in buffers)
             {
                 compiled.GetOutput(name, buffer);
             }
 
             wall.Add(watch.Elapsed.TotalMilliseconds);
+            reads.Add(wall[^1] - ran);
             if (segments.Length > 0)
             {
                 gpu.Add(segments.Sum(s => s.LastGpuMs));
@@ -270,6 +273,8 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         result["minMs"] = Math.Round(wall[0], 3);
         result["medMs"] = Math.Round(wall[wall.Count / 2], 3);
         result["runs"] = wall.Count;
+        reads.Sort();
+        result["readMinMs"] = Math.Round(reads[0], 3);
         if (gpu.Count > 0)
         {
             gpu.Sort();

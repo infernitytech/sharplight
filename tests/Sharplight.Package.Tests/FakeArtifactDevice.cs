@@ -21,8 +21,6 @@ public sealed class FakeArtifactDevice(string codeTarget = "spirv_1_6", string d
         new ArtifactTarget(Binary(driver), [ArtifactDescriptorKeys.Vendor, ArtifactDescriptorKeys.Device, ArtifactDescriptorKeys.Driver], []),
     ];
 
-    public int ExportCalls { get; private set; }
-
     public static Dictionary<string, string> Code(string target = "spirv_1_6", int subgroup = 32, string provider = "fake") => new()
     {
         [ArtifactDescriptorKeys.Provider] = provider,
@@ -45,12 +43,6 @@ public sealed class FakeArtifactDevice(string codeTarget = "spirv_1_6", string d
     public OpSupport Supports(Node node) => throw new NotSupportedException();
 
     public ICompiledSegment Compile(GraphSegment segment, CompileOptions options) => throw new NotSupportedException();
-
-    public void ExportCompilationState(ICompilationCache cache)
-    {
-        ExportCalls++;
-        cache.Put(BinaryKey, new byte[] { 42 });
-    }
 
     public void Dispose()
     {

@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sp="using:Sharplight.Studio.ViewModels.Speech"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             x:Class="Sharplight.Studio.Views.SpeakPage"
+             x:DataType="sp:SpeakPageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <Grid RowDefinitions="*,Auto" RowSpacing="14">
+        <!-- Input -->
+        <Border Classes="card">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="10" Margin="0,12,0,0">
+              <Button Classes="accent" Content="Speak" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsSynthesizing}" />
+              <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock DockPanel.Dock="Top" Classes="h2" Text="Text" Margin="0,0,0,10" />
+            <TextBox x:Name="Input" Text="{Binding InputText}" AcceptsReturn="True" TextWrapping="Wrap" PlaceholderText="Type or paste the text to speak" VerticalContentAlignment="Top" />
+          </DockPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Audio" />
+            <TextBlock Classes="muted" Text="The speech appears here once it is generated." IsVisible="{Binding !HasResult}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasResult}">
+              <Button Classes="accent small" Command="{Binding PlayCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Classes="icon" Data="{StaticResource IconPlay}" Width="12" Height="12" IsVisible="{Binding !IsPlaying}" />
+                  <Path Classes="icon" Data="{StaticResource IconStop}" Width="12" Height="12" IsVisible="{Binding IsPlaying}" />
+                  <TextBlock Text="{Binding PlayText}" />
+                </StackPanel>
+              </Button>
+              <Button Classes="small" Content="Save as WAV" Command="{Binding SaveCommand}" />
+              <Button Classes="small" Content="Open in the system player" Command="{Binding OpenResultCommand}" />
+            </StackPanel>
+            <TextBlock Classes="caption" Text="{Binding ResultSummary}" IsVisible="{Binding HasResult}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="{Binding PlayHint}" IsVisible="{Binding !CanPlay}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>

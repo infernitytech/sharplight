@@ -5,7 +5,8 @@ namespace Sharplight.Import.HuggingFace;
 /// <summary>
 /// All shards of a safetensors checkpoint. Shards are discovered via <c>model.safetensors.index.json</c>
 /// (<c>weight_map</c>) or, without an index, as all <c>*.safetensors</c> files in the directory except the heads that decision models keep
-/// beside the checkpoint (<c>joint_head.safetensors</c>, <c>decision_head.safetensors</c>).
+/// beside the checkpoint (<c>joint_head.safetensors</c>, <c>decision_head.safetensors</c>) and weight variants beside <c>model.safetensors</c>
+/// (<c>model.fp32.safetensors</c>, ...).
 /// </summary>
 internal sealed class SafetensorsCheckpoint : IDisposable
 {
@@ -104,7 +105,7 @@ internal sealed class SafetensorsCheckpoint : IDisposable
         string? index = Directory.EnumerateFiles(dir, "*.safetensors.index.json").OrderBy(p => p, StringComparer.Ordinal).FirstOrDefault();
         if (index == null)
         {
-            return all;
+            return WithoutVariants(all);
         }
 
         using var doc = JsonDocument.Parse(File.ReadAllBytes(index));
@@ -130,6 +131,25 @@ internal sealed class SafetensorsCheckpoint : IDisposable
             var full = Path.Combine(dir, shardName);
             return File.Exists(full) ? full : throw new FileNotFoundException($"Shard '{shardName}' listed in {Path.GetFileName(index)} is missing.", full);
         });
+    }
+
+    /// <summary>
+    /// Drops weight variants (<c>model.fp32.safetensors</c>, <c>model.fp16.safetensors</c>, ...) when the default <c>model.safetensors</c> is
+    /// present: transformers loads a variant only when asked for it, and a variant repeats every tensor of the default file.
+    /// </summary>
+    /// <param name="shards">The safetensors files of the directory.</param>
+    private static List<string> WithoutVariants(List<string> shards)
+    {
+        if (!shards.Any(p => Path.GetFileName(p) == "model.safetensors"))
+        {
+            return shards;
+        }
+
+        return shards.Where(p =>
+        {
+            string name = Path.GetFileName(p);
+            return name == "model.safetensors" || !name.StartsWith("model.", StringComparison.Ordinal);
+        }).ToList();
     }
 
     /// <summary>Unmaps every shard.</summary>

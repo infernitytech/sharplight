@@ -5,9 +5,9 @@ using Sharplight.Studio.Services;
 namespace Sharplight.Studio.ViewModels.Tasks;
 
 /// <summary>
-/// The Tasks page: one card per model kind with its library and resident counts. It is the placeholder for the per-kind inference
-/// pages. The chat page serves text generation; a kind the engine gains support for gets its page from the shared building blocks
-/// (<see cref="Inference.ModelPickerViewModel"/> first) and its card opens it instead of the library.
+/// The Tasks page: one card per model kind with its library and resident counts. The cards open the per-kind inference
+/// pages (chat, transcribe, speak); a kind the engine gains support for gets its page from the shared building blocks
+/// (<see cref="Inference.InferencePageViewModel"/>) and its card opens it instead of the library.
 /// </summary>
 internal sealed class TasksPageViewModel : PageViewModel
 {

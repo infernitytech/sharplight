@@ -16,9 +16,12 @@ public static class ModelImporterRegistry
     public static IEnumerable<IModelImporter> All => s_importers.Values;
 
     /// <summary>
-    /// Finds the first importer whose <see cref="IModelImporter.CanOpen"/> accepts <paramref name="path"/>, or <see langword="null"/>.
+    /// Finds the importer with the highest <see cref="IModelImporter.Priority"/> whose <see cref="IModelImporter.CanOpen"/> accepts
+    /// <paramref name="path"/>, or <see langword="null"/>. A format that shares a container with another (a diffusion checkpoint in a
+    /// GGUF or safetensors file) claims its files by checking their content and ranking above the generic importer.
     /// </summary>
-    public static IModelImporter? Find(string path) => s_importers.Values.FirstOrDefault(i => i.CanOpen(path));
+    public static IModelImporter? Find(string path)
+        => s_importers.Values.OrderByDescending(i => i.Priority).ThenBy(i => i.Format, StringComparer.Ordinal).FirstOrDefault(i => i.CanOpen(path));
 
     /// <summary>
     /// Opens a model file or directory with the matching importer.

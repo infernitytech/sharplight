@@ -20,8 +20,8 @@ internal static class ModelKindCatalog
     public static IReadOnlyList<ModelKindInfo> All { get; } =
     [
         new(ModelKinds.TextGeneration, "Text generation", "IconChat", [ModelTask.TextGeneration, ModelTask.VisionLanguage], Runnable: true),
-        new(ModelKinds.SpeechRecognition, "Speech to text", "IconMic", [ModelTask.SpeechToText], Runnable: false),
-        new(ModelKinds.SpeechSynthesis, "Text to speech", "IconSpeaker", [ModelTask.TextToSpeech], Runnable: false),
+        new(ModelKinds.SpeechRecognition, "Speech to text", "IconMic", [ModelTask.SpeechToText], Runnable: true),
+        new(ModelKinds.SpeechSynthesis, "Text to speech", "IconSpeaker", [ModelTask.TextToSpeech], Runnable: true),
         new(ModelKinds.ImageGeneration, "Image generation", "IconImage", [ModelTask.ImageGeneration], Runnable: false),
         new("video-generation", "Video generation", "IconVideo", [ModelTask.VideoGeneration], Runnable: false),
         new("image-classification", "Image classification", "IconTag", [ModelTask.ImageClassification], Runnable: false),

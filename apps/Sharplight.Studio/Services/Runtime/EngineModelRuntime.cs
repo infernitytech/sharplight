@@ -5,6 +5,7 @@ using Sharplight.Llm.Serving.Hosting;
 using Sharplight.Llm.Serving.Speculative;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
+using Sharplight.Tasks;
 using Sharplight.Tensors;
 
 namespace Sharplight.Studio.Services.Runtime;
@@ -20,10 +21,11 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private static readonly TimeSpan s_drainTimeout = TimeSpan.FromSeconds(5);
 
     private readonly DevicePool _pool = new();
-    private readonly Dictionary<string, EngineLoadedModel> _models = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IEngineModel> _models = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
     private readonly Dictionary<string, (IExecutionProvider Provider, DeviceInfo Info)> _devices;
     private readonly Func<ResidencySettings> _residency;
+    private readonly Func<bool> _useCompilationCache;
     private readonly Func<string, ModelLoadRequest?>? _resolve;
     private readonly IReadOnlyList<ComputeDeviceOption> _physical;
     private readonly FootprintEstimator _estimator = new();
@@ -31,8 +33,10 @@ internal sealed class EngineModelRuntime : IModelRuntime
     /// <summary>Registers the providers and importers, enumerates the devices and creates the host.</summary>
     /// <param name="residency">The current residency settings (read when a model is added).</param>
     /// <param name="resolve">Turns a name requested by a chat or API client into a library model to load on demand, or null.</param>
-    public EngineModelRuntime(Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null)
+    /// <param name="useCompilationCache">Whether devices use the per-user artifact store (read when a device is opened); default yes.</param>
+    public EngineModelRuntime(Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null, Func<bool>? useCompilationCache = null)
     {
+        _useCompilationCache = useCompilationCache ?? (() => true);
         EngineBootstrap.Register();
         var discovered = DeviceCatalog.Discover();
         _physical = [.. discovered.Select(entry => entry.Option)];
@@ -162,7 +166,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     public void Dispose()
     {
         Host.ModelsChanged -= OnHostChanged;
-        List<EngineLoadedModel> models;
+        List<IEngineModel> models;
         lock (_lock)
         {
             models = [.. _models.Values];
@@ -187,7 +191,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
         }
         finally
         {
-            EngineLoadedModel? model;
+            IEngineModel? model;
             lock (_lock)
             {
                 _models.Remove(id, out model);
@@ -226,7 +230,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return registration;
     }
 
-    private EngineLoadedModel Add(ModelLoadRequest request, bool pinned)
+    private IEngineModel Add(ModelLoadRequest request, bool pinned)
     {
         var model = CreateModel(request, pinned, out var registration);
         lock (_lock)
@@ -238,10 +242,23 @@ internal sealed class EngineModelRuntime : IModelRuntime
         return model;
     }
 
-    private EngineLoadedModel CreateModel(ModelLoadRequest request, bool pinned, out ModelRegistration registration)
+    private IEngineModel CreateModel(ModelLoadRequest request, bool pinned, out ModelRegistration registration)
     {
         var device = ResolveDevice(request.Settings.DeviceId);
         var idle = _residency().IdleUnloadMinutes;
+        if (TaskKindClients.Handles(request.Kind))
+        {
+            var task = new EngineTaskModel(request, device, Host, pinned, RaiseChanged);
+            registration = new ModelRegistration
+            {
+                Name = request.Id,
+                Loader = new ObservedLoader(CreateTaskLoader(request, device, task), task.OnInstanceLoaded),
+                Pinned = pinned,
+                IdleTimeout = idle > 0 ? TimeSpan.FromMinutes(idle) : null,
+                Description = request.Path,
+            };
+            return task;
+        }
 
         var model = new EngineLoadedModel(request, device, Host, pinned, request.Capabilities, OnVisionFinished, RaiseChanged);
         var loader = CreateLoader(request, device, model);
@@ -264,6 +281,29 @@ internal sealed class EngineModelRuntime : IModelRuntime
         }
 
         return Devices.FirstOrDefault() ?? throw new InvalidOperationException("No execution provider is available on this machine.");
+    }
+
+    private TaskModelLoader CreateTaskLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineTaskModel model)
+    {
+        var settings = request.Settings;
+        var disabled = new HashSet<string>(request.DisabledFeatures, StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<DeviceSlot> slots = device.IsSplit ? SplitSlots(disabled) : [new DeviceSlot { Device = Open(device, disabled) }];
+        var cpu = _physical.FirstOrDefault(candidate => !candidate.IsGpu);
+        bool offload = settings.CpuOffload && device.IsGpu && cpu is not null;
+        var options = new TaskLoadOptions
+        {
+            ModelPath = request.Path,
+            Devices = [.. slots],
+            Fallback = offload ? new DeviceSlot { Device = Open(cpu!, disabled) } : null,
+            ContextLength = settings.ContextLength,
+            MaxBatchTokens = settings.BatchTokens,
+            Auxiliary = [.. request.Auxiliary ?? []],
+            DisabledFeatures = disabled,
+            AllowReducedPrecision = settings.AllowReducedPrecision,
+            Log = model.OnLoadMessage,
+            Progress = new SynchronousProgress<LoadProgress>(model.OnLoadProgress),
+        };
+        return new TaskModelLoader(request, options, [.. slots.Select(slot => new DeviceMemoryPool(slot.Device))], EngineBootstrap.Services, model.Abandon.Token);
     }
 
     private LlmChatModelLoader CreateLoader(ModelLoadRequest request, ComputeDeviceOption device, EngineLoadedModel model)
@@ -317,7 +357,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     private IComputeDevice Open(ComputeDeviceOption option, IReadOnlySet<string> disabled)
     {
         var (provider, info) = _devices[option.Id];
-        var options = new DeviceOptions();
+        var options = new DeviceOptions { UseCompilationCache = _useCompilationCache() };
         foreach (var feature in disabled)
         {
             options.DisabledFeatures.Add(feature);
@@ -328,7 +368,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
 
     private void OnHostChanged(object? sender, EventArgs e)
     {
-        List<EngineLoadedModel> models;
+        List<IEngineModel> models;
         lock (_lock)
         {
             models = [.. _models.Values];

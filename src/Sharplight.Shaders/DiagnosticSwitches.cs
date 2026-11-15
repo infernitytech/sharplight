@@ -20,6 +20,8 @@ namespace Sharplight.Shaders;
 /// the per-pixel conv_narrow kernel.</item>
 /// <item><c>SHARPLIGHT_NO_STRIDED_LAYERNORM=1</c>: copy a channel-strided LayerNorm input (the channels-last view of an NCHW
 /// tensor) to a dense temporary instead of normalizing it in place.</item>
+/// <item><c>SHARPLIGHT_NO_FUSED_CONCAT=1</c>: copy each input of a concatenation with its own launch instead of one launch over
+/// the output.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -64,6 +66,12 @@ namespace Sharplight.Shaders;
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
 /// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
 /// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
+/// <item><c>SHARPLIGHT_GEMM_WAVE=n</c>: tensor-core GEMM tiles assumed to run at once when choosing K splits (default: the
+/// device's compute units, 192 when unknown); <c>fixed</c> restores the earlier 192-tile splits.</item>
+/// <item><c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c>: causal single-sequence prefill attention on the general flash kernel <c>fa</c>
+/// instead of <c>fe</c>.</item>
+/// <item><c>SHARPLIGHT_MV_ROWS=n</c>: output rows per workgroup of the single-row split-K matvec (default 2 for single matrices
+/// with at least 1024 rows, else 1; 1 restores one row per workgroup).</item>
 /// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
 /// <item><c>SHARPLIGHT_NORM_HALF_COPY=0</c>: row norms feeding matmuls do not also write the f16 activation copy the tensor-core
 /// GEMMs read; a separate conversion launch makes it.</item>
@@ -121,6 +129,15 @@ internal static class DiagnosticSwitches
 
     /// <summary>Runs convolutions with few output channels through the implicit GEMMs instead of conv_narrow.</summary>
     public static bool NoNarrowConv { get; } = IsSet("SHARPLIGHT_NO_NARROW_CONV");
+
+    /// <summary>Concatenations run as one launch over the output (off with <c>SHARPLIGHT_NO_FUSED_CONCAT=1</c>: one copy per input).</summary>
+    public static bool FusedConcat { get; } = !IsSet("SHARPLIGHT_NO_FUSED_CONCAT");
+
+    /// <summary>
+    /// Inputs of a concatenation whose leading axes have extent 1 are computed in their slices of the output, without a copy
+    /// (off with <c>SHARPLIGHT_NO_CONCAT_IN_PLACE=1</c>).
+    /// </summary>
+    public static bool ConcatInPlace { get; } = !IsSet("SHARPLIGHT_NO_CONCAT_IN_PLACE");
 
     /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
     public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
@@ -209,6 +226,17 @@ internal static class DiagnosticSwitches
     /// <summary>Forced layout of the 64-token gemm_cm2 tile, or null.</summary>
     public static int[]? Gemm2Layout64 { get; } = Read("SHARPLIGHT_GEMM2_CFG64")?.Split(',').Select(int.Parse).ToArray();
 
+    /// <summary>
+    /// Tensor-core GEMM tiles assumed to run at once when choosing K splits (<c>SHARPLIGHT_GEMM_WAVE=n</c>; <c>fixed</c> = 192,
+    /// the splits before 2026-11-15), or null for the default (the device's compute units).
+    /// </summary>
+    public static long? GemmWaveTiles { get; } = Read("SHARPLIGHT_GEMM_WAVE") is { } v
+        ? v == "fixed" ? 192 : long.Parse(v, CultureInfo.InvariantCulture)
+        : null;
+
+    /// <summary>Forced output rows per workgroup of the single-row split-K matvec, or null for the default.</summary>
+    public static long? SplitKMatvecRows { get; } = Read("SHARPLIGHT_MV_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
+
     /// <summary>False keeps small-batch matmuls off the skinny tensor-core GEMM.</summary>
     public static bool SkinnyGemm { get; } = IsNotZero("SHARPLIGHT_SKINNY_GEMM");
 
@@ -262,6 +290,12 @@ internal static class DiagnosticSwitches
     /// sinks) may use the encoder flash kernel <c>fe</c>; <c>SHARPLIGHT_ATTN_FE=0</c> uses the general flash kernel.
     /// </summary>
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
+
+    /// <summary>
+    /// True (default): plain causal prefill attention of one sequence uses <c>fe</c> in its causal form;
+    /// <c>SHARPLIGHT_ATTN_FE_CAUSAL=0</c> uses the general flash kernel <c>fa</c> (the summation order before 2026-11-15).
+    /// </summary>
+    public static bool AttentionCausalFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE_CAUSAL");
 
     /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
     public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
