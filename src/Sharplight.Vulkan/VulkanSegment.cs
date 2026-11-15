@@ -12,17 +12,23 @@ namespace Sharplight.Vulkan;
 /// decode). Per-step values (n_past) live in a small host-visible runtime buffer, so the decode
 /// command buffer is recorded once and re-submitted for every token.
 /// </summary>
-public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment
+public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegment, IDeviceForwardingSegment
 {
     private readonly VulkanDevice _dev;
     private readonly KernelProgram _program;
     private readonly Dictionary<BufferDecl, Allocation> _alloc = [];
     /// <summary>Weight buffers held through <see cref="CompileOptions.SharedWeights"/> (their allocations are freed by the lease).</summary>
     private readonly Dictionary<BufferDecl, SharedWeightLease<Allocation>> _leases = [];
+    private readonly HashSet<BufferDecl> _borrowedStates = [];   // state buffers another segment of the same graph allocated (and frees)
     /// <summary>Host-visible mirrors of Input/Runtime (upload) and Output (readback) buffers. Kernels only
     /// touch device-local memory; the command buffer copies staging ↔ device at its start/end.</summary>
     private readonly Dictionary<BufferDecl, Allocation> _staging = [];
     private readonly Dictionary<string, VkCommandBuffer[]> _recorded = [];
+
+    /// <summary>Barrier placement of each recorded launch set (see <see cref="HazardTracker.Order(IReadOnlyList{KernelLaunch}, Bindings, bool, Dictionary{string, ValueTuple{int, bool}[]}, int)"/>).</summary>
+    private readonly Dictionary<string, (int Index, bool BarrierBefore)[]> _orders = [];
+    /// <summary>Inputs copied from an earlier segment's device output instead of from staging (<see cref="TryForwardFrom"/>).</summary>
+    private readonly Dictionary<BufferDecl, (Allocation Source, long SourceOffset)> _forwarded = [];
     private readonly Queue<string> _recordOrder = new();
     /// <summary>Most steps kept recorded per segment (one per distinct symbol binding).</summary>
     private const int MaxRecordings = 64;
@@ -106,7 +112,18 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
                     continue;
                 }
 
+                // The segments of one graph on this device share each state (its nodes may be split by other devices' nodes).
+                var sharedStates = b.Kind == BufferKind.State && b.State is not null && options.StateScope is { } scope
+                    ? dev.SharedStates.GetOrCreateValue(scope) : null;
+                if (sharedStates is not null && sharedStates.TryGetValue(b.State!, out var existing))
+                {
+                    _alloc[b] = existing;
+                    _borrowedStates.Add(b);
+                    continue;
+                }
+
                 _alloc[b] = dev.Memory.Allocate(size, MemoryUsage.Device);
+                sharedStates?.Add(b.State!, _alloc[b]);
                 bytes += b.Bytes;
                 if (b.Kind is BufferKind.Input or BufferKind.Runtime)
                 {
@@ -232,6 +249,30 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The input's device buffer is then filled by a device-to-device copy from the producer's output buffer at the start of the
+    /// command buffer. Both segments must run on the same device; the run submits them one after the other.
+    /// </remarks>
+    public bool TryForwardFrom(Value input, ICompiledSegment producer)
+    {
+        if (!DiagnosticSwitches.DeviceForwarding || producer is not VulkanSegment source || source._dev != _dev
+            || !_program.InputRefs.TryGetValue(input, out var r) || !source._program.OutputRefs.TryGetValue(input, out var o))
+        {
+            return false;
+        }
+
+        _forwarded[r.Buffer] = (source._alloc[o.Buffer], o.ByteOffset - r.ByteOffset);
+        foreach (var cbs in _recorded.Values)
+        {
+            FreeCbs(cbs);
+        }
+
+        _recorded.Clear();
+        _recordOrder.Clear();
+        return true;
+    }
+
+    /// <inheritdoc />
     public void GetOutput(Value value, Span<byte> destination) => GetOutput(value, 0, destination);
 
     /// <inheritdoc />
@@ -318,9 +359,14 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
             CheckWithinCompiledBounds(bindings);
             EvictOldestRecording();
 
+            long recordStart = System.Diagnostics.Stopwatch.GetTimestamp();
             cbs = RecordStep(key, bindings, skipDownloads);
             _recorded[key] = cbs;
             _recordOrder.Enqueue(key);
+            if (DiagnosticSwitches.Trace)
+            {
+                Console.Error.WriteLine($"[vk] recorded {key} in {System.Diagnostics.Stopwatch.GetElapsedTime(recordStart).TotalMilliseconds:F1} ms ({_recorded.Count} recordings)");
+            }
         }
 
         var fence = _fence;
@@ -677,7 +723,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         // Profiling serializes every launch (one timestamp delta per kernel) and keeps program order, as does bisecting.
         bool reorder = afterDispatch is null && DiagnosticSwitches.MaxLaunches == int.MaxValue && DiagnosticSwitches.ReorderLaunches;
         int skippedUpTo = 0;
-        foreach (var (launch, index, variant, barrierBefore) in HazardTracker.Order(launches, bindings, reorder))
+        foreach (var (launch, index, variant, barrierBefore) in HazardTracker.Order(launches, bindings, reorder, _orders, firstIndex))
         {
             if (firstIndex + index >= DiagnosticSwitches.MaxLaunches)
             {
@@ -773,8 +819,27 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
     private void RecordInputCopies(VkCommandBuffer cb, Bindings b)
     {
         Copy(cb, _staging[_program.RuntimeBuffer], _alloc[_program.RuntimeBuffer], 0, 256);
+        if (_forwarded.Count > 0)
+        {
+            // The producers' kernels wrote the forwarded values in earlier submissions.
+            Barrier(cb, VkPipelineStageFlags.ComputeShader, VkAccessFlags.ShaderWrite, VkPipelineStageFlags.Transfer, VkAccessFlags.TransferRead);
+        }
+
         foreach (var r in _program.InputRefs.Values)
         {
+            if (_forwarded.TryGetValue(r.Buffer, out var f))
+            {
+                ulong size = UsedBytes(r, b);
+                if (size > 0)
+                {
+                    var dst = _alloc[r.Buffer];
+                    var region = new VkBufferCopy { srcOffset = f.Source.Offset + (ulong)(r.ByteOffset + f.SourceOffset), dstOffset = dst.Offset + (ulong)r.ByteOffset, size = size };
+                    _dev.Api.vkCmdCopyBuffer(cb, f.Source.Buffer, dst.Buffer, 1, &region);
+                }
+
+                continue;
+            }
+
             Copy(cb, _staging[r.Buffer], _alloc[r.Buffer], (ulong)r.ByteOffset, UsedBytes(r, b));
         }
 
@@ -851,7 +916,7 @@ public sealed unsafe class VulkanSegment : ICompiledSegment, IPartialOutputSegme
         _plans.Clear();
         foreach (var (b, a) in _alloc)
         {
-            if (!_leases.ContainsKey(b))
+            if (!_leases.ContainsKey(b) && !_borrowedStates.Contains(b))
             {
                 _dev.Memory.Free(a);
             }

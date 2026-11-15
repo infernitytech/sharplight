@@ -8,6 +8,7 @@ namespace Sharplight.Cpu;
 internal static unsafe class Simd
 {
     /// <summary>dst[i] = src[2i] for i &lt; n; reads no element past src[2(n - 1)].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void CompressEven(float* src, float* dst, int n)
     {
         int i = 0;
@@ -28,6 +29,7 @@ internal static unsafe class Simd
     }
 
     // ---- float dot products -------------------------------------------------------------------
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float Dot(float* a, float* b, long n)
     {
         long i = 0;
@@ -81,6 +83,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>Four dot products of <paramref name="x"/> with four weight rows at once.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Dot4(float* x, float* w0, float* w1, float* w2, float* w3, long n, float* res)
     {
         long i = 0;
@@ -158,6 +161,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>Two tokens x four weight rows: reuses every weight load for both tokens. res = [t0r0..t0r3, t1r0..t1r3].</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Dot4x2(float* x0, float* x1, float* w0, float* w1, float* w2, float* w3, long n, float* res)
     {
         long i = 0;
@@ -250,6 +254,7 @@ internal static unsafe class Simd
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float SumSq(float* a, long n)
     {
         long i = 0;
@@ -290,6 +295,7 @@ internal static unsafe class Simd
         return sum;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float Sum(float* a, long n)
     {
         long i = 0;
@@ -312,6 +318,7 @@ internal static unsafe class Simd
         return sum;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float Max(float* a, long n)
     {
         long i = 0;
@@ -356,6 +363,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>x[i] = exp(x[i] - shift) in place; returns the sum of the results.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float ExpShifted(float* x, long n, float shift)
     {
         long i = 0;
@@ -397,6 +405,7 @@ internal static unsafe class Simd
         return sum;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Scale(float* src, float* dst, float s, long n)
     {
         long i = 0;
@@ -415,6 +424,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>dst[i] = src[i] * s * w[i]</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void ScaleMul(float* src, float* w, float* dst, float s, long n)
     {
         long i = 0;
@@ -433,6 +443,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>acc[i] += p * v[i]</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Axpy(float* acc, float* v, float p, long n)
     {
         long i = 0;
@@ -505,6 +516,7 @@ internal static unsafe class Simd
         return (f.AsUInt32() | infnan | sign).AsSingle();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void HalfToFloat(ushort* src, float* dst, long n)
     {
         long i = 0;
@@ -529,6 +541,7 @@ internal static unsafe class Simd
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void BFloatToFloat(ushort* src, float* dst, long n)
     {
         long i = 0;
@@ -554,6 +567,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>Dot product of f32 vector with half vector.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static float DotHalf(float* a, ushort* h, long n)
     {
         long i = 0;
@@ -593,6 +607,7 @@ internal static unsafe class Simd
     }
 
     /// <summary>acc[i] += p * half[i]</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void AxpyHalf(float* acc, ushort* h, float p, long n)
     {
         long i = 0;

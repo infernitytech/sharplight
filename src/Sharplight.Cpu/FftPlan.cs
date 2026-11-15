@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Sharplight.Cpu;
 
@@ -52,6 +53,7 @@ internal sealed class FftPlan
     public int ScratchLength => _chirp is null ? 0 : _size;
 
     /// <summary>In-place unnormalized transform of <paramref name="data"/> (length L): sign -1 forward, +1 with <paramref name="inverse"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Transform(Span<Complex> data, bool inverse, Span<Complex> scratch)
     {
         if (_chirp is null)
@@ -83,6 +85,7 @@ internal sealed class FftPlan
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Radix2(Span<Complex> a, bool inverse)
     {
         int n = a.Length;

@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Sharplight.Architectures;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
 using Sharplight.Graph;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;
@@ -19,7 +19,7 @@ namespace Sharplight.Families.Tests;
 /// Qwen3.5 with an MTP layer): greedy output with the MTP head or n-gram drafts is token-identical to decoding without
 /// speculation, with several sequences in flight and drafts actually verified and rolled back.
 /// </summary>
-public class SpeculativeDecodingTests
+public partial class SpeculativeDecodingTests
 {
     private static readonly string ModelPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "models", "hf", "tiny-random-qwen3.5-mtp");
     private const int Slots = 3;

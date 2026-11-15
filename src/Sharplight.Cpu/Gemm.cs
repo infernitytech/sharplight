@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 
 namespace Sharplight.Cpu;
@@ -54,6 +55,7 @@ internal static unsafe class Gemm
     /// Full MR x NR tile whose B row k is at <paramref name="b"/> + <paramref name="bOffsets"/>[k] (rows anywhere, NR contiguous
     /// floats each): implicit GEMMs that read B in place, e.g. the shifted taps of a convolution.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void TileGather(float* a, float* b, long* bOffsets, float* c, long ldc, int kc, float* bias, bool acc)
     {
         if (NR == 32)
@@ -75,6 +77,7 @@ internal static unsafe class Gemm
     }
 
     /// <summary>Partial tile (rows &lt;= MR, cols &lt;= NR): computes into a scratch tile and copies the valid part.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void TileEdge(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc, int rows, int cols)
     {
         float* tmp = stackalloc float[MR * NR];
@@ -99,6 +102,7 @@ internal static unsafe class Gemm
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void KScalar(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         const int mr = 4;
@@ -133,6 +137,7 @@ internal static unsafe class Gemm
     }
 
     /// <summary>dst[k*MR + i] = alpha * src[i*sm + k*sk] for i &lt; rows, zero for the remaining panel rows.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void PackA(float* dst, float* src, long sm, long sk, int rows, int kc, float alpha)
     {
         int mr = MR;
@@ -154,6 +159,7 @@ internal static unsafe class Gemm
     }
 
     /// <summary>dst[k*NR + j] = src[k*sk + j*sn] for j &lt; cols, zero for the remaining tile columns.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void PackB(float* dst, float* src, long sk, long sn, int kc, int cols)
     {
         int nr = NR;
@@ -192,6 +198,7 @@ internal static unsafe class Gemm
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void K8x32(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector512<float> c00;
@@ -316,6 +323,7 @@ internal static unsafe class Gemm
         c71.Store(c + 7 * ldc + 16);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void K8x32Gather(float* a, float* b, long* bOffsets, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector512<float> c00;
@@ -440,6 +448,7 @@ internal static unsafe class Gemm
         c71.Store(c + 7 * ldc + 16);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void K6x16(float* a, float* b, long ldb, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector256<float> c00;
@@ -538,6 +547,7 @@ internal static unsafe class Gemm
         c51.Store(c + 5 * ldc + 8);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void K6x16Gather(float* a, float* b, long* bOffsets, float* c, long ldc, int kc, float* bias, bool acc)
     {
         Vector256<float> c00;

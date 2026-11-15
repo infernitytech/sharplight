@@ -14,6 +14,13 @@
 #ifndef MOE
 #define MOE 0
 #endif
+// MM_EPI (gemm_cm2 with GEMM_SPLIT and SPLITK 1, splitk_reduce): the including generated source defines
+// `float mm_epi(float m0, float a0, float a1, float a2)`, an elementwise group applied to each result m0 in the store, which
+// reads up to three extra tensors (Params e0 .. e2, access kinds MM_EPI_K0 .. MM_EPI_K2, see mm_epi_arg); y is the group's
+// output, dense with Y_STRIDE = N.
+#ifndef MM_EPI
+#define MM_EPI 0
+#endif
 // X_SORTED (with MOE and X_F16): x holds the routed rows in expert-sorted order (moe_gather_x16 in moe.slang, X_STRIDE = K), so
 // the rows of a tile are the dense rows rowOffset .. rowOffset + rows - 1.
 #ifndef X_SORTED
@@ -34,15 +41,70 @@ struct Params
     uint* scratch;
 #endif
     float* y;
+#if GEMM_SPLIT
+    float* ws;   // per weight row: the power-of-two scale applied before splitting (split_scale)
+#endif
 #if BIAS
     float* bias;
+#endif
+#if MM_EPI && MM_EPI_ARGS > 0
+    float* e0;   // the epilogue's tensors (MM_EPI_ARGS of them)
+#endif
+#if MM_EPI && MM_EPI_ARGS > 1
+    float* e1;
+#endif
+#if MM_EPI && MM_EPI_ARGS > 2
+    float* e2;
 #endif
     uint T;
 };
 
+#if MM_EPI
+// Element of epilogue tensor e for output (t, n): kind 0 one scalar, 1 a row vector over the output columns, 2 a dense
+// tensor of the output's shape.
+float mm_epi_arg(float* e, uint kind, uint64_t t, uint n)
+{
+    return kind == 0 ? e[0] : kind == 1 ? e[n] : e[t * N + n];
+}
+
+// The product v of output (t, n) through the generated epilogue mm_epi (the fused elementwise group).
+float mm_store_value(float v, Params p, uint64_t t, uint n)
+{
+    float a0 = 0, a1 = 0, a2 = 0;
+#if MM_EPI_ARGS > 0
+    a0 = mm_epi_arg(p.e0, MM_EPI_K0, t, n);
+#endif
+#if MM_EPI_ARGS > 1
+    a1 = mm_epi_arg(p.e1, MM_EPI_K1, t, n);
+#endif
+#if MM_EPI_ARGS > 2
+    a2 = mm_epi_arg(p.e2, MM_EPI_K2, t, n);
+#endif
+    return mm_epi(v, a0, a1, a2);
+}
+#define MM_STORE(v, t, n) mm_store_value(v, p, t, n)
+#else
+#define MM_STORE(v, t, n) (v)
+#endif
+
+// MV_FMA_CHAIN (row-invariant compiles): the products of one 8-weight group in a fixed order of fused multiply-adds, so
+// that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
+// contracts per variant (on the NVIDIA driver mostly, but not always, into this same chain). The dual matvecs keep the
+// plain sum, which the driver contracts alike in all of their variants.
 float dot8(float w[8], float4 a, float4 b)
 {
+#if DUAL || !defined(MV_FMA_CHAIN)
     return w[0] * a.x + w[1] * a.y + w[2] * a.z + w[3] * a.w + w[4] * b.x + w[5] * b.y + w[6] * b.z + w[7] * b.w;
+#else
+    float s = w[0] * a.x;
+    s = fma(w[1], a.y, s);
+    s = fma(w[2], a.z, s);
+    s = fma(w[3], a.w, s);
+    s = fma(w[4], b.x, s);
+    s = fma(w[5], b.y, s);
+    s = fma(w[6], b.z, s);
+    return fma(w[7], b.w, s);
+#endif
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -586,16 +648,33 @@ using namespace linalg;
 #define GBN (WARPS_N * FRAG_N * 16)
 // GBK = 32: double-buffered shared tiles, one barrier per step. GBK = 64: single buffer (fits 48 KB) with twice the
 // work between register prefetches, which hides more global-load latency; two barriers per step.
-// GEMM_SPLIT (f32 x and W, not X_F16): every value is split into f16 hi + lo parts and each product is computed as
-// hi·hi + hi·lo + lo·hi (three tensor-core products, f32 accumulation): about 2^-22 relative error per value instead of f16's
-// 2^-11 (lo parts of values below 2^-3 lose bits to f16 subnormals). The hi and lo tiles are single buffered (GBK = 32).
+// GEMM_SPLIT (f32 weights): every value is split into f16 hi + lo parts and each product is computed as hi·hi + hi·lo + lo·hi
+// (three tensor-core products). Each row of x and of W is first scaled by a power of two that puts its largest magnitude in
+// [2^14, 2^15) (split_scale), so neither part over- or underflows f16 and the pair keeps 22-23 significant bits; the
+// output undoes both scales. x arrives pre-split by split_rows (per row: K hi halves, K lo halves, the f32 inverse scale);
+// W was split the same way on the host (p.w: per row K hi halves, then K lo halves; p.ws: the row scales). The products of each 16-value K slice
+// accumulate from zero on the tensor cores and are then added to the f32 accumulators, so the tensor cores' truncating
+// accumulation only rounds slice sums. Error against f64 is at or below the f32 SIMT GEMM's. Single buffered (GBK = 32).
 #ifndef GBK
 #define GBK 32
 #endif
 #ifndef GEMM_SPLIT
 #define GEMM_SPLIT 0
 #endif
-#if GBK == 32 && !GEMM_SPLIT
+// SPLIT_PARTS = 1 with GEMM_SPLIT (fast matrix precision): the row-scaled hi parts only, one product per multiply-add (11
+// significant bits per input, like TF32) accumulated in f32 on the tensor cores; x rows from split_rows with SPLIT_PARTS 1
+// (K hi halves, then the inverse scale), W per row K hi halves. Double buffered like the f16 GEMM.
+#ifndef SPLIT_PARTS
+#define SPLIT_PARTS 3
+#endif
+#if GEMM_SPLIT && SPLIT_PARTS > 1
+#define SPLIT_LO 1
+#define SPLIT_HALVES 2
+#else
+#define SPLIT_LO 0
+#define SPLIT_HALVES 1
+#endif
+#if GBK == 32 && !SPLIT_LO
 #define GNBUF 2
 #else
 #define GNBUF 1
@@ -619,32 +698,10 @@ typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
 groupshared uint4 gA[GNBUF * GBM * GAS / 8];
 groupshared uint4 gB[GNBUF * GBN * GAS / 8];
-#if GEMM_SPLIT
+#if SPLIT_LO
 groupshared uint4 gAl[GBM * GAS / 8];
 groupshared uint4 gBl[GBN * GAS / 8];
 #endif
-#endif
-
-#if GEMM_SPLIT
-// Two values as packed f16 hi parts (rounded to 11 significant bits on the bits, which compilers cannot fold away) and lo parts.
-uint split_h2(float a, float b, out uint lo)
-{
-    float ha = asfloat((asuint(a) + 0x1000u) & 0xFFFFE000u);
-    float hb = asfloat((asuint(b) + 0x1000u) & 0xFFFFE000u);
-    lo = f32tof16(a - ha) | (f32tof16(b - hb) << 16);
-    return f32tof16(ha) | (f32tof16(hb) << 16);
-}
-
-// 8 values as packed hi parts (returned) and lo parts.
-uint4 split8(float v[8], out uint4 lo)
-{
-    uint4 hi;
-    hi.x = split_h2(v[0], v[1], lo.x);
-    hi.y = split_h2(v[2], v[3], lo.y);
-    hi.z = split_h2(v[4], v[5], lo.z);
-    hi.w = split_h2(v[6], v[7], lo.w);
-    return hi;
-}
 #endif
 
 uint q8x4_h2(uint u, half2 d, bool hi)
@@ -737,6 +794,42 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 z = half2(0.0h, 0.0h);
     lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
     hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128
+    // { f16 d; f16 z; u8 qs[16 * runs] } (quant_group.slang), each 32-value run laid out like Q4_0. The zero point is an
+    // integer, so 1024 + z is exact in half and (1024 + q) - (1024 + z) = q - z is exact: one rounding, at * d.
+#if WFMT == FMT_Q4Z_G32
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 20;
+    uint4 q = (load16_any(at + 4) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 3) * 68;
+    uint4 q = (load16_any(at + 4 + ((g16 >> 1) & 3) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+#endif
+    uint dz = *(uint*)at;
+    half2 d = bit_cast<half2>((dz & 0xFFFFu) * 0x10001u);
+    half offset = 1024.0h + bit_cast<half2>(dz).y;
+    half2 z = half2(0.0h, 0.0h);
+    lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
+    hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+    // One 16-value sub-block: 8 code bytes (value i in the low nibble of byte i, i + 8 in the high one) and its UE4M3 scale,
+    // NVFP4_GS times the block's f32 global scale. Doubled E2M1 codes through half bits as MXFP4 below, the block scale
+    // split in two factors when it leaves half's range.
+#if WFMT == FMT_NVFP4
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 2) * 36;
+    float sc = ue4m3_half(uint(*(uint8_t*)(at + (g16 & 3)))) * 32768.0;
+    uint64_t codes = at + 4 + 8 * (g16 & 3);
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 2) * 40;
+    float sc = ue4m3_half(uint(*(uint8_t*)(at + 4 + (g16 & 3)))) * asfloat(*(uint*)at) * 32768.0;
+    uint64_t codes = at + 8 + 8 * (g16 & 3);
+#endif
+    uint c0 = *(uint*)codes;
+    uint c1 = *(uint*)(codes + 4);
+    uint4 q = uint4(c0 & 0x0F0F0F0Fu, c1 & 0x0F0F0F0Fu, (c0 >> 4) & 0x0F0F0F0Fu, (c1 >> 4) & 0x0F0F0F0Fu);
+    half2 s1 = half2(half(min(sc, 32768.0)));
+    half2 s2 = half2(half(max(sc / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #elif WFMT == FMT_MXFP4R
     // As MXFP4 below, from the aligned split layout (common.slang): one aligned 16-byte load holds both nibble halves of the block.
     uint4 q = (*(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(g16 >> 1) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
@@ -907,20 +1000,29 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #else
     uint4 ws[GPF][GB_PER_T][2];
 #endif
-#if GEMM_SPLIT
+#if SPLIT_LO
     uint4 xsl[GPF][GA_PER_T];   // lo parts (GEMM_SPLIT)
     uint4 wsl[GPF][GB_PER_T][2];
 #endif
 
     // X_F16: activations were converted to dense f16 rows beforehand (to_f16), halving tile load traffic.
 #if GEMM_SPLIT
-    // Split mode: the lo parts go to `lo` (xsl of FETCH's register set and item).
+    // Split mode: x rows from split_rows (SPLIT_ROW_BYTES each: K hi halves, K lo halves, the inverse scale); the lo parts go
+    // to `lo` (xsl of FETCH's register set and item). Per-item row addresses as for X_F16.
+    #define SPLIT_ROW_BYTES (2 * SPLIT_HALVES * uint64_t(K) + 16)
+    uint64_t xrb[GA_PER_T];
+    [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)
+    {
+        uint t = t0 + (tid + it * GTHREADS) / GQ;
+        xrb[it] = uint64_t(p.x) + uint64_t(ROW_OF(t < ROWS_LIVE ? t : t0)) * SPLIT_ROW_BYTES + ((tid + it * GTHREADS) % GQ) * 16;
+    }
+#if SPLIT_LO
     #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
-        { float v[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };                                                       \
-          if ((t) < ROWS_LIVE)                                                                          \
-          { float4* xp = (float4*)(p.x + uint64_t(ROW_OF(t)) * X_STRIDE + (k)); float4 a = xp[0], b = xp[1]; \
-            v[0] = a.x; v[1] = a.y; v[2] = a.z; v[3] = a.w; v[4] = b.x; v[5] = b.y; v[6] = b.z; v[7] = b.w; } \
-          dst = split8(v, lo); }
+        { dst = 0; lo = 0; if ((t) < ROWS_LIVE) { dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); lo = *(uint4*)(xrb[it] + (uint64_t(K) + (k)) * 2); } }
+#else
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
+        { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); }
+#endif
 #elif X_F16
     // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
     uint64_t xrb[GA_PER_T];
@@ -948,27 +1050,34 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // Rows past N stage the decode of zero codes, which the stores never read back.
     #define WLOAD(set, it, row, g) { [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0; if (N % GBN == 0 || (row) < N) wload(wr[it], g, ws[set][it]); }
     #define WSTAGE(set, it, ob, row) { uint4 d[GW_UNIT / 8]; wdecode(ws[set][it], d); [ForceUnroll] for (uint u = 0; u < GW_UNIT / 8; u++) gB[(ob) + u] = d[u]; }
+#elif GEMM_SPLIT && !SPLIT_LO
+    #define WLOAD(set, it, row, g)                                                                      \
+        { ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN == 0 || (row) < N)                                                                \
+          { uint4* hp = (uint4*)(uint64_t(wbase) + uint64_t(row) * 2 * uint64_t(K) + uint64_t(g) * 32);  \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
+    #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #elif GEMM_SPLIT
     #define WLOAD(set, it, row, g)                                                                      \
         { ws[set][it][0] = 0; ws[set][it][1] = 0; wsl[set][it][0] = 0; wsl[set][it][1] = 0;             \
           if (N % GBN == 0 || (row) < N)                                                                \
-          { float v[8];                                                                                 \
-            load8(wbase, ROW_BYTES, row, (g) * 2, v); ws[set][it][0] = split8(v, wsl[set][it][0]);       \
-            load8(wbase, ROW_BYTES, row, (g) * 2 + 1, v); ws[set][it][1] = split8(v, wsl[set][it][1]); } }
+          { uint4* hp = (uint4*)(uint64_t(wbase) + uint64_t(row) * 4 * uint64_t(K) + uint64_t(g) * 32);  \
+            uint4* lp = (uint4*)(uint64_t(hp) + 2 * uint64_t(K));                                       \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; wsl[set][it][0] = lp[0]; wsl[set][it][1] = lp[1]; } }
     #define WSTAGE(set, it, ob, row)                                                                    \
         { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; gBl[ob] = wsl[set][it][0]; gBl[(ob) + 1] = wsl[set][it][1]; }
 #else
     #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #endif
-#if GEMM_SPLIT
+#if SPLIT_LO
     #define XS_LO(set, it) xsl[set][it]
     #define STAGE_LO_A(set, it, ia) gAl[ia] = xsl[set][it];
 #else
     #define XS_LO(set, it) 0
     #define STAGE_LO_A(set, it, ia)
 #endif
-#if X_F16
+#if X_F16 || GEMM_SPLIT
     #define X_K(k0, q) (k0)
 #else
     #define X_K(k0, q) ((k0) + (q) * 8)
@@ -999,25 +1108,39 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         uint ob = ((buf) * GBN * GAS + r * GAS + q * GW_UNIT) / 8;                                      \
         WSTAGE(set, it, ob, n0 + r)                                                                     \
     }
-#if GEMM_SPLIT
-    // hi·lo and lo·hi before hi·hi (GNBUF = 1: the lo tiles are at offset 0).
-    #define SPLIT_LOAD_B(kk)                                                                            \
-        MatB2 bl[FRAG_N];                                                                               \
-        [ForceUnroll] for (int j = 0; j < FRAG_N; j++) bl[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gBl, ((wn + j * 16) * GAS + (kk)) / 8, GAS / 8);
-    #define SPLIT_PRODUCTS(i, kk)                                                                       \
+#if SPLIT_LO
+    // The three products of a 16-value K slice (hi·lo, lo·hi, then hi·hi) accumulate on the tensor cores from zero, and the
+    // slice sum is added to the f32 accumulator with an IEEE add: the tensor cores' accumulation (truncating alignment)
+    // then only rounds 16-term slice sums instead of the whole running sum. GNBUF = 1: the tiles are at offset 0.
+    #define COMPUTE(buf)                                                                                \
+    {                                                                                                   \
+        MatB2 b[2][FRAG_N];                                                                             \
+        MatB2 bl[2][FRAG_N];                                                                            \
+        [ForceUnroll] for (uint s = 0; s < 2; s++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++)        \
         {                                                                                               \
-            MatA2 al = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gAl, ((wm + (i) * 16) * GAS + (kk)) / 8, GAS / 8); \
-            [ForceUnroll]                                                                               \
-            for (int j = 0; j < FRAG_N; j++)                                                            \
+            b[s][j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, ((wn + j * 16) * GAS + s * 16) / 8, GAS / 8); \
+            bl[s][j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gBl, ((wn + j * 16) * GAS + s * 16) / 8, GAS / 8); \
+        }                                                                                               \
+        Acc2 t[FRAG_M][FRAG_N];                                                                         \
+        [ForceUnroll] for (uint s = 0; s < 2; s++)                                                      \
+        {                                                                                               \
+            MatA2 a[FRAG_M];                                                                            \
+            MatA2 al[FRAG_M];                                                                           \
+            [ForceUnroll] for (int i = 0; i < FRAG_M; i++)                                              \
             {                                                                                           \
-                acc[i][j] = coopMatMulAdd<float, false>(al, b[j], acc[i][j]);                           \
-                acc[i][j] = coopMatMulAdd<float, false>(a, bl[j], acc[i][j]);                           \
+                a[i] = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, ((wm + i * 16) * GAS + s * 16) / 8, GAS / 8); \
+                al[i] = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gAl, ((wm + i * 16) * GAS + s * 16) / 8, GAS / 8); \
             }                                                                                           \
-        }
+            [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) \
+                t[i][j] = coopMatMulAdd<float, false>(al[i], b[s][j], s == 0 ? Acc2(0.0) : t[i][j]);    \
+            [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) \
+                t[i][j] = coopMatMulAdd<float, false>(a[i], bl[s][j], t[i][j]);                         \
+            [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) \
+                t[i][j] = coopMatMulAdd<float, false>(a[i], b[s][j], t[i][j]);                          \
+        }                                                                                               \
+        [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = acc[i][j] + t[i][j]; \
+    }
 #else
-    #define SPLIT_LOAD_B(kk)
-    #define SPLIT_PRODUCTS(i, kk)
-#endif
     // The MMAs of the staged step in buffer `buf` (K order: 16-value slices in sequence).
     #define COMPUTE(buf)                                                                                \
     {                                                                                                   \
@@ -1027,16 +1150,15 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         {                                                                                               \
             MatB2 b[FRAG_N];                                                                            \
             [ForceUnroll] for (int j = 0; j < FRAG_N; j++) b[j] = MatB2.Load<CoopMatMatrixLayout.ColumnMajor>(gB, (bb + (wn + j * 16) * GAS + kk) / 8, GAS / 8); \
-            SPLIT_LOAD_B(kk)                                                                            \
             [ForceUnroll]                                                                               \
             for (int i = 0; i < FRAG_M; i++)                                                            \
             {                                                                                           \
                 MatA2 a = MatA2.Load<CoopMatMatrixLayout.RowMajor>(gA, (ba + (wm + i * 16) * GAS + kk) / 8, GAS / 8); \
-                SPLIT_PRODUCTS(i, kk)                                                                   \
                 [ForceUnroll] for (int j = 0; j < FRAG_N; j++) acc[i][j] = coopMatMulAdd<float, false>(a, b[j], acc[i][j]); \
             }                                                                                           \
         }                                                                                               \
     }
+#endif
 
 #if GPF == 2
     // Two register sets, the loop unrolled by two so that the sets stay static: entering step s, smem holds step s and set
@@ -1099,11 +1221,41 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #undef GEMM_LOAD_X
     #undef STAGE_LO_A
     #undef XS_LO
-    #undef SPLIT_LOAD_B
-    #undef SPLIT_PRODUCTS
     #undef ROW_OF
     #undef ROWS_LIVE
 
+#if GEMM_SPLIT
+    // Undo the row scales of x and W: each subgroup stages its accumulators through its own shared slice.
+    [ForceUnroll]
+    for (int i = 0; i < FRAG_M; i++)
+    {
+        float xr[8];
+        [ForceUnroll]
+        for (uint e = 0; e < 8; e++)
+        {
+            uint t = t0 + wm + i * 16 + (lane + e * 32) / 16;
+            xr[e] = t < p.T ? *(float*)(uint64_t(p.x) + uint64_t(t) * SPLIT_ROW_BYTES + 2 * SPLIT_HALVES * uint64_t(K)) : 0.0;
+        }
+        [ForceUnroll]
+        for (int j = 0; j < FRAG_N; j++)
+        {
+            uint n = n0 + wn + j * 16 + lane % 16;
+            float wr = n < N ? 1.0 / p.ws[n] : 0.0;
+            acc[i][j].Store<CoopMatMatrixLayout.RowMajor>(gC, sg * 256, 16u);
+            GroupMemoryBarrierWithWaveSync();
+            [ForceUnroll]
+            for (uint e = 0; e < 8; e++)
+            {
+                uint w = lane + e * 32;
+                uint t = t0 + wm + i * 16 + w / 16;
+                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = MM_STORE(gC[sg * 256 + w] * xr[e] * wr, t, n);
+            }
+            GroupMemoryBarrierWithWaveSync();
+        }
+    }
+    #undef SPLIT_ROW_BYTES
+    return;
+#endif
     if (!MOE && t0 + GBM <= p.T && (N % GBN == 0 || n0 + GBN <= N))
     {
         [ForceUnroll] for (int i = 0; i < FRAG_M; i++) [ForceUnroll] for (int j = 0; j < FRAG_N; j++)
@@ -1149,7 +1301,7 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     if (i >= total) return;
     float s = 0;
     [ForceUnroll] for (uint z = 0; z < SPLITK; z++) s += p.x[z * total + i];
-    p.y[(i / N) * Y_STRIDE + i % N] = s;
+    p.y[(i / N) * Y_STRIDE + i % N] = MM_STORE(s, i / N, uint(i % N));
 }
 #endif
 

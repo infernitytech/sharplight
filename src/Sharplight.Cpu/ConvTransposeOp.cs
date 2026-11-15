@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -93,6 +94,7 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
         Mem.Free((byte*)_col);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _n = _x.Dim(0, p);
@@ -121,6 +123,7 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void GemmBody(int task)
     {
         int MR = Gemm.MR;
@@ -162,6 +165,7 @@ internal sealed unsafe class ConvTransposeOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void ColBody(int chunk)
     {
         long s = chunk * _per;

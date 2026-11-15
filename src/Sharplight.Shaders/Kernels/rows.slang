@@ -138,6 +138,89 @@ void layernorm_wg(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform
 }
 #endif
 
+#ifdef KERNEL_LAYERNORM_CS
+// LayerNorm over a channel-strided view (rows adjacent in memory, the D values of a row SI elements apart, e.g. the
+// channels-last view of an NCHW tensor): a 256-thread workgroup normalizes 32 rows. The statistics passes read with the
+// rows across the lanes (coalesced); the output pass transposes 32x32 blocks through shared memory so both the strided
+// reads and the dense row writes are coalesced. Same math and macros as layernorm plus SI (S1 must be 1).
+#define LNC_ROWS 32
+#define LNC_THREADS 256
+#define LNC_PARTS (LNC_THREADS / LNC_ROWS)
+struct LnParams { float* x; float* w; float* b; float* y; uint T; };
+groupshared float lncPart[LNC_PARTS][LNC_ROWS];
+groupshared float lncStat[2][LNC_ROWS];
+groupshared float lncTile[32][33];
+
+[shader("compute")]
+[numthreads(LNC_THREADS, 1, 1)]
+void layernorm_cs(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform LnParams p)
+{
+    uint tid = ltid.x;
+    uint r = tid % LNC_ROWS, part = tid / LNC_ROWS;
+    uint rows = p.T * R1;
+    uint row = gid.x * LNC_ROWS + r;
+    bool valid = row < rows;
+    float* xr = p.x + uint64_t(row / R1) * S0 + uint64_t(row % R1) * S1;
+    float s = 0;
+    if (valid)
+    {
+        for (uint i = part; i < D; i += LNC_PARTS) s += xr[uint64_t(i) * SI];
+    }
+    lncPart[part][r] = s;
+    GroupMemoryBarrierWithGroupSync();
+    if (tid < LNC_ROWS)
+    {
+        float t = 0;
+        [ForceUnroll] for (uint k = 0; k < LNC_PARTS; k++) t += lncPart[k][tid];
+        lncStat[0][tid] = t / float(D);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    float mean = lncStat[0][r];
+    float q = 0;
+    if (valid)
+    {
+        for (uint i = part; i < D; i += LNC_PARTS) { float d = xr[uint64_t(i) * SI] - mean; q += d * d; }
+    }
+    lncPart[part][r] = q;
+    GroupMemoryBarrierWithGroupSync();
+    if (tid < LNC_ROWS)
+    {
+        float t = 0;
+        [ForceUnroll] for (uint k = 0; k < LNC_PARTS; k++) t += lncPart[k][tid];
+        lncStat[1][tid] = rsqrt(t / float(D) + EPS);
+    }
+    // Output: blocks of 32 values of the 32 rows; read with the rows across the lanes, write with the values across them.
+    uint lane = tid % 32, sub = tid / 32;
+    for (uint c0 = 0; c0 < D; c0 += 32)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        [ForceUnroll] for (uint k = 0; k < 32 / LNC_PARTS; k++)
+        {
+            uint c = c0 + sub + k * LNC_PARTS;
+            lncTile[sub + k * LNC_PARTS][lane] = valid && c < D ? xr[uint64_t(c) * SI] : 0.0;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        uint c = c0 + lane;
+        [ForceUnroll] for (uint k = 0; k < 32 / LNC_PARTS; k++)
+        {
+            uint rr = sub + k * LNC_PARTS;
+            uint orow = gid.x * LNC_ROWS + rr;
+            if (orow < rows && c < D)
+            {
+                float v = (lncTile[lane][rr] - lncStat[0][rr]) * lncStat[1][rr];
+#if HAS_W
+                v *= p.w[c];
+#endif
+#if HAS_B
+                v += p.b[c];
+#endif
+                p.y[uint64_t(orow) * D + c] = v;
+            }
+        }
+    }
+}
+#endif
+
 #ifdef KERNEL_ROWREDUCE_NARROW
 // Reduction of short rows (D up to 32, e.g. the k expert slots of a MoE block): one thread per row, with an inner
 // stride SI so permuted views ([T, H, k] over [T, k, H]) need no dense copy and neighbouring threads read neighbouring

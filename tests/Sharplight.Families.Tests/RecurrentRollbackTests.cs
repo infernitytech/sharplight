@@ -1,6 +1,6 @@
 using Sharplight.Cpu;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -38,6 +38,9 @@ public class RecurrentRollbackTests
         { "gguf/tiny-random-rwkv6qwen2-f32.gguf", "Wkv6, CausalConv1d (token shift)" },
         { "hf/tiny-random-lfm2", "CausalConv1d (short conv)" },
         { "hf/tiny-random-kimi-linear-f32", "GatedDeltaRule (per-channel decay), CausalConv1d" },
+        { "hf/tiny-random-kimi-k3-f32", "GatedDeltaRule (bounded per-channel decay), CausalConv1d, attention residuals" },
+        { "hf/tiny-random-kimi-k31-f32", "GatedDeltaRule (bounded per-channel decay), CausalConv1d, attention residuals, sparse indexer" },
+        { "hf/tiny-random-kimi-k31-shared-f32", "GatedDeltaRule (bounded per-channel decay), CausalConv1d, attention residuals, shared indexer selection" },
         { "hf/tiny-random-minimax", "GatedDeltaRule (additive rule, time-invariant decay)" },
     };
 

@@ -50,7 +50,7 @@
               <c:LineChart Points="{Binding CpuSeries}" IsTimeSeries="True" ShowAxis="False" Maximum="100" />
             </DockPanel>
             <DockPanel Grid.Column="4">
-              <TextBlock DockPanel.Dock="Top" Classes="section" Text="ENGINE BUSY %" ToolTip.Tip="Share of time the engines were stepping (approximates GPU utilization)" />
+              <TextBlock DockPanel.Dock="Top" Classes="section" Text="ENGINE BUSY %" ToolTip.Tip="Share of time the models were busy generating" />
               <c:LineChart Points="{Binding BusySeries}" IsTimeSeries="True" ShowAxis="False" Maximum="100" />
             </DockPanel>
           </Grid>

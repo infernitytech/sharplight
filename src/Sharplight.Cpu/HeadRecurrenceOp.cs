@@ -66,6 +66,7 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
     public override void Dispose() => Mem.Free((byte*)_scratch);
 
     /// <inheritdoc/>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _t = _tokens.Dim(0, p);
@@ -104,6 +105,7 @@ internal abstract unsafe class HeadRecurrenceOp : CpuOp
         CpuParallel.For(_heads * _rowChunks, _body);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int task)
     {
         int head = task / _rowChunks;

@@ -80,11 +80,12 @@ public sealed partial class GraphLowerer
         CopyNonMaterializedOutputs();
 
         _arena.Bytes = Math.Max(256, _alloc.HighWater);
+        var resetLaunches = BuildResetLaunches();
         return new KernelProgram
         {
-            Buffers = _buffers,
+            Buffers = WithoutUnusedWeights(resetLaunches),
             Launches = _launches,
-            ResetLaunches = BuildResetLaunches(),
+            ResetLaunches = resetLaunches,
             InputRefs = _inputRefs,
             OutputRefs = _outputRefs,
             RuntimeBuffer = _runtime,
@@ -92,6 +93,37 @@ public sealed partial class GraphLowerer
             Symbols = CollectSymbols(),
             ProducedSymbols = _producedSymbols,
         };
+    }
+
+    /// <summary>
+    /// The buffers without weights no launch reads, e.g. the f32 copy of a weight that every consumer reads in a derived form
+    /// (the split f16 parts): they are neither allocated nor uploaded.
+    /// </summary>
+    private List<BufferDecl> WithoutUnusedWeights(IReadOnlyList<KernelLaunch> resetLaunches)
+    {
+        var used = new HashSet<BufferDecl>();
+        foreach (var launch in _launches.Concat(resetLaunches))
+        {
+            foreach (var arg in launch.Args)
+            {
+                if (arg is PointerArg pointer)
+                {
+                    used.Add(pointer.Buffer);
+                }
+            }
+
+            foreach (var range in launch.Reads.Concat(launch.Writes))
+            {
+                used.Add(range.Buffer);
+            }
+        }
+
+        foreach (var r in _inputRefs.Values.Concat(_outputRefs.Values))
+        {
+            used.Add(r.Buffer);
+        }
+
+        return [.. _buffers.Where(b => b.Kind != BufferKind.Weight || used.Contains(b))];
     }
 
     private void LowerUnits(List<LoweringUnit> units)
@@ -156,6 +188,11 @@ public sealed partial class GraphLowerer
             LowerConv2d(conv, new ConvEpilogue(unit.Fused!, unit.FusedOutputs![0]));
             FreeTemps();
         }
+        else if (unit.MatMulHead is { } matmulHead)
+        {
+            LowerMatMulEpilogue(matmulHead, new MatMulEpilogue(unit.Fused!, unit.FusedOutputs![0]));
+            FreeTemps();
+        }
         else if (unit.Fused is not null)
         {
             LowerElementwise(unit.Fused, unit.FusedOutputs!, unit.NormTail, unit.NormHead);
@@ -189,10 +226,15 @@ public sealed partial class GraphLowerer
         }
     }
 
-    /// <summary>Symbolic dimensions (other than the context length and the counts the segment computes itself) the segment's tensors depend on.</summary>
+    /// <summary>Symbolic dimensions (other than the context length, expressions of it, and the counts the segment computes itself) the segment's tensors depend on.</summary>
     private List<string> CollectSymbols()
         => [.. _seg.Nodes.SelectMany(n => n.Outputs.Concat(n.Inputs)).Select(v => v.Shape.Symbol).OfType<string>()
-            .Where(s => s != WellKnown.ContextSymbol && !_producedSymbols.ContainsKey(s)).Distinct()];
+            .Where(s => !OnlyContext(s) && !_producedSymbols.ContainsKey(s)).Distinct()];
+
+    /// <summary>Whether <paramref name="symbol"/> is the context length or an expression of it alone (fixed when the segment is compiled).</summary>
+    private static bool OnlyContext(string symbol)
+        => symbol == WellKnown.ContextSymbol
+            || (!SymbolicExpression.IsSymbolName(symbol) && SymbolicExpression.Parse(symbol).Atoms().All(a => a == WellKnown.ContextSymbol));
 
     /// <summary>
     /// A host-readable i32 slot into which a kernel writes the value of the data-dependent symbol <paramref name="symbol"/>
@@ -411,6 +453,9 @@ public sealed partial class GraphLowerer
     /// <summary>Extra condition for launches emitted while set (conditional fallback launches).</summary>
     private Func<Bindings, bool>? _launchCondition;
 
+    /// <summary>Write group of the launches emitted while set (see <see cref="KernelLaunch.WriteGroup"/>).</summary>
+    private object? _writeGroup;
+
     private void Emit(string name, IEnumerable<Node> nodes, IReadOnlyList<KernelVariant> variants, IReadOnlyList<KernelArg> args,
         IEnumerable<TensorRef> reads, IEnumerable<TensorRef> writes)
     {
@@ -427,6 +472,7 @@ public sealed partial class GraphLowerer
             Reads = [.. reads.Select(Range)],
             Writes = [.. writes.Select(Range)],
             Nodes = [.. nodes],
+            WriteGroup = _writeGroup,
         });
     }
 

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -115,6 +116,7 @@ internal sealed unsafe class MatMulOp : CpuOp
         _bprepacked = null;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         _m = _x.Rows(p);
@@ -163,6 +165,7 @@ internal sealed unsafe class MatMulOp : CpuOp
 
     // ---- integer dot (few rows) ------------------------------------------------------------------------------------
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RunIntDot()
     {
         long rowBytes = IntDot.RowBytes(_k);
@@ -177,6 +180,7 @@ internal sealed unsafe class MatMulOp : CpuOp
         CpuParallel.For(chunks, _intDotBody);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void IntDotBody(int c)
     {
         long n0 = c * _perChunk;
@@ -205,6 +209,7 @@ internal sealed unsafe class MatMulOp : CpuOp
 
     // ---- GEMM (many rows) ------------------------------------------------------------------------------------------
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void RunGemm()
     {
         int mr = Gemm.MR;
@@ -232,6 +237,7 @@ internal sealed unsafe class MatMulOp : CpuOp
     }
 
     /// <summary>Packs weight rows [panel·NR, panel·NR + NR) as [K][NR] (zero columns past N); panel p starts at p·K·NR.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PrepackPanel(int panel)
     {
         int nr = Gemm.NR;
@@ -249,6 +255,7 @@ internal sealed unsafe class MatMulOp : CpuOp
     }
 
     /// <summary>Packs MR activation rows as [K][MR] (zero rows past the end).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PackBody(int tile)
     {
         int mr = Gemm.MR;
@@ -271,6 +278,7 @@ internal sealed unsafe class MatMulOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void GemmBody(int task)
     {
         int mr = Gemm.MR;
@@ -357,6 +365,7 @@ internal sealed unsafe class MatMulOp : CpuOp
 
     // ---- float rows (few rows without integer dot) -----------------------------------------------------------------
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Body(int c)
     {
         long g0 = c * _perChunk;

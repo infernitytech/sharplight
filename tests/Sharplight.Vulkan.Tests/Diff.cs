@@ -32,10 +32,11 @@ internal static class Diff
     }
 
     private static CompiledModel Compile(IComputeDevice dev, ComputeGraph g, long maxTokens, long ctx, IReadOnlySet<string>? disabledFeatures = null,
-        bool allowReducedPrecision = false)
+        bool allowReducedPrecision = false, bool cpuFallback = false, long rowInvariantRows = 0, MatrixPrecision precision = MatrixPrecision.Strict)
         => CompiledModel.Compile(g, new PlacementOptions
         {
             Devices = [new DeviceSlot { Device = dev }],
+            Fallback = cpuFallback ? new DeviceSlot { Device = Gpu.Cpu } : null,
             Compile = new CompileOptions
             {
                 MaxTokens = maxTokens,
@@ -43,6 +44,8 @@ internal static class Diff
                 SymbolBounds = new Dictionary<string, long> { ["R"] = maxTokens, [Models.WellKnown.RunSymbol] = maxTokens },
                 DisabledFeatures = disabledFeatures ?? new HashSet<string>(),
                 AllowReducedPrecision = allowReducedPrecision,
+                MatrixPrecision = precision,
+                RowInvariantRows = rowInvariantRows,
             },
             ReservePerDevice = 0,
         });
@@ -74,11 +77,15 @@ internal static class Diff
         }
     }
 
-    /// <summary>Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.</summary>
-    public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null)
+    /// <summary>
+    /// Runs all steps on the Vulkan device only (state persists across steps); per step, every f32 output concatenated.
+    /// <paramref name="rowInvariantRows"/> sets <see cref="CompileOptions.RowInvariantRows"/>.
+    /// </summary>
+    public static List<float[]> RunVulkan(ComputeGraph g, IReadOnlyList<Step> steps, long maxTokens = 64, long ctx = 64, IReadOnlySet<string>? disabledFeatures = null,
+        long rowInvariantRows = 0)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures);
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, rowInvariantRows: rowInvariantRows);
         var results = new List<float[]>();
         foreach (var s in steps)
         {
@@ -103,13 +110,17 @@ internal static class Diff
     /// Runs all steps on both devices (state persists across steps) and compares every graph output.
     /// Returns the largest |a-b| seen. <paramref name="disabledFeatures"/> are turned off for the Vulkan compilation
     /// (to exercise the portable fallback kernels on a device that has the features); <paramref name="allowReducedPrecision"/>
-    /// lets the Vulkan compilation use reduced-precision products.
+    /// lets the Vulkan compilation use reduced-precision products. <paramref name="cpuFallback"/> places the nodes Vulkan does not support on the CPU
+    /// (a mixed compilation), and <paramref name="inspect"/> sees the Vulkan-side model before the first step. <paramref name="precision"/>
+    /// is the Vulkan compilation's matrix precision.
     /// </summary>
     public static double Check(string op, ComputeGraph g, IReadOnlyList<Step> steps, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
-        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false)
+        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false, bool cpuFallback = false, Action<CompiledModel>? inspect = null,
+        MatrixPrecision precision = MatrixPrecision.Strict)
     {
         Gpu.Require();
-        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision);
+        using var vk = Compile(Gpu.Vulkan!, g, maxTokens, ctx, disabledFeatures, allowReducedPrecision, cpuFallback, precision: precision);
+        inspect?.Invoke(vk);
         CompiledModel cpu;
         try
         {
@@ -200,6 +211,6 @@ internal static class Diff
     }
 
     public static double Check(string op, ComputeGraph g, Step step, double atol = 1e-4, double rtol = 1e-4, long maxTokens = 64, long ctx = 64, string? what = null,
-        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false)
-        => Check(op, g, [step], atol, rtol, maxTokens, ctx, what, disabledFeatures, allowReducedPrecision);
+        IReadOnlySet<string>? disabledFeatures = null, bool allowReducedPrecision = false, MatrixPrecision precision = MatrixPrecision.Strict)
+        => Check(op, g, [step], atol, rtol, maxTokens, ctx, what, disabledFeatures, allowReducedPrecision, precision: precision);
 }

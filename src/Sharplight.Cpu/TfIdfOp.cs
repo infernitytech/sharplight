@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -52,6 +53,7 @@ internal sealed unsafe class TfIdfOp : CpuOp
 
     public override string Name => "TfIdf";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long rows = _x.Rank == 1 ? 1 : _x.Dim(0, p);
@@ -76,6 +78,7 @@ internal sealed unsafe class TfIdfOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Count(int* row, int length, int[] counts)
     {
         int startSize = _minGram;

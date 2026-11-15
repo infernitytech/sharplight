@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Sharplight.Cpu;
 using Sharplight.Graph;
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
 using Sharplight.Runtime;
+using Sharplight.Tensors;
 using Sharplight.Vulkan;
 
 namespace OnnxBench;
@@ -34,6 +36,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         result["batch"] = batch;
         result["reducedPrecision"] = arguments.ReducedPrecision;
         result["splitHalf"] = arguments.SplitHalf;
+        result["fastPrecision"] = arguments.FastPrecision;
 
         IExecutionProvider provider = arguments.Provider == "cpu" ? new CpuExecutionProvider() : new VulkanProvider();
         var availability = provider.CheckAvailability();
@@ -58,7 +61,9 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
 
         result["stage"] = "run";
         SetInputs(compiledModel, graph, run, batch);
+        var first = Stopwatch.StartNew();
         compiledModel.Run(run);
+        result["firstRunMs"] = Math.Round(first.Elapsed.TotalMilliseconds, 3);
         CheckParity(compiledModel, graph, run, batch);
         Time(compiledModel, graph, run);
         if (arguments.Profile)
@@ -115,6 +120,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
                         SymbolBounds = new Dictionary<string, long> { [OnnxGraphAdapter.BatchSymbol] = batch },
                         AllowReducedPrecision = arguments.ReducedPrecision,
                         SplitHalfMatMul = arguments.SplitHalf,
+                        MatrixPrecision = arguments.FastPrecision ? MatrixPrecision.Fast : CompileOptions.MatrixPrecisionFromEnvironment(),
                     },
                     ReservePerDevice = 256L << 20,
                 });
@@ -122,6 +128,8 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
                 result["segments"] = compiled.Plan.Segments.Count;
                 result["fallbackSegments"] = compiled.Plan.Segments.Count(s => s.DeviceSlot != 0);
                 result["fallbackOps"] = FallbackOps(compiled.Plan, device);
+                result["segmentEnds"] = compiled.Plan.Segments.Take(compiled.Plan.Segments.Count - 1).GroupBy(s => s.Nodes[^1].Op.Name)
+                    .ToDictionary(g => g.Key, g => g.Count());
                 result["fixedBatch"] = fixBatch;
                 return (definition, graph, compiled);
             }
@@ -158,6 +166,29 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
             }
 
             compiled.SetInput(value, bytes);
+            if (value.Type == DataType.F32)
+            {
+                floatInputs.Add((value, bytes));
+            }
+        }
+    }
+
+    /// <summary>The f32 inputs as fed by <see cref="SetInputs"/> (for <see cref="BenchArguments.VaryInput"/>).</summary>
+    private readonly List<(Value Value, byte[] Bytes)> floatInputs = [];
+
+    /// <summary>Feeds the f32 reference inputs scaled per element by a random factor in [0.8, 1.2] drawn with <paramref name="seed"/>.</summary>
+    private void SetVariedInputs(CompiledModel compiled, int seed)
+    {
+        var random = new Random(seed);
+        foreach (var (value, bytes) in floatInputs)
+        {
+            var values = MemoryMarshal.Cast<byte, float>(bytes).ToArray();
+            for (int i = 0; i < values.Length; i++)
+            {
+                values[i] *= 0.8f + 0.4f * random.NextSingle();
+            }
+
+            compiled.SetInput<float>(value, values);
         }
     }
 
@@ -215,6 +246,11 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
         var watch = new Stopwatch();
         while (wall.Count < arguments.Runs && (wall.Count < MinRuns || total.Elapsed.TotalSeconds < arguments.BudgetSeconds))
         {
+            if (arguments.VaryInput)
+            {
+                SetVariedInputs(compiled, wall.Count + 1);
+            }
+
             watch.Restart();
             compiled.Run(run);
             foreach (var (name, buffer) in buffers)
@@ -229,6 +265,7 @@ internal sealed class ModelBench(BenchArguments arguments, ReferenceManifest man
             }
         }
 
+        result["earlyRunsMs"] = wall.Take(5).Select(ms => Math.Round(ms, 3)).ToArray();
         wall.Sort();
         result["minMs"] = Math.Round(wall[0], 3);
         result["medMs"] = Math.Round(wall[wall.Count / 2], 3);

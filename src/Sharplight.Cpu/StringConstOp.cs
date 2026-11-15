@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -7,6 +8,7 @@ internal sealed unsafe class StringConstOp(TRef y, string[] strings) : CpuOp
 {
     public override string Name => "StringConst";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         var handles = (int*)y.P;

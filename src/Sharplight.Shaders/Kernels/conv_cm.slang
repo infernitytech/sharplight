@@ -8,6 +8,15 @@
 //            smallest first: f32-equivalent products, the strict-precision path. Needs bf16 cooperative matrices.
 // PARTS = 2: bf16 hi + lo; hi*hi and hi*lo + lo*hi (about 16 mantissa bits): reduced precision without f16 matrices.
 // PARTS = 1: one f16 product per step (reduced precision). Needs f16 cooperative matrices.
+// PARTS = 4: split f16 (strict precision with f16 cooperative matrices): hi + lo f16 parts, hi*hi + hi*lo + lo*hi. The
+//            weights come split on the host (p.w: per output channel KTOT hi halves, then KTOT lo halves, of the row scaled
+//            by p.ws, see split_scale); the im2col values are scaled per K step and block of 16 pixels by the power of two
+//            that puts the block's largest magnitude in [2^14, 2^15), so neither part leaves f16's normal range. A step's
+//            products sum from zero on the tensor cores and are added, times the block's inverse scale, to f32
+//            accumulators (the tensor cores' truncating accumulation then only rounds step sums). Needs every block's
+//            pixels in one subgroup: TBN * 4 / NT (B_ITEMS) of 2 or 4.
+//            HI_ONLY = 1 (fast matrix precision): the same scaling with the hi parts only, one product per step (11
+//            significant bits per input, like TF32); the weights hold KTOT hi halves per output channel.
 // Same layout and macros as conv_gemm (conv.slang): x [N, C, H, W] strided (XS_*), w [O, CG, KH, KW] dense (WFMT
 // f32/f16/bf16), y dense [N, O, HO, WO]. SPLITK > 1 writes partials [SPLITK][N][O][HO*WO] for conv_splitk_reduce.
 // Extra macros: PARTS (1-3) FRAG_N (1 or 2 pixel fragments per subgroup) WARPS_M (1 or 2) A_VEC (K % 8 == 0: weights loaded in groups of 8) SPLITK KPS (K per split,
@@ -15,6 +24,21 @@
 #include "common.slang"
 #include "conv_epilogue.slang"
 using namespace linalg;
+
+#ifndef HI_ONLY
+#define HI_ONLY 0
+#endif
+// Lo parts staged and multiplied (bf16 forms and the strict split-f16 form).
+#if PARTS > 1 && !HI_ONLY
+#define HAS_LO 1
+#else
+#define HAS_LO 0
+#endif
+#if HI_ONLY
+#define W_BYTES_PER_K 2
+#else
+#define W_BYTES_PER_K 4
+#endif
 
 #define KHW (KH * KW)
 #define KTOT (CG * KH * KW)
@@ -29,9 +53,18 @@ using namespace linalg;
 // Groups of 8 consecutive k per thread and step: A rows x 4 groups, B pixels x 4 groups.
 #define A_ITEMS (TBM * 4 / NT)
 #define B_ITEMS (TBN * 4 / NT)
+#if PARTS == 4
+// The B_TPP threads of a pixel are adjacent lanes (pixel tid / B_TPP, k groups tid % B_TPP + it * B_TPP), so a block of 16
+// pixels is 16 * B_TPP lanes of one subgroup.
+#define B_TPP (4 / B_ITEMS)
+#define B_STRIDE B_TPP
+#else
 #define B_STRIDE (NT / TBN)
+#endif
 
-#if PARTS > 1
+#if PARTS == 4
+typealias Elem = half;
+#elif PARTS > 1
 typealias Elem = BFloat16;
 #else
 typealias Elem = half;
@@ -46,6 +79,9 @@ struct ConvParams
     uint8_t* w;
     float* bias;
     float* y;
+#if PARTS == 4
+    float* ws;   // per output channel: the power-of-two scale the split weights carry
+#endif
 #if EPI_RES
     float* res;
 #endif
@@ -55,13 +91,16 @@ struct ConvParams
 // A: weights [o][k] (row-major), B: im2col [pix][k] (column-major B); 8 packed operands per uint4, one tile per part.
 groupshared uint4 sAh[TBM * SAS / 8];
 groupshared uint4 sBh[TBN * SAS / 8];
-#if PARTS > 1
+#if HAS_LO
 groupshared uint4 sAl[TBM * SAS / 8];
 groupshared uint4 sBl[TBN * SAS / 8];
 #endif
-#if PARTS > 2
+#if PARTS == 3
 groupshared uint4 sAm[TBM * SAS / 8];
 groupshared uint4 sBm[TBN * SAS / 8];
+#endif
+#if PARTS == 4
+groupshared float sScB[TBN / 16];   // inverse scale of each 16-pixel block of the staged step
 #endif
 groupshared float sC[WARPS_M * WARPS_N * 256];
 
@@ -128,14 +167,43 @@ void pack8(float v[8], out uint4 hi, out uint4 mid, out uint4 lo)
 // A item it: row idx / 4, k group idx % 4 (idx = tid + it * NT). B item it: the thread's pixel, k group bq0 + it * B_STRIDE.
 void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint bq0, bool bvalid, int ih0, int iw0,
     float* xb, out uint4 ah[A_ITEMS], out uint4 am[A_ITEMS], out uint4 al[A_ITEMS], out uint4 bh[B_ITEMS], out uint4 bm[B_ITEMS],
-    out uint4 bl[B_ITEMS])
+    out uint4 bl[B_ITEMS], out float bscale)
 {
+    bscale = 1.0;
     [ForceUnroll]
     for (uint it = 0; it < A_ITEMS; it++)
     {
         uint idx = tid + it * NT;
         uint r = idx / 4;
         uint kk = k0 + (idx % 4) * 8;
+#if PARTS == 4
+        // Split weights: row o holds KTOT hi halves, then KTOT lo halves.
+        ah[it] = 0;
+        al[it] = 0;
+        am[it] = 0;
+        if (mBase + r < OG && kk < kEnd)
+        {
+            uint64_t row = uint64_t(p.w) + uint64_t(g * OG + mBase + r) * W_BYTES_PER_K * uint64_t(KTOT);
+#if A_VEC
+            ah[it] = *(uint4*)(row + uint64_t(kk) * 2);
+#if !HI_ONLY
+            al[it] = *(uint4*)(row + (uint64_t(KTOT) + kk) * 2);
+#endif
+#else
+            uint h[8];
+            uint l[8];
+            [ForceUnroll]
+            for (uint j = 0; j < 8; j++)
+            {
+                h[j] = kk + j < kEnd ? uint(*(uint16_t*)(row + uint64_t(kk + j) * 2)) : 0u;
+                l[j] = kk + j < kEnd && HI_ONLY == 0 ? uint(*(uint16_t*)(row + (uint64_t(KTOT) + kk + j) * 2)) : 0u;
+            }
+            ah[it] = pack_words(h);
+            al[it] = pack_words(l);
+#endif
+        }
+        continue;
+#endif
         float v[8];
         [ForceUnroll] for (int j = 0; j < 8; j++) { v[j] = 0.0; }
         if (mBase + r < OG && kk < kEnd)
@@ -155,6 +223,9 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
         }
         pack8(v, ah[it], am[it], al[it]);
     }
+#if PARTS == 4
+    float bv[B_ITEMS][8];
+#endif
     [ForceUnroll]
     for (uint it = 0; it < B_ITEMS; it++)
     {
@@ -189,8 +260,27 @@ void fetch(ConvParams p, uint g, uint mBase, uint k0, uint kEnd, uint tid, uint 
 #endif
             }
         }
+#if PARTS == 4
+        [ForceUnroll] for (uint j = 0; j < 8; j++) { bv[it][j] = v[j]; }
+#else
         pack8(v, bh[it], bm[it], bl[it]);
+#endif
     }
+#if PARTS == 4
+    // The block's largest magnitude: the thread's values, then the 16 * B_TPP lanes of its 16 pixels.
+    float m = 0;
+    [ForceUnroll] for (uint it = 0; it < B_ITEMS; it++) [ForceUnroll] for (uint j = 0; j < 8; j++) { m = max(m, abs(bv[it][j])); }
+    uint lane = tid % 32;
+    [ForceUnroll] for (uint d = 1; d < 16 * B_TPP; d *= 2) { m = max(m, WaveReadLaneAt(m, lane ^ d)); }
+    float s = split_scale(m);
+    bscale = 1.0 / s;
+    [ForceUnroll]
+    for (uint it = 0; it < B_ITEMS; it++)
+    {
+        bm[it] = 0;
+        bh[it] = split8_scaled(bv[it], s, bl[it]);
+    }
+#endif
 }
 
 Acc mma(MatA a, MatB b, Acc c) { return coopMatMulAdd<float, false>(a, b, c); }
@@ -213,8 +303,13 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     const uint wn = (sg % WARPS_N) * (FRAG_N * 16);
 
     // im2col: the thread stages pixel column bcol of the tile.
+#if PARTS == 4
+    const uint bcol = tid / B_TPP;
+    const uint bq0 = tid % B_TPP;
+#else
     const uint bcol = tid % TBN;
     const uint bq0 = tid / TBN;
+#endif
     const uint bj = colBase + bcol;
     const bool bvalid = bj < NC;
     const uint bn = bj / HW;
@@ -226,13 +321,13 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     float* xb = p.x + uint64_t(bn) * XS_N + uint64_t(g * CG) * XS_C;
 
     Acc acc[FRAG_M][FRAG_N];
-#if PARTS > 1
+#if PARTS > 1 && PARTS < 4
     // Correction terms accumulate separately by magnitude (independent dependency chains for the matrix units, and the
     // small terms are not rounded away against the large ones): PARTS 2: cor = hi*lo + lo*hi; PARTS 3: cor = hi*mid + mid*hi,
     // cor2 = mid*mid + hi*lo + lo*hi.
     Acc cor[FRAG_M][FRAG_N];
 #endif
-#if PARTS > 2
+#if PARTS == 3
     Acc cor2[FRAG_M][FRAG_N];
 #endif
     [ForceUnroll]
@@ -242,10 +337,10 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         for (int j = 0; j < FRAG_N; j++)
         {
             acc[i][j] = Acc(0.0);
-#if PARTS > 1
+#if PARTS > 1 && PARTS < 4
             cor[i][j] = Acc(0.0);
 #endif
-#if PARTS > 2
+#if PARTS == 3
             cor2[i][j] = Acc(0.0);
 #endif
         }
@@ -257,7 +352,8 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
     uint4 bh[B_ITEMS];
     uint4 bm[B_ITEMS];
     uint4 bl[B_ITEMS];
-    fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl);
+    float bsc;
+    fetch(p, g, mBase, kBeg, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bsc);
     for (uint k0 = kBeg; k0 < kEnd; k0 += TBK)
     {
         [ForceUnroll]
@@ -266,10 +362,10 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
             uint idx = tid + it * NT;
             uint o = (idx / 4) * (SAS / 8) + idx % 4;
             sAh[o] = ah[it];
-#if PARTS > 1
+#if HAS_LO
             sAl[o] = al[it];
 #endif
-#if PARTS > 2
+#if PARTS == 3
             sAm[o] = am[it];
 #endif
         }
@@ -278,19 +374,73 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         {
             uint o = bcol * (SAS / 8) + bq0 + it * B_STRIDE;
             sBh[o] = bh[it];
-#if PARTS > 1
+#if HAS_LO
             sBl[o] = bl[it];
 #endif
-#if PARTS > 2
+#if PARTS == 3
             sBm[o] = bm[it];
 #endif
         }
+#if PARTS == 4
+        if (bcol % 16 == 0 && bq0 == 0)
+        {
+            sScB[bcol / 16] = bsc;
+        }
+#endif
         GroupMemoryBarrierWithGroupSync();
         if (k0 + TBK < kEnd)
         {
-            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl);
+            fetch(p, g, mBase, k0 + TBK, kEnd, tid, bq0, bvalid, ih0, iw0, xb, ah, am, al, bh, bm, bl, bsc);
         }
 
+#if PARTS == 4
+        Acc t[FRAG_M][FRAG_N];
+        [ForceUnroll]
+        for (uint kk = 0; kk < TBK; kk += 16)
+        {
+            MatB b[FRAG_N];
+#if !HI_ONLY
+            MatB bLo[FRAG_N];
+#endif
+            [ForceUnroll]
+            for (int j = 0; j < FRAG_N; j++)
+            {
+                uint ob = ((wn + j * 16) * SAS + kk) / 8;
+                b[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBh, ob, SAS / 8);
+#if !HI_ONLY
+                bLo[j] = MatB.Load<CoopMatMatrixLayout.ColumnMajor>(sBl, ob, SAS / 8);
+#endif
+            }
+            [ForceUnroll]
+            for (int i = 0; i < FRAG_M; i++)
+            {
+                uint oa = ((wm + i * 16) * SAS + kk) / 8;
+                MatA a = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAh, oa, SAS / 8);
+#if HI_ONLY
+                [ForceUnroll]
+                for (int j = 0; j < FRAG_N; j++)
+                {
+                    t[i][j] = mma(a, b[j], kk == 0 ? Acc(0.0) : t[i][j]);
+                }
+#else
+                MatA aLo = MatA.Load<CoopMatMatrixLayout.RowMajor>(sAl, oa, SAS / 8);
+                [ForceUnroll]
+                for (int j = 0; j < FRAG_N; j++)
+                {
+                    t[i][j] = mma(aLo, b[j], kk == 0 ? Acc(0.0) : t[i][j]);
+                    t[i][j] = mma(a, bLo[j], t[i][j]);
+                    t[i][j] = mma(a, b[j], t[i][j]);
+                }
+#endif
+            }
+        }
+        [ForceUnroll]
+        for (int j = 0; j < FRAG_N; j++)
+        {
+            float r = sScB[(wn + j * 16) / 16];
+            [ForceUnroll] for (int i = 0; i < FRAG_M; i++) { acc[i][j] = acc[i][j] + t[i][j] * r; }
+        }
+#else
         [ForceUnroll]
         for (uint kk = 0; kk < TBK; kk += 16)
         {
@@ -337,6 +487,7 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
                 }
             }
         }
+#endif
         GroupMemoryBarrierWithGroupSync();
     }
 
@@ -349,9 +500,9 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
         [ForceUnroll]
         for (int j = 0; j < FRAG_N; j++)
         {
-#if PARTS > 2
+#if PARTS == 3
             Acc c = acc[i][j] + (cor[i][j] + cor2[i][j]);
-#elif PARTS > 1
+#elif PARTS == 2
             Acc c = acc[i][j] + cor[i][j];
 #else
             Acc c = acc[i][j];
@@ -370,6 +521,9 @@ void conv_cm(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Conv
                     uint pix = col - n * HW;
                     uint o = g * OG + m;
                     float v = sC[sg * 256 + w];
+#if PARTS == 4
+                    v /= p.ws[o];
+#endif
                     uint64_t idx = outBase + uint64_t(n) * (O * HW) + uint64_t(o) * HW + pix;
 #if SPLITK == 1
 #if HAS_BIAS

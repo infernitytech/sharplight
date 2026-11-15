@@ -6,8 +6,9 @@
 // draft acceptance (accepted / verified drafts) and the mean accepted length per verification step (1 + accepted / steps).
 // Draft count 0 is the plain decoder (no speculator). "prompt + 1 token" is t(1 new token): prefill of the depth plus one step.
 using System.Diagnostics;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Architectures;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;
@@ -21,6 +22,7 @@ const string Text = "Write a detailed essay about the history of the printing pr
 var argv = args.ToList();
 string? Opt(string n, string? d = null) { int i = argv.IndexOf(n); return i >= 0 && i + 1 < argv.Count ? argv[i + 1] : d; }
 ProviderRegistry.Register(() => new VulkanProvider());
+BuiltinAdapters.RegisterAll();
 GgufImporter.Register();
 HuggingFaceImporter.Register();
 ModelPackageImporter.Register();

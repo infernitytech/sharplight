@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -54,6 +55,7 @@ internal sealed unsafe class DeformConvOp : CpuOp
 
     public override string Name => "DeformConv";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long batches = _x.Dim(0, p);
@@ -78,6 +80,7 @@ internal sealed unsafe class DeformConvOp : CpuOp
     }
 
     /// <summary>Column row (channel, tap): the deformed bilinear samples of one input channel for every output position.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Sample(long n, int channel, int tap, float* row)
     {
         int group = channel / (_c / _offsetGroups);
@@ -111,6 +114,7 @@ internal sealed unsafe class DeformConvOp : CpuOp
     private float Px(float* plane, int r, int c) => (uint)r < (uint)_h && (uint)c < (uint)_wd ? plane[(long)r * _wd + c] : 0f;
 
     /// <summary>Output channel o: bias plus its weight row times the column block of its group.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Contract(long n, int o, float* columns)
     {
         int points = _ho * _wo;

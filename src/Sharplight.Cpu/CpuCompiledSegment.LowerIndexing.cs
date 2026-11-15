@@ -64,7 +64,7 @@ internal sealed unsafe partial class CpuCompiledSegment
         var window = RefF32(n.Inputs[0]);
         var y = NewDense(n.Output);
         AddStep(new NGramHashOp(window, y, a.Get<long[]>("multipliers"), a.Get<long[]>("head_sizes"), a.Get<long[]>("head_offsets"),
-            (int)a.Get<long>("heads_per_order"), a.Get<long>("stop_token")), window, y);
+            (int)a.Get<long>("heads_per_order"), a.Get<long>("stop_token"), a.Get("stop_cuts", true)), window, y);
         _refs[n.Output] = y;
     }
 

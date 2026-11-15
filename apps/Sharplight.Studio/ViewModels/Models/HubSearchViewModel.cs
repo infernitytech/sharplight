@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Sharplight.Hub;
@@ -18,8 +19,12 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     private readonly DownloadsViewModel _downloads;
     private readonly Func<IReadOnlySet<string>> _storedNames;
     private readonly FitAdvisor _advisor;
+    private readonly List<HubResultViewModel> _allResults = [];
+    private readonly List<VariantViewModel> _allVariants = [];
     private CancellationTokenSource? _details;
     private RepositoryDetails? _openDetails;
+    private Task? _highlightsLoad;
+    private bool _highlightsFailed;
 
     public HubSearchViewModel(StudioServices services, DownloadsViewModel downloads, Func<IReadOnlySet<string>> storedNames)
     {
@@ -28,6 +33,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         _storedNames = storedNames;
         _advisor = new FitAdvisor(services.Runtime, services.Settings);
         SelectedFormat = FormatFilter.All[1];
+        ShowOnlySupported = services.Settings.Current.ShowOnlySupported;
     }
 
     /// <summary>Search text.</summary>
@@ -45,16 +51,50 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     [ObservableProperty]
     public partial bool HideGated { get; set; }
 
-    /// <summary>Results.</summary>
+    /// <summary>
+    /// List only repositories and quantizations whose badge is <c>Supported</c> (saved in the settings). Quantizations whose metadata is
+    /// still being read stay listed until their badge is known.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool ShowOnlySupported { get; set; }
+
+    /// <summary>The search results shown (all of them, or the supported ones with <see cref="ShowOnlySupported"/>).</summary>
     public ObservableCollection<HubResultViewModel> Results { get; } = [];
+
+    /// <summary>How many search results <see cref="ShowOnlySupported"/> hides, as a sentence; empty when none.</summary>
+    [ObservableProperty]
+    public partial string HiddenResultsText { get; set; } = "";
+
+    /// <summary>The highlighted models shown before anything is searched.</summary>
+    public ObservableCollection<HighlightSectionViewModel> Highlights { get; } = [];
+
+    /// <summary>The highlights are shown instead of search results (nothing is searched).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsShowingResults))]
+    public partial bool IsShowingHighlights { get; set; } = true;
+
+    /// <summary>Search results are shown.</summary>
+    public bool IsShowingResults => !IsShowingHighlights;
+
+    /// <summary>The highlights are being fetched.</summary>
+    [ObservableProperty]
+    public partial bool IsLoadingHighlights { get; set; }
+
+    /// <summary>Why no highlights are shown (the Hub could not be reached), or empty.</summary>
+    [ObservableProperty]
+    public partial string HighlightsStatus { get; set; } = "";
 
     /// <summary>The result whose details are shown.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection), nameof(SelectedId))]
     public partial HubResultViewModel? SelectedResult { get; set; }
 
-    /// <summary>Variants of the selected repository.</summary>
+    /// <summary>Variants of the selected repository that are shown (see <see cref="ShowOnlySupported"/>).</summary>
     public ObservableCollection<VariantViewModel> Variants { get; } = [];
+
+    /// <summary>How many quantizations <see cref="ShowOnlySupported"/> hides, as a sentence; empty when none.</summary>
+    [ObservableProperty]
+    public partial string HiddenVariantsText { get; set; } = "";
 
     /// <summary>The variant to download.</summary>
     [ObservableProperty]
@@ -97,7 +137,9 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
     /// <summary>Status or error text.</summary>
     [ObservableProperty]
-    public partial string Status { get; set; } = "Search Hugging Face for GGUF, safetensors or ONNX models.";
+    public partial string Status { get; set; } = DefaultStatus;
+
+    private const string DefaultStatus = "Search Hugging Face for GGUF, safetensors or ONNX models.";
 
     /// <summary>Format the selected repository is pulled as.</summary>
     [ObservableProperty]
@@ -109,11 +151,157 @@ internal sealed partial class HubSearchViewModel : ObservableObject
     /// <summary>The selected repository id (empty without a selection).</summary>
     public string SelectedId => SelectedResult?.Id ?? "";
 
-    partial void OnSelectedResultChanged(HubResultViewModel? value)
+    partial void OnSelectedResultChanged(HubResultViewModel? oldValue, HubResultViewModel? newValue)
     {
-        if (value is not null)
+        if (oldValue is not null)
         {
-            _ = LoadDetailsAsync(value);
+            oldValue.IsSelected = false;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.IsSelected = true;
+            _ = LoadDetailsAsync(newValue);
+        }
+    }
+
+    partial void OnShowOnlySupportedChanged(bool value)
+    {
+        if (_services.Settings.Current.ShowOnlySupported != value)
+        {
+            _services.Settings.Update(settings => settings with { ShowOnlySupported = value });
+        }
+
+        ApplyResultFilter();
+        ApplyVariantFilter();
+    }
+
+    partial void OnQueryChanged(string value)
+    {
+        if (value.Trim().Length == 0 && !IsShowingHighlights)
+        {
+            IsShowingHighlights = true;
+            SelectedResult = null;
+            Status = DefaultStatus;
+        }
+    }
+
+    /// <summary>
+    /// Fetches the highlighted models once (the catalog caches them for a few hours, so opening Discover again does not ask the Hub).
+    /// </summary>
+    public Task LoadHighlightsAsync()
+    {
+        if (_highlightsLoad is null || _highlightsFailed)
+        {
+            _highlightsFailed = false;
+            _highlightsLoad = FetchHighlightsAsync();
+        }
+
+        return _highlightsLoad;
+    }
+
+    /// <summary>Shows a repository's details (the highlight cards).</summary>
+    [RelayCommand]
+    private void SelectResult(HubResultViewModel? result)
+    {
+        if (result is not null)
+        {
+            SelectedResult = result;
+        }
+    }
+
+    private async Task FetchHighlightsAsync()
+    {
+        IsLoadingHighlights = true;
+        HighlightsStatus = "";
+        try
+        {
+            var sections = await _services.Hub.GetHighlightsAsync(CancellationToken.None);
+            Highlights.Clear();
+            foreach (var section in sections.Where(section => section.Models.Count > 0))
+            {
+                Highlights.Add(new HighlightSectionViewModel(section.Kind, [.. section.Models.Select(model => new HubResultViewModel(model))]));
+            }
+
+            if (Highlights.Count == 0)
+            {
+                HighlightsStatus = "No highlighted models right now. Search to find models.";
+            }
+        }
+        catch (Exception error) when (error is HubException or HttpRequestException or TaskCanceledException)
+        {
+            HighlightsStatus = "Hugging Face could not be reached, so no highlighted models are shown. Search to try again.";
+            _highlightsFailed = true;
+        }
+        finally
+        {
+            IsLoadingHighlights = false;
+        }
+    }
+
+    /// <summary>Shows the results that pass <see cref="ShowOnlySupported"/>, in their order; a hidden selection moves to the first shown.</summary>
+    private void ApplyResultFilter()
+    {
+        var shown = _allResults.Where(IsShown).ToList();
+        var selected = SelectedResult;
+        if (!shown.SequenceEqual(Results))
+        {
+            Results.Clear();
+            foreach (var result in shown)
+            {
+                Results.Add(result);
+            }
+        }
+
+        // Clearing the list can clear the selection through the list's binding: the selection is restored, or moved when hidden.
+        if (IsShowingResults && selected is not null)
+        {
+            SelectedResult = shown.Contains(selected) ? selected : shown.FirstOrDefault();
+        }
+
+        int hidden = _allResults.Count - shown.Count;
+        if (_allResults.Count > 0)
+        {
+            Status = shown.Count == 1 ? "1 model" : $"{shown.Count} models";
+        }
+
+        HiddenResultsText = hidden == 0 ? "" : hidden == 1 ? "1 model is hidden because it is not supported." : $"{hidden} models are hidden because they are not supported.";
+
+        bool IsShown(HubResultViewModel result) => !ShowOnlySupported || result.Compatibility.IsGood;
+    }
+
+    /// <summary>
+    /// Shows the quantizations that pass <see cref="ShowOnlySupported"/> (those still being checked included), in their order, and moves
+    /// the selection to a shown one when the selected one is hidden.
+    /// </summary>
+    private void ApplyVariantFilter()
+    {
+        var shown = _allVariants.Where(variant => !ShowOnlySupported || variant.Compatibility is null || variant.Compatibility.IsGood).ToList();
+        if (!shown.SequenceEqual(Variants))
+        {
+            var selected = SelectedVariant;
+            Variants.Clear();
+            foreach (var variant in shown)
+            {
+                Variants.Add(variant);
+            }
+
+            SelectedVariant = selected is not null && shown.Contains(selected)
+                ? selected
+                : shown.FirstOrDefault(variant => variant.Recommended) ?? shown.FirstOrDefault();
+        }
+
+        int hidden = _allVariants.Count - shown.Count;
+        HiddenVariantsText = hidden == 0 ? "" : hidden == 1
+            ? "1 quantization is hidden because it is not supported."
+            : $"{hidden} quantizations are hidden because they are not supported.";
+    }
+
+    private void OnVariantChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(VariantViewModel.Compatibility) && ShowOnlySupported)
+        {
+            ApplyVariantFilter();
         }
     }
 
@@ -139,19 +327,19 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         }
 
         IsSearching = true;
+        IsShowingHighlights = false;
         Status = "Searching…";
         try
         {
             var results = await _services.Hub.SearchAsync(new HubSearchQuery { Text = Query.Trim(), Format = SelectedFormat.Format, Limit = ResultLimit }, CancellationToken.None);
-            Results.Clear();
+            SelectedResult = null;
+            _allResults.Clear();
             // Results that are likely not to import go last; the Hub's order (downloads) is kept otherwise.
-            foreach (var result in results.Where(result => !HideGated || !result.Gated).Select(result => new HubResultViewModel(result))
-                .OrderBy(result => result.Compatibility.IsBad))
-            {
-                Results.Add(result);
-            }
+            _allResults.AddRange(results.Where(result => !HideGated || !result.Gated).Select(result => new HubResultViewModel(result))
+                .OrderBy(result => result.Compatibility.IsBad));
+            ApplyResultFilter();
 
-            Status = Results.Count == 0 ? "No models found." : $"{Results.Count} models";
+            Status = Results.Count == 0 ? "No models found." : Results.Count == 1 ? "1 model" : $"{Results.Count} models";
             SelectedResult = Results.FirstOrDefault();
         }
         catch (Exception error) when (error is HubException or HttpRequestException or TaskCanceledException)
@@ -189,7 +377,14 @@ internal sealed partial class HubSearchViewModel : ObservableObject
         var cancellation = new CancellationTokenSource();
         _details = cancellation;
         IsLoadingDetails = true;
+        foreach (var variant in _allVariants)
+        {
+            variant.PropertyChanged -= OnVariantChanged;
+        }
+
+        _allVariants.Clear();
         Variants.Clear();
+        HiddenVariantsText = "";
         Files.Clear();
         DetailFormat = null;
         _openDetails = null;
@@ -205,7 +400,10 @@ internal sealed partial class HubSearchViewModel : ObservableObject
             foreach (var variant in details.Variants)
             {
                 var name = variant.Tag.Length == 0 ? result.Id : $"{result.Id}:{variant.Tag}";
-                Variants.Add(new VariantViewModel(variant, stored.Contains(name)));
+                var item = new VariantViewModel(variant, stored.Contains(name));
+                item.PropertyChanged += OnVariantChanged;
+                _allVariants.Add(item);
+                Variants.Add(item);
             }
 
             foreach (var file in details.Repository.Files.OrderBy(file => file.Path, StringComparer.Ordinal))
@@ -215,7 +413,7 @@ internal sealed partial class HubSearchViewModel : ObservableObject
 
             DetailFormat = details.Format?.ToString() ?? "No supported model files";
             SelectedVariant = Variants.FirstOrDefault(variant => variant.Recommended) ?? Variants.FirstOrDefault();
-            FitEstimate = EstimateFitAsync(result, details, [.. Variants], cancellation.Token);
+            FitEstimate = EstimateFitAsync(result, details, [.. _allVariants], cancellation.Token);
         }
         catch (Exception error) when (error is HubException or HttpRequestException or OperationCanceledException)
         {

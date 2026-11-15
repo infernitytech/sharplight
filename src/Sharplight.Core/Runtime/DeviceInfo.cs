@@ -36,6 +36,12 @@ public sealed record DeviceInfo
     /// and process-wide with the environment variable <c>SHARPLIGHT_SUBMISSION_BUDGET_MS</c> (0 turns it off).
     /// </summary>
     public double SubmissionBudgetMs { get; init; }
+
+    /// <summary>
+    /// Workgroups (of about 256 threads) the device runs at the same time: a sizing hint for kernels that split work to fill the
+    /// device (split-K GEMMs); 0 = unknown, sized for a large discrete GPU.
+    /// </summary>
+    public int ConcurrentWorkgroups { get; init; }
     /// <summary>Provider-specific informational details (API version, raw extension info, limits, ...).</summary>
     public IReadOnlyDictionary<string, string> Capabilities { get; init; } = new Dictionary<string, string>();
 

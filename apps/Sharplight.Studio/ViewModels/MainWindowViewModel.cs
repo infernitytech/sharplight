@@ -8,6 +8,7 @@ using Sharplight.Studio.ViewModels.Models;
 using Sharplight.Studio.ViewModels.Server;
 using Sharplight.Studio.ViewModels.Settings;
 using Sharplight.Studio.ViewModels.Stats;
+using Sharplight.Studio.ViewModels.Updates;
 
 namespace Sharplight.Studio.ViewModels;
 
@@ -46,6 +47,9 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     /// <summary>Settings page (pinned to the bottom of the navigation).</summary>
     public SettingsPageViewModel Settings { get; }
 
+    /// <summary>Update checks and the "update available" dialog (the same instance the Settings page shows).</summary>
+    public UpdatesViewModel Updates => Settings.Updates;
+
     /// <summary>The one-time offer to move the models of a previous store.</summary>
     public StoreMigrationViewModel StoreMigration { get; }
 
@@ -78,6 +82,7 @@ internal sealed partial class MainWindowViewModel : ObservableObject, INavigator
     public Task StartAsync()
     {
         StoreMigration.Check();
+        _ = Updates.StartAsync();
         return NavigateAsync(_services.Runtime.LoadedModels.Count == 0 ? Models : Chat);
     }
 

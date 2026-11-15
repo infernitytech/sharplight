@@ -16,7 +16,8 @@ namespace Sharplight.Package;
 /// <para>Layout (little endian):</para>
 /// <code>
 /// header   (64 B)  magic "SHARPLM\0", u32 version, u32 header size, u64 section-table offset, u32 section count
-/// sections         DEFN (Sharplight IR), WIDX (weight index), WDAT (weight bytes), ARTS (one per artifact set; KSET in version 1)
+/// sections         DEFN (Sharplight IR), DESC (model description JSON, optional), WIDX (weight index), WDAT (weight bytes),
+///                  ATCH (one per attachment, optional), ARTS (one per artifact set; KSET in version 1)
 /// table            per section: u32 kind, u32 name length, u64 offset, u64 length, UTF-8 name
 /// </code>
 /// <para>An artifact set is a descriptor (string → string: provider, tier, kind and provider-defined keys, see
@@ -41,6 +42,8 @@ public static class ModelPackage
     internal static ReadOnlySpan<byte> Magic => "SHARPLM\0"u8;
     internal const int HeaderSize = 64;
     internal const long WeightAlignment = 64 * 1024;
+    /// <summary>Name of the DESC section.</summary>
+    internal const string DescriptionSectionName = "model.json";
 
     /// <summary>
     /// Writes a built model (<paramref name="definition"/>: all graphs, states, properties, tokenizer metadata and
@@ -67,6 +70,12 @@ public static class ModelPackage
             var sections = new List<PackageSection>();
 
             sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.Definition, DefinitionCodec.SectionName, w => DefinitionCodec.Write(w, definition)));
+            if (definition.Description is { } description)
+            {
+                description.Validate(definition);
+                sections.Add(PackageWriter.WriteSection(fs, PackageSectionKind.Description, DescriptionSectionName,
+                    w => w.Write(Encoding.UTF8.GetBytes(description.ToJson()))));
+            }
 
             // Every weight of the definition plus any the graphs reference beyond it (e.g. auxiliary files).
             var byName = new Dictionary<string, WeightInfo>(definition.Weights, StringComparer.Ordinal);
@@ -134,6 +143,7 @@ public static class ModelPackage
             long dataEnd = fs.Position;
             long dataOffset = weights.Count == 0 ? dataEnd : dataStart;
             sections.Add(new PackageSection(PackageSectionKind.WeightData, "", dataOffset, dataEnd - dataOffset));
+            sections.AddRange(WriteAttachments(fs, definition.Attachments));
 
             sections.AddRange(WriteArtifactSets(fs, artifacts));
             PackageWriter.WriteTable(fs, sections);
@@ -321,6 +331,32 @@ public static class ModelPackage
         }
     }
 
+    /// <summary>Writes each attachment as an ATCH section at a 64 KiB-aligned offset, so it can be read in place from the mapping.</summary>
+    private static List<PackageSection> WriteAttachments(FileStream fs, IReadOnlyDictionary<string, IWeightSource> attachments)
+    {
+        var written = new List<PackageSection>(attachments.Count);
+        if (attachments.Count == 0)
+        {
+            return written;
+        }
+
+        var buf = new byte[1 << 20];
+        foreach (var (name, source) in attachments.OrderBy(a => a.Key, StringComparer.Ordinal))
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                throw new InvalidDataException("Attachment names must not be empty.");
+            }
+
+            long start = PackageWriter.Align(fs.Position, WeightAlignment);
+            PackageWriter.Pad(fs, start);
+            CopySource(source, source.ByteLength, fs, buf);
+            written.Add(new PackageSection(PackageSectionKind.Attachment, name, start, source.ByteLength));
+        }
+
+        return written;
+    }
+
     private static List<PackageSection> WriteArtifactSets(FileStream fs, IEnumerable<CompilationCache> artifacts)
     {
         var written = new List<PackageSection>();
@@ -338,7 +374,7 @@ public static class ModelPackage
 
     private static bool SameWeight(WeightInfo a, WeightInfo b) => ReferenceEquals(a.Source, b.Source) && a.Type == b.Type && a.Shape.Equals(b.Shape);
 
-    private static unsafe void CopyWeight(WeightInfo w, FileStream fs, byte[] buf)
+    private static void CopyWeight(WeightInfo w, FileStream fs, byte[] buf)
     {
         long size = w.ByteSize;
         if (w.Source.ByteLength < size)
@@ -346,7 +382,12 @@ public static class ModelPackage
             throw new InvalidDataException($"Weight {w.Name}: source has {w.Source.ByteLength} bytes, expected {size}.");
         }
 
-        nint ptr = w.Source.TryGetPointer();
+        CopySource(w.Source, size, fs, buf);
+    }
+
+    private static unsafe void CopySource(IWeightSource source, long size, FileStream fs, byte[] buf)
+    {
+        nint ptr = source.TryGetPointer();
         for (long done = 0; done < size;)
         {
             int n = (int)Math.Min(buf.Length, size - done);
@@ -356,7 +397,7 @@ public static class ModelPackage
             }
             else
             {
-                w.Source.Read(done, buf.AsSpan(0, n));
+                source.Read(done, buf.AsSpan(0, n));
                 fs.Write(buf, 0, n);
             }
             done += n;

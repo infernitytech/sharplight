@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -15,6 +16,7 @@ internal sealed unsafe class DetOp : CpuOp
         _y = y;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         var d = OpHelpers.Dims(_x, p);
@@ -35,6 +37,7 @@ internal sealed unsafe class DetOp : CpuOp
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static double Determinant(double[] a, int m)
     {
         double det = 1;

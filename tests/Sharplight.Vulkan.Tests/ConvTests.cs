@@ -41,6 +41,17 @@ public sealed class ConvTests
     public void Dense(int n, int c, int h, int w, int o, int kh, int kw, int s, int p, int g)
         => Run($"{c}->{o} {kh}x{kw} s{s} p{p} N{n}", [n], c, h, w, o, kh, kw, [s, s], [p, p, p, p], [1, 1], g, bias: true);
 
+    /// <summary>Few output channels (conv_narrow): flow, depth and mask heads.</summary>
+    [Theory]
+    [InlineData(2, 256, 15, 13, 2, 3, 3, 1, 1, "f32")]
+    [InlineData(1, 64, 20, 20, 1, 1, 1, 1, 0, "f32")]
+    [InlineData(3, 19, 11, 9, 5, 3, 3, 2, 1, "f16")]
+    [InlineData(1, 40, 7, 30, 8, 5, 5, 1, 2, "bf16")]
+    public void NarrowOutputs(int n, int c, int h, int w, int o, int kh, int kw, int s, int p, string wtype)
+        => Run($"narrow {c}->{o} {kh}x{kw} s{s} N{n} {wtype}", [n], c, h, w, o, kh, kw, [s, s], [p, p, p, p], [1, 1], 1, bias: o != 1, wtype: wtype);
+
+    [Fact] public void NarrowOutputsSlicedDilated() => Run("narrow sliced dil2", [1, 2], 12, 13, 13, 3, 3, 3, [1, 1], [2, 2, 2, 2], [2, 2], 1, bias: true, sliceInput: true);
+
     [Fact] public void NoBias() => Run("nobias", [2], 12, 11, 11, 20, 3, 3, [1, 1], [1, 1, 1, 1], [1, 1], 1, bias: false);
     [Fact] public void Dilated() => Run("dil2", [1], 8, 16, 16, 8, 3, 3, [1, 1], [2, 2, 2, 2], [2, 2], 1, bias: true);
     [Fact] public void DilatedAsymmetric() => Run("dil(2,3) s(1,2)", [2], 6, 15, 17, 10, 3, 2, [1, 2], [2, 3, 2, 3], [2, 3], 1, bias: true);

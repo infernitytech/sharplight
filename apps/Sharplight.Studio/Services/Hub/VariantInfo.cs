@@ -7,4 +7,10 @@ namespace Sharplight.Studio.Services.Hub;
 /// <param name="HasProjector">A vision projector is downloaded with it.</param>
 /// <param name="Recommended">The variant pulled without a tag.</param>
 /// <param name="PrimaryPath">The model file (the first shard of a split GGUF) or checkpoint directory in the repository.</param>
-internal sealed record VariantInfo(string Tag, long Bytes, int FileCount, bool HasProjector, bool Recommended, string PrimaryPath = "");
+/// <param name="ShardPaths">The second and later shards of a split GGUF, in order; empty otherwise.</param>
+internal sealed record VariantInfo(string Tag, long Bytes, int FileCount, bool HasProjector, bool Recommended, string PrimaryPath = "",
+    IReadOnlyList<string>? ShardPaths = null)
+{
+    /// <summary>The second and later shards of a split GGUF (never null).</summary>
+    public IReadOnlyList<string> OtherShards => ShardPaths ?? [];
+}

@@ -12,6 +12,7 @@ internal static unsafe partial class Quant
     private static readonly float[] s_ue4m3 = BuildUe4m3();
 
     /// <summary>UE4M3 scale byte (4 exponent bits, bias 7, 3 mantissa bits) decoded as ggml does: halved, and 0 / 0x7F (NaN) read as zero.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static float[] BuildUe4m3()
     {
         var table = new float[256];
@@ -40,6 +41,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>MXFP4: 32 values = { u8 e; u8 qs[16] } (17 bytes); value j&lt;16: fp4(low nibble of qs[j]), j&gt;=16: fp4(high nibble of qs[j-16]), times the E8M0 scale.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void MXFP4(byte* p, long nb, float* dst)
     {
         var table = Vector128.Create(0, 1, 2, 3, 4, 6, 8, 12, 0, -1, -2, -3, -4, -6, -8, -12).AsSByte();
@@ -54,6 +56,7 @@ internal static unsafe partial class Quant
     }
 
     /// <summary>NVFP4: 64 values = { u8 d[4]; u8 qs[32] } (36 bytes); four 16-value sub-blocks with a UE4M3 scale each, laid out like MXFP4 halves (low nibbles first).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void NVFP4(byte* p, long nb, float* dst)
     {
         fixed (float* scaleTable = s_ue4m3)
@@ -65,6 +68,33 @@ internal static unsafe partial class Quant
                 {
                     float d = scaleTable[p[s]];
                     byte* q = p + 4 + 8 * s;
+                    float* y = dst + 16 * s;
+                    for (int j = 0; j < 8; j++)
+                    {
+                        y[j] = fp4[q[j] & 0xF] * d;
+                        y[j + 8] = fp4[q[j] >> 4] * d;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// NVFP4_GS: 64 values = { f32 g; u8 d[4]; u8 qs[32] } (40 bytes), the NVFP4 block after its global scale g. Each sub-block's
+    /// multiplier is formed first (UE4M3 scale times g, one rounding), then times the E2M1 code: the order of ModelOpt's dequantization.
+    /// </summary>
+    private static void NVFP4_GS(byte* p, long nb, float* dst)
+    {
+        fixed (float* scaleTable = s_ue4m3)
+        fixed (sbyte* fp4 = s_fp4Values)
+        {
+            for (long b = 0; b < nb; b++, p += 40, dst += 64)
+            {
+                float g = Unsafe.ReadUnaligned<float>(p);
+                for (int s = 0; s < 4; s++)
+                {
+                    float d = scaleTable[p[4 + s]] * g;
+                    byte* q = p + 8 + 8 * s;
                     float* y = dst + 16 * s;
                     for (int j = 0; j < 8; j++)
                     {

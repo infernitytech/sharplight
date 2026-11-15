@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -137,6 +138,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     }
 
     /// <inheritdoc />
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void GetOutput(Value value, long byteOffset, Span<byte> destination)
     {
         if (!_refs.TryGetValue(value, out var r))
@@ -176,6 +178,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     }
 
     /// <inheritdoc />
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void GetOutput(Value value, Span<byte> destination)
     {
         if (!_refs.TryGetValue(value, out var r))
@@ -209,6 +212,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     }
 
     /// <summary>Overwrites a state tensor with host data (f32, f16 or bf16 states, rounded to nearest; used by tests and for state restore).</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void TestSetState(Value state, float[] data)
     {
         var r = _refs[state];
@@ -231,6 +235,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     }
 
     /// <summary>Reads back an f32, f16 or bf16 state tensor as f32.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public float[] TestGetState(Value state)
     {
         var r = _refs[state];
@@ -260,6 +265,7 @@ internal sealed unsafe partial class CpuCompiledSegment : ICompiledSegment, IPar
     }
 
     /// <inheritdoc />
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void Dispose()
     {
         if (_disposed)

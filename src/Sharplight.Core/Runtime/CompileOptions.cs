@@ -23,13 +23,39 @@ public sealed class CompileOptions
     public bool AllowReducedPrecision { get; init; }
 
     /// <summary>
-    /// Allow f32-weight matmuls on f16 tensor cores in the error-compensated split form: each value becomes an f16 hi part plus
-    /// an f16 lo part and each product hi·hi + hi·lo + lo·hi, accumulated in f32. Much closer to f32 than f16 or TF32 products
-    /// (about 2^-22 relative error per value; values below 2^-3 lose some bits to f16 subnormals), yet not bit-for-bit f32,
-    /// so it is opt-in. Ignored where <see cref="AllowReducedPrecision"/> already permits plain f16 products, and on devices
-    /// without f16 matrix products (<see cref="DeviceFeatures.MatrixF16"/>).
+    /// Allow f32-weight matmuls on f16 tensor cores in the error-compensated split form (default: true): each row of the
+    /// activations and of the weights is scaled by a power of two, each value becomes an f16 hi part plus an f16 lo part, and
+    /// each product is hi·hi + hi·lo + lo·hi, summed in f32. The scaling keeps both parts in f16's normal range, so the pair
+    /// holds 22-23 significant bits of every value, and the error against an f64 reference is at or below that of the f32
+    /// SIMT GEMM. Set to false to keep f32 matmuls on the SIMT GEMM. Ignored where <see cref="AllowReducedPrecision"/>
+    /// already permits plain f16 products, and on devices without f16 matrix products (<see cref="DeviceFeatures.MatrixF16"/>).
     /// </summary>
-    public bool SplitHalfMatMul { get; init; }
+    public bool SplitHalfMatMul { get; init; } = true;
+
+    /// <summary>
+    /// Precision of the products in f32-weight matmuls, convolutions and attention (default: <see cref="MatrixPrecision.Strict"/>,
+    /// or the value of the environment variable <c>SHARPLIGHT_MATRIX_PRECISION</c> = <c>strict</c> | <c>fast</c>, see
+    /// <see cref="MatrixPrecisionFromEnvironment"/>). <see cref="MatrixPrecision.Fast"/> is an opt-in that trades accuracy for
+    /// speed like TF32. <see cref="AllowReducedPrecision"/>, where set, takes precedence for the kernels it covers.
+    /// </summary>
+    public MatrixPrecision MatrixPrecision { get; init; } = MatrixPrecisionFromEnvironment();
+
+    /// <summary>
+    /// The matrix precision selected by the environment variable <c>SHARPLIGHT_MATRIX_PRECISION</c> (<c>fast</c> or
+    /// <c>strict</c>, case-insensitive); <see cref="MatrixPrecision.Strict"/> when it is unset or holds another value.
+    /// </summary>
+    public static MatrixPrecision MatrixPrecisionFromEnvironment()
+        => string.Equals(Environment.GetEnvironmentVariable("SHARPLIGHT_MATRIX_PRECISION"), "fast", StringComparison.OrdinalIgnoreCase)
+            ? MatrixPrecision.Fast : MatrixPrecision.Strict;
+
+    /// <summary>
+    /// Steps of up to this many activation rows compute every row bit-identically to a step of that row alone (0: no such
+    /// guarantee). Speculative decoding needs it for its verification rows (the pending token plus drafts of one sequence):
+    /// greedy output then equals decoding without speculation. Matmuls and decode attention run their single-row arithmetic
+    /// for these rows instead of the faster batched kernels (integer-dot or tensor-core matvecs with quantized or f16
+    /// activations, fewer key splits). Backends honor it up to their matrix-vector range (8 rows on Vulkan).
+    /// </summary>
+    public long RowInvariantRows { get; init; }
 
     /// <summary>
     /// Compilation cache to use on a device (kernel binaries, pipeline caches): consulted before compiling and
@@ -56,6 +82,13 @@ public sealed class CompileOptions
     /// on the same device already holds, e.g. a draft head reusing the decoder's embedding and LM head.
     /// </summary>
     public SharedWeights? SharedWeights { get; init; }
+
+    /// <summary>
+    /// Identifies the compiled graph a segment belongs to (set by <see cref="CompiledModel.Compile"/>, one object per graph): the segments
+    /// compiled with the same scope on one device hold a single buffer per state, so nodes of a state that the placement splits into several
+    /// segments of that device (other devices' nodes between them) see the same state. Null: every segment keeps its own states.
+    /// </summary>
+    public object? StateScope { get; init; }
 
     /// <summary>Features a compilation on <paramref name="device"/> may use.</summary>
     public IReadOnlySet<string> FeaturesFor(IComputeDevice device) => DeviceFeatures.Effective(device.EnabledFeatures, DisabledFeatures);
@@ -94,7 +127,10 @@ public sealed class CompileOptions
     /// <summary>A copy reporting to <paramref name="progress"/>.</summary>
     internal CompileOptions WithProgress(IProgress<LoadProgress>? progress) => Copy(SymbolBounds, progress);
 
-    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress) => new()
+    /// <summary>A copy with the state scope <paramref name="scope"/>.</summary>
+    internal CompileOptions WithStateScope(object scope) => Copy(SymbolBounds, Progress, scope);
+
+    private CompileOptions Copy(IReadOnlyDictionary<string, long> symbolBounds, IProgress<LoadProgress>? progress, object? stateScope = null) => new()
     {
         MaxTokens = MaxTokens,
         ContextLength = ContextLength,
@@ -102,9 +138,12 @@ public sealed class CompileOptions
         DisabledFeatures = DisabledFeatures,
         AllowReducedPrecision = AllowReducedPrecision,
         SplitHalfMatMul = SplitHalfMatMul,
+        MatrixPrecision = MatrixPrecision,
+        RowInvariantRows = RowInvariantRows,
         CacheFor = CacheFor,
         Progress = progress,
         CancellationToken = CancellationToken,
         SharedWeights = SharedWeights,
+        StateScope = stateScope ?? StateScope,
     };
 }

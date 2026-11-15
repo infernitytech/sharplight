@@ -186,6 +186,9 @@ internal sealed unsafe partial class CpuCompiledSegment
             case "CausalConv1d":
                 LowerCausalConv1d(n);
                 return;
+            case "WindowPool":
+                LowerWindowPool(n);
+                return;
             case "SelectiveScan":
                 LowerSelectiveScan(n);
                 return;
@@ -236,6 +239,12 @@ internal sealed unsafe partial class CpuCompiledSegment
                 return;
             case "StringCast":
                 LowerStringCast(n);
+                return;
+            case "MurmurHash3":
+                LowerMurmurHash3(n);
+                return;
+            case "StringSplit":
+                LowerStringSplit(n);
                 return;
             case "TreeEnsemble":
                 LowerTreeEnsemble(n);

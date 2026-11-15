@@ -8,7 +8,7 @@ expected outputs computed by onnxruntime's CPU provider, the de facto reference 
 Usage (in a venv with onnx, onnxruntime and numpy, never the system Python):
     python -I tools/gen-onnx-ml-tests.py [-o ~/models/onnx/sharplight-ml-tests]
 
-tests/Sharplight.Onnx.Conformance (ExtraConformanceTests) reads the directory from SHARPLIGHT_ONNX_EXTRA_TESTS, else
+tests/Sharplight.Import.Onnx.Conformance (ExtraConformanceTests) reads the directory from SHARPLIGHT_ONNX_EXTRA_TESTS, else
 ~/models/onnx/sharplight-ml-tests.
 """
 

@@ -3,127 +3,197 @@
         xmlns:vm="using:Sharplight.Studio.ViewModels"
         xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
         xmlns:views="using:Sharplight.Studio.Views"
+        xmlns:c="using:Sharplight.Studio.Controls"
+        xmlns:upvm="using:Sharplight.Studio.ViewModels.Updates"
         xmlns:conv="using:Sharplight.Studio.Converters"
         x:Class="Sharplight.Studio.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Sharplight Studio"
         Width="1440" Height="900" MinWidth="980" MinHeight="620"
-        WindowStartupLocation="CenterScreen">
-  <Grid ColumnDefinitions="232,*" RowDefinitions="Auto,*,Auto">
-    <!-- Sidebar -->
-    <Border Grid.RowSpan="3" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
-      <DockPanel Margin="14,18,14,14">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="6,0,0,22">
-          <Border Width="34" Height="34" CornerRadius="10" Background="{DynamicResource AccentGradientBrush}">
-            <Path Data="{StaticResource IconLogo}" Fill="White" Stretch="Uniform" Width="16" Height="16" />
-          </Border>
-          <StackPanel VerticalAlignment="Center">
-            <TextBlock Text="Sharplight" FontWeight="SemiBold" FontSize="15" />
-            <TextBlock Text="Studio" Classes="caption" Margin="0,-2,0,0" />
-          </StackPanel>
-        </StackPanel>
-
-        <StackPanel DockPanel.Dock="Bottom" Spacing="8">
-          <!-- Downloads: visible from every page -->
-          <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="0"
-                  IsVisible="{Binding Downloads.ActiveCount, Converter={x:Static conv:PositiveConverter.Instance}}" x:Name="DownloadsButton">
-            <Border Classes="inset" Padding="10,8">
-              <StackPanel Spacing="6">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                  <Path Classes="icon accent" Data="{StaticResource IconDownload}" />
-                  <TextBlock Text="{Binding Downloads.Summary}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-                <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Downloads.OverallProgress}" />
-              </StackPanel>
-            </Border>
-            <Button.Flyout>
-              <Flyout Placement="RightEdgeAlignedBottom">
-                <StackPanel Width="380" Spacing="8" Margin="4">
-                  <DockPanel>
-                    <Button DockPanel.Dock="Right" Classes="ghost small" Content="Open downloads" Command="{Binding OpenDownloadsCommand}" />
-                    <TextBlock Classes="h3" Text="Downloads" VerticalAlignment="Center" />
-                  </DockPanel>
-                  <ScrollViewer MaxHeight="420">
-                    <ItemsControl ItemsSource="{Binding Downloads.Items}">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="mvm:DownloadItemViewModel">
-                          <views:DownloadItemView Margin="0,4" />
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </ScrollViewer>
-                </StackPanel>
-              </Flyout>
-            </Button.Flyout>
-          </Button>
-
-          <Border Classes="divider" Margin="0,4" />
-          <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,9"
-                  Command="{Binding NavigateCommand}" CommandParameter="{Binding Settings}">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <Path Classes="icon" Data="{StaticResource IconSettings}" />
-              <TextBlock Text="Settings" FontWeight="Medium" />
+        WindowStartupLocation="CenterScreen"
+        Icon="avares://sharplight-studio/Assets/Icons/sharplight-studio-256.png">
+  <!-- The frame: Studio's own title bar and resize edges (custom chrome), or the system's (see Platform/WindowChrome) -->
+  <Border x:Name="Frame" BorderBrush="{DynamicResource BorderSubtleBrush}">
+    <Panel>
+      <DockPanel>
+        <Border x:Name="TitleBar" DockPanel.Dock="Top" Classes="titlebar">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+              <Button x:Name="MinimizeButton" Classes="caption" ToolTip.Tip="Minimize">
+                <Path Classes="caption" Data="{StaticResource CaptionMinimize}" />
+              </Button>
+              <Button x:Name="MaximizeButton" Classes="caption" ToolTip.Tip="Maximize">
+                <Path x:Name="MaximizeGlyph" Classes="caption" Data="{StaticResource CaptionMaximize}" />
+              </Button>
+              <Button x:Name="CloseButton" Classes="caption close" ToolTip.Tip="Close">
+                <Path Classes="caption" Data="{StaticResource CaptionClose}" />
+              </Button>
             </StackPanel>
-          </Button>
-        </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="9" Margin="12,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+              <Image Source="avares://sharplight-studio/Assets/Icons/sharplight-studio-32.png" Width="16" Height="16" />
+              <TextBlock Classes="titlebar" Text="{Binding $parent[Window].Title}" VerticalAlignment="Center" />
+            </StackPanel>
+          </DockPanel>
+        </Border>
 
-        <ListBox x:Name="Nav" Classes="nav" ItemsSource="{Binding Pages}" SelectedItem="{Binding CurrentPage, Mode=OneWay}">
-          <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:PageViewModel">
+          <Grid ColumnDefinitions="232,*" RowDefinitions="Auto,*,Auto">
+            <!-- Sidebar -->
+            <Border Grid.RowSpan="3" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
+              <DockPanel Margin="14,18,14,14">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="6,0,0,22">
+                  <Image Source="avares://sharplight-studio/Assets/Icons/sharplight-studio-128.png" Width="34" Height="34"
+                         RenderOptions.BitmapInterpolationMode="HighQuality" />
+                  <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Sharplight" FontWeight="SemiBold" FontSize="15" />
+                    <TextBlock Text="Studio" Classes="caption" Margin="0,-2,0,0" />
+                  </StackPanel>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Bottom" Spacing="8">
+                  <!-- Downloads: visible from every page -->
+                  <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="0"
+                          IsVisible="{Binding Downloads.ActiveCount, Converter={x:Static conv:PositiveConverter.Instance}}" x:Name="DownloadsButton">
+                    <Border Classes="inset" Padding="10,8">
+                      <StackPanel Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                          <Path Classes="icon accent" Data="{StaticResource IconDownload}" />
+                          <TextBlock Text="{Binding Downloads.Summary}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <ProgressBar Classes="thin" Minimum="0" Maximum="1" Value="{Binding Downloads.OverallProgress}" />
+                      </StackPanel>
+                    </Border>
+                    <Button.Flyout>
+                      <Flyout Placement="RightEdgeAlignedBottom">
+                        <StackPanel Width="380" Spacing="8" Margin="4">
+                          <DockPanel>
+                            <Button DockPanel.Dock="Right" Classes="ghost small" Content="Open downloads" Command="{Binding OpenDownloadsCommand}" />
+                            <TextBlock Classes="h3" Text="Downloads" VerticalAlignment="Center" />
+                          </DockPanel>
+                          <ScrollViewer MaxHeight="420">
+                            <ItemsControl ItemsSource="{Binding Downloads.Items}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="mvm:DownloadItemViewModel">
+                                  <views:DownloadItemView Margin="0,4" />
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </ScrollViewer>
+                        </StackPanel>
+                      </Flyout>
+                    </Button.Flyout>
+                  </Button>
+
+                  <Border Classes="divider" Margin="0,4" />
+                  <Button Classes="ghost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,9"
+                          Command="{Binding NavigateCommand}" CommandParameter="{Binding Settings}">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                      <Path Classes="icon" Data="{StaticResource IconSettings}" />
+                      <TextBlock Text="Settings" FontWeight="Medium" />
+                    </StackPanel>
+                  </Button>
+                </StackPanel>
+
+                <ListBox x:Name="Nav" Classes="nav" ItemsSource="{Binding Pages}" SelectedItem="{Binding CurrentPage, Mode=OneWay}">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PageViewModel">
+                      <DockPanel>
+                        <Border DockPanel.Dock="Right" Classes="badge accent" IsVisible="{Binding Badge, Converter={x:Static conv:PositiveConverter.Instance}}">
+                          <TextBlock Text="{Binding Badge}" />
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                          <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
+                          <TextBlock Classes="navtext" Text="{Binding Title}" FontWeight="Medium" />
+                        </StackPanel>
+                      </DockPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
+            </Border>
+
+            <!-- One-time offer to move the models of a previous store -->
+            <Border Grid.Column="1" Classes="hint" Margin="28,16,28,0" IsVisible="{Binding StoreMigration.IsOpen}">
               <DockPanel>
-                <Border DockPanel.Dock="Right" Classes="badge accent" IsVisible="{Binding Badge, Converter={x:Static conv:PositiveConverter.Instance}}">
-                  <TextBlock Text="{Binding Badge}" />
-                </Border>
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                  <Path Classes="icon" Data="{Binding Icon, Converter={x:Static conv:IconConverter.Instance}}" />
-                  <TextBlock Classes="navtext" Text="{Binding Title}" FontWeight="Medium" />
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+                  <Button Classes="small" Content="Keep using the old folder" Command="{Binding StoreMigration.KeepPreviousCommand}"
+                          IsVisible="{Binding !StoreMigration.IsDone}" />
+                  <Button Classes="small" Content="Move models" Command="{Binding StoreMigration.MoveCommand}" IsVisible="{Binding !StoreMigration.IsDone}" />
+                  <Button Classes="small" Content="Copy models" Command="{Binding StoreMigration.CopyCommand}" IsVisible="{Binding !StoreMigration.IsDone}" />
+                  <Button Classes="small" Content="{Binding StoreMigration.DismissText}"
+                          Command="{Binding StoreMigration.DismissCommand}" IsEnabled="{Binding !StoreMigration.IsBusy}" />
+                </StackPanel>
+                <TextBlock Text="{Binding StoreMigration.Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
+              </DockPanel>
+            </Border>
+
+            <!-- Page -->
+            <TransitioningContentControl Grid.Column="1" Grid.Row="1" Content="{Binding CurrentPage}">
+              <TransitioningContentControl.PageTransition>
+                <CrossFade Duration="0:0:0.14" />
+              </TransitioningContentControl.PageTransition>
+            </TransitioningContentControl>
+
+            <!-- Status bar -->
+            <Border Grid.Column="1" Grid.Row="2" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="16,4">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding DeviceText}" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" Spacing="18">
+                  <Button Classes="ghost small" Command="{Binding OpenResidentCommand}" Padding="4,2">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                      <Path Classes="icon" Data="{StaticResource IconModels}" Width="13" Height="13" />
+                      <TextBlock Classes="caption" Text="{Binding LoadedText}" />
+                    </StackPanel>
+                  </Button>
+                  <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                    <Ellipse Classes="dot" Classes.ok="{Binding IsServing}" />
+                    <TextBlock Classes="caption" Text="{Binding ServerText}" />
+                  </StackPanel>
                 </StackPanel>
               </DockPanel>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
+            </Border>
+          </Grid>
       </DockPanel>
-    </Border>
 
-    <!-- One-time offer to move the models of a previous store -->
-    <Border Grid.Column="1" Classes="hint" Margin="28,16,28,0" IsVisible="{Binding StoreMigration.IsOpen}">
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
-          <Button Classes="small" Content="Keep using the old folder" Command="{Binding StoreMigration.KeepPreviousCommand}"
-                  IsVisible="{Binding !StoreMigration.IsDone}" />
-          <Button Classes="small" Content="Move models" Command="{Binding StoreMigration.MoveCommand}" IsVisible="{Binding !StoreMigration.IsDone}" />
-          <Button Classes="small" Content="Copy models" Command="{Binding StoreMigration.CopyCommand}" IsVisible="{Binding !StoreMigration.IsDone}" />
-          <Button Classes="small" Content="{Binding StoreMigration.DismissText}"
-                  Command="{Binding StoreMigration.DismissCommand}" IsEnabled="{Binding !StoreMigration.IsBusy}" />
-        </StackPanel>
-        <TextBlock Text="{Binding StoreMigration.Message}" TextWrapping="Wrap" VerticalAlignment="Center" />
-      </DockPanel>
-    </Border>
-
-    <!-- Page -->
-    <TransitioningContentControl Grid.Column="1" Grid.Row="1" Content="{Binding CurrentPage}">
-      <TransitioningContentControl.PageTransition>
-        <CrossFade Duration="0:0:0.14" />
-      </TransitioningContentControl.PageTransition>
-    </TransitioningContentControl>
-
-    <!-- Status bar -->
-    <Border Grid.Column="1" Grid.Row="2" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="16,4">
-      <DockPanel>
-        <TextBlock DockPanel.Dock="Right" Classes="caption" Text="{Binding DeviceText}" VerticalAlignment="Center" />
-        <StackPanel Orientation="Horizontal" Spacing="18">
-          <Button Classes="ghost small" Command="{Binding OpenResidentCommand}" Padding="4,2">
-            <StackPanel Orientation="Horizontal" Spacing="7">
-              <Path Classes="icon" Data="{StaticResource IconModels}" Width="13" Height="13" />
-              <TextBlock Classes="caption" Text="{Binding LoadedText}" />
+      <!-- "Update available" dialog -->
+      <Panel x:Name="UpdateDialog" IsVisible="{Binding Updates.IsDialogOpen}" x:DataType="vm:MainWindowViewModel">
+        <Border Background="#99000000" />
+        <Border Classes="card" Width="560" MaxHeight="620" HorizontalAlignment="Center" VerticalAlignment="Center"
+                x:DataType="vm:MainWindowViewModel" DataContext="{Binding Updates}">
+          <DockPanel x:DataType="upvm:UpdatesViewModel">
+            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,10">
+              <TextBlock Classes="h3" Text="Update available" />
+              <TextBlock Text="{Binding OfferTitle}" TextWrapping="Wrap" />
             </StackPanel>
-          </Button>
-          <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
-            <Ellipse Classes="dot" Classes.ok="{Binding IsServing}" />
-            <TextBlock Classes="caption" Text="{Binding ServerText}" />
-          </StackPanel>
-        </StackPanel>
-      </DockPanel>
-    </Border>
-  </Grid>
+            <StackPanel DockPanel.Dock="Bottom" Spacing="10" Margin="0,12,0,0">
+              <ProgressBar Minimum="0" Maximum="100" Value="{Binding DownloadPercent}" IsVisible="{Binding IsDownloading}" />
+              <TextBlock Classes="caption" Text="{Binding Error}" TextWrapping="Wrap"
+                         IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="UpdateLaterButton" Content="Later" Command="{Binding LaterCommand}" />
+                <Button x:Name="UpdateDownloadButton" Classes="accent" Content="Download and install" Command="{Binding DownloadCommand}"
+                        IsVisible="{Binding !IsReady}" />
+                <Button x:Name="UpdateRestartButton" Classes="accent" Content="Restart to update" Command="{Binding RestartCommand}"
+                        IsVisible="{Binding IsReady}" />
+              </StackPanel>
+            </StackPanel>
+            <ScrollViewer>
+              <c:MarkdownView Markdown="{Binding ReleaseNotes}" />
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </Panel>
+
+      <!-- Resize edges (custom chrome, not maximized) -->
+      <Panel x:Name="ResizeEdges">
+        <Border Classes="edge" Tag="North" Height="5" VerticalAlignment="Top" Cursor="TopSide" Margin="8,0" />
+        <Border Classes="edge" Tag="South" Height="5" VerticalAlignment="Bottom" Cursor="BottomSide" Margin="8,0" />
+        <Border Classes="edge" Tag="West" Width="5" HorizontalAlignment="Left" Cursor="LeftSide" Margin="0,8" />
+        <Border Classes="edge" Tag="East" Width="5" HorizontalAlignment="Right" Cursor="RightSide" Margin="0,8" />
+        <Border Classes="edge" Tag="NorthWest" Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Top" Cursor="TopLeftCorner" />
+        <Border Classes="edge" Tag="NorthEast" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Top" Cursor="TopRightCorner" />
+        <Border Classes="edge" Tag="SouthWest" Width="8" Height="8" HorizontalAlignment="Left" VerticalAlignment="Bottom" Cursor="BottomLeftCorner" />
+        <Border Classes="edge" Tag="SouthEast" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="BottomRightCorner" />
+      </Panel>
+    </Panel>
+  </Border>
 </Window>

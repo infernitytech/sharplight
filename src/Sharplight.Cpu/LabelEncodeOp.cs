@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 
@@ -36,6 +37,7 @@ internal sealed unsafe class LabelEncodeOp : CpuOp
 
     public override string Name => "LabelEncode";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long n = _x.Elements(p);

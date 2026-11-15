@@ -14,6 +14,12 @@ namespace Sharplight.Shaders;
 /// <item><c>SHARPLIGHT_NO_BIAS_FOLD=1</c>: do not add matmul biases in the single-row matvec's store.</item>
 /// <item><c>SHARPLIGHT_NO_CONV_EPILOGUE=1</c>: run the elementwise group consuming a convolution (activation, residual add) as its
 /// own launch instead of in the convolution's store.</item>
+/// <item><c>SHARPLIGHT_NO_MATMUL_EPILOGUE=1</c>: run the elementwise group consuming a weight matmul (bias, activation, residual
+/// add) as its own launch instead of in the split-f16 GEMM's store.</item>
+/// <item><c>SHARPLIGHT_NO_NARROW_CONV=1</c>: run convolutions with up to 8 output channels through the implicit GEMMs instead of
+/// the per-pixel conv_narrow kernel.</item>
+/// <item><c>SHARPLIGHT_NO_STRIDED_LAYERNORM=1</c>: copy a channel-strided LayerNorm input (the channels-last view of an NCHW
+/// tensor) to a dense temporary instead of normalizing it in place.</item>
 /// <item><c>SHARPLIGHT_NO_GROUP_MERGE=1</c>: fuse only consecutive elementwise nodes (no merging of groups along data flow).</item>
 /// <item><c>SHARPLIGHT_NO_GATHER_FOLD=1</c>: materialize row gathers (GatherAxis on axis 0, e.g. the per-expert biases of the
 /// selected experts) with their own launch instead of reading the rows in place inside the fused elementwise group consuming them.</item>
@@ -23,7 +29,9 @@ namespace Sharplight.Shaders;
 /// and scales, <c>WeightRepack.Mxfp4Split</c>).</item>
 /// <item><c>SHARPLIGHT_MMVQ_Q8_DECODE=0|1</c>: serve single-row Q8_0 matvecs with the integer-dot matvec too (default off: the
 /// f32 matvec is already at the bandwidth roof there and exact in the activations).</item>
-/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4) on the f32
+/// <item><c>SHARPLIGHT_ROW_INVARIANT=n</c>: rows up to which a step computes every row like a single-row step, overriding
+/// <c>CompileOptions.RowInvariantRows</c> (speculative decoding sets it to the verification rows; 0 turns it off).</item>
+/// <item><c>SHARPLIGHT_MMVQ_BLOCK=0</c>: keep the 32-value block formats (Q8_0 as stored, Q4_0, Q5_0, IQ4_NL, MXFP4, and Q4Z / Q8Z / NVFP4 / NVFP4_GS) on the f32
 /// matvecs instead of the integer-dot matvec.</item>
 /// <item><c>SHARPLIGHT_MMVQ_MAX_ROWS=n</c>: largest activation row count served by the integer-dot matvec (default 8; 16 for
 /// Q8_0 on devices without the f16 tensor-core path).</item>
@@ -56,6 +64,9 @@ namespace Sharplight.Shaders;
 /// 64). <c>SHARPLIGHT_SKINNY_CFG=fn,sg,bk</c>: force its weight fragments per workgroup, subgroups per workgroup and K block.
 /// <c>SHARPLIGHT_SKINNY_X16=0</c>: convert f32 activation rows while staging instead of reading the shared f16 copy.
 /// <c>SHARPLIGHT_SKINNY_DIRECT=0</c>: always stage its operands in shared memory (no direct fragment loads).</item>
+/// <item><c>SHARPLIGHT_FP8_DUAL_TALL=0</c>: the dual fp8 gate / up GEMM keeps 64-row tiles above 64 rows.</item>
+/// <item><c>SHARPLIGHT_NORM_HALF_COPY=0</c>: row norms feeding matmuls do not also write the f16 activation copy the tensor-core
+/// GEMMs read; a separate conversion launch makes it.</item>
 /// <item><c>SHARPLIGHT_GEMM_BK=32|64</c>: preferred K block of gemm_cm2 (64 when K allows it).</item>
 /// <item><c>SHARPLIGHT_GEMM_X16=0</c>: tensor-core GEMMs read f32 activations instead of an f16 copy.</item>
 /// <item><c>SHARPLIGHT_GEMM_NV2=1</c>: default of <see cref="Lowering.GraphLowerer.PreferWorkgroupMatrixGemm"/>.</item>
@@ -108,6 +119,15 @@ internal static class DiagnosticSwitches
     /// <summary>Disables the convolution epilogue fusion (elementwise consumers of a conv computed in its store).</summary>
     public static bool NoConvEpilogue { get; } = IsSet("SHARPLIGHT_NO_CONV_EPILOGUE");
 
+    /// <summary>Runs convolutions with few output channels through the implicit GEMMs instead of conv_narrow.</summary>
+    public static bool NoNarrowConv { get; } = IsSet("SHARPLIGHT_NO_NARROW_CONV");
+
+    /// <summary>Densifies channel-strided LayerNorm inputs for the row kernel instead of reading them in place (layernorm_cs).</summary>
+    public static bool NoStridedLayerNorm { get; } = IsSet("SHARPLIGHT_NO_STRIDED_LAYERNORM");
+
+    /// <summary>Disables the matmul epilogue fusion (elementwise consumers of a weight matmul computed in the split-f16 GEMM's store).</summary>
+    public static bool NoMatMulEpilogue { get; } = IsSet("SHARPLIGHT_NO_MATMUL_EPILOGUE");
+
     /// <summary>False keeps the 32-value block formats off the integer-dot matvec.</summary>
     public static bool IntDotBlockFormats { get; } = IsNotZero("SHARPLIGHT_MMVQ_BLOCK");
 
@@ -131,6 +151,9 @@ internal static class DiagnosticSwitches
 
     /// <summary>True when single-row Q8_0 matvecs use the integer-dot matvec.</summary>
     public static bool IntDotDecodeQ8 { get; } = IsSet("SHARPLIGHT_MMVQ_Q8_DECODE");
+
+    /// <summary>Forced row-invariance bound (<c>SHARPLIGHT_ROW_INVARIANT</c>), or null for the compile option.</summary>
+    public static long? RowInvariantRows { get; } = Read("SHARPLIGHT_ROW_INVARIANT") is { } r ? long.Parse(r, CultureInfo.InvariantCulture) : null;
 
     /// <summary>Forced largest activation row count served by the integer-dot matvec, or null for the per-format default.</summary>
     public static long? IntDotMaxRows { get; } = Read("SHARPLIGHT_MMVQ_MAX_ROWS") is { } v ? long.Parse(v, CultureInfo.InvariantCulture) : null;
@@ -201,6 +224,12 @@ internal static class DiagnosticSwitches
     /// <summary>Forced activation source of the skinny GEMM (true: f16 copy, false: f32 rows), or null for the default.</summary>
     public static bool? SkinnyGemmHalfActivations { get; } = Read("SHARPLIGHT_SKINNY_X16") is { } v ? v != "0" : null;
 
+    /// <summary>Let row norms feeding tensor-core matmuls write the f16 activation copy too (no separate conversion launch).</summary>
+    public static bool NormHalfCopy { get; } = IsNotZero("SHARPLIGHT_NORM_HALF_COPY");
+
+    /// <summary>Let the dual fp8 gate / up GEMM use 128-row tiles above 64 rows.</summary>
+    public static bool Fp8DualGemmTall { get; } = IsNotZero("SHARPLIGHT_FP8_DUAL_TALL");
+
     /// <summary>Preferred K block of gemm_cm2.</summary>
     public static int GemmBlockK { get; } = int.Parse(Read("SHARPLIGHT_GEMM_BK") ?? "64", CultureInfo.InvariantCulture);
 
@@ -234,11 +263,26 @@ internal static class DiagnosticSwitches
     /// </summary>
     public static bool AttentionEncoderFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FE");
 
+    /// <summary>False keeps bidirectional attention on devices without the tensor-core flash kernels off the f32 encoder flash kernel (fes).</summary>
+    public static bool AttentionSimtFlash { get; } = IsNotZero("SHARPLIGHT_ATTN_FES");
+
     /// <summary>
-    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation asks for it
+    /// True (default) when f32 matmuls may run on the split-f16 tensor-core GEMM where a compilation allows it
     /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_GEMM_SPLIT_F16=0</c> keeps them on the f32 SIMT GEMM.
     /// </summary>
     public static bool GemmSplitHalf { get; } = IsNotZero("SHARPLIGHT_GEMM_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when strict-precision convs with constant f32 weights may run in the split-f16 form of conv_cm
+    /// (<c>CompileOptions.SplitHalfMatMul</c>); <c>SHARPLIGHT_CONV_SPLIT_F16=0</c> keeps them on the three-part bf16 form.
+    /// </summary>
+    public static bool ConvSplitHalf { get; } = IsNotZero("SHARPLIGHT_CONV_SPLIT_F16");
+
+    /// <summary>
+    /// True (default) when bidirectional attention reads strided f32 K / V (slices of a fused projection) in place;
+    /// <c>SHARPLIGHT_ATTN_STRIDED_KV=0</c> copies them to dense rows first.
+    /// </summary>
+    public static bool AttentionStridedKv { get; } = IsNotZero("SHARPLIGHT_ATTN_STRIDED_KV");
 
     /// <summary>True when decode attention may split the keys over several workgroups.</summary>
     public static bool AttentionSplit { get; } = IsNotZero("SHARPLIGHT_ATTN_SPLIT");

@@ -1,7 +1,7 @@
 using Sharplight.Cpu;
 using Sharplight.Graph;
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
 using Sharplight.Runtime;
 using Sharplight.Tensors;
 using Xunit;

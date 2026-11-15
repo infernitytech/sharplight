@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Sharplight.Runtime;
 
 namespace Sharplight.Cpu;
@@ -9,6 +10,7 @@ internal sealed unsafe class RandomOp(TRef y, bool normal, float a, float b, lon
 
     public override string Name => "Random";
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public override void Run(RunParameters p)
     {
         long n = y.Elements(p);

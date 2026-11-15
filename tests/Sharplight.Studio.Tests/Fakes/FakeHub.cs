@@ -34,6 +34,21 @@ internal sealed class FakeHub : IHubService
     public Task<IReadOnlyList<HubModelSummary>> SearchAsync(HubSearchQuery query, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<HubModelSummary>>([.. Results]);
 
+    /// <summary>The sections <see cref="GetHighlightsAsync"/> returns; none by default.</summary>
+    public List<HighlightSection> Highlights { get; } = [];
+
+    /// <summary>The error <see cref="GetHighlightsAsync"/> throws instead, when set.</summary>
+    public Exception? HighlightsError { get; set; }
+
+    /// <summary>How often the highlights were asked for.</summary>
+    public int HighlightRequests { get; private set; }
+
+    public Task<IReadOnlyList<HighlightSection>> GetHighlightsAsync(CancellationToken cancellationToken)
+    {
+        HighlightRequests++;
+        return HighlightsError is { } error ? Task.FromException<IReadOnlyList<HighlightSection>>(error) : Task.FromResult<IReadOnlyList<HighlightSection>>([.. Highlights]);
+    }
+
     /// <summary>The dimensions <see cref="ProbeAsync"/> reports (an 8B model with grouped-query attention by default).</summary>
     public ModelShape? Shape { get; set; } = new(36, 32, 8, 4096, 128, 128, 40960, 151936);
 

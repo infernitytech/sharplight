@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Models;
 using Sharplight.Tensors;
 

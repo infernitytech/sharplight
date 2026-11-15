@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 namespace Sharplight.Cpu;
 
 // Quantization of f32 rows into the GGUF block formats used for quantized KV caches (llama.cpp's reference quantizers).
@@ -11,6 +12,7 @@ internal static unsafe partial class Quant
     /// amax / 127 and rounds to nearest; q4_0 scales by the value of largest magnitude / -8 and stores q + 8 as nibbles
     /// (value j of a block in the low nibble of byte j, value j + 16 in its high nibble).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Quantize(WeightFormat f, float* src, long count, byte* dst)
     {
         long blocks = count / 32;
@@ -31,6 +33,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void QuantizeQ8_0(float* x, byte* dst)
     {
         float amax = 0f;
@@ -49,6 +52,7 @@ internal static unsafe partial class Quant
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void QuantizeQ4_0(float* x, byte* dst)
     {
         float amax = 0f;

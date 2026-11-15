@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <Description>Jinja2-compatible template engine for chat templates.</Description>
-  </PropertyGroup>
-  <ItemGroup>
-    <InternalsVisibleTo Include="Sharplight.Templating.Tests" />
-  </ItemGroup>
-</Project>

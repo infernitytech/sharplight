@@ -3,6 +3,46 @@
              xmlns:mvm="using:Sharplight.Studio.ViewModels.Models"
              x:Class="Sharplight.Studio.Views.DiscoverView"
              x:DataType="mvm:HubSearchViewModel">
+  <UserControl.Resources>
+    <DataTemplate x:Key="ResultCard" x:DataType="mvm:HubResultViewModel">
+      <StackPanel Margin="12,10" Spacing="3">
+        <DockPanel>
+          <Border DockPanel.Dock="Right" Classes="badge danger" IsVisible="{Binding Gated}" Margin="6,0,0,0"
+                  ToolTip.Tip="Gated: accept the license on Hugging Face and set a token in the settings">
+            <TextBlock Text="Gated" />
+          </Border>
+          <TextBlock DockPanel.Dock="Left" Classes="caption" Text="{Binding Owner, StringFormat='{}{0} /'}" VerticalAlignment="Center" Margin="0,0,6,0"
+                     MaxWidth="160" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" />
+        </DockPanel>
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="14" VerticalAlignment="Top" Margin="12,1,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Path Classes="icon" Data="{StaticResource IconDownload}" Width="13" Height="13" />
+              <TextBlock Classes="caption" Text="{Binding Downloads}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <Path Classes="icon" Data="{StaticResource IconHeart}" Width="13" Height="13" />
+              <TextBlock Classes="caption" Text="{Binding Likes}" />
+            </StackPanel>
+          </StackPanel>
+          <WrapPanel Orientation="Horizontal" ItemSpacing="6" LineSpacing="4">
+            <Border Classes="badge accent">
+              <TextBlock Text="{Binding Formats}" />
+            </Border>
+            <Border Classes="badge" IsVisible="{Binding Parameters, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <TextBlock Text="{Binding Parameters}" />
+            </Border>
+            <Border x:Name="RepositoryCompatibility" DataContext="{Binding Compatibility}" x:DataType="mvm:CompatibilityBadgeViewModel"
+                    Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" ToolTip.Tip="{Binding ToolTip}">
+              <TextBlock Text="{Binding Text}" />
+            </Border>
+            <TextBlock Classes="caption" Text="{Binding Variants}" VerticalAlignment="Center" />
+          </WrapPanel>
+        </DockPanel>
+      </StackPanel>
+    </DataTemplate>
+  </UserControl.Resources>
   <Grid ColumnDefinitions="*,16,420" RowDefinitions="Auto,*" Margin="0,0,0,16">
     <DockPanel Grid.ColumnSpan="3" Margin="0,0,0,12">
       <Button DockPanel.Dock="Right" Classes="accent" Command="{Binding SearchCommand}" Margin="8,0,0,0" Padding="16,7">
@@ -12,6 +52,8 @@
         </StackPanel>
       </Button>
       <CheckBox DockPanel.Dock="Right" Content="Hide gated" IsChecked="{Binding HideGated}" Margin="12,0,0,0" />
+      <CheckBox DockPanel.Dock="Right" x:Name="ShowOnlySupported" Content="Supported only" IsChecked="{Binding ShowOnlySupported}" Margin="12,0,0,0"
+                ToolTip.Tip="Hide models and quantizations that Sharplight cannot run" />
       <ComboBox DockPanel.Dock="Right" ItemsSource="{Binding Formats}" SelectedItem="{Binding SelectedFormat}" Margin="8,0,0,0" MinWidth="140">
         <ComboBox.ItemTemplate>
           <DataTemplate x:DataType="mvm:FormatFilter">
@@ -27,52 +69,57 @@
     </DockPanel>
 
     <Border Grid.Row="1" Classes="card" Padding="6">
-      <DockPanel>
-        <DockPanel DockPanel.Dock="Bottom" Margin="10,6">
-          <ProgressBar DockPanel.Dock="Right" IsIndeterminate="True" Width="80" IsVisible="{Binding IsSearching}" VerticalAlignment="Center" />
-          <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" />
+      <Panel>
+        <!-- Search results -->
+        <DockPanel IsVisible="{Binding IsShowingResults}">
+          <DockPanel DockPanel.Dock="Bottom" Margin="10,6">
+            <ProgressBar DockPanel.Dock="Right" IsIndeterminate="True" Width="80" IsVisible="{Binding IsSearching}" VerticalAlignment="Center" />
+            <StackPanel Spacing="2">
+              <TextBlock Classes="caption" Text="{Binding Status}" TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="{Binding HiddenResultsText}" TextWrapping="Wrap"
+                         IsVisible="{Binding HiddenResultsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+          </DockPanel>
+          <ListBox Classes="plain" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedResult}" ItemTemplate="{StaticResource ResultCard}" />
         </DockPanel>
-        <ListBox Classes="plain" ItemsSource="{Binding Results}" SelectedItem="{Binding SelectedResult}">
-          <ListBox.ItemTemplate>
-            <DataTemplate x:DataType="mvm:HubResultViewModel">
-              <DockPanel Margin="12,10">
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <Path Classes="icon" Data="{StaticResource IconDownload}" Width="13" Height="13" />
-                    <TextBlock Classes="caption" Text="{Binding Downloads}" />
+
+        <!-- Highlights, while nothing is searched -->
+        <ScrollViewer x:Name="Highlights" IsVisible="{Binding IsShowingHighlights}" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="18" Margin="6,8,6,10">
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsLoadingHighlights}" Margin="6,0" />
+            <TextBlock Classes="caption" Text="{Binding HighlightsStatus}" TextWrapping="Wrap" Margin="6,0"
+                       IsVisible="{Binding HighlightsStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <ItemsControl ItemsSource="{Binding Highlights}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <StackPanel Spacing="18" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mvm:HighlightSectionViewModel">
+                  <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="6,0,6,4">
+                      <TextBlock Classes="h3" Text="{Binding Title}" VerticalAlignment="Center" />
+                      <TextBlock Classes="caption" Text="{Binding Description}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding Items}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="mvm:HubResultViewModel">
+                          <Button Classes="resultcard" Classes.selected="{Binding IsSelected}" Click="OnHighlightClick">
+                            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ResultCard}" />
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                   </StackPanel>
-                  <StackPanel Orientation="Horizontal" Spacing="5">
-                    <Path Classes="icon" Data="{StaticResource IconHeart}" Width="13" Height="13" />
-                    <TextBlock Classes="caption" Text="{Binding Likes}" />
-                  </StackPanel>
-                </StackPanel>
-                <StackPanel Spacing="3">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Classes="caption" Text="{Binding Owner, StringFormat='{}{0} /'}" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <Border Classes="badge danger" IsVisible="{Binding Gated}" ToolTip.Tip="Gated: accept the license on Hugging Face and set a token in the settings">
-                      <TextBlock Text="Gated" />
-                    </Border>
-                  </StackPanel>
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Border Classes="badge accent">
-                      <TextBlock Text="{Binding Formats}" />
-                    </Border>
-                    <Border Classes="badge" IsVisible="{Binding Parameters, Converter={x:Static ObjectConverters.IsNotNull}}">
-                      <TextBlock Text="{Binding Parameters}" />
-                    </Border>
-                    <Border x:Name="RepositoryCompatibility" DataContext="{Binding Compatibility}" x:DataType="mvm:CompatibilityBadgeViewModel"
-                            Classes="badge" Classes.ok="{Binding IsGood}" Classes.warn="{Binding IsWarning}" Classes.bad="{Binding IsBad}" ToolTip.Tip="{Binding ToolTip}">
-                      <TextBlock Text="{Binding Text}" />
-                    </Border>
-                    <TextBlock Classes="caption" Text="{Binding Variants}" VerticalAlignment="Center" />
-                  </StackPanel>
-                </StackPanel>
-              </DockPanel>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </DockPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption" Margin="6,0" TextWrapping="Wrap" IsVisible="{Binding !IsLoadingHighlights}"
+                       Text="Models whose architecture Sharplight supports, from Hugging Face. Search to find any other model." />
+          </StackPanel>
+        </ScrollViewer>
+      </Panel>
     </Border>
 
     <!-- Details -->
@@ -138,6 +185,8 @@
             </StackPanel>
             <TextBlock Classes="section" Text="QUANTIZATIONS" />
           </DockPanel>
+          <TextBlock DockPanel.Dock="Bottom" Classes="caption" Text="{Binding HiddenVariantsText}" TextWrapping="Wrap" Margin="10,6,10,0"
+                     IsVisible="{Binding HiddenVariantsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           <ListBox Classes="plain" ItemsSource="{Binding Variants}" SelectedItem="{Binding SelectedVariant}">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="mvm:VariantViewModel">

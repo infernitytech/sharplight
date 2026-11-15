@@ -1,6 +1,6 @@
 using Sharplight.Cpu;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Runtime;
@@ -9,7 +9,7 @@ using Sharplight.Vulkan;
 namespace Sharplight.Families.Tests;
 
 /// <summary>
-/// The families of bring-up rounds 7 and 8 (<see cref="ExtendedFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts of
+/// The families of bring-up rounds 7 to 9 (<see cref="ExtendedFamilyCases"/>) behind the continuous-batching engine: greedy output of prompts of
 /// different lengths decoded together, prefilled in small chunks, is token-identical to decoding each prompt alone.
 /// </summary>
 public class ExtendedFamilyServingTests
@@ -44,6 +44,32 @@ public class ExtendedFamilyServingTests
             "gguf/tiny-random-glm5-next-sparse-f32.gguf",
             "gguf/tiny-random-mistral-large4-f32.gguf",
             "gguf/tiny-random-dots3note-f32.gguf",
+            // Round 9: HunyuanOCR's language model (XD-RoPE; text rows carry their position on all four axes).
+            "hf/tiny-random-hunyuan-vl",
+            "gguf/tiny-random-hunyuan-vl-f32.gguf",
+            "hf/tiny-random-cogvlm",
+            "gguf/tiny-random-cogvlm-f32.gguf",
+            // Round 9: the DeepSeek-OCR language model (multi-head attention, softmax-routed experts with shared experts).
+            // hf/tiny-random-deepseek-ocr2 is left out: for one of these prompts a router's third and fourth expert differ by 0.00008 in
+            // probability, which the batched kernels' accumulation order flips on Vulkan. tiny-random-unlimited-ocr has the same layers.
+            "hf/tiny-random-unlimited-ocr",
+            "gguf/tiny-random-deepseek-ocr-f32.gguf",
+            // Round 9: per-token adapters (the router's KV cache next to the layers').
+            "hf/tiny-random-granite-switch",
+            "gguf/tiny-random-granite-switch-f32.gguf",
+            // Round 9: Kimi K3 (attention residuals per row, delta attention, latent MoE).
+            "hf/tiny-random-kimi-k3-f32",
+            "gguf/tiny-random-kimi-k3-f32.gguf",
+            // Kimi K3.1: the indexer without rope in its sparse regime (8 positions).
+            "hf/tiny-random-kimi-k31-f32",
+            "gguf/tiny-random-kimi-k31-f32.gguf",
+            // Kimi K3.1 with a layer that reuses the previous layer's selection; the original checkpoint (MXFP4 experts, tiktoken).
+            "hf/tiny-random-kimi-k31-shared-f32",
+            "gguf/tiny-random-kimi-k31-shared-f32.gguf",
+            "hf/tiny-random-kimi-k3",
+            // Round 9: QSA block selection in its sparse regime (budget of two blocks of 4 plus the tail).
+            "hf/tiny-random-qwen3.8-flash-next-sparse",
+            "gguf/tiny-random-qwen3.8-flash-next-sparse-f32.gguf",
         ];
         foreach (string model in models)
         {

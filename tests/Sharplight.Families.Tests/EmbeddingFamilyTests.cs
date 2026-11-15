@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm.Embeddings;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;
@@ -54,6 +54,10 @@ public class EmbeddingFamilyTests
             "gguf/tiny-random-jina-bert-v2-f32.gguf",
             "gguf/tiny-random-jina-bert-v3-f32.gguf",
             "gguf/tiny-random-nomic-bert-moe-f32.gguf",
+            // EmbeddingGemma 2: tiny-random-embeddinggemma2 converted with llama.cpp 8ca5a80's convert_hf_to_gguf.py (gpt2 vocabulary for its byte-level
+            // test tokenizer, mean pooling), against transformers on the same weights: llama.cpp's llama-embedding is 7e-4 from transformers on a
+            // 6-token input and 0.29 on a 55-token one (beyond the 4-key windows), so transformers is the reference (b11177 lacks the architecture).
+            "gguf/tiny-random-gemma-embedding2-f32.gguf",
             // t5encoder: tiny-random-t5's encoder alone (architectures T5EncoderModel, decoder tensors dropped) converted with convert_hf_to_gguf.py;
             // the reference is transformers' T5EncoderModel (tools/hf_t5encoder_reference.py: llama-server's t5encoder embeddings disagree with it).
             "gguf/tiny-random-t5encoder-f32.gguf",

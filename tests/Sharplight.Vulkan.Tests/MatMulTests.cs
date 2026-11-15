@@ -22,9 +22,9 @@ public sealed class MatMulTests
 
     // Formats whose matvec may run on the integer-dot path. Its activations are quantized to 8 bits per 32-value block,
     // an absolute error proportional to the weight row's norm (large for these random weights: K-quant rows with
-    // offsets up to ~10 and Q6_K values up to ~50), not to the output's own size. IntDotExactActivations checks the
-    // arithmetic itself tightly.
-    private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_0", "q4_k", "q5_k", "q6_k"];
+    // offsets up to ~10, Q6_K values up to ~50, NVFP4 rows of E2M1 values up to 6 times E4M3 scales), not to the output's
+    // own size. IntDotExactActivations checks the arithmetic itself tightly.
+    private static readonly HashSet<string> s_intDotFormats = ["q8_0", "q4_0", "q4_k", "q5_k", "q6_k", "nvfp4"];
 
     // Block-scaled E4M3 weights take the fp8 GEMM from 17 rows: activations quantized to E4M3 (4 significant bits), the
     // bound of Fp8GemmTests.RandomActivations.
@@ -67,6 +67,17 @@ public sealed class MatMulTests
     [InlineData("iq4_nl", 2)]
     [InlineData("mxfp4", 1)]
     [InlineData("mxfp4", 8)]
+    [InlineData("nvfp4", 1)]
+    [InlineData("nvfp4", 4)]
+    [InlineData("nvfp4_gs", 1)]
+    [InlineData("nvfp4_gs", 3)]
+    [InlineData("q4z_g32", 1)]
+    [InlineData("q4z_g32", 5)]
+    [InlineData("q4z_g128", 1)]
+    [InlineData("q4z_g128", 2)]
+    [InlineData("q8z_g32", 1)]
+    [InlineData("q8z_g128", 1)]
+    [InlineData("q8z_g128", 6)]
     public void IntDotExactActivations(string fmt, int t)
     {
         Gpu.Require();

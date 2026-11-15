@@ -13,6 +13,13 @@ public sealed class WeightInfo
     public required Shape Shape { get; init; }
     /// <summary>Where the bytes live.</summary>
     public required IWeightSource Source { get; init; }
+    /// <summary>
+    /// The order of the stored columns of a matrix weight, or null for the natural order: stored column j multiplies input element
+    /// <c>InputOrder[j]</c>, so a product reads its input gathered along the last axis by this permutation first
+    /// (<see cref="Graph.GraphBuilder.MatMul"/> does). Set for act-order (GPTQ <c>desc_act</c>) checkpoints, whose quantization
+    /// groups are contiguous only in the permuted order. Kept by renames and row slices; stacked or concatenated parts must agree.
+    /// </summary>
+    public int[]? InputOrder { get; init; }
     /// <summary>Size of the tensor in bytes, from <see cref="Type"/> and <see cref="Shape"/>.</summary>
     public long ByteSize => Type.ByteSize(Shape.Elements());
     /// <inheritdoc/>
@@ -42,7 +49,12 @@ public sealed class WeightInfo
             throw new ArgumentException($"{Name}: cannot view {Shape} as {s}.");
         }
 
-        return new() { Name = name, Type = Type, Shape = s, Source = Source };
+        if (InputOrder is not null && !s[-1].Equals(Shape[-1]))
+        {
+            throw new ArgumentException($"{Name}: a weight with an input order cannot change its last dimension ({Shape} as {s}).");
+        }
+
+        return new() { Name = name, Type = Type, Shape = s, Source = Source, InputOrder = InputOrder };
     }
 
     /// <summary>
@@ -69,7 +81,11 @@ public sealed class WeightInfo
             dims.Add(Shape[d]);
         }
 
-        return new() { Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes) };
+        return new()
+        {
+            Name = name, Type = Type, Shape = new Shape(dims), Source = new SliceWeightSource(Source, firstRow * rowBytes, rows * rowBytes),
+            InputOrder = InputOrder,
+        };
     }
 
     /// <summary>
@@ -96,7 +112,11 @@ public sealed class WeightInfo
             dims.Add(first.Shape[d]);
         }
 
-        return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]) };
+        return new()
+        {
+            Name = name, Type = first.Type, Shape = new Shape(dims), Source = new StackedWeightSource([.. parts.Select(w => w.Source)]),
+            InputOrder = CommonInputOrder(name, parts),
+        };
     }
 
     /// <summary>
@@ -127,7 +147,27 @@ public sealed class WeightInfo
             dims.Add(first.Shape[d]);
         }
 
-        return new() { Name = name, Type = first.Type, Shape = new Shape(dims), Source = new ConcatenatedWeightSource([.. parts.Select(w => w.Source)]) };
+        return new()
+        {
+            Name = name, Type = first.Type, Shape = new Shape(dims), Source = new ConcatenatedWeightSource([.. parts.Select(w => w.Source)]),
+            InputOrder = CommonInputOrder(name, parts),
+        };
+    }
+
+    /// <summary>The input order shared by all <paramref name="parts"/>.</summary>
+    /// <exception cref="ArgumentException">The parts have different input orders.</exception>
+    private static int[]? CommonInputOrder(string name, IReadOnlyList<WeightInfo> parts)
+    {
+        var order = parts[0].InputOrder;
+        foreach (var w in parts)
+        {
+            if (!ReferenceEquals(w.InputOrder, order) && (w.InputOrder is null || order is null || !w.InputOrder.AsSpan().SequenceEqual(order)))
+            {
+                throw new ArgumentException($"{name}: cannot combine weights with different input orders ({w.Name}, {parts[0].Name}).");
+            }
+        }
+
+        return order;
     }
 
     /// <summary>Gathers row blocks (first row, row count) of this tensor, in order, into one lazily read tensor.</summary>
@@ -148,7 +188,7 @@ public sealed class WeightInfo
     public WeightInfo TransposeRowBlocks(string name, long a, long b)
     {
         long rows = Shape[0].Fixed;
-        if (Type.IsQuantized || Shape.Elements() != rows * a * b)
+        if (Type.IsQuantized || InputOrder is not null || Shape.Elements() != rows * a * b)
         {
             throw new ArgumentException($"{Name}: cannot view rows of {Type}{Shape} as {a}×{b} matrices.");
         }

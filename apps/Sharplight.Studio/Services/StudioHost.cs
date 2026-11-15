@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Sharplight.Hub;
 using Sharplight.Studio.Services.Documents;
 using Sharplight.Studio.Services.Hub;
@@ -8,6 +9,7 @@ using Sharplight.Studio.Services.Runtime;
 using Sharplight.Studio.Services.Server;
 using Sharplight.Studio.Services.Settings;
 using Sharplight.Studio.Services.Storage;
+using Sharplight.Studio.Services.Updates;
 
 namespace Sharplight.Studio.Services;
 
@@ -37,12 +39,14 @@ internal sealed class StudioHost : IDisposable
         var paths = StudioPaths.Default();
         var settings = new JsonSettingsService(paths.SettingsFile, modelsDirectory);
         var runtime = new EngineModelRuntime(() => settings.Current.Residency, name => ResolveOnDemand(settings, name));
-        var hub = new HubService(settings);
+        var hub = new HubService(settings, paths.HighlightsFile);
         var database = new StudioDatabase(paths.DatabaseFile);
         var stats = new SqliteStatsStore(database);
         var server = new KestrelApiServer(runtime.Host);
+        var container = new ServiceCollection().AddSingleton<ISettingsService>(settings).AddStudioUpdates().BuildServiceProvider();
         var services = new StudioServices(settings, runtime, hub, new ModelLibrary(settings), new SqliteConversationStore(database), stats, server,
-            new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme);
+            new DocumentExtractor(), new SystemMonitor(runtime), platform, dispatcher, theme,
+            container.GetRequiredService<IUpdateService>());
         return new StudioHost(services, runtime, hub, new StatsRecorder(runtime, stats), server);
     }
 

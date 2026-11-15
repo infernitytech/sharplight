@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -29,6 +30,18 @@ public sealed class FullAttentionTests
             what: $"b={batch} rows={rows} H={heads} D={d} reduced={reduced}");
     }
 
+    /// <summary>Fast matrix precision runs f32 attention on the single-product f16 flash kernel, with f16-level error.</summary>
+    [Theory]
+    [InlineData(1, 197, 12, 64)]
+    [InlineData(1, 1500, 6, 64)]
+    [InlineData(3, 50, 4, 64)]
+    public void FastPrecision(int batch, int rows, int heads, int d)
+    {
+        var (g, step) = Graph(batch, rows, rows, heads, d, mask: 0, seed: 1, magnitude: 2f);
+        Diff.Check("Attention.full.fast", g, step, atol: 2e-2, rtol: 2e-2, maxTokens: batch * rows, precision: MatrixPrecision.Fast,
+            what: $"b={batch} rows={rows} H={heads} D={d}");
+    }
+
     /// <summary>Key-padding biases (one per key row) and per-query masks, on the scalar and flash kernels.</summary>
     [Theory]
     [InlineData(1, 3, 1)]
@@ -51,6 +64,26 @@ public sealed class FullAttentionTests
     {
         var (g, step) = Graph(batch, rows, keys, 4, 64, mask: 0, seed: 3, magnitude: 1f);
         Diff.Check("Attention.batched-cross", g, step, atol: 5e-6, rtol: 5e-6, maxTokens: batch * Math.Max(rows, keys), what: $"b={batch} {rows}x{keys}");
+    }
+
+    /// <summary>
+    /// Without matrix units the f32 encoder flash kernel (fes) serves these forms: plain, batched, cross, both mask kinds and
+    /// key ranges (1500 rows).
+    /// </summary>
+    [Theory]
+    [InlineData(1, 197, 197, 12, 64, 0)]
+    [InlineData(3, 50, 50, 4, 64, 1)]
+    [InlineData(1, 100, 100, 4, 64, 2)]
+    [InlineData(2, 77, 77, 4, 32, 0)]
+    [InlineData(3, 70, 33, 4, 64, 0)]
+    [InlineData(1, 1500, 1500, 6, 64, 0)]
+    [InlineData(2, 77, 77, 4, 80, 0)]
+    public void WithoutMatrixUnits(int batch, int rows, int keys, int heads, int d, int mask)
+    {
+        var (g, step) = Graph(batch, rows, keys, heads, d, mask, seed: 11, magnitude: 2f);
+        Diff.Check("Attention.simt", g, step, atol: 5e-6, rtol: 5e-6, maxTokens: batch * Math.Max(rows, keys),
+            disabledFeatures: new HashSet<string> { DeviceFeatures.MatrixF16, DeviceFeatures.MatrixWorkgroup },
+            what: $"b={batch} {rows}x{keys} H={heads} D={d} mask={mask}");
     }
 
     /// <summary>

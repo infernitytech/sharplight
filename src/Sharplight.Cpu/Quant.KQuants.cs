@@ -37,6 +37,7 @@ internal static unsafe partial class Quant
     /// Q2_K: 256 values = { u8 scales[16]; u8 qs[64]; f16 d; f16 dmin } (84 bytes). Sixteen 16-value sub-blocks, each with a 4-bit scale
     /// (low nibble) and 4-bit minimum (high nibble); value = d * scale * q2 - dmin * min.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q2_K(byte* p, long nb, float* dst)
     {
         var three = Vector128.Create((byte)3);
@@ -68,6 +69,7 @@ internal static unsafe partial class Quant
     /// Q3_K: 256 values = { u8 hmask[32]; u8 qs[64]; u8 scales[12]; f16 d } (110 bytes). Sixteen 16-value sub-blocks with 6-bit scales
     /// (minus 32); the 3-bit value is the 2-bit code from qs minus 4 where the matching hmask bit is clear.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Q3_K(byte* p, long nb, float* dst)
     {
         var three = Vector128.Create((byte)3);
