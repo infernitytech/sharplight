@@ -23,7 +23,7 @@ internal sealed partial class ArtifactsViewModel : ObservableObject
         SelectedSet = Sets.FirstOrDefault();
     }
 
-    /// <summary>Every set, by provider, tier and id.</summary>
+    /// <summary>Every set, by provider, stage (portable code before device code) and id.</summary>
     public IReadOnlyList<ArtifactSetViewModel> Sets { get; }
 
     /// <summary>The stages per provider and target, in the order of <see cref="Sets"/>.</summary>
