@@ -1,0 +1,55 @@
+name: CI
+
+# Builds and tests the solution on every push to develop, main and release/* branches and on pull requests.
+# develop is the unstable integration branch, main is stable, releases are cut from release/vX.Y (docs/releasing.md).
+# Nothing is published from here; see packages.yml (NuGet) and studio.yml (Sharplight Studio packages).
+
+on:
+  push:
+    branches: [develop, main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Nerdbank.GitVersioning needs the history to compute the version height
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Restore
+        run: dotnet restore Sharplight.slnx
+
+      - name: Build
+        run: dotnet build Sharplight.slnx -c Release --no-restore
+
+      # The Vulkan suite needs a GPU and the ONNX conformance runner needs downloaded models: neither runs on hosted runners.
+      - name: Test
+        shell: bash
+        run: |
+          failed=0
+          for project in tests/*/; do
+            name="$(basename "$project")"
+            case "$name" in
+              Sharplight.Vulkan.Tests|Sharplight.Import.Onnx.Conformance) continue ;;
+            esac
+            echo "::group::$name"
+            if ! dotnet run --project "$project" -c Release --no-build; then
+              echo "::error::$name failed"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed

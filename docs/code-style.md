@@ -13,7 +13,8 @@ These rules apply to all C# code in the repository (libraries, samples, tests). 
 
 - One type per file: every `class`, `struct`, `record`, `interface`, `enum` and `delegate` lives in its own file named after
   the type (`GgufImporter.cs`). Generic arity goes into the name only when two types differ by arity (`Foo.cs`, `Foo`1.cs`).
-- The only exception: extension members may live in the same file as the type they extend.
+- The only exceptions: extension members may live in the same file as the type they extend, and newer language features
+  that define a closed set of related types together (C# unions and their cases) may share one file.
 - Nested types are allowed when they are an implementation detail of the outer type and are small; anything that is
   used outside the outer type, or is larger than a few lines, becomes a top-level type in its own file.
 - Folder structure mirrors namespaces inside each project.
@@ -40,6 +41,8 @@ public static class TensorExtensions
 
 - Always use braces for the bodies of `if`, `else`, `for`, `foreach`, `while`, `do`, `using` and `lock`, even for one
   statement. Brace-less bodies break silently during merges.
+- No single-line scopes: a braced block never sits on one line (`if (x) { return; }` is not allowed). The opening and
+  closing braces go on their own lines.
 - Prefer early returns over deep nesting; keep methods short and focused.
 
 ## Visibility and API surface
@@ -50,6 +53,17 @@ public static class TensorExtensions
 - `sealed` by default for classes that are not designed for inheritance.
 - Every public type and member has XML documentation (`<summary>`, plus `<param>`, `<returns>`, `<exception>` where
   they add information). Documentation states contracts (units, shapes, ownership, thread safety), not the obvious.
+
+## Public API conventions
+
+- Follow the .NET Framework Design Guidelines (Microsoft naming, `Async` suffix plus `CancellationToken` on async
+  methods, `TryX` patterns, options classes, no `Get`-prefixed properties, collections exposed as read-only interfaces,
+  exceptions instead of error codes).
+- No static registries or global mutable state for wiring. Composition goes through Microsoft.Extensions.DependencyInjection:
+  each library ships `IServiceCollection` extensions (`services.AddSharplight()`, `.AddVulkanProvider()`, `.AddGgufImporter()`, ...)
+  in an extension block, and consumers resolve services from the container. Options use `Microsoft.Extensions.Options`.
+- File formats Sharplight defines (package metadata, configs, profiles, manifests, reports) are JSON
+  (`System.Text.Json`, source-generated contexts); no YAML, TOML, INI or ad-hoc text formats.
 
 ## Readability
 

@@ -56,7 +56,8 @@ public sealed unsafe class VulkanProvider : IExecutionProvider, IOfflineCompilat
         try
         {
             var inst = Instance;
-            var usable = inst.PhysicalDevices.Where(p => p.MissingFeatures.Count == 0).ToList();
+            var visible = DiagnosticSwitches.VisibleDevices;
+            var usable = inst.PhysicalDevices.Where((p, i) => p.MissingFeatures.Count == 0 && (visible is null || visible.Contains(i))).ToList();
             if (usable.Count == 0)
             {
                 return ProviderAvailability.Unavailable("No Vulkan device with the required features: " +
@@ -72,15 +73,20 @@ public sealed unsafe class VulkanProvider : IExecutionProvider, IOfflineCompilat
     }
 
     /// <inheritdoc />
-    /// <remarks>Devices lacking a required feature are not listed; their index in <see cref="DeviceInfo.Index"/> still refers to the Vulkan enumeration order.</remarks>
+    /// <remarks>
+    /// Devices lacking a required feature are not listed; their index in <see cref="DeviceInfo.Index"/> still refers to the
+    /// Vulkan enumeration order. <c>SHARPLIGHT_VK_DEVICES=1,2</c> lists only the devices with those enumeration indices,
+    /// which pins a process to some GPUs of a multi-GPU machine.
+    /// </remarks>
     public IReadOnlyList<DeviceInfo> GetDevices()
     {
         var inst = Instance;
+        var visible = DiagnosticSwitches.VisibleDevices;
         var list = new List<DeviceInfo>();
         for (int i = 0; i < inst.PhysicalDevices.Count; i++)
         {
             var p = inst.PhysicalDevices[i];
-            if (p.MissingFeatures.Count > 0)
+            if (p.MissingFeatures.Count > 0 || (visible is not null && !visible.Contains(i)))
             {
                 continue;
             }
