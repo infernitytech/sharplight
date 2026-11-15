@@ -89,6 +89,10 @@ jobs:
           VPK_REGION: auto
           VPK_PREFIX: ${{ vars.STUDIO_UPDATE_PREFIX || 'studio' }}
         run: |
+          if [ -z "$VPK_BUCKET" ] || [ -z "$VPK_KEY_ID" ] || [ -z "$VPK_SECRET" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; building without deltas."
+            exit 0
+          fi
           # The first release of a channel has no previous release: continue without deltas.
           vpk download s3 --channel "${{ matrix.rid }}-$CHANNEL_KIND" --outputDir artifacts/studio \
             || echo "::notice::No previous release of ${{ matrix.rid }}-$CHANNEL_KIND found; building without deltas."
@@ -125,8 +129,15 @@ jobs:
           VPK_REGION: auto
           VPK_PREFIX: ${{ vars.STUDIO_UPDATE_PREFIX || 'studio' }}
         run: |
+          # Until every R2 secret of the studio-release environment is set, packages stay workflow artifacts only.
+          if [ -z "$VPK_BUCKET" ] || [ -z "$VPK_KEY_ID" ] || [ -z "$VPK_SECRET" ]; then
+            echo "::warning::R2 secrets of the studio-release environment are incomplete; skipping the upload."
+            exit 0
+          fi
           keep=()
-          if [ "$CHANNEL_KIND" = unstable ]; then keep=(--keepMaxReleases 10); fi
+          if [ "$CHANNEL_KIND" = unstable ]; then
+            keep=(--keepMaxReleases 10)
+          fi
           vpk upload s3 --channel "${{ matrix.rid }}-$CHANNEL_KIND" --outputDir artifacts/studio ${keep[@]+"${keep[@]}"}
 
   release:
