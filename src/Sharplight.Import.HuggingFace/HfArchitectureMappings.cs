@@ -36,6 +36,7 @@ internal static class HfArchitectureMappings
         Register(new VitHfMapping());
         Register(new ClipHfMapping());
         Register(new DetrHfMapping());
+        Register(new RtDetrHfMapping());
         Register(new T5HfMapping());
         Register(new BartHfMapping());
         Register(new WhisperHfMapping());
