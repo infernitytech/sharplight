@@ -39,6 +39,12 @@ internal sealed class TranslatedTensor
     public bool TransposedNonZero { get; set; }
 
     /// <summary>
+    /// The IR value holds the ONNX tensor with a data-dependent inner axis moved to the front: the ONNX tensor is the IR value transposed by
+    /// this permutation (Unique along an inner axis). Only a graph output accepts it (see <see cref="OnnxOutputLayout"/>).
+    /// </summary>
+    public int[]? OnnxPermutation { get; set; }
+
+    /// <summary>
     /// A sequence whose structure is known at import time: its elements (tensors or constants). Null for every other kind of value.
     /// </summary>
     public IReadOnlyList<TranslatedTensor>? Sequence { get; init; }

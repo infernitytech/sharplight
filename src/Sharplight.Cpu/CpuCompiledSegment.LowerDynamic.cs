@@ -36,7 +36,9 @@ internal sealed unsafe partial class CpuCompiledSegment
     {
         var x = Dense(Ref(n.Inputs[0]));
         var outputs = n.Outputs.Select(NewDense).ToArray();
-        AddStep(new UniqueOp(x, outputs[0], outputs[1], outputs[2], outputs[3], n.Attributes.Get<string>("count_symbol"), n.Attributes.Get("sorted", true)), [x, .. outputs]);
+        long sliceLength = n.Attributes.Get("slices", false) ? n.Inputs[0].Shape.InnerElements : 1;
+        AddStep(new UniqueOp(x, outputs[0], outputs[1], outputs[2], outputs[3], n.Attributes.Get<string>("count_symbol"), n.Attributes.Get("sorted", true), sliceLength),
+            [x, .. outputs]);
         for (int i = 0; i < outputs.Length; i++)
         {
             _refs[n.Outputs[i]] = outputs[i];

@@ -8,7 +8,8 @@ public sealed class OnnxImportOptions
 {
     /// <summary>
     /// Full-shape overrides per graph input name, e.g. <c>["pixel_values"] = [-1, 3, 384, 384]</c>.
-    /// Use a value of 0 or less for the (symbolic) batch axis. Needed when the model has dynamic spatial dimensions.
+    /// Use a negative value for the (symbolic) batch axis. Needed when the model has dynamic spatial dimensions. A 0 is a zero extent: the
+    /// input is then an empty tensor known at import time (an empty KV cache, an empty set), which is not a graph input of the result.
     /// </summary>
     public Dictionary<string, long[]> InputShapes { get; init; } = new(StringComparer.Ordinal);
 

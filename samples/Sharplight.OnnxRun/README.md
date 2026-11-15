@@ -7,7 +7,7 @@ compile times, run timings (min, median, mean after a warm-up) and the top-5 of 
 dotnet run -c Release --project samples/Sharplight.OnnxRun -- ~/models/onnx/mobilenetv2-12.onnx
 dotnet run -c Release --project samples/Sharplight.OnnxRun -- ~/models/onnx/mnist-12.onnx --provider vulkan --batch 8 --runs 20
 
-# Dynamic spatial dimensions need a full shape; a dimension <= 0 is the batch axis
+# Dynamic spatial dimensions need a full shape; a negative dimension is the batch axis
 dotnet run -c Release --project samples/Sharplight.OnnxRun -- model.onnx --shape pixel_values=-1x3x384x384
 
 # A package converted (and precompiled) with sharplight-convert: its stored kernels are used
