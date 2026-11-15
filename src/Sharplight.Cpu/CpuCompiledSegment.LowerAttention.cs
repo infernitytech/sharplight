@@ -55,18 +55,26 @@ internal sealed unsafe partial class CpuCompiledSegment
         long compression = a.Get("compression", 1L);
         TRef? sinks = hasSinks ? Ref(ins[3]) : null;
         TRef? compressed = a.Has("compression") ? Ref(ins[3 + (hasSinks ? 1 : 0)]) : null;
-        // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
+        int relativeExtent = a.Get("relative_bias", 0);
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [relative bias], [rows, runs, [block table]]
         int extra = (hasSinks ? 1 : 0) + (compressed is null ? 0 : 1) + (hasSelection ? 1 : 0);
         TRef? selection = hasSelection ? Dense(Ref(ins[2 + extra])) : null;
+        TRef? relativeBias = null;
+        if (relativeExtent > 0)
+        {
+            extra++;
+            relativeBias = Dense(RefF32(ins[2 + extra]));
+        }
+
         TRef? rows = ins.Length > 3 + extra ? Dense(Ref(ins[3 + extra])) : null;
         TRef? table = ins.Length > 5 + extra ? Dense(Ref(ins[5 + extra])) : null;
         var attention = new AttentionOp(
-            q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), true, a.Get("window", 0), a.Get("softcap", 0f),
+            q, k, v, null, y, a.Get("scale", 1f), a.Get("offset", WellKnown.PastScalar), a.Get("causal", true), a.Get("window", 0), a.Get("softcap", 0f),
             rows, (int)a.Get("slots", 1L), sinks, valueDims: (int)a.Get("v_dims", 0L), chunk: a.Get("chunk", 0),
             alibiSlopes: a.Get<float[]?>("alibi_slopes", null), pages: table is null ? null : new KvPages(table, a.Get("block_size", 0L)),
             positionBias: a.Get<float[]?>("position_bias", null), positionBiasRange: a.Get("position_bias_range", 0), selection: selection,
-            compressed: compressed is null ? null : new CompressedKv(compressed, compression));
-        AddStep(attention, Touched(q, k, v, sinks, compressed, selection, rows, table, y));
+            compressed: compressed is null ? null : new CompressedKv(compressed, compression), relativeBias: relativeBias, relativeExtent: relativeExtent);
+        AddStep(attention, Touched(q, k, v, sinks, compressed, selection, relativeBias, rows, table, y));
         _refs[n.Output] = y;
     }
 

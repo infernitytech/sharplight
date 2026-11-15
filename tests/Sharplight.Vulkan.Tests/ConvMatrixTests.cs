@@ -1,4 +1,5 @@
 using Sharplight.Graph;
+using Sharplight.Runtime;
 using Sharplight.Tensors;
 
 namespace Sharplight.Vulkan.Tests;
@@ -90,6 +91,35 @@ public sealed class ConvMatrixTests
 
         // Terms reach ~1e6 and cancel: atol about 1e-6 of the summed term magnitudes, as for f32 sums.
         Diff.Check("Conv.matrix.wide", g, new Step(1, 0, (x, data)), atol: 1, rtol: 1e-4, maxTokens: 1);
+    }
+
+    /// <summary>
+    /// Fast matrix precision (<see cref="MatrixPrecision.Fast"/>): the split form with hi parts only, one product per step. The
+    /// error is TF32's class (11 significant bits per input); split-K, scalar weight loads and a map below one tile.
+    /// </summary>
+    [Theory]
+    [InlineData(64, 20, 96, 3)]
+    [InlineData(7, 24, 64, 5)]
+    [InlineData(256, 7, 128, 3)]
+    [InlineData(256, 56, 128, 1)]
+    public void FastPrecision(int c, int hw, int o, int k)
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, c, hw, hw);
+        var g = Graph(tg, x, c, o, k, 1, k / 2, 1, "f32", true);
+        Diff.Check("Conv.matrix.fast", g, new Step(1, 0, (x, Rnd.F((long)c * hw * hw, 54))), atol: 1e-2, rtol: 5e-3, maxTokens: 1,
+            precision: MatrixPrecision.Fast, what: $"C={c} {hw}x{hw} O={o} k{k}");
+    }
+
+    /// <summary>Fast matrix precision with activations around 1e6, beyond f16's range: the block scales keep every value finite.</summary>
+    [Fact]
+    public void FastPrecisionLargeMagnitudes()
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 64, 16, 16);
+        var g = Graph(tg, x, 64, 64, 3, 1, 1, 1, "f32", false);
+        var data = Rnd.F(64 * 16 * 16, 50, 1e6f);
+        Diff.Check("Conv.matrix.fast.large", g, new Step(1, 0, (x, data)), atol: 1e4, rtol: 5e-3, maxTokens: 1, precision: MatrixPrecision.Fast);
     }
 
     /// <summary>Reduced precision: 128-pixel tiles for large maps, 64-pixel tiles for small grids, a 7x7 map below one tile.</summary>

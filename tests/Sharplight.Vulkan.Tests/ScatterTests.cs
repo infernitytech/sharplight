@@ -97,6 +97,32 @@ public sealed class ScatterTests
         Diff.Check("ScatterND.runtime", tg.B.Build(), new Step(1, 0, (x, Rnd.F(60, 7)), (idx, iv), (u, Rnd.F(6, 8))), atol: 0, rtol: 0);
     }
 
+    /// <summary>
+    /// Runtime element indices over a symbolic data axis (the attention-mask scatter of exported decoders): the index
+    /// rows follow the symbolic axis, and indices on it, negative ones included, are bounded by its run-time extent.
+    /// </summary>
+    [Fact]
+    public void RuntimeIndicesOverSymbolicAxis()
+    {
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, 3, 4);
+        var idx = tg.In("idx", DataType.I32, TG.T, 2, 3);
+        var u = tg.InF("u", TG.T, 2);
+        tg.B.Output("y", tg.B.Emit1("ScatterND", [x, idx, u]));
+        var g = tg.B.Build();
+        foreach (long t in new long[] { 1, 3 })
+        {
+            var iv = new List<int>();
+            for (int r = 0; r < t; r++)
+            {
+                iv.AddRange([r, r % 3, (r + 1) % 4]);
+                iv.AddRange([-1 - r, 2, r % 4]);
+            }
+
+            Diff.Check($"ScatterND.symbolic T={t}", g, new Step(t, 0, (x, Rnd.F((int)(t * 12), 11)), (idx, iv.ToArray()), (u, Rnd.F((int)(t * 2), 12))), atol: 0, rtol: 0);
+        }
+    }
+
     /// <summary>Integer data with i64 constant indices (bit-exact raw copies).</summary>
     [Fact]
     public void IntegerDataInt64Indices()

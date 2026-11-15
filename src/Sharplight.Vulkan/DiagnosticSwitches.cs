@@ -15,7 +15,7 @@ namespace Sharplight.Vulkan;
 /// <item><c>SHARPLIGHT_VK_TRACE=1</c>: log every command buffer recording and submission to stderr.</item>
 /// <item><c>SHARPLIGHT_VK_NO_BARRIERS=1</c>: drop inter-dispatch barriers (wrong results) to measure their cost.</item>
 /// <item><c>SHARPLIGHT_VK_REORDER=0</c>: record launches in program order instead of filling each barrier batch with later
-/// independent launches (<see cref="HazardTracker.Order"/>).</item>
+/// independent launches (<see cref="HazardTracker.Order(System.Collections.Generic.IReadOnlyList{Shaders.Lowering.KernelLaunch}, Shaders.Lowering.Bindings, bool)"/>).</item>
 /// <item><c>SHARPLIGHT_VK_MAX_LAUNCHES=n</c>: record only the first <c>n</c> launches (bisecting a faulting kernel).</item>
 /// <item><c>SHARPLIGHT_VK_LIST_LAUNCHES=1</c>: print each recorded launch.</item>
 /// <item><c>SHARPLIGHT_VK_SPIRV_PORTABILITY=0</c>: on portability-subset devices (MoltenVK), create pipelines from the
@@ -26,6 +26,8 @@ namespace Sharplight.Vulkan;
 /// <item><c>SHARPLIGHT_LOAD_TIMING=1</c>: print load-phase timings (pipeline creation, upload) to stderr.</item>
 /// <item><c>SHARPLIGHT_SUBMISSION_BUDGET_MS=ms</c>: overrides the per-device submission budget (0 disables slicing); the
 /// <c>submission_budget_ms</c> device setting wins over it.</item>
+/// <item><c>SHARPLIGHT_VK_DEVICES=i[,j...]</c>: list only the Vulkan devices with these enumeration indices (pins a process
+/// to some GPUs of a multi-GPU machine).</item>
 /// </list>
 /// </summary>
 internal static class DiagnosticSwitches
@@ -83,6 +85,27 @@ internal static class DiagnosticSwitches
     {
         string? text = deviceSetting ?? Read("SHARPLIGHT_SUBMISSION_BUDGET_MS");
         return text is not null && double.TryParse(text, CultureInfo.InvariantCulture, out double ms) ? ms : null;
+    }
+
+    /// <summary>The Vulkan enumeration indices listed by <c>SHARPLIGHT_VK_DEVICES</c>, or null to list every device.</summary>
+    public static IReadOnlySet<int>? VisibleDevices { get; } = ParseIndices(Read("SHARPLIGHT_VK_DEVICES"));
+
+    private static IReadOnlySet<int>? ParseIndices(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var set = new HashSet<int>();
+        foreach (var part in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index))
+            {
+                set.Add(index);
+            }
+        }
+        return set;
     }
 
     private static string? Read(string name) => Environment.GetEnvironmentVariable(name);

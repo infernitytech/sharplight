@@ -1,6 +1,6 @@
 using Sharplight.Cpu;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -34,6 +34,7 @@ public class FamilyGenerationTests
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
     private static readonly string P2 = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
+    internal static readonly int[] NemotronLatentIds = [84012, 129322, 91089, 61166, 57719, 115899, 122038, 107646, 54732, 45163, 112622, 59619, 129776, 92402, 51306, 104421];
     private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
 
     /// <summary>The case names; <c>SHARPLIGHT_TEST_CASE</c> limits them to those containing that text (to run one family).</summary>
@@ -64,6 +65,23 @@ public class FamilyGenerationTests
         // Nemotron-H with every layer kind (Mamba-2 with 2 groups, MoE with biased sigmoid routing + shared expert, attention, MLP): tiny random HF model (embedding tensor renamed to backbone.embeddings.weight).
         new("tiny-random-nemotron-h HF (transformers)", "hf/tiny-random-nemotron-h", "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art", "ids",
             [24000,92554,26777,83490,2319,37593,69072,35539,21983,120599,93,62682,121133,65255,47383,128871], "", NeedsCpuFallback: true),
+        // A latent mixture of experts (moe_latent_size, Nemotron 3 Super / Ultra): experts in a 16-wide latent space entered by
+        // fc1_latent_proj / ffn_latent_down and left by fc2_latent_proj / ffn_latent_up, router and shared expert on the full rows
+        // (tools/mk_tiny_nemotron_h_latent.py; its f32 GGUF from llama.cpp's converter gives the same ids on llama.cpp 8ca5a80, CPU and Vulkan).
+        new("tiny-random-nemotron-h-latent HF (transformers)", "hf/tiny-random-nemotron-h-latent", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
+        new("tiny-random-nemotron-h-latent f32 GGUF (transformers, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-latent-f32.gguf", P2, "ids",
+            NemotronLatentIds, "", NeedsCpuFallback: true),
+        // The same file with a multi-token-prediction block appended as llama.cpp's converter writes the Nemotron 3.5 MTP head
+        // (nextn_predict_layers 1, tools/mk_tiny_nemotron_h_mtp.py): the trunk loads without it and decodes as before (llama.cpp 8ca5a80 too).
+        // The HF form (mtp.layers.0 fusion + attention, mtp.layers.1 experts + head norm; tools/mk_tiny_nemotron_h_mtp_hf.py), whose
+        // llama.cpp conversion has the block layout of the GGUF case below.
+        new("tiny-random-nemotron-h-mtp HF (trunk)", "hf/tiny-random-nemotron-h-mtp", P2, "ids", NemotronLatentIds, "", NeedsCpuFallback: true),
+        new("tiny-random-nemotron-h-mtp f32 GGUF (trunk, llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-mtp-f32.gguf", P2, "ids",
+            NemotronLatentIds, "", NeedsCpuFallback: true),
+        // Heterogeneous ("Puzzle", Nemotron 3.5 Bolt): the second MoE layer has 6 of the 8 experts and selects 3, the first 2
+        // (expert_used_count per layer; tools/mk_tiny_nemotron_h_puzzle.py), vs llama.cpp 8ca5a80 (CPU and Vulkan agree).
+        new("tiny-random-nemotron-h-puzzle f32 GGUF (llama.cpp)", "gguf/tiny-random-nemotron-h-latent/tiny-random-nemotron-h-puzzle-f32.gguf", P2, "text", [],
+            "emblance 얼른 propuls shortestombo�ှိ� 시장odu Dio pojedaccepted últim+(-toggle힌 Moyen", NeedsCpuFallback: true, Tokens: 16),
         // Gemma 4 E4B finetune (NVIDIA Nemotron 3.5 Bolt E4B, arch gemma4): IQ4_NL per-layer embedding table, 42 layers with 18 shared-KV layers.
         new("NVIDIA-Nemotron-3.5-Bolt-E4B UD-Q4_K_XL GGUF (llama.cpp)", "gguf/NVIDIA-Nemotron-3.5-Bolt-E4B/NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf", "def fibonacci(n):", "text", [],
             "\n    if n <= 1:\n        return n\n    else:\n        return fibonacci(n-1) + fibonacci(n-2)\n\n# Test cases\nprint"),
@@ -187,6 +205,8 @@ public class FamilyGenerationTests
         .. DeepseekOcrFamilyCases.All,
         // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
         .. MoeVariantFamilyCases.All,
+        // Bring-up round 11: Hugging Face model types the round-10 Hub sweep found unsupported (LFM3, ...).
+        .. HubSweepFamilyCases.All,
         // Bring-up round 9: per-token switched adapters (Granite Switch).
         .. AdapterFamilyCases.All,
         // Bring-up round 9: QSA block selection (Qwen3.8-Flash-Next) in its sparse regime.
@@ -195,6 +215,8 @@ public class FamilyGenerationTests
         .. KimiK3FamilyCases.All,
         // Bring-up round 9: DeepSeek-V4 (compressed-KV attention, hash routing).
         .. DeepSeekV4Cases.All,
+        // Bring-up round 11: Inkling (relative bias, residual short convolutions, router-scored shared experts).
+        .. InklingFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
@@ -265,10 +287,16 @@ public class FamilyGenerationTests
     {
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(reference.PromptIds);
-        Assert.Equal(reference.Logits.Length, logits.Length);
+        // A reference cut to the unpadded vocabulary (Inkling): the padded ids beyond it must be suppressed.
+        Assert.True(logits.Length >= reference.Logits.Length, $"{logits.Length} logits, the reference has {reference.Logits.Length}");
+        for (int i = reference.Logits.Length; i < logits.Length; i++)
+        {
+            Assert.True(logits[i] < -1e30f, $"padded token {i} has logit {logits[i]}");
+        }
+
         double scale = reference.Logits.Max(MathF.Abs);
         double worst = 0;
-        for (int i = 0; i < logits.Length; i++)
+        for (int i = 0; i < reference.Logits.Length; i++)
         {
             worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
         }

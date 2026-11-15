@@ -160,6 +160,60 @@ public sealed class MoeTests
             atol: Atol(t * S), rtol: Rtol(t * S), maxTokens: 128);
     }
 
+    /// <summary>
+    /// One ids tensor shared by an up projection on the integer-dot expert matvec (a K-quant, which serves up to 128 items) and a down
+    /// projection in a format without int-dot (Q5_1, grouped GEMM from 17 items; Gemma 4 26B-A4B UD-Q4_K_XL): at 48 items the down GEMM
+    /// needs a routing launch of its own, the up projection's runs only above 128 items.
+    /// </summary>
+    [Theory]
+    [InlineData(6)]
+    [InlineData(2)]
+    [InlineData(20)]
+    public void SharedIdsWithIntDotAndGroupedProducts(int t)
+    {
+        Gpu.Require();
+        int E = 16;
+        int K = 256;
+        int H = 128;
+        int S = 8;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var up = tg.RandW("up", DataType.Q4_K, 0.1f, E, H, K);
+        var down = tg.RandW("down", DataType.Q5_1, 0.1f, E, K, H);
+        var h = tg.B.Emit1("MatMulId", [x, up, ids]);                    // [T, S, H]
+        tg.B.Output("d", tg.B.Emit1("MatMulId", [h, down, ids]));        // per-slot input -> [T, S, K]
+        Diff.Check("MatMulId.intdot+grouped", tg.B.Build(), new Step(t, 0, (x, Rnd.F(t * K, 3)), (ids, Ids("random", t, S, E))),
+            atol: 1.0, rtol: 5e-2, maxTokens: 128, what: $"T={t}");
+    }
+
+    /// <summary>
+    /// The Gemma 4 MoE block shape of <see cref="SharedIdsWithIntDotAndGroupedProducts"/>: a fused gate/up projection (int-dot) whose
+    /// halves feed the activation, a Q5_1 down projection (grouped GEMM), the routing weights and the sum over the slots.
+    /// </summary>
+    [Theory]
+    [InlineData(6)]
+    [InlineData(20)]
+    public void FusedGateUpWithGroupedDown(int t)
+    {
+        Gpu.Require();
+        int E = 16;
+        int K = 256;
+        int H = 192;
+        int S = 8;
+        var tg = new TG();
+        var x = tg.InF("x", TG.T, K);
+        var ids = tg.In("ids", DataType.I32, TG.T, S);
+        var slotWeights = tg.InF("sw", TG.T, S, 1);
+        var gateUp = tg.B.Emit1("MatMulId", [x, tg.RandW("gate_up", DataType.Q4_K, 0.1f, E, 2 * H, K), ids]);   // [T, S, 2H]
+        var act = tg.B.Mul(tg.B.Silu(tg.B.Slice(gateUp, 2, 0, H)), tg.B.Slice(gateUp, 2, H, H));
+        var down = tg.B.Emit1("MatMulId", [act, tg.RandW("down", DataType.Q5_1, 0.1f, E, K, H), ids]);        // [T, S, K]
+        var summed = tg.B.Emit1("ReduceSum", [tg.B.Permute(tg.B.Mul(down, slotWeights), 0, 2, 1)]);              // [T, K, 1]
+        tg.B.Output("y", summed);
+        Diff.Check("MatMulId.gemma4", tg.B.Build(), new Step(t, 0, (x, Rnd.F(t * K, 3)), (ids, Ids("random", t, S, E)), (slotWeights, Rnd.F(t * S, 1))),
+            atol: 1.0, rtol: 5e-2, maxTokens: 128, what: $"T={t}");
+    }
+
     /// <summary>Two expert products on one ids tensor followed by a second block with other ids (routing is recomputed).</summary>
     [Fact]
     public void ChainedBlocks()

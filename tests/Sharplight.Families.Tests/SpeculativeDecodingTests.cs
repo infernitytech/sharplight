@@ -1,9 +1,9 @@
 using System.Text.Json;
 using Sharplight.Architectures;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
 using Sharplight.Graph;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Llm;
 using Sharplight.Llm.Serving;
 using Sharplight.Llm.Serving.Speculative;

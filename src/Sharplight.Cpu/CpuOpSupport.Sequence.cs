@@ -74,6 +74,13 @@ internal static partial class CpuOpSupport
             return OpSupport.No("CachedAttention selection must be i32 [T, K] and cannot be combined with window or chunk");
         }
 
+        int relativeInput = selectionInput + (node.Attributes.Get("selection", false) ? 1 : 0);
+        if (node.Attributes.Get("relative_bias", 0) > 0
+            && (compressed || ins.Length <= relativeInput || ins[relativeInput].Type != DataType.F32 || ins[relativeInput].Shape.Rank != 3))
+        {
+            return OpSupport.No("CachedAttention relative bias must be f32 [T, Hq, E] and cannot be combined with compression");
+        }
+
         return OpSupport.Yes;
     }
 

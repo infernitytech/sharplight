@@ -331,6 +331,9 @@ internal sealed unsafe class PhysicalDeviceInfo
         return [.. missing];
     }
 
+    /// <summary><see cref="DeviceInfo.ConcurrentWorkgroups"/> of integrated GPUs and CPU implementations.</summary>
+    private const int SmallDeviceWorkgroups = 64;
+
     public DeviceInfo ToDeviceInfo(int index) => new()
     {
         Provider = "vulkan",
@@ -351,6 +354,8 @@ internal sealed unsafe class PhysicalDeviceInfo
         Features = Features,
         // Display-driving / host-memory-sharing GPUs get a watchdog-friendly submission size; discrete GPUs run flat out.
         SubmissionBudgetMs = Type == VkPhysicalDeviceType.IntegratedGpu ? 250 : 0,
+        // Integrated GPUs and CPU implementations run a few dozen workgroups at once; discrete GPUs are sized by default.
+        ConcurrentWorkgroups = Type is VkPhysicalDeviceType.IntegratedGpu or VkPhysicalDeviceType.Cpu ? SmallDeviceWorkgroups : 0,
         Capabilities = Describe(),
     };
 

@@ -70,6 +70,28 @@ public static class WellKnown
     /// <see cref="HiddenOutput"/>-wide part, which carries the head's previous output.
     /// </summary>
     public const string DraftAnchored = "draft_anchored";
+    /// <summary>
+    /// Block drafting (int property; absent or 0: the <see cref="DraftGraph"/> drafts one token per pass). The draft graph denoises a block of
+    /// the pending token and <see cref="DraftMaskToken"/> tokens in one bidirectional pass, after rows that carry the target's
+    /// <see cref="DraftHiddenSource"/> features of the positions before it (DFlash drafters); the value is the block length it was trained on
+    /// (at most one draft per mask row). Its hidden-state input rows are [features | context flag | per convolution tap: previous row, valid |
+    /// with a candidate lattice: predecessor logits row, predecessor is the pending token] (see <see cref="DraftConvTaps"/> and
+    /// <see cref="DraftLatticeCandidates"/>).
+    /// </summary>
+    public const string DraftBlockSize = "draft_block_size";
+    /// <summary>The token of the block rows after the pending token of a block drafter (int property, <see cref="DraftBlockSize"/>).</summary>
+    public const string DraftMaskToken = "draft_mask_token";
+    /// <summary>
+    /// Earlier rows of the same block a block drafter's per-row convolution reads (int property; absent: 0). Each takes two columns of the
+    /// hidden-state input: the step row it reads and whether that row lies in the block.
+    /// </summary>
+    public const string DraftConvTaps = "draft_conv_taps";
+    /// <summary>
+    /// Candidates per row of a block drafter whose logits output is a candidate lattice (int property k; absent or 0: the logits output is the
+    /// greedy token of every row, one column). A lattice row holds k candidate tokens and k·k scores, score[p·k + c] of candidate c after
+    /// candidate p of the previous row (after the pending token for the first mask row); drafts follow the best successor of the previous choice.
+    /// </summary>
+    public const string DraftLatticeCandidates = "draft_lattice_candidates";
     /// <summary>Symbol of the sequence count of a packed-sequence graph (rows of <see cref="InputRole.SequenceSpans"/>).</summary>
     public const string SequenceSymbol = "B";
 

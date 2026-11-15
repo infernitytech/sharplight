@@ -1,6 +1,6 @@
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
-using Sharplight.Package.Import;
+using Sharplight.Package;
 using Sharplight.Samples;
 
 namespace Sharplight.Convert;

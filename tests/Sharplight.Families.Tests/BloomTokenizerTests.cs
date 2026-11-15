@@ -1,4 +1,4 @@
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Tokenizers;
 
 namespace Sharplight.Families.Tests;

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Models;
 using Sharplight.Package;
 using Sharplight.Studio.Services.Hub;

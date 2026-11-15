@@ -14,6 +14,11 @@ internal static unsafe partial class Quant
             return fp8;
         }
 
+        if (GroupedFormatOf(t) is { } grouped)
+        {
+            return grouped;
+        }
+
         if (t == DataType.F32)
         {
             return WeightFormat.F32;
@@ -164,6 +169,12 @@ internal static unsafe partial class Quant
             return WeightFormat.Tern1_G128;
         }
 
+        int trellis = Array.IndexOf(s_trellisTypes, t);
+        if (trellis >= 0)
+        {
+            return WeightFormat.TrellisV4K8 + trellis;
+        }
+
         return null;
     }
 
@@ -172,9 +183,11 @@ internal static unsafe partial class Quant
         WeightFormat.Q4_K or WeightFormat.Q5_K or WeightFormat.Q6_K or WeightFormat.IQ4_XS or WeightFormat.Q2_K or WeightFormat.Q3_K or
         WeightFormat.IQ2_XXS or WeightFormat.IQ2_XS or WeightFormat.IQ2_S or WeightFormat.IQ3_XXS or WeightFormat.IQ3_S or
         WeightFormat.IQ1_S or WeightFormat.IQ1_M or WeightFormat.TQ1_0 or WeightFormat.TQ2_0 => 256,
-        WeightFormat.NVFP4 => 64,
-        WeightFormat.MXFP4 => 32,
+        WeightFormat.NVFP4 or WeightFormat.NVFP4_GS or WeightFormat.NF4_B64 => 64,
+        WeightFormat.MXFP4 or WeightFormat.Q4Z_G32 or WeightFormat.Q8Z_G32 => 32,
+        WeightFormat.Q4Z_G128 or WeightFormat.Q8Z_G128 => 128,
         WeightFormat.Q1_0 or WeightFormat.Q2_0_G128 or WeightFormat.Tern1_G128 => 128,
+        >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7 => TrellisBlocks.BlockSize,
         WeightFormat.Q2_0 => 64,
         WeightFormat.F8E4M3_B32 => 32,
         WeightFormat.F8E4M3_B128 => 128,
@@ -198,6 +211,7 @@ internal static unsafe partial class Quant
         WeightFormat.IQ4_XS => 136,
         WeightFormat.Q2_0_G128 => 34,
         WeightFormat.Tern1_G128 => 28,
+        >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7 => TrellisType(f).BlockBytes,
         WeightFormat.Q2_K => 84,
         WeightFormat.Q3_K => 110,
         WeightFormat.IQ2_XXS or WeightFormat.TQ2_0 => 66,
@@ -210,6 +224,11 @@ internal static unsafe partial class Quant
         WeightFormat.TQ1_0 => 54,
         WeightFormat.MXFP4 => 17,
         WeightFormat.NVFP4 => 36,
+        WeightFormat.NVFP4_GS => 40,
+        WeightFormat.Q4Z_G32 => 20,
+        WeightFormat.Q4Z_G128 => 68,
+        WeightFormat.Q8Z_G32 or WeightFormat.NF4_B64 => 36,
+        WeightFormat.Q8Z_G128 => 132,
         WeightFormat.F8E4M3 or WeightFormat.F8E5M2 => 1,
         WeightFormat.F8E4M3_B32 => 36,
         WeightFormat.F8E4M3_B128 => 132,
@@ -277,6 +296,9 @@ internal static unsafe partial class Quant
             case WeightFormat.Tern1_G128:
                 Tern1(src, nb, dst);
                 break;
+            case >= WeightFormat.TrellisV4K8 and <= WeightFormat.TrellisV2K7:
+                Trellis(TrellisType(f), src, nb, dst);
+                break;
             case WeightFormat.Q2_K:
                 Q2_K(src, nb, dst);
                 break;
@@ -309,6 +331,18 @@ internal static unsafe partial class Quant
                 break;
             case WeightFormat.NVFP4:
                 NVFP4(src, nb, dst);
+                break;
+            case WeightFormat.NVFP4_GS:
+                NVFP4_GS(src, nb, dst);
+                break;
+            case WeightFormat.Q4Z_G32 or WeightFormat.Q4Z_G128:
+                Q4Z(src, nb, (int)bs, dst);
+                break;
+            case WeightFormat.Q8Z_G32 or WeightFormat.Q8Z_G128:
+                Q8Z(src, nb, (int)bs, dst);
+                break;
+            case WeightFormat.NF4_B64:
+                NF4_B64(src, nb, dst);
                 break;
             case WeightFormat.TQ1_0:
                 TQ1_0(src, nb, dst);

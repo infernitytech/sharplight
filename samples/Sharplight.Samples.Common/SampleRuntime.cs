@@ -1,6 +1,6 @@
 using Sharplight.Cpu;
-using Sharplight.Gguf;
-using Sharplight.HuggingFace;
+using Sharplight.Import.Gguf;
+using Sharplight.Import.HuggingFace;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Vulkan;

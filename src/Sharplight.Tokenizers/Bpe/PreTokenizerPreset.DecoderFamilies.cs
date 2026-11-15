@@ -25,7 +25,7 @@ internal sealed partial record PreTokenizerPreset
             @"[一-龥぀-ゟ゠-ヿ]+",
             @"[!""#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~][A-Za-z]+|[^\r\n\p{L}\p{P}\p{S}]?[\p{L}\p{M}]+| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+",
         ]), false, false),
-        _ => null,
+        _ => ResolveExtended(name),
     };
 
     // Falcon (llama.cpp LLAMA_VOCAB_PRE_TYPE_FALCON): punctuation runs (including the backtick) are cut out first, then the GPT-2 expression

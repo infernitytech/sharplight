@@ -115,8 +115,9 @@ public sealed partial class GraphLowerer
     private void LowerAttention(Node n)
     {
         var plan = PlanAttention(n);
-        if (plan.Selection is not null || plan.Compressed is not null)
+        if (plan.Selection is not null || plan.Compressed is not null || plan.RelativeBias is not null)
         {
+            // The relative bias is read by the per-(head, query) kernel only.
             EmitSelectedAttention(plan);
             return;
         }
@@ -131,8 +132,9 @@ public sealed partial class GraphLowerer
         var o = plan.Output;
 
         bool flash = CanUseFlashAttention(plan);
+        bool simtFlash = !flash && SimtEncoderFlash(plan);
         long maxRows = q.Symbol is null ? q.Shape[0] : Bound(Dim.Sym(q.Symbol));
-        long sliceRows = SliceRows(plan, flash, maxRows);
+        long sliceRows = SliceRows(plan, flash || simtFlash, maxRows);
         int slices = (int)((maxRows + sliceRows - 1) / sliceRows);
 
         // Few queries (decode): one workgroup per (head, query) leaves most of the GPU idle, so the keys are split
@@ -141,7 +143,7 @@ public sealed partial class GraphLowerer
         var decode = DecodeAttention(plan, flash, sliceRows);
         int splits = (int)Math.Clamp((256 + plan.HQ - 1) / plan.HQ, 1, 32);
         bool split = decode is null && !plan.Full && splits > 1 && DiagnosticSwitches.AttentionSplit;
-        int keySplits = flash && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
+        int keySplits = (flash || simtFlash) && slices == 1 ? FlashKeySplits(plan, maxRows) : 1;
         var part = decode is not null ? DecodeScratch(plan, decode, maxRows) : split ? SplitScratch(plan, splits)
             : keySplits > 1 ? AttentionScratch(keySplits * maxRows * plan.HQ * (plan.DV + 2) * 4) : o;
         var splitMacros = new Dictionary<string, string>(plan.Macros) { ["SPLITS"] = splits.ToString(CultureInfo.InvariantCulture) };
@@ -179,6 +181,11 @@ public sealed partial class GraphLowerer
             if (slice == 0 && flash)
             {
                 variants.Add(FlashVariant(plan, keySplits));
+            }
+
+            if (slice == 0 && simtFlash)
+            {
+                variants.Add(SimtFlashVariant(plan, keySplits));
             }
 
             if (slices == 1)
@@ -237,11 +244,15 @@ public sealed partial class GraphLowerer
         bool hasSelection = !full && n.Attributes.Get("selection", false);
         long compression = full ? 1 : n.Attributes.Get("compression", 1L);
         bool hasCompressed = !full && n.Attributes.Has("compression");
-        // inputs: q, k, v, [sinks], [compressed cache], [selection], [rows, runs, [block table]]
+        // inputs: q, k, v, [sinks], [compressed cache], [selection], [relative bias], [rows, runs, [block table]]
         int sinksInputs = (hasSinks ? 1 : 0) + (hasCompressed ? 1 : 0) + (hasSelection ? 1 : 0);
         TensorRef? sinks = hasSinks ? Ref(n.Inputs[3]) : null;   // attention sinks [HQ] f32
         TensorRef? compressed = hasCompressed ? Ref(n.Inputs[hasSinks ? 4 : 3]) : null;   // compressed cache [entries, HKV, VRS]
         TensorRef? selection = hasSelection ? DenseInput(n.Inputs[2 + sinksInputs], "attn-selection") : null;   // sparse attention: [T, K] or [T, Hs, K] key positions
+        // inputs after the selection: [relative bias [T, HQ, E]], then the multi-sequence tables
+        int relativeExtent = full ? 0 : n.Attributes.Get("relative_bias", 0);
+        TensorRef? relativeBias = relativeExtent > 0 ? DenseInput(n.Inputs[3 + sinksInputs], "attn-relative-bias") : null;
+        sinksInputs += relativeBias is null ? 0 : 1;
         long HQ = q.Shape[1];
         long D = q.Shape[2];
         long HKV = k.Shape[1];
@@ -288,6 +299,12 @@ public sealed partial class GraphLowerer
             pages = PageTable(n, 5 + sinksInputs);
         }
 
+        if (!full && !n.Attributes.Get("causal", true) && seq is null)
+        {
+            // Bidirectional cached attention reaches the kernels through the multi-sequence run-end rows table only.
+            throw new NotSupportedException("Bidirectional cached attention (causal false) needs the multi-sequence form.");
+        }
+
         var macros = Macros(
             [.. PageMacros(n, pages),
             ("MULTI_SEQ", seq is not null), ("SLOT_CTX", seq is null ? 0 : SlotContext(n, k)), ("HQ", HQ), ("HKV", HKV), ("D", D), ("DV", DV), ("VRS", valueRowStride),
@@ -296,7 +313,7 @@ public sealed partial class GraphLowerer
             ("HAS_SOFTCAP", softcap > 0), ("SOFTCAP", softcap > 0 ? softcap : 1f), ("HAS_SINKS", sinks is not null),
             ("SPANS", spans is not null), ("CAUSAL", causal), ("CROSS_ATTN", cross), ("SELECTED", selection?.Shape[^1] ?? 0), ("SEL_HEADS", selection is { Shape.Length: 3 } ? selection.Shape[1] : 1),
             ("SEQ_ROWS", sequenceRows), ("SEQ_KEYS", sequenceKeys), ("HAS_MASK", mask is not null), ("MASK_PER_ROW", mask is not null && n.Inputs[3].Rank == 2),
-            .. AlibiMacros(n),
+            .. AlibiMacros(n), ("REL_BIAS", relativeExtent),
             ("COMP_ATTN", compressed is not null), ("KV_COMP", compression), ("COMP_SLOT_CTX", seq is null || compressed is null ? 0 : SlotContext(n, compressed))]);
         if (compressed is not null && compressed.Type != k.Type)
         {
@@ -327,6 +344,7 @@ public sealed partial class GraphLowerer
             Mask = mask,
             SequenceRows = sequenceRows,
             Selection = selection,
+            RelativeBias = relativeBias,
             Compressed = compressed,
             Cross = cross,
             HQ = HQ,
@@ -410,11 +428,12 @@ public sealed partial class GraphLowerer
         long halfTiles = 32 * (paddedD + 8) * 2 + 32 * (paddedKV + 8) * 2 + 32 * 40 * 2;
         long sharedBytes = halfTiles * (SplitFlash(plan) ? 2 : 1) + 32 * 32 * 4 + 32 * 64 * 4;
         bool typeAllowed = plan.K.Type == DataType.F16 || IsQuantizedKv(plan.K.Type)
-                           || (plan.K.Type == DataType.F32 && (_opt.Compile.AllowReducedPrecision || SplitFlash(plan)));
+                           || (plan.K.Type == DataType.F32 && (_opt.Compile.AllowReducedPrecision || FastMatrixProducts || SplitFlash(plan)));
         return DiagnosticSwitches.AttentionFlash && _opt.Has(DeviceFeatures.MatrixF16) && _opt.Has(DeviceFeatures.Float16)
                && _opt.Has(DeviceFeatures.SubgroupOps) && _opt.SubgroupSize == 32 && typeAllowed
                && plan.D % 8 == 0 && plan.DV % 8 == 0 && paddedD <= 256 && paddedDV <= 256
-               && plan.HQ % plan.HKV == 0 && sharedBytes <= _opt.MaxSharedMemory;
+               && plan.HQ % plan.HKV == 0 && sharedBytes <= _opt.MaxSharedMemory
+               && (plan.Full || plan.Node.Attributes.Get("causal", true));   // the multi-sequence flash kernel takes its limits from the runs table
     }
 
     /// <summary>
@@ -477,18 +496,52 @@ public sealed partial class GraphLowerer
         long paddedDV = (plan.DV + 15) / 16 * 16;
         long kvHalves = 2 * 32 * (paddedD + 8) + 2 * 32 * (paddedDV + 8);
         long buffer = Math.Max(kvHalves, 2 * 64 * (paddedD + 8)) * 2;
-        long sharedBytes = buffer + 4 * 16 * 32 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
+        long sharedBytes = buffer + 4 * 16 * 36 * 4 + 4 * 16 * 40 * 2 * (SplitFlash(plan) ? 2 : 1) + 4 * 256 * 4;
         return DiagnosticSwitches.AttentionEncoderFlash && plain && kv && paddedD <= 128 && paddedDV <= 128
                && sharedBytes <= _opt.MaxSharedMemory;
     }
 
     /// <summary>
+    /// Whether bidirectional attention on a device without the tensor-core flash kernels runs the f32 encoder flash kernel
+    /// <c>fes</c> (64 queries per workgroup, one per thread, K/V tiles shared): the forms <c>fe</c> serves (see
+    /// <see cref="EncoderFlash"/>) with head sizes that are multiples of 8 up to 64, unless <c>SHARPLIGHT_ATTN_FES=0</c>.
+    /// The per-query kernel re-reads every key for each query (vit-base on an integrated GPU: 16.5 ms per layer).
+    /// </summary>
+    private bool SimtEncoderFlash(AttentionPlan plan)
+    {
+        var a = plan.Node.Attributes;
+        bool plain = plan.Full && plan.Spans is null && plan.Sinks is null && plan.Runs is null && plan.Selection is null
+                     && a.Get("window", 0) == 0 && !a.Get("causal", false) && a.Get("softcap", 0f) <= 0
+                     && a.Get<float[]?>("alibi_slopes", null) is null && a.Get<float[]?>("position_bias", null) is null;
+        bool kv = (plan.K.Type == DataType.F32 || plan.K.Type == DataType.F16) && plan.V.Type == plan.K.Type;
+        long sharedBytes = 32 * (plan.D + plan.DV) * 4;
+        return DiagnosticSwitches.AttentionSimtFlash && plain && kv && plan.HQ % plan.HKV == 0 && plan.D % 8 == 0 && plan.DV % 8 == 0
+               && plan.D <= 64 && plan.DV <= 64 && sharedBytes <= _opt.MaxSharedMemory;
+    }
+
+    /// <summary>The <c>fes</c> variant (see <see cref="SimtEncoderFlash"/>): grid (heads, 64-query blocks, sequences x key ranges).</summary>
+    private KernelVariant SimtFlashVariant(AttentionPlan plan, int keySplits)
+    {
+        var q = plan.Q;
+        var macros = new Dictionary<string, string>(plan.Macros) { ["FA_KSPLIT"] = keySplits.ToString(CultureInfo.InvariantCulture) };
+        var kernel = Lib("attention.slang", "fes", macros);
+        if (plan.SequenceRows > 0)
+        {
+            long sequenceRows = plan.SequenceRows;
+            return new KernelVariant(FlashWhen(plan), kernel,
+                b => new Grid((uint)plan.HQ, Grid.Div(sequenceRows, 64), (uint)(Rows(b, q) / sequenceRows * keySplits)));
+        }
+
+        return new KernelVariant(FlashWhen(plan), kernel, b => new Grid((uint)plan.HQ, Grid.Div(Rows(b, q), 64), (uint)keySplits));
+    }
+
+    /// <summary>
     /// Whether flash attention over f32 K/V runs in the split-f16 form (FA_SPLIT: hi·hi + hi·lo + lo·hi products, near-f32
-    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Reduced precision uses
-    /// single f16 products.
+    /// accuracy): under strict precision, unless disabled with <c>SHARPLIGHT_ATTN_SPLIT_F16=0</c>. Reduced precision and fast
+    /// matrix precision use single f16 products.
     /// </summary>
     private bool SplitFlash(AttentionPlan plan)
-        => plan.K.Type == DataType.F32 && !_opt.Compile.AllowReducedPrecision && DiagnosticSwitches.AttentionSplitHalf;
+        => plan.K.Type == DataType.F32 && !_opt.Compile.AllowReducedPrecision && !FastMatrixProducts && DiagnosticSwitches.AttentionSplitHalf;
 
     /// <summary>
     /// Key ranges per query block of bidirectional flash attention (FA_KSPLIT): enough workgroups for about
@@ -507,7 +560,7 @@ public sealed partial class GraphLowerer
         long sequences = plan.SequenceRows > 0 ? Math.Max(1, maxRows / plan.SequenceRows) : 1;
         long rowsPerSequence = plan.SequenceRows > 0 ? plan.SequenceRows : maxRows;
         long keys = plan.SequenceRows > 0 ? BatchedAttention.SequenceKeys(plan.Node) : plan.K.Symbol is null ? plan.K.Shape[0] : Bound(Dim.Sym(plan.K.Symbol));
-        long blockRows = EncoderFlash(plan) ? 64 : 32;
+        long blockRows = EncoderFlash(plan) || !CanUseFlashAttention(plan) ? 64 : 32;
         long workgroups = plan.HQ * ((rowsPerSequence + blockRows - 1) / blockRows) * sequences;
         long wanted = (FlashTargetWorkgroups + workgroups - 1) / workgroups;
         return (int)Math.Clamp(Math.Min(wanted, (keys + 31) / 32 / 2), 1, 8);
@@ -638,8 +691,8 @@ public sealed partial class GraphLowerer
         Emit($"attention {plan.Node.Output.Name}", [plan.Node],
             variants,
             [Pointer(plan.Q), Pointer(plan.K), Pointer(plan.V), Pointer(o), Pointer(part), Pointer(sinks ?? o), new PointerArg(_runtime, 0),
-             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
-            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask)],
+             .. SeqArgs(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias), TokenArg(plan.Q), new UIntArg((uint)firstRow), .. plan.Cross ? (KernelArg[])[TokenArg(plan.K)] : []],
+            [plan.Q, plan.K, plan.V, .. sinks is null ? [] : (TensorRef[])[sinks], .. PresentTables(seq, plan.Runs, plan.Pages, spans, plan.Selection, plan.Compressed, plan.Mask, plan.RelativeBias)],
             split ? [o, part] : [o]);
     }
 
@@ -654,7 +707,7 @@ public sealed partial class GraphLowerer
         long sliceRows = maxRows;
         if (_opt.SubmissionBudgetMs > 0)
         {
-            long entries = plan.Selection?.Shape[^1] ?? 0;
+            long entries = plan.Selection?.Shape[^1] ?? (plan.RelativeBias is null ? 0 : Math.Max(plan.Node.Attributes.Get("window", 0), plan.K.Shape[0]));
             long keys = plan.Compressed is null ? entries : entries + plan.Node.Attributes.Get("window", 0)
                 + (plan.Selection is null ? plan.Compressed.Shape[0] : 0);
             long workPerRow = Math.Max(1, plan.HQ * Math.Max(1, keys) * (plan.D + plan.DV));

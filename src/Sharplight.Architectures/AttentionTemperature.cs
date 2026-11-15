@@ -5,7 +5,7 @@ namespace Sharplight.Architectures;
 /// <summary>
 /// Llama 4 / Mistral 3 / Mistral 4 attention temperature ("temperature tuning"): each query position is scaled by
 /// <c>1 + scale · ln(1 + ⌊(pos + offset) / length⌋)</c>, which is 1 within the first <c>length</c> positions and grows slowly beyond; or, in the
-/// power form (Beam), <c>(1 + (pos + offset) / length)^scale</c>.
+/// power form (Beam), <c>(1 + (pos + offset) / length)^scale</c>; or, in the log-floor form (Inkling), <c>1 + α · max(ln((pos + 1) / floor), 0)</c>.
 /// </summary>
 internal static class AttentionTemperature
 {
@@ -28,5 +28,20 @@ internal static class AttentionTemperature
         var steps = b.Unary("Floor", b.Scale(pos, 1f / length, offset / length));
         var temperature = b.Scale(b.Unary("Log", b.Scale(steps, 1f, 1f)), scale, 1f);
         return b.Reshape(temperature, 0, 1, 1);
+    }
+
+    /// <summary>
+    /// The log-floor temperature <c>1 + α · max(ln((pos + 1) / floor), 0)</c> of every query row, shaped [T, 1, 1]: 1 up to position
+    /// <paramref name="floor"/> − 1, growing logarithmically beyond.
+    /// </summary>
+    /// <param name="b">Graph under construction.</param>
+    /// <param name="positions">Positions [T, 1] (i32).</param>
+    /// <param name="alpha">α, the growth factor.</param>
+    /// <param name="floor">The position count from which the temperature grows (positive).</param>
+    public static Value LogFloor(GraphBuilder b, Value positions, float alpha, float floor)
+    {
+        var pos = b.Emit1("Cast", [positions], Attributes.From(("type", "f32")));
+        var growth = b.Unary("Relu", b.Unary("Log", b.Scale(pos, 1f / floor, 1f / floor)));
+        return b.Reshape(b.Scale(growth, alpha, 1f), 0, 1, 1);
     }
 }

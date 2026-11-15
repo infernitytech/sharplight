@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Sharplight.Cpu;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Runtime;

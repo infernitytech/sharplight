@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Sharplight.Cpu;
 using Sharplight.Graph;
+using Sharplight.Import.Onnx;
 using Sharplight.Models;
-using Sharplight.Onnx;
 using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Samples;

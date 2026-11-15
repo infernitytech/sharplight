@@ -5,13 +5,13 @@ using Sharplight.Tensors.Grids;
 namespace Sharplight.Shaders.Lowering;
 
 /// <summary>
-/// The lookup grids of the IQ weight formats packed into device constants. Kernels read them through a pointer that the lowering prepends to
+/// The lookup grids of the IQ weight formats (and the NF4 code book) packed into device constants. Kernels read them through a pointer that the lowering prepends to
 /// the arguments of every launch that touches such a weight (a table in kernel-local memory is initialised per thread and indexed divergently,
 /// which makes the decoders several times slower than a table in cached global memory).
 /// </summary>
 /// <remarks>
 /// Layout in 32-bit words, mirrored by <c>quant_iq.slang</c>: the grid (a 64-bit entry is two words, low half first; IQ1 entries are one word),
-/// then for the formats that use 7-bit sign indices the 128 sign bytes (<see cref="IqSigns"/>) as 32 words.
+/// then for the formats that use 7-bit sign indices the 128 sign bytes (<see cref="IqSigns"/>) as 32 words. NF4: the 16 f32 code values.
 /// </remarks>
 internal static class GridTables
 {
@@ -48,6 +48,16 @@ internal static class GridTables
             return "iq1";
         }
 
+        if (TrellisBlocks.Is(type))
+        {
+            return "trellis";
+        }
+
+        if (type == DataType.NF4_B64)
+        {
+            return "nf4";
+        }
+
         return null;
     }
 
@@ -60,8 +70,23 @@ internal static class GridTables
         "iq3_xxs" => Pack([.. Iq3XxsGrid.Values], withSigns: true),
         "iq3_s" => Pack([.. Iq3SGrid.Values], withSigns: false),
         "iq1" => Pack(CompactIq1Entries(), withSigns: false),
+        "trellis" => TrellisEntries(),
+        "nf4" => Pack([.. Nf4CodeBook.Values.ToArray().Select(BitConverter.SingleToUInt32Bits)], withSigns: false),
         _ => throw new ArgumentOutOfRangeException(nameof(key), key, "unknown grid"),
     };
+
+    /// <summary>The trellis codebook, one word per point: f16 value 0 in the low half, value 1 in the high half.</summary>
+    private static byte[] TrellisEntries()
+    {
+        var bits = TrellisCodebook.Values;
+        var bytes = new byte[bits.Length * 2];
+        for (int i = 0; i < bits.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(2 * i), bits[i]);
+        }
+
+        return bytes;
+    }
 
     private static uint[] WideEntries(ReadOnlySpan<ulong> grid)
     {

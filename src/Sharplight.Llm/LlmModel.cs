@@ -23,7 +23,7 @@ namespace Sharplight.Llm;
 /// </summary>
 /// <example>
 /// <code>
-/// GgufImporter.Register();   // from Sharplight.Gguf; the host registers the formats it supports
+/// GgufImporter.Register();   // from Sharplight.Import.Gguf; the host registers the formats it supports
 /// using var model = LlmModel.Load("qwen3-4b-q4_k_m.gguf", new LlmLoadOptions { Devices = [new DeviceSlot { Device = gpu }] });
 /// using var session = model.CreateSession();
 /// var generator = new Generator(session, model.Tokenizer);
@@ -68,7 +68,7 @@ public sealed class LlmModel : IDisposable
 
     /// <summary>
     /// Loads a model through <see cref="ModelImporterRegistry"/>; the host must have registered an
-    /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Gguf).
+    /// importer for the file's format (e.g. <c>GgufImporter.Register()</c> from Sharplight.Import.Gguf).
     /// </summary>
     /// <param name="path">Model file (GGUF, ...) or directory (Hugging Face layout), as understood by the registered importers.</param>
     /// <param name="options">Devices and compile settings; also kept for later session / decoder creation.</param>
@@ -272,14 +272,16 @@ public sealed class LlmModel : IDisposable
     /// <see cref="Serving.InferenceEngine"/> (<see cref="Serving.EngineOptions.Speculator"/>) over a decoder from
     /// <see cref="CreateBatchDecoder"/> with the same <paramref name="slots"/>, context and <paramref name="draftTokens"/>. The head
     /// has its own KV cache (one attention layer per MTP layer); its embedding and LM head are the decoder's buffers on devices that
-    /// share weights (<see cref="SharedWeights"/>).
+    /// share weights (<see cref="SharedWeights"/>). The speculator is a <see cref="Serving.Speculative.MtpSpeculator"/>, or for a block
+    /// drafter (<see cref="WellKnown.DraftBlockSize"/>, DFlash) a <see cref="Serving.Speculative.BlockDraftSpeculator"/> that drafts
+    /// <paramref name="draftTokens"/> (at most the block length − 1) in one pass.
     /// </summary>
     /// <param name="slots">Slots of the target decoder.</param>
     /// <param name="draftTokens">Drafts proposed per sequence and step (1 to 4 are typical).</param>
     /// <param name="contextLength">Context per sequence (default <see cref="LlmLoadOptions.ContextLength"/>).</param>
     /// <param name="kvCacheTokens">The target decoder's paged KV cache size, or null for a contiguous cache.</param>
     /// <exception cref="NotSupportedException">The model has no draft head.</exception>
-    public Serving.Speculative.MtpSpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
+    public Serving.Speculative.ISpeculator CreateMtpSpeculator(int slots, int draftTokens, int? contextLength = null, long? kvCacheTokens = null)
     {
         if (!HasDraftHead)
         {
@@ -290,6 +292,11 @@ public sealed class LlmModel : IDisposable
         int ctx = contextLength ?? _options.ContextLength;
         var sw = Stopwatch.StartNew();
         var graph = Definition.Graph(WellKnown.DraftGraph);
+        if (Definition.Property(WellKnown.DraftBlockSize, 0) is > 0 and var blockSize)
+        {
+            return CreateBlockDraftSpeculator(graph, slots, draftTokens, blockSize, ctx, kvCacheTokens, sw);
+        }
+
         var placement = PlacementFor(null, ctx, rowBound: slots);
         // A paged head cache gets a block per slot more than the target's: its rows run up to draftTokens past the target's.
         long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (draftTokens + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
@@ -300,6 +307,23 @@ public sealed class LlmModel : IDisposable
         var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
         bool anchored = Definition.Properties.TryGetValue(WellKnown.DraftAnchored, out var a) && a is true;
         return new Serving.Speculative.MtpSpeculator(dec, draftTokens, tokenMap, anchored);
+    }
+
+    /// <summary>A block drafter (<see cref="WellKnown.DraftBlockSize"/>) as a <see cref="Serving.Speculative.BlockDraftSpeculator"/>.</summary>
+    private Serving.Speculative.BlockDraftSpeculator CreateBlockDraftSpeculator(Graph.ComputeGraph graph, int slots, int draftTokens, int blockSize, int ctx,
+        long? kvCacheTokens, Stopwatch sw)
+    {
+        int blockRows = Math.Min(draftTokens, blockSize - 1) + 1;
+        var placement = PlacementFor(null, ctx, rowBound: (long)slots * blockRows, maxTokens: Math.Max(_options.MaxBatchTokens, slots * blockRows));
+        // The block runs past the target's rows; its rows are cut after every pass.
+        long paged = kvCacheTokens is > 0 ? PagedRows(kvCacheTokens.Value + (long)slots * (blockRows + Serving.MultiSequenceDecoder.DefaultKvBlockSize)) : 0;
+        var dec = Serving.MultiSequenceDecoder.Create(graph, slots, ctx, (int)placement.Compile.MaxTokens, placement, deviceSampling: false, paged,
+            textPositionAxes: TextPositionAxes);
+        _options.Log?.Invoke($"Compiled '{WellKnown.DraftGraph}' (block drafter) for {slots} sequences, {draftTokens} drafts, in {sw.ElapsedMilliseconds} ms\n{dec.Compiled.Plan.Describe()}");
+        ReportReady(WellKnown.DraftGraph);
+        var tokenMap = Definition.Properties.TryGetValue(WellKnown.DraftTokenMap, out var map) ? map as int[] : null;
+        return new Serving.Speculative.BlockDraftSpeculator(dec, draftTokens, blockSize, Definition.Property(WellKnown.DraftMaskToken, 0),
+            Definition.Property(WellKnown.DraftConvTaps, 0), Definition.Property(WellKnown.DraftLatticeCandidates, 0), tokenMap);
     }
 
     private const long DefaultReserve = 1L << 30;
@@ -420,7 +444,8 @@ public sealed class LlmModel : IDisposable
         {
             MaxTokens = _options.MaxBatchTokens,
             ContextLength = ctx,
-            SymbolBounds = new Dictionary<string, long> { ["R"] = slots },
+            // A block drafter reads the logits of its whole block.
+            SymbolBounds = new Dictionary<string, long> { ["R"] = Definition.Property(WellKnown.DraftBlockSize, 0) > 0 ? (long)slots * (draftTokens + 1) : slots },
         }, slots, headPaged);
         var decoderSources = WeightsOf(graph).Select(w => w.Source).ToHashSet(ReferenceEqualityComparer.Instance);
         long shared = WeightsOf(head).Where(w => decoderSources.Contains(w.Source)).DistinctBy(w => w.Source, ReferenceEqualityComparer.Instance).Sum(w => w.ByteSize);

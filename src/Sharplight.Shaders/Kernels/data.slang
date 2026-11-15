@@ -202,6 +202,15 @@ void to_f16(uint3 dtid : SV_DispatchThreadID, uniform ToF16Params p)
 // Rows of f32 (row stride X_STRIDE elements) -> the split f16 form of the split-f16 GEMM (common.slang): per row
 // 4K + 16 bytes holding K hi halves, K lo halves and 1 / split_scale of the row's largest magnitude (the row was multiplied
 // by split_scale before splitting). One workgroup per row, 8 values per thread and step.
+// SPLIT_PARTS = 1 (fast matrix precision): the hi halves only, 2K + 16 bytes per row (K hi halves, then 1 / split_scale).
+#ifndef SPLIT_PARTS
+#define SPLIT_PARTS 3
+#endif
+#if SPLIT_PARTS == 1
+#define SPLIT_HALVES 1
+#else
+#define SPLIT_HALVES 2
+#endif
 struct SplitRowsParams
 {
     float* x;
@@ -228,7 +237,7 @@ void split_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform S
     GroupMemoryBarrierWithGroupSync();
     m = max(max(max(gSplitMax[0], gSplitMax[1]), max(gSplitMax[2], gSplitMax[3])), max(max(gSplitMax[4], gSplitMax[5]), max(gSplitMax[6], gSplitMax[7])));
     float s = split_scale(m);
-    uint64_t yr = uint64_t(p.y) + uint64_t(row) * (4 * uint64_t(K) + 16);
+    uint64_t yr = uint64_t(p.y) + uint64_t(row) * (2 * SPLIT_HALVES * uint64_t(K) + 16);
     for (uint c = tid * 8; c < K; c += 2048)
     {
         float4 a = ((float4*)(xr + c))[0], b = ((float4*)(xr + c))[1];
@@ -236,8 +245,10 @@ void split_rows(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform S
         uint4 lo;
         uint4 hi = split8_scaled(v, s, lo);
         *(uint4*)(yr + uint64_t(c) * 2) = hi;
+#if SPLIT_HALVES == 2
         *(uint4*)(yr + (uint64_t(K) + c) * 2) = lo;
+#endif
     }
-    if (tid == 0) *(float*)(yr + 4 * uint64_t(K)) = 1.0 / s;
+    if (tid == 0) *(float*)(yr + 2 * SPLIT_HALVES * uint64_t(K)) = 1.0 / s;
 }
 #endif

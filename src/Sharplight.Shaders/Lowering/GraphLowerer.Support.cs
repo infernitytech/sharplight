@@ -33,6 +33,12 @@ public sealed partial class GraphLowerer
         [DataType.Q2_0] = 42,
         [DataType.Q2_0_G128] = 142,
         [DataType.Tern1_G128] = 143,
+        [DataType.TrellisV4K8_G128] = 144,
+        [DataType.TrellisV4K6_G128] = 145,
+        [DataType.TrellisV4K7_G128] = 146,
+        [DataType.TrellisV2K5_G128] = 147,
+        [DataType.TrellisV2K6_G128] = 148,
+        [DataType.TrellisV2K7_G128] = 149,
         [DataType.Q2_K] = 10,
         [DataType.Q3_K] = 11,
         [DataType.IQ2_XXS] = 16,
@@ -53,6 +59,12 @@ public sealed partial class GraphLowerer
         [DataType.F8E4M3_B128] = 53,
         [ShaderTypes.F8E4M3_B32R] = 152,
         [ShaderTypes.F8E4M3_B128R] = 153,
+        [DataType.NVFP4_GS] = 60,
+        [DataType.Q4Z_G32] = 61,
+        [DataType.Q4Z_G128] = 62,
+        [DataType.Q8Z_G32] = 63,
+        [DataType.Q8Z_G128] = 64,
+        [DataType.NF4_B64] = 65,
     };
 
     /// <summary>Tells whether the lowering has a kernel for <paramref name="node"/> (and, if not, why), so callers can partition unsupported nodes to another provider.</summary>
@@ -203,6 +215,13 @@ public sealed partial class GraphLowerer
             && (node.Inputs[selectionInput].Type != DataType.I32 || (!compressed && (node.Attributes.Get("window", 0) > 0 || node.Attributes.Get("chunk", 0) > 0))))
         {
             return OpSupport.No("CachedAttention: the selection must be i32 and cannot be combined with window or chunk");
+        }
+
+        int relativeInput = selectionInput + (node.Attributes.Get("selection", false) ? 1 : 0);
+        if (node.Attributes.Get("relative_bias", 0) > 0
+            && (compressed || node.Inputs.Length <= relativeInput || node.Inputs[relativeInput].Type != DataType.F32 || node.Inputs[relativeInput].Shape.Rank != 3))
+        {
+            return OpSupport.No("CachedAttention: the relative bias must be f32 [T, HQ, E] and cannot be combined with compression");
         }
 
         // Head sizes that are not a multiple of 8 run on the per-head kernel, which then reads one key element per load.

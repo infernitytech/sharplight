@@ -14,6 +14,13 @@
 #ifndef MOE
 #define MOE 0
 #endif
+// MM_EPI (gemm_cm2 with GEMM_SPLIT and SPLITK 1, splitk_reduce): the including generated source defines
+// `float mm_epi(float m0, float a0, float a1, float a2)`, an elementwise group applied to each result m0 in the store, which
+// reads up to three extra tensors (Params e0 .. e2, access kinds MM_EPI_K0 .. MM_EPI_K2, see mm_epi_arg); y is the group's
+// output, dense with Y_STRIDE = N.
+#ifndef MM_EPI
+#define MM_EPI 0
+#endif
 // X_SORTED (with MOE and X_F16): x holds the routed rows in expert-sorted order (moe_gather_x16 in moe.slang, X_STRIDE = K), so
 // the rows of a tile are the dense rows rowOffset .. rowOffset + rows - 1.
 #ifndef X_SORTED
@@ -40,8 +47,45 @@ struct Params
 #if BIAS
     float* bias;
 #endif
+#if MM_EPI && MM_EPI_ARGS > 0
+    float* e0;   // the epilogue's tensors (MM_EPI_ARGS of them)
+#endif
+#if MM_EPI && MM_EPI_ARGS > 1
+    float* e1;
+#endif
+#if MM_EPI && MM_EPI_ARGS > 2
+    float* e2;
+#endif
     uint T;
 };
+
+#if MM_EPI
+// Element of epilogue tensor e for output (t, n): kind 0 one scalar, 1 a row vector over the output columns, 2 a dense
+// tensor of the output's shape.
+float mm_epi_arg(float* e, uint kind, uint64_t t, uint n)
+{
+    return kind == 0 ? e[0] : kind == 1 ? e[n] : e[t * N + n];
+}
+
+// The product v of output (t, n) through the generated epilogue mm_epi (the fused elementwise group).
+float mm_store_value(float v, Params p, uint64_t t, uint n)
+{
+    float a0 = 0, a1 = 0, a2 = 0;
+#if MM_EPI_ARGS > 0
+    a0 = mm_epi_arg(p.e0, MM_EPI_K0, t, n);
+#endif
+#if MM_EPI_ARGS > 1
+    a1 = mm_epi_arg(p.e1, MM_EPI_K1, t, n);
+#endif
+#if MM_EPI_ARGS > 2
+    a2 = mm_epi_arg(p.e2, MM_EPI_K2, t, n);
+#endif
+    return mm_epi(v, a0, a1, a2);
+}
+#define MM_STORE(v, t, n) mm_store_value(v, p, t, n)
+#else
+#define MM_STORE(v, t, n) (v)
+#endif
 
 // MV_FMA_CHAIN (row-invariant compiles): the products of one 8-weight group in a fixed order of fused multiply-adds, so
 // that every compiled variant (any MV_COLS) rounds a row's sum the same way. Otherwise the plain sum, which the driver
@@ -617,7 +661,20 @@ using namespace linalg;
 #ifndef GEMM_SPLIT
 #define GEMM_SPLIT 0
 #endif
-#if GBK == 32 && !GEMM_SPLIT
+// SPLIT_PARTS = 1 with GEMM_SPLIT (fast matrix precision): the row-scaled hi parts only, one product per multiply-add (11
+// significant bits per input, like TF32) accumulated in f32 on the tensor cores; x rows from split_rows with SPLIT_PARTS 1
+// (K hi halves, then the inverse scale), W per row K hi halves. Double buffered like the f16 GEMM.
+#ifndef SPLIT_PARTS
+#define SPLIT_PARTS 3
+#endif
+#if GEMM_SPLIT && SPLIT_PARTS > 1
+#define SPLIT_LO 1
+#define SPLIT_HALVES 2
+#else
+#define SPLIT_LO 0
+#define SPLIT_HALVES 1
+#endif
+#if GBK == 32 && !SPLIT_LO
 #define GNBUF 2
 #else
 #define GNBUF 1
@@ -641,7 +698,7 @@ typealias Acc2 = CoopMat<float, MemoryScope.Subgroup, 16, 16, CoopMatMatrixUse.M
 // Tiles hold packed halves, 8 per uint4, so staging is one 16-byte store per 8 values (offsets/strides in uint4s).
 groupshared uint4 gA[GNBUF * GBM * GAS / 8];
 groupshared uint4 gB[GNBUF * GBN * GAS / 8];
-#if GEMM_SPLIT
+#if SPLIT_LO
 groupshared uint4 gAl[GBM * GAS / 8];
 groupshared uint4 gBl[GBN * GAS / 8];
 #endif
@@ -737,6 +794,42 @@ void load16h(uint8_t* w, uint row, uint g16, out uint4 lo, out uint4 hi)
     half2 z = half2(0.0h, 0.0h);
     lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
     hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_Q4Z_G32 || WFMT == FMT_Q4Z_G128
+    // { f16 d; f16 z; u8 qs[16 * runs] } (quant_group.slang), each 32-value run laid out like Q4_0. The zero point is an
+    // integer, so 1024 + z is exact in half and (1024 + q) - (1024 + z) = q - z is exact: one rounding, at * d.
+#if WFMT == FMT_Q4Z_G32
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 1) * 20;
+    uint4 q = (load16_any(at + 4) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 3) * 68;
+    uint4 q = (load16_any(at + 4 + ((g16 >> 1) & 3) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
+#endif
+    uint dz = *(uint*)at;
+    half2 d = bit_cast<half2>((dz & 0xFFFFu) * 0x10001u);
+    half offset = 1024.0h + bit_cast<half2>(dz).y;
+    half2 z = half2(0.0h, 0.0h);
+    lo = uint4(codes_h2(q.x, false, offset, d, z), codes_h2(q.x, true, offset, d, z), codes_h2(q.y, false, offset, d, z), codes_h2(q.y, true, offset, d, z));
+    hi = uint4(codes_h2(q.z, false, offset, d, z), codes_h2(q.z, true, offset, d, z), codes_h2(q.w, false, offset, d, z), codes_h2(q.w, true, offset, d, z));
+#elif WFMT == FMT_NVFP4 || WFMT == FMT_NVFP4_GS
+    // One 16-value sub-block: 8 code bytes (value i in the low nibble of byte i, i + 8 in the high one) and its UE4M3 scale,
+    // NVFP4_GS times the block's f32 global scale. Doubled E2M1 codes through half bits as MXFP4 below, the block scale
+    // split in two factors when it leaves half's range.
+#if WFMT == FMT_NVFP4
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 2) * 36;
+    float sc = ue4m3_half(uint(*(uint8_t*)(at + (g16 & 3)))) * 32768.0;
+    uint64_t codes = at + 4 + 8 * (g16 & 3);
+#else
+    uint64_t at = uint64_t(rowStart(w, ROW_BYTES, row)) + uint64_t(g16 >> 2) * 40;
+    float sc = ue4m3_half(uint(*(uint8_t*)(at + 4 + (g16 & 3)))) * asfloat(*(uint*)at) * 32768.0;
+    uint64_t codes = at + 8 + 8 * (g16 & 3);
+#endif
+    uint c0 = *(uint*)codes;
+    uint c1 = *(uint*)(codes + 4);
+    uint4 q = uint4(c0 & 0x0F0F0F0Fu, c1 & 0x0F0F0F0Fu, (c0 >> 4) & 0x0F0F0F0Fu, (c1 >> 4) & 0x0F0F0F0Fu);
+    half2 s1 = half2(half(min(sc, 32768.0)));
+    half2 s2 = half2(half(max(sc / 32768.0, 1.0)));
+    lo = uint4(fp4_h2(q.x, false, s1, s2), fp4_h2(q.x, true, s1, s2), fp4_h2(q.y, false, s1, s2), fp4_h2(q.y, true, s1, s2));
+    hi = uint4(fp4_h2(q.z, false, s1, s2), fp4_h2(q.z, true, s1, s2), fp4_h2(q.w, false, s1, s2), fp4_h2(q.w, true, s1, s2));
 #elif WFMT == FMT_MXFP4R
     // As MXFP4 below, from the aligned split layout (common.slang): one aligned 16-byte load holds both nibble halves of the block.
     uint4 q = (*(uint4*)(mxfp4r_codes(w, ROW_BYTES, row) + uint64_t(g16 >> 1) * 16) >> (4 * (g16 & 1))) & 0x0F0F0F0Fu;
@@ -907,7 +1000,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #else
     uint4 ws[GPF][GB_PER_T][2];
 #endif
-#if GEMM_SPLIT
+#if SPLIT_LO
     uint4 xsl[GPF][GA_PER_T];   // lo parts (GEMM_SPLIT)
     uint4 wsl[GPF][GB_PER_T][2];
 #endif
@@ -916,15 +1009,20 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
 #if GEMM_SPLIT
     // Split mode: x rows from split_rows (SPLIT_ROW_BYTES each: K hi halves, K lo halves, the inverse scale); the lo parts go
     // to `lo` (xsl of FETCH's register set and item). Per-item row addresses as for X_F16.
-    #define SPLIT_ROW_BYTES (4 * uint64_t(K) + 16)
+    #define SPLIT_ROW_BYTES (2 * SPLIT_HALVES * uint64_t(K) + 16)
     uint64_t xrb[GA_PER_T];
     [ForceUnroll] for (uint it = 0; it < GA_PER_T; it++)
     {
         uint t = t0 + (tid + it * GTHREADS) / GQ;
         xrb[it] = uint64_t(p.x) + uint64_t(ROW_OF(t < ROWS_LIVE ? t : t0)) * SPLIT_ROW_BYTES + ((tid + it * GTHREADS) % GQ) * 16;
     }
+#if SPLIT_LO
     #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
         { dst = 0; lo = 0; if ((t) < ROWS_LIVE) { dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); lo = *(uint4*)(xrb[it] + (uint64_t(K) + (k)) * 2); } }
+#else
+    #define GEMM_LOAD_X(t, k, dst, lo)                                                                   \
+        { dst = 0; if ((t) < ROWS_LIVE) dst = *(uint4*)(xrb[it] + uint64_t(k) * 2); }
+#endif
 #elif X_F16
     // Per-item row addresses are loop invariant (the row is clamped; rows past the tile load zeros).
     uint64_t xrb[GA_PER_T];
@@ -952,6 +1050,13 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     // Rows past N stage the decode of zero codes, which the stores never read back.
     #define WLOAD(set, it, row, g) { [ForceUnroll] for (uint u = 0; u < GW_RAW; u++) ws[set][it][u] = 0; if (N % GBN == 0 || (row) < N) wload(wr[it], g, ws[set][it]); }
     #define WSTAGE(set, it, ob, row) { uint4 d[GW_UNIT / 8]; wdecode(ws[set][it], d); [ForceUnroll] for (uint u = 0; u < GW_UNIT / 8; u++) gB[(ob) + u] = d[u]; }
+#elif GEMM_SPLIT && !SPLIT_LO
+    #define WLOAD(set, it, row, g)                                                                      \
+        { ws[set][it][0] = 0; ws[set][it][1] = 0;                                                       \
+          if (N % GBN == 0 || (row) < N)                                                                \
+          { uint4* hp = (uint4*)(uint64_t(wbase) + uint64_t(row) * 2 * uint64_t(K) + uint64_t(g) * 32);  \
+            ws[set][it][0] = hp[0]; ws[set][it][1] = hp[1]; } }
+    #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #elif GEMM_SPLIT
     #define WLOAD(set, it, row, g)                                                                      \
         { ws[set][it][0] = 0; ws[set][it][1] = 0; wsl[set][it][0] = 0; wsl[set][it][1] = 0;             \
@@ -965,7 +1070,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
     #define WLOAD(set, it, row, g) { ws[set][it][0] = 0; ws[set][it][1] = 0; if (N % GBN == 0 || (row) < N) load16h(wbase, row, g, ws[set][it][0], ws[set][it][1]); }
     #define WSTAGE(set, it, ob, row) { gB[ob] = ws[set][it][0]; gB[(ob) + 1] = ws[set][it][1]; }
 #endif
-#if GEMM_SPLIT
+#if SPLIT_LO
     #define XS_LO(set, it) xsl[set][it]
     #define STAGE_LO_A(set, it, ia) gAl[ia] = xsl[set][it];
 #else
@@ -1003,7 +1108,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         uint ob = ((buf) * GBN * GAS + r * GAS + q * GW_UNIT) / 8;                                      \
         WSTAGE(set, it, ob, n0 + r)                                                                     \
     }
-#if GEMM_SPLIT
+#if SPLIT_LO
     // The three products of a 16-value K slice (hi·lo, lo·hi, then hi·hi) accumulate on the tensor cores from zero, and the
     // slice sum is added to the f32 accumulator with an IEEE add: the tensor cores' accumulation (truncating alignment)
     // then only rounds 16-term slice sums instead of the whole running sum. GNBUF = 1: the tiles are at offset 0.
@@ -1129,7 +1234,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
         for (uint e = 0; e < 8; e++)
         {
             uint t = t0 + wm + i * 16 + (lane + e * 32) / 16;
-            xr[e] = t < p.T ? *(float*)(uint64_t(p.x) + uint64_t(t) * SPLIT_ROW_BYTES + 4 * uint64_t(K)) : 0.0;
+            xr[e] = t < p.T ? *(float*)(uint64_t(p.x) + uint64_t(t) * SPLIT_ROW_BYTES + 2 * SPLIT_HALVES * uint64_t(K)) : 0.0;
         }
         [ForceUnroll]
         for (int j = 0; j < FRAG_N; j++)
@@ -1143,7 +1248,7 @@ void gemm_cm2(uint3 gid : SV_GroupID, uint3 ltid : SV_GroupThreadID, uniform Par
             {
                 uint w = lane + e * 32;
                 uint t = t0 + wm + i * 16 + w / 16;
-                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = gC[sg * 256 + w] * xr[e] * wr;
+                if (t < p.T && n < N) yb[uint64_t(t) * Y_STRIDE + n] = MM_STORE(gC[sg * 256 + w] * xr[e] * wr, t, n);
             }
             GroupMemoryBarrierWithWaveSync();
         }
@@ -1196,7 +1301,7 @@ void splitk_reduce(uint3 dtid : SV_DispatchThreadID, uniform Params p)
     if (i >= total) return;
     float s = 0;
     [ForceUnroll] for (uint z = 0; z < SPLITK; z++) s += p.x[z * total + i];
-    p.y[(i / N) * Y_STRIDE + i % N] = s;
+    p.y[(i / N) * Y_STRIDE + i % N] = MM_STORE(s, i / N, uint(i % N));
 }
 #endif
 

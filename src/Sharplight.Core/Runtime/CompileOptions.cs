@@ -33,6 +33,22 @@ public sealed class CompileOptions
     public bool SplitHalfMatMul { get; init; } = true;
 
     /// <summary>
+    /// Precision of the products in f32-weight matmuls, convolutions and attention (default: <see cref="MatrixPrecision.Strict"/>,
+    /// or the value of the environment variable <c>SHARPLIGHT_MATRIX_PRECISION</c> = <c>strict</c> | <c>fast</c>, see
+    /// <see cref="MatrixPrecisionFromEnvironment"/>). <see cref="MatrixPrecision.Fast"/> is an opt-in that trades accuracy for
+    /// speed like TF32. <see cref="AllowReducedPrecision"/>, where set, takes precedence for the kernels it covers.
+    /// </summary>
+    public MatrixPrecision MatrixPrecision { get; init; } = MatrixPrecisionFromEnvironment();
+
+    /// <summary>
+    /// The matrix precision selected by the environment variable <c>SHARPLIGHT_MATRIX_PRECISION</c> (<c>fast</c> or
+    /// <c>strict</c>, case-insensitive); <see cref="MatrixPrecision.Strict"/> when it is unset or holds another value.
+    /// </summary>
+    public static MatrixPrecision MatrixPrecisionFromEnvironment()
+        => string.Equals(Environment.GetEnvironmentVariable("SHARPLIGHT_MATRIX_PRECISION"), "fast", StringComparison.OrdinalIgnoreCase)
+            ? MatrixPrecision.Fast : MatrixPrecision.Strict;
+
+    /// <summary>
     /// Steps of up to this many activation rows compute every row bit-identically to a step of that row alone (0: no such
     /// guarantee). Speculative decoding needs it for its verification rows (the pending token plus drafts of one sequence):
     /// greedy output then equals decoding without speculation. Matmuls and decode attention run their single-row arithmetic
@@ -122,6 +138,7 @@ public sealed class CompileOptions
         DisabledFeatures = DisabledFeatures,
         AllowReducedPrecision = AllowReducedPrecision,
         SplitHalfMatMul = SplitHalfMatMul,
+        MatrixPrecision = MatrixPrecision,
         RowInvariantRows = RowInvariantRows,
         CacheFor = CacheFor,
         Progress = progress,

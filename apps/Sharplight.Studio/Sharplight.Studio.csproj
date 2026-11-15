@@ -34,9 +34,9 @@
     <!-- Composition root: the providers and importers the app registers at startup. -->
     <ProjectReference Include="../../src/Sharplight.Vulkan/Sharplight.Vulkan.csproj" />
     <ProjectReference Include="../../src/Sharplight.Cpu/Sharplight.Cpu.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Gguf/Sharplight.Gguf.csproj" />
-    <ProjectReference Include="../../src/Sharplight.HuggingFace/Sharplight.HuggingFace.csproj" />
-    <ProjectReference Include="../../src/Sharplight.Onnx/Sharplight.Onnx.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.Gguf/Sharplight.Import.Gguf.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.HuggingFace/Sharplight.Import.HuggingFace.csproj" />
+    <ProjectReference Include="../../src/Sharplight.Import.Onnx/Sharplight.Import.Onnx.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Window, taskbar and sidebar icon, rendered from packaging/linux/sharplight-studio.svg by packaging/make-studio-icons.py -->

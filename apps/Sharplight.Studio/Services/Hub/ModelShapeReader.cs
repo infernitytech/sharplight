@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Sharplight.Gguf;
+using Sharplight.Import.Gguf;
 
 namespace Sharplight.Studio.Services.Hub;
 

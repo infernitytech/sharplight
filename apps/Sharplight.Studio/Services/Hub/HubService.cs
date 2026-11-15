@@ -1,5 +1,5 @@
 using Sharplight.Hub;
-using Sharplight.Package.Import;
+using Sharplight.Package;
 using Sharplight.Runtime;
 using Sharplight.Studio.Models;
 using Sharplight.Studio.Services.Compatibility;

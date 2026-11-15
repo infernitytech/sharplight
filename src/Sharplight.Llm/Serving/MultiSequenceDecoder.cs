@@ -24,7 +24,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private static readonly SamplingRow?[] s_noSampling = [];
     private readonly CompiledModel _compiled;
     private readonly Value _tokens, _rows, _runs;
-    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput;
+    private readonly Value? _positions, _outputRows, _samplingParams, _blockTable, _commits, _hiddenInput, _runEndRows;
     private readonly KvBlockPool? _pool;
     private readonly List<int>[] _blocks = [];   // paged: physical blocks of each slot, in position order
     private readonly int[] _tableBuf = [];       // paged: [slots, blocks per slot], -1 = unused
@@ -35,6 +35,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
     private readonly int[] _length;
     private readonly RunParameters _run = new();
     private readonly int[] _tokBuf, _posBuf, _rowBuf, _outBuf;
+    private readonly int[] _runEndRowBuf = [];   // bidirectional attention: the rows table with each run's last position
     private readonly int[] _runBuf;
     private readonly float[] _logits;
     private readonly int[] _paramBuf, _sampledBuf;
@@ -112,6 +113,7 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _blockTable = g.TryInput(InputRole.KvBlockTable);
         _commits = g.TryInput(InputRole.SequenceCommits);
         _hiddenInput = g.TryInput(InputRole.HiddenStates);
+        _runEndRows = g.TryInput(InputRole.SequenceRunEndRows);
         _hiddenInputSize = _hiddenInput is null ? 0 : (int)_hiddenInput.Shape[-1].Fixed;
         _hiddenOutput = hiddenOutput ?? WellKnown.HiddenOutput;
         _hiddenSize = g.Outputs.TryGetValue(_hiddenOutput, out var hidden) ? (int)hidden.Shape[-1].Fixed : 0;
@@ -152,6 +154,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
         _tokBuf = new int[MaxBatchTokens];
         _posBuf = new int[MaxBatchTokens * Math.Max(1, _posAxes)];
         _rowBuf = new int[MaxBatchTokens * 4];
+        if (_runEndRows is not null)
+        {
+            _runEndRowBuf = new int[MaxBatchTokens * 4];
+        }
+
         _runBuf = new int[slots * 4];
         MaxLogitsRows = Math.Max(slots, maxLogitsRows);
         _outBuf = new int[MaxLogitsRows];
@@ -449,6 +456,11 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
 
         _compiled.SetInput<int>(_rows, _rowBuf.AsSpan(0, T * 4));
         _compiled.SetInput<int>(_runs, _runBuf.AsSpan(0, count * 4));
+        if (_runEndRows is not null)
+        {
+            _compiled.SetInput<int>(_runEndRows, _runEndRowBuf.AsSpan(0, T * 4));
+        }
+
         if (_commits is not null)
         {
             _compiled.SetInput<int>(_commits, _commitBuf.AsSpan(0, count * RecurrentRollback.CommitColumns));
@@ -636,6 +648,12 @@ public sealed class MultiSequenceDecoder : IBatchDecoder, IDeviceSamplingDecoder
                 _rowBuf[row * 4 + 1] = pos;
                 _rowBuf[row * 4 + 2] = n;
                 _rowBuf[row * 4 + 3] = u;
+                if (_runEndRows is not null)
+                {
+                    _rowBuf.AsSpan(row * 4, 4).CopyTo(_runEndRowBuf.AsSpan(row * 4));
+                    _runEndRowBuf[row * 4 + 1] = pos0 + n - 1;
+                }
+
                 // Text rows use the same position on the leading axes (M-RoPE: temporal/height/width), extra axes 0.
                 for (int a = 0; a < _posAxes; a++)
                 {
