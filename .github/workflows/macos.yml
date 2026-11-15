@@ -19,6 +19,7 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   SMOKE_MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
   SMOKE_PROMPT: The capital of France is
+  VULKAN_MMQ: -class Sharplight.Vulkan.Tests.MmqTests
   VULKAN_CORE: -class Sharplight.Vulkan.Tests.ElementwiseTests -class Sharplight.Vulkan.Tests.NormTests -class Sharplight.Vulkan.Tests.RopeTests -class Sharplight.Vulkan.Tests.RowOpTests -class Sharplight.Vulkan.Tests.ReduceTests -class Sharplight.Vulkan.Tests.GatherTests -class Sharplight.Vulkan.Tests.ViewTests -class Sharplight.Vulkan.Tests.DataOpTests -class Sharplight.Vulkan.Tests.CastAndIntegerTests -class Sharplight.Vulkan.Tests.MatMulTests -class Sharplight.Vulkan.Tests.FusionTests -class Sharplight.Vulkan.Tests.SimtGemmTests -class Sharplight.Vulkan.Tests.SkinnyGemmTests -class Sharplight.Vulkan.Tests.SplitHalfGemmTests -class Sharplight.Vulkan.Tests.RowInvarianceTests -class Sharplight.Vulkan.Tests.StatefulTests
 
 jobs:
@@ -112,17 +113,22 @@ jobs:
         run: dotnet samples/Sharplight.Cli/bin/Release/net11.0/sharplight.dll "${{ steps.model.outputs.path }}" --bench 128 2>&1 | tail -6
 
       # The paravirtual runner GPU compiles pipelines slowly (MSL translation and Metal compilation, about 0.6 s each), so the
-      # suite runs in two time-boxed parts: the core kernels (elementwise, norms, matmuls, attention), then everything else.
+      # suite runs in three time-boxed parts: the core kernels (elementwise, norms, matmuls, attention), the MMQ GEMMs (the
+      # slowest class), then everything else. -longRunning reports tests that run longer than 5 minutes (hangs).
       - name: Vulkan suite, core (MoltenVK)
         if: success() || failure()
         timeout-minutes: 60
-        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -result-xml "$RUNNER_TEMP/vulkan-core-tests.xml" ${{ env.VULKAN_CORE }}
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/vulkan-core-tests.xml" ${{ env.VULKAN_CORE }}
+
+      - name: Vulkan suite, MMQ GEMMs (MoltenVK)
+        if: success() || failure()
+        timeout-minutes: 45
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/vulkan-mmq-tests.xml" ${{ env.VULKAN_MMQ }}
 
       - name: Vulkan suite, remaining classes (MoltenVK)
         if: success() || failure()
-        continue-on-error: true
-        timeout-minutes: 70
-        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -result-xml "$RUNNER_TEMP/vulkan-other-tests.xml" $(echo "${{ env.VULKAN_CORE }}" | sed 's/-class /-class- /g')
+        timeout-minutes: 60
+        run: dotnet tests/Sharplight.Vulkan.Tests/bin/Release/net11.0/Sharplight.Vulkan.Tests.dll -maxThreads 2 -longRunning 300 -result-xml "$RUNNER_TEMP/vulkan-other-tests.xml" $(echo "${{ env.VULKAN_CORE }} ${{ env.VULKAN_MMQ }}" | sed 's/-class /-class- /g')
 
       - uses: actions/upload-artifact@v4
         if: success() || failure()
@@ -212,7 +218,9 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '11.0.x'
+          dotnet-version: |
+            10.0.x
+            11.0.x
 
       - name: Version
         id: nbgv
@@ -229,6 +237,15 @@ jobs:
           plutil -lint "$app/Contents/Info.plist"
           ls -l "$app/Contents/MacOS/sharplight-studio" "$app/Contents/Frameworks/libMoltenVK.dylib" "$app/Contents/Resources/sharplight-studio.icns"
           "$app/Contents/MacOS/sharplight-studio" --version
+
+      # The release track's Velopack package (studio.yml, packaging/pack-studio.sh) with MoltenVK inside.
+      - name: Velopack package (pack-studio.sh)
+        run: |
+          vpk_version=$(sed -n "s/^  VPK_VERSION: '\(.*\)'.*/\1/p" .github/workflows/studio.yml)
+          dotnet tool install --global vpk --version "$vpk_version"
+          packaging/pack-studio.sh osx-arm64 osx-arm64-unstable "${{ steps.nbgv.outputs.NuGetPackageVersion }}" artifacts/velopack
+          zip=$(ls artifacts/velopack/*Portable*.zip | head -1)
+          unzip -l "$zip" | grep -E 'libMoltenVK.dylib|LICENSE-MoltenVK.txt|MacOS/sharplight-studio$'
 
       - uses: actions/upload-artifact@v4
         with:
