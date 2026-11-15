@@ -67,6 +67,52 @@ internal static class TestPackages
         ModelPackage.Save(path, definition, [code, binary]);
     }
 
+    /// <summary>
+    /// An image-generation-shaped package with a model description: a <c>denoiser</c> and a <c>vae</c> component with their graphs and
+    /// weights, and a configuration-only <c>scheduler</c> component with a JSON attachment.
+    /// </summary>
+    public static void WriteDescribed(string path)
+    {
+        var weights = new Dictionary<string, WeightInfo>
+        {
+            ["denoiser.w"] = Weight("denoiser.w", DataType.F32, new Shape(8, 8)),
+            ["vae.w"] = Weight("vae.w", DataType.F16, new Shape(4, 8)),
+        };
+        ComputeGraph Linear(string name, string weight)
+        {
+            var b = new GraphBuilder(name, n => weights.GetValueOrDefault(n));
+            var x = b.Input("x", InputRole.Other, DataType.F32, new Shape(Dim.Sym("T"), 8));
+            b.Output("y", b.MatMul(x, b.Weight(weight), "out"));
+            return b.Build();
+        }
+
+        static System.Text.Json.JsonElement Json(string text) => System.Text.Json.JsonDocument.Parse(text).RootElement.Clone();
+        var definition = new ModelDefinition
+        {
+            Architecture = "test_diffusion",
+            Name = "described",
+            Weights = weights,
+            Graphs = new Dictionary<string, ComputeGraph> { ["denoise"] = Linear("denoise", "denoiser.w"), ["vae_decode"] = Linear("vae_decode", "vae.w") },
+            Description = new ModelDescription
+            {
+                Kind = ModelKinds.ImageGeneration,
+                Components =
+                [
+                    new ModelComponent { Role = ModelComponentRoles.Denoiser, Graphs = ["denoise"], WeightPrefixes = ["denoiser."] },
+                    new ModelComponent { Role = ModelComponentRoles.Vae, Graphs = ["vae_decode"], WeightPrefixes = ["vae."] },
+                    new ModelComponent
+                    {
+                        Role = ModelComponentRoles.Scheduler,
+                        Config = new Dictionary<string, System.Text.Json.JsonElement> { ["predictionType"] = Json("\"epsilon\""), ["steps"] = Json("1000") },
+                        Attachments = new Dictionary<string, string> { ["config"] = "scheduler/scheduler_config.json" },
+                    },
+                ],
+            },
+            Attachments = new Dictionary<string, IWeightSource> { ["scheduler/scheduler_config.json"] = new BytesSource(Encoding.UTF8.GetBytes("{}")) },
+        };
+        ModelPackage.Save(path, definition, []);
+    }
+
     /// <summary>A package with one graph <c>main</c> of <paramref name="nodeCount"/> elementwise nodes over 100 layers.</summary>
     public static void WriteLarge(string path, int nodeCount)
     {

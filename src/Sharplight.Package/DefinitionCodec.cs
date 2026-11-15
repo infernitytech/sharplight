@@ -49,7 +49,10 @@ internal static class DefinitionCodec
     /// <param name="weights">The package weights.</param>
     /// <param name="owned">Resources the definition owns.</param>
     /// <param name="sectionName">The DEFN section name, which selects the layout.</param>
-    public static ModelDefinition Read(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, IReadOnlyList<IDisposable> owned, string sectionName)
+    /// <param name="description">The model description of the package's DESC section, if it has one.</param>
+    /// <param name="attachments">The attachments of the package's ATCH sections, or <see langword="null"/> for none.</param>
+    public static ModelDefinition Read(BinaryReader r, IReadOnlyDictionary<string, WeightInfo> weights, IReadOnlyList<IDisposable> owned, string sectionName,
+        ModelDescription? description = null, IReadOnlyDictionary<string, IWeightSource>? attachments = null)
     {
         int layout = sectionName == SectionName ? 2 : sectionName.Length == 0 ? 1 : throw new InvalidDataException($"Unknown package definition layout '{sectionName}'.");
         string arch = MetadataCodec.ReadString(r);
@@ -80,6 +83,8 @@ internal static class DefinitionCodec
             States = states,
             Properties = props,
             SourceMetadata = meta,
+            Description = description,
+            Attachments = attachments ?? new Dictionary<string, IWeightSource>(),
             OwnedResources = owned,
         };
     }

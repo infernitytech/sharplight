@@ -1,6 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.CommandLine;
-using Sharplight.Import.Gguf;
-using Sharplight.Llm;
 using Sharplight.Models;
 using Sharplight.Samples;
 
@@ -41,8 +40,7 @@ internal sealed class InspectCommand
             throw new SampleException($"Model '{modelPath}' does not exist.");
         }
 
-        BuiltinAdapters.RegisterAll();
-        GgufImporter.Register();
+        new ServiceCollection().AddSharplightModelFormats();
         var definition = BuildDefinition(modelPath);
         if (!definition.Graphs.ContainsKey(graphName))
         {

@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
+    <ProjectReference Include="../../src/Sharplight.Architectures/Sharplight.Architectures.csproj" />
     <ProjectReference Include="../../apps/Sharplight.Studio/Sharplight.Studio.csproj" />
   </ItemGroup>
   <ItemGroup>
