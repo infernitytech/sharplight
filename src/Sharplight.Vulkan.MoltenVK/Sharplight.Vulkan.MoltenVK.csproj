@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Native-only package: MoltenVK (Vulkan on Metal, Apache 2.0) for Sharplight.Vulkan on macOS Apple Silicon, as the
+    osx-arm64 native asset runtimes/osx-arm64/native/libMoltenVK.dylib. The binary is not committed: it is downloaded from
+    the pinned KhronosGroup/MoltenVK release and verified against its SHA-256 the first time it is needed (a build on macOS
+    or with SharplightBundleMoltenVK=true, or pack). Projects in this repository reference this one with ReferenceOutputAssembly="false";
+    the only build output that matters is libMoltenVK.dylib, copied next to the referencing application.
+  -->
+  <PropertyGroup>
+    <Description>MoltenVK (Vulkan on Metal) for Sharplight.Vulkan on macOS Apple Silicon: libMoltenVK.dylib as an osx-arm64 native asset.</Description>
+    <PackageTags>$(PackageTags);moltenvk;metal;macos;apple-silicon</PackageTags>
+    <!-- The package contains MoltenVK only. -->
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- NU5128: no lib/ folder by design (native assets only). -->
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <BeforePack>$(BeforePack);FetchMoltenVK</BeforePack>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Pinned release: update the version and the SHA-256 (sha256sum of the release's MoltenVK-macos.tar) together. -->
+    <MoltenVKVersion>1.4.2</MoltenVKVersion>
+    <MoltenVKSha256>f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e</MoltenVKSha256>
+    <MoltenVKUrl>https://github.com/KhronosGroup/MoltenVK/releases/download/v$(MoltenVKVersion)/MoltenVK-macos.tar</MoltenVKUrl>
+    <MoltenVKDirectory>$(MSBuildThisFileDirectory)obj/moltenvk/$(MoltenVKVersion)/</MoltenVKDirectory>
+    <MoltenVKLibrary>$(MoltenVKDirectory)MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib</MoltenVKLibrary>
+    <MoltenVKLicense>$(MoltenVKDirectory)LICENSE-MoltenVK.txt</MoltenVKLicense>
+    <!-- Builds fetch it only where it is used: on macOS or with SharplightBundleMoltenVK=true. Pack always fetches. -->
+    <MoltenVKFetch Condition="'$(MoltenVKFetch)' == '' And ($([MSBuild]::IsOSPlatform('OSX')) Or '$(SharplightBundleMoltenVK)' == 'true')">true</MoltenVKFetch>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MoltenVKLibrary)" Link="libMoltenVK.dylib" Visible="false" Pack="true" PackagePath="runtimes/osx-arm64/native/"
+          CopyToOutputDirectory="PreserveNewest" Condition="'$(MoltenVKFetch)' == 'true'" />
+    <None Include="$(MoltenVKLibrary)" Visible="false" Pack="true" PackagePath="runtimes/osx-arm64/native/" Condition="'$(MoltenVKFetch)' != 'true'" />
+    <None Include="$(MoltenVKLicense)" Visible="false" Pack="true" PackagePath="/" />
+    <None Include="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <Target Name="FetchMoltenVK" BeforeTargets="PrepareForBuild" Condition="(!Exists('$(MoltenVKLibrary)') Or !Exists('$(MoltenVKLicense)')) And ('$(MoltenVKFetch)' == 'true' Or '$(_IsPacking)' == 'true')">
+    <DownloadFile SourceUrl="$(MoltenVKUrl)" DestinationFolder="$(MoltenVKDirectory)" DestinationFileName="MoltenVK-macos.tar" Retries="3" />
+    <GetFileHash Files="$(MoltenVKDirectory)MoltenVK-macos.tar" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="_MoltenVKActualSha256" />
+    </GetFileHash>
+    <Delete Files="$(MoltenVKDirectory)MoltenVK-macos.tar" Condition="'$(_MoltenVKActualSha256.ToLowerInvariant())' != '$(MoltenVKSha256)'" />
+    <Error Condition="'$(_MoltenVKActualSha256.ToLowerInvariant())' != '$(MoltenVKSha256)'"
+           Text="MoltenVK $(MoltenVKVersion): the SHA-256 $(_MoltenVKActualSha256) of $(MoltenVKUrl) does not match the pinned $(MoltenVKSha256)." />
+    <Exec Command="tar -xf MoltenVK-macos.tar MoltenVK/LICENSE MoltenVK/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib" WorkingDirectory="$(MoltenVKDirectory)" />
+    <Copy SourceFiles="$(MoltenVKDirectory)MoltenVK/LICENSE" DestinationFiles="$(MoltenVKLicense)" />
+    <Delete Files="$(MoltenVKDirectory)MoltenVK-macos.tar" />
+  </Target>
+</Project>

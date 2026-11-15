@@ -19,6 +19,7 @@ internal sealed unsafe class PipelineBuilder
     private readonly bool _requireSubgroupSize;
     private readonly bool _fullSubgroups;
     private readonly VkPipelineCreateFlags _flags;
+    private readonly bool _portabilityRewrite;
 
     /// <param name="api">The device functions.</param>
     /// <param name="layout">The pipeline layout every kernel shares.</param>
@@ -26,7 +27,9 @@ internal sealed unsafe class PipelineBuilder
     /// <param name="requireSubgroupSize">Pin the subgroup size (subgroup size control enabled and the device has a range).</param>
     /// <param name="fullSubgroups">Require full subgroups (subgroup size control enabled).</param>
     /// <param name="flags">Extra create flags (diagnostics: statistics capture).</param>
-    public PipelineBuilder(VkDeviceApi api, VkPipelineLayout layout, uint subgroupSize, bool requireSubgroupSize, bool fullSubgroups, VkPipelineCreateFlags flags)
+    /// <param name="portabilityRewrite">Apply <see cref="SpirvPortability.Rewrite"/> to every module (layered implementations such as MoltenVK).</param>
+    public PipelineBuilder(VkDeviceApi api, VkPipelineLayout layout, uint subgroupSize, bool requireSubgroupSize, bool fullSubgroups, VkPipelineCreateFlags flags,
+        bool portabilityRewrite)
     {
         _api = api;
         _layout = layout;
@@ -34,11 +37,18 @@ internal sealed unsafe class PipelineBuilder
         _requireSubgroupSize = requireSubgroupSize;
         _fullSubgroups = fullSubgroups;
         _flags = flags;
+        _portabilityRewrite = portabilityRewrite;
     }
 
     /// <summary>Creates the shader module of <paramref name="spirv"/>.</summary>
     public VkShaderModule CreateModule(byte[] spirv)
     {
+        if (_portabilityRewrite)
+        {
+            // Layered implementations (MoltenVK) translate SPIR-V to another language; avoid constructs they mistranslate.
+            spirv = SpirvPortability.Rewrite(spirv);
+        }
+
         VkShaderModule module;
         fixed (byte* code = spirv)
         {
