@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using Sharplight.Graph;
 using Sharplight.Models;
 using Sharplight.Runtime;
@@ -28,6 +30,7 @@ namespace Sharplight.Tasks;
 public sealed class TaskModel : IDisposable
 {
     private const long DefaultReserve = 1L << 30;
+    private readonly ConcurrentDictionary<string, Lazy<ModelDefinition>> _variants = new(StringComparer.Ordinal);
     private bool _disposed;
 
     internal TaskModel(ModelDefinition definition, ModelSource source, TaskLoadOptions options)
@@ -158,6 +161,19 @@ public sealed class TaskModel : IDisposable
     /// <param name="symbolBounds">Bounds that override the component's defaults, or <see langword="null"/>.</param>
     /// <exception cref="KeyNotFoundException">The component does not exist or has no such graph.</exception>
     public CompiledModel CompileComponent(string role, string? graph = null, IReadOnlyDictionary<string, long>? symbolBounds = null)
+        => CompileComponent(role, graph, symbolBounds, dimensions: null);
+
+    /// <summary>
+    /// Compiles a graph of a component like <see cref="CompileComponent(string, string?, IReadOnlyDictionary{string, long}?)"/>, taken
+    /// from the model rebuilt with other fixed sizes (<see cref="DefinitionFor"/>) when <paramref name="dimensions"/> is not empty.
+    /// </summary>
+    /// <param name="role">The component role.</param>
+    /// <param name="graph">One of the component's graph names, or <see langword="null"/> for its first graph.</param>
+    /// <param name="symbolBounds">Bounds that override the component's defaults, or <see langword="null"/>.</param>
+    /// <param name="dimensions">Fixed sizes by name (<see cref="AdapterOptions.Dimensions"/>), or <see langword="null"/> for the built ones.</param>
+    /// <exception cref="KeyNotFoundException">The component does not exist or has no such graph.</exception>
+    public CompiledModel CompileComponent(string role, string? graph, IReadOnlyDictionary<string, long>? symbolBounds,
+        IReadOnlyDictionary<string, long>? dimensions)
     {
         var bounds = new Dictionary<string, long>(Description.Component(role).SymbolBounds, StringComparer.Ordinal);
         foreach (var (symbol, bound) in symbolBounds ?? new Dictionary<string, long>())
@@ -165,7 +181,52 @@ public sealed class TaskModel : IDisposable
             bounds[symbol] = bound;
         }
 
-        return Compile(ComponentGraph(role, graph), bounds);
+        var definition = dimensions is null || dimensions.Count == 0 ? Definition : DefinitionFor(dimensions);
+        var component = Description.Component(role);
+        string? name = graph is null ? component.Graphs.FirstOrDefault() : component.Graphs.FirstOrDefault(g => g == graph);
+        return name is not null
+            ? Compile(definition.Graph(name), bounds)
+            : throw new KeyNotFoundException($"Component '{role}' of {Definition.Name} has no graph{(graph is null ? "" : $" '{graph}'")}.");
+    }
+
+    /// <summary>
+    /// The model rebuilt by its architecture adapter with other fixed sizes (<see cref="AdapterOptions.Dimensions"/>, e.g. the
+    /// <c>height</c> and <c>width</c> of an image generator's graphs), sharing this model's weights; built once per set of sizes and
+    /// kept while the model lives. Works for models loaded from any format, <c>.slm</c> packages included, because the adapter rebuilds
+    /// the graphs from the canonical metadata and weights the definition keeps.
+    /// </summary>
+    /// <param name="dimensions">The sizes by name; empty for <see cref="Definition"/> itself.</param>
+    /// <exception cref="NotSupportedException">No registered adapter builds the model's architecture.</exception>
+    public ModelDefinition DefinitionFor(IReadOnlyDictionary<string, long> dimensions)
+    {
+        ArgumentNullException.ThrowIfNull(dimensions);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (dimensions.Count == 0)
+        {
+            return Definition;
+        }
+
+        string key = string.Join(",", dimensions.OrderBy(d => d.Key, StringComparer.Ordinal)
+            .Select(d => string.Create(CultureInfo.InvariantCulture, $"{d.Key}={d.Value}")));
+        return _variants.GetOrAdd(key, _ => new Lazy<ModelDefinition>(() => Rebuild(dimensions))).Value;
+    }
+
+    private ModelDefinition Rebuild(IReadOnlyDictionary<string, long> dimensions)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var source = new ModelSource
+        {
+            Format = Source.Format,
+            Architecture = Definition.Architecture,
+            Metadata = Definition.SourceMetadata,
+            Weights = Definition.Weights,
+            FormatData = Source.FormatData,
+            Path = Source.Path,
+            CompilationCaches = Source.CompilationCaches,
+        };
+        var definition = ModelAdapterRegistry.Build(new ModelSourceSet { Primary = source }, Options.Adapter.WithDimensions(dimensions), Options.Log);
+        Options.Log?.Invoke($"Rebuilt {Definition.Name} for {string.Join(", ", dimensions.Select(d => $"{d.Key}={d.Value}"))} [{stopwatch.ElapsedMilliseconds} ms]");
+        return definition;
     }
 
     /// <summary>
