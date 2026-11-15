@@ -21,7 +21,11 @@ sys.path.insert(0, os.path.join(llama, "gguf-py"))
 
 with tempfile.TemporaryDirectory() as work:
     for name in os.listdir(source):
-        if name != "reference_logits.json":
+        if name == "reference_logits.json":
+            continue
+        if os.path.isdir(os.path.join(source, name)):   # the backbone/ of a Decision 2.0 package
+            shutil.copytree(os.path.join(source, name), os.path.join(work, name))
+        else:
             shutil.copy(os.path.join(source, name), work)
     path = os.path.join(work, "config.json")
     config = json.load(open(path))

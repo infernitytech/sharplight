@@ -17,7 +17,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(HERE, "..", "..", "tests", "Sharplight.Families.Tests", "tools")
 TESTS = os.path.join(HERE, "..", "..", "tests", "Sharplight.Families.Tests")
 EXTRA = {"tiny-random-falcon": {"TINY_PRE": "falcon"},          # the tokenizer source of mk_tiny_gguf.py
-         "tiny-random-glm4v": {"TINY_PRE": "auto"}, "tiny-random-hunyuan-vl": {"TINY_PRE": "auto"}, "tiny-random-deepseek-ocr": {"TINY_PRE": "auto"}}
+         "tiny-random-glm4v": {"TINY_PRE": "auto"}, "tiny-random-hunyuan-vl": {"TINY_PRE": "auto"}, "tiny-random-deepseek-ocr": {"TINY_PRE": "auto"},
+         "tiny-random-lfm3-hf": {"TINY_PRE": "auto"}, "tiny-random-clef": {"TINY_PRE": "auto"}, "tiny-random-vllm-decision2": {"TINY_PRE": "auto"}}   # real tokenizers: the converter looks the pre-tokenizer up
 
 wanted = set()
 for name in os.listdir(TESTS):

@@ -23,14 +23,18 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
     public static void Register() => ModelImporterRegistry.Register(new HuggingFaceImporter());
 
     /// <inheritdoc/>
-    /// <remarks>True for a directory (or a <c>.safetensors</c> file inside one) that holds <c>config.json</c> and at least one <c>*.safetensors</c> file or PyTorch <c>pytorch_model*.bin</c> shard (read through the restricted unpickler).</remarks>
+    /// <remarks>True for a directory (or a <c>.safetensors</c> file inside one) that holds <c>config.json</c> and at least one <c>*.safetensors</c> file (a Decision 2.0 package keeps its weights in <c>backbone/</c>) or PyTorch <c>pytorch_model*.bin</c> shard (read through the restricted unpickler).</remarks>
     public bool CanOpen(string path)
     {
         try
         {
             string? dir = ResolveDirectory(path);
             return dir != null && File.Exists(Path.Combine(dir, "config.json"))
-                   && SafetensorsCheckpoint.HasWeights(dir);
+                   && (SafetensorsCheckpoint.HasWeights(dir) || HfDecisionPackage.Find(dir) != null);
+        }
+        catch (InvalidDataException)
+        {
+            return false;
         }
         catch (IOException)
         {
