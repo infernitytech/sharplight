@@ -469,7 +469,7 @@ Trait abbreviations: GQA/MQA/MHA, MLA (latent attention), SWA (sliding window), 
 |---|---|---|---|---|---|---|
 | `qwen3tts` | Qwen3-TTS | speech codec LM | **missing** | `TTS` | - | - |
 | `pockettts` | PocketTTS | TTS flow decoder | **missing** | `TTS` | - | - |
-| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **missing** | `TTS` | - | - |
+| `wavtokenizer-dec` | WavTokenizer decoder | audio codec decoder | **supported** (as the `vocoder` of OuteTTS, see section 12) | `TTS` | `Sharplight.Import.Gguf` mapping, `WavTokenizerGraph` | `tests/Sharplight.TextToSpeech.Tests` |
 
 Notes on the matrix:
 
@@ -994,3 +994,26 @@ Model types still unsupported, with estimates (none is a mapping-only job):
 | nvidia/NVIDIA-Nemotron-Labs-Dory1.0-4B-BF16 | an nGPT (normalized) transformer with layer loops; no modeling code is published | not verifiable yet |
 | baidu/ERNIE-5.5-Flash-Base | no modeling code is published | not verifiable yet |
 | meituan-longcat/LongCat-2.5 | no modeling code is published | not verifiable yet |
+
+## 12. Text to speech (task kind `speech-synthesis`)
+
+Speech synthesizers are `.slm`-storable models of kind `speech-synthesis` run through `ISpeechSynthesizer` (docs/api-overview.md, Tasks). Acoustic models,
+codecs and vocoders are graphs of generic Core ops; the host runs only the token loop (the text-generation session and sampler) and the overlap-add.
+
+| Model | Status | Reference | Parity |
+|---|---|---|---|
+| OuteTTS 0.2 500M + WavTokenizer-Large-75 (GGUF pair) | supported, CPU and Vulkan | llama.cpp 8ca5a80 (`llama-completion`, libllama WavTokenizer graph + numpy iSTFT) | teacher-forced logits: no argmax disagreement beyond a 0.1 margin over 253 positions, worst logit delta 0.32 (CPU) / 0.52 (Vulkan) on logits up to 45 (Q8_0 activation rounding); decoder waveform relative RMS < 2e-3 on both |
+| qwen3tts, pockettts (llama.cpp archs), Kokoro, Orpheus + SNAC, CSM + Mimi, Dia | not started | - | - |
+
+OuteTTS loading: the language model is the primary file and the WavTokenizer GGUF its `vocoder` auxiliary (`TaskLoadOptions.Auxiliary = [("vocoder", path)]`, `--vocoder` of
+`samples/Sharplight.Speak`). `OuteTtsAdapter` is a composite adapter (`ModelAdapterRegistry.RegisterComposite`): it builds the language model with the adapter of its
+architecture, adds the codec weights under `codec.` and the `codec_decode` graph, and describes the model: components `text-model`, `tokenizer`, `codec-decoder`
+(config: sample rate, FFT size, hop, vocabulary; symbol bound `T` = 4096 frames). Voices are `voices/<name>.json` attachments of the `text-model` component
+(OuteTTS speaker profiles: words with durations and codec tokens); none ship by default.
+
+New generic Core pieces: the `Conv1d` op (time-major `[T, C]`, symbolic `T`, stride / padding / dilation / groups; CPU and a generated Vulkan kernel), `Sharplight.Audio.Window`
+and `OverlapAdd` (host side of an inverse STFT; the inverse real DFT and window stay in the graph through the existing `Dft` op), the composite-adapter hook and
+`LlmModel.FromTaskModel` made public. Greedy codec chains cannot match llama.cpp token for token: runner-up logits of codec tokens are often within 1e-3 of the winner, so the
+check feeds llama.cpp's tokens to both implementations (`OuteTtsTests`). The streaming form decodes each spoken word separately (the decoder attends over all frames, so
+this differs slightly from the whole-utterance decode). OuteTTS 0.3 and a default speaker profile are not implemented; llama.cpp 8ca5a80 dropped its OuteTTS demo, so the
+reference is the pieces above rather than `llama-tts`.
