@@ -25,6 +25,19 @@ internal sealed class Qwen35GgufMapping : IGgufArchitectureMapping, IGgufSplitMa
     public string Architecture => "qwen3_5";
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// A qwen4exp file with n-gram (PLE) layers but without the table (agentionai's <c>-noPLE</c> files, whose table comes from a separate file
+    /// through the fork's <c>--ple</c>) is reported: a separate table file cannot be loaded yet.
+    /// </remarks>
+    public IEnumerable<string> Validate(GgufMetadataView g)
+    {
+        if (g.Raw("ple.layers") is Array { Length: > 0 } && g.Tensor("per_layer_token_embd.weight") is null)
+        {
+            yield return "The file has n-gram (PLE) layers but no n-gram table (a -noPLE file whose table is a separate file); loading the table from another file is not supported.";
+        }
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(GgufMetadataView g)
     {
         int nextnLayers = g.Int("nextn_predict_layers", 0);

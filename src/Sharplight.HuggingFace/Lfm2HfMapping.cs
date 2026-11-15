@@ -7,7 +7,8 @@ namespace Sharplight.HuggingFace;
 /// <summary>
 /// Hugging Face <c>lfm2</c> (Liquid LFM2 / LFM2.5: gated short-convolution layers and grouped-query attention layers with q/k norms) and
 /// <c>lfm2_moe</c> (the same with sigmoid-routed experts and a selection bias after the leading dense layers) → canonical <c>hybrid</c>
-/// (documented on <c>HybridAdapter</c>).
+/// (documented on <c>HybridAdapter</c>), and <c>lfm3</c> (LFM3: LFM2 layers with sliding-window attention layers, a per-head sigmoid output gate and
+/// sandwich norms; see <c>AddLfm3HyperParameters</c>).
 /// </summary>
 internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
 {
@@ -15,7 +16,7 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
     public string Architecture => "hybrid";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["lfm2", "lfm2_moe"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["lfm2", "lfm2_moe", "lfm3"];
 
     [GeneratedRegex(@"^feed_forward\.experts\.(\d+)\.(w1|w2|w3)\.weight$")]
     private static partial Regex ExpertName();
@@ -41,7 +42,7 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
             [a + "norm_eps"] = (float)(c.GetDouble("norm_eps", "block_norm_eps") ?? 1e-5),
             [a + "attention.head_count"] = heads,
             [a + "attention.kv_head_count"] = c.GetInt("num_key_value_heads") ?? heads,
-            [a + "attention.head_dim"] = hidden / heads,
+            [a + "attention.head_dim"] = c.GetInt("head_dim") ?? hidden / heads,
             [a + "attention.rope"] = true,
             [a + "rope.base"] = (float)(c.RopeDouble("rope_theta", "rope_theta") ?? 10000.0),
             [a + "shortconv.kernel"] = c.Int("conv_L_cache"),
@@ -52,6 +53,11 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
         }
 
         HfMappingHelpers.AddContextLength(md, a, c);
+        if (c.ModelType == "lfm3")
+        {
+            AddLfm3HyperParameters(md, a, c);
+        }
+
         if (c.GetInt("num_experts") is > 0 and int experts)
         {
             md[a + "moe.expert_count"] = experts;
@@ -80,6 +86,12 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
         ["self_attn.out_proj.weight"] = "attention.o.weight",
         ["self_attn.q_layernorm.weight"] = "attention.q_norm.weight",
         ["self_attn.k_layernorm.weight"] = "attention.k_norm.weight",
+        ["self_attn.o_proj.weight"] = "attention.o.weight",   // LFM3 names
+        ["self_attn.q_norm.weight"] = "attention.q_norm.weight",
+        ["self_attn.k_norm.weight"] = "attention.k_norm.weight",
+        ["self_attn.gate_proj.weight"] = "attention.gate.weight",
+        ["post_operator_norm.weight"] = "post_mixer_norm.weight",
+        ["post_ffn_norm.weight"] = "mlp.out_norm.weight",
         ["feed_forward.w1.weight"] = "mlp.gate.weight",
         ["feed_forward.w3.weight"] = "mlp.up.weight",
         ["feed_forward.w2.weight"] = "mlp.down.weight",
@@ -102,6 +114,11 @@ internal sealed partial class Lfm2HfMapping : IHfArchitectureMapping
         }
 
         collector.ThrowIfUnmapped(c.ModelType);
+        if (c.ModelType == "lfm3")
+        {
+            AddLfm3FrequencyFactors(c, collector);
+        }
+
         experts.JoinInto(collector, c.GetInt("num_experts") ?? 0);
         return collector.Weights;
     }

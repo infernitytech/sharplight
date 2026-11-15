@@ -161,6 +161,22 @@ public sealed class DataType : IEquatable<DataType>
     /// </summary>
     public static readonly DataType Tern1_G128 = Register("tern1_g128", DataTypeKind.Quantized, 128, 28);
 
+    // Trellis-coded formats, group 128: { f16 d; u8 qs[...] }. The qs bytes are a tail-biting path of 16-bit states; a state selects
+    // points of a 2048-point two-dimensional codebook (Grids.TrellisCodebook) through a multiplicative hash, w = d * codebook value.
+    // See TrellisBlocks for the exact decoding.
+    /// <summary>Trellis, 4 values and 8 new bits per step: step t's state is <c>qs[t - 1 mod 32] &lt;&lt; 8 | qs[t]</c> (34 bytes, 2.125 bpw).</summary>
+    public static readonly DataType TrellisV4K8_G128 = Register("trellis_v4k8_g128", DataTypeKind.Quantized, 128, 34);
+    /// <summary>Trellis, 4 values and 6 new bits per step, states read from a circular bit stream (26 bytes, 1.625 bpw).</summary>
+    public static readonly DataType TrellisV4K6_G128 = Register("trellis_v4k6_g128", DataTypeKind.Quantized, 128, 26);
+    /// <summary>Trellis, 4 values and 7 new bits per step, states read from a circular bit stream (30 bytes, 1.875 bpw).</summary>
+    public static readonly DataType TrellisV4K7_G128 = Register("trellis_v4k7_g128", DataTypeKind.Quantized, 128, 30);
+    /// <summary>Trellis, 2 values and 5 new bits per step, states read from a circular bit stream (42 bytes, 2.625 bpw).</summary>
+    public static readonly DataType TrellisV2K5_G128 = Register("trellis_v2k5_g128", DataTypeKind.Quantized, 128, 42);
+    /// <summary>Trellis, 2 values and 6 new bits per step, states read from a circular bit stream (50 bytes, 3.125 bpw).</summary>
+    public static readonly DataType TrellisV2K6_G128 = Register("trellis_v2k6_g128", DataTypeKind.Quantized, 128, 50);
+    /// <summary>Trellis, 2 values and 7 new bits per step, states read from a circular bit stream (58 bytes, 3.625 bpw).</summary>
+    public static readonly DataType TrellisV2K7_G128 = Register("trellis_v2k7_g128", DataTypeKind.Quantized, 128, 58);
+
     // 8-bit floating point (OCP FP8). The scalar types are storage formats read like weights (decoded on load), so they are
     // registered as Quantized with a block size of 1: only the ops that decode weight formats accept them.
     /// <summary>

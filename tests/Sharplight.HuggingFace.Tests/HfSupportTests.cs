@@ -23,6 +23,15 @@ public sealed class HfSupportTests : IDisposable
     [InlineData("qwen4_exp", SupportLevel.Supported)]
     [InlineData("qwen4_exp_text", SupportLevel.Supported)]
     [InlineData("hrm_text", SupportLevel.Supported)]
+    [InlineData("lfm3", SupportLevel.Supported)]
+    [InlineData("spark2_5", SupportLevel.Supported)]
+    [InlineData("clover_moe", SupportLevel.Supported)]
+    [InlineData("nemotron_h_omni", SupportLevel.Supported)]
+    [InlineData("mimo_v2", SupportLevel.Supported)]
+    [InlineData("llava_onevision2", SupportLevel.Supported)]
+    [InlineData("paligemma", SupportLevel.Partial)]
+    [InlineData("inkling_mm_model", SupportLevel.Supported)]
+    [InlineData("inkling2", SupportLevel.Unsupported)]
     [InlineData("qwen3_tts", SupportLevel.Unsupported)]
     [InlineData(null, SupportLevel.Unsupported)]
     public void ArchitectureSupport_FollowsTheMappings(string? modelType, SupportLevel expected)
@@ -40,8 +49,23 @@ public sealed class HfSupportTests : IDisposable
             """;
         Assert.Contains("qk_layernorm", Assert.Single(HfSupport.Validate(stableLm)), StringComparison.Ordinal);
         Assert.Empty(HfSupport.Validate(stableLm.Replace("\"qk_layernorm\": true", "\"qk_layernorm\": false", StringComparison.Ordinal)));
+        const string inkling = """
+            {"model_type": "inkling_mm_model", "text_config": {"hidden_size": 64, "num_hidden_layers": 2, "num_attention_heads": 4, "head_dim": 16,
+             "swa_head_dim": 16, "vocab_size": 100, "n_routed_experts": 8, "num_experts_per_tok": 2}}
+            """;
+        Assert.Empty(HfSupport.Validate(inkling));
+        Assert.Contains("head size", Assert.Single(HfSupport.Validate(inkling.Replace("\"swa_head_dim\": 16", "\"swa_head_dim\": 32", StringComparison.Ordinal))),
+            StringComparison.Ordinal);
         Assert.Contains("toy_unmapped", Assert.Single(HfSupport.Validate("""{"model_type": "toy_unmapped"}""")), StringComparison.Ordinal);
         Assert.Single(HfSupport.Validate("not json"));
+
+        // Wrappers of a text decoder name the text model type they cannot map; MiMo-V2 rejects sliding layers shaped unlike the global ones.
+        Assert.Contains("'toy_text'", Assert.Single(HfSupport.Validate("""{"model_type": "llava_onevision2", "text_config": {"model_type": "toy_text"}}""")),
+            StringComparison.Ordinal);
+        Assert.Contains("'gemma3'", Assert.Single(HfSupport.Validate("""{"model_type": "paligemma", "text_config": {"model_type": "gemma3"}}""")),
+            StringComparison.Ordinal);
+        Assert.Contains("swa_head_dim", Assert.Single(HfSupport.Validate("""{"model_type": "mimo_v2", "head_dim": 192, "swa_head_dim": 128}""")),
+            StringComparison.Ordinal);
     }
 
     [Fact]

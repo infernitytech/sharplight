@@ -36,7 +36,7 @@ internal sealed unsafe partial class AttentionOp
     private void InitTiled()
     {
         bool symmetricWindow = _window > 0 && _offsetScalar is null && !_causal;
-        bool plain = _selection is null && _compressed is null && _rows is null && _spans is null && _pages is null && _alibiSlopes is null && _positionBias is null && _kQuant is null && !symmetricWindow
+        bool plain = _selection is null && _compressed is null && _rows is null && _spans is null && _pages is null && _alibiSlopes is null && _positionBias is null && _relativeBias is null && _kQuant is null && !symmetricWindow
             && _vQuant is null && _chunk == 0 && _softcap == 0f && _dv % ValueColumns == 0
             && _k.Strides[2] == 1 && _v.Strides[2] == 1;
         _tiledLanes = !plain ? 0 : CpuIsa.Use512 ? FloatLanes512.Count : CpuIsa.Use256 ? FloatLanes256.Count : 0;
@@ -55,7 +55,7 @@ internal sealed unsafe partial class AttentionOp
             return;
         }
 
-        end = _offsetScalar is not null ? _past + t + 1 : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
+        end = _offsetScalar is not null ? _causal ? _past + t + 1 : _past + _t : _causal ? Math.Min(_s, t + _s - _t + 1) : _s;
         first = _window > 0 ? Math.Max(0, end - _window) : 0;
     }
 

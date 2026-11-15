@@ -33,5 +33,6 @@ public static class BuiltinAdapters
         ModelAdapterRegistry.Register(new LatentDecoderAdapter());
         ModelAdapterRegistry.RegisterAuxiliaryOnly(Eagle3DraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
         ModelAdapterRegistry.RegisterAuxiliaryOnly(SharedKvDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
+        ModelAdapterRegistry.RegisterAuxiliaryOnly(DflashDraftHead.Architecture, Sharplight.Vision.AuxiliaryRoles.Draft);
     }
 }

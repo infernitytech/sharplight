@@ -34,7 +34,7 @@ public class FamilyGenerationTests
 
     private static readonly string P1 = "Once upon a time, in a small village by the sea, there lived";
     private static readonly string P2 = "The capital of France is a city that, in the year 1900 and beyond, was known for many things such as art";
-    private static readonly int[] NemotronLatentIds = [84012, 129322, 91089, 61166, 57719, 115899, 122038, 107646, 54732, 45163, 112622, 59619, 129776, 92402, 51306, 104421];
+    internal static readonly int[] NemotronLatentIds = [84012, 129322, 91089, 61166, 57719, 115899, 122038, 107646, 54732, 45163, 112622, 59619, 129776, 92402, 51306, 104421];
     private const string Gemma4Story = " a young girl named Lily. Lily had hair the color of spun gold and eyes the deep blue of the ocean. She loved spending her days by the sparkling sea, collecting seashells and watching the waves dance";
 
     /// <summary>The case names; <c>SHARPLIGHT_TEST_CASE</c> limits them to those containing that text (to run one family).</summary>
@@ -205,6 +205,8 @@ public class FamilyGenerationTests
         .. DeepseekOcrFamilyCases.All,
         // Bring-up round 9: MoE variants (GroveMoE adjugate experts, ...).
         .. MoeVariantFamilyCases.All,
+        // Bring-up round 11: Hugging Face model types the round-10 Hub sweep found unsupported (LFM3, ...).
+        .. HubSweepFamilyCases.All,
         // Bring-up round 9: per-token switched adapters (Granite Switch).
         .. AdapterFamilyCases.All,
         // Bring-up round 9: QSA block selection (Qwen3.8-Flash-Next) in its sparse regime.
@@ -213,6 +215,8 @@ public class FamilyGenerationTests
         .. KimiK3FamilyCases.All,
         // Bring-up round 9: DeepSeek-V4 (compressed-KV attention, hash routing).
         .. DeepSeekV4Cases.All,
+        // Bring-up round 11: Inkling (relative bias, residual short convolutions, router-scored shared experts).
+        .. InklingFamilyCases.All,
     ];
 
     private static (LlmModel Model, DeviceSlot[] Slots) Load(string path, bool vulkan, bool cpuFallback, bool f32Kv)
@@ -283,10 +287,16 @@ public class FamilyGenerationTests
     {
         using var session = model.CreateSession(WellKnown.DecodeGraph);
         var logits = session.Process(reference.PromptIds);
-        Assert.Equal(reference.Logits.Length, logits.Length);
+        // A reference cut to the unpadded vocabulary (Inkling): the padded ids beyond it must be suppressed.
+        Assert.True(logits.Length >= reference.Logits.Length, $"{logits.Length} logits, the reference has {reference.Logits.Length}");
+        for (int i = reference.Logits.Length; i < logits.Length; i++)
+        {
+            Assert.True(logits[i] < -1e30f, $"padded token {i} has logit {logits[i]}");
+        }
+
         double scale = reference.Logits.Max(MathF.Abs);
         double worst = 0;
-        for (int i = 0; i < logits.Length; i++)
+        for (int i = 0; i < reference.Logits.Length; i++)
         {
             worst = Math.Max(worst, Math.Abs(logits[i] - reference.Logits[i]));
         }

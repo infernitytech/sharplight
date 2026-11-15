@@ -1,17 +1,25 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Models;
 using Sharplight.Tensors;
 
 namespace Sharplight.HuggingFace;
 
-/// <summary>Hugging Face <c>nemotron_h</c> checkpoints → canonical <c>nemotron_h</c> (vocabulary documented on <c>NemotronHAdapter</c>). A = -exp(A_log) and the conv are converted to f32 lazily.</summary>
+/// <summary>
+/// Hugging Face <c>nemotron_h</c> checkpoints → canonical <c>nemotron_h</c> (vocabulary documented on <c>NemotronHAdapter</c>). A = -exp(A_log) and the conv
+/// are converted to f32 lazily. <c>nemotron_h_omni</c> (Nemotron 3.5 Super-VL / Bolt, remote code) wraps the same language model below
+/// <c>language_model.</c> with its <c>llm_config</c>; its RADIO vision tower, projector (<c>mlp1</c>) and sound encoder are not imported.
+/// </summary>
 internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
 {
     /// <inheritdoc/>
     public string Architecture => "nemotron_h";
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> ModelTypes { get; } = ["nemotron_h"];
+    public IReadOnlyList<string> ModelTypes { get; } = ["nemotron_h", "nemotron_h_puzzle", OmniModelType];
+
+    private const string OmniModelType = "nemotron_h_omni";
+    private const string OmniLanguageModelPrefix = "language_model.";
 
     /// <summary>The canonical block kind of every layer, from <c>hybrid_override_pattern</c> or an explicit layer-type list.</summary>
     private static string[] Kinds(HfConfig c)
@@ -28,7 +36,7 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
             }).ToArray();
         }
 
-        var layerTypes = c.GetStringArray("layers_block_type") ?? c.GetStringArray("layer_types")
+        var layerTypes = c.GetStringArray("layers_block_type") ?? c.GetStringArray("layer_types") ?? PuzzleBlockTypes(c)
             ?? throw new InvalidDataException("nemotron_h: no hybrid_override_pattern / layers_block_type in config.json.");
         return layerTypes.Select(type => type switch
         {
@@ -39,6 +47,18 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
             _ => throw new NotSupportedException($"nemotron_h: unknown layer type '{type}'."),
         }).ToArray();
     }
+
+    /// <summary>The <c>block_type</c> of every entry of a Puzzle config's <c>block_configs</c>, or null.</summary>
+    private static string[]? PuzzleBlockTypes(HfConfig c)
+        => c.Get("block_configs") is { ValueKind: JsonValueKind.Array } blocks
+            ? blocks.EnumerateArray().Select(block => block.GetProperty("block_type").GetString() ?? "").ToArray()
+            : null;
+
+    /// <summary>Per layer, the <c>block_configs</c> entry of a Puzzle config's MoE layers (null for the other layers); null without block_configs.</summary>
+    private static JsonElement?[]? PuzzleMoeBlocks(HfConfig c)
+        => c.Get("block_configs") is { ValueKind: JsonValueKind.Array } blocks
+            ? blocks.EnumerateArray().Select(block => block.GetProperty("block_type").GetString() == "moe" ? block : (JsonElement?)null).ToArray()
+            : null;
 
     private static string Activation(HfConfig c)
         => (c.GetString("mlp_hidden_act") ?? "relu2") switch
@@ -100,8 +120,23 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
             throw new NotSupportedException("nemotron_h: group-limited expert routing is not supported yet.");
         }
 
-        md[a + "moe.expert_count"] = c.Int("n_routed_experts");
-        md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+        if (PuzzleMoeBlocks(c) is { } blocks)
+        {
+            // Heterogeneous ("Puzzle", Nemotron 3.5 Bolt): every MoE layer has its own expert count, width and selection count; the adapter reads
+            // the first two from the weights.
+            var used = blocks.Select(block => block is { } b && b.TryGetProperty("num_experts_per_tok", out var k) ? k.GetInt32() : 0).ToArray();
+            md[a + "moe.expert_count"] = blocks.Max(block => block is { } b && b.TryGetProperty("n_routed_experts", out var e) ? e.GetInt32() : 0);
+            md[a + "moe.expert_used_count"] = used.Max();
+            if (used.Where(u => u > 0).Distinct().Count() > 1)
+            {
+                md[a + "moe.layer_expert_used_counts"] = used;
+            }
+        }
+        else
+        {
+            md[a + "moe.expert_count"] = c.Int("n_routed_experts");
+            md[a + "moe.expert_used_count"] = c.Int("num_experts_per_tok");
+        }
         md[a + "moe.normalize_weights"] = c.GetBool("norm_topk_prob") ?? true;
         if (c.GetDouble("routed_scaling_factor") is { } scalingFactor && scalingFactor != 1.0)
         {
@@ -161,8 +196,15 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
     {
         var collector = new HfWeightCollector();
         var experts = new SortedDictionary<(string Prefix, string Kind), SortedDictionary<int, WeightInfo>>();
-        foreach (var (name, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
+        bool omni = c.ModelType == OmniModelType;
+        foreach (var (rawName, tensor) in tensors.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
+            if (omni && !rawName.StartsWith(OmniLanguageModelPrefix, StringComparison.Ordinal))
+            {
+                continue;   // vision tower, projector, sound encoder
+            }
+
+            string name = omni ? rawName[OmniLanguageModelPrefix.Length..] : rawName;
             var w = tensor.ToWeightInfo();
             if (TryMapGlobalTensor(c, name, w, collector))
             {
@@ -175,7 +217,7 @@ internal sealed partial class NemotronHHfMapping : IHfArchitectureMapping
                 : TryMapMtpTensor(name, w, collector, experts);
             if (!mapped)
             {
-                collector.AddUnmapped(name);
+                collector.AddUnmapped(rawName);
             }
         }
 

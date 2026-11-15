@@ -22,9 +22,14 @@ namespace Sharplight.Architectures;
 /// β to <c>residual_scale</c>); an optional
 /// <c>post_mixer_norm.weight</c> / <c>mlp.out_norm.weight</c> normalizes the mixer / feed-forward output before it is added (PLaMo-2).
 /// Hyper-parameters (<c>hybrid.*</c>): <c>layer_count</c>, <c>hidden_size</c>, <c>norm_eps</c>, <c>context_length</c>, optional <c>embedding_scale</c> (default 1),
-/// <c>logit_scale</c> (multiplier of the logits, default 1), <c>residual_scale</c> (default 1), <c>mlp.activation</c>, <c>attention.*</c>/<c>rope.*</c>, <c>ssm.*</c>, <c>moe.*</c>.
+/// <c>logit_scale</c> (multiplier of the logits, default 1), <c>logits.suppressed_ranges</c> (int[] of [start, end) pairs of token ids never emitted),
+/// <c>residual_scale</c> (default 1), <c>mlp.activation</c>, <c>attention.*</c>/<c>rope.*</c>, <c>ssm.*</c>, <c>moe.*</c>.
 /// Weights: <c>token_embedding.weight</c>, <c>output_norm.weight</c>, <c>lm_head.weight</c> (optional, tied otherwise); per layer <c>input_norm.weight</c> and,
 /// with a feed-forward, <c>post_attention_norm.weight</c>.
+/// Optional (Inkling): <c>embedding_norm.weight</c> RMS-normalizes the token embeddings; <c>post_mixer_conv.weight</c> / <c>mlp.out_conv.weight</c>
+/// [hidden, K] f32 add a causal depthwise convolution of the mixer / feed-forward output to itself before it joins the residual
+/// (<c>y + conv(y)</c>, states <c>{group}.mixer_conv_state</c> / <c>ffn_conv_state</c>); <c>mlp.output_scale</c> [1] multiplies the
+/// feed-forward output.
 /// </remarks>
 public sealed class HybridAdapter : IModelAdapter
 {
@@ -34,7 +39,8 @@ public sealed class HybridAdapter : IModelAdapter
     public IReadOnlyList<string> Architectures => ["hybrid"];
 
     private sealed record LayerStates(StateDefinition? Conv, StateDefinition? Scan, StateDefinition? Keys, StateDefinition? Values, StateDefinition? ShortConv,
-        StateDefinition? Lightning);
+        StateDefinition? Lightning, StateDefinition? KeyConv = null, StateDefinition? ValueConv = null, StateDefinition? MixerConv = null,
+        StateDefinition? FeedForwardConv = null);
 
     /// <inheritdoc/>
     public ModelDefinition Build(ModelSourceSet sources, AdapterOptions options)
@@ -45,6 +51,7 @@ public sealed class HybridAdapter : IModelAdapter
         float eps = src.Arch("norm_eps", 1e-5f);
         float embeddingScale = src.Arch("embedding_scale", 1f);
         float logitScale = src.Arch("logit_scale", 1f);
+        int[] suppressedRanges = src.Arch("logits.suppressed_ranges", Array.Empty<int>());
         float residualScale = src.Arch("residual_scale", 1f);
         bool residualFromNorm = src.Arch("residual.from_norm", false);
         float[] mixerInputScale = src.Arch("residual.mixer_input_scale", Array.Empty<float>());
@@ -67,11 +74,14 @@ public sealed class HybridAdapter : IModelAdapter
             var ssm = src.Weight(p + "ssm.in.weight") is null ? default
                 : Plamo2Layer.Is(src, p) ? plamo.DefineStates(src, $"layers.{il}", p)
                 : Mamba1Layer.Is(src, p) ? mamba1.DefineStates(src, $"layers.{il}", p) : mamba.DefineStates($"layers.{il}");
-            var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType) : default;
+            var kv = src.Weight(p + "attention.q.weight") is not null ? attention.DefineStates($"layers.{il}", options.KvCacheType, il) : default;
+            var kvConv = HybridAttention.DefineConvStates(src, $"layers.{il}", p);
+            var mixerConv = OutputConvState(src, $"layers.{il}", "mixer_conv_state", p + "post_mixer_conv.weight");
+            var ffnConv = OutputConvState(src, $"layers.{il}", "ffn_conv_state", p + "mlp.out_conv.weight");
             var conv = src.Weight(p + "shortconv.in.weight") is { } convIn ? shortConv.DefineState($"layers.{il}", (int)(convIn.Shape[0].Fixed / 3)) : null;
             var linear = LightningAttention.IsPresent(src.Weight, p) ? lightning.DefineState($"layers.{il}") : null;
-            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear);
-            states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear }.OfType<StateDefinition>());
+            layers[il] = new LayerStates(ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear, kvConv.Keys, kvConv.Values, mixerConv, ffnConv);
+            states.AddRange(new[] { ssm.Conv, ssm.Scan, kv.Keys, kv.Values, conv, linear, kvConv.Keys, kvConv.Values, mixerConv, ffnConv }.OfType<StateDefinition>());
         }
 
         var graphs = new Dictionary<string, ComputeGraph> { [WellKnown.DecodeGraph] = BuildTrunk(WellKnown.DecodeGraph, false) };
@@ -100,6 +110,11 @@ public sealed class HybridAdapter : IModelAdapter
                     {
                         x = b.Scale(x, embeddingScale);
                     }
+
+                    if (b.TryWeight("embedding_norm.weight") is { } embeddingNorm)
+                    {
+                        x = b.RmsNorm(x, embeddingNorm, eps, "inp_embd_norm");
+                    }
                 }
             }
 
@@ -117,7 +132,8 @@ public sealed class HybridAdapter : IModelAdapter
                 var rows = b.Gather(hiddenStates, outRows, "selected_rows");
                 var head = b.TryWeight("lm_head.weight") ?? b.Weight("token_embedding.weight");
                 var logits = b.MatMul(rows, head, "logits");
-                b.Output("logits", logitScale != 1f ? b.Scale(logits, logitScale) : logits);
+                logits = logitScale != 1f ? b.Scale(logits, logitScale) : logits;
+                b.Output("logits", SuppressedLogits.Apply(b, logits, checked((int)head.Shape[0].Fixed), suppressedRanges));
                 b.Output("hidden", hiddenStates);
             }
 
@@ -148,11 +164,12 @@ public sealed class HybridAdapter : IModelAdapter
 
             if (layer.Keys is not null)
             {
-                var attended = attention.Build(b, h, positions, il, p, layer.Keys, layer.Values!);
+                var attended = attention.Build(b, h, positions, il, p, layer.Keys, layer.Values!, layer.KeyConv, layer.ValueConv);
                 mixed = mixed is null ? attended : b.Add(mixed, attended);
             }
 
-            var mixer = mixed ?? throw new InvalidDataException($"hybrid: layer {il} has neither a state-space nor an attention mixer.");
+            var mixer = HybridAttention.ResidualConv(b, mixed ?? throw new InvalidDataException($"hybrid: layer {il} has neither a state-space nor an attention mixer."),
+                p + "post_mixer_conv.weight", layer.MixerConv);
             var mixerOut = Scaled(b, OutputNorm(b, mixer, p + "post_mixer_norm.weight"), PerLayer(mixerScale, il, residualScale));
             x = b.Add(mixerOut, Scaled(b, residualFromNorm ? h : x, PerLayer(mixerInputScale, il, 1f)), $"{p}mix_out");
             if (!HybridFeedForward.Exists(src, p))
@@ -161,11 +178,21 @@ public sealed class HybridAdapter : IModelAdapter
             }
 
             var normed = b.RmsNorm(x, b.Weight(p + "post_attention_norm.weight"), eps, $"{p}post_attn_norm");
-            var ffnOut = Scaled(b, OutputNorm(b, feedForward.Build(b, normed, p), p + "mlp.out_norm.weight"), PerLayer(ffnScale, il, residualScale));
+            var ffn = feedForward.Build(b, normed, p);
+            if (b.TryWeight(p + "mlp.output_scale") is { } outputScale)
+            {
+                ffn = b.Mul(ffn, outputScale);
+            }
+
+            ffn = HybridAttention.ResidualConv(b, ffn, p + "mlp.out_conv.weight", layer.FeedForwardConv);
+            var ffnOut = Scaled(b, OutputNorm(b, ffn, p + "mlp.out_norm.weight"), PerLayer(ffnScale, il, residualScale));
             return b.Add(ffnOut, Scaled(b, residualFromNorm ? normed : x, PerLayer(ffnInputScale, il, 1f)), $"{p}l_out");
         }
 
         static float PerLayer(float[] scales, int il, float fallback) => il < scales.Length ? scales[il] : fallback;
+
+        static StateDefinition? OutputConvState(ModelSource src, string group, string name, string weightName)
+            => src.Weight(weightName) is { } w ? RecurrentStates.ConvWindow(group, name, (int)w.Shape[1].Fixed - 1, (int)w.Shape[0].Fixed) : null;
 
         Value OutputNorm(GraphBuilder b, Value v, string weightName) => b.TryWeight(weightName) is { } weight ? b.RmsNorm(v, weight, eps) : v;
 

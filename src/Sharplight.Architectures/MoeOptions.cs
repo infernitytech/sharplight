@@ -36,11 +36,14 @@ namespace Sharplight.Architectures;
 /// <param name="AdjugateGroupSize">Consecutive routed experts that share one adjugate expert (<c>moe.adjugate_group_size</c>, GroveMoE 2);
 /// see <see cref="MoeBlock"/>.</param>
 /// <param name="AdjugateScale">Factor on the adjugate experts' output (<c>moe.adjugate_scale</c>, GroveMoE 0.05).</param>
+/// <param name="SharedSinks">Shared experts scored by the router (<c>moe.shared_sink_count</c>, Inkling): the router weight has
+/// <c>Experts + SharedSinks</c> rows, the last ones scoring the shared experts of the bank <c>shared_sinks.*</c>, whose scores join the
+/// renormalization of the selected weights (they act as a sink) and weight their outputs; see <see cref="MoeBlock"/>.</param>
 internal sealed record MoeOptions(
     int Experts, int ExpertsUsed, MoeScoreFunction ScoreFunction, bool NormalizeWeights, float WeightsScale,
     int Groups = 1, int GroupsUsed = 1, MoeGroupScore GroupScore = MoeGroupScore.TopTwoSum, bool WeightsBeforeExperts = false, float SharedScale = 1f,
     bool SelectionBiasOnLogits = false, float RouterSoftCap = 0f, float SparseMixerJitter = 0.01f, float NormEps = 1e-5f, float PostNormEps = 1e-5f,
-    int AdjugateGroupSize = 1, float AdjugateScale = 1f)
+    int AdjugateGroupSize = 1, float AdjugateScale = 1f, int SharedSinks = 0)
 {
     /// <summary>Reads the <c>moe.*</c> keys of <paramref name="source"/>.</summary>
     /// <param name="source">The model source.</param>
@@ -74,7 +77,8 @@ internal sealed record MoeOptions(
             NormEps: source.Arch("norm_eps", 1e-5f),
             PostNormEps: source.Arch("post_norm_eps", source.Arch("norm_eps", 1e-5f)),
             AdjugateGroupSize: Math.Max(1, source.Arch("moe.adjugate_group_size", 1)),
-            AdjugateScale: source.Arch("moe.adjugate_scale", 1f));
+            AdjugateScale: source.Arch("moe.adjugate_scale", 1f),
+            SharedSinks: Math.Max(0, source.Arch("moe.shared_sink_count", 0)));
     }
 
     /// <summary>Reads a router activation key ("softmax" (default), "sigmoid", "softmax_topk", "sqrt_softplus" or "sparsemixer").</summary>
