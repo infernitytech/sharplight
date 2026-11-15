@@ -54,13 +54,14 @@ public sealed class QuantizedImportTests(ITestOutputHelper output)
 
     [Theory]
     [MemberData(nameof(Checkpoints))]
-    public void DequantizesLikeTheLibraryOnCpu(string checkpoint, string type) => Check(checkpoint, type, vulkan: false);
+    public void DequantizesLikeTheLibraryOnCpu(string checkpoint, string type) => Check(output, checkpoint, type, vulkan: false);
 
     [Theory]
     [MemberData(nameof(Checkpoints))]
-    public void DequantizesLikeTheLibraryOnVulkan(string checkpoint, string type) => Check(checkpoint, type, vulkan: true);
+    public void DequantizesLikeTheLibraryOnVulkan(string checkpoint, string type) => Check(output, checkpoint, type, vulkan: true);
 
-    private void Check(string checkpoint, string type, bool vulkan)
+    /// <summary>Converts the weights of one checkpoint and compares them with the library's dequantization (see the class summary).</summary>
+    internal static void Check(ITestOutputHelper output, string checkpoint, string type, bool vulkan)
     {
         string directory = Path.Combine(Home, "models", "hf", "quant", checkpoint);
         string referenceDirectory = Path.Combine(directory, "sharplight-reference");
