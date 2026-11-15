@@ -143,6 +143,18 @@ dotnet build Sharplight.slnx -c Release
 
 Tests are Microsoft.Testing.Platform executables: run `dotnet tests/<Project>/bin/Release/net11.0/<Project>.dll`.
 
+## Packages
+
+The libraries under `src/` ship as NuGet packages (prerelease): `Sharplight.Core`, `Sharplight.Llm`, `Sharplight.Cpu`,
+`Sharplight.Vulkan`, `Sharplight.Shaders`, `Sharplight.Architectures`, `Sharplight.Tokenizers`, `Sharplight.Templating`,
+`Sharplight.Package` (`.slm` packages, conversion and precompilation), `Sharplight.Hub`, `Sharplight.AspNetCore`,
+`Sharplight.Extensions.AI`, and one package per source format: `Sharplight.Import.Gguf`, `Sharplight.Import.HuggingFace`
+and `Sharplight.Import.Onnx`.
+
+The format importers were published as `Sharplight.Gguf`, `Sharplight.HuggingFace` and `Sharplight.Onnx` before, and the
+conversion API as `Sharplight.Package.Import`. Their namespaces moved with them (`Sharplight.Import.Gguf`, ...; the
+conversion types are in `Sharplight.Package` now); there are no forwarding packages.
+
 ## Samples
 
 Pull a model from Hugging Face (downloaded, converted to `.slm` and precompiled) and chat with it or serve it:
