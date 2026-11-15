@@ -22,10 +22,13 @@ public class HubSweepFamilyServingTests
         GgufImporter.Register();
     }
 
-    /// <summary>Model paths under ~/models, each on the CPU and on Vulkan.</summary>
-    public static TheoryData<string, bool> Cases()
+    /// <summary>Model paths under ~/models, each on the CPU and on Vulkan, with whether the KV cache is kept in f32.</summary>
+    public static TheoryData<string, bool, bool> Cases()
     {
-        var data = new TheoryData<string, bool>();
+        // The tiny PaliGemma models scale their final norm far above one, so f16 KV rounding decides near-ties; their caches are kept in f32
+        // as in the generation cases.
+        string[] f32Kv = ["hf/tiny-random-paligemma", "hf/tiny-random-paligemma2"];
+        var data = new TheoryData<string, bool, bool>();
         string[] models =
         [
             "hf/tiny-random-lfm3",
@@ -39,8 +42,8 @@ public class HubSweepFamilyServingTests
         ];
         foreach (string model in models)
         {
-            data.Add(model, false);
-            data.Add(model, true);
+            data.Add(model, false, f32Kv.Contains(model));
+            data.Add(model, true, f32Kv.Contains(model));
         }
 
         return data;
@@ -48,12 +51,16 @@ public class HubSweepFamilyServingTests
 
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan)
+    public async Task Batched_GreedyOutput_Matches_SingleSequence(string name, bool vulkan, bool f32Kv)
     {
         string path = Path.Combine(Models, name);
         Assert.SkipUnless(Directory.Exists(path) || File.Exists(path), $"{path} not present");
         using var device = OpenDevice(vulkan);
-        using var model = LlmModel.Load(path, new LlmLoadOptions { Devices = [new DeviceSlot { Device = device }], ContextLength = 128, MaxBatchTokens = 16 });
+        using var model = LlmModel.Load(path, new LlmLoadOptions
+        {
+            Devices = [new DeviceSlot { Device = device }], ContextLength = 128, MaxBatchTokens = 16,
+            KvCacheType = f32Kv ? Sharplight.Tensors.DataType.F32 : null,
+        });
         var rng = new Random(3);
         int[][] prompts = [.. new[] { 5, 13, 22, 37 }.Select(n => Enumerable.Range(0, n).Select(_ => rng.Next(10, 1000)).ToArray())];
         var ct = TestContext.Current.CancellationToken;

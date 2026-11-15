@@ -28,10 +28,11 @@ FAMILIES = {
                                                            "sliding_attention", "full_attention"])),
     # Clover (block-diffusion Qwen3.5-MoE): decoded causally (the commit pass); its preview-only tensors are random and unused. Seed 1: the
     # seed-0 weights make a chaotic model (torch's own f16 run of it moves the prompt logits by 35 of 44), too sensitive for the f16 GEMMs.
+    # Weight std 0.08 (not 0.15) keeps batched decoding on Vulkan away from routing flips.
     "clover_moe": ("Diffuspace/Clover-35B-A3B-Preview", dict(hidden_size=64, num_attention_heads=4, num_key_value_heads=2, head_dim=16,
                                                             linear_num_key_heads=2, linear_num_value_heads=4, linear_key_head_dim=16,
                                                             linear_value_head_dim=16, num_experts=8, num_experts_per_tok=2, moe_intermediate_size=32,
-                                                            shared_expert_intermediate_size=48, max_position_embeddings=4096, _seed=1,
+                                                            shared_expert_intermediate_size=48, max_position_embeddings=4096, _seed=1, _weight_std=0.08,
                                                             layer_types=["linear_attention"] * 3 + ["full_attention"] + ["linear_attention"] * 3
                                                             + ["full_attention"])),
     # MiMo-V2.6-Pro (mimo_v2): fused qkv_proj, sliding layers with sinks and twice the key/value heads, value heads smaller than key heads, value

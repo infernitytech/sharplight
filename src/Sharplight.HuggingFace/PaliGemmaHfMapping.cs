@@ -8,9 +8,9 @@ namespace Sharplight.HuggingFace;
 /// <c>gemma</c>) or Gemma 2 (<c>gemma2</c>) decoder mapped by that family's mapping. The language model's tensors sit below <c>language_model.</c>
 /// (<c>language_model.model.*</c>, or <c>model.language_model.*</c> as transformers 5 saves them); the SigLIP tower and the projector are not
 /// imported. The text configs omit <c>head_dim</c> and rely on the Gemma default of 256, which differs from hidden size over head count in
-/// PaliGemma 2. Prompts are decoded causally: the bidirectional prefix (image and prompt tokens marked by the processor's <c>token_type_ids</c>)
-/// is not modelled, so the outputs equal transformers' only for inputs without <c>token_type_ids</c> on its causal (eager) attention path; the
-/// support level is therefore partial.
+/// PaliGemma 2, and the final logits are not soft-capped (transformers' PaliGemma head does not apply Gemma 2's cap). Prompts are decoded
+/// causally: the bidirectional prefix (image and prompt tokens marked by the processor's <c>token_type_ids</c>) is not modelled, so the outputs
+/// equal transformers' only for inputs without <c>token_type_ids</c> on its causal (eager) attention path; the support level is therefore partial.
 /// </summary>
 internal sealed class PaliGemmaHfMapping : IHfArchitectureMapping
 {
@@ -52,6 +52,9 @@ internal sealed class PaliGemmaHfMapping : IHfArchitectureMapping
             md["decoder.attention.sliding_window"] = window;
         }
 
+        // PaliGemma's head (transformers' PaliGemmaForConditionalGeneration) does not apply Gemma 2's final logit soft cap; greedy choices
+        // are the same either way.
+        md.Remove("decoder.final_logit_softcap");
         return md;
     }
 

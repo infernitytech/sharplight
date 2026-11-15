@@ -18,8 +18,8 @@ internal static class HubSweepFamilyCases
     private static readonly int[] Spark25Ids = [127014, 35203, 9121, 63078, 97488, 1941, 28582, 74250, 101384, 30139, 107273, 63558, 117809, 120517, 35895, 88845,
         72935, 47223, 89644, 109280, 52132, 109143, 88939, 91766];
 
-    private static readonly int[] CloverIds = [64650, 194753, 219067, 115076, 10054, 146771, 109643, 240997, 121159, 73931, 78100, 2258, 799, 63872, 83933,
-        147167, 187128, 162564, 55337, 44684, 102120, 47858, 241188, 88406];
+    private static readonly int[] CloverIds = [220936, 185169, 118692, 98572, 181106, 175839, 164194, 181971, 210750, 103853, 102860, 143626, 167167,
+        147275, 52747, 168635, 43474, 197560, 233695, 110073, 195413, 86318, 53563, 147735];
 
     private static readonly int[] PaliGemmaIds = [170034, 15765, 123992, 11679, 165971, 215518, 81916, 257132, 212102, 168353, 205411, 205059, 253655, 205059,
         235245, 11245, 42745, 210778, 106355, 98412, 33390, 152446, 51760, 69309];
@@ -53,9 +53,11 @@ internal static class HubSweepFamilyCases
         // PaliGemma / PaliGemma 2 (tools/mk_tiny_paligemma.py): the Gemma / Gemma 2 text decoder below language_model., head_dim left at the Gemma
         // default (not hidden / heads in PaliGemma 2), decoded causally. The reference is transformers' eager path (HF_ATTN_IMPL=eager): its sdpa
         // path attends bidirectionally over a prompt without token_type_ids. The 10th PaliGemma 2 token is a 0.010 near-tie, so 9 are compared.
+        // The tiny models scale their final norm far above one (logits up to 16), so the KV caches are kept in f32: f16 rounding of the cached
+        // keys and values alone moves the CPU logits by 0.09.
         // llama.cpp has no paligemma text model.
-        new("tiny-random-paligemma HF (paligemma, Gemma text)", "hf/tiny-random-paligemma", Prompt, "ids", PaliGemmaIds, ""),
-        new("tiny-random-paligemma2 HF (paligemma, Gemma 2 text)", "hf/tiny-random-paligemma2", Prompt, "ids", PaliGemma2Ids, ""),
+        new("tiny-random-paligemma HF (paligemma, Gemma text)", "hf/tiny-random-paligemma", Prompt, "ids", PaliGemmaIds, "", F32KvCache: true),
+        new("tiny-random-paligemma2 HF (paligemma, Gemma 2 text)", "hf/tiny-random-paligemma2", Prompt, "ids", PaliGemma2Ids, "", F32KvCache: true),
         // MiMo-V2.6-Pro (mimo_v2, remote code): the MiMo-V2-Flash layers with fused qkv_proj and swa_num_key_value_heads.
         new("tiny-random-mimo-v2 HF (mimo_v2, remote code)", "hf/tiny-random-mimo-v2", Prompt, "ids", MiMoV2Ids, ""),
         new("tiny-random-mimo-v2 f32 GGUF (mimo_v2, llama.cpp)", "gguf/tiny-random-mimo-v2-hf-f32.gguf", Prompt, "ids", MiMoV2Ids, ""),
@@ -67,5 +69,14 @@ internal static class HubSweepFamilyCases
         // Clover (remote code): Qwen3.5-MoE layers decoded causally with plain rope; the block-diffusion preview tensors are left out.
         new("tiny-random-clover-moe HF (clover_moe, remote code)", "hf/tiny-random-clover-moe", Prompt, "ids", CloverIds, ""),
         new("tiny-random-clover-moe f32 GGUF (clover_moe, llama.cpp)", "gguf/tiny-random-clover-moe-hf-f32.gguf", Prompt, "ids", CloverIds, ""),
+
+        // Real checkpoints (bf16, skipped unless downloaded). Greedy ids from transformers in f32;
+        // Mage-VL's model.* names loaded as the model.language_model.* its remote code builds under transformers 5.
+        new("LFM3-1.7B HF (lfm3, transformers)", "hf/LFM3-1.7B", Prompt, "ids", [20, 12187, 20, 309, 26883, 22, 810, 355, 267, 3270, 395, 355, 2037, 374, 851, 2628],
+            ""),
+        new("Mage-VL-Cowork HF (llava_onevision2, transformers)", "hf/Mage-VL-Cowork", Prompt, "ids",
+            [11, 7674, 11, 323, 3840, 13, 576, 6722, 3283, 374, 1083, 279, 1992, 1380, 279, 3946], ""),
+        new("Spark-X2.6-4B HF (spark2_5, transformers)", "hf/Spark-X2.6-4B", Prompt, "ids",
+            [25, 16239, 25, 317, 28548, 27, 614, 11862, 314, 17349, 390, 19500, 27, 198, 63842, 3445], ""),
     ];
 }
