@@ -383,9 +383,28 @@ crash-safe in-place write. Loads pick the best stored stage per kernel on their 
 compile), and validate device code before the driver sees it. After a load, `CompilationArtifacts.CompileDeviceCodeAsync(providers)`
 turns what it compiled into device code (`LlmModel.Artifacts`, `TaskModel.Artifacts`).
 
-Kernels that are not precompiled are kept in the persistent compilation cache (`FileCompilationCache`, per user by default; entries
-are validated by key and SHA-256, written atomically and evicted least recently used past 2 GiB; `SHARPLIGHT_COMPILATION_CACHE=<dir>`
-relocates it, `=off` disables it, and `DeviceOptions.UseCompilationCache = false` turns it off for a device).
+The same artifact sets also live in a second place: the per-user `ArtifactStore` (`sharplight/artifacts` in the local application
+data folder). It uses the descriptors, set ids, keys, tiers and matching of the sets in a package, one subdirectory per set with
+its descriptor in `descriptor.json`. Loads look in the package's sets first, then in the store, and only then compile. New SPIR-V
+is written to the store, and so is the driver's pipeline cache, in the pipeline-cache set of the device and driver. Packages change
+only when a host precompiles or converts on purpose. The store helps whenever a package cannot: GGUF, Hugging Face and ONNX models
+loaded straight from their files, graphs built in code (tests), and kernel development (entries are content addressed, so only
+changed kernels compile again). Device code a host made for such a model can be kept there with `ArtifactStore.Add(deviceCodeSet)`.
+Every entry file holds its key and a SHA-256, and every descriptor must hash to its directory name, so damaged, foreign or stale
+entries are ignored rather than trusted. Writes are atomic, several processes can share the store, and it is size capped
+(least recently used entries are evicted past 2 GiB). `SHARPLIGHT_COMPILATION_CACHE=<dir>` moves the store, `=off` turns it off,
+and per device `DeviceOptions.KernelCacheDirectory` picks the directory and `DeviceOptions.UseCompilationCache = false` turns it
+off.
+
+```csharp
+var options = new DeviceOptions { KernelCacheDirectory = "/data/sharplight-artifacts" };  // or leave it null: the per-user store
+using var device = provider.OpenDevice(info, options);
+ArtifactStore? store = device.ArtifactStore;                // the store this device reads and records into
+foreach (var set in store?.ArtifactSets ?? [])
+{
+    Console.WriteLine(ArtifactDescriptor.Format(set.Descriptor));
+}
+```
 
 ## Conventions
 

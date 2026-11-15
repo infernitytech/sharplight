@@ -262,8 +262,10 @@ and the recent requests. A live strip shows decode throughput, CPU, engine activ
 - Hugging Face token (falls back to `HF_TOKEN`).
 - Precompile after download (for every GPU and execution provider on this machine, as the library's *Precompile* does), and
   whether to keep the source files.
-- Compilation cache: keep compiled kernels in the per-user compilation cache so models that are not precompiled load fast from the
-  second time on (on by default; off reads and writes no cache files).
+- Compilation cache: keep compiled kernels and the driver pipeline cache in the per-user artifact store, so models that are not
+  precompiled (GGUF, Hugging Face, ONNX) load fast from the second time on. It holds the same artifact sets as a precompiled `.slm`
+  and is consulted after the package's own sets. On by default; off reads and writes no store files. See
+  [model-format.md](model-format.md#the-per-user-artifact-store).
 - Load defaults.
 - Residency:
   - memory kept free per device;

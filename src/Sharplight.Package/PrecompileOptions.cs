@@ -56,7 +56,7 @@ public sealed class PrecompileOptions
     public IReadOnlySet<string>? Tiers { get; init; }
 
     /// <summary>
-    /// Compile with the per-user kernel and pipeline cache instead of a fresh temporary one. Faster; the stored sets still hold only
+    /// Compile with the per-user artifact store (<c>ArtifactStore</c>) instead of a fresh temporary one. Faster; the stored sets still hold only
     /// this model's kernels and pipelines.
     /// </summary>
     public bool UseUserKernelCache { get; init; }

@@ -71,7 +71,7 @@ internal sealed class PrecompileCommand
 
     private readonly Option<bool> _userCache = new("--use-kernel-cache")
     {
-        Description = "Compile with the per-user kernel and pipeline cache. Faster; the stored sets still hold only this model's kernels and pipelines.",
+        Description = "Compile with the per-user artifact store (compiled kernels and the driver pipeline cache). Faster; the stored sets still hold only this model's kernels and pipelines.",
     };
 
     public PrecompileCommand()

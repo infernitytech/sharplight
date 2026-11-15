@@ -233,6 +233,34 @@ switches to the new table; an exception truncates the file back to its original 
 (per device: portable and device code summaries with sizes and sharing; skipped providers and devices with the reason; stored and
 unchanged sets). The compilation workload (`ModelCompilation`) compiles the graphs the way the loaders do (see `precompile` below).
 
+## The per-user artifact store
+
+The artifact sets of a package also have a second location: the per-user `ArtifactStore` (Sharplight.Core). It sits in
+`sharplight/artifacts` in the local application data folder, which is `~/.local/share/sharplight/artifacts` on Linux. A set there
+is the same set a package holds: the same descriptor, id (`ArtifactDescriptor.Id`), keys, tier and matching. Each set gets its own
+directory named by its id, with the descriptor in `descriptor.json` and one file per entry. An entry file holds the key, the data
+and a SHA-256 of the data. Entry files are not ARTS sections, because each one has to be replaced atomically on its own.
+Precedence when a device compiles a kernel:
+
+1. matching sets stored with the model (the package's `code` and `binary` tiers),
+2. the store: the code-tier set of the device's exact descriptor; device code (`pipeline-binary` and `pipeline-cache` sets of the
+   device model and driver) is read by the device itself,
+3. compilation; the new portable code is recorded for the model (`ExportCompilation`) and written to the store, and the driver
+   pipeline cache is saved to the store's `pipeline-cache` set after each compile.
+
+The package stays the primary location. It is only written when a host precompiles, converts or saves on purpose, and device code
+from the store is never exported into a package. The store helps everything a package cannot: GGUF, Hugging Face and ONNX models
+loaded from their own files, graphs built in code (tests), and kernel development, where content-addressed keys mean only changed
+kernels compile again. A descriptor that does not hash to its directory name, or does not parse, makes its set invisible. An
+entry that fails its checksum or names another key is a miss and is deleted. Device code must still pass the same per-entry
+validation as device code from a package. A driver update gives new descriptors, so stale device code is never consulted and is
+eventually evicted. All writes go to a temporary file that atomically replaces the target, so several processes can share the
+store. It is size capped at 2 GiB over all sets: past the cap the least recently used entries are deleted, and descriptors are
+kept. `SHARPLIGHT_COMPILATION_CACHE=<dir>` moves the store and `=off` turns it off. `DeviceOptions.KernelCacheDirectory` picks the
+directory per device, and `DeviceOptions.UseCompilationCache = false` turns the store off for a device (`sharplight-convert precompile` and
+`PackagePrecompiler` compile into a fresh temporary store unless `--use-kernel-cache` / `PrecompileOptions.UseUserKernelCache`
+says otherwise; either way the stored sets hold exactly the model's kernels).
+
 ## Public inspection API (Sharplight.Package)
 
 `ModelPackageReader.Open(path)` → `PackageInfo` (a snapshot; the file is closed again; no weight or artifact entry bytes are read):
@@ -265,13 +293,13 @@ kind, shown raw); `ArtifactEntryInfo.Offset` is an entry's absolute file offset;
     (classify) with their default batch limits; the graphs of every component of a described model with the component's bounds; other graphs (ONNX) as a `CompiledModel` with the CPU as fallback and the given
     bounds (the ONNX batch symbol defaults to 1). Not compiled: `decode_embeddings` (no loader compiles it; multimodal prompts use
     `decode_multimodal`) and the speculative-decoding variant of the batch decoder (its logits-row bound depends on the
-    speculator). By default with a fresh temporary kernel cache. `--all-devices` precompiles for every device of every available
+    speculator). By default into a fresh temporary artifact store instead of the per-user one. `--all-devices` precompiles for every device of every available
     provider (as Sharplight Studio does). Sets the package already holds completely are not stored again.
   - `strip <slm> [--provider] [--tier] [--compact]`, `compact <slm>`.
   - Planned: `optimize <slm>`.
 - Device code stored by `precompile` and by `sharplight --save` holds only the model's pipelines: the device stage creates the
   pipelines of exactly the portable set's kernels, as kernel binaries or into a fresh driver cache, independent of the per-user
-  cache.
+  artifact store.
 - The package inspector in Sharplight Studio (*Library* › *Inspect*, or *Open .slm file…*; see [studio.md](studio.md)):
   overview (model, file, source, tokenizer, chat template, states), graphs (a pan/zoom dataflow drawing, the IR view in the
   `--dump-graph` format and a node table, all linked; node attributes, inputs with producers, consumers), weights

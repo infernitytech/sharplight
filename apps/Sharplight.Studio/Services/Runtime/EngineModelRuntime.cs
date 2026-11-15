@@ -32,6 +32,7 @@ internal sealed class EngineModelRuntime : IModelRuntime
     /// <summary>Registers the providers and importers, enumerates the devices and creates the host.</summary>
     /// <param name="residency">The current residency settings (read when a model is added).</param>
     /// <param name="resolve">Turns a name requested by a chat or API client into a library model to load on demand, or null.</param>
+    /// <param name="useCompilationCache">Whether devices use the per-user artifact store (read when a device is opened); default yes.</param>
     public EngineModelRuntime(Func<ResidencySettings> residency, Func<string, ModelLoadRequest?>? resolve = null, Func<bool>? useCompilationCache = null)
     {
         _useCompilationCache = useCompilationCache ?? (() => true);
