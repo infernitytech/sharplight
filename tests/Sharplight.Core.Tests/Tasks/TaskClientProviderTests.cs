@@ -62,9 +62,10 @@ public class TaskClientProviderTests
     {
         using var services = new ServiceCollection().AddSharplightTasks().AddSharplightTasks().BuildServiceProvider();
         var provider = services.GetRequiredService<TaskClientProvider>();
-        // Registering twice adds each built-in factory once: text generation and speech recognition.
+        // Registering twice adds each built-in factory once: text generation, speech recognition, the image encoders (classifier, embedder, embedder over
+        // classifiers), object detection and depth estimation.
         var factories = services.GetServices<ITaskClientFactory>().ToList();
-        Assert.Equal(2, factories.Count);
+        Assert.Equal(7, factories.Count);
         Assert.Single(factories, f => f.Kind == ModelKinds.TextGeneration);
         Assert.Single(factories, f => f.Kind == ModelKinds.SpeechRecognition);
         using var decoder = Model(null, "llama", WellKnown.DecodeGraph);
