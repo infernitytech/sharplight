@@ -1,12 +1,12 @@
 name: Studio
 
 # Builds Sharplight Studio for Linux as an AppImage (one file, no install, no .NET needed) plus a .tar.gz of the same
-# self-contained app folder. Pushes to main upload them as a build artifact; a release tag v* (created with `nbgv tag`)
+# self-contained app folder. Pushes to main and develop upload them as a build artifact; a release tag v* (created with `nbgv tag`)
 # also attaches them to the GitHub release of that tag.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ['v*']
     paths-ignore: ['docs/**', 'bench/**', '**.md']
   workflow_dispatch:

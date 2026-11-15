@@ -1,12 +1,12 @@
 name: Packages
 
 # Builds the solution and packs the libraries under src/ as NuGet packages (versions from version.json via
-# Nerdbank.GitVersioning). Pushes to main and pull requests upload the packages as a build artifact; a tag v<major>.<minor>.<patch>
+# Nerdbank.GitVersioning). Pushes to main and develop and pull requests upload the packages as a build artifact; a tag v<major>.<minor>.<patch>
 # (create it with `nbgv tag`) or a manual run also publishes them to nuget.org.
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
