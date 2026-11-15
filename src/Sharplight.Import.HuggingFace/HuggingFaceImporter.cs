@@ -147,6 +147,7 @@ public sealed class HuggingFaceImporter(HfImportOptions? options = null) : IMode
                 Architecture = mapping.Architecture,
                 Metadata = md,
                 Weights = weights,
+                Attachments = mapping.MapAttachments(config, dir),
                 OwnedResources = owned,
                 Path = path,
             };

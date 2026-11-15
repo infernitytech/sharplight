@@ -1,16 +1,17 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Sharplight.Models;
-using Sharplight.Tensors;
 
-namespace Sharplight.HuggingFace;
+namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
 /// Hugging Face Whisper checkpoints (<c>whisper</c>: openai/whisper-*, distil-whisper, whisper-large-v3-turbo) → canonical
-/// <c>encoder_decoder</c> with an audio encoder (documented on <c>EncoderDecoderAdapter</c>): the log-mel front end from
-/// <c>preprocessor_config.json</c> (filter bank computed as transformers' feature extractor does), the two-convolution stem, pre-norm
-/// LayerNorm layers with GELU MLPs, learned decoder positions, the LM head tied to the token embedding, cached cross-attention over the
-/// 1500 encoder rows, and the speech-protocol tokens (<see cref="SpeechKeys"/>) from <c>generation_config.json</c> and the vocabulary.
+/// <c>encoder_decoder</c> with an audio encoder (documented on <c>EncoderDecoderAdapter</c> and <c>SpeechRecognitionDescription</c>): the
+/// log-mel front end from <c>preprocessor_config.json</c> (the filter bank computed as transformers' feature extractor does, as the
+/// <c>feature-extractor/mel-filters</c> attachment), the two-convolution stem, pre-norm LayerNorm layers with GELU MLPs, learned decoder
+/// positions, the LM head tied to the token embedding, cached cross-attention over the encoder rows, and the speech-protocol tokens
+/// (<see cref="SpeechKeys"/>) from <c>generation_config.json</c> and the vocabulary.
 /// </summary>
 internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
 {
@@ -21,27 +22,26 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
     public IReadOnlyList<string> ModelTypes { get; } = ["whisper"];
 
     /// <inheritdoc/>
+    public IEnumerable<string> Validate(HfConfig config)
+    {
+        if (config.GetInt("decoder_attention_heads") is { } decoderHeads && decoderHeads != config.GetInt("encoder_attention_heads"))
+        {
+            yield return "whisper: different encoder and decoder head counts are not supported.";
+        }
+
+        if ((config.GetString("activation_function") ?? "gelu") != "gelu")
+        {
+            yield return $"whisper: activation '{config.GetString("activation_function")}' is not supported.";
+        }
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyDictionary<string, object> MapHyperParameters(HfConfig c, HfImportOptions options)
     {
         string a = Architecture + ".";
         int hidden = c.Int("d_model");
         int heads = c.Int("encoder_attention_heads");
-        if (c.GetInt("decoder_attention_heads") is { } decoderHeads && decoderHeads != heads)
-        {
-            throw new NotSupportedException("whisper: different encoder and decoder head counts are not supported.");
-        }
-
-        string act = c.GetString("activation_function") ?? "gelu";
-        if (act != "gelu")
-        {
-            throw new NotSupportedException($"whisper: activation '{act}' is not supported.");
-        }
-
-        using var preprocessor = ReadJson(c.Directory, "preprocessor_config.json");
-        var pre = preprocessor?.RootElement;
-        int hop = Int(pre, "hop_length", 160);
-        int sampleRate = Int(pre, "sampling_rate", 16000);
-        int chunkSeconds = Int(pre, "chunk_length", 30);
+        var audio = AudioSettings.Read(c);
         return new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [a + "hidden_size"] = hidden,
@@ -60,10 +60,11 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
             [a + "encoder.conv.strides"] = new long[] { 1, 2 },
             [a + "encoder.rows"] = c.GetInt("max_source_positions") ?? 1500,
             [a + "cross_attention.cached"] = true,
-            [a + "audio.sample_rate"] = sampleRate,
-            [a + "audio.fft_size"] = Int(pre, "n_fft", 400),
-            [a + "audio.hop_length"] = hop,
-            [a + "audio.frames"] = Int(pre, "nb_max_frames", chunkSeconds * sampleRate / hop),
+            [a + "audio.sample_rate"] = audio.SampleRate,
+            [a + "audio.fft_size"] = audio.FftSize,
+            [a + "audio.hop_length"] = audio.HopLength,
+            [a + "audio.mel_bins"] = c.Int("num_mel_bins"),
+            [a + "audio.chunk_samples"] = audio.ChunkSamples,
         };
     }
 
@@ -110,19 +111,19 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
             collector.Add(info.Shape.Rank == 1 ? HfTransforms.Plain(info, canonical) : info.As(canonical));
         }
 
-        int mels = c.Int("num_mel_bins");
-        using var preprocessor = ReadJson(c.Directory, "preprocessor_config.json");
-        int fft = Int(preprocessor?.RootElement, "n_fft", 400);
-        int sampleRate = Int(preprocessor?.RootElement, "sampling_rate", 16000);
-        int bins = (fft / 2) + 1;
-        collector.Add(WeightInfo.Derived("audio.mel_filters.weight", DataType.F32, new Shape(mels, bins), () =>
-        {
-            var filters = HfMelFilterBank.Create(mels, fft, sampleRate);
-            var bytes = new byte[filters.Length * sizeof(float)];
-            Buffer.BlockCopy(filters, 0, bytes, 0, bytes.Length);
-            return bytes;
-        }));
         return collector.Weights;
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyDictionary<string, IWeightSource> MapAttachments(HfConfig config, string directory)
+    {
+        int mels = config.Int("num_mel_bins");
+        var audio = AudioSettings.Read(config);
+        return new Dictionary<string, IWeightSource>(StringComparer.Ordinal)
+        {
+            ["feature-extractor/mel-filters"] = new MemoryWeightSource(
+                () => MemoryMarshal.AsBytes(HfMelFilterBank.Create(mels, audio.FftSize, audio.SampleRate).AsSpan()).ToArray()),
+        };
     }
 
     /// <inheritdoc/>
@@ -147,6 +148,11 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
         metadata[SpeechKeys.TimestampBeginId] = noTimestamps + 1;
         metadata[SpeechKeys.TimestampStep] = 0.02f;
         metadata[SpeechKeys.MaxTextTokens] = (config.GetInt("max_target_positions") ?? 448) / 2;
+        if (GenInt("max_initial_timestamp_index") is { } maxInitial)
+        {
+            metadata[SpeechKeys.MaxInitialTimestampIndex] = maxInitial;
+        }
+
         if ((GenInt("prev_sot_token_id") ?? Token("<|startofprev|>")) is { } previous)
         {
             metadata[SpeechKeys.PreviousId] = previous;
@@ -157,7 +163,8 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
             metadata[SpeechKeys.NoSpeechId] = noSpeech;
         }
 
-        if (gen is { } root && root.TryGetProperty("lang_to_id", out var languages) && languages.ValueKind == JsonValueKind.Object)
+        if (gen is { } root && root.TryGetProperty("lang_to_id", out var languages) && languages.ValueKind == JsonValueKind.Object
+            && GenBool(root, "is_multilingual") != false)
         {
             var ordered = languages.EnumerateObject().Select(p => (Code: p.Name.Trim('<', '>', '|'), Id: p.Value.GetInt32())).OrderBy(p => p.Id).ToArray();
             metadata[SpeechKeys.Languages] = ordered.Select(p => p.Code).ToArray();
@@ -173,6 +180,9 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
         metadata[SpeechKeys.BeginSuppressIds] = IntArray(gen, config, "begin_suppress_tokens");
     }
 
+    private static bool? GenBool(JsonElement root, string key)
+        => root.TryGetProperty(key, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+
     private static string ConvName(string name) => $"encoder.conv.{(name.Contains("conv1", StringComparison.Ordinal) ? 0 : 1)}.{name[(name.LastIndexOf('.') + 1)..]}";
 
     private static int[] IntArray(JsonElement? generation, HfConfig config, string key)
@@ -181,12 +191,22 @@ internal sealed partial class WhisperHfMapping : IHfArchitectureMapping
         return element is { ValueKind: JsonValueKind.Array } array ? [.. array.EnumerateArray().Select(e => e.GetInt32())] : [];
     }
 
-    private static int Int(JsonElement? root, string key, int fallback)
-        => root is { } r && r.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : fallback;
-
     private static JsonDocument? ReadJson(string directory, string file)
     {
         string path = Path.Combine(directory, file);
         return File.Exists(path) ? JsonDocument.Parse(File.ReadAllBytes(path)) : null;
+    }
+
+    /// <summary>The front-end settings of <c>preprocessor_config.json</c> (transformers' defaults when absent).</summary>
+    private readonly record struct AudioSettings(int SampleRate, int FftSize, int HopLength, int ChunkSamples)
+    {
+        public static AudioSettings Read(HfConfig config)
+        {
+            using var preprocessor = ReadJson(config.Directory, "preprocessor_config.json");
+            var root = preprocessor?.RootElement;
+            int Int(string key, int fallback) => root is { } r && r.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : fallback;
+            int sampleRate = Int("sampling_rate", 16000);
+            return new AudioSettings(sampleRate, Int("n_fft", 400), Int("hop_length", 160), Int("n_samples", Int("chunk_length", 30) * sampleRate));
+        }
     }
 }

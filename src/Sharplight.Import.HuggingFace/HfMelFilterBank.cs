@@ -1,4 +1,4 @@
-namespace Sharplight.HuggingFace;
+namespace Sharplight.Import.HuggingFace;
 
 /// <summary>
 /// Triangular mel filter bank on the Slaney mel scale with Slaney (area) normalization, as librosa's <c>filters.mel</c> and transformers'

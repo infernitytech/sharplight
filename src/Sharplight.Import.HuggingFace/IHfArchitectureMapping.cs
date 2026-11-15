@@ -46,6 +46,15 @@ internal interface IHfArchitectureMapping
     /// model, not models of their own. Default: false.
     /// </summary>
     public bool IsDraftModel => false;
+
+    /// <summary>
+    /// Canonical attachments of the checkpoint (<see cref="ModelSource.Attachments"/>: a feature extractor's filter bank, ...), by canonical
+    /// attachment name. Default: none.
+    /// </summary>
+    /// <param name="config">The checkpoint's <c>config.json</c>.</param>
+    /// <param name="directory">The checkpoint directory.</param>
+    public IReadOnlyDictionary<string, IWeightSource> MapAttachments(HfConfig config, string directory) => new Dictionary<string, IWeightSource>();
+
     /// <summary>
     /// Adds canonical metadata that needs more than <c>config.json</c> (companion files of the checkpoint, the translated tokenizer in
     /// <paramref name="metadata"/>). Called after the hyper-parameters and the tokenizer keys are in place. Default: nothing.
