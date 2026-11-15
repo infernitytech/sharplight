@@ -11,7 +11,7 @@ internal sealed class FakeNavigator : INavigator
     public void OpenChat(ILoadedModel? model) => Visited.Add("chat");
 
     /// <summary>The kinds that have a page.</summary>
-    public HashSet<string> Pages { get; } = [Sharplight.Models.ModelKinds.SpeechRecognition, Sharplight.Models.ModelKinds.SpeechSynthesis];
+    public HashSet<string> Pages { get; } = [Sharplight.Models.ModelKinds.SpeechRecognition, Sharplight.Models.ModelKinds.SpeechSynthesis, Sharplight.Models.ModelKinds.ImageGeneration];
 
     public bool OpenKind(string kind, ILoadedModel? model)
     {

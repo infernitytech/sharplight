@@ -38,7 +38,8 @@ different models run at the same time. Images and documents can be attached by d
 **Tasks.** One card per model kind (text generation, speech to text, text to speech, image generation, video generation, image
 classification, object detection, segmentation, depth estimation, OCR, upscaling, audio, embeddings, time series, 3D, bio,
 robotics) with the number of library and resident models of that kind. The engine runs text generation (the chat page), speech to
-text (Transcribe), text to speech (Speak) and embeddings today. The cards of the first three open their page; the other kinds say
+text (Transcribe), text to speech (Speak), image generation (Image), the image models (classification, embedding, object detection,
+depth estimation: Vision) and embeddings today. The cards of the runnable kinds open their page; the other kinds say
 *Not yet supported* and their buttons lead to the library filtered to that kind and to Discover filtered to that model type. When
 the engine gains a kind, its card opens a page of its own, built from the shared pieces described under *Inference pages* below.
 
@@ -321,6 +322,49 @@ one, so the sound differs slightly from a whole-text pass). OuteTTS is a languag
 an OuteTTS GGUF, the load panel asks for the vocoder file (a `.slm` package made with the vocoder needs none).
 
 ![Speak](images/studio/studio-speak.png)
+
+**Image** (image generation, `IImageGenerator`). Type a prompt and optionally a negative prompt; the parameters are the size, steps,
+guidance, sampler (`Samplers`: Euler, Euler Karras, Euler ancestral, DDIM, PNDM, DPM++ 2M, DPM++ 2M Karras), the seed (empty is random,
+a number repeats the picture), the number of images (the seeds follow each other) and *Live preview*; presets *Fast* and *Quality*.
+The streaming call reports every denoising step to the run queue and, every few steps, a low-resolution preview that the page shows
+while the picture takes shape. An *Input image* (choose or drop) makes the run image to image, with a *Strength* slider that appears
+with it; adding a *Mask* (bright areas are regenerated, the rest is kept) makes it inpainting, which the engine supports. The
+results are PNG files that carry the prompt and parameters as text chunks (`parameters` in the style of other generators, plus
+`Prompt`, `Negative prompt`, `Seed`, `Steps`, `Guidance`, `Sampler`, `Size`, `Model`), kept in the outputs gallery with thumbnails
+next to `parameters.json`. *Save PNG*, *Use as input*, *Reuse seed* and *Reuse prompt* act on the shown image; the gallery's *Reuse
+parameters* (every page has it) sets the parameters, the prompt and the result of a past run, with the seed that run actually used.
+Stable Diffusion 1.x, 2.x and XL work (diffusers folders, single-file `.safetensors` / `.ckpt`, stable-diffusion.cpp GGUF).
+
+![Image](images/studio/studio-image.png)
+
+**Vision** (one page for `image-classification`, `image-embedding`, `object-detection` and `depth-estimation`; the mode follows the
+kind of the chosen model, and the parameters that do not apply are hidden). Choose or drop an image (PNG through the engine's codec,
+JPEG, WebP, BMP and GIF through the platform's decoders).
+
+- *Classification* lists the top-k classes with score bars.
+- *Embedding* models with a text tower (CLIP, SigLIP) score *candidate labels* zero-shot (comma or line separated, put into a
+  *label template* such as `a photo of {}`); without labels, or for a model without a text tower, the page shows the image's vector
+  (length and first values, normalized or not).
+- *Detection* draws the boxes with labels and scores. The model is asked with a score floor of 0.05, so the *Score threshold* slider
+  shows more or fewer objects afterwards without a new run; *Export PNG* and *Export JSON* follow the threshold.
+- *Depth* shows the depth map beside the image, in grayscale or with the turbo, viridis or inferno color map (changed without a new
+  run, optionally inverted).
+
+Every run keeps `result.json` (plus `annotated.png` or `depth.png`) in the outputs; the history restores the result and the
+parameters, also when the original image is gone (the stored PNGs are shown then). Annotated images are drawn by Studio itself
+with a small built-in font (upper-case letters, digits and basic punctuation).
+
+![Vision detection](images/studio/studio-vision-detection.png) ![Vision depth](images/studio/studio-vision-depth.png)
+![Vision zero-shot](images/studio/studio-vision-zero-shot.png)
+
+The library recognizes the image models without a package: a diffusers folder (`model_index.json`), a single-file checkpoint (its
+safetensors header or GGUF tensor table names the UNet; a `.ckpt` only by its name), and Hugging Face vision checkpoints by the
+architecture of their `config.json` (`...ForImageClassification`, `...ForObjectDetection`, `...ForDepthEstimation`, CLIP, SigLIP and
+DINOv2 as embedding models). These kinds load through the same load panel, simplified to the device (no context, batching or KV
+cache), and the *Tasks* cards and the library's *Load* open the right page.
+
+Not supported yet: segmentation, OCR, upscaling and video models (the cards say so), a painting tool for masks (a mask is a file),
+and diffusers pipelines with a transformer instead of a UNet (Flux, SD3: the loader reports it).
 
 The side panel's *History* and *Outputs* tabs:
 

@@ -62,10 +62,13 @@ internal sealed partial class KindCardViewModel : ObservableObject
         Sharplight.Models.ModelKinds.TextGeneration => "Open chat",
         Sharplight.Models.ModelKinds.SpeechRecognition => "Open transcribe",
         Sharplight.Models.ModelKinds.SpeechSynthesis => "Open speak",
+        Sharplight.Models.ModelKinds.ImageGeneration => "Open image",
+        Sharplight.Models.ModelKinds.ImageClassification or Sharplight.Models.ModelKinds.ImageEmbedding or Sharplight.Models.ModelKinds.ObjectDetection
+            or Sharplight.Models.ModelKinds.DepthEstimation => "Open vision",
         _ => "Open library",
     };
 
-    /// <summary>Opens the page of the kind (the chat, transcribe or speak page), or the filtered library for a kind without a page.</summary>
+    /// <summary>Opens the page of the kind (chat, transcribe, speak, image or vision), or the filtered library for a kind without a page.</summary>
     [CommunityToolkit.Mvvm.Input.RelayCommand]
     private void Open()
     {

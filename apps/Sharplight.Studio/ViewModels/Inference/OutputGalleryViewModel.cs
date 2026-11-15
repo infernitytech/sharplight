@@ -13,13 +13,16 @@ internal sealed partial class OutputGalleryViewModel : ObservableObject
 {
     private readonly PageArchive _archive;
     private readonly IPlatformServices _platform;
+    private readonly Action<RunRecord>? _reuse;
 
     /// <param name="archive">The page's runs.</param>
     /// <param name="platform">Opens and exports files.</param>
-    public OutputGalleryViewModel(PageArchive archive, IPlatformServices platform)
+    /// <param name="reuse">Takes over a run's parameters and result (the "Reuse parameters" button); null for no button.</param>
+    public OutputGalleryViewModel(PageArchive archive, IPlatformServices platform, Action<RunRecord>? reuse = null)
     {
         _archive = archive;
         _platform = platform;
+        _reuse = reuse;
         archive.Changed += (_, _) => Refresh();
         Refresh();
     }
@@ -36,7 +39,7 @@ internal sealed partial class OutputGalleryViewModel : ObservableObject
         Items.Clear();
         foreach (var record in _archive.Runs.Where(record => record.Outcome == RunOutcome.Completed && record.Files.Count > 0))
         {
-            Items.Add(new OutputItemViewModel(record, _archive, _platform, Delete));
+            Items.Add(new OutputItemViewModel(record, _archive, _platform, Delete, _reuse));
         }
 
         OnPropertyChanged(nameof(IsEmpty));

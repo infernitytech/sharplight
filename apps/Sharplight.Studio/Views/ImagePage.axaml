@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:im="using:Sharplight.Studio.ViewModels.Image"
+             xmlns:iv="using:Sharplight.Studio.Views.Inference"
+             xmlns:conv="using:Sharplight.Studio.Converters"
+             x:Class="Sharplight.Studio.Views.ImagePage"
+             x:DataType="im:ImagePageViewModel">
+  <iv:InferenceFrame>
+    <iv:InferenceFrame.Workspace>
+      <Grid RowDefinitions="Auto,*" RowSpacing="14">
+        <!-- Input -->
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="h2" Text="Prompt" />
+            <TextBox Text="{Binding Prompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="64" MaxHeight="120" VerticalContentAlignment="Top"
+                     PlaceholderText="Describe the picture, for example: a lighthouse at dusk, oil painting" />
+            <TextBox Text="{Binding NegativePrompt}" TextWrapping="Wrap" PlaceholderText="Negative prompt: what the picture should not show (optional)" />
+            <Grid ColumnDefinitions="*,12,*">
+              <iv:ImageInputView DataContext="{Binding Source}" />
+              <Panel Grid.Column="2" IsVisible="{Binding UsesInputImage}">
+                <iv:ImageInputView DataContext="{Binding Mask}" />
+              </Panel>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Classes="accent" Content="Generate" Command="{Binding RunCommand}" />
+              <Button Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsGenerating}" />
+              <TextBlock Classes="caption" Text="{Binding RunHint}" VerticalAlignment="Center" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <!-- Result -->
+        <Border Grid.Row="1" Classes="card">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasResult}">
+                <Button Classes="small" Content="Save PNG" Command="{Binding SaveImageCommand}" ToolTip.Tip="Save the image; its prompt and parameters are in the file" />
+                <Button Classes="small" Content="Use as input" Command="{Binding UseAsInputCommand}" ToolTip.Tip="Start the next run from this image" />
+                <Button Classes="small" Content="Reuse seed" Command="{Binding ReuseSeedCommand}" ToolTip.Tip="Run again from the same noise" />
+                <Button Classes="small" Content="Reuse prompt" Command="{Binding ReusePromptCommand}" />
+              </StackPanel>
+              <TextBlock Classes="h2" Text="Result" VerticalAlignment="Center" />
+            </DockPanel>
+            <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" IsVisible="{Binding HasSeveral}">
+                <ListBox ItemsSource="{Binding Images}" SelectedItem="{Binding SelectedImage}">
+                  <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" Spacing="6" />
+                    </ItemsPanelTemplate>
+                  </ListBox.ItemsPanel>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="im:GeneratedImageViewModel">
+                      <Border Width="72" Height="72" CornerRadius="4" ClipToBounds="True" ToolTip.Tip="{Binding Caption}">
+                        <Image Source="{Binding Png, Converter={x:Static conv:BytesToBitmapConverter.Instance}, ConverterParameter=144}" Stretch="UniformToFill" />
+                      </Border>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </ScrollViewer>
+              <TextBlock Classes="caption" Text="{Binding StepText}" IsVisible="{Binding IsGenerating}" />
+              <TextBlock Classes="caption" Text="{Binding ResultSummary}" TextWrapping="Wrap" IsVisible="{Binding HasResult}" />
+            </StackPanel>
+            <Panel>
+              <StackPanel IsVisible="{Binding ShowPlaceholder}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Path Classes="icon huge" Data="{StaticResource IconImage}" HorizontalAlignment="Center" />
+                <TextBlock Classes="muted" Text="The picture appears here, taking shape step by step." HorizontalAlignment="Center" />
+              </StackPanel>
+              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding ShowPreview}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image Source="{Binding PreviewPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" MinHeight="200" MinWidth="200" />
+              </Border>
+              <Border CornerRadius="8" ClipToBounds="True" IsVisible="{Binding !ShowPreview}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image Source="{Binding SelectedPng, Converter={x:Static conv:BytesToBitmapConverter.Instance}}" Stretch="Uniform" />
+              </Border>
+            </Panel>
+          </DockPanel>
+        </Border>
+      </Grid>
+    </iv:InferenceFrame.Workspace>
+  </iv:InferenceFrame>
+</UserControl>
