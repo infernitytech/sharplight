@@ -83,8 +83,9 @@ public enum InputRole
     /// </summary>
     SequenceRunEndRows,
     /// <summary>
-    /// Mono audio samples [N] f32 in [-1, 1] at the model's sample rate (<see cref="WellKnown.AudioSampleRate"/>): the input of a speech
-    /// encoder's <see cref="WellKnown.EncodeGraph"/>, one fixed-length window per pass (see <see cref="WellKnown.AudioWindowSamples"/>).
+    /// Frame-level audio features [C, F] f32 (channels by frames, e.g. the log-mel spectrogram [mel bins, frames] of one window), computed on
+    /// the host by the model's feature extractor (the <see cref="ModelComponentRoles.FeatureExtractor"/> component): the input of a speech
+    /// encoder's <see cref="WellKnown.EncodeGraph"/>.
     /// </summary>
-    AudioSamples,
+    AudioFeatures,
 }

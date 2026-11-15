@@ -37,6 +37,8 @@ public static class SpeechKeys
     public const string SuppressIds = "speech.suppress_token_ids";
     /// <summary>Tokens not generated as the first text token (int[]; Whisper: the space and the end token).</summary>
     public const string BeginSuppressIds = "speech.begin_suppress_token_ids";
+    /// <summary>Latest timestamp step the first token of a window may have (int; Whisper: 50, i.e. 1 s); absent: no limit.</summary>
+    public const string MaxInitialTimestampIndex = "speech.max_initial_timestamp_index";
     /// <summary>Longest text a window may hold, in tokens (int; Whisper: half the decoder context, 224).</summary>
     public const string MaxTextTokens = "speech.max_text_tokens";
 }

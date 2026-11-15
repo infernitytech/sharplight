@@ -17,6 +17,12 @@ public sealed record SpeechRecognitionOptions
     /// <summary>Text that conditions the decoder (vocabulary, spelling, style), or <see langword="null"/>.</summary>
     public string? Prompt { get; init; }
 
+    /// <summary>
+    /// Long recordings: prompt each window with the text of the previous ones (more consistent spelling and style, but a misrecognized window
+    /// can derail the next ones). Off by default, as in Hugging Face transformers; the original Whisper and whisper.cpp turn it on.
+    /// </summary>
+    public bool ConditionOnPreviousText { get; init; }
+
     /// <summary>Token selection of the text decoder; greedy by default, as recognizers are evaluated.</summary>
     public SamplingOptions Sampling { get; init; } = SamplingOptions.Greedy;
 
