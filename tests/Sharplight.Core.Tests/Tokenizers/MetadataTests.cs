@@ -26,8 +26,8 @@ public class MetadataTests
         Assert.Equal("gpt2", d.Model);
         Assert.Equal("qwen35", d.PreTokenizer);
         Assert.Equal(["a", "b", "<x>"], d.Tokens);
-        Assert.Equal([1, 1, 3], d.TokenTypes);
-        Assert.Equal(["a b"], d.Merges);
+        Assert.Equal([1, 1, 3], d.TokenTypes!);
+        Assert.Equal(["a b"], d.Merges!);
         Assert.Equal(2, d.BosId);
         Assert.Equal(1, d.EosId);
         Assert.Equal([1, 2], d.EosIds);
